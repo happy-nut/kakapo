@@ -10,6 +10,9 @@ import {
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { createServer } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 
 type AgentName = "manual" | "codex" | "claude";
@@ -81,6 +84,14 @@ type DiffReviewResult = {
   url: string;
   files: number;
   hunks: number;
+};
+
+type DiffReviewBuild = {
+  html: string;
+  files: number;
+  hunks: number;
+  signature: string;
+  generatedAt: string;
 };
 
 type SourceFile = {
@@ -444,6 +455,21 @@ function renderDiffReview(args: string[]): void {
   const includeUntracked = args.includes("--include-untracked");
   const openInBrowser = args.includes("--open");
   const openInCmux = args.includes("--cmux");
+  const watch = args.includes("--watch");
+
+  if (watch) {
+    serveDiffWatch({
+      base,
+      staged,
+      includeUntracked,
+      context,
+      openInBrowser,
+      openInCmux,
+      port: readOption(args, "--port"),
+    });
+    return;
+  }
+
   const output = readOption(args, "--output") ??
     join(process.cwd(), FLOW_DIR, "diffs", `${timestampForFile()}-review.html`);
   const result = createDiffReview({
@@ -831,7 +857,7 @@ function plannerBootPrompt(input: {
     input.autoDispatch
       ? `- When the first Worker slice is clear and no user decision is needed, immediately run \`ai-flow dispatch worker --agent ${input.agent} --task <task-id>\`; do not ask for confirmation just to create the Worker pane.`
       : "- Auto-dispatch is disabled. Prepare the first Worker slice, then wait for the user.",
-    "- Worker finish creates and opens the visual diff review automatically when cmux is available. Inspect changed hunks with F7 / Shift+F7.",
+    "- For active review while edits may still change, open `ai-flow diff --watch --cmux`; inspect changed hunks with F7 / Shift+F7.",
     "- Keep your visible response short: current action, Worker status if dispatched, and any question that genuinely blocks progress.",
     "",
     "## User Objective",
@@ -892,7 +918,7 @@ function plannerRoleDoc(): string {
     "- Keep tasks small, verifiable, and suitable for one Worker session.",
     "- Define acceptance criteria and validation commands.",
     "- If cmux is available, dispatch Workers and Reviewers with `ai-flow dispatch worker|reviewer --agent codex|claude`; do not make the user create panes manually.",
-    "- After a Worker finishes, inspect the automatically opened diff review. Use F7/Shift+F7 to move by changed hunk, not just by file.",
+    "- For live review while edits may still change, open `ai-flow diff --watch --cmux`. Use F7/Shift+F7 to move by changed hunk, not just by file.",
     "- Do not edit product code unless the user explicitly changes this session into a Worker session.",
     "",
     "## Finish",
@@ -955,7 +981,7 @@ function reviewerRoleDoc(): string {
     "## Work",
     "- Stay read-focused unless the user explicitly asks for fixes.",
     "- Review the current diff against `.ai-flow/tasks.md`, `.ai-flow/state.md`, and `.ai-flow/decisions.md`.",
-    "- Prefer `ai-flow diff --cmux` for visual review. Use F7 for the next changed hunk and Shift+F7 for the previous changed hunk.",
+    "- Prefer `ai-flow diff --watch --cmux` for live visual review. Use F7 for the next changed hunk and Shift+F7 for the previous changed hunk.",
     "- Findings first, ordered by severity.",
     "- Identify missing tests, scope creep, and risky assumptions.",
     "",
@@ -983,7 +1009,7 @@ function agentSnippet(): string {
     "- Reviewer: read `.ai-flow/roles/reviewer.md`, then run `ai-flow start reviewer`.",
     "",
     "The normal user experience is: the user talks only to Planner. Planner uses `.ai-flow/cmux.md` and `ai-flow dispatch worker|reviewer --agent codex|claude` to create separate cmux sessions when available.",
-    "Worker finish opens the visual diff review automatically when cmux is available; use F7 for next changed hunk and Shift+F7 for previous changed hunk.",
+    "For live review, use `ai-flow diff --watch --cmux`; use F7 for next changed hunk and Shift+F7 for previous changed hunk.",
     "",
     "At the end of the session, write a concise report and record it with `ai-flow finish <role> --file <report-file>`. Workers should pass `--complete` only after verification succeeds.",
     "",
@@ -1010,7 +1036,7 @@ function cmuxGuide(): string {
     "```bash",
     "ai-flow dispatch worker --agent codex --task <task-id>",
     "ai-flow dispatch reviewer --agent codex --task <task-id>",
-    "ai-flow diff --cmux",
+    "ai-flow diff --watch --cmux",
     "```",
     "",
     "Use `--agent claude` when Claude Code is the preferred worker.",
@@ -1019,7 +1045,7 @@ function cmuxGuide(): string {
     "- Prefer the current cmux workspace from `CMUX_WORKSPACE_ID`.",
     "- Do not change focus, switch workspaces, or close panes unless the user explicitly asks.",
     "- Dispatch should create or use helper terminal space without requiring the user to manage panes.",
-    "- Worker finish opens the visual diff review automatically when cmux is available. Use `ai-flow diff --cmux` for an extra manual review pane.",
+    "- Use `ai-flow diff --watch --cmux` for a live review pane while edits may still change.",
     "- Navigate changed hunks with F7 / Shift+F7. The sidebar groups files as a folder tree.",
     "- If cmux is missing, run `ai-flow doctor` and explain the one missing setup step in plain language.",
     "",
@@ -1456,6 +1482,48 @@ function parseUnifiedDiff(content: string): DiffFile[] {
   return files.filter((file) => file.binary || file.hunks.length > 0);
 }
 
+function buildDiffReview(input: {
+  base?: string;
+  staged: boolean;
+  includeUntracked: boolean;
+  context: number;
+  title: string;
+  watch?: boolean;
+}): DiffReviewBuild {
+  const diffText = readUnifiedDiff({
+    base: input.base,
+    staged: input.staged,
+    context: input.context,
+    includeUntracked: input.includeUntracked,
+  });
+  const files = parseUnifiedDiff(diffText);
+  const sourceFiles = collectSourceFiles(files);
+  const hunks = files.reduce((sum, file) => sum + file.hunks.length, 0);
+  const generatedAt = new Date().toISOString();
+  const signature = createHash("sha1")
+    .update(diffText)
+    .update("\n")
+    .update(sourceFiles.map((file) => `${file.path}\0${file.size}\0${file.embedded ? file.content : file.skippedReason ?? ""}`).join("\n"))
+    .digest("hex");
+  const html = renderDiffHtml({
+    files,
+    sourceFiles,
+    title: input.title,
+    subtitle: diffSubtitle(input),
+    watch: Boolean(input.watch),
+    signature,
+    generatedAt,
+  });
+
+  return {
+    html,
+    files: files.length,
+    hunks,
+    signature,
+    generatedAt,
+  };
+}
+
 function createDiffReview(input: {
   base?: string;
   staged: boolean;
@@ -1465,29 +1533,107 @@ function createDiffReview(input: {
   title: string;
 }): DiffReviewResult {
   const outputPath = resolve(input.output);
-  const diffText = readUnifiedDiff({
+  const build = buildDiffReview({
     base: input.base,
     staged: input.staged,
-    context: input.context,
     includeUntracked: input.includeUntracked,
-  });
-  const files = parseUnifiedDiff(diffText);
-  const sourceFiles = collectSourceFiles(files);
-  const html = renderDiffHtml({
-    files,
-    sourceFiles,
+    context: input.context,
     title: input.title,
-    subtitle: diffSubtitle(input),
   });
 
   mkdirSync(dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, html);
+  writeFileSync(outputPath, build.html);
   return {
     path: outputPath,
     url: pathToFileURL(outputPath).href,
-    files: files.length,
-    hunks: files.reduce((sum, file) => sum + file.hunks.length, 0),
+    files: build.files,
+    hunks: build.hunks,
   };
+}
+
+function serveDiffWatch(input: {
+  base?: string;
+  staged: boolean;
+  includeUntracked: boolean;
+  context: number;
+  openInBrowser: boolean;
+  openInCmux: boolean;
+  port?: string;
+}): void {
+  const host = "127.0.0.1";
+  const port = input.port ? parsePositiveInteger(input.port, "--port") : 0;
+  const build = () => buildDiffReview({
+    base: input.base,
+    staged: input.staged,
+    includeUntracked: input.includeUntracked,
+    context: input.context,
+    title: "ai-flow live diff",
+    watch: true,
+  });
+
+  const server = createServer((request: IncomingMessage, response: ServerResponse) => {
+    const requestUrl = new URL(request.url ?? "/", `http://${host}`);
+    try {
+      if (requestUrl.pathname === "/__ai_flow_state") {
+        const latest = build();
+        writeHttpJson(response, {
+          signature: latest.signature,
+          generatedAt: latest.generatedAt,
+          files: latest.files,
+          hunks: latest.hunks,
+        });
+        return;
+      }
+
+      if (requestUrl.pathname === "/" || requestUrl.pathname === "/review") {
+        const latest = build();
+        writeHttp(response, 200, "text/html; charset=utf-8", latest.html);
+        return;
+      }
+
+      writeHttp(response, 404, "text/plain; charset=utf-8", "Not found\n");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      writeHttp(response, 500, "text/plain; charset=utf-8", `${message}\n`);
+    }
+  });
+
+  server.on("error", (error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`ai-flow: diff watch server failed: ${message}`);
+    process.exit(1);
+  });
+
+  server.listen(port, host, () => {
+    const address = server.address();
+    const actualPort = typeof address === "object" && address ? address.port : port;
+    const url = `http://${host}:${actualPort}/review`;
+    console.log(`Live diff review: ${url}`);
+    console.log("Watching working tree. Press Ctrl+C to stop.");
+    if (input.openInCmux) {
+      try {
+        openCmuxBrowser(url);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.log(`Could not open cmux diff pane: ${message}`);
+      }
+    }
+    if (input.openInBrowser) {
+      spawnSync("open", [url], { stdio: "ignore" });
+    }
+  });
+}
+
+function writeHttp(response: ServerResponse, status: number, contentType: string, body: string): void {
+  response.writeHead(status, {
+    "content-type": contentType,
+    "cache-control": "no-store",
+  });
+  response.end(body);
+}
+
+function writeHttpJson(response: ServerResponse, body: unknown): void {
+  writeHttp(response, 200, "application/json; charset=utf-8", JSON.stringify(body));
 }
 
 function openDiffReviewAfterWorker(taskId: string): void {
@@ -1521,7 +1667,15 @@ function openDiffReviewAfterWorker(taskId: string): void {
   }
 }
 
-function renderDiffHtml(input: { files: DiffFile[]; sourceFiles: SourceFile[]; title: string; subtitle: string }): string {
+function renderDiffHtml(input: {
+  files: DiffFile[];
+  sourceFiles: SourceFile[];
+  title: string;
+  subtitle: string;
+  watch?: boolean;
+  signature?: string;
+  generatedAt?: string;
+}): string {
   const totalHunks = input.files.reduce((sum, file) => sum + file.hunks.length, 0);
   const totalLines = input.files.reduce(
     (sum, file) => sum + file.hunks.reduce((inner, hunk) => inner + hunk.lines.length, 0),
@@ -1560,6 +1714,7 @@ function renderDiffHtml(input: { files: DiffFile[]; sourceFiles: SourceFile[]; t
     '<aside class="sidebar">',
     `<div class="brand">ai-flow diff</div>`,
     `<div class="summary">${input.files.length} changed · ${totalHunks} hunks · ${embeddedFiles}/${input.sourceFiles.length} files searchable</div>`,
+    `<div class="live-status ${input.watch ? "watching" : ""}" id="live-status">${input.watch ? "Live: watching for changes" : `Generated: ${escapeHtml(input.generatedAt ?? new Date().toISOString())}`}</div>`,
     '<label class="search"><span>Search</span><input id="review-search" type="search" placeholder="Path or file content"></label>',
     '<div class="tabs"><button type="button" class="tab active" data-tab="changes">Changes</button><button type="button" class="tab" data-tab="files">Files</button></div>',
     '<div class="keymap"><kbd>F7</kbd> next hunk<br><kbd>Shift</kbd>+<kbd>F7</kbd> previous<br><kbd>]</kbd>/<kbd>[</kbd> fallback</div>',
@@ -1582,6 +1737,7 @@ function renderDiffHtml(input: { files: DiffFile[]; sourceFiles: SourceFile[]; t
     '<div id="source-body" class="source-body empty">Select a file from the Files tab.</div>',
     "</section>",
     "</main>",
+    `<script type="application/json" id="review-meta" data-watch="${input.watch ? "true" : "false"}" data-signature="${escapeAttr(input.signature ?? "")}" data-generated-at="${escapeAttr(input.generatedAt ?? "")}">{}</script>`,
     `<script type="application/json" id="source-files-data">${jsonForScript(input.sourceFiles)}</script>`,
     "<script>",
     diffScript(),
@@ -1851,6 +2007,15 @@ body {
 }
 .brand { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
 .summary, .keymap { color: var(--muted); font-size: 12px; line-height: 1.5; margin-bottom: 14px; }
+.live-status {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.live-status.watching {
+  color: var(--active);
+}
 .search {
   display: grid;
   gap: 6px;
@@ -2119,7 +2284,12 @@ const sourceLinks = Array.from(document.querySelectorAll('.source-link'));
 const sourceFiles = JSON.parse(document.getElementById('source-files-data')?.textContent || '[]');
 const sourceByPath = new Map(sourceFiles.map((file) => [file.path, file]));
 const searchInput = document.getElementById('review-search');
+const reviewMeta = document.getElementById('review-meta');
+const watchEnabled = reviewMeta?.dataset.watch === 'true';
+const currentSignature = reviewMeta?.dataset.signature || '';
+const uiStateKey = 'ai-flow-diff-ui:' + location.pathname;
 let current = -1;
+let checkingForUpdates = false;
 
 function setActive(index, shouldScroll = true) {
   if (hunks.length === 0) return;
@@ -2187,6 +2357,11 @@ if (initial) {
 } else if (hunks.length > 0) {
   setActive(0, false);
 }
+restoreUiState();
+if (watchEnabled) {
+  setInterval(checkForLiveUpdate, 1500);
+}
+window.addEventListener('beforeunload', saveUiState);
 
 function setTab(name) {
   document.querySelectorAll('.tab').forEach((button) => {
@@ -2208,6 +2383,58 @@ function showSourceView() {
   document.getElementById('diff-view')?.classList.add('hidden');
   document.getElementById('source-viewer')?.classList.remove('hidden');
   setTab('files');
+}
+
+function saveUiState() {
+  const activeTab = document.querySelector('.tab.active')?.dataset.tab || 'changes';
+  const sourcePath = document.getElementById('source-viewer')?.dataset.openPath || '';
+  sessionStorage.setItem(uiStateKey, JSON.stringify({
+    search: searchInput?.value || '',
+    tab: activeTab,
+    sourcePath,
+    hash: location.hash,
+  }));
+}
+
+function restoreUiState() {
+  const raw = sessionStorage.getItem(uiStateKey);
+  if (!raw) return;
+  try {
+    const state = JSON.parse(raw);
+    if (searchInput && state.search) {
+      searchInput.value = state.search;
+      filterNavigation(state.search);
+    }
+    if (state.sourcePath && sourceByPath.has(state.sourcePath)) {
+      openSourceFile(state.sourcePath);
+    } else if (state.tab) {
+      setTab(state.tab);
+    }
+  } catch {
+    sessionStorage.removeItem(uiStateKey);
+  }
+}
+
+async function checkForLiveUpdate() {
+  if (checkingForUpdates) return;
+  checkingForUpdates = true;
+  const liveStatus = document.getElementById('live-status');
+  try {
+    const response = await fetch('/__ai_flow_state', { cache: 'no-store' });
+    if (!response.ok) return;
+    const state = await response.json();
+    if (liveStatus && state.generatedAt) {
+      liveStatus.textContent = 'Live: updated ' + new Date(state.generatedAt).toLocaleTimeString();
+    }
+    if (state.signature && state.signature !== currentSignature) {
+      saveUiState();
+      location.reload();
+    }
+  } catch {
+    if (liveStatus) liveStatus.textContent = 'Live: waiting for diff server';
+  } finally {
+    checkingForUpdates = false;
+  }
 }
 
 function filterNavigation(rawQuery) {
@@ -3096,7 +3323,7 @@ Usage:
   ai-flow start planner|worker|reviewer [--agent manual|codex|claude] [--task T001] [--no-save]
   ai-flow finish planner|worker|reviewer [--task T001] [--file report.md] [--complete] [--no-diff]
   ai-flow dispatch worker|reviewer --agent codex|claude [--task T001] [--dry-run]
-  ai-flow diff [--base HEAD] [--staged] [--include-untracked] [--open] [--cmux]
+  ai-flow diff [--base HEAD] [--staged] [--include-untracked] [--open] [--cmux] [--watch]
   ai-flow doctor
   ai-flow status
   ai-flow next [--agent manual|codex|claude] [--role worker|reviewer] [--task T001] [--no-save]
@@ -3127,7 +3354,7 @@ function printDiffHelp(): void {
 Generate a browser-based side-by-side Git diff review.
 
 Usage:
-  ai-flow diff [--base HEAD] [--staged] [--include-untracked] [--context 12] [--output review.html] [--open] [--cmux]
+  ai-flow diff [--base HEAD] [--staged] [--include-untracked] [--context 12] [--output review.html] [--open] [--cmux] [--watch] [--port 0]
 
 Keys in the review page:
   F7         next changed hunk
@@ -3136,6 +3363,7 @@ Keys in the review page:
 
 The sidebar groups changed files as a folder tree. Use Search to filter paths and indexed file contents.
 The Files tab opens source previews, including unchanged files when they fit the local review budget.
+Use --watch to serve a live review that reloads when the working tree changes.
 `);
 }
 

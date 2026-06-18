@@ -74,10 +74,10 @@ ai-flow install --apply-agent-docs
 
 Planner then uses `ai-flow dispatch worker|reviewer` internally. If cmux is available, dispatch creates a helper pane and sends a short command to the selected agent. If cmux is missing, `ai-flow doctor` explains the single missing setup step.
 
-When a Worker records completion, ai-flow automatically creates a visual diff review and opens it in cmux when available. You can also open another review manually:
+When a Worker records completion, ai-flow automatically creates a visual diff review and opens it in cmux when available. For review while edits may still change, open a live review manually:
 
 ```bash
-ai-flow diff --cmux
+ai-flow diff --watch --cmux
 ```
 
 The generated review page has a folder-tree sidebar and supports IntelliJ-style hunk navigation:
@@ -152,10 +152,10 @@ ai-flow dispatch worker|reviewer --agent codex|claude [--task T001] [--dry-run]
 Planner uses this to send a Worker or Reviewer into cmux. It saves the full prompt under `.ai-flow/prompts/`, creates a helper terminal pane when cmux is available, and sends the agent a short "read this prompt file" command.
 
 ```bash
-ai-flow diff [--base HEAD] [--staged] [--include-untracked] [--open] [--cmux]
+ai-flow diff [--base HEAD] [--staged] [--include-untracked] [--open] [--cmux] [--watch]
 ```
 
-Generates a browser-based side-by-side diff review under `.ai-flow/diffs/`. `--cmux` opens it in a cmux browser split. The sidebar groups changed files as a folder tree, includes search, and has a Files tab for opening indexed source files even when they are unchanged. `F7` / `Shift+F7` move by changed hunk, not by file.
+Generates a browser-based side-by-side diff review under `.ai-flow/diffs/`. `--cmux` opens it in a cmux browser split. Add `--watch` to serve a live review that reloads when the working tree changes. The sidebar groups changed files as a folder tree, includes search, and has a Files tab for opening indexed source files even when they are unchanged. `F7` / `Shift+F7` move by changed hunk, not by file.
 
 ```bash
 ai-flow doctor
