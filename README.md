@@ -41,26 +41,31 @@ npm link
 
 ## Quick Start
 
-Inside the repository you want AI agents to work on, install the role instructions once:
+Inside the repository you want AI agents to work on, run one command:
+
+```bash
+ai-flow go
+```
+
+Or include the objective up front:
+
+```bash
+ai-flow go "add the missing empty state and verify it"
+```
+
+That command bootstraps the repo, installs ai-flow role instructions when needed, opens cmux when available, and starts a Planner agent. After that, the intended experience is:
+
+```text
+Talk to Planner only.
+Planner splits the work, dispatches Workers/Reviewers, opens diff reviews, and reports back.
+```
+
+If cmux is not available yet, `ai-flow go` falls back to the current terminal and `ai-flow doctor` explains the missing setup step.
+
+The old manual bootstrap still works:
 
 ```bash
 ai-flow install --apply-agent-docs
-```
-
-This creates `.ai-flow/` and adds a short role-session snippet to `AGENTS.md` and `CLAUDE.md`.
-
-After that, users should not need to know either ai-flow or cmux. The intended experience is:
-
-```text
-Open one Planner session in cmux.
-Tell Planner what you want built.
-Planner splits the work, dispatches Workers/Reviewers, reads their reports, and talks back to you.
-```
-
-For a non-technical user, the first useful thing to say is:
-
-```text
-Use Planner mode. I want <feature/fix>. Split it into small verified slices and run Workers as needed.
 ```
 
 Planner then uses `ai-flow dispatch worker|reviewer` internally. If cmux is available, dispatch creates a helper pane and sends a short command to the selected agent. If cmux is missing, `ai-flow doctor` explains the single missing setup step.
@@ -90,6 +95,7 @@ Planner sessions maintain `.ai-flow/tasks.md`:
 The CLI remains available for agents, advanced users, and scripts.
 
 ```bash
+ai-flow go --dry-run
 ai-flow doctor
 ai-flow status
 ai-flow dispatch worker --agent codex
@@ -100,6 +106,12 @@ ai-flow report --task T001 --file worker-report.md
 ```
 
 ## Commands
+
+```bash
+ai-flow go [what you want built] [--agent codex|claude] [--dry-run] [--no-cmux]
+```
+
+Bootstraps the repository and starts Planner. When cmux is available and the command is run outside cmux, it opens a new cmux workspace for the Planner. When run inside cmux, it starts Planner in the current terminal. Without cmux, it starts Planner in the current terminal as a fallback.
 
 ```bash
 ai-flow init [--force]

@@ -83,6 +83,9 @@ function main(): void {
       case "install":
         installFlow(args);
         break;
+      case "go":
+        bootstrapPlanner(args);
+        break;
       case "start":
         startSession(args);
         break;
@@ -193,6 +196,62 @@ function installFlow(args: string[]): void {
   } else {
     console.log(`Next: add ${FLOW_DIR}/${AGENT_SNIPPET_FILE} to your agent instructions.`);
   }
+}
+
+function bootstrapPlanner(args: string[]): void {
+  const dryRun = args.includes("--dry-run");
+  const noCmux = args.includes("--no-cmux");
+  const applyAgentDocs = !args.includes("--no-agent-docs");
+  const force = args.includes("--force");
+  const explicitAgent = readOption(args, "--agent");
+  const objective = readFreeformObjective(args, new Set(["--agent", "--message"]));
+  const message = readOption(args, "--message") ?? objective;
+
+  initFlow(["--quiet"]);
+  writeRoleFiles(force);
+  writeIfMissing(join(process.cwd(), FLOW_DIR, CMUX_FILE), cmuxGuide(), force);
+  writeIfMissing(join(process.cwd(), FLOW_DIR, AGENT_SNIPPET_FILE), agentSnippet(), force);
+  if (applyAgentDocs) {
+    applyAgentDocSnippet("AGENTS.md");
+    applyAgentDocSnippet("CLAUDE.md");
+  }
+
+  const agent = selectPlannerAgent(explicitAgent);
+  const prompt = plannerBootPrompt({ agent, objective: message });
+  const promptPath = savePrompt("planner", "planner", agent, prompt);
+  const launchCommand = buildAgentReadPromptCommand(agent, "planner", promptPath);
+  const cmuxAvailable = commandExists("cmux");
+  const inCmux = Boolean(currentCmuxWorkspace());
+
+  if (dryRun) {
+    console.log("# ai-flow go");
+    console.log("");
+    console.log(`Agent: ${agent}`);
+    console.log(`Prompt: ${relative(process.cwd(), promptPath)}`);
+    console.log(`cmux: ${cmuxAvailable ? "available" : "missing"}`);
+    console.log(`inside cmux: ${inCmux ? "yes" : "no"}`);
+    console.log("");
+    console.log("## Planner command");
+    console.log(codeBlock(launchCommand));
+    return;
+  }
+
+  if (!noCmux && cmuxAvailable && !inCmux) {
+    const workspace = openPlannerInCmux(launchCommand);
+    if (workspace) {
+      appendToState(
+        `\n## Planner Boot ${timestampForFile()}\n\n- Agent: ${agent}\n- Prompt: ${relative(process.cwd(), promptPath)}\n- cmux workspace: ${workspace}\n`,
+      );
+      console.log(`Opened Planner in cmux workspace ${workspace}.`);
+      return;
+    }
+    console.log("cmux is installed, but ai-flow could not create a workspace. Starting Planner in this terminal instead.");
+  }
+
+  appendToState(
+    `\n## Planner Boot ${timestampForFile()}\n\n- Agent: ${agent}\n- Prompt: ${relative(process.cwd(), promptPath)}\n- cmux workspace: ${inCmux ? currentCmuxWorkspace() : "none"}\n`,
+  );
+  runInteractiveShell(launchCommand);
 }
 
 function startSession(args: string[]): void {
@@ -688,6 +747,26 @@ function plannerBrief(input: { agent: AgentName }): string {
     "",
     "## Cleanup",
     "Before ending, write a short planner report and record it with `ai-flow finish planner --file <report-file>`.",
+    "",
+  ].join("\n");
+}
+
+function plannerBootPrompt(input: { agent: AgentName; objective: string }): string {
+  const base = plannerBrief({ agent: input.agent });
+  const objective = input.objective.trim();
+  return [
+    base,
+    "",
+    "## Boot Behavior",
+    "- You are already in Planner mode. Do not ask the user to type a Planner activation phrase.",
+    "- Start by briefly stating the current repository state and the next action.",
+    "- If an objective was provided, turn it into small verifiable tasks and begin orchestration.",
+    "- If no objective was provided, ask the user what they want built or fixed, then continue as Planner.",
+    "- When appropriate, dispatch Workers or Reviewers through cmux with `ai-flow dispatch worker|reviewer --agent codex|claude`.",
+    "- After Worker output, open visual review with `ai-flow diff --cmux` and inspect changed hunks with F7 / Shift+F7.",
+    "",
+    "## User Objective",
+    objective || "(none provided yet)",
     "",
   ].join("\n");
 }
@@ -1629,6 +1708,22 @@ function readOption(args: string[], name: string): string | undefined {
   return value;
 }
 
+function readFreeformObjective(args: string[], optionsWithValues: Set<string>): string {
+  const chunks: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index];
+    if (optionsWithValues.has(value)) {
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("--")) {
+      continue;
+    }
+    chunks.push(value);
+  }
+  return chunks.join(" ").trim();
+}
+
 function parsePositiveInteger(value: string, optionName: string): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 0) {
@@ -1642,6 +1737,31 @@ function parseAgent(value: string): AgentName {
     return value;
   }
   throw new Error(`Unsupported agent: ${value}`);
+}
+
+function selectPlannerAgent(value?: string): Exclude<AgentName, "manual"> {
+  if (value) {
+    const parsed = parseAgent(value);
+    if (parsed === "manual") {
+      throw new Error("Planner boot requires --agent codex or --agent claude.");
+    }
+    return parsed;
+  }
+
+  if (existsSync(join(process.cwd(), FLOW_DIR, CONFIG_FILE))) {
+    const configured = loadConfig().defaultAgent;
+    if (configured !== "manual" && commandExists(configured)) {
+      return configured;
+    }
+  }
+
+  if (commandExists("codex")) {
+    return "codex";
+  }
+  if (commandExists("claude")) {
+    return "claude";
+  }
+  throw new Error("No supported agent CLI found. Install Codex CLI or Claude Code first.");
 }
 
 function parseRole(value: string): PromptRole {
@@ -1713,7 +1833,7 @@ function savePrompt(role: PromptRole | SessionRole, taskId: string, agent: Agent
 
 function buildAgentReadPromptCommand(
   agent: Exclude<AgentName, "manual">,
-  role: PromptRole,
+  role: SessionRole,
   promptPath: string,
 ): string {
   const instruction = [
@@ -1782,16 +1902,62 @@ function dispatchToCmux(command: string, role: PromptRole, taskId: string): {
   return { workspace, surface };
 }
 
+function openPlannerInCmux(command: string): string | undefined {
+  openCmuxApp();
+  waitForCmuxSocket(5000);
+  const result = runCmux([
+    "new-workspace",
+    "--name",
+    `ai-flow: ${basename(process.cwd())}`,
+    "--cwd",
+    process.cwd(),
+    "--command",
+    command,
+    "--focus",
+    "true",
+  ]);
+
+  if (result.status !== 0) {
+    return undefined;
+  }
+
+  return findCmuxRef(result.stdout, "workspace") ?? "created";
+}
+
+function openCmuxApp(): void {
+  spawnSync("open", ["-a", "cmux"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+}
+
+function waitForCmuxSocket(timeoutMs: number): boolean {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = runCmux(["workspace", "list", "--json"]);
+    if (result.status === 0) {
+      return true;
+    }
+    spawnSync("sleep", ["0.25"]);
+  }
+  return false;
+}
+
+function runInteractiveShell(command: string): void {
+  const result = spawnSync(command, {
+    cwd: process.cwd(),
+    shell: true,
+    stdio: "inherit",
+    env: process.env,
+  });
+  process.exit(result.status ?? 1);
+}
+
 function currentCmuxWorkspace(): string | undefined {
   if (process.env.CMUX_WORKSPACE_ID) {
     return normalizeCmuxRef("workspace", process.env.CMUX_WORKSPACE_ID);
   }
-
-  const identify = runCmux(["--json", "identify"]);
-  if (identify.status !== 0) {
-    return undefined;
-  }
-  return findCmuxRef(identify.stdout, "workspace");
+  return undefined;
 }
 
 function newestSurfaceForPane(workspace: string, pane: string): string | undefined {
@@ -1808,6 +1974,7 @@ function runCmux(args: string[]): { status: number; stdout: string; stderr: stri
     cwd: process.cwd(),
     encoding: "utf8",
     env: process.env,
+    timeout: 5000,
   });
   return {
     status: result.status ?? 1,
@@ -2026,6 +2193,7 @@ function printHelp(): void {
 Lightweight planning and verification control plane for AI coding agents.
 
 Usage:
+  ai-flow go [what you want built] [--agent codex|claude] [--dry-run]
   ai-flow init [--force]
   ai-flow install [--force] [--apply-agent-docs]
   ai-flow start planner|worker|reviewer [--agent manual|codex|claude] [--task T001] [--no-save]
@@ -2041,13 +2209,13 @@ Usage:
   ai-flow run worker|reviewer --agent codex|claude [--task T001] [--dry-run] [--print]
 
 Workflow:
-  1. ai-flow install --apply-agent-docs
-  2. Open one Planner session in cmux and say what you want built
+  1. Run: ai-flow go
+  2. Planner opens in cmux when available, or in the current terminal as fallback
   3. Planner dispatches Worker/Reviewer sessions with cmux when needed
   4. Planner opens Worker changes with ai-flow diff --cmux; use F7 / Shift+F7 to move by hunk
 
 For people who do not know cmux:
-  ai-flow doctor
+  ai-flow go
 
 Legacy/manual:
   ai-flow next --agent codex
