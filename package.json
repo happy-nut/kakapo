@@ -12,7 +12,8 @@
   },
   "homepage": "https://github.com/happy-nut/ai-flow#readme",
   "bin": {
-    "ai-flow": "bin/ai-flow.js"
+    "ai-flow": "bin/ai-flow.js",
+    "aif": "bin/ai-flow.js"
   },
   "files": [
     "bin",

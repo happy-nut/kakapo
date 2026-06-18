@@ -32,6 +32,18 @@ You inspect evidence before accepting the change.
 npm install -g ai-flow
 ```
 
+After installation, the short command is:
+
+```bash
+aif
+```
+
+Homebrew tap distribution is prepared through `Formula/ai-flow.rb`. Once the npm package is published and the formula is copied to the `happy-nut/homebrew-ai-flow` tap, the intended install path is:
+
+```bash
+brew install happy-nut/ai-flow/ai-flow
+```
+
 For local development:
 
 ```bash
@@ -47,10 +59,11 @@ npm link
 Inside the repository you want to validate:
 
 ```bash
-ai-flow init
-ai-flow app --include-untracked
+aif
 ai-flow check --include-untracked
 ```
+
+`aif` opens the local desktop review app for the current directory. On first run it creates `.ai-flow/`, updates Git ignore rules for `.ai-flow/`, and includes untracked files so new AI-created files show up immediately.
 
 `check` runs configured verification commands, writes a log, creates a browser diff review, and records a compact report.
 
@@ -63,7 +76,7 @@ ai-flow check -- npm test
 For live diff review while an AI is still editing:
 
 ```bash
-ai-flow app --include-untracked
+aif
 ```
 
 ## Diff Review
@@ -82,6 +95,12 @@ The app opens as a read-only source viewer by default. The `Files` tab opens ind
 The browser artifact path is still available through `ai-flow diff`. Add `--watch` there only when you specifically want a browser-served live review.
 
 ## Commands
+
+```bash
+ai-flow open [--base HEAD] [--staged] [--tracked-only] [--context 12] [--no-watch]
+```
+
+Opens the local desktop review app for the current directory. `aif` and bare `ai-flow` are aliases for this default flow. It auto-initializes local state when needed and includes untracked files by default; pass `--tracked-only` to inspect tracked changes only.
 
 ```bash
 ai-flow check [--include-untracked] [--staged] [--base HEAD] [--context 12] [--open] [--no-verify] [--no-diff] [-- <command>]
@@ -111,7 +130,7 @@ Runs configured verification commands and stores the log in `.ai-flow/logs/`. Ex
 ai-flow app [--base HEAD] [--staged] [--include-untracked] [--context 12] [--no-watch]
 ```
 
-Launches the local desktop review app. `ai-flow review` is an alias.
+Launches the local desktop review app. `aif`, `ai-flow open`, and `ai-flow review` are aliases. Prefer `aif` for normal use.
 
 ```bash
 ai-flow diff [--base HEAD] [--staged] [--include-untracked] [--context 12] [--output review.html] [--open] [--watch] [--port 0]

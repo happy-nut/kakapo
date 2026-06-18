@@ -132,9 +132,19 @@ const SOURCE_MAX_FILES = 1200;
 const nodeRequire = createRequire(import.meta.url);
 
 export function main(): void {
-  const [command = "--help", ...args] = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
+  const [command, ...args] = rawArgs;
 
   try {
+    if (!command) {
+      openCurrentRepository([]);
+      return;
+    }
+    if (command !== "--help" && command !== "-h" && command.startsWith("-")) {
+      openCurrentRepository(rawArgs);
+      return;
+    }
+
     switch (command) {
       case "init":
         initFlow(args);
@@ -155,6 +165,9 @@ export function main(): void {
       case "app":
       case "review":
         launchReviewApp(args);
+        break;
+      case "open":
+        openCurrentRepository(args);
         break;
       case "status":
         printStatus();
@@ -237,9 +250,7 @@ function runCheck(args: string[]): void {
     printCheckHelp();
     return;
   }
-  if (!existsSync(join(process.cwd(), FLOW_DIR, CONFIG_FILE))) {
-    initFlow(["--quiet"]);
-  }
+  ensureWritableFlowState();
 
   const config = loadConfig();
   const separator = args.indexOf("--");
@@ -309,9 +320,7 @@ function renderDiffReview(args: string[]): void {
     printDiffHelp();
     return;
   }
-  if (!existsSync(join(process.cwd(), FLOW_DIR, CONFIG_FILE))) {
-    initFlow(["--quiet"]);
-  }
+  ensureWritableFlowState();
 
   const config = loadConfig();
   const contextValue = readOption(args, "--context");
@@ -361,9 +370,7 @@ function launchReviewApp(args: string[]): void {
     printAppHelp();
     return;
   }
-  if (!existsSync(join(process.cwd(), FLOW_DIR, CONFIG_FILE))) {
-    initFlow(["--quiet"]);
-  }
+  ensureWritableFlowState();
 
   const config = loadConfig();
   const contextValue = readOption(args, "--context");
@@ -393,6 +400,19 @@ function launchReviewApp(args: string[]): void {
   });
   child.unref();
   console.log("Opened ai-flow review app.");
+}
+
+function openCurrentRepository(args: string[]): void {
+  if (args.includes("--help") || args.includes("-h")) {
+    printOpenHelp();
+    return;
+  }
+
+  const appArgs = args.filter((arg) => arg !== "--tracked-only");
+  if (!args.includes("--tracked-only") && !args.includes("--staged") && !args.includes("--include-untracked")) {
+    appArgs.push("--include-untracked");
+  }
+  launchReviewApp(appArgs);
 }
 
 function resolveElectronBinary(): string {
@@ -448,7 +468,7 @@ function printStatus(): void {
 }
 
 function recordReport(args: string[]): void {
-  ensureInitialized();
+  ensureWritableFlowState();
   const file = readOption(args, "--file");
   const label = readOption(args, "--label") ?? "manual";
   const body = file ? readFileSync(file, "utf8") : readStdin();
@@ -473,9 +493,7 @@ function recordReport(args: string[]): void {
 }
 
 function executeVerification(explicitCommand = "", options: { requireCommands?: boolean } = {}): VerificationRun {
-  if (!existsSync(join(process.cwd(), FLOW_DIR, CONFIG_FILE))) {
-    initFlow(["--quiet"]);
-  }
+  ensureWritableFlowState();
   const config = loadConfig();
   const commands = explicitCommand.trim() ? [explicitCommand.trim()] : getVerificationCommands(config);
   if (commands.length === 0) {
@@ -2665,6 +2683,14 @@ function ensureInitialized(): void {
   }
 }
 
+function ensureWritableFlowState(): void {
+  if (!existsSync(join(process.cwd(), FLOW_DIR, CONFIG_FILE))) {
+    initFlow(["--quiet"]);
+    return;
+  }
+  ensureAiFlowGitignore(process.cwd());
+}
+
 function loadConfig(): FlowConfig {
   ensureInitialized();
   const raw = JSON.parse(readFileSync(join(process.cwd(), FLOW_DIR, CONFIG_FILE), "utf8")) as Partial<FlowConfig>;
@@ -2941,6 +2967,8 @@ function printHelp(): void {
 Validation control plane for AI-generated code changes.
 
 Usage:
+  aif
+  ai-flow open [--base HEAD] [--staged] [--tracked-only]
   ai-flow check [--include-untracked] [--open] [--no-verify] [--no-diff] [-- <command>]
   ai-flow init [--force]
   ai-flow install [--force] [--apply-agent-docs]
@@ -2953,7 +2981,7 @@ Usage:
 
 Default loop:
   1. Let an AI agent edit code.
-  2. Run: ai-flow app --include-untracked
+  2. Run: aif
   3. Run: ai-flow check --include-untracked
   4. Only accept the change when verification evidence is clear.
 
@@ -2963,6 +2991,22 @@ Diff review keys:
   Shift Shift file search across indexed files
   Cmd/Ctrl+E recent files
   Cmd/Ctrl+Down jump to symbol under cursor
+`);
+}
+
+function printOpenHelp(): void {
+  console.log(`ai-flow open
+
+Open the local desktop review app for the current directory. This is the default command behind \`aif\` and \`ai-flow\` with no arguments.
+
+It auto-initializes .ai-flow/ when needed, makes sure .ai-flow/ is ignored in Git worktrees, and includes untracked files by default so new AI-created files are visible.
+
+Usage:
+  aif
+  ai-flow open [--base HEAD] [--staged] [--tracked-only] [--context 12] [--no-watch] [--foreground]
+
+Options:
+  --tracked-only  inspect tracked changes only
 `);
 }
 
@@ -3013,6 +3057,8 @@ Usage:
   ai-flow app [--base HEAD] [--staged] [--include-untracked] [--context 12] [--no-watch] [--foreground]
 
 Aliases:
+  aif
+  ai-flow open
   ai-flow review
 `);
 }
