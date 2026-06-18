@@ -12,9 +12,10 @@
   },
   "homepage": "https://github.com/happy-nut/ai-flow#readme",
   "bin": {
-    "ai-flow": "dist/cli.js"
+    "ai-flow": "bin/ai-flow.js"
   },
   "files": [
+    "bin",
     "dist",
     "README.md",
     "LICENSE"
@@ -41,6 +42,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "diff2html": "^3.4.56"
+    "diff2html": "^3.4.56",
+    "electron": "^42.4.1"
   }
 }

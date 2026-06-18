@@ -8,6 +8,7 @@ It gives you:
 
 - detected verification commands in `.ai-flow/config.json`
 - repeatable verification logs under `.ai-flow/logs/`
+- a local desktop review app for live diff inspection
 - diff2html review pages under `.ai-flow/diffs/`
 - searchable source previews, including unchanged indexed files
 - compact validation reports under `.ai-flow/reports/`
@@ -47,7 +48,8 @@ Inside the repository you want to validate:
 
 ```bash
 ai-flow init
-ai-flow check --include-untracked --open
+ai-flow app --include-untracked
+ai-flow check --include-untracked
 ```
 
 `check` runs configured verification commands, writes a log, creates a browser diff review, and records a compact report.
@@ -61,20 +63,23 @@ ai-flow check -- npm test
 For live diff review while an AI is still editing:
 
 ```bash
-ai-flow diff --watch --open --include-untracked
+ai-flow app --include-untracked
 ```
 
 ## Diff Review
 
-The generated review page is powered by diff2html and includes a folder-tree sidebar.
+The desktop review app is powered by Electron and diff2html. It reads Git diff and source files directly from the local repository, writes a local `.ai-flow/app-review.html` file, and refreshes when the working tree changes. It does not start an HTTP server.
 
 - `F7`: next changed hunk
 - `Shift+F7`: previous changed hunk
 - `]` / `[`: fallback keys if the browser captures function keys
 - `Shift Shift`: search indexed files, including unchanged files
 - `Cmd/Ctrl+E`: open recent files
+- `Cmd/Ctrl+Down`: jump from the source cursor to a declaration-like match for the symbol under it
 
-The `Files` tab opens source previews for indexed files even when they are unchanged. This is useful when validating whether an AI edit still fits surrounding code.
+The `Files` tab opens read-only source previews for indexed files even when they are unchanged. This is useful when validating whether an AI edit still fits surrounding code. Viewed marks are stored with file signatures, so a file becomes unviewed again when it changes.
+
+The browser artifact path is still available through `ai-flow diff`. Add `--watch` there only when you specifically want a browser-served live review.
 
 ## Commands
 
@@ -101,6 +106,12 @@ ai-flow verify [-- <command>]
 ```
 
 Runs configured verification commands and stores the log in `.ai-flow/logs/`. Exits non-zero on failure.
+
+```bash
+ai-flow app [--base HEAD] [--staged] [--include-untracked] [--context 12] [--no-watch]
+```
+
+Launches the local desktop review app. `ai-flow review` is an alias.
 
 ```bash
 ai-flow diff [--base HEAD] [--staged] [--include-untracked] [--context 12] [--output review.html] [--open] [--watch] [--port 0]

@@ -5,16 +5,17 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { html as renderDiff2HtmlMarkup } from "diff2html";
 
 type FlowConfig = {
@@ -81,6 +82,7 @@ type SourceFile = {
   size: number;
   changed: boolean;
   embedded: boolean;
+  signature: string;
   skippedReason?: string;
 };
 
@@ -113,6 +115,11 @@ type VerificationRun = {
   logPath?: string;
 };
 
+type ReviewFileState = {
+  path: string;
+  signature: string;
+};
+
 const FLOW_DIR = ".ai-flow";
 const GITIGNORE_FILE = ".gitignore";
 const CONFIG_FILE = "config.json";
@@ -124,7 +131,7 @@ const SOURCE_MAX_TOTAL_BYTES = 5_000_000;
 const SOURCE_MAX_FILES = 1200;
 const nodeRequire = createRequire(import.meta.url);
 
-function main(): void {
+export function main(): void {
   const [command = "--help", ...args] = process.argv.slice(2);
 
   try {
@@ -144,6 +151,10 @@ function main(): void {
         break;
       case "diff":
         renderDiffReview(args);
+        break;
+      case "app":
+      case "review":
+        launchReviewApp(args);
         break;
       case "status":
         printStatus();
@@ -198,7 +209,7 @@ function initFlow(args: string[]): void {
     if (ignored) {
       console.log(`Updated ${GITIGNORE_FILE} to ignore ${FLOW_DIR}/ validation artifacts.`);
     }
-    console.log("Next: run `ai-flow check --include-untracked --open` after an AI change.");
+    console.log("Next: run `ai-flow app --include-untracked` to inspect changes, then `ai-flow check --include-untracked` to record verification.");
   }
 }
 
@@ -342,7 +353,64 @@ function renderDiffReview(args: string[]): void {
   console.log(`URL: ${result.url}`);
   console.log(`Files: ${result.files}`);
   console.log(`Hunks: ${result.hunks}`);
-  console.log("Keys: F7 next hunk, Shift+F7 previous hunk, Shift Shift search files, Cmd/Ctrl+E recent files.");
+  console.log("Keys: F7 next hunk, Shift+F7 previous hunk, Shift Shift search files, Cmd/Ctrl+E recent files, Cmd/Ctrl+Down jump to symbol.");
+}
+
+function launchReviewApp(args: string[]): void {
+  if (args.includes("--help") || args.includes("-h")) {
+    printAppHelp();
+    return;
+  }
+  if (!existsSync(join(process.cwd(), FLOW_DIR, CONFIG_FILE))) {
+    initFlow(["--quiet"]);
+  }
+
+  const config = loadConfig();
+  const contextValue = readOption(args, "--context");
+  const context = contextValue ? parsePositiveInteger(contextValue, "--context") : config.diff.context;
+  const appArgs = [
+    appMainPath(),
+    "--cwd",
+    process.cwd(),
+    "--context",
+    String(context),
+  ];
+  const base = readOption(args, "--base");
+  if (base) appArgs.push("--base", base);
+  if (args.includes("--staged")) appArgs.push("--staged");
+  if (args.includes("--include-untracked") || config.diff.includeUntracked) appArgs.push("--include-untracked");
+  if (args.includes("--no-watch")) appArgs.push("--no-watch");
+
+  const electronBinary = resolveElectronBinary();
+  if (args.includes("--foreground")) {
+    const result = spawnSync(electronBinary, appArgs, { stdio: "inherit" });
+    process.exit(result.status ?? 0);
+  }
+
+  const child = spawn(electronBinary, appArgs, {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+  console.log("Opened ai-flow review app.");
+}
+
+function resolveElectronBinary(): string {
+  const electronModule = nodeRequire("electron") as unknown;
+  if (typeof electronModule === "string") {
+    return electronModule;
+  }
+  if (electronModule && typeof electronModule === "object" && "default" in electronModule) {
+    const value = (electronModule as { default?: unknown }).default;
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+  throw new Error("Electron runtime is not available. Run `npm install` and try again.");
+}
+
+function appMainPath(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), "app-main.js");
 }
 
 function printStatus(): void {
@@ -485,7 +553,7 @@ function writeCheckReport(input: {
   return reportPath;
 }
 
-function buildDiffReview(input: {
+export function buildDiffReview(input: {
   base?: string;
   staged: boolean;
   includeUntracked: boolean;
@@ -501,6 +569,7 @@ function buildDiffReview(input: {
   });
   const files = parseUnifiedDiff(diffText);
   const sourceFiles = collectSourceFiles(files);
+  const fileStates = collectReviewFileStates(files, sourceFiles);
   const hunks = files.reduce((sum, file) => sum + file.hunks.length, 0);
   const generatedAt = new Date().toISOString();
   const diffHtml = renderDiff2Html(diffText);
@@ -513,6 +582,7 @@ function buildDiffReview(input: {
     files,
     diffHtml,
     sourceFiles,
+    fileStates,
     title: input.title,
     subtitle: diffSubtitle(input),
     watch: Boolean(input.watch),
@@ -636,6 +706,7 @@ function renderDiffHtml(input: {
   files: DiffFile[];
   diffHtml: string;
   sourceFiles: SourceFile[];
+  fileStates: ReviewFileState[];
   title: string;
   subtitle: string;
   watch?: boolean;
@@ -643,10 +714,6 @@ function renderDiffHtml(input: {
   generatedAt?: string;
 }): string {
   const totalHunks = input.files.reduce((sum, file) => sum + file.hunks.length, 0);
-  const totalLines = input.files.reduce(
-    (sum, file) => sum + file.hunks.reduce((inner, hunk) => inner + hunk.lines.length, 0),
-    0,
-  );
   const fileNav = renderDiffTree(input.files);
   const sourceNav = renderSourceTree(input.sourceFiles);
   const embeddedFiles = input.sourceFiles.filter((file) => file.embedded).length;
@@ -665,27 +732,23 @@ function renderDiffHtml(input: {
     "</style>",
     "</head>",
     "<body>",
-    '<aside class="sidebar">',
-    '<div class="brand">ai-flow validate</div>',
-    `<div class="summary">${input.files.length} changed | ${totalHunks} hunks | ${embeddedFiles}/${input.sourceFiles.length} files searchable</div>`,
-    `<div class="live-status ${input.watch ? "watching" : ""}" id="live-status">${input.watch ? "Live: watching for changes" : `Generated: ${escapeHtml(input.generatedAt ?? new Date().toISOString())}`}</div>`,
-    '<label class="search"><span>Search</span><input id="review-search" type="search" placeholder="Path or file content"></label>',
+    '<aside class="sidebar" aria-label="Review navigation">',
+    '<label class="search"><span class="visually-hidden">Search</span><input id="review-search" type="search" placeholder="Search files or code"></label>',
     '<div class="tabs"><button type="button" class="tab active" data-tab="changes">Changes</button><button type="button" class="tab" data-tab="files">Files</button></div>',
-    '<div class="keymap"><kbd>F7</kbd> next hunk<br><kbd>Shift</kbd>+<kbd>F7</kbd> previous<br><kbd>Shift</kbd><kbd>Shift</kbd> search files<br><kbd>Cmd</kbd>+<kbd>E</kbd> recent files</div>',
     `<div class="tab-panel" id="changes-panel">${fileNav}</div>`,
     `<div class="tab-panel hidden" id="files-panel">${sourceNav}</div>`,
     "</aside>",
     '<main class="content">',
     '<section id="diff-view">',
     '<div class="toolbar">',
-    `<div><h1>${escapeHtml(input.title)}</h1><p>${escapeHtml(input.subtitle)}; ${escapeHtml(String(totalLines))} diff lines</p></div>`,
+    `<div class="review-status"><span>${input.files.length} files</span><span>${totalHunks} hunks</span><span>${embeddedFiles}/${input.sourceFiles.length} indexed</span><span class="live-status ${input.watch ? "watching" : ""}" id="live-status">${input.watch ? "watching" : escapeHtml(input.generatedAt ?? new Date().toISOString())}</span></div>`,
     `<div class="counter"><span id="hunk-counter">0</span> / ${totalHunks}</div>`,
     "</div>",
     `<div id="diff2html-container" class="diff2html-container">${input.diffHtml || '<div class="empty">No diff to review.</div>'}</div>`,
     "</section>",
     '<section id="source-viewer" class="source-viewer hidden">',
     '<div class="toolbar source-toolbar">',
-    '<div><h1 id="source-title">Source</h1><p id="source-meta">Select a file from the Files tab.</p></div>',
+    '<div class="source-file-meta"><span id="source-title">Source</span><span id="source-meta">Select a file from the Files tab.</span></div>',
     '<button type="button" id="back-to-diff" class="plain-button">Back to diff</button>',
     "</div>",
     '<div id="source-body" class="source-body empty">Select a file from the Files tab.</div>',
@@ -693,13 +756,14 @@ function renderDiffHtml(input: {
     "</main>",
     '<div id="quick-open" class="quick-open hidden" role="dialog" aria-modal="true" aria-label="Quick open">',
     '<div class="quick-open-panel">',
-    '<div class="quick-open-title"><span id="quick-open-mode">Search files</span><span class="quick-open-hint">Up Down Enter Esc</span></div>',
+    '<div class="quick-open-title"><span id="quick-open-mode">Search files</span></div>',
     '<input id="quick-open-input" type="search" autocomplete="off" spellcheck="false" placeholder="Search files">',
     '<div id="quick-open-results" class="quick-open-results"></div>',
     "</div>",
     "</div>",
     `<script type="application/json" id="review-meta" data-watch="${input.watch ? "true" : "false"}" data-signature="${escapeAttr(input.signature ?? "")}" data-generated-at="${escapeAttr(input.generatedAt ?? "")}">{}</script>`,
     `<script type="application/json" id="source-files-data">${jsonForScript(input.sourceFiles)}</script>`,
+    `<script type="application/json" id="file-state-data">${jsonForScript(input.fileStates)}</script>`,
     "<script>",
     diffScript(),
     "</script>",
@@ -1051,10 +1115,12 @@ function collectSourceFiles(diffFiles: DiffFile[]): SourceFile[] {
       size: 0,
       changed: changed.has(path),
       embedded: false,
+      signature: "",
     };
 
     if (!existsSync(absolute)) {
-      sourceFiles.push({ ...base, skippedReason: "file is not present in the working tree" });
+      const skippedReason = "file is not present in the working tree";
+      sourceFiles.push({ ...base, signature: hashText(`${path}\0missing\0${skippedReason}`), skippedReason });
       continue;
     }
 
@@ -1064,31 +1130,55 @@ function collectSourceFiles(diffFiles: DiffFile[]): SourceFile[] {
     }
 
     if (isLikelyBinary(absolute)) {
-      sourceFiles.push({ ...base, size: stats.size, skippedReason: "binary file" });
+      const skippedReason = "binary file";
+      sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0binary\0${stats.size}`), skippedReason });
       continue;
     }
 
     if (stats.size > SOURCE_MAX_FILE_BYTES) {
-      sourceFiles.push({ ...base, size: stats.size, skippedReason: `larger than ${formatBytes(SOURCE_MAX_FILE_BYTES)}` });
+      const skippedReason = `larger than ${formatBytes(SOURCE_MAX_FILE_BYTES)}`;
+      sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0large\0${stats.size}`), skippedReason });
       continue;
     }
 
     if (embeddedFiles >= SOURCE_MAX_FILES || embeddedBytes + stats.size > SOURCE_MAX_TOTAL_BYTES) {
-      sourceFiles.push({ ...base, size: stats.size, skippedReason: "source index budget reached" });
+      const skippedReason = "source index budget reached";
+      sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0budget\0${stats.size}`), skippedReason });
       continue;
     }
 
+    const content = readFileSync(absolute, "utf8");
     sourceFiles.push({
       ...base,
-      content: readFileSync(absolute, "utf8"),
+      content,
       size: stats.size,
       embedded: true,
+      signature: hashText(`${path}\0${content}`),
     });
     embeddedFiles += 1;
     embeddedBytes += stats.size;
   }
 
   return sourceFiles;
+}
+
+function collectReviewFileStates(diffFiles: DiffFile[], sourceFiles: SourceFile[]): ReviewFileState[] {
+  const states = new Map<string, string>();
+  for (const file of sourceFiles) {
+    states.set(file.path, file.signature);
+  }
+  for (const file of diffFiles) {
+    const hunkText = file.hunks
+      .map((hunk) => [
+        hunk.header,
+        ...hunk.lines.map((line) => `${line.kind}:${line.oldLine ?? ""}:${line.newLine ?? ""}:${line.text}`),
+      ].join("\n"))
+      .join("\n---\n");
+    states.set(file.displayPath, hashText(`${file.displayPath}\0${file.status}\0${file.binary}\0${hunkText}`));
+  }
+  return Array.from(states.entries())
+    .map(([path, signature]) => ({ path, signature }))
+    .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 function isSourceCandidate(path: string): boolean {
@@ -1197,7 +1287,7 @@ function diffCss(): string {
 html, body { margin: 0; min-height: 100%; }
 body {
   display: grid;
-  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
   background: var(--bg);
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -1209,23 +1299,32 @@ body {
   overflow: auto;
   border-right: 1px solid var(--border);
   background: var(--sidebar);
-  padding: 16px;
+  padding: 12px;
 }
-.brand { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
-.summary, .keymap { color: var(--muted); font-size: 12px; line-height: 1.5; margin-bottom: 14px; }
-.live-status { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.live-status { color: var(--muted); }
 .live-status.watching { color: var(--active); }
-.search { display: grid; gap: 6px; margin-bottom: 10px; color: var(--muted); font-size: 12px; }
+.search { display: grid; gap: 6px; margin-bottom: 8px; color: var(--muted); font-size: 12px; }
 .search input {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 8px 10px;
+  padding: 9px 10px;
   color: var(--text);
   background: var(--bg);
   font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 12px; }
+.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 10px; }
 .tab, .plain-button {
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1237,17 +1336,6 @@ body {
 }
 .tab.active, .plain-button:hover { border-color: var(--active); color: var(--active); }
 .hidden { display: none !important; }
-kbd {
-  display: inline-block;
-  min-width: 20px;
-  border: 1px solid var(--border);
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  padding: 1px 5px;
-  font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--text);
-  background: var(--bg);
-}
 .diff2html-container { min-width: 0; }
 .d2h-wrapper { background: transparent; color: var(--text); }
 .d2h-file-wrapper {
@@ -1262,6 +1350,12 @@ kbd {
   background: var(--line);
   color: var(--text);
   font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.d2h-file-wrapper.file-viewed {
+  opacity: 0.68;
+}
+.d2h-file-wrapper.file-viewed:hover {
+  opacity: 1;
 }
 .d2h-file-name { color: var(--text); }
 .d2h-icon { fill: var(--muted); }
@@ -1298,7 +1392,33 @@ kbd {
 .d2h-diff-table tr.hunk.active td, .d2h-diff-table tr.hunk-peer.active td {
   box-shadow: inset 0 0 0 2px var(--active);
 }
-.d2h-file-collapse { display: none; }
+.d2h-file-collapse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: transparent;
+  background: var(--panel);
+  overflow: hidden;
+  padding: 0;
+}
+.d2h-file-collapse::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: transparent;
+}
+.d2h-file-wrapper.file-viewed .d2h-file-collapse::after {
+  background: var(--active);
+}
+.d2h-file-collapse-input {
+  display: none;
+}
 .tree { display: grid; gap: 2px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .tree-dir { display: grid; gap: 2px; }
 .tree-dir summary {
@@ -1341,6 +1461,8 @@ kbd {
   cursor: pointer;
 }
 .file-link:hover, .file-link.active { background: var(--bg); border-color: var(--border); }
+.file-link.viewed { opacity: 0.58; }
+.file-link.viewed:hover, .file-link.viewed.active { opacity: 1; }
 .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .count { color: var(--muted); font-size: 12px; }
 .status {
@@ -1370,12 +1492,20 @@ kbd {
   align-items: center;
   gap: 16px;
   margin: -20px -24px 20px;
-  padding: 14px 24px;
+  padding: 10px 24px;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
 }
 h1 { margin: 0; font-size: 18px; }
+.review-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
 .toolbar p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
 .counter {
   min-width: 96px;
@@ -1386,6 +1516,28 @@ h1 { margin: 0; font-size: 18px; }
 .empty { padding: 24px; color: var(--muted); }
 .source-viewer { min-height: 100vh; }
 .source-toolbar { margin-bottom: 0; }
+.source-file-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.source-file-meta #source-title {
+  min-width: 0;
+  max-width: min(56vw, 720px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.source-file-meta #source-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .source-body {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1404,7 +1556,30 @@ h1 { margin: 0; font-size: 18px; }
   line-height: 1.45;
 }
 .source-row.search-hit .source-code { background: color-mix(in srgb, var(--active) 14%, transparent); }
-.source-code { padding: 2px 10px; }
+.source-row.cursor-line .source-code {
+  background: color-mix(in srgb, var(--active) 10%, transparent);
+  box-shadow: inset 2px 0 0 var(--active);
+}
+.source-row.symbol-target .source-code {
+  background: color-mix(in srgb, var(--active) 18%, transparent);
+}
+.source-code {
+  padding: 2px 10px;
+  cursor: text;
+}
+.code-cursor {
+  display: inline-block;
+  width: 1px;
+  height: 1.15em;
+  margin: -1px 0;
+  background: var(--active);
+  vertical-align: text-bottom;
+  pointer-events: none;
+  animation: cursor-blink 1s steps(2, start) infinite;
+}
+@keyframes cursor-blink {
+  50% { opacity: 0; }
+}
 .num {
   width: 58px;
   user-select: none;
@@ -1514,13 +1689,16 @@ const hunkPeers = Array.from(document.querySelectorAll('.hunk-peer'));
 const links = Array.from(document.querySelectorAll('#changes-panel .file-link'));
 const sourceLinks = Array.from(document.querySelectorAll('.source-link'));
 const sourceFiles = JSON.parse(document.getElementById('source-files-data')?.textContent || '[]');
+const fileStates = JSON.parse(document.getElementById('file-state-data')?.textContent || '[]');
 const sourceByPath = new Map(sourceFiles.map((file) => [file.path, file]));
+const fileSignatureByPath = new Map(fileStates.map((file) => [file.path, file.signature]));
 const searchInput = document.getElementById('review-search');
 const reviewMeta = document.getElementById('review-meta');
 const watchEnabled = reviewMeta?.dataset.watch === 'true';
 const currentSignature = reviewMeta?.dataset.signature || '';
 const uiStateKey = 'ai-flow-diff-ui:' + location.pathname;
 const recentKey = 'ai-flow-diff-recent:' + location.pathname;
+const viewedKey = 'ai-flow-diff-viewed:' + location.pathname;
 const quickOpen = document.getElementById('quick-open');
 const quickInput = document.getElementById('quick-open-input');
 const quickResults = document.getElementById('quick-open-results');
@@ -1531,6 +1709,8 @@ let lastShiftAt = 0;
 let quickMode = 'all';
 let quickItems = [];
 let quickActive = 0;
+let viewerCursor = null;
+let measuredCharWidth = 0;
 
 function prepareDiff2HtmlHunks() {
   const wrappers = Array.from(document.querySelectorAll('.d2h-file-wrapper'));
@@ -1556,6 +1736,87 @@ function prepareDiff2HtmlHunks() {
       row.dataset.hunkIndex = String(index);
       row.dataset.file = fileName;
     });
+  });
+}
+
+prepareViewedControls();
+
+function prepareViewedControls() {
+  pruneViewedState();
+  document.querySelectorAll('.d2h-file-wrapper').forEach((wrapper) => {
+    const fileName = wrapper.querySelector('.d2h-file-name')?.textContent?.trim() || '';
+    const toggle = wrapper.querySelector('.d2h-file-collapse');
+    const input = toggle?.querySelector('input');
+    if (!fileName || !toggle || !input) return;
+    toggle.title = 'Mark viewed';
+    input.tabIndex = -1;
+    toggle.addEventListener('click', (event) => {
+      event.preventDefault();
+      setFileViewed(fileName, !isFileViewed(fileName));
+    });
+  });
+  applyViewedState();
+}
+
+function loadViewedState() {
+  try {
+    const value = JSON.parse(localStorage.getItem(viewedKey) || '{}');
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveViewedState(value) {
+  try {
+    localStorage.setItem(viewedKey, JSON.stringify(value));
+  } catch {}
+}
+
+function currentFileSignature(path) {
+  return fileSignatureByPath.get(path) || '';
+}
+
+function isFileViewed(path) {
+  const viewed = loadViewedState();
+  const signature = currentFileSignature(path);
+  return Boolean(signature && viewed[path] === signature);
+}
+
+function setFileViewed(path, viewed) {
+  const state = loadViewedState();
+  if (viewed) {
+    const signature = currentFileSignature(path);
+    if (signature) state[path] = signature;
+  } else {
+    delete state[path];
+  }
+  saveViewedState(state);
+  applyViewedState();
+}
+
+function pruneViewedState() {
+  const state = loadViewedState();
+  let changed = false;
+  Object.keys(state).forEach((path) => {
+    if (state[path] !== currentFileSignature(path)) {
+      delete state[path];
+      changed = true;
+    }
+  });
+  if (changed) saveViewedState(state);
+}
+
+function applyViewedState() {
+  document.querySelectorAll('.d2h-file-wrapper').forEach((wrapper) => {
+    const fileName = wrapper.querySelector('.d2h-file-name')?.textContent?.trim() || '';
+    const viewed = isFileViewed(fileName);
+    wrapper.classList.toggle('file-viewed', viewed);
+    const checkbox = wrapper.querySelector('.d2h-file-collapse-input');
+    if (checkbox) checkbox.checked = viewed;
+  });
+  links.forEach((link) => {
+    link.classList.toggle('viewed', isFileViewed(link.dataset.file || ''));
   });
 }
 
@@ -1767,6 +2028,12 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
+  if ((event.metaKey || event.ctrlKey) && event.key === 'ArrowDown') {
+    event.preventDefault();
+    goToSymbolUnderCursor();
+    return;
+  }
+
   if (event.key === 'F7') {
     event.preventDefault();
     next(event.shiftKey ? -1 : 1);
@@ -1819,6 +2086,7 @@ document.querySelectorAll('.tab').forEach((button) => {
 });
 
 document.getElementById('back-to-diff')?.addEventListener('click', () => showDiffView(true));
+document.getElementById('source-body')?.addEventListener('click', handleSourceClick);
 
 searchInput?.addEventListener('input', () => {
   filterNavigation(searchInput.value);
@@ -1937,6 +2205,137 @@ function updateTreeVisibility(root, query) {
   });
 }
 
+function handleSourceClick(event) {
+  const target = event.target;
+  const row = target?.closest?.('.source-row');
+  if (!row) return;
+  const viewer = document.getElementById('source-viewer');
+  const path = viewer?.dataset.openPath || '';
+  const file = sourceByPath.get(path);
+  if (!file || !file.embedded) return;
+  const lineIndex = Number(row.dataset.lineIndex || 0);
+  const lines = file.content.split(/\r?\n/);
+  const line = lines[lineIndex] || '';
+  const codeCell = row.querySelector('.source-code');
+  const column = estimateColumnFromClick(codeCell, event, line);
+  setSourceCursor(path, lineIndex, column, false, -1);
+}
+
+function estimateColumnFromClick(codeCell, event, line) {
+  if (!codeCell) return 0;
+  const rect = codeCell.getBoundingClientRect();
+  const style = getComputedStyle(codeCell);
+  const paddingLeft = Number.parseFloat(style.paddingLeft || '0') || 0;
+  const x = event.clientX - rect.left - paddingLeft;
+  const width = measuredCharWidth || measureCharWidth(codeCell);
+  const column = Math.round(x / Math.max(width, 1));
+  return Math.max(0, Math.min(line.length, column));
+}
+
+function measureCharWidth(element) {
+  const probe = document.createElement('span');
+  probe.textContent = 'mmmmmmmmmm';
+  probe.style.position = 'absolute';
+  probe.style.visibility = 'hidden';
+  probe.style.whiteSpace = 'pre';
+  probe.style.font = getComputedStyle(element).font;
+  document.body.appendChild(probe);
+  const width = probe.getBoundingClientRect().width / 10;
+  probe.remove();
+  measuredCharWidth = width || 7;
+  return measuredCharWidth;
+}
+
+function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLine = -1) {
+  const file = sourceByPath.get(path);
+  if (!file || !file.embedded) return;
+  const lines = file.content.split(/\r?\n/);
+  const boundedLine = Math.max(0, Math.min(lineIndex, Math.max(lines.length - 1, 0)));
+  const boundedColumn = Math.max(0, Math.min(column, (lines[boundedLine] || '').length));
+  viewerCursor = {
+    path,
+    lineIndex: boundedLine,
+    column: boundedColumn,
+    targetLine,
+  };
+
+  const viewer = document.getElementById('source-viewer');
+  const shouldSwitch = !viewer || viewer.dataset.openPath !== path || viewer.classList.contains('hidden');
+  openSourceFile(path, shouldSwitch);
+  if (shouldReveal) {
+    requestAnimationFrame(() => {
+      document.querySelector('.source-row.cursor-line')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  }
+}
+
+function openSourceAt(path, lineIndex, column) {
+  setSourceCursor(path, lineIndex, column, true, lineIndex);
+}
+
+function wordAtCursor() {
+  if (!viewerCursor) return null;
+  const file = sourceByPath.get(viewerCursor.path);
+  if (!file || !file.embedded) return null;
+  const line = file.content.split(/\r?\n/)[viewerCursor.lineIndex] || '';
+  const column = Math.max(0, Math.min(viewerCursor.column, line.length));
+  const identifier = /[A-Za-z_$][A-Za-z0-9_$]*/g;
+  let match = null;
+  while ((match = identifier.exec(line))) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (column >= start && column <= end) {
+      return { name: match[0], path: viewerCursor.path, lineIndex: viewerCursor.lineIndex, column: start };
+    }
+  }
+  return null;
+}
+
+function goToSymbolUnderCursor() {
+  const symbol = wordAtCursor();
+  if (!symbol) return;
+  const target = findSymbolDefinition(symbol.name);
+  if (!target) return;
+  openSourceAt(target.path, target.lineIndex, target.column);
+}
+
+function findSymbolDefinition(name) {
+  const matchers = definitionMatchers(name);
+  const currentPath = viewerCursor?.path || '';
+  const orderedFiles = [
+    ...sourceFiles.filter((file) => file.path === currentPath),
+    ...sourceFiles.filter((file) => file.path !== currentPath),
+  ].filter((file) => file.embedded);
+
+  for (const file of orderedFiles) {
+    const lines = file.content.split(/\r?\n/);
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const line = lines[lineIndex];
+      if (matchers.some((matcher) => matcher.test(line))) {
+        return { path: file.path, lineIndex, column: Math.max(0, line.indexOf(name)) };
+      }
+    }
+  }
+  return null;
+}
+
+function definitionMatchers(name) {
+  const escaped = escapeRegExp(name);
+  return [
+    new RegExp('^\\s*(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?function\\s+' + escaped + '\\b'),
+    new RegExp('^\\s*(?:export\\s+)?(?:abstract\\s+)?class\\s+' + escaped + '\\b'),
+    new RegExp('^\\s*(?:export\\s+)?(?:interface|type|enum|struct|trait)\\s+' + escaped + '\\b'),
+    new RegExp('^\\s*(?:export\\s+)?(?:const|let|var)\\s+' + escaped + '\\s*='),
+    new RegExp('^\\s*(?:def|fn|func)\\s+' + escaped + '\\b'),
+    new RegExp('^\\s*(?:public\\s+|private\\s+|protected\\s+|static\\s+|async\\s+|override\\s+|final\\s+|open\\s+)*' + escaped + '\\s*\\([^)]*\\)\\s*(?::\\s*[^=]+)?\\s*(?:\\{|=>)'),
+    new RegExp('^\\s*' + escaped + '\\s*[:=]\\s*(?:async\\s*)?(?:function\\b|\\([^)]*\\)\\s*=>)'),
+  ];
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[|\\{}()[\]^$+*?.]/g, '\\$&');
+}
+
 function openSourceFile(path, shouldSwitch = true) {
   const file = sourceByPath.get(path);
   if (!file) return;
@@ -1958,6 +2357,9 @@ function openSourceFile(path, shouldSwitch = true) {
     if (shouldSwitch) showSourceView();
     return;
   }
+  if (!viewerCursor || viewerCursor.path !== path) {
+    viewerCursor = { path, lineIndex: 0, column: 0, targetLine: -1 };
+  }
   body.className = 'source-body';
   body.innerHTML = renderSourceTable(file, searchInput?.value || '');
   if (shouldSwitch) showSourceView();
@@ -1966,16 +2368,32 @@ function openSourceFile(path, shouldSwitch = true) {
 function renderSourceTable(file, query) {
   const normalizedQuery = query.trim().toLowerCase();
   const lines = file.content.split(/\r?\n/);
+  const cursor = viewerCursor && viewerCursor.path === file.path ? viewerCursor : null;
   const rows = lines.map((line, index) => {
     const hit = normalizedQuery.length > 0 && line.toLowerCase().includes(normalizedQuery);
+    const isCursorLine = Boolean(cursor && cursor.lineIndex === index);
+    const isSymbolTarget = Boolean(cursor && cursor.targetLine === index);
+    const classes = [
+      'source-row',
+      hit ? 'search-hit' : '',
+      isCursorLine ? 'cursor-line' : '',
+      isSymbolTarget ? 'symbol-target' : '',
+    ].filter(Boolean).join(' ');
     return [
-      '<tr class="source-row' + (hit ? ' search-hit' : '') + '">',
+      '<tr class="' + classes + '" data-line-index="' + index + '">',
       '<td class="num">' + String(index + 1) + '</td>',
-      '<td class="source-code">' + highlightLine(line, file.language || 'text') + '</td>',
+      '<td class="source-code">' + (isCursorLine ? renderLineWithCursor(line, file.language || 'text', cursor.column) : highlightLine(line, file.language || 'text')) + '</td>',
       '</tr>',
     ].join('');
   }).join('');
   return '<table class="source-table"><tbody>' + rows + '</tbody></table>';
+}
+
+function renderLineWithCursor(text, language, column) {
+  const boundedColumn = Math.max(0, Math.min(column, text.length));
+  const before = text.slice(0, boundedColumn);
+  const after = text.slice(boundedColumn);
+  return highlightLine(before, language) + '<span class="code-cursor" aria-hidden="true"></span>' + highlightLine(after, language);
 }
 
 function highlightLine(text, language) {
@@ -2094,9 +2512,10 @@ function agentSnippet(): string {
     "Before claiming completion on a code change:",
     "",
     "- Run `ai-flow check --include-untracked` or a more specific `ai-flow verify -- <command>`.",
-    "- Use `ai-flow diff --watch --open` while changes are still moving.",
+    "- Use `ai-flow app --include-untracked` while changes are still moving.",
     "- Inspect changed hunks with F7 / Shift+F7.",
     "- Use Shift Shift in the diff review to search indexed files, including unchanged files.",
+    "- In source previews, use Cmd/Ctrl+Down to jump to the declaration-like match under the cursor.",
     "- Report the verification commands, results, and remaining risks.",
     "",
     "Do not claim a change is done without verification evidence or a precise explanation of why verification could not run.",
@@ -2345,6 +2764,10 @@ function timestampForFile(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
+function hashText(value: string): string {
+  return createHash("sha1").update(value).digest("hex");
+}
+
 function sanitizeFilePart(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "");
 }
@@ -2404,13 +2827,15 @@ Usage:
   ai-flow install [--force] [--apply-agent-docs]
   ai-flow verify [-- <command>]
   ai-flow diff [--base HEAD] [--staged] [--include-untracked] [--open] [--watch]
+  ai-flow app [--base HEAD] [--staged] [--include-untracked]
+  ai-flow review [--base HEAD] [--staged] [--include-untracked]
   ai-flow status
   ai-flow report [--label manual] [--file report.md]
 
 Default loop:
   1. Let an AI agent edit code.
-  2. Run: ai-flow check --include-untracked --open
-  3. Inspect the generated diff review and verification log.
+  2. Run: ai-flow app --include-untracked
+  3. Run: ai-flow check --include-untracked
   4. Only accept the change when verification evidence is clear.
 
 Diff review keys:
@@ -2418,6 +2843,7 @@ Diff review keys:
   Shift+F7  previous changed hunk
   Shift Shift file search across indexed files
   Cmd/Ctrl+E recent files
+  Cmd/Ctrl+Down jump to symbol under cursor
 `);
 }
 
@@ -2450,11 +2876,40 @@ Keys in the review page:
   ] / [     fallback hunk navigation
   Shift Shift search indexed files, including unchanged files
   Cmd/Ctrl+E recent files
+  Cmd/Ctrl+Down jump to symbol under cursor
 
 The sidebar groups changed files as a folder tree. Use Search to filter paths and indexed file contents.
-The Files tab opens source previews, including unchanged files when they fit the local review budget.
+The Files tab opens read-only source previews, including unchanged files when they fit the local review budget.
+Viewed marks are tied to file signatures, so a changed file becomes unviewed again after reload.
 Use --watch to serve a live review that reloads when the working tree changes.
 `);
 }
 
-main();
+function printAppHelp(): void {
+  console.log(`ai-flow app
+
+Launch the local desktop review app. The app reads Git diff and source files directly from this repository, writes a local review file under .ai-flow/, and refreshes when the working tree changes. It does not start an HTTP server.
+
+Usage:
+  ai-flow app [--base HEAD] [--staged] [--include-untracked] [--context 12] [--no-watch] [--foreground]
+
+Aliases:
+  ai-flow review
+`);
+}
+
+function isDirectRun(): boolean {
+  const entry = process.argv[1];
+  if (!entry) {
+    return false;
+  }
+  try {
+    return realpathSync(resolve(entry)) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return resolve(entry) === fileURLToPath(import.meta.url);
+  }
+}
+
+if (isDirectRun()) {
+  main();
+}
