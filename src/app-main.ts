@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
-import { app, BrowserWindow, Menu } from "electron";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { app, BrowserWindow, Menu, nativeImage } from "electron";
 import { buildDiffReview } from "./cli.js";
 
 type AppOptions = {
@@ -15,6 +16,10 @@ type AppOptions = {
 const FLOW_DIR = ".monacori";
 const REVIEW_FILE = "app-review.html";
 const WATCH_INTERVAL_MS = 1000;
+
+app.setName("monacori");
+
+const iconPath = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "icon.png");
 
 const options = parseArgs(process.argv.slice(2));
 let mainWindow: BrowserWindow | undefined;
@@ -31,6 +36,11 @@ app.whenReady().then(async () => {
   mkdirSync(FLOW_DIR, { recursive: true });
   Menu.setApplicationMenu(null);
 
+  const appIcon = nativeImage.createFromPath(iconPath);
+  if (process.platform === "darwin" && app.dock && !appIcon.isEmpty()) {
+    app.dock.setIcon(appIcon);
+  }
+
   const firstBuild = writeReviewFile(options);
   currentSignature = firstBuild.signature;
 
@@ -40,8 +50,9 @@ app.whenReady().then(async () => {
     minWidth: 960,
     minHeight: 640,
     show: false,
-    title: basename(options.root),
-    backgroundColor: "#0d1117",
+    title: "monacori",
+    icon: iconPath,
+    backgroundColor: "#2b2b2b",
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,

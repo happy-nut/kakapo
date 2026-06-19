@@ -18,6 +18,7 @@
   "files": [
     "bin",
     "dist",
+    "assets",
     "README.md",
     "LICENSE"
   ],
@@ -26,6 +27,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "icon": "node scripts/gen-icon.mjs",
     "prepare": "npm run build",
     "smoke": "npm run build && node dist/cli.js --help"
   },
