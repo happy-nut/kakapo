@@ -6,7 +6,7 @@ const APP_NAME = "monacori";
 
 // Electron ships its prebuilt Electron.app with the bundle name "Electron",
 // which is what macOS shows in the Dock and Cmd+Tab when we launch it directly
-// (the npm `dg` model runs node_modules/electron, not a packaged .app).
+// (the npm `mo` model runs node_modules/electron, not a packaged .app).
 // app.setName() only affects the menu and notifications, so we patch the bundle
 // metadata here. CFBundleExecutable is the real binary name and is left alone.
 function electronInfoPlist() {

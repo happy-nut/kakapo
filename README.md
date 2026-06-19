@@ -35,7 +35,7 @@ npm install -g @happy-nut/monacori
 After installation, the short command is:
 
 ```bash
-dg
+mo
 ```
 
 Homebrew tap distribution is prepared through `Formula/monacori.rb`. Once the scoped npm package is published and the formula is copied to the `happy-nut/homebrew-monacori` tap, the intended install path is:
@@ -59,11 +59,11 @@ npm link
 Inside the repository you want to validate:
 
 ```bash
-dg
+mo
 monacori check --include-untracked
 ```
 
-`dg` opens the local desktop review app for the current directory. On first run it creates `.monacori/`, updates Git ignore rules for `.monacori/`, and includes untracked files so new AI-created files show up immediately.
+`mo` opens the local desktop review app for the current directory. On first run it creates `.monacori/`, updates Git ignore rules for `.monacori/`, and includes untracked files so new AI-created files show up immediately.
 
 `check` runs configured verification commands, writes a log, creates a browser diff review, and records a compact report.
 
@@ -76,7 +76,7 @@ monacori check -- npm test
 For live diff review while an AI is still editing:
 
 ```bash
-dg
+mo
 ```
 
 ## Diff Review
@@ -100,7 +100,7 @@ The browser artifact path is still available through `monacori diff`. Add `--wat
 monacori open [--base HEAD] [--staged] [--tracked-only] [--context 12] [--no-watch]
 ```
 
-Opens the local desktop review app for the current directory. `dg` and bare `monacori` are aliases for this default flow. It auto-initializes local state when needed and includes untracked files by default; pass `--tracked-only` to inspect tracked changes only.
+Opens the local desktop review app for the current directory. `mo` and bare `monacori` are aliases for this default flow. It auto-initializes local state when needed and includes untracked files by default; pass `--tracked-only` to inspect tracked changes only.
 
 ```bash
 monacori check [--include-untracked] [--staged] [--base HEAD] [--context 12] [--open] [--no-verify] [--no-diff] [-- <command>]
@@ -130,7 +130,7 @@ Runs configured verification commands and stores the log in `.monacori/logs/`. E
 monacori app [--base HEAD] [--staged] [--include-untracked] [--context 12] [--no-watch]
 ```
 
-Launches the local desktop review app. `dg`, `monacori open`, and `monacori review` are aliases. Prefer `dg` for normal use.
+Launches the local desktop review app. `mo`, `monacori open`, and `monacori review` are aliases. Prefer `mo` for normal use.
 
 ```bash
 monacori diff [--base HEAD] [--staged] [--include-untracked] [--context 12] [--output review.html] [--open] [--watch] [--port 0]

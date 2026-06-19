@@ -14,6 +14,6 @@ class Monacori < Formula
 
   test do
     assert_match "monacori", shell_output("#{bin}/monacori --help")
-    assert_match "monacori", shell_output("#{bin}/dg --help")
+    assert_match "monacori", shell_output("#{bin}/mo --help")
   end
 end
