@@ -121,7 +121,7 @@ type ReviewFileState = {
   signature: string;
 };
 
-const FLOW_DIR = ".diffguard";
+const FLOW_DIR = ".monacori";
 const GITIGNORE_FILE = ".gitignore";
 const CONFIG_FILE = "config.json";
 const STATE_FILE = "state.md";
@@ -186,7 +186,7 @@ export function main(): void {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`diffguard: ${message}`);
+    console.error(`monacori: ${message}`);
     process.exit(1);
   }
 }
@@ -216,14 +216,14 @@ function initFlow(args: string[]): void {
   writeIfMissing(join(flowPath, CONFIG_FILE), `${JSON.stringify(config, null, 2)}\n`, force);
   writeIfMissing(join(flowPath, STATE_FILE), initialState(config), force);
   writeIfMissing(join(flowPath, DECISIONS_FILE), initialDecisions(), force);
-  const ignored = ensureDiffguardGitignore(root);
+  const ignored = ensureMonacoriGitignore(root);
 
   if (!quiet) {
     console.log(`Initialized ${FLOW_DIR}/ in ${root}`);
     if (ignored) {
       console.log(`Updated ${GITIGNORE_FILE} to ignore ${FLOW_DIR}/ validation artifacts.`);
     }
-    console.log("Next: run `diffguard app --include-untracked` to inspect changes, then `diffguard check --include-untracked` to record verification.");
+    console.log("Next: run `monacori app --include-untracked` to inspect changes, then `monacori check --include-untracked` to record verification.");
   }
 }
 
@@ -237,7 +237,7 @@ function installFlow(args: string[]): void {
     applyAgentDocSnippet("CLAUDE.md");
   }
 
-  console.log("Installed diffguard validation instructions.");
+  console.log("Installed monacori validation instructions.");
   console.log(`- ${FLOW_DIR}/${AGENT_SNIPPET_FILE}`);
   if (applyAgentDocs) {
     console.log("- Updated AGENTS.md / CLAUDE.md validation snippets where available.");
@@ -278,7 +278,7 @@ function runCheck(args: string[]): void {
       includeUntracked,
       context,
       output: join(process.cwd(), FLOW_DIR, "diffs", `${timestampForFile()}-check.html`),
-      title: "diffguard validation diff",
+      title: "monacori validation diff",
     });
     if (openInBrowser) {
       spawnSync("open", [review.path], { stdio: "ignore" });
@@ -286,7 +286,7 @@ function runCheck(args: string[]): void {
   }
 
   const reportPath = writeCheckReport({ verification, review });
-  console.log("# diffguard check");
+  console.log("# monacori check");
   console.log(`Verification: ${verification.skipped ? "skipped" : verification.failed ? "failed" : "passed"}`);
   if (verification.logPath) {
     console.log(`Log: ${relative(process.cwd(), verification.logPath)}`);
@@ -352,7 +352,7 @@ function renderDiffReview(args: string[]): void {
     includeUntracked,
     context,
     output,
-    title: "diffguard diff review",
+    title: "monacori diff review",
   });
 
   if (openInBrowser) {
@@ -400,7 +400,7 @@ function launchReviewApp(args: string[]): void {
     stdio: "ignore",
   });
   child.unref();
-  console.log("Opened diffguard review app.");
+  console.log("Opened monacori review app.");
 }
 
 function openCurrentRepository(args: string[]): void {
@@ -482,7 +482,7 @@ function recordReport(args: string[]): void {
   mkdirSync(reportDir, { recursive: true });
   const reportPath = join(reportDir, `${timestamp}-${sanitizeFilePart(label)}.md`);
   writeFileSync(reportPath, [
-    `# Diffguard Report: ${label}`,
+    `# Monacori Report: ${label}`,
     "",
     `Recorded: ${new Date().toISOString()}`,
     "",
@@ -545,7 +545,7 @@ function writeCheckReport(input: {
       ? "failed"
       : "passed";
   const report = [
-    "# Diffguard Validation Check",
+    "# Monacori Validation Check",
     "",
     `Recorded: ${new Date().toISOString()}`,
     `Branch: ${git.branch || "(unknown)"}`,
@@ -745,7 +745,7 @@ function renderNotGitRepoHtml(root: string): string {
     "<head>",
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    "<title>diffguard</title>",
+    "<title>monacori</title>",
     "<style>",
     "* { box-sizing: border-box; }",
     "body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #2b2b2b; color: #a9b7c6; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }",
@@ -759,10 +759,10 @@ function renderNotGitRepoHtml(root: string): string {
     "</head>",
     "<body>",
     '<div class="card">',
-    '<div class="badge">diffguard</div>',
+    '<div class="badge">monacori</div>',
     "<h1>Not a Git repository</h1>",
-    "<p>diffguard reviews changes tracked by Git, but this folder isn't a Git repository yet.</p>",
-    "<p>Open a terminal here, run <code>git init</code>, then reopen diffguard.</p>",
+    "<p>monacori reviews changes tracked by Git, but this folder isn't a Git repository yet.</p>",
+    "<p>Open a terminal here, run <code>git init</code>, then reopen monacori.</p>",
     `<p class="path">${escapeHtml(root)}</p>`,
     "</div>",
     "</body>",
@@ -812,7 +812,7 @@ function serveDiffWatch(input: {
     staged: input.staged,
     includeUntracked: input.includeUntracked,
     context: input.context,
-    title: "diffguard live diff",
+    title: "monacori live diff",
     watch: true,
   });
 
@@ -845,7 +845,7 @@ function serveDiffWatch(input: {
 
   server.on("error", (error) => {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`diffguard: diff watch server failed: ${message}`);
+    console.error(`monacori: diff watch server failed: ${message}`);
     process.exit(1);
   });
 
@@ -1948,9 +1948,9 @@ const searchInput = document.getElementById('review-search');
 const reviewMeta = document.getElementById('review-meta');
 const watchEnabled = reviewMeta?.dataset.watch === 'true';
 const currentSignature = reviewMeta?.dataset.signature || '';
-const uiStateKey = 'diffguard-diff-ui:' + location.pathname;
-const recentKey = 'diffguard-diff-recent:' + location.pathname;
-const viewedKey = 'diffguard-diff-viewed:' + location.pathname;
+const uiStateKey = 'monacori-diff-ui:' + location.pathname;
+const recentKey = 'monacori-diff-recent:' + location.pathname;
+const viewedKey = 'monacori-diff-viewed:' + location.pathname;
 const quickOpen = document.getElementById('quick-open');
 const quickInput = document.getElementById('quick-open-input');
 const quickResults = document.getElementById('quick-open-results');
@@ -2482,7 +2482,7 @@ window.addEventListener('beforeunload', saveUiState);
 (function setupSidebarResize() {
   const resizer = document.querySelector('.sidebar-resizer');
   if (!resizer) return;
-  const sidebarKey = 'diffguard-sidebar-width:' + location.pathname;
+  const sidebarKey = 'monacori-sidebar-width:' + location.pathname;
   const saved = localStorage.getItem(sidebarKey);
   if (saved) document.documentElement.style.setProperty('--sidebar-width', saved);
   let resizing = false;
@@ -3068,7 +3068,7 @@ function formatBytes(bytes) {
 
 function initialState(config: FlowConfig): string {
   return [
-    "# Diffguard Validation State",
+    "# Monacori Validation State",
     "",
     `Project: ${config.projectName}`,
     `Initialized: ${new Date().toISOString()}`,
@@ -3085,7 +3085,7 @@ function initialState(config: FlowConfig): string {
 
 function initialDecisions(): string {
   return [
-    "# Diffguard Decisions",
+    "# Monacori Decisions",
     "",
     "Record durable validation decisions here so future checks do not depend on chat memory.",
     "",
@@ -3094,22 +3094,22 @@ function initialDecisions(): string {
 
 function agentSnippet(): string {
   return [
-    "<!-- DIFFGUARD:START -->",
-    "## diffguard Validation",
+    "<!-- MONACORI:START -->",
+    "## monacori Validation",
     "",
-    "This repository uses diffguard to verify AI-generated code changes.",
+    "This repository uses monacori to verify AI-generated code changes.",
     "",
     "Before claiming completion on a code change:",
     "",
-    "- Run `diffguard check --include-untracked` or a more specific `diffguard verify -- <command>`.",
-    "- Use `diffguard app --include-untracked` while changes are still moving.",
+    "- Run `monacori check --include-untracked` or a more specific `monacori verify -- <command>`.",
+    "- Use `monacori app --include-untracked` while changes are still moving.",
     "- Inspect changed hunks with F7 / Shift+F7.",
     "- Use Shift Shift in the diff review to search indexed files, including unchanged files.",
     "- In source previews, use Cmd/Ctrl+Down to jump to the declaration-like match under the cursor.",
     "- Report the verification commands, results, and remaining risks.",
     "",
     "Do not claim a change is done without verification evidence or a precise explanation of why verification could not run.",
-    "<!-- DIFFGUARD:END -->",
+    "<!-- MONACORI:END -->",
     "",
   ].join("\n");
 }
@@ -3123,7 +3123,7 @@ function applyAgentDocSnippet(fileName: string): void {
   }
 
   const current = readFileSync(path, "utf8");
-  const markerPattern = /<!-- DIFFGUARD:START -->[\s\S]*?<!-- DIFFGUARD:END -->\n?/;
+  const markerPattern = /<!-- MONACORI:START -->[\s\S]*?<!-- MONACORI:END -->\n?/;
   const next = markerPattern.test(current)
     ? current.replace(markerPattern, snippet)
     : `${current.trimEnd()}\n\n${snippet}`;
@@ -3132,7 +3132,7 @@ function applyAgentDocSnippet(fileName: string): void {
 
 function ensureInitialized(): void {
   if (!existsSync(join(process.cwd(), FLOW_DIR, CONFIG_FILE))) {
-    throw new Error(`Missing ${FLOW_DIR}/. Run \`diffguard init\` first.`);
+    throw new Error(`Missing ${FLOW_DIR}/. Run \`monacori init\` first.`);
   }
 }
 
@@ -3141,7 +3141,7 @@ function ensureWritableFlowState(): void {
     initFlow(["--quiet"]);
     return;
   }
-  ensureDiffguardGitignore(process.cwd());
+  ensureMonacoriGitignore(process.cwd());
 }
 
 function loadConfig(): FlowConfig {
@@ -3171,7 +3171,7 @@ function writeIfMissing(path: string, content: string, force: boolean): void {
   writeFileSync(path, content);
 }
 
-function ensureDiffguardGitignore(root: string): boolean {
+function ensureMonacoriGitignore(root: string): boolean {
   if (git(root, ["rev-parse", "--is-inside-work-tree"]) !== "true") {
     return false;
   }
@@ -3187,7 +3187,7 @@ function ensureDiffguardGitignore(root: string): boolean {
   }
 
   const prefix = content.length === 0 ? "" : content.endsWith("\n") ? "\n" : "\n\n";
-  writeFileSync(path, `${content}${prefix}# diffguard local validation artifacts\n${FLOW_DIR}/\n`);
+  writeFileSync(path, `${content}${prefix}# monacori local validation artifacts\n${FLOW_DIR}/\n`);
   return true;
 }
 
@@ -3415,27 +3415,27 @@ function listRecentFiles(dir: string, limit: number): string[] {
 }
 
 function printHelp(): void {
-  console.log(`diffguard
+  console.log(`monacori
 
 Validation control plane for AI-generated code changes.
 
 Usage:
-  dg
-  diffguard open [--base HEAD] [--staged] [--tracked-only]
-  diffguard check [--include-untracked] [--open] [--no-verify] [--no-diff] [-- <command>]
-  diffguard init [--force]
-  diffguard install [--force] [--apply-agent-docs]
-  diffguard verify [-- <command>]
-  diffguard diff [--base HEAD] [--staged] [--include-untracked] [--open] [--watch]
-  diffguard app [--base HEAD] [--staged] [--include-untracked]
-  diffguard review [--base HEAD] [--staged] [--include-untracked]
-  diffguard status
-  diffguard report [--label manual] [--file report.md]
+  mo
+  monacori open [--base HEAD] [--staged] [--tracked-only]
+  monacori check [--include-untracked] [--open] [--no-verify] [--no-diff] [-- <command>]
+  monacori init [--force]
+  monacori install [--force] [--apply-agent-docs]
+  monacori verify [-- <command>]
+  monacori diff [--base HEAD] [--staged] [--include-untracked] [--open] [--watch]
+  monacori app [--base HEAD] [--staged] [--include-untracked]
+  monacori review [--base HEAD] [--staged] [--include-untracked]
+  monacori status
+  monacori report [--label manual] [--file report.md]
 
 Default loop:
   1. Let an AI agent edit code.
-  2. Run: dg
-  3. Run: diffguard check --include-untracked
+  2. Run: mo
+  3. Run: monacori check --include-untracked
   4. Only accept the change when verification evidence is clear.
 
 Diff review keys:
@@ -3448,15 +3448,15 @@ Diff review keys:
 }
 
 function printOpenHelp(): void {
-  console.log(`diffguard open
+  console.log(`monacori open
 
-Open the local desktop review app for the current directory. This is the default command behind \`dg\` and \`diffguard\` with no arguments.
+Open the local desktop review app for the current directory. This is the default command behind \`mo\` and \`monacori\` with no arguments.
 
-It auto-initializes .diffguard/ when needed, makes sure .diffguard/ is ignored in Git worktrees, and includes untracked files by default so new AI-created files are visible.
+It auto-initializes .monacori/ when needed, makes sure .monacori/ is ignored in Git worktrees, and includes untracked files by default so new AI-created files are visible.
 
 Usage:
-  dg
-  diffguard open [--base HEAD] [--staged] [--tracked-only] [--context 12] [--no-watch] [--foreground]
+  mo
+  monacori open [--base HEAD] [--staged] [--tracked-only] [--context 12] [--no-watch] [--foreground]
 
 Options:
   --tracked-only  inspect tracked changes only
@@ -3464,27 +3464,27 @@ Options:
 }
 
 function printCheckHelp(): void {
-  console.log(`diffguard check
+  console.log(`monacori check
 
 Run configured verification and create a reviewable diff artifact.
 
 Usage:
-  diffguard check [--include-untracked] [--staged] [--base HEAD] [--context 12] [--open] [--no-verify] [--no-diff] [-- <command>]
+  monacori check [--include-untracked] [--staged] [--base HEAD] [--context 12] [--open] [--no-verify] [--no-diff] [-- <command>]
 
 Examples:
-  diffguard check --include-untracked --open
-  diffguard check -- npm test
-  diffguard check --no-verify --include-untracked
+  monacori check --include-untracked --open
+  monacori check -- npm test
+  monacori check --no-verify --include-untracked
 `);
 }
 
 function printDiffHelp(): void {
-  console.log(`diffguard diff
+  console.log(`monacori diff
 
 Generate a browser-based side-by-side Git diff review.
 
 Usage:
-  diffguard diff [--base HEAD] [--staged] [--include-untracked] [--context 12] [--output review.html] [--open] [--watch] [--port 0]
+  monacori diff [--base HEAD] [--staged] [--include-untracked] [--context 12] [--output review.html] [--open] [--watch] [--port 0]
 
 Keys in the review page:
   F7         next changed hunk
@@ -3502,17 +3502,17 @@ Use --watch to serve a live review that reloads when the working tree changes.
 }
 
 function printAppHelp(): void {
-  console.log(`diffguard app
+  console.log(`monacori app
 
-Launch the local desktop review app. The app reads Git diff and source files directly from this repository, writes a local review file under .diffguard/, and refreshes when the working tree changes. It does not start an HTTP server.
+Launch the local desktop review app. The app reads Git diff and source files directly from this repository, writes a local review file under .monacori/, and refreshes when the working tree changes. It does not start an HTTP server.
 
 Usage:
-  diffguard app [--base HEAD] [--staged] [--include-untracked] [--context 12] [--no-watch] [--foreground]
+  monacori app [--base HEAD] [--staged] [--include-untracked] [--context 12] [--no-watch] [--foreground]
 
 Aliases:
-  dg
-  diffguard open
-  diffguard review
+  mo
+  monacori open
+  monacori review
 `);
 }
 

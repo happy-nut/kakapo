@@ -12,7 +12,7 @@ type AppOptions = {
   watch: boolean;
 };
 
-const FLOW_DIR = ".diffguard";
+const FLOW_DIR = ".monacori";
 const REVIEW_FILE = "app-review.html";
 const WATCH_INTERVAL_MS = 1000;
 
@@ -90,7 +90,7 @@ function writeReviewFile(input: AppOptions): { signature: string } {
     staged: input.staged,
     includeUntracked: input.includeUntracked,
     context: input.context,
-    title: "diffguard review",
+    title: "monacori review",
   });
   writeFileSync(reviewPath(), build.html);
   return { signature: build.signature };

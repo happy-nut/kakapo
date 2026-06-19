@@ -1,19 +1,19 @@
 {
-  "name": "@happy-nut/diffguard",
+  "name": "@happy-nut/monacori",
   "version": "0.1.0",
   "description": "Validation control plane for AI-generated code changes.",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/happy-nut/diffguard.git"
+    "url": "git+https://github.com/happy-nut/monacori.git"
   },
   "bugs": {
-    "url": "https://github.com/happy-nut/diffguard/issues"
+    "url": "https://github.com/happy-nut/monacori/issues"
   },
-  "homepage": "https://github.com/happy-nut/diffguard#readme",
+  "homepage": "https://github.com/happy-nut/monacori#readme",
   "bin": {
-    "diffguard": "bin/diffguard.js",
-    "dg": "bin/diffguard.js"
+    "monacori": "bin/monacori.js",
+    "mo": "bin/monacori.js"
   },
   "files": [
     "bin",

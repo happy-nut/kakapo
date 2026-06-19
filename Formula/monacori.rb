@@ -1,7 +1,7 @@
-class Diffguard < Formula
+class Monacori < Formula
   desc "Local review and verification app for AI-generated code changes"
-  homepage "https://github.com/happy-nut/diffguard"
-  url "https://registry.npmjs.org/@happy-nut/diffguard/-/diffguard-0.1.0.tgz"
+  homepage "https://github.com/happy-nut/monacori"
+  url "https://registry.npmjs.org/@happy-nut/monacori/-/monacori-0.1.0.tgz"
   sha256 "16aaa388f654902f9708905ed51fb027f9fcf758a1fb9474cb18f106786776ce"
   license "MIT"
 
@@ -13,7 +13,7 @@ class Diffguard < Formula
   end
 
   test do
-    assert_match "diffguard", shell_output("#{bin}/diffguard --help")
-    assert_match "diffguard", shell_output("#{bin}/dg --help")
+    assert_match "monacori", shell_output("#{bin}/monacori --help")
+    assert_match "monacori", shell_output("#{bin}/dg --help")
   end
 end
