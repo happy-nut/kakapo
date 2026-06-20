@@ -37,13 +37,6 @@ if (!existsSync(options.root)) {
 app.whenReady().then(async () => {
   process.chdir(options.root);
   mkdirSync(FLOW_DIR, { recursive: true });
-  // Close the review->agent loop: the renderer hands us the merged review markdown and we drop it
-  // at .monacori/review-prompt.md so the user can point an agent at the file (no copy-paste).
-  ipcMain.handle("monacori:save-prompt", (_event, markdown: string): string => {
-    const target = join(options.root, FLOW_DIR, "review-prompt.md");
-    writeFileSync(target, typeof markdown === "string" ? markdown : "", "utf8");
-    return target;
-  });
   // Keep the standard Edit/Window roles so Cmd+C/V/X/A (copy comments into prompts) and Cmd+Q work.
   // The in-window menu bar stays hidden on Windows/Linux via autoHideMenuBar; macOS shows it in the top bar.
   const sendMerged = (kind: "q" | "c") => mainWindow?.webContents.send("monacori:merged-view", kind);

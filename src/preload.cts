@@ -14,8 +14,3 @@ contextBridge.exposeInMainWorld("monacoriMenu", {
     ipcRenderer.on("monacori:merged-view", (_event, kind: string) => cb(kind));
   },
 });
-
-// Writes the full review prompt to .monacori/review-prompt.md so an agent can just read the file.
-contextBridge.exposeInMainWorld("monacoriReview", {
-  savePrompt: (markdown: string): Promise<string> => ipcRenderer.invoke("monacori:save-prompt", markdown),
-});
