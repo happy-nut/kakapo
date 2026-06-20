@@ -3575,6 +3575,20 @@ function buildMergedText(kind) {
   });
   return lines.join(nl);
 }
+// The FULL review (questions + change-requests) as one agent-ready markdown prompt.
+function buildReviewPrompt() {
+  var nl = String.fromCharCode(10);
+  var parts = ['# Code review', '', 'Address the following review comments on the current diff. Each entry gives a file:line, the relevant code (when selected), and the request.', ''];
+  if (reviewComments.some(function (c) { return c.kind === 'q'; })) { parts.push(buildMergedText('q')); parts.push(''); }
+  if (reviewComments.some(function (c) { return c.kind === 'c'; })) { parts.push(buildMergedText('c')); }
+  return parts.join(nl);
+}
+function savePromptFile(md) {
+  if (window.monacoriReview && typeof window.monacoriReview.savePrompt === 'function') {
+    return Promise.resolve(window.monacoriReview.savePrompt(md));
+  }
+  return Promise.reject(new Error('no-ipc'));
+}
 
 function openMergedView(kind) {
   var existing = document.getElementById('mc-modal');
@@ -3608,8 +3622,29 @@ function openMergedView(kind) {
     copyBtn.textContent = ok ? 'Copied' : 'Copy failed';
     setTimeout(function () { copyBtn.textContent = 'Copy all'; }, 1500);
   });
+  var saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'mc-btn';
+  saveBtn.textContent = 'Save prompt';
+  saveBtn.title = 'Write the full review (questions + change-requests) to .monacori/review-prompt.md for an agent';
+  saveBtn.addEventListener('click', function () {
+    savePromptFile(buildReviewPrompt()).then(function (p) {
+      var s = String(p || '.monacori/review-prompt.md');
+      var i = s.indexOf('.monacori/');
+      saveBtn.textContent = 'Saved → ' + (i >= 0 ? s.slice(i) : s);
+      setTimeout(function () { saveBtn.textContent = 'Save prompt'; }, 4000);
+    }).catch(function () {
+      // No file write available (static browser build): fall back to copying the full review.
+      area.value = buildReviewPrompt(); area.focus(); area.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      if (navigator.clipboard && navigator.clipboard.writeText) { try { navigator.clipboard.writeText(area.value); } catch (e) {} }
+      saveBtn.textContent = 'Copied (no file)';
+      setTimeout(function () { saveBtn.textContent = 'Save prompt'; }, 2000);
+    });
+  });
   closeBtn.addEventListener('click', function () { modal.remove(); });
   head.appendChild(title);
+  head.appendChild(saveBtn);
   head.appendChild(copyBtn);
   head.appendChild(closeBtn);
   panel.appendChild(head);
