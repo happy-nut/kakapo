@@ -1,13 +1,16 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+# Project context — shown to AI when creating artifacts. Full north star: openspec/project.md
+context: |
+  monacori = a keyboard-first review surface that turns a human code review into a prompt for an
+  AI coding agent. NOT a diff viewer — the output is a prompt, not a PR approval (human->agent).
+  Loop: review diff/source -> ?/> comments (drag captures the selected code) -> Cmd+Shift+?/> merged
+  view -> copy -> paste into an agent. #1 principle: lightweight & fast.
+  Filter EVERY change through two questions: (1) does it make review faster? (2) does it make the
+  prompt better? If neither, question it.
+  Build hazard: the whole viewer is src/cli.ts diffScript(), a String.raw template — NEVER put a
+  backtick or a dollar-brace inside it (comments included); after editing, npm run build + node --check
+  the embedded <script>. Electron app-main/preload changes need a full mo restart (Cmd+Q), not just watch.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
