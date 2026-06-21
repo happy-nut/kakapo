@@ -98,7 +98,18 @@ app.whenReady().then(async () => {
       },
     ],
   });
-  menuTemplate.push({ role: "windowMenu" });
+  // Cmd/Ctrl+W closes the active Files-mode tab (routed to the renderer) instead of the window, matching
+  // editor/browser tab behavior. Closing the window stays available via the menu item and Cmd/Ctrl+Q.
+  menuTemplate.push({
+    label: "Window",
+    submenu: [
+      { role: "minimize" },
+      { role: "zoom" },
+      { type: "separator" },
+      { label: "Close Tab", accelerator: "CommandOrControl+W", click: () => mainWindow?.webContents.send("monacori:close-tab") },
+      { label: "Close Window", click: () => mainWindow?.close() },
+    ],
+  });
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
 
   const appIcon = nativeImage.createFromPath(iconPath);

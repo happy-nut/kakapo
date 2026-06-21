@@ -154,6 +154,7 @@ export function renderDiffHtml(input: {
     `<div id="diff2html-container" class="diff2html-container">${input.diffHtml || '<div class="empty">No diff to review.</div>'}</div>`,
     "</section>",
     '<section id="source-viewer" class="source-viewer">',
+    '<div id="source-tabs" class="source-tabs hidden" role="tablist"></div>',
     '<div class="toolbar source-toolbar">',
     '<div class="source-file-meta"><span id="source-type-icon" class="source-type-icon" aria-hidden="true"></span><span id="source-title">Source</span><span id="source-meta">Select a file from the Files tab.</span></div>',
     '<select id="http-env-select" class="http-env-select hidden" title="HTTP Client environment" aria-label="HTTP environment"></select>',

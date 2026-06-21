@@ -550,6 +550,40 @@ h1 { margin: 0; font-size: 18px; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Files-mode tabs: one row of tabs above the source toolbar (open files, click to switch, × to close). */
+.source-tabs {
+  display: flex;
+  overflow-x: auto;
+  gap: 1px;
+  margin-bottom: 8px;
+  background: var(--sidebar);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  scrollbar-width: thin;
+}
+.source-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  max-width: 220px;
+  padding: 6px 8px 6px 12px;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.source-tab:first-child { border-top-left-radius: 8px; border-bottom-left-radius: 8px; }
+.source-tab:hover { color: var(--text); }
+.source-tab.active { color: var(--text); background: var(--bg); box-shadow: inset 0 -2px 0 var(--active); }
+.source-tab-name { overflow: hidden; text-overflow: ellipsis; }
+.source-tab-close {
+  flex: none; border: 0; background: transparent; color: var(--muted);
+  font-size: 14px; line-height: 1; padding: 0 3px; cursor: pointer; border-radius: 3px;
+}
+.source-tab-close:hover { background: var(--line); color: var(--text); }
 .source-body {
   border: 1px solid var(--border);
   border-radius: 8px;

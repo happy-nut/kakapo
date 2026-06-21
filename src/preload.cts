@@ -13,6 +13,10 @@ contextBridge.exposeInMainWorld("monacoriMenu", {
   onMergedView: (cb: (kind: string) => void): void => {
     ipcRenderer.on("monacori:merged-view", (_event, kind: string) => cb(kind));
   },
+  // Cmd/Ctrl+W from the Window menu -> close the active Files-mode tab in the renderer.
+  onCloseTab: (cb: () => void): void => {
+    ipcRenderer.on("monacori:close-tab", () => cb());
+  },
 });
 
 // Phase 2 lazy-LOAD: fetch a single file's diff body from the main process on demand, so the initial

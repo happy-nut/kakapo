@@ -130,6 +130,7 @@ var sourceLoaded = !REVIEW_LAZY_LOAD;
 var pendingSourceOpen = null;
 var sourceLoading = false;
 var pendingSymbol = null;
+var sourceTabs = []; // Files-mode tab paths (session-only); see addSourceTab / renderSourceTabs.
 // The source blob (content + image base64) is large on big repos, so lazy-LOAD fetches it lazily — on
 // the first source-view open or go-to-definition — not eagerly at startup. Idempotent.
 function loadSourceData() {
@@ -1063,6 +1064,9 @@ document.addEventListener('keydown', (event) => {
   }
 
   // Cmd/Ctrl+[ / ] walk the cursor-position history (back / forward), like an editor's Go Back/Forward.
+  if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && (event.key === '[' || event.key === ']' || event.key === '{' || event.key === '}')) {
+    if (isSourceViewerVisible() && sourceTabs.length > 1) { event.preventDefault(); cycleSourceTab((event.key === '[' || event.key === '{') ? -1 : 1); return; }
+  }
   if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && (event.key === '[' || event.key === ']')) {
     var navEl = document.activeElement;
     var navInField = navEl && (navEl.tagName === 'INPUT' || navEl.tagName === 'TEXTAREA' || navEl.tagName === 'SELECT');
@@ -1139,6 +1143,12 @@ document.querySelectorAll('.tab').forEach((button) => {
 });
 
 document.getElementById('back-to-diff')?.addEventListener('click', () => showDiffView(true));
+document.getElementById('source-tabs')?.addEventListener('click', function (event) {
+  var closeBtn = event.target && event.target.closest && event.target.closest('.source-tab-close');
+  if (closeBtn) { event.stopPropagation(); event.preventDefault(); closeSourceTab(closeBtn.getAttribute('data-close-path')); return; }
+  var tab = event.target && event.target.closest && event.target.closest('.source-tab');
+  if (tab) openSourceFile(tab.getAttribute('data-tab-path'));
+});
 document.getElementById('diff-viewed-toggle')?.addEventListener('click', function () {
   var btn = document.getElementById('diff-viewed-toggle');
   var path = btn ? (btn.dataset.file || '') : '';
@@ -1854,6 +1864,10 @@ refreshComments();
 // (macOS reserves Cmd+? for its Help search, so the menu claims it and routes to these views).
 if (window.monacoriMenu && typeof window.monacoriMenu.onMergedView === 'function') {
   window.monacoriMenu.onMergedView(function (kind) { openMergedView(kind); });
+}
+if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function') {
+  // Cmd/Ctrl+W: close the active Files-mode tab (no-op outside the source viewer).
+  window.monacoriMenu.onCloseTab(function () { if (isSourceViewerVisible()) closeActiveSourceTab(); });
 }
 
 (function checkForUpdate() {
@@ -2766,9 +2780,56 @@ function setSourceTypeIcon(path) {
   var icon = link ? link.querySelector('.ftype') : null;
   holder.innerHTML = icon ? icon.outerHTML : '';
 }
+// Files-mode tabs: each distinct file opened in the source viewer becomes a tab (session-only).
+// Cmd/Ctrl+W closes the active tab; Cmd/Ctrl+Shift+[ / ] cycle tabs; the × button closes one.
+// (sourceTabs is declared near the other source state up top so early restore-state openSourceFile
+// calls run before this block don't see an undefined array.)
+function addSourceTab(path) { if (path && sourceTabs.indexOf(path) < 0) sourceTabs.push(path); }
+function sourceTabLabel(path) { var p = String(path || ''); var s = p.lastIndexOf('/'); return s >= 0 ? p.slice(s + 1) : p; }
+function currentSourceTabPath() { var v = document.getElementById('source-viewer'); return (v && v.dataset.openPath) || ''; }
+function renderSourceTabs(activePath) {
+  var bar = document.getElementById('source-tabs');
+  if (!bar) return;
+  if (!sourceTabs.length) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+  bar.classList.remove('hidden');
+  bar.innerHTML = sourceTabs.map(function (p) {
+    var active = p === activePath;
+    return '<div class="source-tab' + (active ? ' active' : '') + '" data-tab-path="' + escapeHtml(p) + '" title="' + escapeHtml(p) + '">'
+      + '<span class="source-tab-name">' + escapeHtml(sourceTabLabel(p)) + '</span>'
+      + '<button type="button" class="source-tab-close" data-close-path="' + escapeHtml(p) + '" aria-label="Close tab" title="Close (Cmd/Ctrl+W)">×</button>'
+      + '</div>';
+  }).join('');
+  var act = bar.querySelector('.source-tab.active');
+  if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+function closeSourceTab(path) {
+  var idx = sourceTabs.indexOf(path);
+  if (idx < 0) return;
+  var wasActive = path === currentSourceTabPath();
+  sourceTabs.splice(idx, 1);
+  if (!wasActive) { renderSourceTabs(currentSourceTabPath()); return; }
+  var nextPath = sourceTabs[idx] || sourceTabs[idx - 1] || '';
+  if (nextPath) { openSourceFile(nextPath); return; }
+  // No tabs left: reset the source view to its empty state.
+  var v = document.getElementById('source-viewer'); if (v) v.dataset.openPath = '';
+  var body = document.getElementById('source-body');
+  if (body) { body.className = 'source-body empty'; body.textContent = 'Select a file from the Files tab.'; }
+  sourceLinks.forEach(function (l) { l.classList.remove('active'); });
+  renderSourceTabs('');
+}
+function closeActiveSourceTab() { var p = currentSourceTabPath(); if (p) { closeSourceTab(p); return true; } return false; }
+function cycleSourceTab(dir) {
+  if (sourceTabs.length < 2) return;
+  var cur = sourceTabs.indexOf(currentSourceTabPath());
+  if (cur < 0) cur = 0;
+  openSourceFile(sourceTabs[(cur + dir + sourceTabs.length) % sourceTabs.length]);
+}
+
 function openSourceFile(path, shouldSwitch = true) {
   const file = sourceByPath.get(path);
   if (!file) return;
+  addSourceTab(path);
+  renderSourceTabs(path);
   // lazy-LOAD: source content not fetched yet -> show a loading state; loadSourceData re-opens it.
   if (REVIEW_LAZY_LOAD && !sourceLoaded && file.embedded) {
     pendingSourceOpen = { path: path, shouldSwitch: shouldSwitch };
