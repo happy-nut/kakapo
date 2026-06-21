@@ -131,9 +131,15 @@ export function renderDiffHtml(input: {
     '<aside class="sidebar" aria-label="Review navigation">',
     '<div class="sidebar-scroll">',
     `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-mark">monacori</span><span class="brand-project">${escapeHtml(input.projectName)}</span></div>`,
-    '<div class="tabs"><button type="button" class="tab" data-tab="changes">Changes</button><button type="button" class="tab active" data-tab="files">Files</button></div>',
-    `<div class="tab-panel hidden" id="changes-panel">${fileNav}</div>`,
-    `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
+    input.lazy
+      ? '<div class="tabs"><button type="button" class="tab active" data-tab="changes">Changes</button><button type="button" class="tab" data-tab="files">Files</button></div>'
+      : '<div class="tabs"><button type="button" class="tab" data-tab="changes">Changes</button><button type="button" class="tab active" data-tab="files">Files</button></div>',
+    `<div class="tab-panel${input.lazy ? "" : " hidden"}" id="changes-panel">${fileNav}</div>`,
+    // Big repos: defer the (potentially huge) source tree — ship it as an inert island, materialized on
+    // the first Files-tab open, so it never builds/lays-out at startup. Small repos render it inline.
+    input.lazy
+      ? `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
+      : `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
     "</div>",
     `<div class="sidebar-footer"><span class="app-version">monacori${packageVersion ? " v" + escapeHtml(packageVersion) : ""}</span><span id="app-update-flag" class="app-update-flag hidden" title="Update available">update available</span><button type="button" id="app-info-btn" class="settings-btn" aria-haspopup="dialog" aria-label="About monacori" title="About monacori">⚙</button></div>`,
     "</aside>",
@@ -173,7 +179,7 @@ export function renderDiffHtml(input: {
     "</div>",
     input.diffIslands || "",
     `<script type="application/json" id="review-meta" data-watch="${input.watch ? "true" : "false"}" data-signature="${escapeAttr(input.signature ?? "")}" data-generated-at="${escapeAttr(input.generatedAt ?? "")}" data-lazy="${input.lazy ? "true" : "false"}" data-lazy-load="${input.lazyLoad ? "true" : "false"}">{}</script>`,
-    `<script type="application/json" id="source-files-data">${jsonForScript(input.lazyLoad ? input.sourceFiles.map((f) => ({ ...f, content: "" })) : input.sourceFiles)}</script>`,
+    `<script type="application/json" id="source-files-data">${jsonForScript(input.lazyLoad ? input.sourceFiles.map((f) => ({ ...f, content: "", image: "" })) : input.sourceFiles)}</script>`,
     `<script type="application/json" id="file-state-data">${jsonForScript(input.fileStates)}</script>`,
     `<script type="application/json" id="http-env-data">${jsonForScript(input.httpEnvironments)}</script>`,
     `<script>window.__MONACORI_VERSION__=${JSON.stringify(packageVersion)};</script>`,

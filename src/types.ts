@@ -52,6 +52,9 @@ export type SourceFile = {
   changedLines: number[];
   signature: string;
   skippedReason?: string;
+  // Rendered preview for raster image files: a data: URI embedded by collectSourceFiles
+  // (gated by IMAGE_MAX_BYTES). Present only for images; absent for text/binary files.
+  image?: string;
 };
 
 export type HttpSendRequest = {

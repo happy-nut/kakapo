@@ -114,7 +114,7 @@ function setupLazyDiff() {
 }
 if (REVIEW_LAZY) { setupLazyDiff(); setTimeout(function () { diffBootDone = true; }, 0); }
 const links = Array.from(document.querySelectorAll('#changes-panel .file-link'));
-const sourceLinks = Array.from(document.querySelectorAll('.source-link'));
+let sourceLinks = Array.from(document.querySelectorAll('.source-link')); // re-captured when a deferred tree materializes
 const sourceFiles = JSON.parse(document.getElementById('source-files-data')?.textContent || '[]');
 const fileStates = JSON.parse(document.getElementById('file-state-data')?.textContent || '[]');
 const httpEnvironments = JSON.parse(document.getElementById('http-env-data')?.textContent || '{}');
@@ -128,7 +128,13 @@ const sourceByPath = new Map(sourceFiles.map((file) => [file.path, file]));
 // and the source view shows a brief loading state. Non-lazy-load modes embed source -> already loaded.
 var sourceLoaded = !REVIEW_LAZY_LOAD;
 var pendingSourceOpen = null;
+var sourceLoading = false;
+var pendingSymbol = null;
+// The source blob (content + image base64) is large on big repos, so lazy-LOAD fetches it lazily — on
+// the first source-view open or go-to-definition — not eagerly at startup. Idempotent.
 function loadSourceData() {
+  if (sourceLoaded || sourceLoading) return;
+  sourceLoading = true;
   var p;
   if (typeof window !== 'undefined' && window.monacoriFile && typeof window.monacoriFile.getSourceData === 'function') {
     p = Promise.resolve().then(function () { return window.monacoriFile.getSourceData(); });
@@ -142,13 +148,15 @@ function loadSourceData() {
     try { data = JSON.parse(text || '[]'); } catch (e) { data = []; }
     for (var i = 0; i < data.length; i++) {
       var existing = sourceByPath.get(data[i].path);
-      if (existing) existing.content = data[i].content;
+      if (existing) { existing.content = data[i].content; if (data[i].image) existing.image = data[i].image; }
     }
     sourceLoaded = true;
+    sourceLoading = false;
     try { startSymbolIndex(); } catch (e) {}
     if (pendingSourceOpen) { var po = pendingSourceOpen; pendingSourceOpen = null; openSourceFile(po.path, po.shouldSwitch); }
     else if (isSourceViewerVisible() && document.getElementById('source-viewer').dataset.openPath) { openSourceFile(document.getElementById('source-viewer').dataset.openPath, false); }
-  }, function () { sourceLoaded = true; });
+    if (pendingSymbol) { var s = pendingSymbol; pendingSymbol = null; goToDefOrUsages(s); }
+  }, function () { sourceLoaded = true; sourceLoading = false; });
 }
 const fileSignatureByPath = new Map(fileStates.map((file) => [file.path, file.signature]));
 const reviewMeta = document.getElementById('review-meta');
@@ -1088,11 +1096,10 @@ links.forEach((link) => {
   });
 });
 
-sourceLinks.forEach((link) => {
-  link.addEventListener('click', () => {
-    const path = link.dataset.sourceFile;
-    if (path) openSourceFile(path);
-  });
+// Delegated so it works whether the tree is inline (small repos) or materialized later (big repos).
+document.getElementById('files-panel')?.addEventListener('click', (event) => {
+  const link = event.target && event.target.closest ? event.target.closest('.source-link') : null;
+  if (link && link.dataset.sourceFile) openSourceFile(link.dataset.sourceFile);
 });
 
 document.querySelectorAll('.tab').forEach((button) => {
@@ -1106,14 +1113,22 @@ document.getElementById('diff-viewed-toggle')?.addEventListener('click', functio
   if (path) setFileViewed(path, !isFileViewed(path));
 });
 document.getElementById('source-body')?.addEventListener('click', handleSourceClick);
+document.getElementById('source-body')?.addEventListener('click', function (event) {
+  var img = event.target && event.target.closest && event.target.closest('.image-preview');
+  if (img) openLightbox(img.getAttribute('src'), img.getAttribute('alt'));
+});
+document.addEventListener('keydown', function (event) {
+  if (event.key === 'Escape' && lightboxOpen()) { event.preventDefault(); event.stopPropagation(); closeLightbox(); }
+}, true);
 document.addEventListener('copy', handleSourceCopy);
 
 populateHttpEnvSelect();
-setTimeout(REVIEW_LAZY_LOAD ? loadSourceData : startSymbolIndex, 0); // lazy-LOAD fetches source first, then indexes; else index off-thread (Web Worker)
+if (!REVIEW_LAZY_LOAD) setTimeout(startSymbolIndex, 0); // non-lazy indexes now; lazy-LOAD defers the (large) source blob + index to the first source-view open / go-to-def
 const restored = restoreUiState();
 if (!restored) {
   const initial = location.hash.match(/^#hunk-(\\d+)$/);
   if (initial) setActive(Number(initial[1]), false);
+  else if (REVIEW_LAZY_LOAD) showDiffView(false); // big repos: open to the diff (Changes); the source tree stays deferred until the Files tab is opened
   else openDefaultSourceFile();
 }
 initSourceTreeFolds();
@@ -1580,7 +1595,8 @@ function injectThreadRow(anchorRow, path, line) {
   var tr = document.createElement('tr');
   tr.className = 'mc-comment-row';
   var td = document.createElement('td');
-  td.colSpan = 2;
+  // source/markdown/csv rows can have >2 cells (csv); span them all. diff (d2h) rows stay 2.
+  td.colSpan = (anchorRow.classList && anchorRow.classList.contains('source-row')) ? (anchorRow.children.length || 2) : 2;
   td.className = 'mc-thread-cell';
   td.innerHTML = threadHtml(path, line);
   tr.appendChild(td);
@@ -1870,11 +1886,27 @@ if (window.monacoriMenu && typeof window.monacoriMenu.onMergedView === 'function
 })();
 
 function setTab(name) {
+  if (name === 'files') ensureTreeRendered();
   document.querySelectorAll('.tab').forEach((button) => {
     button.classList.toggle('active', button.dataset.tab === name);
   });
   document.getElementById('changes-panel')?.classList.toggle('hidden', name !== 'changes');
   document.getElementById('files-panel')?.classList.toggle('hidden', name !== 'files');
+}
+// Big repos ship the source tree as an inert island (see render.ts); build it the first time the Files
+// tab is opened so the (potentially huge) tree never blocks startup. No-op for inline (small) trees.
+function ensureTreeRendered() {
+  var panel = document.getElementById('files-panel');
+  var island = document.getElementById('files-tree-html');
+  if (!panel || !island) return;
+  var html = island.textContent || '';
+  island.parentNode && island.parentNode.removeChild(island);
+  panel.innerHTML = '<div class="empty-nav">Building file tree…</div>';
+  setTimeout(function () { // let "Building…" paint before the heavy innerHTML
+    panel.innerHTML = html;
+    sourceLinks = Array.from(document.querySelectorAll('.source-link'));
+    if (typeof refreshComments === 'function') { try { refreshComments(); } catch (e) {} } // re-render per-file badges
+  }, 0);
 }
 
 function showDiffView(shouldScroll) {
@@ -2407,6 +2439,7 @@ function goToSymbolUnderCursor() {
 // Cmd+B: on a declaration, show its usages (navigate if there's only one); elsewhere, go to the definition.
 function goToDefOrUsages(name) {
   if (!name) return;
+  if (REVIEW_LAZY_LOAD && !sourceLoaded) { pendingSymbol = name; loadSourceData(); return; } // load source+index on first use
   var def = findSymbolDefinition(name);
   var loc = caretSourceLoc();
   if (def && loc && def.path === loc.path && def.lineIndex === loc.lineIndex) {
@@ -2653,6 +2686,7 @@ function openSourceFile(path, shouldSwitch = true) {
   // lazy-LOAD: source content not fetched yet -> show a loading state; loadSourceData re-opens it.
   if (REVIEW_LAZY_LOAD && !sourceLoaded && file.embedded) {
     pendingSourceOpen = { path: path, shouldSwitch: shouldSwitch };
+    loadSourceData();
     document.getElementById('source-viewer').dataset.openPath = path;
     sourceLinks.forEach((link) => link.classList.toggle('active', link.dataset.sourceFile === path));
     renderBreadcrumb(document.getElementById('source-title'), path);
@@ -2678,10 +2712,20 @@ function openSourceFile(path, shouldSwitch = true) {
   ].join(' | ');
   document.getElementById('source-meta').textContent = meta;
   const body = document.getElementById('source-body');
+  // Image files carry a data: URI preview instead of text — render inline (click to zoom).
+  if (file.image) {
+    body.className = 'source-body image-body';
+    body.innerHTML = renderImageView(file);
+    document.getElementById('http-env-select')?.classList.add('hidden');
+    updateRenderToggle(path);
+    if (shouldSwitch) showSourceView();
+    return;
+  }
   if (!file.embedded) {
     body.className = 'source-body empty';
     body.textContent = file.skippedReason ? 'Source preview unavailable: ' + file.skippedReason + '.' : 'Source preview unavailable.';
     document.getElementById('http-env-select')?.classList.add('hidden');
+    updateRenderToggle(path);
     if (shouldSwitch) showSourceView();
     return;
   }
@@ -2690,6 +2734,25 @@ function openSourceFile(path, shouldSwitch = true) {
   }
   body.className = 'source-body';
   const httpEnvSelect = document.getElementById('http-env-select');
+  // Markdown/CSV render to HTML but stay a line-numbered .source-table: each block (md) or record (csv)
+  // is a .source-row keyed by its start line, so the gutter shows line numbers and line/block comments
+  // work exactly as in the plain source view (renderSourceComments anchors on .source-row[data-line-index]).
+  if (isMarkdownPath(path)) {
+    body.classList.add('rendered-body');
+    body.innerHTML = renderMarkdownRows(file.content);
+    if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
+    renderSourceComments();
+    if (shouldSwitch) showSourceView();
+    return;
+  }
+  if (isCsvPath(path)) {
+    body.classList.add('rendered-body');
+    body.innerHTML = renderCsvRows(file.content, path);
+    if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
+    renderSourceComments();
+    if (shouldSwitch) showSourceView();
+    return;
+  }
   if (isHttpFile(path)) {
     body.innerHTML = renderHttpTable(file);
     if (httpEnvSelect) httpEnvSelect.classList.toggle('hidden', httpEnvNames.length === 0);
@@ -2699,6 +2762,184 @@ function openSourceFile(path, shouldSwitch = true) {
   }
   renderSourceComments();
   if (shouldSwitch) showSourceView();
+}
+
+function isMarkdownPath(p) { return /\.(md|mdx|markdown)$/i.test(p || ''); }
+function isCsvPath(p) { return /\.(csv|tsv)$/i.test(p || ''); }
+
+function renderImageView(file) {
+  return '<div class="image-view">'
+    + '<img class="image-preview" src="' + file.image + '" alt="' + escapeHtml(file.name) + '" data-zoomable="1">'
+    + '<div class="image-cap">' + escapeHtml(file.name) + ' &middot; ' + formatBytes(file.size || 0) + ' &middot; click to zoom</div>'
+    + '</div>';
+}
+
+function openLightbox(src, alt) {
+  if (!src) return;
+  var lb = document.getElementById('mc-lightbox');
+  if (!lb) {
+    lb = document.createElement('div');
+    lb.id = 'mc-lightbox';
+    lb.className = 'mc-lightbox hidden';
+    lb.innerHTML = '<img class="mc-lightbox-img" alt="">';
+    document.body.appendChild(lb);
+    lb.addEventListener('click', closeLightbox);
+  }
+  var img = lb.querySelector('img');
+  img.src = src;
+  img.alt = alt || '';
+  lb.classList.remove('hidden');
+}
+function closeLightbox() {
+  var lb = document.getElementById('mc-lightbox');
+  if (lb) lb.classList.add('hidden');
+}
+function lightboxOpen() {
+  var lb = document.getElementById('mc-lightbox');
+  return !!(lb && !lb.classList.contains('hidden'));
+}
+
+// Minimal, dependency-free Markdown -> HTML for the preview pane. Input is escaped before any
+// markup is applied; links/images are restricted to http(s)/data/mailto/anchor targets.
+function renderInlineMd(text) {
+  var s = escapeHtml(text);
+  s = s.replace(/`([^`]+)`/g, function (m, code) { return '<code>' + code + '</code>'; });
+  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, function (m, alt, url) {
+    return /^(https?:|data:)/i.test(url) ? '<img class="md-img" src="' + url + '" alt="' + alt + '">' : m;
+  });
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/g, function (m, label, url) {
+    return /^(https?:|mailto:|#)/i.test(url) ? '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + label + '</a>' : label;
+  });
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  s = s.replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>').replace(/(^|[^_\w])_([^_\s][^_]*)_/g, '$1<em>$2</em>');
+  s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  return s;
+}
+
+function mdFenceLang(lang) {
+  var l = (lang || '').toLowerCase();
+  if (l === 'js' || l === 'jsx' || l === 'ts' || l === 'tsx') return 'typescript';
+  if (l === 'sh' || l === 'bash' || l === 'zsh') return 'shell';
+  if (l === 'yml') return 'yaml';
+  return l || 'text';
+}
+
+function splitTableRow(line) {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); });
+}
+
+// Parse markdown into block objects { line, html } where line is the 0-based start line in the source.
+// Each block becomes one .source-row so the rendered view keeps a real line gutter + line comments.
+function renderMarkdownBlocks(content) {
+  var lines = String(content).split(/\r?\n/);
+  var blocks = [];
+  var i = 0;
+  var m;
+  while (i < lines.length) {
+    var start = i;
+    var line = lines[i];
+    var fence = line.match(/^(\s*)(```+|~~~+)\s*([\w+#-]*)\s*$/);
+    if (fence) {
+      var marker = fence[2].charAt(0);
+      var closeRe = new RegExp('^\\s*' + (marker === '`' ? '`' : '~') + '{3,}\\s*$');
+      var lang = mdFenceLang(fence[3]);
+      var buf = [];
+      i++;
+      while (i < lines.length && !closeRe.test(lines[i])) { buf.push(lines[i]); i++; }
+      i++;
+      blocks.push({ line: start, html: '<pre class="md-code"><code>' + buf.map(function (l) { return highlightLine(l, lang); }).join('\n') + '</code></pre>' });
+      continue;
+    }
+    if (/^\s*$/.test(line)) { i++; continue; }
+    var h = line.match(/^\s{0,3}(#{1,6})\s+(.*)$/);
+    if (h) { var lv = h[1].length; blocks.push({ line: start, html: '<h' + lv + ' class="md-h md-h' + lv + '">' + renderInlineMd(h[2].replace(/\s+#+\s*$/, '')) + '</h' + lv + '>' }); i++; continue; }
+    if (/^\s*([-*_])\s*(\1\s*){2,}$/.test(line)) { blocks.push({ line: start, html: '<hr class="md-hr">' }); i++; continue; }
+    if (/^\s*>\s?/.test(line)) {
+      var qbuf = [];
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) { qbuf.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
+      blocks.push({ line: start, html: '<blockquote class="md-quote">' + qbuf.map(function (l) { return l.trim() ? '<p>' + renderInlineMd(l) + '</p>' : ''; }).join('') + '</blockquote>' });
+      continue;
+    }
+    if (/\|/.test(line) && i + 1 < lines.length && /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(lines[i + 1])) {
+      var header = splitTableRow(line);
+      i += 2;
+      var rowsHtml = '';
+      while (i < lines.length && /\|/.test(lines[i]) && !/^\s*$/.test(lines[i])) {
+        var cells = splitTableRow(lines[i]);
+        rowsHtml += '<tr>' + header.map(function (_h, ci) { return '<td>' + renderInlineMd(cells[ci] || '') + '</td>'; }).join('') + '</tr>';
+        i++;
+      }
+      blocks.push({ line: start, html: '<table class="md-table"><thead><tr>' + header.map(function (c) { return '<th>' + renderInlineMd(c) + '</th>'; }).join('') + '</tr></thead><tbody>' + rowsHtml + '</tbody></table>' });
+      continue;
+    }
+    if ((m = lines[i].match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/))) {
+      var type = /\d/.test(m[2]) ? 'ol' : 'ul';
+      var items = '';
+      while (i < lines.length && (m = lines[i].match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/))) { items += '<li>' + renderInlineMd(m[3]) + '</li>'; i++; }
+      blocks.push({ line: start, html: '<' + type + ' class="md-list">' + items + '</' + type + '>' });
+      continue;
+    }
+    var pbuf = [line];
+    i++;
+    while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^(\s{0,3}#{1,6}\s|\s*>|\s*([-*+]|\d+[.)])\s|\s*(```|~~~))/.test(lines[i])) { pbuf.push(lines[i]); i++; }
+    blocks.push({ line: start, html: '<p class="md-p">' + renderInlineMd(pbuf.join('\n')).replace(/\n/g, '<br>') + '</p>' });
+  }
+  return blocks;
+}
+
+function renderMarkdownRows(content) {
+  var blocks = renderMarkdownBlocks(content);
+  if (!blocks.length) return '<table class="source-table md-doc"><tbody></tbody></table>';
+  var rows = blocks.map(function (b) {
+    return '<tr class="source-row md-row" data-line-index="' + b.line + '"><td class="num">' + (b.line + 1) + '</td><td class="source-code md-cell">' + b.html + '</td></tr>';
+  }).join('');
+  return '<table class="source-table md-doc"><tbody>' + rows + '</tbody></table>';
+}
+
+// RFC-4180-ish delimited parser: handles quoted fields with embedded delimiters, newlines, and "" escapes.
+function parseDelimited(content, delim) {
+  var rows = [];
+  var row = [];
+  var field = '';
+  var inQuotes = false;
+  var s = String(content);
+  for (var i = 0; i < s.length; i++) {
+    var ch = s[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (s[i + 1] === '"') { field += '"'; i++; } else inQuotes = false;
+      } else field += ch;
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === delim) {
+      row.push(field); field = '';
+    } else if (ch === '\n') {
+      row.push(field); rows.push(row); row = []; field = '';
+    } else if (ch !== '\r') {
+      field += ch;
+    }
+  }
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+// CSV/TSV renders to an aligned table that is still a .source-table: each record is a .source-row keyed
+// by its record index (data-line-index) so line numbers show in the gutter and comments anchor per row.
+function renderCsvRows(content, path) {
+  var delim = /\.tsv$/i.test(path || '') ? '\t' : ',';
+  var records = parseDelimited(content, delim).filter(function (r) { return !(r.length === 1 && r[0] === ''); });
+  if (!records.length) return '<table class="source-table csv-doc"><tbody></tbody></table>';
+  var cols = records.reduce(function (max, r) { return Math.max(max, r.length); }, 0);
+  var rows = records.map(function (rec, idx) {
+    var head = idx === 0;
+    var cells = '';
+    for (var c = 0; c < cols; c++) {
+      var v = escapeHtml(rec[c] == null ? '' : rec[c]);
+      cells += head ? '<th class="csv-cell">' + v + '</th>' : '<td class="csv-cell">' + v + '</td>';
+    }
+    return '<tr class="source-row csv-row' + (head ? ' csv-head' : '') + '" data-line-index="' + idx + '"><td class="num">' + (idx + 1) + '</td>' + cells + '</tr>';
+  }).join('');
+  return '<table class="source-table csv-doc"><tbody>' + rows + '</tbody></table>';
 }
 
 function isHttpFile(path) {

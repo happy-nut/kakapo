@@ -417,7 +417,7 @@ body {
   gap: 4px;
   min-height: 18px;
   padding: 1px 5px 1px calc(7px + (var(--depth) * 14px));
-  color: var(--muted);
+  color: var(--text);
   border-radius: 6px;
   cursor: default;
   list-style: none;
@@ -553,6 +553,14 @@ h1 { margin: 0; font-size: 18px; }
   overflow: auto;
   background: var(--panel);
   user-select: text;
+}
+/* Empty state ("Select a file…") centered in the available space, not top-left. */
+.source-body.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 7rem);
+  font-size: 13px;
 }
 .source-table {
   width: 100%;
@@ -859,3 +867,73 @@ h1 { margin: 0; font-size: 18px; }
   line-height: 1.55;
 }
 .http-resp-empty { color: var(--muted); font-style: italic; }
+
+/* --- Image preview (raster images embedded as data URIs) --- */
+.source-body.image-body { display: flex; align-items: flex-start; justify-content: center; padding: 24px; }
+.image-view { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 100%; }
+.image-preview {
+  max-width: 100%;
+  max-height: calc(100vh - 230px);
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: repeating-conic-gradient(#3a3a3a 0% 25%, #2f2f2f 0% 50%) 50% / 20px 20px;
+  cursor: zoom-in;
+}
+.image-cap { color: var(--muted); font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+/* --- Lightbox (click an image to zoom) --- */
+.mc-lightbox {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.82); cursor: zoom-out; padding: 32px;
+}
+.mc-lightbox.hidden { display: none; }
+.mc-lightbox-img { max-width: 96vw; max-height: 94vh; object-fit: contain; box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6); }
+
+/* --- Rendered markdown: a .source-table whose cells hold rendered HTML, so the line-number gutter
+   and per-line/-block comments keep working exactly as in the plain source view. --- */
+.source-body.rendered-body { padding: 0; }
+.md-doc .num { vertical-align: top; }
+.md-doc .md-cell {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 2px 24px 2px 14px;
+  color: var(--text);
+  font: 14px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+.md-cell > :first-child { margin-top: 0; }
+.md-cell > :last-child { margin-bottom: 0; }
+.md-h { line-height: 1.3; margin: 0.25em 0; font-weight: 650; color: #d7e0ea; }
+.md-h1 { font-size: 1.7em; }
+.md-h2 { font-size: 1.4em; }
+.md-h3 { font-size: 1.18em; }
+.md-h4 { font-size: 1.05em; }
+.md-h5, .md-h6 { font-size: 0.95em; color: var(--muted); }
+.md-p { margin: 0.2em 0; }
+.md-cell a { color: var(--active); text-decoration: none; }
+.md-cell a:hover { text-decoration: underline; }
+.md-cell strong { color: #c9d4df; }
+.md-cell del { color: var(--muted); }
+.md-cell code {
+  font: 0.86em Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--line); border: 1px solid var(--border); border-radius: 4px; padding: 0.1em 0.4em;
+}
+.md-code { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; overflow: auto; margin: 0.3em 0; }
+.md-code code { font: 12px/1.5 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: none; border: 0; padding: 0; white-space: pre; }
+.md-quote { margin: 0.3em 0; padding: 2px 14px; color: var(--muted); border-left: 3px solid var(--border); }
+.md-quote p { margin: 0.3em 0; }
+.md-list { margin: 0.2em 0; padding-left: 1.5em; }
+.md-list li { margin: 0.15em 0; }
+.md-hr { border: 0; border-top: 1px solid var(--border); margin: 0.5em 0; }
+.md-img { max-width: 100%; border-radius: 6px; }
+.md-table { border-collapse: collapse; margin: 0.3em 0; font-size: 0.92em; }
+.md-table th, .md-table td { border: 1px solid var(--border); padding: 5px 11px; text-align: left; }
+.md-table thead th { background: var(--line); }
+
+/* --- CSV/TSV: an aligned table that is still a .source-table (gutter + per-row comments). --- */
+.csv-doc { width: auto; }
+.csv-cell { border: 1px solid var(--border); padding: 3px 10px; text-align: left; white-space: pre; vertical-align: top; font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.csv-head .csv-cell { background: var(--line); color: #d7e0ea; font-weight: 650; }
+.csv-row:nth-child(even) .csv-cell { background: rgba(255, 255, 255, 0.018); }
+.csv-empty { color: var(--muted); font-style: italic; padding: 16px; }

@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { DiffFile, DiffHunk, DiffLine, ReviewFileState, SourceFile } from "./types.js";
-import { FLOW_DIR, SOURCE_MAX_FILE_BYTES, SOURCE_MAX_FILES, SOURCE_MAX_TOTAL_BYTES } from "./constants.js";
+import { FLOW_DIR, IMAGE_MAX_BYTES, SOURCE_MAX_FILE_BYTES, SOURCE_MAX_FILES, SOURCE_MAX_TOTAL_BYTES } from "./constants.js";
 import { formatBytes, hashText, isLikelyBinary, languageForPath, stripDiffPath } from "./util.js";
 import { git } from "./git.js";
 
@@ -175,6 +175,25 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
   return files.filter((file) => file.binary || file.hunks.length > 0);
 }
 
+// Raster image extensions that get an inline base64 preview. SVG is intentionally excluded:
+// it is text/markup, so it stays embedded as source (and can be syntax-highlighted / commented).
+function imageMimeForPath(path: string): string | null {
+  const dot = path.lastIndexOf(".");
+  const ext = dot >= 0 ? path.slice(dot + 1).toLowerCase() : "";
+  switch (ext) {
+    case "png": return "image/png";
+    case "jpg":
+    case "jpeg": return "image/jpeg";
+    case "gif": return "image/gif";
+    case "webp": return "image/webp";
+    case "bmp": return "image/bmp";
+    case "ico": return "image/x-icon";
+    case "avif": return "image/avif";
+    case "apng": return "image/apng";
+    default: return null;
+  }
+}
+
 export function collectSourceFiles(diffFiles: DiffFile[]): SourceFile[] {
   const changed = new Set(
     diffFiles
@@ -232,6 +251,18 @@ export function collectSourceFiles(diffFiles: DiffFile[]): SourceFile[] {
 
     const stats = statSync(absolute);
     if (!stats.isFile()) {
+      continue;
+    }
+
+    const imageMime = imageMimeForPath(path);
+    if (imageMime) {
+      if (stats.size <= IMAGE_MAX_BYTES) {
+        const dataUri = `data:${imageMime};base64,${readFileSync(absolute).toString("base64")}`;
+        sourceFiles.push({ ...base, size: stats.size, image: dataUri, signature: hashText(`${path}\0image\0${stats.size}`) });
+      } else {
+        const skippedReason = `image larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
+        sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0image-large\0${stats.size}`), skippedReason });
+      }
       continue;
     }
 
