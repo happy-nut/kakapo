@@ -1,14 +1,14 @@
 ## 1. size-conditional 토대
 
-- [ ] 1.1 임계 판정(총 diff 코드 행 수 / 파일 수)을 `buildDiffReview`에서 계산해 메타(`lazy`)에 실어 렌더러로 전달; 초기값은 명백히 큰 repo만 잡히게(예: 행 > 4000 또는 파일 > 60)
-- [ ] 1.2 임계 이하 경로는 현행 즉시 렌더 그대로(분기 추가만, 기존 코드 무수정) — 작은 repo·jsdom 회귀 불변 보장
+- [x] 1.1 임계 판정(`shouldLazyRender`: 파일 > 60 또는 총 diff 행 > 4000, `MONACORI_LAZY` 환경변수로 강제 on/off)을 `buildDiffReview`에서 계산해 메타(`review-meta` `data-lazy`)로 렌더러에 전달
+- [x] 1.2 임계 이하 경로는 현행 즉시 렌더 그대로(분기 추가만) — 작은 repo·jsdom 회귀 불변 검증(eager 10스위트 그린, `data-lazy=false`, 섬 0)
 
 ## 2. Phase 1 — 지연 diff 머티리얼라이즈(프리즈 제거, IPC 불필요)
 
-- [ ] 2.1 지연 모드에서 각 파일 diff2html HTML을 라이브 DOM 대신 비활성 `<script type="text/html" id="diff-<i>">` 섬으로 emit; 라이브 DOM에는 접힌 파일 헤더(경로·뱃지·stats)만
-- [ ] 2.2 `ensureFileReady(path)` 단일 진입점: 파일의 diff 섬을 `container.innerHTML`로 머티리얼라이즈(이미 준비면 no-op). 펼침 클릭 + `IntersectionObserver` 스크롤 진입이 이를 호출
-- [ ] 2.3 캐럿·코멘트·머지뷰·go-to-def의 파일 진입 경로가 모두 `ensureFileReady`를 거치도록 배선(무회귀 핵심)
-- [ ] 2.4 (옵션) 라이브 행 수 상한 초과 시 멀어진 파일 de-materialize
+- [x] 2.1 `splitDiffForLazy`: 각 파일 diff 본문을 비활성 `<script type="text/html" id="diff-body-N">` 섬으로, 라이브 DOM에는 `file-N`+header+빈 `.d2h-files-diff[data-lazy]` 셸만(`data-path`/`data-first-hunk`/`data-hunk-count` 부여)
+- [x] 2.2 `ensureFileReady(wrapper)` 단일 진입점(섬→innerHTML, `markWrapperHunks`로 hunk id 부여) + `IntersectionObserver`(600px 마진) 스크롤 머티리얼라이즈 + 첫 파일 즉시 준비
+- [x] 2.3 lazy hunk 인덱스(`hunkMeta`)+헬퍼(`hunkTotal/hunkPathAt/hunkRowAt`)로 F7/change-nav·`setActive`·`showOnlyFile`·`ensureDiffCursor`·tree/quick-open·`showDiffView`가 모두 `ensureFileReady` 경유 → 캐럿·코멘트·머지뷰·go-to-def 무회귀
+- [ ] 2.4 (옵션, 보류) 라이브 행 수 상한 초과 시 멀어진 파일 de-materialize — Phase 2의 지연 로드와 함께 검토
 
 ## 3. Phase 2 — 지연 로드로 HTML 축소(80MB→수 MB)
 
@@ -20,7 +20,7 @@
 
 ## 4. 검증
 
-- [ ] 4.1 `npm run build` + 임베드 `<script>` `node --check`(String.raw 백틱 0)
-- [ ] 4.2 jsdom 회귀(기존 10개) 그린 — 작은 repo 동작 불변 확인
-- [ ] 4.3 지연 모드 jsdom 테스트(대형 픽스처): 초기 라이브 DOM이 작음(접힌 헤더만) + 파일 펼침/네비 시 머티리얼라이즈 + 지연 캐럿/코멘트/go-to-def 동작 + 입력 포커스 억제
-- [ ] 4.4 `mo` 스모크(`zoobox`): 즉시 오픈 + 로드 시 블록 없음 + 처음부터 단축키 동작 + 초기 HTML 수 MB(Phase 2)
+- [x] 4.1 `npm run build`(0) + 임베드 `<script>` `node --check`(String.raw 백틱 0 — 머티리얼라이즈 코드 포함)
+- [x] 4.2 jsdom 회귀(기존 10스위트) eager 그린 + **lazy 강제(`MONACORI_LAZY=1`)에서도 동일 8스위트 그린** — 작은 repo 불변 + 머티리얼라이즈/게이팅 무회귀
+- [x] 4.3 지연 모드 jsdom 테스트(`lazy-render.js`, 15 PASS): 초기 라이브 DOM 작음(첫 파일만 머티리얼라이즈, 나머지 lazy) + tree-nav 시 머티리얼라이즈 + 라이브 코드행 생성 + 캐럿 + F7. zoobox 실측: 라이브 diff 행 211,583→첫 파일만, jsdom OOM 해소
+- [ ] 4.4 `mo` 스모크(`zoobox`): 즉시 오픈 + 로드 시 블록 없음 + 처음부터 단축키 동작 (수동, GUI)

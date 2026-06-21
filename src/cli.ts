@@ -621,6 +621,9 @@ export function buildDiffReview(input: {
   const hunks = files.reduce((sum, file) => sum + file.hunks.length, 0);
   const generatedAt = new Date().toISOString();
   const diffHtml = renderDiff2Html(diffText);
+  const totalLines = files.reduce((sum, file) => sum + file.hunks.reduce((t, h) => t + h.lines.length, 0), 0);
+  const lazy = shouldLazyRender(files.length, totalLines);
+  const diffSplit = lazy ? splitDiffForLazy(diffHtml, files) : { container: diffHtml, islands: "" };
   const signature = createHash("sha1")
     .update(diffText)
     .update("\n")
@@ -630,7 +633,9 @@ export function buildDiffReview(input: {
     .digest("hex");
   const html = renderDiffHtml({
     files,
-    diffHtml,
+    diffHtml: diffSplit.container,
+    diffIslands: diffSplit.islands,
+    lazy,
     sourceFiles,
     fileStates,
     httpEnvironments,
@@ -950,9 +955,56 @@ async function handleHttpProxy(request: IncomingMessage, response: ServerRespons
   }
 }
 
+// Above a size threshold the diff is rendered "lazily": each file's heavy body
+// (the side-by-side tables — hundreds of thousands of rows on big repos) is moved
+// out of the live DOM into an inert <script type="text/html"> island, leaving only
+// a lightweight wrapper + header. The renderer materializes a file's body on demand
+// (scroll-into-view / navigation), so the browser never parses + lays out a giant DOM
+// up front; the UI opens instantly and shortcuts work immediately. Small repos and
+// tests stay on the eager path (below threshold) and are byte-for-byte unchanged.
+function shouldLazyRender(fileCount: number, totalLines: number): boolean {
+  const env = process.env.MONACORI_LAZY;
+  if (env === "1" || env === "true") return true;
+  if (env === "0" || env === "false") return false;
+  return fileCount > 60 || totalLines > 4000;
+}
+
+function splitDiffForLazy(diffHtml: string, files: DiffFile[]): { container: string; islands: string } {
+  const parts = diffHtml.split(/(?=<div [^>]*class="d2h-file-wrapper")/).filter((p) => p.includes('class="d2h-file-wrapper"'));
+  const shells: string[] = [];
+  const islands: string[] = [];
+  let hunkIndex = 0;
+  parts.forEach((part, i) => {
+    const file = files[i];
+    const firstHunk = hunkIndex;
+    const hunkCount = file ? file.hunks.length : 0;
+    hunkIndex += hunkCount;
+    const marker = '<div class="d2h-files-diff">';
+    const open = part.indexOf(marker);
+    if (open < 0) {
+      shells.push(part); // no diff body (e.g. binary / pure rename) — leave it materialized
+      return;
+    }
+    const before = part.slice(0, open);
+    const after = part.slice(open + marker.length);
+    const body = after.replace(/<\/div>\s*<\/div>\s*$/, "");
+    const path = file ? file.displayPath : "";
+    const shell =
+      before.replace(
+        /<div id="[^"]*" class="d2h-file-wrapper"/,
+        `<div id="file-${i}" class="d2h-file-wrapper" data-path="${escapeAttr(path)}" data-first-hunk="${firstHunk}" data-hunk-count="${hunkCount}"`,
+      ) + '<div class="d2h-files-diff" data-lazy="1"></div></div>';
+    shells.push(shell);
+    islands.push(`<script type="text/html" id="diff-body-${i}">${body}</script>`);
+  });
+  return { container: shells.join("\n"), islands: islands.join("\n") };
+}
+
 function renderDiffHtml(input: {
   files: DiffFile[];
   diffHtml: string;
+  diffIslands?: string;
+  lazy?: boolean;
   sourceFiles: SourceFile[];
   fileStates: ReviewFileState[];
   httpEnvironments: Record<string, Record<string, string>>;
@@ -1012,7 +1064,7 @@ function renderDiffHtml(input: {
     '<div id="source-body" class="source-body empty">Select a file from the Files tab.</div>',
     "</section>",
     "</main>",
-    `<div id="app-info" class="app-info hidden" role="dialog" aria-modal="false" aria-label="About monacori"><div class="app-info-head">monacori <span class="app-info-ver">${packageVersion ? "v" + escapeHtml(packageVersion) : ""}</span></div><div id="app-info-status" class="app-info-status">Checking for updates…</div><div class="app-info-cmd"><code>npm i -g @happy-nut/monacori</code><button type="button" id="app-info-copy" class="plain-button">Copy</button></div><div class="app-info-keys"><div class="app-info-keys-h">Keyboard shortcuts</div><div class="keys-grid"><kbd>F7 / ]</kbd><span>Next change</span><kbd>Shift+F7 / [</kbd><span>Previous change</span><kbd>Cmd/Ctrl+[ / ]</kbd><span>Cursor back / forward</span><kbd>Shift Shift</kbd><span>Find file</span><kbd>Cmd/Ctrl+Shift+F</kbd><span>Find in files</span><kbd>Cmd/Ctrl+E</kbd><span>Recent files</span><kbd>Cmd/Ctrl+&darr;</kbd><span>Go to definition</span><kbd>Cmd/Ctrl+1 / 0</kbd><span>Files / Changes tab</span><kbd>Tab</kbd><span>Sidebar &harr; content</span><kbd>Opt/Alt+&larr;/&rarr;</kbd><span>Word jump (vim w)</span><kbd>Cmd/Ctrl+&larr;/&rarr;</kbd><span>Line start / end</span><kbd>Shift+arrows</kbd><span>Extend selection</span><kbd>&lt;</kbd><span>Toggle viewed</span><kbd>? &nbsp;&gt;</kbd><span>Add question / change</span><kbd>Cmd/Ctrl+Shift+/ .</kbd><span>All questions / changes</span><kbd>Cmd/Ctrl+Shift+W</kbd><span>Ignore whitespace</span><kbd>Cmd/Ctrl+Enter</kbd><span>Save comment</span></div></div></div>`,
+    `<div id="app-info" class="app-info hidden" role="dialog" aria-modal="false" aria-label="About monacori"><div class="app-info-head">monacori <span class="app-info-ver">${packageVersion ? "v" + escapeHtml(packageVersion) : ""}</span></div><div id="app-info-status" class="app-info-status">Checking for updates…</div><div class="app-info-cmd"><code>npm i -g @happy-nut/monacori</code><button type="button" id="app-info-copy" class="plain-button">Copy</button></div><div class="app-info-keys"><div class="app-info-keys-h">Keyboard shortcuts</div><div class="keys-grid"><kbd>F7</kbd><span>Next change</span><kbd>Shift+F7</kbd><span>Previous change</span><kbd>Cmd/Ctrl+[ / ]</kbd><span>Cursor back / forward</span><kbd>Shift Shift</kbd><span>Find file</span><kbd>Cmd/Ctrl+Shift+F</kbd><span>Find in files</span><kbd>Cmd/Ctrl+E</kbd><span>Recent files</span><kbd>Cmd/Ctrl+B</kbd><span>Definition / usages</span><kbd>Cmd/Ctrl+&darr;</kbd><span>Go to definition</span><kbd>Cmd/Ctrl+1 / 0</kbd><span>Files / Changes tab</span><kbd>Tab</kbd><span>Sidebar &harr; content</span><kbd>Opt/Alt+&larr;/&rarr;</kbd><span>Word jump (vim w)</span><kbd>Cmd/Ctrl+&larr;/&rarr;</kbd><span>Line start / end</span><kbd>Shift+arrows</kbd><span>Extend selection</span><kbd>&lt;</kbd><span>Toggle viewed</span><kbd>? &nbsp;&gt;</kbd><span>Add question / change</span><kbd>Cmd/Ctrl+Shift+/ .</kbd><span>All questions / changes</span><kbd>Cmd/Ctrl+Shift+W</kbd><span>Ignore whitespace</span><kbd>Cmd/Ctrl+Enter</kbd><span>Save comment</span></div></div></div>`,
     '<div id="quick-open" class="quick-open hidden" role="dialog" aria-modal="true" aria-label="Quick open">',
     '<div class="quick-open-panel">',
     '<div class="quick-open-title"><span id="quick-open-mode">Search files</span></div>',
@@ -1021,7 +1073,14 @@ function renderDiffHtml(input: {
     '<div id="quick-open-preview" class="quick-open-preview"></div>',
     "</div>",
     "</div>",
-    `<script type="application/json" id="review-meta" data-watch="${input.watch ? "true" : "false"}" data-signature="${escapeAttr(input.signature ?? "")}" data-generated-at="${escapeAttr(input.generatedAt ?? "")}">{}</script>`,
+    '<div id="usages" class="quick-open hidden" role="dialog" aria-modal="true" aria-label="Usages">',
+    '<div class="quick-open-panel">',
+    '<div class="quick-open-title"><span id="usages-title">Usages</span></div>',
+    '<div id="usages-results" class="quick-open-results"></div>',
+    "</div>",
+    "</div>",
+    input.diffIslands || "",
+    `<script type="application/json" id="review-meta" data-watch="${input.watch ? "true" : "false"}" data-signature="${escapeAttr(input.signature ?? "")}" data-generated-at="${escapeAttr(input.generatedAt ?? "")}" data-lazy="${input.lazy ? "true" : "false"}">{}</script>`,
     `<script type="application/json" id="source-files-data">${jsonForScript(input.sourceFiles)}</script>`,
     `<script type="application/json" id="file-state-data">${jsonForScript(input.fileStates)}</script>`,
     `<script type="application/json" id="http-env-data">${jsonForScript(input.httpEnvironments)}</script>`,
@@ -2152,6 +2211,9 @@ h1 { margin: 0; font-size: 18px; }
   font: 15px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .quick-open-results { overflow: auto; padding: 6px; max-height: 232px; }
+.usage-item { display: flex; align-items: baseline; gap: 10px; }
+.usage-loc { flex: none; color: var(--active); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
+.usage-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .quick-open-main { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
 .quick-open-path { flex: 1 1 auto; }
 .quick-open-preview {
@@ -2312,9 +2374,78 @@ h1 { margin: 0; font-size: 18px; }
 
 function diffScript(): string {
   return String.raw`
-prepareDiff2HtmlHunks();
-const hunks = Array.from(document.querySelectorAll('.hunk'));
-const hunkPeers = Array.from(document.querySelectorAll('.hunk-peer'));
+const REVIEW_LAZY = document.getElementById('review-meta')?.dataset.lazy === 'true';
+if (!REVIEW_LAZY) prepareDiff2HtmlHunks();
+const hunks = REVIEW_LAZY ? [] : Array.from(document.querySelectorAll('.hunk'));
+const hunkPeers = REVIEW_LAZY ? [] : Array.from(document.querySelectorAll('.hunk-peer'));
+// Lazy mode: each file body lives in an inert <script type="text/html"> island (see splitDiffForLazy).
+// Build a hunk index from the lightweight shells (data-first-hunk/data-hunk-count/data-path) so F7 and
+// change-nav work without materializing everything. hunkRowAt() materializes the target file on demand.
+const hunkMeta = [];
+if (REVIEW_LAZY) {
+  Array.prototype.forEach.call(document.querySelectorAll('#diff2html-container .d2h-file-wrapper'), function (w) {
+    var base = parseInt(w.dataset.firstHunk || '0', 10) || 0;
+    var cnt = parseInt(w.dataset.hunkCount || '0', 10) || 0;
+    var p = w.dataset.path || ((w.querySelector('.d2h-file-name') || {}).textContent || '').trim();
+    for (var k = 0; k < cnt; k++) hunkMeta[base + k] = { path: p };
+  });
+}
+var diffBootDone = false;
+function hunkTotal() { return REVIEW_LAZY ? hunkMeta.length : hunks.length; }
+function hunkPathAt(i) { return REVIEW_LAZY ? (hunkMeta[i] ? hunkMeta[i].path : '') : (hunks[i] ? hunks[i].dataset.file : ''); }
+function hunkRowAt(i) {
+  if (!REVIEW_LAZY) return hunks[i] || null;
+  var meta = hunkMeta[i];
+  if (!meta) return null;
+  ensureFileReady(diffWrapperByPath(meta.path));
+  return document.getElementById('hunk-' + i);
+}
+// Assign global hunk ids/classes to a freshly materialized file body, keyed off its shell's
+// data-first-hunk so indices stay globally consistent with the eager numbering.
+function markWrapperHunks(wrapper) {
+  var base = parseInt(wrapper.dataset.firstHunk || '0', 10) || 0;
+  var fileName = ((wrapper.querySelector('.d2h-file-name') || {}).textContent || '').trim();
+  var headerToIndex = new Map();
+  var local = 0;
+  Array.prototype.forEach.call(wrapper.querySelectorAll('tr'), function (row) {
+    var header = (row.textContent || '').trim();
+    if (header.indexOf('@@') !== 0) return;
+    var index = headerToIndex.get(header);
+    if (index === undefined) { index = base + local; headerToIndex.set(header, index); row.classList.add('hunk'); row.id = 'hunk-' + index; local += 1; }
+    else { row.classList.add('hunk-peer'); }
+    row.dataset.hunkIndex = String(index);
+    row.dataset.file = fileName;
+  });
+}
+// Materialize one lazily-emitted file body from its island, index its hunks, and (re)render comments.
+function ensureFileReady(wrapper) {
+  if (!wrapper) return null;
+  var body = wrapper.querySelector('.d2h-files-diff[data-lazy]');
+  if (!body) return wrapper; // already materialized (or eager mode)
+  var island = document.getElementById('diff-body-' + (wrapper.id || '').replace('file-', ''));
+  if (island) {
+    body.innerHTML = island.textContent || '';
+    body.removeAttribute('data-lazy');
+    markWrapperHunks(wrapper);
+    if (diffBootDone && typeof reviewComments !== 'undefined' && reviewComments.length) { try { refreshComments(); } catch (e) {} }
+  }
+  return wrapper;
+}
+function setupLazyDiff() {
+  var container = document.getElementById('diff2html-container');
+  if (!container) return;
+  var wrappers = Array.prototype.slice.call(container.querySelectorAll('.d2h-file-wrapper'));
+  if (typeof IntersectionObserver !== 'undefined') {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { ensureFileReady(e.target); io.unobserve(e.target); } });
+    }, { root: null, rootMargin: '600px 0px' });
+    wrappers.forEach(function (w) { io.observe(w); });
+  } else {
+    wrappers.forEach(function (w) { ensureFileReady(w); }); // no IntersectionObserver -> materialize all
+  }
+  if (wrappers[0]) ensureFileReady(wrappers[0]); // first file ready so the initial caret has a row to land on
+}
+if (REVIEW_LAZY) { setupLazyDiff(); setTimeout(function () { diffBootDone = true; }, 0); }
 const links = Array.from(document.querySelectorAll('#changes-panel .file-link'));
 const sourceLinks = Array.from(document.querySelectorAll('.source-link'));
 const sourceFiles = JSON.parse(document.getElementById('source-files-data')?.textContent || '[]');
@@ -2343,6 +2474,8 @@ let lastShiftSide = 0;
 let quickMode = 'all';
 let quickItems = [];
 let quickActive = 0;
+let usageItems = []; // find-usages results for the Cmd+B-on-declaration popup
+let usageActive = 0;
 let viewerCursor = null;
 let selectedCommentRow = null; // a comment box "selected" while navigating with arrows (caret hidden); Backspace deletes it
 let currentHttpEnvName = (function () {
@@ -2357,7 +2490,7 @@ let diffCursor = null; // { path, side: 'old'|'new', rowIndex, column } — keyb
 // Cursor-position history for Cmd/Ctrl+[ (back) and Cmd/Ctrl+] (forward), IDE-style.
 let navList = [];
 let navPos = -1;
-let navRestoring = false;
+let navSuppress = false;
 var NAV_JUMP_LINES = 8;
 var NAV_MAX = 60;
 let diffSelectionAnchor = null; // { side, rowIndex, column } — Shift+Arrow drag-select origin in the diff
@@ -2559,27 +2692,36 @@ function renderBreadcrumb(container, path) {
 }
 
 function setActive(index, shouldScroll = true) {
-  if (hunks.length === 0) return;
-  current = ((index % hunks.length) + hunks.length) % hunks.length;
+  if (hunkTotal() === 0) return;
+  current = ((index % hunkTotal()) + hunkTotal()) % hunkTotal();
   document.getElementById('source-viewer')?.classList.add('hidden');
   document.getElementById('diff-view')?.classList.remove('hidden');
   setTab('changes');
-  const active = hunks[current];
-  const file = active.dataset.file;
+  const file = hunkPathAt(current);
   showOnlyFile(file);
-  hunks.forEach((hunk, i) => hunk.classList.toggle('active', i === current));
-  hunkPeers.forEach((hunk) => hunk.classList.toggle('active', Number(hunk.dataset.hunkIndex) === current));
+  const active = hunkRowAt(current); // materializes the file in lazy mode
+  if (!active) return;
+  if (REVIEW_LAZY) {
+    document.querySelectorAll('#diff2html-container .hunk.active, #diff2html-container .hunk-peer.active').forEach((h) => h.classList.remove('active'));
+    document.querySelectorAll('#diff2html-container [data-hunk-index="' + current + '"]').forEach((h) => h.classList.add('active'));
+  } else {
+    hunks.forEach((hunk, i) => hunk.classList.toggle('active', i === current));
+    hunkPeers.forEach((hunk) => hunk.classList.toggle('active', Number(hunk.dataset.hunkIndex) === current));
+  }
   links.forEach((link) => link.classList.toggle('active', link.dataset.file === file));
   renderBreadcrumb(document.getElementById('diff-breadcrumb'), file);
   document.getElementById('hunk-counter').textContent = String(current + 1);
   const targetRow = firstChangeRowForCaret(active);
-  focusDiffRow(targetRow);
-  if (shouldScroll) targetRow.scrollIntoView({ block: 'center' });
+  // F7/change navigation moves the caret but must NOT pollute the Cmd+[/] cursor history.
+  navSuppress = true;
+  try { focusDiffRow(targetRow); } finally { navSuppress = false; }
+  if (shouldScroll && targetRow) targetRow.scrollIntoView({ block: 'center' });
   if (file) rememberRecent(file, 'change');
   history.replaceState(null, '', '#hunk-' + current);
 }
 
 function showOnlyFile(fileName) {
+  if (REVIEW_LAZY) ensureFileReady(diffWrapperByPath(fileName));
   let activeNum = 0;
   const wrappers = Array.from(document.querySelectorAll('.d2h-file-wrapper'));
   wrappers.forEach((wrapper, i) => {
@@ -2614,14 +2756,14 @@ function hunkIndexAtCaret() {
 }
 
 function next(delta) {
-  if (hunks.length === 0) return;
+  if (hunkTotal() === 0) return;
   // Step relative to where the caret actually is, so the last change of a file leads into the next file.
   const caretHunk = hunkIndexAtCaret();
   const base = caretHunk >= 0 ? caretHunk : current;
   let idx = base < 0 ? initialHunkForNavigation(delta) : base + delta;
-  for (let step = 0; step < hunks.length; step++) {
-    const norm = ((idx % hunks.length) + hunks.length) % hunks.length;
-    if (!isFileViewed(hunks[norm].dataset.file || '')) { setActive(norm); return; }
+  for (let step = 0; step < hunkTotal(); step++) {
+    const norm = ((idx % hunkTotal()) + hunkTotal()) % hunkTotal();
+    if (!isFileViewed(hunkPathAt(norm) || '')) { setActive(norm); return; }
     idx += delta;
   }
   // Every changed file is marked viewed — nothing left to review, so F7/[/] stay put.
@@ -2631,7 +2773,7 @@ function initialHunkForNavigation(delta) {
   const openPath = document.getElementById('source-viewer')?.dataset.openPath || '';
   const sourceHunk = firstHunkForPath(openPath);
   if (sourceHunk >= 0) return sourceHunk;
-  return delta < 0 ? hunks.length - 1 : 0;
+  return delta < 0 ? hunkTotal() - 1 : 0;
 }
 
 function firstHunkForPath(path) {
@@ -2759,7 +2901,7 @@ function openQuickItem(item) {
   const link = links.find((candidate) => candidate.dataset.file === item.path);
   if (!link) return;
   const target = Number(link.dataset.hunk);
-  if (!Number.isNaN(target) && target >= 0 && target < hunks.length) {
+  if (!Number.isNaN(target) && target >= 0 && target < hunkTotal()) {
     setActive(target);
   } else {
     showDiffView(false);
@@ -2913,6 +3055,10 @@ function handleTreeKey(event) {
 document.addEventListener('keydown', (event) => {
   if (!quickOpen?.classList.contains('hidden')) {
     if (handleQuickOpenKey(event)) return;
+  }
+  var usagesBox = document.getElementById('usages');
+  if (usagesBox && !usagesBox.classList.contains('hidden')) {
+    if (handleUsagesKey(event)) return;
   }
 
   if ((event.metaKey || event.ctrlKey) && event.key === '1') {
@@ -3124,12 +3270,6 @@ document.addEventListener('keydown', (event) => {
       }
     }
     next(event.shiftKey ? -1 : 1);
-  } else if (event.key === ']' && !event.metaKey && !event.ctrlKey) {
-    event.preventDefault();
-    next(1);
-  } else if (event.key === '[' && !event.metaKey && !event.ctrlKey) {
-    event.preventDefault();
-    next(-1);
   }
 });
 
@@ -3149,12 +3289,26 @@ quickResults?.addEventListener('click', (event) => {
 quickOpen?.addEventListener('click', (event) => {
   if (event.target === quickOpen) closeQuickOpen();
 });
+document.getElementById('usages-results')?.addEventListener('mousemove', function (event) {
+  var it = event.target.closest && event.target.closest('.usage-item');
+  if (!it) return;
+  usageActive = Number(it.dataset.index || 0);
+  updateUsageActive();
+});
+document.getElementById('usages-results')?.addEventListener('click', function (event) {
+  var it = event.target.closest && event.target.closest('.usage-item');
+  if (!it) return;
+  openUsageItem(usageItems[Number(it.dataset.index || 0)]);
+});
+document.getElementById('usages')?.addEventListener('click', function (event) {
+  if (event.target && event.target.id === 'usages') closeUsages();
+});
 
 links.forEach((link) => {
   link.addEventListener('click', (event) => {
     showDiffView(false);
     const target = Number(link.dataset.hunk);
-    if (!Number.isNaN(target) && target >= 0 && target < hunks.length) {
+    if (!Number.isNaN(target) && target >= 0 && target < hunkTotal()) {
       event.preventDefault();
       setActive(target);
     }
@@ -3389,7 +3543,7 @@ function navSamePos(a, b) {
 // current entry (so arrowing around does not flood it); a jump (different file or a far line)
 // pushes a new entry and drops any forward history.
 function recordNav(entry) {
-  if (navRestoring || !entry) return;
+  if (navSuppress || !entry) return;
   var cur = navPos >= 0 ? navList[navPos] : null;
   if (navSamePos(cur, entry)) { navList[navPos] = entry; return; }
   var small = cur && cur.kind === entry.kind && cur.path === entry.path && Math.abs(cur.line - entry.line) < NAV_JUMP_LINES;
@@ -3409,7 +3563,7 @@ function revealDiffFile(path) {
 }
 function restoreNav(entry) {
   if (!entry) return;
-  navRestoring = true;
+  navSuppress = true;
   try {
     if (entry.kind === 'diff') {
       revealDiffFile(entry.path);
@@ -3418,10 +3572,15 @@ function restoreNav(entry) {
       setSourceCursor(entry.path, entry.lineIndex, entry.column, true, -1);
     }
   } finally {
-    navRestoring = false;
+    navSuppress = false;
   }
 }
 function navBack() {
+  if (navPos < 0) return;
+  // Change-nav (F7) does not record positions. If the caret has drifted past the last recorded
+  // spot, the first Cmd+[ returns to it; the next steps further back through the cursor history.
+  var live = navEntryOf(isSourceViewerVisible() ? 'source' : 'diff');
+  if (live && !navSamePos(live, navList[navPos])) { restoreNav(navList[navPos]); return; }
   if (navPos > 0) { navPos -= 1; restoreNav(navList[navPos]); }
 }
 function navForward() {
@@ -3456,6 +3615,7 @@ function ensureDiffCursor() {
   if (!isDiffViewVisible()) return;
   var wrapper = diffActiveWrapper();
   if (!wrapper) return;
+  if (REVIEW_LAZY) ensureFileReady(wrapper);
   var nameEl = wrapper.querySelector('.d2h-file-name');
   var path = (nameEl && nameEl.textContent ? nameEl.textContent : '').trim();
   if (!path) return;
@@ -3934,13 +4094,16 @@ function showDiffView(shouldScroll) {
   document.getElementById('source-viewer')?.classList.add('hidden');
   document.getElementById('diff-view')?.classList.remove('hidden');
   setTab('changes');
-  if (current < 0 && hunks.length) {
+  if (current < 0 && hunkTotal()) {
     setActive(0, shouldScroll);
     return;
   }
-  if (current >= 0 && hunks[current]) {
-    showOnlyFile(hunks[current].dataset.file);
-    if (shouldScroll) hunks[current].scrollIntoView({ block: 'start' });
+  if (current >= 0) {
+    const curRow = hunkRowAt(current);
+    if (curRow) {
+      showOnlyFile(hunkPathAt(current));
+      if (shouldScroll) curRow.scrollIntoView({ block: 'start' });
+    }
   }
 }
 
@@ -4042,7 +4205,7 @@ function openDefaultSourceFile() {
     openSourceFile(file.path);
     return;
   }
-  if (hunks.length > 0) setActive(0, false);
+  if (hunkTotal() > 0) setActive(0, false);
 }
 
 function handleSourceCopy(event) {
@@ -4449,10 +4612,102 @@ function wordAtCursor() {
 
 function goToSymbolUnderCursor() {
   const symbol = wordAtCursor();
-  if (!symbol) return;
-  const target = findSymbolDefinition(symbol.name);
-  if (!target) return;
-  openSourceAt(target.path, target.lineIndex, target.column);
+  if (symbol) goToDefOrUsages(symbol.name);
+}
+// Cmd+B: on a declaration, show its usages (navigate if there's only one); elsewhere, go to the definition.
+function goToDefOrUsages(name) {
+  if (!name) return;
+  var def = findSymbolDefinition(name);
+  var loc = caretSourceLoc();
+  if (def && loc && def.path === loc.path && def.lineIndex === loc.lineIndex) {
+    openUsages(name, def);
+    return;
+  }
+  if (def) openSourceAt(def.path, def.lineIndex, def.column);
+}
+// Where the caret sits, mapped to a source (path, lineIndex). In the diff, only the new side maps cleanly.
+function caretSourceLoc() {
+  if (isSourceViewerVisible() && viewerCursor) return { path: viewerCursor.path, lineIndex: viewerCursor.lineIndex };
+  if (isDiffViewVisible() && diffCursor && diffCursor.side === 'new') {
+    var wrap = diffWrapperByPath(diffCursor.path);
+    var row = wrap ? diffRowAt(wrap, diffCursor.side, diffCursor.rowIndex) : null;
+    var ln = row ? diffLineNumber(row) : null;
+    if (ln != null) return { path: diffCursor.path, lineIndex: ln - 1 };
+  }
+  return null;
+}
+// All word-boundary occurrences of name across embedded files, excluding the declaration line itself.
+function findUsages(name, defPath, defLine) {
+  var re;
+  try { re = new RegExp('(^|[^A-Za-z0-9_$])' + escapeRegExp(name) + '(?![A-Za-z0-9_$])'); } catch (e) { return []; }
+  var out = [];
+  for (var fi = 0; fi < sourceFiles.length; fi++) {
+    var f = sourceFiles[fi];
+    if (!f.embedded) continue;
+    var lines = String(f.content).split(/\r?\n/);
+    for (var li = 0; li < lines.length; li++) {
+      if (f.path === defPath && li === defLine) continue;
+      var m = re.exec(lines[li]);
+      if (m) {
+        out.push({ path: f.path, lineIndex: li, column: m.index + (m[1] ? m[1].length : 0), text: lines[li] });
+        if (out.length >= 500) return out;
+      }
+    }
+  }
+  return out;
+}
+function openUsages(name, def) {
+  var items = findUsages(name, def.path, def.lineIndex);
+  if (items.length === 1) { openSourceAt(items[0].path, items[0].lineIndex, items[0].column); return; }
+  usageItems = items;
+  usageActive = 0;
+  showUsages(name, items.length);
+}
+function showUsages(name, count) {
+  var box = document.getElementById('usages');
+  var title = document.getElementById('usages-title');
+  if (!box) return;
+  if (title) title.textContent = count + ' usage' + (count === 1 ? '' : 's') + ' of ' + name;
+  renderUsages();
+  box.classList.remove('hidden');
+}
+function renderUsages() {
+  var results = document.getElementById('usages-results');
+  if (!results) return;
+  if (!usageItems.length) { results.innerHTML = '<div class="quick-open-empty">No usages found.</div>'; return; }
+  results.innerHTML = usageItems.map(function (item, index) {
+    var fname = item.path.split('/').pop();
+    return '<button type="button" class="quick-open-item usage-item' + (index === usageActive ? ' active' : '') + '" data-index="' + index + '">'
+      + '<span class="usage-loc">' + escapeHtml(fname) + ':' + (item.lineIndex + 1) + '</span>'
+      + '<span class="usage-code">' + escapeHtml(item.text.replace(/^\s+/, '').slice(0, 160)) + '</span>'
+      + '</button>';
+  }).join('');
+  updateUsageActive();
+}
+function updateUsageActive() {
+  var results = document.getElementById('usages-results');
+  if (!results) return;
+  var items = results.querySelectorAll('.usage-item');
+  for (var i = 0; i < items.length; i++) {
+    var on = i === usageActive;
+    items[i].classList.toggle('active', on);
+    if (on && items[i].scrollIntoView) items[i].scrollIntoView({ block: 'nearest' });
+  }
+}
+function handleUsagesKey(event) {
+  if (event.key === 'Escape') { event.preventDefault(); closeUsages(); return true; }
+  if (event.key === 'ArrowDown') { event.preventDefault(); usageActive = Math.min(usageActive + 1, usageItems.length - 1); updateUsageActive(); return true; }
+  if (event.key === 'ArrowUp') { event.preventDefault(); usageActive = Math.max(usageActive - 1, 0); updateUsageActive(); return true; }
+  if (event.key === 'Enter') { event.preventDefault(); openUsageItem(usageItems[usageActive]); return true; }
+  return false;
+}
+function openUsageItem(item) {
+  if (!item) return;
+  closeUsages();
+  openSourceAt(item.path, item.lineIndex, item.column);
+}
+function closeUsages() {
+  document.getElementById('usages')?.classList.add('hidden');
 }
 
 var symbolIndex = null; // Map<name, [{path,lineIndex,column}]>; built off-thread by a Web Worker, null until ready
@@ -4519,11 +4774,7 @@ function wordAtDiffCaret() {
   return null;
 }
 function goToSymbolFromDiff() {
-  var name = wordAtDiffCaret();
-  if (!name) return;
-  var target = findSymbolDefinition(name);
-  if (!target) return;
-  openSourceAt(target.path, target.lineIndex, target.column);
+  goToDefOrUsages(wordAtDiffCaret());
 }
 function findSymbolDefinition(name) {
   if (symbolIndex) {
