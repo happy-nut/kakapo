@@ -3,4 +3,5 @@ dist/
 .DS_Store
 .monacori/
 .omc/
+.agents/
 *.log
