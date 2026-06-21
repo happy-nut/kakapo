@@ -112,6 +112,12 @@ type DiffReviewBuild = {
   hunks: number;
   signature: string;
   generatedAt: string;
+  // Phase 2 lazy-LOAD: per-file diff body HTML, served on demand (IPC / HTTP) instead of embedded,
+  // so the initial HTML stays small. Indexed by file order. Empty unless lazyLoad was requested.
+  lazyBodies?: string[];
+  // Phase 2b lazy-LOAD: full source files JSON (with content), served on demand so the HTML embeds
+  // only metadata. undefined unless lazyLoad.
+  lazySourceData?: string;
 };
 
 type VerificationRun = {
@@ -597,6 +603,8 @@ export function buildDiffReview(input: {
   title: string;
   watch?: boolean;
   ignoreWhitespace?: boolean;
+  lazy?: boolean; // force lazy materialize (shells + on-demand bodies); auto for big repos
+  lazyLoad?: boolean; // serve/Electron set this — bodies + source fetched on demand, not embedded
 }): DiffReviewBuild {
   if (!isGitRepository(process.cwd())) {
     return {
@@ -622,8 +630,12 @@ export function buildDiffReview(input: {
   const generatedAt = new Date().toISOString();
   const diffHtml = renderDiff2Html(diffText);
   const totalLines = files.reduce((sum, file) => sum + file.hunks.reduce((t, h) => t + h.lines.length, 0), 0);
-  const lazy = shouldLazyRender(files.length, totalLines);
-  const diffSplit = lazy ? splitDiffForLazy(diffHtml, files) : { container: diffHtml, islands: "" };
+  // lazy-LOAD (Phase 2) serves each file body + source on demand instead of embedding them; it implies
+  // lazy (shells). Driven by the caller (serve/Electron pass lazyLoad:true; the standalone file writer
+  // leaves it off since it has no server to fetch from). Big repos still lazy-materialize when embedded.
+  const lazyLoad = input.lazyLoad ?? false;
+  const lazy = lazyLoad || (input.lazy ?? shouldLazyRender(files.length, totalLines));
+  const diffSplit = lazy ? splitDiffForLazy(diffHtml, files) : { container: diffHtml, islands: "", bodies: [] as string[] };
   const signature = createHash("sha1")
     .update(diffText)
     .update("\n")
@@ -634,8 +646,9 @@ export function buildDiffReview(input: {
   const html = renderDiffHtml({
     files,
     diffHtml: diffSplit.container,
-    diffIslands: diffSplit.islands,
+    diffIslands: lazyLoad ? "" : diffSplit.islands,
     lazy,
+    lazyLoad,
     sourceFiles,
     fileStates,
     httpEnvironments,
@@ -655,6 +668,8 @@ export function buildDiffReview(input: {
     hunks,
     signature,
     generatedAt,
+    lazyBodies: diffSplit.bodies,
+    lazySourceData: lazyLoad ? JSON.stringify(sourceFiles) : undefined,
   };
 }
 
@@ -841,15 +856,20 @@ function serveDiffWatch(input: {
 }): void {
   const host = "127.0.0.1";
   const port = input.port ? parsePositiveInteger(input.port, "--port") : 0;
-  const build = () => buildDiffReview({
-    base: input.base,
-    staged: input.staged,
-    includeUntracked: input.includeUntracked,
-    context: input.context,
-    title: "monacori live diff",
-    watch: true,
-    ignoreWhitespace: input.ignoreWhitespace,
-  });
+  let lastBuild: DiffReviewBuild | undefined;
+  const build = () => {
+    lastBuild = buildDiffReview({
+      base: input.base,
+      staged: input.staged,
+      includeUntracked: input.includeUntracked,
+      context: input.context,
+      title: "monacori live diff",
+      watch: true,
+      ignoreWhitespace: input.ignoreWhitespace,
+      lazyLoad: true, // serve can stream per-file bodies/source over /file + /source
+    });
+    return lastBuild;
+  };
 
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     const requestUrl = new URL(request.url ?? "/", `http://${host}`);
@@ -873,6 +893,30 @@ function serveDiffWatch(input: {
       if (requestUrl.pathname === "/" || requestUrl.pathname === "/review") {
         const latest = build();
         writeHttp(response, 200, "text/html; charset=utf-8", latest.html);
+        return;
+      }
+
+      // Phase 2 lazy-LOAD: serve a single file's diff body on demand (the renderer fetches this
+      // when a file scrolls into view / is navigated to). Reuses the cached build so we don't re-run
+      // git diff per file; falls back to a fresh build if no review has been requested yet.
+      if (requestUrl.pathname === "/file") {
+        const b = lastBuild ?? build();
+        const bodies = b.lazyBodies ?? [];
+        const idx = Number(requestUrl.searchParams.get("index"));
+        if (Number.isInteger(idx) && idx >= 0 && idx < bodies.length) {
+          writeHttp(response, 200, "text/html; charset=utf-8", bodies[idx]);
+        } else {
+          writeHttp(response, 404, "text/plain; charset=utf-8", "Not found\n");
+        }
+        return;
+      }
+
+      // Phase 2b lazy-LOAD: serve the full source files JSON (with content) once, on demand, so the
+      // HTML embeds only source metadata. The renderer fetches this after first paint to populate the
+      // source view + build the go-to-definition index.
+      if (requestUrl.pathname === "/source-data") {
+        const b = lastBuild ?? build();
+        writeHttp(response, 200, "application/json; charset=utf-8", b.lazySourceData ?? "[]");
         return;
       }
 
@@ -963,16 +1007,14 @@ async function handleHttpProxy(request: IncomingMessage, response: ServerRespons
 // up front; the UI opens instantly and shortcuts work immediately. Small repos and
 // tests stay on the eager path (below threshold) and are byte-for-byte unchanged.
 function shouldLazyRender(fileCount: number, totalLines: number): boolean {
-  const env = process.env.MONACORI_LAZY;
-  if (env === "1" || env === "true") return true;
-  if (env === "0" || env === "false") return false;
   return fileCount > 60 || totalLines > 4000;
 }
 
-function splitDiffForLazy(diffHtml: string, files: DiffFile[]): { container: string; islands: string } {
+function splitDiffForLazy(diffHtml: string, files: DiffFile[]): { container: string; islands: string; bodies: string[] } {
   const parts = diffHtml.split(/(?=<div [^>]*class="d2h-file-wrapper")/).filter((p) => p.includes('class="d2h-file-wrapper"'));
   const shells: string[] = [];
   const islands: string[] = [];
+  const bodies: string[] = []; // dense, one per file index — used by lazy-LOAD (served on demand)
   let hunkIndex = 0;
   parts.forEach((part, i) => {
     const file = files[i];
@@ -983,6 +1025,7 @@ function splitDiffForLazy(diffHtml: string, files: DiffFile[]): { container: str
     const open = part.indexOf(marker);
     if (open < 0) {
       shells.push(part); // no diff body (e.g. binary / pure rename) — leave it materialized
+      bodies.push("");
       return;
     }
     const before = part.slice(0, open);
@@ -995,9 +1038,10 @@ function splitDiffForLazy(diffHtml: string, files: DiffFile[]): { container: str
         `<div id="file-${i}" class="d2h-file-wrapper" data-path="${escapeAttr(path)}" data-first-hunk="${firstHunk}" data-hunk-count="${hunkCount}"`,
       ) + '<div class="d2h-files-diff" data-lazy="1"></div></div>';
     shells.push(shell);
+    bodies.push(body);
     islands.push(`<script type="text/html" id="diff-body-${i}">${body}</script>`);
   });
-  return { container: shells.join("\n"), islands: islands.join("\n") };
+  return { container: shells.join("\n"), islands: islands.join("\n"), bodies };
 }
 
 function renderDiffHtml(input: {
@@ -1005,6 +1049,7 @@ function renderDiffHtml(input: {
   diffHtml: string;
   diffIslands?: string;
   lazy?: boolean;
+  lazyLoad?: boolean;
   sourceFiles: SourceFile[];
   fileStates: ReviewFileState[];
   httpEnvironments: Record<string, Record<string, string>>;
@@ -1051,7 +1096,6 @@ function renderDiffHtml(input: {
     '<div class="toolbar">',
     '<div class="breadcrumb" id="diff-breadcrumb"></div>',
     `<div class="review-status"><span>${input.files.length} files</span><span>${totalHunks} hunks</span>${input.ignoreWhitespace ? '<span class="ws-ignored" title="Whitespace ignored — Cmd/Ctrl+Shift+W">ws ignored</span>' : ""}<span>${embeddedFiles}/${input.sourceFiles.length} indexed</span><span class="live-status ${input.watch ? "watching" : ""}" id="live-status">${input.watch ? "watching" : escapeHtml(input.generatedAt ?? new Date().toISOString())}</span></div>`,
-    `<div class="counter"><span id="file-counter" class="file-counter"></span><span id="hunk-counter">0</span> / ${totalHunks}</div>`,
     "</div>",
     `<div id="diff2html-container" class="diff2html-container">${input.diffHtml || '<div class="empty">No diff to review.</div>'}</div>`,
     "</section>",
@@ -1080,8 +1124,8 @@ function renderDiffHtml(input: {
     "</div>",
     "</div>",
     input.diffIslands || "",
-    `<script type="application/json" id="review-meta" data-watch="${input.watch ? "true" : "false"}" data-signature="${escapeAttr(input.signature ?? "")}" data-generated-at="${escapeAttr(input.generatedAt ?? "")}" data-lazy="${input.lazy ? "true" : "false"}">{}</script>`,
-    `<script type="application/json" id="source-files-data">${jsonForScript(input.sourceFiles)}</script>`,
+    `<script type="application/json" id="review-meta" data-watch="${input.watch ? "true" : "false"}" data-signature="${escapeAttr(input.signature ?? "")}" data-generated-at="${escapeAttr(input.generatedAt ?? "")}" data-lazy="${input.lazy ? "true" : "false"}" data-lazy-load="${input.lazyLoad ? "true" : "false"}">{}</script>`,
+    `<script type="application/json" id="source-files-data">${jsonForScript(input.lazyLoad ? input.sourceFiles.map((f) => ({ ...f, content: "" })) : input.sourceFiles)}</script>`,
     `<script type="application/json" id="file-state-data">${jsonForScript(input.fileStates)}</script>`,
     `<script type="application/json" id="http-env-data">${jsonForScript(input.httpEnvironments)}</script>`,
     `<script>window.__MONACORI_VERSION__=${JSON.stringify(packageVersion)};</script>`,
@@ -1764,10 +1808,10 @@ body {
 #diff2html-container [contenteditable="false"] { caret-color: transparent; }
 .d2h-wrapper { background: transparent; color: var(--text); }
 .d2h-file-wrapper {
-  margin: 0 0 28px;
+  margin: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 0;
+  border-radius: 0;
   background: var(--panel);
 }
 .d2h-file-header {
@@ -1869,7 +1913,6 @@ body {
 }
 .d2h-diff-table tr.diff-active-row td { background: rgba(74, 136, 199, 0.16) !important; }
 .d2h-diff-table tr.diff-active-row td.d2h-code-side-linenumber { box-shadow: inset 2px 0 0 var(--active); }
-.file-counter:not(:empty) { margin-right: 14px; color: var(--muted); }
 .review-status .ws-ignored { color: var(--token-tag); border: 1px solid color-mix(in srgb, var(--token-tag) 45%, transparent); border-radius: 999px; padding: 0 7px; }
 .d2h-file-collapse {
   display: inline-flex;
@@ -1993,7 +2036,7 @@ summary.tree-focus { background: var(--bg); }
 .status-deleted { background: var(--del); color: #cf222e; }
 .status-renamed { background: #fff8c5; color: #9a6700; }
 .status-source { background: var(--line); color: var(--muted); }
-.content { min-width: 0; padding: 20px 24px 80px; }
+.content { min-width: 0; padding: 0; }
 .toolbar {
   position: sticky;
   top: 0;
@@ -2002,8 +2045,8 @@ summary.tree-focus { background: var(--bg); }
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin: -20px -24px 20px;
-  padding: 10px 24px;
+  margin: 0;
+  padding: 10px 12px;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
@@ -2031,12 +2074,6 @@ h1 { margin: 0; font-size: 18px; }
   font-size: 12px;
 }
 .toolbar p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
-.counter {
-  min-width: 96px;
-  text-align: right;
-  color: var(--muted);
-  font: 13px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
 .empty { padding: 24px; color: var(--muted); }
 .source-viewer { min-height: 100vh; }
 .source-toolbar { margin-bottom: 0; }
@@ -2375,6 +2412,9 @@ h1 { margin: 0; font-size: 18px; }
 function diffScript(): string {
   return String.raw`
 const REVIEW_LAZY = document.getElementById('review-meta')?.dataset.lazy === 'true';
+// lazy-LOAD (Phase 2): file bodies are NOT embedded; they are fetched on demand (serve: GET /file,
+// Electron: window.monacoriFile.get) so the initial HTML stays small. Implies REVIEW_LAZY (shells).
+const REVIEW_LAZY_LOAD = document.getElementById('review-meta')?.dataset.lazyLoad === 'true';
 if (!REVIEW_LAZY) prepareDiff2HtmlHunks();
 const hunks = REVIEW_LAZY ? [] : Array.from(document.querySelectorAll('.hunk'));
 const hunkPeers = REVIEW_LAZY ? [] : Array.from(document.querySelectorAll('.hunk-peer'));
@@ -2417,19 +2457,58 @@ function markWrapperHunks(wrapper) {
     row.dataset.file = fileName;
   });
 }
-// Materialize one lazily-emitted file body from its island, index its hunks, and (re)render comments.
+var bodyCache = {};   // file index -> diff body html (lazy-LOAD cache)
+var bodyPromise = {}; // file index -> Promise that resolves once the body is materialized
+function loadBodyHtml(index) {
+  if (bodyCache[index] != null) return Promise.resolve(bodyCache[index]);
+  var p;
+  if (typeof window !== 'undefined' && window.monacoriFile && typeof window.monacoriFile.get === 'function') {
+    p = Promise.resolve().then(function () { return window.monacoriFile.get(Number(index), 'diff'); });
+  } else if (typeof fetch !== 'undefined') {
+    p = fetch('file?index=' + index).then(function (r) { return r.ok ? r.text() : ''; });
+  } else {
+    p = Promise.resolve('');
+  }
+  return p.then(function (html) { bodyCache[index] = html || ''; return bodyCache[index]; }, function () { bodyCache[index] = ''; return ''; });
+}
+function materializeBody(wrapper, html) {
+  var body = wrapper.querySelector('.d2h-files-diff[data-lazy]');
+  if (!body) return;
+  body.innerHTML = html || '';
+  body.removeAttribute('data-lazy');
+  body.removeAttribute('data-loading');
+  markWrapperHunks(wrapper);
+  if (diffBootDone && typeof reviewComments !== 'undefined' && reviewComments.length) { try { refreshComments(); } catch (e) {} }
+}
+// Materialize a lazily-emitted file body. Phase 1 reads it from an inert embedded island (sync);
+// Phase 2 lazy-LOAD fetches it on demand (async) — callers that then need rows must use whenFileReady().
 function ensureFileReady(wrapper) {
   if (!wrapper) return null;
   var body = wrapper.querySelector('.d2h-files-diff[data-lazy]');
   if (!body) return wrapper; // already materialized (or eager mode)
-  var island = document.getElementById('diff-body-' + (wrapper.id || '').replace('file-', ''));
-  if (island) {
-    body.innerHTML = island.textContent || '';
-    body.removeAttribute('data-lazy');
-    markWrapperHunks(wrapper);
-    if (diffBootDone && typeof reviewComments !== 'undefined' && reviewComments.length) { try { refreshComments(); } catch (e) {} }
+  var idx = (wrapper.id || '').replace('file-', '');
+  if (REVIEW_LAZY_LOAD) {
+    if (!bodyPromise[idx]) {
+      body.setAttribute('data-loading', '1');
+      bodyPromise[idx] = loadBodyHtml(idx).then(function (html) { materializeBody(wrapper, html); return wrapper; });
+    }
+    return wrapper;
   }
+  var island = document.getElementById('diff-body-' + idx);
+  if (island) materializeBody(wrapper, island.textContent || '');
   return wrapper;
+}
+// Run cb once the wrapper's body is materialized — synchronously when it already is (eager / Phase 1
+// island / cached), or after the fetch resolves (cold lazy-LOAD). Lets navigation stay correct without
+// turning every caller async.
+function whenFileReady(wrapper, cb) {
+  if (!wrapper) { cb(); return; }
+  ensureFileReady(wrapper);
+  var body = wrapper.querySelector('.d2h-files-diff');
+  if (!body || !body.hasAttribute('data-lazy')) { cb(); return; }
+  var idx = (wrapper.id || '').replace('file-', '');
+  if (bodyPromise[idx]) { bodyPromise[idx].then(function () { cb(); }); return; }
+  cb();
 }
 function setupLazyDiff() {
   var container = document.getElementById('diff2html-container');
@@ -2456,6 +2535,33 @@ const httpEnvKey = 'monacori-http-env:' + location.pathname;
 const httpRequestsByPath = new Map();
 const httpVarsByPath = new Map();
 const sourceByPath = new Map(sourceFiles.map((file) => [file.path, file]));
+// Phase 2b lazy-LOAD: source content is fetched once after first paint (serve /source-data or the
+// Electron bridge) and merged into the metadata-only source records; until then sourceLoaded is false
+// and the source view shows a brief loading state. Non-lazy-load modes embed source -> already loaded.
+var sourceLoaded = !REVIEW_LAZY_LOAD;
+var pendingSourceOpen = null;
+function loadSourceData() {
+  var p;
+  if (typeof window !== 'undefined' && window.monacoriFile && typeof window.monacoriFile.getSourceData === 'function') {
+    p = Promise.resolve().then(function () { return window.monacoriFile.getSourceData(); });
+  } else if (typeof fetch !== 'undefined') {
+    p = fetch('source-data').then(function (r) { return r.ok ? r.text() : '[]'; });
+  } else {
+    p = Promise.resolve('[]');
+  }
+  p.then(function (text) {
+    var data = [];
+    try { data = JSON.parse(text || '[]'); } catch (e) { data = []; }
+    for (var i = 0; i < data.length; i++) {
+      var existing = sourceByPath.get(data[i].path);
+      if (existing) existing.content = data[i].content;
+    }
+    sourceLoaded = true;
+    try { startSymbolIndex(); } catch (e) {}
+    if (pendingSourceOpen) { var po = pendingSourceOpen; pendingSourceOpen = null; openSourceFile(po.path, po.shouldSwitch); }
+    else if (isSourceViewerVisible() && document.getElementById('source-viewer').dataset.openPath) { openSourceFile(document.getElementById('source-viewer').dataset.openPath, false); }
+  }, function () { sourceLoaded = true; });
+}
 const fileSignatureByPath = new Map(fileStates.map((file) => [file.path, file.signature]));
 const reviewMeta = document.getElementById('review-meta');
 const watchEnabled = reviewMeta?.dataset.watch === 'true';
@@ -2698,40 +2804,37 @@ function setActive(index, shouldScroll = true) {
   document.getElementById('diff-view')?.classList.remove('hidden');
   setTab('changes');
   const file = hunkPathAt(current);
-  showOnlyFile(file);
-  const active = hunkRowAt(current); // materializes the file in lazy mode
-  if (!active) return;
-  if (REVIEW_LAZY) {
-    document.querySelectorAll('#diff2html-container .hunk.active, #diff2html-container .hunk-peer.active').forEach((h) => h.classList.remove('active'));
-    document.querySelectorAll('#diff2html-container [data-hunk-index="' + current + '"]').forEach((h) => h.classList.add('active'));
-  } else {
-    hunks.forEach((hunk, i) => hunk.classList.toggle('active', i === current));
-    hunkPeers.forEach((hunk) => hunk.classList.toggle('active', Number(hunk.dataset.hunkIndex) === current));
-  }
+  const idx = current;
   links.forEach((link) => link.classList.toggle('active', link.dataset.file === file));
   renderBreadcrumb(document.getElementById('diff-breadcrumb'), file);
-  document.getElementById('hunk-counter').textContent = String(current + 1);
-  const targetRow = firstChangeRowForCaret(active);
-  // F7/change navigation moves the caret but must NOT pollute the Cmd+[/] cursor history.
-  navSuppress = true;
-  try { focusDiffRow(targetRow); } finally { navSuppress = false; }
-  if (shouldScroll && targetRow) targetRow.scrollIntoView({ block: 'center' });
   if (file) rememberRecent(file, 'change');
-  history.replaceState(null, '', '#hunk-' + current);
+  history.replaceState(null, '', '#hunk-' + idx);
+  // Row-dependent work waits for the file body (sync for eager/Phase 1, async for cold lazy-LOAD).
+  whenFileReady(diffWrapperByPath(file), function () {
+    showOnlyFile(file);
+    const active = document.getElementById('hunk-' + idx);
+    if (!active) return;
+    if (REVIEW_LAZY) {
+      document.querySelectorAll('#diff2html-container .hunk.active, #diff2html-container .hunk-peer.active').forEach((h) => h.classList.remove('active'));
+      document.querySelectorAll('#diff2html-container [data-hunk-index="' + idx + '"]').forEach((h) => h.classList.add('active'));
+    } else {
+      hunks.forEach((hunk, i) => hunk.classList.toggle('active', i === idx));
+      hunkPeers.forEach((hunk) => hunk.classList.toggle('active', Number(hunk.dataset.hunkIndex) === idx));
+    }
+    const targetRow = firstChangeRowForCaret(active);
+    // F7/change navigation moves the caret but must NOT pollute the Cmd+[/] cursor history.
+    navSuppress = true;
+    try { focusDiffRow(targetRow); } finally { navSuppress = false; }
+    if (shouldScroll && targetRow) targetRow.scrollIntoView({ block: 'center' });
+  });
 }
 
 function showOnlyFile(fileName) {
   if (REVIEW_LAZY) ensureFileReady(diffWrapperByPath(fileName));
-  let activeNum = 0;
-  const wrappers = Array.from(document.querySelectorAll('.d2h-file-wrapper'));
-  wrappers.forEach((wrapper, i) => {
+  document.querySelectorAll('.d2h-file-wrapper').forEach((wrapper) => {
     const name = wrapper.querySelector('.d2h-file-name')?.textContent?.trim() || '';
-    const isActive = name === fileName;
-    wrapper.classList.toggle('df-inactive', !isActive);
-    if (isActive) activeNum = i + 1;
+    wrapper.classList.toggle('df-inactive', name !== fileName);
   });
-  const counter = document.getElementById('file-counter');
-  if (counter) counter.textContent = activeNum + ' / ' + wrappers.length + ' files';
   ensureDiffCursor();
 }
 
@@ -2981,10 +3084,24 @@ function baseName(path) {
   return String(path).split('/').filter(Boolean).pop() || String(path);
 }
 
+// A tree row is navigable only when it is actually visible — i.e. not tucked inside a collapsed
+// <details> folder. getClientRects alone is unreliable here: Chromium keeps collapsed <details>
+// content laid out (content-visibility), so its descendants still report rects. Walk the ancestor
+// <details> and treat anything inside a closed one (other than its own summary) as hidden.
+function isTreeRowVisible(el) {
+  var node = el;
+  while (node) {
+    var parent = node.parentElement;
+    if (!parent || parent.classList.contains('tab-panel')) return true;
+    if (parent.tagName === 'DETAILS' && !parent.open && node.tagName !== 'SUMMARY') return false;
+    node = parent;
+  }
+  return true;
+}
 function treeRows() {
   const panel = document.querySelector('.tab-panel:not(.hidden)');
   if (!panel) return [];
-  return Array.from(panel.querySelectorAll('summary, .file-link')).filter((el) => el.getClientRects().length > 0);
+  return Array.from(panel.querySelectorAll('summary, .file-link')).filter((el) => el.getClientRects().length > 0 && isTreeRowVisible(el));
 }
 
 function focusTree(index) {
@@ -3331,7 +3448,7 @@ document.getElementById('source-body')?.addEventListener('click', handleSourceCl
 document.addEventListener('copy', handleSourceCopy);
 
 populateHttpEnvSelect();
-setTimeout(startSymbolIndex, 0); // build the go-to-definition index off the main thread (Web Worker); never blocks
+setTimeout(REVIEW_LAZY_LOAD ? loadSourceData : startSymbolIndex, 0); // lazy-LOAD fetches source first, then indexes; else index off-thread (Web Worker)
 const restored = restoreUiState();
 if (!restored) {
   const initial = location.hash.match(/^#hunk-(\\d+)$/);
@@ -3615,14 +3732,15 @@ function ensureDiffCursor() {
   if (!isDiffViewVisible()) return;
   var wrapper = diffActiveWrapper();
   if (!wrapper) return;
-  if (REVIEW_LAZY) ensureFileReady(wrapper);
-  var nameEl = wrapper.querySelector('.d2h-file-name');
-  var path = (nameEl && nameEl.textContent ? nameEl.textContent : '').trim();
-  if (!path) return;
-  if (diffCursor && diffCursor.path === path) { renderDiffCaret(); return; }
-  var ri = firstDiffCodeRow(wrapper, 'new');
-  if (ri < 0) return;
-  setDiffCursor(path, 'new', ri, 0, false);
+  whenFileReady(wrapper, function () {
+    var nameEl = wrapper.querySelector('.d2h-file-name');
+    var path = (nameEl && nameEl.textContent ? nameEl.textContent : '').trim();
+    if (!path) return;
+    if (diffCursor && diffCursor.path === path) { renderDiffCaret(); return; }
+    var ri = firstDiffCodeRow(wrapper, 'new');
+    if (ri < 0) return;
+    setDiffCursor(path, 'new', ri, 0, false);
+  });
 }
 function moveDiffCursor(dLine, dColumn, extend) {
   if (!diffCursor) return;
@@ -4099,11 +4217,14 @@ function showDiffView(shouldScroll) {
     return;
   }
   if (current >= 0) {
-    const curRow = hunkRowAt(current);
-    if (curRow) {
-      showOnlyFile(hunkPathAt(current));
-      if (shouldScroll) curRow.scrollIntoView({ block: 'start' });
-    }
+    const cidx = current;
+    whenFileReady(diffWrapperByPath(hunkPathAt(cidx)), function () {
+      const curRow = document.getElementById('hunk-' + cidx);
+      if (curRow) {
+        showOnlyFile(hunkPathAt(cidx));
+        if (shouldScroll) curRow.scrollIntoView({ block: 'start' });
+      }
+    });
   }
 }
 
@@ -4826,6 +4947,18 @@ function escapeRegExp(value) {
 function openSourceFile(path, shouldSwitch = true) {
   const file = sourceByPath.get(path);
   if (!file) return;
+  // lazy-LOAD: source content not fetched yet -> show a loading state; loadSourceData re-opens it.
+  if (REVIEW_LAZY_LOAD && !sourceLoaded && file.embedded) {
+    pendingSourceOpen = { path: path, shouldSwitch: shouldSwitch };
+    document.getElementById('source-viewer').dataset.openPath = path;
+    sourceLinks.forEach((link) => link.classList.toggle('active', link.dataset.sourceFile === path));
+    renderBreadcrumb(document.getElementById('source-title'), path);
+    var lb = document.getElementById('source-body');
+    lb.className = 'source-body empty';
+    lb.textContent = 'Loading source…';
+    if (shouldSwitch) showSourceView();
+    return;
+  }
   rememberRecent(path, 'source');
   document.getElementById('source-viewer').dataset.openPath = path;
   sourceLinks.forEach((link) => link.classList.toggle('active', link.dataset.sourceFile === path));

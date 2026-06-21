@@ -14,3 +14,10 @@ contextBridge.exposeInMainWorld("monacoriMenu", {
     ipcRenderer.on("monacori:merged-view", (_event, kind: string) => cb(kind));
   },
 });
+
+// Phase 2 lazy-LOAD: fetch a single file's diff body from the main process on demand, so the initial
+// HTML can omit the embedded diff bodies (tens of MB on big repos) and stay small.
+contextBridge.exposeInMainWorld("monacoriFile", {
+  get: (index: number, kind: string): Promise<string> => ipcRenderer.invoke("monacori:get-file", { index, kind }),
+  getSourceData: (): Promise<string> => ipcRenderer.invoke("monacori:get-source-data"),
+});

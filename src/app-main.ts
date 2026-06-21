@@ -22,6 +22,17 @@ app.setName("monacori");
 
 ipcMain.handle("monacori:http-send", (_event, request: HttpSendRequest) => performHttpRequest(request));
 
+// Phase 2 lazy-LOAD: serve a single file's diff body to the renderer on demand. Retained from the
+// most recent writeReviewFile() build so navigation/scroll can materialize bodies without embedding.
+let currentBodies: string[] = [];
+let currentSourceData = "[]";
+ipcMain.handle("monacori:get-file", (_event, request: { index?: number }) => {
+  const i = Number(request?.index);
+  return Number.isInteger(i) && i >= 0 && i < currentBodies.length ? currentBodies[i] : "";
+});
+// Phase 2b lazy-LOAD: serve the full source files JSON (with content) on demand.
+ipcMain.handle("monacori:get-source-data", () => currentSourceData);
+
 const iconPath = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "icon.png");
 const preloadPath = join(dirname(fileURLToPath(import.meta.url)), "preload.cjs");
 
@@ -138,8 +149,11 @@ function writeReviewFile(input: AppOptions): { signature: string } {
     context: input.context,
     title: "monacori",
     ignoreWhitespace: input.ignoreWhitespace,
+    lazyLoad: true, // Electron streams per-file bodies/source over IPC (monacori:get-file / get-source)
   });
   writeFileSync(reviewPath(), build.html);
+  currentBodies = build.lazyBodies ?? [];
+  currentSourceData = build.lazySourceData ?? "[]";
   return { signature: build.signature };
 }
 
