@@ -471,9 +471,41 @@ function hunkIndexAtCaret() {
   return found;
 }
 
+// New-side row indices, one per change block — a run of change rows (ins/del) separated by context.
+// A wide context window merges several edits into one @@ hunk; stepping by these stops at each edit.
+function changeBlockAnchors(wrapper) {
+  var right = diffSideTables(wrapper).right;
+  if (!right) return [];
+  var rows = diffRowsOf(right);
+  var anchors = [];
+  var prev = false;
+  for (var i = 0; i < rows.length; i++) {
+    var chg = isChangeCodeRow(rows[i]);
+    if (chg && !prev) anchors.push(i);
+    prev = chg;
+  }
+  return anchors;
+}
+
 function next(delta) {
   if (hunkTotal() === 0) return;
-  // Step relative to where the caret actually is, so the last change of a file leads into the next file.
+  // Within the caret's (unviewed) file, step change-block by change-block so a context-merged hunk
+  // (several separate edits under one @@) stops at every edit instead of skipping to the next file.
+  if (diffCursor && isDiffViewVisible()) {
+    const w = diffWrapperByPath(diffCursor.path);
+    if (w && !isFileViewed(diffCursor.path)) {
+      const anchors = changeBlockAnchors(w);
+      const cur = diffCursor.rowIndex;
+      let target = null;
+      if (delta > 0) { for (let a = 0; a < anchors.length; a++) { if (anchors[a] > cur) { target = anchors[a]; break; } } }
+      else { for (let b = anchors.length - 1; b >= 0; b--) { if (anchors[b] < cur) { target = anchors[b]; break; } } }
+      if (target != null) {
+        const row = diffRowAt(w, 'new', target);
+        if (row) { navSuppress = true; try { focusDiffRow(row); } finally { navSuppress = false; } row.scrollIntoView({ block: 'center' }); return; }
+      }
+    }
+  }
+  // File boundary (no more change blocks this file) → hunk-level nav to the next/prev unviewed file.
   const caretHunk = hunkIndexAtCaret();
   const base = caretHunk >= 0 ? caretHunk : current;
   let idx = base < 0 ? initialHunkForNavigation(delta) : base + delta;
