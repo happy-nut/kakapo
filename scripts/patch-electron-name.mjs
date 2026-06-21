@@ -1,43 +1,54 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 const APP_NAME = "monacori";
 
-// Electron ships its prebuilt Electron.app with the bundle name "Electron",
-// which is what macOS shows in the Dock and Cmd+Tab when we launch it directly
-// (the npm `mo` model runs node_modules/electron, not a packaged .app).
-// app.setName() only affects the menu and notifications, so we patch the bundle
-// metadata here. CFBundleExecutable is the real binary name and is left alone.
-function electronInfoPlist() {
+// Electron ships Electron.app with bundle name + executable "Electron", which is what macOS shows in
+// the Dock / Cmd+Tab. The npm `mo` model spawns node_modules/electron's executable directly (not a
+// packaged .app), and a directly-spawned GUI process takes its switcher/Dock name from the *executable*
+// name — CFBundleName and app.setName() only affect the menu items, not the switcher. So we rename the
+// executable to "monacori" (and repoint electron's path.txt) in addition to patching bundle metadata.
+function electronRoot() {
   if (process.platform !== "darwin") return null;
   const require = createRequire(import.meta.url);
-  let root;
   try {
-    root = dirname(require.resolve("electron/package.json"));
+    return dirname(require.resolve("electron/package.json"));
   } catch {
-    return null;
+    return null; // electron not installed
   }
-  const plistPath = join(root, "dist", "Electron.app", "Contents", "Info.plist");
-  return existsSync(plistPath) ? plistPath : null;
 }
 
 function main() {
-  const plistPath = electronInfoPlist();
-  if (!plistPath) return; // not macOS, or electron not installed — nothing to do
-  let contents;
+  const root = electronRoot();
+  if (!root) return; // not macOS, or electron missing — nothing to do
+  const appDir = join(root, "dist", "Electron.app");
+  const plistPath = join(appDir, "Contents", "Info.plist");
+  const macosDir = join(appDir, "Contents", "MacOS");
+  const oldExe = join(macosDir, "Electron");
+  const newExe = join(macosDir, APP_NAME);
+  const pathTxt = join(root, "path.txt");
+  if (!existsSync(plistPath)) return;
+
   try {
-    contents = readFileSync(plistPath, "utf8");
-  } catch {
-    return;
-  }
-  const patched = contents
-    .replace(/(<key>CFBundleName<\/key>\s*<string>)[^<]*(<\/string>)/, "$1" + APP_NAME + "$2")
-    .replace(/(<key>CFBundleDisplayName<\/key>\s*<string>)[^<]*(<\/string>)/, "$1" + APP_NAME + "$2");
-  if (patched === contents) return; // already patched, or keys absent
-  try {
-    writeFileSync(plistPath, patched);
-    console.log('monacori: set Electron app name to "' + APP_NAME + '"');
+    // 1. Bundle metadata: name, display name, AND executable -> monacori.
+    const before = readFileSync(plistPath, "utf8");
+    const after = before
+      .replace(/(<key>CFBundleName<\/key>\s*<string>)[^<]*(<\/string>)/, "$1" + APP_NAME + "$2")
+      .replace(/(<key>CFBundleDisplayName<\/key>\s*<string>)[^<]*(<\/string>)/, "$1" + APP_NAME + "$2")
+      .replace(/(<key>CFBundleExecutable<\/key>\s*<string>)[^<]*(<\/string>)/, "$1" + APP_NAME + "$2");
+    if (after !== before) writeFileSync(plistPath, after);
+
+    // 2. Rename the executable so the directly-spawned process is "monacori" (idempotent).
+    if (existsSync(oldExe) && !existsSync(newExe)) renameSync(oldExe, newExe);
+
+    // 3. Repoint electron's path.txt at the renamed binary so require("electron") resolves it.
+    if (existsSync(pathTxt)) {
+      const pt = readFileSync(pathTxt, "utf8");
+      const fixed = pt.replace("MacOS/Electron", "MacOS/" + APP_NAME);
+      if (fixed !== pt) writeFileSync(pathTxt, fixed);
+    }
+    console.log('monacori: branded Electron app + executable as "' + APP_NAME + '"');
   } catch {
     // read-only / permission-denied environments — harmless, this is a convenience step
   }
