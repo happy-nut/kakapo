@@ -408,6 +408,22 @@ function renderBreadcrumb(container, path) {
   });
 }
 
+// Coalesce diff-nav scrolls: hammering F7 / [ / ] schedules at most one
+// scrollIntoView per frame (to the latest target) instead of forcing a
+// synchronous reflow on every keystroke.
+var pendingDiffScrollRow = null;
+var diffScrollRaf = 0;
+function scheduleDiffScroll(row) {
+  pendingDiffScrollRow = row || null;
+  if (diffScrollRaf) return;
+  diffScrollRaf = requestAnimationFrame(function () {
+    diffScrollRaf = 0;
+    var r = pendingDiffScrollRow;
+    pendingDiffScrollRow = null;
+    if (r && r.scrollIntoView) r.scrollIntoView({ block: 'center' });
+  });
+}
+
 function setActive(index, shouldScroll = true) {
   if (hunkTotal() === 0) return;
   current = ((index % hunkTotal()) + hunkTotal()) % hunkTotal();
@@ -439,7 +455,7 @@ function setActive(index, shouldScroll = true) {
     // F7/change navigation moves the caret but must NOT pollute the Cmd+[/] cursor history.
     navSuppress = true;
     try { focusDiffRow(targetRow); } finally { navSuppress = false; }
-    if (shouldScroll && targetRow) targetRow.scrollIntoView({ block: 'center' });
+    if (shouldScroll && targetRow) scheduleDiffScroll(targetRow);
   });
 }
 
@@ -475,8 +491,10 @@ function hunkIndexAtCaret() {
 // New-side row indices, one per change block — a run of change rows (ins/del) separated by context.
 // A wide context window merges several edits into one @@ hunk; stepping by these stops at each edit.
 function changeBlockAnchors(wrapper) {
+  if (!wrapper) return [];
+  if (wrapper.__anchors) return wrapper.__anchors;
   var right = diffSideTables(wrapper).right;
-  if (!right) return [];
+  if (!right) return []; // body not materialized yet — don't cache an empty result
   var rows = diffRowsOf(right);
   var anchors = [];
   var prev = false;
@@ -485,6 +503,7 @@ function changeBlockAnchors(wrapper) {
     if (chg && !prev) anchors.push(i);
     prev = chg;
   }
+  wrapper.__anchors = anchors; // change-block layout is static once materialized
   return anchors;
 }
 
@@ -502,7 +521,7 @@ function next(delta) {
       else { for (let b = anchors.length - 1; b >= 0; b--) { if (anchors[b] < cur) { target = anchors[b]; break; } } }
       if (target != null) {
         const row = diffRowAt(w, 'new', target);
-        if (row) { navSuppress = true; try { focusDiffRow(row); } finally { navSuppress = false; } row.scrollIntoView({ block: 'center' }); return; }
+        if (row) { navSuppress = true; try { focusDiffRow(row); } finally { navSuppress = false; } scheduleDiffScroll(row); return; }
       }
     }
   }
@@ -2011,6 +2030,11 @@ function saveUiState() {
     view: document.getElementById('source-viewer')?.classList.contains('hidden') ? 'diff' : 'source',
     sourcePath,
     hash: location.hash,
+    // Preserve open tabs + the exact caret across watch reloads (otherwise the caret resets to the
+    // hunk's first change / file top every time the working tree changes).
+    tabs: sourceTabs,
+    diffCursor: diffCursor,
+    viewerCursor: viewerCursor,
   }));
 }
 
@@ -2019,13 +2043,25 @@ function restoreUiState() {
   if (!raw) return false;
   try {
     const state = JSON.parse(raw);
+    // Restore Files-mode tabs first so a watch reload doesn't drop the open tabs.
+    if (Array.isArray(state.tabs)) sourceTabs = state.tabs.filter(function (p) { return sourceByPath.has(p); });
     if (state.view === 'diff') {
       const match = String(state.hash || location.hash || '').match(/^#hunk-(\\d+)$/);
       setActive(match ? Number(match[1]) : current >= 0 ? current : 0, false);
+      // Restore the exact diff caret (setActive only lands on the hunk's first change).
+      if (state.diffCursor && state.diffCursor.path) {
+        var dc = state.diffCursor;
+        setTimeout(function () { try { setDiffCursor(dc.path, dc.side, dc.rowIndex, dc.column, true); } catch (e) {} }, 60);
+      }
       return true;
     }
     if (state.sourcePath && sourceByPath.has(state.sourcePath)) {
       openSourceFile(state.sourcePath);
+      // Restore the exact source caret/scroll (openSourceFile alone resets it to the top).
+      if (state.viewerCursor && state.viewerCursor.path === state.sourcePath) {
+        var vc = state.viewerCursor;
+        setTimeout(function () { try { setSourceCursor(state.sourcePath, vc.lineIndex, vc.column, true, -1); } catch (e) {} }, 60);
+      }
       return true;
     }
   } catch {
