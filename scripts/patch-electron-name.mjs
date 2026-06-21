@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
@@ -48,6 +49,13 @@ function main() {
       const fixed = pt.replace("MacOS/Electron", "MacOS/" + APP_NAME);
       if (fixed !== pt) writeFileSync(pathTxt, fixed);
     }
+    // Refresh LaunchServices so the Dock / Cmd+Tab show "monacori" instead of a cached "Electron".
+    // Without this, macOS keeps the previously-registered bundle name even after the plist is patched.
+    spawnSync(
+      "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister",
+      ["-f", appDir],
+      { stdio: "ignore" },
+    );
     console.log('monacori: branded Electron app + executable as "' + APP_NAME + '"');
   } catch {
     // read-only / permission-denied environments — harmless, this is a convenience step
