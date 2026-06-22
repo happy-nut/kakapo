@@ -2039,8 +2039,15 @@ refreshComments();
     labelEl.textContent = pane.name;
     // Cmd combos are app shortcuts (Cmd+1/0 tab switch, Cmd+B go-to-def, …). Release the terminal and let
     // them bubble to the document handler instead of typing into the shell (fixes "Cmd+1 stuck in term").
+    // Exception: keep focus for clipboard/selection combos (Cmd+C/V/X/A) so the terminal's own copy &
+    // paste keep working — blurring on Cmd+V drops the textarea focus the paste event needs.
     term.attachCustomKeyEventHandler(function (e) {
-      if (e.type === 'keydown' && e.metaKey) { try { term.blur(); } catch (x) {} return false; }
+      if (e.type === 'keydown' && e.metaKey) {
+        var k = (e.key || '').toLowerCase();
+        if (k === 'c' || k === 'v' || k === 'x' || k === 'a') return true;
+        try { term.blur(); } catch (x) {}
+        return false;
+      }
       return true;
     });
     term.onData(function (d) { if (pane.id != null) window.monacoriPty.write({ id: pane.id, data: d }); });
@@ -2218,6 +2225,7 @@ refreshComments();
     enterSendMode: enterSendMode,
     send: function (text) { writeToPane(active || panes[0], text); },
     sendToPane: function (i, text) { writeToPane(panes[i] || active || panes[0], text); },
+    close: function () { setOpen(false); },
   };
 
   // Restore the open state across reloads.
@@ -2233,7 +2241,11 @@ if (window.monacoriMenu && typeof window.monacoriMenu.onMergedView === 'function
 }
 if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function') {
   // Cmd/Ctrl+W: close the active Files-mode tab (no-op outside the source viewer).
-  window.monacoriMenu.onCloseTab(function () { if (isSourceViewerVisible()) closeActiveSourceTab(); });
+  window.monacoriMenu.onCloseTab(function () {
+    // Cmd/Ctrl+W closes the terminal panel first when it's open, otherwise the active Files-mode tab.
+    if (window.__monacoriTerminal && window.__monacoriTerminal.isOpen()) { window.__monacoriTerminal.close(); return; }
+    if (isSourceViewerVisible()) closeActiveSourceTab();
+  });
 }
 
 (function checkForUpdate() {

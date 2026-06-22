@@ -198,7 +198,7 @@ app.whenReady().then(async () => {
       { type: "separator" },
       { label: "Focus Previous Pane", accelerator: "CommandOrControl+Alt+[", click: () => mainWindow?.webContents.send("monacori:terminal-pane-focus", -1) },
       { label: "Focus Next Pane", accelerator: "CommandOrControl+Alt+]", click: () => mainWindow?.webContents.send("monacori:terminal-pane-focus", 1) },
-      { label: "Rename Pane", accelerator: "CommandOrControl+Alt+R", click: () => mainWindow?.webContents.send("monacori:terminal-pane-rename") },
+      { label: "Rename Pane", accelerator: "F2", click: () => mainWindow?.webContents.send("monacori:terminal-pane-rename") },
     ],
   });
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
