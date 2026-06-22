@@ -43,11 +43,13 @@ export function buildDiffReview(input: {
   const diffHtml = renderDiff2Html(diffText);
   const totalLines = files.reduce((sum, file) => sum + file.hunks.reduce((t, h) => t + h.lines.length, 0), 0);
   // lazy-LOAD (Phase 2) serves each file body + source on demand instead of embedding them; it implies
-  // lazy (shells). Gated by size: only big reviews lazy-LOAD — small ones embed (no IPC round-trips, no
-  // "Loading source…" flash). The transport opts in (serve/Electron pass lazyLoad:true); standalone has
-  // no server. A big standalone review still lazy-materializes from embedded islands (Phase 1).
+  // lazy (shells). The transport opts in (serve/Electron pass lazyLoad:true) and we honor it regardless
+  // of size: it used to be gated by `&& big`, but a mid-size repo (dozens of files, just under the
+  // threshold) then embedded a 600KB+ source blob + every diff body inline, forcing the renderer to
+  // parse + lay out a huge document before the first click — the startup "freeze". Standalone (no
+  // transport) has no server, so it auto-decides by size and lazy-materializes from embedded islands.
   const big = shouldLazyRender(files.length, totalLines);
-  const lazyLoad = (input.lazyLoad ?? false) && big;
+  const lazyLoad = input.lazyLoad ?? false;
   const lazy = lazyLoad || (input.lazy ?? big);
   const diffSplit = lazy ? splitDiffForLazy(diffHtml, files) : { container: diffHtml, islands: "", bodies: [] as string[] };
   const signature = createHash("sha1")
