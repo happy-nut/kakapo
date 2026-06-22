@@ -1966,7 +1966,7 @@ refreshComments();
 // no tabs); drag the top edge to resize. window.__monacoriTerminal pipes the merged prompt into the
 // active pane. Cmd combos are released back to the app so shortcuts like Cmd+1 don't get stuck typing.
 (function setupTerminal() {
-  if (!window.monacoriPty || typeof window.Terminal !== 'function') return;
+  if (!window.monacoriPty) return; // xterm (window.Terminal) is loaded lazily on first open
   var panel = document.getElementById('terminal-panel');
   var host = document.getElementById('terminal-host');
   var toggleBtn = document.getElementById('terminal-toggle');
@@ -1974,6 +1974,21 @@ refreshComments();
   var resizer = panel ? panel.querySelector('.terminal-resizer') : null;
   if (!panel || !host) return;
   if (toggleBtn) toggleBtn.classList.remove('hidden'); // reveal the footer toggle in Electron
+
+  // xterm ships as an inert island (id=xterm-code) so ~490KB isn't parsed at startup. Inject it on the
+  // first open; returns false if unavailable (e.g. the island is absent), so callers can bail gracefully.
+  function ensureXterm() {
+    if (typeof window.Terminal === 'function') return true;
+    var code = document.getElementById('xterm-code');
+    if (!code) return false;
+    try {
+      var s = document.createElement('script');
+      s.textContent = code.textContent;
+      document.head.appendChild(s);
+      code.remove(); // free the inert text once compiled
+    } catch (e) { return false; }
+    return typeof window.Terminal === 'function';
+  }
 
   var panes = [];   // { id, term, fit, el }
   var active = null;
@@ -2001,6 +2016,7 @@ refreshComments();
   }
 
   function makePane() {
+    if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw
     var el = document.createElement('div');
     el.className = 'terminal-pane';
     var labelEl = document.createElement('div');
@@ -3260,12 +3276,9 @@ function openSourceFile(path, shouldSwitch = true) {
   renderBreadcrumb(document.getElementById('source-title'), path);
   setSourceTypeIcon(path);
   revealTreeFor(path);
-  const meta = [
-    file.language || 'text',
-    formatBytes(file.size || 0),
-    file.changed ? 'changed' : 'unchanged',
-    file.embedded ? 'searchable' : file.skippedReason || 'not embedded',
-  ].join(' | ');
+  const meta = file.embedded
+    ? formatBytes(file.size || 0)
+    : formatBytes(file.size || 0) + ' · ' + (file.skippedReason || 'not embedded');
   document.getElementById('source-meta').textContent = meta;
   const body = document.getElementById('source-body');
   // Image files carry a data: URI preview instead of text — render inline (click to zoom).
@@ -3294,17 +3307,27 @@ function openSourceFile(path, shouldSwitch = true) {
   // is a .source-row keyed by its start line, so the gutter shows line numbers and line/block comments
   // work exactly as in the plain source view (renderSourceComments anchors on .source-row[data-line-index]).
   if (isMarkdownPath(path)) {
-    body.classList.add('rendered-body');
-    body.innerHTML = renderMarkdownRows(file.content);
+    if (renderRawMode) {
+      body.innerHTML = renderSourceTable(file, '');
+    } else {
+      body.classList.add('rendered-body');
+      body.innerHTML = renderMarkdownRows(file.content);
+    }
     if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
+    updateRenderToggle(path);
     renderSourceComments();
     if (shouldSwitch) showSourceView();
     return;
   }
   if (isCsvPath(path)) {
-    body.classList.add('rendered-body');
-    body.innerHTML = renderCsvRows(file.content, path);
+    if (renderRawMode) {
+      body.innerHTML = renderSourceTable(file, '');
+    } else {
+      body.classList.add('rendered-body');
+      body.innerHTML = renderCsvRows(file.content, path);
+    }
     if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
+    updateRenderToggle(path);
     renderSourceComments();
     if (shouldSwitch) showSourceView();
     return;
@@ -3316,12 +3339,45 @@ function openSourceFile(path, shouldSwitch = true) {
     body.innerHTML = renderSourceTable(file, '');
     if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
   }
+  updateRenderToggle(path);
   renderSourceComments();
   if (shouldSwitch) showSourceView();
 }
 
 function isMarkdownPath(p) { return /\.(md|mdx|markdown)$/i.test(p || ''); }
 function isCsvPath(p) { return /\.(csv|tsv)$/i.test(p || ''); }
+function isRenderToggleable(p) { return isMarkdownPath(p) || isCsvPath(p); }
+
+// Markdown/CSV open rendered by default; this flips the open file to raw line-numbered text and back.
+// Session-global so the choice carries across files. The toolbar button + Cmd/Ctrl+Shift+M both call it.
+var renderRawMode = false;
+function updateRenderToggle(path) {
+  var btn = document.getElementById('render-toggle');
+  if (!btn) return;
+  var on = isRenderToggleable(path);
+  btn.classList.toggle('hidden', !on);
+  if (!on) return;
+  btn.textContent = renderRawMode ? t('source.viewRendered') : t('source.viewRaw'); // label = the mode you switch TO
+  btn.setAttribute('aria-pressed', renderRawMode ? 'true' : 'false');
+}
+function toggleRenderMode() {
+  var sv = document.getElementById('source-viewer');
+  var open = sv && sv.dataset.openPath;
+  if (!open || !isRenderToggleable(open)) return;
+  renderRawMode = !renderRawMode;
+  openSourceFile(open, false); // re-render the current file in the new mode
+}
+(function wireRenderToggle() {
+  var btn = document.getElementById('render-toggle');
+  if (btn) btn.addEventListener('click', function () { toggleRenderMode(); });
+  document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && (e.key === 'M' || e.key === 'm' || e.code === 'KeyM')) {
+      var sv = document.getElementById('source-viewer');
+      var open = sv && sv.dataset.openPath;
+      if (open && isRenderToggleable(open) && isSourceViewerVisible()) { e.preventDefault(); toggleRenderMode(); }
+    }
+  });
+})();
 
 function renderImageView(file) {
   return '<div class="image-view">'

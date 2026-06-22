@@ -144,7 +144,7 @@ export function renderDiffHtml(input: {
       ? `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
       : `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
     "</div>",
-    `<div class="sidebar-footer"><span class="app-version">monacori${packageVersion ? " v" + escapeHtml(packageVersion) : ""}</span><span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span><button type="button" id="terminal-toggle" class="settings-btn terminal-toggle hidden" data-i18n-title="terminal.toggle" title="Toggle terminal (Ctrl+\`)" aria-label="Toggle terminal">⌗</button><button type="button" id="app-info-btn" class="settings-btn" aria-haspopup="dialog" data-i18n-aria="about.title" data-i18n-title="about.title" aria-label="About monacori" title="About monacori">⚙</button></div>`,
+    `<div class="sidebar-footer"><span class="app-version">monacori${packageVersion ? " v" + escapeHtml(packageVersion) : ""}</span><span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span><button type="button" id="terminal-toggle" class="settings-btn terminal-toggle hidden" data-i18n-title="terminal.toggle" title="Toggle terminal (Ctrl+\`)" aria-label="Toggle terminal"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button type="button" id="app-info-btn" class="settings-btn" aria-haspopup="dialog" data-i18n-aria="about.title" data-i18n-title="about.title" aria-label="About monacori" title="About monacori">⚙</button></div>`,
     "</aside>",
     '<div class="sidebar-resizer" aria-hidden="true"></div>',
     '<main class="content">',
@@ -161,6 +161,7 @@ export function renderDiffHtml(input: {
     '<div class="toolbar source-toolbar">',
     '<div class="source-file-meta"><span id="source-type-icon" class="source-type-icon" aria-hidden="true"></span><span id="source-title" data-i18n="source.title">Source</span><span id="source-meta" data-i18n="source.selectFile">Select a file from the Files tab.</span></div>',
     '<select id="http-env-select" class="http-env-select hidden" data-i18n-title="http.env.title" data-i18n-aria="http.env.aria" title="HTTP Client environment" aria-label="HTTP environment"></select>',
+    '<button type="button" id="render-toggle" class="plain-button hidden" aria-pressed="false">Raw</button>',
     '<button type="button" id="back-to-diff" class="plain-button" data-i18n="btn.diff">Diff</button>',
     "</div>",
     '<div id="source-body" class="source-body empty" data-i18n="source.selectFile">Select a file from the Files tab.</div>',
@@ -216,9 +217,9 @@ export function renderDiffHtml(input: {
     `<script type="application/json" id="file-state-data">${jsonForScript(input.fileStates)}</script>`,
     `<script type="application/json" id="http-env-data">${jsonForScript(input.httpEnvironments)}</script>`,
     `<script>window.__MONACORI_VERSION__=${JSON.stringify(packageVersion)};</script>`,
-    "<script>",
-    input.app ? xtermScript() : "",
-    "</script>",
+    // xterm ships as an inert island (type=text/html, not parsed/compiled at startup) and is injected on
+    // the first terminal open — ~490KB the renderer would otherwise parse on every launch even unused.
+    input.app ? `<script type="text/html" id="xterm-code">${xtermScript()}</script>` : "",
     "<script>",
     diffScript(),
     "</script>",

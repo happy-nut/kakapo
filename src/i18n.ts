@@ -47,6 +47,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "btn.diff": "Diff",
     "source.loading": "Loading source…",
     "source.previewUnavailable": "Source preview unavailable.",
+    "source.viewRaw": "Raw",
+    "source.viewRendered": "Rendered",
     "source.buildingTree": "Building file tree…",
 
     // Quick open
@@ -171,6 +173,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "btn.diff": "Diff",
     "source.loading": "소스 불러오는 중…",
     "source.previewUnavailable": "소스 미리보기를 사용할 수 없습니다.",
+    "source.viewRaw": "원문",
+    "source.viewRendered": "렌더링",
     "source.buildingTree": "파일 트리 만드는 중…",
 
     // Quick open
