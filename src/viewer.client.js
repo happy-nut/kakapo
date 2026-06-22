@@ -462,8 +462,7 @@ function setActive(index, shouldScroll = true) {
 function showOnlyFile(fileName) {
   if (REVIEW_LAZY) ensureFileReady(diffWrapperByPath(fileName));
   document.querySelectorAll('.d2h-file-wrapper').forEach((wrapper) => {
-    const name = wrapper.querySelector('.d2h-file-name')?.textContent?.trim() || '';
-    wrapper.classList.toggle('df-inactive', name !== fileName);
+    wrapper.classList.toggle('df-inactive', diffWrapperPathKey(wrapper) !== fileName);
   });
   ensureDiffCursor();
 }
@@ -1187,7 +1186,7 @@ populateHttpEnvSelect();
 if (!REVIEW_LAZY_LOAD) setTimeout(startSymbolIndex, 0); // non-lazy indexes now; lazy-LOAD defers the (large) source blob + index to the first source-view open / go-to-def
 const restored = restoreUiState();
 if (!restored) {
-  const initial = location.hash.match(/^#hunk-(\\d+)$/);
+  const initial = location.hash.match(/^#hunk-(\d+)$/);
   if (initial) setActive(Number(initial[1]), false);
   else if (REVIEW_LAZY_LOAD) showDiffView(false); // big repos: open to the diff (Changes); the source tree stays deferred until the Files tab is opened
   else openDefaultSourceFile();
@@ -1263,13 +1262,26 @@ function diffActiveWrapper() {
   return document.querySelector('#diff2html-container .d2h-file-wrapper:not(.df-inactive)')
     || document.querySelector('#diff2html-container .d2h-file-wrapper');
 }
+// path -> wrapper, O(1) after the first build. Rebuilt only on a miss/disconnect
+// (the wrapper set is stable; only bodies materialize). This is called several times
+// per F7 press, so the old O(files) querySelector scan made each keystroke cost scale
+// with the file count — the main source of cross-file nav stutter on big diffs.
+var wrapperPathMap = null;
+function diffWrapperPathKey(w) {
+  return (w.dataset && w.dataset.path) || ((w.querySelector('.d2h-file-name') || {}).textContent || '').trim();
+}
 function diffWrapperByPath(path) {
+  if (wrapperPathMap) {
+    var hit = wrapperPathMap.get(path);
+    if (hit && hit.isConnected) return hit;
+  }
+  wrapperPathMap = new Map();
   var ws = document.querySelectorAll('#diff2html-container .d2h-file-wrapper');
   for (var i = 0; i < ws.length; i++) {
-    var n = ws[i].querySelector('.d2h-file-name');
-    if (n && (n.textContent || '').trim() === path) return ws[i];
+    var key = diffWrapperPathKey(ws[i]);
+    if (key) wrapperPathMap.set(key, ws[i]);
   }
-  return null;
+  return wrapperPathMap.get(path) || null;
 }
 function diffSideTables(wrapper) {
   var sides = wrapper ? wrapper.querySelectorAll('.d2h-file-side-diff') : [];
@@ -1795,16 +1807,32 @@ function saveComposer(ta) {
   refreshComments();
 }
 
+// Default merge-prompt headings. Editable in Settings → Merge prompts (stored per browser in
+// localStorage); buildMergedText falls back to these when the stored value is empty.
+var DEFAULT_MERGE_PROMPT = {
+  q: 'The following are questions about code you just wrote. Answer each one — explain the intent, rationale, or context. Do not change any code; this clarifies understanding before any revisions.',
+  c: 'The following are change requests for code you just wrote. For each, edit the code at the quoted location to satisfy the request. Keep changes minimal and focused; do not make unrelated edits.',
+};
+var mergePromptsKey = 'monacori-merge-prompts';
+function loadMergePrompts() {
+  try { var v = JSON.parse(localStorage.getItem(mergePromptsKey) || '{}'); return (v && typeof v === 'object') ? v : {}; } catch (e) { return {}; }
+}
+function mergePromptFor(kind) {
+  var v = loadMergePrompts()[kind];
+  return (typeof v === 'string' && v.trim()) ? v : DEFAULT_MERGE_PROMPT[kind];
+}
+function saveMergePrompt(kind, text) {
+  var saved = loadMergePrompts();
+  if (text && text.trim()) saved[kind] = text; else delete saved[kind];
+  try { localStorage.setItem(mergePromptsKey, JSON.stringify(saved)); } catch (e) {}
+}
+
 function buildMergedText(kind) {
   var items = reviewComments.filter(function (c) { return c.kind === kind; });
   var nl = String.fromCharCode(10);
   var lines = [];
-  // Per-kind agent contract: questions are the understand-phase (answer, don't edit); change
-  // requests are the act-phase (edit the code). The merged view is an editable textarea, so the
-  // reviewer can trim or localize this before copying.
-  lines.push(kind === 'q'
-    ? 'The following are questions about code you just wrote. Answer each one — explain the intent, rationale, or context. Do not change any code; this clarifies understanding before any revisions.'
-    : 'The following are change requests for code you just wrote. For each, edit the code at the quoted location to satisfy the request. Keep changes minimal and focused; do not make unrelated edits.');
+  // Per-kind agent contract heading (editable in Settings → Merge prompts; default otherwise).
+  lines.push(mergePromptFor(kind));
   lines.push('');
   lines.push((kind === 'q' ? '# Questions' : '# Change requests') + ' (' + items.length + ')');
   lines.push('');
@@ -1907,13 +1935,16 @@ if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function')
     if (isNewer(latest, current)) {
       var flag = document.getElementById('app-update-flag');
       if (flag) flag.classList.remove('hidden');
-      if (status) { status.textContent = 'Update available: v' + latest; status.classList.add('has-update'); }
-      // One-click update is only possible in the Electron app (main process can spawn npm); browser/
-      // watch mode shows only the manual command. Reveal the button when both apply.
+      // One-click auto-update needs the Electron main process (it spawns npm). When available, reveal the
+      // button so a click installs + restarts; otherwise (browser/static export) name the command instead.
       var ub = document.getElementById('app-info-update');
       if (ub && window.monacoriUpdate && typeof window.monacoriUpdate.run === 'function') {
         ub.textContent = 'Update to v' + latest + ' & Restart';
         ub.classList.remove('hidden');
+        if (status) { status.textContent = 'Update available: v' + latest; status.classList.add('has-update'); }
+      } else if (status) {
+        status.textContent = 'Update available: v' + latest + ' — npm i -g @happy-nut/monacori';
+        status.classList.add('has-update');
       }
     } else if (status) {
       status.textContent = 'Up to date (v' + current + ')';
@@ -1934,22 +1965,42 @@ if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function')
     .catch(function () {});
 })();
 
-(function setupAppInfo() {
-  var btn = document.getElementById('app-info-btn');
-  var panel = document.getElementById('app-info');
+// Unified settings modal: the sidebar-footer gear opens it (General category by default), with
+// About/update/shortcuts under General and the merge-prompt editor under Merge prompts.
+(function setupSettings() {
+  var modal = document.getElementById('settings-modal');
+  if (!modal) return;
+  var gearBtn = document.getElementById('app-info-btn');
   var flag = document.getElementById('app-update-flag');
-  var copyBtn = document.getElementById('app-info-copy');
-  if (!btn || !panel) return;
-  var setOpen = function (open) { panel.classList.toggle('hidden', !open); };
-  btn.addEventListener('click', function (e) { e.stopPropagation(); setOpen(panel.classList.contains('hidden')); });
-  if (flag) flag.addEventListener('click', function (e) { e.stopPropagation(); setOpen(true); });
-  if (copyBtn) copyBtn.addEventListener('click', function () {
-    var cmd = 'npm i -g @happy-nut/monacori';
-    var done = function () { copyBtn.textContent = 'Copied'; setTimeout(function () { copyBtn.textContent = 'Copy'; }, 1200); };
-    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(cmd).then(done).catch(function () {}); }
-  });
-  // One-click self-update (Electron only): install latest globally via the main process, then it relaunches.
   var updateBtn = document.getElementById('app-info-update');
+  var qta = document.getElementById('settings-prompt-q');
+  var cta = document.getElementById('settings-prompt-c');
+  var resetBtn = document.getElementById('settings-reset');
+  var savedMsg = document.getElementById('settings-saved');
+  var cats = Array.prototype.slice.call(modal.querySelectorAll('.settings-cat'));
+  var secs = Array.prototype.slice.call(modal.querySelectorAll('.settings-section'));
+  function showCat(cat) {
+    cats.forEach(function (c) { c.classList.toggle('active', c.dataset.cat === cat); });
+    secs.forEach(function (s) { s.classList.toggle('hidden', s.dataset.cat !== cat); });
+  }
+  function fill() {
+    var s = loadMergePrompts();
+    if (qta) { qta.value = typeof s.q === 'string' ? s.q : ''; qta.placeholder = DEFAULT_MERGE_PROMPT.q; }
+    if (cta) { cta.value = typeof s.c === 'string' ? s.c : ''; cta.placeholder = DEFAULT_MERGE_PROMPT.c; }
+  }
+  function open(cat) { fill(); if (cat) showCat(cat); modal.classList.remove('hidden'); }
+  function close() { modal.classList.add('hidden'); }
+  var flashTimer = null;
+  function flash() { if (!savedMsg) return; savedMsg.textContent = 'Saved'; if (flashTimer) clearTimeout(flashTimer); flashTimer = setTimeout(function () { savedMsg.textContent = ''; }, 1200); }
+  if (gearBtn) gearBtn.addEventListener('click', function (e) { e.stopPropagation(); if (modal.classList.contains('hidden')) open('general'); else close(); });
+  if (flag) flag.addEventListener('click', function (e) { e.stopPropagation(); open('general'); });
+  cats.forEach(function (c) { c.addEventListener('click', function () { showCat(c.dataset.cat); }); });
+  modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+  // Capture so closing settings wins over other Escape handlers (lightbox / composer).
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) { e.stopPropagation(); e.preventDefault(); close(); }
+  }, true);
+  // One-click self-update (Electron only): install latest globally via the main process, then relaunch.
   if (updateBtn && window.monacoriUpdate && typeof window.monacoriUpdate.run === 'function') {
     updateBtn.addEventListener('click', function () {
       if (updateBtn.disabled) return;
@@ -1958,18 +2009,13 @@ if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function')
       if (status) { status.textContent = 'Updating… installing latest, the app will restart'; status.classList.add('has-update'); }
       window.monacoriUpdate.run().then(function (r) {
         if (r && r.ok) { if (status) status.textContent = 'Updated. Restarting…'; }
-        else { updateBtn.disabled = false; if (status) status.textContent = 'Update failed — run the command below manually.'; }
-      }).catch(function () { updateBtn.disabled = false; if (status) status.textContent = 'Update failed — run the command below manually.'; });
+        else { updateBtn.disabled = false; if (status) status.textContent = 'Update failed — try again, or run: npm i -g @happy-nut/monacori'; }
+      }).catch(function () { updateBtn.disabled = false; if (status) status.textContent = 'Update failed — try again, or run: npm i -g @happy-nut/monacori'; });
     });
   }
-  document.addEventListener('click', function (e) {
-    if (panel.classList.contains('hidden')) return;
-    if (panel.contains(e.target) || btn.contains(e.target)) return;
-    setOpen(false);
-  });
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && !panel.classList.contains('hidden')) setOpen(false);
-  });
+  if (qta) qta.addEventListener('input', function () { saveMergePrompt('q', qta.value); flash(); });
+  if (cta) cta.addEventListener('input', function () { saveMergePrompt('c', cta.value); flash(); });
+  if (resetBtn) resetBtn.addEventListener('click', function () { saveMergePrompt('q', ''); saveMergePrompt('c', ''); fill(); flash(); });
 })();
 
 function setTab(name) {
@@ -2046,7 +2092,7 @@ function restoreUiState() {
     // Restore Files-mode tabs first so a watch reload doesn't drop the open tabs.
     if (Array.isArray(state.tabs)) sourceTabs = state.tabs.filter(function (p) { return sourceByPath.has(p); });
     if (state.view === 'diff') {
-      const match = String(state.hash || location.hash || '').match(/^#hunk-(\\d+)$/);
+      const match = String(state.hash || location.hash || '').match(/^#hunk-(\d+)$/);
       setActive(match ? Number(match[1]) : current >= 0 ? current : 0, false);
       // Restore the exact diff caret (setActive only lands on the hunk's first change).
       if (state.diffCursor && state.diffCursor.path) {

@@ -1,18 +1,18 @@
 
 :root {
   color-scheme: dark;
-  --bg: #2b2b2b;
-  --panel: #2b2b2b;
+  --bg: #161616;
+  --panel: #1b1b1b;
   --text: #a9b7c6;
   --muted: #808080;
   --border: #393b3d;
   --line: #313335;
-  --add: #2f3d2c;
-  --del: #4b3434;
-  --add-strong: #3d5238;
-  --del-strong: #6b4242;
+  --add: #16351f;
+  --del: #3f1d1d;
+  --add-strong: #1f5b34;
+  --del-strong: #6e2c2c;
   --active: #4a88c7;
-  --sidebar: #3c3f41;
+  --sidebar: #1c1c1c;
   --token-comment: #808080;
   --token-keyword: #cc7832;
   --token-string: #6a8759;
@@ -177,22 +177,44 @@ body {
 .app-info-update { width: 100%; margin: 0 0 10px; border-color: var(--active); color: var(--active); font-weight: 600; }
 .app-info-update:hover { background: color-mix(in srgb, var(--active) 14%, transparent); color: var(--active); }
 .app-info-update:disabled { opacity: 0.55; cursor: default; }
-.app-info-cmd { display: flex; align-items: center; gap: 6px; }
-.app-info-cmd code {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 5px 8px;
-  border-radius: 6px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--text);
-}
-.app-info-cmd .plain-button { padding: 5px 9px; font-size: 11px; }
 .app-info-keys { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+
+/* Settings modal (Cmd+Shift+/ merge prompts, etc.) — sidebar categories + form, like a desktop app. */
+.settings-modal {
+  position: fixed; inset: 0; z-index: 70;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.6); padding: 32px;
+}
+.settings-modal.hidden { display: none; }
+.settings-panel {
+  display: flex;
+  width: 980px; max-width: 90vw; height: 700px; max-height: 88vh;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden; box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
+}
+.settings-nav {
+  flex: 0 0 200px; padding: 16px 10px;
+  background: var(--sidebar); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.settings-nav-title { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); padding: 4px 10px 8px; }
+.settings-cat { text-align: left; border: 0; background: transparent; color: var(--text); padding: 7px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.settings-cat:hover { background: color-mix(in srgb, var(--active) 12%, transparent); }
+.settings-cat.active { background: color-mix(in srgb, var(--active) 20%, transparent); color: var(--active); font-weight: 600; }
+.settings-body { flex: 1 1 auto; min-width: 0; padding: 24px 28px; overflow: auto; }
+.settings-h { font-size: 16px; font-weight: 650; color: var(--text); margin-bottom: 6px; }
+.settings-ver { color: var(--muted); font-weight: 500; font-size: 0.62em; letter-spacing: 0.02em; }
+.settings-desc { font-size: 12px; color: var(--muted); line-height: 1.6; margin-bottom: 18px; }
+.settings-label { display: block; font-size: 12px; font-weight: 600; color: var(--text); margin: 14px 0 6px; }
+.settings-textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 70px;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  font: 12px/1.55 ui-sans-serif, system-ui, sans-serif;
+}
+.settings-textarea:focus { outline: none; border-color: var(--active); }
+.settings-actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+.settings-saved { font-size: 12px; color: var(--active); }
 .app-info-keys-h { font-weight: 600; color: var(--text); margin-bottom: 8px; }
 .keys-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 10px; align-items: center; }
 .keys-grid kbd {
@@ -302,6 +324,10 @@ body {
   -webkit-user-select: text;
   user-select: text;
 }
+/* Changed lines: lift the base text brighter than the gray context so additions/deletions read as
+   edits, not the same gray. hljs tokens keep their own colors; this only affects unhighlighted text. */
+td.d2h-ins:not(.d2h-code-side-linenumber),
+td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-code-line-prefix { -webkit-user-select: none; user-select: none; }
 .d2h-code-side-linenumber, .d2h-code-linenumber { -webkit-user-select: none; user-select: none; }
 .d2h-code-line-ctn .hljs-keyword,
@@ -615,6 +641,10 @@ h1 { margin: 0; font-size: 18px; }
    gracefully where unsupported. contain-intrinsic-size keeps the scrollbar stable. */
 .source-row { content-visibility: auto; contain-intrinsic-size: auto 19px; }
 .d2h-diff-table tr { content-visibility: auto; contain-intrinsic-size: auto 18px; }
+/* Comment/composer rows are tall and interactive (a textarea lives here). Skip-rendering them
+   with a tiny 18px placeholder made the browser re-evaluate their render state on every
+   keystroke, so typing in the composer stuttered — keep these rows always rendered. */
+.d2h-diff-table tr.mc-comment-row, .d2h-diff-table tr.mc-spacer-row { content-visibility: visible; contain-intrinsic-size: auto; }
 .source-row.search-hit .source-code { background: color-mix(in srgb, var(--active) 14%, transparent); }
 .source-row.changed-line .source-code { background: color-mix(in srgb, var(--active) 9%, transparent); box-shadow: inset 2px 0 0 color-mix(in srgb, var(--active) 55%, transparent); }
 .source-row.symbol-target .source-code {
