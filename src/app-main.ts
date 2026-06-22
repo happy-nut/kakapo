@@ -20,6 +20,17 @@ const FLOW_DIR = ".monacori";
 const REVIEW_FILE = "app-review.html";
 const WATCH_INTERVAL_MS = 1000;
 
+// Painted immediately while the first review build + HTML render run, so startup shows a spinner instead
+// of a blank window. Inlined as a data: URL so it needs no file on disk and appears before any review work.
+const LOADING_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
+  html,body{margin:0;height:100vh;background:#2b2b2b;color:#9aa4af;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;
+    font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  .s{width:34px;height:34px;border:3px solid #3a3a3a;border-top-color:#4a9eff;border-radius:50%;
+    animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style></head><body><div class="s"></div><div>monacori</div></body></html>`;
+
 app.setName("monacori");
 
 ipcMain.handle("monacori:http-send", (_event, request: HttpSendRequest) => performHttpRequest(request));
@@ -197,9 +208,6 @@ app.whenReady().then(async () => {
     app.dock.setIcon(appIcon);
   }
 
-  const firstBuild = writeReviewFile(options);
-  currentSignature = firstBuild.signature;
-
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 960,
@@ -221,11 +229,21 @@ app.whenReady().then(async () => {
 
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.once("ready-to-show", () => mainWindow?.show());
-  await mainWindow.loadFile(reviewPath());
-
-  if (options.watch) {
-    refreshTimer = setInterval(refreshIfChanged, WATCH_INTERVAL_MS);
-  }
+  // Paint the window with a spinner immediately, then build the (potentially heavy) review off the first
+  // paint and swap it in. The first build used to run synchronously *before* the window existed, so the
+  // screen stayed blank for the first few seconds of startup; now the user sees a loading screen instead.
+  await mainWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(LOADING_HTML));
+  setImmediate(() => {
+    try {
+      const firstBuild = writeReviewFile(options);
+      currentSignature = firstBuild.signature;
+      if (mainWindow && !mainWindow.isDestroyed()) void mainWindow.loadFile(reviewPath());
+      if (options.watch) refreshTimer = setInterval(refreshIfChanged, WATCH_INTERVAL_MS);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      app.quit();
+    }
+  });
 }).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : String(error));
   app.quit();
