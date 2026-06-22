@@ -116,6 +116,22 @@ if (REVIEW_LAZY) { setupLazyDiff(); setTimeout(function () { diffBootDone = true
 const links = Array.from(document.querySelectorAll('#changes-panel .file-link'));
 let sourceLinks = Array.from(document.querySelectorAll('.source-link')); // re-captured when a deferred tree materializes
 const sourceFiles = JSON.parse(document.getElementById('source-files-data')?.textContent || '[]');
+// i18n: the message catalog (en + ko) is emitted server-side; the locale lives in localStorage and the
+// whole UI switches live (no reload). t() feeds dynamically-built text; applyI18n() rewrites the static
+// chrome (data-i18n / -ph / -title / -aria). English is the first-paint default.
+var I18N = JSON.parse(document.getElementById('i18n-data')?.textContent || '{}');
+var LOCALE_KEY = 'monacori-locale';
+var locale = (function () { var v = null; try { v = localStorage.getItem(LOCALE_KEY); } catch (e) {} return (v === 'ko' || v === 'en') ? v : 'en'; })();
+function t(key) { var m = (I18N[locale] || I18N.en || {}); return (m && key in m) ? m[key] : ((I18N.en && I18N.en[key]) || key); }
+function applyI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(function (el) { el.textContent = t(el.getAttribute('data-i18n')); });
+  document.querySelectorAll('[data-i18n-ph]').forEach(function (el) { el.setAttribute('placeholder', t(el.getAttribute('data-i18n-ph'))); });
+  document.querySelectorAll('[data-i18n-title]').forEach(function (el) { el.setAttribute('title', t(el.getAttribute('data-i18n-title'))); });
+  document.querySelectorAll('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
+  document.documentElement.lang = locale;
+  var sel = document.getElementById('settings-language');
+  if (sel) sel.value = locale;
+}
 const fileStates = JSON.parse(document.getElementById('file-state-data')?.textContent || '[]');
 const httpEnvironments = JSON.parse(document.getElementById('http-env-data')?.textContent || '{}');
 const httpEnvNames = Object.keys(httpEnvironments);
@@ -244,7 +260,7 @@ function prepareViewedControls() {
     const toggle = wrapper.querySelector('.d2h-file-collapse');
     const input = toggle?.querySelector('input');
     if (!fileName || !toggle || !input) return;
-    toggle.title = 'Toggle viewed (<)';
+    toggle.title = t('btn.viewed.title');
     input.tabIndex = -1;
     toggle.addEventListener('click', (event) => {
       event.preventDefault();
@@ -554,7 +570,7 @@ function firstHunkForPath(path) {
 function openQuickOpen(mode) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
   quickMode = mode;
-  quickModeLabel.textContent = mode === 'recent' ? 'Recent files' : mode === 'content' ? 'Find in Files' : 'Search files';
+  quickModeLabel.textContent = mode === 'recent' ? t('quickopen.recent') : mode === 'content' ? t('quickopen.findInFiles') : t('quickopen.searchFiles');
   quickOpen.classList.remove('hidden');
   quickInput.value = '';
   renderQuickOpenResults();
@@ -609,7 +625,7 @@ function renderQuickOpenResults() {
     .slice(0, 80);
   quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
   if (quickItems.length === 0) {
-    quickResults.innerHTML = '<div class="quick-open-empty">No files found.</div>';
+    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.noFiles')) + '</div>';
     return;
   }
   quickResults.innerHTML = quickItems.map((item, index) => [
@@ -1182,6 +1198,7 @@ document.addEventListener('keydown', function (event) {
 }, true);
 document.addEventListener('copy', handleSourceCopy);
 
+applyI18n(); // first paint already shows English (inline); this swaps to the saved locale before the rest of init renders dynamic text
 populateHttpEnvSelect();
 if (!REVIEW_LAZY_LOAD) setTimeout(startSymbolIndex, 0); // non-lazy indexes now; lazy-LOAD defers the (large) source blob + index to the first source-view open / go-to-def
 const restored = restoreUiState();
@@ -1561,7 +1578,7 @@ function commentsAt(path, line) {
   return reviewComments.filter(function (c) { return c.path === path && c.line === line; });
 }
 function commentKindLabel(kind) {
-  return kind === 'q' ? '❓ Question' : '✎ Change request';
+  return kind === 'q' ? t('comment.kind.q') : t('comment.kind.c');
 }
 function relevantLines(path) {
   var set = {};
@@ -1649,17 +1666,17 @@ function threadHtml(path, line) {
   commentsAt(path, line).forEach(function (c) {
     html += '<div class="mc-card mc-' + c.kind + '">'
       + '<div class="mc-card-head"><span class="mc-kind">' + commentKindLabel(c.kind) + '</span>'
-      + '<button type="button" class="mc-del" data-seq="' + c.seq + '" title="Delete">×</button></div>'
+      + '<button type="button" class="mc-del" data-seq="' + c.seq + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
       + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div></div>';
   });
   if (composerState && composerState.path === path && composerState.line === line) {
-    var ph = composerState.kind === 'q' ? 'Ask a question about this line' : 'Request a change for this line';
+    var ph = composerState.kind === 'q' ? t('composer.question') : t('composer.changeRequest');
     html += '<div class="mc-card mc-' + composerState.kind + ' mc-composer">'
       + '<div class="mc-card-head"><span class="mc-kind">' + commentKindLabel(composerState.kind) + '</span></div>'
-      + '<textarea class="mc-input" rows="3" placeholder="' + ph + '"></textarea>'
-      + '<div class="mc-actions"><button type="button" class="mc-btn mc-save">Comment</button>'
-      + '<button type="button" class="mc-btn mc-ghost mc-cancel">Cancel</button>'
-      + '<span class="mc-hint">Cmd/Ctrl+Enter to save, Esc to cancel</span></div></div>';
+      + '<textarea class="mc-input" rows="3" placeholder="' + escapeHtml(ph) + '"></textarea>'
+      + '<div class="mc-actions"><button type="button" class="mc-btn mc-save">' + escapeHtml(t('composer.save')) + '</button>'
+      + '<button type="button" class="mc-btn mc-ghost mc-cancel">' + escapeHtml(t('composer.cancel')) + '</button>'
+      + '<span class="mc-hint">' + escapeHtml(t('composer.hint')) + '</span></div></div>';
   }
   return html;
 }
@@ -1726,8 +1743,8 @@ function renderCommentBadges() {
     var badge = document.createElement('span');
     badge.className = 'mc-file-badge';
     var html = '';
-    if (k.q) html += '<span class="mc-fb mc-fb-q" title="' + k.q + ' question(s)">' + k.q + '</span>';
-    if (k.c) html += '<span class="mc-fb mc-fb-c" title="' + k.c + ' change request(s)">' + k.c + '</span>';
+    if (k.q) html += '<span class="mc-fb mc-fb-q" title="' + k.q + ' ' + escapeHtml(t('badge.questions')) + '">' + k.q + '</span>';
+    if (k.c) html += '<span class="mc-fb mc-fb-c" title="' + k.c + ' ' + escapeHtml(t('badge.changeRequests')) + '">' + k.c + '</span>';
     badge.innerHTML = html;
     return badge;
   }
@@ -1807,19 +1824,19 @@ function saveComposer(ta) {
   refreshComments();
 }
 
-// Default merge-prompt headings. Editable in Settings → Merge prompts (stored per browser in
-// localStorage); buildMergedText falls back to these when the stored value is empty.
-var DEFAULT_MERGE_PROMPT = {
-  q: 'The following are questions about code you just wrote. Answer each one — explain the intent, rationale, or context. Do not change any code; this clarifies understanding before any revisions.',
-  c: 'The following are change requests for code you just wrote. For each, edit the code at the quoted location to satisfy the request. Keep changes minimal and focused; do not make unrelated edits.',
-};
+// Default merge-prompt headings, localized: a Korean user gets Korean defaults. Editable in
+// Settings → Merge prompts (stored per browser in localStorage); buildMergedText + the textarea
+// placeholders fall back to these when the stored value is empty.
+function defaultMergePrompt(kind) {
+  return t(kind === 'q' ? 'mergePrompt.default.q' : 'mergePrompt.default.c');
+}
 var mergePromptsKey = 'monacori-merge-prompts';
 function loadMergePrompts() {
   try { var v = JSON.parse(localStorage.getItem(mergePromptsKey) || '{}'); return (v && typeof v === 'object') ? v : {}; } catch (e) { return {}; }
 }
 function mergePromptFor(kind) {
   var v = loadMergePrompts()[kind];
-  return (typeof v === 'string' && v.trim()) ? v : DEFAULT_MERGE_PROMPT[kind];
+  return (typeof v === 'string' && v.trim()) ? v : defaultMergePrompt(kind);
 }
 function saveMergePrompt(kind, text) {
   var saved = loadMergePrompts();
@@ -1834,7 +1851,7 @@ function buildMergedText(kind) {
   // Per-kind agent contract heading (editable in Settings → Merge prompts; default otherwise).
   lines.push(mergePromptFor(kind));
   lines.push('');
-  lines.push((kind === 'q' ? '# Questions' : '# Change requests') + ' (' + items.length + ')');
+  lines.push((kind === 'q' ? t('merged.qHeading') : t('merged.cHeading')) + ' (' + items.length + ')');
   lines.push('');
   items.forEach(function (c) {
     lines.push('### ' + c.path + ':' + c.line);
@@ -1851,20 +1868,21 @@ function openMergedView(kind) {
   var modal = document.createElement('div');
   modal.id = 'mc-modal';
   modal.className = 'mc-modal';
+  modal.dataset.kind = kind; // remembered so a live locale switch can re-render this same view
   var panel = document.createElement('div');
   panel.className = 'mc-modal-panel';
   var head = document.createElement('div');
   head.className = 'mc-modal-head';
   var title = document.createElement('span');
-  title.textContent = kind === 'q' ? 'Question comments' : 'Change-request comments';
+  title.textContent = kind === 'q' ? t('merged.qTitle') : t('merged.cTitle');
   var copyBtn = document.createElement('button');
   copyBtn.type = 'button';
   copyBtn.className = 'mc-btn';
-  copyBtn.textContent = 'Copy all';
+  copyBtn.textContent = t('merged.copyAll');
   var closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.className = 'mc-btn mc-ghost';
-  closeBtn.textContent = 'Close';
+  closeBtn.textContent = t('merged.close');
   var area = document.createElement('textarea');
   area.className = 'mc-modal-text';
   area.readOnly = true;
@@ -1874,8 +1892,8 @@ function openMergedView(kind) {
     var ok = false;
     try { ok = document.execCommand('copy'); } catch (e) {}
     if (navigator.clipboard && navigator.clipboard.writeText) { try { navigator.clipboard.writeText(area.value); ok = true; } catch (e) {} }
-    copyBtn.textContent = ok ? 'Copied' : 'Copy failed';
-    setTimeout(function () { copyBtn.textContent = 'Copy all'; }, 1500);
+    copyBtn.textContent = ok ? t('merged.copied') : t('merged.copyFailed');
+    setTimeout(function () { copyBtn.textContent = t('merged.copyAll'); }, 1500);
   });
   closeBtn.addEventListener('click', function () { modal.remove(); });
   head.appendChild(title);
@@ -1985,8 +2003,8 @@ if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function')
   }
   function fill() {
     var s = loadMergePrompts();
-    if (qta) { qta.value = typeof s.q === 'string' ? s.q : ''; qta.placeholder = DEFAULT_MERGE_PROMPT.q; }
-    if (cta) { cta.value = typeof s.c === 'string' ? s.c : ''; cta.placeholder = DEFAULT_MERGE_PROMPT.c; }
+    if (qta) { qta.value = typeof s.q === 'string' ? s.q : ''; qta.placeholder = defaultMergePrompt('q'); }
+    if (cta) { cta.value = typeof s.c === 'string' ? s.c : ''; cta.placeholder = defaultMergePrompt('c'); }
   }
   function open(cat) { fill(); if (cat) showCat(cat); modal.classList.remove('hidden'); }
   function close() { modal.classList.add('hidden'); }
@@ -2016,6 +2034,25 @@ if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function')
   if (qta) qta.addEventListener('input', function () { saveMergePrompt('q', qta.value); flash(); });
   if (cta) cta.addEventListener('input', function () { saveMergePrompt('c', cta.value); flash(); });
   if (resetBtn) resetBtn.addEventListener('click', function () { saveMergePrompt('q', ''); saveMergePrompt('c', ''); fill(); flash(); });
+  // Language: live-switch the whole UI (no reload). Persist, re-apply the static chrome, then re-render
+  // any currently-shown dynamic text (open composer / merged modal / index status) so it follows too.
+  var langSel = document.getElementById('settings-language');
+  if (langSel) {
+    langSel.value = locale;
+    langSel.addEventListener('change', function () {
+      var next = langSel.value === 'ko' ? 'ko' : 'en';
+      if (next === locale) return;
+      locale = next;
+      try { localStorage.setItem(LOCALE_KEY, locale); } catch (e) {}
+      applyI18n();
+      // Merge-prompt placeholders are locale-dependent defaults; refresh them while the panel is open.
+      fill();
+      // Re-render dynamic, currently-visible text in the new locale.
+      try { if (typeof refreshComments === 'function') refreshComments(); } catch (e) {}
+      var mergedModal = document.getElementById('mc-modal');
+      if (mergedModal) { var mk = mergedModal.dataset.kind || 'q'; mergedModal.remove(); openMergedView(mk); }
+    });
+  }
 })();
 
 function setTab(name) {
@@ -2034,7 +2071,7 @@ function ensureTreeRendered() {
   if (!panel || !island) return;
   var html = island.textContent || '';
   island.parentNode && island.parentNode.removeChild(island);
-  panel.innerHTML = '<div class="empty-nav">Building file tree…</div>';
+  panel.innerHTML = '<div class="empty-nav">' + escapeHtml(t('source.buildingTree')) + '</div>';
   setTimeout(function () { // let "Building…" paint before the heavy innerHTML
     panel.innerHTML = html;
     sourceLinks = Array.from(document.querySelectorAll('.source-link'));
@@ -2125,14 +2162,14 @@ async function checkForLiveUpdate() {
     if (!response.ok) return;
     const state = await response.json();
     if (liveStatus && state.generatedAt) {
-      liveStatus.textContent = 'Live: updated ' + new Date(state.generatedAt).toLocaleTimeString();
+      liveStatus.textContent = t('status.live.updated') + ' ' + new Date(state.generatedAt).toLocaleTimeString();
     }
     if (state.signature && state.signature !== currentSignature) {
       saveUiState();
       location.reload();
     }
   } catch {
-    if (liveStatus) liveStatus.textContent = 'Live: waiting for diff server';
+    if (liveStatus) liveStatus.textContent = t('status.live.waiting');
   } finally {
     checkingForUpdates = false;
   }
@@ -2781,11 +2818,11 @@ function setIndexProgress(done, total) {
   var bar = document.getElementById('index-progress');
   if (!el) return;
   if (!total || done >= total) {
-    el.textContent = (total || 0) + ' indexed';
+    el.textContent = (total || 0) + ' ' + t('status.indexed');
     if (bar) bar.classList.add('hidden');
     return;
   }
-  el.textContent = 'indexing ' + done + '/' + total + '…';
+  el.textContent = t('status.indexing') + ' ' + done + '/' + total + '…';
   if (bar) {
     bar.classList.remove('hidden');
     var fill = bar.firstElementChild;
@@ -2895,7 +2932,7 @@ function closeSourceTab(path) {
   // No tabs left: reset the source view to its empty state.
   var v = document.getElementById('source-viewer'); if (v) v.dataset.openPath = '';
   var body = document.getElementById('source-body');
-  if (body) { body.className = 'source-body empty'; body.textContent = 'Select a file from the Files tab.'; }
+  if (body) { body.className = 'source-body empty'; body.textContent = t('source.selectFile'); }
   sourceLinks.forEach(function (l) { l.classList.remove('active'); });
   renderSourceTabs('');
 }
@@ -2923,7 +2960,7 @@ function openSourceFile(path, shouldSwitch = true) {
     revealTreeFor(path);
     var lb = document.getElementById('source-body');
     lb.className = 'source-body empty';
-    lb.textContent = 'Loading source…';
+    lb.textContent = t('source.loading');
     if (shouldSwitch) showSourceView();
     return;
   }
@@ -2952,7 +2989,7 @@ function openSourceFile(path, shouldSwitch = true) {
   }
   if (!file.embedded) {
     body.className = 'source-body empty';
-    body.textContent = file.skippedReason ? 'Source preview unavailable: ' + file.skippedReason + '.' : 'Source preview unavailable.';
+    body.textContent = file.skippedReason ? t('source.previewUnavailable').replace(/\.$/, '') + ': ' + file.skippedReason + '.' : t('source.previewUnavailable');
     document.getElementById('http-env-select')?.classList.add('hidden');
     updateRenderToggle(path);
     if (shouldSwitch) showSourceView();
