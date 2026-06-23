@@ -34,12 +34,6 @@ npm install -g @happy-nut/monacori
 
 The short command is `mo`.
 
-Homebrew users can install from the tap as well:
-
-```bash
-brew install happy-nut/monacori/monacori
-```
-
 ## Quick Start
 
 Inside any Git repository:
