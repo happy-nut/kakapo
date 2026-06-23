@@ -455,6 +455,20 @@ function scheduleDiffScroll(row) {
   });
 }
 
+// Coalesced scrollIntoView for caret/focus moves. Holding an arrow key fires key-repeat faster than a
+// reflow-forcing scrollIntoView can run, so collapse them to one (latest element) per animation frame and
+// use block:nearest (no per-row center-jump). Shared by the tree, source caret, and diff caret.
+var pendingScrollEl = null, scrollElRaf = 0;
+function scheduleScrollIntoView(el) {
+  pendingScrollEl = el || null;
+  if (scrollElRaf) return;
+  scrollElRaf = requestAnimationFrame(function () {
+    scrollElRaf = 0;
+    var e = pendingScrollEl; pendingScrollEl = null;
+    if (e && e.scrollIntoView) { try { e.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (x) {} }
+  });
+}
+
 var setActiveRaf = 0, setActiveScrollPending = true;
 function setActive(index, shouldScroll = true) {
   if (hunkTotal() === 0) return;
@@ -814,10 +828,11 @@ function treeRows() {
 function focusTree(index) {
   const rows = treeRows();
   if (rows.length === 0) return;
+  // Incremental: drop the old focus class and add the new one — no full forEach over every row per keystroke.
+  if (treeFocusIndex >= 0 && treeFocusIndex < rows.length) rows[treeFocusIndex]?.classList.remove('tree-focus');
   treeFocusIndex = Math.max(0, Math.min(rows.length - 1, index));
-  rows.forEach((row, i) => row.classList.toggle('tree-focus', i === treeFocusIndex));
   const el = rows[treeFocusIndex];
-  if (el) el.scrollIntoView({ block: 'nearest' });
+  if (el) { el.classList.add('tree-focus'); scheduleScrollIntoView(el); }
 }
 
 function clearTreeFocus() {
@@ -1454,10 +1469,7 @@ function setDiffCursor(path, side, rowIndex, column, reveal) {
   diffSelectionAnchor = null; // any direct caret placement (click/F7/Cmd-arrow) drops the selection; Shift+Arrow re-sets it
   renderDiffCaret();
   applyDiffSelection();
-  if (reveal) {
-    var r = diffRowAt(wrapper, side, ri);
-    if (r && r.scrollIntoView) requestAnimationFrame(function () { try { r.scrollIntoView({ block: 'nearest' }); } catch (e) {} });
-  }
+  if (reveal) scheduleScrollIntoView(diffRowAt(wrapper, side, ri));
   recordNav(navEntryOf('diff'));
 }
 function navEntryOf(kind) {
@@ -2923,11 +2935,7 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
     const shouldSwitch = !viewer || viewer.dataset.openPath !== path || viewer.classList.contains('hidden');
     openSourceFile(path, shouldSwitch);
   }
-  if (shouldReveal) {
-    requestAnimationFrame(() => {
-      document.querySelector('.source-row.cursor-line')?.scrollIntoView({ block: 'center' });
-    });
-  }
+  if (shouldReveal) scheduleScrollIntoView(document.querySelector('.source-row.cursor-line'));
   recordNav(navEntryOf('source'));
 }
 

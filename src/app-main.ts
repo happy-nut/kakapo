@@ -87,29 +87,10 @@ ipcMain.handle("monacori:pty-spawn", (_event, size: { cols?: number; rows?: numb
   const deliver = (channel: string, payload: unknown) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
   };
-  // pty output can arrive as many tiny chunks (thousands/sec under fast output). One IPC per chunk floods
-  // the renderer, so coalesce: buffer chunks and flush on a short timer, or immediately once the buffer is
-  // large — bounding both IPC traffic and added latency.
-  let outBuf = "";
-  let flushTimer: NodeJS.Timeout | undefined;
-  const flushOut = () => {
-    flushTimer = undefined;
-    if (!outBuf) return;
-    const data = outBuf;
-    outBuf = "";
-    deliver("monacori:pty-data", { id, data });
-  };
-  t.onData((data) => {
-    outBuf += data;
-    if (outBuf.length >= 64 * 1024) { if (flushTimer) clearTimeout(flushTimer); flushOut(); }
-    else if (!flushTimer) { flushTimer = setTimeout(flushOut, 12); }
-  });
-  t.onExit(() => {
-    if (flushTimer) clearTimeout(flushTimer);
-    flushOut(); // deliver any buffered tail before signaling exit
-    terms.delete(id);
-    deliver("monacori:pty-exit", { id });
-  });
+  // Relay pty output to the renderer immediately, one IPC per chunk. (A coalescing buffer was tried as an
+  // optimization but it broke terminal I/O — the shell prompt and echo stopped appearing — so it's removed.)
+  t.onData((data) => deliver("monacori:pty-data", { id, data }));
+  t.onExit(() => { terms.delete(id); deliver("monacori:pty-exit", { id }); });
   return { ok: true, id };
 });
 ipcMain.on("monacori:pty-write", (_event, msg: { id: number; data: string }) => { terms.get(msg?.id)?.write(msg.data); });
