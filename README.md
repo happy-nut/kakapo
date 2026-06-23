@@ -1,10 +1,30 @@
 # monacori
 
-**A local desktop diff-review app for AI-generated code changes.** After an AI edits your repo, run `mo` to open a side-by-side diff — read it, comment on it, and send your comments straight to an AI CLI running in the built-in terminal.
+**A local desktop review workspace for AI-generated code changes.**
 
-## Why
+Run `mo` after an AI edits your repository. monacori opens a side-by-side diff, lets you attach line-level questions or change requests, and bundles that feedback back into the AI CLI (command-line interface) session running in the built-in terminal.
 
-A chat log or a "done" claim is a poor way to review what an AI changed. monacori puts the change in front of you as a real diff you can read and annotate — then turns your comments into a prompt you hand right back to `claude` or `codex`, without leaving the app or copy-pasting between windows.
+![monacori reviewing a diff, adding a change request, and targeting the built-in terminal](assets/monacori-demo.gif)
+
+## Why monacori
+
+AI coding tools are fast, but their "done" message is not a review. monacori gives the human reviewer a dedicated control surface for the gap between generated code and trusted code:
+
+- See every changed, added, and untracked file in an IntelliJ-style review sidebar.
+- Review side-by-side diffs with syntax highlighting, changed-line emphasis, and keyboard navigation.
+- Leave questions or change requests directly on the relevant line.
+- Send all reviewer comments, with file paths and code context, into `claude`, `codex`, or another terminal session without copy-paste.
+- Keep all generated review state local, plain, and inspectable under `.monacori/`.
+
+## Workflow
+
+1. Let an AI coding tool make changes in your repository.
+2. Run `mo` from that repository.
+3. Inspect the diff, mark files as viewed, and attach line comments where needed.
+4. Open the built-in terminal and keep your AI CLI session beside the review.
+5. Send the merged questions or change requests back to the session as a focused follow-up prompt.
+
+The result is a tighter review loop: the AI produces changes, the human reviews the actual diff, and the next prompt is grounded in exact file and line context.
 
 ## Install
 
@@ -12,43 +32,61 @@ A chat log or a "done" claim is a poor way to review what an AI changed. monacor
 npm install -g @happy-nut/monacori
 ```
 
-After install, the short command is `mo`. A Homebrew tap (`happy-nut/monacori/monacori`) is also available.
+The short command is `mo`.
 
-## What you get
+Homebrew users can install from the tap as well:
 
-- **Desktop diff review** — side-by-side diff with changed-line highlighting and an IntelliJ-style sidebar that colors files by git status. Reads the repo directly, refreshes on change, no HTTP server.
-- **Integrated terminal** — run AI CLIs like `claude` or `codex` right inside the app, split into panes.
-- **Comments → session** — annotate any line, then send your comments (bundled with their code context) into a terminal pane as one merged prompt: pick the target pane visually and press Enter.
+```bash
+brew install happy-nut/monacori/monacori
+```
 
-## Quick start
+## Quick Start
 
-Inside the repository you want to review:
+Inside any Git repository:
 
 ```bash
 mo
 ```
 
-On first run, `mo` creates `.monacori/`, adds it to `.gitignore`, and includes untracked files so new AI-created files show up immediately.
+On first run, `mo` creates `.monacori/`, adds it to `.gitignore`, and includes untracked files so new AI-created files appear immediately.
+
+## Highlights
+
+- **Desktop diff review**: reads the repository directly, refreshes from local Git state, and does not require a web server.
+- **AI handoff comments**: questions and change requests are stored with their file, line, and code context.
+- **Integrated terminal**: keep `claude`, `codex`, or a shell open inside the same window, with split panes when needed.
+- **Source navigation**: jump between changed files, search indexed files, preview source, and move through hunks from the keyboard.
+- **Plain local artifacts**: generated review files and state are Markdown, JSON, and static HTML under `.monacori/`.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `mo` | Open the desktop diff-review app (alias for `monacori open`). |
-| `monacori app` | Launch the desktop review app (same as `mo`). |
+| `mo` | Open the desktop diff-review app for the current repository. Alias for `monacori open`. |
+| `monacori open` | Launch the review app, auto-initialize `.monacori/`, and include untracked files by default. |
+| `monacori app` | Launch the same desktop app explicitly. |
 | `monacori init` | Initialize `.monacori/` in the current directory. |
-| `monacori install` | Initialize and write agent instruction snippets. `--apply-agent-docs` patches `AGENTS.md` / `CLAUDE.md`. |
+| `monacori install` | Initialize and write agent instruction snippets. Use `--apply-agent-docs` to patch `AGENTS.md` or `CLAUDE.md`. |
 
-## Repository state
+Useful review options:
 
-`monacori init` (run automatically by `mo`) creates a git-ignored `.monacori/` directory holding generated diff reviews and local config. Keep it ignored unless your team explicitly wants to commit review state.
+```bash
+mo --staged              # review only staged changes
+mo --tracked-only        # exclude untracked files
+mo --base main           # compare against a specific base
+mo --context 20          # show more context around each hunk
+```
 
-## Design principles
+## Local State
 
-- A real diff beats a chat log or a "done" claim.
-- Review, comment, and hand-off live in one window — no copy-paste loop.
-- Generated artifacts are plain static HTML and JSON.
-- No required AI agent, terminal multiplexer, editor, or worktree strategy.
+`monacori init` creates a git-ignored `.monacori/` directory for generated diff reviews, local config, comments, logs, and validation notes. Keep it ignored unless your team intentionally wants to version review artifacts.
+
+## Design Principles
+
+- Real diffs beat chat summaries.
+- Human review should stay close to the code and the running AI session.
+- The core should be local, inspectable, and agent-agnostic.
+- No required terminal multiplexer, editor plugin, hosted service, or worktree strategy.
 
 ## License
 
