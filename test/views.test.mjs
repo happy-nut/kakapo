@@ -159,3 +159,15 @@ test("background-work progress shows a bar under the footer and hides when done"
   assert.ok(foot.classList.contains("hidden"), "hidden again when done");
   v.close();
 });
+
+test("clean tree (no changes): opens the file view with README, not an empty diff", async () => {
+  // before === after for every file ⇒ git diff is empty (nothing to review).
+  const { html } = await makeReviewHtml([
+    { path: "AAA.md", before: "# AAA\n", after: "# AAA\n" }, // sorts before README
+    { path: "README.md", before: "# Readme\n\nhello\n", after: "# Readme\n\nhello\n" },
+  ]);
+  const v = await loadViewer(html);
+  assert.equal(v.visibleView(), "source", "file view is shown, not an empty diff pane");
+  assert.equal(v.$("#source-viewer").dataset.openPath, "README.md", "README is opened by default");
+  v.close();
+});

@@ -1277,8 +1277,11 @@ if (!REVIEW_LAZY_LOAD) scheduleSymbolIndex(); // non-lazy indexes when idle; laz
 const restored = restoreUiState();
 if (!restored) {
   const initial = location.hash.match(/^#hunk-(\d+)$/);
+  const hasDiff = Boolean(document.querySelector('#diff2html-container .d2h-file-wrapper'));
   if (initial) setActive(Number(initial[1]), false);
-  else if (REVIEW_LAZY_LOAD) showDiffView(false); // big repos: open to the diff (Changes); the source tree stays deferred until the Files tab is opened
+  // Clean tree (nothing to review): open a file (README first) instead of staring at an empty diff.
+  else if (!hasDiff) openDefaultSourceFile();
+  else if (REVIEW_LAZY_LOAD) showDiffView(false); // big repos with changes: open to the diff (Changes); the source tree stays deferred until the Files tab is opened
   else openDefaultSourceFile();
 }
 initSourceTreeFolds();
@@ -2812,7 +2815,9 @@ function updateTreeVisibility(root, query) {
 }
 
 function openDefaultSourceFile() {
+  const isReadme = (candidate) => /^readme(\.|$)/i.test(candidate.name || '');
   const file = sourceFiles.find((candidate) => candidate.changed && candidate.embedded)
+    || sourceFiles.find((candidate) => candidate.embedded && isReadme(candidate)) // prefer README when nothing changed
     || sourceFiles.find((candidate) => candidate.embedded)
     || sourceFiles.find((candidate) => candidate.changed)
     || sourceFiles[0];
