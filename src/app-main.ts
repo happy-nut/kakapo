@@ -376,8 +376,9 @@ function parseArgs(args: string[]): AppOptions {
   const contextValue = readOption(args, "--context");
   return {
     root: resolve(root),
-    base: readOption(args, "--base"),
-    staged: args.includes("--staged"),
+    // staged review and custom --base were removed from the CLI; always diff the working tree against
+    // HEAD (base omitted → defaults to HEAD downstream).
+    staged: false,
     includeUntracked: args.includes("--include-untracked"),
     context: contextValue ? parsePositiveInteger(contextValue, "--context") : 12,
     watch: !args.includes("--no-watch"),

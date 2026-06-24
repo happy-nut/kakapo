@@ -52,25 +52,6 @@ On first run, `mo` creates `.monacori/`, adds it to `.gitignore`, and includes u
 - **Source navigation**: jump between changed files, search indexed files, preview source, and move through hunks from the keyboard.
 - **Plain local artifacts**: generated review files and state are Markdown, JSON, and static HTML under `.monacori/`.
 
-## Commands
-
-| Command | What it does |
-| --- | --- |
-| `mo` | Open the desktop diff-review app for the current repository. Alias for `monacori open`. |
-| `monacori open` | Launch the review app, auto-initialize `.monacori/`, and include untracked files by default. |
-| `monacori app` | Launch the same desktop app explicitly. |
-| `monacori init` | Initialize `.monacori/` in the current directory. |
-| `monacori install` | Initialize and write agent instruction snippets. Use `--apply-agent-docs` to patch `AGENTS.md` or `CLAUDE.md`. |
-
-Useful review options:
-
-```bash
-mo --staged              # review only staged changes
-mo --tracked-only        # exclude untracked files
-mo --base main           # compare against a specific base
-mo --context 20          # show more context around each hunk
-```
-
 ## Development
 
 Working on monacori itself? The globally-installed `mo` runs the **published** package, not your
@@ -120,7 +101,7 @@ suite gates every release.
 
 ## Local State
 
-`monacori init` creates a git-ignored `.monacori/` directory for generated diff reviews, local config, comments, logs, and validation notes. Keep it ignored unless your team intentionally wants to version review artifacts.
+Running `mo` creates a git-ignored `.monacori/` directory for generated diff reviews, local config, comments, logs, and validation notes. Keep it ignored unless your team intentionally wants to version review artifacts.
 
 ## Design Principles
 
