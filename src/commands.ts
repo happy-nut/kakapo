@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -113,6 +113,14 @@ function launchReviewApp(args: string[]): void {
     printAppHelp();
     return;
   }
+  // Review the directory given by --cwd, so `mo --cwd <path>` (or `npm run dev -- --cwd <path>`) can
+  // open ANY repo from anywhere; defaults to the current directory. chdir up front so the flow state,
+  // config, and the launched app all resolve against the same repo.
+  const targetCwd = resolve(readOption(args, "--cwd") ?? process.cwd());
+  if (!existsSync(targetCwd)) {
+    throw new Error(`Directory does not exist: ${targetCwd}`);
+  }
+  process.chdir(targetCwd);
   ensureWritableFlowState();
 
   const config = loadConfig();

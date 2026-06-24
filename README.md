@@ -82,10 +82,10 @@ Run your checkout directly (builds, then launches in the foreground with DevTool
 npm run dev
 ```
 
-This reviews the monacori repo itself. To point a local build at another project:
+This reviews the monacori repo itself. To review **another repo** with your local build, pass `--cwd`:
 
 ```bash
-MONACORI_DEV=1 node /path/to/monacori/bin/monacori.js --foreground
+npm run dev -- --cwd /path/to/other-repo
 ```
 
 **Which build is running?** A dev build titles its window `monacori (dev)` and opens DevTools, and
