@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
@@ -45,8 +45,17 @@ export function languageForPath(path: string): string {
 }
 
 export function isLikelyBinary(path: string): boolean {
-  const sample = readFileSync(path).subarray(0, 8000);
-  return sample.includes(0);
+  // Read only the first 8KB — a NUL byte in the head is our binary heuristic. The previous version read
+  // the WHOLE file just to slice 8KB off it, which on a large repo means re-reading every tracked file
+  // in full on each build (a major chunk of the per-second watch cost).
+  const fd = openSync(path, "r");
+  try {
+    const buf = Buffer.alloc(8000);
+    const n = readSync(fd, buf, 0, 8000, 0);
+    return buf.subarray(0, n).includes(0);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export function readOption(args: string[], name: string): string | undefined {

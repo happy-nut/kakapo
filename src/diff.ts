@@ -6,6 +6,12 @@ import { FLOW_DIR, IMAGE_MAX_BYTES, SOURCE_MAX_FILE_BYTES, SOURCE_MAX_FILES, SOU
 import { formatBytes, hashText, isLikelyBinary, languageForPath, stripDiffPath } from "./util.js";
 import { git, repoRoot } from "./git.js";
 
+// File content + signature cache, keyed by path and validated on (mtime, size). Under `watch` the app
+// rebuilds every second; without this, collectSourceFiles re-reads + re-hashes EVERY tracked source
+// file each tick (~1.3s for ~6k files on a large repo), pinning the Electron main process and starving
+// IPC/pty. With it an unchanged file costs a single statSync — the per-tick cost collapses to stat-only.
+const sourceContentCache = new Map<string, { mtimeMs: number; size: number; content: string; signature: string }>();
+
 export function readUnifiedDiff(options: {
   base?: string;
   staged: boolean;
@@ -302,7 +308,11 @@ export function collectSourceFiles(diffFiles: DiffFile[]): SourceFile[] {
       continue;
     }
 
-    if (isLikelyBinary(absolute)) {
+    // A file we already cached as text (same mtime+size) can't have turned binary — skip the binary
+    // sniff (an open+read per file, ~635ms across this repo) on the hot watch path.
+    const cached = sourceContentCache.get(path);
+    const fresh = Boolean(cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size);
+    if (!fresh && isLikelyBinary(absolute)) {
       const skippedReason = "binary file";
       sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0binary\0${stats.size}`), skippedReason });
       continue;
@@ -320,14 +330,17 @@ export function collectSourceFiles(diffFiles: DiffFile[]): SourceFile[] {
       continue;
     }
 
-    const content = readFileSync(absolute, "utf8");
-    sourceFiles.push({
-      ...base,
-      content,
-      size: stats.size,
-      embedded: true,
-      signature: hashText(`${path}\0${content}`),
-    });
+    let content: string;
+    let signature: string;
+    if (fresh) {
+      content = cached!.content; // unchanged since last build — skip the read + hash
+      signature = cached!.signature;
+    } else {
+      content = readFileSync(absolute, "utf8");
+      signature = hashText(`${path}\0${content}`);
+      sourceContentCache.set(path, { mtimeMs: stats.mtimeMs, size: stats.size, content, signature });
+    }
+    sourceFiles.push({ ...base, content, size: stats.size, embedded: true, signature });
     embeddedFiles += 1;
     embeddedBytes += stats.size;
   }

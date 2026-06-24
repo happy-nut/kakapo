@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, ipcMain, Menu, nativeImage } from "electron";
 import { buildDiffReview, performHttpRequest, type HttpSendRequest } from "./cli.js";
 import { sanitizeTerminalEnv } from "./util.js";
+import { readUnifiedDiff } from "./diff.js";
+import { createHash } from "node:crypto";
 import { spawn as spawnPty, type IPty } from "node-pty";
 
 type AppOptions = {
@@ -310,10 +312,27 @@ app.on("window-all-closed", () => {
   app.quit();
 });
 
+let lastDiffSig = "";
 async function refreshIfChanged(): Promise<void> {
   if (refreshing || !mainWindow || mainWindow.isDestroyed()) return;
   refreshing = true;
   try {
+    // Fast path: hash only the git diff (~120ms) before the full build (~1s). The vast majority of
+    // watch ticks see no change, so skip the heavy buildDiffReview entirely then — keeping the main
+    // process free for IPC/pty so the UI never stalls on an unchanged tree.
+    const diffSig = createHash("sha1")
+      .update(
+        readUnifiedDiff({
+          base: options.base,
+          staged: options.staged,
+          context: options.context,
+          includeUntracked: options.includeUntracked,
+          ignoreWhitespace: options.ignoreWhitespace,
+        }),
+      )
+      .digest("hex");
+    if (diffSig === lastDiffSig) return;
+    lastDiffSig = diffSig;
     const next = writeReviewFile(options);
     if (next.signature !== currentSignature) {
       currentSignature = next.signature;
