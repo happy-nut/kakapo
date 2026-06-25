@@ -689,6 +689,11 @@ h1 { margin: 0; font-size: 18px; }
    key scrolls the view CONTINUOUSLY instead of leaving it still until the caret reaches the viewport edge
    (the "stutter every ~viewport" the user reported). Applies to the source body, the diff, and the sidebar. */
 .source-body, #diff2html-container, .sidebar-scroll { scroll-padding-block: 35vh; }
+/* revealAt() sets scrollTop directly, and scroll-padding only affects scrollIntoView — so near EOF the
+   caret can't reach the 42% line and pins to the viewport bottom, where the footer progress bar overlaps
+   and HIDES it ("the caret leaves the screen at the end of a file"). Real trailing space lets the last
+   lines scroll up to the middle. The diff caret showed this worst (95% vs source's 81%); both get it. */
+.source-body, #diff2html-container { padding-bottom: 45vh; }
 .source-body {
   border: 1px solid var(--border);
   overflow: auto;

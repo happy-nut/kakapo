@@ -26,6 +26,11 @@ before(async () => {
       before: "name,score\nalice,1\nbob,2\n",
       after: "name,score\nalice,1\nbob,3\n",
     },
+    {
+      path: "blank.ts",
+      before: "const a = 1;\n\nconst b = 2;\n",
+      after: "const a = 1;\n\nconst b = 3;\n",
+    },
   ]));
 });
 after(cleanupFixtures);
@@ -457,5 +462,18 @@ test("diff view: vertical wheel + PageUp/Down scroll the diff container", async 
   assert.ok(down > 0, "PageDown scrolls the diff down");
   v.key("PageUp");
   assert.ok(c.scrollTop < down, "PageUp scrolls the diff up");
+  v.close();
+});
+
+test("a blank source line still shows the caret (regression: the empty cell skipped the caret span)", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("blank.ts");
+  // Place the caret on the blank line (index 1). reveal=false keeps it synchronous (no rAF for jsdom to miss).
+  v.window.setSourceCursor("blank.ts", 1, 0, false, -1);
+  const cl = v.$("#source-body .source-row.cursor-line");
+  assert.ok(cl, "a row is the cursor line");
+  assert.equal(cl.dataset.lineIndex, "1", "caret is on the blank line");
+  assert.equal((cl.querySelector(".source-code").textContent || "").length, 0, "the cursor line is blank");
+  assert.ok(cl.querySelector(".code-cursor"), "blank line still renders a caret span, not just the row background");
   v.close();
 });

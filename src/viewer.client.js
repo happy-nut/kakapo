@@ -3362,8 +3362,8 @@ function updateSourceCaret(prev, lines, language) {
 // same cheap technique the diff caret uses, so holding an arrow key never re-tokenizes a line.
 function insertSourceCaret(row, column) {
   var cell = row.querySelector('.source-code');
-  if (!cell || (cell.textContent || '').length === 0) return; // empty line: the cursor-line background marks it
-  var pos = diffCaretDomPosition(cell, column);
+  if (!cell) return;
+  var pos = diffCaretDomPosition(cell, column); // empty line: returns {node: cell, offset: 0} so the caret still shows
   if (!pos) return;
   var span = document.createElement('span');
   span.className = 'code-cursor';
