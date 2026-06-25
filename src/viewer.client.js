@@ -3345,25 +3345,35 @@ function updateSourceCaret(prev, lines, language) {
   // Restore the line the caret left: drop the caret span, re-highlight the full line.
   if (prev && prev.lineIndex !== viewerCursor.lineIndex) {
     const prevRow = rowFor(prev.lineIndex);
-    if (prevRow) {
-      prevRow.classList.remove('cursor-line');
-      if (!rendered) {
-        const prevCell = prevRow.querySelector('.source-code');
-        if (prevCell) prevCell.innerHTML = highlightLine(lines[prev.lineIndex] || '', language);
-      }
-    }
+    if (prevRow) prevRow.classList.remove('cursor-line');
   }
+  // Drop the old caret span WITHOUT re-highlighting the line — re-tokenizing a line on every caret move is
+  // what made holding an arrow key stutter. (The diff caret already works this way: insert/remove a span.)
+  if (!rendered) body.querySelectorAll('.code-cursor').forEach((s) => { const p = s.parentNode; if (p) { p.removeChild(s); if (p.normalize) p.normalize(); } });
   // Reconcile the go-to-definition highlight (set only on symbol jumps, cleared on plain moves).
   body.querySelectorAll('.source-row.symbol-target').forEach((r) => r.classList.remove('symbol-target'));
   if (viewerCursor.targetLine >= 0) rowFor(viewerCursor.targetLine)?.classList.add('symbol-target');
-  // Rebuild the new caret line with the caret span.
   const row = rowFor(viewerCursor.lineIndex);
   if (!row) { if (!rendered) openSourceFile(viewerCursor.path, false); return; } // line not in the DOM — full re-render (eager source only)
   row.classList.add('cursor-line');
-  if (!rendered) {
-    const cell = row.querySelector('.source-code');
-    if (cell) cell.innerHTML = renderLineWithCursor(lines[viewerCursor.lineIndex] || '', language, viewerCursor.column);
-  }
+  if (!rendered) insertSourceCaret(row, viewerCursor.column);
+}
+// Insert the caret span at `column` of `row` via a real DOM range into the already-highlighted line — the
+// same cheap technique the diff caret uses, so holding an arrow key never re-tokenizes a line.
+function insertSourceCaret(row, column) {
+  var cell = row.querySelector('.source-code');
+  if (!cell || (cell.textContent || '').length === 0) return; // empty line: the cursor-line background marks it
+  var pos = diffCaretDomPosition(cell, column);
+  if (!pos) return;
+  var span = document.createElement('span');
+  span.className = 'code-cursor';
+  span.setAttribute('aria-hidden', 'true');
+  try {
+    var off = pos.node.nodeType === 3 ? Math.min(pos.offset, (pos.node.textContent || '').length) : pos.offset;
+    var range = document.createRange();
+    range.setStart(pos.node, off); range.collapse(true);
+    range.insertNode(span);
+  } catch (e) {}
 }
 
 function openSourceAt(path, lineIndex, column) {
@@ -3992,6 +4002,7 @@ function openSourceFile(path, shouldSwitch = true) {
   } else {
     body.innerHTML = renderSourceTable(file, '');
     if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
+    if (viewerCursor && viewerCursor.path === path) { var ccr = body.querySelector('.source-row.cursor-line'); if (ccr) insertSourceCaret(ccr, viewerCursor.column); }
   }
   updateRenderToggle(path);
   renderSourceComments();
@@ -4527,7 +4538,7 @@ function renderSourceTable(file, query) {
     return [
       '<tr class="' + classes + '" data-line-index="' + index + '">',
       '<td class="num">' + String(index + 1) + '</td>',
-      '<td class="source-code">' + (isCursorLine ? renderLineWithCursor(line, file.language || 'text', cursor.column) : highlightLine(line, file.language || 'text')) + '</td>',
+      '<td class="source-code">' + highlightLine(line, file.language || 'text') + '</td>',
       '</tr>',
     ].join('');
   }).join('');
