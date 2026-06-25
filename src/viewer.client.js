@@ -319,7 +319,6 @@ function prepareDiff2HtmlHunks() {
 prepareViewedControls();
 
 function prepareViewedControls() {
-  pruneViewedState();
   document.querySelectorAll('.d2h-file-wrapper').forEach((wrapper) => {
     const fileName = wrapper.querySelector('.d2h-file-name')?.textContent?.trim() || '';
     const toggle = wrapper.querySelector('.d2h-file-collapse');
@@ -356,34 +355,23 @@ function currentFileSignature(path) {
 
 function isFileViewed(path) {
   const viewed = loadViewedState();
-  const signature = currentFileSignature(path);
-  return Boolean(signature && viewed[path] === signature);
+  return Boolean(viewed[path]); // boolean now; legacy signature strings are also truthy, so old marks still read as viewed
 }
 
 function setFileViewed(path, viewed) {
   const state = loadViewedState();
-  if (viewed) {
-    const signature = currentFileSignature(path);
-    if (signature) state[path] = signature;
-  } else {
-    delete state[path];
-  }
+  // Persist a plain boolean (not the file signature) so a viewed mark survives a restart/refresh the way
+  // comments do. Tying it to the signature meant any re-generation that changed the signature silently
+  // cleared every viewed mark — exactly the "viewed didn't persist" the user hit.
+  if (viewed) state[path] = true;
+  else delete state[path];
   saveViewedState(state);
   applyViewedState();
 }
 
-function pruneViewedState() {
-  const state = loadViewedState();
-  let changed = false;
-  Object.keys(state).forEach((path) => {
-    if (state[path] !== currentFileSignature(path)) {
-      delete state[path];
-      changed = true;
-    }
-  });
-  if (changed) saveViewedState(state);
-}
-
+// Viewed marks persist by path (a plain boolean), like comments — we deliberately DON'T prune on signature
+// change or restart. Tying persistence to the file signature is what made viewed marks vanish on every
+// re-generation; the user wants them to survive restarts the way comments do.
 function applyViewedState() {
   document.querySelectorAll('.d2h-file-wrapper').forEach((wrapper) => {
     const fileName = wrapper.querySelector('.d2h-file-name')?.textContent?.trim() || '';
@@ -518,6 +506,18 @@ function revealAt(el, scroller, fraction) {
   var off = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
   scroller.scrollTop += off - scroller.clientHeight * fraction;
 }
+// Scrolloff variant: scroll ONLY when `el` would otherwise leave the viewport, keeping it within `marginFrac`
+// of the top/bottom edge. While the row moves comfortably inside that band the view stays put — continuous
+// centering scrolled the file even when everything was visible (dizzying). Used by the diff caret.
+function scrolloffReveal(el, scroller, marginFrac) {
+  if (!el || !scroller || !scroller.clientHeight) return;
+  var top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+  var rowH = el.offsetHeight || 18;
+  var ch = scroller.clientHeight;
+  var margin = Math.round(ch * marginFrac);
+  if (top < margin) scroller.scrollTop += top - margin;
+  else if (top + rowH > ch - margin) scroller.scrollTop += (top + rowH) - (ch - margin);
+}
 function scheduleScrollIntoView(el) {
   pendingScrollEl = el || null;
   if (scrollElRaf) return;
@@ -557,7 +557,7 @@ function applySetActive(idx, shouldScroll) {
   history.replaceState(null, '', '#hunk-' + idx);
   // Row-dependent work waits for the file body (sync for eager/Phase 1, async for cold lazy-LOAD).
   whenFileReady(diffWrapperByPath(file), function () {
-    showOnlyFile(file);
+    showOnlyFile(file, true); // materialize + isolate the file, but leave the caret to focusDiffRow (skip ensureDiffCursor)
     const active = document.getElementById('hunk-' + idx);
     if (!active) return;
     if (REVIEW_LAZY) {
@@ -571,16 +571,24 @@ function applySetActive(idx, shouldScroll) {
     // F7/change navigation moves the caret but must NOT pollute the Cmd+[/] cursor history.
     navSuppress = true;
     try { focusDiffRow(targetRow); } finally { navSuppress = false; }
-    if (shouldScroll && targetRow) scheduleDiffScroll(targetRow);
+    // Scroll inline in THIS frame, NOT via scheduleDiffScroll's extra rAF. showOnlyFile just display:none'd
+    // the previous file, but the scroll container keeps its old (larger) scrollTop — so for one frame the new
+    // file renders at that stale offset (≈ line 146) before a deferred scroll snaps to the change (≈ line 21):
+    // the visible 146→21 double jump on F7 across a file boundary. Scrolling synchronously here lands the
+    // view on the change before this frame paints, so the new file appears already at its first change.
+    if (shouldScroll && targetRow && targetRow.scrollIntoView) targetRow.scrollIntoView({ block: 'center' });
   });
 }
 
-function showOnlyFile(fileName) {
+function showOnlyFile(fileName, skipCursor) {
   if (REVIEW_LAZY) ensureFileReady(diffWrapperByPath(fileName));
   document.querySelectorAll('.d2h-file-wrapper').forEach((wrapper) => {
     wrapper.classList.toggle('df-inactive', diffWrapperPathKey(wrapper) !== fileName);
   });
-  ensureDiffCursor();
+  // applySetActive passes skipCursor: it sets the caret itself via focusDiffRow(targetRow). Letting
+  // ensureDiffCursor run here would first place the caret on the file's FIRST code row, then focusDiffRow
+  // overrides it to the change — a visible double jump (the F7 "first line → change" flash).
+  if (!skipCursor) ensureDiffCursor();
 }
 
 // The hunk the diff caret currently sits in. Arrow keys move the caret without touching the active
@@ -622,6 +630,10 @@ function changeBlockAnchors(wrapper) {
   return anchors;
 }
 
+// Forward F7 at a file's last change announces "last change — press F7 again" once before crossing to the
+// next file, giving a beat to mark-viewed. Holds the path we've already announced; any caret move clears it
+// (see setDiffCursor), so leaving and returning to the last change re-arms the announcement.
+var pendingFileBoundary = null;
 function next(delta) {
   if (hunkTotal() === 0) return;
   // Within the caret's (unviewed) file, step change-block by change-block so a context-merged hunk
@@ -640,7 +652,18 @@ function next(delta) {
       }
     }
   }
-  // File boundary (no more change blocks this file) → hunk-level nav to the next/prev unviewed file.
+  // File boundary: no more change blocks in this file. Forward F7 announces "last change — press F7 again
+  // to go to the next file" on the FIRST press (a beat to mark-viewed) and only crosses on the SECOND
+  // consecutive press. Already-viewed files (and backward nav) cross immediately — no announcement.
+  if (delta > 0 && diffCursor && isDiffViewVisible() && !isFileViewed(diffCursor.path)) {
+    if (pendingFileBoundary !== diffCursor.path) {
+      pendingFileBoundary = diffCursor.path;
+      showToast(t('diff.lastHunk'));
+      return;
+    }
+    pendingFileBoundary = null; // second consecutive press on the same file → fall through and cross
+  }
+  // hunk-level nav to the next/prev unviewed file.
   const caretHunk = hunkIndexAtCaret();
   const base = caretHunk >= 0 ? caretHunk : current;
   let idx = base < 0 ? initialHunkForNavigation(delta) : base + delta;
@@ -1026,6 +1049,14 @@ function handleTreeKey(event) {
     if (Math.abs(e.deltaY) >= Math.abs(e.deltaX) && e.deltaY !== 0) { dsc.scrollTop += e.deltaY; e.preventDefault(); }
   }, { passive: false });
 })();
+// A floating, focus-grabbing overlay (merged-comments, prompt memo, settings) is open. While one is up it
+// owns focus AND the only caret, so global shortcuts stand down until Esc/close — we must not navigate a
+// panel the user can't even see behind the overlay (nor leave a second blinking caret in it).
+function isFloatingModalOpen() {
+  if (document.getElementById('mc-modal') || document.getElementById('mc-memo')) return true;
+  var sm = document.getElementById('settings-modal');
+  return !!(sm && !sm.classList.contains('hidden'));
+}
 document.addEventListener('keydown', (event) => {
   if (!quickOpen?.classList.contains('hidden')) {
     if (handleQuickOpenKey(event)) return;
@@ -1035,8 +1066,22 @@ document.addEventListener('keydown', (event) => {
     if (handleUsagesKey(event)) return;
   }
 
+  // Floating overlay open (merged / memo / settings): it captures keys until Esc. Don't run ANY global
+  // shortcut (Cmd+1, F7, Cmd+[/], Cmd+B, open-merged/memo, …) underneath — focus and the only caret belong
+  // to the overlay. Each overlay has its own Esc + editing handlers, so we simply stand down here.
+  if (isFloatingModalOpen()) return;
+
   if ((event.metaKey || event.ctrlKey) && event.key === '1') {
     event.preventDefault();
+    // Coming from the diff: open the file you were viewing as source so Cmd+1 lands ON it (not a stale/blank
+    // source pane), and the tree below points at the same file. Capture the path BEFORE openSourceFile flips
+    // the view (isDiffViewVisible would then be false).
+    if (isDiffViewVisible()) {
+      var dw1 = diffActiveWrapper();
+      var dn1 = dw1 && dw1.querySelector('.d2h-file-name');
+      var dpath1 = (diffCursor && diffCursor.path) || (dn1 ? (dn1.textContent || '').trim() : '');
+      if (dpath1 && sourceByPath.has(dpath1)) openSourceFile(dpath1);
+    }
     setTab('files');
     focusOpenFileInTree();
     return;
@@ -1542,9 +1587,17 @@ function renderDiffCaret() {
   row.classList.add('mc-diff-cursor-row');
   var ctn = diffCellCtn(row);
   if (!ctn) return;
-  // Empty line (ctn is just a <br>): the row highlight marks the caret. Inserting a caret span
-  // next to the <br> would push it onto a second visual line and break the row's height.
-  if ((ctn.textContent || '').length === 0) return;
+  // Empty line (ctn is just a <br>): an inline caret span would wrap onto a 2nd visual line and break the
+  // row height, so position the caret absolutely — it shows without affecting the layout.
+  if ((ctn.textContent || '').length === 0) {
+    var espan = document.createElement('span');
+    espan.className = 'code-cursor';
+    espan.setAttribute('aria-hidden', 'true');
+    espan.style.position = 'absolute';
+    ctn.appendChild(espan);
+    diffCaretSpan = espan;
+    return;
+  }
   var pos = diffCaretDomPosition(ctn, diffCursor.column);
   if (!pos) return;
   var span = document.createElement('span');
@@ -1568,6 +1621,7 @@ function setDiffCursor(path, side, rowIndex, column, reveal) {
   var ri = Math.max(0, Math.min(rowIndex, rows.length - 1));
   var col = Math.max(0, Math.min(column, diffLineText(rows[ri]).length));
   diffCursor = { path: path, side: side, rowIndex: ri, column: col };
+  pendingFileBoundary = null; // any caret move re-arms the last-change announcement for the next F7 (see next)
   diffSelectionAnchor = null; // any direct caret placement (click/F7/Cmd-arrow) drops the selection; Shift+Arrow re-sets it
   if (reveal) {
     // Render the caret AND scroll in the SAME animation frame. A fast key-repeat queues several ArrowDowns
@@ -1592,7 +1646,7 @@ function scheduleDiffReveal(wrapper, side, ri) {
     applyDiffSelection();
     if (!t) return;
     var row = diffRowAt(t.wrapper, t.side, t.ri);
-    revealAt(row, document.getElementById('diff2html-container'), 0.42);
+    scrolloffReveal(row, document.getElementById('diff2html-container'), 0.15);
   });
 }
 function navEntryOf(kind) {
@@ -1768,35 +1822,30 @@ function showToast(message) {
     setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 300);
   }, 4500);
 }
-// When a file changes, follow each comment to its snapshot line (c.code) in the new content: same line if
-// unchanged, else the nearest exact match of that line. If the line can't be found the change is too large
-// to trust — drop the comment and toast. Files whose content isn't loaded yet (lazy) are skipped here and
-// reconciled once loadSourceData brings the content in.
+// Follow each comment to its snapshot line (c.code) in the current content: same line if unchanged, else the
+// nearest exact match of that line. A comment is NEVER auto-deleted. If its line can't be found we leave it
+// where it is — this happens routinely WITHOUT the file changing: a comment anchored to a deleted/old-side
+// diff line (comments carry no side, so old-side text never matches the new content) would otherwise vanish.
+// Silently dropping user-authored comments loses data; the reviewer can remove a stale one with the × button.
+// Files whose content isn't loaded yet (lazy) are skipped here and reconciled once loadSourceData arrives.
 function remapComments() {
   if (!reviewComments.length) return;
-  var dropped = [], moved = 0;
-  reviewComments = reviewComments.filter(function (c) {
+  var moved = 0;
+  reviewComments.forEach(function (c) {
     var file = sourceByPath.get(c.path);
-    if (!file || !file.embedded || typeof file.content !== 'string' || !file.content) return true;
+    if (!file || !file.embedded || typeof file.content !== 'string' || !file.content) return;
     var code = c.code == null ? '' : String(c.code);
-    if (!code.trim()) return true;
+    if (!code.trim()) return;
     var lines = file.content.split(/\r?\n/);
-    if (lines[c.line - 1] === code) return true;
+    if (lines[c.line - 1] === code) return;
     var best = -1, bestDist = Infinity;
     for (var i = 0; i < lines.length; i++) {
       if (lines[i] === code) { var d = Math.abs(i - (c.line - 1)); if (d < bestDist) { bestDist = d; best = i; } }
     }
-    if (best >= 0) { if (c.line !== best + 1) moved++; c.line = best + 1; return true; }
-    dropped.push(c);
-    return false;
+    if (best >= 0 && c.line !== best + 1) { c.line = best + 1; moved++; } // moved to follow the line; not found -> keep as-is
   });
-  if (!dropped.length && !moved) return; // nothing changed — skip the save/re-render
+  if (!moved) return; // nothing moved — skip the save/re-render
   saveComments();
-  var byPath = {};
-  dropped.forEach(function (c) { byPath[c.path] = (byPath[c.path] || 0) + 1; });
-  Object.keys(byPath).forEach(function (p) {
-    showToast(t('toast.commentsDropped').replace('{n}', byPath[p]).replace('{file}', String(p).split('/').pop()));
-  });
   refreshComments();
 }
 function saveComments() {
@@ -1820,6 +1869,14 @@ function addComment(kind, path, line, code, text) {
   commentSeq += 1;
   reviewComments.push({ seq: commentSeq, kind: kind, path: path, line: line, code: String(code || ''), text: trimmed });
   saveComments();
+}
+// Edit an existing comment in place (e on a selected box -> composer prefilled -> save). Empty text deletes it.
+function updateComment(seq, text) {
+  var c = reviewComments.find(function (x) { return x.seq === seq; });
+  if (!c) return;
+  var trimmed = String(text || '').trim();
+  if (trimmed) { c.text = trimmed; saveComments(); }
+  else { deleteComment(seq); }
 }
 function deleteComment(seq) {
   reviewComments = reviewComments.filter(function (c) { return c.seq !== seq; });
@@ -1901,6 +1958,7 @@ function composerTargetLabel(s) {
 function threadHtml(path, line) {
   var html = '';
   commentsAt(path, line).forEach(function (c) {
+    if (composerState && composerState.editSeq === c.seq) return; // being edited -> rendered as the composer below
     html += '<div class="mc-card mc-' + c.kind + '">'
       + '<div class="mc-card-head"><span class="mc-kind">' + commentKindLabel(c.kind) + '</span>'
       + '<button type="button" class="mc-del" data-seq="' + c.seq + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
@@ -1910,7 +1968,7 @@ function threadHtml(path, line) {
     var ph = composerState.kind === 'q' ? t('composer.question') : t('composer.changeRequest');
     html += '<div class="mc-card mc-' + composerState.kind + ' mc-composer">'
       + '<div class="mc-card-head"><span class="mc-kind">' + commentKindLabel(composerState.kind) + '</span><span class="mc-target" title="' + escapeHtml(composerState.path || '') + '">' + escapeHtml(composerTargetLabel(composerState)) + '</span></div>'
-      + '<textarea class="mc-input" rows="3" placeholder="' + escapeHtml(ph) + '"></textarea>'
+      + '<textarea class="mc-input" rows="3" placeholder="' + escapeHtml(ph) + '">' + escapeHtml(composerState.editText || '') + '</textarea>'
       + '<div class="mc-actions"><button type="button" class="mc-btn mc-save">' + escapeHtml(t('composer.save')) + '</button>'
       + '<button type="button" class="mc-btn mc-ghost mc-cancel">' + escapeHtml(t('composer.cancel')) + '</button>'
       + '<span class="mc-hint">' + escapeHtml(t('composer.hint')) + '</span></div></div>';
@@ -2089,7 +2147,8 @@ function saveComposer(ta) {
   if (!composerState) return;
   var box = ta || activeComposerInput();
   if (!box) return;
-  addComment(composerState.kind, composerState.path, composerState.line, composerState.code, box.value);
+  if (composerState.editSeq != null) updateComment(composerState.editSeq, box.value);
+  else addComment(composerState.kind, composerState.path, composerState.line, composerState.code, box.value);
   composerState = null;
   refreshComments();
 }
@@ -2281,7 +2340,14 @@ function openMergedView(kind) {
       area.value = buildMergedText(kind);
     };
     if (area.selectionStart !== area.selectionEnd || seqs.length > 1) {
-      showCustomDropdown(x, y, [{ label: t('dropdown.remove'), onSelect: function () { seqs.forEach(deleteComment); rerender(); } }], flipTop);
+      // Select-all / multi-comment: offer send-to-terminal (the whole merged text) FIRST, then remove-all.
+      // Can't "Go to comment" across many at once, so navigate is omitted here.
+      var multi = [];
+      if (window.__monacoriTerminal && typeof window.__monacoriTerminal.isOpen === 'function' && window.__monacoriTerminal.isOpen()) {
+        multi.push({ label: t('merged.sendToTerminal'), onSelect: function () { var text = buildMergedText(kind); modal.remove(); window.__monacoriTerminal.enterSendMode(text); } });
+      }
+      multi.push({ label: t('dropdown.remove'), onSelect: function () { seqs.forEach(deleteComment); rerender(); } });
+      showCustomDropdown(x, y, multi, flipTop);
     } else {
       var seq = seqs[0];
       showCustomDropdown(x, y, [
@@ -2291,23 +2357,8 @@ function openMergedView(kind) {
     }
   });
   closeBtn.addEventListener('click', function () { modal.remove(); });
-  // Terminal send (Electron, terminal open): close the modal and hand off to pane-pick mode ON the
-  // terminal — the chosen pane is highlighted, the rest dimmed, arrows change the choice, Enter sends.
-  // One button here; the actual pick happens visually over the live claude/codex sessions.
-  var sendBtn = null;
-  if (window.__monacoriTerminal && typeof window.__monacoriTerminal.isOpen === 'function' && window.__monacoriTerminal.isOpen()) {
-    sendBtn = document.createElement('button');
-    sendBtn.type = 'button';
-    sendBtn.className = 'mc-btn mc-send-term';
-    sendBtn.textContent = t('merged.sendToTerminal');
-    sendBtn.addEventListener('click', function () {
-      var text = buildMergedText(kind);
-      modal.remove();
-      window.__monacoriTerminal.enterSendMode(text);
-    });
-  }
+  // Send-to-terminal now lives in the Opt+Enter dropdown (select-all -> first item), not as a header button.
   head.appendChild(title);
-  if (sendBtn) head.appendChild(sendBtn);
   head.appendChild(closeBtn);
   panel.appendChild(head);
   panel.appendChild(area);
@@ -2315,9 +2366,9 @@ function openMergedView(kind) {
   modal.addEventListener('mousedown', function (e) { if (e.target === modal) modal.remove(); });
   modal.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.preventDefault(); modal.remove(); } });
   document.body.appendChild(modal);
-  // Focus the send button (Enter starts pane-pick) when present, else the read-only text. Electron
-  // async-restores focus to <body>, so retry briefly (same as the composer).
-  var modalFocusTarget = area; // focus the text (not the send button) so the caret is visible and Opt+Arrow/Enter work; Send-to-terminal is a click
+  // Focus the read-only text so the caret is visible and Opt+Arrow / Opt+Enter (incl. the send-to-terminal
+  // dropdown item) work. Electron async-restores focus to <body>, so retry briefly (same as the composer).
+  var modalFocusTarget = area;
   var modalFocusTries = 0;
   var tryFocusModal = function () {
     if (!document.getElementById('mc-modal')) return true;
@@ -2850,8 +2901,10 @@ if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function')
   // Capture so closing settings wins over other Escape handlers (lightbox / composer).
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && !modal.classList.contains('hidden')) { e.stopPropagation(); e.preventDefault(); close(); return; }
-    // Cmd/Ctrl+, (the standard "Preferences" accelerator) toggles the settings panel from anywhere.
+    // Cmd/Ctrl+, (the standard "Preferences" accelerator) toggles the settings panel from anywhere — but not
+    // while another floating overlay (merged / memo) owns focus; that one must be Esc'd first.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === ',' || e.code === 'Comma')) {
+      if (modal.classList.contains('hidden') && (document.getElementById('mc-modal') || document.getElementById('mc-memo'))) return;
       e.preventDefault(); e.stopPropagation();
       if (modal.classList.contains('hidden')) open('general'); else close();
     }
@@ -3009,6 +3062,10 @@ function applyDiffUpdate(u) {
   var wasSource = isSourceViewerVisible();
   var container = document.getElementById('diff2html-container');
   var diffScrollTop = container ? container.scrollTop : 0;
+  // Did the file the user is CURRENTLY viewing actually change in this build? If not, we must not re-render
+  // the source view — an unrelated file's edit would otherwise flicker the pane they're reading. Capture the
+  // open file's signature BEFORE fileSignatureByPath is rebuilt below.
+  var prevOpenSig = openPath ? (fileSignatureByPath.get(openPath) || '') : '';
 
   // 1) Replace the visible regions straight from the payload (no full-HTML parse).
   if (container) container.innerHTML = u.diffContainer || '';
@@ -3027,6 +3084,9 @@ function applyDiffUpdate(u) {
   // 2) Re-derive module-level state directly from the payload objects.
   fileStates = u.fileStates || [];
   fileSignatureByPath = new Map(fileStates.map(function (f) { return [f.path, f.signature]; }));
+  // The open file changed iff its signature moved (or it vanished from the new build). Drives whether we
+  // re-render the source view below.
+  var openFileChanged = !openPath || prevOpenSig !== (fileSignatureByPath.get(openPath) || '');
   sourceFiles = u.sourceFilesMeta || [];
   sourceByPath = new Map(sourceFiles.map(function (f) { return [f.path, f]; }));
   httpEnvironments = u.httpEnvironments || {};
@@ -3040,7 +3100,9 @@ function applyDiffUpdate(u) {
   diffBootDone = false;
   sourceLoaded = !REVIEW_LAZY_LOAD; // lazyLoad: re-fetch source content on next use
   sourceLoading = false;
-  sourceBodyPath = null; // the new build may have changed the open file's content — force a body re-render on next open
+  // Force a source body re-render on next open ONLY if the open file actually changed; otherwise keep
+  // sourceBodyPath so the already-painted (unchanged) source view is left exactly as-is — no flicker.
+  if (openFileChanged) sourceBodyPath = null;
   symbolIndex = null;
   if (REVIEW_LAZY) { setupLazyDiff(); setTimeout(function () { diffBootDone = true; }, 0); }
   else { prepareDiff2HtmlHunks(); diffBootDone = true; }
@@ -3053,9 +3115,10 @@ function applyDiffUpdate(u) {
   remapComments(); // follow/drop comments whose anchor line moved or vanished in the new build
   refreshComments();
 
-  // 5) Best-effort restore of what the user was looking at.
+  // 5) Best-effort restore of what the user was looking at. Re-render the source view only when the open file
+  // actually changed; an unchanged file stays painted as-is, so an unrelated edit doesn't flicker the pane.
   if (wasSource && openPath && sourceByPath.has(openPath)) {
-    openSourceFile(openPath, false);
+    if (openFileChanged) openSourceFile(openPath, false);
   } else if (container) {
     showDiffView(false);
     container.scrollTop = diffScrollTop;
@@ -3313,6 +3376,17 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
   recordNav(navEntryOf('source'));
 }
 var sourceRevealRaf = 0, sourceRevealPrev = null;
+// Source rows are a fixed monospace height, so the caret-follow scroll can be computed from
+// lineIndex*rowHeight instead of reading the caret's getBoundingClientRect — which forces a full reflow on
+// every move (~15ms on a 400-line file; the main caret-follow stutter). Cached; invalidated on resize.
+var _srcRowH = 0;
+function sourceRowHeight() {
+  if (_srcRowH > 0) return _srcRowH;
+  var r = document.querySelector('#source-body .source-row');
+  if (r) { var h = r.offsetHeight; if (h > 0) _srcRowH = h; }
+  return _srcRowH;
+}
+if (typeof window !== 'undefined') window.addEventListener('resize', function () { _srcRowH = 0; });
 function scheduleSourceReveal(prev) {
   // First prev of a coalesced burst wins: a fast ArrowDown updates viewerCursor many times before the frame
   // fires; render the caret once (first prev -> final viewerCursor) and scroll in the SAME frame so caret and
@@ -3326,8 +3400,23 @@ function scheduleSourceReveal(prev) {
     if (!f || !f.embedded) return;
     var lines = f.content.split(/\r?\n/);
     updateSourceCaret(p, lines, f.language || 'text');
-    var cl = document.querySelector('.source-row.cursor-line');
-    revealAt(cl, document.getElementById('source-body'), 0.42);
+    var sb = document.getElementById('source-body');
+    var rowH = sourceRowHeight();
+    if (rowH > 0 && sb && !sb.classList.contains('rendered-body')) {
+      // Scrolloff, not follow: scroll ONLY when the caret would otherwise leave the viewport, keeping it
+      // within a 15% margin of the top/bottom edge. While the caret moves comfortably inside that band the
+      // view stays put — continuous follow was dizzying (the file slid even when everything was visible) and
+      // it forced a scroll/reflow on every move. lineIndex*rowH avoids getBoundingClientRect entirely, and
+      // skipping the scroll when it's unnecessary removes the reflow on most moves too.
+      var caretTop = viewerCursor.lineIndex * rowH;
+      var ch = sb.clientHeight;
+      var margin = Math.round(ch * 0.15);
+      var vTop = sb.scrollTop;
+      if (caretTop < vTop + margin) sb.scrollTop = Math.max(0, caretTop - margin);
+      else if (caretTop + rowH > vTop + ch - margin) sb.scrollTop = caretTop + rowH - ch + margin;
+    } else {
+      revealAt(document.querySelector('.source-row.cursor-line'), sb, 0.85);
+    }
   });
 }
 
@@ -3424,9 +3513,9 @@ function selectCommentRow(row) {
   selectedCommentRow = row || null;
   if (!selectedCommentRow) return;
   selectedCommentRow.classList.add('mc-row-selected');
-  // hide the text caret while the box is "selected" (no re-render happens during plain selection)
-  document.querySelectorAll('#source-body .source-row.cursor-line').forEach(function (r) { r.classList.remove('cursor-line'); });
-  document.querySelectorAll('#source-body .code-cursor').forEach(function (s) { var p = s.parentNode; if (p) { p.removeChild(s); if (p.normalize) p.normalize(); } });
+  // Keep the caret visible: the box's active outline (.mc-row-selected) already shows the selection, and the
+  // caret must never be hidden ("어떤 경우에도 커서는 가려지면 안 됨"). Previously this removed cursor-line +
+  // code-cursor, so Go-to-comment → ArrowDown (which selects the comment box on that line) made the caret vanish.
 }
 function deleteCommentsInRow(row) {
   if (!row) return;
@@ -3438,6 +3527,21 @@ function deleteCommentsInRow(row) {
   }
   refreshComments(); // remaining comment rows re-injected; the caret stays hidden until the next arrow press
 }
+// Open the composer in EDIT mode for the first comment in `row`, pre-filled with its text. threadHtml renders
+// the composer in place of that card (via composerState.editSeq), and saveComposer routes editSeq through
+// updateComment instead of addComment. Triggered by `e` while a comment box is selected.
+function editCommentInRow(row) {
+  if (!row) return;
+  var del = row.querySelector('.mc-del');
+  if (!del) return;
+  var seq = parseInt(del.dataset.seq, 10);
+  var c = reviewComments.find(function (x) { return x.seq === seq; });
+  if (!c) return;
+  row.classList.remove('mc-row-selected');
+  selectedCommentRow = null;
+  composerState = { kind: c.kind, path: c.path, line: c.line, code: c.code, editSeq: seq, editText: c.text };
+  refreshComments();
+}
 function handleSourceCaretKey(event) {
   if (!viewerCursor) return false;
   var ae = document.activeElement;
@@ -3446,6 +3550,7 @@ function handleSourceCaretKey(event) {
   // A comment box is selected (caret hidden): Backspace/Delete removes it; an arrow steps off it.
   if (selectedCommentRow) {
     if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); deleteCommentsInRow(selectedCommentRow); return true; }
+    if (event.key === 'e' || event.key === 'E') { event.preventDefault(); editCommentInRow(selectedCommentRow); return true; }
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Escape') {
       var dir = event.key === 'ArrowUp' ? -1 : (event.key === 'ArrowDown' ? 1 : 0);
       var sib = dir < 0 ? selectedCommentRow.previousElementSibling : (dir > 0 ? selectedCommentRow.nextElementSibling : null);
@@ -4036,6 +4141,7 @@ function toggleRenderMode() {
   var btn = document.getElementById('render-toggle');
   if (btn) btn.addEventListener('click', function () { toggleRenderMode(); });
   document.addEventListener('keydown', function (e) {
+    if (isFloatingModalOpen()) return; // a floating overlay owns focus -> no render-toggle shortcut beneath it
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && (e.key === 'M' || e.key === 'm' || e.code === 'KeyM')) {
       var sv = document.getElementById('source-viewer');
       var open = sv && sv.dataset.openPath;

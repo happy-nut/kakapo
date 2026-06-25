@@ -294,6 +294,10 @@ body {
   border: 0;
   border-radius: 0;
   background: var(--panel);
+  /* #diff2html-container is a column flexbox; a flex item with overflow:hidden has min-height:0, so a single
+     shown file (showOnlyFile) shrinks to the viewport height and overflow:hidden clips the rest — the diff
+     can't scroll and the caret leaves the screen near the bottom of a big file. Pin to content height. */
+  flex-shrink: 0;
 }
 /* The per-file header is merged into the sticky toolbar (path + status + Viewed) to save vertical space. */
 .d2h-file-header { display: none; }
@@ -370,6 +374,7 @@ body {
   background: transparent;
   border: 0;
 }
+.d2h-code-line-ctn { position: relative; } /* anchors the absolutely-positioned empty-line caret (so blank rows need no inline position) */
 .d2h-code-side-line, .d2h-code-line {
   /* left pad must exceed the 58px absolutely-positioned line-number, else the +/- prefix renders behind it and looks clipped */
   padding: 0 0.6em 0 64px;
@@ -689,11 +694,6 @@ h1 { margin: 0; font-size: 18px; }
    key scrolls the view CONTINUOUSLY instead of leaving it still until the caret reaches the viewport edge
    (the "stutter every ~viewport" the user reported). Applies to the source body, the diff, and the sidebar. */
 .source-body, #diff2html-container, .sidebar-scroll { scroll-padding-block: 35vh; }
-/* revealAt() sets scrollTop directly, and scroll-padding only affects scrollIntoView — so near EOF the
-   caret can't reach the 42% line and pins to the viewport bottom, where the footer progress bar overlaps
-   and HIDES it ("the caret leaves the screen at the end of a file"). Real trailing space lets the last
-   lines scroll up to the middle. The diff caret showed this worst (95% vs source's 81%); both get it. */
-.source-body, #diff2html-container { padding-bottom: 45vh; }
 .source-body {
   border: 1px solid var(--border);
   overflow: auto;
@@ -750,8 +750,11 @@ h1 { margin: 0; font-size: 18px; }
 }
 /* perf: let the browser skip layout/paint for off-screen rows in large files/diffs.
    DOM is unchanged (nav, search, comment anchoring still query every row); degrades
-   gracefully where unsupported. contain-intrinsic-size keeps the scrollbar stable. */
-.source-row { content-visibility: auto; contain-intrinsic-size: auto 19px; }
+   gracefully where unsupported. contain-intrinsic-size keeps the scrollbar stable.
+   (Removing this from .source-row made the caret stutter WORSE — the full DOM forces a bigger reflow on
+   every scroll. The stutter is fixed instead by computing the source scroll from lineIndex*rowHeight,
+   which skips getBoundingClientRect's forced reflow entirely; see scheduleSourceReveal.) */
+.source-row { content-visibility: auto; contain-intrinsic-size: auto 21px; }
 .d2h-diff-table tr { content-visibility: auto; contain-intrinsic-size: auto 18px; }
 /* Comment/composer rows are tall and interactive (a textarea lives here). Skip-rendering them
    with a tiny 18px placeholder made the browser re-evaluate their render state on every
@@ -834,6 +837,11 @@ body.mc-composing .mc-diff-cursor-row .d2h-code-side-line { box-shadow: none; }
 body.mc-composing .source-row.cursor-line .md-cell,
 body.mc-composing .source-row.csv-row.cursor-line .csv-cell { background: transparent; }
 body.mc-composing .source-row.cursor-line .num { color: inherit; }
+/* Same single-caret rule for a floating overlay (merged comments / prompt memo / settings): it owns the only
+   caret while open, so hide the file's blinking caret behind it — never two carets across visible panels. */
+body:has(#mc-modal) .code-cursor,
+body:has(#mc-memo) .code-cursor,
+body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-kind {
   font-weight: 700; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
   padding: 2px 8px; border-radius: 999px;

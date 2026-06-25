@@ -38,6 +38,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "btn.viewed": "Viewed",
     "btn.viewed.title": "Toggle viewed (<)",
     "diff.noDiff": "No diff to review.",
+    "diff.lastHunk": "Last change in this file — press F7 again to go to the next file.",
 
     // Source toolbar
     "source.title": "Source",
@@ -143,7 +144,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "merged.close": "Close",
     "dropdown.navigate": "Go to comment",
     "dropdown.remove": "Remove",
-    "toast.commentsDropped": "Removed {n} comment(s) on {file} — the file changed too much to track them",
     "merged.qHeading": "# Questions",
     "merged.cHeading": "# Change requests",
 
@@ -184,6 +184,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "btn.viewed": "확인함",
     "btn.viewed.title": "확인 표시 토글 (<)",
     "diff.noDiff": "검토할 변경사항이 없습니다.",
+    "diff.lastHunk": "이 파일의 마지막 변경입니다 — F7을 한 번 더 누르면 다음 파일로 이동합니다.",
 
     // Source toolbar
     "source.title": "소스",
@@ -289,7 +290,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "merged.close": "닫기",
     "dropdown.navigate": "코멘트로 이동",
     "dropdown.remove": "지우기",
-    "toast.commentsDropped": "{file}이(가) 변경되어 추적할 수 없는 코멘트 {n}개를 제거했습니다",
     // Structural markers stay English in both locales (the preamble prose below follows the locale).
     "merged.qHeading": "# Questions",
     "merged.cHeading": "# Change requests",

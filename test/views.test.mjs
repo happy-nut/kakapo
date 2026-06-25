@@ -5,6 +5,7 @@
 // the file across views. These are the affordances that make the review usable; this file guards them.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
 
@@ -403,7 +404,7 @@ test("merged view: caret is interactive (not readOnly) and Opt+Arrow steps betwe
   v.close();
 });
 
-test("comment tracking: follows a moved line; dropped + toasted when the snapshot line vanishes", async () => {
+test("comment tracking: follows a moved line; kept (never dropped) when the snapshot line vanishes", async () => {
   const { html } = await makeReviewHtml([
     { path: "src/app.ts", before: "export const x = 1;\nexport const y = 2;\n", after: "export const x = 1;\nexport const y = 3;\n" },
   ]);
@@ -430,10 +431,11 @@ test("comment tracking: follows a moved line; dropped + toasted when the snapsho
   assert.equal(v.storedComments()[0].line, 3, "comment followed its snapshot line to row 3");
   assert.equal(v.$(".mc-toast"), null, "no toast while the comment is tracked");
 
-  // (b) the commented line is gone — the comment is dropped and a toast announces it
+  // (b) the commented line is gone from the new content — the comment is NOT dropped (user-authored comments
+  // are never silently deleted); it stays at its last line with no toast. The × button removes a stale one.
   await v.pushDiffUpdate(update("src/app.ts", "export const z = 9;\nexport const w = 8;\n"));
-  assert.equal(v.storedComments().length, 0, "comment dropped when its line vanished");
-  assert.ok(v.$(".mc-toast"), "a bottom-left toast announced the dropped comment");
+  assert.equal(v.storedComments().length, 1, "comment kept even when its snapshot line vanished");
+  assert.equal(v.$(".mc-toast"), null, "no toast — nothing was dropped");
   v.close();
 });
 
@@ -475,5 +477,222 @@ test("a blank source line still shows the caret (regression: the empty cell skip
   assert.equal(cl.dataset.lineIndex, "1", "caret is on the blank line");
   assert.equal((cl.querySelector(".source-code").textContent || "").length, 0, "the cursor line is blank");
   assert.ok(cl.querySelector(".code-cursor"), "blank line still renders a caret span, not just the row background");
+  v.close();
+});
+
+test("Cmd+1 from the diff opens the file you were viewing as source (not a stale source pane)", async () => {
+  const v = await loadViewer(html);
+  await v.openDiffFor("src/app.ts");
+  assert.equal(v.visibleView(), "diff");
+  v.key("1", { metaKey: true });
+  assert.equal(v.visibleView(), "source", "Cmd+1 from the diff switches to the source view");
+  assert.equal(v.$("#source-viewer").dataset.openPath, "src/app.ts", "and opens the diff's current file");
+  v.close();
+});
+
+test("a selected comment box keeps the caret visible (어떤 경우에도 커서는 가려지면 안 됨)", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  v.window.addComment("q", "src/app.ts", 1, "", "a question"); // comment on line 1 (row index 0)
+  v.window.refreshComments();
+  v.window.setSourceCursor("src/app.ts", 0, 0, false, -1); // caret on row index 0
+  v.key("ArrowDown"); // steps onto the comment box on that line and selects it
+  assert.ok(v.$("#source-body .mc-comment-row.mc-row-selected"), "the comment box is selected");
+  assert.ok(v.$("#source-body .code-cursor"), "the caret is STILL visible (regression: selecting the box used to remove it)");
+  v.close();
+});
+
+test("e on a selected comment box opens the composer prefilled and edits in place", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  v.window.addComment("q", "src/app.ts", 1, "", "original text");
+  v.window.refreshComments();
+  v.window.setSourceCursor("src/app.ts", 0, 0, false, -1);
+  v.key("ArrowDown"); // select the box
+  v.key("e"); // edit
+  const ta = v.$("#source-body .mc-composer .mc-input");
+  assert.ok(ta, "the composer opened");
+  assert.equal(ta.value, "original text", "composer is prefilled with the existing comment text");
+  ta.value = "edited text";
+  v.window.saveComposer(ta);
+  const comments = v.window.reviewComments.filter((c) => c.path === "src/app.ts");
+  assert.equal(comments.length, 1, "still exactly one comment — edited in place, not duplicated");
+  assert.equal(comments[0].text, "edited text", "the comment text was updated");
+  v.close();
+});
+
+test("F7 across a file boundary sets the diff caret once (no first-line → change double jump)", async () => {
+  const v = await loadViewer(html);
+  await v.openDiffFor("src/app.ts");
+  // src/app.ts has one change block, so the caret already sits at the file's last change. The FIRST F7 now
+  // announces ("last change — press F7 again") instead of crossing, giving a beat to mark-viewed: the caret
+  // must NOT move.
+  let calls = 0;
+  let orig = v.window.setDiffCursor;
+  v.window.setDiffCursor = function () { calls += 1; return orig.apply(this, arguments); };
+  v.key("F7");
+  await new Promise((r) => setTimeout(r, 30));
+  v.window.setDiffCursor = orig;
+  assert.equal(calls, 0, "first F7 announces the last change; caret stays put");
+  const toast = v.window.document.querySelector("#mc-toasts .mc-toast");
+  assert.ok(toast && /F7/.test(toast.textContent), "first F7 shows the last-change announcement");
+
+  // The SECOND consecutive F7 crosses to the next file, setting the caret exactly ONCE (focusDiffRow ->
+  // the change). Before the skipCursor fix, showOnlyFile's ensureDiffCursor also fired, landing the caret
+  // on the file's first code row first — a visible 146L→21L double jump.
+  calls = 0;
+  orig = v.window.setDiffCursor;
+  v.window.setDiffCursor = function () { calls += 1; return orig.apply(this, arguments); };
+  v.key("F7");
+  await new Promise((r) => setTimeout(r, 30));
+  v.window.setDiffCursor = orig;
+  assert.equal(calls, 1, "caret set once via focusDiffRow; ensureDiffCursor skipped");
+  v.close();
+});
+
+test("viewed marks persist by path as a plain boolean (survive restart like comments)", async () => {
+  const v = await loadViewer(html);
+  v.window.setFileViewed("src/app.ts", true);
+  assert.equal(v.window.isFileViewed("src/app.ts"), true, "mark reads back as viewed");
+  // Stored as boolean true keyed by path — NOT the file signature. Signature-keyed storage silently cleared
+  // every viewed mark on any re-generation that changed the hash; a boolean survives restarts like comments.
+  const state = v.window.loadViewedState();
+  assert.equal(state["src/app.ts"], true, "stored as boolean true, not a signature string");
+  v.close();
+});
+
+test("applySetActive scrolls a file-crossing change inline, not via scheduleDiffScroll (146→21 stale-offset guard)", () => {
+  // Timing/layout regression jsdom can't exercise (no real scrollTop), so guard the code SHAPE against the
+  // built client. On an F7 file crossing, showOnlyFile display:none's the previous file but the scroll
+  // container keeps its old (large) scrollTop. The change must be scrolled into view in THIS frame; routing
+  // it through scheduleDiffScroll's extra rAF painted the previous file's scrollTop for one frame — the
+  // 146→21 jump the user hit twice. Verified live in a real browser (Preview: first frame scrollTop 0 vs a
+  // stale 1223); this stops the inline scroll from silently reverting to the deferred path.
+  const js = readFileSync(new URL("../dist/viewer.client.js", import.meta.url), "utf8");
+  const m = js.match(/function applySetActive\b[\s\S]*?(?=\nfunction showOnlyFile\b)/);
+  assert.ok(m, "applySetActive body found");
+  const body = m[0];
+  assert.match(body, /\.scrollIntoView\(/, "applySetActive must scroll the change into view inline");
+  // Match the CALL form `scheduleDiffScroll(` so this guard's own prose ("scheduleDiffScroll's extra rAF")
+  // doesn't trip it — only an actual deferred-scroll call should fail the test.
+  assert.doesNotMatch(body, /scheduleDiffScroll\(/, "applySetActive must NOT defer the crossing scroll via scheduleDiffScroll's rAF");
+});
+
+test("remapComments never drops a comment, even one anchored to a deleted/old-side line", async () => {
+  const v = await loadViewer(html);
+  // src/app.ts: `export const y = 2;` -> `export const y = 3;`. The old line text is GONE from the new
+  // content, so a comment anchored to it (old-side, or a since-deleted line) can never match — remapComments
+  // used to silently drop it, losing the user's comment even when they considered the file unchanged. It must
+  // now survive (left at its line); only the × button deletes a comment.
+  v.window.reviewComments.length = 0;
+  v.window.addComment("c", "src/app.ts", 2, "export const y = 2;", "comment on the old/deleted line");
+  v.window.addComment("q", "src/app.ts", 1, "export const x = 1;", "comment on an unchanged line");
+  const before = v.window.reviewComments.length;
+  assert.equal(before, 2, "two comments added");
+  v.window.remapComments();
+  assert.equal(v.window.reviewComments.length, 2, "remap dropped nothing");
+  assert.ok(
+    v.window.reviewComments.some((c) => c.code === "export const y = 2;"),
+    "the old-side comment (its code absent from new content) is kept, not dropped"
+  );
+  v.close();
+});
+
+test("merged view: select-all Opt+Enter lists send-to-terminal first then remove, and there's no header send button", async () => {
+  const v = await loadViewer(html);
+  // Mock an open terminal so the send-to-terminal dropdown item is offered.
+  let sent = null;
+  v.window.__monacoriTerminal = { isOpen: () => true, enterSendMode: (text) => { sent = text; } };
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("q");
+  await v.writeAndSave("shipit");
+  v.key("?", { metaKey: true }); // Cmd+? → merged questions view
+  await v.settle(80);
+  const area = v.$(".mc-modal-text");
+  assert.ok(area, "merged view textarea present");
+  // Send-to-terminal is no longer a header button — it moved into the Opt+Enter dropdown.
+  assert.equal(v.$(".mc-send-term"), null, "no send-to-terminal header button in the merged view");
+
+  // Select-all + Opt+Enter offers send-to-terminal (whole text) FIRST, then remove-all.
+  area.selectionStart = 0;
+  area.selectionEnd = area.value.length;
+  area.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
+  await v.settle(40);
+  const items = [...v.$("#mc-dropdown").querySelectorAll(".mc-dropdown-item")];
+  assert.equal(items.length, 2, "select-all offers send-to-terminal + remove-all");
+  assert.match(items[0].textContent, /terminal|터미널/i, "send-to-terminal is the FIRST item (before remove-all)");
+  assert.match(items[1].textContent, /remove|지우기/i, "remove-all is second");
+
+  // Choosing send hands the whole merged text to the terminal and closes the modal.
+  items[0].click();
+  await v.settle(40);
+  assert.ok(sent && /shipit/.test(sent), "send-to-terminal received the merged text");
+  assert.equal(v.$("#mc-modal"), null, "modal closed after send");
+  v.close();
+});
+
+test("floating overlay swallows global shortcuts (F7) until it closes — one focus, one caret", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(0);
+  await v.openComposer("q");
+  await v.writeAndSave("note");
+  v.key("?", { metaKey: true }); // Cmd+? opens the merged questions overlay
+  await v.settle(80);
+  assert.ok(v.$("#mc-modal"), "merged overlay open");
+
+  let navs = 0;
+  const orig = v.window.setActive;
+  v.window.setActive = function () { navs += 1; return orig.apply(this, arguments); };
+  v.key("F7"); // a global nav shortcut, dispatched underneath the overlay
+  await v.settle(40);
+  assert.equal(navs, 0, "F7 is swallowed while the overlay owns focus (no navigating a hidden panel)");
+  assert.ok(v.$("#mc-modal"), "overlay stays open — only Esc/close dismisses it, not a nav key");
+
+  v.$("#mc-modal").remove(); // close the overlay
+  v.key("F7");
+  await v.settle(40);
+  v.window.setActive = orig;
+  assert.ok(navs >= 1, "F7 navigates again once the overlay is closed");
+  v.close();
+});
+
+test("watch update doesn't re-render the open source view when that file didn't change", async () => {
+  const { html, build } = await makeReviewHtml([
+    { path: "a.ts", before: "const a = 1;\n", after: "const a = 2;\n" },
+    { path: "b.ts", before: "const b = 1;\n", after: "const b = 2;\n" },
+  ]);
+  const v = await loadViewer(html, { menuBridge: true });
+  await v.openSourceFile("a.ts");
+  assert.equal(v.visibleView(), "source");
+
+  const aSig = build.update.fileStates.find((f) => f.path === "a.ts").signature; // current signature of the OPEN file
+  let seq = 0;
+  const mkUpdate = (aSignature, aContent) => ({
+    signature: "build-" + ++seq,
+    diffContainer: "", changesPanel: "", filesTree: "", reviewStatus: "",
+    // a.ts keeps/loses its signature; b.ts always "changes" — but b.ts is NOT the open file.
+    fileStates: [{ path: "a.ts", signature: aSignature }, { path: "b.ts", signature: "b" + seq }],
+    sourceFilesMeta: [
+      { path: "a.ts", name: "a.ts", language: "typescript", content: aContent, size: aContent.length, embedded: true, changed: aSignature !== aSig, changedLines: [], signature: aSignature },
+      { path: "b.ts", name: "b.ts", language: "typescript", content: "const b = 3;\n", size: 12, embedded: true, changed: true, changedLines: [], signature: "bx" + seq },
+    ],
+    httpEnvironments: {},
+  });
+
+  // Spy source-view re-renders (openSourceFile is the only thing that repaints #source-body here).
+  let opens = 0;
+  const orig = v.window.openSourceFile;
+  v.window.openSourceFile = function () { opens += 1; return orig.apply(this, arguments); };
+
+  // (a) only b.ts changed → a.ts (open) signature unchanged → source view must NOT be re-rendered (no flicker)
+  await v.pushDiffUpdate(mkUpdate(aSig, "const a = 2;\n"));
+  assert.equal(opens, 0, "an unrelated file's edit does not re-render the open a.ts source view");
+
+  // (b) a.ts itself changed → the source view IS re-rendered
+  await v.pushDiffUpdate(mkUpdate("a-new-sig", "const a = 99;\n"));
+  v.window.openSourceFile = orig;
+  assert.ok(opens >= 1, "editing the open file does re-render its source view");
   v.close();
 });
