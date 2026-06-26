@@ -49,9 +49,23 @@ export function renderNotGitRepoHtml(root: string): string {
 
 // Welcome screen for the packaged .app (double-clicked, no cwd): an "Open Folder" button that asks the main
 // process (window.monacoriApp.openFolder, exposed via preload) to pick a git repo and load its review.
-export function renderWelcomeHtml(light = false): string {
+export function renderWelcomeHtml(light = false, recent: { path: string; name: string }[] = []): string {
   const bg = light ? "#ffffff" : "#2b2b2b";
   const fg = light ? "#1f2328" : "#a9b7c6";
+  // Recent projects (IntelliJ-style): one click reopens a previously reviewed repo. Each row carries its
+  // absolute path in data-path; the click handler hands it to monacoriApp.openRecent.
+  const recentItems = recent
+    .map(
+      (p) =>
+        `<button class="recent" type="button" data-path="${escapeAttr(p.path)}">` +
+        `<span class="recent-name">${escapeHtml(p.name)}</span>` +
+        `<span class="recent-path">${escapeHtml(p.path)}</span>` +
+        "</button>",
+    )
+    .join("");
+  const recentsBlock = recent.length
+    ? `<div class="recents" id="recents"><div class="recents-title">Recent projects</div>${recentItems}</div>`
+    : "";
   return [
     "<!doctype html>",
     '<html lang="en">',
@@ -62,7 +76,7 @@ export function renderWelcomeHtml(light = false): string {
     "<style>",
     "* { box-sizing: border-box; }",
     `body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: ${bg}; color: ${fg}; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }`,
-    ".card { max-width: 520px; padding: 40px; text-align: center; }",
+    ".card { width: 520px; max-width: calc(100vw - 48px); padding: 40px; text-align: center; }",
     ".card .badge { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #808080; }",
     ".card h1 { font-size: 24px; margin: 12px 0 14px; color: #4a88c7; }",
     ".card p { font-size: 14px; line-height: 1.7; margin: 10px 0; }",
@@ -70,6 +84,14 @@ export function renderWelcomeHtml(light = false): string {
     ".open-btn:hover { background: #3f78b3; }",
     ".open-btn:disabled { opacity: 0.6; cursor: default; }",
     ".hint { color: #d36c6c; font-size: 12px; min-height: 16px; margin-top: 16px; }",
+    // Recent projects list: left-aligned rows below the Open Folder button.
+    ".recents { margin-top: 28px; text-align: left; }",
+    ".recents-title { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #808080; margin: 0 0 8px; padding: 0 4px; }",
+    ".recent { display: block; width: 100%; text-align: left; padding: 9px 12px; border: 0; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; font: inherit; }",
+    ".recent:hover { background: rgba(74, 136, 199, 0.16); }",
+    ".recent:disabled { opacity: 0.5; cursor: default; }",
+    ".recent-name { display: block; font-size: 13px; font-weight: 600; }",
+    ".recent-path { display: block; font-size: 11px; color: #808080; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
     "</style>",
     "</head>",
     "<body>",
@@ -79,6 +101,7 @@ export function renderWelcomeHtml(light = false): string {
     "<p>Pick a folder under Git version control to review its changes.</p>",
     '<button class="open-btn" id="open" type="button">Open Folder…</button>',
     '<p class="hint" id="hint"></p>',
+    recentsBlock,
     "</div>",
     "<script>",
     "var btn = document.getElementById('open'), hint = document.getElementById('hint');",
@@ -90,6 +113,20 @@ export function renderWelcomeHtml(light = false): string {
     "    if (r && r.ok) return;",
     "    if (r && r.error === 'not-git') hint.textContent = 'That folder is not a Git repository.';",
     "  }).catch(function () { btn.disabled = false; });",
+    "});",
+    // Recent Projects: click a row to reopen that repo in this window. A removed/non-git folder drops out.
+    "var recents = document.getElementById('recents');",
+    "if (recents) recents.addEventListener('click', function (e) {",
+    "  var item = e.target.closest ? e.target.closest('.recent') : null;",
+    "  if (!item) return;",
+    "  var path = item.getAttribute('data-path');",
+    "  if (!path || !(window.monacoriApp && window.monacoriApp.openRecent)) return;",
+    "  item.disabled = true; hint.textContent = '';",
+    "  window.monacoriApp.openRecent(path).then(function (r) {",
+    "    if (r && r.ok) return;",
+    "    item.disabled = false;",
+    "    if (r && r.error === 'missing') { item.remove(); hint.textContent = 'That project folder is no longer available.'; }",
+    "  }).catch(function () { item.disabled = false; });",
     "});",
     "</script>",
     "</body>",

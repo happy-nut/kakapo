@@ -902,16 +902,19 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-memo-preview > :first-child { margin-top: 0; }
 .mc-memo-empty { color: var(--muted); font-size: 12px; font-style: italic; }
 
-/* ===== Bottom dock: merged-prompt & memo dock below the editor, sharing ONE slot with the terminal. =====
-   Only one is visible at a time (opening one closes the others). Cmd/Ctrl+Shift+' maximizes the active
-   dock over the editor area; the sidebar stays. A top resizer drags the height (persisted). */
+/* ===== Merged-prompt & memo: a large FLOATING overlay (~90% of the window), sharing ONE slot with the
+   terminal (opening one closes the others). Cmd/Ctrl+Shift+' maximizes the active panel to full screen. =====
+   (These used to dock below the editor; they now float so a big writing surface doesn't shrink the diff.) */
 .dock-panel {
-  grid-column: 2; grid-row: 2; min-height: 0; height: var(--dock-height, 340px);
+  position: fixed; inset: 5vh 5vw; z-index: 60; min-height: 0;     /* ~90vw x 90vh, centered */
   display: flex; flex-direction: column; background: var(--panel);
-  border-top: 2px solid var(--active); box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
 }
-.dock-resizer { flex: none; height: 6px; margin-top: -3px; cursor: row-resize; }
-.dock-resizer:hover, .dock-resizer.resizing { background: var(--active); }
+/* Dim the editor behind the floating panel; clicking it closes (handler wired in mountDock). */
+.dock-backdrop { position: fixed; inset: 0; z-index: 59; background: color-mix(in srgb, #000 40%, transparent); }
+.dock-resizer { display: none; } /* a centered ~90% floating panel has no bottom edge to drag */
 .dock-bar {
   flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px;
   background: var(--sidebar); border-bottom: 1px solid var(--border);
@@ -924,9 +927,11 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .dock-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .dock-body > .mc-modal-text { flex: 1 1 auto; height: auto; }
 .dock-body > .mc-memo-body { flex: 1 1 auto; height: auto; }
-/* Maximize: hide the editor area; the active dock fills the content column (the sidebar stays put). */
-body.dock-maximized .content { display: none; }
-body.dock-maximized .dock-panel { grid-row: 1 / 3; height: auto; }
+/* Maximize. The floating merged/memo panel fills the whole viewport. The terminal is still a grid dock, so
+   its maximize hides the editor area (next rule) — but the floating panels do NOT hide content (their overlay
+   already covers it, and hiding the diff would force an expensive reflow on every maximize toggle). */
+body.dock-maximized .dock-panel { inset: 0; border-radius: 0; }
+body.dock-maximized:not(.floating-dock) .content { display: none; }
 body.dock-maximized .terminal-panel:not(.hidden) { grid-row: 1 / 3; height: auto; }
 .tok-comment { color: var(--token-comment); font-style: italic; }
 .tok-keyword { color: var(--token-keyword); font-weight: 650; }

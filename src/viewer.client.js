@@ -98,14 +98,19 @@ function whenFileReady(wrapper, cb) {
   if (bodyPromise[idx]) { bodyPromise[idx].then(function () { cb(); }); return; }
   cb();
 }
+var lazyIO = null; // remembered so each setupLazyDiff (re-run on every watch refresh) disconnects the prior
+                   // observer instead of leaving a new one bound to detached wrappers — otherwise observers
+                   // (and the old DOM they retain) pile up over a long-running session and slowly choke it.
 function setupLazyDiff() {
   var container = document.getElementById('diff2html-container');
   if (!container) return;
+  if (lazyIO) { try { lazyIO.disconnect(); } catch (e) {} lazyIO = null; }
   var wrappers = Array.prototype.slice.call(container.querySelectorAll('.d2h-file-wrapper'));
   if (typeof IntersectionObserver !== 'undefined') {
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) { if (e.isIntersecting) { ensureFileReady(e.target); io.unobserve(e.target); } });
     }, { root: null, rootMargin: '600px 0px' });
+    lazyIO = io; // track this observer so the NEXT setupLazyDiff can disconnect it (callback keeps using local io)
     wrappers.forEach(function (w) { io.observe(w); });
   } else {
     wrappers.forEach(function (w) { ensureFileReady(w); }); // no IntersectionObserver -> materialize all
@@ -1445,7 +1450,11 @@ if (!restored) {
   else openDefaultSourceFile();
 }
 initSourceTreeFolds();
-if (watchEnabled) setInterval(checkForLiveUpdate, 1500);
+// Electron receives live updates over IPC (monacoriMenu.onDiffUpdate); only serve/browser needs the HTTP
+// poller. Under file:// its fetch just fails every 1.5s for the app's whole life, so skip it in Electron.
+if (watchEnabled && !(window.monacoriMenu && typeof window.monacoriMenu.onDiffUpdate === 'function')) {
+  setInterval(checkForLiveUpdate, 1500);
+}
 window.addEventListener('beforeunload', saveUiState);
 
 // First render has painted — drop the boot overlay (it bridged the blank gap right after loadFile). Two
@@ -2207,6 +2216,7 @@ function closeComposer() {
   if (!composerState) return;
   composerState = null;
   refreshComments();
+  flushPendingDiffUpdate(); // apply any live watch refresh that was held while composing
 }
 // The composer is injected into BOTH the diff and source views (refreshComments renders comments in
 // each), but only one view is on screen at a time — the other lives inside a `.hidden` container with
@@ -2231,6 +2241,7 @@ function saveComposer(ta) {
   else addComment(composerState.kind, composerState.path, composerState.line, composerState.code, box.value);
   composerState = null;
   refreshComments();
+  flushPendingDiffUpdate(); // apply any live watch refresh that was held while composing
 }
 
 // Default merge-prompt headings, localized: a Korean user gets Korean defaults. Editable in
@@ -2406,7 +2417,11 @@ function isDockFocused() {
 function closeMergedMemoDocks() {
   var m = document.getElementById('mc-merged-panel'); if (m) m.remove();
   var n = document.getElementById('mc-memo-panel'); if (n) n.remove();
+  document.querySelectorAll('.dock-backdrop').forEach(function (b) { b.remove(); });
   document.body.classList.toggle('dock-open', !!activeDockPanel());
+  // floating-dock tracks merged/memo only (NOT the terminal) so the maximize CSS hides content for a
+  // terminal dock but never for these floating panels.
+  document.body.classList.toggle('floating-dock', !!(document.getElementById('mc-merged-panel') || document.getElementById('mc-memo-panel')));
   applyDockMaximized();
 }
 window.__monacoriCloseDocks = closeMergedMemoDocks;
@@ -2435,6 +2450,9 @@ function mountDock(id, titleText) {
   panel.id = id;
   panel.className = 'dock-panel';
   panel.tabIndex = -1;
+  // The panel floats over the editor; a dim backdrop sits behind it (click to dismiss).
+  var backdrop = document.createElement('div');
+  backdrop.className = 'dock-backdrop';
   var resizer = document.createElement('div');
   resizer.className = 'dock-resizer';
   resizer.setAttribute('aria-hidden', 'true');
@@ -2462,10 +2480,12 @@ function mountDock(id, titleText) {
   panel.appendChild(resizer);
   panel.appendChild(bar);
   panel.appendChild(body);
+  document.body.appendChild(backdrop);
   document.body.appendChild(panel);
-  function close() { panel.remove(); closeMergedMemoDocks(); }
+  function close() { panel.remove(); backdrop.remove(); closeMergedMemoDocks(); }
   maxBtn.addEventListener('click', function () { toggleDockMaximized(); });
   closeBtn.addEventListener('click', close);
+  backdrop.addEventListener('click', close); // click the dim behind the panel to dismiss
   // Esc closes the dock when focus is inside it; the editor keeps its own handlers otherwise.
   panel.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
@@ -2485,6 +2505,7 @@ function mountDock(id, titleText) {
     document.addEventListener('mouseup', up);
   });
   document.body.classList.add('dock-open');
+  document.body.classList.add('floating-dock'); // scopes the maximize CSS so it doesn't hide the diff
   applyDockMaximized();
   return { panel: panel, body: body, bar: bar, close: close };
 }
@@ -3177,8 +3198,19 @@ function restoreUiState() {
 // regions (diff container, sidebar trees, status, data) and re-run the bootstrap steps. The window never
 // reloads, so the integrated terminal's pty sessions (claude/codex) survive a watch refresh. Electron's
 // main pushes the payload over IPC (monacori:diff-update); serve mode's poller fetches /__ai_flow_update.
+// Live watch refreshes are HELD while a comment composer is open. applyDiffUpdate rebuilds the diff DOM, so
+// applying it mid-compose would destroy the composer textarea every watch tick — input stalls and characters
+// arrive in bursts — and flicker the page. Keep only the latest pending payload; flush it on close/save.
+var pendingDiffUpdate = null;
+function flushPendingDiffUpdate() {
+  if (!pendingDiffUpdate) return;
+  var u = pendingDiffUpdate;
+  pendingDiffUpdate = null;
+  try { applyDiffUpdate(u); } catch (e) {}
+}
 function applyDiffUpdate(u) {
   if (!u || !u.signature || u.signature === currentSignature) return false; // unchanged — nothing to do
+  if (composerState) { pendingDiffUpdate = u; return false; } // composing a comment — hold the refresh until close/save
 
   // Remember what to restore after the swap (comments/viewed persist on their own; these don't).
   var sv = document.getElementById('source-viewer');
@@ -3190,6 +3222,19 @@ function applyDiffUpdate(u) {
   // the source view — an unrelated file's edit would otherwise flicker the pane they're reading. Capture the
   // open file's signature BEFORE fileSignatureByPath is rebuilt below.
   var prevOpenSig = openPath ? (fileSignatureByPath.get(openPath) || '') : '';
+
+  // Snapshot already-materialized file bodies (keyed by path + current signature) BEFORE the swap, so an
+  // UNCHANGED file can be re-filled synchronously afterwards. Without this, the swap turns every wrapper into
+  // an empty lazy shell that blanks until its body re-loads over IPC — the visible "flicker" on a watch tick.
+  var prevBodies = {};
+  if (REVIEW_LAZY && container) {
+    container.querySelectorAll('.d2h-file-wrapper').forEach(function (w) {
+      var b = w.querySelector('.d2h-files-diff');
+      if (!b || b.hasAttribute('data-lazy')) return; // only bodies that are actually materialized
+      var p = diffWrapperPathKey(w);
+      if (p) prevBodies[p] = { sig: fileSignatureByPath.get(p) || '', html: b.innerHTML };
+    });
+  }
 
   // 1) Replace the visible regions straight from the payload (no full-HTML parse).
   if (container) container.innerHTML = u.diffContainer || '';
@@ -3235,6 +3280,24 @@ function applyDiffUpdate(u) {
   if (REVIEW_LAZY) { setupLazyDiff(); setTimeout(function () { diffBootDone = true; }, 0); }
   else { prepareDiff2HtmlHunks(); diffBootDone = true; }
   if (!REVIEW_LAZY_LOAD) setTimeout(startSymbolIndex, 0);
+
+  // 3b) Re-fill UNCHANGED files' bodies synchronously from the snapshot so they don't blank-then-reload (the
+  // flicker). The fresh wrapper carries the correct data-first-hunk + file index, so materializeBody numbers
+  // hunks exactly as a normal lazy load would — this only skips the IPC round-trip for files whose content is
+  // identical. Changed/new files stay shells and lazy-load as usual, so a real edit still refreshes the diff.
+  if (REVIEW_LAZY && container) {
+    container.querySelectorAll('.d2h-file-wrapper').forEach(function (w) {
+      var p = diffWrapperPathKey(w);
+      var prev = p ? prevBodies[p] : null;
+      if (!prev || !prev.sig || prev.sig !== (fileSignatureByPath.get(p) || '')) return; // changed/new -> lazy-load
+      var shell = w.querySelector('.d2h-files-diff[data-lazy]');
+      if (!shell) return;
+      var idx = (w.id || '').replace('file-', '');
+      materializeBody(w, prev.html);           // fills the body + markWrapperHunks (uses the new data-first-hunk)
+      bodyCache[idx] = prev.html;              // keep the index cache consistent so it never refetches
+      bodyPromise[idx] = Promise.resolve(w);
+    });
+  }
 
   // 4) Re-run the DOM-dependent bootstrap steps.
   applyI18n();

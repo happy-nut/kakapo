@@ -59,6 +59,8 @@ contextBridge.exposeInMainWorld("monacoriUpdate", {
 // process to show a directory picker and load that git repo's review.
 contextBridge.exposeInMainWorld("monacoriApp", {
   openFolder: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("monacori:open-folder"),
+  // Welcome screen's Recent Projects: open a remembered repo path in the current window.
+  openRecent: (path: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("monacori:open-recent", { path }),
 });
 
 
