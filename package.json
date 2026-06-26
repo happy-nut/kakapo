@@ -37,7 +37,8 @@
     "smoke": "npm run build && node dist/cli.js --help",
     "pretest": "npm run build",
     "test": "node --test test/*.test.mjs",
-    "dist:mac": "npm run build && electron-packager . Monacori --platform=darwin --arch=arm64 --icon=assets/icon.icns --app-bundle-id=dev.happynut.monacori --app-category-type=public.app-category.developer-tools --out=release --overwrite --no-asar --ignore=/src/ --ignore=/test/ --ignore=/release --ignore=/.git --ignore=/.github --ignore=/.omc --ignore=/openspec --ignore=/node_modules/electron/ --ignore=/node_modules/@electron --ignore=/node_modules/typescript --ignore=/node_modules/jsdom"
+    "dist:mac": "npm run build && electron-packager . Monacori --platform=darwin --arch=arm64 --icon=assets/icon.icns --app-bundle-id=dev.happynut.monacori --app-category-type=public.app-category.developer-tools --out=release --overwrite --no-asar --ignore=/src/ --ignore=/test/ --ignore=/release --ignore=/.git --ignore=/.github --ignore=/.omc --ignore=/openspec --ignore=/node_modules/electron/ --ignore=/node_modules/@electron --ignore=/node_modules/typescript --ignore=/node_modules/jsdom",
+    "dist:mac:dmg": "npm run dist:mac && create-dmg --overwrite --no-code-sign --dmg-title=Monacori 'release/Monacori-darwin-arm64/Monacori.app' release/ || true"
   },
   "keywords": [
     "ai",
@@ -51,6 +52,7 @@
   "devDependencies": {
     "@electron/packager": "^20.0.1",
     "@types/node": "^22.15.21",
+    "create-dmg": "^8.1.0",
     "jsdom": "^29.1.1",
     "typescript": "^5.8.3"
   },
