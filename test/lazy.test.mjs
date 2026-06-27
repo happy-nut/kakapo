@@ -78,3 +78,80 @@ test("lazy-LOAD: a watch refresh shows the rebuilt diff body, not the cached old
   assert.doesNotMatch(text, /111/, "stale cached body is gone");
   v.close();
 });
+
+// A watch refresh that lands WHILE a comment composer is open must be HELD, not applied — applyDiffUpdate
+// rebuilds the diff DOM, which would destroy the composer textarea mid-type (input stalls / batched chars).
+// It's flushed the moment the composer closes (save/cancel).
+test("lazy-LOAD: a watch refresh is deferred while composing, then applied on close", async () => {
+  const b1 = await makeReviewHtml(
+    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 111;\n" }],
+    { lazyLoad: true },
+  );
+  let bodies = b1.build.lazyBodies || [];
+  const v = await loadViewer(b1.html, {
+    menuBridge: true,
+    lazySourceData: b1.build.lazySourceData,
+    getDiffBody: (idx) => bodies[idx] || "",
+  });
+  await v.openDiffFor("src/live.ts");
+  await v.settle(120);
+  await v.clickFirstDiffLine(); // place the diff caret so the composer has a target line
+  await v.openComposer("q");
+  assert.ok(v.visibleComposerInput(), "composer is open");
+
+  const b2 = await makeReviewHtml(
+    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 222;\n" }],
+    { lazyLoad: true },
+  );
+  bodies = b2.build.lazyBodies || [];
+  await v.pushDiffUpdate(b2.build.update);
+  await v.settle(120);
+  assert.ok(v.visibleComposerInput(), "composer survives the watch refresh (update held)");
+  assert.doesNotMatch(v.$("#diff2html-container").textContent, /222/, "diff is NOT rebuilt while composing");
+
+  await v.writeAndSave("note"); // saving closes the composer, which flushes the held refresh
+  await v.settle(120);
+  assert.ok(!v.visibleComposerInput(), "composer closed after save");
+  assert.match(v.$("#diff2html-container").textContent, /222/, "the held watch refresh is applied once composing ends");
+  v.close();
+});
+
+// A watch refresh must not blank-then-reload files that DIDN'T change: their already-materialized body is
+// snapshotted before the swap and re-filled synchronously, so it never flickers and isn't re-fetched.
+test("lazy-LOAD: a watch refresh keeps an UNCHANGED file's body (no blank, no re-fetch)", async () => {
+  const b1 = await makeReviewHtml(
+    [
+      { path: "src/a.ts", before: "const a = 1;\n", after: "const a = 1; // AAA\n" },
+      { path: "src/b.ts", before: "const b = 2;\n", after: "const b = 2; // BBB1\n" },
+    ],
+    { lazyLoad: true },
+  );
+  let bodies = b1.build.lazyBodies || [];
+  const fetched = [];
+  const v = await loadViewer(b1.html, {
+    menuBridge: true,
+    lazySourceData: b1.build.lazySourceData,
+    getDiffBody: (idx) => { fetched.push(idx); return bodies[idx] || ""; },
+  });
+  await v.openDiffFor("src/a.ts");
+  await v.settle(120);
+  assert.match(v.$("#diff2html-container").textContent, /AAA/, "a.ts body materialized");
+  const aIdx = Number((v.$("#diff2html-container .d2h-file-wrapper").id || "file-0").replace("file-", ""));
+  fetched.length = 0; // ignore the initial-load fetches
+
+  // Watch rebuild changes ONLY b.ts; a.ts is byte-identical.
+  const b2 = await makeReviewHtml(
+    [
+      { path: "src/a.ts", before: "const a = 1;\n", after: "const a = 1; // AAA\n" },   // unchanged
+      { path: "src/b.ts", before: "const b = 2;\n", after: "const b = 2; // BBB2\n" },   // changed
+    ],
+    { lazyLoad: true },
+  );
+  bodies = b2.build.lazyBodies || [];
+  await v.pushDiffUpdate(b2.build.update);
+  await v.settle(120);
+
+  assert.match(v.$("#diff2html-container").textContent, /AAA/, "unchanged a.ts body stays painted (no blank flash)");
+  assert.ok(!fetched.includes(aIdx), "unchanged a.ts body served from the snapshot, NOT re-fetched over IPC");
+  v.close();
+});

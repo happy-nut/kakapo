@@ -1,0 +1,732 @@
+function openSourceFile(path, shouldSwitch = true) {
+  const file = sourceByPath.get(path);
+  if (!file) return;
+  // Switching to another file abandons any in-progress comment elsewhere; closeComposer() clears
+  // composerState and (via refreshComments) drops body.mc-composing so no caret stays hidden.
+  if (composerState && composerState.path !== path) closeComposer();
+  addSourceTab(path);
+  renderSourceTabs(path);
+  // lazy-LOAD: source content not fetched yet -> show a loading state; loadSourceData re-opens it.
+  if (REVIEW_LAZY_LOAD && !sourceLoaded && file.embedded) {
+    pendingSourceOpen = { path: path, shouldSwitch: shouldSwitch };
+    loadSourceData();
+    sourceBodyPath = null; // body shows a loading placeholder, not this path's content yet
+    document.getElementById('source-viewer').dataset.openPath = path;
+    sourceLinks.forEach((link) => link.classList.toggle('active', link.dataset.sourceFile === path));
+    renderBreadcrumb(document.getElementById('source-title'), path);
+    setSourceTypeIcon(path);
+    revealTreeFor(path);
+    var lb = document.getElementById('source-body');
+    lb.className = 'source-body empty';
+    lb.textContent = t('source.loading');
+    if (shouldSwitch) showSourceView();
+    return;
+  }
+  rememberRecent(path, 'source');
+  sourceBodyPath = path; // past the lazy guard — every branch below paints THIS path's body (text/image/not-embedded)
+  document.getElementById('source-viewer').dataset.openPath = path;
+  sourceLinks.forEach((link) => link.classList.toggle('active', link.dataset.sourceFile === path));
+  renderBreadcrumb(document.getElementById('source-title'), path);
+  setSourceTypeIcon(path);
+  revealTreeFor(path);
+  const meta = file.embedded
+    ? formatBytes(file.size || 0)
+    : formatBytes(file.size || 0) + ' · ' + (file.skippedReason || 'not embedded');
+  document.getElementById('source-meta').textContent = meta;
+  const body = document.getElementById('source-body');
+  // Image files carry a data: URI preview instead of text — render inline (click to zoom).
+  if (file.image) {
+    body.className = 'source-body image-body';
+    body.innerHTML = renderImageView(file);
+    document.getElementById('http-env-select')?.classList.add('hidden');
+    updateRenderToggle(path);
+    if (shouldSwitch) showSourceView();
+    return;
+  }
+  if (!file.embedded) {
+    body.className = 'source-body empty';
+    body.textContent = file.skippedReason ? t('source.previewUnavailable').replace(/\.$/, '') + ': ' + file.skippedReason + '.' : t('source.previewUnavailable');
+    document.getElementById('http-env-select')?.classList.add('hidden');
+    updateRenderToggle(path);
+    if (shouldSwitch) showSourceView();
+    return;
+  }
+  if (!viewerCursor || viewerCursor.path !== path) {
+    viewerCursor = { path, lineIndex: 0, column: 0, targetLine: -1 };
+  }
+  body.className = 'source-body';
+  const httpEnvSelect = document.getElementById('http-env-select');
+  // Markdown/CSV render to HTML but stay a line-numbered .source-table: each block (md) or record (csv)
+  // is a .source-row keyed by its start line, so the gutter shows line numbers and line/block comments
+  // work exactly as in the plain source view (renderSourceComments anchors on .source-row[data-line-index]).
+  if (isMarkdownPath(path)) {
+    if (renderRawMode) {
+      body.innerHTML = renderSourceTable(file, '');
+    } else {
+      body.classList.add('rendered-body');
+      body.innerHTML = renderMarkdownRows(file.content);
+    }
+    if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
+    updateRenderToggle(path);
+    renderSourceComments();
+    if (shouldSwitch) showSourceView();
+    return;
+  }
+  if (isCsvPath(path)) {
+    if (renderRawMode) {
+      body.innerHTML = renderSourceTable(file, '');
+    } else {
+      body.classList.add('rendered-body');
+      body.innerHTML = renderCsvRows(file.content, path);
+    }
+    if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
+    updateRenderToggle(path);
+    renderSourceComments();
+    if (shouldSwitch) showSourceView();
+    return;
+  }
+  if (isHttpFile(path)) {
+    body.innerHTML = renderHttpTable(file);
+    if (httpEnvSelect) httpEnvSelect.classList.toggle('hidden', httpEnvNames.length === 0);
+  } else {
+    body.innerHTML = renderSourceTable(file, '');
+    if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
+    if (viewerCursor && viewerCursor.path === path) { var ccr = body.querySelector('.source-row.cursor-line'); if (ccr) insertSourceCaret(ccr, viewerCursor.column); }
+  }
+  updateRenderToggle(path);
+  renderSourceComments();
+  if (shouldSwitch) showSourceView();
+}
+
+function isMarkdownPath(p) { return /\.(md|mdx|markdown)$/i.test(p || ''); }
+function isCsvPath(p) { return /\.(csv|tsv)$/i.test(p || ''); }
+function isRenderToggleable(p) { return isMarkdownPath(p) || isCsvPath(p); }
+
+// Markdown/CSV open rendered by default; this flips the open file to raw line-numbered text and back.
+// Session-global so the choice carries across files. The toolbar button + Cmd/Ctrl+Shift+M both call it.
+var renderRawMode = false;
+function updateRenderToggle(path) {
+  var btn = document.getElementById('render-toggle');
+  if (!btn) return;
+  var on = isRenderToggleable(path);
+  btn.classList.toggle('hidden', !on);
+  if (!on) return;
+  btn.textContent = renderRawMode ? t('source.viewRendered') : t('source.viewRaw'); // label = the mode you switch TO
+  btn.setAttribute('aria-pressed', renderRawMode ? 'true' : 'false');
+}
+function toggleRenderMode() {
+  var sv = document.getElementById('source-viewer');
+  var open = sv && sv.dataset.openPath;
+  if (!open || !isRenderToggleable(open)) return;
+  renderRawMode = !renderRawMode;
+  openSourceFile(open, false); // re-render the current file in the new mode
+}
+(function wireRenderToggle() {
+  var btn = document.getElementById('render-toggle');
+  if (btn) btn.addEventListener('click', function () { toggleRenderMode(); });
+  document.addEventListener('keydown', function (e) {
+    if (isFloatingModalOpen()) return; // a floating overlay owns focus -> no render-toggle shortcut beneath it
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && (e.key === 'M' || e.key === 'm' || e.code === 'KeyM')) {
+      var sv = document.getElementById('source-viewer');
+      var open = sv && sv.dataset.openPath;
+      if (open && isRenderToggleable(open) && isSourceViewerVisible()) { e.preventDefault(); toggleRenderMode(); }
+    }
+  });
+})();
+
+function renderImageView(file) {
+  return '<div class="image-view">'
+    + '<img class="image-preview" src="' + file.image + '" alt="' + escapeHtml(file.name) + '" data-zoomable="1">'
+    + '<div class="image-cap">' + escapeHtml(file.name) + ' &middot; ' + formatBytes(file.size || 0) + ' &middot; click to zoom</div>'
+    + '</div>';
+}
+
+function openLightbox(src, alt) {
+  if (!src) return;
+  var lb = document.getElementById('mc-lightbox');
+  if (!lb) {
+    lb = document.createElement('div');
+    lb.id = 'mc-lightbox';
+    lb.className = 'mc-lightbox hidden';
+    lb.innerHTML = '<img class="mc-lightbox-img" alt="">';
+    document.body.appendChild(lb);
+    lb.addEventListener('click', closeLightbox);
+  }
+  var img = lb.querySelector('img');
+  img.src = src;
+  img.alt = alt || '';
+  lb.classList.remove('hidden');
+}
+function closeLightbox() {
+  var lb = document.getElementById('mc-lightbox');
+  if (lb) lb.classList.add('hidden');
+}
+function lightboxOpen() {
+  var lb = document.getElementById('mc-lightbox');
+  return !!(lb && !lb.classList.contains('hidden'));
+}
+
+// Minimal, dependency-free Markdown -> HTML for the preview pane. Input is escaped before any
+// markup is applied; links/images are restricted to http(s)/data/mailto/anchor targets.
+function renderInlineMd(text) {
+  var s = escapeHtml(text);
+  s = s.replace(/`([^`]+)`/g, function (m, code) { return '<code>' + code + '</code>'; });
+  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, function (m, alt, url) {
+    return /^(https?:|data:)/i.test(url) ? '<img class="md-img" src="' + url + '" alt="' + alt + '">' : m;
+  });
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/g, function (m, label, url) {
+    return /^(https?:|mailto:|#)/i.test(url) ? '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + label + '</a>' : label;
+  });
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  s = s.replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>').replace(/(^|[^_\w])_([^_\s][^_]*)_/g, '$1<em>$2</em>');
+  s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  return s;
+}
+
+// Render HTML embedded in Markdown (GitHub-style) safely. Parse in an INERT <template> — scripts don't
+// run and resources don't load there — then strip dangerous tags + on*/javascript: attributes before
+// returning the HTML. The result is injected via innerHTML, so only the sanitized subset survives.
+function sanitizeHtml(html) {
+  var tpl = document.createElement('template');
+  tpl.innerHTML = String(html);
+  var BAD = { SCRIPT: 1, STYLE: 1, IFRAME: 1, OBJECT: 1, EMBED: 1, LINK: 1, META: 1, BASE: 1, FORM: 1, INPUT: 1, BUTTON: 1, TEXTAREA: 1, SELECT: 1, NOSCRIPT: 1 };
+  var walk = function (node) {
+    var kids = Array.prototype.slice.call(node.children || []);
+    for (var k = 0; k < kids.length; k++) {
+      var el = kids[k];
+      if (BAD[el.tagName]) { el.parentNode.removeChild(el); continue; }
+      var attrs = Array.prototype.slice.call(el.attributes);
+      for (var a = 0; a < attrs.length; a++) {
+        var nm = attrs[a].name.toLowerCase();
+        if (nm.indexOf('on') === 0) { el.removeAttribute(attrs[a].name); continue; }
+        if ((nm === 'href' || nm === 'src' || nm === 'xlink:href' || nm === 'srcset')
+          && /^\s*(javascript|vbscript|data:text\/html):/i.test(attrs[a].value || '')) {
+          el.removeAttribute(attrs[a].name);
+        }
+      }
+      walk(el);
+    }
+  };
+  walk(tpl.content);
+  return tpl.innerHTML;
+}
+
+function mdFenceLang(lang) {
+  var l = (lang || '').toLowerCase();
+  if (l === 'js' || l === 'jsx' || l === 'ts' || l === 'tsx') return 'typescript';
+  if (l === 'sh' || l === 'bash' || l === 'zsh') return 'shell';
+  if (l === 'yml') return 'yaml';
+  return l || 'text';
+}
+
+function splitTableRow(line) {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); });
+}
+
+// Parse markdown into block objects { line, html } where line is the 0-based start line in the source.
+// Each block becomes one .source-row so the rendered view keeps a real line gutter + line comments.
+function renderMarkdownBlocks(content) {
+  var lines = String(content).split(/\r?\n/);
+  var blocks = [];
+  var i = 0;
+  var m;
+  while (i < lines.length) {
+    var start = i;
+    var line = lines[i];
+    var fence = line.match(/^(\s*)(```+|~~~+)\s*([\w+#-]*)\s*$/);
+    if (fence) {
+      var marker = fence[2].charAt(0);
+      var closeRe = new RegExp('^\\s*' + (marker === '`' ? '`' : '~') + '{3,}\\s*$');
+      var lang = mdFenceLang(fence[3]);
+      var buf = [];
+      i++;
+      while (i < lines.length && !closeRe.test(lines[i])) { buf.push(lines[i]); i++; }
+      i++;
+      blocks.push({ line: start, html: '<pre class="md-code"><code>' + buf.map(function (l) { return highlightLine(l, lang); }).join('\n') + '</code></pre>' });
+      continue;
+    }
+    if (/^\s*$/.test(line)) { i++; continue; }
+    // Raw HTML block (GitHub-flavored Markdown): a line beginning with a tag. Accumulate to the next
+    // blank line and render it as sanitized HTML, so README markup (<div>, <img>, <table>, …) shows
+    // rendered instead of as escaped text.
+    if (/^\s*<(\/?[a-zA-Z][\w-]*|!--)/.test(line)) {
+      var hbuf = [line];
+      i++;
+      while (i < lines.length && !/^\s*$/.test(lines[i])) { hbuf.push(lines[i]); i++; }
+      blocks.push({ line: start, html: '<div class="md-html">' + sanitizeHtml(hbuf.join('\n')) + '</div>' });
+      continue;
+    }
+    var h = line.match(/^\s{0,3}(#{1,6})\s+(.*)$/);
+    if (h) { var lv = h[1].length; blocks.push({ line: start, html: '<h' + lv + ' class="md-h md-h' + lv + '">' + renderInlineMd(h[2].replace(/\s+#+\s*$/, '')) + '</h' + lv + '>' }); i++; continue; }
+    if (/^\s*([-*_])\s*(\1\s*){2,}$/.test(line)) { blocks.push({ line: start, html: '<hr class="md-hr">' }); i++; continue; }
+    if (/^\s*>\s?/.test(line)) {
+      var qbuf = [];
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) { qbuf.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
+      blocks.push({ line: start, html: '<blockquote class="md-quote">' + qbuf.map(function (l) { return l.trim() ? '<p>' + renderInlineMd(l) + '</p>' : ''; }).join('') + '</blockquote>' });
+      continue;
+    }
+    if (/\|/.test(line) && i + 1 < lines.length && /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(lines[i + 1])) {
+      var header = splitTableRow(line);
+      i += 2;
+      var rowsHtml = '';
+      while (i < lines.length && /\|/.test(lines[i]) && !/^\s*$/.test(lines[i])) {
+        var cells = splitTableRow(lines[i]);
+        rowsHtml += '<tr>' + header.map(function (_h, ci) { return '<td>' + renderInlineMd(cells[ci] || '') + '</td>'; }).join('') + '</tr>';
+        i++;
+      }
+      blocks.push({ line: start, html: '<table class="md-table"><thead><tr>' + header.map(function (c) { return '<th>' + renderInlineMd(c) + '</th>'; }).join('') + '</tr></thead><tbody>' + rowsHtml + '</tbody></table>' });
+      continue;
+    }
+    if ((m = lines[i].match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/))) {
+      var type = /\d/.test(m[2]) ? 'ol' : 'ul';
+      var items = '';
+      while (i < lines.length && (m = lines[i].match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/))) { items += '<li>' + renderInlineMd(m[3]) + '</li>'; i++; }
+      blocks.push({ line: start, html: '<' + type + ' class="md-list">' + items + '</' + type + '>' });
+      continue;
+    }
+    var pbuf = [line];
+    i++;
+    while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^(\s{0,3}#{1,6}\s|\s*>|\s*([-*+]|\d+[.)])\s|\s*(```|~~~))/.test(lines[i])) { pbuf.push(lines[i]); i++; }
+    blocks.push({ line: start, html: '<p class="md-p">' + renderInlineMd(pbuf.join('\n')).replace(/\n/g, '<br>') + '</p>' });
+  }
+  return blocks;
+}
+
+function renderMarkdownRows(content) {
+  var blocks = renderMarkdownBlocks(content);
+  if (!blocks.length) return '<table class="source-table md-doc"><tbody></tbody></table>';
+  var rows = blocks.map(function (b) {
+    return '<tr class="source-row md-row" data-line-index="' + b.line + '"><td class="num">' + (b.line + 1) + '</td><td class="source-code md-cell">' + b.html + '</td></tr>';
+  }).join('');
+  return '<table class="source-table md-doc"><tbody>' + rows + '</tbody></table>';
+}
+
+// RFC-4180-ish delimited parser: handles quoted fields with embedded delimiters, newlines, and "" escapes.
+function parseDelimited(content, delim) {
+  var rows = [];
+  var row = [];
+  var field = '';
+  var inQuotes = false;
+  var s = String(content);
+  for (var i = 0; i < s.length; i++) {
+    var ch = s[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (s[i + 1] === '"') { field += '"'; i++; } else inQuotes = false;
+      } else field += ch;
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === delim) {
+      row.push(field); field = '';
+    } else if (ch === '\n') {
+      row.push(field); rows.push(row); row = []; field = '';
+    } else if (ch !== '\r') {
+      field += ch;
+    }
+  }
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+// CSV/TSV renders to an aligned table that is still a .source-table: each record is a .source-row keyed
+// by its record index (data-line-index) so line numbers show in the gutter and comments anchor per row.
+function renderCsvRows(content, path) {
+  var delim = /\.tsv$/i.test(path || '') ? '\t' : ',';
+  var records = parseDelimited(content, delim).filter(function (r) { return !(r.length === 1 && r[0] === ''); });
+  if (!records.length) return '<table class="source-table csv-doc"><tbody></tbody></table>';
+  var cols = records.reduce(function (max, r) { return Math.max(max, r.length); }, 0);
+  var rows = records.map(function (rec, idx) {
+    var head = idx === 0;
+    var cells = '';
+    for (var c = 0; c < cols; c++) {
+      var v = escapeHtml(rec[c] == null ? '' : rec[c]);
+      cells += head ? '<th class="csv-cell">' + v + '</th>' : '<td class="csv-cell">' + v + '</td>';
+    }
+    return '<tr class="source-row csv-row' + (head ? ' csv-head' : '') + '" data-line-index="' + idx + '"><td class="num">' + (idx + 1) + '</td>' + cells + '</tr>';
+  }).join('');
+  return '<table class="source-table csv-doc"><tbody>' + rows + '</tbody></table>';
+}
+
+function isHttpFile(path) {
+  return /\.(http|rest)$/i.test(path || '');
+}
+
+function currentHttpEnv() {
+  return httpEnvironments[currentHttpEnvName] || {};
+}
+
+function applyHttpVars(text, env) {
+  return String(text == null ? '' : text).replace(/\{\{\s*([\w.$-]+)\s*\}\}/g, function (whole, name) {
+    if (env && Object.prototype.hasOwnProperty.call(env, name)) return env[name];
+    return whole;
+  });
+}
+
+// Parses an IntelliJ-style .http file into a list of requests. Each request
+// tracks the line of its request line (for the gutter Run button) and the line
+// span it covers (for placing the inline response and for Cmd/Alt+Enter).
+function parseHttpRequests(content) {
+  const methods = { GET: 1, POST: 1, PUT: 1, PATCH: 1, DELETE: 1, HEAD: 1, OPTIONS: 1, TRACE: 1, CONNECT: 1 };
+  const lines = String(content).split(/\r?\n/);
+  const requests = [];
+  const vars = {};
+  let curr = null;
+  let phase = 'pre';
+  function flush() {
+    if (curr && curr.url) {
+      curr.body = curr.bodyLines.join('\n').replace(/\s+$/, '');
+      requests.push(curr);
+    }
+  }
+  function start(boundaryLine, name, index) {
+    return { name: name, method: '', url: '', headers: [], bodyLines: [], startLine: -1, endLine: index, boundaryLine: boundaryLine };
+  }
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const trimmed = rawLine.trim();
+    if (trimmed.indexOf('###') === 0) {
+      flush();
+      curr = start(i, trimmed.replace(/^#+/, '').trim(), i);
+      phase = 'pre';
+      continue;
+    }
+    if (!curr) {
+      curr = start(-1, '', i);
+      phase = 'pre';
+    }
+    curr.endLine = i;
+    if (phase === 'pre') {
+      if (trimmed === '') continue;
+      if (trimmed.indexOf('#') === 0 || trimmed.indexOf('//') === 0) continue;
+      const varMatch = /^@([\w.$-]+)\s*=\s*(.*)$/.exec(trimmed);
+      if (varMatch) { vars[varMatch[1]] = varMatch[2].trim(); continue; }
+      const sp = trimmed.indexOf(' ');
+      const firstToken = sp >= 0 ? trimmed.slice(0, sp) : trimmed;
+      if (sp >= 0 && methods[firstToken.toUpperCase()]) {
+        curr.method = firstToken.toUpperCase();
+        curr.url = trimmed.slice(sp + 1).replace(/\s+HTTP\/[\d.]+\s*$/i, '').trim();
+      } else {
+        curr.method = 'GET';
+        curr.url = trimmed.replace(/\s+HTTP\/[\d.]+\s*$/i, '').trim();
+      }
+      curr.startLine = i;
+      phase = 'headers';
+      continue;
+    }
+    if (phase === 'headers') {
+      if (trimmed === '') { phase = 'body'; continue; }
+      if (trimmed.indexOf('#') === 0 || trimmed.indexOf('//') === 0) continue;
+      const colon = rawLine.indexOf(':');
+      if (colon > 0) curr.headers.push({ name: rawLine.slice(0, colon).trim(), value: rawLine.slice(colon + 1).trim() });
+      continue;
+    }
+    curr.bodyLines.push(rawLine);
+  }
+  flush();
+  return { requests: requests, vars: vars };
+}
+
+function renderHttpTable(file) {
+  const parsed = parseHttpRequests(file.content);
+  const requests = parsed.requests;
+  httpRequestsByPath.set(file.path, requests);
+  httpVarsByPath.set(file.path, parsed.vars);
+  const env = Object.assign({}, parsed.vars, currentHttpEnv());
+  const lines = String(file.content).split(/\r?\n/);
+  const cursor = viewerCursor && viewerCursor.path === file.path ? viewerCursor : null;
+  const runAtLine = {};
+  const respAfterLine = {};
+  requests.forEach(function (req, idx) {
+    if (req.startLine >= 0) runAtLine[req.startLine] = idx;
+    respAfterLine[req.endLine] = idx;
+  });
+  let rows = '';
+  lines.forEach(function (line, index) {
+    const hasRun = Object.prototype.hasOwnProperty.call(runAtLine, index);
+    const reqIdx = hasRun ? runAtLine[index] : -1;
+    const isCursorLine = Boolean(cursor && cursor.lineIndex === index);
+    const gutter = hasRun
+      ? '<button type="button" class="http-run" data-req="' + reqIdx + '" title="Run request (⌘Enter / ⌥Enter)" aria-label="Run request">&#9654;</button>'
+      : '';
+    rows += '<tr class="source-row http-row' + (hasRun ? ' http-request-line' : '') + (isCursorLine ? ' cursor-line' : '') + '" data-line-index="' + index + '">'
+      + '<td class="num http-gutter">' + gutter + '<span class="num-text">' + (index + 1) + '</span></td>'
+      + '<td class="source-code">' + (isCursorLine ? renderHttpLineWithCursor(line, env, cursor.column) : highlightHttpLine(line, env)) + '</td>'
+      + '</tr>';
+    if (Object.prototype.hasOwnProperty.call(respAfterLine, index)) {
+      const rIdx = respAfterLine[index];
+      rows += '<tr class="http-response-row"><td class="num"></td><td class="source-code"><div class="http-response hidden" id="http-resp-' + rIdx + '"></div></td></tr>';
+    }
+  });
+  return '<table class="source-table http-table"><tbody>' + rows + '</tbody></table>';
+}
+function renderHttpLineWithCursor(text, env, column) {
+  var col = Math.max(0, Math.min(column, text.length));
+  return highlightHttpLine(text.slice(0, col), env) + '<span class="code-cursor" aria-hidden="true"></span>' + highlightHttpLine(text.slice(col), env);
+}
+
+function highlightHttpLine(line, env) {
+  const trimmed = line.trim();
+  if (trimmed.indexOf('###') === 0) return '<span class="http-sep">' + escapeHtml(line) + '</span>';
+  if (trimmed.indexOf('#') === 0 || trimmed.indexOf('//') === 0) return '<span class="tok-comment">' + escapeHtml(line) + '</span>';
+  let html = escapeHtml(line);
+  html = html.replace(/^(\s*)(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|TRACE|CONNECT)(\s)/, function (whole, pre, method, post) {
+    return pre + '<span class="http-method">' + method + '</span>' + post;
+  });
+  html = html.replace(/\{\{\s*([\w.$-]+)\s*\}\}/g, function (whole, name) {
+    const known = env && Object.prototype.hasOwnProperty.call(env, name);
+    const title = known ? String(env[name]) : 'Undefined variable';
+    return '<span class="http-var ' + (known ? 'known' : 'unknown') + '" title="' + escapeHtml(title) + '">' + escapeHtml(whole) + '</span>';
+  });
+  return html;
+}
+
+function sendHttp(request) {
+  if (window.monacoriHttp && typeof window.monacoriHttp.send === 'function') {
+    return Promise.resolve(window.monacoriHttp.send(request));
+  }
+  return fetch('/__http_send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  }).then(function (response) { return response.json(); });
+}
+
+function runHttpRequest(reqIndex) {
+  const path = document.getElementById('source-viewer')?.dataset.openPath || '';
+  const requests = httpRequestsByPath.get(path);
+  if (!requests || !requests[reqIndex]) return;
+  const req = requests[reqIndex];
+  const env = Object.assign({}, httpVarsByPath.get(path) || {}, currentHttpEnv());
+  const headers = {};
+  req.headers.forEach(function (header) {
+    const key = applyHttpVars(header.name, env);
+    if (key) headers[key] = applyHttpVars(header.value, env);
+  });
+  const resolved = {
+    method: req.method || 'GET',
+    url: applyHttpVars(req.url, env),
+    headers: headers,
+    body: req.body ? applyHttpVars(req.body, env) : undefined,
+  };
+  const target = document.getElementById('http-resp-' + reqIndex);
+  if (target) {
+    target.className = 'http-response loading';
+    target.textContent = resolved.method + ' ' + resolved.url;
+  }
+  sendHttp(resolved).then(function (result) {
+    if (target) renderHttpResponse(target, result);
+  }).catch(function (error) {
+    if (target) {
+      target.className = 'http-response error';
+      target.innerHTML = '<div class="http-resp-head"><span class="http-status bad">Failed</span></div><pre class="http-resp-body">' + escapeHtml(String(error && error.message ? error.message : error)) + '</pre>';
+    }
+  });
+}
+
+function runHttpAtCaret() {
+  const path = document.getElementById('source-viewer')?.dataset.openPath || '';
+  const requests = httpRequestsByPath.get(path);
+  if (!requests || !requests.length) return;
+  const caretLine = viewerCursor && viewerCursor.path === path ? viewerCursor.lineIndex : 0;
+  let chosen = -1;
+  for (let i = 0; i < requests.length; i++) {
+    const req = requests[i];
+    const from = req.boundaryLine >= 0 ? req.boundaryLine : req.startLine;
+    if (from <= caretLine && caretLine <= req.endLine) { chosen = i; break; }
+    if (from <= caretLine) chosen = i;
+  }
+  if (chosen < 0) chosen = 0;
+  runHttpRequest(chosen);
+}
+
+function renderHttpResponse(target, result) {
+  if (!result || !result.ok) {
+    target.className = 'http-response error';
+    const message = result && result.error ? result.error : 'Request failed';
+    target.innerHTML = '<div class="http-resp-head"><span class="http-status bad">Failed</span></div><pre class="http-resp-body">' + escapeHtml(message) + '</pre>';
+    return;
+  }
+  target.className = 'http-response';
+  const status = Number(result.status) || 0;
+  const statusClass = status >= 200 && status < 300 ? 'ok' : (status >= 400 ? 'bad' : 'warn');
+  const headers = result.headers || {};
+  const headerKeys = Object.keys(headers).sort();
+  const headerHtml = headerKeys.map(function (key) {
+    return '<div class="http-h"><span class="http-h-k">' + escapeHtml(key) + '</span><span class="http-h-v">' + escapeHtml(String(headers[key])) + '</span></div>';
+  }).join('');
+  let contentType = '';
+  for (let i = 0; i < headerKeys.length; i++) {
+    if (headerKeys[i].toLowerCase() === 'content-type') { contentType = String(headers[headerKeys[i]]); break; }
+  }
+  const bodyText = result.body == null ? '' : String(result.body);
+  const bodyHtml = formatHttpBody(bodyText, contentType);
+  target.innerHTML =
+    '<div class="http-resp-head">'
+    + '<span class="http-status ' + statusClass + '">' + status + (result.statusText ? ' ' + escapeHtml(result.statusText) : '') + '</span>'
+    + '<span class="http-resp-meta">' + (Number(result.durationMs) || 0) + ' ms</span>'
+    + '<span class="http-resp-meta">' + formatBytes(bodyText.length) + '</span>'
+    + (headerKeys.length ? '<button type="button" class="http-resp-toggle">Headers (' + headerKeys.length + ')</button>' : '')
+    + '</div>'
+    + '<div class="http-resp-headers hidden">' + headerHtml + '</div>'
+    + '<pre class="http-resp-body">' + bodyHtml + '</pre>';
+}
+
+function formatHttpBody(text, contentType) {
+  if (!text) return '<span class="http-resp-empty">(empty body)</span>';
+  const looksJson = /json/i.test(contentType) || /^[\[{]/.test(text.trim());
+  if (looksJson) {
+    try {
+      const pretty = JSON.stringify(JSON.parse(text), null, 2);
+      return pretty.split(/\r?\n/).map(function (line) { return highlightLine(line, 'json'); }).join('\n');
+    } catch (error) {}
+  }
+  return escapeHtml(text);
+}
+
+function populateHttpEnvSelect() {
+  const select = document.getElementById('http-env-select');
+  if (!select) return;
+  let opts = '<option value="">No environment</option>';
+  httpEnvNames.forEach(function (name) {
+    opts += '<option value="' + escapeHtml(name) + '"' + (name === currentHttpEnvName ? ' selected' : '') + '>' + escapeHtml(name) + '</option>';
+  });
+  select.innerHTML = opts;
+  // The <select> lives in the toolbar (not swapped on in-place diff updates), so wire the change handler
+  // exactly once — populateHttpEnvSelect is re-called by applyDiffUpdate to refresh the options.
+  if (!select.dataset.wired) {
+    select.dataset.wired = '1';
+    select.addEventListener('change', function () {
+      currentHttpEnvName = select.value;
+      try { localStorage.setItem(httpEnvKey, currentHttpEnvName); } catch (error) {}
+      const path = document.getElementById('source-viewer')?.dataset.openPath || '';
+      if (path && isHttpFile(path)) {
+        const file = sourceByPath.get(path);
+        const body = document.getElementById('source-body');
+        if (file && body) body.innerHTML = renderHttpTable(file);
+      }
+    });
+  }
+}
+
+function renderSourceTable(file, query) {
+  const normalizedQuery = query.trim().toLowerCase();
+  const lines = file.content.split(/\r?\n/);
+  const cursor = viewerCursor && viewerCursor.path === file.path ? viewerCursor : null;
+  const changedSet = new Set(file.changedLines || []);
+  const rows = lines.map((line, index) => {
+    const hit = normalizedQuery.length > 0 && line.toLowerCase().includes(normalizedQuery);
+    const isCursorLine = Boolean(cursor && cursor.lineIndex === index);
+    const isSymbolTarget = Boolean(cursor && cursor.targetLine === index);
+    const isChanged = changedSet.has(index + 1);
+    const classes = [
+      'source-row',
+      hit ? 'search-hit' : '',
+      isChanged ? 'changed-line' : '',
+      isCursorLine ? 'cursor-line' : '',
+      isSymbolTarget ? 'symbol-target' : '',
+    ].filter(Boolean).join(' ');
+    return [
+      '<tr class="' + classes + '" data-line-index="' + index + '">',
+      '<td class="num">' + String(index + 1) + '</td>',
+      '<td class="source-code">' + highlightLine(line, file.language || 'text') + '</td>',
+      '</tr>',
+    ].join('');
+  }).join('');
+  return '<table class="source-table"><tbody>' + rows + '</tbody></table>';
+}
+
+function renderLineWithCursor(text, language, column) {
+  const boundedColumn = Math.max(0, Math.min(column, text.length));
+  const before = text.slice(0, boundedColumn);
+  const after = text.slice(boundedColumn);
+  return highlightLine(before, language) + '<span class="code-cursor" aria-hidden="true"></span>' + highlightLine(after, language);
+}
+
+function highlightLine(text, language) {
+  if (language === 'text') return escapeHtml(text);
+  if (language === 'markup') {
+    return escapeHtml(text).replace(/(&lt;\/?)([\w:-]+)([^&]*?)(\/?&gt;)/g, '$1<span class="tok-tag">$2</span>$3$4');
+  }
+  if (language === 'markdown') {
+    const escaped = escapeHtml(text);
+    if (/^\s{0,3}#{1,6}\s/.test(text)) return '<span class="tok-keyword">' + escaped + '</span>';
+    return escaped.replace(new RegExp(String.fromCharCode(96) + '[^' + String.fromCharCode(96) + ']+' + String.fromCharCode(96), 'g'), '<span class="tok-string">$&</span>');
+  }
+  const keywords = new Set(['as','async','await','break','case','catch','class','const','continue','def','default','defer','do','else','enum','export','extends','final','finally','fn','for','from','func','function','go','if','impl','import','in','interface','let','match','module','new','package','private','protected','public','return','select','static','struct','switch','throw','try','type','val','var','while','yield']);
+  const literals = new Set(['False','None','True','false','nil','null','self','this','true','undefined']);
+  const commentPrefixes = ['python','ruby','shell','yaml','toml'].includes(language) ? ['#'] : ['//'];
+  let output = '';
+  let index = 0;
+  while (index < text.length) {
+    const rest = text.slice(index);
+    const commentPrefix = commentPrefixes.find((prefix) => rest.startsWith(prefix));
+    if (commentPrefix) {
+      output += '<span class="tok-comment">' + escapeHtml(rest) + '</span>';
+      break;
+    }
+    const char = text[index];
+    if (char === '"' || char === "'" || char === String.fromCharCode(96)) {
+      const quote = char;
+      let end = index + 1;
+      let escaped = false;
+      while (end < text.length) {
+        const currentChar = text[end];
+        if (currentChar === quote && !escaped) {
+          end += 1;
+          break;
+        }
+        escaped = currentChar === '\\' && !escaped;
+        if (currentChar !== '\\') escaped = false;
+        end += 1;
+      }
+      output += '<span class="tok-string">' + escapeHtml(text.slice(index, end)) + '</span>';
+      index = end;
+      continue;
+    }
+    if (char === '@') {
+      const decorator = rest.match(/^@[A-Za-z_$][\w$.]*/);
+      if (decorator) {
+        output += '<span class="tok-decorator">' + escapeHtml(decorator[0]) + '</span>';
+        index += decorator[0].length;
+        continue;
+      }
+    }
+    const number = rest.match(/^\b\d+(?:\.\d+)?\b/);
+    if (number) {
+      output += '<span class="tok-number">' + escapeHtml(number[0]) + '</span>';
+      index += number[0].length;
+      continue;
+    }
+    const identifier = rest.match(/^[A-Za-z_$][\w$-]*/);
+    if (identifier) {
+      const value = identifier[0];
+      const trailing = text.slice(index + value.length);
+      if (keywords.has(value)) output += '<span class="tok-keyword">' + escapeHtml(value) + '</span>';
+      else if (literals.has(value)) output += '<span class="tok-literal">' + escapeHtml(value) + '</span>';
+      else if (/^\s*\(/.test(trailing)) output += '<span class="tok-function">' + escapeHtml(value) + '</span>';
+      else if (/^[A-Z]/.test(value) && /[a-z]/.test(value)) output += '<span class="tok-type">' + escapeHtml(value) + '</span>';
+      else output += escapeHtml(value);
+      index += value.length;
+      continue;
+    }
+    output += escapeHtml(char);
+    index += 1;
+  }
+  return output;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  const kib = bytes / 1024;
+  if (kib < 1024) return kib.toFixed(1) + ' KiB';
+  return (kib / 1024).toFixed(1) + ' MiB';
+}

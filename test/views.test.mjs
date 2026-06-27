@@ -439,6 +439,77 @@ test("comment tracking: follows a moved line; kept (never dropped) when the snap
   v.close();
 });
 
+test("after a commit removes the open diff file, a watch update lands on the new changes (not a blank pane)", async () => {
+  // Regression: committing the file the diff was showing left `current` pointing at a vanished hunk index,
+  // so the swapped-in diff rendered nothing and the breadcrumb kept the stale (committed-away) file.
+  const first = await makeReviewHtml([
+    { path: "gone.ts", before: "export const gone = 1;\n", after: "export const gone = 2;\n" },
+  ]);
+  const v = await loadViewer(first.html, { menuBridge: true });
+  await v.openDiffFor("gone.ts");
+  assert.equal(v.visibleView(), "diff", "starts in the diff view on gone.ts");
+  assert.equal(v.activeDiffFile(), "gone.ts");
+
+  // Simulate the watch tick after gone.ts is committed and two brand-new files now have changes.
+  const second = await makeReviewHtml([
+    { path: "fresh_a.ts", before: "export const a = 1;\n", after: "export const a = 9;\n" },
+    { path: "fresh_b.ts", before: "export const b = 1;\n", after: "export const b = 9;\n" },
+  ]);
+  await v.pushDiffUpdate(second.build.update);
+
+  const crumb = v.$("#diff-breadcrumb")?.textContent || "";
+  assert.ok(!/gone\.ts/.test(crumb), "the committed-away file is gone from the breadcrumb");
+  assert.ok(/fresh_a\.ts|fresh_b\.ts/.test(crumb), "breadcrumb re-anchored to a new changed file");
+  const visible = v.$all(".d2h-file-wrapper").filter((w) => !w.classList.contains("df-inactive"));
+  assert.ok(visible.length >= 1, "a new diff body is visible — the pane is not blank");
+  v.close();
+});
+
+test("activity rail: icons navigate views, show shortcut tooltips, and reflect the active view", async () => {
+  const v = await loadViewer(html, { menuBridge: true });
+  const rail = v.$(".activity-rail");
+  assert.ok(rail, "the activity rail is rendered");
+  // Every navigable icon carries a shortcut in its hover tooltip (the IntelliJ-style nudge).
+  const views = v.$all(".activity-rail .rail-btn[data-view]").map((b) => b.dataset.view);
+  for (const view of ["changes", "files", "q", "c", "memo"]) {
+    assert.ok(views.includes(view), `rail has a ${view} icon`);
+  }
+  assert.ok(
+    v.$all(".activity-rail .rail-btn .rail-tip kbd").every((k) => k.textContent.trim().length > 0),
+    "each rail tooltip names a shortcut",
+  );
+
+  // Click navigates and the clicked icon becomes the active one.
+  v.click(v.$('.activity-rail [data-view="changes"]'));
+  await v.settle(60);
+  assert.equal(v.visibleView(), "diff", "Changes icon shows the diff view");
+  assert.ok(v.$('.activity-rail [data-view="changes"]').classList.contains("is-active"), "Changes icon is active");
+
+  v.click(v.$('.activity-rail [data-view="files"]'));
+  await v.settle(60);
+  assert.equal(v.$("#files-panel").classList.contains("hidden"), false, "Files icon reveals the files panel");
+  assert.ok(v.$('.activity-rail [data-view="files"]').classList.contains("is-active"), "Files icon is active");
+
+  // Memo icon toggles the dock and lights/clears its own icon.
+  v.click(v.$('.activity-rail [data-view="memo"]'));
+  await v.settle(60);
+  assert.ok(v.$("#mc-memo-panel"), "Memo icon opens the memo dock");
+  assert.ok(v.$('.activity-rail [data-view="memo"]').classList.contains("is-active"), "Memo icon is active while open");
+  v.click(v.$('.activity-rail [data-view="memo"]'));
+  await v.settle(60);
+  assert.equal(v.$("#mc-memo-panel"), null, "clicking Memo again closes the dock");
+  assert.equal(v.$('.activity-rail [data-view="memo"]').classList.contains("is-active"), false, "Memo icon clears");
+  v.close();
+});
+
+test("sidebar shows the current git branch", async () => {
+  const v = await loadViewer(html);
+  const chip = v.$(".brand-branch");
+  assert.ok(chip && !chip.classList.contains("hidden"), "the branch chip is visible");
+  assert.ok((v.$("#brand-branch-name")?.textContent || "").trim().length > 0, "it names a branch");
+  v.close();
+});
+
 test("diff view: vertical wheel + PageUp/Down scroll the diff container", async () => {
   const v = await loadViewer(html);
   await v.openDiffFor("src/app.ts");
@@ -490,6 +561,17 @@ test("Cmd+1 from the diff opens the file you were viewing as source (not a stale
   v.close();
 });
 
+test("global shortcuts require an exact modifier set (Cmd+Shift+1 must not act like Cmd+1)", async () => {
+  const v = await loadViewer(html);
+  await v.openDiffFor("src/app.ts");
+  assert.equal(v.visibleView(), "diff");
+  v.key("1", { metaKey: true, shiftKey: true }); // an extra Shift → not the Cmd+1 binding
+  assert.equal(v.visibleView(), "diff", "Cmd+Shift+1 leaves the view untouched");
+  v.key("1", { metaKey: true }); // exact combo still works
+  assert.equal(v.visibleView(), "source", "Cmd+1 alone switches to the source view");
+  v.close();
+});
+
 test("a selected comment box keeps the caret visible (어떤 경우에도 커서는 가려지면 안 됨)", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
@@ -534,8 +616,8 @@ test("F7 across a file boundary sets the diff caret once (no first-line → chan
   await new Promise((r) => setTimeout(r, 30));
   v.window.setDiffCursor = orig;
   assert.equal(calls, 0, "first F7 announces the last change; caret stays put");
-  const toast = v.window.document.querySelector("#mc-toasts .mc-toast");
-  assert.ok(toast && /F7/.test(toast.textContent), "first F7 shows the last-change announcement");
+  const hint = v.window.document.querySelector(".mc-caret-hint");
+  assert.ok(hint && /F7/.test(hint.textContent), "first F7 shows the last-change announcement (inline caret hint)");
 
   // The SECOND consecutive F7 crosses to the next file, setting the caret exactly ONCE (focusDiffRow ->
   // the change). Before the skipCursor fix, showOnlyFile's ensureDiffCursor also fired, landing the caret
@@ -547,6 +629,7 @@ test("F7 across a file boundary sets the diff caret once (no first-line → chan
   await new Promise((r) => setTimeout(r, 30));
   v.window.setDiffCursor = orig;
   assert.equal(calls, 1, "caret set once via focusDiffRow; ensureDiffCursor skipped");
+  assert.ok(hint && !hint.classList.contains("show"), "the last-change hint clears once the caret crosses to the next file (never covers it)");
   v.close();
 });
 

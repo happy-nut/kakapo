@@ -212,6 +212,7 @@ export function renderDiffHtml(input: {
   subtitle: string;
   projectName: string;
   projectPath: string;
+  branch?: string;
   watch?: boolean;
   ignoreWhitespace?: boolean;
   app?: boolean; // Electron app — inline the integrated terminal (xterm); off elsewhere
@@ -222,6 +223,34 @@ export function renderDiffHtml(input: {
   const fileNav = renderDiffTree(input.files);
   const sourceNav = renderSourceTree(input.sourceFiles);
   const embeddedFiles = input.sourceFiles.filter((file) => file.embedded).length;
+
+  // IntelliJ-style activity rail: an icon per view; click navigates, hover shows a tooltip with the
+  // shortcut. data-view drives both the click handler and the active-state highlight (see syncRail).
+  const railButton = (view: string, labelKey: string, defaultLabel: string, kbd: string, svg: string): string =>
+    `<button type="button" class="rail-btn" data-view="${view}" data-i18n-aria="${labelKey}" aria-label="${escapeAttr(defaultLabel)}">` +
+    `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${svg}</svg>` +
+    `<span class="rail-tip"><span data-i18n="${labelKey}">${escapeHtml(defaultLabel)}</span><kbd>${escapeHtml(kbd)}</kbd></span>` +
+    "</button>";
+  const activityRail = [
+    '<nav class="activity-rail" aria-label="Views">',
+    '<div class="rail-group">',
+    railButton("changes", "tab.changes", "Changes", "⌘0", '<circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/>'),
+    railButton("files", "tab.files", "Files", "⌘1", '<path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/>'),
+    railButton("q", "rail.questions", "Questions", "⌘⇧/", '<path d="M5.5 5.5h13c.8 0 1.5.7 1.5 1.5v6.4c0 .8-.7 1.5-1.5 1.5H12l-4.5 3.6V16.4H5.5c-.8 0-1.5-.7-1.5-1.5V7c0-.8.7-1.5 1.5-1.5z"/><text x="12" y="13" text-anchor="middle" font-size="9.5" font-weight="700" fill="currentColor" stroke="none">?</text>'),
+    railButton("c", "rail.changeRequests", "Change requests", "⌘⇧.", '<path d="M14.5 5.5l4 4"/><path d="M4.5 19.5l1-4 10-10 3 3-10 10z"/>'),
+    railButton("memo", "memo.title", "Prompt memo", "⌘⇧N", '<rect x="5.5" y="4" width="13" height="16" rx="1.5"/><line x1="8.5" y1="9" x2="15.5" y2="9"/><line x1="8.5" y1="12.5" x2="15.5" y2="12.5"/><line x1="8.5" y1="16" x2="12.5" y2="16"/>'),
+    "</div>",
+    '<div class="rail-group rail-bottom">',
+    // Terminal (Electron only; #terminal-toggle stays hidden until a pty exists). Same id → the existing
+    // toggle handler + is-active sync in dock-terminal.js bind to it unchanged.
+    input.app
+      ? '<button type="button" id="terminal-toggle" class="rail-btn terminal-toggle hidden" data-i18n-aria="terminal.title" aria-label="Terminal"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg><span class="rail-tip"><span data-i18n="terminal.title">Terminal</span><kbd>⌃`</kbd></span></button>'
+      : "",
+    // Settings gear (#app-info-btn) — existing click handler binds by id.
+    '<button type="button" id="app-info-btn" class="rail-btn" aria-haspopup="dialog" data-i18n-aria="settings.title" aria-label="Settings"><span class="rail-gear" aria-hidden="true">⚙</span><span class="rail-tip"><span data-i18n="settings.title">Settings</span><kbd>⌘,</kbd></span></button>',
+    "</div>",
+    "</nav>",
+  ].join("");
 
   return [
     "<!doctype html>",
@@ -240,12 +269,13 @@ export function renderDiffHtml(input: {
     "<body>",
     // Boot overlay (removed by the renderer once bootstrap has painted) covers the blank gap after loadFile.
     '<div id="boot-overlay"><div class="boot-spinner"></div><div>monacori</div></div>',
+    activityRail,
     '<aside class="sidebar" aria-label="Review navigation">',
     '<div class="sidebar-scroll">',
-    `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-mark">monacori</span><span class="brand-project">${escapeHtml(input.projectName)}</span></div>`,
+    `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-mark">monacori</span><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name">${escapeHtml(input.branch || "")}</span></span></div>`,
     input.lazy
-      ? '<div class="tabs"><button type="button" class="tab active" data-tab="changes" data-i18n="tab.changes">Changes</button><button type="button" class="tab" data-tab="files" data-i18n="tab.files">Files</button></div>'
-      : '<div class="tabs"><button type="button" class="tab" data-tab="changes" data-i18n="tab.changes">Changes</button><button type="button" class="tab active" data-tab="files" data-i18n="tab.files">Files</button></div>',
+      ? '<div class="tabs"><button type="button" class="tab active" data-tab="changes" data-i18n="tab.changes" data-i18n-title="tab.changes.title" title="Changes (⌘0)">Changes</button><button type="button" class="tab" data-tab="files" data-i18n="tab.files" data-i18n-title="tab.files.title" title="Files (⌘1)">Files</button></div>'
+      : '<div class="tabs"><button type="button" class="tab" data-tab="changes" data-i18n="tab.changes" data-i18n-title="tab.changes.title" title="Changes (⌘0)">Changes</button><button type="button" class="tab active" data-tab="files" data-i18n="tab.files" data-i18n-title="tab.files.title" title="Files (⌘1)">Files</button></div>',
     `<div class="tab-panel${input.lazy ? "" : " hidden"}" id="changes-panel">${fileNav}</div>`,
     // Big repos: defer the (potentially huge) source tree — ship it as an inert island, materialized on
     // the first Files-tab open, so it never builds/lays-out at startup. Small repos render it inline.
@@ -253,7 +283,7 @@ export function renderDiffHtml(input: {
       ? `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
       : `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
     "</div>",
-    `<div class="sidebar-footer"><span class="app-version">monacori${packageVersion ? " v" + escapeHtml(packageVersion) : ""}</span><span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span><button type="button" id="terminal-toggle" class="settings-btn terminal-toggle hidden" data-i18n-title="terminal.toggle" title="Toggle terminal (Ctrl+\`)" aria-label="Toggle terminal"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button type="button" id="app-info-btn" class="settings-btn" aria-haspopup="dialog" data-i18n-aria="about.title" data-i18n-title="about.title" aria-label="About monacori" title="About monacori">⚙</button></div>`,
+    `<div class="sidebar-footer"><span class="app-version">monacori${packageVersion ? " v" + escapeHtml(packageVersion) : ""}</span><span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span></div>`,
     '<div id="footer-progress" class="footer-progress hidden" aria-hidden="true"><div class="footer-progress-bar"></div></div>',
     "</aside>",
     '<div class="sidebar-resizer" aria-hidden="true"></div>',
@@ -272,7 +302,7 @@ export function renderDiffHtml(input: {
     '<div class="source-file-meta"><span id="source-type-icon" class="source-type-icon" aria-hidden="true"></span><span id="source-title" data-i18n="source.title">Source</span><span id="source-meta" data-i18n="source.selectFile">Select a file from the Files tab.</span></div>',
     '<select id="http-env-select" class="http-env-select hidden" data-i18n-title="http.env.title" data-i18n-aria="http.env.aria" title="HTTP Client environment" aria-label="HTTP environment"></select>',
     '<button type="button" id="render-toggle" class="plain-button hidden" aria-pressed="false">Raw</button>',
-    '<button type="button" id="back-to-diff" class="plain-button" data-i18n="btn.diff">Diff</button>',
+    '<button type="button" id="back-to-diff" class="plain-button" data-i18n="btn.diff" data-i18n-title="btn.diff.title" title="Back to diff (F7)">Diff</button>',
     "</div>",
     '<div id="source-body" class="source-body empty" data-i18n="source.selectFile">Select a file from the Files tab.</div>',
     "</section>",
@@ -284,7 +314,7 @@ export function renderDiffHtml(input: {
       : "",
     '<div id="quick-open" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="quickopen.aria" aria-label="Quick open">',
     '<div class="quick-open-panel">',
-    '<div class="quick-open-title"><span id="quick-open-mode" data-i18n="quickopen.searchFiles">Search files</span></div>',
+    '<div class="quick-open-title"><span id="quick-open-mode" data-i18n="quickopen.searchFiles">Search files</span><span id="quick-open-filter" class="quick-open-filter"></span></div>',
     '<input id="quick-open-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.searchFiles" placeholder="Search files">',
     '<div id="quick-open-results" class="quick-open-results"></div>',
     '<div id="quick-open-preview" class="quick-open-preview"></div>',
@@ -308,49 +338,63 @@ export function renderDiffHtml(input: {
     '<button type="button" id="settings-language" class="settings-select mc-select" data-i18n-aria="settings.language"></button>',
     '<label class="settings-label" for="settings-theme" data-i18n="settings.theme">Theme</label>',
     '<button type="button" id="settings-theme" class="settings-select mc-select" data-i18n-aria="settings.theme"></button>',
+    '<label class="settings-check"><input type="checkbox" id="set-bell-notify"><span data-i18n="settings.bellNotify">Notify when a terminal task finishes (bell)</span></label>',
     '<div class="app-info-keys">' +
     '<div class="app-info-keys-h" data-i18n="settings.kbd.title">Keyboard shortcuts</div>' +
+    '<div class="keys-cat" data-i18n="settings.kbd.cat.app">App</div>' +
+    '<div class="keys-grid">' +
+    '<kbd>⌘O</kbd><span data-i18n="kbd.openFolder">Open folder</span>' +
+    '<kbd>⌘⇧O</kbd><span data-i18n="kbd.openNewWindow">Open in new window</span>' +
+    '<kbd>⌘,</kbd><span data-i18n="kbd.openSettings">Settings</span>' +
+    '<kbd>Esc</kbd><span data-i18n="kbd.closeDialog">Close dialog / cancel</span>' +
+    '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.nav">Navigation</div>' +
     '<div class="keys-grid">' +
     '<kbd>F7</kbd><span data-i18n="kbd.nextChange">Next change</span>' +
-    '<kbd>Shift+F7</kbd><span data-i18n="kbd.prevChange">Previous change</span>' +
-    '<kbd>Cmd/Ctrl+1 / 0</kbd><span data-i18n="kbd.filesChangesTab">Files / Changes tab</span>' +
+    '<kbd>⇧F7</kbd><span data-i18n="kbd.prevChange">Previous change</span>' +
+    '<kbd>⌘1 / ⌘0</kbd><span data-i18n="kbd.filesChangesTab">Files / Changes tab</span>' +
     '<kbd>Tab</kbd><span data-i18n="kbd.sidebarContent">Sidebar &harr; content</span>' +
-    '<kbd>Shift Shift</kbd><span data-i18n="kbd.findFile">Find file</span>' +
-    '<kbd>Cmd/Ctrl+Shift+F</kbd><span data-i18n="kbd.findInFiles">Find in files</span>' +
-    '<kbd>Cmd/Ctrl+E</kbd><span data-i18n="kbd.recentFiles">Recent files</span>' +
-    '<kbd>Cmd/Ctrl+B</kbd><span data-i18n="kbd.defUsages">Definition / usages</span>' +
-    '<kbd>Cmd/Ctrl+&darr;</kbd><span data-i18n="kbd.goToDef">Go to definition</span>' +
-    '<kbd>Cmd/Ctrl+Shift+[ / ]</kbd><span data-i18n="kbd.prevNextTab">Prev / next tab</span>' +
-    '<kbd>Cmd/Ctrl+[ / ]</kbd><span data-i18n="kbd.cursorBackForward">Cursor back / forward</span>' +
-    '<kbd>Opt/Alt+&larr;/&rarr;</kbd><span data-i18n="kbd.wordJump">Word jump (vim w)</span>' +
-    '<kbd>Cmd/Ctrl+&larr;/&rarr;</kbd><span data-i18n="kbd.lineStartEnd">Line start / end</span>' +
-    '<kbd>Shift+arrows</kbd><span data-i18n="kbd.extendSelection">Extend selection</span>' +
-    '<kbd>Cmd/Ctrl+W</kbd><span data-i18n="kbd.closeTab">Close tab</span>' +
+    '<kbd>⇧ ⇧</kbd><span data-i18n="kbd.findFile">Find file</span>' +
+    '<kbd>⌘⇧F</kbd><span data-i18n="kbd.findInFiles">Find in files</span>' +
+    '<kbd>⌘E</kbd><span data-i18n="kbd.recentFiles">Recent files</span>' +
+    '<kbd>⌘B</kbd><span data-i18n="kbd.defUsages">Definition / usages</span>' +
+    '<kbd>⌘&darr;</kbd><span data-i18n="kbd.goToDef">Go to definition</span>' +
+    '<kbd>⌘⇧[ / ]</kbd><span data-i18n="kbd.prevNextTab">Prev / next tab</span>' +
+    '<kbd>⌘[ / ]</kbd><span data-i18n="kbd.cursorBackForward">Cursor back / forward</span>' +
+    '<kbd>⌥&larr;/&rarr;</kbd><span data-i18n="kbd.wordJump">Word jump (vim w)</span>' +
+    '<kbd>⌘&larr;/&rarr;</kbd><span data-i18n="kbd.lineStartEnd">Line start / end</span>' +
+    '<kbd>⇧&larr;&uarr;&darr;&rarr;</kbd><span data-i18n="kbd.extendSelection">Extend selection</span>' +
+    '<kbd>PageUp / PageDown</kbd><span data-i18n="kbd.pageUpDown">Page up / down</span>' +
+    '<kbd>⌘Enter / ⌥Enter</kbd><span data-i18n="kbd.runHttp">Run HTTP request (.http)</span>' +
+    '<kbd>⌘W</kbd><span data-i18n="kbd.closeTab">Close tab</span>' +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.review">Review</div>' +
     '<div class="keys-grid">' +
     '<kbd>&lt;</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed</span>' +
     '<kbd>? &nbsp;&gt;</kbd><span data-i18n="kbd.addQuestionChange">Add question / change</span>' +
-    '<kbd>Cmd/Ctrl+Shift+/ .</kbd><span data-i18n="kbd.allQuestionsChanges">All questions / changes</span>' +
-    '<kbd>Cmd/Ctrl+Shift+W</kbd><span data-i18n="kbd.ignoreWhitespace">Ignore whitespace</span>' +
-    '<kbd>Cmd/Ctrl+Enter</kbd><span data-i18n="kbd.saveComment">Save comment</span>' +
-    '<kbd>Cmd/Ctrl+Shift+N</kbd><span data-i18n="kbd.promptMemo">Prompt memo</span>' +
-    '<kbd>Cmd/Ctrl+Shift+&#39;</kbd><span data-i18n="kbd.maximizePanel">Maximize panel</span>' +
+    '<kbd>⌘⇧/ .</kbd><span data-i18n="kbd.allQuestionsChanges">All questions / changes</span>' +
+    '<kbd>⌘⇧W</kbd><span data-i18n="kbd.ignoreWhitespace">Ignore whitespace</span>' +
+    '<kbd>⌘Enter</kbd><span data-i18n="kbd.saveComment">Save comment</span>' +
+    '<kbd>e</kbd><span data-i18n="kbd.editComment">Edit comment (when selected)</span>' +
+    '<kbd>Backspace / Delete</kbd><span data-i18n="kbd.deleteComment">Delete comment (when selected)</span>' +
+    '<kbd>⌥&uarr;/&darr;</kbd><span data-i18n="kbd.stepComments">Step between comments (merged)</span>' +
+    '<kbd>⌥Enter</kbd><span data-i18n="kbd.mergedSend">Comment menu / send to pane (merged)</span>' +
+    '<kbd>⌘⇧N</kbd><span data-i18n="kbd.promptMemo">Prompt memo</span>' +
+    '<kbd>⌘⇧&#39;</kbd><span data-i18n="kbd.maximizePanel">Maximize panel</span>' +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.terminal">Terminal</div>' +
     '<div class="keys-grid">' +
-    '<kbd>Ctrl+`</kbd><span data-i18n="kbd.toggleTerminal">Toggle terminal</span>' +
-    '<kbd>Cmd/Ctrl+D</kbd><span data-i18n="kbd.splitPane">Split pane</span>' +
-    '<kbd>Cmd/Ctrl+Alt+[ / ]</kbd><span data-i18n="kbd.focusPane">Focus prev / next pane</span>' +
-    '<kbd>Cmd/Ctrl+Alt+R</kbd><span data-i18n="kbd.renamePane">Rename pane</span>' +
-    '<kbd>Cmd/Ctrl+W</kbd><span data-i18n="kbd.closeTerminal">Close terminal (when focused)</span>' +
+    '<kbd>⌃` / ⌥F12</kbd><span data-i18n="kbd.toggleTerminal">Toggle terminal</span>' +
+    '<kbd>⌘D</kbd><span data-i18n="kbd.splitPane">Split pane</span>' +
+    '<kbd>⌘⌥[ / ]</kbd><span data-i18n="kbd.focusPane">Focus prev / next pane</span>' +
+    '<kbd>⌘⌥R</kbd><span data-i18n="kbd.renamePane">Rename pane</span>' +
+    '<kbd>⌘W</kbd><span data-i18n="kbd.closeTerminal">Close terminal (when focused)</span>' +
     '</div>' +
     '</div>',
     "</section>",
     '<section class="settings-section hidden" data-cat="prompts">',
     '<div class="settings-h" data-i18n="mergePrompts.title">Merge prompts</div>',
-    '<div class="settings-desc" data-i18n="mergePrompts.desc">Heading prepended to the merged prompt opened with Cmd/Ctrl+Shift+/ (questions) and Cmd/Ctrl+Shift+. (change requests). Leave blank to use the default.</div>',
+    '<div class="settings-desc" data-i18n="mergePrompts.desc">Heading prepended to the merged prompt opened with ⌘⇧/ (questions) and ⌘⇧. (change requests). Leave blank to use the default.</div>',
     '<label class="settings-label" for="settings-prompt-q" data-i18n="mergePrompts.qHeading">Questions heading</label>',
     '<textarea id="settings-prompt-q" class="settings-textarea" rows="4" spellcheck="false"></textarea>',
     '<label class="settings-label" for="settings-prompt-c" data-i18n="mergePrompts.cHeading">Change-requests heading</label>',

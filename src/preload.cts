@@ -72,12 +72,21 @@ contextBridge.exposeInMainWorld("monacoriPty", {
   write: (msg: { id: number; data: string }): void => ipcRenderer.send("monacori:pty-write", msg),
   resize: (msg: { id: number; cols: number; rows: number }): void => ipcRenderer.send("monacori:pty-resize", msg),
   kill: (msg: { id: number }): void => ipcRenderer.send("monacori:pty-kill", msg),
+  // A TUI in the pane rang the terminal bell (e.g. Claude Code finished a turn / needs input). The renderer
+  // passes a pre-localized title+body; the main process decides whether to raise a native notification.
+  bell: (msg: { title: string; body: string }): void => ipcRenderer.send("monacori:bell", msg),
   onData: (cb: (msg: { id: number; data: string }) => void): void => {
     ipcRenderer.on("monacori:pty-data", (_event, msg: { id: number; data: string }) => cb(msg));
   },
   onExit: (cb: (msg: { id: number }) => void): void => {
     ipcRenderer.on("monacori:pty-exit", (_event, msg: { id: number }) => cb(msg));
   },
+});
+
+// Clipboard bridge — the integrated terminal copies its own selection on Cmd+C (xterm doesn't auto-copy, and
+// the sandboxed renderer's navigator.clipboard is unreliable on file://). Electron's clipboard always works here.
+contextBridge.exposeInMainWorld("monacoriClipboard", {
+  write: (text: string): void => clipboard.writeText(typeof text === "string" ? text : String(text)),
 });
 
 // Global settings (locale, …) persisted by the main process under userData so they survive app

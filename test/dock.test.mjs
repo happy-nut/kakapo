@@ -1,8 +1,8 @@
 // CORE USER FLOW: the bottom dock (merged-prompt / memo / terminal share ONE docked slot below the editor).
 //
-// The merged views and the memo are docked panels (not floating overlays). Only one dock is visible at a
-// time — opening one closes the others — and Cmd/Ctrl+Shift+' maximizes the active dock over the editor area
-// (the sidebar stays). Guards that wiring: panel-not-overlay, exclusive slot, toggle, and maximize/restore.
+// The merged views and the memo open as large FLOATING panels (.dock-panel + a dim .dock-backdrop, ~90% of
+// the window), sharing ONE slot — opening one closes the others — and Cmd/Ctrl+Shift+' maximizes the active
+// panel to full screen. Guards that wiring: floating panel + backdrop, exclusive slot, toggle, maximize/restore.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -16,11 +16,13 @@ before(async () => {
 });
 after(cleanupFixtures);
 
-test("merged view opens as a docked panel, not a floating overlay", async () => {
+test("merged view opens as a large floating panel (.dock-panel + backdrop), not the old inline dock/modal", async () => {
   const v = await loadViewer(html);
   await v.openMergedView("q");
   assert.ok(v.$("#mc-merged-panel.dock-panel"), "merged opens as a .dock-panel");
-  assert.equal(v.$("#mc-modal"), null, "no floating overlay is created");
+  assert.ok(v.$(".dock-backdrop"), "a dim backdrop sits behind the floating panel");
+  assert.ok(v.window.document.body.classList.contains("floating-dock"), "body.floating-dock scopes the floating + maximize CSS");
+  assert.equal(v.$("#mc-modal"), null, "not the old .mc-modal overlay");
   v.close();
 });
 

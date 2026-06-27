@@ -2,9 +2,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification } from "electron";
 import { buildDiffReview, performHttpRequest, type HttpSendRequest } from "./cli.js";
-import { sanitizeTerminalEnv } from "./util.js";
+import { sanitizeTerminalEnv, ensureUtf8Locale } from "./util.js";
 import { readUnifiedDiff } from "./diff.js";
 import { isGitRepository } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
@@ -206,11 +206,13 @@ ipcMain.handle("monacori:pty-spawn", (event, size: { cols?: number; rows?: numbe
   const id = ++nextPtyId;
   const shell = process.env.SHELL || (process.platform === "win32" ? "powershell.exe" : "/bin/zsh");
   const t = spawnPty(shell, [], {
-    name: "xterm-color",
+    // 256-color terminfo + COLORTERM=truecolor so TUIs (e.g. Claude Code's coral logo) emit 24-bit color and
+    // xterm.js renders the exact hue. "xterm-color" is 8-color, which downgraded the orange logo to ANSI red.
+    name: "xterm-256color",
     cols: size?.cols ?? 80,
     rows: size?.rows ?? 24,
     cwd: state.options.root,
-    env: sanitizeTerminalEnv(process.env),
+    env: ensureUtf8Locale({ ...sanitizeTerminalEnv(process.env), TERM: "xterm-256color", COLORTERM: "truecolor" }),
   });
   state.terms.set(id, t);
   // Guard every relay with isDestroyed(): a pty can outlive its window (close races pty teardown), and
@@ -232,6 +234,23 @@ ipcMain.on("monacori:pty-kill", (event, msg: { id: number }) => {
   const state = stateFromEvent(event);
   const t = state?.terms.get(msg?.id);
   if (t) { try { t.kill(); } catch { /* already exited */ } state!.terms.delete(msg.id); }
+});
+
+// A TUI in the integrated terminal rang the bell (e.g. Claude Code finished a turn / needs input). Raise a
+// native notification when the window ISN'T focused — while you're watching, the bell itself is enough — plus
+// a dock bounce / taskbar flash. Clicking the notification brings the window forward.
+ipcMain.on("monacori:bell", (event, msg: { title?: string; body?: string }) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed() || win.isFocused()) return;
+  try {
+    if (Notification.isSupported()) {
+      const note = new Notification({ title: msg?.title || "monacori", body: msg?.body || "Terminal task finished" });
+      note.on("click", () => { if (!win.isDestroyed()) { win.show(); win.focus(); } });
+      note.show();
+    }
+  } catch { /* notifications are best-effort */ }
+  try { win.flashFrame(true); } catch { /* taskbar flash — Windows/Linux */ }
+  if (process.platform === "darwin" && app.dock) { try { app.dock.bounce("informational"); } catch { /* best-effort */ } }
 });
 
 // Persisted global settings (locale, …) live in a JSON file under userData and reach the renderer
@@ -318,6 +337,7 @@ app.on("window-all-closed", () => {
 
 // Keep the Ignore-whitespace menu checkbox honest as focus moves between windows (it's per-window state).
 app.on("browser-window-focus", (_event, win) => {
+  try { win.flashFrame(false); } catch { /* stop any terminal-bell taskbar flash once the user is back */ }
   const state = states.get(win.id);
   const item = Menu.getApplicationMenu()?.getMenuItemById("ignore-whitespace");
   if (item && state) item.checked = state.options.ignoreWhitespace;

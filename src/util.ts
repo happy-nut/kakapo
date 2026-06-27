@@ -170,3 +170,22 @@ export function sanitizeTerminalEnv(env: NodeJS.ProcessEnv): { [key: string]: st
   }
   return out;
 }
+
+// GUI launches (Finder double-click, Spotlight, the `mo` relauncher) often start with no LANG/LC_* at
+// all, so the pty's shell — and tools it runs, notably git's `less` pager — fall back to the C locale and
+// render UTF-8 text (e.g. Korean commit messages) as escaped bytes like "<EA><B5><AD>". Force a UTF-8
+// codeset unless the inherited locale already is one. Mutates and returns the given object.
+export function ensureUtf8Locale(env: { [key: string]: string }): { [key: string]: string } {
+  const isUtf8 = (value?: string): boolean => !!value && /utf-?8/i.test(value);
+  // LC_ALL overrides LANG and every LC_* category; a non-UTF-8 LC_ALL (e.g. "C") would defeat the LANG we
+  // set below, so drop it and let LANG win.
+  if (env.LC_ALL && !isUtf8(env.LC_ALL)) delete env.LC_ALL;
+  if (isUtf8(env.LC_ALL) || isUtf8(env.LC_CTYPE) || isUtf8(env.LANG)) return env;
+  // Same reasoning for a stray non-UTF-8 LC_CTYPE — it overrides LANG for character handling.
+  if (env.LC_CTYPE && !isUtf8(env.LC_CTYPE)) delete env.LC_CTYPE;
+  // Preserve the user's region when LANG names a real locale (ko_KR -> ko_KR.UTF-8); otherwise (C/POSIX/
+  // empty) fall back to en_US.UTF-8, which always exists on macOS.
+  const base = env.LANG && /^[A-Za-z]{2}_[A-Za-z]{2}/.test(env.LANG) ? env.LANG.split(".")[0] : "en_US";
+  env.LANG = base + ".UTF-8";
+  return env;
+}

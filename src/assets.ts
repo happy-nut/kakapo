@@ -30,7 +30,13 @@ export function diffCss(): string {
 }
 
 export function diffScript(): string {
-  return readViewerAsset("viewer.client.js");
+  // Prefer the minified bundle the build emits (smaller inlined <script>); fall back to the readable concat
+  // when minify was skipped (e.g. terser unavailable).
+  try {
+    return readViewerAsset("viewer.client.min.js");
+  } catch {
+    return readViewerAsset("viewer.client.js");
+  }
 }
 
 // xterm.js (terminal renderer) for the integrated terminal panel. UMD bundles that expose

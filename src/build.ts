@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import type { DiffReviewBuild } from "./types.js";
-import { isGitRepository } from "./git.js";
+import { isGitRepository, git } from "./git.js";
 import { collectHttpEnvironments, collectReviewFileStates, collectSourceFiles, parseUnifiedDiff, readUnifiedDiff } from "./diff.js";
 import { renderDiff2Html } from "./highlight.js";
 import { diffSubtitle, renderDiffHtml, renderDiffTree, renderNotGitRepoHtml, renderReviewStatus, renderSourceTree, shouldLazyRender, splitDiffForLazy } from "./render.js";
@@ -43,6 +43,8 @@ export function buildDiffReview(input: {
   const httpEnvironments = collectHttpEnvironments(root);
   const hunks = files.reduce((sum, file) => sum + file.hunks.length, 0);
   const generatedAt = new Date().toISOString();
+  // Current branch for the sidebar chip (empty on a detached HEAD); refreshed in the watch payload too.
+  const branch = git(root, ["branch", "--show-current"]);
   const diffHtml = renderDiff2Html(diffText);
   const totalLines = files.reduce((sum, file) => sum + file.hunks.reduce((t, h) => t + h.lines.length, 0), 0);
   // lazy-LOAD (Phase 2) serves each file body + source on demand instead of embedding them; it implies
@@ -75,6 +77,7 @@ export function buildDiffReview(input: {
     subtitle: diffSubtitle(input),
     projectName: basename(root),
     projectPath: root,
+    branch,
     watch: Boolean(input.watch),
     ignoreWhitespace: Boolean(input.ignoreWhitespace),
     app: Boolean(input.app),
@@ -87,6 +90,7 @@ export function buildDiffReview(input: {
   const update = {
     signature,
     generatedAt,
+    branch,
     diffContainer: diffSplit.container || '<div class="empty" data-i18n="diff.noDiff">No diff to review.</div>',
     changesPanel: renderDiffTree(files),
     filesTree: renderSourceTree(sourceFiles),
