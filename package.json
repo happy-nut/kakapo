@@ -1,6 +1,6 @@
 {
   "name": "@happy-nut/monacori",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "description": "Validation control plane for AI-generated code changes.",
   "type": "module",
   "main": "dist/app-main.js",
