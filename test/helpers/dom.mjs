@@ -36,6 +36,12 @@ export async function loadViewer(html, opts = {}) {
           }
         }
       }
+      if (opts.seedSession) {
+        // sessionStorage holds the UI restore state (open tabs, view, caret) — seed it to simulate "reopen".
+        for (const [k, val] of Object.entries(opts.seedSession)) {
+          try { window.sessionStorage.setItem(k, val); } catch { /* not ready */ }
+        }
+      }
       const noopObserver = class {
         observe() {}
         unobserve() {}

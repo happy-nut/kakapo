@@ -106,15 +106,21 @@ function restoreUiState() {
       }
       return true;
     }
-    if (state.sourcePath && sourceByPath.has(state.sourcePath)) {
-      openSourceFile(state.sourcePath);
+    // Source view. Open the saved file — or fall back to the first restored tab when that file is gone
+    // (filtered out above) or wasn't recorded. Otherwise we'd render the tab bar but leave the body on its
+    // "select a file" placeholder, which looks broken (a tab is clearly open). No openable tab → drop the
+    // stale tabs and let the init fallback pick a sensible default.
+    var openPath = (state.sourcePath && sourceByPath.has(state.sourcePath)) ? state.sourcePath : (sourceTabs[0] || '');
+    if (openPath) {
+      openSourceFile(openPath);
       // Restore the exact source caret/scroll (openSourceFile alone resets it to the top).
-      if (state.viewerCursor && state.viewerCursor.path === state.sourcePath) {
+      if (state.viewerCursor && state.viewerCursor.path === openPath) {
         var vc = state.viewerCursor;
-        setTimeout(function () { try { setSourceCursor(state.sourcePath, vc.lineIndex, vc.column, true, -1); } catch (e) {} }, 60);
+        setTimeout(function () { try { setSourceCursor(openPath, vc.lineIndex, vc.column, true, -1); } catch (e) {} }, 60);
       }
       return true;
     }
+    sourceTabs = [];
   } catch {
     sessionStorage.removeItem(uiStateKey);
   }
