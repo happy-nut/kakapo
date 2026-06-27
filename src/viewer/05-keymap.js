@@ -3,6 +3,7 @@ function isFloatingModalOpen() {
   if (sm && !sm.classList.contains('hidden')) return true;
   var hv = document.getElementById('history-view');
   if (hv && !hv.classList.contains('hidden')) return true; // history overlay owns the keys (Esc/filter/click)
+  if (document.getElementById('goto-line')) return true; // go-to-line prompt owns the keys until Enter/Esc
   // The merged/memo panels are now docked (inline), not overlays — but while one OWNS focus we still stand
   // down the global nav shortcuts so typing / ▲▼ inside it isn't hijacked. Focus elsewhere -> shortcuts run.
   return isDockFocused();
@@ -61,6 +62,24 @@ document.addEventListener('keydown', (event) => {
     setTab('files');
     focusOpenFileInTree();
     return;
+  }
+  // Cmd/Ctrl+L = go to line (numeric prompt); Cmd/Ctrl+K = copy the caret's file:line. Skip when an
+  // editable field owns focus (a comment composer textarea) so we don't hijack the user's typing.
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.key === 'l' || event.key === 'L')) {
+    var lkae = document.activeElement;
+    if (!(lkae && (lkae.tagName === 'INPUT' || lkae.tagName === 'TEXTAREA' || lkae.tagName === 'SELECT'))) {
+      event.preventDefault();
+      openGotoLine();
+      return;
+    }
+  }
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.key === 'k' || event.key === 'K')) {
+    var kkae = document.activeElement;
+    if (!(kkae && (kkae.tagName === 'INPUT' || kkae.tagName === 'TEXTAREA' || kkae.tagName === 'SELECT'))) {
+      event.preventDefault();
+      copyCaretLocation();
+      return;
+    }
   }
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === '0') {
     event.preventDefault();

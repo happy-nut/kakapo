@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, shell } from "electron";
 import { buildDiffReview, performHttpRequest, type HttpSendRequest } from "./cli.js";
 import { sanitizeTerminalEnv, ensureUtf8Locale } from "./util.js";
 import { readGitLog, readCommitDiff } from "./git-log.js";
@@ -138,6 +138,26 @@ ipcMain.handle("monacori:git-commit-diff", (event, request: { sha?: string }) =>
   const state = stateFromEvent(event);
   if (!state || !request?.sha) return null;
   try { return readCommitDiff(state.options.root, request.sha); } catch { return null; }
+});
+
+// Sidebar row actions (Opt+Enter menu): reveal a file in Finder / open a terminal at its directory.
+// `path` is repo-root-relative (the tree's data-source-file / data-file), resolved against this window's root.
+ipcMain.handle("monacori:reveal-in-finder", (event, request: { path?: string }) => {
+  const state = stateFromEvent(event);
+  if (!state || !request?.path) return { ok: false };
+  try { shell.showItemInFolder(join(state.options.root, request.path)); return { ok: true }; }
+  catch (e) { return { ok: false, error: String(e) }; }
+});
+ipcMain.handle("monacori:open-terminal-at", (event, request: { path?: string }) => {
+  const state = stateFromEvent(event);
+  if (!state || !request?.path) return { ok: false };
+  const dir = dirname(join(state.options.root, request.path)); // the file's containing directory
+  try {
+    if (process.platform === "darwin") spawn("open", ["-a", "Terminal", dir], { detached: true, stdio: "ignore" }).unref();
+    else if (process.platform === "win32") spawn("cmd", ["/c", "start", "cmd", "/k", `cd /d "${dir}"`], { detached: true, stdio: "ignore", shell: true }).unref();
+    else spawn("x-terminal-emulator", [], { cwd: dir, detached: true, stdio: "ignore" }).unref();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: String(e) }; }
 });
 
 // Welcome screen's "Open Folder" button: pick a directory; load it into the window that asked if it's a

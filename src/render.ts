@@ -350,6 +350,9 @@ export function renderDiffHtml(input: {
     '<kbd>⌘O</kbd><span data-i18n="kbd.openFolder">Open folder</span>' +
     '<kbd>⌘⇧O</kbd><span data-i18n="kbd.openNewWindow">Open in new window</span>' +
     '<kbd>⌘,</kbd><span data-i18n="kbd.openSettings">Settings</span>' +
+    '<kbd>⌘L</kbd><span data-i18n="kbd.gotoLine">Go to line</span>' +
+    '<kbd>⌘K</kbd><span data-i18n="kbd.copyLocation">Copy file:line</span>' +
+    '<kbd>⌥Enter</kbd><span data-i18n="kbd.rowActions">Sidebar file actions (path / Finder / terminal)</span>' +
     '<kbd>Esc</kbd><span data-i18n="kbd.closeDialog">Close dialog / cancel</span>' +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.nav">Navigation</div>' +

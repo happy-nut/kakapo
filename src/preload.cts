@@ -67,6 +67,9 @@ contextBridge.exposeInMainWorld("monacoriApp", {
   openFolder: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("monacori:open-folder"),
   // Welcome screen's Recent Projects: open a remembered repo path in the current window.
   openRecent: (path: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("monacori:open-recent", { path }),
+  // Sidebar Opt+Enter menu: reveal a file in Finder, or open a terminal at its directory.
+  revealInFinder: (path: string): Promise<unknown> => ipcRenderer.invoke("monacori:reveal-in-finder", { path }),
+  openTerminalAt: (path: string): Promise<unknown> => ipcRenderer.invoke("monacori:open-terminal-at", { path }),
 });
 
 

@@ -127,6 +127,11 @@ function handleTreeKey(event) {
   if (event.key === 'ArrowUp') { event.preventDefault(); focusTree(treeFocusIndex - 1); return true; }
   if (event.key === 'PageDown') { event.preventDefault(); focusTree(treeFocusIndex + treePageSize()); return true; }
   if (event.key === 'PageUp') { event.preventDefault(); focusTree(treeFocusIndex - treePageSize()); return true; }
+  if (event.key === 'Enter' && event.altKey) {
+    event.preventDefault();
+    if (row && typeof openTreeRowMenu === 'function') openTreeRowMenu(row); // copy path / Finder / terminal
+    return true;
+  }
   if (event.key === 'Enter') {
     event.preventDefault();
     if (row && row.classList.contains('file-link')) { row.click(); clearTreeFocus(); }

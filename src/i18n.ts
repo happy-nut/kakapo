@@ -28,6 +28,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "history.selectCommit": "Select a commit to view its changes.",
     "history.merge": "Merge commit — no single-parent diff to show.",
     "history.noDiff": "No changes in this commit.",
+    "goto.placeholder": "Go to line…",
+    "goto.copied": "Copied",
+    "menu.copyPath": "Copy path",
+    "menu.revealFinder": "Reveal in Finder",
+    "menu.openTerminal": "Open terminal here",
 
     // Sidebar footer / About
     "sidebar.updateAvailable": "update available",
@@ -109,6 +114,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.kbd.cat.terminal": "Terminal",
 
     // Settings — keyboard-shortcut labels (descriptions only; <kbd> key names stay literal)
+    "kbd.gotoLine": "Go to line",
+    "kbd.copyLocation": "Copy file:line",
+    "kbd.rowActions": "Sidebar file actions (path / Finder / terminal)",
     "kbd.openFolder": "Open folder",
     "kbd.openNewWindow": "Open in new window",
     "kbd.openSettings": "Settings",
@@ -205,6 +213,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "history.selectCommit": "커밋을 선택하면 변경 내용이 표시됩니다.",
     "history.merge": "머지 커밋 — 표시할 단일 부모 diff가 없습니다.",
     "history.noDiff": "이 커밋에는 변경이 없습니다.",
+    "goto.placeholder": "이동할 줄 번호…",
+    "goto.copied": "복사함",
+    "menu.copyPath": "경로 복사",
+    "menu.revealFinder": "Finder에서 열기",
+    "menu.openTerminal": "여기서 터미널 열기",
     "tab.changes.title": "변경사항 (⌘0)",
     "tab.files.title": "파일 (⌘1)",
 
@@ -288,6 +301,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.kbd.cat.terminal": "터미널",
 
     // Settings — keyboard-shortcut labels
+    "kbd.gotoLine": "줄로 이동",
+    "kbd.copyLocation": "파일:줄 복사",
+    "kbd.rowActions": "사이드바 파일 작업 (경로 / Finder / 터미널)",
     "kbd.openFolder": "폴더 열기",
     "kbd.openNewWindow": "새 창에서 열기",
     "kbd.openSettings": "설정",
