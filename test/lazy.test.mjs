@@ -155,3 +155,45 @@ test("lazy-LOAD: a watch refresh keeps an UNCHANGED file's body (no blank, no re
   assert.ok(!fetched.includes(aIdx), "unchanged a.ts body served from the snapshot, NOT re-fetched over IPC");
   v.close();
 });
+
+// FLICKER-SAVER: when an OFF-SCREEN file changes but the file you're viewing doesn't (same file set+order),
+// applyDiffUpdate must reconcile per-file — keeping the viewed file's exact DOM node (no re-render/flicker)
+// and swapping only the changed off-screen wrapper.
+test("lazy: off-screen change preserves the viewed file's wrapper node, swaps only the changed one", async () => {
+  const b1 = await makeReviewHtml(
+    [
+      { path: "src/a.ts", before: "const a = 1;\n", after: "const a = 1; // AAA\n" },
+      { path: "src/b.ts", before: "const b = 2;\n", after: "const b = 2; // BBB\n" },
+    ],
+    { lazyLoad: true },
+  );
+  let bodies = b1.build.lazyBodies || [];
+  const v = await loadViewer(b1.html, {
+    menuBridge: true,
+    lazySourceData: b1.build.lazySourceData,
+    getDiffBody: (idx) => bodies[idx] || "",
+  });
+  await v.openDiffFor("src/a.ts");
+  await v.settle(120);
+  const aBefore = v.$('#diff2html-container .d2h-file-wrapper[data-path="src/a.ts"]');
+  const bBefore = v.$('#diff2html-container .d2h-file-wrapper[data-path="src/b.ts"]');
+  assert.ok(aBefore && bBefore, "both wrappers exist");
+
+  // Watch: a.ts byte-identical, only b.ts changes.
+  const b2 = await makeReviewHtml(
+    [
+      { path: "src/a.ts", before: "const a = 1;\n", after: "const a = 1; // AAA\n" },     // unchanged
+      { path: "src/b.ts", before: "const b = 2;\n", after: "const b = 2; // BBB-CHANGED\n" }, // changed
+    ],
+    { lazyLoad: true },
+  );
+  bodies = b2.build.lazyBodies || [];
+  await v.pushDiffUpdate(b2.build.update);
+  await v.settle(120);
+
+  const aAfter = v.$('#diff2html-container .d2h-file-wrapper[data-path="src/a.ts"]');
+  const bAfter = v.$('#diff2html-container .d2h-file-wrapper[data-path="src/b.ts"]');
+  assert.equal(aAfter, aBefore, "viewed file's wrapper is the SAME DOM node — no flicker");
+  assert.notEqual(bAfter, bBefore, "changed off-screen file's wrapper was swapped");
+  v.close();
+});

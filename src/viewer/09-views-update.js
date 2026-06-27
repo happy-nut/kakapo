@@ -141,6 +141,45 @@ function flushPendingDiffUpdate() {
   pendingDiffUpdate = null;
   try { applyDiffUpdate(u); } catch (e) {}
 }
+// Flicker-saver for the live-watch refresh. The default path replaces the WHOLE diff DOM
+// (container.innerHTML = …), which re-renders the file you're looking at even when only an OFF-SCREEN file
+// changed. When the file set AND order are identical, reconcile per-file instead: keep every unchanged
+// wrapper's DOM node untouched (no flicker — including the visible one) and swap only the changed wrappers,
+// which are off-screen so the swap is invisible. Returns false (caller does the full innerHTML swap) for the
+// risky cases — files added/removed/reordered — so that proven path still handles index-shift correctly.
+function reconcileDiffWrappers(container, newDiffHtml, oldSigByPath, newSigByPath) {
+  var oldW = Array.prototype.slice.call(container.querySelectorAll('.d2h-file-wrapper'));
+  if (!oldW.length) return false;
+  var tmp = document.createElement('div');
+  tmp.innerHTML = newDiffHtml;
+  var newW = Array.prototype.slice.call(tmp.querySelectorAll('.d2h-file-wrapper'));
+  if (newW.length !== oldW.length) return false; // add/remove → full swap (global hunk indices shift)
+  for (var i = 0; i < oldW.length; i++) {
+    if (diffWrapperPathKey(oldW[i]) !== diffWrapperPathKey(newW[i])) return false; // reordered → full swap
+  }
+  for (var j = 0; j < oldW.length; j++) {
+    var ow = oldW[j], nw = newW[j], p = diffWrapperPathKey(ow);
+    if ((oldSigByPath.get(p) || '') !== (newSigByPath.get(p) || '')) {
+      // Changed file (off-screen): drop in the fresh shell and clear its cached body so it refetches the
+      // new content when it next scrolls into view. Replacing an off-screen node is invisible.
+      var nidx = (nw.id || '').replace('file-', '');
+      delete bodyCache[nidx];
+      delete bodyPromise[nidx];
+      ow.parentNode.replaceChild(nw, ow);
+    } else {
+      // Unchanged file: keep its DOM node (no flicker). An earlier file's changed hunk count can shift the
+      // global numbering, so sync the index attrs and renumber a materialized body's hunk ids (id/class
+      // changes only — invisible, no flicker).
+      var baseChanged = ow.getAttribute('data-first-hunk') !== nw.getAttribute('data-first-hunk');
+      ow.id = nw.id;
+      if (nw.hasAttribute('data-first-hunk')) ow.setAttribute('data-first-hunk', nw.getAttribute('data-first-hunk'));
+      if (nw.hasAttribute('data-hunk-count')) ow.setAttribute('data-hunk-count', nw.getAttribute('data-hunk-count'));
+      var body = ow.querySelector('.d2h-files-diff');
+      if (baseChanged && body && !body.hasAttribute('data-lazy')) markWrapperHunks(ow);
+    }
+  }
+  return true;
+}
 function applyDiffUpdate(u) {
   if (!u || !u.signature || u.signature === currentSignature) return false; // unchanged — nothing to do
   if (composerState) { pendingDiffUpdate = u; return false; } // composing a comment — hold the refresh until close/save
@@ -160,11 +199,19 @@ function applyDiffUpdate(u) {
   // open file's signature BEFORE fileSignatureByPath is rebuilt below.
   var prevOpenSig = openPath ? (fileSignatureByPath.get(openPath) || '') : '';
 
-  // Snapshot already-materialized file bodies (keyed by path + current signature) BEFORE the swap, so an
-  // UNCHANGED file can be re-filled synchronously afterwards. Without this, the swap turns every wrapper into
-  // an empty lazy shell that blanks until its body re-loads over IPC — the visible "flicker" on a watch tick.
+  // Fast-path: when the file set + order are unchanged, reconcile per-file so an off-screen change never
+  // flickers the file you're viewing. Falls back to the full swap (below) for add/remove/reorder or eager.
+  var newSigByPath = new Map((u.fileStates || []).map(function (f) { return [f.path, f.signature]; }));
+  var fastPath = false;
+  if (REVIEW_LAZY && container && u.diffContainer) {
+    fastPath = reconcileDiffWrappers(container, u.diffContainer, fileSignatureByPath, newSigByPath);
+  }
+
+  // Full-swap path only: snapshot already-materialized bodies (keyed by path + signature) BEFORE the swap so
+  // UNCHANGED files re-fill synchronously afterwards — otherwise the swap blanks every wrapper into an empty
+  // lazy shell until its body reloads over IPC (the "flicker"). The fast-path keeps those nodes, so skip it.
   var prevBodies = {};
-  if (REVIEW_LAZY && container) {
+  if (!fastPath && REVIEW_LAZY && container) {
     container.querySelectorAll('.d2h-file-wrapper').forEach(function (w) {
       var b = w.querySelector('.d2h-files-diff');
       if (!b || b.hasAttribute('data-lazy')) return; // only bodies that are actually materialized
@@ -173,8 +220,9 @@ function applyDiffUpdate(u) {
     });
   }
 
-  // 1) Replace the visible regions straight from the payload (no full-HTML parse).
-  if (container) container.innerHTML = u.diffContainer || '';
+  // 1) Replace the visible regions straight from the payload (no full-HTML parse) — unless the fast-path
+  // already reconciled the diff DOM in place.
+  if (container && !fastPath) container.innerHTML = u.diffContainer || '';
   var changesPanel = document.getElementById('changes-panel');
   if (changesPanel) changesPanel.innerHTML = u.changesPanel || '';
   // Files tree: keep the inert island (lazy, not yet opened) in sync, and refresh the live panel when it's
@@ -236,7 +284,7 @@ function applyDiffUpdate(u) {
   // flicker). Runs BEFORE setupLazyDiff so the IntersectionObserver sees them already materialized and never
   // re-fetches them. The fresh wrapper carries the correct data-first-hunk + file index, so materializeBody
   // numbers hunks exactly as a normal lazy load would. Changed/new files stay shells and lazy-load as usual.
-  if (REVIEW_LAZY && container) {
+  if (!fastPath && REVIEW_LAZY && container) {
     container.querySelectorAll('.d2h-file-wrapper').forEach(function (w) {
       var p = diffWrapperPathKey(w);
       var prev = p ? prevBodies[p] : null;
