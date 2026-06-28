@@ -1,6 +1,22 @@
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 export type RelaunchTarget = {
   relaunch(options?: { args?: string[] }): void;
   exit(exitCode?: number): void;
+};
+
+type SpawnFn = typeof spawn;
+type SpawnSyncFn = typeof spawnSync;
+type ExistsFn = typeof existsSync;
+
+type RelaunchDeps = {
+  spawn?: SpawnFn;
+  spawnSync?: SpawnSyncFn;
+  existsSync?: ExistsFn;
+  platform?: NodeJS.Platform;
+  env?: NodeJS.ProcessEnv;
 };
 
 export function relaunchArgsForCwd(argv: string[], cwd: string): string[] {
@@ -15,7 +31,65 @@ export function relaunchArgsForCwd(argv: string[], cwd: string): string[] {
   return args;
 }
 
-export function relaunchUpdatedApp(app: RelaunchTarget, argv: string[], cwd: string): void {
+export function cliArgsForCwd(argv: string[], cwd: string): string[] {
+  const args = ["--cwd", cwd];
+  if (argv.includes("--no-watch")) args.push("--no-watch");
+  return args;
+}
+
+export function globalMoBinCandidates(prefix: string, platform: NodeJS.Platform): string[] {
+  if (platform === "win32") {
+    return [join(prefix, "mo.cmd"), join(prefix, "mo")];
+  }
+  return [join(prefix, "bin", "mo"), join(prefix, "mo")];
+}
+
+export function resolveGlobalMoBin(deps: RelaunchDeps = {}): string | null {
+  const spawnSyncImpl = deps.spawnSync ?? spawnSync;
+  const existsImpl = deps.existsSync ?? existsSync;
+  const platform = deps.platform ?? process.platform;
+  const result = spawnSyncImpl("npm", ["prefix", "-g"], {
+    encoding: "utf8",
+    shell: true,
+    env: deps.env ?? process.env,
+  });
+  if (result.status !== 0 || typeof result.stdout !== "string") return null;
+  const prefix = result.stdout.trim().split(/\r?\n/).pop()?.trim();
+  if (!prefix) return null;
+  return globalMoBinCandidates(prefix, platform).find((candidate) => existsImpl(candidate)) ?? null;
+}
+
+function spawnDetached(spawnImpl: SpawnFn, command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, shell: boolean): ChildProcess {
+  const child = spawnImpl(command, args, { cwd, detached: true, stdio: "ignore", env, shell });
+  child.unref();
+  return child;
+}
+
+export function relaunchUpdatedApp(app: RelaunchTarget, argv: string[], cwd: string, deps: RelaunchDeps = {}): void {
+  const spawnImpl = deps.spawn ?? spawn;
+  const env = deps.env ?? process.env;
+  const cliArgs = cliArgsForCwd(argv, cwd);
+
+  const moBin = resolveGlobalMoBin(deps);
+  if (moBin) {
+    try {
+      spawnDetached(spawnImpl, moBin, cliArgs, cwd, env, false);
+      app.exit(0);
+      return;
+    } catch {
+      // Fall through to npm exec; the bin path can exist but still fail to spawn if a manager rewrites it.
+    }
+  }
+
+  try {
+    spawnDetached(spawnImpl, "npm", ["exec", "-g", "--", "mo", ...cliArgs], cwd, env, true);
+    app.exit(0);
+    return;
+  } catch {
+    // Last resort only. app.relaunch() uses the current executable path; after a rebrand update that path
+    // may be the stale Electron.app/Contents/MacOS/Electron, so prefer the freshly installed CLI above.
+  }
+
   app.relaunch({ args: relaunchArgsForCwd(argv, cwd) });
   app.exit(0);
 }

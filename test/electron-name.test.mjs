@@ -116,6 +116,26 @@ test("patch-electron-name completes the partial 0.1.25 rebrand state", () => {
   }
 });
 
+test("patch-electron-name repairs a branded plist with the old Electron executable", () => {
+  const { root } = makeElectronRoot({
+    executable: "Electron",
+    bundleName: "Monacori",
+    bundleDisplayName: "Monacori",
+    bundleExecutable: "monacori",
+    bundleIdentifier: "dev.happynut.monacori",
+    pathTxt: "Electron.app/Contents/MacOS/Electron",
+  });
+
+  try {
+    const result = runPatch(root);
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assertBranded(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("patch-electron-name upgrades a lowercase branded bundle", () => {
   const { root } = makeElectronRoot({
     appBundle: "monacori.app",
