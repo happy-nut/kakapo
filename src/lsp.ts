@@ -279,6 +279,12 @@ export class LspClient {
       this.child = child;
       child.stdout.on("data", (chunk: Buffer) => this.consume(chunk));
       child.stderr.on("data", () => { /* language-server diagnostics are intentionally not surfaced */ });
+      child.stdin.on("error", (error) => {
+        // A server may exit between spawn() and the initialize write. Without an
+        // stdin listener Node surfaces that expected fallback race as an uncaught EPIPE.
+        if (!settled) { settled = true; rejectStart(error); }
+        this.failPending(error);
+      });
       child.once("error", (error) => {
         if (!settled) { settled = true; rejectStart(error); }
         this.failPending(error);
@@ -337,8 +343,8 @@ export class LspClient {
   private send(message: unknown): void {
     if (!this.child?.stdin.writable) throw new Error(`${this.server.name} input is closed`);
     const body = Buffer.from(JSON.stringify(message), "utf8");
-    this.child.stdin.write(`Content-Length: ${body.length}\r\n\r\n`);
-    this.child.stdin.write(body);
+    const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "ascii");
+    this.child.stdin.write(Buffer.concat([header, body]));
   }
 
   private consume(chunk: Buffer): void {

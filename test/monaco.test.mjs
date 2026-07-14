@@ -1,7 +1,12 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { cleanupFixtures, makeReviewHtml } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 let html;
 before(async () => {
@@ -36,6 +41,16 @@ function responseFor(request, generation = 7) {
     ],
   };
 }
+
+test("shipped Monaco runtime embeds only the audited DOMPurify version", () => {
+  const runtimeDir = join(ROOT, "dist", "monaco", "vs");
+  const runtime = readdirSync(runtimeDir)
+    .filter((name) => /^editor\.api.*\.js$/.test(name))
+    .map((name) => readFileSync(join(runtimeDir, name), "utf8"))
+    .join("\n");
+  const embeddedVersions = Array.from(runtime.matchAll(/DOMPurify ([0-9.]+)/g), (match) => match[1]);
+  assert.deepEqual(embeddedVersions, ["3.4.12"], "the copied production bundle replaces Monaco's vulnerable inlined sanitizer");
+});
 
 test("Code mode mounts Monaco and returning to Review preserves line comments", async () => {
   const v = await loadViewer(html, {
