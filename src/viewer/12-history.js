@@ -308,7 +308,7 @@ function setupHistoryDiffWorkspace(sha) {
     var name = slash >= 0 ? file.path.slice(slash + 1) : file.path;
     var dir = slash >= 0 ? file.path.slice(0, slash) : '';
     return '<button type="button" class="file-link history-file" data-index="' + i + '" data-file="' + escapeHtml(file.path) + '" data-hunk="' + file.hunk + '">'
-      + '<span class="status status-modified">M</span><span class="change-name"><span class="path" title="' + escapeHtml(file.path) + '">' + escapeHtml(name) + '</span>'
+      + '<span class="status status-modified" role="img" aria-label="Modified" title="Modified"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3.2 11.8.6-2.7 6.6-6.6a1.2 1.2 0 0 1 1.7 0l1.4 1.4a1.2 1.2 0 0 1 0 1.7L6.9 12.2l-2.7.6zM9.5 3.4l3.1 3.1"/></svg></span><span class="change-name"><span class="path" title="' + escapeHtml(file.path) + '">' + escapeHtml(name) + '</span>'
       + (dir ? '<span class="change-dir">' + escapeHtml(dir) + '</span>' : '') + '</span></button>';
   }).join('');
   container.addEventListener('click', function (event) {

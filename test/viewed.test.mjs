@@ -58,3 +58,22 @@ test("F7 skips a viewed file instead of landing on its hidden body", async () =>
   assert.notEqual(v.activeDiffFile(), "src/a.ts", "F7 never lands on the viewed file a.ts");
   v.close();
 });
+
+test("Cmd+< marks the arrow-selected Changes row instead of the open file", async () => {
+  const v = await loadViewer(html);
+  await v.openDiffFor("src/a.ts");
+  await v.settle(100);
+
+  v.key("0", { metaKey: true, code: "Digit0" });
+  await v.settle(40);
+  v.key("ArrowDown");
+  await v.settle(40);
+  assert.ok(v.$('.change-row[data-file="src/b.ts"]').classList.contains("tree-focus"), "b.ts is selected by the sidebar cursor");
+
+  v.key("<", { metaKey: true, code: "Comma", shiftKey: true });
+  await v.settle(80);
+  assert.ok(v.$('.change-row[data-file="src/b.ts"]').classList.contains("viewed"), "selected b.ts is marked viewed");
+  assert.equal(v.$('.change-row[data-file="src/a.ts"]').classList.contains("viewed"), false, "open a.ts is untouched");
+  assert.equal(v.activeDiffFile(), "src/a.ts", "marking a sidebar selection does not replace the open file");
+  v.close();
+});

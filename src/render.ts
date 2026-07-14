@@ -326,7 +326,7 @@ export function renderDiffHtml(input: {
     '</div>',
     '<div class="diff-toolbar-meta">',
     `<div class="review-status">${renderReviewStatus({ files: input.files.length, hunks: totalHunks, embeddedFiles, sourceFileCount: input.sourceFiles.length, ignoreWhitespace: input.ignoreWhitespace, watch: input.watch, generatedAt: input.generatedAt })}</div>`,
-    '<button type="button" id="diff-viewed-toggle" class="diff-viewed-toggle" aria-pressed="false" data-i18n="btn.viewed" data-i18n-title="btn.viewed.title" title="Toggle viewed (<)" hidden>Viewed</button>',
+    '<button type="button" id="diff-viewed-toggle" class="diff-viewed-toggle" aria-pressed="false" data-i18n="btn.viewed" data-i18n-title="btn.viewed.title" title="Toggle viewed (Cmd/Ctrl+<)" hidden>Viewed</button>',
     '</div>',
     "</div>",
     '<div class="diff-pane-header" data-i18n-aria="diff.panes" aria-label="Diff panes">',
@@ -425,7 +425,7 @@ export function renderDiffHtml(input: {
     '<div class="keys-cat" data-i18n="settings.kbd.cat.review">Review</div>' +
     '<div class="keys-grid">' +
     '<kbd>⌘8</kbd><span data-i18n="kbd.changeImpact">Change Impact</span>' +
-    '<kbd>&lt;</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed</span>' +
+    '<kbd>⌘&lt;</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed</span>' +
     '<kbd>? &nbsp;&gt;</kbd><span data-i18n="kbd.addQuestionChange">Add question / change</span>' +
     '<kbd>⌘⇧/ .</kbd><span data-i18n="kbd.allQuestionsChanges">All questions / changes</span>' +
     '<kbd>⌘⇧W</kbd><span data-i18n="kbd.ignoreWhitespace">Ignore whitespace</span>' +
@@ -490,27 +490,40 @@ export function renderDiffTree(files: DiffFile[]): string {
   const rows = files.map((file, fileIndex) => {
     const firstHunk = hunkIndex;
     hunkIndex += file.hunks.length;
-    let adds = 0;
-    let dels = 0;
-    for (const hunk of file.hunks) {
-      for (const line of hunk.lines) {
-        if (line.kind === "add") adds += 1;
-        else if (line.kind === "delete") dels += 1;
-      }
-    }
     const slash = file.displayPath.lastIndexOf("/");
     const name = slash >= 0 ? file.displayPath.slice(slash + 1) : file.displayPath;
     const dir = slash > 0 ? file.displayPath.slice(0, slash) : "";
     return [
       `<a class="file-link change-row${file.vcs ? " vcs-" + file.vcs : ""}" href="#file-${fileIndex}" data-hunk="${firstHunk}" data-file="${escapeAttr(file.displayPath)}" title="${escapeAttr(file.displayPath + " — " + file.status)}">`,
       fileTypeIcon(file.displayPath),
-      `<span class="status status-${escapeAttr(file.status)}">${escapeHtml(file.status)}</span>`,
+      changeStatusBadge(file.status),
       `<span class="change-name"><span class="path" title="${escapeAttr(file.displayPath)}">${escapeHtml(name)}</span>${dir ? `<span class="change-dir">${escapeHtml(dir)}</span>` : ""}</span>`,
-      `<span class="diffstat">${adds ? `<span class="adds">+${adds}</span>` : ""}${dels ? `<span class="dels">−${dels}</span>` : ""}</span>`,
       "</a>",
     ].join("");
   });
   return `<nav class="tree changes-flat">${rows.join("")}</nav>`;
+}
+
+function changeStatusBadge(status: string): string {
+  const label = status ? status[0].toUpperCase() + status.slice(1) : "Changed";
+  let icon: string;
+  switch (status) {
+    case "added":
+      icon = '<path d="M8 3.5v9M3.5 8h9"/>';
+      break;
+    case "deleted":
+      icon = '<path d="M3.5 8h9"/>';
+      break;
+    case "renamed":
+      icon = '<path d="M3 5h8m-2.5-2.5L11 5 8.5 7.5M13 11H5m2.5-2.5L5 11l2.5 2.5"/>';
+      break;
+    case "modified":
+      icon = '<path d="m3.2 11.8.6-2.7 6.6-6.6a1.2 1.2 0 0 1 1.7 0l1.4 1.4a1.2 1.2 0 0 1 0 1.7L6.9 12.2l-2.7.6zM9.5 3.4l3.1 3.1"/>';
+      break;
+    default:
+      icon = '<circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/>';
+  }
+  return `<span class="status status-${escapeAttr(status)}" role="img" aria-label="${escapeAttr(label)}" title="${escapeAttr(label)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg></span>`;
 }
 
 export function renderSourceTree(files: SourceFile[]): string {

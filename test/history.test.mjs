@@ -12,7 +12,7 @@ before(async () => {
   ({ html, build } = await makeReviewHtml([
     { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
     { path: "src/b.ts", before: "export const b = 1;\n", after: "export const b = 2;\n" },
-  ]));
+  ], { app: true }));
 });
 after(cleanupFixtures);
 
@@ -77,6 +77,10 @@ test("history keyboard: Cmd+9 then ArrowDown navigates commits before opening a 
   v.key("9", { metaKey: true, code: "Digit9" });
   await v.settle(80);
   assert.equal(v.$("#history-view").classList.contains("hidden"), false, "history overlay opens");
+  assert.equal(v.window.getComputedStyle(v.$(".activity-rail")).display, "flex", "activity rail remains visible beside History");
+  assert.ok(v.$('.rail-btn[data-view="history"]').classList.contains("is-active"), "History remains represented by its active rail icon");
+  const css = Array.from(v.document.querySelectorAll("style"), (style) => style.textContent || "").join("\n");
+  assert.match(css, /\.history-view\s*\{[^}]*inset:\s*0 0 0 var\(--rail-width\)/, "History starts after the desktop rail");
   assert.equal(v.$("#history-list .hrow.active").dataset.sha, "aaaaaaaa", "newest commit selected");
   assert.deepEqual(calls, [], "opening history does not auto-load a narrow diff preview");
 

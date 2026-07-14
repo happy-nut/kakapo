@@ -140,6 +140,7 @@ function setDiffCursor(path, side, rowIndex, column, reveal) {
   var ri = Math.max(0, Math.min(rowIndex, rows.length - 1));
   var col = Math.max(0, Math.min(column, diffLineText(rows[ri]).length));
   diffCursor = { path: path, side: side, rowIndex: ri, column: col };
+  syncActiveDiffHunk(hunkIndexAtCaret());
   syncDiffReviewChrome(path);
   pendingFileBoundary = null; // any caret move re-arms the last-change announcement for the next F7 (see next)
   hideCaretHint(); // caret moved (incl. crossing to the next file) → drop the "last change" hint so it never covers the new file

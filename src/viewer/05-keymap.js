@@ -152,25 +152,32 @@ document.addEventListener('keydown', (event) => {
     }
   }
 
-  // "<" (Shift+,) toggles "viewed" for the current file (source openPath, else active diff file).
-  if (!event.altKey && !event.metaKey && !event.ctrlKey && event.key === '<') {
+  // Cmd/Ctrl+< toggles "viewed" for the keyboard-selected sidebar file. Keep plain < as a convenient
+  // compatibility shortcut when the tree is not focused; in that case it still targets the open file.
+  if (!event.altKey && event.key === '<') {
     const ce2 = document.activeElement;
     const inEditable2 = ce2 && (ce2.tagName === 'INPUT' || ce2.tagName === 'TEXTAREA' || ce2.tagName === 'SELECT');
     if (!inEditable2) {
-      let vp = isSourceViewerVisible() ? (document.getElementById('source-viewer')?.dataset.openPath || '') : '';
-      if (!vp && typeof diffActiveWrapper === 'function') {
-        const vw = diffActiveWrapper();
-        const vn = vw && vw.querySelector('.d2h-file-name');
-        if (vn && vn.textContent) vp = vn.textContent.trim();
+      const sidebarOwnsTarget = treeFocusIndex >= 0;
+      const selectedRow = sidebarOwnsTarget && typeof treeRows === 'function' ? treeRows()[treeFocusIndex] : null;
+      let vp = selectedRow && selectedRow.classList.contains('file-link')
+        ? (selectedRow.dataset.file || selectedRow.dataset.sourceFile || '')
+        : '';
+      if (!sidebarOwnsTarget) {
+        vp = isSourceViewerVisible() ? (document.getElementById('source-viewer')?.dataset.openPath || '') : '';
+        if (!vp && typeof diffActiveWrapper === 'function') {
+          const vw = diffActiveWrapper();
+          const vn = vw && vw.querySelector('.d2h-file-name');
+          if (vn && vn.textContent) vp = vn.textContent.trim();
+        }
       }
       if (vp && currentFileSignature(vp)) {
         event.preventDefault();
         const willView = !isFileViewed(vp);
         setFileViewed(vp, willView);
-        // Marking viewed hides this file's diff body — don't strand the caret on the now-blank file.
-        // Auto-advance to the next unviewed change (the user's flow: mark viewed -> jump to next).
-        // Unmarking stays put. If every file is viewed, gotoNextUnviewedFile is a no-op.
-        if (willView) gotoNextUnviewedFile(vp);
+        // When no sidebar row owns the target, marking the open file viewed hides its diff body, so move
+        // to the next change. A keyboard-selected sidebar row stays selected and never changes open files.
+        if (willView && !sidebarOwnsTarget) gotoNextUnviewedFile(vp);
         return;
       }
     }

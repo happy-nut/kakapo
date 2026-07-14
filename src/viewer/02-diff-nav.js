@@ -256,6 +256,11 @@ function hunkIndexAtCaret() {
   const caretRow = diffRowAt(wrapper, diffCursor.side, diffCursor.rowIndex);
   const sideEl = caretRow ? caretRow.closest('.d2h-file-side-diff') : null;
   if (!sideEl) return -1;
+  const annotated = caretRow.getAttribute('data-review-hunk-index');
+  if (annotated !== null && annotated !== '') {
+    const direct = Number(annotated);
+    if (Number.isFinite(direct)) return direct;
+  }
   let found = -1;
   // @@ markers on the caret's side carry data-hunk-index; the nearest one at or above the caret wins.
   sideEl.querySelectorAll('[data-hunk-index]').forEach((marker) => {
@@ -264,6 +269,22 @@ function hunkIndexAtCaret() {
     }
   });
   return found;
+}
+
+// Keep the whole paired hunk visually tracked as the caret moves. The guard makes ordinary Arrow key
+// movement O(1): DOM classes are only rewritten when the caret actually crosses an @@ boundary.
+function syncActiveDiffHunk(index) {
+  var container = document.getElementById('diff2html-container');
+  if (!container) return;
+  var normalized = Number.isFinite(index) && index >= 0 ? index : -1;
+  if (normalized === activeReviewHunkIndex
+      && (normalized < 0 || container.querySelector('.mc-active-hunk[data-review-hunk-index="' + normalized + '"]'))) return;
+  container.querySelectorAll('.mc-active-hunk').forEach(function (row) { row.classList.remove('mc-active-hunk'); });
+  container.querySelectorAll('.hunk.active, .hunk-peer.active').forEach(function (row) { row.classList.remove('active'); });
+  activeReviewHunkIndex = normalized;
+  if (normalized < 0) return;
+  container.querySelectorAll('[data-review-hunk-index="' + normalized + '"]').forEach(function (row) { row.classList.add('mc-active-hunk'); });
+  container.querySelectorAll('[data-hunk-index="' + normalized + '"]').forEach(function (row) { row.classList.add('active'); });
 }
 
 // New-side row indices, one per change block — a run of change rows (ins/del) separated by context.

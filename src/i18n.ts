@@ -82,7 +82,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Diff view
     "btn.viewed": "Viewed",
-    "btn.viewed.title": "Toggle viewed (<)",
+    "btn.viewed.title": "Toggle viewed (Cmd/Ctrl+<)",
     "diff.noDiff": "No diff to review.",
     "diff.lastHunk": "Last change in this file — press F7 again to go to the next file.",
     "diff.previous": "Previous change (Shift+F7)",
@@ -304,7 +304,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Diff view
     "btn.viewed": "확인함",
-    "btn.viewed.title": "확인 표시 토글 (<)",
+    "btn.viewed.title": "확인 표시 토글 (Cmd/Ctrl+<)",
     "diff.noDiff": "검토할 변경사항이 없습니다.",
     "diff.lastHunk": "이 파일의 마지막 변경입니다 — F7을 한 번 더 누르면 다음 파일로 이동합니다.",
     "diff.previous": "이전 변경 (Shift+F7)",

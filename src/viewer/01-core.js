@@ -6,6 +6,7 @@ const REVIEW_LAZY_LOAD = document.getElementById('review-meta')?.dataset.lazyLoa
 if (!REVIEW_LAZY) prepareDiff2HtmlHunks();
 const hunks = REVIEW_LAZY ? [] : Array.from(document.querySelectorAll('.hunk'));
 const hunkPeers = REVIEW_LAZY ? [] : Array.from(document.querySelectorAll('.hunk-peer'));
+var activeReviewHunkIndex = -1;
 // Lazy mode: each file body lives in an inert <script type="text/html"> island (see splitDiffForLazy).
 // Build a hunk index from the lightweight shells (data-first-hunk/data-hunk-count/data-path) so F7 and
 // change-nav work without materializing everything. hunkRowAt() materializes the target file on demand.
@@ -24,6 +25,7 @@ var diffBootDone = false;
 // hunkTotal()/hunkPathAt() keep reporting the OLD build — F7 and showDiffView then target vanished indices
 // and the diff pane goes blank. Mutates the const arrays in place so existing references stay valid.
 function refreshHunkIndex() {
+  activeReviewHunkIndex = -1;
   if (REVIEW_LAZY) {
     hunkMeta.length = 0;
     Array.prototype.forEach.call(document.querySelectorAll('#diff2html-container .d2h-file-wrapper'), function (w) {
@@ -49,6 +51,81 @@ function hunkRowAt(i) {
   ensureFileReady(diffWrapperByPath(meta.path));
   return document.getElementById('hunk-' + i);
 }
+// diff2html aligns the old/new tables row-for-row. Carry each @@ hunk id through those paired rows and
+// classify every changed pair once so CSS can paint a single semantic band across code, both centre
+// line-number gutters, and the opposite empty placeholder. This is what makes a replacement blue on both
+// sides, a deletion neutral gray, and an insertion green without changing the diff/navigation model.
+function annotateDiffHunkRows(wrapper) {
+  var sides = wrapper ? wrapper.querySelectorAll('.d2h-file-side-diff') : [];
+  if (sides.length < 2) return;
+  var cleanRows = function (side) {
+    return Array.prototype.slice.call(side.querySelectorAll('tr')).filter(function (row) {
+      return !row.classList.contains('mc-comment-row') && !row.classList.contains('mc-spacer-row');
+    });
+  };
+  var oldRows = cleanRows(sides[0]);
+  var newRows = cleanRows(sides[sides.length - 1]);
+  // diff2html emits the number cell first on both sides. IntelliJ places old numbers at the RIGHT edge
+  // of the left editor and new numbers at the LEFT edge of the right editor, so make that order explicit
+  // in the table DOM instead of relying on absolute-positioned table cells (Chromium keeps their static
+  // table position even when `right: 0` is computed).
+  oldRows.forEach(function (row) {
+    var number = row.querySelector('.d2h-code-side-linenumber');
+    if (number && number !== row.lastElementChild) row.appendChild(number);
+  });
+  newRows.forEach(function (row) {
+    var number = row.querySelector('.d2h-code-side-linenumber');
+    if (number && number !== row.firstElementChild) row.insertBefore(number, row.firstElementChild);
+  });
+  var semanticClasses = ['mc-diff-change', 'mc-diff-modified', 'mc-diff-deleted', 'mc-diff-added', 'mc-change-start', 'mc-change-end', 'mc-diff-hunk-row', 'mc-active-hunk'];
+  oldRows.concat(newRows).forEach(function (row) {
+    semanticClasses.forEach(function (name) { row.classList.remove(name); });
+    row.removeAttribute('data-review-hunk-index');
+  });
+
+  var currentHunk = '';
+  var previousType = '';
+  var previousPair = [];
+  var addPairClass = function (pair, name) {
+    pair.forEach(function (row) { if (row) row.classList.add(name); });
+  };
+  var count = Math.max(oldRows.length, newRows.length);
+  for (var i = 0; i < count; i++) {
+    var oldRow = oldRows[i] || null;
+    var newRow = newRows[i] || null;
+    var marker = (oldRow && oldRow.hasAttribute('data-hunk-index') && oldRow)
+      || (newRow && newRow.hasAttribute('data-hunk-index') && newRow);
+    if (marker) currentHunk = marker.getAttribute('data-hunk-index') || '';
+    var pair = [oldRow, newRow];
+    if (currentHunk !== '') {
+      pair.forEach(function (row) {
+        if (!row) return;
+        row.classList.add('mc-diff-hunk-row');
+        row.setAttribute('data-review-hunk-index', currentHunk);
+      });
+    }
+
+    var hasOld = !!(oldRow && oldRow.querySelector('td.d2h-del:not(.d2h-emptyplaceholder)'));
+    var hasNew = !!(newRow && newRow.querySelector('td.d2h-ins:not(.d2h-emptyplaceholder)'));
+    var type = hasOld && hasNew ? 'modified' : (hasOld ? 'deleted' : (hasNew ? 'added' : ''));
+    if (!type) {
+      if (previousType) addPairClass(previousPair, 'mc-change-end');
+      previousType = '';
+      previousPair = [];
+      continue;
+    }
+    addPairClass(pair, 'mc-diff-change');
+    addPairClass(pair, 'mc-diff-' + type);
+    if (type !== previousType) {
+      if (previousType) addPairClass(previousPair, 'mc-change-end');
+      addPairClass(pair, 'mc-change-start');
+    }
+    previousType = type;
+    previousPair = pair;
+  }
+  if (previousType) addPairClass(previousPair, 'mc-change-end');
+}
+
 // Assign global hunk ids/classes to a freshly materialized file body, keyed off its shell's
 // data-first-hunk so indices stay globally consistent with the eager numbering.
 function markWrapperHunks(wrapper) {
@@ -65,6 +142,7 @@ function markWrapperHunks(wrapper) {
     row.dataset.hunkIndex = String(index);
     row.dataset.file = fileName;
   });
+  annotateDiffHunkRows(wrapper);
 }
 var bodyCache = {};   // file index -> diff body html (lazy-LOAD cache)
 var bodyPromise = {}; // file index -> Promise that resolves once the body is materialized
@@ -378,6 +456,7 @@ function prepareDiff2HtmlHunks() {
       row.dataset.hunkIndex = String(index);
       row.dataset.file = fileName;
     });
+    annotateDiffHunkRows(wrapper);
   });
 }
 

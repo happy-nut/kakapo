@@ -253,8 +253,8 @@ function renderSourceComments() {
   });
 }
 
-// Per-file comment counts as small (no-emoji) badges in BOTH sidebars — the Changes list
-// (.change-row, before the diffstat) and the Files tree (.source-link, after the file name).
+// Per-file comment counts as small (no-emoji) badges in BOTH sidebars — appended after the compact
+// Changes row and after the file name in the Files tree.
 function renderCommentBadges() {
   document.querySelectorAll('.mc-file-badge').forEach(function (b) { b.remove(); });
   var counts = {};
@@ -275,11 +275,11 @@ function renderCommentBadges() {
     document.querySelectorAll(selector).forEach(function (row) {
       var k = counts[row.dataset[keyAttr] || ''];
       if (!k) return;
-      var ref = row.querySelector(refSelector);
+      var ref = refSelector ? row.querySelector(refSelector) : null;
       if (ref) row.insertBefore(makeBadge(k), ref); else row.appendChild(makeBadge(k));
     });
   }
-  inject('.change-row', 'file', '.diffstat');
+  inject('.change-row', 'file', '');
   inject('.source-link', 'sourceFile', '.count');
 }
 

@@ -11,6 +11,12 @@
   --del: #3f1d1d;
   --add-strong: #1f5b34;
   --del-strong: #6e2c2c;
+  --diff-modified: #2d4a63;
+  --diff-modified-strong: #3d6687;
+  --diff-added: #193d29;
+  --diff-added-strong: #28613e;
+  --diff-deleted: #35383b;
+  --diff-deleted-strong: #4b4f53;
   --active: #4a88c7;
   --sidebar: #2a2a2b;
   --token-comment: #808080;
@@ -52,6 +58,12 @@
   --del: #ffebe9;
   --add-strong: #abf2bc;
   --del-strong: #ffc1bc;
+  --diff-modified: #d8e9f8;
+  --diff-modified-strong: #b6d7f2;
+  --diff-added: #ddf4e4;
+  --diff-added-strong: #afe2bd;
+  --diff-deleted: #e6e8ea;
+  --diff-deleted-strong: #cfd3d7;
   --active: #0969da;
   --sidebar: #f0f2f5;
   --token-comment: #6e7781;
@@ -454,26 +466,44 @@ body {
 .d2h-icon { fill: var(--muted); }
 .d2h-tag { border-color: var(--border); }
 .d2h-files-diff { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-.d2h-file-side-diff { position: relative; min-width: 0; width: 100%; overflow-x: auto; } /* relative: the line-number cells are position:absolute, so they must scroll WITH this column inside .diff2html-container instead of staying pinned to the viewport */
+.d2h-file-side-diff { position: relative; min-width: 0; width: 100%; overflow-x: auto; }
 .d2h-file-side-diff:first-child { border-right: 1px solid color-mix(in srgb, var(--active) 24%, var(--border)); }
 .d2h-code-wrapper { width: 100%; }
 .d2h-diff-table {
   width: 100%;
+  table-layout: fixed;
   font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .d2h-diff-table td { line-height: 1.55; }
 .d2h-code-side-linenumber, .d2h-code-linenumber {
-  width: 58px;
+  width: 52px;
   color: var(--muted);
-  /* diff2html absolutely-positions each line number; a distinct gutter background exposed the tiny
-     gaps between those boxes as horizontal "dividers", so keep the gutter transparent + borderless. */
+  /* Keep the gutter borderless; semantic change-row colors are applied below. */
   background: transparent;
   border: 0;
+  direction: ltr;
+}
+.d2h-code-side-linenumber {
+  /* Long nowrap code can overflow its table cell. Paint the centre gutter above that overflow so text
+     never crosses the line numbers, while preserving each pane's horizontal scrolling. */
+  position: relative;
+  z-index: 3;
+  background: var(--panel);
+  display: table-cell;
+  min-width: 52px;
+  max-width: 52px;
+}
+.d2h-file-side-diff:first-child .d2h-code-side-linenumber {
+  padding: 0 8px 0 3px;
+  text-align: right;
+}
+.d2h-file-side-diff:last-child .d2h-code-side-linenumber {
+  padding: 0 3px 0 8px;
+  text-align: left;
 }
 .d2h-code-line-ctn { position: relative; } /* anchors the absolutely-positioned empty-line caret (so blank rows need no inline position) */
 .d2h-code-side-line, .d2h-code-line {
-  /* left pad must exceed the 58px absolutely-positioned line-number, else the +/- prefix renders behind it and looks clipped */
-  padding: 0 0.6em 0 64px;
+  padding: 0 0.7em;
   width: 100%;
   color: var(--text);
   cursor: text;
@@ -525,8 +555,6 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-file-wrapper.df-inactive { display: none; }
 .d2h-del { background: var(--del); }
 .d2h-ins { background: var(--add); }
-td.d2h-del.d2h-code-side-line, td.d2h-del.d2h-code-line { box-shadow: inset 3px 0 0 color-mix(in srgb, #f85149 72%, transparent); }
-td.d2h-ins.d2h-code-side-line, td.d2h-ins.d2h-code-line { box-shadow: inset 3px 0 0 color-mix(in srgb, #3fb950 72%, transparent); }
 .d2h-del .d2h-change { background: var(--del-strong); }
 .d2h-ins .d2h-change { background: var(--add-strong); }
 .d2h-code-line-ctn ins, .d2h-code-line-ctn del {
@@ -540,13 +568,33 @@ td.d2h-ins.d2h-code-side-line, td.d2h-ins.d2h-code-line { box-shadow: inset 3px 
 .d2h-code-line-ctn del { background: var(--del-strong); }
 .d2h-code-side-linenumber.d2h-del, .d2h-code-linenumber.d2h-del { background: var(--del); }
 .d2h-code-side-linenumber.d2h-ins, .d2h-code-linenumber.d2h-ins { background: var(--add); }
+/* Paired IntelliJ-style change bands. The semantic class is applied to BOTH aligned rows, including the
+   empty placeholder, so the band passes through the two centre line-number cells without a visual break. */
+.d2h-diff-table tr.mc-diff-modified > td { background-color: var(--diff-modified) !important; }
+.d2h-diff-table tr.mc-diff-deleted > td { background-color: var(--diff-deleted) !important; }
+.d2h-diff-table tr.mc-diff-added > td { background-color: var(--diff-added) !important; }
+.d2h-diff-table tr.mc-diff-modified .d2h-code-line-ctn ins,
+.d2h-diff-table tr.mc-diff-modified .d2h-code-line-ctn del { background-color: var(--diff-modified-strong); }
+.d2h-diff-table tr.mc-diff-deleted .d2h-code-line-ctn del { background-color: var(--diff-deleted-strong); }
+.d2h-diff-table tr.mc-diff-added .d2h-code-line-ctn ins { background-color: var(--diff-added-strong); }
+.d2h-diff-table tr.mc-diff-change > td { border-color: transparent; }
+.d2h-file-side-diff:first-child tr.mc-active-hunk > td.d2h-code-side-linenumber {
+  color: var(--text);
+}
+.d2h-file-side-diff:last-child tr.mc-active-hunk > td.d2h-code-side-linenumber {
+  color: var(--text);
+}
 .d2h-diff-table tr.hunk, .d2h-diff-table tr.hunk-peer, .d2h-diff-table tr.history-hunk, .d2h-diff-table tr.history-hunk-peer { scroll-margin-top: 76px; }
 .d2h-diff-table tr.hunk.active td, .d2h-diff-table tr.hunk-peer.active td,
 .d2h-diff-table tr.history-hunk.active td, .d2h-diff-table tr.history-hunk-peer.active td {
   box-shadow: none;
+  background-color: color-mix(in srgb, var(--active) 10%, var(--line));
 }
-.d2h-diff-table tr.diff-active-row td { background: color-mix(in srgb, var(--active) 17%, var(--panel)) !important; }
-.d2h-diff-table tr.diff-active-row td.d2h-code-side-linenumber { box-shadow: inset 3px 0 0 var(--active); color: var(--text); }
+.d2h-diff-table tr.diff-active-row td {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--active) 62%, transparent), inset 0 -1px 0 color-mix(in srgb, var(--active) 62%, transparent);
+}
+.d2h-file-side-diff:first-child tr.diff-active-row td.d2h-code-side-linenumber { box-shadow: inset -2px 0 0 var(--active); color: var(--text); }
+.d2h-file-side-diff:last-child tr.diff-active-row td.d2h-code-side-linenumber { box-shadow: inset 2px 0 0 var(--active); color: var(--text); }
 .review-status .ws-ignored { color: var(--token-tag); border: 1px solid color-mix(in srgb, var(--token-tag) 45%, transparent); border-radius: 0; padding: 0 7px; }
 .d2h-file-collapse {
   display: inline-flex;
@@ -654,26 +702,24 @@ summary.tree-focus { background: color-mix(in srgb, var(--active) 20%, transpare
 .count { color: var(--muted); font-size: 11px; }
 .change-name { display: flex; align-items: baseline; gap: 7px; min-width: 0; overflow: hidden; }
 .change-dir { color: var(--muted); opacity: 0.5; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.diffstat { display: flex; gap: 6px; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.diffstat .adds { color: #6ab04c; }
-.diffstat .dels { color: #cf6679; }
 .status {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 16px;
+  width: 16px;
   height: 16px;
-  border-radius: 0;
-  padding: 0 3px;
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
+  border-radius: 3px;
+  padding: 0;
   background: var(--line);
   color: var(--muted);
 }
+.status svg { display: block; width: 11px; height: 11px; }
 /* Viewed: dim the row and collapse the status chip into one green check (no stacked glyph). */
 .file-link.viewed .status { font-size: 0; background: color-mix(in srgb, #6ab04c 24%, transparent); color: #6ab04c; }
+.file-link.viewed .status svg { display: none; }
 .file-link.viewed .status::after { content: '✓'; font-size: 10px; font-weight: 700; line-height: 1; }
+.status-modified { background: color-mix(in srgb, var(--active) 18%, transparent); color: var(--active); }
 .status-added { background: var(--add); color: #1a7f37; }
 .status-deleted { background: var(--del); color: #cf222e; }
 .status-renamed { background: #fff8c5; color: #9a6700; }
@@ -926,7 +972,7 @@ h1 { margin: 0; font-size: 18px; }
   padding: 2px 6px;
 }
 /* Review comments (questions / change-requests) — per-file sidebar count badges (no emoji) */
-.change-row { grid-template-columns: auto auto minmax(0, 1fr) auto auto; }
+.change-row { grid-template-columns: auto auto minmax(0, 1fr) auto; }
 .source-link { grid-template-columns: auto minmax(0, 1fr) auto; }
 .file-link .ftype { width: 15px; height: 15px; flex: none; display: block; }
 .source-link.not-embedded { opacity: 0.45; }
@@ -1053,7 +1099,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .semantic-peek-editor > .monaco-loading { position: absolute; inset: 0; }
 
 /* ===== Git history view (Cmd+9): full-screen overlay, commit list (graph lanes) | changed files + single-file diff. ===== */
-.history-view { position: fixed; inset: 0; z-index: 75; display: flex; flex-direction: column; background: var(--bg); }
+.history-view { position: fixed; inset: 0 0 0 var(--rail-width); z-index: 75; display: flex; flex-direction: column; background: var(--bg); }
 .history-view.hidden { display: none; }
 .history-bar { flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--sidebar); border-bottom: 1px solid var(--border); }
 .history-title { font-weight: 650; font-size: 13px; letter-spacing: 0.02em; }
@@ -1286,6 +1332,7 @@ body.dock-maximized .dock-panel { inset: 0; border-radius: 0; }
   .activity-rail { grid-row: 1; grid-column: 1; width: auto; height: auto; flex-direction: row; padding: 4px 8px; border-right: 0; border-bottom: 1px solid var(--border); }
   .activity-rail .rail-group { flex-direction: row; }
   .activity-rail .rail-bottom { margin-left: auto; margin-top: 0; }
+  .history-view { inset: var(--rail-width) 0 0 0; }
   .rail-tip { left: 50%; top: calc(100% + 8px); transform: translateX(-50%); }
   .rail-btn.is-active::before { left: 5px; right: 5px; top: auto; bottom: -4px; width: auto; height: 2px; }
   .sidebar { grid-row: 2; grid-column: 1; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
