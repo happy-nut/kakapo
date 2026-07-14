@@ -73,6 +73,15 @@ test("markdown opens rendered as sparse, line-numbered blocks", async () => {
   v.close();
 });
 
+test("source documents and merged prompts ship one audited Markdown renderer", () => {
+  const js = readFileSync(new URL("../dist/viewer.client.js", import.meta.url), "utf8");
+  assert.match(js, /markdown-it 14\.3\.0/, "the open-source parser is embedded in the viewer bundle");
+  assert.match(js, /DOMPurify 3\.4\.12/, "the audited sanitizer is embedded beside the parser");
+  assert.match(js, /function renderMarkdownHtml\(/, "read-only document surfaces share the common rendering entry point");
+  assert.match(js, /monacori-asset:\/\/app\/markdown-editor\.js/, "the inline memo editor is loaded only on demand");
+  assert.doesNotMatch(js, /function renderInlineMd\(/, "the old regex-only Markdown renderer is gone");
+});
+
 test("markdown raw toggle switches to contiguous, every-line text", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("README.md");
@@ -185,9 +194,9 @@ test("markdown renders embedded HTML (GitHub-style), not escaped", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("README.md");
   const body = v.$("#source-body");
-  assert.ok(body.querySelector(".md-html h1"), "embedded <h1> is rendered, not escaped text");
-  assert.ok(body.querySelector(".md-html img"), "embedded <img> is rendered");
-  assert.ok(body.querySelector(".md-h"), "markdown (## Section) still renders alongside HTML");
+  assert.ok(body.querySelector(".markdown-body h1"), "embedded <h1> is rendered, not escaped text");
+  assert.ok(body.querySelector(".markdown-body img"), "embedded <img> is rendered");
+  assert.ok(body.querySelector(".markdown-body h2"), "markdown (## Section) still renders alongside HTML");
   v.close();
 });
 
@@ -203,9 +212,9 @@ test("markdown HTML is sanitized (scripts + event handlers stripped)", async () 
   await v.openSourceFile("README.md");
   const body = v.$("#source-body");
   assert.equal(body.querySelector("script"), null, "<script> is removed");
-  const div = body.querySelector(".md-html div");
+  const div = body.querySelector(".markdown-body div");
   assert.equal(div && div.getAttribute("onclick"), null, "onclick is removed");
-  const img = body.querySelector(".md-html img");
+  const img = body.querySelector(".markdown-body img");
   assert.equal(img && img.getAttribute("onerror"), null, "onerror is removed");
   v.close();
 });
@@ -281,14 +290,14 @@ test("composing toggles body.mc-composing so the file caret is hidden while typi
   v.close();
 });
 
-test("composer head labels the comment target as file:line", async () => {
+test("composer head labels the comment target with the canonical source reference", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(1); // line index 1 → display line 2
   await v.openComposer("c");
   const target = v.$(".mc-composer .mc-target");
   assert.ok(target, "composer head carries a target label");
-  assert.match(target.textContent, /^app\.ts:\d+$/, "shows basename:line (e.g. app.ts:2)");
+  assert.equal(target.textContent, "@src/app.ts#L2", "shows the repository-relative path and line");
   v.close();
 });
 
@@ -341,7 +350,7 @@ test("Cmd+0 focuses the Changes panel; arrow + Enter opens that file in the diff
   v.close();
 });
 
-test("merged view: Opt+Enter opens a custom dropdown; Remove deletes the comment and syncs the box", async () => {
+test("merged view: Opt+Enter on the active rendered comment offers review actions", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(1);
@@ -349,12 +358,11 @@ test("merged view: Opt+Enter opens a custom dropdown; Remove deletes the comment
   await v.writeAndSave("removeme");
   v.key("?", { metaKey: true }); // Cmd+? → merged questions view
   await v.settle(80);
-  const area = v.$(".mc-modal-text");
-  assert.ok(area, "merged view textarea present");
-  assert.match(area.value, /removeme/, "comment text is in the merged view");
-  const pos = area.value.indexOf("removeme");
-  area.selectionStart = area.selectionEnd = pos; // caret inside the comment block
-  area.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
+  const preview = v.$(".mc-merged-preview");
+  assert.ok(preview, "one rendered merged document is present");
+  assert.match(preview.textContent, /removeme/, "comment text is in the merged view");
+  assert.ok(preview.querySelector(".mc-merged-comment-anchor.active"), "the first review stop is selected");
+  preview.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
   await v.settle(40);
   const dd = v.$("#mc-dropdown");
   assert.ok(dd, "custom dropdown appears on Opt+Enter");
@@ -366,7 +374,7 @@ test("merged view: Opt+Enter opens a custom dropdown; Remove deletes the comment
   v.close();
 });
 
-test("merged view: caret is interactive (not readOnly) and Opt+Arrow steps between comment headers", async () => {
+test("merged view: Opt+Arrow steps between rendered comment headings", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(0);
@@ -377,22 +385,15 @@ test("merged view: caret is interactive (not readOnly) and Opt+Arrow steps betwe
   await v.writeAndSave("second comment");
   v.key("?", { metaKey: true }); // Cmd+? → merged questions view
   await v.settle(80);
-  const area = v.$(".mc-modal-text");
-  assert.ok(area, "merged view textarea present");
-  // readOnly hides the caret in Chromium — the merged view must NOT be readOnly so the caret is visible
-  assert.equal(area.readOnly, false, "merged textarea is interactive (caret visible), edits blocked via beforeinput");
-  const headers = [];
-  let idx = area.value.indexOf("### ");
-  while (idx !== -1) { headers.push(idx); idx = area.value.indexOf("### ", idx + 1); }
-  assert.equal(headers.length, 2, "two comment headers present");
-  const optArrow = (key) => area.dispatchEvent(new v.window.KeyboardEvent("keydown", { key, altKey: true, bubbles: true, cancelable: true }));
-  area.selectionStart = area.selectionEnd = 0;
+  const preview = v.$(".mc-merged-preview");
+  const headers = [...preview.querySelectorAll(".mc-merged-comment-anchor")];
+  assert.equal(headers.length, 2, "two rendered comment headings are review stops");
+  assert.equal(headers[0].classList.contains("active"), true, "the first stop starts selected");
+  const optArrow = (key) => preview.dispatchEvent(new v.window.KeyboardEvent("keydown", { key, altKey: true, bubbles: true, cancelable: true }));
   optArrow("ArrowDown");
-  assert.equal(area.selectionStart, headers[0], "Opt+Down jumps the caret to the first comment header");
-  optArrow("ArrowDown");
-  assert.equal(area.selectionStart, headers[1], "Opt+Down again jumps to the second comment header");
+  assert.equal(headers[1].classList.contains("active"), true, "Opt+Down selects the second rendered heading");
   optArrow("ArrowUp");
-  assert.equal(area.selectionStart, headers[0], "Opt+Up jumps back to the first comment header");
+  assert.equal(headers[0].classList.contains("active"), true, "Opt+Up selects the first rendered heading");
   v.close();
 });
 
@@ -704,8 +705,8 @@ test("merged view copies grounded evidence and keeps only review actions in the 
   await v.writeAndSave("shipit");
   v.key("?", { metaKey: true }); // Cmd+? → merged questions view
   await v.settle(80);
-  const area = v.$(".mc-modal-text");
-  assert.ok(area, "merged view textarea present");
+  const preview = v.$(".mc-merged-preview");
+  assert.ok(preview, "merged view renders as one document");
   const copyAll = v.$(".mc-copy-all");
   assert.ok(copyAll, "the review handoff exposes a Copy all action");
   copyAll.click();
@@ -713,16 +714,15 @@ test("merged view copies grounded evidence and keeps only review actions in the 
   assert.match(copied, /shipit/, "Copy all writes the complete grounded review text");
   assert.ok(v.$("#mc-merged-panel"), "copying keeps the evidence visible for inspection");
 
-  // Select-all + Opt+Enter stays review-only: the sole bulk action is removing selected comments.
-  area.selectionStart = 0;
-  area.selectionEnd = area.value.length;
-  area.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
+  // Opt+Enter stays review-only on the selected rendered comment stop.
+  preview.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
   await v.settle(40);
   const items = [...v.$("#mc-dropdown").querySelectorAll(".mc-dropdown-item")];
-  assert.equal(items.length, 1, "select-all offers one review action");
-  assert.match(items[0].textContent, /remove|지우기/i, "the action removes the selected comments");
+  assert.equal(items.length, 2, "the comment stop offers navigate + remove only");
+  const remove = items.find((item) => /remove|지우기/i.test(item.textContent));
+  assert.ok(remove, "one action removes the selected comment");
 
-  items[0].click();
+  remove.click();
   await v.settle(40);
   assert.equal(v.$("#mc-merged-panel"), null, "the empty merged view closes after removal");
   v.close();
@@ -734,7 +734,7 @@ test("a focused merged dock swallows global shortcuts (F7) until focus leaves it
   await v.clickSourceLine(0);
   await v.openComposer("q");
   await v.writeAndSave("note");
-  v.key("?", { metaKey: true }); // Cmd+? opens the merged questions dock (textarea takes focus)
+  v.key("?", { metaKey: true }); // Cmd+? opens the merged questions dock (rendered document takes focus)
   await v.settle(80);
   assert.ok(v.$("#mc-merged-panel"), "merged dock open");
 
@@ -785,10 +785,35 @@ test("watch update doesn't re-render the open source view when that file didn't 
   // (a) only b.ts changed → a.ts (open) signature unchanged → source view must NOT be re-rendered (no flicker)
   await v.pushDiffUpdate(mkUpdate(aSig, "const a = 2;\n"));
   assert.equal(opens, 0, "an unrelated file's edit does not re-render the open a.ts source view");
+  assert.match(v.$("#source-body").textContent, /const a = 2/, "i18n refresh does not overwrite the live source body with its initial placeholder");
 
   // (b) a.ts itself changed → the source view IS re-rendered
   await v.pushDiffUpdate(mkUpdate("a-new-sig", "const a = 99;\n"));
   v.window.openSourceFile = orig;
   assert.ok(opens >= 1, "editing the open file does re-render its source view");
+  v.close();
+});
+
+test("caret scroll-off keeps a full 15% viewport margin at both edges", async () => {
+  const { html: oneFile } = await makeReviewHtml([
+    { path: "scroll.ts", before: "const a = 1;\n", after: "const a = 2;\n" },
+  ]);
+  const v = await loadViewer(oneFile);
+  const scroller = v.document.createElement("div");
+  const row = v.document.createElement("div");
+  let rowTop = 190;
+  Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 1000 });
+  Object.defineProperty(row, "offsetHeight", { configurable: true, value: 20 });
+  scroller.getBoundingClientRect = () => ({ top: 100, bottom: 1100 });
+  row.getBoundingClientRect = () => ({ top: rowTop, bottom: rowTop + 20 });
+
+  scroller.scrollTop = 500;
+  v.window.scrolloffReveal(row, scroller, 0.15);
+  assert.equal(scroller.scrollTop, 440, "top-edge caret is moved down to the 15% band");
+
+  rowTop = 1030;
+  scroller.scrollTop = 500;
+  v.window.scrolloffReveal(row, scroller, 0.15);
+  assert.equal(scroller.scrollTop, 600, "bottom-edge caret is moved up to the 15% band");
   v.close();
 });

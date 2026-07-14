@@ -6,6 +6,14 @@ function openSourceFile(path, shouldSwitch = true) {
   if (composerState && composerState.path !== path) closeComposer();
   addSourceTab(path);
   renderSourceTabs(path);
+  // These three elements start as localized static placeholders, but once a file is open they contain
+  // dynamic path/size/source DOM. Leaving data-i18n attached made every watch refresh's applyI18n() replace
+  // the whole painted file with "Select a file…" before the async source repaint — the periodic full flash
+  // and top-of-file cursor jump. They become static/localizable again when the final tab closes.
+  ['source-title', 'source-meta', 'source-body'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.removeAttribute('data-i18n');
+  });
   // Desktop lazy-loads only this file. The completion callback repaints only when it is still the
   // intended tab, preventing a slower earlier request from stealing focus after the user moves on.
   if (!sourceContentLoaded(file)) {
@@ -181,137 +189,83 @@ function lightboxOpen() {
   return !!(lb && !lb.classList.contains('hidden'));
 }
 
-// Minimal, dependency-free Markdown -> HTML for the preview pane. Input is escaped before any
-// markup is applied; links/images are restricted to http(s)/data/mailto/anchor targets.
-function renderInlineMd(text) {
-  var s = escapeHtml(text);
-  s = s.replace(/`([^`]+)`/g, function (m, code) { return '<code>' + code + '</code>'; });
-  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, function (m, alt, url) {
-    return /^(https?:|data:)/i.test(url) ? '<img class="md-img" src="' + url + '" alt="' + alt + '">' : m;
-  });
-  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/g, function (m, label, url) {
-    return /^(https?:|mailto:|#)/i.test(url) ? '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + label + '</a>' : label;
-  });
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>');
-  s = s.replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>').replace(/(^|[^_\w])_([^_\s][^_]*)_/g, '$1<em>$2</em>');
-  s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
-  return s;
-}
-
-// Render HTML embedded in Markdown (GitHub-style) safely. Parse in an INERT <template> — scripts don't
-// run and resources don't load there — then strip dangerous tags + on*/javascript: attributes before
-// returning the HTML. The result is injected via innerHTML, so only the sanitized subset survives.
-function sanitizeHtml(html) {
-  var tpl = document.createElement('template');
-  tpl.innerHTML = String(html);
-  var BAD = { SCRIPT: 1, STYLE: 1, IFRAME: 1, OBJECT: 1, EMBED: 1, LINK: 1, META: 1, BASE: 1, FORM: 1, INPUT: 1, BUTTON: 1, TEXTAREA: 1, SELECT: 1, NOSCRIPT: 1 };
-  var walk = function (node) {
-    var kids = Array.prototype.slice.call(node.children || []);
-    for (var k = 0; k < kids.length; k++) {
-      var el = kids[k];
-      if (BAD[el.tagName]) { el.parentNode.removeChild(el); continue; }
-      var attrs = Array.prototype.slice.call(el.attributes);
-      for (var a = 0; a < attrs.length; a++) {
-        var nm = attrs[a].name.toLowerCase();
-        if (nm.indexOf('on') === 0) { el.removeAttribute(attrs[a].name); continue; }
-        if ((nm === 'href' || nm === 'src' || nm === 'xlink:href' || nm === 'srcset')
-          && /^\s*(javascript|vbscript|data:text\/html):/i.test(attrs[a].value || '')) {
-          el.removeAttribute(attrs[a].name);
-        }
-      }
-      walk(el);
-    }
-  };
-  walk(tpl.content);
-  return tpl.innerHTML;
-}
-
-function mdFenceLang(lang) {
-  var l = (lang || '').toLowerCase();
+// One open-source Markdown engine is shared by source previews and merged prompts. The editable memo uses
+// a lazy Tiptap surface but persists ordinary Markdown and shares the document typography below.
+// markdown-it gives CommonMark-compatible parsing plus top-level token source maps; DOMPurify sanitizes the
+// final HTML, including raw HTML blocks. Both audited browser bundles are prepended at build time.
+var markdownEngine = null;
+function markdownLanguage(lang) {
+  var l = String(lang || '').trim().split(/\s+/)[0].toLowerCase();
   if (l === 'js' || l === 'jsx' || l === 'ts' || l === 'tsx') return 'typescript';
   if (l === 'sh' || l === 'bash' || l === 'zsh') return 'shell';
   if (l === 'yml') return 'yaml';
   return l || 'text';
 }
-
-function splitTableRow(line) {
-  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); });
+function getMarkdownEngine() {
+  if (markdownEngine) return markdownEngine;
+  if (typeof window.markdownit !== 'function') throw new Error('markdown-it runtime is unavailable');
+  markdownEngine = window.markdownit({
+    html: true,
+    linkify: true,
+    breaks: false,
+    typographer: false,
+    highlight: function (source, lang) {
+      var language = markdownLanguage(lang);
+      return String(source).split('\n').map(function (line) { return highlightLine(line, language); }).join('\n');
+    },
+  });
+  var defaultLinkOpen = markdownEngine.renderer.rules.link_open || function (tokens, idx, options, env, self) {
+    return self.renderToken(tokens, idx, options);
+  };
+  markdownEngine.renderer.rules.link_open = function (tokens, idx, options, env, self) {
+    tokens[idx].attrSet('target', '_blank');
+    tokens[idx].attrSet('rel', 'noopener noreferrer');
+    return defaultLinkOpen(tokens, idx, options, env, self);
+  };
+  return markdownEngine;
+}
+function sanitizeMarkdown(html) {
+  if (!window.DOMPurify || typeof window.DOMPurify.sanitize !== 'function') throw new Error('DOMPurify runtime is unavailable');
+  return window.DOMPurify.sanitize(String(html), {
+    USE_PROFILES: { html: true },
+    ADD_ATTR: ['target', 'rel'],
+  });
+}
+function renderMarkdownHtml(content) {
+  return sanitizeMarkdown(getMarkdownEngine().render(String(content || '')));
 }
 
-// Parse markdown into block objects { line, html } where line is the 0-based start line in the source.
-// Each block becomes one .source-row so the rendered view keeps a real line gutter + line comments.
+// Group markdown-it's top-level tokens into source-addressable blocks. A block retains the first source
+// line for the gutter/comment anchor, while its HTML comes from the exact same renderer as merged prompts.
 function renderMarkdownBlocks(content) {
-  var lines = String(content).split(/\r?\n/);
-  var blocks = [];
-  var i = 0;
-  var m;
-  while (i < lines.length) {
-    var start = i;
-    var line = lines[i];
-    var fence = line.match(/^(\s*)(```+|~~~+)\s*([\w+#-]*)\s*$/);
-    if (fence) {
-      var marker = fence[2].charAt(0);
-      var closeRe = new RegExp('^\\s*' + (marker === '`' ? '`' : '~') + '{3,}\\s*$');
-      var lang = mdFenceLang(fence[3]);
-      var buf = [];
-      i++;
-      while (i < lines.length && !closeRe.test(lines[i])) { buf.push(lines[i]); i++; }
-      i++;
-      blocks.push({ line: start, html: '<pre class="md-code"><code>' + buf.map(function (l) { return highlightLine(l, lang); }).join('\n') + '</code></pre>' });
-      continue;
+  var md = getMarkdownEngine();
+  var env = {};
+  var tokens = md.parse(String(content || ''), env);
+  var groups = [];
+  var group = null;
+  tokens.forEach(function (token) {
+    if (token.level === 0 && Array.isArray(token.map)) {
+      if (group) groups.push(group);
+      group = { line: token.map[0], endLine: token.map[1], tokens: [] };
     }
-    if (/^\s*$/.test(line)) { i++; continue; }
-    // Raw HTML block (GitHub-flavored Markdown): a line beginning with a tag. Accumulate to the next
-    // blank line and render it as sanitized HTML, so README markup (<div>, <img>, <table>, …) shows
-    // rendered instead of as escaped text.
-    if (/^\s*<(\/?[a-zA-Z][\w-]*|!--)/.test(line)) {
-      var hbuf = [line];
-      i++;
-      while (i < lines.length && !/^\s*$/.test(lines[i])) { hbuf.push(lines[i]); i++; }
-      blocks.push({ line: start, html: '<div class="md-html">' + sanitizeHtml(hbuf.join('\n')) + '</div>' });
-      continue;
-    }
-    var h = line.match(/^\s{0,3}(#{1,6})\s+(.*)$/);
-    if (h) { var lv = h[1].length; blocks.push({ line: start, html: '<h' + lv + ' class="md-h md-h' + lv + '">' + renderInlineMd(h[2].replace(/\s+#+\s*$/, '')) + '</h' + lv + '>' }); i++; continue; }
-    if (/^\s*([-*_])\s*(\1\s*){2,}$/.test(line)) { blocks.push({ line: start, html: '<hr class="md-hr">' }); i++; continue; }
-    if (/^\s*>\s?/.test(line)) {
-      var qbuf = [];
-      while (i < lines.length && /^\s*>\s?/.test(lines[i])) { qbuf.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
-      blocks.push({ line: start, html: '<blockquote class="md-quote">' + qbuf.map(function (l) { return l.trim() ? '<p>' + renderInlineMd(l) + '</p>' : ''; }).join('') + '</blockquote>' });
-      continue;
-    }
-    if (/\|/.test(line) && i + 1 < lines.length && /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(lines[i + 1])) {
-      var header = splitTableRow(line);
-      i += 2;
-      var rowsHtml = '';
-      while (i < lines.length && /\|/.test(lines[i]) && !/^\s*$/.test(lines[i])) {
-        var cells = splitTableRow(lines[i]);
-        rowsHtml += '<tr>' + header.map(function (_h, ci) { return '<td>' + renderInlineMd(cells[ci] || '') + '</td>'; }).join('') + '</tr>';
-        i++;
-      }
-      blocks.push({ line: start, html: '<table class="md-table"><thead><tr>' + header.map(function (c) { return '<th>' + renderInlineMd(c) + '</th>'; }).join('') + '</tr></thead><tbody>' + rowsHtml + '</tbody></table>' });
-      continue;
-    }
-    if ((m = lines[i].match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/))) {
-      var type = /\d/.test(m[2]) ? 'ol' : 'ul';
-      var items = '';
-      while (i < lines.length && (m = lines[i].match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/))) { items += '<li>' + renderInlineMd(m[3]) + '</li>'; i++; }
-      blocks.push({ line: start, html: '<' + type + ' class="md-list">' + items + '</' + type + '>' });
-      continue;
-    }
-    var pbuf = [line];
-    i++;
-    while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^(\s{0,3}#{1,6}\s|\s*>|\s*([-*+]|\d+[.)])\s|\s*(```|~~~))/.test(lines[i])) { pbuf.push(lines[i]); i++; }
-    blocks.push({ line: start, html: '<p class="md-p">' + renderInlineMd(pbuf.join('\n')).replace(/\n/g, '<br>') + '</p>' });
-  }
-  return blocks;
+    if (!group) group = { line: 0, endLine: 1, tokens: [] };
+    group.tokens.push(token);
+  });
+  if (group) groups.push(group);
+  return groups.map(function (item) {
+    return {
+      line: item.line,
+      endLine: item.endLine,
+      html: sanitizeMarkdown(md.renderer.render(item.tokens, md.options, env)),
+    };
+  });
 }
 
 function renderMarkdownRows(content) {
   var blocks = renderMarkdownBlocks(content);
   if (!blocks.length) return '<table class="source-table md-doc"><tbody></tbody></table>';
   var rows = blocks.map(function (b) {
-    return '<tr class="source-row md-row" data-line-index="' + b.line + '"><td class="num">' + (b.line + 1) + '</td><td class="source-code md-cell">' + b.html + '</td></tr>';
+    return '<tr class="source-row md-row" data-line-index="' + b.line + '" data-line-end="' + b.endLine + '"><td class="num">' + (b.line + 1) + '</td><td class="source-code md-cell markdown-body">' + b.html + '</td></tr>';
   }).join('');
   return '<table class="source-table md-doc"><tbody>' + rows + '</tbody></table>';
 }

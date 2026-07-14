@@ -17,7 +17,7 @@ before(async () => {
   ({ html } = await makeReviewHtml([
     { path: "src/review.ts", before: beforeLines.join("\n") + "\n", after: afterLines.join("\n") + "\n" },
     { path: "src/colors.ts", before: colorBefore.join("\n") + "\n", after: colorAfter.join("\n") + "\n" },
-  ], { app: true }));
+  ], { app: true, context: 2 }));
 });
 after(cleanupFixtures);
 
@@ -89,5 +89,35 @@ test("paired hunk rows use center gutters and IntelliJ semantic colors", async (
   assert.equal(changeRow.querySelector(".diffstat"), null, "Changes rows omit added/deleted line totals");
   assert.equal(changeRow.querySelector(".status").textContent.trim(), "", "status uses no wide text label");
   assert.ok(changeRow.querySelector(".status-modified svg"), "modified state is a compact icon badge");
+  v.close();
+});
+
+test("omitted context expands in both diff panes without losing hunk navigation", async () => {
+  const v = await loadViewer(html, {
+    analysisBridge: () => null,
+    analysisStatus: { generation: 1, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  await v.openDiffFor("src/review.ts");
+  await v.settle(80);
+
+  const wrapper = v.$("#diff2html-container .d2h-file-wrapper:not(.df-inactive)");
+  const folds = wrapper.querySelectorAll(".mc-context-fold");
+  assert.equal(folds.length, 2, "one paired fold control is shown for the omitted range");
+  assert.match(folds[0].textContent, /20 unchanged lines/, "the control explains how much context is hidden");
+  assert.equal(folds[0].tagName, "BUTTON", "the fold is keyboard accessible");
+  const hunkCountBefore = wrapper.querySelectorAll("tr.hunk").length;
+
+  v.click(folds[1]);
+  await v.settle(80);
+
+  const sides = wrapper.querySelectorAll(".d2h-file-side-diff");
+  for (const side of sides) {
+    const expanded = Array.from(side.querySelectorAll("tr.mc-expanded-context-row"));
+    assert.equal(expanded.length, 20, "the complete omitted range is inserted into each pane");
+    const line10 = expanded.find((row) => row.querySelector(".d2h-code-side-linenumber")?.textContent.trim() === "10");
+    assert.match(line10?.textContent || "", /line10 = 10/, "expanded rows contain the actual source text and line numbers");
+  }
+  assert.equal(wrapper.querySelector(".mc-context-fold"), null, "the fold control disappears after the range is exhausted");
+  assert.equal(wrapper.querySelectorAll("tr.hunk").length, hunkCountBefore, "expansion preserves hunk navigation anchors");
   v.close();
 });

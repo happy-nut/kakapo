@@ -78,6 +78,35 @@ test("Code mode mounts Monaco and returning to Review preserves line comments", 
   v.close();
 });
 
+test("Code mode live refresh updates its model in place and keeps 15% cursor scroll-off", async () => {
+  const before = "export const first = 1;\nexport const second = 2;\nexport const third = 3;\n";
+  const b1 = await makeReviewHtml([
+    { path: "src/live.ts", before, after: before.replace("first = 1", "first = 10") },
+  ], { app: true });
+  const b2 = await makeReviewHtml([
+    { path: "src/live.ts", before, after: before.replace("first = 1", "first = 100") },
+  ], { app: true });
+  const v = await loadViewer(b1.html, {
+    menuBridge: true,
+    monacoBridge: true,
+    analysisBridge: (request) => responseFor(request),
+  });
+  await v.openSourceFile("src/live.ts");
+  v.click(v.$("#editor-mode-toggle"));
+  await v.settle(30);
+
+  const editor = v.window.__monacoMock.editors[0];
+  editor.setPosition({ lineNumber: 2, column: 8 });
+  assert.equal(editor.options.cursorSurroundingLines, 6, "800px / 20px × 15% keeps six surrounding lines");
+  assert.equal(editor.options.cursorSurroundingLinesStyle, "all");
+
+  await v.pushDiffUpdate(b2.build.update);
+  assert.equal(v.window.__monacoMock.editors.length, 1, "the active Monaco DOM/editor is not recreated");
+  assert.match(editor.getModel().getValue(), /first = 100/, "the existing model receives the new source");
+  assert.deepEqual(editor.getPosition(), { lineNumber: 2, column: 8 }, "cursor position survives the model update");
+  v.close();
+});
+
 test("semantic providers reject stale generations and Peek shows all current results", async () => {
   let responseGeneration = 7;
   const requests = [];

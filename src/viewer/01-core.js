@@ -124,6 +124,193 @@ function annotateDiffHunkRows(wrapper) {
     previousPair = pair;
   }
   if (previousType) addPairClass(previousPair, 'mc-change-end');
+  decorateDiffContextFolds(wrapper, oldRows, newRows);
+}
+
+function diffContextHeader(row) {
+  var raw = row && (row.dataset.hunkHeader || (row.textContent || '').trim());
+  var match = String(raw || '').match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+  if (!match) return null;
+  if (row && !row.dataset.hunkHeader) row.dataset.hunkHeader = raw;
+  return { oldStart: Number(match[1]), newStart: Number(match[3]) };
+}
+function diffContextMessage(key, count) {
+  var messages = (typeof I18N !== 'undefined' && I18N)
+    ? (I18N[(typeof locale !== 'undefined' && locale) || 'en'] || I18N.en || {})
+    : {};
+  var fallback = key === 'diff.contextLoading' ? 'Loading context…'
+    : key === 'diff.contextUnavailable' ? 'Context could not be loaded.'
+      : '{count} unchanged lines · expand';
+  return String(messages[key] || fallback).replace('{count}', String(count || 0));
+}
+function paintDiffContextFoldRow(row, count, hunkIndex) {
+  if (!row) return;
+  row.classList.remove('mc-context-expanded-marker');
+  row.classList.add('mc-context-fold-row');
+  row.dataset.contextHunk = String(hunkIndex);
+  var line = row.querySelector('.d2h-code-side-line');
+  if (!line) return;
+  line.textContent = '';
+  var button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'mc-context-fold';
+  button.dataset.contextExpand = '1';
+  var icon = document.createElement('span'); icon.className = 'mc-context-fold-icon'; icon.textContent = '⋯';
+  var label = document.createElement('span'); label.className = 'mc-context-fold-label'; label.textContent = diffContextMessage('diff.contextFold', count);
+  button.title = label.textContent;
+  button.appendChild(icon); button.appendChild(label); line.appendChild(button);
+}
+function finishDiffContextFoldRow(row) {
+  if (!row) return;
+  row.classList.remove('mc-context-fold-row');
+  row.classList.add('mc-context-expanded-marker');
+  delete row.dataset.contextHunk;
+  delete row.dataset.contextLoading;
+  ['contextOldStart', 'contextOldEnd', 'contextNewStart', 'contextNewEnd'].forEach(function (key) { delete row.dataset[key]; });
+  var line = row.querySelector('.d2h-code-side-line');
+  if (line) line.textContent = '';
+}
+// Every @@ separator that actually hides lines becomes a keyboard-accessible expansion control. The
+// side-by-side tables are positional peers, so both controls share one hunk key and expand atomically.
+function decorateDiffContextFolds(wrapper, oldRows, newRows) {
+  if (!wrapper) return;
+  oldRows = oldRows || diffRowsOf(diffSideTable(wrapper, 'old'));
+  newRows = newRows || diffRowsOf(diffSideTable(wrapper, 'new'));
+  var previousOld = 0, previousNew = 0;
+  for (var i = 0; i < oldRows.length; i++) {
+    var oldMarker = oldRows[i];
+    var header = diffContextHeader(oldMarker);
+    var newMarker = newRows[i] || null;
+    if (!header) {
+      var visibleOld = diffLineNumber(oldMarker), visibleNew = diffLineNumber(newMarker);
+      if (visibleOld != null) previousOld = visibleOld;
+      if (visibleNew != null) previousNew = visibleNew;
+      continue;
+    }
+    var oldStart = previousOld + 1;
+    var newStart = previousNew + 1;
+    var oldEnd = header.oldStart - 1;
+    var newEnd = header.newStart - 1;
+    var count = Math.max(oldEnd >= oldStart ? oldEnd - oldStart + 1 : 0, newEnd >= newStart ? newEnd - newStart + 1 : 0);
+    var hunkIndex = oldMarker.dataset.hunkIndex || oldMarker.dataset.reviewHunkIndex || String(i);
+    if (!count) { finishDiffContextFoldRow(oldMarker); finishDiffContextFoldRow(newMarker); continue; }
+    [oldMarker, newMarker].forEach(function (row) {
+      if (!row) return;
+      row.dataset.contextOldStart = String(oldStart);
+      row.dataset.contextOldEnd = String(oldEnd);
+      row.dataset.contextNewStart = String(newStart);
+      row.dataset.contextNewEnd = String(newEnd);
+      paintDiffContextFoldRow(row, count, hunkIndex);
+    });
+  }
+}
+function refreshDiffContextFoldLabels() {
+  document.querySelectorAll('.mc-context-fold-row').forEach(function (row) {
+    var oldStart = Number(row.dataset.contextOldStart), oldEnd = Number(row.dataset.contextOldEnd);
+    var newStart = Number(row.dataset.contextNewStart), newEnd = Number(row.dataset.contextNewEnd);
+    var count = Math.max(oldEnd >= oldStart ? oldEnd - oldStart + 1 : 0, newEnd >= newStart ? newEnd - newStart + 1 : 0);
+    var label = row.querySelector('.mc-context-fold-label');
+    if (label) label.textContent = row.dataset.contextLoading === '1'
+      ? diffContextMessage('diff.contextLoading') : diffContextMessage('diff.contextFold', count);
+    var button = row.querySelector('.mc-context-fold');
+    if (button && label) { button.title = label.textContent; button.disabled = row.dataset.contextLoading === '1'; }
+  });
+}
+function diffContextRequestForRow(row) {
+  var take = 1000;
+  var oldStart = Number(row.dataset.contextOldStart), oldEnd = Number(row.dataset.contextOldEnd);
+  var newStart = Number(row.dataset.contextNewStart), newEnd = Number(row.dataset.contextNewEnd);
+  return {
+    path: diffWrapperPathKey(row.closest('.d2h-file-wrapper')),
+    oldStart: oldStart, oldEnd: Math.min(oldEnd, oldStart + take - 1),
+    newStart: newStart, newEnd: Math.min(newEnd, newStart + take - 1),
+  };
+}
+function fallbackDiffContext(request) {
+  return loadSourceFile(request.path).then(function (file) {
+    if (!file || !file.embedded || typeof file.content !== 'string') return { ok: false };
+    var lines = file.content.split(/\r?\n/); if (lines[lines.length - 1] === '') lines.pop();
+    var newLines = lines.slice(request.newStart - 1, request.newEnd);
+    // A folded gap is unchanged. Standalone HTML only embeds the working source, so use that text with
+    // old-side line numbers; Electron/browser-watch fetch both reviewed revisions from the host.
+    return { ok: true, oldStart: request.oldStart, newStart: request.newStart, oldLines: newLines.slice(), newLines: newLines };
+  });
+}
+function loadDiffContext(request) {
+  if (window.monacoriFile && typeof window.monacoriFile.getDiffContext === 'function') {
+    return Promise.resolve(window.monacoriFile.getDiffContext(request));
+  }
+  if (REVIEW_LAZY_LOAD && typeof fetch !== 'undefined') {
+    var query = Object.keys(request).map(function (key) { return encodeURIComponent(key) + '=' + encodeURIComponent(request[key]); }).join('&');
+    return fetch('diff-context?' + query).then(function (response) { return response.ok ? response.json() : { ok: false }; });
+  }
+  return fallbackDiffContext(request);
+}
+function createExpandedContextRow(lineNumber, text, language) {
+  if (lineNumber == null || text == null) {
+    var empty = document.createElement('tr'); empty.className = 'mc-expanded-context-row';
+    empty.innerHTML = '<td class="d2h-code-side-linenumber d2h-emptyplaceholder"></td><td class="d2h-code-side-emptyplaceholder d2h-emptyplaceholder"></td>';
+    return empty;
+  }
+  var row = document.createElement('tr'); row.className = 'mc-expanded-context-row';
+  var number = document.createElement('td'); number.className = 'd2h-code-side-linenumber d2h-cntx'; number.textContent = String(lineNumber);
+  var code = document.createElement('td'); code.className = 'd2h-cntx';
+  var line = document.createElement('div'); line.className = 'd2h-code-side-line';
+  var prefix = document.createElement('span'); prefix.className = 'd2h-code-line-prefix'; prefix.textContent = ' ';
+  var content = document.createElement('span'); content.className = 'd2h-code-line-ctn'; content.innerHTML = highlightLine(String(text), language || 'text');
+  line.appendChild(prefix); line.appendChild(content); code.appendChild(line); row.appendChild(number); row.appendChild(code);
+  return row;
+}
+function restoreDiffCursorAfterContext(wrapper, snapshot) {
+  if (!snapshot || !diffCursor || diffCursor.path !== snapshot.path) return;
+  var rows = diffRowsOf(diffSideTable(wrapper, snapshot.side));
+  var index = rows.findIndex(function (row) {
+    return diffLineNumber(row) === snapshot.line && (!snapshot.text || diffLineText(row) === snapshot.text);
+  });
+  if (index < 0) return;
+  diffCursor.rowIndex = index;
+  diffCursor.column = Math.min(snapshot.column, diffLineText(rows[index]).length);
+  renderDiffCaret(); applyDiffSelection();
+}
+function expandDiffContext(row) {
+  if (!row || row.dataset.contextLoading === '1') return;
+  var wrapper = row.closest('.d2h-file-wrapper');
+  var key = row.dataset.contextHunk;
+  if (!wrapper || key == null) return;
+  var peers = wrapper.querySelectorAll('.mc-context-fold-row[data-context-hunk="' + key + '"]');
+  var request = diffContextRequestForRow(row);
+  var cursorRow = diffCursor && diffCursor.path === request.path ? diffRowAt(wrapper, diffCursor.side, diffCursor.rowIndex) : null;
+  var cursorSnapshot = diffCursor && diffCursor.path === request.path ? {
+    path: diffCursor.path, side: diffCursor.side, line: diffLineNumber(cursorRow), text: diffLineText(cursorRow), column: diffCursor.column,
+  } : null;
+  peers.forEach(function (peer) { peer.dataset.contextLoading = '1'; }); refreshDiffContextFoldLabels();
+  loadDiffContext(request).then(function (result) {
+    if (!result || result.ok === false) throw new Error(result && result.error || 'context unavailable');
+    var oldLines = Array.isArray(result.oldLines) ? result.oldLines : [];
+    var newLines = Array.isArray(result.newLines) ? result.newLines : [];
+    if (!oldLines.length && !newLines.length) throw new Error('empty context');
+    var oldSide = diffSideTable(wrapper, 'old');
+    var oldMarker = Array.prototype.find.call(peers, function (peer) { return peer.closest('.d2h-file-side-diff') === oldSide; });
+    var newMarker = Array.prototype.find.call(peers, function (peer) { return peer !== oldMarker; });
+    var file = sourceByPath.get(request.path);
+    var language = file ? file.language : 'text';
+    var count = Math.max(oldLines.length, newLines.length);
+    var oldFragment = document.createDocumentFragment(), newFragment = document.createDocumentFragment();
+    for (var i = 0; i < count; i++) {
+      oldFragment.appendChild(createExpandedContextRow(i < oldLines.length ? request.oldStart + i : null, oldLines[i], language));
+      newFragment.appendChild(createExpandedContextRow(i < newLines.length ? request.newStart + i : null, newLines[i], language));
+    }
+    if (oldMarker && oldMarker.parentNode) oldMarker.parentNode.insertBefore(oldFragment, oldMarker);
+    if (newMarker && newMarker.parentNode) newMarker.parentNode.insertBefore(newFragment, newMarker);
+    wrapper.__reviewAnchorsOld = null; wrapper.__reviewAnchorsNew = null;
+    annotateDiffHunkRows(wrapper);
+    restoreDiffCursorAfterContext(wrapper, cursorSnapshot);
+    if (typeof refreshComments === 'function') refreshComments();
+    syncDiffReviewChrome(request.path);
+  }).catch(function () {
+    peers.forEach(function (peer) { delete peer.dataset.contextLoading; }); refreshDiffContextFoldLabels();
+    if (typeof showToast === 'function') showToast(diffContextMessage('diff.contextUnavailable'));
+  });
 }
 
 // Assign global hunk ids/classes to a freshly materialized file body, keyed off its shell's
@@ -134,8 +321,9 @@ function markWrapperHunks(wrapper) {
   var headerToIndex = new Map();
   var local = 0;
   Array.prototype.forEach.call(wrapper.querySelectorAll('tr'), function (row) {
-    var header = (row.textContent || '').trim();
+    var header = row.dataset.hunkHeader || (row.textContent || '').trim();
     if (header.indexOf('@@') !== 0) return;
+    row.dataset.hunkHeader = header;
     var index = headerToIndex.get(header);
     if (index === undefined) { index = base + local; headerToIndex.set(header, index); row.classList.add('hunk'); row.id = 'hunk-' + index; local += 1; }
     else { row.classList.add('hunk-peer'); }
@@ -281,6 +469,7 @@ function applyI18n() {
   document.documentElement.lang = locale;
   if (langSelectRef) langSelectRef.render();
   if (themeSelectRef) themeSelectRef.render(); // theme labels are localized — refresh on a language switch too
+  if (typeof refreshDiffContextFoldLabels === 'function') refreshDiffContextFoldLabels();
   if (typeof syncDiffReviewChrome === 'function') syncDiffReviewChrome();
 }
 // Theme mirrors the locale pattern: persisted choice, applied by toggling data-theme on <html> so the
@@ -441,8 +630,9 @@ function prepareDiff2HtmlHunks() {
     const headerToIndex = new Map();
     const rows = Array.from(wrapper.querySelectorAll('tr'));
     rows.forEach((row) => {
-      const header = row.textContent.trim();
+      const header = row.dataset.hunkHeader || row.textContent.trim();
       if (!header.startsWith('@@')) return;
+      row.dataset.hunkHeader = header;
       let index = headerToIndex.get(header);
       if (index === undefined) {
         index = globalHunkIndex;
@@ -459,6 +649,13 @@ function prepareDiff2HtmlHunks() {
     annotateDiffHunkRows(wrapper);
   });
 }
+
+document.addEventListener('click', function (event) {
+  var button = event.target && event.target.closest ? event.target.closest('[data-context-expand]') : null;
+  if (!button) return;
+  event.preventDefault();
+  expandDiffContext(button.closest('.mc-context-fold-row'));
+});
 
 prepareViewedControls();
 

@@ -150,16 +150,7 @@ function scheduleDiffScroll(row) {
 // Coalesced scrollIntoView for caret/focus moves. Holding an arrow key fires key-repeat faster than a
 // reflow-forcing scrollIntoView can run, so collapse them to one (latest element) per animation frame and
 // use block:nearest (no per-row center-jump). Shared by the tree, source caret, and diff caret.
-var pendingScrollEl = null, scrollElRaf = 0;
-// Reveal `el` by keeping it ~fraction of the way down its scroller, scrolling minimally on EVERY move so the
-// view follows the caret CONTINUOUSLY. scrollIntoView('nearest') instead leaves the view still until the
-// caret reaches the edge and then jumps — stuttering ~every viewport while an arrow key is held.
-function revealAt(el, scroller, fraction) {
-  if (!el) return;
-  if (!scroller || !scroller.clientHeight) { try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (x) {} return; }
-  var off = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-  scroller.scrollTop += off - scroller.clientHeight * fraction;
-}
+var pendingScrollEl = null, pendingScrollContainer = null, pendingScrollMargin = 0, scrollElRaf = 0;
 // Scrolloff variant: scroll ONLY when `el` would otherwise leave the viewport, keeping it within `marginFrac`
 // of the top/bottom edge. While the row moves comfortably inside that band the view stays put — continuous
 // centering scrolled the file even when everything was visible (dizzying). Used by the diff caret and the sidebar tree.
@@ -172,13 +163,18 @@ function scrolloffReveal(el, scroller, marginFrac) {
   if (top < margin) scroller.scrollTop += top - margin;
   else if (top + rowH > ch - margin) scroller.scrollTop += (top + rowH) - (ch - margin);
 }
-function scheduleScrollIntoView(el) {
+function scheduleScrollIntoView(el, scroller, marginFrac) {
   pendingScrollEl = el || null;
+  pendingScrollContainer = scroller || null;
+  pendingScrollMargin = Number(marginFrac) || 0;
   if (scrollElRaf) return;
   scrollElRaf = requestAnimationFrame(function () {
     scrollElRaf = 0;
     var e = pendingScrollEl; pendingScrollEl = null;
-    if (e && e.scrollIntoView) { try { e.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (x) {} }
+    var s = pendingScrollContainer; pendingScrollContainer = null;
+    var m = pendingScrollMargin; pendingScrollMargin = 0;
+    if (e && s && m > 0) scrolloffReveal(e, s, m);
+    else if (e && e.scrollIntoView) { try { e.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (x) {} }
   });
 }
 

@@ -29,8 +29,13 @@ function isDockFocused() {
 }
 // Close the merged/memo docks.
 function closeMergedMemoDocks() {
-  var m = document.getElementById('mc-merged-panel'); if (m) m.remove();
-  var n = document.getElementById('mc-memo-panel'); if (n) n.remove();
+  var m = document.getElementById('mc-merged-panel');
+  var n = document.getElementById('mc-memo-panel');
+  [m, n].forEach(function (panel) {
+    if (!panel) return;
+    try { if (typeof panel.__monacoriBeforeClose === 'function') panel.__monacoriBeforeClose(); } catch (e) {}
+    panel.remove();
+  });
   document.querySelectorAll('.dock-backdrop').forEach(function (b) { b.remove(); });
   document.body.classList.toggle('dock-open', !!activeDockPanel());
   document.body.classList.toggle('floating-dock', !!(document.getElementById('mc-merged-panel') || document.getElementById('mc-memo-panel')));
@@ -51,8 +56,6 @@ function focusDockField(field, panelSel) {
 }
 // Build a docked panel shell (resizer + bar with Maximize/Close + body) and mount it below the editor.
 function mountDock(id, titleText) {
-  var prior = document.getElementById(id);
-  if (prior) prior.remove();
   closeMergedMemoDocks();
   var panel = document.createElement('div');
   panel.id = id;
@@ -90,7 +93,7 @@ function mountDock(id, titleText) {
   panel.appendChild(body);
   document.body.appendChild(backdrop);
   document.body.appendChild(panel);
-  function close() { panel.remove(); backdrop.remove(); closeMergedMemoDocks(); }
+  function close() { closeMergedMemoDocks(); }
   maxBtn.addEventListener('click', function () { toggleDockMaximized(); });
   closeBtn.addEventListener('click', close);
   backdrop.addEventListener('click', close); // click the dim behind the panel to dismiss
@@ -122,42 +125,68 @@ function mountDock(id, titleText) {
 function openMergedView(kind) {
   var dock = mountDock('mc-merged-panel', kind === 'q' ? t('merged.qTitle') : t('merged.cTitle'));
   dock.panel.dataset.kind = kind; // remembered so a live locale switch can re-render this same view
-  var area = document.createElement('textarea');
-  area.className = 'mc-modal-text';
-  // NOT readOnly: a readOnly textarea hides the caret in Chromium, yet we need it VISIBLE so the user sees
-  // which comment Opt+Enter / Opt+Arrow will target. Block every edit via beforeinput instead.
-  area.value = buildMergedText(kind);
-  area.addEventListener('beforeinput', function (e) { e.preventDefault(); });
-  // Opt/Alt+Enter on the merged text: a custom dropdown for the comment under the caret. Opt/Alt+Arrow steps
-  // the caret comment-to-comment so each can be acted on without hand-scrolling.
-  area.addEventListener('keydown', function (e) {
-    if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-      e.preventDefault();
-      e.stopPropagation();
-      jumpMergedComment(area, e.key === 'ArrowDown' ? 1 : -1);
-      return;
+  var mergedBody = document.createElement('div');
+  mergedBody.className = 'mc-merged-body';
+  var preview = document.createElement('div');
+  preview.className = 'mc-merged-preview markdown-body';
+  preview.tabIndex = 0;
+  var sourceText = '';
+  var activeSeq = null;
+  function mergedItems() { return reviewComments.filter(function (comment) { return comment.kind === kind; }); }
+  function selectMergedComment(seq, shouldFocus) {
+    activeSeq = seq;
+    preview.querySelectorAll('.mc-merged-comment-anchor').forEach(function (heading) {
+      heading.classList.toggle('active', String(heading.dataset.commentSeq) === String(seq));
+      heading.setAttribute('aria-selected', String(String(heading.dataset.commentSeq) === String(seq)));
+    });
+    var activeHeading = preview.querySelector('.mc-merged-comment-anchor.active');
+    if (shouldFocus && activeHeading) { activeHeading.focus(); activeHeading.scrollIntoView({ block: 'center' }); }
+  }
+  function renderMergedDocument(closeWhenEmpty) {
+    var items = mergedItems();
+    if (!items.length && closeWhenEmpty) { dock.close(); return; }
+    sourceText = buildMergedText(kind);
+    preview.innerHTML = renderMarkdownHtml(sourceText);
+    var headings = Array.from(preview.querySelectorAll('h3'));
+    items.forEach(function (comment) {
+      var expected = commentTargetLabel(comment);
+      var heading = headings.find(function (candidate) { return !candidate.dataset.commentSeq && candidate.textContent.trim() === expected; });
+      if (!heading) return;
+      heading.classList.add('mc-merged-comment-anchor');
+      heading.dataset.commentSeq = String(comment.seq);
+      heading.tabIndex = -1;
+    });
+    if (!items.some(function (comment) { return comment.seq === activeSeq; })) activeSeq = items.length ? items[0].seq : null;
+    selectMergedComment(activeSeq, false);
+  }
+  function moveMergedComment(dir) {
+    var items = mergedItems();
+    if (!items.length) return;
+    var index = items.findIndex(function (comment) { return comment.seq === activeSeq; });
+    if (index < 0) index = 0;
+    selectMergedComment(items[Math.max(0, Math.min(items.length - 1, index + dir))].seq, true);
+  }
+  function openMergedActions() {
+    if (activeSeq == null) return;
+    var heading = preview.querySelector('.mc-merged-comment-anchor.active');
+    if (!heading) return;
+    var rect = heading.getBoundingClientRect();
+    var seq = activeSeq;
+    showCustomDropdown(rect.left + 8, rect.bottom + 4, [
+      { label: t('dropdown.navigate'), onSelect: function () { dock.close(); navigateToComment(seq); } },
+      { label: t('dropdown.remove'), onSelect: function () { deleteComment(seq); renderMergedDocument(true); } },
+    ], rect.top);
+  }
+  preview.addEventListener('click', function (event) {
+    var heading = event.target && event.target.closest ? event.target.closest('.mc-merged-comment-anchor') : null;
+    if (heading) selectMergedComment(parseInt(heading.dataset.commentSeq, 10), false);
+  });
+  preview.addEventListener('keydown', function (event) {
+    if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault(); event.stopPropagation(); moveMergedComment(event.key === 'ArrowDown' ? 1 : -1); return;
     }
-    if (!e.altKey || (e.key !== 'Enter' && e.code !== 'Enter')) return;
-    e.preventDefault();
-    e.stopPropagation();
-    var seqs = mergedCommentSeqs(kind, area.selectionStart, area.selectionEnd);
-    if (!seqs.length) return;
-    var cxy = mergedCaretXY(area);
-    var x = cxy.x, y = cxy.below, flipTop = cxy.top;
-    var rerender = function () {
-      if (!reviewComments.filter(function (c) { return c.kind === kind; }).length) { dock.close(); return; }
-      area.value = buildMergedText(kind);
-    };
-    if (area.selectionStart !== area.selectionEnd || seqs.length > 1) {
-      showCustomDropdown(x, y, [
-        { label: t('dropdown.remove'), onSelect: function () { seqs.forEach(deleteComment); rerender(); } },
-      ], flipTop);
-    } else {
-      var seq = seqs[0];
-      showCustomDropdown(x, y, [
-        { label: t('dropdown.navigate'), onSelect: function () { dock.close(); navigateToComment(seq); } },
-        { label: t('dropdown.remove'), onSelect: function () { deleteComment(seq); rerender(); } },
-      ], flipTop);
+    if (event.altKey && (event.key === 'Enter' || event.code === 'Enter')) {
+      event.preventDefault(); event.stopPropagation(); openMergedActions();
     }
   });
   var copyBtn = document.createElement('button');
@@ -166,50 +195,118 @@ function openMergedView(kind) {
   copyBtn.setAttribute('data-i18n', 'merged.copyAll');
   copyBtn.textContent = t('merged.copyAll');
   copyBtn.addEventListener('click', function () {
-    var copied = typeof copyTextToClipboard === 'function' && copyTextToClipboard(area.value);
+    var copied = typeof copyTextToClipboard === 'function' && copyTextToClipboard(sourceText);
     if (typeof showToast === 'function') showToast(t(copied ? 'merged.copied' : 'merged.copyFailed'));
   });
   dock.bar.insertBefore(copyBtn, dock.bar.querySelector('.dock-max'));
-  dock.body.appendChild(area);
-  // Focus the read-only text so the caret is visible and Opt+Arrow / Opt+Enter work; retry (Electron focus race).
-  focusDockField(area, '#mc-merged-panel');
+  mergedBody.appendChild(preview);
+  dock.body.appendChild(mergedBody);
+  renderMergedDocument(false);
+  focusDockField(preview, '#mc-merged-panel');
 }
 
-// Prompt memo (Cmd/Ctrl+Shift+N): one freeform Markdown scratchpad with a live split preview, persisted
-// across reopens via the same store as comments and locale.
-var memoKey = 'monacori-memo';
-function loadMemo() {
-  var v = persistRead(memoKey);
-  if (typeof v === 'string') return v;
-  try { var s = localStorage.getItem(memoKey); return typeof s === 'string' ? s : ''; } catch (e) { return ''; }
+// One Notion-style Markdown document per worktree. Electron persists it below app.getPath('userData'); the
+// static fallback uses a review-path localStorage key only for browser tests. No memo enters the repository.
+var memoFallbackKey = 'monacori-memo-document:' + location.pathname;
+function fallbackMemoDocument() {
+  try {
+    var value = JSON.parse(localStorage.getItem(memoFallbackKey) || '{}');
+    return value && typeof value.body === 'string' ? value : { version: 1, worktreePath: location.pathname, body: '', updatedAt: null };
+  } catch (e) { return { version: 1, worktreePath: location.pathname, body: '', updatedAt: null }; }
 }
-function saveMemo(text) { persistSave(memoKey, text || ''); }
-function renderMemoMd(text) {
-  if (!text || !text.trim()) return '<div class="mc-memo-empty" data-i18n="memo.previewEmpty">' + escapeHtml(t('memo.previewEmpty')) + '</div>';
-  return renderMarkdownBlocks(text).map(function (b) { return b.html; }).join('');
+function readMemoDocument() {
+  if (window.monacoriMemo && typeof window.monacoriMemo.read === 'function') return window.monacoriMemo.read();
+  return Promise.resolve(fallbackMemoDocument());
+}
+function writeMemoDocument(body) {
+  if (window.monacoriMemo && typeof window.monacoriMemo.write === 'function') return window.monacoriMemo.write(body);
+  var document = { version: 1, worktreePath: location.pathname, body: String(body || ''), updatedAt: new Date().toISOString() };
+  try { localStorage.setItem(memoFallbackKey, JSON.stringify(document)); } catch (e) {}
+  return Promise.resolve(document);
+}
+function deleteMemoDocument() {
+  if (window.monacoriMemo && typeof window.monacoriMemo.remove === 'function') return window.monacoriMemo.remove();
+  try { localStorage.removeItem(memoFallbackKey); } catch (e) {}
+  return Promise.resolve({ ok: true });
+}
+var inlineMarkdownEditorLoad = null;
+function loadInlineMarkdownEditor() {
+  if (window.MonacoriMarkdownEditor) return Promise.resolve(window.MonacoriMarkdownEditor);
+  if (inlineMarkdownEditorLoad) return inlineMarkdownEditorLoad;
+  inlineMarkdownEditorLoad = new Promise(function (resolve, reject) {
+    var script = document.createElement('script');
+    script.src = 'monacori-asset://app/markdown-editor.js';
+    script.async = true;
+    script.addEventListener('load', function () {
+      if (window.MonacoriMarkdownEditor) resolve(window.MonacoriMarkdownEditor);
+      else reject(new Error('inline Markdown editor did not register'));
+    });
+    script.addEventListener('error', function () { reject(new Error('inline Markdown editor failed to load')); });
+    document.head.appendChild(script);
+  }).catch(function (error) { inlineMarkdownEditorLoad = null; throw error; });
+  return inlineMarkdownEditorLoad;
 }
 function openMemoView() {
   if (document.getElementById('mc-memo-panel')) { closeMergedMemoDocks(); return; } // the shortcut toggles: 2nd press closes
   var dock = mountDock('mc-memo-panel', t('memo.title'));
-  var memoBody = document.createElement('div');
-  memoBody.className = 'mc-memo-body';
-  var area = document.createElement('textarea');
-  area.className = 'mc-modal-text mc-memo-edit';
-  area.spellcheck = false;
-  area.setAttribute('data-i18n-ph', 'memo.placeholder');
-  area.placeholder = t('memo.placeholder');
-  area.value = loadMemo();
-  var preview = document.createElement('div');
-  preview.className = 'md-cell mc-memo-preview';
-  preview.innerHTML = renderMemoMd(area.value);
-  area.addEventListener('input', function () {
-    saveMemo(area.value);
-    preview.innerHTML = renderMemoMd(area.value);
-  });
-  memoBody.appendChild(area);
-  memoBody.appendChild(preview);
+  var editor = null;
+  var memoDirty = false;
+  var saveTimer = 0;
+  var saveState = document.createElement('span'); saveState.className = 'mc-memo-save-state';
+  var clearBtn = document.createElement('button'); clearBtn.type = 'button'; clearBtn.className = 'dock-btn mc-memo-delete'; clearBtn.textContent = t('memo.clear'); clearBtn.disabled = true;
+  dock.bar.insertBefore(saveState, dock.bar.querySelector('.dock-max'));
+  dock.bar.insertBefore(clearBtn, dock.bar.querySelector('.dock-max'));
+  var memoBody = document.createElement('div'); memoBody.className = 'mc-memo-body';
+  var host = document.createElement('div'); host.className = 'mc-inline-editor-host';
+  host.innerHTML = '<div class="mc-memo-empty">' + escapeHtml(t('memo.loading')) + '</div>';
+  memoBody.appendChild(host);
   dock.body.appendChild(memoBody);
-  focusDockField(area, '#mc-memo-panel');
+  function flushMemo() {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; }
+    if (!editor || !memoDirty) return;
+    var savingBody = editor.getMarkdown();
+    memoDirty = false;
+    writeMemoDocument(savingBody).then(function () {
+      if (!memoDirty) saveState.textContent = t('memo.saved');
+    }).catch(function () { memoDirty = true; saveState.textContent = t('memo.saveFailed'); });
+  }
+  function scheduleSave() {
+    memoDirty = true;
+    saveState.textContent = t('memo.saving');
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushMemo, 220);
+  }
+  clearBtn.addEventListener('click', function () {
+    if (!editor || !window.confirm(t('memo.clearConfirm'))) return;
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; }
+    memoDirty = false;
+    deleteMemoDocument().then(function (result) {
+      if (!result || result.ok === false) throw new Error('delete failed');
+      editor.setMarkdown('');
+      saveState.textContent = '';
+      editor.focus();
+    }).catch(function () { showToast(t('memo.deleteFailed')); });
+  });
+  dock.panel.__monacoriBeforeClose = function () { flushMemo(); if (editor) editor.destroy(); };
+  readMemoDocument().then(function (memoDocument) {
+    if (!document.getElementById('mc-memo-panel')) return;
+    return loadInlineMarkdownEditor().then(function (factory) {
+      if (!document.getElementById('mc-memo-panel')) return;
+      host.innerHTML = '';
+      editor = factory.create({
+        element: host,
+        markdown: memoDocument && typeof memoDocument.body === 'string' ? memoDocument.body : '',
+        placeholder: t('memo.placeholder'),
+        onUpdate: scheduleSave,
+      });
+      clearBtn.disabled = false;
+      saveState.textContent = memoDocument && memoDocument.updatedAt ? t('memo.saved') : '';
+      requestAnimationFrame(function () { if (editor) editor.focus(); });
+    });
+  }).catch(function () {
+    host.innerHTML = '<div class="mc-memo-empty">' + escapeHtml(t('memo.loadFailed')) + '</div>';
+    showToast(t('memo.loadFailed'));
+  });
 }
 
 document.addEventListener('click', function (event) {

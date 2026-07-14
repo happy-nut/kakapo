@@ -45,6 +45,61 @@ test("opening one dock closes the other (exclusive slot)", async () => {
   v.close();
 });
 
+test("the worktree memo restores as one inline-rendered Markdown document and autosaves", async () => {
+  const now = new Date().toISOString();
+  const v = await loadViewer(html, {
+    memoBridge: {
+      version: 1,
+      worktreePath: "/repo/worktrees/feature-a",
+      body: "# Plan\n\nA real paragraph.",
+      updatedAt: now,
+    },
+  });
+  await v.openMemo();
+  const editor = v.$("#mc-memo-panel .mc-inline-editor.markdown-body");
+  assert.equal(editor.querySelector("h1")?.textContent, "Plan", "stored Markdown opens already rendered in the editable surface");
+  assert.equal(v.$("#mc-memo-panel .mc-memo-preview"), null, "there is no side preview pane");
+  assert.equal(v.$("#mc-memo-panel .mc-memo-sidebar"), null, "a single memo needs no note list");
+
+  v.typeInto(editor, "Updated inline memo");
+  await v.settle(260);
+  assert.ok(v.window.__memoOperations.some((op) => op.kind === "write" && /Updated inline memo/.test(op.body)), "the edit autosaves through the app-data bridge");
+  v.close();
+});
+
+test("opening and closing an unchanged note does not rewrite or reorder it", async () => {
+  const now = new Date().toISOString();
+  const v = await loadViewer(html, {
+    memoBridge: { version: 1, worktreePath: "/repo/wt", body: "No edit", updatedAt: now },
+  });
+  await v.openMemo();
+  await v.openMemo();
+  await v.settle(30);
+  assert.equal(v.window.__memoOperations.length, 0, "no CRUD call is made when content did not change");
+  v.close();
+});
+
+test("the single Markdown memo can be cleared without a note-list workflow", async () => {
+  const v = await loadViewer(html, { memoBridge: { version: 1, worktreePath: "/repo/wt", body: "Delete me", updatedAt: new Date().toISOString() } });
+  await v.openMemo();
+  v.$(".mc-memo-delete").click();
+  await v.settle(20);
+  assert.equal(v.$(".mc-inline-editor").textContent.trim(), "");
+  assert.deepEqual(v.window.__memoOperations.map((op) => op.kind), ["delete"]);
+  v.close();
+});
+
+test("merged prompts render as one sanitized Markdown document instead of a side-by-side preview", async () => {
+  const v = await loadViewer(html);
+  await v.openMergedView("q");
+  const preview = v.$("#mc-merged-panel .mc-merged-preview.markdown-body");
+  assert.ok(preview, "the merged prompt has one rendered document");
+  assert.ok(preview.querySelector("h1"), "prompt headings are rendered as Markdown");
+  assert.equal(preview.querySelector("script"), null, "the shared sanitizer remains active");
+  assert.equal(v.$("#mc-merged-panel textarea"), null, "no raw source pane competes with the rendered document");
+  v.close();
+});
+
 test("Cmd/Ctrl+Shift+' maximizes the active dock and restores it (toggle)", async () => {
   const v = await loadViewer(html);
   await v.openMergedView("q");

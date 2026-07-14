@@ -12,6 +12,8 @@ import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js"
 import { searchProject } from "./search.js";
 import { ProjectAnalysis, type AnalysisRequest } from "./analysis.js";
 import { ReviewPerformanceTrace } from "./perf.js";
+import { ProjectMarkdownMemo } from "./memos.js";
+import { readReviewDiffContext, type DiffContextRequest } from "./diff-context.js";
 import type { SourceFile } from "./types.js";
 import { createHash } from "node:crypto";
 
@@ -82,9 +84,8 @@ function isLightTheme(): boolean {
 }
 
 app.setName(APP_NAME);
-// Monaco workers cannot reliably start from file://. A narrow, read-only standard scheme serves only the
-// production assets copied under dist/monaco, allowing its blob workers to import their entry scripts in
-// both the development runtime and packaged app without exposing arbitrary local files.
+// Monaco workers and the lazy Markdown editor cannot reliably load from the repository's file:// review.
+// A narrow, read-only standard scheme serves only production assets copied under dist/monaco.
 protocol.registerSchemesAsPrivileged([{
   scheme: "monacori-asset",
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
@@ -98,6 +99,7 @@ const preloadPath = join(dirname(fileURLToPath(import.meta.url)), "preload.cjs")
 
 const options = parseArgs(process.argv.slice(2));
 const states = new Map<number, WinState>();
+let markdownMemo: ProjectMarkdownMemo | undefined;
 
 if (!existsSync(options.root)) {
   throw new Error(`Repository path does not exist: ${options.root}`);
@@ -117,6 +119,24 @@ function focusedState(): WinState | undefined {
 function sendToFocused(channel: string, payload?: unknown): void {
   const win = BrowserWindow.getFocusedWindow();
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+}
+
+function memoStore(): ProjectMarkdownMemo {
+  if (!markdownMemo) markdownMemo = new ProjectMarkdownMemo(app.getPath("userData"));
+  return markdownMemo;
+}
+
+function readMemoWithLegacyImport(root: string) {
+  let document = memoStore().read(root);
+  if (document.body) return document;
+  const settings = readSettings();
+  const legacy = settings["monacori-memo"];
+  if (typeof legacy !== "string" || !legacy.trim() || settings["monacori-memo-migrated-worktree"]) return document;
+  document = memoStore().write(root, legacy);
+  delete settings["monacori-memo"];
+  settings["monacori-memo-migrated-worktree"] = document.worktreePath;
+  writeSettings(settings);
+  return document;
 }
 
 ipcMain.handle("monacori:http-send", (_event, request: HttpSendRequest) => performHttpRequest(request));
@@ -141,6 +161,36 @@ ipcMain.handle("monacori:get-source", (event, request: { path?: string }) => {
   const path = String(request?.path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
   if (!state || !path || path.startsWith("../")) return null;
   return state.sourceFiles.get(path) ?? null;
+});
+// Expand one omitted unchanged range in the side-by-side diff. Main resolves the exact reviewed
+// revisions (base vs worktree, or HEAD vs index for --staged) and returns at most one bounded chunk.
+ipcMain.handle("monacori:get-diff-context", (event, request: DiffContextRequest) => {
+  const state = stateFromEvent(event);
+  if (!state) return { ok: false, oldStart: 0, newStart: 0, oldLines: [], newLines: [], error: "Review window is unavailable" };
+  return readReviewDiffContext({
+    root: state.options.root,
+    base: state.options.base,
+    staged: state.options.staged,
+    bodyDiffs: state.bodyDiffs,
+    request,
+  });
+});
+
+// The single Markdown memo is application data, never a repository artifact. Main derives the scope from
+// the calling window's canonical worktree; the sandboxed renderer cannot choose a filesystem path.
+ipcMain.handle("monacori:memo-read", (event) => {
+  const state = stateFromEvent(event);
+  return state ? readMemoWithLegacyImport(state.options.root) : { version: 1, worktreePath: "", body: "", updatedAt: null };
+});
+ipcMain.handle("monacori:memo-write", (event, input?: { body?: unknown }) => {
+  const state = stateFromEvent(event);
+  return state ? memoStore().write(state.options.root, input?.body) : null;
+});
+ipcMain.handle("monacori:memo-delete", (event) => {
+  const state = stateFromEvent(event);
+  if (!state) return { ok: false };
+  memoStore().remove(state.options.root);
+  return { ok: true };
 });
 
 // Definition/references/implementation/workspace-symbol/change-impact analysis. LSP processes and the
@@ -349,13 +399,13 @@ function forgetRecentProject(root: string): void {
 }
 
 app.whenReady().then(async () => {
-  const monacoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "monaco");
+  const assetRoot = resolve(dirname(fileURLToPath(import.meta.url)), "monaco");
   protocol.handle("monacori-asset", (request) => {
     try {
       const url = new URL(request.url);
       const relativePath = decodeURIComponent(url.pathname).replace(/^\/+/, "");
-      const target = resolve(monacoRoot, relativePath);
-      const containedPath = relative(monacoRoot, target);
+      const target = resolve(assetRoot, relativePath);
+      const containedPath = relative(assetRoot, target);
       if (!relativePath || containedPath.startsWith("..") || isAbsolute(containedPath)) return new Response("Not found", { status: 404 });
       const extension = target.slice(target.lastIndexOf(".")).toLowerCase();
       const contentType = extension === ".js" ? "text/javascript; charset=utf-8"
@@ -423,7 +473,7 @@ function buildApplicationMenu(): void {
       { label: "All questions", accelerator: "Control+Command+Shift+/", click: () => sendToFocused("monacori:merged-view", "q") },
       { label: "All change requests", accelerator: "Control+Command+Shift+.", click: () => sendToFocused("monacori:merged-view", "c") },
       // Cmd/Ctrl+Shift+N opens (and toggles) the single freeform prompt memo — a Markdown scratchpad.
-      { label: "Prompt memo", accelerator: "CommandOrControl+Shift+N", click: () => sendToFocused("monacori:open-memo") },
+      { label: "Markdown memo", accelerator: "CommandOrControl+Shift+N", click: () => sendToFocused("monacori:open-memo") },
       { type: "separator" },
       // Whitespace-ignore re-runs git diff with --ignore-all-space and reloads (main-process action,
       // so a menu checkbox is simpler than a renderer IPC round-trip). Per-window: applies to the focused

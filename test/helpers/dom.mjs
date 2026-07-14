@@ -68,6 +68,33 @@ export async function loadViewer(html, opts = {}) {
       }
       window.scrollTo = () => {};
       window.HTMLElement.prototype.scrollIntoView = () => {};
+      window.confirm = () => true;
+
+      // The production editor is a lazy Tiptap bundle served by Electron's private asset scheme. jsdom
+      // cannot fetch that scheme, so dock tests use a tiny contract-compatible inline editor; a separate
+      // bundle test loads the real Tiptap runtime and verifies Markdown round-tripping/heading rendering.
+      window.MonacoriMarkdownEditor = {
+        create({ element, markdown = "", onUpdate = () => {}, placeholder = "" }) {
+          let value = String(markdown);
+          const editable = window.document.createElement("div");
+          editable.className = "markdown-body mc-inline-editor";
+          editable.contentEditable = "true";
+          editable.setAttribute("aria-label", placeholder);
+          const render = () => {
+            editable.innerHTML = window.markdownit ? window.markdownit().render(value) : value;
+            element.dataset.empty = value ? "false" : "true";
+          };
+          editable.addEventListener("input", () => { value = editable.textContent || ""; element.dataset.empty = value ? "false" : "true"; onUpdate(value); });
+          element.appendChild(editable);
+          render();
+          return {
+            getMarkdown: () => value,
+            setMarkdown(next) { value = String(next); render(); },
+            focus() { editable.focus(); },
+            destroy() {},
+          };
+        },
+      };
 
       // Simulate Electron's settings bridge. contextBridge DEEP-FREEZES everything it exposes, so the
       // persisted `all` snapshot is immutable — the renderer must clone before mutating. Without this
@@ -101,6 +128,9 @@ export async function loadViewer(html, opts = {}) {
             return Promise.resolve(opts.sourceBridge ? opts.sourceBridge(path) : sourceRecords.find((record) => record.path === path) || null);
           },
           get: (index, kind) => Promise.resolve(opts.getDiffBody ? opts.getDiffBody(Number(index), kind) : ""),
+          getDiffContext: opts.diffContextBridge
+            ? (request) => Promise.resolve(opts.diffContextBridge(request))
+            : undefined,
         };
       }
       if (opts.searchBridge) {
@@ -117,6 +147,25 @@ export async function loadViewer(html, opts = {}) {
             updatedAt: new Date(0).toISOString(),
           }),
           onStatus: (cb) => { window.__analysisStatusCb = cb; },
+        };
+      }
+      if (opts.memoBridge) {
+        const state = JSON.parse(JSON.stringify(opts.memoBridge));
+        state.body = typeof state.body === "string" ? state.body : "";
+        state.updatedAt = state.updatedAt || null;
+        const operations = [];
+        window.__memoOperations = operations;
+        window.monacoriMemo = {
+          read: () => Promise.resolve(JSON.parse(JSON.stringify(state))),
+          write: (body) => {
+            state.body = String(body); state.updatedAt = new Date().toISOString();
+            operations.push({ kind: "write", body: state.body });
+            return Promise.resolve({ ...state });
+          },
+          remove: () => {
+            state.body = ""; state.updatedAt = null; operations.push({ kind: "delete" });
+            return Promise.resolve({ ok: true });
+          },
         };
       }
       if (opts.perfBridge) {
@@ -258,7 +307,8 @@ class Viewer {
   typeInto(el, value) {
     if (!el) throw new Error("typeInto: element not found");
     el.focus();
-    el.value = value;
+    if ("value" in el) el.value = value;
+    else el.textContent = value;
     el.dispatchEvent(new this.window.Event("input", { bubbles: true }));
   }
 
@@ -352,10 +402,10 @@ class Viewer {
   isDockMaximized() {
     return this.document.body.classList.contains("dock-maximized");
   }
-  /** The read-only text of the open merged-prompt modal, or null if none is open. */
+  /** The rendered text of the open merged-prompt document, or null if none is open. */
   mergedModalText() {
-    const area = this.$("#mc-merged-panel .mc-modal-text");
-    return area ? area.value : null;
+    const document = this.$("#mc-merged-panel .mc-merged-preview");
+    return document ? document.textContent : null;
   }
   /** Type into the visible composer and save with Cmd+Enter (the keyboard path). */
   async writeAndSaveWithKeyboard(text) {
@@ -443,6 +493,7 @@ function installMonacoMock(window) {
   };
 
   const createEditor = (host, options = {}) => {
+    const liveOptions = { ...options };
     let model = options.model || null;
     let position = { lineNumber: 1, column: 1 };
     let cursorListener = null;
@@ -450,7 +501,13 @@ function installMonacoMock(window) {
     const editor = {
       host,
       commands,
+      options: liveOptions,
       onDidChangeCursorPosition(cb) { cursorListener = cb; return { dispose() {} }; },
+      onDidLayoutChange() { return { dispose() {} }; },
+      updateOptions(next) { Object.assign(liveOptions, next); },
+      getLayoutInfo() { return { height: 800, width: 1200 }; },
+      saveViewState() { return { position: { ...position } }; },
+      restoreViewState(state) { if (state && state.position) position = { ...state.position }; },
       addCommand(keybinding, handler) { commands.push({ keybinding, handler }); return commands.length; },
       createDecorationsCollection(items = []) {
         return { items, clear() { this.items = []; } };

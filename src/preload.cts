@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld("monacoriMenu", {
 contextBridge.exposeInMainWorld("monacoriFile", {
   get: (index: number, kind: string): Promise<string> => ipcRenderer.invoke("monacori:get-file", { index, kind }),
   getSource: (path: string): Promise<unknown> => ipcRenderer.invoke("monacori:get-source", { path }),
+  getDiffContext: (request: unknown): Promise<unknown> => ipcRenderer.invoke("monacori:get-diff-context", request),
 });
 
 // LSP-first code intelligence and change-impact analysis. The renderer sends only a location/query and
@@ -82,6 +83,14 @@ contextBridge.exposeInMainWorld("monacoriApp", {
 // even when navigator.clipboard is unavailable for a local file.
 contextBridge.exposeInMainWorld("monacoriClipboard", {
   write: (text: string): void => clipboard.writeText(typeof text === "string" ? text : String(text)),
+});
+
+// One worktree-scoped Markdown memo. Main owns the file under Electron userData; the sandboxed renderer
+// receives document operations and can never choose a filesystem path inside or outside the repository.
+contextBridge.exposeInMainWorld("monacoriMemo", {
+  read: (): Promise<unknown> => ipcRenderer.invoke("monacori:memo-read"),
+  write: (body: string): Promise<unknown> => ipcRenderer.invoke("monacori:memo-write", { body }),
+  remove: (): Promise<unknown> => ipcRenderer.invoke("monacori:memo-delete"),
 });
 
 // Global settings (locale, …) persisted by the main process under userData so they survive app

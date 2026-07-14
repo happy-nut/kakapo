@@ -5,6 +5,7 @@
 import { readdirSync, readFileSync, writeFileSync, copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = join(root, "dist");
@@ -14,7 +15,28 @@ mkdirSync(distDir, { recursive: true });
 // trailing newline, so the result is identical to the original single file (no extra separators added).
 const viewerDir = join(root, "src", "viewer");
 const parts = readdirSync(viewerDir).filter((f) => f.endsWith(".js")).sort();
-const bundle = parts.map((f) => readFileSync(join(viewerDir, f), "utf8")).join("");
+// One audited read-only Markdown stack is embedded ahead of the app slices, so source previews and merged
+// prompts execute the exact same parser + sanitizer in Electron and static/browser reviews.
+const markdownVendors = [
+  join(root, "node_modules", "markdown-it", "dist", "markdown-it.min.js"),
+  join(root, "node_modules", "dompurify", "dist", "purify.min.js"),
+];
+// Tiptap provides the Notion-style, single-surface Markdown editor used by the worktree memo. Bundle its
+// ESM graph into the same browser script; dependencies remain development-only and are pruned from the app.
+const editorBuild = await build({
+  entryPoints: [join(root, "scripts", "markdown-editor-entry.ts")],
+  bundle: true,
+  write: false,
+  format: "iife",
+  platform: "browser",
+  target: "chrome120",
+  minify: true,
+  legalComments: "inline",
+});
+const editorBundle = editorBuild.outputFiles[0]?.text;
+if (!editorBundle) throw new Error("Failed to bundle the inline Markdown editor");
+const vendorBundle = markdownVendors.map((file) => readFileSync(file, "utf8") + "\n").join("");
+const bundle = vendorBundle + parts.map((f) => readFileSync(join(viewerDir, f), "utf8")).join("");
 writeFileSync(join(distDir, "viewer.client.js"), bundle); // readable concat — tests + debugging read this
 
 // Runtime ships a MINIFIED bundle (smaller inlined <script> -> faster parse). mangle.toplevel:false keeps
@@ -23,7 +45,7 @@ writeFileSync(join(distDir, "viewer.client.js"), bundle); // readable concat —
 // falls back to the readable concat.
 try {
   const { minify } = await import("terser");
-  const out = await minify(bundle, { compress: true, mangle: { toplevel: false }, format: { comments: false } });
+  const out = await minify(bundle, { compress: true, mangle: { toplevel: false }, format: { comments: /@license|^!/ } });
   if (out.code) {
     writeFileSync(join(distDir, "viewer.client.min.js"), out.code);
     console.log(`minified viewer.client.js: ${bundle.length} -> ${out.code.length} chars`);
@@ -41,6 +63,9 @@ const monacoSource = join(root, "node_modules", "monaco-editor", "min", "vs");
 const monacoTarget = join(distDir, "monaco", "vs");
 rmSync(join(distDir, "monaco"), { recursive: true, force: true });
 cpSync(monacoSource, monacoTarget, { recursive: true });
+// The rich editor is needed only when the memo opens. Keep it out of the startup script and serve it from
+// the same narrow asset scheme as Monaco so ordinary diff review pays no parse/evaluation cost.
+writeFileSync(join(distDir, "monaco", "markdown-editor.js"), editorBundle);
 
 // Monaco 0.55.1 vendors a vulnerable DOMPurify release directly inside its prebuilt editor.api bundle. Updating the
 // package dependency alone does not update those inlined bytes, so an apparently clean `npm audit` would
@@ -100,4 +125,4 @@ async function patchMonacoSanitizer() {
 }
 
 const securedMonaco = await patchMonacoSanitizer();
-console.log(`bundled ${parts.length} viewer slices -> dist/viewer.client.js (${bundle.length} bytes); copied viewer.css + Monaco runtime; secured ${securedMonaco.patched} Monaco bundle with DOMPurify ${securedMonaco.purifyVersion}`);
+console.log(`bundled ${parts.length} viewer slices -> dist/viewer.client.js (${bundle.length} bytes); copied viewer.css + lazy Markdown editor + Monaco runtime; secured ${securedMonaco.patched} Monaco bundle with DOMPurify ${securedMonaco.purifyVersion}`);

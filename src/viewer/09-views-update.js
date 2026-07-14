@@ -145,10 +145,20 @@ function flushPendingDiffUpdate() {
 // Flicker-saver for the live-watch refresh. The default path replaces the WHOLE diff DOM
 // (container.innerHTML = …), which re-renders the file you're looking at even when only an OFF-SCREEN file
 // changed. When the file set AND order are identical, reconcile per-file instead: keep every unchanged
-// wrapper's DOM node untouched (no flicker — including the visible one) and swap only the changed wrappers,
-// which are off-screen so the swap is invisible. Returns false (caller does the full innerHTML swap) for the
-// risky cases — files added/removed/reordered — so that proven path still handles index-shift correctly.
-function reconcileDiffWrappers(container, newDiffHtml, oldSigByPath, newSigByPath) {
+// wrapper's DOM node untouched (no flicker — including the visible one), swap changed off-screen wrappers,
+// and defer a changed VISIBLE wrapper until its new body is hydrated off-DOM. Returns false (caller does the
+// full innerHTML swap) for risky add/remove/reorder cases so that proven path still handles index shifts.
+function syncDiffWrapperShellMetadata(oldWrapper, newWrapper) {
+  var baseChanged = oldWrapper.getAttribute('data-first-hunk') !== newWrapper.getAttribute('data-first-hunk');
+  oldWrapper.id = newWrapper.id;
+  ['data-path', 'data-first-hunk', 'data-hunk-count'].forEach(function (name) {
+    if (newWrapper.hasAttribute(name)) oldWrapper.setAttribute(name, newWrapper.getAttribute(name));
+    else oldWrapper.removeAttribute(name);
+  });
+  var body = oldWrapper.querySelector('.d2h-files-diff');
+  if (baseChanged && body && !body.hasAttribute('data-lazy')) markWrapperHunks(oldWrapper);
+}
+function reconcileDiffWrappers(container, newDiffHtml, oldSigByPath, newSigByPath, preservePath, deferredVisibleSwaps) {
   var oldW = Array.prototype.slice.call(container.querySelectorAll('.d2h-file-wrapper'));
   if (!oldW.length) return false;
   var tmp = document.createElement('div');
@@ -161,6 +171,15 @@ function reconcileDiffWrappers(container, newDiffHtml, oldSigByPath, newSigByPat
   for (var j = 0; j < oldW.length; j++) {
     var ow = oldW[j], nw = newW[j], p = diffWrapperPathKey(ow);
     if ((oldSigByPath.get(p) || '') !== (newSigByPath.get(p) || '')) {
+      if (p === preservePath && !ow.classList.contains('df-inactive')) {
+        // The file under the caret changed. Keep its fully-painted old body on screen while the NEW lazy
+        // body is fetched. Swapping to `nw` here would expose an empty shell for a frame (or longer over
+        // IPC), reset scrollTop, and make the caret appear to jump to the file top. The caller hydrates
+        // `nw` off-DOM and replaces this node atomically when it is ready.
+        syncDiffWrapperShellMetadata(ow, nw);
+        deferredVisibleSwaps.push({ oldWrapper: ow, newWrapper: nw, path: p });
+        continue;
+      }
       // Changed file (off-screen): drop in the fresh shell and clear its cached body so it refetches the
       // new content when it next scrolls into view. Replacing an off-screen node is invisible.
       var nidx = (nw.id || '').replace('file-', '');
@@ -171,15 +190,139 @@ function reconcileDiffWrappers(container, newDiffHtml, oldSigByPath, newSigByPat
       // Unchanged file: keep its DOM node (no flicker). An earlier file's changed hunk count can shift the
       // global numbering, so sync the index attrs and renumber a materialized body's hunk ids (id/class
       // changes only — invisible, no flicker).
-      var baseChanged = ow.getAttribute('data-first-hunk') !== nw.getAttribute('data-first-hunk');
-      ow.id = nw.id;
-      if (nw.hasAttribute('data-first-hunk')) ow.setAttribute('data-first-hunk', nw.getAttribute('data-first-hunk'));
-      if (nw.hasAttribute('data-hunk-count')) ow.setAttribute('data-hunk-count', nw.getAttribute('data-hunk-count'));
-      var body = ow.querySelector('.d2h-files-diff');
-      if (baseChanged && body && !body.hasAttribute('data-lazy')) markWrapperHunks(ow);
+      syncDiffWrapperShellMetadata(ow, nw);
     }
   }
   return true;
+}
+var diffRefreshGeneration = 0;
+function captureDiffRefreshCursor(path) {
+  if (!diffCursor || diffCursor.path !== path) return null;
+  var wrapper = diffWrapperByPath(path);
+  var row = wrapper ? diffRowAt(wrapper, diffCursor.side, diffCursor.rowIndex) : null;
+  return {
+    path: path,
+    side: diffCursor.side,
+    rowIndex: diffCursor.rowIndex,
+    column: diffCursor.column,
+    lineNumber: row ? diffLineNumber(row) : null,
+    text: row ? diffLineText(row) : '',
+  };
+}
+function nearestDiffRowIndex(rows, snapshot) {
+  if (!rows.length) return -1;
+  var best = -1, bestDistance = Infinity;
+  for (var i = 0; i < rows.length; i++) {
+    if (!isDiffCodeRow(rows[i])) continue;
+    var sameLine = snapshot.lineNumber != null && diffLineNumber(rows[i]) === snapshot.lineNumber;
+    var sameText = snapshot.text && diffLineText(rows[i]) === snapshot.text;
+    if (!sameLine && !sameText) continue;
+    var distance = Math.abs(i - snapshot.rowIndex) + (sameLine ? 0 : 1000);
+    if (distance < bestDistance) { best = i; bestDistance = distance; }
+  }
+  if (best >= 0) return best;
+  var clamped = Math.max(0, Math.min(snapshot.rowIndex, rows.length - 1));
+  if (isDiffCodeRow(rows[clamped])) return clamped;
+  for (var step = 1; step < rows.length; step++) {
+    if (clamped + step < rows.length && isDiffCodeRow(rows[clamped + step])) return clamped + step;
+    if (clamped - step >= 0 && isDiffCodeRow(rows[clamped - step])) return clamped - step;
+  }
+  return -1;
+}
+function hydrateVisibleDiffSwaps(swaps, cursorSnapshot, generation) {
+  if (!swaps.length) return;
+  swaps.forEach(function (swap) {
+    var idx = (swap.newWrapper.id || '').replace('file-', '');
+    loadBodyHtml(idx).then(function (html) {
+      if (generation !== diffRefreshGeneration || !swap.oldWrapper.isConnected) return;
+      materializeBody(swap.newWrapper, html);
+      var container = document.getElementById('diff2html-container');
+      var scrollTop = container ? container.scrollTop : 0;
+      var liveCursor = diffCursor && diffCursor.path === swap.path
+        ? captureDiffRefreshCursor(swap.path) || cursorSnapshot
+        : cursorSnapshot;
+      swap.oldWrapper.parentNode.replaceChild(swap.newWrapper, swap.oldWrapper);
+      wrapperPathMap = null;
+      refreshHunkIndex();
+      refreshComments();
+      if (container) container.scrollTop = scrollTop;
+      if (liveCursor && liveCursor.path === swap.path) {
+        var rows = diffRowsOf(diffSideTable(swap.newWrapper, liveCursor.side));
+        var rowIndex = nearestDiffRowIndex(rows, liveCursor);
+        if (rowIndex >= 0) {
+          navSuppress = true;
+          try { setDiffCursor(swap.path, liveCursor.side, rowIndex, liveCursor.column, false); }
+          finally { navSuppress = false; }
+          if (container) container.scrollTop = scrollTop;
+          requestAnimationFrame(function () {
+            var row = diffRowAt(swap.newWrapper, liveCursor.side, rowIndex);
+            scrolloffReveal(row, container, 0.15);
+          });
+        }
+      }
+    });
+  });
+}
+function captureSourceRefreshCursor(path) {
+  if (!viewerCursor || viewerCursor.path !== path) return null;
+  var file = sourceByPath.get(path);
+  var lines = file && typeof file.content === 'string' ? file.content.split(/\r?\n/) : [];
+  if (typeof isMonacoSourceActive === 'function' && isMonacoSourceActive(path)
+      && typeof monacoSourceEditor !== 'undefined' && monacoSourceEditor && monacoSourceEditor.getModel) {
+    var paintedModel = monacoSourceEditor.getModel();
+    if (paintedModel && typeof paintedModel.getValue === 'function') lines = paintedModel.getValue().split(/\r?\n/);
+  }
+  // During a lazy live refresh sourceByPath already points at the NEW record while #source-body still
+  // intentionally paints the OLD one. Read the visible raw row first so line matching follows the user's
+  // actual caret, not whatever text now occupies the same numeric line in the incoming file.
+  var body = document.getElementById('source-body');
+  var visibleRow = body && !body.classList.contains('rendered-body')
+    ? body.querySelector('.source-row[data-line-index="' + viewerCursor.lineIndex + '"] .source-code')
+    : null;
+  return {
+    path: path,
+    lineIndex: viewerCursor.lineIndex,
+    column: viewerCursor.column,
+    targetLine: viewerCursor.targetLine,
+    text: visibleRow ? (visibleRow.textContent || '') : (lines[viewerCursor.lineIndex] || ''),
+  };
+}
+function remapSourceRefreshLine(file, snapshot) {
+  var lines = String(file && file.content || '').split(/\r?\n/);
+  if (!lines.length) return 0;
+  var oldIndex = Math.max(0, Math.min(snapshot.lineIndex, lines.length - 1));
+  if (!snapshot.text || lines[oldIndex] === snapshot.text) return oldIndex;
+  var best = -1, bestDistance = Infinity;
+  for (var i = 0; i < lines.length; i++) {
+    if (lines[i] !== snapshot.text) continue;
+    var distance = Math.abs(i - snapshot.lineIndex);
+    if (distance < bestDistance) { best = i; bestDistance = distance; }
+  }
+  return best >= 0 ? best : oldIndex;
+}
+function refreshOpenSourceAfterUpdate(path, cursorSnapshot) {
+  // Do not call openSourceFile until the changed source record has arrived. Its lazy branch deliberately
+  // paints a Loading placeholder, which is correct for a NEW tab but causes a large flash and resets the
+  // scroll position when a live update refreshes the file already under review.
+  loadSourceFile(path).then(function (file) {
+    var viewer = document.getElementById('source-viewer');
+    var body = document.getElementById('source-body');
+    if (!file || !sourceContentLoaded(file) || !viewer || !body || viewer.dataset.openPath !== path || !isSourceViewerVisible()) return;
+    var scrollTop = body.scrollTop;
+    var liveCursor = captureSourceRefreshCursor(path) || cursorSnapshot;
+    if (liveCursor && cursorSnapshot && !liveCursor.text) liveCursor.text = cursorSnapshot.text;
+    if (typeof refreshMonacoSourceInPlace === 'function' && refreshMonacoSourceInPlace(file, liveCursor)) return;
+    openSourceFile(path, false);
+    if (body) body.scrollTop = scrollTop;
+    if (liveCursor) {
+      var lineIndex = remapSourceRefreshLine(file, liveCursor);
+      navSuppress = true;
+      try { setSourceCursor(path, lineIndex, liveCursor.column, false, liveCursor.targetLine); }
+      finally { navSuppress = false; }
+      body.scrollTop = scrollTop;
+      requestAnimationFrame(function () { revealSourceCursorWithMargin(); });
+    }
+  });
 }
 function applyDiffUpdate(u) {
   if (!u || !u.signature || u.signature === currentSignature) return false; // unchanged — nothing to do
@@ -195,6 +338,9 @@ function applyDiffUpdate(u) {
   // the old active file can vanish from the new diff, so we re-anchor `current` to it below — otherwise it
   // dangles at a stale index and showDiffView renders blank with a stale breadcrumb.
   var prevActivePath = current >= 0 ? hunkPathAt(current) : '';
+  var visibleDiffPath = !wasSource && ((diffCursor && diffCursor.path) || prevActivePath || '');
+  var diffCursorSnapshot = captureDiffRefreshCursor(visibleDiffPath);
+  var sourceCursorSnapshot = captureSourceRefreshCursor(openPath);
   // Did the file the user is CURRENTLY viewing actually change in this build? If not, we must not re-render
   // the source view — an unrelated file's edit would otherwise flicker the pane they're reading. Capture the
   // open file's signature BEFORE fileSignatureByPath is rebuilt below.
@@ -206,8 +352,10 @@ function applyDiffUpdate(u) {
   // flickers the file you're viewing. Falls back to the full swap (below) for add/remove/reorder or eager.
   var newSigByPath = new Map((u.fileStates || []).map(function (f) { return [f.path, f.signature]; }));
   var fastPath = false;
+  var deferredVisibleSwaps = [];
+  var refreshGeneration = ++diffRefreshGeneration;
   if (REVIEW_LAZY && container && u.diffContainer) {
-    fastPath = reconcileDiffWrappers(container, u.diffContainer, fileSignatureByPath, newSigByPath);
+    fastPath = reconcileDiffWrappers(container, u.diffContainer, fileSignatureByPath, newSigByPath, visibleDiffPath, deferredVisibleSwaps);
   }
 
   // Full-swap path only: snapshot already-materialized bodies (keyed by path + signature) BEFORE the swap so
@@ -323,7 +471,7 @@ function applyDiffUpdate(u) {
   // 5) Best-effort restore of what the user was looking at. Re-render the source view only when the open file
   // actually changed; an unchanged file stays painted as-is, so an unrelated edit doesn't flicker the pane.
   if (wasSource && openPath && sourceByPath.has(openPath)) {
-    if (openFileChanged) openSourceFile(openPath, false);
+    if (openFileChanged) refreshOpenSourceAfterUpdate(openPath, sourceCursorSnapshot);
   } else if (container) {
     showDiffView(false);
     // Same active file survived → keep the user's exact scroll. If it was committed away (current reset to
@@ -331,6 +479,7 @@ function applyDiffUpdate(u) {
     // the shorter new diff off-screen and look blank — so reset to the top instead.
     container.scrollTop = activeFilePreserved ? diffScrollTop : 0;
   }
+  hydrateVisibleDiffSwaps(deferredVisibleSwaps, diffCursorSnapshot, refreshGeneration);
   if (typeof isImpactOpen === 'function' && isImpactOpen()) openImpact();
   return true;
 }

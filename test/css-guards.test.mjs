@@ -76,3 +76,17 @@ test("source line-number gutter stays compact and internally aligned", () => {
     "source comment rows stay aligned with the compact gutter",
   );
 });
+
+test("raw source rows never soft-wrap, keeping caret scroll math stable", () => {
+  const css = readFileSync(new URL("../src/viewer.css", import.meta.url), "utf8");
+  const rule = css.match(/\.source-body:not\(\.rendered-body\)\s+\.source-row\s*>\s*\.source-code\s*\{[^}]+\}/)?.[0] || "";
+  assert.match(rule, /white-space:\s*pre\s*;/, "raw code behaves like an editor line, not a wrapping document");
+  assert.match(rule, /overflow-wrap:\s*normal\s*;/, "long tokens use horizontal scrolling instead of growing row height");
+});
+
+test("shared Markdown typography preserves readable paragraph rhythm", () => {
+  const paragraph = ruleBodyContaining(".markdown-body p");
+  assert.ok(paragraph, "shared Markdown paragraph rule exists");
+  assert.match(paragraph, /margin:\s*0\s+0\s+1\.1em/, "paragraphs retain a visible bottom gap");
+  assert.doesNotMatch(css, /\.md-cell\s*>\s*:last-child\s*\{[^}]*margin-bottom:\s*0/, "source block rows no longer erase every block's bottom margin");
+});

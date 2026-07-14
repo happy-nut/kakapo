@@ -49,7 +49,8 @@ function remapComments() {
   reviewComments.forEach(function (c) {
     var file = sourceByPath.get(c.path);
     if (!file || !file.embedded || typeof file.content !== 'string' || !file.content) return;
-    var code = c.code == null ? '' : String(c.code);
+    var code = c.anchorCode != null ? String(c.anchorCode) : (c.code == null ? '' : String(c.code));
+    if (code.indexOf('\n') >= 0) return; // legacy multi-line snapshots had no stable anchor line
     if (!code.trim()) return;
     var lines = file.content.split(/\r?\n/);
     if (lines[c.line - 1] === code) return;
@@ -57,7 +58,13 @@ function remapComments() {
     for (var i = 0; i < lines.length; i++) {
       if (lines[i] === code) { var d = Math.abs(i - (c.line - 1)); if (d < bestDist) { bestDist = d; best = i; } }
     }
-    if (best >= 0 && c.line !== best + 1) { c.line = best + 1; moved++; } // moved to follow the line; not found -> keep as-is
+    if (best >= 0 && c.line !== best + 1) {
+      var delta = (best + 1) - c.line;
+      c.line = best + 1;
+      if (Number.isFinite(Number(c.from))) c.from = Number(c.from) + delta;
+      if (Number.isFinite(Number(c.to))) c.to = Number(c.to) + delta;
+      moved++;
+    } // moved to follow the line; not found -> keep as-is
   });
   if (!moved) return; // nothing moved — skip the save/re-render
   saveComments();
@@ -91,11 +98,19 @@ function relevantLines(path) {
   if (composerState && composerState.path === path) set[composerState.line] = true;
   return Object.keys(set).map(Number).sort(function (a, b) { return a - b; });
 }
-function addComment(kind, path, line, code, text) {
+function addComment(kind, path, line, code, text, from, to, side, anchorCode) {
   var trimmed = String(text || '').trim();
   if (!trimmed) return;
   commentSeq += 1;
-  reviewComments.push({ seq: commentSeq, kind: kind, path: path, line: line, code: String(code || ''), text: trimmed });
+  var hasFrom = from != null && from !== '' && Number.isFinite(Number(from));
+  var hasTo = to != null && to !== '' && Number.isFinite(Number(to));
+  var start = hasFrom ? Number(from) : Number(line);
+  var end = hasTo ? Number(to) : Number(line);
+  if (start > end) { var swap = start; start = end; end = swap; }
+  reviewComments.push({
+    seq: commentSeq, kind: kind, path: path, line: line, code: String(code || ''), text: trimmed,
+    from: start, to: end, side: side || null, anchorCode: String(anchorCode == null ? code || '' : anchorCode),
+  });
   saveComments();
 }
 // Edit an existing comment in place (e on a selected box -> composer prefilled -> save). Empty text deletes it.
@@ -132,18 +147,20 @@ function currentCommentTarget() {
       var sb = srng ? sourceRowLineOf(srng.endContainer) : null;
       if (sa == null || sb == null) { sa = selectionAnchor ? selectionAnchor.lineIndex : viewerCursor.lineIndex; sb = viewerCursor.lineIndex; }
       var f = Math.min(sa, sb), t = Math.max(sa, sb);
-      return { path: viewerCursor.path, line: t + 1, code: selText, from: f + 1, to: t + 1, side: null };
+      var rangeFile = sourceByPath.get(viewerCursor.path);
+      var rangeLines = rangeFile && typeof rangeFile.content === 'string' ? rangeFile.content.split(/\r?\n/) : [];
+      return { path: viewerCursor.path, line: t + 1, code: selText, anchorCode: rangeLines[t] || '', from: f + 1, to: t + 1, side: null };
     }
     var scaretFile = sourceByPath.get(viewerCursor.path);
     var scaretCode = (scaretFile && typeof scaretFile.content === 'string') ? (scaretFile.content.split(/\r?\n/)[viewerCursor.lineIndex] || '') : '';
-    return { path: viewerCursor.path, line: viewerCursor.lineIndex + 1, code: scaretCode, from: null, to: null, side: null };
+    return { path: viewerCursor.path, line: viewerCursor.lineIndex + 1, code: scaretCode, anchorCode: scaretCode, from: null, to: null, side: null };
   }
   // Diff view: prefer the explicit diff caret when there is no text selection.
   if (!hasSel && diffCursor && isDiffViewVisible()) {
     var dwrap = diffWrapperByPath(diffCursor.path);
     var drow = dwrap ? diffRowAt(dwrap, diffCursor.side, diffCursor.rowIndex) : null;
     var dline = drow ? diffLineNumber(drow) : null;
-    if (dline != null) return { path: diffCursor.path, line: dline, code: diffLineText(drow) || '', from: null, to: null, side: null };
+    if (dline != null) return { path: diffCursor.path, line: dline, code: diffLineText(drow) || '', anchorCode: diffLineText(drow) || '', from: null, to: null, side: null };
   }
   // Diff view with a selection (or click): anchor at the LAST line so the composer drops BELOW the
   // drag; capture the selected code + line span (used to keep the drag highlighted via .mc-sel-line).
@@ -173,29 +190,33 @@ function currentCommentTarget() {
   var sideEl = toEl && toEl.closest ? toEl.closest('.d2h-file-side-diff') : null;
   var st = diffSideTables(wrapper);
   var side = (sideEl && sideEl === st.left) ? 'old' : 'new';
-  return { path: path, line: toLine, code: hasSel ? selText : '', from: hasSel ? Math.min(fromLine, toLine) : null, to: hasSel ? Math.max(fromLine, toLine) : null, side: side };
+  return { path: path, line: toLine, code: hasSel ? selText : '', anchorCode: diffLineText(toRow) || '', from: hasSel ? Math.min(fromLine, toLine) : null, to: hasSel ? Math.max(fromLine, toLine) : null, side: side };
 }
 
-// "live_trading_engine.py:424" (or ":420–424" for a multi-line drag) — shown in the composer head so the
-// reviewer always sees WHICH file + line(s) a comment targets instead of a bare, context-free box.
-function composerTargetLabel(s) {
-  var base = (s.path || '').split('/').pop() || s.path || '';
-  var loc = (s.from != null && s.to != null && s.from !== s.to) ? (s.from + '–' + s.to) : String(s.line);
-  return base + ':' + loc;
+// One location syntax everywhere: @project/relative/path#L53 or @project/relative/path#L50-60.
+// Older persisted comments have only `line`; treating it as both ends keeps them display-compatible.
+function commentTargetLabel(s) {
+  var line = Math.max(1, Number(s && s.line) || 1);
+  var from = Math.max(1, Number(s && s.from) || line);
+  var to = Math.max(1, Number(s && s.to) || line);
+  if (from > to) { var swap = from; from = to; to = swap; }
+  return '@' + String(s && s.path || '') + '#L' + from + (to !== from ? '-' + to : '');
 }
 function threadHtml(path, line) {
   var html = '';
   commentsAt(path, line).forEach(function (c) {
     if (composerState && composerState.editSeq === c.seq) return; // being edited -> rendered as the composer below
+    var target = commentTargetLabel(c);
     html += '<div class="mc-card mc-' + c.kind + '">'
       + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(c.kind) + '</span>'
+      + '<span class="mc-target" title="' + escapeHtml(target) + '">' + escapeHtml(target) + '</span>'
       + '<button type="button" class="mc-del" data-seq="' + c.seq + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
       + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div></div>';
   });
   if (composerState && composerState.path === path && composerState.line === line) {
     var ph = composerState.kind === 'q' ? t('composer.question') : t('composer.changeRequest');
     html += '<div class="mc-card mc-' + composerState.kind + ' mc-composer">'
-      + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(composerState.kind) + '</span><span class="mc-target" title="' + escapeHtml(composerState.path || '') + '">' + escapeHtml(composerTargetLabel(composerState)) + '</span></div>'
+      + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(composerState.kind) + '</span><span class="mc-target" title="' + escapeHtml(commentTargetLabel(composerState)) + '">' + escapeHtml(commentTargetLabel(composerState)) + '</span></div>'
       + '<textarea class="mc-input" rows="3" placeholder="' + escapeHtml(ph) + '">' + escapeHtml(composerState.editText || '') + '</textarea>'
       + '<div class="mc-actions"><button type="button" class="mc-btn mc-save">' + escapeHtml(t('composer.save')) + '</button>'
       + '<button type="button" class="mc-btn mc-ghost mc-cancel">' + escapeHtml(t('composer.cancel')) + '</button>'
@@ -351,7 +372,7 @@ function openComposer(kind) {
   if (typeof isMonacoSourceActive === 'function' && isMonacoSourceActive()) switchMonacoToReviewAtCursor();
   var target = currentCommentTarget();
   if (!target) return;
-  composerState = { kind: kind, path: target.path, line: target.line, code: target.code, from: target.from, to: target.to, side: target.side };
+  composerState = { kind: kind, path: target.path, line: target.line, code: target.code, anchorCode: target.anchorCode, from: target.from, to: target.to, side: target.side };
   // Keep the dragged code visibly highlighted via the .mc-sel-line class (applyCommentSelectionHighlight),
   // and clear the native selection so its highlight doesn't bleed into the composer/cards below it.
   try { var psel = window.getSelection(); if (psel) psel.removeAllRanges(); } catch (e) {}
@@ -384,7 +405,7 @@ function saveComposer(ta) {
   var box = ta || activeComposerInput();
   if (!box) return;
   if (composerState.editSeq != null) updateComment(composerState.editSeq, box.value);
-  else addComment(composerState.kind, composerState.path, composerState.line, composerState.code, box.value);
+  else addComment(composerState.kind, composerState.path, composerState.line, composerState.code, box.value, composerState.from, composerState.to, composerState.side, composerState.anchorCode);
   composerState = null;
   refreshComments();
   flushPendingDiffUpdate(); // apply any live watch refresh that was held while composing
@@ -412,27 +433,6 @@ function saveMergePrompt(kind, text) {
 
 // Reusable custom dropdown (keyboard + mouse). options: [{ label, onSelect }]. First item is pre-selected;
 // Arrow keys move, Enter chooses, Esc / click-outside dismiss. Replaces native <select>/menus everywhere.
-// Approximate the caret's pixel position in the (monospace) merged textarea so the dropdown can open right
-// under it — and flip above when there isn't room below. Returns { x, top (caret line top), below }.
-function mergedCaretXY(area) {
-  var pos = area.selectionStart || 0;
-  var nl = area.value.slice(0, pos).split('\n');
-  var lineNum = nl.length - 1;
-  var col = nl[lineNum].length;
-  var cs = getComputedStyle(area);
-  var lineH = parseFloat(cs.lineHeight) || 18;
-  var rect = area.getBoundingClientRect();
-  var span = document.createElement('span');
-  span.style.cssText = 'position:absolute;visibility:hidden;white-space:pre';
-  span.style.font = cs.font;
-  span.textContent = 'MMMMMMMMMMMMMMMMMMMM';
-  document.body.appendChild(span);
-  var charW = span.getBoundingClientRect().width / 20;
-  span.remove();
-  var caretTop = rect.top + (parseFloat(cs.paddingTop) || 0) + lineNum * lineH - area.scrollTop;
-  var x = Math.min(rect.left + (parseFloat(cs.paddingLeft) || 0) + col * charW, rect.right - 24);
-  return { x: x, top: caretTop, below: caretTop + lineH + 2 };
-}
 function showCustomDropdown(x, y, options, flipTop) {
   var existing = document.getElementById('mc-dropdown');
   if (existing) existing.remove();
@@ -471,45 +471,11 @@ function showCustomDropdown(x, y, options, flipTop) {
   document.addEventListener('keydown', onKey, true);
   document.addEventListener('mousedown', onOutside, true);
 }
-// Map a char range in the merged textarea back to the comment seq(s) it covers. Each comment is a
-// "### path:line" block; the caret's block (or every block a selection spans) identifies the comment(s).
-function mergedCommentSeqs(kind, start, end) {
-  var items = reviewComments.filter(function (c) { return c.kind === kind; });
-  var text = buildMergedText(kind);
-  var lines = text.split(String.fromCharCode(10));
-  var seqs = [], pos = 0, idx = -1;
-  for (var i = 0; i < lines.length; i++) {
-    var lineStart = pos, lineEnd = pos + lines[i].length;
-    if (lines[i].indexOf('### ') === 0) idx++;
-    if (idx >= 0 && idx < items.length && lineEnd >= start && lineStart <= end) {
-      var s = items[idx].seq;
-      if (seqs.indexOf(s) < 0) seqs.push(s);
-    }
-    pos = lineEnd + 1;
-  }
-  return seqs;
-}
 function navigateToComment(seq) {
   var c = reviewComments.find(function (x) { return x.seq === seq; });
   if (!c) return;
   openSourceFile(c.path);
-  requestAnimationFrame(function () { setSourceCursor(c.path, Math.max(0, (c.line || 1) - 1), 0, true, -1); });
-}
-// Move the merged-view caret to the next (dir=1) / previous (dir=-1) "### path:line" header and center it,
-// so Opt+Arrow steps comment-by-comment in the merged view.
-function jumpMergedComment(area, dir) {
-  var text = area.value;
-  var headers = [], pos = 0;
-  text.split('\n').forEach(function (ln) { if (ln.indexOf('### ') === 0) headers.push(pos); pos += ln.length + 1; });
-  if (!headers.length) return;
-  var cur = area.selectionStart;
-  var target;
-  if (dir > 0) { target = headers.find(function (h) { return h > cur; }); if (target == null) target = headers[headers.length - 1]; }
-  else { var before = headers.filter(function (h) { return h < cur; }); target = before.length ? before[before.length - 1] : headers[0]; }
-  area.selectionStart = area.selectionEnd = target;
-  var lineNum = text.slice(0, target).split('\n').length - 1;
-  var lineH = parseFloat(getComputedStyle(area).lineHeight) || 18;
-  area.scrollTop = Math.max(0, lineNum * lineH - area.clientHeight / 2);
+  requestAnimationFrame(function () { setSourceCursor(c.path, Math.max(0, (Number(c.from) || c.line || 1) - 1), 0, true, -1); });
 }
 function buildMergedText(kind) {
   var items = reviewComments.filter(function (c) { return c.kind === kind; });
@@ -525,8 +491,7 @@ function buildMergedText(kind) {
   lines.push((kind === 'q' ? t('merged.qHeading') : t('merged.cHeading')) + ' (' + items.length + ')');
   lines.push('');
   items.forEach(function (c) {
-    lines.push('### ' + c.path + ':' + c.line);
-    if (c.code && c.code.trim()) lines.push('> ' + c.code.trim());
+    lines.push('### ' + commentTargetLabel(c));
     lines.push(c.text);
     lines.push('');
   });

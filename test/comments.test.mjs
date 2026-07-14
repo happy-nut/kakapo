@@ -25,6 +25,11 @@ before(async () => {
       before: "export function run() {\n  return 42;\n}\n",
       after: "export function run() {\n  return 43;\n}\n",
     },
+    {
+      path: "docs/runtime-arrow-wfa-plan.md.ts",
+      before: Array.from({ length: 10 }, (_, index) => `export const line${index + 1} = ${index + 1};`).join("\n") + "\n",
+      after: Array.from({ length: 10 }, (_, index) => `export const line${index + 1} = ${index === 9 ? 100 : index + 1};`).join("\n") + "\n",
+    },
   ]));
 });
 after(cleanupFixtures);
@@ -191,7 +196,36 @@ test("saved comments roll up into the merged agent prompt", async () => {
   const text = v.mergedModalText();
   assert.ok(text, "merged-view modal opened");
   assert.match(text, /merge me into the prompt/);
-  assert.match(text, /AGENTS\.md:5/, "merged prompt cites the file and line");
+  assert.match(text, /@AGENTS\.md#L5/, "merged prompt uses the canonical file-line reference");
+  v.close();
+});
+
+test("multi-line comments persist and render one canonical range without quoted source", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("docs/runtime-arrow-wfa-plan.md.ts");
+  await v.clickSourceLine(2); // line 3
+  v.key("ArrowDown", { shiftKey: true });
+  v.key("ArrowDown", { shiftKey: true });
+  v.key("ArrowDown", { shiftKey: true }); // selection: lines 3-6
+  await v.settle(30);
+  await v.openComposer("q");
+
+  const expected = "@docs/runtime-arrow-wfa-plan.md.ts#L3-6";
+  assert.equal(v.$(".mc-composer .mc-target")?.textContent, expected, "composer shows the complete selected range");
+  await v.writeAndSave("explain the selected range");
+
+  const stored = v.storedComments()[0];
+  assert.deepEqual({ line: stored.line, from: stored.from, to: stored.to }, { line: 6, from: 3, to: 6 }, "the complete range survives persistence");
+  assert.equal(v.$("#source-body .mc-card:not(.mc-composer) .mc-target")?.textContent, expected, "saved comment card keeps the same reference");
+
+  const merged = v.window.buildMergedText("q");
+  assert.match(merged, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "merged text keeps the canonical range");
+  assert.doesNotMatch(merged, /^> /m, "merged text does not attach selected source as a blockquote");
+  assert.doesNotMatch(merged, /export const line3 = 3/, "selected source text is omitted from the handoff");
+
+  await v.openMergedView("q");
+  assert.equal(v.$(".mc-merged-comment-anchor")?.textContent.trim(), expected, "rendered merged heading uses the same reference");
+  assert.equal(v.$(".mc-merged-preview blockquote"), null, "rendered merged view has no redundant source blockquote");
   v.close();
 });
 

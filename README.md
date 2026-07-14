@@ -57,6 +57,9 @@ On first run, `mo` creates `.monacori/`, adds it to `.gitignore`, and includes u
 - **IntelliJ-style desktop diff review**: reads the repository directly, refreshes from local Git state, and presents editor-like Base/Working tree panes with change navigation, a live per-file change counter, center-aligned old/new line-number gutters, and hunk-spanning semantic bands (modified blue, deleted gray, added green).
 - **AI handoff comments**: questions and change requests are stored with their file, line, and code context.
 - **Grounded review handoff**: merge comments with exact file, line, and code context and copy them as one inspectable prompt.
+- **One worktree-scoped Markdown memo**: a calm, list-free writing surface that never adds a file to the repository. The memo lives under the application's user-data directory, survives restarts, and is isolated by the canonical Git worktree path.
+- **Notion-style inline Markdown**: the memo uses the MIT-licensed [Tiptap](https://github.com/ueberdosis/tiptap) editor, so shortcuts such as `# `, `- `, and `> ` become rich blocks in place while the persisted value remains plain Markdown. The editor bundle loads only when the memo opens.
+- **Readable Markdown documents**: source documents and merged handoff prompts use the same embedded [markdown-it](https://github.com/markdown-it/markdown-it) parser, sanitized by [DOMPurify](https://github.com/cure53/DOMPurify), and share the memo's typography without a side-by-side preview pane.
 - **Two-purpose source view**: use **Review** for line comments, then switch eligible code files to the lazy-loaded **Code** mode for a virtualized Monaco editor, folding, sticky scopes, and fast navigation. Starting a comment from Code returns to Review at the same caret.
 - **Project-wide search**: `Cmd/Ctrl+Shift+F` shows occurrence-level `file:line:column` results using the bundled, VS Code-maintained [ripgrep package](https://github.com/microsoft/vscode-ripgrep); static HTML reviews retain a dependency-free local fallback.
 - **LSP-first code intelligence**: definition/usages (`Cmd/Ctrl+B`), implementation (`Cmd/Ctrl+Alt+B`), and workspace-symbol search (`Cmd/Ctrl+Alt+O`) use a project language server when available. TypeScript/JavaScript also works out of the box through monacori's bundled background sidecar. Unsupported languages and unavailable servers fall back to the main-process regex index.
@@ -150,6 +153,8 @@ suite gates every release.
 ## Local State
 
 Running `mo` creates a git-ignored `.monacori/` directory for generated diff reviews, local config, comments, logs, and validation notes. Keep it ignored unless your team intentionally wants to version review artifacts.
+
+The Markdown memo is deliberately stored elsewhere: Electron's application user-data directory contains a `notes/` folder with one JSON document per canonical worktree-path hash. Reopening a worktree restores its memo; another worktree of the same repository gets an independent document. Editing or clearing the memo never modifies the repository.
 
 ## Design Principles
 

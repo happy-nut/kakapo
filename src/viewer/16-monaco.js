@@ -149,8 +149,27 @@ function monacoEditorOptions(extra) {
     scrollBeyondLastLine: false,
     smoothScrolling: false,
     wordWrap: 'off',
+    // Keep roughly 15% of a normal editor viewport above/below the caret. syncMonacoScrolloff recalculates
+    // this from the actual layout after mount/resize; six lines is the safe first-paint fallback.
+    cursorSurroundingLines: 6,
+    cursorSurroundingLinesStyle: 'all',
     padding: { top: 6, bottom: 12 },
   }, extra || {});
+}
+
+function syncMonacoScrolloff(editor) {
+  if (!editor || typeof editor.updateOptions !== 'function') return;
+  var layout = typeof editor.getLayoutInfo === 'function' ? editor.getLayoutInfo() : null;
+  var lineHeight = 20;
+  try {
+    if (window.monaco && window.monaco.editor && window.monaco.editor.EditorOption
+        && typeof editor.getOption === 'function') {
+      lineHeight = Number(editor.getOption(window.monaco.editor.EditorOption.lineHeight)) || lineHeight;
+    }
+  } catch (e) {}
+  var height = layout && Number(layout.height) > 0 ? Number(layout.height) : lineHeight * 40;
+  var surrounding = Math.max(2, Math.ceil((height / lineHeight) * 0.15));
+  editor.updateOptions({ cursorSurroundingLines: surrounding, cursorSurroundingLinesStyle: 'all' });
 }
 
 function renderMonacoSource(file) {
@@ -167,6 +186,10 @@ function renderMonacoSource(file) {
     var model = monacoModelFor(monaco, requestedPath, file);
     monacoSourceEditor = monaco.editor.create(host, monacoEditorOptions({ model: model }));
     monacoSourcePath = requestedPath;
+    syncMonacoScrolloff(monacoSourceEditor);
+    if (typeof monacoSourceEditor.onDidLayoutChange === 'function') {
+      monacoSourceEditor.onDidLayoutChange(function () { syncMonacoScrolloff(monacoSourceEditor); });
+    }
     monacoSourceEditor.onDidChangeCursorPosition(function (event) {
       if (monacoSourceSyncing || monacoSourcePath !== requestedPath) return;
       var lineIndex = Math.max(0, event.position.lineNumber - 1);
@@ -188,6 +211,32 @@ function renderMonacoSource(file) {
     monacoSourceMode = false;
     if (document.getElementById('source-viewer')?.dataset.openPath === requestedPath) openSourceFile(requestedPath, false);
   });
+}
+
+// Live-watch refresh for the file already open in Code mode. Updating the existing model preserves the
+// editor DOM, view state, focus, and caret; disposing/recreating Monaco here caused the same large flash and
+// top-of-file jump as the Review renderer's former Loading placeholder path.
+function refreshMonacoSourceInPlace(file, cursorSnapshot) {
+  if (!file || !isMonacoSourceActive(file.path) || !monacoSourceEditor || !window.monaco) return false;
+  var editor = monacoSourceEditor;
+  var model = editor.getModel && editor.getModel();
+  if (!model) return false;
+  var viewState = typeof editor.saveViewState === 'function' ? editor.saveViewState() : null;
+  var cursor = cursorSnapshot || (viewerCursor && viewerCursor.path === file.path ? viewerCursor : null);
+  var lineIndex = cursor ? remapSourceRefreshLine(file, cursor) : 0;
+  var column = cursor ? cursor.column : 0;
+  monacoSourceSyncing = true;
+  try {
+    if (model.getValue() !== String(file.content || '')) model.setValue(String(file.content || ''));
+    if (viewState && typeof editor.restoreViewState === 'function') editor.restoreViewState(viewState);
+  } finally {
+    monacoSourceSyncing = false;
+  }
+  viewerCursor = { path: file.path, lineIndex: lineIndex, column: column, targetLine: cursor ? cursor.targetLine : -1 };
+  updateMonacoSourcePosition(lineIndex, column, false, viewerCursor.targetLine);
+  refreshMonacoSourceDecorations(window.monaco, file);
+  syncMonacoScrolloff(editor);
+  return true;
 }
 
 function refreshMonacoSourceDecorations(monaco, file) {

@@ -223,7 +223,7 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
   } else {
     const shouldSwitch = !viewer || viewer.dataset.openPath !== path || viewer.classList.contains('hidden');
     openSourceFile(path, shouldSwitch);
-    if (shouldReveal) scheduleScrollIntoView(document.querySelector('.source-row.cursor-line'));
+    if (shouldReveal) scheduleScrollIntoView(document.querySelector('.source-row.cursor-line'), document.getElementById('source-body'), 0.15);
   }
   recordNav(navEntryOf('source'));
 }
@@ -260,16 +260,33 @@ function scheduleSourceReveal(prev) {
       // view stays put — continuous follow was dizzying (the file slid even when everything was visible) and
       // it forced a scroll/reflow on every move. lineIndex*rowH avoids getBoundingClientRect entirely, and
       // skipping the scroll when it's unnecessary removes the reflow on most moves too.
-      var caretTop = viewerCursor.lineIndex * rowH;
-      var ch = sb.clientHeight;
-      var margin = Math.round(ch * 0.15);
-      var vTop = sb.scrollTop;
-      if (caretTop < vTop + margin) sb.scrollTop = Math.max(0, caretTop - margin);
-      else if (caretTop + rowH > vTop + ch - margin) sb.scrollTop = caretTop + rowH - ch + margin;
+      // Raw code rows are fixed-height/no-wrap, so the arithmetic path avoids a full-layout read on every
+      // key repeat. Comment/HTTP response rows add variable height between code lines; in that case use the
+      // real cursor row geometry or lineIndex*rowHeight can put the caret below the viewport.
+      if (sb.querySelector('.mc-comment-row, .http-response')) revealSourceCursorWithMargin();
+      else {
+        var caretTop = viewerCursor.lineIndex * rowH;
+        var ch = sb.clientHeight;
+        var margin = Math.round(ch * 0.15);
+        var vTop = sb.scrollTop;
+        if (caretTop < vTop + margin) sb.scrollTop = Math.max(0, caretTop - margin);
+        else if (caretTop + rowH > vTop + ch - margin) sb.scrollTop = caretTop + rowH - ch + margin;
+      }
     } else {
-      revealAt(document.querySelector('.source-row.cursor-line'), sb, 0.85);
+      revealSourceCursorWithMargin();
     }
   });
+}
+
+// Keep the source caret inside a 15% scroll-off band. This geometry path is used for rendered documents,
+// variable-height comment/HTTP rows, and atomic live-refresh restoration; ordinary fixed-height source
+// movement stays on the cheaper arithmetic path above.
+function revealSourceCursorWithMargin() {
+  var body = document.getElementById('source-body');
+  if (!body || !viewerCursor) return;
+  var row = body.querySelector('.source-row[data-line-index="' + viewerCursor.lineIndex + '"]')
+    || body.querySelector('.source-row.cursor-line');
+  scrolloffReveal(row, body, 0.15);
 }
 
 // Move the caret by patching only the affected line cells, never the whole <table>. This keeps
@@ -421,7 +438,11 @@ function editCommentInRow(row) {
   if (!c) return;
   row.classList.remove('mc-row-selected');
   selectedCommentRow = null;
-  composerState = { kind: c.kind, path: c.path, line: c.line, code: c.code, editSeq: seq, editText: c.text };
+  composerState = {
+    kind: c.kind, path: c.path, line: c.line, code: c.code, anchorCode: c.anchorCode,
+    from: c.from, to: c.to, side: c.side,
+    editSeq: seq, editText: c.text,
+  };
   refreshComments();
 }
 function handleSourceCaretKey(event) {
@@ -877,7 +898,11 @@ function closeSourceTab(path) {
   // No tabs left: reset the source view to its empty state.
   var v = document.getElementById('source-viewer'); if (v) v.dataset.openPath = '';
   var body = document.getElementById('source-body');
-  if (body) { body.className = 'source-body empty'; body.textContent = t('source.selectFile'); }
+  var title = document.getElementById('source-title');
+  var meta = document.getElementById('source-meta');
+  if (title) { title.setAttribute('data-i18n', 'source.title'); title.textContent = t('source.title'); }
+  if (meta) { meta.setAttribute('data-i18n', 'source.selectFile'); meta.textContent = t('source.selectFile'); }
+  if (body) { body.setAttribute('data-i18n', 'source.selectFile'); body.className = 'source-body empty'; body.textContent = t('source.selectFile'); }
   sourceLinks.forEach(function (l) { l.classList.remove('active'); });
   renderSourceTabs('');
 }

@@ -94,6 +94,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diff.workingTree": "Working tree",
     "diff.changeCounter": "Change {current} of {total}",
     "diff.noChange": "No change selected",
+    "diff.contextFold": "{count} unchanged lines · expand",
+    "diff.contextLoading": "Loading context…",
+    "diff.contextUnavailable": "Context could not be loaded.",
 
     // Source toolbar
     "source.title": "Source",
@@ -221,10 +224,17 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "merged.qHeading": "# Questions",
     "merged.cHeading": "# Change requests",
 
-    // Prompt memo (Cmd/Ctrl+Shift+N) — a single freeform Markdown scratchpad with a live split preview.
-    "memo.title": "Prompt memo",
-    "memo.placeholder": "Jot down what you're planning, in Markdown…",
-    "memo.previewEmpty": "Markdown preview shows up here as you type.",
+    // One worktree memo (Cmd/Ctrl+Shift+N) — Markdown shortcuts become rich blocks in place.
+    "memo.title": "Markdown memo",
+    "memo.placeholder": "Type # + Space for a heading, - + Space for a list…",
+    "memo.clear": "Clear memo",
+    "memo.clearConfirm": "Clear this worktree's memo? This cannot be undone.",
+    "memo.loading": "Loading this worktree's memo…",
+    "memo.saving": "Saving…",
+    "memo.saved": "Saved",
+    "memo.saveFailed": "Could not save the memo.",
+    "memo.deleteFailed": "Could not clear the memo.",
+    "memo.loadFailed": "Could not load this worktree's memo.",
 
     // Merge-prompt default agent contracts (these follow the locale — a Korean user gets Korean defaults)
     "mergePrompt.default.q": "The following are questions about code you just wrote. Answer each one — explain the intent, rationale, or context. Do not change any code; this clarifies understanding before any revisions.",
@@ -316,6 +326,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diff.workingTree": "작업 트리",
     "diff.changeCounter": "변경 {current} / {total}",
     "diff.noChange": "선택된 변경 없음",
+    "diff.contextFold": "변경 없는 {count}줄 · 펼치기",
+    "diff.contextLoading": "주변 코드를 불러오는 중…",
+    "diff.contextUnavailable": "접힌 코드를 불러오지 못했습니다.",
 
     // Source toolbar
     "source.title": "소스",
@@ -444,10 +457,17 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "merged.qHeading": "# Questions",
     "merged.cHeading": "# Change requests",
 
-    // 프롬프트 메모 (Cmd/Ctrl+Shift+N) — 라이브 분할 미리보기가 있는 자유 형식 마크다운 메모 한 장.
-    "memo.title": "프롬프트 메모",
-    "memo.placeholder": "구상 중인 것을 마크다운으로 적어 보세요…",
-    "memo.previewEmpty": "입력하면 여기에 마크다운 미리보기가 나타납니다.",
+    // 워크트리 메모 한 장 (Cmd/Ctrl+Shift+N) — 마크다운 단축 문법이 그 자리에서 서식 블록으로 바뀐다.
+    "memo.title": "마크다운 메모",
+    "memo.placeholder": "# 다음에 Space를 누르면 제목, - 다음에 Space를 누르면 목록이 됩니다…",
+    "memo.clear": "메모 비우기",
+    "memo.clearConfirm": "이 워크트리의 메모를 비울까요? 되돌릴 수 없습니다.",
+    "memo.loading": "이 워크트리의 메모를 불러오는 중…",
+    "memo.saving": "저장 중…",
+    "memo.saved": "저장됨",
+    "memo.saveFailed": "메모를 저장하지 못했습니다.",
+    "memo.deleteFailed": "메모를 비우지 못했습니다.",
+    "memo.loadFailed": "이 워크트리의 메모를 불러오지 못했습니다.",
 
     // Merge-prompt default agent contracts (Korean default for Korean users)
     "mergePrompt.default.q": "다음은 방금 작성한 코드에 대한 질문입니다. 각 질문에 답하면서 의도, 근거, 맥락을 설명하세요. 코드는 변경하지 마세요. 이 단계는 수정에 앞서 이해를 명확히 하기 위한 것입니다.",

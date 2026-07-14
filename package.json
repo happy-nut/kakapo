@@ -54,9 +54,15 @@
   "license": "MIT",
   "devDependencies": {
     "@electron/packager": "^20.0.1",
+    "@tiptap/core": "3.27.4",
+    "@tiptap/markdown": "3.27.4",
+    "@tiptap/pm": "3.27.4",
+    "@tiptap/starter-kit": "3.27.4",
     "@types/node": "^22.15.21",
     "dompurify": "3.4.12",
+    "esbuild": "0.28.1",
     "jsdom": "^29.1.1",
+    "markdown-it": "14.3.0",
     "monaco-editor": "0.55.1",
     "terser": "^5.48.0"
   },

@@ -7,6 +7,8 @@ import { pathToFileURL } from "node:url";
 import type { DiffReviewBuild, DiffReviewResult, HttpSendRequest, HttpSendResult } from "./types.js";
 import { parsePositiveInteger } from "./util.js";
 import { buildDiffReview, renderLazyDiffBody } from "./build.js";
+import { readReviewDiffContext } from "./diff-context.js";
+import { repoRoot } from "./git.js";
 
 // Performs an HTTP request on behalf of the sandboxed renderer. Used by both the
 // Electron IPC handler (app-main.ts) and the browser-mode proxy below.
@@ -176,6 +178,24 @@ export function serveDiffWatch(input: {
       if (requestUrl.pathname === "/source-data") {
         const b = lastBuild ?? build();
         writeHttp(response, 200, "application/json; charset=utf-8", b.lazySourceData ?? "[]");
+        return;
+      }
+
+      if (requestUrl.pathname === "/diff-context") {
+        const b = lastBuild ?? build();
+        writeHttpJson(response, readReviewDiffContext({
+          root: repoRoot(),
+          base: input.base,
+          staged: input.staged,
+          bodyDiffs: b.lazyBodyDiffs ?? [],
+          request: {
+            path: requestUrl.searchParams.get("path"),
+            oldStart: requestUrl.searchParams.get("oldStart"),
+            oldEnd: requestUrl.searchParams.get("oldEnd"),
+            newStart: requestUrl.searchParams.get("newStart"),
+            newEnd: requestUrl.searchParams.get("newEnd"),
+          },
+        }));
         return;
       }
 

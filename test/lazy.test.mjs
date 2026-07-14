@@ -240,3 +240,92 @@ test("lazy: off-screen change preserves the viewed file's wrapper node, swaps on
   assert.notEqual(bAfter, bBefore, "changed off-screen file's wrapper was swapped");
   v.close();
 });
+
+test("lazy: changed source stays painted until its replacement is ready, preserving caret and scroll", async () => {
+  const before = Array.from({ length: 30 }, (_, i) => `const line${i} = ${i};`).join("\n") + "\n";
+  const after1 = before.replace("const line20 = 20;", "const line20 = 200;");
+  const after2 = after1.replace("const line3 = 3;", "const line3 = 300;");
+  const b1 = await makeReviewHtml([{ path: "src/live.ts", before, after: after1 }], { lazyLoad: true });
+  const b2 = await makeReviewHtml([{ path: "src/live.ts", before, after: after2 }], { lazyLoad: true });
+  let sourceRecords = JSON.parse(b1.build.lazySourceData || "[]");
+  let refreshPending = false;
+  let resolveRefresh;
+  const v = await loadViewer(b1.html, {
+    menuBridge: true,
+    sourceBridge(path) {
+      const record = sourceRecords.find((item) => item.path === path) || null;
+      if (!refreshPending) return record;
+      return new Promise((resolve) => { resolveRefresh = () => resolve(record); });
+    },
+  });
+  await v.openSourceFile("src/live.ts");
+  v.window.setSourceCursor("src/live.ts", 12, 5, false, -1);
+  const body = v.$("#source-body");
+  body.scrollTop = 240;
+  const oldTable = body.querySelector(".source-table");
+  assert.ok(oldTable && /line20 = 200/.test(oldTable.textContent), "old source is visibly painted");
+
+  sourceRecords = JSON.parse(b2.build.lazySourceData || "[]");
+  refreshPending = true;
+  v.window.__diffUpdateCb(b2.build.update);
+  await v.settle(20);
+
+  assert.equal(body.querySelector(".source-table"), oldTable, "old DOM remains on screen during the IPC fetch");
+  assert.doesNotMatch(body.textContent, /Loading/i, "live refresh never exposes a loading placeholder");
+  assert.equal(body.scrollTop, 240, "the visible viewport does not jump while loading");
+  assert.equal(body.querySelector(".source-row.cursor-line")?.dataset.lineIndex, "12", "caret remains on its line while loading");
+
+  resolveRefresh();
+  await v.settle(100);
+  assert.notEqual(body.querySelector(".source-table"), oldTable, "the ready source is swapped in once");
+  assert.match(body.textContent, /line3 = 300/, "the refreshed content is visible");
+  assert.equal(body.scrollTop, 240, "scrollTop survives the atomic repaint");
+  assert.equal(body.querySelector(".source-row.cursor-line")?.dataset.lineIndex, "12", "caret survives the atomic repaint");
+  v.close();
+});
+
+test("lazy: changed active diff is hydrated off-DOM and swapped without a blank frame", async () => {
+  const before = Array.from({ length: 28 }, (_, i) => `const item${i} = ${i};`).join("\n") + "\n";
+  const after1 = before.replace("const item20 = 20;", "const item20 = 200;");
+  const after2 = after1.replace("const item21 = 21;", "const item21 = 210;");
+  const b1 = await makeReviewHtml([{ path: "src/live.ts", before, after: after1 }], { lazyLoad: true });
+  const b2 = await makeReviewHtml([{ path: "src/live.ts", before, after: after2 }], { lazyLoad: true });
+  let bodies = await renderLazyBodies(b1.build);
+  let refreshPending = false;
+  let resolveRefresh;
+  const v = await loadViewer(b1.html, {
+    menuBridge: true,
+    lazySourceData: b1.build.lazySourceData,
+    getDiffBody(index) {
+      const html = bodies[index] || "";
+      if (!refreshPending) return html;
+      return new Promise((resolve) => { resolveRefresh = () => resolve(html); });
+    },
+  });
+  await v.openDiffFor("src/live.ts");
+  const wrapperBefore = v.$('#diff2html-container .d2h-file-wrapper[data-path="src/live.ts"]');
+  const rows = wrapperBefore.querySelectorAll(".d2h-file-side-diff:last-child tr");
+  const cursorIndex = Math.min(8, Math.max(0, rows.length - 1));
+  v.window.setDiffCursor("src/live.ts", "new", cursorIndex, 3, false);
+  const cursorLineBefore = v.diffCaretLine();
+  const container = v.$("#diff2html-container");
+  container.scrollTop = 180;
+
+  bodies = await renderLazyBodies(b2.build);
+  refreshPending = true;
+  v.window.__diffUpdateCb(b2.build.update);
+  await v.settle(20);
+
+  assert.equal(v.$('#diff2html-container .d2h-file-wrapper[data-path="src/live.ts"]'), wrapperBefore, "painted wrapper stays connected while the new body loads");
+  assert.match(wrapperBefore.textContent, /item20 = 200/, "the old review remains readable instead of becoming a shell");
+  assert.equal(container.scrollTop, 180, "the diff viewport does not jump while loading");
+
+  resolveRefresh();
+  await v.settle(100);
+  const wrapperAfter = v.$('#diff2html-container .d2h-file-wrapper[data-path="src/live.ts"]');
+  assert.notEqual(wrapperAfter, wrapperBefore, "one atomic swap installs the hydrated wrapper");
+  assert.match(wrapperAfter.textContent, /item21 = 210/, "the refreshed diff body is visible");
+  assert.equal(container.scrollTop, 180, "diff scrollTop survives the atomic swap");
+  assert.equal(v.diffCaretLine(), cursorLineBefore, "the caret is restored by working-tree line number");
+  v.close();
+});

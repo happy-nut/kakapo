@@ -552,6 +552,21 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-info { background: var(--line); color: var(--muted); border-color: var(--border); }
 .d2h-info .d2h-code-side-line, .d2h-info .d2h-code-line { color: transparent; user-select: none; }
 .d2h-info td, td.d2h-info { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+/* Expandable omitted context between hunks. Both panes expose the same full-width control and expand
+   together; the @@ marker remains as a 1px navigation anchor after its hidden range is exhausted. */
+.d2h-diff-table tr.mc-context-fold-row > td { padding-top: 0; padding-bottom: 0; background: color-mix(in srgb, var(--line) 82%, var(--panel)); }
+.mc-context-fold-row .d2h-code-side-line { padding: 0; color: var(--muted); user-select: none; }
+.mc-context-fold {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 28px;
+  padding: 3px 10px; border: 0; background: transparent; color: var(--muted);
+  font: 11px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; cursor: pointer;
+}
+.mc-context-fold:hover { color: var(--text); background: color-mix(in srgb, var(--active) 11%, transparent); }
+.mc-context-fold:focus-visible { color: var(--text); outline: 1px solid var(--active); outline-offset: -2px; }
+.mc-context-fold:disabled { cursor: wait; opacity: .7; }
+.mc-context-fold-icon { font: 700 15px/1 Monaco, ui-monospace, monospace; letter-spacing: 2px; }
+.d2h-diff-table tr.mc-context-expanded-marker > td { height: 1px; padding-top: 0; padding-bottom: 0; border-top: 1px solid var(--border); border-bottom: 0; }
+.mc-context-expanded-marker .d2h-code-side-line { display: none; }
 .d2h-file-wrapper.df-inactive { display: none; }
 .d2h-del { background: var(--del); }
 .d2h-ins { background: var(--add); }
@@ -919,6 +934,14 @@ h1 { margin: 0; font-size: 18px; }
   overflow-wrap: anywhere;
   line-height: 1.45;
 }
+/* Code review is editor-like: raw source lines never soft-wrap. Besides making horizontal navigation
+   predictable, this guarantees the fast caret-follow calculation has one stable row height. Rendered
+   Markdown/CSV keep their own wrapping rules below. */
+.source-body:not(.rendered-body) .source-row > .source-code {
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+}
 /* perf: let the browser skip layout/paint for off-screen rows in large files/diffs.
    DOM is unchanged (nav, search, comment anchoring still query every row); degrades
    gracefully where unsupported. contain-intrinsic-size keeps the scrollbar stable.
@@ -1022,7 +1045,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
   color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent);
 }
 .mc-kind-ic { flex: none; }
-.mc-del { margin-left: auto; background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 1px 5px; border-radius: 0; }
+.mc-del { margin-left: 0; background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 1px 5px; border-radius: 0; }
 .mc-del:hover { color: var(--del-strong); background: color-mix(in srgb, var(--del-strong) 16%, transparent); }
 .mc-card-body { padding: 2px 12px 11px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .mc-input {
@@ -1166,11 +1189,25 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 /* Inline hint anchored just under the diff caret (F7 "last change" boundary announcement); fades on its own. */
 .mc-caret-hint { position: fixed; z-index: 75; max-width: 460px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-left: 3px solid var(--active); border-radius: 0; padding: 5px 10px; font-size: 12px; line-height: 1.4; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
 .mc-caret-hint.show { opacity: 1; transform: translateY(0); }
-/* Prompt memo: split editor | live Markdown preview inside the standard modal shell. */
-.mc-memo-body { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; height: 100%; }
-.mc-memo-edit { height: 100%; border-right: 1px solid var(--border); }
-.mc-memo-preview { height: 100%; overflow: auto; padding: 12px 16px; background: var(--panel); color: var(--text); }
-.mc-memo-preview > :first-child { margin-top: 0; }
+/* Merged prompts render as one readable document; comment headings remain keyboard-selectable review stops. */
+.mc-merged-body { flex: 1 1 auto; min-height: 0; display: flex; }
+.mc-merged-preview { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 30px max(36px, calc((100% - 980px) / 2)) 64px; background: var(--panel); outline: none; }
+.mc-merged-comment-anchor { padding: 7px 10px; margin-left: -10px !important; border-radius: 5px; cursor: default; }
+.mc-merged-comment-anchor:hover { background: color-mix(in srgb, var(--active) 9%, transparent); }
+.mc-merged-comment-anchor.active { background: color-mix(in srgb, var(--active) 17%, transparent); box-shadow: inset 3px 0 var(--active); }
+.mc-merged-comment-anchor:focus-visible { outline: 1px solid var(--active); outline-offset: 2px; }
+
+/* One worktree-scoped, Notion-style inline Markdown document (Tiptap -> persisted Markdown). */
+.mc-memo-body { min-width: 0; min-height: 0; height: 100%; overflow: auto; background: var(--panel); }
+.mc-inline-editor-host { position: relative; width: min(920px, calc(100% - 72px)); min-height: 100%; margin: 0 auto; padding: 38px 0 80px; }
+.mc-inline-editor-host[data-empty="true"]::before {
+  content: attr(data-placeholder); position: absolute; top: 38px; left: 0; color: var(--muted);
+  font: 15px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; pointer-events: none;
+}
+.mc-inline-editor { min-height: calc(90vh - 150px); outline: none; caret-color: var(--text); }
+.mc-inline-editor > :first-child { margin-top: 0; }
+.mc-memo-save-state { flex: none; min-width: 48px; color: var(--muted); font-size: 10px; text-align: right; font-weight: 500; }
+.mc-memo-delete { flex: none; }
 .mc-memo-empty { color: var(--muted); font-size: 12px; font-style: italic; }
 
 /* ===== Merged-prompt & memo: a large FLOATING overlay (~90% of the window).
@@ -1197,6 +1234,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .dock-max { font-size: 14px; line-height: 1; }
 .dock-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .dock-body > .mc-modal-text { flex: 1 1 auto; height: auto; }
+.dock-body > .mc-merged-body { flex: 1 1 auto; height: auto; }
 .dock-body > .mc-memo-body { flex: 1 1 auto; height: auto; }
 /* Maximize the floating merged/memo panel to fill the viewport. */
 body.dock-maximized .dock-panel { inset: 0; border-radius: 0; }
@@ -1345,6 +1383,9 @@ body.dock-maximized .dock-panel { inset: 0; border-radius: 0; }
   .diff-pane-base { display: none; }
   .d2h-files-diff { grid-template-columns: 1fr; }
   .d2h-file-side-diff:first-child { border-right: 0; border-bottom: 1px solid var(--border); }
+  .dock-panel { inset: 2vh 2vw; }
+  .mc-inline-editor-host { width: calc(100% - 40px); }
+  .mc-merged-preview { padding-inline: 24px; }
 }
 .http-env-select {
   margin-left: auto;
@@ -1461,53 +1502,60 @@ body.dock-maximized .dock-panel { inset: 0; border-radius: 0; }
 .mc-lightbox.hidden { display: none; }
 .mc-lightbox-img { max-width: 96vw; max-height: 94vh; object-fit: contain; box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6); }
 
-/* --- Rendered markdown: a .source-table whose cells hold rendered HTML, so the line-number gutter
-   and per-line/-block comments keep working exactly as in the plain source view. --- */
+/* --- Shared Markdown typography.
+   Source/merged HTML is markdown-it + DOMPurify; the Tiptap memo uses the same .markdown-body rules. --- */
+.markdown-body {
+  color: var(--text);
+  overflow-wrap: anywhere;
+  font: 15px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3,
+.markdown-body h4, .markdown-body h5, .markdown-body h6 {
+  color: var(--text); line-height: 1.3; font-weight: 680;
+  margin: 1.55em 0 .65em;
+}
+.markdown-body h1 { padding-bottom: .3em; border-bottom: 1px solid var(--border); font-size: 2em; }
+.markdown-body h2 { padding-bottom: .25em; border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent); font-size: 1.5em; }
+.markdown-body h3 { font-size: 1.24em; }
+.markdown-body h4 { font-size: 1.08em; }
+.markdown-body h5, .markdown-body h6 { color: var(--muted); font-size: .95em; }
+.markdown-body p, .markdown-body ul, .markdown-body ol,
+.markdown-body blockquote, .markdown-body pre, .markdown-body table { margin: 0 0 1.1em; }
+.markdown-body ul, .markdown-body ol { padding-left: 1.7em; }
+.markdown-body li + li { margin-top: .3em; }
+.markdown-body li > p { margin-bottom: .55em; }
+.markdown-body a { color: var(--active); text-decoration: none; }
+.markdown-body a:hover { text-decoration: underline; }
+.markdown-body strong { color: var(--text); }
+.markdown-body del { color: var(--muted); }
+.markdown-body code {
+  font: .86em Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--line); border: 1px solid var(--border); border-radius: 4px; padding: .1em .38em;
+}
+.markdown-body pre { max-width: 100%; overflow: auto; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+.markdown-body pre code { display: block; padding: 0; border: 0; background: none; white-space: pre; font: 12px/1.6 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.markdown-body blockquote { padding: 2px 0 2px 16px; color: var(--muted); border-left: 3px solid var(--border); }
+.markdown-body blockquote > :last-child { margin-bottom: 0; }
+.mc-merged-preview > :first-child { margin-top: 0; }
+.markdown-body hr { height: 1px; margin: 1.8em 0; border: 0; background: var(--border); }
+.markdown-body img { max-width: 100%; height: auto; border-radius: 4px; }
+.markdown-body table { display: block; max-width: 100%; overflow: auto; border-spacing: 0; border-collapse: collapse; font-size: .92em; }
+.markdown-body th, .markdown-body td { padding: 7px 12px; border: 1px solid var(--border); text-align: left; }
+.markdown-body th { background: var(--line); font-weight: 650; }
+.markdown-body tr:nth-child(even) td { background: color-mix(in srgb, var(--line) 42%, transparent); }
+
+/* The source document remains block-addressable so gutter navigation and line comments keep working. */
 .source-body.rendered-body { padding: 0; }
 .md-doc .num { vertical-align: top; }
 .md-doc .md-cell {
   white-space: normal;
   overflow-wrap: anywhere;
-  padding: 2px 24px 2px 14px;
-  color: var(--text);
-  font: 14px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  padding: 0 28px 0 16px;
 }
-.md-cell > :first-child { margin-top: 0; }
-.md-cell > :last-child { margin-bottom: 0; }
-.md-h { line-height: 1.3; margin: 0.25em 0; font-weight: 650; color: var(--text); }
-.md-h1 { font-size: 1.7em; }
-.md-h2 { font-size: 1.4em; }
-.md-h3 { font-size: 1.18em; }
-.md-h4 { font-size: 1.05em; }
-.md-h5, .md-h6 { font-size: 0.95em; color: var(--muted); }
-.md-p { margin: 0.2em 0; }
-.md-cell a { color: var(--active); text-decoration: none; }
-.md-cell a:hover { text-decoration: underline; }
-.md-cell strong { color: var(--text); }
-.md-cell del { color: var(--muted); }
-.md-cell code {
-  font: 0.86em Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  background: var(--line); border: 1px solid var(--border); border-radius: 0; padding: 0.1em 0.4em;
-}
-.md-code { background: var(--panel); border: 1px solid var(--border); border-radius: 0; padding: 10px 12px; overflow: auto; margin: 0.3em 0; }
-.md-code code { font: 12px/1.5 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: none; border: 0; padding: 0; white-space: pre; }
-.md-quote { margin: 0.3em 0; padding: 2px 14px; color: var(--muted); border-left: 3px solid var(--border); }
-.md-quote p { margin: 0.3em 0; }
-.md-list { margin: 0.2em 0; padding-left: 1.5em; }
-.md-list li { margin: 0.15em 0; }
-.md-hr { border: 0; border-top: 1px solid var(--border); margin: 0.5em 0; }
-.md-img { max-width: 100%; border-radius: 0; }
-/* Embedded raw HTML in Markdown (README <div>/<img>/<table>/…). Minimal styling so it reads sanely. */
-.md-html { overflow-x: auto; }
-.md-html img { max-width: 100%; height: auto; }
-.md-html table { border-collapse: collapse; margin: 0.3em 0; }
-.md-html th, .md-html td { border: 1px solid var(--border); padding: 4px 10px; }
-.md-html h1, .md-html h2, .md-html h3, .md-html h4 { margin: 0.5em 0 0.3em; line-height: 1.3; }
-.md-html p { margin: 0.3em 0; }
-.md-html [align="center"] { text-align: center; }
-.md-table { border-collapse: collapse; margin: 0.3em 0; font-size: 0.92em; }
-.md-table th, .md-table td { border: 1px solid var(--border); padding: 5px 11px; text-align: left; }
-.md-table thead th { background: var(--line); }
+.md-doc .md-cell > * { max-width: 980px; }
+.md-doc .md-row:first-child .md-cell { padding-top: 8px; }
+.md-doc .md-row:first-child .md-cell > :first-child { margin-top: .55em; }
+.md-doc .md-row:last-child .md-cell { padding-bottom: 34px; }
 
 /* --- CSV/TSV: an aligned table that is still a .source-table (gutter + per-row comments). --- */
 .csv-doc { width: auto; }
