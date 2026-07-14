@@ -7,8 +7,7 @@ function setTab(name) {
   document.getElementById('files-panel')?.classList.toggle('hidden', name !== 'files');
   syncRail();
 }
-// Reflect the current view/dock state on the activity rail icons (active highlight). Terminal active is
-// kept in sync separately by the dock-terminal setOpen (it toggles is-active on #terminal-toggle).
+// Reflect the current view and dock state on the activity rail icons.
 function syncRail() {
   var rail = document.querySelector('.activity-rail');
   if (!rail) return;
@@ -24,6 +23,8 @@ function syncRail() {
   setOn('memo', !!document.getElementById('mc-memo-panel'));
   var hv = document.getElementById('history-view');
   setOn('history', !!(hv && !hv.classList.contains('hidden')));
+  var impact = document.getElementById('impact-panel');
+  setOn('impact', !!(impact && !impact.classList.contains('hidden')));
 }
 // Rail click for the merged views toggles: a 2nd click on the open kind closes it (memo already toggles).
 function toggleMergedRail(kind) {
@@ -129,7 +130,7 @@ function restoreUiState() {
 
 // In-place diff refresh (instead of a full window reload): apply a compact payload of just the changed
 // regions (diff container, sidebar trees, status, data) and re-run the bootstrap steps. The window never
-// reloads, so the integrated terminal's pty sessions (claude/codex) survive a watch refresh. Electron's
+// reloads, so review comments and navigation context survive a watch refresh. Electron's
 // main pushes the payload over IPC (monacori:diff-update); serve mode's poller fetches /__ai_flow_update.
 // Live watch refreshes are HELD while a comment composer is open. applyDiffUpdate rebuilds the diff DOM, so
 // applying it mid-compose would destroy the composer textarea every watch tick — input stalls and characters
@@ -198,6 +199,8 @@ function applyDiffUpdate(u) {
   // the source view — an unrelated file's edit would otherwise flicker the pane they're reading. Capture the
   // open file's signature BEFORE fileSignatureByPath is rebuilt below.
   var prevOpenSig = openPath ? (fileSignatureByPath.get(openPath) || '') : '';
+  var previousSourceByPath = sourceByPath;
+  var previousSignatureByPath = fileSignatureByPath;
 
   // Fast-path: when the file set + order are unchanged, reconcile per-file so an off-screen change never
   // flickers the file you're viewing. Falls back to the full swap (below) for add/remove/reorder or eager.
@@ -249,6 +252,15 @@ function applyDiffUpdate(u) {
   // re-render the source view below.
   var openFileChanged = !openPath || prevOpenSig !== (fileSignatureByPath.get(openPath) || '');
   sourceFiles = u.sourceFilesMeta || [];
+  sourceFiles.forEach(function (file) {
+    file.__loaded = !REVIEW_LAZY_LOAD || !file.embedded;
+    var previous = previousSourceByPath.get(file.path);
+    if (previous && previous.__loaded && previousSignatureByPath.get(file.path) === fileSignatureByPath.get(file.path)) {
+      file.content = previous.content;
+      if (previous.image) file.image = previous.image;
+      file.__loaded = true;
+    }
+  });
   sourceByPath = new Map(sourceFiles.map(function (f) { return [f.path, f]; }));
   httpEnvironments = u.httpEnvironments || {};
   httpEnvNames = Object.keys(httpEnvironments);
@@ -266,19 +278,20 @@ function applyDiffUpdate(u) {
     else current = -1;
   }
 
-  // 3) Reset lazy-materialize + index state so the new diff bodies / source / symbols rebuild on demand.
+  // 3) Reset lazy materialization. Source analysis/indexing lives in Electron's main process; the renderer
+  // keeps only per-file bodies it has actually opened, preserving unchanged ones across watch refreshes.
   // bodyCache is keyed by file INDEX, not content — after a watch rebuild the same index maps to the new
   // body, so it MUST be dropped too. Clearing only bodyPromise left loadBodyHtml() returning the cached
   // OLD body, so a watch change never showed up in the diff until a full reload.
   bodyCache = {};
   bodyPromise = {};
   diffBootDone = false;
-  sourceLoaded = !REVIEW_LAZY_LOAD; // lazyLoad: re-fetch source content on next use
-  sourceLoading = false;
+  sourceGeneration += 1;
+  sourceLoadPromises = Object.create(null);
+  bulkSourcePromise = null;
   // Force a source body re-render on next open ONLY if the open file actually changed; otherwise keep
   // sourceBodyPath so the already-painted (unchanged) source view is left exactly as-is — no flicker.
   if (openFileChanged) sourceBodyPath = null;
-  symbolIndex = null;
 
   // 3b) Re-fill UNCHANGED files' bodies synchronously from the snapshot so they don't blank-then-reload (the
   // flicker). Runs BEFORE setupLazyDiff so the IntersectionObserver sees them already materialized and never
@@ -300,8 +313,6 @@ function applyDiffUpdate(u) {
   refreshHunkIndex(); // rebuild hunks/hunkMeta from the swapped-in DOM so hunkTotal()/hunkPathAt() aren't stale
   if (REVIEW_LAZY) { setupLazyDiff(); setTimeout(function () { diffBootDone = true; }, 0); }
   else { diffBootDone = true; }
-  if (!REVIEW_LAZY_LOAD) setTimeout(startSymbolIndex, 0);
-
   // 4) Re-run the DOM-dependent bootstrap steps.
   applyI18n();
   populateHttpEnvSelect();
@@ -320,6 +331,7 @@ function applyDiffUpdate(u) {
     // the shorter new diff off-screen and look blank — so reset to the top instead.
     container.scrollTop = activeFilePreserved ? diffScrollTop : 0;
   }
+  if (typeof isImpactOpen === 'function' && isImpactOpen()) openImpact();
   return true;
 }
 
@@ -336,7 +348,7 @@ async function checkForLiveUpdate() {
     }
     if (state.signature && state.signature !== currentSignature) {
       // serve mode: fetch just the compact update payload and refresh in place (same path Electron uses
-      // over IPC) rather than reloading — so an open integrated terminal keeps its sessions.
+      // over IPC) rather than reloading, preserving the current review context.
       try {
         var fresh = await fetch('__ai_flow_update', { cache: 'no-store' });
         if (fresh.ok) applyDiffUpdate(await fresh.json());
@@ -348,4 +360,3 @@ async function checkForLiveUpdate() {
     checkingForUpdates = false;
   }
 }
-

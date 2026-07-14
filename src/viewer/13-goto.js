@@ -90,7 +90,7 @@ function openGotoLine() {
   setTimeout(function () { try { input.focus(); } catch (e) {} }, 0);
 }
 
-// Sidebar Opt+Enter: actions for a focused file row (copy path / reveal in Finder / open terminal here).
+// Sidebar Opt+Enter: actions for a focused file row (copy path / reveal in Finder).
 function openTreeRowMenu(row) {
   if (!row) return;
   var path = row.dataset.sourceFile || row.dataset.file || '';
@@ -101,7 +101,6 @@ function openTreeRowMenu(row) {
   ];
   if (window.monacoriApp && typeof window.monacoriApp.revealInFinder === 'function') {
     items.push({ label: t('menu.revealFinder'), onSelect: function () { try { window.monacoriApp.revealInFinder(path); } catch (e) {} } });
-    items.push({ label: t('menu.openTerminal'), onSelect: function () { try { window.monacoriApp.openTerminalAt(path); } catch (e) {} } });
   }
   showCustomDropdown(Math.round(r.left + 14), Math.round(r.bottom + 2), items, Math.round(r.top));
 }

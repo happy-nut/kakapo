@@ -94,3 +94,63 @@ test("Recent files hides the search box and filters by typed letters (speed sear
   assert.equal(v.quickOpenVisible(), false, "second Esc closes");
   v.close();
 });
+
+test("Find in Files shows occurrence-level rg results and opens the exact source line", async () => {
+  const { html: searchable } = await makeReviewHtml([
+    {
+      path: "src/search.ts",
+      before: "export const oldValue = 1;\n",
+      after: "export const first = 'needle';\nexport const second = 'needle';\n",
+    },
+  ]);
+  const requests = [];
+  const v = await loadViewer(searchable, {
+    searchBridge(request) {
+      requests.push(request);
+      return {
+        available: true,
+        engine: "ripgrep",
+        truncated: false,
+        matches: [
+          { path: "src/search.ts", line: 1, column: 23, endColumn: 29, text: "export const first = 'needle';", matchText: "needle" },
+          { path: "src/search.ts", line: 2, column: 24, endColumn: 30, text: "export const second = 'needle';", matchText: "needle" },
+        ],
+      };
+    },
+  });
+
+  v.key("f", { metaKey: true, shiftKey: true, code: "KeyF" });
+  await v.settle(20);
+  v.typeInto(v.$("#quick-open-input"), "needle");
+  await v.settle(180);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [{ query: "needle", limit: 500 }], "the renderer delegates one debounced project search");
+  assert.equal(v.$all("#quick-open-results .search-result").length, 2, "each occurrence gets its own result row");
+  assert.match(v.$("#quick-open-results .search-result .quick-open-name").textContent, /search\.ts:1:23/);
+  assert.equal(v.$("#quick-open-filter").textContent, "2 results · rg");
+
+  v.key("ArrowDown");
+  v.key("Enter");
+  await v.settle(80);
+  assert.equal(v.visibleView(), "source", "opening a search result switches to source");
+  assert.equal(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex, "1", "the second occurrence opens on line 2");
+  v.close();
+});
+
+test("Find in Files falls back locally and returns every occurrence when rg is unavailable", async () => {
+  const { html: searchable } = await makeReviewHtml([
+    {
+      path: "src/fallback.ts",
+      before: "export const oldValue = 1;\n",
+      after: "const needle = 'needle needle';\n",
+    },
+  ]);
+  const v = await loadViewer(searchable);
+  v.key("f", { metaKey: true, shiftKey: true, code: "KeyF" });
+  v.typeInto(v.$("#quick-open-input"), "needle");
+  await v.settle(180);
+
+  assert.equal(v.$all("#quick-open-results .search-result").length, 3, "declaration plus two string occurrences are separate results");
+  assert.equal(v.$("#quick-open-filter").textContent, "3 results · local");
+  v.close();
+});

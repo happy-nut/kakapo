@@ -171,9 +171,8 @@ export function serveDiffWatch(input: {
         return;
       }
 
-      // Phase 2b lazy-LOAD: serve the full source files JSON (with content) once, on demand, so the
-      // HTML embeds only source metadata. The renderer fetches this after first paint to populate the
-      // source view + build the go-to-definition index.
+      // Standalone browser compatibility: serve the source JSON on first source open. The Electron app
+      // uses a per-file IPC endpoint instead and keeps analysis/indexing in its main process.
       if (requestUrl.pathname === "/source-data") {
         const b = lastBuild ?? build();
         writeHttp(response, 200, "application/json; charset=utf-8", b.lazySourceData ?? "[]");

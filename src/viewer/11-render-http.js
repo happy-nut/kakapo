@@ -6,10 +6,9 @@ function openSourceFile(path, shouldSwitch = true) {
   if (composerState && composerState.path !== path) closeComposer();
   addSourceTab(path);
   renderSourceTabs(path);
-  // lazy-LOAD: source content not fetched yet -> show a loading state; loadSourceData re-opens it.
-  if (REVIEW_LAZY_LOAD && !sourceLoaded && file.embedded) {
-    pendingSourceOpen = { path: path, shouldSwitch: shouldSwitch };
-    loadSourceData();
+  // Desktop lazy-loads only this file. The completion callback repaints only when it is still the
+  // intended tab, preventing a slower earlier request from stealing focus after the user moves on.
+  if (!sourceContentLoaded(file)) {
     sourceBodyPath = null; // body shows a loading placeholder, not this path's content yet
     document.getElementById('source-viewer').dataset.openPath = path;
     sourceLinks.forEach((link) => link.classList.toggle('active', link.dataset.sourceFile === path));
@@ -20,6 +19,10 @@ function openSourceFile(path, shouldSwitch = true) {
     lb.className = 'source-body empty';
     lb.textContent = t('source.loading');
     if (shouldSwitch) showSourceView();
+    loadSourceFile(path).then(function () {
+      var viewer = document.getElementById('source-viewer');
+      if (viewer && viewer.dataset.openPath === path) openSourceFile(path, false);
+    });
     return;
   }
   rememberRecent(path, 'source');
@@ -34,6 +37,10 @@ function openSourceFile(path, shouldSwitch = true) {
     : formatBytes(file.size || 0) + ' · ' + (file.skippedReason || 'not embedded');
   document.getElementById('source-meta').textContent = meta;
   const body = document.getElementById('source-body');
+  const httpEnvSelect = document.getElementById('http-env-select');
+  syncMonacoModeToggle(path, file);
+  const useMonaco = shouldRenderMonacoSource(path, file);
+  if (!useMonaco) disposeMonacoSourceEditor();
   // Image files carry a data: URI preview instead of text — render inline (click to zoom).
   if (file.image) {
     body.className = 'source-body image-body';
@@ -54,8 +61,16 @@ function openSourceFile(path, shouldSwitch = true) {
   if (!viewerCursor || viewerCursor.path !== path) {
     viewerCursor = { path, lineIndex: 0, column: 0, targetLine: -1 };
   }
+  if (useMonaco) {
+    body.className = 'source-body monaco-source-body';
+    body.innerHTML = '<div class="monaco-loading"><span class="boot-spinner"></span>' + escapeHtml(t('monaco.loading')) + '</div>';
+    if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
+    updateRenderToggle(path);
+    if (shouldSwitch) showSourceView();
+    renderMonacoSource(file);
+    return;
+  }
   body.className = 'source-body';
-  const httpEnvSelect = document.getElementById('http-env-select');
   // Markdown/CSV render to HTML but stay a line-numbered .source-table: each block (md) or record (csv)
   // is a .source-row keyed by its start line, so the gutter shows line numbers and line/block comments
   // work exactly as in the plain source view (renderSourceComments anchors on .source-row[data-line-index]).

@@ -5,7 +5,7 @@ monacori의 가치는 "AI가 만든 변경을 사람이 빠르게 리뷰하고, 
 
 ## 왜 이런 방식인가 (테스트 아키텍처)
 
-리뷰 뷰어는 서버가 만든 마크업과 클라이언트 스크립트(`src/viewer.client.js`)의 **상호작용**으로 동작한다.
+리뷰 뷰어는 서버가 만든 마크업과 번호순으로 번들되는 클라이언트 스크립트(`src/viewer/*.js`)의 **상호작용**으로 동작한다.
 실제로 발견된 회귀(코멘트 저장이 화면에 안 보이는 숨은 textarea를 읽던 버그)도 이 경계에서 났다. 그래서
 순수 단위 테스트로는 부족하고, **실제 배포 산출물을 그대로 DOM에 띄워** 사용자처럼 클릭·입력·저장하는
 통합 테스트가 필요하다.
@@ -57,12 +57,15 @@ localStorage라 이 함정을 못 건드린다).
 - 한 뷰에서 단 코멘트는 다른 뷰로 옮겨가도 보인다
 - 코멘트가 달린 파일에는 개수 배지가 붙는다
 
-### Flow 5 — 통합 터미널의 깨끗한 셸 (`terminal-env.test.mjs`)
+### Flow 5 — 프로젝트 코드 분석과 변경 영향 (`analysis.test.mjs`, `impact.test.mjs`, `monaco.test.mjs`)
 
-통합 터미널은 사용자가 iTerm에서 여는 것과 동일한 로그인 셸이어야 한다. monacori를 npm으로 띄우면
-(`npm run dev` 등) npm이 `npm_config_prefix` 등 `npm_*` 변수를 주입하는데, 이게 pty로 새면 nvm이 새 셸마다
-경고한다. `sanitizeTerminalEnv`(`src/util.ts`)가 `npm_*` 누수를 걷어내 터미널을 깨끗하게 유지한다. 이 흐름은
-Electron pty 통합이라 jsdom으로 못 띄우므로, 정제 함수를 순수 단위로 분리해 테스트한다.
+- 프로젝트에 설치된 language server와 stdio JSON-RPC로 definition/references/implementation/workspace symbol을 조회한다
+- language server가 없거나 언어가 지원되지 않으면 메인 프로세스 정규식 인덱스가 같은 요청을 처리한다
+- Change Impact는 호출자/importer, 호출 대상/의존성, 구현체/상속, 테스트, 타입·API·스키마·설정을 분류한다
+- 검색·인덱싱은 렌더러 밖에서 수행하고, lazy-load 뷰어는 실제로 연 파일의 소스만 요청한다
+- Code 모드는 Monaco를 필요할 때만 마운트하고, 코멘트를 시작하면 같은 커서의 Review 모드로 돌아온다
+- Monaco의 definition/reference/implementation provider는 현재 프로젝트 generation의 응답만 받아들인다
+- 여러 semantic 결과는 현재 파일을 떠나지 않고 Semantic Peek 목록과 소스 미리보기로 비교한다
 
 ## 실행
 

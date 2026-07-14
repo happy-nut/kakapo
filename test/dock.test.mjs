@@ -1,4 +1,4 @@
-// CORE USER FLOW: the bottom dock (merged-prompt / memo / terminal share ONE docked slot below the editor).
+// CORE USER FLOW: merged prompts and the memo share one review-focused floating slot.
 //
 // The merged views and the memo open as large FLOATING panels (.dock-panel + a dim .dock-backdrop, ~90% of
 // the window), sharing ONE slot — opening one closes the others — and Cmd/Ctrl+Shift+' maximizes the active

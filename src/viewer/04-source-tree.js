@@ -129,7 +129,7 @@ function handleTreeKey(event) {
   if (event.key === 'PageUp') { event.preventDefault(); focusTree(treeFocusIndex - treePageSize()); return true; }
   if (event.key === 'Enter' && event.altKey) {
     event.preventDefault();
-    if (row && typeof openTreeRowMenu === 'function') openTreeRowMenu(row); // copy path / Finder / terminal
+    if (row && typeof openTreeRowMenu === 'function') openTreeRowMenu(row); // copy path / Finder
     return true;
   }
   if (event.key === 'Enter') {

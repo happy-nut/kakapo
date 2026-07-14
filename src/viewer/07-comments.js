@@ -42,7 +42,7 @@ function hideCaretHint() {
 // where it is — this happens routinely WITHOUT the file changing: a comment anchored to a deleted/old-side
 // diff line (comments carry no side, so old-side text never matches the new content) would otherwise vanish.
 // Silently dropping user-authored comments loses data; the reviewer can remove a stale one with the × button.
-// Files whose content isn't loaded yet (lazy) are skipped here and reconciled once loadSourceData arrives.
+// Files whose content isn't loaded yet (lazy) are skipped here and reconciled after loadSourceFile resolves.
 function remapComments() {
   if (!reviewComments.length) return;
   var moved = 0;
@@ -307,6 +307,10 @@ function refreshComments() {
   renderDiffComments();
   if (isSourceViewerVisible()) renderSourceComments();
   renderCommentBadges();
+  if (typeof isMonacoSourceActive === 'function' && isMonacoSourceActive() && window.monaco) {
+    var monacoCommentFile = sourceByPath.get(monacoSourcePath);
+    if (monacoCommentFile) refreshMonacoSourceDecorations(window.monaco, monacoCommentFile);
+  }
   applyCommentSelectionHighlight();
   // Keep body.mc-composing (which hides the file caret) tied to the ACTUAL on-screen composer, not just
   // composerState. Leaving the composer by any path other than save/cancel (opening another file, switching
@@ -342,6 +346,9 @@ function refreshComments() {
 }
 
 function openComposer(kind) {
+  // Monaco's Code mode is optimized for navigation and virtualized reading; line-comment cards live in
+  // Review mode. Preserve the Monaco caret, switch the same file back, then open the normal composer.
+  if (typeof isMonacoSourceActive === 'function' && isMonacoSourceActive()) switchMonacoToReviewAtCursor();
   var target = currentCommentTarget();
   if (!target) return;
   composerState = { kind: kind, path: target.path, line: target.line, code: target.code, from: target.from, to: target.to, side: target.side };
@@ -525,4 +532,3 @@ function buildMergedText(kind) {
   });
   return lines.join(nl);
 }
-

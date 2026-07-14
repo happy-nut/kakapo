@@ -17,7 +17,7 @@ document.addEventListener('keydown', (event) => {
     if (handleUsagesKey(event)) return;
   }
 
-  // Dock controls fire regardless of focus (terminal / merged / memo) — they sit ABOVE the focus guard so
+  // Dock controls fire regardless of focus (merged / memo) — they sit ABOVE the focus guard so
   // they still work from inside a dock panel. Cmd/Ctrl+Shift+' maximizes the active dock; Cmd/Ctrl+Shift+/
   // and +. open the merged views; Cmd/Ctrl+Shift+N toggles the memo. (Match event.code so IME/layout never
   // swallows the combo.) Settings is a true overlay, so these stand down while it is up.
@@ -43,6 +43,18 @@ document.addEventListener('keydown', (event) => {
     toggleHistory();
     return;
   }
+  // Cmd/Ctrl+8 toggles the read-only Change Impact inspector. It remains available while the panel is
+  // focused because a second press is the quickest way to dismiss it.
+  if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'Digit8' || event.key === '8') && typeof toggleImpact === 'function') {
+    event.preventDefault();
+    toggleImpact();
+    return;
+  }
+  if (event.key === 'Escape' && typeof isImpactOpen === 'function' && isImpactOpen()) {
+    event.preventDefault();
+    closeImpact();
+    return;
+  }
   if (typeof isHistoryOpen === 'function' && isHistoryOpen() && typeof handleHistoryKey === 'function' && handleHistoryKey(event)) return;
 
   // Settings overlay (or a focused merged/memo dock) captures keys: stand down the rest of the global
@@ -50,7 +62,7 @@ document.addEventListener('keydown', (event) => {
   if (isFloatingModalOpen()) return;
 
   // Cmd/Ctrl+A in the diff/source view selects ONLY that view's content (the browser default reached into
-  // the sidebar + terminal). In an editable field, let the default select-within-field stand.
+  // the sidebar). In an editable field, let the default select-within-field stand.
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.key === 'a' || event.key === 'A')) {
     var aae = document.activeElement;
     if (!(aae && (aae.tagName === 'INPUT' || aae.tagName === 'TEXTAREA' || aae.tagName === 'SELECT')) && selectAllInView()) {
@@ -179,6 +191,7 @@ document.addEventListener('keydown', (event) => {
   // and d2h-file-side-diff's horizontal scrollport even swallows vertical wheel, so handle paging explicitly.
   // Only when the tree isn't focused — the tree pages itself in handleTreeKey below.
   if (treeFocusIndex < 0 && (event.key === 'PageDown' || event.key === 'PageUp') && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+    if (isSourceViewerVisible() && isMonacoSourceActive()) return;
     var psc = isDiffViewVisible() ? document.getElementById('diff2html-container') : (isSourceViewerVisible() ? document.getElementById('source-body') : null);
     if (psc) { event.preventDefault(); psc.scrollTop += (event.key === 'PageDown' ? 0.9 : -0.9) * psc.clientHeight; return; }
   }
@@ -233,6 +246,20 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     if (isSourceViewerVisible()) goToSymbolUnderCursor();
     else openDiffFileAtCaret();
+    return;
+  }
+
+  if ((event.metaKey || event.ctrlKey) && event.altKey && !event.shiftKey && (event.code === 'KeyO' || event.key.toLowerCase() === 'o')) {
+    event.preventDefault();
+    openWorkspaceSymbols();
+    return;
+  }
+
+  if ((event.metaKey || event.ctrlKey) && event.altKey && !event.shiftKey && (event.code === 'KeyB' || event.key.toLowerCase() === 'b')) {
+    var aeImpl = document.activeElement;
+    if (aeImpl && (aeImpl.tagName === 'INPUT' || aeImpl.tagName === 'TEXTAREA' || aeImpl.tagName === 'SELECT')) return;
+    event.preventDefault();
+    goToImplementation();
     return;
   }
 
@@ -375,8 +402,8 @@ document.querySelectorAll('.tab').forEach((button) => {
   button.addEventListener('click', () => setTab(button.dataset.tab || 'changes'));
 });
 
-// Activity rail (IntelliJ-style): click an icon to navigate/toggle its view. Terminal + settings buttons
-// carry no data-view — they keep their own id-based handlers (terminal toggle / settings gear).
+// Activity rail (IntelliJ-style): click an icon to navigate/toggle its view. The settings button carries
+// no data-view and keeps its own id-based handler.
 document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
   const btn = event.target.closest && event.target.closest('.rail-btn[data-view]');
   if (!btn) return;
@@ -385,6 +412,7 @@ document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
   else if (view === 'files') { setTab('files'); }
   else if (view === 'q' || view === 'c') { toggleMergedRail(view); }
   else if (view === 'memo') { openMemoView(); } // openMemoView already toggles
+  else if (view === 'impact') { toggleImpact(); }
   else if (view === 'history') { toggleHistory(); }
   syncRail();
 });
@@ -413,7 +441,6 @@ document.addEventListener('copy', handleSourceCopy);
 
 applyI18n(); // first paint already shows English (inline); this swaps to the saved locale before the rest of init renders dynamic text
 populateHttpEnvSelect();
-if (!REVIEW_LAZY_LOAD) scheduleSymbolIndex(); // non-lazy indexes when idle; lazy-LOAD defers the (large) source blob + index to the first source-view open / go-to-def
 const restored = restoreUiState();
 if (!restored) {
   const initial = location.hash.match(/^#hunk-(\d+)$/);
@@ -440,6 +467,14 @@ window.addEventListener('beforeunload', saveUiState);
   if (!ov) return;
   requestAnimationFrame(function () {
     requestAnimationFrame(function () {
+      try {
+        if (window.monacoriPerf && typeof window.monacoriPerf.mark === 'function') {
+          window.monacoriPerf.mark('first-review-paint', {
+            lazy: Boolean(REVIEW_LAZY),
+            lazyLoad: Boolean(REVIEW_LAZY_LOAD),
+          });
+        }
+      } catch (e) {}
       ov.classList.add('hide');
       setTimeout(function () { ov.remove(); }, 240);
     });

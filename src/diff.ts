@@ -9,7 +9,7 @@ import { git, repoRoot } from "./git.js";
 // File content + signature cache, keyed by path and validated on (mtime, size). Under `watch` the app
 // rebuilds every second; without this, collectSourceFiles re-reads + re-hashes EVERY tracked source
 // file each tick (~1.3s for ~6k files on a large repo), pinning the Electron main process and starving
-// IPC/pty. With it an unchanged file costs a single statSync — the per-tick cost collapses to stat-only.
+// IPC. With it an unchanged file costs a single statSync — the per-tick cost collapses to stat-only.
 const sourceContentCache = new Map<string, { mtimeMs: number; size: number; content: string; signature: string }>();
 
 export function readUnifiedDiff(options: {

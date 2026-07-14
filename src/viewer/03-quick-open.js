@@ -1,7 +1,14 @@
 function openQuickOpen(mode) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
   quickMode = mode;
-  quickModeLabel.textContent = mode === 'recent' ? t('quickopen.recent') : mode === 'content' ? t('quickopen.findInFiles') : t('quickopen.searchFiles');
+  quickModeLabel.textContent = mode === 'recent'
+    ? t('quickopen.recent')
+    : mode === 'content'
+      ? t('quickopen.findInFiles')
+      : mode === 'symbol'
+        ? t('quickopen.workspaceSymbols')
+        : t('quickopen.searchFiles');
+  quickInput.setAttribute('placeholder', mode === 'symbol' ? t('quickopen.workspaceSymbols') : mode === 'content' ? t('quickopen.findInFiles') : t('quickopen.searchFiles'));
   quickOpen.classList.remove('hidden');
   // Recent files needs no search box — it's just the latest files. Hide the input and let typed letters
   // narrow the list (IntelliJ-style speed search); the global keydown routes keys to handleQuickOpenKey.
@@ -72,7 +79,10 @@ function renderQuickOpenResults() {
   if (!quickResults) return;
   // Recent mode filters its own list by the typed speed-search string; other modes use the search box.
   const isRecent = quickMode === 'recent';
-  const query = (isRecent ? recentFilter : (quickInput?.value || '')).trim().toLowerCase();
+  const rawQuery = (isRecent ? recentFilter : (quickInput?.value || '')).trim();
+  if (quickMode === 'content') { renderContentSearchResults(rawQuery); return; }
+  if (quickMode === 'symbol') { renderWorkspaceSymbolResults(rawQuery); return; }
+  const query = rawQuery.toLowerCase();
   const candidates = isRecent ? recentItems() : allQuickItems();
   quickItems = candidates
     .filter((item) => {
@@ -102,6 +112,203 @@ function renderQuickOpenResults() {
   renderQuickPreview(quickItems[quickActive]);
 }
 
+function openWorkspaceSymbols() {
+  workspaceSymbolQuery = '\0';
+  openQuickOpen('symbol');
+}
+
+function renderWorkspaceSymbolResults(query) {
+  if (query !== workspaceSymbolQuery) {
+    workspaceSymbolQuery = query;
+    workspaceSymbolSeq += 1;
+    if (workspaceSymbolTimer) clearTimeout(workspaceSymbolTimer);
+    workspaceSymbolItems = [];
+    workspaceSymbolBusy = true;
+    var seq = workspaceSymbolSeq;
+    workspaceSymbolTimer = setTimeout(function () { runWorkspaceSymbolSearch(query, seq); }, 80);
+  }
+  quickItems = workspaceSymbolItems;
+  quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
+  if (quickFilterEl) {
+    quickFilterEl.className = 'quick-open-filter';
+    quickFilterEl.textContent = workspaceSymbolBusy
+      ? t('quickopen.searching')
+      : String(quickItems.length) + ' ' + t('quickopen.results') + ' · ' + workspaceSymbolEngine;
+  }
+  if (workspaceSymbolBusy) {
+    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.searching')) + '</div>';
+    renderQuickPreview(null);
+    return;
+  }
+  if (!quickItems.length) {
+    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.noMatches')) + '</div>';
+    renderQuickPreview(null);
+    return;
+  }
+  quickResults.innerHTML = quickItems.map(function (item, index) {
+    return '<button type="button" class="quick-open-item symbol-result' + (index === quickActive ? ' active' : '') + '" data-index="' + index + '">'
+      + '<span class="quick-open-main"><span class="quick-open-name">' + escapeHtml(item.name) + '</span>'
+      + '<span class="quick-open-path">' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '</span></span>'
+      + '<span class="quick-open-badge">' + escapeHtml(item.detail) + '</span></button>';
+  }).join('');
+  renderQuickPreview(quickItems[quickActive]);
+}
+
+async function runWorkspaceSymbolSearch(query, seq) {
+  var loc = caretSourceLoc() || { path: sourceFiles[0] && sourceFiles[0].path, lineIndex: 0, column: 0 };
+  var response = await queryProjectAnalysis('workspaceSymbol', null, loc, { query: query, limit: 200 });
+  if (seq !== workspaceSymbolSeq || quickMode !== 'symbol' || query !== String(quickInput && quickInput.value || '').trim()) return;
+  workspaceSymbolItems = response && Array.isArray(response.locations) ? response.locations.map(function (item) {
+    return {
+      path: item.path,
+      name: String(item.name || baseName(item.path)),
+      detail: item.kind != null ? 'symbol ' + item.kind : 'symbol',
+      kind: 'symbol',
+      recent: false,
+      lineIndex: Number(item.lineIndex) || 0,
+      column: Number(item.column) || 0,
+      text: String(item.text || ''),
+    };
+  }) : [];
+  workspaceSymbolEngine = response && response.engine === 'lsp' ? (response.server || 'LSP') : 'index';
+  workspaceSymbolBusy = false;
+  quickActive = 0;
+  renderWorkspaceSymbolResults(query);
+}
+
+function renderContentSearchResults(query) {
+  if (query !== contentSearchQuery) {
+    contentSearchQuery = query;
+    contentSearchSeq += 1;
+    if (contentSearchTimer) clearTimeout(contentSearchTimer);
+    contentSearchItems = [];
+    contentSearchTruncated = false;
+    contentSearchBusy = Boolean(query);
+    if (query) {
+      const seq = contentSearchSeq;
+      contentSearchTimer = setTimeout(function () { runContentSearch(query, seq); }, 120);
+    }
+  }
+
+  quickItems = contentSearchItems;
+  quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
+  updateContentSearchStatus(query);
+  if (!query) {
+    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.typeToSearch')) + '</div>';
+    renderQuickPreview(null);
+    return;
+  }
+  if (contentSearchBusy) {
+    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.searching')) + '</div>';
+    renderQuickPreview(null);
+    return;
+  }
+  if (!quickItems.length) {
+    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.noMatches')) + '</div>';
+    renderQuickPreview(null);
+    return;
+  }
+  quickResults.innerHTML = quickItems.map(function (item, index) {
+    return '<button type="button" class="quick-open-item search-result' + (index === quickActive ? ' active' : '') + '" data-index="' + index + '">'
+      + '<span class="quick-open-main">'
+      + '<span class="quick-open-name">' + escapeHtml(baseName(item.path) + ':' + (item.lineIndex + 1) + ':' + (item.column + 1)) + '</span>'
+      + '<span class="quick-open-path search-snippet">' + searchSnippetHtml(item) + '</span>'
+      + '</span>'
+      + '<span class="quick-open-badge">' + escapeHtml(item.path) + '</span>'
+      + '</button>';
+  }).join('');
+  renderQuickPreview(quickItems[quickActive]);
+}
+
+function updateContentSearchStatus(query) {
+  if (!quickFilterEl) return;
+  quickFilterEl.className = 'quick-open-filter';
+  if (!query) { quickFilterEl.textContent = ''; return; }
+  if (contentSearchBusy) { quickFilterEl.textContent = t('quickopen.searching'); return; }
+  quickFilterEl.textContent = String(contentSearchItems.length) + (contentSearchTruncated ? '+' : '') + ' ' + t('quickopen.results') + ' · ' + contentSearchEngine;
+}
+
+async function runContentSearch(query, seq) {
+  var response = null;
+  try {
+    if (window.monacoriSearch && typeof window.monacoriSearch.query === 'function') {
+      response = await window.monacoriSearch.query({ query: query, limit: 500 });
+    }
+  } catch (e) { response = null; }
+  if (seq !== contentSearchSeq || quickMode !== 'content' || query !== String(quickInput && quickInput.value || '').trim()) return;
+
+  if (response && response.available && Array.isArray(response.matches)) {
+    contentSearchItems = response.matches.map(searchItemFromMatch).filter(Boolean);
+    contentSearchTruncated = Boolean(response.truncated);
+    contentSearchEngine = response.engine === 'ripgrep' ? 'rg' : 'local';
+  } else {
+    var localItems = localContentSearch(query, 501);
+    contentSearchTruncated = localItems.length > 500;
+    contentSearchItems = localItems.slice(0, 500);
+    contentSearchEngine = 'local';
+  }
+  contentSearchBusy = false;
+  quickActive = 0;
+  renderContentSearchResults(query);
+}
+
+function searchItemFromMatch(match) {
+  var path = String(match && match.path || '');
+  var line = Number(match && match.line);
+  var column = Number(match && match.column);
+  var endColumn = Number(match && match.endColumn);
+  if (!path || !Number.isInteger(line) || line < 1 || !Number.isInteger(column) || column < 1) return null;
+  return {
+    path: path,
+    name: baseName(path),
+    detail: line + ':' + column,
+    kind: 'search',
+    recent: false,
+    lineIndex: line - 1,
+    column: column - 1,
+    endColumn: Math.max(column, endColumn || column) - 1,
+    text: String(match.text || ''),
+    matchText: String(match.matchText || ''),
+  };
+}
+
+function localContentSearch(query, limit) {
+  var smartCase = /[A-Z]/.test(query);
+  var needle = smartCase ? query : query.toLowerCase();
+  var out = [];
+  for (var fi = 0; fi < sourceFiles.length && out.length < limit; fi++) {
+    var file = sourceFiles[fi];
+    if (!file.embedded) continue;
+    var lines = String(file.content || '').split(/\r?\n/);
+    for (var li = 0; li < lines.length && out.length < limit; li++) {
+      var line = lines[li];
+      var haystack = smartCase ? line : line.toLowerCase();
+      var from = 0;
+      while (from <= haystack.length && out.length < limit) {
+        var at = haystack.indexOf(needle, from);
+        if (at < 0) break;
+        out.push({ path: file.path, name: file.name, detail: (li + 1) + ':' + (at + 1), kind: 'search', recent: false, lineIndex: li, column: at, endColumn: at + query.length, text: line, matchText: line.slice(at, at + query.length) });
+        from = at + Math.max(query.length, 1);
+      }
+    }
+  }
+  return out;
+}
+
+function searchSnippetHtml(item) {
+  var text = String(item.text || '');
+  var start = Math.max(0, Math.min(Number(item.column) || 0, text.length));
+  var end = Math.max(start, Math.min(Number(item.endColumn) || start + String(item.matchText || '').length, text.length));
+  var cropStart = Math.max(0, start - 80);
+  var cropEnd = Math.min(text.length, Math.max(end + 100, cropStart + 220));
+  if (cropEnd - cropStart > 240) cropEnd = cropStart + 240;
+  var prefix = cropStart > 0 ? '…' : '';
+  var suffix = cropEnd < text.length ? '…' : '';
+  return escapeHtml(prefix + text.slice(cropStart, start))
+    + '<mark class="search-hit">' + escapeHtml(text.slice(start, end) || String(item.matchText || '')) + '</mark>'
+    + escapeHtml(text.slice(end, cropEnd) + suffix);
+}
+
 function updateQuickActive() {
   quickResults?.querySelectorAll('.quick-open-item').forEach((element, index) => {
     const active = index === quickActive;
@@ -117,20 +324,26 @@ function renderQuickPreview(item) {
   if (!item) { preview.innerHTML = ''; return; }
   const file = sourceByPath.get(item.path);
   if (!file || !file.embedded) {
-    preview.innerHTML = '<div class="qp-empty">' + escapeHtml(item.path) + '</div>';
+    preview.innerHTML = item.kind === 'search'
+      ? '<div class="qp-head">' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '</div><div class="qp-empty">' + searchSnippetHtml(item) + '</div>'
+      : '<div class="qp-empty">' + escapeHtml(item.path) + '</div>';
     return;
   }
   const query = ((quickInput && quickInput.value) || '').trim().toLowerCase();
   const lines = file.content.split(/\r?\n/);
+  const focusLine = item.kind === 'search' || item.kind === 'symbol' ? item.lineIndex : -1;
+  const firstLine = focusLine >= 0 ? Math.max(0, focusLine - 7) : 0;
+  const lastLine = focusLine >= 0 ? Math.min(lines.length, focusLine + 8) : lines.length;
   let firstHit = -1;
-  const rows = lines.map((line, i) => {
-    const hit = query.length > 0 && line.toLowerCase().includes(query);
+  const rows = lines.slice(firstLine, lastLine).map((line, offset) => {
+    const i = firstLine + offset;
+    const hit = focusLine >= 0 ? i === focusLine : query.length > 0 && line.toLowerCase().includes(query);
     if (hit && firstHit < 0) firstHit = i;
     return '<div class="qp-line' + (hit ? ' qp-hit' : '') + '"><span class="qp-num">' + (i + 1) + '</span><span class="qp-code">' + highlightLine(line, file.language || 'text') + '</span></div>';
   }).join('');
   preview.innerHTML = '<div class="qp-head">' + escapeHtml(item.path) + '</div><div class="qp-body">' + rows + '</div>';
   if (firstHit >= 0) {
-    const target = preview.querySelectorAll('.qp-line')[firstHit];
+    const target = preview.querySelectorAll('.qp-line')[Math.max(0, firstHit - firstLine)];
     if (target) target.scrollIntoView({ block: 'center' });
   }
 }
@@ -139,6 +352,12 @@ function openQuickItem(item) {
   if (!item) return;
   closeQuickOpen();
   rememberRecent(item.path, item.kind);
+  if ((item.kind === 'search' || item.kind === 'symbol') && sourceByPath.has(item.path)) {
+    var searchFile = sourceByPath.get(item.path);
+    if (searchFile && searchFile.embedded) openSourceAt(item.path, item.lineIndex, item.column);
+    else openSourceFile(item.path);
+    return;
+  }
   if (sourceByPath.has(item.path)) {
     openSourceFile(item.path);
     return;

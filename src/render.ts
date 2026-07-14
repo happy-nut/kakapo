@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import type { DiffFile, ReviewFileState, SourceFile, SourceTreeNode } from "./types.js";
 import { escapeAttr, escapeHtml, jsonForScript } from "./util.js";
-import { diff2HtmlCss, diffCss, diffScript, xtermCss, xtermScript } from "./assets.js";
+import { diff2HtmlCss, diffCss, diffScript } from "./assets.js";
 import { MESSAGES } from "./i18n.js";
 
 const nodeRequire = createRequire(import.meta.url);
@@ -39,7 +39,7 @@ export function renderNotGitRepoHtml(root: string): string {
     '<div class="badge">monacori</div>',
     "<h1>Not a Git repository</h1>",
     "<p>monacori reviews changes tracked by Git, but this folder isn't a Git repository yet.</p>",
-    "<p>Open a terminal here, run <code>git init</code>, then reopen monacori.</p>",
+    "<p>Run <code>git init</code> in this folder, then reopen monacori.</p>",
     `<p class="path">${escapeHtml(root)}</p>`,
     "</div>",
     "</body>",
@@ -218,8 +218,8 @@ export function renderReviewStatus(_input: {
 }): string {
   // Deliberately empty. The reviewer asked for a clean header: file/hunk counts duplicate the Changes
   // tab, the raw generatedAt ISO string is unreadable, and "<embedded>/<total> indexed" is a STATIC
-  // ratio (not a live counter), so it reads as a frozen/broken progress number. Symbol-index progress
-  // now surfaces only as the thin footer-progress bar (setIndexProgress still drives it via null-guards);
+  // ratio (not a live counter), so it reads as a frozen/broken progress number. Symbol analysis now runs
+  // outside the renderer and reports its selected engine inside the Change Impact panel;
   // the "viewed" toggle is a separate button outside this strip, so it stays. `.review-status:empty`
   // collapses the now-empty strip so it takes no space next to the breadcrumb.
   return "";
@@ -241,7 +241,7 @@ export function renderDiffHtml(input: {
   branch?: string;
   watch?: boolean;
   ignoreWhitespace?: boolean;
-  app?: boolean; // Electron app — inline the integrated terminal (xterm); off elsewhere
+  app?: boolean; // Electron app — enable app-only review features such as Git history
   signature?: string;
   generatedAt?: string;
 }): string {
@@ -262,6 +262,9 @@ export function renderDiffHtml(input: {
     '<div class="rail-group">',
     railButton("changes", "tab.changes", "Changes", "⌘0", '<circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/>'),
     railButton("files", "tab.files", "Files", "⌘1", '<path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/>'),
+    input.app
+      ? railButton("impact", "rail.impact", "Change Impact", "⌘8", '<circle cx="6" cy="12" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M8.2 11.2l7.6-4.1M8.2 12.8l7.6 4.1"/>')
+      : "",
     railButton("q", "rail.questions", "Questions", "⌘⇧/", '<path d="M5.5 5.5h13c.8 0 1.5.7 1.5 1.5v6.4c0 .8-.7 1.5-1.5 1.5H12l-4.5 3.6V16.4H5.5c-.8 0-1.5-.7-1.5-1.5V7c0-.8.7-1.5 1.5-1.5z"/><text x="12" y="13" text-anchor="middle" font-size="9.5" font-weight="700" fill="currentColor" stroke="none">?</text>'),
     railButton("c", "rail.changeRequests", "Change requests", "⌘⇧.", '<path d="M14.5 5.5l4 4"/><path d="M4.5 19.5l1-4 10-10 3 3-10 10z"/>'),
     railButton("memo", "memo.title", "Prompt memo", "⌘⇧N", '<rect x="5.5" y="4" width="13" height="16" rx="1.5"/><line x1="8.5" y1="9" x2="15.5" y2="9"/><line x1="8.5" y1="12.5" x2="15.5" y2="12.5"/><line x1="8.5" y1="16" x2="12.5" y2="16"/>'),
@@ -270,11 +273,6 @@ export function renderDiffHtml(input: {
     // History (Cmd+9): Electron only — the git-log bridge (window.monacoriGit) is exposed there.
     input.app
       ? railButton("history", "rail.history", "History", "⌘9", '<circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/>')
-      : "",
-    // Terminal (Electron only; #terminal-toggle stays hidden until a pty exists). Same id → the existing
-    // toggle handler + is-active sync in dock-terminal.js bind to it unchanged.
-    input.app
-      ? '<button type="button" id="terminal-toggle" class="rail-btn terminal-toggle hidden" data-i18n-aria="terminal.title" aria-label="Terminal"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg><span class="rail-tip"><span data-i18n="terminal.title">Terminal</span><kbd>⌃`</kbd></span></button>'
       : "",
     // Settings gear (#app-info-btn) — existing click handler binds by id.
     '<button type="button" id="app-info-btn" class="rail-btn" aria-haspopup="dialog" data-i18n-aria="settings.title" aria-label="Settings"><span class="rail-gear" aria-hidden="true">⚙</span><span class="rail-tip"><span data-i18n="settings.title">Settings</span><kbd>⌘,</kbd></span></button>',
@@ -293,7 +291,6 @@ export function renderDiffHtml(input: {
     "<style>",
     diff2HtmlCss(),
     diffCss(),
-    input.app ? xtermCss() : "",
     "</style>",
     "</head>",
     "<body>",
@@ -313,8 +310,7 @@ export function renderDiffHtml(input: {
       ? `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
       : `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
     "</div>",
-    `<div class="sidebar-footer"><span class="app-version">monacori${packageVersion ? " v" + escapeHtml(packageVersion) : ""}</span><span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span></div>`,
-    '<div id="footer-progress" class="footer-progress hidden" aria-hidden="true"><div class="footer-progress-bar"></div></div>',
+    `<div class="sidebar-footer"><span class="app-version">monacori${packageVersion ? " v" + escapeHtml(packageVersion) : ""}</span>${input.app ? '<span id="analysis-status" class="analysis-status is-idle" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-label">Analysis idle</span></span>' : ""}<span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span></div>`,
     "</aside>",
     '<div class="sidebar-resizer" aria-hidden="true"></div>',
     '<main class="content">',
@@ -332,15 +328,26 @@ export function renderDiffHtml(input: {
     '<div class="source-file-meta"><span id="source-type-icon" class="source-type-icon" aria-hidden="true"></span><span id="source-title" data-i18n="source.title">Source</span><span id="source-meta" data-i18n="source.selectFile">Select a file from the Files tab.</span></div>',
     '<select id="http-env-select" class="http-env-select hidden" data-i18n-title="http.env.title" data-i18n-aria="http.env.aria" title="HTTP Client environment" aria-label="HTTP environment"></select>',
     '<button type="button" id="render-toggle" class="plain-button hidden" aria-pressed="false">Raw</button>',
+    input.app ? '<button type="button" id="editor-mode-toggle" class="plain-button editor-mode-toggle hidden" aria-pressed="false" data-i18n="monaco.codeMode" data-i18n-title="monaco.codeMode.title" title="Open the virtualized code editor">Code</button>' : "",
     '<button type="button" id="back-to-diff" class="plain-button" data-i18n="btn.diff" data-i18n-title="btn.diff.title" title="Back to diff (F7)">Diff</button>',
     "</div>",
     '<div id="source-body" class="source-body empty" data-i18n="source.selectFile">Select a file from the Files tab.</div>',
     "</section>",
     "</main>",
-    // Integrated terminal panel (Electron only — shown when window.monacoriPty exists). Fixed to the
-    // content column's bottom; a top resizer drags its height. The merged prompt is sent here.
     input.app
-      ? '<div id="terminal-panel" class="terminal-panel hidden"><div class="terminal-resizer" aria-hidden="true"></div><div class="terminal-bar"><span class="terminal-title" data-i18n="terminal.title">Terminal</span><button type="button" id="terminal-close" class="terminal-x" data-i18n-title="terminal.close" title="Close terminal" aria-label="Close terminal">&times;</button></div><div id="terminal-host" class="terminal-host"></div></div>'
+      ? '<aside id="impact-panel" class="impact-panel hidden" aria-label="Change Impact">'
+        + '<div class="impact-header"><div><div class="impact-title" data-i18n="impact.title">Change Impact</div><div id="impact-engine" class="impact-engine"></div></div>'
+        + '<button type="button" id="impact-close" class="dock-btn" data-i18n-title="impact.close" title="Close" aria-label="Close">&times;</button></div>'
+        + '<div id="impact-body" class="impact-body"><div class="impact-empty" data-i18n="impact.empty">Place the caret on a changed symbol to inspect its impact.</div></div>'
+        + '</aside>'
+      : "",
+    input.app
+      ? '<aside id="semantic-peek" class="semantic-peek hidden" aria-label="Semantic Peek">'
+        + '<div class="semantic-peek-header"><div class="semantic-peek-heading"><div id="semantic-peek-title" class="semantic-peek-title">Semantic Peek</div><div id="semantic-peek-meta" class="semantic-peek-meta"></div></div>'
+        + '<button type="button" id="semantic-peek-open" class="plain-button" data-i18n="monaco.openSource">Open source</button>'
+        + '<button type="button" id="semantic-peek-close" class="dock-btn" data-i18n-title="impact.close" title="Close" aria-label="Close">&times;</button></div>'
+        + '<div class="semantic-peek-body"><div id="semantic-peek-results" class="semantic-peek-results"></div><div id="semantic-peek-editor" class="semantic-peek-editor"></div></div>'
+        + '</aside>'
       : "",
     '<div id="quick-open" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="quickopen.aria" aria-label="Quick open">',
     '<div class="quick-open-panel">',
@@ -368,7 +375,6 @@ export function renderDiffHtml(input: {
     '<button type="button" id="settings-language" class="settings-select mc-select" data-i18n-aria="settings.language"></button>',
     '<label class="settings-label" for="settings-theme" data-i18n="settings.theme">Theme</label>',
     '<button type="button" id="settings-theme" class="settings-select mc-select" data-i18n-aria="settings.theme"></button>',
-    '<label class="settings-check"><input type="checkbox" id="set-bell-notify"><span data-i18n="settings.bellNotify">Notify when a terminal task finishes (bell)</span></label>',
     '<div class="app-info-keys">' +
     '<div class="app-info-keys-h" data-i18n="settings.kbd.title">Keyboard shortcuts</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.app">App</div>' +
@@ -378,7 +384,7 @@ export function renderDiffHtml(input: {
     '<kbd>⌘,</kbd><span data-i18n="kbd.openSettings">Settings</span>' +
     '<kbd>⌘L</kbd><span data-i18n="kbd.gotoLine">Go to line</span>' +
     '<kbd>⌘K</kbd><span data-i18n="kbd.copyLocation">Copy file:line</span>' +
-    '<kbd>⌥Enter</kbd><span data-i18n="kbd.rowActions">Sidebar file actions (path / Finder / terminal)</span>' +
+    '<kbd>⌥Enter</kbd><span data-i18n="kbd.rowActions">Sidebar file actions (path / Finder)</span>' +
     '<kbd>Esc</kbd><span data-i18n="kbd.closeDialog">Close dialog / cancel</span>' +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.nav">Navigation</div>' +
@@ -391,6 +397,8 @@ export function renderDiffHtml(input: {
     '<kbd>⌘⇧F</kbd><span data-i18n="kbd.findInFiles">Find in files</span>' +
     '<kbd>⌘E</kbd><span data-i18n="kbd.recentFiles">Recent files</span>' +
     '<kbd>⌘B</kbd><span data-i18n="kbd.defUsages">Definition / usages</span>' +
+    '<kbd>⌘⌥B</kbd><span data-i18n="kbd.goToImplementation">Go to implementation</span>' +
+    '<kbd>⌘⌥O</kbd><span data-i18n="kbd.workspaceSymbol">Workspace symbol</span>' +
     '<kbd>⌘&darr;</kbd><span data-i18n="kbd.goToDef">Go to definition</span>' +
     '<kbd>⌘⇧[ / ]</kbd><span data-i18n="kbd.prevNextTab">Prev / next tab</span>' +
     '<kbd>⌘[ / ]</kbd><span data-i18n="kbd.cursorBackForward">Cursor back / forward</span>' +
@@ -403,6 +411,7 @@ export function renderDiffHtml(input: {
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.review">Review</div>' +
     '<div class="keys-grid">' +
+    '<kbd>⌘8</kbd><span data-i18n="kbd.changeImpact">Change Impact</span>' +
     '<kbd>&lt;</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed</span>' +
     '<kbd>? &nbsp;&gt;</kbd><span data-i18n="kbd.addQuestionChange">Add question / change</span>' +
     '<kbd>⌘⇧/ .</kbd><span data-i18n="kbd.allQuestionsChanges">All questions / changes</span>' +
@@ -411,17 +420,9 @@ export function renderDiffHtml(input: {
     '<kbd>e</kbd><span data-i18n="kbd.editComment">Edit comment (when selected)</span>' +
     '<kbd>Backspace / Delete</kbd><span data-i18n="kbd.deleteComment">Delete comment (when selected)</span>' +
     '<kbd>⌥&uarr;/&darr;</kbd><span data-i18n="kbd.stepComments">Step between comments (merged)</span>' +
-    '<kbd>⌥Enter</kbd><span data-i18n="kbd.mergedSend">Comment menu / send to pane (merged)</span>' +
+    '<kbd>⌥Enter</kbd><span data-i18n="kbd.mergedSend">Comment actions (merged)</span>' +
     '<kbd>⌘⇧N</kbd><span data-i18n="kbd.promptMemo">Prompt memo</span>' +
     '<kbd>⌘⇧&#39;</kbd><span data-i18n="kbd.maximizePanel">Maximize panel</span>' +
-    '</div>' +
-    '<div class="keys-cat" data-i18n="settings.kbd.cat.terminal">Terminal</div>' +
-    '<div class="keys-grid">' +
-    '<kbd>⌃` / ⌥F12</kbd><span data-i18n="kbd.toggleTerminal">Toggle terminal</span>' +
-    '<kbd>⌘D</kbd><span data-i18n="kbd.splitPane">Split pane</span>' +
-    '<kbd>⌘⌥[ / ]</kbd><span data-i18n="kbd.focusPane">Focus prev / next pane</span>' +
-    '<kbd>⌘⌥R</kbd><span data-i18n="kbd.renamePane">Rename pane</span>' +
-    '<kbd>⌘W</kbd><span data-i18n="kbd.closeTerminal">Close terminal (when focused)</span>' +
     '</div>' +
     '</div>',
     "</section>",
@@ -459,9 +460,6 @@ export function renderDiffHtml(input: {
     `<script type="application/json" id="file-state-data">${jsonForScript(input.fileStates)}</script>`,
     `<script type="application/json" id="http-env-data">${jsonForScript(input.httpEnvironments)}</script>`,
     `<script>window.__MONACORI_VERSION__=${JSON.stringify(packageVersion)};</script>`,
-    // xterm ships as an inert island (type=text/html, not parsed/compiled at startup) and is injected on
-    // the first terminal open — ~490KB the renderer would otherwise parse on every launch even unused.
-    input.app ? `<script type="text/html" id="xterm-code">${xtermScript()}</script>` : "",
     "<script>",
     diffScript(),
     "</script>",

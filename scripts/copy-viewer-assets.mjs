@@ -2,7 +2,7 @@
 // authored as ordered slices in src/viewer/*.js (numbered to preserve order) and CONCATENATED here into the
 // single inlined script the renderer ships — concatenation only, so it stays one global scope, byte-for-byte
 // the same as the old monolithic src/viewer.client.js. cli.ts reads these at runtime via readViewerAsset().
-import { readdirSync, readFileSync, writeFileSync, copyFileSync, mkdirSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,4 +33,12 @@ try {
 }
 
 copyFileSync(join(root, "src", "viewer.css"), join(distDir, "viewer.css"));
-console.log(`bundled ${parts.length} viewer slices -> dist/viewer.client.js (${bundle.length} bytes); copied viewer.css`);
+
+// Monaco loads lazily from Electron's privileged monacori-asset:// scheme. Copy only the production `min`
+// runtime into dist: monaco-editor stays a development dependency, so installed users receive the 15MB
+// runtime assets without also installing the 73MB source package.
+const monacoSource = join(root, "node_modules", "monaco-editor", "min", "vs");
+const monacoTarget = join(distDir, "monaco", "vs");
+rmSync(join(distDir, "monaco"), { recursive: true, force: true });
+cpSync(monacoSource, monacoTarget, { recursive: true });
+console.log(`bundled ${parts.length} viewer slices -> dist/viewer.client.js (${bundle.length} bytes); copied viewer.css + Monaco runtime`);

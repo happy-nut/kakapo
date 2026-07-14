@@ -150,19 +150,11 @@ test("Cmd+Down in the diff view jumps to the file's source (new/working-tree sid
   v.close();
 });
 
-test("background-work progress shows a bar under the footer and hides when done", async () => {
+test("source indexing is absent from the renderer (main-process analysis owns it)", async () => {
   const v = await loadViewer(html);
-  const foot = v.$("#footer-progress");
-  assert.ok(foot, "footer progress element is rendered");
-  assert.ok(foot.classList.contains("hidden"), "hidden when idle");
-  assert.equal(typeof v.window.setIndexProgress, "function", "progress hook is reachable");
-
-  v.window.setIndexProgress(3, 10);
-  assert.equal(foot.classList.contains("hidden"), false, "shown while work runs");
-  assert.equal(foot.firstElementChild.style.width, "30%");
-
-  v.window.setIndexProgress(10, 10);
-  assert.ok(foot.classList.contains("hidden"), "hidden again when done");
+  assert.equal(v.$("#footer-progress"), null, "obsolete renderer index progress is not rendered");
+  assert.equal(typeof v.window.symbolIndexWorker, "undefined", "no source-index worker is bundled in the UI");
+  assert.equal(typeof v.window.setIndexProgress, "undefined", "renderer no longer owns index progress");
   v.close();
 });
 
@@ -267,7 +259,7 @@ test("header strip is free of meta clutter (no file/hunk counts, indexed ratio, 
   // The two things that must survive: the viewed toggle (a separate button) and the footer progress bar
   // (the single, intended home for background-indexing progress).
   assert.ok(v.$("#diff-viewed-toggle"), "viewed toggle button is still present");
-  assert.ok(v.$("#footer-progress"), "footer progress bar remains for indexing progress");
+  assert.equal(v.$("#footer-progress"), null, "renderer indexing progress is absent");
   v.close();
 });
 
@@ -540,7 +532,7 @@ test("diff view: vertical wheel + PageUp/Down scroll the diff container", async 
 
 test("Cmd+A in the diff/source view scopes the selection to that view, not the whole page", async () => {
   const v = await loadViewer(html);
-  // Diff view: selection stays inside the diff container (not the sidebar/terminal).
+  // Diff view: selection stays inside the diff container (not the sidebar).
   await v.openDiffFor("src/app.ts");
   v.key("a", { metaKey: true });
   let sel = v.window.getSelection();
@@ -702,11 +694,10 @@ test("remapComments never drops a comment, even one anchored to a deleted/old-si
   v.close();
 });
 
-test("merged view: select-all Opt+Enter lists send-to-terminal first then remove, and there's no header send button", async () => {
+test("merged view copies grounded evidence and keeps only review actions in the comment menu", async () => {
   const v = await loadViewer(html);
-  // Mock an open terminal so the send-to-terminal dropdown item is offered.
-  let sent = null;
-  v.window.__monacoriTerminal = { isOpen: () => true, paneCount: () => 1, close: () => {}, enterSendMode: (text) => { sent = text; } };
+  let copied = null;
+  v.window.monacoriClipboard = { write: (text) => { copied = text; } };
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(1);
   await v.openComposer("q");
@@ -715,24 +706,25 @@ test("merged view: select-all Opt+Enter lists send-to-terminal first then remove
   await v.settle(80);
   const area = v.$(".mc-modal-text");
   assert.ok(area, "merged view textarea present");
-  // Send-to-terminal is no longer a header button — it moved into the Opt+Enter dropdown.
-  assert.equal(v.$(".mc-send-term"), null, "no send-to-terminal header button in the merged view");
+  const copyAll = v.$(".mc-copy-all");
+  assert.ok(copyAll, "the review handoff exposes a Copy all action");
+  copyAll.click();
+  await v.settle(20);
+  assert.match(copied, /shipit/, "Copy all writes the complete grounded review text");
+  assert.ok(v.$("#mc-merged-panel"), "copying keeps the evidence visible for inspection");
 
-  // Select-all + Opt+Enter offers send-to-terminal (whole text) FIRST, then remove-all.
+  // Select-all + Opt+Enter stays review-only: the sole bulk action is removing selected comments.
   area.selectionStart = 0;
   area.selectionEnd = area.value.length;
   area.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
   await v.settle(40);
   const items = [...v.$("#mc-dropdown").querySelectorAll(".mc-dropdown-item")];
-  assert.equal(items.length, 2, "select-all offers send-to-terminal + remove-all");
-  assert.match(items[0].textContent, /terminal|터미널/i, "send-to-terminal is the FIRST item (before remove-all)");
-  assert.match(items[1].textContent, /remove|지우기/i, "remove-all is second");
+  assert.equal(items.length, 1, "select-all offers one review action");
+  assert.match(items[0].textContent, /remove|지우기/i, "the action removes the selected comments");
 
-  // Choosing send hands the whole merged text to the terminal and closes the modal.
   items[0].click();
   await v.settle(40);
-  assert.ok(sent && /shipit/.test(sent), "send-to-terminal received the merged text");
-  assert.equal(v.$("#mc-merged-panel"), null, "merged dock closed after send");
+  assert.equal(v.$("#mc-merged-panel"), null, "the empty merged view closes after removal");
   v.close();
 });
 

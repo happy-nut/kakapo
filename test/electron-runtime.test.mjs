@@ -68,6 +68,13 @@ test("launcher tolerates missing or failing branding repair", () => {
   }));
 });
 
+test("running Electron main process never mutates its own macOS app bundle", () => {
+  const source = readFileSync(join(repoRoot, "src", "app-main.ts"), "utf8");
+
+  assert.doesNotMatch(source, /patch-electron-name/, "bundle repair must finish in the launcher before Electron starts");
+  assert.doesNotMatch(source, /ELECTRON_RUN_AS_NODE/, "app-main must not spawn a live-bundle repair subprocess");
+});
+
 test("published Electron runtime stays pinned to the verified patch version", () => {
   const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
   const packageLock = JSON.parse(readFileSync(join(repoRoot, "package-lock.json"), "utf8"));

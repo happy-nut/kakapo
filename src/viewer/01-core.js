@@ -225,46 +225,69 @@ const httpEnvKey = 'monacori-http-env:' + location.pathname;
 const httpRequestsByPath = new Map();
 const httpVarsByPath = new Map();
 let sourceByPath = new Map(sourceFiles.map((file) => [file.path, file]));
-// Phase 2b lazy-LOAD: source content is fetched once after first paint (serve /source-data or the
-// Electron bridge) and merged into the metadata-only source records; until then sourceLoaded is false
-// and the source view shows a brief loading state. Non-lazy-load modes embed source -> already loaded.
-var sourceLoaded = !REVIEW_LAZY_LOAD;
-var pendingSourceOpen = null;
+// Electron starts with metadata only. Source bodies are fetched one file at a time so opening a large
+// project never clones every source file into the renderer. The browser server retains its bulk endpoint
+// as a compatibility fallback, but the desktop app always uses monacoriFile.getSource(path).
+sourceFiles.forEach(function (file) { file.__loaded = !REVIEW_LAZY_LOAD || !file.embedded; });
+var sourceLoadPromises = Object.create(null);
+var bulkSourcePromise = null;
+var sourceGeneration = 0; // increments on watch refresh so an older IPC response cannot overwrite new source
 // The path whose content is ACTUALLY painted in #source-body right now. dataset.openPath is the INTENDED
 // path and gets set BEFORE the body paints in the lazy-LOAD branch, so the caret fast-path must check this
 // instead — else it patches the caret onto a stale body, leaving one file's content under another's path.
 var sourceBodyPath = null;
-var sourceLoading = false;
-var pendingSymbol = null;
 var sourceTabs = []; // Files-mode tab paths (session-only); see addSourceTab / renderSourceTabs.
-// The source blob (content + image base64) is large on big repos, so lazy-LOAD fetches it lazily — on
-// the first source-view open or go-to-definition — not eagerly at startup. Idempotent.
-function loadSourceData() {
-  if (sourceLoaded || sourceLoading) return;
-  sourceLoading = true;
-  var p;
-  if (typeof window !== 'undefined' && window.monacoriFile && typeof window.monacoriFile.getSourceData === 'function') {
-    p = Promise.resolve().then(function () { return window.monacoriFile.getSourceData(); });
-  } else if (typeof fetch !== 'undefined') {
-    p = fetch('source-data').then(function (r) { return r.ok ? r.text() : '[]'; });
+function sourceContentLoaded(file) {
+  return Boolean(file && (!REVIEW_LAZY_LOAD || !file.embedded || file.__loaded));
+}
+function mergeSourceRecord(record) {
+  if (!record || !record.path) return null;
+  var file = sourceByPath.get(record.path);
+  if (!file) return null;
+  file.content = String(record.content || '');
+  if (record.image) file.image = record.image;
+  file.__loaded = true;
+  return file;
+}
+function loadSourceFile(path) {
+  var file = sourceByPath.get(path);
+  if (!file || sourceContentLoaded(file)) return Promise.resolve(file || null);
+  if (sourceLoadPromises[path]) return sourceLoadPromises[path];
+  var generation = sourceGeneration;
+  var promise;
+  if (typeof window !== 'undefined' && window.monacoriFile && typeof window.monacoriFile.getSource === 'function') {
+    promise = Promise.resolve().then(function () { return window.monacoriFile.getSource(path); }).then(function (record) {
+      if (generation !== sourceGeneration) return sourceByPath.get(path) || null;
+      return mergeSourceRecord(record) || file;
+    });
   } else {
-    p = Promise.resolve('[]');
-  }
-  p.then(function (text) {
-    var data = [];
-    try { data = JSON.parse(text || '[]'); } catch (e) { data = []; }
-    for (var i = 0; i < data.length; i++) {
-      var existing = sourceByPath.get(data[i].path);
-      if (existing) { existing.content = data[i].content; if (data[i].image) existing.image = data[i].image; }
+    // The standalone browser viewer has a single source-data endpoint. Fetch it at most once and mark
+    // each returned record loaded; Electron never enters this branch.
+    if (!bulkSourcePromise) {
+      bulkSourcePromise = (typeof fetch !== 'undefined'
+        ? fetch('source-data').then(function (r) { return r.ok ? r.text() : '[]'; })
+        : Promise.resolve('[]')).then(function (text) {
+          var data = [];
+          try { data = JSON.parse(text || '[]'); } catch (e) { data = []; }
+          if (generation === sourceGeneration) {
+            for (var i = 0; i < data.length; i++) mergeSourceRecord(data[i]);
+          }
+          return data;
+        });
     }
-    sourceLoaded = true;
-    sourceLoading = false;
-    scheduleSymbolIndex();
-    remapComments(); // content just arrived — reconcile comment anchors against it
-    if (pendingSourceOpen) { var po = pendingSourceOpen; pendingSourceOpen = null; openSourceFile(po.path, po.shouldSwitch); }
-    else if (isSourceViewerVisible() && document.getElementById('source-viewer').dataset.openPath) { openSourceFile(document.getElementById('source-viewer').dataset.openPath, false); }
-    if (pendingSymbol) { var s = pendingSymbol; pendingSymbol = null; goToDefOrUsages(s); }
-  }, function () { sourceLoaded = true; sourceLoading = false; });
+    promise = bulkSourcePromise.then(function () { return sourceByPath.get(path) || file; });
+  }
+  var tracked = promise.then(function (loaded) {
+    if (sourceLoadPromises[path] === tracked) delete sourceLoadPromises[path];
+    remapComments();
+    return loaded;
+  }, function () {
+    if (sourceLoadPromises[path] === tracked) delete sourceLoadPromises[path];
+    if (generation === sourceGeneration) file.__loaded = true;
+    return file;
+  });
+  sourceLoadPromises[path] = tracked;
+  return tracked;
 }
 let fileSignatureByPath = new Map(fileStates.map((file) => [file.path, file.signature]));
 const reviewMeta = document.getElementById('review-meta');
@@ -286,6 +309,19 @@ let quickMode = 'all';
 let quickItems = [];
 let quickActive = 0;
 let recentFilter = ''; // IntelliJ-style speed-search: typed letters narrow the Recent list (no search box)
+let contentSearchItems = [];
+let contentSearchQuery = '';
+let contentSearchSeq = 0;
+let contentSearchTimer = null;
+let contentSearchBusy = false;
+let contentSearchTruncated = false;
+let contentSearchEngine = 'local';
+let workspaceSymbolItems = [];
+let workspaceSymbolQuery = '';
+let workspaceSymbolSeq = 0;
+let workspaceSymbolTimer = null;
+let workspaceSymbolBusy = false;
+let workspaceSymbolEngine = 'index';
 let usageItems = []; // find-usages results for the Cmd+B-on-declaration popup
 let usageActive = 0;
 let viewerCursor = null;

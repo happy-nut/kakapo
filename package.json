@@ -21,8 +21,8 @@
     "dist",
     "assets",
     "scripts/patch-electron-name.mjs",
-    "scripts/fix-pty-spawn-helper.mjs",
     "scripts/record-demo.mjs",
+    "scripts/benchmark.mjs",
     "README.md",
     "LICENSE"
   ],
@@ -33,13 +33,14 @@
     "build": "tsc -p tsconfig.json && node scripts/copy-viewer-assets.mjs",
     "dev": "npm run build && MONACORI_DEV=1 node bin/monacori.js --foreground",
     "icon": "node scripts/gen-icon.mjs",
-    "postinstall": "node scripts/patch-electron-name.mjs && node scripts/fix-pty-spawn-helper.mjs",
+    "postinstall": "node scripts/patch-electron-name.mjs",
     "prepare": "npm run build",
     "demo:gif": "npm run build && electron scripts/record-demo.mjs",
+    "benchmark": "npm run build && node scripts/benchmark.mjs",
     "smoke": "npm run build && node dist/cli.js --help",
     "pretest": "npm run build",
     "test": "node --test test/*.test.mjs",
-    "dist:mac": "npm run build && electron-packager . Monacori --platform=darwin --arch=arm64 --icon=assets/icon.icns --app-bundle-id=dev.happynut.monacori --app-category-type=public.app-category.developer-tools --out=release --overwrite --no-asar --ignore=/src/ --ignore=/test/ --ignore=/release --ignore=/.git --ignore=/.github --ignore=/.omc --ignore=/openspec --ignore=/node_modules/electron/ --ignore=/node_modules/@electron --ignore=/node_modules/typescript --ignore=/node_modules/jsdom",
+    "dist:mac": "npm run build && electron-packager . Monacori --platform=darwin --arch=arm64 --icon=assets/icon.icns --app-bundle-id=dev.happynut.monacori --app-category-type=public.app-category.developer-tools --out=release --overwrite --no-asar --ignore=/src/ --ignore=/test/ --ignore=/release --ignore=/.git --ignore=/.github --ignore=/.omc --ignore=/node_modules/electron/ --ignore=/node_modules/@electron --ignore=/node_modules/jsdom",
     "dist:mac:dmg": "npm run dist:mac && create-dmg --overwrite --no-code-sign --dmg-title=Monacori 'release/Monacori-darwin-arm64/Monacori.app' release/ || true"
   },
   "keywords": [
@@ -55,20 +56,19 @@
     "@electron/packager": "^20.0.1",
     "@types/node": "^22.15.21",
     "jsdom": "^29.1.1",
-    "terser": "^5.48.0",
-    "typescript": "^5.8.3"
+    "monaco-editor": "0.55.1",
+    "terser": "^5.48.0"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
-    "@electron/rebuild": "^4.0.4",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0",
+    "@vscode/ripgrep": "1.18.0",
     "diff2html": "^3.4.56",
     "electron": "42.4.1",
     "highlight.js": "^11.11.1",
-    "node-pty": "^1.1.0"
+    "typescript": "^6.0.3",
+    "typescript-language-server": "^5.3.0"
   },
   "optionalDependencies": {
     "create-dmg": "^8.1.0"

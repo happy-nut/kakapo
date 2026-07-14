@@ -91,12 +91,38 @@ export async function loadViewer(html, opts = {}) {
       // lazy-LOAD source/diff bridge: serve source content + per-index diff bodies on demand, as
       // Electron/serve do. opts.getDiffBody(index, kind) lets a test swap the served body between builds
       // (watch refresh), which is how the stale-bodyCache regression is reproduced.
-      if (opts.lazySourceData != null || opts.getDiffBody) {
+      if (opts.lazySourceData != null || opts.getDiffBody || opts.sourceBridge) {
+        let sourceRecords = [];
+        try { sourceRecords = JSON.parse(opts.lazySourceData ?? "[]"); } catch { sourceRecords = []; }
+        window.__sourceRequests = [];
         window.monacoriFile = {
-          getSourceData: () => Promise.resolve(opts.lazySourceData ?? "[]"),
+          getSource: (path) => {
+            window.__sourceRequests.push(path);
+            return Promise.resolve(opts.sourceBridge ? opts.sourceBridge(path) : sourceRecords.find((record) => record.path === path) || null);
+          },
           get: (index, kind) => Promise.resolve(opts.getDiffBody ? opts.getDiffBody(Number(index), kind) : ""),
         };
       }
+      if (opts.searchBridge) {
+        window.monacoriSearch = {
+          query: (request) => Promise.resolve(opts.searchBridge(request)),
+        };
+      }
+      if (opts.analysisBridge) {
+        window.monacoriAnalysis = {
+          query: (request) => Promise.resolve(opts.analysisBridge(request)),
+          status: () => Promise.resolve(opts.analysisStatus || {
+            generation: 0,
+            phase: "idle",
+            updatedAt: new Date(0).toISOString(),
+          }),
+          onStatus: (cb) => { window.__analysisStatusCb = cb; },
+        };
+      }
+      if (opts.perfBridge) {
+        window.monacoriPerf = { mark: (name, details) => opts.perfBridge(name, details) };
+      }
+      if (opts.monacoBridge) installMonacoMock(window);
     },
   });
 
@@ -360,4 +386,109 @@ function deepFreeze(obj) {
     Object.freeze(obj);
   }
   return obj;
+}
+
+// Monaco itself is exercised in the packaged Electron smoke pass. jsdom gets a deliberately small API
+// double so viewer tests can lock down our integration contract (models, providers, cursor sync, Peek)
+// without evaluating Monaco's browser workers in Node.
+function installMonacoMock(window) {
+  const models = [];
+  const editors = [];
+  const providers = {};
+  const openers = [];
+
+  class Range {
+    constructor(startLineNumber, startColumn, endLineNumber, endColumn) {
+      Object.assign(this, { startLineNumber, startColumn, endLineNumber, endColumn });
+    }
+  }
+
+  const parseUri = (raw) => {
+    const match = /^([^:]+):\/\/[^/]*(\/.*)?$/.exec(String(raw));
+    const scheme = match ? match[1] : "";
+    const path = match ? (match[2] || "/") : String(raw);
+    return { scheme, path, toString: () => String(raw) };
+  };
+
+  const createModel = (initialValue, language, uri) => {
+    let value = String(initialValue || "");
+    let disposed = false;
+    const disposeListeners = [];
+    const model = {
+      uri,
+      language,
+      getValue: () => value,
+      setValue: (next) => { value = String(next); },
+      isDisposed: () => disposed,
+      onWillDispose: (cb) => { disposeListeners.push(cb); return { dispose() {} }; },
+      dispose: () => {
+        if (disposed) return;
+        disposed = true;
+        disposeListeners.forEach((cb) => cb());
+      },
+      getWordAtPosition(position) {
+        const line = value.split(/\r?\n/)[Math.max(0, position.lineNumber - 1)] || "";
+        const offset = Math.max(0, Math.min(line.length, position.column - 1));
+        const wordPattern = /[A-Za-z_$][A-Za-z0-9_$]*/g;
+        for (const match of line.matchAll(wordPattern)) {
+          const start = match.index;
+          const end = start + match[0].length;
+          if (offset >= start && offset <= end) return { word: match[0], startColumn: start + 1, endColumn: end + 1 };
+        }
+        return null;
+      },
+    };
+    models.push(model);
+    return model;
+  };
+
+  const createEditor = (host, options = {}) => {
+    let model = options.model || null;
+    let position = { lineNumber: 1, column: 1 };
+    let cursorListener = null;
+    const commands = [];
+    const editor = {
+      host,
+      commands,
+      onDidChangeCursorPosition(cb) { cursorListener = cb; return { dispose() {} }; },
+      addCommand(keybinding, handler) { commands.push({ keybinding, handler }); return commands.length; },
+      createDecorationsCollection(items = []) {
+        return { items, clear() { this.items = []; } };
+      },
+      setPosition(next) {
+        position = { ...next };
+        if (cursorListener) cursorListener({ position });
+      },
+      getPosition: () => ({ ...position }),
+      revealPositionInCenterIfOutsideViewport() {},
+      revealPositionInCenter() {},
+      revealLineInCenterIfOutsideViewport() {},
+      focus() { host.tabIndex = 0; host.focus(); },
+      dispose() {},
+      trigger() {},
+      setModel(next) { model = next; },
+      getModel: () => model,
+    };
+    editors.push(editor);
+    return editor;
+  };
+
+  window.__monacoMock = { models, editors, providers, openers };
+  window.monaco = {
+    Range,
+    Uri: { parse: parseUri },
+    KeyMod: { CtrlCmd: 1 << 11, Shift: 1 << 10, Alt: 1 << 9 },
+    KeyCode: { KeyB: 32, Digit8: 29, Slash: 85, Period: 84 },
+    editor: {
+      create: createEditor,
+      createModel,
+      setTheme(theme) { window.__monacoMock.theme = theme; },
+      registerEditorOpener(opener) { openers.push(opener); return { dispose() {} }; },
+    },
+    languages: {
+      registerDefinitionProvider(_selector, provider) { providers.definition = provider; return { dispose() {} }; },
+      registerReferenceProvider(_selector, provider) { providers.references = provider; return { dispose() {} }; },
+      registerImplementationProvider(_selector, provider) { providers.implementation = provider; return { dispose() {} }; },
+    },
+  };
 }

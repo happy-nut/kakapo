@@ -77,7 +77,7 @@ export async function makeReviewHtml(files, opts = {}) {
       context: 12,
       title: "test",
       lazyLoad: false, // embed source so the standalone HTML is self-contained for jsdom
-      app: false, // no xterm terminal blob — keeps the page jsdom-friendly
+      app: false, // Electron-only review affordances are unnecessary in jsdom
       ...opts,
     });
   } finally {

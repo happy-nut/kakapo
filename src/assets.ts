@@ -38,24 +38,3 @@ export function diffScript(): string {
     return readViewerAsset("viewer.client.js");
   }
 }
-
-// xterm.js (terminal renderer) for the integrated terminal panel. UMD bundles that expose
-// window.Terminal + window.FitAddon when inlined. Resolved from node_modules like diff2HtmlCss();
-// pure JS, no native binding — the pty itself lives in the main process via node-pty.
-export function xtermCss(): string {
-  try {
-    return readFileSync(nodeRequire.resolve("@xterm/xterm/css/xterm.css"), "utf8");
-  } catch {
-    return "";
-  }
-}
-
-export function xtermScript(): string {
-  try {
-    const core = readFileSync(nodeRequire.resolve("@xterm/xterm/lib/xterm.js"), "utf8");
-    const fit = readFileSync(nodeRequire.resolve("@xterm/addon-fit/lib/addon-fit.js"), "utf8");
-    return core + "\n" + fit;
-  } catch {
-    return "";
-  }
-}

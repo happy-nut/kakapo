@@ -126,40 +126,11 @@ function createDemoRepo(workRoot) {
   return demoRepo;
 }
 
-function fakePtyPrelude() {
+function demoBridgePrelude() {
   return String.raw`<script>
 window.monacoriClipboard = { write: function (text) { window.__demoClipboard = String(text || ''); } };
 window.monacoriSettings = { all: { 'monacori-theme': 'dark', 'monacori-locale': 'en' }, set: function (key, value) { this.all[key] = value; } };
 window.monacoriMenu = {};
-window.monacoriPty = (function () {
-  var nextId = 0;
-  var dataHandlers = [];
-  var exitHandlers = [];
-  function emit(id, data) {
-    dataHandlers.forEach(function (fn) { fn({ id: id, data: data }); });
-  }
-  return {
-    spawn: function () {
-      var id = ++nextId;
-      setTimeout(function () {
-        emit(id, '\x1b[32mcodex\x1b[0m demo-session ready\r\n$ ');
-      }, 120);
-      return Promise.resolve({ id: id });
-    },
-    onData: function (fn) { dataHandlers.push(fn); },
-    onExit: function (fn) { exitHandlers.push(fn); },
-    resize: function () {},
-    kill: function (msg) { exitHandlers.forEach(function (fn) { fn({ id: msg && msg.id }); }); },
-    bell: function () {},
-    write: function (msg) {
-      var id = msg && msg.id;
-      var text = String((msg && msg.data) || '').replace(/\n/g, '\r\n');
-      setTimeout(function () {
-        emit(id, '\r\n' + text + '\r\n\x1b[36m# grounded follow-up prompt received\x1b[0m\r\n$ ');
-      }, 80);
-    },
-  };
-})();
 window.__demoCaption = function (text) {
   var el = document.getElementById('demo-caption');
   if (!el) {
@@ -207,7 +178,7 @@ function renderDemoHtml(demoRepo, workRoot) {
   });
   const html = review.html
     .replace("</head>", `${demoStyles()}\n</head>`)
-    .replace("<body>", `<body>\n${fakePtyPrelude()}`);
+    .replace("<body>", `<body>\n${demoBridgePrelude()}`);
   const htmlPath = join(workRoot, "monacori-demo.html");
   writeFileSync(htmlPath, html);
   return htmlPath;
@@ -301,17 +272,12 @@ async function recordFrames(htmlPath, frameDir) {
   await capture(win, frameDir, state, 10);
 
   await win.webContents.executeJavaScript(`
-    window.__demoCaption('4. Send the prompt into the integrated AI terminal');
-    var promptText = buildMergedText('c');
-    window.__monacoriTerminal.open();
-    window.__demoPromptText = promptText;
+    window.__demoCaption('4. Copy grounded review evidence for the next AI turn');
+    document.querySelector('.mc-copy-all')?.classList.add('demo-pulse');
   `);
-  await waitFor(win, "window.__monacoriTerminal && window.__monacoriTerminal.paneCount() > 0");
   await capture(win, frameDir, state, 6);
-  await win.webContents.executeJavaScript("window.__monacoriTerminal.enterSendMode(window.__demoPromptText)");
-  await capture(win, frameDir, state, 6);
-  await win.webContents.executeJavaScript("window.__monacoriTerminal.send(window.__demoPromptText)");
-  await pause(300);
+  await win.webContents.executeJavaScript("document.querySelector('.mc-copy-all')?.click()");
+  await pause(200);
   await capture(win, frameDir, state, 12);
 
   win.destroy();

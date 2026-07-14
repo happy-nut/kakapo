@@ -208,6 +208,12 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
 
   viewerCursor = { path, lineIndex: boundedLine, column: boundedColumn, targetLine };
 
+  if (isMonacoSourceActive(path)) {
+    updateMonacoSourcePosition(boundedLine, boundedColumn, shouldReveal, targetLine);
+    recordNav(navEntryOf('source'));
+    return;
+  }
+
   if (sameFileOpen) {
     // Coalesce caret render + scroll into ONE frame on reveal (ArrowDown) so a fast key-repeat doesn't run
     // the caret several rows ahead of the lagging (rAF) scroll and snap ~one viewport at a time ("stutter
@@ -312,6 +318,12 @@ function insertSourceCaret(row, column) {
 }
 
 function openSourceAt(path, lineIndex, column) {
+  var file = sourceByPath.get(path);
+  if (file && !sourceContentLoaded(file)) {
+    openSourceFile(path);
+    loadSourceFile(path).then(function () { setSourceCursor(path, lineIndex, column, true, lineIndex); });
+    return;
+  }
   setSourceCursor(path, lineIndex, column, true, lineIndex);
 }
 
@@ -321,10 +333,14 @@ function isSourceViewerVisible() {
 }
 
 // Cmd/Ctrl+A scoped to the current view: select the source body, or the active diff file's content —
-// NOT the whole page (the browser default reached into the sidebar/terminal). Returns false if there's
+// NOT the whole page (the browser default reached into the sidebar). Returns false if there's
 // no view target so the caller can fall back to the default.
 function selectAllInView() {
   var target = null;
+  if (isSourceViewerVisible() && isMonacoSourceActive()) {
+    selectAllMonacoSource();
+    return true;
+  }
   if (isSourceViewerVisible()) target = document.getElementById('source-body');
   else if (typeof isDiffViewVisible === 'function' && isDiffViewVisible()) {
     target = document.querySelector('#diff2html-container .d2h-file-wrapper:not(.df-inactive)') || document.getElementById('diff2html-container');
@@ -577,28 +593,67 @@ function wordAtCursor() {
 
 function goToSymbolUnderCursor() {
   const symbol = wordAtCursor();
-  if (symbol) goToDefOrUsages(symbol.name);
+  if (symbol) goToDefOrUsages(symbol.name, symbol);
 }
 // Cmd+B: on a declaration, show its usages (navigate if there's only one); elsewhere, go to the definition.
-function goToDefOrUsages(name) {
+async function goToDefOrUsages(name, explicitLoc) {
   if (!name) return;
-  if (REVIEW_LAZY_LOAD && !sourceLoaded) { pendingSymbol = name; loadSourceData(); return; } // load source+index on first use
+  var loc = explicitLoc || caretSourceLoc();
+  var response = await queryProjectAnalysis('definition', name, loc);
+  if (response && response.ok) {
+    var defs = response.locations || [];
+    if (defs.length > 1 && typeof openSemanticPeek === 'function') {
+      openSemanticPeek(name, defs, response, 'definition');
+      return;
+    }
+    var def = defs[0];
+    if (def && loc && def.path === loc.path && def.lineIndex === loc.lineIndex) {
+      var refs = await queryProjectAnalysis('references', name, loc);
+      openAnalysisUsages(name, refs && refs.locations || [], refs, 'references');
+      return;
+    }
+    if (def) { openSourceAt(def.path, def.lineIndex, def.column); return; }
+  }
+  // Standalone HTML has no main-process analyzer. Keep a small in-memory scan for that mode only.
   var def = findSymbolDefinition(name);
-  var loc = caretSourceLoc();
   if (def && loc && def.path === loc.path && def.lineIndex === loc.lineIndex) {
     openUsages(name, def);
     return;
   }
   if (def) openSourceAt(def.path, def.lineIndex, def.column);
 }
+async function goToImplementation() {
+  var symbol = isSourceViewerVisible() ? wordAtCursor() : null;
+  var name = symbol ? symbol.name : wordAtDiffCaret();
+  var loc = symbol || caretSourceLoc();
+  if (!name || !loc) return;
+  var response = await queryProjectAnalysis('implementation', name, loc);
+  var items = response && response.locations || [];
+  if (items.length === 1) { openSourceAt(items[0].path, items[0].lineIndex, items[0].column); return; }
+  openAnalysisUsages(name, items, response, 'implementation');
+}
+function queryProjectAnalysis(kind, symbol, loc, extra) {
+  if (!window.monacoriAnalysis || typeof window.monacoriAnalysis.query !== 'function') return Promise.resolve(null);
+  var request = Object.assign({
+    kind: kind,
+    symbol: symbol || undefined,
+    path: loc && loc.path,
+    line: loc && loc.lineIndex,
+    column: loc && loc.column,
+  }, extra || {});
+  return Promise.resolve(window.monacoriAnalysis.query(request)).then(function (response) {
+    if (typeof analysisGenerationIsCurrent === 'function' && !analysisGenerationIsCurrent(response)) return null;
+    return response;
+  }).catch(function () { return null; });
+}
 // Where the caret sits, mapped to a source (path, lineIndex). In the diff, only the new side maps cleanly.
 function caretSourceLoc() {
-  if (isSourceViewerVisible() && viewerCursor) return { path: viewerCursor.path, lineIndex: viewerCursor.lineIndex };
+  if (isSourceViewerVisible() && viewerCursor) return { path: viewerCursor.path, lineIndex: viewerCursor.lineIndex, column: viewerCursor.column };
   if (isDiffViewVisible() && diffCursor && diffCursor.side === 'new') {
     var wrap = diffWrapperByPath(diffCursor.path);
     var row = wrap ? diffRowAt(wrap, diffCursor.side, diffCursor.rowIndex) : null;
     var ln = row ? diffLineNumber(row) : null;
-    if (ln != null) return { path: diffCursor.path, lineIndex: ln - 1 };
+    if (ln != null) return { path: diffCursor.path, lineIndex: ln - 1, column: diffCursor.column };
   }
   return null;
 }
@@ -628,6 +683,13 @@ function openUsages(name, def) {
   usageItems = items;
   usageActive = 0;
   showUsages(name, items.length);
+}
+function openAnalysisUsages(name, locations, response, kind) {
+  if ((locations || []).length > 1 && typeof openSemanticPeek === 'function' && monacoAvailable()) {
+    openSemanticPeek(name, locations, response, kind || 'references');
+    return;
+  }
+  openAnalysisUsagesFallback(name, locations);
 }
 function showUsages(name, count) {
   var box = document.getElementById('usages');
@@ -713,95 +775,6 @@ function closeUsages() {
   if (panel) resetUsagesAnchor(box, panel); // clear inline anchoring so the next open re-measures cleanly
 }
 
-var symbolIndex = null; // Map<name, [{path,lineIndex,column}]>; built off-thread by a Web Worker, null until ready
-function symbolIndexWorker() {
-  self.onmessage = function (e) {
-    var files = e.data || [];
-    var patterns = [
-      /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)/,
-      /^\s*(?:(?:public|private|protected|internal|abstract|final|open|sealed|data|inner|annotation|static|export|default|expect|actual|value)\s+)*(?:class|interface|object|enum|trait|struct)\s+([A-Za-z_$][A-Za-z0-9_$]*)/,
-      /^\s*(?:export\s+)?(?:interface|type|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)/,
-      /^\s*(?:export\s+)?(?:const|let|var|val)\s+([A-Za-z_$][A-Za-z0-9_$]*)/,
-      /^\s*(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\s+)*(?:fun|def|fn|func)\s+([A-Za-z_$][A-Za-z0-9_$]*)/
-    ];
-    var index = new Map();
-    var total = files.length;
-    var step = Math.max(1, Math.floor(total / 20)); // ~20 progress ticks regardless of repo size
-    for (var fi = 0; fi < total; fi++) {
-      var p = files[fi].path;
-      var lines = String(files[fi].content || '').split(/\r?\n/);
-      for (var li = 0; li < lines.length; li++) {
-        var line = lines[li];
-        for (var pi = 0; pi < patterns.length; pi++) {
-          var m = patterns[pi].exec(line);
-          if (m && m[1]) {
-            var arr = index.get(m[1]);
-            if (!arr) { arr = []; index.set(m[1], arr); }
-            arr.push({ path: p, lineIndex: li, column: Math.max(0, line.indexOf(m[1])) });
-            break;
-          }
-        }
-      }
-      if ((fi + 1) % step === 0 && fi + 1 < total) self.postMessage({ done: fi + 1, total: total });
-    }
-    self.postMessage({ index: index, total: total });
-  };
-}
-// Run symbol indexing off the critical path: requestIdleCallback so the heavy postMessage of the whole
-// source blob to the worker (structured-clone serialization is synchronous on the main thread) never
-// competes with key handling — especially on big repos right after the diff/tree first paints.
-function scheduleSymbolIndex() {
-  var run = function () { try { startSymbolIndex(); } catch (e) {} };
-  if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') window.requestIdleCallback(run, { timeout: 3000 });
-  else setTimeout(run, 0);
-}
-function startSymbolIndex() {
-  try {
-    if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined' || !URL.createObjectURL) return;
-    var src = '(' + symbolIndexWorker.toString() + ')()';
-    var url = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
-    var worker = new Worker(url);
-    worker.onmessage = function (e) {
-      var msg = e.data;
-      if (msg && msg.index) { // final index
-        symbolIndex = msg.index;
-        setIndexProgress(msg.total, msg.total);
-        try { worker.terminate(); } catch (x) {}
-        try { URL.revokeObjectURL(url); } catch (x) {}
-      } else if (msg && typeof msg.done === 'number') { // progress tick
-        setIndexProgress(msg.done, msg.total);
-      }
-    };
-    worker.onerror = function () { setIndexProgress(1, 1); try { worker.terminate(); } catch (x) {} };
-    var payload = [];
-    for (var i = 0; i < sourceFiles.length; i++) {
-      if (sourceFiles[i].embedded) payload.push({ path: sourceFiles[i].path, content: sourceFiles[i].content });
-    }
-    setIndexProgress(0, payload.length);
-    worker.postMessage(payload);
-  } catch (err) { /* Worker unavailable -> scan fallback remains in effect */ }
-}
-// Drive the go-to-definition indexing progress bar in the toolbar status. Hidden when done / not running.
-function setIndexProgress(done, total) {
-  var el = document.getElementById('index-status');
-  var bar = document.getElementById('index-progress');
-  var foot = document.getElementById('footer-progress');
-  var running = Boolean(total) && done < total;
-  var pct = running ? Math.round(done / total * 100) + '%' : '0%';
-  if (el) {
-    el.textContent = running ? (t('status.indexing') + ' ' + done + '/' + total + '…') : ((total || 0) + ' ' + t('status.indexed'));
-  }
-  if (bar) {
-    bar.classList.toggle('hidden', !running);
-    if (running && bar.firstElementChild) bar.firstElementChild.style.width = pct;
-  }
-  // The same signal, mirrored as a thin bar pinned under the version block at the bottom of the
-  // sidebar — so background work (indexing) is visible even when the toolbar status is out of view.
-  if (foot) {
-    foot.classList.toggle('hidden', !running);
-    if (foot.firstElementChild) foot.firstElementChild.style.width = pct;
-  }
-}
 function wordAtDiffCaret() {
   if (!diffCursor) return null;
   var wrapper = diffWrapperByPath(diffCursor.path);
@@ -816,17 +789,9 @@ function wordAtDiffCaret() {
   return null;
 }
 function goToSymbolFromDiff() {
-  goToDefOrUsages(wordAtDiffCaret());
+  goToDefOrUsages(wordAtDiffCaret(), caretSourceLoc());
 }
 function findSymbolDefinition(name) {
-  if (symbolIndex) {
-    var hits = symbolIndex.get(name);
-    if (hits && hits.length) {
-      var cur = (viewerCursor && viewerCursor.path) || (diffCursor && diffCursor.path) || '';
-      for (var i = 0; i < hits.length; i++) { if (hits[i].path === cur) return hits[i]; }
-      return hits[0];
-    }
-  }
   const matchers = definitionMatchers(name);
   const currentPath = viewerCursor?.path || '';
   const orderedFiles = [
@@ -923,4 +888,3 @@ function cycleSourceTab(dir) {
   if (cur < 0) cur = 0;
   openSourceFile(sourceTabs[(cur + dir + sourceTabs.length) % sourceTabs.length]);
 }
-

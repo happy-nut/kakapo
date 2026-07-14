@@ -31,7 +31,7 @@ export function buildDiffReview(input: {
   ignoreWhitespace?: boolean;
   lazy?: boolean; // force lazy materialize (shells + on-demand bodies); auto for big repos
   lazyLoad?: boolean; // serve/Electron set this — bodies + source fetched on demand, not embedded
-  app?: boolean; // Electron app — inlines the integrated terminal (xterm); off for serve/standalone/tests
+  app?: boolean; // Electron app — enables app-only review features such as Git history
   root?: string; // repo to review; defaults to process.cwd() (serve/CLI). Electron passes it per-window.
 }): DiffReviewBuild {
   const root = input.root ?? process.cwd();
@@ -106,7 +106,7 @@ export function buildDiffReview(input: {
   });
 
   // Compact payload for in-place refresh: just the regions the renderer swaps on a watch change. Reuses
-  // the same fragment renderers as the full page, minus the heavy bits (xterm blob, embedded source).
+  // the same fragment renderers as the full page, minus heavyweight embedded source content.
   const update = {
     signature,
     generatedAt,

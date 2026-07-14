@@ -1,7 +1,7 @@
 // CORE USER FLOW: lazy-LOAD source view (big repos / serve / Electron).
 //
 // In lazy-LOAD the standalone HTML ships source metadata only (no content); the body is fetched on demand
-// via window.monacoriFile.getSourceData(). This guards the critical regression where one file's content
+// via window.monacoriFile.getSource(path). This guards the critical regression where one file's content
 // rendered under another file's path because the caret fast-path trusted metadata over the painted body —
 // fixed by tracking sourceBodyPath (the path actually painted) and re-rendering on mismatch.
 import { test, before, after } from "node:test";
@@ -38,10 +38,11 @@ test("lazy-LOAD build keeps initial diff bodies as raw chunks, not pre-rendered 
 test("lazy-LOAD: source view renders each file's OWN content after async fetch", async () => {
   const v = await loadViewer(html, { lazySourceData });
   await v.openSourceFile("src/two.ts");
-  await v.settle(150); // loadSourceData resolves async, then re-opens the file with content
+  await v.settle(150); // per-file source fetch resolves async, then re-opens the file with content
   assert.match(v.$("#source-title").textContent, /two\.ts/, "breadcrumb is src/two.ts");
   assert.match(v.$("#source-body").textContent, /export const two = 22/, "body shows src/two.ts content");
   assert.doesNotMatch(v.$("#source-body").textContent, /one = 11/, "body does NOT show another file's content");
+  assert.deepEqual(v.window.__sourceRequests, ["src/two.ts"], "renderer requests only the opened file");
   v.close();
 });
 
@@ -55,6 +56,36 @@ test("lazy-LOAD: switching files shows the new file's content, never a stale bod
   const body = v.$("#source-body").textContent;
   assert.match(body, /two = 22/, "switched to src/two.ts content");
   assert.doesNotMatch(body, /one = 11/, "stale src/one.ts body is gone (sourceBodyPath guard)");
+  v.close();
+});
+
+test("lazy-LOAD: an old in-flight source response cannot overwrite a watch refresh", async () => {
+  const b1 = await makeReviewHtml(
+    [{ path: "src/race.ts", before: "export const race = 1;\n", after: "export const race = 111;\n" }],
+    { lazyLoad: true },
+  );
+  const b2 = await makeReviewHtml(
+    [{ path: "src/race.ts", before: "export const race = 1;\n", after: "export const race = 222;\n" }],
+    { lazyLoad: true },
+  );
+  const oldRecord = JSON.parse(b1.build.lazySourceData)[0];
+  const newRecord = JSON.parse(b2.build.lazySourceData)[0];
+  let resolveOld;
+  const oldPending = new Promise((resolve) => { resolveOld = resolve; });
+  let calls = 0;
+  const v = await loadViewer(b1.html, {
+    menuBridge: true,
+    sourceBridge: () => (++calls === 1 ? oldPending : newRecord),
+  });
+  await v.openSourceFile("src/race.ts"); // first request remains in flight
+  await v.pushDiffUpdate(b2.build.update); // refresh issues a new-generation request
+  await v.settle(100);
+  assert.match(v.$("#source-body").textContent, /race = 222/, "new source generation is painted");
+
+  resolveOld(oldRecord); // stale IPC response arrives last
+  await v.settle(100);
+  assert.match(v.$("#source-body").textContent, /race = 222/, "late old content is ignored");
+  assert.doesNotMatch(v.$("#source-body").textContent, /race = 111/);
   v.close();
 });
 

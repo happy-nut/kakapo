@@ -91,7 +91,8 @@ export function ensureElectronRuntimeBranded(deps: ElectronBrandDeps = {}): void
       stdio: "ignore",
     });
   } catch {
-    // Best effort: postinstall and app-main startup repair still cover normal installs.
+    // Best effort: postinstall covers normal installs. Never retry after Electron starts because changing
+    // a live macOS app bundle can crash Chromium during didFinishLaunching.
   }
 }
 
@@ -252,8 +253,13 @@ Usage:
 Diff review keys:
   F7 / Shift+F7     next / previous changed hunk
   Cmd/Ctrl+0 / +1   focus the Changes / Files panel (arrows + Enter to open a file)
-  Shift Shift       file search across indexed files
+  Shift Shift       file search across project files
+  Cmd/Ctrl+Shift+F  project-wide content search (file:line:column)
   Cmd/Ctrl+E        recent files
+  Cmd/Ctrl+B        definition / usages (LSP first, regex fallback)
   Cmd/Ctrl+Down     jump to symbol under cursor
+  Cmd/Ctrl+Alt+B    go to implementation
+  Cmd/Ctrl+Alt+O    workspace symbol search
+  Cmd/Ctrl+8        change impact for the current symbol
 `);
 }

@@ -116,7 +116,7 @@ function main() {
     }
   } catch (e) {
     // Surface the reason (perms / read-only) instead of failing SILENTLY — otherwise the Dock/Cmd+Tab/menu
-    // keep showing "Electron" with no hint why. Non-fatal: app-main.ts re-runs this at startup.
+    // keep showing "Electron" with no hint why. Non-fatal: the CLI launcher retries before spawning Electron.
     console.warn('monacori: could not rebrand the Electron app to "' + APP_DISPLAY_NAME + '". Dock/Cmd+Tab/menu may stay "Electron". Reason: ' + (e && e.message ? e.message : e));
   }
 }

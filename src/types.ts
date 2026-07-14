@@ -92,7 +92,7 @@ export type DiffReviewResult = {
 };
 
 // In-place diff refresh payload (Electron IPC / serve /__ai_flow_update): only the regions the renderer
-// transplants on a watch change — far smaller than re-sending the whole HTML (no xterm blob etc.).
+// transplants on a watch change — far smaller than re-sending the whole HTML.
 export type DiffReviewUpdate = {
   signature: string;
   generatedAt: string;
@@ -119,8 +119,8 @@ export type DiffReviewBuild = {
   // Phase 2c lazy-LOAD: raw per-file unified diff chunks. The app/server render a single body only when
   // the renderer asks for that file, avoiding a full diff2html render before first paint.
   lazyBodyDiffs?: string[];
-  // Phase 2b lazy-LOAD: full source files JSON (with content), served on demand so the HTML embeds
-  // only metadata. undefined unless lazyLoad.
+  // Full source-file records retained by the host when lazyLoad is enabled. Electron parses this once
+  // into a main-process map and serves one file per request; the browser server keeps a bulk fallback.
   lazySourceData?: string;
 };
 
