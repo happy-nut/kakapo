@@ -50,11 +50,11 @@ Inside any Git repository:
 mo
 ```
 
-On first run, `mo` creates `.monacori/`, adds it to `.gitignore`, and includes untracked files so new AI-created files appear immediately.
+On first run, `mo` creates `.monacori/`, adds it to `.gitignore`, and includes untracked files so new AI-created files appear immediately. If the worktree is clean but the current branch has local commits ahead of its configured upstream, monacori automatically reviews that merge-base-to-`HEAD` range instead of showing an empty change list.
 
 ## Highlights
 
-- **IntelliJ-style desktop diff review**: reads the repository directly, refreshes from local Git state, and presents editor-like Base/Working tree panes with change navigation, a live per-file change counter, center-aligned old/new line-number gutters, and hunk-spanning semantic bands (modified blue, deleted gray, added green).
+- **IntelliJ-style desktop diff review**: reads the repository directly, refreshes from local Git state, and presents editor-like Base/Working tree panes with change navigation, expandable folded context, a live per-file change counter, center-aligned old/new line-number gutters, and hunk-spanning semantic bands (modified blue, deleted gray, added green).
 - **AI handoff comments**: questions and change requests are stored with their file, line, and code context.
 - **Grounded review handoff**: merge comments with exact file, line, and code context and copy them as one inspectable prompt.
 - **One worktree-scoped Markdown memo**: a calm, list-free writing surface that never adds a file to the repository. The memo lives under the application's user-data directory, survives restarts, and is isolated by the canonical Git worktree path.
@@ -65,7 +65,7 @@ On first run, `mo` creates `.monacori/`, adds it to `.gitignore`, and includes u
 - **LSP-first code intelligence**: definition/usages (`Cmd/Ctrl+B`), implementation (`Cmd/Ctrl+Alt+B`), and workspace-symbol search (`Cmd/Ctrl+Alt+O`) use a project language server when available. TypeScript/JavaScript also works out of the box through monacori's bundled background sidecar. Unsupported languages and unavailable servers fall back to the main-process regex index.
 - **Semantic Peek**: multi-result definitions, references, and implementations stay in context in a split inspector with a result list, source preview, exact location, server provenance, project generation, and query duration. Open the selected result only when you are ready to leave the current file.
 - **Change Impact**: place the caret on a changed symbol and press `Cmd/Ctrl+8` to inspect callers/importers, outgoing calls/dependencies, implementations/inheritance, related tests, and type/API/schema/config relationships.
-- **Large-project isolation**: search, LSP sessions, and fallback indexing run outside the renderer. The UI receives compact result locations and loads source content one open file at a time.
+- **Large-project isolation**: search, LSP sessions, and fallback indexing run outside the renderer. Startup ships only changed-file metadata and a compact folded diff; the project index loads after first paint, folder children materialize only when expanded, and source contents load one file at a time.
 - **Visible analysis trust**: the sidebar footer shows whether semantic analysis is starting, ready, failed, or using the heuristic fallback. Its tooltip includes the repository generation, selected server/source, and exact fallback reason.
 - **Plain local artifacts**: generated review files and state are Markdown, JSON, and static HTML under `.monacori/`.
 

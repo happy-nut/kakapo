@@ -68,8 +68,10 @@ try {
     root: fixture,
   });
   const buildMs = performance.now() - buildStarted;
-  let indexedSourceFiles = 0;
-  try { indexedSourceFiles = JSON.parse(build.lazySourceData || "[]").length; } catch { /* keep zero */ }
+  const indexedSourceFiles = build.lazySourceFiles?.length ?? 0;
+  const projectIndexMetadata = (build.lazySourceFiles ?? []).map(({ content: _content, image: _image, ...metadata }) => metadata);
+  const projectIndexBytes = Buffer.byteLength(JSON.stringify(projectIndexMetadata));
+  const projectTreeBytes = Buffer.byteLength(build.update?.filesTree ?? "");
   const report = {
     schemaVersion: 1,
     measuredAt: new Date().toISOString(),
@@ -79,6 +81,8 @@ try {
       fixtureReadyMs: Math.round(fixtureReadyMs * 10) / 10,
       reviewBuildMs: Math.round(buildMs * 10) / 10,
       htmlBytes: Buffer.byteLength(build.html),
+      projectIndexBytes,
+      projectTreeBytes,
       diffBodies: build.lazyBodyDiffs?.length ?? 0,
       indexedSourceFiles,
       hunks: build.hunks,

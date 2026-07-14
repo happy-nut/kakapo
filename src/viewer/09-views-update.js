@@ -37,15 +37,28 @@ function toggleMergedRail(kind) {
 function ensureTreeRendered() {
   var panel = document.getElementById('files-panel');
   var island = document.getElementById('files-tree-html');
-  if (!panel || !island) return;
-  var html = island.textContent || '';
-  island.parentNode && island.parentNode.removeChild(island);
+  if (!REVIEW_LAZY) return Promise.resolve();
+  if (!panel || (panel.dataset.projectIndex === 'loaded' && panel.innerHTML.trim())) return Promise.resolve();
+  if (island) {
+    var html = island.textContent || '';
+    island.parentNode && island.parentNode.removeChild(island);
+    panel.innerHTML = '<div class="empty-nav">' + escapeHtml(t('source.buildingTree')) + '</div>';
+    setTimeout(function () {
+      panel.innerHTML = html;
+      panel.dataset.projectIndex = 'loaded';
+      sourceLinks = Array.from(document.querySelectorAll('.source-link'));
+      if (typeof refreshComments === 'function') { try { refreshComments(); } catch (e) {} }
+    }, 0);
+    return Promise.resolve();
+  }
   panel.innerHTML = '<div class="empty-nav">' + escapeHtml(t('source.buildingTree')) + '</div>';
-  setTimeout(function () { // let "Building…" paint before the heavy innerHTML
-    panel.innerHTML = html;
+  return ensureProjectIndex().then(function (payload) {
+    if (REVIEW_LAZY_LOAD && payload) renderDeferredSourceTree(sourceFiles);
+    else panel.innerHTML = payload && payload.filesTree ? payload.filesTree : '<div class="empty-nav">' + escapeHtml(t('source.selectFile')) + '</div>';
+    panel.dataset.projectIndex = 'loaded';
     sourceLinks = Array.from(document.querySelectorAll('.source-link'));
     if (typeof refreshComments === 'function') { try { refreshComments(); } catch (e) {} } // re-render per-file badges
-  }, 0);
+  });
 }
 
 function showDiffView(shouldScroll) {
@@ -111,6 +124,19 @@ function restoreUiState() {
     // (filtered out above) or wasn't recorded. Otherwise we'd render the tab bar but leave the body on its
     // "select a file" placeholder, which looks broken (a tab is clearly open). No openable tab → drop the
     // stale tabs and let the init fallback pick a sensible default.
+    var requestedPath = state.sourcePath || (state.tabs && state.tabs[0]) || '';
+    if (requestedPath && !sourceByPath.has(requestedPath) && REVIEW_LAZY_LOAD && !projectIndexLoaded) {
+      ensureProjectIndex().then(function () {
+        var restoredPath = sourceByPath.has(requestedPath) ? requestedPath : (sourceTabs[0] || '');
+        if (!restoredPath) { showDiffView(false); return; }
+        openSourceFile(restoredPath);
+        if (state.viewerCursor && state.viewerCursor.path === restoredPath) {
+          var delayedCursor = state.viewerCursor;
+          setTimeout(function () { try { setSourceCursor(restoredPath, delayedCursor.lineIndex, delayedCursor.column, true, -1); } catch (e) {} }, 60);
+        }
+      });
+      return true;
+    }
     var openPath = (state.sourcePath && sourceByPath.has(state.sourcePath)) ? state.sourcePath : (sourceTabs[0] || '');
     if (openPath) {
       openSourceFile(openPath);
@@ -381,7 +407,7 @@ function applyDiffUpdate(u) {
   var filesIsland = document.getElementById('files-tree-html');
   if (filesIsland) filesIsland.textContent = u.filesTree || '';
   var filesPanel = document.getElementById('files-panel');
-  if (filesPanel && (!REVIEW_LAZY || filesPanel.innerHTML.trim())) filesPanel.innerHTML = u.filesTree || '';
+  if (filesPanel && u.filesTree && (!REVIEW_LAZY || filesPanel.innerHTML.trim())) filesPanel.innerHTML = u.filesTree;
   var statusEl = document.querySelector('.review-status');
   if (statusEl) statusEl.innerHTML = u.reviewStatus || '';
   // Branch can change between watch ticks (checkout/commit) — keep the sidebar chip current.
@@ -410,6 +436,14 @@ function applyDiffUpdate(u) {
     }
   });
   sourceByPath = new Map(sourceFiles.map(function (f) { return [f.path, f]; }));
+  projectIndexLoaded = true;
+  projectIndexPayload = {
+    signature: u.signature || '',
+    filesTree: u.filesTree || '',
+    fileStates: fileStates,
+    sourceFilesMeta: sourceFiles,
+  };
+  if (filesPanel && filesPanel.dataset.projectIndex === 'loaded' && REVIEW_LAZY_LOAD) renderDeferredSourceTree(sourceFiles);
   httpEnvironments = u.httpEnvironments || {};
   httpEnvNames = Object.keys(httpEnvironments);
   currentSignature = u.signature;

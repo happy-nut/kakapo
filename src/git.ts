@@ -17,6 +17,39 @@ export function git(root: string, args: string[]): string {
   return (result.stdout ?? "").trim();
 }
 
+export type AutomaticReviewBase = {
+  revision: string;
+  upstream: string;
+  label: string;
+  ahead: number;
+};
+
+// A clean worktree can still contain the exact changes that need review when its branch has local,
+// unpushed commits. In that state HEAD-vs-worktree is empty, so use the tracking branch's merge-base as
+// the review base. The merge-base (rather than the upstream tip) also behaves correctly after divergence:
+// only commits introduced on the local branch are reviewed.
+export function resolveAutomaticReviewBase(root: string, includeUntracked = true): AutomaticReviewBase | undefined {
+  const canonicalRoot = repoRoot(root);
+  const status = git(canonicalRoot, [
+    "status",
+    "--porcelain",
+    includeUntracked ? "--untracked-files=all" : "--untracked-files=no",
+  ]);
+  if (status) return undefined;
+
+  const upstream = git(canonicalRoot, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
+  if (!upstream) return undefined;
+  const counts = git(canonicalRoot, ["rev-list", "--left-right", "--count", `${upstream}...HEAD`])
+    .split(/\s+/)
+    .map(Number);
+  const ahead = Number.isFinite(counts[1]) ? counts[1] : 0;
+  if (ahead <= 0) return undefined;
+
+  const revision = git(canonicalRoot, ["merge-base", upstream, "HEAD"]);
+  if (!revision) return undefined;
+  return { revision, upstream, label: `${upstream}...HEAD`, ahead };
+}
+
 // Resolve the repository root. `git diff` and `git ls-files` print paths relative to it, and the
 // desktop tree shows them as-is — so every filesystem read of those paths must resolve against the
 // SAME root, not process.cwd(). When `mo` runs from a monorepo subdirectory (cwd != root), joining a

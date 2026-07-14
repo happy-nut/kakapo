@@ -1,5 +1,6 @@
 function filterNavigation(rawQuery) {
   const query = rawQuery.trim().toLowerCase();
+  if (query && document.querySelector('.mc-virtual-source-tree')) materializeAllVirtualSourceFolders();
   links.forEach((link) => {
     const path = link.dataset.file || '';
     const source = sourceByPath.get(path);
@@ -187,6 +188,7 @@ function markCaretBusy() {
 
 function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLine = -1) {
   markCaretBusy();
+  clearSelectedDiffFold();
   selectedCommentRow = null; // any explicit caret placement (click/move) ends a comment-box selection
   const file = sourceByPath.get(path);
   if (!file || !file.embedded) return;
@@ -408,6 +410,7 @@ function commentRowSiblingOf(lineIndex, dir) {
   return (sib && sib.classList && sib.classList.contains('mc-comment-row')) ? sib : null;
 }
 function selectCommentRow(row) {
+  clearSelectedDiffFold();
   if (selectedCommentRow && selectedCommentRow !== row) selectedCommentRow.classList.remove('mc-row-selected');
   selectedCommentRow = row || null;
   if (!selectedCommentRow) return;

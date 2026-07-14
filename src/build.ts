@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import type { DiffReviewBuild } from "./types.js";
-import { isGitRepository, git } from "./git.js";
+import { isGitRepository, git, resolveAutomaticReviewBase } from "./git.js";
 import { collectHttpEnvironments, collectReviewFileStates, collectSourceFiles, parseUnifiedDiff, readUnifiedDiff } from "./diff.js";
 import { renderDiff2Html } from "./highlight.js";
 import {
@@ -44,8 +44,12 @@ export function buildDiffReview(input: {
       generatedAt: new Date().toISOString(),
     };
   }
+  const automaticBase = !input.base && !input.staged
+    ? resolveAutomaticReviewBase(root, input.includeUntracked)
+    : undefined;
+  const reviewBase = input.base ?? automaticBase?.revision;
   const diffText = readUnifiedDiff({
-    base: input.base,
+    base: reviewBase,
     staged: input.staged,
     context: input.context,
     includeUntracked: input.includeUntracked,
@@ -78,6 +82,8 @@ export function buildDiffReview(input: {
         return lazy ? splitDiffForLazy(diffHtml, files) : { container: diffHtml, islands: "", bodies: [] as string[] };
       })();
   const signature = createHash("sha1")
+    .update(reviewBase ?? "HEAD")
+    .update("\n")
     .update(diffText)
     .update("\n")
     .update(sourceFiles.map((file) => `${file.path}\0${file.size}\0${file.embedded ? file.content : file.skippedReason ?? ""}`).join("\n"))
@@ -94,7 +100,7 @@ export function buildDiffReview(input: {
     fileStates,
     httpEnvironments,
     title: input.title,
-    subtitle: diffSubtitle(input),
+    subtitle: diffSubtitle({ ...input, base: reviewBase, baseLabel: automaticBase?.label }),
     projectName: basename(root),
     projectPath: root,
     branch,
@@ -113,7 +119,9 @@ export function buildDiffReview(input: {
     branch,
     diffContainer: diffSplit.container || '<div class="empty" data-i18n="diff.noDiff">No diff to review.</div>',
     changesPanel: renderDiffTree(files),
-    filesTree: renderSourceTree(sourceFiles),
+    // Transport-backed reviews build folder children incrementally from sourceFilesMeta in the renderer;
+    // avoid generating/transferring a multi-megabyte all-files HTML tree on every build/update.
+    filesTree: lazyLoad ? "" : renderSourceTree(sourceFiles),
     reviewStatus: renderReviewStatus({
       files: files.length,
       hunks,
@@ -134,9 +142,12 @@ export function buildDiffReview(input: {
     hunks,
     signature,
     generatedAt,
+    reviewBase,
+    reviewUpstream: automaticBase?.upstream,
     lazyBodies: lazyLoad ? [] : diffSplit.bodies,
     lazyBodyDiffs,
-    lazySourceData: lazyLoad ? JSON.stringify(sourceFiles) : undefined,
+    lazySourceData: lazyLoad && !input.app ? JSON.stringify(sourceFiles) : undefined,
+    lazySourceFiles: lazyLoad ? sourceFiles : undefined,
     update,
   };
 }

@@ -28,9 +28,9 @@ export function main(): void {
   }
 }
 
-// "Show everything" diff context: large enough that `git diff -U<n>` emits entire files as context, so the
-// diff never folds away unchanged regions. Reviewers skip with F7/Shift+F7 instead of relying on gaps.
-const FULL_DIFF_CONTEXT = 100000;
+// Keep the initial diff DOM compact. Omitted ranges can be expanded in-place from the reviewed revisions,
+// so shipping whole files up front only makes startup and caret navigation slower on large changes.
+export const DEFAULT_DIFF_CONTEXT = 12;
 
 function launchReviewApp(args: string[]): void {
   // Review the directory given by --cwd (defaults to the current one), so `npm run dev -- --cwd <path>` can
@@ -47,7 +47,7 @@ function launchReviewApp(args: string[]): void {
     "--cwd",
     process.cwd(),
     "--context",
-    String(FULL_DIFF_CONTEXT),
+    String(DEFAULT_DIFF_CONTEXT),
     "--include-untracked", // new AI-created files are visible by default
   ];
   if (args.includes("--no-watch")) appArgs.push("--no-watch");

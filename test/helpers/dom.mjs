@@ -74,11 +74,11 @@ export async function loadViewer(html, opts = {}) {
       // cannot fetch that scheme, so dock tests use a tiny contract-compatible inline editor; a separate
       // bundle test loads the real Tiptap runtime and verifies Markdown round-tripping/heading rendering.
       window.MonacoriMarkdownEditor = {
-        create({ element, markdown = "", onUpdate = () => {}, placeholder = "" }) {
+        create({ element, markdown = "", onUpdate = () => {}, placeholder = "", className = "" }) {
           let value = String(markdown);
           const editable = window.document.createElement("div");
-          editable.className = "markdown-body mc-inline-editor";
-          editable.contentEditable = "true";
+          editable.className = `markdown-body mc-inline-editor ${className}`.trim();
+          editable.setAttribute("contenteditable", "true");
           editable.setAttribute("aria-label", placeholder);
           const render = () => {
             editable.innerHTML = window.markdownit ? window.markdownit().render(value) : value;
@@ -122,7 +122,21 @@ export async function loadViewer(html, opts = {}) {
         let sourceRecords = [];
         try { sourceRecords = JSON.parse(opts.lazySourceData ?? "[]"); } catch { sourceRecords = []; }
         window.__sourceRequests = [];
+        window.__projectIndexRequests = 0;
         window.monacoriFile = {
+          getIndex: () => {
+            window.__projectIndexRequests += 1;
+            if (opts.projectIndexBridge) return Promise.resolve(opts.projectIndexBridge());
+            let records = sourceRecords;
+            if (!records.length) {
+              try { records = JSON.parse(window.document.getElementById("source-files-data")?.textContent || "[]"); } catch { records = []; }
+            }
+            const metadata = records.map((record) => ({ ...record, content: "", image: "" }));
+            const filesTree = '<nav class="tree source-tree">' + metadata.map((record) =>
+              '<button type="button" class="file-link source-link tree-file" data-source-file="' + record.path + '"><span class="path">' + record.name + '</span></button>'
+            ).join("") + '</nav>';
+            return Promise.resolve({ sourceFilesMeta: metadata, fileStates: [], filesTree });
+          },
           getSource: (path) => {
             window.__sourceRequests.push(path);
             return Promise.resolve(opts.sourceBridge ? opts.sourceBridge(path) : sourceRecords.find((record) => record.path === path) || null);
@@ -321,6 +335,11 @@ class Viewer {
         this.click(filesTab);
         await this.settle(40);
       }
+    }
+    if (!this.document.querySelector(`.source-link[data-source-file="${cssEscape(path)}"]`) && typeof this.window.openVirtualSourceDirectory === "function") {
+      const slash = path.lastIndexOf("/");
+      if (slash > 0) this.window.openVirtualSourceDirectory(path.slice(0, slash));
+      await this.settle(20);
     }
     const link =
       this.document.querySelector(`.source-link[data-source-file="${cssEscape(path)}"]`) ||

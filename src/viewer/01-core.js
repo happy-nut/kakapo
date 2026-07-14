@@ -52,9 +52,9 @@ function hunkRowAt(i) {
   return document.getElementById('hunk-' + i);
 }
 // diff2html aligns the old/new tables row-for-row. Carry each @@ hunk id through those paired rows and
-// classify every changed pair once so CSS can paint a single semantic band across code, both centre
-// line-number gutters, and the opposite empty placeholder. This is what makes a replacement blue on both
-// sides, a deletion neutral gray, and an insertion green without changing the diff/navigation model.
+// classify every changed pair once so CSS can paint a single semantic band across code and both centre
+// line-number gutters. Replacements stay blue on both sides, deletions are neutral gray, and insertions
+// keep their empty old-side peer neutral while the actual new-side source is green.
 function annotateDiffHunkRows(wrapper) {
   var sides = wrapper ? wrapper.querySelectorAll('.d2h-file-side-diff') : [];
   if (sides.length < 2) return;
@@ -274,6 +274,7 @@ function restoreDiffCursorAfterContext(wrapper, snapshot) {
 }
 function expandDiffContext(row) {
   if (!row || row.dataset.contextLoading === '1') return;
+  if (typeof clearSelectedDiffFold === 'function') clearSelectedDiffFold();
   var wrapper = row.closest('.d2h-file-wrapper');
   var key = row.dataset.contextHunk;
   if (!wrapper || key == null) return;
@@ -302,6 +303,7 @@ function expandDiffContext(row) {
     }
     if (oldMarker && oldMarker.parentNode) oldMarker.parentNode.insertBefore(oldFragment, oldMarker);
     if (newMarker && newMarker.parentNode) newMarker.parentNode.insertBefore(newFragment, newMarker);
+    invalidateDiffRows(wrapper);
     wrapper.__reviewAnchorsOld = null; wrapper.__reviewAnchorsNew = null;
     annotateDiffHunkRows(wrapper);
     restoreDiffCursorAfterContext(wrapper, cursorSnapshot);
@@ -352,6 +354,7 @@ function materializeBody(wrapper, html) {
   body.innerHTML = html || '';
   body.removeAttribute('data-lazy');
   body.removeAttribute('data-loading');
+  invalidateDiffRows(wrapper);
   markWrapperHunks(wrapper);
   if (diffBootDone && typeof reviewComments !== 'undefined' && reviewComments.length) { try { refreshComments(); } catch (e) {} }
 }
@@ -493,6 +496,58 @@ const httpEnvKey = 'monacori-http-env:' + location.pathname;
 const httpRequestsByPath = new Map();
 const httpVarsByPath = new Map();
 let sourceByPath = new Map(sourceFiles.map((file) => [file.path, file]));
+var projectIndexLoaded = !REVIEW_LAZY_LOAD;
+var projectIndexPromise = null;
+var projectIndexPayload = null;
+
+// Merge the lazily-fetched project index without discarding source bodies that are already open. Electron's
+// contextBridge freezes returned records, so clone each one before the renderer annotates it with __loaded.
+function installProjectIndex(payload) {
+  if (!payload || !Array.isArray(payload.sourceFilesMeta)) return null;
+  if (payload.signature && currentSignature && payload.signature !== currentSignature) return null;
+  var previousByPath = sourceByPath;
+  var records = payload.sourceFilesMeta.map(function (record) {
+    var file = Object.assign({}, record, { content: String(record.content || ''), image: record.image || '' });
+    file.__loaded = !REVIEW_LAZY_LOAD || !file.embedded;
+    var previous = previousByPath.get(file.path);
+    if (previous && previous.__loaded) {
+      file.content = previous.content;
+      if (previous.image) file.image = previous.image;
+      file.__loaded = true;
+    }
+    return file;
+  });
+  sourceFiles = records;
+  sourceByPath = new Map(records.map(function (file) { return [file.path, file]; }));
+  fileStates = Array.isArray(payload.fileStates) && payload.fileStates.length
+    ? payload.fileStates.slice()
+    : records.map(function (file) { return { path: file.path, signature: file.signature || '' }; });
+  fileSignatureByPath = new Map(fileStates.map(function (file) { return [file.path, file.signature]; }));
+  projectIndexLoaded = true;
+  projectIndexPayload = payload;
+  return payload;
+}
+
+function ensureProjectIndex() {
+  if (projectIndexLoaded) return Promise.resolve(projectIndexPayload || { sourceFilesMeta: sourceFiles, filesTree: '' });
+  if (projectIndexPromise) return projectIndexPromise;
+  var request;
+  if (window.monacoriFile && typeof window.monacoriFile.getIndex === 'function') {
+    request = Promise.resolve().then(function () { return window.monacoriFile.getIndex(); });
+  } else if (typeof fetch !== 'undefined') {
+    request = fetch('project-index', { cache: 'no-store' }).then(function (response) { return response.ok ? response.json() : null; });
+  } else {
+    request = Promise.resolve(null);
+  }
+  projectIndexPromise = request.then(function (payload) {
+    projectIndexPromise = null;
+    return installProjectIndex(payload);
+  }, function () {
+    projectIndexPromise = null;
+    return null;
+  });
+  return projectIndexPromise;
+}
 // Electron starts with metadata only. Source bodies are fetched one file at a time so opening a large
 // project never clones every source file into the renderer. The browser server retains its bulk endpoint
 // as a compatibility fallback, but the desktop app always uses monacoriFile.getSource(path).
@@ -594,6 +649,7 @@ let usageItems = []; // find-usages results for the Cmd+B-on-declaration popup
 let usageActive = 0;
 let viewerCursor = null;
 let selectedCommentRow = null; // a comment box "selected" while navigating with arrows (caret hidden); Backspace deletes it
+let selectedDiffFoldRow = null; // an omitted-context stop selected with arrows; Space expands both panes
 let currentHttpEnvName = (function () {
   let saved = '';
   try { saved = localStorage.getItem(httpEnvKey) || ''; } catch (error) { saved = ''; }

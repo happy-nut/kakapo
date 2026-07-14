@@ -247,8 +247,15 @@ export function renderDiffHtml(input: {
 }): string {
   const totalHunks = input.files.reduce((sum, file) => sum + file.hunks.length, 0);
   const fileNav = renderDiffTree(input.files);
-  const sourceNav = renderSourceTree(input.sourceFiles);
+  // A transport-backed review asks the host for the project tree only when the user opens Files. Keeping
+  // this empty here removes several megabytes of repeated tree markup from large-project startup.
+  const sourceNav = input.lazyLoad ? "" : renderSourceTree(input.sourceFiles);
   const embeddedFiles = input.sourceFiles.filter((file) => file.embedded).length;
+  const initialSourceFiles = input.lazyLoad ? initialReviewSources(input.files, input.sourceFiles) : input.sourceFiles;
+  const initialSourcePaths = new Set(initialSourceFiles.map((file) => file.path));
+  const initialFileStates = input.lazyLoad
+    ? input.fileStates.filter((file) => initialSourcePaths.has(file.path))
+    : input.fileStates;
 
   // IntelliJ-style activity rail: an icon per view; click navigates, hover shows a tooltip with the
   // shortcut. data-view drives both the click handler and the active-state highlight (see syncRail).
@@ -304,10 +311,12 @@ export function renderDiffHtml(input: {
       ? '<div class="tabs"><button type="button" class="tab active" data-tab="changes" data-i18n="tab.changes" data-i18n-title="tab.changes.title" title="Changes (⌘0)">Changes</button><button type="button" class="tab" data-tab="files" data-i18n="tab.files" data-i18n-title="tab.files.title" title="Files (⌘1)">Files</button></div>'
       : '<div class="tabs"><button type="button" class="tab" data-tab="changes" data-i18n="tab.changes" data-i18n-title="tab.changes.title" title="Changes (⌘0)">Changes</button><button type="button" class="tab active" data-tab="files" data-i18n="tab.files" data-i18n-title="tab.files.title" title="Files (⌘1)">Files</button></div>',
     `<div class="tab-panel${input.lazy ? "" : " hidden"}" id="changes-panel">${fileNav}</div>`,
-    // Big repos: defer the (potentially huge) source tree — ship it as an inert island, materialized on
-    // the first Files-tab open, so it never builds/lays-out at startup. Small repos render it inline.
+    // Transport-backed reviews do not even embed an inert tree island: parsing its multi-megabyte text was
+    // the dominant startup cost. Static lazy reviews retain the self-contained island fallback.
     input.lazy
-      ? `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
+      ? input.lazyLoad
+        ? '<div class="tab-panel hidden" id="files-panel" data-project-index="deferred"></div>'
+        : `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
       : `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
     "</div>",
     `<div class="sidebar-footer"><span class="app-version">monacori${packageVersion ? " v" + escapeHtml(packageVersion) : ""}</span>${input.app ? '<span id="analysis-status" class="analysis-status is-idle" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-label">Analysis idle</span></span>' : ""}<span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span></div>`,
@@ -469,8 +478,8 @@ export function renderDiffHtml(input: {
     input.diffIslands || "",
     `<script type="application/json" id="review-meta" data-watch="${input.watch ? "true" : "false"}" data-signature="${escapeAttr(input.signature ?? "")}" data-generated-at="${escapeAttr(input.generatedAt ?? "")}" data-lazy="${input.lazy ? "true" : "false"}" data-lazy-load="${input.lazyLoad ? "true" : "false"}">{}</script>`,
     `<script type="application/json" id="i18n-data">${jsonForScript(MESSAGES)}</script>`,
-    `<script type="application/json" id="source-files-data">${jsonForScript(input.lazyLoad ? input.sourceFiles.map((f) => ({ ...f, content: "", image: "" })) : input.sourceFiles)}</script>`,
-    `<script type="application/json" id="file-state-data">${jsonForScript(input.fileStates)}</script>`,
+    `<script type="application/json" id="source-files-data">${jsonForScript(input.lazyLoad ? initialSourceFiles.map(sourceFileMetadata) : initialSourceFiles)}</script>`,
+    `<script type="application/json" id="file-state-data">${jsonForScript(initialFileStates)}</script>`,
     `<script type="application/json" id="http-env-data">${jsonForScript(input.httpEnvironments)}</script>`,
     `<script>window.__MONACORI_VERSION__=${JSON.stringify(packageVersion)};</script>`,
     "<script>",
@@ -479,6 +488,27 @@ export function renderDiffHtml(input: {
     "</body>",
     "</html>",
   ].join("\n");
+}
+
+function sourceFileMetadata(file: SourceFile): SourceFile {
+  return { ...file, content: "", image: "" };
+}
+
+// Changed files are sufficient for the initial diff/source transition. A clean tree gets one inexpensive
+// default record so it can still open a README/source immediately; everything else arrives on demand.
+function initialReviewSources(diffFiles: DiffFile[], sourceFiles: SourceFile[]): SourceFile[] {
+  const changedPaths = new Set<string>();
+  for (const file of diffFiles) {
+    if (file.oldPath && file.oldPath !== "/dev/null") changedPaths.add(file.oldPath);
+    if (file.newPath && file.newPath !== "/dev/null") changedPaths.add(file.newPath);
+    if (file.displayPath) changedPaths.add(file.displayPath);
+  }
+  const changed = sourceFiles.filter((file) => file.changed || changedPaths.has(file.path));
+  if (changed.length) return changed;
+  const fallback = sourceFiles.find((file) => file.embedded && /^readme(?:\.|$)/i.test(file.name))
+    ?? sourceFiles.find((file) => file.embedded)
+    ?? sourceFiles[0];
+  return fallback ? [fallback] : [];
 }
 
 export function renderDiffTree(files: DiffFile[]): string {
@@ -670,11 +700,12 @@ function renderSourceNode(node: SourceTreeNode, depth: number): string {
 
 export function diffSubtitle(options: {
   base?: string;
+  baseLabel?: string;
   staged: boolean;
   includeUntracked: boolean;
   context: number;
 }): string {
-  const source = options.staged ? "staged changes" : `working tree vs ${options.base ?? "HEAD"}`;
+  const source = options.staged ? "staged changes" : `working tree vs ${options.baseLabel ?? options.base ?? "HEAD"}`;
   const untracked = options.includeUntracked ? "including untracked files" : "tracked files only";
   return `${source}; ${untracked}; ${options.context} context lines`;
 }

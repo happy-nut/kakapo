@@ -105,12 +105,27 @@ export type DiffReviewUpdate = {
   httpEnvironments: Record<string, Record<string, string>>;
 };
 
+// Heavy project-wide navigation data is deliberately kept out of the initial review HTML. Electron and
+// the watch server return this payload only when the renderer first opens Files / Quick Open (or restores
+// a source tab), so repositories with thousands of files do not pay the transfer + parse cost at startup.
+export type ProjectIndexPayload = {
+  signature: string;
+  filesTree: string;
+  sourceFilesMeta: SourceFile[];
+};
+
 export type DiffReviewBuild = {
   html: string;
   files: number;
   hunks: number;
   signature: string;
   generatedAt: string;
+  // Actual base revision used for this build. When a clean branch is ahead of its upstream this is the
+  // merge-base, allowing context expansion to read the same revision as the rendered diff.
+  reviewBase?: string;
+  // Tracking ref that selected reviewBase automatically. Electron watches it so a later push clears the
+  // already-reviewed commit range without requiring an app restart.
+  reviewUpstream?: string;
   // Compact payload for in-place refresh (Electron watch / serve poll); see DiffReviewUpdate.
   update?: DiffReviewUpdate;
   // Phase 2 lazy-LOAD: per-file diff body HTML, served on demand (IPC / HTTP) instead of embedded,
@@ -119,9 +134,11 @@ export type DiffReviewBuild = {
   // Phase 2c lazy-LOAD: raw per-file unified diff chunks. The app/server render a single body only when
   // the renderer asks for that file, avoiding a full diff2html render before first paint.
   lazyBodyDiffs?: string[];
-  // Full source-file records retained by the host when lazyLoad is enabled. Electron parses this once
-  // into a main-process map and serves one file per request; the browser server keeps a bulk fallback.
+  // Serialized full source records retained for the browser server's bulk compatibility endpoint.
   lazySourceData?: string;
+  // Native in-process form for Electron/benchmarks. Avoids stringify + parse of the entire source index;
+  // lazySourceData remains the transport form used by the browser watch server.
+  lazySourceFiles?: SourceFile[];
 };
 
 export type VerificationRun = {

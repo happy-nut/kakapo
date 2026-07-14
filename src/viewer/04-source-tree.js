@@ -8,6 +8,134 @@ function isTreeRowVisible(el) {
   }
   return true;
 }
+
+// Transport-backed reviews receive compact source metadata, not a pre-rendered all-files HTML tree. Build
+// only the root rows here; each folder materializes its direct children the first time it opens. The number
+// of live DOM nodes therefore follows what the reviewer explores instead of the repository's total size.
+var virtualSourceRoot = null;
+var virtualSourceNodeByPath = new Map();
+var virtualSourceDetailsByPath = new Map();
+
+function buildVirtualSourceTree(files) {
+  var root = { name: '', path: '', children: new Map(), file: null };
+  virtualSourceNodeByPath = new Map();
+  (files || []).forEach(function (file) {
+    var parts = String(file.path || '').split('/').filter(Boolean);
+    if (!parts.length) return;
+    var node = root, current = '';
+    for (var i = 0; i < parts.length - 1; i++) {
+      current = current ? current + '/' + parts[i] : parts[i];
+      var child = node.children.get(parts[i]);
+      if (!child) {
+        child = { name: parts[i], path: current, children: new Map(), file: null };
+        node.children.set(parts[i], child);
+        virtualSourceNodeByPath.set(current, child);
+      }
+      node = child;
+    }
+    var leaf = parts[parts.length - 1];
+    node.children.set(leaf + '\0' + file.path, { name: leaf, path: file.path, children: new Map(), file: file });
+  });
+  return root;
+}
+
+function virtualSourceChildren(node) {
+  return Array.from(node.children.values()).sort(function (a, b) {
+    if (Boolean(a.file) !== Boolean(b.file)) return a.file ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function virtualFileColor(path) {
+  var ext = String(path || '').split('/').pop().split('.').pop().toLowerCase();
+  var colors = {
+    ts:'#3178c6',tsx:'#3178c6',js:'#e8bf6a',jsx:'#e8bf6a',json:'#cbcb41',yaml:'#cb9b41',yml:'#cb9b41',
+    html:'#e44d26',vue:'#41b883',svelte:'#ff3e00',css:'#42a5f5',scss:'#c6538c',md:'#9aa0a6',mdx:'#9aa0a6',
+    go:'#00add8',rs:'#dea584',py:'#3572a5',rb:'#cc342d',java:'#b07219',kt:'#a97bff',php:'#8892bf',swift:'#ff8a00',
+    c:'#7aa6da',h:'#7aa6da',cpp:'#f34b7d',hpp:'#f34b7d',sh:'#89e051',png:'#26a269',jpg:'#26a269',svg:'#e8bf6a'
+  };
+  return colors[ext] || '#7f868d';
+}
+
+function virtualSourceNodeHtml(node, depth) {
+  if (node.file) {
+    var file = node.file;
+    var classes = ['file-link', 'source-link', 'tree-file', file.embedded ? '' : 'not-embedded', file.vcs ? 'vcs-' + file.vcs : ''].filter(Boolean).join(' ');
+    var color = virtualFileColor(file.path);
+    return '<button type="button" class="' + classes + '" data-source-file="' + escapeHtml(file.path) + '" style="--depth:' + depth + '" title="' + escapeHtml(file.path) + '">'
+      + '<svg class="ftype" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.25a1 1 0 0 1 1-1h4.3L12.5 4.7v9.05a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" fill="' + color + '" fill-opacity=".2" stroke="' + color + '" stroke-width="1.1"/><path d="M9.2 1.4v2.8a1 1 0 0 0 1 1h2.6" fill="none" stroke="' + color + '" stroke-width="1.1"/></svg>'
+      + '<span class="path">' + escapeHtml(node.name) + '</span></button>';
+  }
+  return '<details class="tree-dir source-dir mc-virtual-dir" data-dir="' + escapeHtml(node.path) + '" style="--depth:' + depth + '">'
+    + '<summary><span class="folder-icon mc-virtual-folder" aria-hidden="true">›</span><span class="path">' + escapeHtml(node.name) + '</span></summary>'
+    + '<div class="mc-virtual-children" data-depth="' + (depth + 1) + '"></div></details>';
+}
+
+function materializeVirtualSourceChildren(container, node, depth) {
+  if (!container || container.dataset.materialized === 'true') return;
+  container.innerHTML = virtualSourceChildren(node).map(function (child) { return virtualSourceNodeHtml(child, depth); }).join('');
+  container.dataset.materialized = 'true';
+  container.querySelectorAll('.mc-virtual-dir').forEach(function (details) {
+    virtualSourceDetailsByPath.set(details.dataset.dir || '', details);
+  });
+  sourceLinks = Array.from(document.querySelectorAll('.source-link'));
+}
+
+function materializeVirtualSourceDirectory(details) {
+  if (!details) return;
+  var node = virtualSourceNodeByPath.get(details.dataset.dir || '');
+  var container = details.querySelector(':scope > .mc-virtual-children');
+  if (node && container) materializeVirtualSourceChildren(container, node, Number(container.dataset.depth || 0));
+}
+
+function openVirtualSourceDirectory(path) {
+  if (!path || !virtualSourceRoot) return;
+  treeRevealing = true;
+  var parts = String(path).split('/').filter(Boolean), current = '';
+  for (var i = 0; i < parts.length; i++) {
+    current = current ? current + '/' + parts[i] : parts[i];
+    var details = virtualSourceDetailsByPath.get(current);
+    if (!details) break;
+    materializeVirtualSourceDirectory(details);
+    details.open = true;
+  }
+  setTimeout(function () { treeRevealing = false; }, 0);
+}
+
+function materializeAllVirtualSourceFolders() {
+  var pending = Array.from(virtualSourceDetailsByPath.values());
+  var seen = new Set(pending);
+  for (var i = 0; i < pending.length; i++) {
+    materializeVirtualSourceDirectory(pending[i]);
+    virtualSourceDetailsByPath.forEach(function (details) {
+      if (!seen.has(details)) { seen.add(details); pending.push(details); }
+    });
+  }
+}
+
+function renderDeferredSourceTree(files) {
+  var panel = document.getElementById('files-panel');
+  if (!panel) return;
+  virtualSourceRoot = buildVirtualSourceTree(files);
+  virtualSourceDetailsByPath = new Map();
+  panel.innerHTML = '<nav class="tree source-tree mc-virtual-source-tree"><div class="mc-virtual-root"></div></nav>';
+  var root = panel.querySelector('.mc-virtual-root');
+  materializeVirtualSourceChildren(root, virtualSourceRoot, 0);
+  var nav = panel.querySelector('.mc-virtual-source-tree');
+  nav.addEventListener('toggle', function (event) {
+    var details = event.target;
+    if (!details || !details.classList || !details.classList.contains('mc-virtual-dir')) return;
+    if (details.open) materializeVirtualSourceDirectory(details);
+    if (!treeRevealing) persistTreeToggle(details);
+  }, true);
+  var saved = loadTreeOpen();
+  saved.forEach(openVirtualSourceDirectory);
+  var openPath = (document.getElementById('source-viewer') || {}).dataset?.openPath || '';
+  if (openPath.indexOf('/') >= 0) openVirtualSourceDirectory(openPath.slice(0, openPath.lastIndexOf('/')));
+  sourceLinks = Array.from(document.querySelectorAll('.source-link'));
+  sourceLinks.forEach(function (link) { link.classList.toggle('active', link.dataset.sourceFile === openPath); });
+  if (openPath) setSourceTypeIcon(openPath);
+}
 function treeRows() {
   const panel = document.querySelector('.tab-panel:not(.hidden)');
   if (!panel) return [];
@@ -87,6 +215,7 @@ function persistTreeToggle(d) {
   saveTreeOpen(set);
 }
 function initSourceTreeFolds() {
+  if (document.querySelector('.mc-virtual-source-tree')) return;
   var dirs = Array.prototype.slice.call(document.querySelectorAll('.source-dir'));
   if (!dirs.length) return;
   var saved = loadTreeOpen();
@@ -108,6 +237,13 @@ function initSourceTreeFolds() {
 // scroll its row into view. Called whenever a source file opens (tree click, go-to-definition, etc.).
 function revealTreeFor(path) {
   if (!path) return;
+  if (document.querySelector('.mc-virtual-source-tree')) {
+    var slash = path.lastIndexOf('/');
+    if (slash > 0) openVirtualSourceDirectory(path.slice(0, slash));
+    sourceLinks = Array.from(document.querySelectorAll('.source-link'));
+    sourceLinks.forEach(function (link) { link.classList.toggle('active', link.dataset.sourceFile === path); });
+    setSourceTypeIcon(path);
+  }
   treeRevealing = true;
   document.querySelectorAll('.source-dir').forEach(function (d) {
     var dir = d.dataset.dir || '';

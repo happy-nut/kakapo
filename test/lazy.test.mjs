@@ -35,6 +35,26 @@ test("lazy-LOAD build keeps initial diff bodies as raw chunks, not pre-rendered 
   assert.doesNotMatch(r.build.lazyBodyDiffs[0], /d2h-file-wrapper/, "raw chunk is not diff2html markup");
 });
 
+test("lazy-LOAD: initial HTML omits unchanged project metadata and loads it on demand", async () => {
+  const r = await makeReviewHtml([
+    { path: "src/changed.ts", before: "export const changed = 1;\n", after: "export const changed = 2;\n" },
+    { path: "src/unchanged.ts", before: "export const stable = true;\n", after: "export const stable = true;\n" },
+  ], { lazyLoad: true });
+  assert.match(r.html, /src\/changed\.ts/, "changed-file metadata remains available for immediate diff navigation");
+  assert.doesNotMatch(r.html, /src\/unchanged\.ts/, "unchanged project records stay out of the startup document");
+  assert.doesNotMatch(r.html, /id="files-tree-html"/, "transport reviews do not embed a multi-megabyte inert tree");
+
+  const v = await loadViewer(r.html, { lazySourceData: r.build.lazySourceData });
+  v.click(v.$('[data-tab="files"]'));
+  await v.settle(100);
+  assert.equal(v.window.__projectIndexRequests, 1, "Files requests the project index once");
+  assert.equal(v.$('[data-source-file="src/unchanged.ts"]'), null, "collapsed folders do not create all descendant DOM rows");
+  v.window.openVirtualSourceDirectory("src");
+  await v.settle(20);
+  assert.ok(v.$('[data-source-file="src/unchanged.ts"]'), "the deferred tree contains unchanged project files");
+  v.close();
+});
+
 test("lazy-LOAD: source view renders each file's OWN content after async fetch", async () => {
   const v = await loadViewer(html, { lazySourceData });
   await v.openSourceFile("src/two.ts");

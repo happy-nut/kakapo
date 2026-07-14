@@ -3,10 +3,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureElectronRuntimeBranded } from "../dist/commands.js";
+import { DEFAULT_DIFF_CONTEXT, ensureElectronRuntimeBranded } from "../dist/commands.js";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const patchScript = join(repoRoot, "scripts", "patch-electron-name.mjs");
+
+test("launcher keeps the initial diff folded to a compact context window", () => {
+  assert.equal(DEFAULT_DIFF_CONTEXT, 12);
+});
 
 test("launcher repairs Electron branding before resolving the macOS runtime", () => {
   const calls = [];

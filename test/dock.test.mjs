@@ -100,6 +100,20 @@ test("merged prompts render as one sanitized Markdown document instead of a side
   v.close();
 });
 
+test("the merged prompt reuses the inline Markdown editor and Copy all reflects live edits", async () => {
+  const v = await loadViewer(html);
+  let copied = null;
+  v.window.monacoriClipboard = { write: (text) => { copied = text; } };
+  await v.openMergedView("q");
+  const editor = v.$("#mc-merged-panel .mc-inline-editor.mc-merged-preview[contenteditable='true']");
+  assert.ok(editor, "the merged prompt is the same inline-editable surface as the memo");
+  v.typeInto(editor, "Edited handoff prompt");
+  v.$("#mc-merged-panel .mc-copy-all").click();
+  await v.settle(20);
+  assert.match(copied, /Edited handoff prompt/, "Copy all uses the current edited document, not the initial snapshot");
+  v.close();
+});
+
 test("Cmd/Ctrl+Shift+' maximizes the active dock and restores it (toggle)", async () => {
   const v = await loadViewer(html);
   await v.openMergedView("q");

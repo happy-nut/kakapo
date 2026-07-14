@@ -32,6 +32,17 @@ test("diff context reads the exact base and working-tree lines for a reviewed fo
   assert.deepEqual(result.newLines, result.oldLines, "an omitted gap is unchanged across both reviewed revisions");
 });
 
+test("diff context resolves git-root paths when the app was opened from a nested folder", () => {
+  const result = readReviewDiffContext({
+    root: join(fixture.dir, "src"),
+    staged: false,
+    bodyDiffs: fixture.build.lazyBodyDiffs,
+    request: { path: "src/context.ts", oldStart: 8, oldEnd: 10, newStart: 8, newEnd: 10 },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.newLines, ["const line8 = 8;", "const line9 = 9;", "const line10 = 10;"]);
+});
+
 test("staged review context comes from the index, not later unstaged worktree edits", () => {
   execFileSync("git", ["add", "src/context.ts"], { cwd: fixture.dir });
   const worktree = Array.from({ length: 30 }, (_, index) => index === 8 ? "const worktreeOnly = true;" : `const line${index + 1} = ${index + 1};`);

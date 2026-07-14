@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { isAbsolute, relative, resolve } from "node:path";
 import { parseUnifiedDiff } from "./diff.js";
+import { repoRoot } from "./git.js";
 
 export type DiffContextRequest = {
   path?: unknown;
@@ -46,14 +47,19 @@ export function readReviewDiffContext(input: {
   const newRange = boundedRange(input.request.newStart, input.request.newEnd);
   if (!oldRange && !newRange) return empty("Invalid context range");
 
+  // Diff paths are always relative to Git's top-level directory, even when the app was launched with a
+  // nested --cwd (for example repo/turtle). Resolve both revisions from that same root; using input.root
+  // directly would turn "turtle/src/a.ts" into "repo/turtle/turtle/src/a.ts" for the working-tree side.
+  const root = repoRoot(input.root);
+
   const oldText = file.oldPath === "/dev/null"
     ? ""
-    : readGitBlob(input.root, `${input.staged ? "HEAD" : input.base || "HEAD"}:${file.oldPath}`);
+    : readGitBlob(root, `${input.staged ? "HEAD" : input.base || "HEAD"}:${file.oldPath}`);
   const newText = file.newPath === "/dev/null"
     ? ""
     : input.staged
-      ? readGitBlob(input.root, `:${file.newPath}`)
-      : readWorktreeFile(input.root, file.newPath);
+      ? readGitBlob(root, `:${file.newPath}`)
+      : readWorktreeFile(root, file.newPath);
 
   if (oldText === null && file.oldPath !== "/dev/null") return empty("Base source is unavailable");
   if (newText === null && file.newPath !== "/dev/null") return empty("Working source is unavailable");

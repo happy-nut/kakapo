@@ -364,7 +364,9 @@ body {
 }
 .keys-grid span { color: var(--muted); }
 .diff2html-container { min-width: 0; caret-color: transparent; }
-.mc-diff-cursor-row .d2h-code-side-line { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--active) 70%, transparent); }
+/* The blinking caret already marks the exact column. Do not add a second blue rail at the start of its
+   code cell: on wide changed rows it looks like another cursor immediately to the left of the real one. */
+.mc-diff-cursor-row .d2h-code-side-line { box-shadow: none; }
 #diff2html-container[contenteditable] { outline: none; }
 #diff2html-container [contenteditable="false"] { caret-color: transparent; }
 .d2h-wrapper { background: transparent; color: var(--text); }
@@ -563,6 +565,11 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 }
 .mc-context-fold:hover { color: var(--text); background: color-mix(in srgb, var(--active) 11%, transparent); }
 .mc-context-fold:focus-visible { color: var(--text); outline: 1px solid var(--active); outline-offset: -2px; }
+.mc-context-fold-row.mc-row-selected .mc-context-fold {
+  color: var(--text);
+  background: color-mix(in srgb, var(--active) 17%, transparent);
+  box-shadow: inset 0 0 0 2px var(--active);
+}
 .mc-context-fold:disabled { cursor: wait; opacity: .7; }
 .mc-context-fold-icon { font: 700 15px/1 Monaco, ui-monospace, monospace; letter-spacing: 2px; }
 .d2h-diff-table tr.mc-context-expanded-marker > td { height: 1px; padding-top: 0; padding-bottom: 0; border-top: 1px solid var(--border); border-bottom: 0; }
@@ -588,6 +595,14 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-diff-table tr.mc-diff-modified > td { background-color: var(--diff-modified) !important; }
 .d2h-diff-table tr.mc-diff-deleted > td { background-color: var(--diff-deleted) !important; }
 .d2h-diff-table tr.mc-diff-added > td { background-color: var(--diff-added) !important; }
+/* A pure insertion has no old-side source. Keep the real new line green, but paint its aligned empty
+   placeholder on the left as one continuous neutral-gray surface. diff2html also colors the nested
+   placeholder div, which otherwise leaves a darker horizontal stripe inside every gray table row. */
+.d2h-file-side-diff:first-child tr.mc-diff-added > td,
+.d2h-file-side-diff:first-child tr.mc-diff-added .d2h-code-side-emptyplaceholder {
+  background-color: var(--diff-deleted) !important;
+  border-color: transparent !important;
+}
 .d2h-diff-table tr.mc-diff-modified .d2h-code-line-ctn ins,
 .d2h-diff-table tr.mc-diff-modified .d2h-code-line-ctn del { background-color: var(--diff-modified-strong); }
 .d2h-diff-table tr.mc-diff-deleted .d2h-code-line-ctn del { background-color: var(--diff-deleted-strong); }
@@ -605,11 +620,11 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   box-shadow: none;
   background-color: color-mix(in srgb, var(--active) 10%, var(--line));
 }
-.d2h-diff-table tr.diff-active-row td {
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--active) 62%, transparent), inset 0 -1px 0 color-mix(in srgb, var(--active) 62%, transparent);
-}
-.d2h-file-side-diff:first-child tr.diff-active-row td.d2h-code-side-linenumber { box-shadow: inset -2px 0 0 var(--active); color: var(--text); }
-.d2h-file-side-diff:last-child tr.diff-active-row td.d2h-code-side-linenumber { box-shadow: inset 2px 0 0 var(--active); color: var(--text); }
+/* F7 navigation and the JS caret already identify the active row. An older focus layer also outlined the
+   whole row in blue (top/bottom plus a gutter rail), producing a second, persistent selection rectangle. */
+.d2h-diff-table tr.diff-active-row td { box-shadow: none; }
+.d2h-file-side-diff:first-child tr.diff-active-row td.d2h-code-side-linenumber,
+.d2h-file-side-diff:last-child tr.diff-active-row td.d2h-code-side-linenumber { box-shadow: none; color: var(--text); }
 .review-status .ws-ignored { color: var(--token-tag); border: 1px solid color-mix(in srgb, var(--token-tag) 45%, transparent); border-radius: 0; padding: 0 7px; }
 .d2h-file-collapse {
   display: inline-flex;
@@ -680,6 +695,9 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   color: var(--muted);
 }
 .folder-icon .folder-ic { width: 14px; height: 14px; display: block; }
+.mc-virtual-folder { font: 18px/14px system-ui, sans-serif; transform: rotate(0deg); transition: transform .1s ease; }
+.mc-virtual-dir[open] > summary .mc-virtual-folder { transform: rotate(90deg); }
+.mc-virtual-children { display: block; }
 /* Closed vs open folder glyph (replaces the old rotated "v" chevron). */
 .tree-dir > summary .fi-open { display: none; }
 .tree-dir[open] > summary .fi-closed { display: none; }
@@ -1190,8 +1208,8 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-caret-hint { position: fixed; z-index: 75; max-width: 460px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-left: 3px solid var(--active); border-radius: 0; padding: 5px 10px; font-size: 12px; line-height: 1.4; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
 .mc-caret-hint.show { opacity: 1; transform: translateY(0); }
 /* Merged prompts render as one readable document; comment headings remain keyboard-selectable review stops. */
-.mc-merged-body { flex: 1 1 auto; min-height: 0; display: flex; }
-.mc-merged-preview { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 30px max(36px, calc((100% - 980px) / 2)) 64px; background: var(--panel); outline: none; }
+.mc-merged-body { flex: 1 1 auto; min-width: 0; min-height: 0; height: 100%; overflow: auto; background: var(--panel); }
+.mc-merged-editor-host .mc-merged-preview { flex: none; min-width: 0; min-height: calc(90vh - 150px); overflow: visible; padding: 0; background: var(--panel); outline: none; }
 .mc-merged-comment-anchor { padding: 7px 10px; margin-left: -10px !important; border-radius: 5px; cursor: default; }
 .mc-merged-comment-anchor:hover { background: color-mix(in srgb, var(--active) 9%, transparent); }
 .mc-merged-comment-anchor.active { background: color-mix(in srgb, var(--active) 17%, transparent); box-shadow: inset 3px 0 var(--active); }
@@ -1385,7 +1403,6 @@ body.dock-maximized .dock-panel { inset: 0; border-radius: 0; }
   .d2h-file-side-diff:first-child { border-right: 0; border-bottom: 1px solid var(--border); }
   .dock-panel { inset: 2vh 2vw; }
   .mc-inline-editor-host { width: calc(100% - 40px); }
-  .mc-merged-preview { padding-inline: 24px; }
 }
 .http-env-select {
   margin-left: auto;
@@ -1537,6 +1554,20 @@ body.dock-maximized .dock-panel { inset: 0; border-radius: 0; }
 .markdown-body blockquote { padding: 2px 0 2px 16px; color: var(--muted); border-left: 3px solid var(--border); }
 .markdown-body blockquote > :last-child { margin-bottom: 0; }
 .mc-merged-preview > :first-child { margin-top: 0; }
+.markdown-body ul[data-type="taskList"] { list-style: none; padding-left: 0; }
+.markdown-body li[data-type="taskItem"] { display: flex; align-items: flex-start; gap: 9px; margin: .35em 0; }
+.markdown-body li[data-type="taskItem"] > label { flex: none; display: inline-flex; padding-top: .35em; user-select: none; }
+.markdown-body li[data-type="taskItem"] > label input { width: 15px; height: 15px; margin: 0; accent-color: var(--active); }
+.markdown-body li[data-type="taskItem"] > div { flex: 1 1 auto; min-width: 0; }
+.markdown-body li[data-type="taskItem"] > div > :last-child { margin-bottom: 0; }
+.markdown-body div[data-type="details"] { position: relative; margin: .45em 0 1.1em; padding-left: 25px; }
+.markdown-body div[data-type="details"] > .mc-details-toggle {
+  position: absolute; top: .18em; left: 0; width: 21px; height: 25px; padding: 0; border: 0;
+  background: transparent; color: var(--muted); font: 17px/1 ui-sans-serif, system-ui, sans-serif; cursor: pointer;
+}
+.markdown-body div[data-type="details"] > .mc-details-toggle:hover { color: var(--text); background: color-mix(in srgb, var(--active) 10%, transparent); }
+.markdown-body div[data-type="details"] summary { display: block; min-height: 1.75em; font-weight: 620; cursor: text; }
+.markdown-body div[data-type="details"] div[data-type="detailsContent"] { margin-top: .45em; padding-left: 12px; border-left: 1px solid var(--border); }
 .markdown-body hr { height: 1px; margin: 1.8em 0; border: 0; background: var(--border); }
 .markdown-body img { max-width: 100%; height: auto; border-radius: 4px; }
 .markdown-body table { display: block; max-width: 100%; overflow: auto; border-spacing: 0; border-collapse: collapse; font-size: .92em; }

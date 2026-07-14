@@ -17,6 +17,13 @@ function openQuickOpen(mode) {
   quickInput.value = '';
   updateRecentFilterDisplay();
   renderQuickOpenResults();
+  // Populate project-wide candidates after the overlay is visible. Startup contains only changed-file
+  // metadata, so the keyboard shortcut stays instant even in repositories with thousands of files.
+  if (REVIEW_LAZY_LOAD && !projectIndexLoaded) {
+    ensureProjectIndex().then(function () {
+      if (quickOpen && !quickOpen.classList.contains('hidden') && quickMode === mode) renderQuickOpenResults();
+    });
+  }
   if (mode === 'recent') { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
   else setTimeout(() => quickInput.focus(), 0);
 }

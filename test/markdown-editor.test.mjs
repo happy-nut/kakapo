@@ -70,6 +70,56 @@ test("the lazy inline editor round-trips Markdown as rich editable blocks", () =
   }
 });
 
+test("the inline editor applies Notion-style todo, toggle, quote, strike, and underline shortcuts", () => {
+  const dom = new JSDOM("<!doctype html><div id='host'></div>", {
+    url: "http://localhost/",
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+  });
+  try {
+    Object.defineProperty(dom.window.navigator, "platform", { value: "MacIntel", configurable: true });
+    dom.window.eval(readFileSync("dist/monaco/markdown-editor.js", "utf8"));
+    const host = dom.window.document.querySelector("#host");
+    const editor = dom.window.MonacoriMarkdownEditor.create({ element: host, markdown: "" });
+    const surface = host.querySelector(".mc-inline-editor");
+
+    editor.typeText("[] ");
+    assert.ok(surface.querySelector('ul[data-type="taskList"] input[type="checkbox"]'), "[] creates a todo checkbox");
+    assert.match(editor.getMarkdown(), /^- \[ \]/, "the todo remains portable Markdown");
+
+    editor.setMarkdown("");
+    editor.typeText("> ");
+    assert.ok(surface.querySelector('div[data-type="details"]'), "> creates a collapsible toggle block");
+    assert.ok(surface.querySelector(".mc-details-toggle"), "the toggle has an interactive disclosure button");
+
+    editor.setMarkdown("");
+    editor.typeText('" ');
+    assert.ok(surface.querySelector("blockquote"), '" creates a blockquote');
+
+    editor.setMarkdown("");
+    editor.typeText("~done~");
+    assert.equal(surface.querySelector("s")?.textContent, "done", "single tildes apply strikethrough inline");
+    assert.equal(editor.getMarkdown(), "~~done~~", "strike serializes as standard GFM Markdown");
+
+    editor.setMarkdown("");
+    surface.focus();
+    surface.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "u", code: "KeyU", metaKey: true, bubbles: true, cancelable: true }));
+    editor.typeText("underlined");
+    assert.equal(surface.querySelector("u")?.textContent, "underlined", "Cmd+U toggles underline for typed text");
+    assert.equal(editor.getMarkdown(), "++underlined++", "underline round-trips through the Markdown document");
+
+    editor.setMarkdown("# Edited intro\n\n### @one#L1\n\nremove me\n\n### @two#L2\n\nkeep me");
+    const commentHeadings = [...surface.querySelectorAll("h3")];
+    assert.equal(editor.deleteBlockRange(commentHeadings[0], commentHeadings[1]), true, "a comment section can be deleted in-place");
+    assert.match(editor.getMarkdown(), /Edited intro/, "deleting a comment preserves hand-edited prompt content");
+    assert.doesNotMatch(editor.getMarkdown(), /remove me|@one/, "only the selected comment section is removed");
+    assert.match(editor.getMarkdown(), /@two#L2[\s\S]*keep me/, "the following comment remains");
+    editor.destroy();
+  } finally {
+    dom.window.close();
+  }
+});
+
 test("the rich editor stays out of the startup viewer bundle", () => {
   const startup = readFileSync("dist/viewer.client.js", "utf8");
   const lazyEditor = readFileSync("dist/monaco/markdown-editor.js", "utf8");

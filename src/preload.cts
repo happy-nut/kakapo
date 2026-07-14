@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld("monacoriMenu", {
 // HTML can omit the embedded diff bodies (tens of MB on big repos) and stay small.
 contextBridge.exposeInMainWorld("monacoriFile", {
   get: (index: number, kind: string): Promise<string> => ipcRenderer.invoke("monacori:get-file", { index, kind }),
+  getIndex: (): Promise<unknown> => ipcRenderer.invoke("monacori:get-project-index"),
   getSource: (path: string): Promise<unknown> => ipcRenderer.invoke("monacori:get-source", { path }),
   getDiffContext: (request: unknown): Promise<unknown> => ipcRenderer.invoke("monacori:get-diff-context", request),
 });

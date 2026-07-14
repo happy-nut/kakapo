@@ -6,7 +6,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell
 import { buildDiffReview, performHttpRequest, renderLazyDiffBody, type HttpSendRequest } from "./cli.js";
 import { readGitLog, readCommitDiff } from "./git-log.js";
 import { readUnifiedDiff } from "./diff.js";
-import { isGitRepository } from "./git.js";
+import { git, isGitRepository } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
 import { searchProject } from "./search.js";
@@ -14,7 +14,7 @@ import { ProjectAnalysis, type AnalysisRequest } from "./analysis.js";
 import { ReviewPerformanceTrace } from "./perf.js";
 import { ProjectMarkdownMemo } from "./memos.js";
 import { readReviewDiffContext, type DiffContextRequest } from "./diff-context.js";
-import type { SourceFile } from "./types.js";
+import type { ProjectIndexPayload, SourceFile } from "./types.js";
 import { createHash } from "node:crypto";
 
 type AppOptions = {
@@ -43,6 +43,8 @@ type WinState = {
   analysis: ProjectAnalysis; // LSP-first project analysis + main-process regex fallback
   perf: ReviewPerformanceTrace; // local startup/analysis evidence under .monacori/perf/latest.json
   lastDiffSig: string; // watch fast-path: hash of the last git diff, to skip rebuilds when unchanged
+  reviewBase?: string; // exact base used by the latest build (may be an automatic upstream merge-base)
+  reviewUpstream?: string; // tracking ref behind an automatic base; included in the watch signature
 };
 
 // `npm run dev` sets MONACORI_DEV=1 so a locally-built app announces itself — a window-title suffix
@@ -162,6 +164,22 @@ ipcMain.handle("monacori:get-source", (event, request: { path?: string }) => {
   if (!state || !path || path.startsWith("../")) return null;
   return state.sourceFiles.get(path) ?? null;
 });
+// Project-wide metadata and the source tree are intentionally absent from the initial review document.
+// Return them as one lazy payload; source contents remain behind the per-file endpoint above.
+ipcMain.handle("monacori:get-project-index", (event): ProjectIndexPayload | null => {
+  const state = stateFromEvent(event);
+  if (!state) return null;
+  return {
+    signature: state.signature,
+    filesTree: "", // Electron builds folder children incrementally from sourceFilesMeta.
+    // Omit, rather than blank, heavyweight fields so the structured-clone payload stays compact. Each
+    // metadata record already carries its signature; a second project-wide fileStates array is redundant.
+    sourceFilesMeta: Array.from(state.sourceFiles.values(), (file) => {
+      const { content: _content, image: _image, ...metadata } = file;
+      return metadata as SourceFile;
+    }),
+  };
+});
 // Expand one omitted unchanged range in the side-by-side diff. Main resolves the exact reviewed
 // revisions (base vs worktree, or HEAD vs index for --staged) and returns at most one bounded chunk.
 ipcMain.handle("monacori:get-diff-context", (event, request: DiffContextRequest) => {
@@ -169,7 +187,7 @@ ipcMain.handle("monacori:get-diff-context", (event, request: DiffContextRequest)
   if (!state) return { ok: false, oldStart: 0, newStart: 0, oldLines: [], newLines: [], error: "Review window is unavailable" };
   return readReviewDiffContext({
     root: state.options.root,
-    base: state.options.base,
+    base: state.reviewBase ?? state.options.base,
     staged: state.options.staged,
     bodyDiffs: state.bodyDiffs,
     request,
@@ -558,6 +576,8 @@ function createWindow(root: string): WinState {
     analysis,
     perf,
     lastDiffSig: "",
+    reviewBase: undefined,
+    reviewUpstream: undefined,
   };
   const id = win.id;
   states.set(id, state);
@@ -623,10 +643,18 @@ async function refreshIfChanged(state: WinState): Promise<void> {
     // Fast path: hash only the git diff (~120ms) before the full build (~1s). The vast majority of
     // watch ticks see no change, so skip the heavy buildDiffReview entirely then — keeping the main
     // process free for review/search IPC so the UI never stalls on an unchanged tree.
+    const fastBase = state.reviewBase ?? state.options.base;
+    const upstreamRevision = state.reviewUpstream
+      ? git(state.options.root, ["rev-parse", state.reviewUpstream])
+      : "";
     const diffSig = createHash("sha1")
+      .update(fastBase ?? "HEAD")
+      .update("\n")
+      .update(upstreamRevision)
+      .update("\n")
       .update(
         readUnifiedDiff({
-          base: state.options.base,
+          base: fastBase,
           staged: state.options.staged,
           context: state.options.context,
           includeUntracked: state.options.includeUntracked,
@@ -674,14 +702,17 @@ function writeReviewFile(state: WinState): { signature: string; html: string; up
     app: true, // enable Electron-only review affordances such as Git history
     root: state.options.root, // review THIS window's repo (no process.chdir; root is threaded through)
   });
+  state.reviewBase = build.reviewBase;
+  state.reviewUpstream = build.reviewUpstream;
   // Two windows on the same repo share this path; the content is identical for the same git state, and
   // each window loads its own freshly-written copy right after, so a same-repo race is benign.
   mkdirSync(join(state.options.root, FLOW_DIR), { recursive: true });
   writeFileSync(reviewPath(state.options.root), build.html);
   state.bodyDiffs = build.lazyBodyDiffs ?? [];
   state.bodyCache.clear();
-  let sourceFiles: SourceFile[] = [];
-  try { sourceFiles = JSON.parse(build.lazySourceData ?? "[]") as SourceFile[]; } catch { sourceFiles = []; }
+  // buildDiffReview runs in this process, so retain its native records instead of serializing and parsing
+  // the whole project index (which can approach the source budget on large repositories).
+  const sourceFiles: SourceFile[] = build.lazySourceFiles ?? [];
   state.sourceFiles = new Map(sourceFiles.map((file) => [file.path, file]));
   state.analysis.invalidate();
   state.perf.mark("review-build-complete", {

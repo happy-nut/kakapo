@@ -36,11 +36,25 @@ function diffSideTable(wrapper, side) {
   var t = diffSideTables(wrapper);
   return side === 'old' ? t.left : t.right;
 }
+// Diff tables are immutable during normal caret movement. Cache their navigable rows instead of running a
+// querySelectorAll + filter several times for every key repeat. Context expansion/body materialization call
+// invalidateDiffRows; replaced watch DOM naturally gets a fresh WeakMap key.
+var diffRowsCache;
 function diffRowsOf(sideTable) {
   if (!sideTable) return [];
-  return Array.prototype.slice.call(sideTable.querySelectorAll('tr')).filter(function (r) {
+  if (!diffRowsCache) diffRowsCache = new WeakMap();
+  var cached = diffRowsCache.get(sideTable);
+  if (cached) return cached;
+  var rows = Array.prototype.slice.call(sideTable.querySelectorAll('tr')).filter(function (r) {
     return !r.classList.contains('mc-comment-row') && !r.classList.contains('mc-spacer-row');
   });
+  diffRowsCache.set(sideTable, rows);
+  return rows;
+}
+function invalidateDiffRows(root) {
+  if (!diffRowsCache || !root) return;
+  if (root.classList && root.classList.contains('d2h-file-side-diff')) diffRowsCache.delete(root);
+  if (root.querySelectorAll) root.querySelectorAll('.d2h-file-side-diff').forEach(function (table) { diffRowsCache.delete(table); });
 }
 function diffRowAt(wrapper, side, rowIndex) {
   var rows = diffRowsOf(diffSideTable(wrapper, side));
@@ -133,6 +147,7 @@ function renderDiffCaret() {
 }
 function setDiffCursor(path, side, rowIndex, column, reveal) {
   markCaretBusy();
+  clearSelectedDiffFold();
   var wrapper = diffWrapperByPath(path);
   if (!wrapper) return;
   var rows = diffRowsOf(diffSideTable(wrapper, side));
@@ -295,11 +310,10 @@ function moveDiffCursor(dLine, dColumn, extend) {
     }
   }
   if (dLine !== 0) {
-    var rows2 = diffRowsOf(diffSideTable(wrapper, side));
     var step = dLine > 0 ? 1 : -1;
     var cand = ri + step;
-    while (cand >= 0 && cand < rows2.length && !isDiffCodeRow(rows2[cand])) cand += step;
-    if (cand >= 0 && cand < rows2.length) { ri = cand; col = Math.min(col, diffLineText(rows2[ri]).length); }
+    while (cand >= 0 && cand < rows.length && !isDiffCodeRow(rows[cand])) cand += step;
+    if (cand >= 0 && cand < rows.length) { ri = cand; col = Math.min(col, diffLineText(rows[ri]).length); }
   }
   setDiffCursor(diffCursor.path, side, ri, col, true); // clears diffSelectionAnchor + native selection
   if (anchor) { diffSelectionAnchor = anchor; applyDiffSelection(); } // re-establish the Shift selection
@@ -329,11 +343,77 @@ function diffCommentBoxSiblingOf(dir) {
   var sib = dir < 0 ? row.previousElementSibling : row.nextElementSibling;
   return (sib && sib.classList && sib.classList.contains('mc-comment-row')) ? sib : null;
 }
+// Omitted-context rows participate in vertical caret navigation just like comment boxes. diffRowsOf keeps
+// the fold marker in positional order but moveDiffCursor normally skips non-code rows, so explicitly detect
+// a fold between the current line and the next real code line.
+function diffFoldBetween(dir) {
+  if (!diffCursor) return null;
+  var wrapper = diffWrapperByPath(diffCursor.path);
+  var table = wrapper ? diffSideTable(wrapper, diffCursor.side) : null;
+  var rows = diffRowsOf(table);
+  var step = dir < 0 ? -1 : 1;
+  for (var i = diffCursor.rowIndex + step; i >= 0 && i < rows.length; i += step) {
+    if (isDiffCodeRow(rows[i])) return null;
+    if (rows[i].classList.contains('mc-context-fold-row')) return rows[i];
+  }
+  return null;
+}
+function clearSelectedDiffFold() {
+  if (selectedDiffFoldRow && selectedDiffFoldRow.classList) selectedDiffFoldRow.classList.remove('mc-row-selected');
+  selectedDiffFoldRow = null;
+}
+function selectDiffFold(row) {
+  clearSelectedDiffFold();
+  if (selectedCommentRow) { selectedCommentRow.classList.remove('mc-row-selected'); selectedCommentRow = null; }
+  selectedDiffFoldRow = row || null;
+  if (!selectedDiffFoldRow) return;
+  selectedDiffFoldRow.classList.add('mc-row-selected');
+  scrolloffReveal(selectedDiffFoldRow, document.getElementById('diff2html-container'), 0.15);
+}
+function moveFromSelectedDiffFold(dir) {
+  var row = selectedDiffFoldRow;
+  if (!row || !diffCursor) { clearSelectedDiffFold(); return false; }
+  var table = row.closest('.d2h-file-side-diff');
+  var rows = diffRowsOf(table);
+  var at = rows.indexOf(row);
+  var step = dir < 0 ? -1 : 1;
+  clearSelectedDiffFold();
+  for (var i = at + step; i >= 0 && i < rows.length; i += step) {
+    if (!isDiffCodeRow(rows[i])) continue;
+    setDiffCursor(diffCursor.path, diffCursor.side, i, 0, true);
+    return true;
+  }
+  setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, diffCursor.column, false);
+  return true;
+}
 function handleDiffCaretKey(event) {
   if (!isDiffViewVisible() || !diffCursor) return false;
   var ae = document.activeElement;
   if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) return false;
   var extend = event.shiftKey;
+  if (selectedDiffFoldRow && !selectedDiffFoldRow.isConnected) selectedDiffFoldRow = null;
+  // A selected fold owns Space and vertical arrows. The code caret remains on its adjacent source line,
+  // matching comment-box navigation, so Escape/left/right can simply return focus to that caret.
+  if (selectedDiffFoldRow) {
+    if (event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar') {
+      event.preventDefault();
+      var fold = selectedDiffFoldRow;
+      clearSelectedDiffFold();
+      expandDiffContext(fold);
+      return true;
+    }
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      return moveFromSelectedDiffFold(event.key === 'ArrowUp' ? -1 : 1);
+    }
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Escape') {
+      event.preventDefault();
+      clearSelectedDiffFold();
+      setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, diffCursor.column, false);
+      return true;
+    }
+    return false;
+  }
   // A comment box is selected: Backspace/Delete removes it, `e` edits it, an arrow/Escape steps off it.
   // Same contract as the source view (handleSourceCaretKey), but caret moves go through setDiffCursor.
   if (selectedCommentRow) {
@@ -360,6 +440,8 @@ function handleDiffCaretKey(event) {
   if (!extend && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
     var box = diffCommentBoxSiblingOf(event.key === 'ArrowUp' ? -1 : 1);
     if (box) { event.preventDefault(); selectCommentRow(box); return true; }
+    var foldRow = diffFoldBetween(event.key === 'ArrowUp' ? -1 : 1);
+    if (foldRow) { event.preventDefault(); selectDiffFold(foldRow); return true; }
   }
   if (event.key === 'ArrowDown') { event.preventDefault(); moveDiffCursor(1, 0, extend); return true; }
   if (event.key === 'ArrowUp') { event.preventDefault(); moveDiffCursor(-1, 0, extend); return true; }

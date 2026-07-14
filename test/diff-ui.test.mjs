@@ -66,7 +66,26 @@ test("paired hunk rows use center gutters and IntelliJ semantic colors", async (
   assert.ok(oldDeleted?.classList.contains("mc-diff-deleted"), "a pure deletion is neutral gray");
   assert.ok(newRows[oldRows.indexOf(oldDeleted)]?.classList.contains("mc-diff-deleted"), "the gray deletion band crosses the empty placeholder");
   assert.ok(newAdded?.classList.contains("mc-diff-added"), "a pure insertion is green");
-  assert.ok(oldRows[newRows.indexOf(newAdded)]?.classList.contains("mc-diff-added"), "the green insertion band crosses the empty placeholder");
+  const oldAddedPeer = oldRows[newRows.indexOf(newAdded)];
+  assert.ok(oldAddedPeer?.classList.contains("mc-diff-added"), "the old placeholder keeps the insertion's semantic pairing");
+  const newAddedColor = v.window.getComputedStyle(newAdded.firstElementChild).backgroundColor;
+  const oldAddedPeerColor = v.window.getComputedStyle(oldAddedPeer.firstElementChild).backgroundColor;
+  assert.notEqual(oldAddedPeerColor, newAddedColor, "the empty old-side insertion peer is gray instead of green");
+  const oldPlaceholderSurface = oldAddedPeer.querySelector(".d2h-code-side-emptyplaceholder");
+  assert.equal(
+    v.window.getComputedStyle(oldPlaceholderSurface).backgroundColor,
+    oldAddedPeerColor,
+    "the nested old-side placeholder uses the same gray so no horizontal row stripe remains",
+  );
+
+  v.click(newAdded.querySelector(".d2h-code-side-line"));
+  const cursorCell = wrapper.querySelector(".mc-diff-cursor-row .d2h-code-side-line");
+  assert.equal(v.window.getComputedStyle(cursorCell).boxShadow, "none", "the diff caret has no duplicate blue rail to its left");
+  const activeCells = wrapper.querySelectorAll("tr.diff-active-row td");
+  assert.ok(activeCells.length > 0, "the current navigation row remains tracked without relying on an outline");
+  activeCells.forEach((cell) => {
+    assert.equal(v.window.getComputedStyle(cell).boxShadow, "none", "the active diff row has no blue border or gutter rail");
+  });
   assert.ok(wrapper.querySelectorAll("tr.mc-active-hunk").length > 2, "the current hunk is tracked across both panes");
   wrapper.querySelectorAll("tr.mc-diff-change").forEach((row) => {
     assert.notEqual(row.dataset.reviewHunkIndex, undefined, "every semantic change row carries its hunk id");
@@ -107,7 +126,18 @@ test("omitted context expands in both diff panes without losing hunk navigation"
   assert.equal(folds[0].tagName, "BUTTON", "the fold is keyboard accessible");
   const hunkCountBefore = wrapper.querySelectorAll("tr.hunk").length;
 
-  v.click(folds[1]);
+  const rightSide = wrapper.querySelectorAll(".d2h-file-side-diff")[1];
+  const rows = v.window.diffRowsOf(rightSide);
+  const foldRow = folds[1].closest("tr");
+  const foldIndex = rows.indexOf(foldRow);
+  let previousCode = foldIndex - 1;
+  while (previousCode >= 0 && !v.window.isDiffCodeRow(rows[previousCode])) previousCode -= 1;
+  v.window.setDiffCursor("src/review.ts", "new", previousCode, 0, false);
+  v.key("ArrowDown");
+  assert.ok(foldRow.classList.contains("mc-row-selected"), "ArrowDown selects the folded context as a review stop");
+  assert.ok(v.diffCaretRow(), "selecting the fold keeps the adjacent code caret visible");
+
+  v.key(" ", { code: "Space" });
   await v.settle(80);
 
   const sides = wrapper.querySelectorAll(".d2h-file-side-diff");

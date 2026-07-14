@@ -127,14 +127,48 @@ function openMergedView(kind) {
   dock.panel.dataset.kind = kind; // remembered so a live locale switch can re-render this same view
   var mergedBody = document.createElement('div');
   mergedBody.className = 'mc-merged-body';
-  var preview = document.createElement('div');
-  preview.className = 'mc-merged-preview markdown-body';
-  preview.tabIndex = 0;
-  var sourceText = '';
+  var host = document.createElement('div');
+  host.className = 'mc-inline-editor-host mc-merged-editor-host';
+  host.innerHTML = '<div class="mc-memo-empty">' + escapeHtml(t('memo.loading')) + '</div>';
+  var editor = null;
+  var preview = null;
+  var sourceText = buildMergedText(kind);
   var activeSeq = null;
   function mergedItems() { return reviewComments.filter(function (comment) { return comment.kind === kind; }); }
+  function syncMergedAnchors() {
+    if (!preview) return;
+    var items = mergedItems();
+    preview.querySelectorAll('.mc-merged-comment-anchor').forEach(function (heading) {
+      var seq = parseInt(heading.dataset.commentSeq, 10);
+      if (!items.some(function (comment) { return comment.seq === seq; })) {
+        heading.classList.remove('mc-merged-comment-anchor', 'active');
+        delete heading.dataset.commentSeq;
+        heading.removeAttribute('aria-selected');
+      }
+    });
+    var headings = Array.from(preview.querySelectorAll('h3'));
+    items.forEach(function (comment) {
+      var existing = preview.querySelector('.mc-merged-comment-anchor[data-comment-seq="' + comment.seq + '"]');
+      var expected = commentTargetLabel(comment);
+      var heading = existing || headings.find(function (candidate) {
+        return !candidate.dataset.commentSeq && candidate.textContent.trim() === expected;
+      });
+      if (!heading) return;
+      heading.classList.add('mc-merged-comment-anchor');
+      heading.dataset.commentSeq = String(comment.seq);
+      heading.tabIndex = -1;
+    });
+    preview.querySelectorAll('.mc-merged-count').forEach(function (heading) { heading.classList.remove('mc-merged-count'); });
+    var countHeading = Array.from(preview.querySelectorAll('h1,h2,h3,h4,h5,h6')).find(function (heading) {
+      return !heading.dataset.commentSeq && /\(\d+\)\s*$/.test(heading.textContent.trim());
+    });
+    if (countHeading) countHeading.classList.add('mc-merged-count');
+    if (!items.some(function (comment) { return comment.seq === activeSeq; })) activeSeq = items.length ? items[0].seq : null;
+    selectMergedComment(activeSeq, false);
+  }
   function selectMergedComment(seq, shouldFocus) {
     activeSeq = seq;
+    if (!preview) return;
     preview.querySelectorAll('.mc-merged-comment-anchor').forEach(function (heading) {
       heading.classList.toggle('active', String(heading.dataset.commentSeq) === String(seq));
       heading.setAttribute('aria-selected', String(String(heading.dataset.commentSeq) === String(seq)));
@@ -142,22 +176,24 @@ function openMergedView(kind) {
     var activeHeading = preview.querySelector('.mc-merged-comment-anchor.active');
     if (shouldFocus && activeHeading) { activeHeading.focus(); activeHeading.scrollIntoView({ block: 'center' }); }
   }
-  function renderMergedDocument(closeWhenEmpty) {
-    var items = mergedItems();
-    if (!items.length && closeWhenEmpty) { dock.close(); return; }
-    sourceText = buildMergedText(kind);
-    preview.innerHTML = renderMarkdownHtml(sourceText);
-    var headings = Array.from(preview.querySelectorAll('h3'));
-    items.forEach(function (comment) {
-      var expected = commentTargetLabel(comment);
-      var heading = headings.find(function (candidate) { return !candidate.dataset.commentSeq && candidate.textContent.trim() === expected; });
-      if (!heading) return;
-      heading.classList.add('mc-merged-comment-anchor');
-      heading.dataset.commentSeq = String(comment.seq);
-      heading.tabIndex = -1;
+  // Resolve the review section that contains the actual ProseMirror caret. A caret in the introduction
+  // intentionally has no comment action; keyboard-selected headings still fall back to activeSeq.
+  function mergedCommentAtNode(node) {
+    if (!preview || !node || !preview.contains(node)) return undefined;
+    var element = node.nodeType === 1 ? node : node.parentElement;
+    if (!element) return undefined;
+    if (element === preview) return undefined; // focus without an established DOM caret: retain keyboard selection
+    var direct = element.closest && element.closest('.mc-merged-comment-anchor');
+    if (direct) return parseInt(direct.dataset.commentSeq, 10);
+    var candidate = null;
+    Array.from(preview.querySelectorAll('.mc-merged-comment-anchor')).forEach(function (heading) {
+      if (heading === element || heading.contains(element) || (heading.compareDocumentPosition(element) & 4)) candidate = heading;
     });
-    if (!items.some(function (comment) { return comment.seq === activeSeq; })) activeSeq = items.length ? items[0].seq : null;
-    selectMergedComment(activeSeq, false);
+    return candidate ? parseInt(candidate.dataset.commentSeq, 10) : null;
+  }
+  function mergedCommentAtCaret() {
+    var selection = window.getSelection && window.getSelection();
+    return selection && selection.rangeCount ? mergedCommentAtNode(selection.anchorNode) : undefined;
   }
   function moveMergedComment(dir) {
     var items = mergedItems();
@@ -167,6 +203,9 @@ function openMergedView(kind) {
     selectMergedComment(items[Math.max(0, Math.min(items.length - 1, index + dir))].seq, true);
   }
   function openMergedActions() {
+    var caretSeq = mergedCommentAtCaret();
+    if (typeof caretSeq === 'number' && !isNaN(caretSeq)) selectMergedComment(caretSeq, false);
+    else if (caretSeq === null) { selectMergedComment(null, false); return; }
     if (activeSeq == null) return;
     var heading = preview.querySelector('.mc-merged-comment-anchor.active');
     if (!heading) return;
@@ -174,35 +213,77 @@ function openMergedView(kind) {
     var seq = activeSeq;
     showCustomDropdown(rect.left + 8, rect.bottom + 4, [
       { label: t('dropdown.navigate'), onSelect: function () { dock.close(); navigateToComment(seq); } },
-      { label: t('dropdown.remove'), onSelect: function () { deleteComment(seq); renderMergedDocument(true); } },
+      { label: t('dropdown.remove'), onSelect: function () {
+        var anchors = Array.from(preview.querySelectorAll('.mc-merged-comment-anchor'));
+        var at = anchors.indexOf(heading);
+        var nextHeading = at >= 0 ? anchors[at + 1] : null;
+        var countHeading = preview.querySelector('.mc-merged-count');
+        var countBase = countHeading ? countHeading.textContent.replace(/\s*\(\d+\)\s*$/, '') : '';
+        deleteComment(seq);
+        var items = mergedItems();
+        if (!items.length) { dock.close(); return; }
+        var deletedInline = editor && typeof editor.deleteBlockRange === 'function' && editor.deleteBlockRange(heading, nextHeading);
+        if (deletedInline && countHeading && typeof editor.replaceBlockText === 'function') {
+          editor.replaceBlockText(countHeading, countBase + ' (' + items.length + ')');
+        } else if (editor) {
+          editor.setMarkdown(buildMergedText(kind));
+        }
+        sourceText = editor ? editor.getMarkdown() : buildMergedText(kind);
+        activeSeq = items[Math.max(0, Math.min(items.length - 1, at))].seq;
+        syncMergedAnchors();
+      } },
     ], rect.top);
   }
-  preview.addEventListener('click', function (event) {
-    var heading = event.target && event.target.closest ? event.target.closest('.mc-merged-comment-anchor') : null;
-    if (heading) selectMergedComment(parseInt(heading.dataset.commentSeq, 10), false);
-  });
-  preview.addEventListener('keydown', function (event) {
+  function handleMergedClick(event) {
+    var seq = mergedCommentAtNode(event.target);
+    if (typeof seq === 'number' && !isNaN(seq)) selectMergedComment(seq, false);
+  }
+  function handleMergedKeydown(event) {
     if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault(); event.stopPropagation(); moveMergedComment(event.key === 'ArrowDown' ? 1 : -1); return;
     }
     if (event.altKey && (event.key === 'Enter' || event.code === 'Enter')) {
       event.preventDefault(); event.stopPropagation(); openMergedActions();
     }
-  });
+  }
   var copyBtn = document.createElement('button');
   copyBtn.type = 'button';
   copyBtn.className = 'dock-btn mc-copy-all';
   copyBtn.setAttribute('data-i18n', 'merged.copyAll');
   copyBtn.textContent = t('merged.copyAll');
   copyBtn.addEventListener('click', function () {
+    if (editor) sourceText = editor.getMarkdown();
     var copied = typeof copyTextToClipboard === 'function' && copyTextToClipboard(sourceText);
     if (typeof showToast === 'function') showToast(t(copied ? 'merged.copied' : 'merged.copyFailed'));
   });
   dock.bar.insertBefore(copyBtn, dock.bar.querySelector('.dock-max'));
-  mergedBody.appendChild(preview);
+  mergedBody.appendChild(host);
   dock.body.appendChild(mergedBody);
-  renderMergedDocument(false);
-  focusDockField(preview, '#mc-merged-panel');
+  dock.panel.__monacoriBeforeClose = function () { if (editor) editor.destroy(); };
+  loadInlineMarkdownEditor().then(function (factory) {
+    if (!document.getElementById('mc-merged-panel')) return;
+    host.innerHTML = '';
+    editor = factory.create({
+      element: host,
+      markdown: sourceText,
+      className: 'mc-merged-preview',
+      placeholder: kind === 'q' ? t('merged.qTitle') : t('merged.cTitle'),
+      onUpdate: function (markdown) {
+        sourceText = markdown;
+        requestAnimationFrame(syncMergedAnchors);
+      },
+    });
+    preview = host.querySelector('.mc-inline-editor');
+    if (!preview) throw new Error('inline editor surface is unavailable');
+    preview.tabIndex = 0;
+    preview.addEventListener('click', handleMergedClick);
+    preview.addEventListener('keydown', handleMergedKeydown);
+    syncMergedAnchors();
+    focusDockField(preview, '#mc-merged-panel');
+  }).catch(function () {
+    host.innerHTML = '<div class="mc-memo-empty">' + escapeHtml(t('memo.loadFailed')) + '</div>';
+    showToast(t('memo.loadFailed'));
+  });
 }
 
 // One Notion-style Markdown document per worktree. Electron persists it below app.getPath('userData'); the

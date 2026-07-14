@@ -181,11 +181,24 @@ export function serveDiffWatch(input: {
         return;
       }
 
+      // Project-wide metadata/tree is fetched after first paint, only when a project navigation surface
+      // needs it. This mirrors Electron's monacori:get-project-index IPC endpoint.
+      if (requestUrl.pathname === "/project-index") {
+        const b = lastBuild ?? build();
+        const update = b.update;
+        writeHttpJson(response, update ? {
+          signature: update.signature,
+          filesTree: update.filesTree,
+          sourceFilesMeta: update.sourceFilesMeta,
+        } : { signature: b.signature, filesTree: "", sourceFilesMeta: [] });
+        return;
+      }
+
       if (requestUrl.pathname === "/diff-context") {
         const b = lastBuild ?? build();
         writeHttpJson(response, readReviewDiffContext({
           root: repoRoot(),
-          base: input.base,
+          base: b.reviewBase ?? input.base,
           staged: input.staged,
           bodyDiffs: b.lazyBodyDiffs ?? [],
           request: {

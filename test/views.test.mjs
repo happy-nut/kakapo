@@ -397,6 +397,35 @@ test("merged view: Opt+Arrow steps between rendered comment headings", async () 
   v.close();
 });
 
+test("merged view: Opt+Enter resolves the comment section at the actual editing caret", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(0);
+  await v.openComposer("q");
+  await v.writeAndSave("keep first");
+  await v.clickSourceLine(1);
+  await v.openComposer("q");
+  await v.writeAndSave("remove second");
+  await v.openMergedView("q");
+  const preview = v.$(".mc-merged-preview");
+  const headings = [...preview.querySelectorAll(".mc-merged-comment-anchor")];
+  const secondBody = headings[1].nextElementSibling;
+  const range = v.document.createRange();
+  range.selectNodeContents(secondBody);
+  range.collapse(true);
+  const selection = v.window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+
+  preview.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
+  await v.settle(30);
+  const remove = [...v.$("#mc-dropdown").querySelectorAll(".mc-dropdown-item")].find((item) => /remove|지우기/i.test(item.textContent));
+  remove.click();
+  await v.settle(40);
+  assert.equal(v.window.reviewComments.filter((c) => c.kind === "q").map((c) => c.text).join("|"), "keep first", "the caret's second comment was removed, not the initially active first one");
+  v.close();
+});
+
 test("comment tracking: follows a moved line; kept (never dropped) when the snapshot line vanishes", async () => {
   const { html } = await makeReviewHtml([
     { path: "src/app.ts", before: "export const x = 1;\nexport const y = 2;\n", after: "export const x = 1;\nexport const y = 3;\n" },
