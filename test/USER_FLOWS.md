@@ -56,6 +56,7 @@ localStorage라 이 함정을 못 건드린다).
 - CSV: 레코드별 정렬 테이블
 - 한 뷰에서 단 코멘트는 다른 뷰로 옮겨가도 보인다
 - 코멘트가 달린 파일에는 개수 배지가 붙는다
+- diff toolbar의 이전/다음 버튼, 변경 카운터, Base/Working tree 헤더가 키보드 F7 흐름과 같은 위치를 가리킨다
 
 ### Flow 5 — 프로젝트 코드 분석과 변경 영향 (`analysis.test.mjs`, `impact.test.mjs`, `monaco.test.mjs`)
 

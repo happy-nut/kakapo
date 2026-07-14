@@ -85,6 +85,15 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "btn.viewed.title": "Toggle viewed (<)",
     "diff.noDiff": "No diff to review.",
     "diff.lastHunk": "Last change in this file — press F7 again to go to the next file.",
+    "diff.previous": "Previous change (Shift+F7)",
+    "diff.next": "Next change (F7)",
+    "diff.openSource": "Open source (Cmd/Ctrl+Down)",
+    "diff.navigation": "Change navigation",
+    "diff.panes": "Diff panes",
+    "diff.base": "Base",
+    "diff.workingTree": "Working tree",
+    "diff.changeCounter": "Change {current} of {total}",
+    "diff.noChange": "No change selected",
 
     // Source toolbar
     "source.title": "Source",
@@ -298,6 +307,15 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "btn.viewed.title": "확인 표시 토글 (<)",
     "diff.noDiff": "검토할 변경사항이 없습니다.",
     "diff.lastHunk": "이 파일의 마지막 변경입니다 — F7을 한 번 더 누르면 다음 파일로 이동합니다.",
+    "diff.previous": "이전 변경 (Shift+F7)",
+    "diff.next": "다음 변경 (F7)",
+    "diff.openSource": "소스 열기 (Cmd/Ctrl+Down)",
+    "diff.navigation": "변경 탐색",
+    "diff.panes": "Diff 비교 창",
+    "diff.base": "기준 버전",
+    "diff.workingTree": "작업 트리",
+    "diff.changeCounter": "변경 {current} / {total}",
+    "diff.noChange": "선택된 변경 없음",
 
     // Source toolbar
     "source.title": "소스",

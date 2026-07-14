@@ -203,6 +203,7 @@ function applyI18n() {
   document.documentElement.lang = locale;
   if (langSelectRef) langSelectRef.render();
   if (themeSelectRef) themeSelectRef.render(); // theme labels are localized — refresh on a language switch too
+  if (typeof syncDiffReviewChrome === 'function') syncDiffReviewChrome();
 }
 // Theme mirrors the locale pattern: persisted choice, applied by toggling data-theme on <html> so the
 // :root[data-theme="light"] palette takes over. Dark is the default (matches the inline :root). Applied

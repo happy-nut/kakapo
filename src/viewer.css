@@ -369,6 +369,34 @@ body {
 }
 /* The per-file header is merged into the sticky toolbar (path + status + Viewed) to save vertical space. */
 .d2h-file-header { display: none; }
+.diff-toolbar {
+  flex: none; min-height: 36px; padding: 4px 8px; gap: 8px;
+  background: var(--sidebar); backdrop-filter: none;
+}
+.diff-toolbar-file { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 260px; }
+.diff-file-icon { flex: none; display: inline-flex; color: var(--muted); }
+.diff-review-controls { flex: none; display: inline-flex; align-items: center; gap: 2px; }
+.diff-tool-button {
+  width: 26px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; border-radius: 3px; background: transparent; color: var(--muted); cursor: pointer;
+}
+.diff-tool-button:hover { color: var(--text); background: color-mix(in srgb, var(--active) 14%, transparent); border-color: color-mix(in srgb, var(--active) 28%, transparent); }
+.diff-tool-button:focus-visible { outline: 1px solid var(--active); outline-offset: 1px; }
+.diff-tool-button:disabled { opacity: .35; cursor: default; background: transparent; border-color: transparent; }
+.diff-tool-separator { width: 1px; height: 16px; margin: 0 3px; background: var(--border); }
+.diff-change-counter {
+  min-width: 92px; padding: 0 5px; color: var(--muted); text-align: center; white-space: nowrap;
+  font: 10.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.diff-toolbar-meta { min-width: 0; flex: 1 1 260px; display: flex; justify-content: flex-end; align-items: center; gap: 9px; }
+.diff-pane-header {
+  flex: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); height: 29px;
+  background: color-mix(in srgb, var(--sidebar) 88%, var(--panel)); border-bottom: 1px solid var(--border);
+}
+.diff-pane { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; color: var(--muted); }
+.diff-pane:first-child { border-right: 1px solid color-mix(in srgb, var(--active) 24%, var(--border)); }
+.diff-pane-kind { flex: none; color: var(--text); font-size: 10.5px; font-weight: 650; }
+.diff-pane-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 10.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .diff-viewed-toggle {
   display: inline-flex;
   align-items: center;
@@ -427,13 +455,13 @@ body {
 .d2h-tag { border-color: var(--border); }
 .d2h-files-diff { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .d2h-file-side-diff { position: relative; min-width: 0; width: 100%; overflow-x: auto; } /* relative: the line-number cells are position:absolute, so they must scroll WITH this column inside .diff2html-container instead of staying pinned to the viewport */
-.d2h-file-side-diff:first-child { border-right: 1px solid var(--border); }
+.d2h-file-side-diff:first-child { border-right: 1px solid color-mix(in srgb, var(--active) 24%, var(--border)); }
 .d2h-code-wrapper { width: 100%; }
 .d2h-diff-table {
   width: 100%;
   font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-.d2h-diff-table td { line-height: 1.45; }
+.d2h-diff-table td { line-height: 1.55; }
 .d2h-code-side-linenumber, .d2h-code-linenumber {
   width: 58px;
   color: var(--muted);
@@ -456,7 +484,9 @@ body {
    edits, not the same gray. hljs tokens keep their own colors; this only affects unhighlighted text. */
 td.d2h-ins:not(.d2h-code-side-linenumber),
 td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
-.d2h-code-line-prefix { -webkit-user-select: none; user-select: none; }
+/* IntelliJ's side-by-side viewer communicates insert/delete through the gutter and background; literal
+   +/- prefixes add horizontal noise and make the panes read like a patch rather than two editors. */
+.d2h-code-line-prefix { display: none; -webkit-user-select: none; user-select: none; }
 .d2h-code-side-linenumber, .d2h-code-linenumber { -webkit-user-select: none; user-select: none; }
 .d2h-code-line-ctn .hljs-keyword,
 .d2h-code-line-ctn .hljs-built_in,
@@ -495,6 +525,8 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-file-wrapper.df-inactive { display: none; }
 .d2h-del { background: var(--del); }
 .d2h-ins { background: var(--add); }
+td.d2h-del.d2h-code-side-line, td.d2h-del.d2h-code-line { box-shadow: inset 3px 0 0 color-mix(in srgb, #f85149 72%, transparent); }
+td.d2h-ins.d2h-code-side-line, td.d2h-ins.d2h-code-line { box-shadow: inset 3px 0 0 color-mix(in srgb, #3fb950 72%, transparent); }
 .d2h-del .d2h-change { background: var(--del-strong); }
 .d2h-ins .d2h-change { background: var(--add-strong); }
 .d2h-code-line-ctn ins, .d2h-code-line-ctn del {
@@ -513,8 +545,8 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-diff-table tr.history-hunk.active td, .d2h-diff-table tr.history-hunk-peer.active td {
   box-shadow: none;
 }
-.d2h-diff-table tr.diff-active-row td { background: rgba(74, 136, 199, 0.16) !important; }
-.d2h-diff-table tr.diff-active-row td.d2h-code-side-linenumber { box-shadow: inset 2px 0 0 var(--active); }
+.d2h-diff-table tr.diff-active-row td { background: color-mix(in srgb, var(--active) 17%, var(--panel)) !important; }
+.d2h-diff-table tr.diff-active-row td.d2h-code-side-linenumber { box-shadow: inset 3px 0 0 var(--active); color: var(--text); }
 .review-status .ws-ignored { color: var(--token-tag); border: 1px solid color-mix(in srgb, var(--token-tag) 45%, transparent); border-radius: 0; padding: 0 7px; }
 .d2h-file-collapse {
   display: inline-flex;
@@ -1261,6 +1293,9 @@ body.dock-maximized .dock-panel { inset: 0; border-radius: 0; }
   .toolbar { margin: -16px -16px 16px; padding: 12px 16px; }
   .semantic-peek { left: 0; height: min(62vh, 540px); }
   .semantic-peek-body { grid-template-columns: minmax(150px, 36%) minmax(0, 1fr); }
+  .diff-toolbar-meta .review-status { display: none; }
+  .diff-pane-header { grid-template-columns: 1fr; }
+  .diff-pane-base { display: none; }
   .d2h-files-diff { grid-template-columns: 1fr; }
   .d2h-file-side-diff:first-child { border-right: 0; border-bottom: 1px solid var(--border); }
 }

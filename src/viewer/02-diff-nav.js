@@ -74,6 +74,63 @@ function renderBreadcrumb(container, path) {
   });
 }
 
+// IntelliJ-style diff chrome follows the keyboard caret, not merely the selected file. A unified hunk
+// can contain several separated edit blocks, so the counter is derived from contiguous change rows in
+// the active pane — the same review stops F7 uses inside a file.
+function diffReviewAnchors(wrapper, side) {
+  if (!wrapper) return [];
+  var cacheKey = side === 'old' ? '__reviewAnchorsOld' : '__reviewAnchorsNew';
+  if (wrapper[cacheKey]) return wrapper[cacheKey];
+  var rows = diffRowsOf(diffSideTable(wrapper, side));
+  if (!rows.length) return [];
+  var anchors = [];
+  var previousWasChange = false;
+  for (var i = 0; i < rows.length; i++) {
+    var changed = isChangeCodeRow(rows[i]);
+    if (changed && !previousWasChange) anchors.push(i);
+    previousWasChange = changed;
+  }
+  wrapper[cacheKey] = anchors;
+  return anchors;
+}
+
+function syncDiffReviewChrome(path) {
+  var activePath = path || (diffCursor && diffCursor.path) || hunkPathAt(current) || '';
+  var beforePath = document.getElementById('diff-before-path');
+  var afterPath = document.getElementById('diff-after-path');
+  if (beforePath) { beforePath.textContent = activePath; beforePath.title = activePath; }
+  if (afterPath) { afterPath.textContent = activePath; afterPath.title = activePath; }
+
+  var counter = document.getElementById('diff-change-counter');
+  var previous = document.getElementById('diff-prev-change');
+  var nextButton = document.getElementById('diff-next-change');
+  var openSource = document.getElementById('diff-open-source');
+  var disabled = hunkTotal() === 0 || !activePath;
+  if (previous) previous.disabled = disabled;
+  if (nextButton) nextButton.disabled = disabled;
+  if (openSource) openSource.disabled = disabled;
+  if (!counter) return;
+
+  var cursor = diffCursor && diffCursor.path === activePath ? diffCursor : null;
+  var wrapper = diffWrapperByPath(activePath);
+  var anchors = cursor && wrapper ? diffReviewAnchors(wrapper, cursor.side) : [];
+  if (!cursor || !anchors.length) {
+    counter.textContent = disabled ? t('diff.noChange') : '—';
+    counter.title = counter.textContent;
+    return;
+  }
+  var selected = 0;
+  for (var ai = 0; ai < anchors.length; ai++) {
+    if (anchors[ai] <= cursor.rowIndex) selected = ai;
+    else break;
+  }
+  var label = t('diff.changeCounter')
+    .replace('{current}', String(selected + 1))
+    .replace('{total}', String(anchors.length));
+  counter.textContent = label;
+  counter.title = label;
+}
+
 // Coalesce diff-nav scrolls: hammering F7 / [ / ] schedules at most one
 // scrollIntoView per frame (to the latest target) instead of forcing a
 // synchronous reflow on every keystroke.
@@ -147,6 +204,7 @@ function applySetActive(idx, shouldScroll) {
   const file = hunkPathAt(idx);
   links.forEach((link) => link.classList.toggle('active', link.dataset.file === file));
   renderBreadcrumb(document.getElementById('diff-breadcrumb'), file);
+  syncDiffReviewChrome(file);
   var dvt = document.getElementById('diff-viewed-toggle');
   if (dvt) dvt.dataset.file = file || '';
   updateDiffViewedToggle();
@@ -307,4 +365,3 @@ function firstHunkForPath(path) {
   const index = Number(link.dataset.hunk);
   return Number.isNaN(index) ? -1 : index;
 }
-

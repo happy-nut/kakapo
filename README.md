@@ -54,7 +54,7 @@ On first run, `mo` creates `.monacori/`, adds it to `.gitignore`, and includes u
 
 ## Highlights
 
-- **Desktop diff review**: reads the repository directly, refreshes from local Git state, and does not require a web server.
+- **IntelliJ-style desktop diff review**: reads the repository directly, refreshes from local Git state, and presents editor-like Base/Working tree panes with change navigation, a live per-file change counter, compact gutters, and no patch-prefix noise.
 - **AI handoff comments**: questions and change requests are stored with their file, line, and code context.
 - **Grounded review handoff**: merge comments with exact file, line, and code context and copy them as one inspectable prompt.
 - **Two-purpose source view**: use **Review** for line comments, then switch eligible code files to the lazy-loaded **Code** mode for a virtualized Monaco editor, folding, sticky scopes, and fast navigation. Starting a comment from Code returns to Review at the same caret.

@@ -429,6 +429,9 @@ document.getElementById('diff-viewed-toggle')?.addEventListener('click', functio
   var path = btn ? (btn.dataset.file || '') : '';
   if (path) setFileViewed(path, !isFileViewed(path));
 });
+document.getElementById('diff-prev-change')?.addEventListener('click', function () { next(-1); });
+document.getElementById('diff-next-change')?.addEventListener('click', function () { next(1); });
+document.getElementById('diff-open-source')?.addEventListener('click', function () { openDiffFileAtCaret(); });
 document.getElementById('source-body')?.addEventListener('click', handleSourceClick);
 document.getElementById('source-body')?.addEventListener('click', function (event) {
   var img = event.target && event.target.closest && event.target.closest('.image-preview');

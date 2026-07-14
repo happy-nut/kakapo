@@ -140,6 +140,7 @@ function setDiffCursor(path, side, rowIndex, column, reveal) {
   var ri = Math.max(0, Math.min(rowIndex, rows.length - 1));
   var col = Math.max(0, Math.min(column, diffLineText(rows[ri]).length));
   diffCursor = { path: path, side: side, rowIndex: ri, column: col };
+  syncDiffReviewChrome(path);
   pendingFileBoundary = null; // any caret move re-arms the last-change announcement for the next F7 (see next)
   hideCaretHint(); // caret moved (incl. crossing to the next file) → drop the "last change" hint so it never covers the new file
   diffSelectionAnchor = null; // any direct caret placement (click/F7/Cmd-arrow) drops the selection; Shift+Arrow re-sets it
@@ -201,6 +202,7 @@ function revealDiffFile(path) {
   showOnlyFile(path);
   links.forEach(function (link) { link.classList.toggle('active', link.dataset.file === path); });
   renderBreadcrumb(document.getElementById('diff-breadcrumb'), path);
+  syncDiffReviewChrome(path);
 }
 function restoreNav(entry) {
   if (!entry) return;
@@ -364,4 +366,3 @@ function handleDiffCaretKey(event) {
   if (event.key === 'ArrowRight') { event.preventDefault(); moveDiffCursor(0, 1, extend); return true; }
   return false;
 }
-
