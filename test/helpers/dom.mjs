@@ -91,6 +91,11 @@ export async function loadViewer(html, opts = {}) {
             getMarkdown: () => value,
             setMarkdown(next) { value = String(next); render(); },
             focus() { editable.focus(); },
+            getCaretElement() {
+              const selection = window.getSelection();
+              const node = selection && selection.rangeCount ? selection.anchorNode : null;
+              return node ? (node.nodeType === 1 ? node : node.parentElement) : null;
+            },
             destroy() {},
           };
         },
@@ -118,7 +123,7 @@ export async function loadViewer(html, opts = {}) {
       // lazy-LOAD source/diff bridge: serve source content + per-index diff bodies on demand, as
       // Electron/serve do. opts.getDiffBody(index, kind) lets a test swap the served body between builds
       // (watch refresh), which is how the stale-bodyCache regression is reproduced.
-      if (opts.lazySourceData != null || opts.getDiffBody || opts.sourceBridge) {
+      if (opts.lazySourceData != null || opts.getDiffBody || opts.sourceBridge || opts.existingPathsBridge) {
         let sourceRecords = [];
         try { sourceRecords = JSON.parse(opts.lazySourceData ?? "[]"); } catch { sourceRecords = []; }
         window.__sourceRequests = [];
@@ -141,6 +146,9 @@ export async function loadViewer(html, opts = {}) {
             window.__sourceRequests.push(path);
             return Promise.resolve(opts.sourceBridge ? opts.sourceBridge(path) : sourceRecords.find((record) => record.path === path) || null);
           },
+          existingPaths: opts.existingPathsBridge
+            ? (paths) => Promise.resolve(opts.existingPathsBridge(paths))
+            : undefined,
           get: (index, kind) => Promise.resolve(opts.getDiffBody ? opts.getDiffBody(Number(index), kind) : ""),
           getDiffContext: opts.diffContextBridge
             ? (request) => Promise.resolve(opts.diffContextBridge(request))
@@ -346,6 +354,12 @@ class Viewer {
       this.document.querySelector(".source-link");
     this.click(link);
     await this.settle(80);
+    // This helper establishes a source-editor test fixture. Real pointer-focus behavior is exercised with
+    // direct `click(link)` calls; hand setup focus to the content so subsequent caret shortcuts test the
+    // editor rather than unintentionally paging/navigating the newly pointer-focused tree.
+    if (typeof this.window.clearTreeFocus === "function") this.window.clearTreeFocus();
+    const source = this.document.getElementById("source-body");
+    if (source) { source.tabIndex = -1; source.focus({ preventScroll: true }); }
   }
   async openDiffFor(path) {
     const row =
@@ -353,6 +367,10 @@ class Viewer {
       this.document.querySelector(".change-row, #changes-panel .file-link");
     this.click(row);
     await this.settle(80);
+    // As above, openDiffFor prepares the editor surface; direct row-click tests own sidebar semantics.
+    if (typeof this.window.clearTreeFocus === "function") this.window.clearTreeFocus();
+    const diff = this.document.getElementById("diff2html-container");
+    if (diff) { diff.tabIndex = -1; diff.focus({ preventScroll: true }); }
   }
   /** Place the caret on a source row by its 0-based line index (markdown/csv rows are sparse). */
   async clickSourceLine(lineIndex) {
@@ -536,6 +554,9 @@ function installMonacoMock(window) {
         if (cursorListener) cursorListener({ position });
       },
       getPosition: () => ({ ...position }),
+      getAction(id) {
+        return { run() { editor.lastAction = id; } };
+      },
       revealPositionInCenterIfOutsideViewport() {},
       revealPositionInCenter() {},
       revealLineInCenterIfOutsideViewport() {},
@@ -554,7 +575,7 @@ function installMonacoMock(window) {
     Range,
     Uri: { parse: parseUri },
     KeyMod: { CtrlCmd: 1 << 11, Shift: 1 << 10, Alt: 1 << 9 },
-    KeyCode: { KeyB: 32, Digit8: 29, Slash: 85, Period: 84 },
+    KeyCode: { KeyB: 32, KeyF: 36, Digit8: 29, Slash: 85, Period: 84 },
     editor: {
       create: createEditor,
       createModel,

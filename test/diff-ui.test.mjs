@@ -17,6 +17,27 @@ before(async () => {
   ({ html } = await makeReviewHtml([
     { path: "src/review.ts", before: beforeLines.join("\n") + "\n", after: afterLines.join("\n") + "\n" },
     { path: "src/colors.ts", before: colorBefore.join("\n") + "\n", after: colorAfter.join("\n") + "\n" },
+    {
+      path: "src/certification.py",
+      before: [
+        "document = {",
+        "    'results': results,",
+        "    'separation': {",
+        "        'execution_compatible': bool(execution_compatible),",
+        "        'statistically_certified': False,",
+        "        'certification_threshold_policy': 'pending_user_decision',",
+        "        'approx_metrics_are_distinct': ['approx_dsr', 'fold_rank_pbo'],",
+        "    },",
+        "}",
+      ].join("\n") + "\n",
+      after: [
+        "document = {",
+        "    'results': results,",
+        "    'certification': certification,",
+        "    'approx_metrics_are_distinct': ['approx_dsr', 'fold_rank_pbo'],",
+        "}",
+      ].join("\n") + "\n",
+    },
   ], { app: true, context: 2 }));
 });
 after(cleanupFixtures);
@@ -64,7 +85,10 @@ test("paired hunk rows use center gutters and IntelliJ semantic colors", async (
   assert.ok(oldModified?.classList.contains("mc-diff-modified"), "a replacement is blue on the old side");
   assert.ok(newRows[oldRows.indexOf(oldModified)]?.classList.contains("mc-diff-modified"), "the replacement band crosses both panes");
   assert.ok(oldDeleted?.classList.contains("mc-diff-deleted"), "a pure deletion is neutral gray");
-  assert.ok(newRows[oldRows.indexOf(oldDeleted)]?.classList.contains("mc-diff-deleted"), "the gray deletion band crosses the empty placeholder");
+  const newDeletedPeer = newRows[oldRows.indexOf(oldDeleted)];
+  assert.ok(newDeletedPeer?.classList.contains("mc-diff-deleted"), "the deletion keeps its positional peer for review mapping");
+  assert.ok(newDeletedPeer?.classList.contains("mc-asymmetric-delete-gap"), "the empty working-tree peer is tagged as a compact deletion gap");
+  assert.equal(v.window.getComputedStyle(newDeletedPeer).display, "none", "the working tree does not show gray blank rows for removed base lines");
   assert.ok(newAdded?.classList.contains("mc-diff-added"), "a pure insertion is green");
   const oldAddedPeer = oldRows[newRows.indexOf(newAdded)];
   assert.ok(oldAddedPeer?.classList.contains("mc-diff-added"), "the old placeholder keeps the insertion's semantic pairing");
@@ -80,6 +104,19 @@ test("paired hunk rows use center gutters and IntelliJ semantic colors", async (
   const resumeNumber = Number(resumeRow.querySelector(".d2h-code-side-linenumber")?.textContent.trim());
   const resumeAt = visibleOldNumbers.indexOf(resumeNumber);
   assert.equal(visibleOldNumbers[resumeAt - 1], resumeNumber - 1, "base line numbers remain consecutive across the collapsed insertion");
+
+  const visibleNewNumbers = newRows
+    .filter((row) => v.window.getComputedStyle(row).display !== "none")
+    .map((row) => Number(row.querySelector(".d2h-code-side-linenumber")?.textContent.trim()))
+    .filter(Number.isFinite);
+  const deletedPeerAt = newRows.indexOf(newDeletedPeer);
+  const nextVisibleNew = newRows.slice(deletedPeerAt + 1).find((row) => {
+    const number = Number(row.querySelector(".d2h-code-side-linenumber")?.textContent.trim());
+    return Number.isFinite(number) && v.window.getComputedStyle(row).display !== "none";
+  });
+  const nextVisibleNumber = Number(nextVisibleNew?.querySelector(".d2h-code-side-linenumber")?.textContent.trim());
+  const nextVisibleAt = visibleNewNumbers.indexOf(nextVisibleNumber);
+  assert.equal(visibleNewNumbers[nextVisibleAt - 1], nextVisibleNumber - 1, "working-tree line numbers remain consecutive across a collapsed deletion");
 
   const semanticRow = (number, text) => {
     const row = v.window.document.createElement("tr");
@@ -158,6 +195,23 @@ test("paired hunk rows use center gutters and IntelliJ semantic colors", async (
     "outside an insertion, an exact shared row corrects accumulated table-height drift",
   );
 
+  const originalGaps = alignment.gaps;
+  const originalAnchors = alignment.anchors;
+  alignment.gaps = [];
+  alignment.anchors = [anchorPair];
+  anchorPair.oldRow.getBoundingClientRect = () => ({ top: 140, bottom: 160, height: 20 });
+  anchorPair.newRow.getBoundingClientRect = () => ({ top: 120, bottom: 140, height: 20 });
+  alignment.offset = 0;
+  v.window.invalidateAsymmetricDiffGeometry(wrapper);
+  v.window.scrollAsymmetricDiff();
+  assert.equal(
+    oldContent.style.transform,
+    "translate3d(0, -20px, 0)",
+    "a compact deletion applies a signed upward correction instead of leaving the following rows split",
+  );
+  alignment.gaps = originalGaps;
+  alignment.anchors = originalAnchors;
+
   const connectorRun = alignment.connectorRuns.find((run) => run.oldRealRows.length && run.newRealRows.length);
   assert.ok(connectorRun, "changed source extents are grouped into connector runs");
   connectorRun.oldRealRows[0].getBoundingClientRect = () => ({ top: 160, bottom: 184, height: 24 });
@@ -170,8 +224,9 @@ test("paired hunk rows use center gutters and IntelliJ semantic colors", async (
   assert.ok(connector, "the center line-number gutters receive a hunk connector");
   assert.match(connector.getAttribute("d"), / C /, "the connector uses a smooth cubic boundary rather than a hard box");
   assert.match(connector.getAttribute("d"), /^M -1 /, "the connector bleeds into the code canvas so no antialiasing seam remains");
-  assert.equal(diffSurface.querySelector(".mc-diff-connectors").style.left, "448px", "the connector stays centered on the pane divider");
+  assert.equal(diffSurface.querySelector(".mc-diff-connectors").style.left, "50%", "the connector follows the live pane divider while the sidebar width animates");
   assert.equal(diffSurface.querySelector(".mc-diff-connectors").style.width, "104px", "horizontal table movement cannot stretch the connector");
+  assert.equal(diffSurface.querySelector(".mc-diff-connectors").style.transform, "translateX(-50%)", "the connector centers itself without a stale pixel offset");
 
   const collapsedAfter = v.window.document.createElement("tr");
   collapsedAfter.getBoundingClientRect = () => ({ top: 240, bottom: 260, height: 20 });
@@ -221,6 +276,33 @@ test("paired hunk rows use center gutters and IntelliJ semantic colors", async (
   assert.equal(changeRow.querySelector(".diffstat"), null, "Changes rows omit added/deleted line totals");
   assert.equal(changeRow.querySelector(".status").textContent.trim(), "", "status uses no wide text label");
   assert.ok(changeRow.querySelector(".status-modified svg"), "modified state is a compact icon badge");
+  v.close();
+});
+
+test("a compact certification replacement leaves no gray or blank rows in the working tree", async () => {
+  const v = await loadViewer(html, {
+    analysisBridge: () => null,
+    analysisStatus: { generation: 1, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  await v.openDiffFor("src/certification.py");
+  await v.settle(80);
+
+  const wrapper = v.$("#diff2html-container .d2h-file-wrapper:not(.df-inactive)");
+  const newRows = Array.from(wrapper.querySelectorAll(".d2h-file-side-diff:last-of-type tr"));
+  const visibleRows = newRows.filter((row) => v.window.getComputedStyle(row).display !== "none");
+  const certificationAt = visibleRows.findIndex((row) => row.textContent.includes("'certification': certification"));
+  const approximationAt = visibleRows.findIndex((row) => row.textContent.includes("'approx_metrics_are_distinct'"));
+
+  assert.ok(certificationAt >= 0 && approximationAt >= 0, "both real working-tree lines are visible");
+  assert.equal(approximationAt, certificationAt + 1, "the next real line follows certification immediately");
+  assert.equal(
+    visibleRows.slice(certificationAt, approximationAt + 1).some((row) => row.querySelector(".d2h-emptyplaceholder, .d2h-code-side-emptyplaceholder")),
+    false,
+    "no empty gray peer remains between the two working-tree lines",
+  );
+  const hiddenDeletedPeers = newRows.filter((row) => row.classList.contains("mc-asymmetric-delete-gap"));
+  assert.ok(hiddenDeletedPeers.length >= 1, "the larger old-side separation block is carried only by hidden mapping peers and the connector");
+  hiddenDeletedPeers.forEach((row) => assert.equal(v.window.getComputedStyle(row).display, "none"));
   v.close();
 });
 

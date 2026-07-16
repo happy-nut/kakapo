@@ -19,12 +19,14 @@ function showToast(message) {
 // message appears where the user is looking and fades on its own (unlike the corner toast). Falls back to the
 // corner toast when there's no on-screen caret (e.g. source view).
 var caretHintEl = null, caretHintTimer = 0;
-function showCaretHint(message) {
-  var row = activeDiffRow || document.querySelector('#diff2html-container .diff-active-row');
-  if (!row || !row.getBoundingClientRect) { showToast(message); return; }
+function showCaretHint(message, anchor) {
+  var row = anchor || document.querySelector('#source-body .code-cursor')
+    || document.querySelector('#diff2html-container .code-cursor')
+    || activeDiffRow || document.querySelector('#diff2html-container .diff-active-row');
+  if (!row || (!row.getBoundingClientRect && !Number.isFinite(Number(row.bottom)))) { showToast(message); return; }
   if (!caretHintEl) { caretHintEl = document.createElement('div'); caretHintEl.className = 'mc-caret-hint'; document.body.appendChild(caretHintEl); }
   caretHintEl.textContent = message;
-  var r = row.getBoundingClientRect();
+  var r = row.getBoundingClientRect ? row.getBoundingClientRect() : row;
   caretHintEl.style.left = Math.round(Math.max(8, r.left)) + 'px';
   caretHintEl.style.top = Math.round(r.bottom + 4) + 'px';
   caretHintEl.classList.remove('show');
@@ -72,6 +74,49 @@ function remapComments() {
 }
 function saveComments() {
   persistSave(COMMENTS_KEY, reviewComments);
+}
+function hasProjectExistenceBridge() {
+  return !!(window.monacoriFile && typeof window.monacoriFile.existingPaths === 'function');
+}
+function commentFileIsKnownMissing(path) {
+  var file = sourceByPath.get(path);
+  if (file) {
+    return file.vcs === 'deleted' || /not present in the working tree/i.test(String(file.skippedReason || ''));
+  }
+  // The desktop project index intentionally excludes some existing tool/config paths. Only browser/static
+  // reviews can treat absence from an authoritative full index as deletion; Electron asks main directly.
+  return !hasProjectExistenceBridge() && !!projectIndexLoaded;
+}
+function removeCommentsForPaths(paths) {
+  var missing = new Set(Array.isArray(paths) ? paths : []);
+  if (!missing.size) return 0;
+  var removed = reviewComments.filter(function (comment) { return missing.has(comment.path); });
+  if (!removed.length) return 0;
+  reviewComments = reviewComments.filter(function (comment) { return !missing.has(comment.path); });
+  saveComments();
+  try {
+    document.dispatchEvent(new CustomEvent('monacori:comments-pruned', { detail: { comments: removed } }));
+  } catch (e) {}
+  return removed.length;
+}
+function pruneCommentsForMissingFiles() {
+  var missing = [];
+  reviewComments.forEach(function (comment) {
+    if (commentFileIsKnownMissing(comment.path) && missing.indexOf(comment.path) < 0) missing.push(comment.path);
+  });
+  return removeCommentsForPaths(missing);
+}
+function verifyCommentFilesExist() {
+  var paths = [];
+  reviewComments.forEach(function (comment) { if (paths.indexOf(comment.path) < 0) paths.push(comment.path); });
+  if (!paths.length) return Promise.resolve(0);
+  if (hasProjectExistenceBridge()) {
+    return Promise.resolve(window.monacoriFile.existingPaths(paths)).then(function (result) {
+      if (!result || typeof result !== 'object') return 0;
+      return removeCommentsForPaths(paths.filter(function (path) { return result[path] === false; }));
+    }, function () { return 0; });
+  }
+  return ensureProjectIndex().then(function () { return pruneCommentsForMissingFiles(); }, function () { return 0; });
 }
 function commentsAt(path, line) {
   return reviewComments.filter(function (c) { return c.path === path && c.line === line; });
@@ -426,10 +471,6 @@ function refreshComments() {
   if (changedDiffWrappers.length && typeof scrollAsymmetricDiff === 'function') scrollAsymmetricDiff();
   if (isSourceViewerVisible()) renderSourceComments();
   renderCommentBadges();
-  if (typeof isMonacoSourceActive === 'function' && isMonacoSourceActive() && window.monaco) {
-    var monacoCommentFile = sourceByPath.get(monacoSourcePath);
-    if (monacoCommentFile) refreshMonacoSourceDecorations(window.monaco, monacoCommentFile);
-  }
   applyCommentSelectionHighlight();
   // Keep body.mc-composing (which hides the file caret) tied to the ACTUAL on-screen composer, not just
   // composerState. Leaving the composer by any path other than save/cancel (opening another file, switching
@@ -465,9 +506,6 @@ function refreshComments() {
 }
 
 function openComposer(kind) {
-  // Monaco's Code mode is optimized for navigation and virtualized reading; line-comment cards live in
-  // Review mode. Preserve the Monaco caret, switch the same file back, then open the normal composer.
-  if (typeof isMonacoSourceActive === 'function' && isMonacoSourceActive()) switchMonacoToReviewAtCursor();
   var target = currentCommentTarget();
   if (!target) return;
   composerState = { kind: kind, path: target.path, line: target.line, code: target.code, anchorCode: target.anchorCode, from: target.from, to: target.to, side: target.side };
@@ -572,6 +610,11 @@ function showCustomDropdown(x, y, options, flipTop) {
 function navigateToComment(seq) {
   var c = reviewComments.find(function (x) { return x.seq === seq; });
   if (!c) return;
+  if (commentFileIsKnownMissing(c.path)) {
+    removeCommentsForPaths([c.path]);
+    refreshComments();
+    return;
+  }
   openSourceFile(c.path);
   requestAnimationFrame(function () { setSourceCursor(c.path, Math.max(0, (Number(c.from) || c.line || 1) - 1), 0, true, -1); });
 }
@@ -642,9 +685,9 @@ function buildMergedText(kind) {
   var items = reviewComments.filter(function (c) { return c.kind === kind; });
   var nl = String.fromCharCode(10);
   var lines = [];
-  // Change requests are task instructions, so they lead with the plan contract: plan first, decompose into
-  // verifiable steps, write the plan to .monacori/plan.md (editable in Settings → Merge prompts). Questions
-  // are read-only clarifications, so they skip it.
+  // Change requests are task instructions, so they lead with the plan contract: plan first and decompose
+  // into verifiable steps without asking the agent to add an application-state file to the repository.
+  // Questions are read-only clarifications, so they skip it.
   if (kind === 'c') { lines.push(mergePromptFor('plan')); lines.push(''); }
   // Per-kind agent contract heading (editable in Settings → Merge prompts; default otherwise).
   lines.push(mergePromptFor(kind));

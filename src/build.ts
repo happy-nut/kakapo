@@ -57,8 +57,8 @@ export function buildDiffReview(input: {
     root,
   });
   const files = parseUnifiedDiff(diffText);
-  // The Electron app keeps source content behind per-file IPC and renders large text with Monaco.
-  // Standalone HTML retains the smaller limit because its review renderer materializes DOM rows.
+  // The Electron app keeps source content behind per-file IPC. Standalone HTML retains the smaller limit
+  // because every embedded source contributes to its initial payload.
   const appLazySource = Boolean(input.app && input.lazyLoad);
   const sourceFiles = collectSourceFiles(files, root, {
     previewLargeText: appLazySource,

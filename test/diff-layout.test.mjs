@@ -7,6 +7,44 @@ import { readFileSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
 
+test("real Chromium keeps every full-viewport title surface clear of macOS traffic lights", {
+  skip: process.platform !== "darwin" ? "macOS native-title layout regression" : false,
+  timeout: 30_000,
+}, async () => {
+  const electron = require("electron");
+  const fixture = fileURLToPath(new URL("./fixtures/electron-native-title-layout.cjs", import.meta.url));
+  const css = fileURLToPath(new URL("../dist/viewer.css", import.meta.url));
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(electron, [fixture, css], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
+  });
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+  const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("MONACORI_NATIVE_TITLE_LAYOUT="));
+  assert.ok(marker, `native title layout result missing\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  const layout = JSON.parse(marker.slice("MONACORI_NATIVE_TITLE_LAYOUT=".length));
+  assert.equal(layout.safeWidth, 76, "the measured native control reservation matches BrowserWindow traffic lights");
+  assert.equal(layout.titlebarHeight, 40, "all custom title rows share the native titlebar height");
+  assert.ok(layout.railActionTop >= layout.titlebarHeight, "activity buttons begin below the traffic-light row");
+  assert.ok(layout.sidebarBrandTop >= layout.titlebarHeight, "the expanded project header begins below the traffic-light row");
+  assert.equal(layout.sidebarFocusTop, layout.titlebarHeight, "the sidebar keyboard cue begins below the traffic-light row");
+  assert.equal(layout.sidebarFocusOutline, "none", "the sidebar does not draw a full-box outline through native controls");
+  assert.equal(layout.railFocusOutline, "none", "the activity rail does not outline the traffic-light corner");
+  assert.ok(layout.reviewTitleLeft >= layout.safeWidth + 8, `collapsed review title starts at ${layout.reviewTitleLeft}px`);
+  assert.ok(layout.historyTitleLeft >= layout.safeWidth + 8, `History title starts at ${layout.historyTitleLeft}px`);
+  assert.ok(layout.historyBarHeight >= layout.titlebarHeight - 0.5, "History preserves the shared titlebar height within Chromium subpixel rounding");
+  assert.ok(layout.dockTitleLeft >= layout.safeWidth + 8, `maximized writing-panel title starts at ${layout.dockTitleLeft}px`);
+  assert.ok(layout.dockBarHeight >= layout.titlebarHeight - 0.5, "maximized writing panels preserve the shared titlebar height within Chromium subpixel rounding");
+  assert.equal(layout.dockButtonRegion, "no-drag", "maximized writing-panel actions remain clickable");
+});
+
 test("real Chromium keeps both diff gutters at the divider after maximum horizontal scroll", {
   skip: process.platform !== "darwin" ? "macOS packaged layout regression" : false,
   timeout: 30_000,

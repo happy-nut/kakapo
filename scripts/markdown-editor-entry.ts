@@ -12,6 +12,7 @@ type InlineMarkdownEditor = {
   destroy(): void;
   deleteBlockRange(start: HTMLElement, end?: HTMLElement | null): boolean;
   replaceBlockText(block: HTMLElement, text: string): boolean;
+  getCaretElement(): HTMLElement | null;
   typeText(text: string): void;
 };
 
@@ -82,7 +83,11 @@ window.MonacoriMarkdownEditor = {
           heading: { levels: [1, 2, 3, 4, 5, 6] },
         }),
         TaskList,
-        TaskItem.configure({ nested: true }),
+        // Tiptap's TaskItem NodeView does not copy the `data-type` attribute emitted by
+        // renderHTML. Keep it explicit here so the live editor receives the same flex layout
+        // as serialized task items: checkbox and editable paragraph stay on one row, and the
+        // paragraph keeps a real click target even while it is empty.
+        TaskItem.configure({ nested: true, HTMLAttributes: { "data-type": "taskItem" } }),
         Details.configure({
           persist: true,
           renderToggleButton: ({ element: button, isOpen }) => {
@@ -142,6 +147,19 @@ window.MonacoriMarkdownEditor = {
           );
         } catch {
           return false;
+        }
+      },
+      // ProseMirror owns the canonical selection. Native window.getSelection() can lag behind it on macOS
+      // when a keymap consumes Option+Enter, so merged-comment actions resolve from this top-level block.
+      getCaretElement: () => {
+        try {
+          const $from = editor.state.selection.$from;
+          const position = $from.depth > 0 ? $from.before(1) : $from.pos;
+          const node = editor.view.nodeDOM(position);
+          if (!node) return null;
+          return node.nodeType === Node.ELEMENT_NODE ? node as HTMLElement : node.parentElement;
+        } catch {
+          return null;
         }
       },
       // Internal test/automation seam: exercise the same ProseMirror text-input pipeline as typing.

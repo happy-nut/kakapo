@@ -60,6 +60,10 @@ function activateFilesView() {
   focusOpenFileInTree();
 }
 document.addEventListener('keydown', (event) => {
+  // Semantic navigation is a caret-local dropdown. It must own arrows/Enter before the persistent sidebar's
+  // logical tree focus gets a chance to consume them; otherwise Enter opens the tree row instead of the
+  // selected definition when Cmd+B was invoked after Cmd+0/Cmd+1.
+  if (typeof handleSemanticPeekKey === 'function' && handleSemanticPeekKey(event)) return;
   if (!quickOpen?.classList.contains('hidden')) {
     if (handleQuickOpenKey(event)) return;
   }
@@ -67,6 +71,9 @@ document.addEventListener('keydown', (event) => {
   if (usagesBox && !usagesBox.classList.contains('hidden')) {
     if (handleUsagesKey(event)) return;
   }
+  // Cmd/Ctrl+F belongs to the active file surface, not the project-wide quick-open search. Keep this
+  // before the general focus guard so Enter/Shift+Enter/Esc continue to work while its input owns focus.
+  if (typeof handleFileFindKey === 'function' && handleFileFindKey(event)) return;
 
   // Dock controls fire regardless of focus (merged / memo) — they sit ABOVE the focus guard so
   // they still work from inside a dock panel. Cmd/Ctrl+Shift+' maximizes the active dock; Cmd/Ctrl+Shift+/
@@ -113,9 +120,8 @@ document.addEventListener('keydown', (event) => {
   // shortcuts (Cmd+1, F7, Cmd+[/], Cmd+B, …). Each has its own Esc + editing handlers.
   if (isFloatingModalOpen()) return;
 
-  // Cmd/Ctrl+. mirrors an IDE's "toggle fold" at the source caret. Review mode folds the innermost
-  // multiline brace range; Monaco Code mode delegates to its native folding controller. Shift+. remains
-  // the distinct merged change-request shortcut handled above.
+  // Cmd/Ctrl+. mirrors an IDE's "toggle fold" at the source caret. The Review renderer folds the
+  // innermost multiline brace range. Shift+. remains the distinct merged change-request shortcut above.
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'Period' || event.key === '.')) {
     var foldAe = document.activeElement;
     if (!(foldAe && (foldAe.tagName === 'INPUT' || foldAe.tagName === 'TEXTAREA' || foldAe.tagName === 'SELECT'))
@@ -205,9 +211,9 @@ document.addEventListener('keydown', (event) => {
     }
   }
 
-  // The `<` glyph lives on Shift+Comma. Require the complete Cmd/Ctrl+Shift+, chord so the behavior and
-  // every displayed hint describe the same physical keys (and ordinary text entry never marks a file).
-  const toggleViewedShortcut = !event.altKey && (event.metaKey || event.ctrlKey) && event.shiftKey
+  // The `<` glyph lives on Shift+Comma. Viewed is a fast review action, so it intentionally uses that
+  // unmodified physical chord; editable fields remain exempt below so typing `<` is never intercepted.
+  const toggleViewedShortcut = !event.altKey && !event.metaKey && !event.ctrlKey && event.shiftKey
     && (event.key === '<' || event.code === 'Comma');
   if (toggleViewedShortcut) {
     const ce2 = document.activeElement;
@@ -253,7 +259,6 @@ document.addEventListener('keydown', (event) => {
   // and d2h-file-side-diff's horizontal scrollport even swallows vertical wheel, so handle paging explicitly.
   // Only when the tree isn't focused — the tree pages itself in handleTreeKey below.
   if (treeFocusIndex < 0 && (event.key === 'PageDown' || event.key === 'PageUp') && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
-    if (isSourceViewerVisible() && isMonacoSourceActive()) return;
     var psc = isDiffViewVisible() ? document.getElementById('diff2html-container') : (isSourceViewerVisible() ? document.getElementById('source-body') : null);
     if (psc) { event.preventDefault(); psc.scrollTop += (event.key === 'PageDown' ? 0.9 : -0.9) * psc.clientHeight; return; }
   }
@@ -446,18 +451,23 @@ document.getElementById('usages')?.addEventListener('click', function (event) {
 document.getElementById('changes-panel')?.addEventListener('click', (event) => {
   const link = event.target && event.target.closest ? event.target.closest('.file-link') : null;
   if (!link) return;
+  const pointerSelection = reviewFocusInputModality === 'pointer';
   showDiffView(false);
   const target = Number(link.dataset.hunk);
   if (!Number.isNaN(target) && target >= 0 && target < hunkTotal()) {
     event.preventDefault();
-    setActive(target);
+    setActive(target, true, true); // explicit selection always opens this file, even when it is already viewed
   }
+  if (pointerSelection) focusTreeRowFromPointer(link);
 });
 
 // Delegated so it works whether the tree is inline (small repos) or materialized later (big repos).
 document.getElementById('files-panel')?.addEventListener('click', (event) => {
   const link = event.target && event.target.closest ? event.target.closest('.source-link') : null;
-  if (link && link.dataset.sourceFile) openSourceFile(link.dataset.sourceFile);
+  if (!link || !link.dataset.sourceFile) return;
+  const pointerSelection = reviewFocusInputModality === 'pointer';
+  openSourceFile(link.dataset.sourceFile, true, { scrollTree: !pointerSelection });
+  if (pointerSelection) focusTreeRowFromPointer(link);
 });
 
 document.querySelectorAll('.tab').forEach((button) => {
@@ -567,6 +577,15 @@ document.addEventListener('copy', handleSourceCopy);
   document.addEventListener('click', function () { hide(); }, true);
   window.addEventListener('scroll', function () { hide(); }, true);
   window.addEventListener('resize', function () { if (owner) place(owner); });
+  // Composer and other dynamic controls are replaced by innerHTML. Removing a hovered/focused button does
+  // not reliably emit mouseout/focusout in Chromium, so its shortcut bubble could remain orphaned after the
+  // comment box closed. A single batched observer is cheaper and more robust than teaching every renderer
+  // to know about this global tooltip.
+  if (window.MutationObserver) {
+    new window.MutationObserver(function () {
+      if (owner && !owner.isConnected) hide();
+    }).observe(document.body, { childList: true, subtree: true });
+  }
 })();
 
 applyI18n(); // first paint already shows English (inline); this swaps to the saved locale before the rest of init renders dynamic text
@@ -615,7 +634,7 @@ window.addEventListener('beforeunload', saveUiState);
   const resizer = document.querySelector('.sidebar-resizer');
   if (!resizer) return;
   const sidebarKey = 'monacori-sidebar-width:' + location.pathname;
-  const saved = localStorage.getItem(sidebarKey);
+  const saved = persistRead(sidebarKey) || localStorage.getItem(sidebarKey);
   if (saved) document.documentElement.style.setProperty('--sidebar-width', saved);
   let resizing = false;
   resizer.addEventListener('mousedown', (event) => {
@@ -637,7 +656,7 @@ window.addEventListener('beforeunload', saveUiState);
     resizing = false;
     resizer.classList.remove('resizing');
     document.body.style.userSelect = '';
-    try { localStorage.setItem(sidebarKey, getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width').trim()); } catch (e) {}
+    persistSave(sidebarKey, getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width').trim());
   });
 })();
 

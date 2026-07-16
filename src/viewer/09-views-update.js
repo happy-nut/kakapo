@@ -16,13 +16,48 @@ var reviewSidebarCollapsed = false;
 var reviewSidebarStateKey = 'monacori:diff-sidebar:' + location.pathname;
 var sourceSidebarCollapsed = false;
 var sourceSidebarStateKey = 'monacori:source-sidebar:' + location.pathname;
-try { reviewSidebarCollapsed = localStorage.getItem(reviewSidebarStateKey) === 'collapsed'; } catch (e) {}
-try { sourceSidebarCollapsed = localStorage.getItem(sourceSidebarStateKey) === 'collapsed'; } catch (e) {}
+try { reviewSidebarCollapsed = (persistRead(reviewSidebarStateKey) || localStorage.getItem(reviewSidebarStateKey)) === 'collapsed'; } catch (e) {}
+try { sourceSidebarCollapsed = (persistRead(sourceSidebarStateKey) || localStorage.getItem(sourceSidebarStateKey)) === 'collapsed'; } catch (e) {}
+var sidebarLayoutRefreshTimer = 0;
+var sidebarLayoutRefreshRaf = 0;
+function refreshViewerAfterSidebarLayout() {
+  if (sidebarLayoutRefreshTimer) {
+    clearTimeout(sidebarLayoutRefreshTimer);
+    sidebarLayoutRefreshTimer = 0;
+  }
+  if (sidebarLayoutRefreshRaf) cancelAnimationFrame(sidebarLayoutRefreshRaf);
+  sidebarLayoutRefreshRaf = requestAnimationFrame(function () {
+    sidebarLayoutRefreshRaf = 0;
+    // Horizontal connector placement follows the CSS midpoint throughout the transition. Once the grid
+    // reaches its final width, refresh the width/row-dependent caches exactly once; continuously measuring
+    // every animation frame made large diffs stutter and still allowed the overlay to lag by one frame.
+    var wrapper = typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null;
+    if (wrapper && isDiffViewVisible()) {
+      if (typeof invalidateAsymmetricDiffGeometry === 'function') invalidateAsymmetricDiffGeometry(wrapper);
+      if (typeof refreshLayeredDiffGutters === 'function') refreshLayeredDiffGutters(wrapper);
+      if (typeof scrollAsymmetricDiff === 'function') scrollAsymmetricDiff();
+    }
+    if (typeof positionFileFind === 'function') positionFileFind();
+  });
+}
+function scheduleViewerAfterSidebarLayout() {
+  if (sidebarLayoutRefreshTimer) clearTimeout(sidebarLayoutRefreshTimer);
+  // transitionend is the normal path. The timeout covers reduced motion, interrupted transitions, and
+  // test/webview environments that do not dispatch CSS transition events.
+  sidebarLayoutRefreshTimer = setTimeout(refreshViewerAfterSidebarLayout, 220);
+}
+document.body.addEventListener('transitionend', function (event) {
+  if (event.target === document.body && event.propertyName === 'grid-template-columns') {
+    refreshViewerAfterSidebarLayout();
+  }
+});
 function syncReviewSidebarVisibility() {
   var diffCollapsed = reviewSidebarCollapsed && isDiffViewVisible();
   var sourceCollapsed = sourceSidebarCollapsed && isSourceViewerVisible();
   var collapsed = diffCollapsed || sourceCollapsed;
+  var changed = document.body.classList.contains('sidebar-collapsed') !== collapsed;
   document.body.classList.toggle('sidebar-collapsed', collapsed);
+  if (changed) scheduleViewerAfterSidebarLayout();
   var sidebar = document.querySelector('.sidebar');
   if (sidebar) {
     // Keep the DOM painted while the grid track closes; inert/aria-hidden remove the clipped tree from
@@ -56,7 +91,7 @@ function focusDiffAfterSidebarCollapse() {
 }
 function setReviewSidebarCollapsed(collapsed, options) {
   reviewSidebarCollapsed = !!collapsed;
-  try { localStorage.setItem(reviewSidebarStateKey, reviewSidebarCollapsed ? 'collapsed' : 'expanded'); } catch (e) {}
+  persistSave(reviewSidebarStateKey, reviewSidebarCollapsed ? 'collapsed' : 'expanded');
   syncReviewSidebarVisibility();
   if (reviewSidebarCollapsed) focusDiffAfterSidebarCollapse();
   else if (options && options.focusSidebar) { setTab('changes'); focusOpenFileInTree(); }
@@ -80,7 +115,7 @@ function focusSourceAfterSidebarCollapse() {
 }
 function setSourceSidebarCollapsed(collapsed, options) {
   sourceSidebarCollapsed = !!collapsed;
-  try { localStorage.setItem(sourceSidebarStateKey, sourceSidebarCollapsed ? 'collapsed' : 'expanded'); } catch (e) {}
+  persistSave(sourceSidebarStateKey, sourceSidebarCollapsed ? 'collapsed' : 'expanded');
   syncReviewSidebarVisibility();
   if (!isSourceViewerVisible()) return;
   if (sourceSidebarCollapsed) focusSourceAfterSidebarCollapse();
@@ -161,6 +196,7 @@ function showDiffView(shouldScroll) {
       if (curRow) {
         showOnlyFile(hunkPathAt(cidx));
         if (shouldScroll) curRow.scrollIntoView({ block: 'start' });
+        if (typeof refreshFileFindForActiveView === 'function') refreshFileFindForActiveView();
       }
     });
   }
@@ -171,12 +207,13 @@ function showSourceView() {
   document.getElementById('source-viewer')?.classList.remove('hidden');
   setTab('files');
   syncReviewSidebarVisibility();
+  if (typeof refreshFileFindForActiveView === 'function') setTimeout(refreshFileFindForActiveView, 0);
 }
 
 function saveUiState() {
   const activeTab = document.querySelector('.tab.active')?.dataset.tab || 'changes';
   const sourcePath = document.getElementById('source-viewer')?.dataset.openPath || '';
-  sessionStorage.setItem(uiStateKey, JSON.stringify({
+  var state = {
     tab: activeTab,
     view: document.getElementById('source-viewer')?.classList.contains('hidden') ? 'diff' : 'source',
     sourcePath,
@@ -186,11 +223,14 @@ function saveUiState() {
     tabs: sourceTabs,
     diffCursor: diffCursor,
     viewerCursor: viewerCursor,
-  }));
+  };
+  persistSave(uiStateKey, state);
+  sessionStorage.setItem(uiStateKey, JSON.stringify(state));
 }
 
 function restoreUiState() {
-  const raw = sessionStorage.getItem(uiStateKey);
+  const persisted = persistRead(uiStateKey);
+  const raw = persisted && typeof persisted === 'object' ? JSON.stringify(persisted) : sessionStorage.getItem(uiStateKey);
   if (!raw) return false;
   try {
     const state = JSON.parse(raw);
@@ -379,11 +419,6 @@ function captureSourceRefreshCursor(path) {
   if (!viewerCursor || viewerCursor.path !== path) return null;
   var file = sourceByPath.get(path);
   var lines = file && typeof file.content === 'string' ? file.content.split(/\r?\n/) : [];
-  if (typeof isMonacoSourceActive === 'function' && isMonacoSourceActive(path)
-      && typeof monacoSourceEditor !== 'undefined' && monacoSourceEditor && monacoSourceEditor.getModel) {
-    var paintedModel = monacoSourceEditor.getModel();
-    if (paintedModel && typeof paintedModel.getValue === 'function') lines = paintedModel.getValue().split(/\r?\n/);
-  }
   // During a lazy live refresh sourceByPath already points at the NEW record while #source-body still
   // intentionally paints the OLD one. Read the visible raw row first so line matching follows the user's
   // actual caret, not whatever text now occupies the same numeric line in the incoming file.
@@ -423,7 +458,6 @@ function refreshOpenSourceAfterUpdate(path, cursorSnapshot) {
     var scrollTop = body.scrollTop;
     var liveCursor = captureSourceRefreshCursor(path) || cursorSnapshot;
     if (liveCursor && cursorSnapshot && !liveCursor.text) liveCursor.text = cursorSnapshot.text;
-    if (typeof refreshMonacoSourceInPlace === 'function' && refreshMonacoSourceInPlace(file, liveCursor)) return;
     openSourceFile(path, false);
     if (body) body.scrollTop = scrollTop;
     if (liveCursor) {
@@ -529,12 +563,16 @@ function applyDiffUpdate(u) {
     fileStates: fileStates,
     sourceFilesMeta: sourceFiles,
   };
+  if (typeof pruneCommentsForMissingFiles === 'function') pruneCommentsForMissingFiles();
   if (filesPanel && filesPanel.dataset.projectIndex === 'loaded' && REVIEW_LAZY_LOAD) renderDeferredSourceTree(sourceFiles);
   httpEnvironments = u.httpEnvironments || {};
   httpEnvNames = Object.keys(httpEnvironments);
   currentSignature = u.signature;
   links = Array.from(document.querySelectorAll('#changes-panel .file-link'));
   sourceLinks = Array.from(document.querySelectorAll('.source-link'));
+  // The Changes tree was just replaced. Reapply persisted per-file review marks immediately; otherwise
+  // F7 consults isFileViewed() and skips files whose rows still look like ordinary blue "modified" items.
+  applyViewedState();
 
   // Reconcile the active hunk against the new build (uses the just-rebuilt `links`). A committed/removed file
   // reshuffles or shrinks the diff: re-anchor `current` to the same file's new hunk when it survives, else

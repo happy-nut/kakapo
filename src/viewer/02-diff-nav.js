@@ -194,9 +194,14 @@ function preferredReviewHunk(index) {
   }
   return requested;
 }
-function setActive(index, shouldScroll = true) {
+function setActive(index, shouldScroll = true, allowViewed = false) {
   if (hunkTotal() === 0) return;
-  current = preferredReviewHunk(index);
+  var total = hunkTotal();
+  var requested = ((index % total) + total) % total;
+  // F7/startup restoration follow the unviewed review queue. A direct sidebar click is different: it is
+  // an explicit request to inspect that exact file, so callers may allow a viewed target and its body stays
+  // visible via mc-active-diff instead of silently redirecting to another file.
+  current = allowViewed ? requested : preferredReviewHunk(requested);
   // Coalesce rapid presses (holding/spamming F7 or Shift+F7) into one DOM apply per animation frame. The
   // key handler returns immediately and `current` updates synchronously (so next()/nav math stays correct),
   // while the heavy DOM work (full link/wrapper sweeps, body materialize) runs at most once per frame
@@ -243,6 +248,7 @@ function applySetActive(idx, shouldScroll) {
     // the visible 146→21 double jump on F7 across a file boundary. Scrolling synchronously here lands the
     // view on the change before this frame paints, so the new file appears already at its first change.
     if (shouldScroll && targetRow && targetRow.scrollIntoView) targetRow.scrollIntoView({ block: 'center' });
+    if (typeof refreshFileFindForActiveView === 'function') refreshFileFindForActiveView();
   });
 }
 

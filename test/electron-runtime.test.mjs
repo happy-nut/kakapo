@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_DIFF_CONTEXT, ensureElectronRuntimeBranded } from "../dist/commands.js";
+import { renderWelcomeHtml } from "../dist/render.js";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const patchScript = join(repoRoot, "scripts", "patch-electron-name.mjs");
@@ -79,6 +80,13 @@ test("running Electron main process never mutates its own macOS app bundle", () 
   assert.doesNotMatch(source, /ELECTRON_RUN_AS_NODE/, "app-main must not spawn a live-bundle repair subprocess");
 });
 
+test("the packaged app preserves --cwd while development skips the app-main entry", () => {
+  const source = readFileSync(join(repoRoot, "src", "app-main.ts"), "utf8");
+  assert.match(source, /app\.isPackaged\s*\?\s*process\.argv\.slice\(1\)\s*:\s*process\.argv\.slice\(2\)/,
+    "packaged argv has no app-main.js entry to discard");
+  assert.match(source, /parseArgs\(runtimeArgs\)/);
+});
+
 test("macOS app integrates the review toolbar into the native title bar", () => {
   const source = readFileSync(join(repoRoot, "src", "app-main.ts"), "utf8");
 
@@ -86,12 +94,23 @@ test("macOS app integrates the review toolbar into the native title bar", () => 
   assert.match(source, /trafficLightPosition:\s*\{\s*x:\s*14,\s*y:\s*13\s*\}/, "traffic lights retain a deliberate safe corner");
 });
 
+test("the welcome screen cannot overflow upward beneath macOS traffic lights", () => {
+  const recent = Array.from({ length: 12 }, (_, index) => ({
+    path: `/Users/reviewer/projects/project-${index}`,
+    name: `project-${index}`,
+  }));
+  const html = renderWelcomeHtml(false, recent);
+
+  assert.match(html, /body \{[^}]*display: flex;[^}]*padding: 40px 24px 24px;[^}]*overflow: auto;/, "the tall recent-project list starts below the native title row and scrolls");
+  assert.match(html, /\.card \{[^}]*max-width: 100%;[^}]*margin: auto;/, "short welcome content remains centered while oversized content top-aligns inside the safe padding");
+});
+
 test("sidebar path actions stay in Electron main and reject paths outside the project", () => {
   const main = readFileSync(join(repoRoot, "src", "app-main.ts"), "utf8");
   const preload = readFileSync(join(repoRoot, "src", "preload.cts"), "utf8");
 
-  assert.match(main, /function resolveProjectRowPath[\s\S]*?isAbsolute\(requestedPath\)[\s\S]*?resolve\(repoRoot\(state\.options\.root\)\)[\s\S]*?fromRoot\.startsWith\("\.\.\/"\)/,
-    "main resolves only Git-root-contained relative paths, including monorepo subdirectory launches");
+  assert.match(main, /function resolveProjectRowPath[\s\S]*?isAbsolute\(requestedPath\)[\s\S]*?resolve\(state\.options\.root\)[\s\S]*?fromRoot\.startsWith\("\.\.\/"\)/,
+    "main resolves only selected-workspace-contained relative paths, including monorepo subdirectory launches");
   assert.match(main, /ipcMain\.handle\("monacori:absolute-file-path"/);
   assert.match(main, /ipcMain\.handle\("monacori:reveal-in-finder"/);
   assert.match(main, /ipcMain\.handle\("monacori:open-terminal"[\s\S]*?spawn\("open", \["-a", "Terminal", directory\]/,
@@ -99,6 +118,7 @@ test("sidebar path actions stay in Electron main and reject paths outside the pr
   assert.match(preload, /absolutePath:[\s\S]*?monacori:absolute-file-path/);
   assert.match(preload, /revealInFinder:[\s\S]*?monacori:reveal-in-finder/);
   assert.match(preload, /openTerminal:[\s\S]*?monacori:open-terminal/);
+  assert.match(preload, /existingPaths:[\s\S]*?monacori:existing-project-paths/, "renderer can verify comment files without inferring deletion from index exclusions");
 });
 
 test("published Electron runtime stays pinned to the verified patch version", () => {

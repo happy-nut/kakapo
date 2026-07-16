@@ -20,7 +20,8 @@ npm run smoke
 
 - Runtime code lives in `src/`.
 - The CLI should have no runtime dependencies unless there is a strong validation or review reason.
-- Keep generated validation artifacts under `.monacori/`.
+- Keep generated validation artifacts under the application's canonical workspace-path mirror in its
+  user-data directory; never create or write a project-local `.monacori/` directory.
 - Prefer plain Markdown and JSON artifacts so users can inspect and edit everything.
 - Do not introduce git worktree, terminal multiplexer, editor, or agent-specific requirements.
 - Treat AI tools as producers of changes; monacori is the verifier of those changes.

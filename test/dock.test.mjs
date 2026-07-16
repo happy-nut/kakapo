@@ -121,6 +121,9 @@ test("Cmd/Ctrl+Shift+' maximizes the active dock and restores it (toggle)", asyn
   v.toggleDockMax();
   await v.settle(20);
   assert.equal(v.isDockMaximized(), true, "maximized");
+  const css = Array.from(v.document.querySelectorAll("style"), (style) => style.textContent || "").join("\n");
+  assert.match(css, /body\.native-app\.dock-maximized\s+\.dock-bar\s*\{[^}]*padding-left:\s*var\(--native-title-safe-left\)/, "full-screen writing panels keep their title beyond the macOS traffic lights");
+  assert.match(css, /body\.native-app\.dock-maximized\s+\.dock-bar\s+button,[\s\S]{0,180}-webkit-app-region:\s*no-drag/, "full-screen writing-panel buttons stay clickable");
   v.toggleDockMax();
   await v.settle(20);
   assert.equal(v.isDockMaximized(), false, "restored");

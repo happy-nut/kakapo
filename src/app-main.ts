@@ -1,12 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell } from "electron";
 import { buildDiffReview, performHttpRequest, renderLazyDiffBody, type HttpSendRequest } from "./cli.js";
-import { readGitLog, readCommitDiff } from "./git-log.js";
+import { readGitLog, readGitLineLog, readCommitDiff } from "./git-log.js";
 import { materializeDeferredSourceFile, readUnifiedDiff } from "./diff.js";
-import { git, isGitRepository, repoRoot } from "./git.js";
+import { git, isGitRepository } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
 import { searchProject } from "./search.js";
@@ -16,6 +16,7 @@ import { ProjectMarkdownMemo } from "./memos.js";
 import { readReviewDiffContext, type DiffContextRequest } from "./diff-context.js";
 import type { ProjectIndexPayload, SourceFile } from "./types.js";
 import { createHash } from "node:crypto";
+import { migrateLegacyProjectData, workspaceDataDirectory, workspaceReviewFile } from "./workspace-data.js";
 
 type AppOptions = {
   root: string;
@@ -41,7 +42,7 @@ type WinState = {
   bodyCache: Map<number, string>; // rendered per-file diff bodies, scoped to the current build
   sourceFiles: Map<string, SourceFile>; // source content stays in main; renderer requests one open file at a time
   analysis: ProjectAnalysis; // LSP-first project analysis + main-process regex fallback
-  perf: ReviewPerformanceTrace; // local startup/analysis evidence under .monacori/perf/latest.json
+  perf: ReviewPerformanceTrace; // local startup/analysis evidence under this workspace's app-data mirror
   lastDiffSig: string; // watch fast-path: hash of the last git diff, to skip rebuilds when unchanged
   reviewBase?: string; // exact base used by the latest build (may be an automatic upstream merge-base)
   reviewUpstream?: string; // tracking ref behind an automatic base; included in the watch signature
@@ -53,7 +54,6 @@ type WinState = {
 const DEV_BUILD = process.env.MONACORI_DEV === "1";
 const APP_NAME = "Monacori";
 const APP_TITLE = DEV_BUILD ? `${APP_NAME} (dev)` : APP_NAME;
-const FLOW_DIR = ".monacori";
 const REVIEW_FILE = "app-review.html";
 const WATCH_INTERVAL_MS = 1000;
 const ANALYSIS_PREWARM_DELAY_MS = 350;
@@ -86,8 +86,8 @@ function isLightTheme(): boolean {
 }
 
 app.setName(APP_NAME);
-// Monaco workers and the lazy Markdown editor cannot reliably load from the repository's file:// review.
-// A narrow, read-only standard scheme serves only production assets copied under dist/monaco.
+// The lazy Markdown editor cannot reliably load from the repository's file:// review. A narrow, read-only
+// standard scheme serves only production assets copied under the historical dist/monaco directory.
 protocol.registerSchemesAsPrivileged([{
   scheme: "monacori-asset",
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
@@ -99,7 +99,11 @@ protocol.registerSchemesAsPrivileged([{
 const iconPath = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "icon.png");
 const preloadPath = join(dirname(fileURLToPath(import.meta.url)), "preload.cjs");
 
-const options = parseArgs(process.argv.slice(2));
+// Development argv is `[electron, app-main.js, ...flags]`; a packaged app is
+// `[Monacori, ...flags]`. Dropping two entries unconditionally erased `--cwd` from the installed app,
+// so scripted relaunches landed on the welcome/recent-project screen instead of the requested folder.
+const runtimeArgs = app.isPackaged ? process.argv.slice(1) : process.argv.slice(2);
+const options = parseArgs(runtimeArgs);
 const states = new Map<number, WinState>();
 let markdownMemo: ProjectMarkdownMemo | undefined;
 
@@ -268,6 +272,13 @@ ipcMain.handle("monacori:git-log", (event, request: { limit?: number; skip?: num
   if (!state) return [];
   try { return readGitLog(state.options.root, { limit: request?.limit, skip: request?.skip }); } catch { return []; }
 });
+ipcMain.handle("monacori:git-line-log", (event, request: { path?: string; line?: number; limit?: number }) => {
+  const state = stateFromEvent(event);
+  const path = typeof request?.path === "string" ? request.path : "";
+  // Only paths from this window's already-confined source index may reach git -L.
+  if (!state || !path || !state.sourceFiles.has(path)) return [];
+  try { return readGitLineLog(state.options.root, { path, line: Number(request?.line), limit: request?.limit }); } catch { return []; }
+});
 ipcMain.handle("monacori:git-commit-diff", (event, request: { sha?: string }) => {
   const state = stateFromEvent(event);
   if (!state || !request?.sha) return null;
@@ -279,10 +290,9 @@ ipcMain.handle("monacori:git-commit-diff", (event, request: { sha?: string }) =>
 // arbitrary-path launcher.
 function resolveProjectRowPath(state: WinState, requestedPath: unknown): string | undefined {
   if (typeof requestedPath !== "string" || !requestedPath.trim() || isAbsolute(requestedPath)) return;
-  // Diff/source-tree paths are always relative to `git rev-parse --show-toplevel`, even when Monacori was
-  // launched from a monorepo subdirectory. Resolve against that same canonical root to avoid cwd/path
-  // duplication such as `.../turtle/turtle/backend/file.py`.
-  const root = resolve(repoRoot(state.options.root));
+  // Diff/source-tree paths are relative to the folder this window opened, even when that folder lives
+  // inside a larger Git repository. Confine file actions to that workspace rather than sibling packages.
+  const root = resolve(state.options.root);
   const target = resolve(root, requestedPath);
   const fromRoot = relative(root, target);
   if (fromRoot === ".." || fromRoot.startsWith("../") || fromRoot.startsWith("..\\") || isAbsolute(fromRoot)) return;
@@ -293,6 +303,22 @@ ipcMain.handle("monacori:absolute-file-path", (event, request: { path?: string }
   const state = stateFromEvent(event);
   const path = state ? resolveProjectRowPath(state, request?.path) : undefined;
   return path ? { ok: true, path } : { ok: false };
+});
+
+// Comment anchors may outlive a commit that deletes their file. Check existence in main so renderer-side
+// source-index exclusions (.claude, caches, etc.) are never mistaken for deletion. Paths remain confined
+// to the calling window's repository by the same resolver used by the sidebar actions.
+ipcMain.handle("monacori:existing-project-paths", (event, request: { paths?: unknown[] }) => {
+  const state = stateFromEvent(event);
+  const requested = Array.isArray(request?.paths) ? request.paths.slice(0, 2000) : [];
+  const existing: Record<string, boolean> = {};
+  for (const requestedPath of requested) {
+    if (typeof requestedPath !== "string" || Object.prototype.hasOwnProperty.call(existing, requestedPath)) continue;
+    const path = state ? resolveProjectRowPath(state, requestedPath) : undefined;
+    try { existing[requestedPath] = Boolean(path && existsSync(path) && statSync(path).isFile()); }
+    catch { existing[requestedPath] = false; }
+  }
+  return existing;
 });
 
 ipcMain.handle("monacori:reveal-in-finder", (event, request: { path?: string }) => {
@@ -414,9 +440,19 @@ ipcMain.handle("monacori:self-update", (event) => new Promise<{ ok: boolean; err
 function settingsFile(): string {
   return join(app.getPath("userData"), "monacori-settings.json");
 }
+function workspaceSettingsFile(root: string): string {
+  return join(workspaceDataDirectory(app.getPath("userData"), root), "state.json");
+}
 function readSettings(): Record<string, unknown> {
   try {
     return JSON.parse(readFileSync(settingsFile(), "utf8")) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+function readWorkspaceSettings(root: string): Record<string, unknown> {
+  try {
+    return JSON.parse(readFileSync(workspaceSettingsFile(root), "utf8")) as Record<string, unknown>;
   } catch {
     return {};
   }
@@ -428,14 +464,67 @@ function writeSettings(settings: Record<string, unknown>): void {
     /* best-effort: a failed write just means the setting isn't persisted */
   }
 }
+function writeWorkspaceSettings(root: string, settings: Record<string, unknown>): void {
+  try {
+    const file = workspaceSettingsFile(root);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
+  } catch {
+    /* best-effort: the review remains usable even if workspace UI state cannot be persisted */
+  }
+}
+const GLOBAL_SETTING_KEYS = new Set([
+  "monacori-locale",
+  "monacori-theme",
+  "monacori-syntax-theme",
+  "monacori-merge-prompts",
+  "monacori-recent-projects",
+  "monacori-dock-height",
+  "monacori-memo",
+  "monacori-memo-migrated-worktree",
+]);
+function rendererSettings(root: string): Record<string, unknown> {
+  const global = readSettings();
+  const workspace = readWorkspaceSettings(root);
+  const oldReview = join(resolve(root), ".monacori", REVIEW_FILE);
+  const newReview = workspaceReviewFile(app.getPath("userData"), root);
+  const pathReplacements = [
+    [oldReview, newReview],
+    [encodeURI(oldReview), encodeURI(newReview)],
+  ];
+  let migrated = false;
+  // Older releases placed workspace-scoped keys in the global settings JSON and encoded the former
+  // project-local review path in each key. Import only keys belonging to this root, preserving other open
+  // folders until their own window migrates them.
+  for (const [key, value] of Object.entries(global)) {
+    if (GLOBAL_SETTING_KEYS.has(key) || (!key.includes(resolve(root)) && !key.includes(encodeURI(resolve(root))))) continue;
+    const migratedKey = pathReplacements.reduce((next, pair) => next.replace(pair[0], pair[1]), key);
+    if (!(migratedKey in workspace)) workspace[migratedKey] = value;
+    delete global[key];
+    migrated = true;
+  }
+  if (migrated) {
+    writeWorkspaceSettings(root, workspace);
+    writeSettings(global);
+  }
+  return { ...global, ...workspace };
+}
 ipcMain.on("monacori:get-settings", (event) => {
-  event.returnValue = readSettings();
+  const state = stateFromEvent(event);
+  event.returnValue = state ? rendererSettings(state.options.root) : readSettings();
 });
-ipcMain.on("monacori:set-setting", (_event, msg: { key?: string; value?: unknown }) => {
+ipcMain.on("monacori:set-setting", (event, msg: { key?: string; value?: unknown }) => {
   if (!msg || typeof msg.key !== "string") return;
-  const settings = readSettings();
+  const state = stateFromEvent(event);
+  if (!state || GLOBAL_SETTING_KEYS.has(msg.key)) {
+    const settings = readSettings();
+    settings[msg.key] = msg.value;
+    writeSettings(settings);
+    return;
+  }
+  const settings = readWorkspaceSettings(state.options.root);
   settings[msg.key] = msg.value;
-  writeSettings(settings);
+  writeWorkspaceSettings(state.options.root, settings);
 });
 
 // Recent projects (IntelliJ-style): the welcome screen lists repos opened before so they're one click away.
@@ -495,8 +584,8 @@ app.whenReady().then(async () => {
     app.dock.setIcon(appIcon);
   }
 
-  // First window uses the CLI-resolved root + flags. No chdir/mkdir here — each window scopes its own
-  // repo via options.root, and writeReviewFile() creates that root's .monacori dir on demand.
+  // First window uses the CLI-resolved root + flags. The repository stays read-only: each window writes
+  // generated review state into its mirrored directory below Electron userData.
   createWindow(options.root);
 }).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : String(error));
@@ -607,7 +696,8 @@ function createWindow(root: string): WinState {
     },
   });
   const resolvedRoot = resolve(root);
-  const perf = new ReviewPerformanceTrace(resolvedRoot);
+  migrateLegacyProjectData(app.getPath("userData"), resolvedRoot);
+  const perf = new ReviewPerformanceTrace(resolvedRoot, app.getPath("userData"));
   perf.mark("window-created");
   let state!: WinState;
   const analysis = new ProjectAnalysis(resolvedRoot, {
@@ -761,10 +851,11 @@ function writeReviewFile(state: WinState): { signature: string; html: string; up
   });
   state.reviewBase = build.reviewBase;
   state.reviewUpstream = build.reviewUpstream;
-  // Two windows on the same repo share this path; the content is identical for the same git state, and
-  // each window loads its own freshly-written copy right after, so a same-repo race is benign.
-  mkdirSync(join(state.options.root, FLOW_DIR), { recursive: true });
-  writeFileSync(reviewPath(state.options.root), build.html);
+  // The review artifact mirrors the workspace's absolute folder structure below userData. Different
+  // repositories, nested monorepo packages, and worktrees therefore never share a file or touch source.
+  const target = reviewPath(state.options.root);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, build.html);
   state.bodyDiffs = build.lazyBodyDiffs ?? [];
   state.bodyCache.clear();
   // buildDiffReview runs in this process, so retain its native records instead of serializing and parsing
@@ -797,7 +888,7 @@ function scheduleAnalysisPrewarm(state: WinState): void {
 }
 
 function reviewPath(root: string): string {
-  return join(root, FLOW_DIR, REVIEW_FILE);
+  return workspaceReviewFile(app.getPath("userData"), root);
 }
 
 // Welcome screen for the packaged .app (double-clicked, no cwd repo). Written to userData (we can't write
@@ -818,7 +909,8 @@ async function openReview(state: WinState, root: string): Promise<void> {
   if (state.analysisWarmTimer) { clearTimeout(state.analysisWarmTimer); state.analysisWarmTimer = undefined; }
   state.analysis.dispose();
   state.options.root = resolve(root);
-  state.perf = new ReviewPerformanceTrace(state.options.root);
+  migrateLegacyProjectData(app.getPath("userData"), state.options.root);
+  state.perf = new ReviewPerformanceTrace(state.options.root, app.getPath("userData"));
   state.perf.mark("review-opened");
   state.analysis = new ProjectAnalysis(state.options.root, {
     onStatus: (status) => {

@@ -1,10 +1,12 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectMarkdownMemo, canonicalWorktreePath, markdownMemoFile } from "../dist/memos.js";
+import { workspaceDataDirectory } from "../dist/workspace-data.js";
 
 let root;
 let worktree;
@@ -38,7 +40,7 @@ test("the single memo persists in app data and survives a new store instance", (
   const saved = store.write(root, "# Evidence\n\nKeep this.");
   const file = markdownMemoFile(userData, root);
   assert.ok(existsSync(file), "the memo is stored below userData");
-  assert.equal(file.startsWith(userData), true);
+  assert.equal(file, join(workspaceDataDirectory(userData, root), "memo.json"), "memo follows the inspectable workspace folder mirror");
   assert.equal(existsSync(join(root, ".monacori", "memos.json")), false, "no memo artifact is written into the source tree");
 
   assert.match(saved.body, /Evidence/);
@@ -52,7 +54,21 @@ test("the single memo persists in app data and survives a new store instance", (
   assert.equal(git(root, ["status", "--porcelain"]), "", "memo CRUD leaves the repository clean");
 });
 
-test("the same repository's separate worktrees receive isolated memo stores", () => {
+test("the former hashed memo is migrated into the workspace folder mirror", () => {
+  const isolated = join(root, "legacy-package");
+  mkdirSync(isolated, { recursive: true });
+  const scope = createHash("sha256").update(canonicalWorktreePath(isolated)).digest("hex");
+  const legacy = join(userData, "notes", `${scope}.json`);
+  mkdirSync(join(userData, "notes"), { recursive: true });
+  writeFileSync(legacy, JSON.stringify({ version: 1, worktreePath: canonicalWorktreePath(isolated), body: "legacy memo", updatedAt: new Date().toISOString() }));
+
+  const document = new ProjectMarkdownMemo(userData).read(isolated);
+  assert.equal(document.body, "legacy memo");
+  assert.equal(existsSync(legacy), false, "the obsolete hashed copy is removed after a successful migration");
+  assert.equal(readFileSync(markdownMemoFile(userData, isolated), "utf8").includes("legacy memo"), true);
+});
+
+test("worktrees and explicitly opened monorepo folders receive isolated memo stores", () => {
   const store = new ProjectMarkdownMemo(userData);
   store.write(root, "main");
   store.write(worktree, "feature");
@@ -62,8 +78,10 @@ test("the same repository's separate worktrees receive isolated memo stores", ()
 
   const nested = join(root, "src", "nested");
   mkdirSync(nested, { recursive: true });
-  assert.equal(canonicalWorktreePath(nested), canonicalWorktreePath(root), "subdirectories resolve to their worktree top level");
-  assert.equal(store.read(nested).body, "main");
+  store.write(nested, "nested workspace");
+  assert.notEqual(markdownMemoFile(userData, nested), markdownMemoFile(userData, root), "an opened package folder owns its memo");
+  assert.equal(store.read(nested).body, "nested workspace");
+  assert.equal(store.read(root).body, "main", "the repository-level memo is unchanged");
 });
 
 test("corrupt app data is surfaced and never overwritten as an empty notebook", () => {

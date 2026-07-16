@@ -102,17 +102,22 @@ test("packaged app reuses its top toolbars as compact draggable window chrome", 
   assert.match(css, /body\s*\{[^}]*--rail-width:\s*36px/, "the activity rail uses the compact desktop width");
   assert.match(css, /body\.native-app\s*\{[^}]*--native-titlebar-height:\s*40px/, "native title bar has one compact shared height");
   assert.match(css, /body\.native-app\s*\{[^}]*--native-traffic-safe-width:\s*76px/, "native window buttons expose their occupied width");
+  assert.match(css, /body\.native-app\s*\{[^}]*--native-title-safe-left:\s*calc\(var\(--native-traffic-safe-width\)\s*\+\s*8px\)/, "full-viewport headers share one traffic-light safe inset");
+  assert.match(css, /body\.native-app\s*\{[^}]*--native-title-safe-after-rail:\s*calc\(var\(--native-traffic-safe-width\)\s*-\s*var\(--rail-width\)\s*\+\s*8px\)/, "headers beside the activity rail share the corresponding safe inset");
   assert.match(css, /body\.native-app\s+\.activity-rail\s*\{[^}]*padding-top:\s*calc\(var\(--native-titlebar-height\)/, "traffic lights do not cover activity buttons");
   assert.match(css, /body\.native-app\s+\.activity-rail\s*\{[^}]*border-right:\s*0/, "the full-height divider does not cross the traffic lights");
   assert.match(css, /body\.native-app\s+\.activity-rail::after\s*\{[^}]*top:\s*var\(--native-titlebar-height\)/, "the rail divider starts below the native controls");
-  assert.match(css, /body\.native-app\s+\.activity-rail::before,[\s\S]{0,160}top:\s*var\(--native-titlebar-height\)/, "a horizontal divider closes the traffic-light strip");
+  assert.match(css, /body\.native-app\s+\.activity-rail::before,[\s\S]{0,260}top:\s*calc\(var\(--native-titlebar-height\)\s*-\s*1px\)/, "the traffic-light divider shares the toolbar border's exact pixel");
   assert.match(css, /\.rail-btn\s*\{[^}]*width:\s*28px;\s*height:\s*28px/, "activity buttons stay compact while retaining a click target");
   assert.match(css, /\.rail-btn\s*>\s*svg\s*\{[^}]*width:\s*16px;\s*height:\s*16px/, "view icons match the smaller settings glyph");
   assert.match(css, /body\.native-app\s+\.sidebar\s*\{[^}]*padding-top:\s*var\(--native-titlebar-height\)/, "the non-scrolling sidebar frame permanently reserves the traffic-light row");
   assert.match(css, /body\.native-app\s+\.sidebar-scroll\s*\{[^}]*padding-top:\s*8px/, "the project tree keeps only its compact internal spacing");
   assert.match(css, /body\.native-app\s+\.diff-toolbar,[\s\S]{0,180}-webkit-app-region:\s*drag/, "the existing review toolbar moves the window");
   assert.match(css, /body\.native-app\s+\.diff-toolbar\s+button,[\s\S]{0,500}-webkit-app-region:\s*no-drag/, "toolbar actions remain clickable inside the drag region");
-  assert.match(css, /body\.native-app\.sidebar-collapsed\s+\.diff-toolbar,[\s\S]{0,240}padding-left:\s*calc\(var\(--native-traffic-safe-width\)\s*-\s*var\(--rail-width\)\s*\+\s*8px\)/, "a collapsed sidebar keeps breadcrumbs clear of traffic lights");
+  assert.match(css, /body\.native-app\.sidebar-collapsed\s+\.diff-toolbar,[\s\S]{0,240}padding-left:\s*var\(--native-title-safe-after-rail\)/, "a collapsed sidebar keeps breadcrumbs clear of traffic lights");
+  assert.match(css, /body\.native-app\s+\.history-bar\s*\{[^}]*padding-left:\s*var\(--native-title-safe-after-rail\)/, "History uses the shared traffic-light safe inset");
+  assert.match(css, /body\.native-app\.dock-maximized\s+\.dock-bar\s*\{[^}]*min-height:\s*var\(--native-titlebar-height\)[^}]*padding-left:\s*var\(--native-title-safe-left\)/, "maximized memo and merged-prompt headers reserve the native controls");
+  assert.match(css, /body\.native-app\.dock-maximized\s+\.dock-bar\s+button,[\s\S]{0,180}-webkit-app-region:\s*no-drag/, "maximized writing-panel actions stay clickable inside the draggable title row");
   assert.match(css, /\.sidebar-brand,\s*\.sidebar-scroll,\s*\.sidebar-footer\s*\{[^}]*width:\s*var\(--sidebar-width,\s*264px\)/, "fixed header and scrolling contents keep their layout while the grid track closes");
   assert.doesNotMatch(css, /body\.sidebar-collapsed\s+\.sidebar\s*\{[^}]*visibility:\s*hidden/, "sidebar content is not blanked before the close animation finishes");
   assert.match(css, /\.sidebar-resizer\s*\{[^}]*transition:\s*left\s+180ms/, "the resize divider follows the collapsing track instead of jumping");
@@ -141,6 +146,12 @@ test("modern chrome uses one compact radius and elevation system without roundin
   assert.match(css, /\.rail-btn\s*>\s*svg\s*\{[^}]*width:\s*16px;\s*height:\s*16px/, "all rail SVGs occupy the same optical box");
   assert.match(css, /\.d2h-file-wrapper\s*\{[^}]*border-radius:\s*0/, "diff rows retain exact square alignment");
   assert.match(css, /\.source-body\s*\{[^}]*border:\s*1px solid var\(--border\)/, "the source canvas remains a flat editor surface");
+  assert.match(css, /\.rail-btn\.is-active::before\s*\{[^}]*content:\s*none/, "activity selection uses a complete surface rather than a partial blue rail");
+  assert.match(css, /\.tree-focus,[\s\S]{0,220}box-shadow:\s*none/, "sidebar selections use a complete neutral surface without an inset accent");
+  assert.match(css, /\.source-tabs,[\s\S]{0,180}align-items:\s*flex-end[^}]*padding:\s*4px 6px 0/, "file tabs sit on the strip divider instead of floating above it");
+  assert.match(css, /\.source-tab\s*\{[^}]*border-radius:\s*var\(--ui-radius-md\) var\(--ui-radius-md\) 0 0/, "file tabs only round their attached top corners");
+  assert.match(css, /\.source-tab\.active\s*\{[^}]*margin-bottom:\s*-1px[^}]*background:\s*var\(--chrome-bg\)[^}]*box-shadow:\s*none/, "the active tab joins the content surface without a floating shadow");
+  assert.match(css, /\.settings-cat\.active\s*\{[^}]*box-shadow:\s*none/, "settings navigation follows the same full-surface selection language");
 });
 
 test("activity rail shortcut bubbles disappear when hover ends even if the button keeps focus", () => {
@@ -150,6 +161,22 @@ test("activity rail shortcut bubbles disappear when hover ends even if the butto
     /\.rail-btn:focus-visible\s+\.rail-tip\s*\{[^}]*opacity:\s*1/,
     "retained keyboard focus must not leave a shortcut bubble stuck over the project tree",
   );
+});
+
+test("panel focus is a brief shared flash instead of a persistent native outline", () => {
+  assert.match(css, /\[data-mc-focus-panel\]:focus\s*\{[^}]*outline:\s*none/, "a stale DOM-focused scroller cannot keep a permanent blue rectangle");
+  assert.match(css, /\.mc-panel-focus-flash\s*\{[^}]*animation:\s*mc-panel-focus-flash\s+520ms/, "every panel uses the same roughly half-second focus flash");
+  assert.match(css, /@keyframes\s+mc-panel-focus-flash\s*\{[\s\S]{0,240}100%\s*\{[^}]*outline-color:\s*transparent/, "the focus effect fades completely away");
+  assert.match(css, /body\.native-app \.sidebar\.mc-panel-focus-flash::after\s*\{[^}]*top:\s*var\(--native-titlebar-height\)/, "the sidebar cue starts below the macOS traffic lights");
+  assert.match(css, /body\.native-app \.activity-rail\.mc-panel-focus-flash\s*\{[^}]*outline:\s*0/, "the activity rail never outlines the traffic-light strip");
+});
+
+test("history commit details reserve the canvas for code until the message is expanded", () => {
+  assert.match(css, /\.history-detail-head\s*\{[^}]*align-items:\s*flex-start[^}]*min-height:\s*62px[^}]*padding:\s*8px 10px 8px 14px/, "the default commit header is compact and its actions share one top edge");
+  assert.match(css, /\.history-detail-close,\s*\.history-message-toggle\s*\{[^}]*place-items:\s*center[^}]*width:\s*24px[^}]*height:\s*24px/, "history disclosure and close controls share the same box and centerline");
+  assert.match(css, /\.history-detail-head \.dock-btn:hover\s*\{[^}]*transform:\s*none/, "hover does not introduce a one-pixel action-button step");
+  assert.match(css, /\.hd-body\s*\{[^}]*display:\s*none[^}]*max-height:\s*min\(24vh, 240px\)/, "long commit bodies are collapsed and bounded");
+  assert.match(css, /\.history-detail-head\.message-expanded \.hd-body\s*\{[^}]*display:\s*block/, "the full message remains explicitly expandable");
 });
 
 test("diff hunk connectors bridge both center line-number gutters without stealing input", () => {
@@ -189,6 +216,8 @@ test("diff hunk connectors bridge both center line-number gutters without steali
 
   const insertionResume = ruleBodyContaining(".mc-asymmetric-insert-resume > td");
   const insertionTail = ruleBodyContaining(".mc-asymmetric-insert-tail > td");
+  const deletionGap = ruleBodyContaining(".mc-asymmetric-delete-gap");
+  assert.match(deletionGap || "", /display:\s*none/, "deleted base-only lines cannot leave gray blank rows in the working tree");
   assert.match(insertionResume || "", /color-mix\(in srgb, var\(--diff-added\) 78%, transparent\)/, "the collapsed base-side marker matches the translucent addition curve");
   assert.match(insertionTail || "", /color-mix\(in srgb, var\(--diff-added\) 78%, transparent\)/, "a trailing collapsed insertion matches the translucent addition curve");
   assert.doesNotMatch((insertionResume || "") + (insertionTail || ""), /var\(--active\)/, "insertion markers never fall back to unrelated blue focus color");

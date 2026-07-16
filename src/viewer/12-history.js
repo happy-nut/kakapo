@@ -2,8 +2,8 @@
 // Data comes from the main process (window.monacoriGit.log / .commitDiff); the lane layout is computed
 // here from each commit's parents. Read-only — the per-commit diff is static diff2html HTML.
 
-var HISTORY_LANE_W = 14, HISTORY_DOT_R = 3.5, HISTORY_ROW_H = 24;
-var HISTORY_COLORS = ['#6c9fd4', '#7faf6b', '#d4a857', '#c77dd4', '#d36c6c', '#5bb6b6', '#b0884f', '#8d8df0'];
+var HISTORY_LANE_W = 16, HISTORY_DOT_R = 3.8, HISTORY_ROW_H = 26;
+var HISTORY_COLORS = ['#43a5ff', '#ef4fb3', '#55d66b', '#f2a93b', '#a875ff', '#24c7bd', '#f06f62', '#91a4ff'];
 var historyCommits = [];
 var historyGraph = [];
 var historyMaxLane = 0;
@@ -11,91 +11,138 @@ var historyActiveSha = '';
 var historyLoading = false;
 var historyFocus = 'commits'; // commits | files | diff
 var historyDiffState = null;
+var historyDetailSha = '';
+var historyFilesCollapsed = false;
+var historyScope = null; // null | { path, line } — right-clicked source line history
+var historyLoadSeq = 0;
 
-// Lane layout. Walks commits newest-first, tracking open edges (lanes) by the hash each expects next.
-// Returns per-row { hash, myLane, color, topEdges, bottomEdges } using LANE INDICES + COLOR INDICES (px-free,
-// so it's unit-testable). First parent inherits the commit's color so a branch keeps one hue down its line.
+// Lane layout. Walk commits newest-first (git --topo-order) and track the parent hash each open lane is
+// waiting for. A lane is an object rather than just a hash so its color survives merges. Once a branch
+// joins another branch its dead lane is removed immediately; the remaining lanes curve into their compact
+// positions in the lower half of that commit row instead of leaving ever-widening holes.
 function computeHistoryGraph(commits) {
-  var lanes = [];           // lane index -> hash the lane is waiting to reach (open edge from above)
-  var colorOf = {};         // hash -> color index
-  var next = 0;
-  function colorFor(h) { if (colorOf[h] == null) colorOf[h] = next++; return colorOf[h]; }
-  function freeLane() { for (var i = 0; i < lanes.length; i++) if (lanes[i] == null) return i; lanes.push(null); return lanes.length - 1; }
+  var lanes = []; // { hash, color } in their position at the top of the next row
+  var nextColor = 0;
+  function newLane(hash, color) {
+    return { hash: hash, color: color == null ? nextColor++ : color };
+  }
   var rows = [];
   var maxLane = 0;
   for (var ci = 0; ci < commits.length; ci++) {
     var c = commits[ci];
     var incoming = lanes.slice();
-    var myLane = lanes.indexOf(c.hash);
-    if (myLane === -1) myLane = freeLane();
-    var myColor = colorFor(c.hash);
-    lanes[myLane] = c.hash;
-    for (var i = 0; i < lanes.length; i++) if (i !== myLane && lanes[i] === c.hash) lanes[i] = null; // merge other edges in
-    var parents = c.parents || [];
-    var parentLanes = {};
-    if (parents.length === 0) {
-      lanes[myLane] = null; // root commit — the lane ends here
-    } else {
-      lanes[myLane] = parents[0];
-      if (colorOf[parents[0]] == null) colorOf[parents[0]] = myColor; // first parent keeps the hue
-      parentLanes[myLane] = true;
-      for (var p = 1; p < parents.length; p++) {
-        var ex = lanes.indexOf(parents[p]);
-        var l = ex !== -1 ? ex : freeLane();
-        lanes[l] = parents[p];
-        colorFor(parents[p]);
-        parentLanes[l] = true;
-      }
+    var myLane = incoming.findIndex(function (lane) { return lane.hash === c.hash; });
+    var introduced = myLane < 0;
+    if (myLane < 0) {
+      // A tip from another ref (or a history page boundary) begins at the right edge so it never shifts
+      // an already-visible branch before the first connecting curve is drawn.
+      myLane = incoming.length;
+      incoming.push(newLane(c.hash));
     }
-    var outgoing = lanes.slice();
+    var myColor = incoming[myLane].color;
+    var parents = c.parents || [];
+    var working = incoming.map(function (lane) { return lane.hash === c.hash ? null : lane; });
+    var parentRecords = [];
+    for (var p = 0; p < parents.length; p++) {
+      var parent = parents[p];
+      var existing = working.find(function (lane) { return lane && lane.hash === parent; });
+      if (existing) {
+        parentRecords.push(existing);
+        continue;
+      }
+      var record = newLane(parent, p === 0 ? myColor : null);
+      parentRecords.push(record);
+      if (p === 0 && working[myLane] == null) working[myLane] = record;
+      else working.splice(Math.min(working.length, myLane + p), 0, record);
+    }
+    // A criss-cross merge may mention the same parent more than once. Keep one physical lane per hash.
+    var seen = {};
+    lanes = working.filter(function (lane) {
+      if (!lane || seen[lane.hash]) return false;
+      seen[lane.hash] = true;
+      return true;
+    });
     var topEdges = [];
     for (var a = 0; a < incoming.length; a++) {
-      if (incoming[a] == null) continue;
-      topEdges.push({ from: a, to: incoming[a] === c.hash ? myLane : a, color: colorOf[incoming[a]] });
+      if (introduced && a === myLane) continue; // a ref tip begins at its dot; no dangling line above it
+      topEdges.push({ from: a, to: incoming[a].hash === c.hash ? myLane : a, color: incoming[a].color });
     }
     var bottomEdges = [];
-    for (var b = 0; b < outgoing.length; b++) {
-      if (outgoing[b] == null) continue;
-      bottomEdges.push({ from: parentLanes[b] ? myLane : b, to: b, color: colorOf[outgoing[b]] });
+    // Unrelated lanes pass through the row and curve left when the consumed merge lane disappears.
+    for (var b = 0; b < incoming.length; b++) {
+      var through = incoming[b];
+      if (through.hash === c.hash) continue;
+      var throughTo = lanes.indexOf(through);
+      if (throughTo >= 0) bottomEdges.push({ from: b, to: throughTo, color: through.color });
     }
-    for (var m = 0; m < Math.max(incoming.length, outgoing.length); m++) {
-      if (incoming[m] != null || outgoing[m] != null) maxLane = Math.max(maxLane, m);
+    // Every parent leaves the commit node. Existing parents keep their branch color; the first newly
+    // opened parent inherits the commit color, matching the mainline convention used by IDE graphs.
+    var emittedParents = {};
+    for (var q = 0; q < parentRecords.length; q++) {
+      var parentRecord = parentRecords[q];
+      var parentTo = lanes.indexOf(parentRecord);
+      if (parentTo < 0 || emittedParents[parentRecord.hash]) continue;
+      emittedParents[parentRecord.hash] = true;
+      bottomEdges.push({ from: myLane, to: parentTo, color: parentRecord.color });
     }
-    maxLane = Math.max(maxLane, myLane);
-    rows.push({ hash: c.hash, myLane: myLane, color: myColor, topEdges: topEdges, bottomEdges: bottomEdges });
+    maxLane = Math.max(maxLane, myLane, incoming.length - 1, lanes.length - 1);
+    rows.push({ hash: c.hash, myLane: myLane, color: myColor, topEdges: topEdges, bottomEdges: bottomEdges, isMerge: parents.length > 1, isRoot: parents.length === 0 });
   }
   rows.maxLane = maxLane;
   return rows;
 }
 if (typeof window !== 'undefined') window.computeHistoryGraph = computeHistoryGraph; // exposed for tests
 
-function historyLaneX(l) { return 9 + l * HISTORY_LANE_W; }
+function historyLaneX(l) { return 10 + l * HISTORY_LANE_W; }
 function historyColor(i) { return HISTORY_COLORS[i % HISTORY_COLORS.length]; }
 function historyRowSvg(row) {
-  var w = historyLaneX(historyMaxLane) + 9, h = HISTORY_ROW_H, mid = h / 2;
+  var w = historyLaneX(historyMaxLane) + 10, h = HISTORY_ROW_H, mid = h / 2;
   var s = '<svg class="hgraph" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">';
   var edge = function (e, y1, y2) {
     var x1 = historyLaneX(e.from), x2 = historyLaneX(e.to);
     var c1 = (y1 + y2) / 2;
-    return '<path d="M' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + c1 + ', ' + x2 + ' ' + c1 + ', ' + x2 + ' ' + y2 + '" stroke="' + historyColor(e.color) + '" fill="none" stroke-width="1.6"/>';
+    return '<path d="M' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + c1 + ', ' + x2 + ' ' + c1 + ', ' + x2 + ' ' + y2 + '" stroke="' + historyColor(e.color) + '" fill="none" stroke-width="2" stroke-linecap="round"/>';
   };
   row.topEdges.forEach(function (e) { s += edge(e, 0, mid); });
   row.bottomEdges.forEach(function (e) { s += edge(e, mid, h); });
-  s += '<circle cx="' + historyLaneX(row.myLane) + '" cy="' + mid + '" r="' + HISTORY_DOT_R + '" fill="' + historyColor(row.color) + '"/></svg>';
+  s += '<circle class="hgraph-dot' + (row.isMerge ? ' merge' : '') + (row.isRoot ? ' root' : '') + '" cx="' + historyLaneX(row.myLane) + '" cy="' + mid + '" r="' + HISTORY_DOT_R + '" fill="' + historyColor(row.color) + '" stroke="var(--chrome-panel)" stroke-width="1.2"/></svg>';
   return s;
 }
+function historyLineRowSvg() {
+  return '<svg class="hgraph hline-graph" width="28" height="26" viewBox="0 0 28 26" aria-hidden="true">'
+    + '<path d="M14 0V26" stroke="' + historyColor(0) + '" fill="none" stroke-width="2"/>'
+    + '<circle cx="14" cy="13" r="' + HISTORY_DOT_R + '" fill="' + historyColor(0) + '" stroke="var(--chrome-panel)" stroke-width="1.2"/></svg>';
+}
 
-// "HEAD -> main, origin/main, tag: v1" -> small badges (HEAD/branch/tag styled distinctly).
+function historyRefIcon(kind) {
+  if (kind === 'tag') return '<svg class="href-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.3v4.3l5.9 5.9 5.1-5.1-5.9-5.9H3.3a.8.8 0 0 0-.8.8Z"/><circle cx="5.6" cy="5.6" r="1"/></svg>';
+  return '<svg class="href-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="3.2" r="1.7"/><circle cx="4" cy="12.8" r="1.7"/><circle cx="12" cy="5.8" r="1.7"/><path d="M4 4.9v6.2M5.7 11.1c3.3-.5 5.2-1.7 6-3.6"/></svg>';
+}
+
+function historyShortRefName(ref) {
+  return String(ref || '')
+    .replace(/^refs\/heads\//, '')
+    .replace(/^refs\/remotes\//, '')
+    .replace(/^refs\/tags\//, '');
+}
+
+// "HEAD -> main, origin/main, tag: v1" -> IDE-style ref chips with branch/tag glyphs. HEAD's target is
+// the useful label, while the full relationship remains available to accessibility and hover text.
 function historyRefBadges(refs) {
   if (!refs || !refs.trim()) return '';
   return refs.split(',').map(function (r) {
     r = r.trim();
     if (!r) return '';
-    var cls = 'href-branch', label = r;
-    if (r.indexOf('tag:') === 0) { cls = 'href-tag'; label = r.replace('tag:', '').trim(); }
-    else if (r.indexOf('HEAD') === 0) { cls = 'href-head'; }
-    else if (r.indexOf('origin/') === 0 || r.indexOf('/') !== -1) { cls = 'href-remote'; }
-    return '<span class="href ' + cls + '">' + escapeHtml(label) + '</span>';
+    var cls = 'href-branch', kind = 'branch', label = r, title = r;
+    if (r.indexOf('tag:') === 0) { cls = 'href-tag'; kind = 'tag'; label = historyShortRefName(r.replace('tag:', '').trim()); }
+    else if (r.indexOf('HEAD ->') === 0) { cls = 'href-head'; label = historyShortRefName(r.slice(r.indexOf('->') + 2).trim()); title = 'HEAD → ' + label; }
+    else if (r.indexOf('refs/remotes/') === 0) {
+      cls = 'href-remote';
+      label = historyShortRefName(r.indexOf('->') >= 0 ? r.slice(r.indexOf('->') + 2).trim() : r);
+    }
+    else if (r.indexOf('refs/heads/') === 0) { cls = 'href-branch'; label = historyShortRefName(r); }
+    else if (/^[^/]+\//.test(r)) { cls = 'href-remote'; } // compatibility with short decorations
+    return '<span class="href ' + cls + '" title="' + escapeHtml(title) + '">' + historyRefIcon(kind) + '<span class="href-label">' + escapeHtml(label) + '</span></span>';
   }).join('');
 }
 
@@ -112,14 +159,16 @@ function renderHistoryList() {
   if (!historyCommits.length) {
     list.innerHTML = historyLoading
       ? loadingStateHtml(t('history.loading'), 'quick-open-empty')
-      : '<div class="quick-open-empty">' + escapeHtml(t('history.empty')) + '</div>';
+      : '<div class="quick-open-empty">' + escapeHtml(t(historyScope ? 'history.emptyLine' : 'history.empty')) + '</div>';
     return;
   }
-  list.style.setProperty('--hgraph-w', (historyLaneX(historyMaxLane) + 9) + 'px');
+  list.style.setProperty('--hgraph-w', historyScope ? '28px' : (historyLaneX(historyMaxLane) + 10) + 'px');
   list.innerHTML = historyCommits.map(function (c, i) {
-    return '<button type="button" class="hrow' + (c.hash === historyActiveSha ? ' active' : '') + '" data-sha="' + escapeHtml(c.hash) + '">'
-      + '<span class="hgraph-cell">' + historyRowSvg(historyGraph[i]) + '</span>'
-      + '<span class="hmsg">' + historyRefBadges(c.refs) + escapeHtml(c.subject) + '</span>'
+    var refs = historyRefBadges(c.refs);
+    var mergeClass = c.parents && c.parents.length > 1 ? ' merge-commit' : '';
+    return '<button type="button" class="hrow' + mergeClass + (c.hash === historyActiveSha ? ' active' : '') + '" data-sha="' + escapeHtml(c.hash) + '" title="' + escapeHtml(c.hash.slice(0, 12) + '  ' + c.subject) + '">'
+      + '<span class="hgraph-cell">' + (historyScope ? historyLineRowSvg() : historyRowSvg(historyGraph[i])) + '</span>'
+      + '<span class="hmsg">' + (refs ? '<span class="hrefs">' + refs + '</span>' : '') + '<span class="hsubject">' + escapeHtml(c.subject) + '</span></span>'
       + '<span class="hauthor">' + escapeHtml(c.author) + '</span>'
       + '<span class="hdate">' + escapeHtml(historyShortDate(c.date)) + '</span>'
       + '</button>';
@@ -176,10 +225,12 @@ function applyHistoryFilter() {
 function openHistoryCommit(sha) {
   if (!sha || !window.monacoriGit) return;
   selectHistoryCommit(sha, true);
+  historyDetailSha = sha;
+  setHistoryDetailOpen(true);
   var detail = document.getElementById('history-detail');
   if (detail) detail.innerHTML = loadingStateHtml(t('history.loading'), 'quick-open-empty');
   Promise.resolve(window.monacoriGit.commitDiff(sha)).then(function (d) {
-    if (!d || historyActiveSha !== sha) return; // selection moved on while loading
+    if (!d || historyActiveSha !== sha || historyDetailSha !== sha || !isHistoryDetailOpen()) return;
     renderHistoryDetail(d);
   }, function () {});
 }
@@ -187,17 +238,45 @@ function openHistoryCommit(sha) {
 function renderHistoryDetail(d) {
   var detail = document.getElementById('history-detail');
   if (!detail) return;
+  var message = String(d.message || '');
+  var messageLines = message.split(/\r?\n/);
+  var subject = messageLines.shift() || '';
+  var messageBody = messageLines.join('\n').trim();
+  var messageToggle = messageBody
+    ? '<button type="button" id="history-message-toggle" class="dock-btn history-message-toggle" data-keyhint="M" data-tooltip="' + escapeHtml(t('history.showMessage')) + '" aria-expanded="false" aria-controls="history-message-body" aria-label="' + escapeHtml(t('history.showMessage')) + '"><span aria-hidden="true">⌄</span></button>'
+    : '';
   var head = '<div class="history-detail-head">'
-    + '<div class="hd-msg">' + escapeHtml(d.message || '').replace(/\n/g, '<br>') + '</div>'
+    + '<div class="history-detail-copy"><div class="hd-summary"><div class="hd-subject" title="' + escapeHtml(subject) + '">' + escapeHtml(subject) + '</div>' + messageToggle + '</div>'
+    + (messageBody ? '<div id="history-message-body" class="hd-body" aria-hidden="true">' + escapeHtml(messageBody).replace(/\n/g, '<br>') + '</div>' : '')
     + '<div class="hd-meta"><span class="hd-hash">' + escapeHtml((d.hash || '').slice(0, 10)) + '</span>'
     + '<span class="hd-author">' + escapeHtml(d.author) + (d.email ? ' &lt;' + escapeHtml(d.email) + '&gt;' : '') + '</span>'
     + '<span class="hd-date">' + escapeHtml(historyShortDate(d.date)) + '</span>'
-    + historyRefBadges(d.refs) + '</div></div>';
+    + historyRefBadges(d.refs) + '</div></div>'
+    + '<button type="button" id="history-detail-close" class="dock-btn history-detail-close" data-keyhint="Esc" aria-label="' + escapeHtml(t('history.close')) + '">&times;</button></div>';
   var body = (d.diffHtml && d.diffHtml.trim())
     ? '<div class="history-workspace"><aside id="history-files" class="history-files"></aside><div id="history-diff-container" class="history-diff diff2html-container" tabindex="0" aria-readonly="true">' + d.diffHtml + '</div></div>'
     : '<div class="quick-open-empty">' + escapeHtml(t(d.isMerge ? 'history.merge' : 'history.noDiff')) + '</div>';
   detail.innerHTML = head + body;
+  setHistoryDetailOpen(true);
   setupHistoryDiffWorkspace(d.hash || historyActiveSha);
+  if (historyScope && historyWrapperByPath(historyScope.path)) historyShowFile(historyScope.path, undefined, true);
+}
+
+function toggleHistoryCommitMessage(force) {
+  var head = document.querySelector('#history-detail .history-detail-head');
+  var button = document.getElementById('history-message-toggle');
+  var body = document.getElementById('history-message-body');
+  if (!head || !button || !body) return false;
+  var expanded = typeof force === 'boolean' ? force : !head.classList.contains('message-expanded');
+  var label = t(expanded ? 'history.hideMessage' : 'history.showMessage');
+  head.classList.toggle('message-expanded', expanded);
+  button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  button.setAttribute('aria-label', label);
+  button.setAttribute('data-tooltip', label);
+  body.setAttribute('aria-hidden', expanded ? 'false' : 'true');
+  var icon = button.querySelector('span');
+  if (icon) icon.textContent = expanded ? '⌃' : '⌄';
+  return true;
 }
 
 function historyWrapperPathKey(w) {
@@ -305,6 +384,7 @@ function setupHistoryDiffWorkspace(sha) {
     files.push({ path: path, hunk: first, count: hunkIndex - first });
   });
   historyDiffState = { sha: sha, container: container, filesEl: filesEl, wrappers: wrappers, files: files, hunks: hunks, currentHunk: -1, cursor: null, fileFocusIndex: 0 };
+  historyFilesCollapsed = false;
   filesEl.innerHTML = files.map(function (file, i) {
     var slash = file.path.lastIndexOf('/');
     var name = slash >= 0 ? file.path.slice(slash + 1) : file.path;
@@ -313,6 +393,7 @@ function setupHistoryDiffWorkspace(sha) {
       + '<span class="status status-modified" role="img" aria-label="Modified" title="Modified"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3.2 11.8.6-2.7 6.6-6.6a1.2 1.2 0 0 1 1.7 0l1.4 1.4a1.2 1.2 0 0 1 0 1.7L6.9 12.2l-2.7.6zM9.5 3.4l3.1 3.1"/></svg></span><span class="change-name"><span class="path" title="' + escapeHtml(file.path) + '">' + escapeHtml(name) + '</span>'
       + (dir ? '<span class="change-dir">' + escapeHtml(dir) + '</span>' : '') + '</span></button>';
   }).join('');
+  syncHistoryFilesVisibility();
   container.addEventListener('click', function (event) {
     var info = historyDiffRowInfoFromNode(event.target);
     if (info && info.path) {
@@ -338,6 +419,37 @@ function focusHistoryFiles() {
   if (!historyDiffState) return;
   var active = historyDiffState.files.findIndex(function (f) { return f.path === historyCurrentFile(); });
   historySetFileFocus(active >= 0 ? active : 0);
+}
+function syncHistoryFilesVisibility() {
+  var workspace = document.querySelector('#history-detail .history-workspace');
+  var filesEl = historyDiffState ? historyDiffState.filesEl : document.getElementById('history-files');
+  if (workspace) workspace.classList.toggle('history-files-collapsed', historyFilesCollapsed);
+  if (filesEl) {
+    if (historyFilesCollapsed) {
+      filesEl.setAttribute('inert', '');
+      filesEl.setAttribute('aria-hidden', 'true');
+    } else {
+      filesEl.removeAttribute('inert');
+      filesEl.removeAttribute('aria-hidden');
+    }
+  }
+}
+function setHistoryFilesCollapsed(collapsed, options) {
+  if (!historyDiffState) return false;
+  historyFilesCollapsed = !!collapsed;
+  syncHistoryFilesVisibility();
+  if (historyFilesCollapsed) focusHistoryDiff();
+  else if (!options || options.focusFiles !== false) focusHistoryFiles();
+  return true;
+}
+// Match the main review sidebar contract: from the diff Cmd+0 moves focus into the file list; a repeated
+// Cmd+0 while that list owns the logical focus collapses it. When collapsed, Cmd+0 restores and focuses it.
+function activateHistoryFiles() {
+  if (!historyDiffState) return false;
+  if (historyFilesCollapsed) return setHistoryFilesCollapsed(false, { focusFiles: true });
+  if (historyFocus === 'files') return setHistoryFilesCollapsed(true);
+  focusHistoryFiles();
+  return true;
 }
 function focusHistoryDiff() {
   if (!historyDiffState) return;
@@ -529,26 +641,82 @@ function isHistoryOpen() {
   var v = document.getElementById('history-view');
   return !!(v && !v.classList.contains('hidden'));
 }
+function isHistoryDetailOpen() {
+  var detail = document.getElementById('history-detail');
+  return !!(detail && !detail.classList.contains('hidden'));
+}
+function setHistoryDetailOpen(open) {
+  var view = document.getElementById('history-view');
+  var detail = document.getElementById('history-detail');
+  var backdrop = document.getElementById('history-detail-backdrop');
+  if (view) view.classList.toggle('history-diff-open', !!open);
+  if (detail) {
+    detail.classList.toggle('hidden', !open);
+    detail.setAttribute('aria-hidden', open ? 'false' : 'true');
+  }
+  if (backdrop) {
+    backdrop.classList.toggle('hidden', !open);
+    backdrop.setAttribute('aria-hidden', open ? 'false' : 'true');
+  }
+}
+function closeHistoryDetail(restoreFocus) {
+  historyDetailSha = '';
+  historyDiffState = null;
+  historyFocus = 'commits';
+  setHistoryDetailOpen(false);
+  var detail = document.getElementById('history-detail');
+  if (detail) detail.innerHTML = '';
+  if (restoreFocus !== false) {
+    var view = document.getElementById('history-view');
+    setTimeout(function () { try { if (view) view.focus(); } catch (e) {} }, 0);
+  }
+}
 function closeHistory() {
+  historyLoadSeq += 1;
   var v = document.getElementById('history-view');
   if (v) v.classList.add('hidden');
-  historyFocus = 'commits';
+  closeHistoryDetail(false);
   if (typeof syncRail === 'function') syncRail();
 }
-function openHistory() {
+function updateHistoryScopeChrome() {
+  var title = document.querySelector('#history-view .history-title');
+  var scope = document.getElementById('history-scope');
+  if (title) title.textContent = t(historyScope ? 'history.lineTitle' : 'history.title');
+  if (scope) {
+    scope.textContent = historyScope ? historyScope.path + ':L' + historyScope.line : '';
+    scope.classList.toggle('hidden', !historyScope);
+    if (historyScope) scope.setAttribute('title', historyScope.path + ':L' + historyScope.line);
+    else scope.removeAttribute('title');
+  }
+}
+function openHistory(scope) {
   var v = document.getElementById('history-view');
   if (!v) return;
   if (!window.monacoriGit) return; // browser/serve mode: no git bridge
+  historyScope = scope && scope.path && Number(scope.line) >= 1
+    ? { path: String(scope.path), line: Math.trunc(Number(scope.line)) }
+    : null;
+  updateHistoryScopeChrome();
   v.classList.remove('hidden');
   if (typeof syncRail === 'function') syncRail();
   var search = document.getElementById('history-search');
   if (search) { search.value = ''; }
   applyHistoryFilter();
   historyLoading = true;
+  historyCommits = [];
+  historyGraph = [];
+  historyMaxLane = 0;
+  historyActiveSha = '';
   historyFocus = 'commits';
   historyDiffState = null;
+  closeHistoryDetail(false);
   renderHistoryList();
-  Promise.resolve(window.monacoriGit.log({ limit: 300 })).then(function (commits) {
+  var seq = ++historyLoadSeq;
+  var request = historyScope && typeof window.monacoriGit.lineLog === 'function'
+    ? window.monacoriGit.lineLog({ path: historyScope.path, line: historyScope.line, limit: 300 })
+    : window.monacoriGit.log({ limit: 300 });
+  Promise.resolve(request).then(function (commits) {
+    if (seq !== historyLoadSeq || !isHistoryOpen()) return;
     historyLoading = false;
     historyCommits = Array.isArray(commits) ? commits : [];
     historyGraph = computeHistoryGraph(historyCommits);
@@ -558,10 +726,14 @@ function openHistory() {
     if (detail) detail.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('history.selectCommit')) + '</div>';
     if (historyCommits[0]) selectHistoryCommit(historyCommits[0].hash, false);
     setTimeout(function () { try { v.focus(); } catch (e) {} }, 0);
-  }, function () { historyLoading = false; renderHistoryList(); });
+  }, function () { if (seq === historyLoadSeq) { historyLoading = false; renderHistoryList(); } });
+}
+function openLineHistory(path, line) {
+  if (!window.monacoriGit || typeof window.monacoriGit.lineLog !== 'function') return;
+  openHistory({ path: path, line: line });
 }
 function toggleHistory() { if (isHistoryOpen()) closeHistory(); else openHistory(); }
-if (typeof window !== 'undefined') window.__monacoriHistory = { open: openHistory, close: closeHistory, toggle: toggleHistory, isOpen: isHistoryOpen };
+if (typeof window !== 'undefined') window.__monacoriHistory = { open: openHistory, openLine: openLineHistory, close: closeHistory, toggle: toggleHistory, isOpen: isHistoryOpen };
 
 function handleHistoryKey(e) {
   if (!isHistoryOpen()) return false;
@@ -570,9 +742,14 @@ function handleHistoryKey(e) {
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.code === 'Digit9' || e.key === '9')) {
     e.preventDefault(); e.stopPropagation(); closeHistory(); return true;
   }
-  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeHistory(); return true; }
+  if (e.key === 'Escape') {
+    e.preventDefault(); e.stopPropagation();
+    if (isHistoryDetailOpen()) closeHistoryDetail(true);
+    else closeHistory();
+    return true;
+  }
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === '0') {
-    if (historyDiffState) { e.preventDefault(); e.stopPropagation(); focusHistoryFiles(); return true; }
+    if (historyDiffState) { e.preventDefault(); e.stopPropagation(); activateHistoryFiles(); return true; }
   }
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === 'a' || e.key === 'A') && historyFocus === 'diff') {
     e.preventDefault(); e.stopPropagation(); historySelectAllDiff(); return true;
@@ -583,6 +760,9 @@ function handleHistoryKey(e) {
   }
   if (e.key === 'F7' && !e.metaKey && !e.ctrlKey && !e.altKey) {
     e.preventDefault(); e.stopPropagation(); historyNextHunk(e.shiftKey ? -1 : 1); return true;
+  }
+  if (!inSearch && isHistoryDetailOpen() && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === 'm' || e.key === 'M')) {
+    e.preventDefault(); e.stopPropagation(); toggleHistoryCommitMessage(); return true;
   }
   if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
     e.preventDefault(); e.stopPropagation();
@@ -631,6 +811,10 @@ function handleHistoryKey(e) {
   });
   var detail = document.getElementById('history-detail');
   if (detail) detail.addEventListener('click', function (e) {
+    var close = e.target.closest && e.target.closest('#history-detail-close');
+    if (close) { e.preventDefault(); closeHistoryDetail(true); return; }
+    var messageToggle = e.target.closest && e.target.closest('#history-message-toggle');
+    if (messageToggle) { e.preventDefault(); toggleHistoryCommitMessage(); return; }
     var file = e.target.closest && e.target.closest('.history-file[data-file]');
     if (file && historyDiffState) {
       e.preventDefault();
@@ -638,4 +822,6 @@ function handleHistoryKey(e) {
       focusHistoryDiff();
     }
   });
+  var backdrop = document.getElementById('history-detail-backdrop');
+  if (backdrop) backdrop.addEventListener('click', function () { closeHistoryDetail(true); });
 })();

@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld("monacoriFile", {
   get: (index: number, kind: string): Promise<string> => ipcRenderer.invoke("monacori:get-file", { index, kind }),
   getIndex: (): Promise<unknown> => ipcRenderer.invoke("monacori:get-project-index"),
   getSource: (path: string): Promise<unknown> => ipcRenderer.invoke("monacori:get-source", { path }),
+  existingPaths: (paths: string[]): Promise<unknown> => ipcRenderer.invoke("monacori:existing-project-paths", { paths }),
   getDiffContext: (request: unknown): Promise<unknown> => ipcRenderer.invoke("monacori:get-diff-context", request),
 });
 
@@ -61,6 +62,7 @@ contextBridge.exposeInMainWorld("monacoriSearch", {
 // Git history view (Cmd+9): list commits and fetch one commit's full diff for the current window's repo.
 contextBridge.exposeInMainWorld("monacoriGit", {
   log: (request: { limit?: number; skip?: number }): Promise<unknown> => ipcRenderer.invoke("monacori:git-log", request),
+  lineLog: (request: { path: string; line: number; limit?: number }): Promise<unknown> => ipcRenderer.invoke("monacori:git-line-log", request),
   commitDiff: (sha: string): Promise<unknown> => ipcRenderer.invoke("monacori:git-commit-diff", { sha }),
 });
 

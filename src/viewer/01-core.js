@@ -11,6 +11,64 @@ const REVIEW_LAZY = document.getElementById('review-meta')?.dataset.lazy === 'tr
 const REVIEW_LAZY_LOAD = document.getElementById('review-meta')?.dataset.lazyLoad === 'true';
 var diffImportOpenPaths = Object.create(null);
 
+// Focus belongs to a review panel, not permanently to whichever scroll container happened to receive DOM
+// focus last. Give each panel one short arrival flash, then remove it; logical cursors (the file tree and
+// read-only code carets) call the same function even though they intentionally do not move native focus.
+var REVIEW_FOCUS_PANEL_SELECTOR = [
+  '.activity-rail', '.sidebar', '.content', '#diff2html-container', '.source-body',
+  '.impact-panel', '.semantic-peek', '.history-list', '.history-detail',
+  '.dock-panel', '.settings-panel', '.quick-open-panel', '.mc-modal-panel',
+].join(',');
+var reviewFocusedPanel = null;
+var reviewFocusFlashTimer = 0;
+var reviewFocusInputModality = 'programmatic';
+function reviewFocusPanelFor(node) {
+  if (!node) return null;
+  if (node.nodeType !== 1) node = node.parentElement;
+  if (!node || !node.closest) return null;
+  return node.matches(REVIEW_FOCUS_PANEL_SELECTOR) ? node : node.closest(REVIEW_FOCUS_PANEL_SELECTOR);
+}
+function flashReviewPanelFocus(node) {
+  var panel = reviewFocusPanelFor(node);
+  if (!panel || panel.classList.contains('hidden')) return;
+  panel.setAttribute('data-mc-focus-panel', 'true');
+  // Pointer placement already makes its destination obvious. Reserve the arrival flash for keyboard and
+  // programmatic navigation, where the user's eyes otherwise have no direct spatial cue.
+  if (reviewFocusInputModality === 'pointer') return;
+  if (reviewFocusedPanel === panel && panel.isConnected) return;
+  if (reviewFocusedPanel) reviewFocusedPanel.classList.remove('mc-panel-focus-flash');
+  if (reviewFocusFlashTimer) clearTimeout(reviewFocusFlashTimer);
+  reviewFocusedPanel = panel;
+  // Restart the CSS animation when returning to a panel that was focused earlier.
+  panel.classList.remove('mc-panel-focus-flash');
+  void panel.offsetWidth;
+  panel.classList.add('mc-panel-focus-flash');
+  reviewFocusFlashTimer = setTimeout(function () {
+    panel.classList.remove('mc-panel-focus-flash');
+    reviewFocusFlashTimer = 0;
+  }, 560);
+}
+function clearReviewPanelFocusFlash() {
+  if (reviewFocusFlashTimer) clearTimeout(reviewFocusFlashTimer);
+  reviewFocusFlashTimer = 0;
+  document.querySelectorAll('.mc-panel-focus-flash').forEach(function (panel) {
+    panel.classList.remove('mc-panel-focus-flash');
+  });
+  reviewFocusedPanel = null;
+}
+function setPanelClassNamePreservingFocus(panel, className) {
+  if (!panel) return;
+  var flashing = panel.classList.contains('mc-panel-focus-flash');
+  panel.className = className;
+  if (flashing) panel.classList.add('mc-panel-focus-flash');
+}
+document.addEventListener('keydown', function () { reviewFocusInputModality = 'keyboard'; }, true);
+document.addEventListener('mousedown', function () {
+  reviewFocusInputModality = 'pointer';
+  clearReviewPanelFocusFlash();
+}, true);
+document.addEventListener('focusin', function (event) { flashReviewPanelFocus(event.target); }, true);
+
 // Shared lightweight import detection for the read-only source renderer and the diff. It deliberately
 // recognizes only top-level dependency declarations: an indented Python import inside a function or a
 // dynamic `import()` call remains ordinary code. Multiline `{ ... }`, `( ... )`, and `[ ... ]` imports are
@@ -235,7 +293,7 @@ function annotateDiffHunkRows(wrapper) {
     var number = row.querySelector('.d2h-code-side-linenumber');
     if (number && number !== row.firstElementChild) row.insertBefore(number, row.firstElementChild);
   });
-  var semanticClasses = ['mc-diff-change', 'mc-diff-modified', 'mc-diff-deleted', 'mc-diff-added', 'mc-change-start', 'mc-change-end', 'mc-diff-hunk-row', 'mc-active-hunk', 'mc-asymmetric-insert-gap', 'mc-asymmetric-insert-resume', 'mc-asymmetric-insert-tail'];
+  var semanticClasses = ['mc-diff-change', 'mc-diff-modified', 'mc-diff-deleted', 'mc-diff-added', 'mc-change-start', 'mc-change-end', 'mc-diff-hunk-row', 'mc-active-hunk', 'mc-asymmetric-insert-gap', 'mc-asymmetric-delete-gap', 'mc-asymmetric-insert-resume', 'mc-asymmetric-insert-tail'];
   oldRows.concat(newRows).forEach(function (row) {
     semanticClasses.forEach(function (name) { row.classList.remove(name); });
     row.removeAttribute('data-review-hunk-index');
@@ -246,6 +304,7 @@ function annotateDiffHunkRows(wrapper) {
   // caret/comment mapping, and record the right-side run so scrollAsymmetricDiff() can hold the base editor
   // still while the working tree advances through it (the same visual model as IntelliJ's side-by-side diff).
   var insertionGaps = [];
+  var deletionGaps = [];
   var openInsertionGap = null;
   var closeInsertionGap = function () {
     if (openInsertionGap) insertionGaps.push(openInsertionGap);
@@ -305,12 +364,21 @@ function annotateDiffHunkRows(wrapper) {
       closeConnectorRun();
     }
     var isPureInsertion = type === 'added' && !!(oldRow && oldRow.querySelector('.d2h-emptyplaceholder, .d2h-code-side-emptyplaceholder'));
+    var isPureDeletion = type === 'deleted' && !!(newRow && newRow.querySelector('.d2h-emptyplaceholder, .d2h-code-side-emptyplaceholder'));
     if (isPureInsertion) {
       oldRow.classList.add('mc-asymmetric-insert-gap');
       if (!openInsertionGap) openInsertionGap = { startIndex: i, endIndex: i, firstNewRow: newRow, lastNewRow: newRow };
       else { openInsertionGap.endIndex = i; openInsertionGap.lastNewRow = newRow; }
     } else {
       closeInsertionGap();
+    }
+    // Removed base-only lines belong in the old editor and connector, not as gray blank rows between two
+    // consecutive working-tree lines. Keep the positional peer for caret/comment mapping, but remove it
+    // from layout just like an insertion's empty base peer. Shared-row anchors below compensate the base
+    // layer with a signed transform after this compact deletion.
+    if (isPureDeletion) {
+      newRow.classList.add('mc-asymmetric-delete-gap');
+      deletionGaps.push({ index: i, oldRow: oldRow, newRow: newRow });
     }
     if (!type) {
       if (previousType) addPairClass(previousPair, 'mc-change-end');
@@ -346,7 +414,7 @@ function annotateDiffHunkRows(wrapper) {
   installLayeredDiffGutters(wrapper, true);
   var oldContent = sides[0].querySelector('.mc-diff-layer-stack') || sides[0].querySelector('.d2h-code-wrapper') || sides[0].querySelector('.d2h-diff-table');
   if (oldContent) {
-    oldContent.classList.toggle('mc-asymmetric-scroll-content', insertionGaps.length > 0);
+    oldContent.classList.toggle('mc-asymmetric-scroll-content', insertionGaps.length > 0 || deletionGaps.length > 0);
     oldContent.style.transform = '';
   }
   // Real shared rows are stronger alignment evidence than an accumulated line-height estimate. Keeping
@@ -372,6 +440,7 @@ function annotateDiffHunkRows(wrapper) {
   });
   wrapper.__asymmetricDiffState = oldContent ? {
     gaps: insertionGaps,
+    deletionGaps: deletionGaps,
     content: oldContent,
     anchors: alignmentAnchors,
     connectorRuns: connectorRuns,
@@ -524,13 +593,13 @@ function renderDiffConnectors(wrapper, state) {
   if (!height) { svg.replaceChildren(); return; }
   var surfaceWidth = Number(surfaceRect.width) || (Number(surfaceRect.right) - Number(surfaceRect.left)) || 0;
   var connectorWidth = Math.min(104, surfaceWidth || 104);
-  var divider = surfaceWidth / 2;
-  // The surface is an exact two-column grid. Its midpoint is the divider, so reading both pane rectangles
-  // here only forces more layout without adding information.
-  var connectorLeft = Math.max(0, Math.min(Math.max(0, surfaceWidth - connectorWidth), divider - connectorWidth / 2));
-  svg.style.left = connectorLeft + 'px';
+  // The surface is an exact two-column grid. Keep the overlay attached to that live CSS midpoint instead
+  // of baking the current midpoint into pixels. The review sidebar animates the content track width; a
+  // pixel left value stayed behind for the duration of that transition and visibly tore (or covered) the
+  // two code canvases. Percentage positioning follows every compositor frame without rerunning row layout.
+  svg.style.left = '50%';
   svg.style.width = connectorWidth + 'px';
-  svg.style.transform = 'none';
+  svg.style.transform = 'translateX(-50%)';
   svg.setAttribute('viewBox', '0 0 ' + connectorWidth + ' ' + height);
   var geometry = diffConnectorGeometry(state, surfaceRect);
   if (!state.connectorPathNodes || state.connectorPathNodes.length !== geometry.length) {
@@ -558,7 +627,7 @@ function renderDiffConnectors(wrapper, state) {
     state.connectorPathNodes[index].setAttribute('d', d);
   });
   state.connectorLastOffset = currentOffset;
-  state.connectorRenderKey = [surfaceWidth, height, connectorLeft, connectorWidth, geometry.length].join(':');
+  state.connectorRenderKey = [surfaceWidth, height, connectorWidth, geometry.length].join(':');
 }
 function diffGapGeometry(state, containerRect, scrollTop) {
   if (state.gapGeometry) return state.gapGeometry;
@@ -637,7 +706,9 @@ function scrollAsymmetricDiff() {
   // when a stable symbol boundary reaches the reading band its two copies are exactly level.
   if (!insideGap && state.anchors && state.anchors.length) {
     var exactOffset = interpolatedDiffAlignmentOffset(diffAlignmentGeometry(state, containerRect, scrollTop), canonicalY);
-    if (Number.isFinite(exactOffset)) offset = Math.max(0, exactOffset);
+    // A compact insertion moves the base layer down (positive); a compact deletion moves it up
+    // (negative). Clamping to zero would reintroduce vertical drift below a deleted block.
+    if (Number.isFinite(exactOffset)) offset = exactOffset;
   }
   offset = Math.round(offset * 100) / 100;
   state.offset = offset;
@@ -1033,13 +1104,11 @@ var theme = (function () {
 function applyTheme() {
   document.documentElement.setAttribute('data-theme', theme);
   if (themeSelectRef) themeSelectRef.render();
-  // Theme families own both app chrome and code colors. Changing the appearance therefore also swaps
-  // Monaco between the matching dark/light member (Darcula Dark or IntelliJ Light).
-  if (window.monaco && typeof applyMonacoTheme === 'function' && typeof syntaxTheme !== 'undefined') applyMonacoTheme(window.monaco);
+  // Theme families own both app chrome and Review code colors.
 }
 applyTheme();
 // The persisted syntax choice is a complete theme family rather than a code-only palette. `theme` selects
-// the family's dark/light member, keeping navigation chrome, diff, raw source, HTTP, and Monaco coherent.
+// the family's dark/light member, keeping navigation chrome, diff, raw source, and HTTP coherent.
 var SYNTAX_THEME_KEY = 'monacori-syntax-theme';
 var syntaxTheme = (function () {
   var v = persistRead(SYNTAX_THEME_KEY);
@@ -1049,7 +1118,6 @@ var syntaxTheme = (function () {
 function applySyntaxTheme() {
   document.documentElement.setAttribute('data-syntax-theme', syntaxTheme);
   if (syntaxThemeSelectRef) syntaxThemeSelectRef.render();
-  if (window.monaco && typeof applyMonacoTheme === 'function') applyMonacoTheme(window.monaco);
 }
 applySyntaxTheme();
 let fileStates = JSON.parse(document.getElementById('file-state-data')?.textContent || '[]');
@@ -1088,6 +1156,7 @@ function installProjectIndex(payload) {
   fileSignatureByPath = new Map(fileStates.map(function (file) { return [file.path, file.signature]; }));
   projectIndexLoaded = true;
   projectIndexPayload = payload;
+  if (typeof pruneCommentsForMissingFiles === 'function' && pruneCommentsForMissingFiles()) refreshComments();
   return payload;
 }
 
@@ -1218,8 +1287,8 @@ let viewerCursor = null;
 let selectedCommentRow = null; // a comment box "selected" while navigating with arrows (caret hidden); Backspace deletes it
 let selectedDiffFoldRow = null; // an omitted-context stop selected with arrows; Space expands both panes
 let currentHttpEnvName = (function () {
-  let saved = '';
-  try { saved = localStorage.getItem(httpEnvKey) || ''; } catch (error) { saved = ''; }
+  let saved = persistRead(httpEnvKey);
+  if (typeof saved !== 'string') { try { saved = localStorage.getItem(httpEnvKey) || ''; } catch (error) { saved = ''; } }
   if (saved && httpEnvNames.indexOf(saved) >= 0) return saved;
   return httpEnvNames.length ? httpEnvNames[0] : '';
 })();
@@ -1306,7 +1375,8 @@ function prepareViewedControls() {
 
 function loadViewedState() {
   try {
-    const value = JSON.parse(localStorage.getItem(viewedKey) || '{}');
+    var stored = persistRead(viewedKey);
+    const value = stored && typeof stored === 'object' ? stored : JSON.parse(localStorage.getItem(viewedKey) || '{}');
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   } catch {
     return {};
@@ -1314,9 +1384,7 @@ function loadViewedState() {
 }
 
 function saveViewedState(value) {
-  try {
-    localStorage.setItem(viewedKey, JSON.stringify(value));
-  } catch {}
+  persistSave(viewedKey, value);
 }
 
 function currentFileSignature(path) {
@@ -1325,23 +1393,31 @@ function currentFileSignature(path) {
 
 function isFileViewed(path) {
   const viewed = loadViewedState();
-  return Boolean(viewed[path]); // boolean now; legacy signature strings are also truthy, so old marks still read as viewed
+  const signature = currentFileSignature(path);
+  // A review mark belongs to the exact diff the reviewer inspected, not merely to a path. Keeping a plain
+  // boolean here made a later edit to the same file silently remain "viewed": F7 skipped it even though the
+  // sidebar (rebuilt by live refresh) looked like an ordinary modified file. Old boolean records are treated
+  // as stale once so existing installs recover from that ambiguous state; new records survive restarts and
+  // unrelated watch refreshes as long as this file's own diff signature is unchanged.
+  return Boolean(signature && typeof viewed[path] === 'string' && viewed[path] === signature);
 }
 
 function setFileViewed(path, viewed) {
   const state = loadViewedState();
-  // Persist a plain boolean (not the file signature) so a viewed mark survives a restart/refresh the way
-  // comments do. Tying it to the signature meant any re-generation that changed the signature silently
-  // cleared every viewed mark — exactly the "viewed didn't persist" the user hit.
-  if (viewed) state[path] = true;
+  // Persist the PER-FILE diff signature. It is stable across restarts and unrelated repository changes,
+  // but changes as soon as this file's reviewed patch changes, which correctly puts it back in the queue.
+  if (viewed) {
+    const signature = currentFileSignature(path);
+    if (signature) state[path] = signature;
+  }
   else delete state[path];
   saveViewedState(state);
   applyViewedState();
 }
 
-// Viewed marks persist by path (a plain boolean), like comments — we deliberately DON'T prune on signature
-// change or restart. Tying persistence to the file signature is what made viewed marks vanish on every
-// re-generation; the user wants them to survive restarts the way comments do.
+// Viewed marks persist across restarts and unrelated refreshes, but only for the exact per-file diff that
+// was reviewed. applyViewedState is also rerun after every in-place update so the visible check badge and
+// F7's queue filtering can never disagree.
 function applyViewedState() {
   document.querySelectorAll('.d2h-file-wrapper').forEach((wrapper) => {
     const fileName = wrapper.querySelector('.d2h-file-name')?.textContent?.trim() || '';

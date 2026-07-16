@@ -57,10 +57,15 @@ localStorage라 이 함정을 못 건드린다).
 - 한 뷰에서 단 코멘트는 다른 뷰로 옮겨가도 보인다
 - 코멘트가 달린 파일에는 개수 배지가 붙는다
 - Changes 행은 증감 줄 수나 긴 상태 문구 없이 상태 아이콘만 표시한다
-- `Cmd/Ctrl+Shift+,`는 열린 파일이 아니라 화살표로 선택한 Changes 행을 확인 처리한다
+- `Shift+,`는 열린 파일이 아니라 화살표로 선택한 Changes 행을 확인 처리한다
 - diff toolbar의 이전/다음 버튼, 변경 카운터, Base/Working tree 헤더가 키보드 F7 흐름과 같은 위치를 가리킨다
 - 양쪽 라인 번호는 중앙 divider에 모이고, hunk id가 양쪽 행에 전파되며 수정=파랑·삭제=회색·추가=초록 배경이 빈 placeholder까지 이어진다
 - `Cmd/Ctrl+9` History를 열어도 왼쪽 activity rail은 유지된다
+- History의 커밋 그래프는 전체 폭을 사용하고, `Enter`는 선택한 커밋의 파일 목록·diff를 큰 플로팅 워크스페이스로 연다
+- 플로팅 commit diff에서 `Esc`를 누르면 History 자체가 아니라 diff만 먼저 닫혀 커밋 선택으로 돌아간다
+- macOS의 전체 화면 상단 surface(접힌 사이드바의 리뷰 툴바·History·최대화한 메모/합본 프롬프트)는 하나의 공통 safe-area 규칙을 사용해 좌상단 창 버튼을 침범하지 않는다
+- 파일 트리·코드·diff·오버레이 등 패널 사이의 포커스 이동은 목적지에만 약 0.5초 focus flash를 보여주고 완전히 사라져, 이전 DOM 포커스의 푸른 테두리가 남지 않는다
+- 왼쪽에만 존재하는 삭제 줄은 오른쪽에 회색 빈 행을 만들지 않는다. 오른쪽 실제 줄 번호는 연속되고 삭제 범위는 중앙 곡선으로만 연결된다
 
 ### Flow 5 — 프로젝트 코드 분석과 변경 영향 (`analysis.test.mjs`, `impact.test.mjs`, `monaco.test.mjs`)
 
@@ -68,9 +73,9 @@ localStorage라 이 함정을 못 건드린다).
 - language server가 없거나 언어가 지원되지 않으면 메인 프로세스 정규식 인덱스가 같은 요청을 처리한다
 - Change Impact는 호출자/importer, 호출 대상/의존성, 구현체/상속, 테스트, 타입·API·스키마·설정을 분류한다
 - 검색·인덱싱은 렌더러 밖에서 수행하고, lazy-load 뷰어는 실제로 연 파일의 소스만 요청한다
-- Code 모드는 Monaco를 필요할 때만 마운트하고, 코멘트를 시작하면 같은 커서의 Review 모드로 돌아온다
-- Monaco의 definition/reference/implementation provider는 현재 프로젝트 generation의 응답만 받아들인다
-- 여러 semantic 결과는 현재 파일을 떠나지 않고 Semantic Peek 목록과 소스 미리보기로 비교한다
+- 모든 코드 파일은 하나의 Review 렌더러에서 열리며 검색·폴딩·네비게이션·코멘트가 같은 커서 상태를 공유한다
+- Review 화면의 definition/reference/implementation 요청은 현재 프로젝트 generation의 응답만 받아들인다
+- 여러 semantic 결과는 현재 파일을 떠나지 않고 caret-local Semantic Peek 목록에서 비교한다
 
 ## 실행
 

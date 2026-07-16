@@ -75,8 +75,11 @@ export function renderWelcomeHtml(light = false, recent: { path: string; name: s
     "<title>Monacori</title>",
     "<style>",
     "* { box-sizing: border-box; }",
-    `body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: ${bg}; color: ${fg}; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }`,
-    ".card { width: 520px; max-width: calc(100vw - 48px); padding: 40px; text-align: center; }",
+    // The same hiddenInset BrowserWindow hosts this screen. Auto margins center a short project list, but
+    // collapse to zero when twelve recents make the card tall, so it scrolls from below the traffic lights
+    // instead of overflowing upward underneath them.
+    `body { margin: 0; min-height: 100vh; display: flex; padding: 40px 24px 24px; overflow: auto; background: ${bg}; color: ${fg}; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }`,
+    ".card { width: 520px; max-width: 100%; padding: 40px; margin: auto; text-align: center; }",
     ".card .badge { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #808080; }",
     ".card h1 { font-size: 24px; margin: 12px 0 14px; color: #4a88c7; }",
     ".card p { font-size: 14px; line-height: 1.7; margin: 10px 0; }",
@@ -338,7 +341,7 @@ export function renderDiffHtml(input: {
     '</div>',
     '<div class="diff-toolbar-meta">',
     `<div class="review-status">${renderReviewStatus({ files: input.files.length, hunks: totalHunks, embeddedFiles, sourceFileCount: input.sourceFiles.length, ignoreWhitespace: input.ignoreWhitespace, watch: input.watch, generatedAt: input.generatedAt })}</div>`,
-    '<button type="button" id="diff-viewed-toggle" class="diff-viewed-toggle" data-keyhint="⌘⇧," aria-pressed="false" data-i18n="btn.viewed" data-i18n-title="btn.viewed.title" title="Toggle viewed (Cmd/Ctrl+Shift+,)" hidden>Viewed</button>',
+    '<button type="button" id="diff-viewed-toggle" class="diff-viewed-toggle" data-keyhint="⇧," aria-pressed="false" data-i18n="btn.viewed" data-i18n-title="btn.viewed.title" title="Toggle viewed (Shift+,)" hidden>Viewed</button>',
     '</div>',
     "</div>",
     '<div class="diff-pane-header" data-i18n-aria="diff.panes" aria-label="Diff panes">',
@@ -353,11 +356,17 @@ export function renderDiffHtml(input: {
     '<div class="source-file-meta"><span id="source-type-icon" class="source-type-icon" aria-hidden="true"></span><span id="source-title" data-i18n="source.title">Source</span><span id="source-meta" data-i18n="source.selectFile">Select a file from the Files tab.</span></div>',
     '<select id="http-env-select" class="http-env-select hidden" data-i18n-title="http.env.title" data-i18n-aria="http.env.aria" title="HTTP Client environment" aria-label="HTTP environment"></select>',
     '<button type="button" id="render-toggle" class="plain-button hidden" aria-pressed="false">Raw</button>',
-    input.app ? '<button type="button" id="editor-mode-toggle" class="plain-button editor-mode-toggle hidden" aria-pressed="false" data-i18n="monaco.codeMode" data-i18n-title="monaco.codeMode.title" title="Open the virtualized code editor">Code</button>' : "",
     '<button type="button" id="back-to-diff" class="plain-button" data-keyhint="F7" data-i18n="btn.diff" data-i18n-title="btn.diff.title" title="Back to diff (F7)">Diff</button>',
     "</div>",
     '<div id="source-body" class="source-body empty" data-i18n="source.selectFile">Select a file from the Files tab.</div>',
     "</section>",
+    '<div id="file-find" class="file-find hidden" role="search" data-i18n-aria="find.aria" aria-label="Find in current file">',
+    '<input id="file-find-input" class="file-find-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="find.placeholder" placeholder="Find in current file">',
+    '<span id="file-find-count" class="file-find-count" aria-live="polite">0/0</span>',
+    '<button type="button" id="file-find-prev" class="file-find-button" data-i18n-title="find.previous" data-i18n-aria="find.previous" title="Previous match (Shift+Enter)" aria-label="Previous match">&#8593;</button>',
+    '<button type="button" id="file-find-next" class="file-find-button" data-i18n-title="find.next" data-i18n-aria="find.next" title="Next match (Enter)" aria-label="Next match">&#8595;</button>',
+    '<button type="button" id="file-find-close" class="file-find-button file-find-close" data-i18n-title="find.close" data-i18n-aria="find.close" title="Close (Esc)" aria-label="Close">&times;</button>',
+    '</div>',
     "</main>",
     input.app
       ? '<aside id="impact-panel" class="impact-panel hidden" aria-label="Change Impact">'
@@ -369,9 +378,7 @@ export function renderDiffHtml(input: {
     input.app
       ? '<aside id="semantic-peek" class="semantic-peek hidden" aria-label="Semantic Peek">'
         + '<div class="semantic-peek-header"><div class="semantic-peek-heading"><div id="semantic-peek-title" class="semantic-peek-title">Semantic Peek</div><div id="semantic-peek-meta" class="semantic-peek-meta"></div></div>'
-        + '<button type="button" id="semantic-peek-open" class="plain-button" data-i18n="monaco.openSource">Open source</button>'
-        + '<button type="button" id="semantic-peek-close" class="dock-btn" data-keyhint="Esc" data-i18n-title="impact.close" title="Close" aria-label="Close">&times;</button></div>'
-        + '<div class="semantic-peek-body"><div id="semantic-peek-results" class="semantic-peek-results" role="listbox" tabindex="0" aria-label="Semantic locations"></div><div id="semantic-peek-editor" class="semantic-peek-editor" aria-label="Source preview"></div></div>'
+        + '</div><div id="semantic-peek-results" class="semantic-peek-results" role="listbox" tabindex="0" aria-label="Semantic locations"></div>'
         + '</aside>'
       : "",
     '<div id="quick-open" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="quickopen.aria" aria-label="Quick open">',
@@ -409,6 +416,7 @@ export function renderDiffHtml(input: {
     '<kbd>⌘O</kbd><span data-i18n="kbd.openFolder">Open folder</span>' +
     '<kbd>⌘⇧O</kbd><span data-i18n="kbd.openNewWindow">Open in new window</span>' +
     '<kbd>⌘,</kbd><span data-i18n="kbd.openSettings">Settings</span>' +
+    '<kbd>⌘9</kbd><span data-i18n="kbd.openHistory">Git history</span>' +
     '<kbd>⌘L</kbd><span data-i18n="kbd.gotoLine">Go to line</span>' +
     '<kbd>⌘K</kbd><span data-i18n="kbd.copyLocation">Copy file:line</span>' +
     '<kbd>⌥Enter</kbd><span data-i18n="kbd.rowActions">Sidebar file actions (path / Finder / Terminal)</span>' +
@@ -419,8 +427,11 @@ export function renderDiffHtml(input: {
     '<kbd>F7</kbd><span data-i18n="kbd.nextChange">Next change</span>' +
     '<kbd>⇧F7</kbd><span data-i18n="kbd.prevChange">Previous change</span>' +
     '<kbd>⌘1 / ⌘0</kbd><span data-i18n="kbd.filesChangesTab">Files / Changes tab</span>' +
-    '<kbd>Tab</kbd><span data-i18n="kbd.sidebarContent">Sidebar &harr; content</span>' +
+    '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.sidebarNavigate">Navigate / open sidebar row</span>' +
+    '<kbd>Tab / ⇧Tab</kbd><span data-i18n="kbd.sidebarContent">Sidebar &harr; content / diff pane</span>' +
     '<kbd>⇧ ⇧</kbd><span data-i18n="kbd.findFile">Find file</span>' +
+    '<kbd>⌘F</kbd><span data-i18n="kbd.findInFile">Find in current file</span>' +
+    '<kbd>⌘G / ⌘⇧G</kbd><span data-i18n="kbd.findNextPrev">Next / previous match</span>' +
     '<kbd>⌘⇧F</kbd><span data-i18n="kbd.findInFiles">Find in files</span>' +
     '<kbd>⌘E</kbd><span data-i18n="kbd.recentFiles">Recent files</span>' +
     '<kbd>⌘B</kbd><span data-i18n="kbd.defUsages">Definition / usages</span>' +
@@ -430,27 +441,46 @@ export function renderDiffHtml(input: {
     '<kbd>⌘.</kbd><span data-i18n="kbd.toggleFold">Toggle code fold</span>' +
     '<kbd>⌘⇧[ / ]</kbd><span data-i18n="kbd.prevNextTab">Prev / next tab</span>' +
     '<kbd>⌘[ / ]</kbd><span data-i18n="kbd.cursorBackForward">Cursor back / forward</span>' +
+    '</div>' +
+    '<div class="keys-cat" data-i18n="settings.kbd.cat.editor">Editor</div>' +
+    '<div class="keys-grid">' +
+    '<kbd>&larr;&uarr;&darr;&rarr;</kbd><span data-i18n="kbd.moveCaret">Move caret</span>' +
     '<kbd>⌥&larr;/&rarr;</kbd><span data-i18n="kbd.wordJump">Word jump (vim w)</span>' +
     '<kbd>⌘&larr;/&rarr;</kbd><span data-i18n="kbd.lineStartEnd">Line start / end</span>' +
     '<kbd>⇧&larr;&uarr;&darr;&rarr;</kbd><span data-i18n="kbd.extendSelection">Extend selection</span>' +
+    '<kbd>⌘A</kbd><span data-i18n="kbd.selectEditor">Select editor content</span>' +
     '<kbd>PageUp / PageDown</kbd><span data-i18n="kbd.pageUpDown">Page up / down</span>' +
+    '<kbd>Space</kbd><span data-i18n="kbd.expandDiffFold">Expand selected diff context</span>' +
     '<kbd>⌘Enter / ⌥Enter</kbd><span data-i18n="kbd.runHttp">Run HTTP request (.http)</span>' +
+    '<kbd>⌘⇧M</kbd><span data-i18n="kbd.toggleRendered">Rendered / raw Markdown or CSV</span>' +
     '<kbd>⌘W</kbd><span data-i18n="kbd.closeTab">Close tab</span>' +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.review">Review</div>' +
     '<div class="keys-grid">' +
     '<kbd>⌘8</kbd><span data-i18n="kbd.changeImpact">Change Impact</span>' +
-    '<kbd>⌘⇧,</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed</span>' +
+    '<kbd>⇧,</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed</span>' +
     '<kbd>? &nbsp;&gt;</kbd><span data-i18n="kbd.addQuestionChange">Add question / change</span>' +
     '<kbd>⌘⇧/ .</kbd><span data-i18n="kbd.allQuestionsChanges">All questions / changes</span>' +
     '<kbd>⌘⇧W</kbd><span data-i18n="kbd.ignoreWhitespace">Ignore whitespace</span>' +
     '<kbd>⌘Enter</kbd><span data-i18n="kbd.saveComment">Save comment</span>' +
+    '<kbd>&uarr; / &darr;</kbd><span data-i18n="kbd.reviewStops">Step through comments / folded context</span>' +
     '<kbd>e</kbd><span data-i18n="kbd.editComment">Edit comment (when selected)</span>' +
     '<kbd>Backspace / Delete</kbd><span data-i18n="kbd.deleteComment">Delete comment (when selected)</span>' +
     '<kbd>⌥&uarr;/&darr;</kbd><span data-i18n="kbd.stepComments">Step between comments (merged)</span>' +
     '<kbd>⌥Enter</kbd><span data-i18n="kbd.mergedSend">Comment actions (merged)</span>' +
     '<kbd>⌘⇧N</kbd><span data-i18n="kbd.promptMemo">Prompt memo</span>' +
     '<kbd>⌘⇧&#39;</kbd><span data-i18n="kbd.maximizePanel">Maximize panel</span>' +
+    '</div>' +
+    '<div class="keys-cat" data-i18n="settings.kbd.cat.history">History</div>' +
+    '<div class="keys-grid">' +
+    '<kbd>⌘9</kbd><span data-i18n="kbd.openHistory">Open / close Git history</span>' +
+    '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.historyNavigate">Select / open commit or file</span>' +
+    '<kbd>⌘0</kbd><span data-i18n="kbd.historyFiles">Focus changed files</span>' +
+    '<kbd>F7 / ⇧F7</kbd><span data-i18n="kbd.historyHunks">Next / previous commit hunk</span>' +
+    '<kbd>⇧Tab</kbd><span data-i18n="kbd.historyDiffPane">Switch diff pane</span>' +
+    '<kbd>M</kbd><span data-i18n="kbd.historyMessage">Show / hide commit message</span>' +
+    '<kbd>⌘A</kbd><span data-i18n="kbd.historySelectDiff">Select commit diff</span>' +
+    '<kbd>PageUp / PageDown</kbd><span data-i18n="kbd.pageUpDown">Page up / down</span>' +
     '</div>' +
     '</div>',
     "</section>",
@@ -468,17 +498,19 @@ export function renderDiffHtml(input: {
     "</div>",
     "</div>",
     "</div>",
-    // Git history (Cmd+9): full-screen overlay — commit list (with graph lanes) on the left, the selected
-    // commit's message + diff on the right. Populated lazily by the renderer from window.monacoriGit.
+    // Git history (Cmd+9): the commit graph owns the full canvas. Enter opens the selected commit's
+    // message + diff in a large floating workspace instead of squeezing both views side by side.
     '<div id="history-view" class="history-view hidden" role="dialog" aria-modal="true" data-i18n-aria="history.title" aria-label="Git history">',
     '<div class="history-bar">',
     '<span class="history-title" data-i18n="history.title">History</span>',
+    '<span id="history-scope" class="history-scope hidden"></span>',
     '<input id="history-search" type="search" class="history-search" autocomplete="off" spellcheck="false" data-i18n-ph="history.search" placeholder="Filter by message or author">',
     '<button type="button" id="history-close" class="dock-btn" data-keyhint="Esc" data-i18n-title="history.close" title="Close" aria-label="Close">&times;</button>',
     "</div>",
     '<div class="history-body">',
     '<div id="history-list" class="history-list"></div>',
-    '<div id="history-detail" class="history-detail"></div>',
+    '<div id="history-detail-backdrop" class="history-detail-backdrop hidden" aria-hidden="true"></div>',
+    '<div id="history-detail" class="history-detail hidden" role="document" aria-hidden="true"></div>',
     "</div>",
     "</div>",
     input.diffIslands || "",

@@ -6,10 +6,12 @@ import { join } from "node:path";
 import { cleanupFixtures, makeReviewHtml } from "./helpers/fixture.mjs";
 
 let readReviewDiffContext;
+let readUnifiedDiff;
 let fixture;
 
 before(async () => {
   ({ readReviewDiffContext } = await import("../dist/diff-context.js"));
+  ({ readUnifiedDiff } = await import("../dist/diff.js"));
   const beforeLines = Array.from({ length: 30 }, (_, index) => `const line${index + 1} = ${index + 1};`);
   const afterLines = beforeLines.slice();
   afterLines[1] = "const line2 = 200;";
@@ -32,12 +34,19 @@ test("diff context reads the exact base and working-tree lines for a reviewed fo
   assert.deepEqual(result.newLines, result.oldLines, "an omitted gap is unchanged across both reviewed revisions");
 });
 
-test("diff context resolves git-root paths when the app was opened from a nested folder", () => {
-  const result = readReviewDiffContext({
-    root: join(fixture.dir, "src"),
+test("diff context resolves workspace-relative paths when the app was opened from a nested folder", () => {
+  const workspace = join(fixture.dir, "src");
+  const nestedDiff = readUnifiedDiff({
+    root: workspace,
     staged: false,
-    bodyDiffs: fixture.build.lazyBodyDiffs,
-    request: { path: "src/context.ts", oldStart: 8, oldEnd: 10, newStart: 8, newEnd: 10 },
+    includeUntracked: false,
+    context: 2,
+  });
+  const result = readReviewDiffContext({
+    root: workspace,
+    staged: false,
+    bodyDiffs: [nestedDiff],
+    request: { path: "context.ts", oldStart: 8, oldEnd: 10, newStart: 8, newEnd: 10 },
   });
   assert.equal(result.ok, true);
   assert.deepEqual(result.newLines, ["const line8 = 8;", "const line9 = 9;", "const line10 = 10;"]);

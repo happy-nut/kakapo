@@ -1,19 +1,17 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, relative } from "node:path";
 import type { DiffFile, DiffHunk, DiffLine, ReviewFileState, SourceFile } from "./types.js";
 import {
   FLOW_DIR,
   IMAGE_MAX_BYTES,
-  PLAN_FILE,
   SOURCE_MAX_FILE_BYTES,
   SOURCE_MAX_FILES,
   SOURCE_MAX_LAZY_FILE_BYTES,
   SOURCE_MAX_TOTAL_BYTES,
-  SOURCE_VIRTUALIZE_FILE_BYTES,
 } from "./constants.js";
 import { formatBytes, hashText, isLikelyBinary, languageForPath, stripDiffPath } from "./util.js";
-import { git, repoRoot } from "./git.js";
+import { canonicalWorkspaceRoot, git, repoRoot } from "./git.js";
 
 // File content + signature cache, keyed by path and validated on (mtime, size). Under `watch` the app
 // rebuilds every second; without this, collectSourceFiles re-reads + re-hashes EVERY tracked source
@@ -29,15 +27,18 @@ export function readUnifiedDiff(options: {
   ignoreWhitespace?: boolean;
   root?: string;
 }): string {
-  const root = repoRoot(options.root);
-  const args = ["diff", "--no-ext-diff", "--find-renames", `--unified=${options.context}`];
+  // Run Git from the folder the user opened and ask it to rebase paths to that folder. Git still reads
+  // the enclosing repository/index, but a monorepo package now behaves as an independent review
+  // workspace: sibling changes are excluded and UI paths start at the selected folder.
+  const root = canonicalWorkspaceRoot(options.root ?? process.cwd());
+  const args = ["diff", "--no-ext-diff", "--find-renames", "--relative", `--unified=${options.context}`];
   if (options.ignoreWhitespace) args.push("--ignore-all-space");
   if (options.staged) {
     args.push("--cached");
   } else {
     args.push(options.base ?? "HEAD");
   }
-  args.push("--");
+  args.push("--", ".");
 
   const result = spawnSync("git", args, {
     cwd: root,
@@ -56,7 +57,7 @@ export function readUnifiedDiff(options: {
 }
 
 function readUntrackedDiff(context: number, root: string): string {
-  const files = git(root, ["ls-files", "--others", "--exclude-standard"])
+  const files = git(root, ["ls-files", "--others", "--exclude-standard", "--", "."])
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith(`${FLOW_DIR}/`));
@@ -218,7 +219,11 @@ function gitStatusMap(cwd: string): Map<string, "new" | "edited" | "staged"> {
   const map = new Map<string, "new" | "edited" | "staged">();
   let out = "";
   try {
-    out = git(cwd, ["status", "--porcelain"]);
+    // Porcelain's leading index/worktree columns are significant. The general git() helper trims stdout,
+    // which removes the first line's leading space and corrupts its status/path; preserve raw output here.
+    const result = spawnSync("git", ["status", "--porcelain", "--", "."], { cwd, encoding: "utf8" });
+    if (result.status !== 0) return map;
+    out = result.stdout ?? "";
   } catch {
     return map;
   }
@@ -230,6 +235,8 @@ function gitStatusMap(cwd: string): Map<string, "new" | "edited" | "staged"> {
     const arrow = path.indexOf(" -> ");
     if (arrow >= 0) path = path.slice(arrow + 4); // rename: color the new path
     if (path.startsWith('"') && path.endsWith('"')) path = path.slice(1, -1);
+    path = workspaceRelativeStatusPath(cwd, path);
+    if (!path) continue;
     let kind: "new" | "edited" | "staged";
     if (x === "?" && y === "?") kind = "new";
     else if (x !== " " && x !== "?") kind = "staged";
@@ -237,6 +244,14 @@ function gitStatusMap(cwd: string): Map<string, "new" | "edited" | "staged"> {
     map.set(path, kind);
   }
   return map;
+}
+
+function workspaceRelativeStatusPath(workspaceRoot: string, gitPath: string): string {
+  const workspace = canonicalWorkspaceRoot(workspaceRoot);
+  const prefix = relative(repoRoot(workspace), workspace).replace(/\\/g, "/");
+  const normalized = gitPath.replace(/\\/g, "/").replace(/^\.\//, "");
+  if (!prefix || prefix === ".") return normalized;
+  return normalized === prefix ? "" : normalized.startsWith(prefix + "/") ? normalized.slice(prefix.length + 1) : "";
 }
 
 export function collectSourceFiles(
@@ -268,14 +283,14 @@ export function collectSourceFiles(
     }
     changedLinesByPath.set(file.displayPath, nums);
   }
-  const root = repoRoot(rootArg);
+  const root = canonicalWorkspaceRoot(rootArg ?? process.cwd());
   const vcsByPath = gitStatusMap(root);
   for (const file of diffFiles) {
     const kind = vcsByPath.get(file.displayPath);
     if (kind) file.vcs = kind; // color the Changes list from the same status map
   }
   const paths = new Set<string>();
-  const gitFiles = git(root, ["ls-files", "--cached", "--others", "--exclude-standard"]);
+  const gitFiles = git(root, ["ls-files", "--cached", "--others", "--exclude-standard", "--", "."]);
   for (const file of gitFiles.split(/\r?\n/)) {
     const path = file.trim();
     if (path && isSourceCandidate(path)) {
@@ -287,15 +302,6 @@ export function collectSourceFiles(
   // .claude/.omc can be the change under review even though we do not want to index every file in those
   // folders. Add only the changed paths here; unchanged siblings stay filtered by isSourceCandidate above.
   for (const path of changed) paths.add(path);
-  // The agent's plan lives under the gitignored FLOW_DIR, so neither `git ls-files --exclude-standard` nor
-  // isSourceCandidate (which excludes FLOW_DIR) ever surfaces it. Force-include it when present so the plan
-  // shows up as a normal source file — rendered as Markdown, searchable in Quick Open, and commentable. The
-  // watch re-runs this every tick, so a plan written after launch appears on the next refresh.
-  const planRel = `${FLOW_DIR}/${PLAN_FILE}`;
-  if (existsSync(join(root, planRel))) {
-    paths.add(planRel);
-  }
-
   const sourceFiles: SourceFile[] = [];
   let embeddedFiles = 0;
   let embeddedBytes = 0;
@@ -340,7 +346,8 @@ export function collectSourceFiles(
 
     // A file we already cached as text (same mtime+size) can't have turned binary — skip the binary
     // sniff (an open+read per file, ~635ms across this repo) on the hot watch path.
-    const cached = sourceContentCache.get(path);
+    const cacheKey = absolute;
+    const cached = sourceContentCache.get(cacheKey);
     const fresh = Boolean(cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size);
     if (!fresh && isLikelyBinary(absolute)) {
       const skippedReason = "binary file";
@@ -364,7 +371,6 @@ export function collectSourceFiles(
           size: stats.size,
           embedded: true,
           deferred: true,
-          virtualized: options.previewLargeText && stats.size > SOURCE_VIRTUALIZE_FILE_BYTES,
           signature: hashText(`${path}\0deferred\0${stats.size}\0${stats.mtimeMs}`),
         });
         continue;
@@ -382,14 +388,13 @@ export function collectSourceFiles(
     } else {
       content = readFileSync(absolute, "utf8");
       signature = hashText(`${path}\0${content}`);
-      sourceContentCache.set(path, { mtimeMs: stats.mtimeMs, size: stats.size, content, signature });
+      sourceContentCache.set(cacheKey, { mtimeMs: stats.mtimeMs, size: stats.size, content, signature });
     }
     sourceFiles.push({
       ...base,
       content,
       size: stats.size,
       embedded: true,
-      virtualized: options.previewLargeText && stats.size > SOURCE_VIRTUALIZE_FILE_BYTES,
       signature,
     });
     embeddedFiles += 1;
@@ -405,7 +410,7 @@ export function collectSourceFiles(
 // the working-tree file changed since the project metadata was collected.
 export function materializeDeferredSourceFile(rootArg: string, file: SourceFile): SourceFile {
   if (!file.deferred) return file;
-  const root = repoRoot(rootArg);
+  const root = canonicalWorkspaceRoot(rootArg);
   const absolute = join(root, file.path);
   if (!existsSync(absolute)) {
     const skippedReason = "file is not present in the working tree";
@@ -431,7 +436,6 @@ export function materializeDeferredSourceFile(rootArg: string, file: SourceFile)
     size: stats.size,
     embedded: true,
     deferred: false,
-    virtualized: stats.size > SOURCE_VIRTUALIZE_FILE_BYTES,
     skippedReason: undefined,
     signature: hashText(`${file.path}\0${content}`),
   };

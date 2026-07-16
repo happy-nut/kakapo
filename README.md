@@ -14,7 +14,7 @@ AI coding tools are fast, but their "done" message is not a review. monacori giv
 - Review side-by-side diffs with syntax highlighting, changed-line emphasis, and keyboard navigation.
 - Leave questions or change requests directly on the relevant line.
 - Merge all reviewer comments with file paths and code context, then copy the grounded handoff into any AI tool.
-- Keep all generated review state local, plain, and inspectable under `.monacori/`.
+- Keep generated review state local, plain, and inspectable without adding files to the repository.
 
 ## Core Flow
 
@@ -50,7 +50,7 @@ Inside any Git repository:
 mo
 ```
 
-On first run, `mo` creates `.monacori/`, adds it to `.gitignore`, and includes untracked files so new AI-created files appear immediately. If the worktree is clean but the current branch has local commits ahead of its configured upstream, monacori automatically reviews that merge-base-to-`HEAD` range instead of showing an empty change list.
+`mo` reads the repository without creating a project-local state directory or changing `.gitignore`, and includes untracked files so new AI-created files appear immediately. If the worktree is clean but the current branch has local commits ahead of its configured upstream, monacori automatically reviews that merge-base-to-`HEAD` range instead of showing an empty change list.
 
 ## Highlights
 
@@ -60,14 +60,14 @@ On first run, `mo` creates `.monacori/`, adds it to `.gitignore`, and includes u
 - **One worktree-scoped Markdown memo**: a calm, list-free writing surface that never adds a file to the repository. The memo lives under the application's user-data directory, survives restarts, and is isolated by the canonical Git worktree path.
 - **Notion-style inline Markdown**: the memo uses the MIT-licensed [Tiptap](https://github.com/ueberdosis/tiptap) editor, so shortcuts such as `# `, `- `, and `> ` become rich blocks in place while the persisted value remains plain Markdown. The editor bundle loads only when the memo opens.
 - **Readable Markdown documents**: source documents and merged handoff prompts use the same embedded [markdown-it](https://github.com/markdown-it/markdown-it) parser, sanitized by [DOMPurify](https://github.com/cure53/DOMPurify), and share the memo's typography without a side-by-side preview pane.
-- **Two-purpose source view**: use **Review** for line comments, then switch eligible code files to the lazy-loaded **Code** mode for a virtualized Monaco editor, folding, sticky scopes, and fast navigation. Starting a comment from Code returns to Review at the same caret.
-- **Project-wide search**: `Cmd/Ctrl+Shift+F` shows occurrence-level `file:line:column` results using the bundled, VS Code-maintained [ripgrep package](https://github.com/microsoft/vscode-ripgrep); static HTML reviews retain a dependency-free local fallback.
+- **One source review view**: every code file opens in the same line-addressable Review surface for syntax highlighting, folding, search, navigation, and comments. There is no second editor mode to reconcile with the review state.
+- **Current-file and project-wide search**: `Cmd/Ctrl+F` searches the open File/Code view or both panes of the current diff, with `Enter` / `Shift+Enter` stepping through matches. `Cmd/Ctrl+Shift+F` shows project-wide occurrence-level `file:line:column` results using the bundled, VS Code-maintained [ripgrep package](https://github.com/microsoft/vscode-ripgrep); static HTML reviews retain a dependency-free local fallback.
 - **LSP-first code intelligence**: definition/usages (`Cmd/Ctrl+B`), implementation (`Cmd/Ctrl+Alt+B`), and workspace-symbol search (`Cmd/Ctrl+Alt+O`) use a project language server when available. TypeScript/JavaScript also works out of the box through monacori's bundled background sidecar. Unsupported languages and unavailable servers fall back to the main-process regex index.
 - **Semantic Peek**: multi-result definitions, references, and implementations stay in context in a split inspector with a result list, source preview, exact location, server provenance, project generation, and query duration. Open the selected result only when you are ready to leave the current file.
 - **Change Impact**: place the caret on a changed symbol and press `Cmd/Ctrl+8` to inspect callers/importers, outgoing calls/dependencies, implementations/inheritance, related tests, and type/API/schema/config relationships.
 - **Large-project isolation**: search, LSP sessions, and fallback indexing run outside the renderer. Startup ships only changed-file metadata and a compact folded diff; the project index loads after first paint, folder children materialize only when expanded, and source contents load one file at a time.
 - **Visible analysis trust**: the sidebar footer shows whether semantic analysis is starting, ready, failed, or using the heuristic fallback. Its tooltip includes the repository generation, selected server/source, and exact fallback reason.
-- **Plain local artifacts**: generated review files and state are Markdown, JSON, and static HTML under `.monacori/`.
+- **Plain local artifacts**: generated review files and state are Markdown, JSON, and static HTML under the operating system's Monacori application-data directory, mirrored by the canonical workspace path.
 
 ### Language servers
 
@@ -102,6 +102,10 @@ This reviews the monacori repo itself. To review **another repo** with your loca
 npm run dev -- --cwd /path/to/other-repo
 ```
 
+`--cwd` may point at an internal folder of a larger Git monorepo. Git revisions still come from the
+enclosing repository, while changes, source navigation, search, history, and displayed paths are scoped
+to the selected folder. Opening `/repo/packages/payments`, for example, does not show sibling packages.
+
 **Which build is running?** A dev build titles its window `monacori (dev)` and opens DevTools, and
 every launch prints its app path — so a local checkout is distinguishable from the installed package
 even when their version numbers match:
@@ -119,7 +123,7 @@ npm run build                         # rebuild dist/ after editing src/
 npm unlink -g @happy-nut/monacori     # restore the published `mo`
 ```
 
-The numbered `src/viewer/*.js` slices, `src/viewer.css`, and Monaco's production runtime are bundled/copied
+The numbered `src/viewer/*.js` slices, `src/viewer.css`, and the lazy Markdown editor are bundled/copied
 into `dist/` by the build, so re-run `npm run build` (or `npm run dev`) after editing them.
 
 Regenerate the README demo GIF from a temporary sample repository:
@@ -136,9 +140,10 @@ npm run benchmark
 npm run benchmark -- --files 5000 --changed 200 --lines 120
 ```
 
-The latest run is written to `.monacori/perf/benchmark.json`. Desktop sessions also write
-`.monacori/perf/latest.json` with bounded startup, first-paint, Monaco load/readiness, analysis-status, and
-query-duration events. Both are local plain JSON evidence; performance collection never leaves the machine.
+The latest run is written to the current workspace's `perf/benchmark.json` in Monacori's application-data
+mirror. Desktop sessions also write `perf/latest.json` there with bounded startup, first-paint,
+analysis-status, and query-duration events. Both are local plain JSON evidence;
+performance collection never leaves the machine or modifies the repository.
 
 ### Tests
 
@@ -152,9 +157,28 @@ suite gates every release.
 
 ## Local State
 
-Running `mo` creates a git-ignored `.monacori/` directory for generated diff reviews, local config, comments, logs, and validation notes. Keep it ignored unless your team intentionally wants to version review artifacts.
+Running `mo` never creates or writes a `.monacori/` directory in the reviewed project. Reviews, comments,
+Viewed markers, panel state, the Markdown memo, and performance evidence are stored below Electron's
+application user-data directory. On macOS, for example, an opened workspace at
+`/Users/me/repos/zoobox/turtle` maps to:
 
-The Markdown memo is deliberately stored elsewhere: Electron's application user-data directory contains a `notes/` folder with one JSON document per canonical worktree-path hash. Reopening a worktree restores its memo; another worktree of the same repository gets an independent document. Editing or clearing the memo never modifies the repository.
+```text
+~/Library/Application Support/Monacori/workspaces/Users/me/repos/zoobox/turtle/
+├── memo.json
+├── state.json
+├── perf/
+└── review/app-review.html
+```
+
+The readable path mirror avoids opaque hashes and gives every explicitly opened folder its own state.
+Opening a monorepo root and one of its packages, or opening multiple Git worktrees simultaneously, therefore
+keeps their comments, memo, and UI state isolated. Reopening the same folder restores its state without ever
+modifying the source tree.
+
+When a workspace still contains an untracked `.monacori/` directory created by an older Monacori release,
+the first open archives its complete contents as `legacy-project-state/` in this same workspace mirror and
+removes the obsolete project-local copy. A Git-tracked `.monacori/` is treated as user-owned and is never
+moved automatically.
 
 ## Design Principles
 

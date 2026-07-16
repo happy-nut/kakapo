@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { JSDOM } from "jsdom";
+
+const require = createRequire(import.meta.url);
 
 test("Tiptap's Markdown input rule turns '# ' into a heading block immediately", async () => {
   const dom = new JSDOM("<!doctype html><div id='host'></div>", {
@@ -84,8 +89,12 @@ test("the inline editor applies Notion-style todo, toggle, quote, strike, and un
     const surface = host.querySelector(".mc-inline-editor");
 
     editor.typeText("[] ");
-    assert.ok(surface.querySelector('ul[data-type="taskList"] input[type="checkbox"]'), "[] creates a todo checkbox");
+    const task = surface.querySelector('ul[data-type="taskList"] > li[data-type="taskItem"][data-checked="false"]');
+    assert.ok(task?.querySelector('input[type="checkbox"]'), "[] creates a todo checkbox with the live task-item layout hook");
     assert.match(editor.getMarkdown(), /^- \[ \]/, "the todo remains portable Markdown");
+    editor.typeText("write the next step");
+    assert.equal(task.querySelector(":scope > div > p")?.textContent, "write the next step", "typing continues in the checkbox row instead of a new block");
+    assert.match(editor.getMarkdown(), /^- \[ \] write the next step/, "continued task text stays on the same Markdown line");
 
     editor.setMarkdown("");
     editor.typeText("> ");
@@ -126,4 +135,34 @@ test("the rich editor stays out of the startup viewer bundle", () => {
   assert.doesNotMatch(startup, /MonacoriMarkdownEditor=\{/);
   assert.match(lazyEditor, /MonacoriMarkdownEditor=\{/);
   assert.ok(lazyEditor.length > 100_000, "the real editor bundle was produced, not a placeholder");
+});
+
+test("real Chromium keeps an empty todo editable on its checkbox row after keyboard and mouse input", {
+  skip: process.platform !== "darwin" ? "real Electron editor regression" : false,
+  timeout: 30_000,
+}, async () => {
+  const electron = require("electron");
+  const fixture = fileURLToPath(new URL("./fixtures/electron-markdown-editor.cjs", import.meta.url));
+  const editorBundle = fileURLToPath(new URL("../dist/monaco/markdown-editor.js", import.meta.url));
+  const css = fileURLToPath(new URL("../dist/viewer.css", import.meta.url));
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(electron, [fixture, editorBundle, css], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
+  });
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+  const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("MONACORI_MARKDOWN_EDITOR="));
+  assert.ok(marker, `editor result missing\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  const state = JSON.parse(marker.slice("MONACORI_MARKDOWN_EDITOR=".length));
+  assert.equal(state.taskDisplay, "flex", "the live task-item NodeView uses the horizontal task layout");
+  assert.ok(state.editableWidth > 100, `the empty task paragraph only exposed a ${state.editableWidth}px click target`);
+  assert.ok(Math.abs(state.taskTop - state.editableTop) <= 1, "the editable paragraph starts on the checkbox row");
+  assert.equal(state.markdown, "- [ ] typed after click\n\n", "clicking after the checkbox accepts text on that same task line");
 });

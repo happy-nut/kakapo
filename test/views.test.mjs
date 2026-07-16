@@ -446,6 +446,42 @@ test("Cmd+0 focuses the Changes panel; arrow + Enter opens that file in the diff
   v.close();
 });
 
+test("mouse file selection keeps the sidebar still and leaves keyboard focus on the clicked row", async () => {
+  const v = await loadViewer(html);
+  const filesTab = v.$('.tab[data-tab="files"]');
+  v.click(filesTab);
+  await v.settle(40);
+
+  const file = v.$('.source-link[data-source-file="src/app.ts"]');
+  let reveals = 0;
+  file.scrollIntoView = () => { reveals += 1; };
+  v.click(file);
+  await v.settle(80);
+
+  assert.equal(reveals, 0, "a clicked file never repositions its already-visible sidebar row");
+  assert.equal(v.document.activeElement, file, "the clicked file owns real DOM focus");
+  assert.ok(file.classList.contains("tree-focus"), "the clicked file owns the logical tree cursor");
+
+  v.key("ArrowDown");
+  await v.settle(40);
+  assert.notEqual(v.$("#files-panel .tree-focus"), file, "arrow navigation continues from the clicked file");
+  v.close();
+});
+
+test("mouse change selection focuses the clicked row without moving the sidebar", async () => {
+  const v = await loadViewer(html);
+  const change = v.$('.change-row[data-file="src/app.ts"]');
+  const scroller = v.$('.sidebar-scroll');
+  scroller.scrollTop = 137;
+  v.click(change);
+  await v.settle(80);
+
+  assert.equal(scroller.scrollTop, 137, "opening the selected diff does not move the change list");
+  assert.equal(v.document.activeElement, change, "the clicked change owns real DOM focus");
+  assert.ok(change.classList.contains("tree-focus"), "the clicked change owns the logical tree cursor");
+  v.close();
+});
+
 test("Cmd+0 focuses Changes from content, then toggles its sidebar without losing the diff", async () => {
   const v = await loadViewer(html);
   await v.openDiffFor("src/app.ts");
@@ -503,6 +539,37 @@ test("merged view: Opt+Enter on the active rendered comment offers review action
   items.find((b) => /remove|지우기/i.test(b.textContent)).click();
   await v.settle(60);
   assert.equal(v.$(".mc-comment-row"), null, "comment box removed in sync (deleteComment → refreshComments)");
+  v.close();
+});
+
+test("authoritative project refresh removes comments whose file was deleted", async () => {
+  const v = await loadViewer(html);
+  v.window.addComment("c", "src/app.ts", 1, "", "remove with file");
+  v.window.addComment("c", "README.md", 1, "", "keep existing file");
+  assert.equal(v.window.reviewComments.length, 2);
+
+  v.window.installProjectIndex({
+    sourceFilesMeta: [{ path: "README.md", name: "README.md", language: "markdown", content: "", size: 0, embedded: false, changed: false, changedLines: [], signature: "readme" }],
+  });
+
+  assert.equal(v.window.reviewComments.map((comment) => comment.path).join("|"), "README.md", "only the deleted file's comment is pruned");
+  assert.equal(v.storedComments().map((comment) => comment.path).join("|"), "README.md", "the cleanup is persisted across app restarts");
+  v.close();
+});
+
+test("desktop existence check removes deleted comments without pruning indexed-out config files", async () => {
+  const v = await loadViewer(html, {
+    existingPathsBridge: (paths) => Object.fromEntries(paths.map((path) => [path, path === ".claude/commands/kept.md"])),
+  });
+  v.window.addComment("c", "removed.md", 1, "", "remove missing file");
+  v.window.addComment("c", ".claude/commands/kept.md", 1, "", "keep excluded but existing file");
+
+  await v.openMergedView("c");
+  await v.settle(40);
+
+  assert.equal(v.window.reviewComments.map((comment) => comment.path).join("|"), ".claude/commands/kept.md", "main-process existence, not index membership, decides deletion");
+  assert.match(v.$(".mc-merged-preview").textContent, /keep excluded but existing file/);
+  assert.doesNotMatch(v.$(".mc-merged-preview").textContent, /remove missing file/);
   v.close();
 });
 
@@ -579,7 +646,10 @@ test("merged view: Opt+Enter resolves the comment section at the actual editing 
   selection.removeAllRanges();
   selection.addRange(range);
 
-  preview.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
+  // ProseMirror may consume the key before it bubbles out of the selected paragraph. The dock-level capture
+  // listener must still open the action menu for the comment containing the real editing caret.
+  secondBody.addEventListener("keydown", (event) => event.stopPropagation());
+  secondBody.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
   await v.settle(30);
   const remove = [...v.$("#mc-dropdown").querySelectorAll(".mc-dropdown-item")].find((item) => /remove|지우기/i.test(item.textContent));
   remove.click();
@@ -802,6 +872,36 @@ test("Cmd+1 focuses Files from content, then toggles its sidebar while preservin
   v.close();
 });
 
+test("focus transitions flash only the destination panel and fade after about half a second", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  const source = v.$("#source-body");
+  const sidebar = v.$(".sidebar");
+
+  assert.equal(source.classList.contains("mc-panel-focus-flash"), false, "opening a file with the pointer does not flash the code panel");
+  v.click(source.querySelector(".source-code")); // the pointer-selected tree now legitimately owns focus; return to content first
+
+  v.key("1", { metaKey: true, code: "Digit1" });
+  await v.settle(60);
+  assert.ok(sidebar.classList.contains("mc-panel-focus-flash"), "moving the logical cursor identifies the file tree");
+  assert.equal(source.classList.contains("mc-panel-focus-flash"), false, "the old panel is not left highlighted");
+  await v.settle(620);
+  assert.equal(sidebar.classList.contains("mc-panel-focus-flash"), false, "the tree effect also fades completely");
+
+  v.key("Tab");
+  v.key("ArrowDown");
+  await v.settle(20);
+  assert.ok(source.classList.contains("mc-panel-focus-flash"), "keyboard caret navigation identifies the code panel");
+  await v.settle(620);
+  assert.equal(source.classList.contains("mc-panel-focus-flash"), false, "the code-panel effect also fades completely");
+
+  v.click(source.querySelector(".source-code"));
+  await v.settle(20);
+  assert.equal(source.classList.contains("mc-panel-focus-flash"), false, "a pointer click needs no redundant panel effect");
+  assert.equal(source.getAttribute("data-mc-focus-panel"), "true", "the code scroller suppresses its persistent native focus outline");
+  v.close();
+});
+
 test("Cmd+1 opens a changed tool-config file even when its directory is excluded from the project index", async () => {
   const { html: hiddenChangeHtml } = await makeReviewHtml([
     {
@@ -893,14 +993,14 @@ test("F7 across a file boundary sets the diff caret once (no first-line → chan
   v.close();
 });
 
-test("viewed marks persist by path as a plain boolean (survive restart like comments)", async () => {
+test("viewed marks persist by path with the exact reviewed diff signature", async () => {
   const v = await loadViewer(html);
   v.window.setFileViewed("src/app.ts", true);
   assert.equal(v.window.isFileViewed("src/app.ts"), true, "mark reads back as viewed");
-  // Stored as boolean true keyed by path — NOT the file signature. Signature-keyed storage silently cleared
-  // every viewed mark on any re-generation that changed the hash; a boolean survives restarts like comments.
+  // The per-file signature is stable across restarts and unrelated repository refreshes, while a new edit
+  // to this path produces a new signature and correctly puts that patch back in the review queue.
   const state = v.window.loadViewedState();
-  assert.equal(state["src/app.ts"], true, "stored as boolean true, not a signature string");
+  assert.equal(state["src/app.ts"], v.window.currentFileSignature("src/app.ts"), "stored against the current per-file diff");
   v.close();
 });
 

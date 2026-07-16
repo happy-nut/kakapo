@@ -166,8 +166,32 @@ function scheduleTreeFocus() {
     if (treeFocusIndex < 0 || treeFocusIndex >= rows.length) return;
     const el = rows[treeFocusIndex];
     document.querySelectorAll('.tree-focus').forEach((e) => { if (e !== el) e.classList.remove('tree-focus'); });
-    if (el) { el.classList.add('tree-focus'); scrolloffReveal(el, document.querySelector('.sidebar-scroll'), 0.15); }
+    if (el) {
+      el.classList.add('tree-focus');
+      flashReviewPanelFocus(el.closest('.sidebar'));
+      scrolloffReveal(el, document.querySelector('.sidebar-scroll'), 0.15);
+    }
   });
+}
+
+// Pointer selection is already visible under the mouse. Keep the logical tree cursor on that exact row so
+// Arrow/Enter continue from it, but never reveal/re-center the sidebar: moving a list the user just clicked
+// makes the target appear to slip out from under the pointer. This also explicitly focuses the row because
+// macOS does not consistently give clicked buttons keyboard focus.
+function focusTreeRowFromPointer(row) {
+  if (!row) return;
+  const rows = treeRows();
+  const index = rows.indexOf(row);
+  if (index < 0) return;
+  treeFocusIndex = index;
+  if (treeFocusRaf) {
+    cancelAnimationFrame(treeFocusRaf);
+    treeFocusRaf = 0;
+  }
+  document.querySelectorAll('.tree-focus').forEach((el) => { if (el !== row) el.classList.remove('tree-focus'); });
+  row.classList.add('tree-focus');
+  try { row.focus({ preventScroll: true }); } catch (e) { try { row.focus(); } catch (ignore) {} }
+  flashReviewPanelFocus(row.closest('.sidebar'));
 }
 
 function clearTreeFocus() {
@@ -202,8 +226,18 @@ function treePageSize() {
   return Math.max(1, Math.floor(h / 20) - 1); // ~20px per tree row, minus one for overlap
 }
 function treeOpenKey() { return 'monacori-tree-open:' + location.pathname; }
-function loadTreeOpen() { try { return new Set(JSON.parse(sessionStorage.getItem(treeOpenKey()) || '[]')); } catch (e) { return new Set(); } }
-function saveTreeOpen(set) { try { sessionStorage.setItem(treeOpenKey(), JSON.stringify(Array.from(set))); } catch (e) {} }
+function loadTreeOpen() {
+  try {
+    var stored = persistRead(treeOpenKey());
+    if (Array.isArray(stored)) return new Set(stored);
+    return new Set(JSON.parse(sessionStorage.getItem(treeOpenKey()) || '[]'));
+  } catch (e) { return new Set(); }
+}
+function saveTreeOpen(set) {
+  var paths = Array.from(set);
+  persistSave(treeOpenKey(), paths);
+  try { sessionStorage.setItem(treeOpenKey(), JSON.stringify(paths)); } catch (e) {}
+}
 // Folders start collapsed. Restore the folders the user manually opened, plus reveal the open file's
 // path. Toggle listeners attach AFTER the initial state so the auto-revealed path is not mistaken for
 // a user-opened folder (keeping "collapsed by default" intact on the next load).
@@ -233,9 +267,10 @@ function initSourceTreeFolds() {
   });
   setTimeout(function () { treeRevealing = false; }, 0);
 }
-// Expand a file's ancestor folders so it is visible in the tree (transient — not persisted), then
-// scroll its row into view. Called whenever a source file opens (tree click, go-to-definition, etc.).
-function revealTreeFor(path) {
+// Expand a file's ancestor folders so it is visible in the tree (transient — not persisted). Semantic and
+// keyboard navigation may also reveal the selected row; a pointer click suppresses that scroll because the
+// row is already visible and the sidebar must stay under the mouse.
+function revealTreeFor(path, shouldScroll) {
   if (!path) return;
   if (document.querySelector('.mc-virtual-source-tree')) {
     var slash = path.lastIndexOf('/');
@@ -251,7 +286,7 @@ function revealTreeFor(path) {
   });
   setTimeout(function () { treeRevealing = false; }, 0);
   var active = document.querySelector('.source-link.active');
-  if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+  if (shouldScroll !== false && active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
 }
 function handleTreeKey(event) {
   const rows = treeRows();

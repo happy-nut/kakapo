@@ -6,7 +6,7 @@ function applyDockHeight(px) {
   var h = Math.max(140, Math.min(px, window.innerHeight - 120));
   document.documentElement.style.setProperty('--dock-height', h + 'px');
 }
-(function () { var s = parseInt(localStorage.getItem(dockHeightKey) || '', 10); if (s) applyDockHeight(s); })();
+(function () { var s = parseInt(persistRead(dockHeightKey) || localStorage.getItem(dockHeightKey) || '', 10); if (s) applyDockHeight(s); })();
 function activeDockPanel() {
   return document.getElementById('mc-merged-panel') || document.getElementById('mc-memo-panel');
 }
@@ -112,7 +112,7 @@ function mountDock(id, titleText) {
       document.removeEventListener('mousemove', move);
       document.removeEventListener('mouseup', up);
       var cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--dock-height'), 10);
-      if (cur) { try { localStorage.setItem(dockHeightKey, String(cur)); } catch (x) {} }
+      if (cur) persistSave(dockHeightKey, String(cur));
     }
     document.addEventListener('mousemove', move);
     document.addEventListener('mouseup', up);
@@ -125,6 +125,7 @@ function mountDock(id, titleText) {
 }
 
 function openMergedView(kind) {
+  if (pruneCommentsForMissingFiles()) refreshComments();
   var dock = mountDock('mc-merged-panel', kind === 'q' ? t('merged.qTitle') : t('merged.cTitle'));
   dock.panel.dataset.kind = kind; // remembered so a live locale switch can re-render this same view
   var mergedBody = document.createElement('div');
@@ -134,10 +135,12 @@ function openMergedView(kind) {
   host.innerHTML = loadingStateHtml(t('history.loading'), 'mc-memo-empty');
   var editor = null;
   var preview = null;
-  var sourceText = buildMergedText(kind);
+  var sourceText = '';
   var activeSeq = null;
   var commentSyncTimer = 0;
   var closingMergedView = false;
+  var mergedInitialized = false;
+  var validatingCommentFiles = true;
   function mergedItems() { return reviewComments.filter(function (comment) { return comment.kind === kind; }); }
   function flushMergedComments() {
     if (commentSyncTimer) { clearTimeout(commentSyncTimer); commentSyncTimer = 0; }
@@ -205,6 +208,9 @@ function openMergedView(kind) {
     return candidate ? parseInt(candidate.dataset.commentSeq, 10) : null;
   }
   function mergedCommentAtCaret() {
+    var editorNode = editor && typeof editor.getCaretElement === 'function' ? editor.getCaretElement() : null;
+    var editorSeq = editorNode ? mergedCommentAtNode(editorNode) : undefined;
+    if (editorSeq !== undefined) return editorSeq;
     var selection = window.getSelection && window.getSelection();
     return selection && selection.rangeCount ? mergedCommentAtNode(selection.anchorNode) : undefined;
   }
@@ -248,6 +254,7 @@ function openMergedView(kind) {
     if (typeof seq === 'number' && !isNaN(seq)) selectMergedComment(seq, false);
   }
   function handleMergedKeydown(event) {
+    if (!preview || !(event.target === preview || preview.contains(event.target))) return;
     if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault(); event.stopPropagation(); moveMergedComment(event.key === 'ArrowDown' ? 1 : -1); return;
     }
@@ -260,6 +267,7 @@ function openMergedView(kind) {
   copyBtn.className = 'dock-btn mc-copy-all';
   copyBtn.setAttribute('data-i18n', 'merged.copyAll');
   copyBtn.textContent = t('merged.copyAll');
+  copyBtn.disabled = true;
   copyBtn.addEventListener('click', function () {
     if (editor) sourceText = editor.getMarkdown();
     flushMergedComments();
@@ -269,35 +277,57 @@ function openMergedView(kind) {
   dock.bar.insertBefore(copyBtn, dock.bar.querySelector('.dock-max'));
   mergedBody.appendChild(host);
   dock.body.appendChild(mergedBody);
+  function handlePrunedComments(event) {
+    if (validatingCommentFiles) return;
+    var removed = event && event.detail && Array.isArray(event.detail.comments) ? event.detail.comments : [];
+    if (removed.some(function (comment) { return comment.kind === kind; })) dock.close();
+  }
+  document.addEventListener('monacori:comments-pruned', handlePrunedComments);
   dock.panel.__monacoriBeforeClose = function () {
     closingMergedView = true;
-    flushMergedComments();
+    document.removeEventListener('monacori:comments-pruned', handlePrunedComments);
+    if (mergedInitialized) flushMergedComments();
     if (editor) editor.destroy();
   };
-  loadInlineMarkdownEditor().then(function (factory) {
-    if (!document.getElementById('mc-merged-panel')) return;
-    host.innerHTML = '';
-    editor = factory.create({
-      element: host,
-      markdown: sourceText,
-      className: 'mc-merged-preview',
-      placeholder: kind === 'q' ? t('merged.qTitle') : t('merged.cTitle'),
-      onUpdate: function (markdown) {
-        sourceText = markdown;
-        scheduleMergedCommentSync();
-        requestAnimationFrame(syncMergedAnchors);
-      },
+  function initializeMergedEditor() {
+    if (!dock.panel.isConnected) return;
+    sourceText = buildMergedText(kind);
+    mergedInitialized = true;
+    loadInlineMarkdownEditor().then(function (factory) {
+      if (!dock.panel.isConnected) return;
+      host.innerHTML = '';
+      editor = factory.create({
+        element: host,
+        markdown: sourceText,
+        className: 'mc-merged-preview',
+        placeholder: kind === 'q' ? t('merged.qTitle') : t('merged.cTitle'),
+        onUpdate: function (markdown) {
+          sourceText = markdown;
+          scheduleMergedCommentSync();
+          requestAnimationFrame(syncMergedAnchors);
+        },
+      });
+      preview = host.querySelector('.mc-inline-editor');
+      if (!preview) throw new Error('inline editor surface is unavailable');
+      preview.tabIndex = 0;
+      preview.addEventListener('click', handleMergedClick);
+      // Capture before ProseMirror's keymap can consume Option+Enter. The editor's own selection adapter
+      // above still supplies the exact comment block, so the dropdown follows the visible caret.
+      dock.panel.addEventListener('keydown', handleMergedKeydown, true);
+      copyBtn.disabled = false;
+      syncMergedAnchors();
+      focusDockField(preview, '#mc-merged-panel');
+    }).catch(function () {
+      host.innerHTML = '<div class="mc-memo-empty">' + escapeHtml(t('memo.loadFailed')) + '</div>';
+      showToast(t('memo.loadFailed'));
     });
-    preview = host.querySelector('.mc-inline-editor');
-    if (!preview) throw new Error('inline editor surface is unavailable');
-    preview.tabIndex = 0;
-    preview.addEventListener('click', handleMergedClick);
-    preview.addEventListener('keydown', handleMergedKeydown);
-    syncMergedAnchors();
-    focusDockField(preview, '#mc-merged-panel');
-  }).catch(function () {
-    host.innerHTML = '<div class="mc-memo-empty">' + escapeHtml(t('memo.loadFailed')) + '</div>';
-    showToast(t('memo.loadFailed'));
+  }
+  verifyCommentFilesExist().then(function () {
+    validatingCommentFiles = false;
+    initializeMergedEditor();
+  }, function () {
+    validatingCommentFiles = false;
+    initializeMergedEditor();
   });
 }
 
@@ -420,6 +450,7 @@ document.addEventListener('keydown', function (event) {
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); saveComposer(t); return; }
 }, true);
 
+pruneCommentsForMissingFiles();
 refreshComments();
 
 

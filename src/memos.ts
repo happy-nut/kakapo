@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { repoRoot } from "./git.js";
+import { canonicalWorkspacePath, workspaceMemoFile } from "./workspace-data.js";
 
 export type MarkdownMemoDocument = {
   version: 1;
@@ -22,13 +22,15 @@ function normalizedDate(value: unknown): string | null {
 }
 
 export function canonicalWorktreePath(root: string): string {
-  const top = resolve(repoRoot(resolve(root)));
-  try { return realpathSync.native(top); } catch { return top; }
+  return canonicalWorkspacePath(root);
 }
 
 export function markdownMemoFile(userData: string, root: string): string {
-  const worktreePath = canonicalWorktreePath(root);
-  const scope = createHash("sha256").update(worktreePath).digest("hex");
+  return workspaceMemoFile(userData, root);
+}
+
+function legacyMarkdownMemoFile(userData: string, root: string): string {
+  const scope = createHash("sha256").update(canonicalWorktreePath(root)).digest("hex");
   return join(resolve(userData), "notes", `${scope}.json`);
 }
 
@@ -38,19 +40,26 @@ export class ProjectMarkdownMemo {
   read(root: string): MarkdownMemoDocument {
     const worktreePath = canonicalWorktreePath(root);
     const file = markdownMemoFile(this.userData, worktreePath);
+    const legacyFile = legacyMarkdownMemoFile(this.userData, worktreePath);
     try {
-      const parsed = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+      const source = existsSync(file) ? file : legacyFile;
+      const parsed = JSON.parse(readFileSync(source, "utf8")) as Record<string, unknown>;
       // Compatibility with the short-lived multi-note development format: retain the newest note rather
       // than dropping local work when moving to the deliberately simpler one-document model.
       const formerNote = Array.isArray(parsed.notes) && parsed.notes[0] && typeof parsed.notes[0] === "object"
         ? parsed.notes[0] as Record<string, unknown>
         : undefined;
-      return {
+      const document = {
         version: 1,
         worktreePath,
         body: memoBody(formerNote ? formerNote.body : parsed.body),
         updatedAt: normalizedDate(formerNote ? formerNote.updatedAt : parsed.updatedAt),
-      };
+      } satisfies MarkdownMemoDocument;
+      if (source === legacyFile) {
+        this.writeDocument(root, document);
+        rmSync(legacyFile, { force: true });
+      }
+      return document;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         return { version: 1, worktreePath, body: "", updatedAt: null };
@@ -76,9 +85,11 @@ export class ProjectMarkdownMemo {
 
   remove(root: string): boolean {
     const file = markdownMemoFile(this.userData, root);
-    if (!existsSync(file)) return false;
-    rmSync(file);
-    return true;
+    const legacyFile = legacyMarkdownMemoFile(this.userData, root);
+    const existed = existsSync(file) || existsSync(legacyFile);
+    rmSync(file, { force: true });
+    rmSync(legacyFile, { force: true });
+    return existed;
   }
 
   private writeDocument(root: string, document: MarkdownMemoDocument): void {

@@ -1,12 +1,13 @@
 // Reproducible large-project startup benchmark. It creates a disposable git repository, changes a
 // configurable subset of files, runs the same lazy review build used by Electron, and preserves the
-// result as plain JSON in the caller's .monacori/perf directory.
+// result as plain JSON in the caller workspace's application-data mirror.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { buildDiffReview } from "../dist/build.js";
+import { defaultMonacoriUserDataDirectory, workspacePerformanceDirectory } from "../dist/workspace-data.js";
 
 function option(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -88,7 +89,7 @@ try {
       hunks: build.hunks,
     },
   };
-  const outputDir = join(outputRoot, ".monacori", "perf");
+  const outputDir = workspacePerformanceDirectory(defaultMonacoriUserDataDirectory(), outputRoot);
   mkdirSync(outputDir, { recursive: true });
   const output = join(outputDir, "benchmark.json");
   writeFileSync(output, JSON.stringify(report, null, 2) + "\n");

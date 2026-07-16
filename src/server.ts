@@ -8,7 +8,6 @@ import type { DiffReviewBuild, DiffReviewResult, HttpSendRequest, HttpSendResult
 import { parsePositiveInteger } from "./util.js";
 import { buildDiffReview, renderLazyDiffBody } from "./build.js";
 import { readReviewDiffContext } from "./diff-context.js";
-import { repoRoot } from "./git.js";
 
 // Performs an HTTP request on behalf of the sandboxed renderer. Used by both the
 // Electron IPC handler (app-main.ts) and the browser-mode proxy below.
@@ -197,7 +196,7 @@ export function serveDiffWatch(input: {
       if (requestUrl.pathname === "/diff-context") {
         const b = lastBuild ?? build();
         writeHttpJson(response, readReviewDiffContext({
-          root: repoRoot(),
+          root: process.cwd(),
           base: b.reviewBase ?? input.base,
           staged: input.staged,
           bodyDiffs: b.lazyBodyDiffs ?? [],

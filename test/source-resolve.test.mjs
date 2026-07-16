@@ -1,10 +1,7 @@
 // CORE USER FLOW: the source preview shows the changed file's content.
 //
-// `git diff` prints paths relative to the repository root, and the desktop tree shows them as-is. The
-// source preview must therefore read those files relative to the repo root too — NOT process.cwd().
-// When `mo` runs from a monorepo subdirectory (cwd != root), resolving against cwd points at a
-// non-existent path, so the diff renders but the source preview says "file is not present in the
-// working tree". This guards both the repo-root run and the subdirectory run.
+// A selected folder inside a monorepo is a first-class review workspace. Git still uses the enclosing
+// repository, but diff/source paths are rebased to the selected folder and sibling packages are excluded.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -37,9 +34,11 @@ function repoWithSubdirChange() {
   g(["config", "commit.gpgsign", "false"]);
   mkdirSync(join(dir, "pkg"), { recursive: true });
   writeFileSync(join(dir, "pkg/app.ts"), "export const value = 1;\n");
+  writeFileSync(join(dir, "sibling.ts"), "export const sibling = 1;\n");
   g(["add", "-A"]);
   g(["commit", "-qm", "base"]);
   writeFileSync(join(dir, "pkg/app.ts"), "export const value = 2;\n");
+  writeFileSync(join(dir, "sibling.ts"), "export const sibling = 2;\n");
   return dir;
 }
 
@@ -63,18 +62,26 @@ async function buildFrom(cwd) {
 
 test("repo root run: the changed file's source is embedded (not missing)", async () => {
   const build = await buildFrom(repoWithSubdirChange());
-  assert.doesNotMatch(build.html, /not present in the working tree/);
+  const source = build.update?.sourceFilesMeta.find((file) => file.path === "pkg/app.ts");
+  assert.ok(source, "the changed source is present in the project index");
+  assert.equal(source.embedded, true);
+  assert.equal(source.skippedReason, undefined);
+  assert.equal(source.vcs, "edited", "Git status coloring is rebased to the selected folder too");
+  assert.match(source.content, /export const value = 2/);
 });
 
-test("subdirectory run (cwd != repo root): source still resolves against the repo root", async () => {
+test("subdirectory run (cwd != repo root): selected folder is an isolated monorepo workspace", async () => {
   const dir = repoWithSubdirChange();
   const build = await buildFrom(join(dir, "pkg")); // run `mo` from a subdir
-  assert.doesNotMatch(
-    build.html,
-    /not present in the working tree/,
-    "source must resolve against the repo root, not cwd",
-  );
-  assert.match(build.html, /export const value = 2/, "the new source content is embedded");
+  const source = build.update?.sourceFilesMeta.find((file) => file.path === "app.ts");
+  assert.ok(source, "source paths are relative to the explicitly opened folder");
+  assert.equal(source.embedded, true);
+  assert.equal(source.skippedReason, undefined);
+  assert.match(source.content, /export const value = 2/, "the new source content is embedded");
+  assert.equal(build.files, 1, "changes in sibling packages are excluded from the review");
+  assert.equal(build.update?.sourceFilesMeta.some((file) => file.path === "sibling.ts"), false);
+  assert.match(build.html, />pkg</, "the selected folder name remains the project identity");
+  assert.doesNotMatch(build.html, /pkg\/app\.ts/, "the UI does not repeat the monorepo folder prefix");
 });
 
 test("desktop source budget defers later text files instead of making them permanently unavailable", async () => {

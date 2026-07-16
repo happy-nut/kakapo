@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import type { GitSnapshot } from "./types.js";
 
 export function isGitRepository(root: string): boolean {
@@ -29,11 +31,17 @@ export type AutomaticReviewBase = {
 // the review base. The merge-base (rather than the upstream tip) also behaves correctly after divergence:
 // only commits introduced on the local branch are reviewed.
 export function resolveAutomaticReviewBase(root: string, includeUntracked = true): AutomaticReviewBase | undefined {
+  const workspaceRoot = resolve(root);
   const canonicalRoot = repoRoot(root);
-  const status = git(canonicalRoot, [
+  // A monorepo workspace is allowed to be clean even when a sibling package is dirty. Scope the
+  // worktree check to the folder the reviewer explicitly opened; branch/upstream resolution remains a
+  // repository-level operation below.
+  const status = git(workspaceRoot, [
     "status",
     "--porcelain",
     includeUntracked ? "--untracked-files=all" : "--untracked-files=no",
+    "--",
+    ".",
   ]);
   if (status) return undefined;
 
@@ -58,6 +66,11 @@ export function resolveAutomaticReviewBase(root: string, includeUntracked = true
 export function repoRoot(cwd: string = process.cwd()): string {
   const top = git(cwd, ["rev-parse", "--show-toplevel"]);
   return top || cwd;
+}
+
+export function canonicalWorkspaceRoot(cwd: string = process.cwd()): string {
+  const root = resolve(cwd);
+  try { return realpathSync.native(root); } catch { return root; }
 }
 
 export function readGitSnapshot(root: string): GitSnapshot {

@@ -432,14 +432,6 @@ function allQuickItems() {
   }));
 }
 
-// The agent's plan file, pinned to the top of Recent so a freshly-written plan is one ⌘E away — loadRecent
-// only tracks files you've opened, so a brand-new plan would otherwise be absent until first opened.
-var PLAN_PATH = '.monacori/plan.md';
-function planQuickItem() {
-  var f = sourceByPath.get(PLAN_PATH);
-  if (!f) return null;
-  return { path: f.path, name: baseName(f.path), detail: 'plan', kind: 'source', recent: true, recentRank: -1 };
-}
 function recentItems() {
   const all = allQuickItems();
   const byPath = new Map(all.map((item) => [item.path, item]));
@@ -453,8 +445,6 @@ function recentItems() {
       recentRank: 0,
     })
     .map((item, index) => ({ ...item, recent: true, recentRank: index }));
-  const plan = planQuickItem();
-  if (plan) return [plan].concat(items.filter((it) => it.path !== plan.path));
   return items;
 }
 
@@ -473,7 +463,8 @@ function scoreQuickItem(item, query) {
 
 function loadRecent() {
   try {
-    const value = JSON.parse(localStorage.getItem(recentKey) || '[]');
+    var stored = persistRead(recentKey);
+    const value = Array.isArray(stored) ? stored : JSON.parse(localStorage.getItem(recentKey) || '[]');
     return Array.isArray(value) ? value.filter((item) => item && typeof item.path === 'string') : [];
   } catch {
     return [];
@@ -483,9 +474,7 @@ function loadRecent() {
 function rememberRecent(path, kind) {
   if (!path) return;
   const next = [{ path, kind }, ...loadRecent().filter((item) => item.path !== path)].slice(0, 30);
-  try {
-    localStorage.setItem(recentKey, JSON.stringify(next));
-  } catch {}
+  persistSave(recentKey, next);
 }
 
 function baseName(path) {

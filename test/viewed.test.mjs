@@ -1,11 +1,11 @@
-// CORE USER FLOW: marking a file "viewed" (Cmd/Ctrl+Shift+,) and continuing the review with F7.
+// CORE USER FLOW: marking a file "viewed" (Shift+,) and continuing the review with F7.
 //
 // A viewed file's diff body is hidden (display:none), so the caret must never be left stranded on it — that
 // blanks the content area and makes F7 look stuck. Marking viewed auto-advances to the next unviewed change,
 // and F7 skips viewed files. Guards the regression where viewing the file you were reading froze navigation.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
+import { makeReviewHtml, cleanupFixtures, renderLazyBodies } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
 
 let html;
@@ -16,7 +16,7 @@ before(async () => {
   ]));
 });
 after(cleanupFixtures);
-const toggleViewed = (v) => v.key("<", { metaKey: true, code: "Comma", shiftKey: true });
+const toggleViewed = (v) => v.key("<", { code: "Comma", shiftKey: true });
 
 test("marking the current diff file viewed auto-advances to the next unviewed change", async () => {
   const v = await loadViewer(html);
@@ -24,9 +24,12 @@ test("marking the current diff file viewed auto-advances to the next unviewed ch
   await v.settle(100);
   assert.equal(v.activeDiffFile(), "src/a.ts", "started reviewing a.ts");
 
-  v.key("<");
+  v.key(",", { code: "Comma" });
   await v.settle(40);
-  assert.equal(v.activeDiffFile(), "src/a.ts", "plain Shift+, does not mark a review file");
+  assert.equal(v.activeDiffFile(), "src/a.ts", "an unmodified comma does not mark a review file");
+  v.key("<", { metaKey: true, code: "Comma", shiftKey: true });
+  await v.settle(40);
+  assert.equal(v.activeDiffFile(), "src/a.ts", "the retired Cmd+Shift+, chord no longer marks a review file");
   toggleViewed(v);
   await v.settle(140);
   assert.equal(v.activeDiffFile(), "src/b.ts", "auto-advanced to the next unviewed file (not stranded on a.ts)");
@@ -39,11 +42,11 @@ test("clicking the Viewed toolbar button advances instead of leaving an empty di
   await v.settle(100);
 
   const viewedButton = v.$("#diff-viewed-toggle");
-  assert.equal(viewedButton.dataset.keyhint, "⌘⇧,", "the compact hint names the actual macOS physical chord");
-  assert.match(viewedButton.getAttribute("title"), /Cmd\/Ctrl\+Shift\+,/, "the long hint includes the required Shift key");
+  assert.equal(viewedButton.dataset.keyhint, "⇧,", "the compact hint names the actual physical chord");
+  assert.match(viewedButton.getAttribute("title"), /Shift\+,/, "the long hint names Shift+Comma without Cmd/Ctrl");
   viewedButton.dispatchEvent(new v.window.MouseEvent("mouseover", { bubbles: true }));
   await v.settle(20);
-  assert.match(v.$("#mc-button-hint").textContent, /⌘⇧,/, "the custom tooltip shows the corrected chord");
+  assert.match(v.$("#mc-button-hint").textContent, /⇧,/, "the custom tooltip shows the corrected chord");
   assert.equal(viewedButton.hasAttribute("title"), false, "the native title bubble is suppressed while the custom hint owns hover");
   v.click(viewedButton);
   await v.settle(140);
@@ -52,13 +55,16 @@ test("clicking the Viewed toolbar button advances instead of leaving an empty di
   v.close();
 });
 
-test("opening a previously viewed file redirects to the next unviewed file", async () => {
+test("explicitly selecting a previously viewed file opens that exact diff", async () => {
   const v = await loadViewer(html);
   v.window.setFileViewed("src/a.ts", true);
 
   await v.openDiffFor("src/a.ts");
   await v.settle(140);
-  assert.equal(v.activeDiffFile(), "src/b.ts", "startup restore and sidebar activation cannot strand a viewed file");
+  assert.equal(v.activeDiffFile(), "src/a.ts", "a sidebar click never redirects to a different file");
+  const activeBody = v.$('.d2h-file-wrapper:not(.df-inactive) .d2h-files-diff');
+  assert.ok(activeBody, "the explicitly selected viewed diff body is present");
+  assert.notEqual(v.window.getComputedStyle(activeBody).display, "none", "a viewed diff remains inspectable on demand");
   v.close();
 });
 
@@ -113,7 +119,85 @@ test("F7 still opens the diff from Files view after every changed file is viewed
   v.close();
 });
 
-test("Cmd+Shift+, marks the arrow-selected Changes row instead of the open file", async () => {
+test("viewed state survives restart for the same per-file diff", async () => {
+  const storageKey = "monacori-diff-viewed:/review.html";
+  const first = await loadViewer(html);
+  first.window.setFileViewed("src/a.ts", true);
+  const persisted = first.window.localStorage.getItem(storageKey);
+  const stored = JSON.parse(persisted || "{}");
+  assert.equal(typeof stored["src/a.ts"], "string", "the reviewed patch is stored by its per-file signature");
+  first.close();
+
+  const reopened = await loadViewer(html, { seedStorage: { [storageKey]: persisted } });
+  assert.equal(reopened.window.isFileViewed("src/a.ts"), true, "an unchanged reviewed patch remains viewed after restart");
+  assert.ok(reopened.$('.change-row[data-file="src/a.ts"]').classList.contains("viewed"), "the sidebar restores the visible check badge");
+  reopened.close();
+});
+
+test("live refresh keeps unchanged viewed marks visible and reopens a file when its diff changes", async () => {
+  const first = await makeReviewHtml([
+    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+    { path: "src/b.ts", before: "export const b = 1;\n", after: "export const b = 2;\n" },
+  ]);
+  const unrelated = await makeReviewHtml([
+    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+    { path: "src/b.ts", before: "export const b = 1;\n", after: "export const b = 3;\n" },
+  ]);
+  const changed = await makeReviewHtml([
+    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 4;\n" },
+    { path: "src/b.ts", before: "export const b = 1;\n", after: "export const b = 3;\n" },
+  ]);
+  const v = await loadViewer(first.html, { menuBridge: true });
+  v.window.setFileViewed("src/a.ts", true);
+
+  await v.pushDiffUpdate(unrelated.build.update);
+  assert.equal(v.window.isFileViewed("src/a.ts"), true, "an unrelated file edit preserves the reviewed patch");
+  assert.ok(v.$('.change-row[data-file="src/a.ts"]').classList.contains("viewed"), "the rebuilt Changes tree still exposes the viewed state");
+
+  await v.pushDiffUpdate(changed.build.update);
+  assert.equal(v.window.isFileViewed("src/a.ts"), false, "editing the reviewed file puts its new diff back in the F7 queue");
+  assert.equal(v.$('.change-row[data-file="src/a.ts"]').classList.contains("viewed"), false, "the stale check badge is removed");
+  v.close();
+});
+
+test("legacy path-only viewed booleans do not hide a newer diff", async () => {
+  const storageKey = "monacori-diff-viewed:/review.html";
+  const v = await loadViewer(html, { seedStorage: { [storageKey]: JSON.stringify({ "src/a.ts": true }) } });
+  assert.equal(v.window.isFileViewed("src/a.ts"), false, "ambiguous legacy marks are safely returned to review");
+  assert.equal(v.$('.change-row[data-file="src/a.ts"]').classList.contains("viewed"), false, "the file is visibly reviewable");
+  v.close();
+});
+
+test("lazy F7 and direct selection include changed hidden config files", async () => {
+  const review = await makeReviewHtml([
+    { path: ".claude/settings.json", before: "{\n  \"enabled\": true\n}\n", after: "{\n  \"enabled\": true,\n  \"rules\": [\"review\"]\n}\n" },
+    { path: ".gitignore", before: "node_modules/\n", after: "node_modules/\n.monacori/\n" },
+    { path: "docs/plan.md", before: "# Plan\nold\n", after: "# Plan\nnew\n" },
+  ], { lazyLoad: true, app: true });
+  const bodies = await renderLazyBodies(review.build);
+  const storageKey = "monacori-diff-viewed:/review.html";
+  const v = await loadViewer(review.html, {
+    seedStorage: { [storageKey]: JSON.stringify({ ".claude/settings.json": true, ".gitignore": true }) },
+    getDiffBody: (index) => bodies[index] || "",
+  });
+  await v.settle(120);
+
+  assert.equal(v.activeDiffFile(), ".claude/settings.json", "legacy viewed state cannot make F7 start after settings.json");
+  v.key("F7"); // first press announces the file boundary
+  v.key("F7"); // second press crosses it
+  await v.settle(160);
+  assert.equal(v.activeDiffFile(), ".gitignore", "F7 navigates into the changed .gitignore hunk");
+
+  await v.openDiffFor(".claude/settings.json");
+  await v.settle(120);
+  const active = v.$('.d2h-file-wrapper:not(.df-inactive)');
+  assert.equal(active.dataset.path, ".claude/settings.json", "explicit selection opens the hidden config path itself");
+  assert.equal(active.querySelectorAll(".d2h-file-side-diff").length, 2, "the lazy side-by-side diff body is materialized");
+  assert.match(active.textContent, /rules/, "the settings diff content is visible");
+  v.close();
+});
+
+test("Shift+, marks the arrow-selected Changes row instead of the open file", async () => {
   const v = await loadViewer(html);
   await v.openDiffFor("src/a.ts");
   await v.settle(100);

@@ -1,6 +1,8 @@
-function openSourceFile(path, shouldSwitch = true) {
+function openSourceFile(path, shouldSwitch = true, options) {
   const file = sourceByPath.get(path);
   if (!file) return;
+  const shouldScrollTree = !(options && options.scrollTree === false);
+  if (shouldSwitch) flashReviewPanelFocus(document.getElementById('source-body'));
   // Switching to another file abandons any in-progress comment elsewhere; closeComposer() clears
   // composerState and (via refreshComments) drops body.mc-composing so no caret stays hidden.
   if (composerState && composerState.path !== path) closeComposer();
@@ -19,39 +21,41 @@ function openSourceFile(path, shouldSwitch = true) {
   if (!sourceContentLoaded(file)) {
     sourceBodyPath = null; // body shows a loading placeholder, not this path's content yet
     document.getElementById('source-viewer').dataset.openPath = path;
+    if (typeof refreshFileFindForActiveView === 'function') setTimeout(refreshFileFindForActiveView, 0);
     sourceLinks.forEach((link) => link.classList.toggle('active', link.dataset.sourceFile === path));
     renderBreadcrumb(document.getElementById('source-title'), path);
     setSourceTypeIcon(path);
-    revealTreeFor(path);
+    revealTreeFor(path, shouldScrollTree);
     var lb = document.getElementById('source-body');
-    lb.className = 'source-body empty is-loading';
+    setPanelClassNamePreservingFocus(lb, 'source-body empty is-loading');
     lb.innerHTML = loadingStateHtml(t('source.loading'));
     if (shouldSwitch) showSourceView();
     loadSourceFile(path).then(function () {
       var viewer = document.getElementById('source-viewer');
-      if (viewer && viewer.dataset.openPath === path) openSourceFile(path, false);
+      if (viewer && viewer.dataset.openPath === path) openSourceFile(path, false, options);
     });
     return;
   }
   rememberRecent(path, 'source');
   sourceBodyPath = path; // past the lazy guard — every branch below paints THIS path's body (text/image/not-embedded)
   document.getElementById('source-viewer').dataset.openPath = path;
+  if (typeof refreshFileFindForActiveView === 'function') setTimeout(refreshFileFindForActiveView, 0);
   sourceLinks.forEach((link) => link.classList.toggle('active', link.dataset.sourceFile === path));
   renderBreadcrumb(document.getElementById('source-title'), path);
   setSourceTypeIcon(path);
-  revealTreeFor(path);
+  revealTreeFor(path, shouldScrollTree);
   const meta = file.embedded
     ? formatBytes(file.size || 0)
     : formatBytes(file.size || 0) + ' · ' + (file.skippedReason || 'not embedded');
   document.getElementById('source-meta').textContent = meta;
   const body = document.getElementById('source-body');
   const httpEnvSelect = document.getElementById('http-env-select');
-  syncMonacoModeToggle(path, file);
-  const useMonaco = shouldRenderMonacoSource(path, file);
-  if (!useMonaco) disposeMonacoSourceEditor();
+  // Code files have one Review surface. Keeping a second renderer made the same file appear to
+  // have two subtly different modes, split search/comment behavior, and forced a full DOM/editor swap.
+  // The line-addressable Review renderer now owns every source file, including large lazy-loaded files.
   // Image files carry a data: URI preview instead of text — render inline (click to zoom).
   if (file.image) {
-    body.className = 'source-body image-body';
+    setPanelClassNamePreservingFocus(body, 'source-body image-body');
     body.innerHTML = renderImageView(file);
     document.getElementById('http-env-select')?.classList.add('hidden');
     updateRenderToggle(path);
@@ -59,7 +63,7 @@ function openSourceFile(path, shouldSwitch = true) {
     return;
   }
   if (!file.embedded) {
-    body.className = 'source-body empty';
+    setPanelClassNamePreservingFocus(body, 'source-body empty');
     body.textContent = file.skippedReason ? t('source.previewUnavailable').replace(/\.$/, '') + ': ' + file.skippedReason + '.' : t('source.previewUnavailable');
     document.getElementById('http-env-select')?.classList.add('hidden');
     updateRenderToggle(path);
@@ -69,16 +73,7 @@ function openSourceFile(path, shouldSwitch = true) {
   if (!viewerCursor || viewerCursor.path !== path) {
     viewerCursor = { path, lineIndex: 0, column: 0, targetLine: -1 };
   }
-  if (useMonaco) {
-    body.className = 'source-body monaco-source-body';
-    body.innerHTML = '<div class="monaco-loading"><span class="boot-spinner"></span>' + escapeHtml(t('monaco.loading')) + '</div>';
-    if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
-    updateRenderToggle(path);
-    if (shouldSwitch) showSourceView();
-    renderMonacoSource(file);
-    return;
-  }
-  body.className = 'source-body';
+  setPanelClassNamePreservingFocus(body, 'source-body');
   // Markdown/CSV render to HTML but stay a line-numbered .source-table: each block (md) or record (csv)
   // is a .source-row keyed by its start line, so the gutter shows line numbers and line/block comments
   // work exactly as in the plain source view (renderSourceComments anchors on .source-row[data-line-index]).
@@ -566,7 +561,7 @@ function populateHttpEnvSelect() {
     select.dataset.wired = '1';
     select.addEventListener('change', function () {
       currentHttpEnvName = select.value;
-      try { localStorage.setItem(httpEnvKey, currentHttpEnvName); } catch (error) {}
+      persistSave(httpEnvKey, currentHttpEnvName);
       const path = document.getElementById('source-viewer')?.dataset.openPath || '';
       if (path && isHttpFile(path)) {
         const file = sourceByPath.get(path);

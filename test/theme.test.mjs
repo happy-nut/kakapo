@@ -75,16 +75,14 @@ test("the light theme is restored on reopen", async () => {
   v2.close();
 });
 
-test("the Darcula family follows interface appearance across chrome, tokens, and Monaco", async () => {
-  const v = await loadViewer(html, { monacoBridge: true });
+test("the Darcula family follows interface appearance across chrome and Review tokens", async () => {
+  const v = await loadViewer(html);
   pickOption(v, "#settings-syntax-theme", /darcula/i);
   await v.settle(20);
 
   assert.equal(v.document.documentElement.getAttribute("data-theme"), "dark");
   assert.equal(v.document.documentElement.getAttribute("data-syntax-theme"), "darcula");
   assert.equal(v.window.localStorage.getItem("monacori-syntax-theme"), "darcula");
-  assert.equal(v.window.__monacoMock.theme, "monacori-darcula");
-  assert.equal(v.window.__monacoMock.themes["monacori-darcula"].colors["editor.background"], "#2B2B2B");
   assert.equal(
     v.window.getComputedStyle(v.document.documentElement).getPropertyValue("--token-keyword").trim().toLowerCase(),
     "#cc7832",
@@ -93,8 +91,6 @@ test("the Darcula family follows interface appearance across chrome, tokens, and
 
   pickOption(v, "#settings-theme", /light/i);
   await v.settle(20);
-  assert.equal(v.window.__monacoMock.theme, "monacori-intellij-light");
-  assert.equal(v.window.__monacoMock.themes["monacori-intellij-light"].colors["editor.background"], "#FFFFFF");
   assert.equal(
     v.window.getComputedStyle(v.document.documentElement).getPropertyValue("--token-keyword").trim().toLowerCase(),
     "#0033b3",

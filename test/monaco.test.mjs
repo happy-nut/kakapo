@@ -1,12 +1,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { cleanupFixtures, makeReviewHtml } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 let html;
 before(async () => {
@@ -42,17 +37,7 @@ function responseFor(request, generation = 7) {
   };
 }
 
-test("shipped Monaco runtime embeds only the audited DOMPurify version", () => {
-  const runtimeDir = join(ROOT, "dist", "monaco", "vs");
-  const runtime = readdirSync(runtimeDir)
-    .filter((name) => /^editor\.api.*\.js$/.test(name))
-    .map((name) => readFileSync(join(runtimeDir, name), "utf8"))
-    .join("\n");
-  const embeddedVersions = Array.from(runtime.matchAll(/DOMPurify ([0-9.]+)/g), (match) => match[1]);
-  assert.deepEqual(embeddedVersions, ["3.4.12"], "the copied production bundle replaces Monaco's vulnerable inlined sanitizer");
-});
-
-test("Code mode mounts Monaco and returning to Review preserves line comments", async () => {
+test("code files expose one Review renderer for navigation and comments", async () => {
   const v = await loadViewer(html, {
     monacoBridge: true,
     analysisBridge: (request) => responseFor(request),
@@ -60,26 +45,18 @@ test("Code mode mounts Monaco and returning to Review preserves line comments", 
   });
   await v.openSourceFile("src/app.ts");
 
-  const toggle = v.$("#editor-mode-toggle");
-  assert.ok(toggle && !toggle.classList.contains("hidden"), "Code mode is offered for analyzable source");
-  assert.equal(toggle.textContent, "Code");
-  v.click(toggle);
-  await v.settle(30);
+  assert.equal(v.$("#editor-mode-toggle"), null, "there is no second editor-mode control");
+  assert.equal(v.$("#source-body").classList.contains("monaco-source-body"), false);
+  assert.equal(v.window.__monacoMock.editors.length, 0, "opening a code file does not mount a parallel editor");
+  assert.equal(v.$all("#source-body .source-row").length, 3, "the Review renderer owns every source line");
 
-  assert.ok(v.$("#source-body").classList.contains("monaco-source-body"));
-  assert.equal(toggle.textContent, "Review");
-  assert.equal(v.window.__monacoMock.editors.length, 1, "one virtualized source editor mounted");
-  assert.equal(v.window.__monacoMock.editors[0].getModel().uri.path, "/src/app.ts");
-  assert.equal(v.window.__monacoMock.editors[0].options.foldingImportsByDefault, true, "Code mode also starts with import regions folded");
-
-  v.window.__monacoMock.editors[0].setPosition({ lineNumber: 2, column: 18 });
+  v.window.setSourceCursor("src/app.ts", 1, 18, false, -1);
   await v.openComposer("q");
-  assert.equal(toggle.textContent, "Code", "commenting returns to the review renderer");
-  assert.ok(v.visibleComposerInput(), "the normal line-comment composer opens at the preserved caret");
+  assert.ok(v.visibleComposerInput(), "the line-comment composer opens at the Review caret");
   v.close();
 });
 
-test("large app sources load on demand and open in the virtualized editor", async () => {
+test("large app sources load on demand into the same Review renderer", async () => {
   const largeContent = Array.from({ length: 1800 }, (_, index) =>
     `export const generatedLine${index} = "${String(index).padStart(4, "0")}-${"x".repeat(110)}";`,
   ).join("\n") + "\n";
@@ -91,7 +68,7 @@ test("large app sources load on demand and open in the virtualized editor", asyn
   ], { app: true, lazyLoad: true });
   const largeRecord = built.build.lazySourceFiles.find((file) => file.path === "src/large.ts");
   assert.ok(largeRecord?.embedded, "large text remains available to the app source bridge");
-  assert.equal(largeRecord.virtualized, true, "large text is marked for viewport rendering");
+  assert.equal("virtualized" in largeRecord, false, "large text does not carry a second-renderer mode flag");
   assert.equal(largeRecord.skippedReason, undefined);
 
   const v = await loadViewer(built.html, {
@@ -103,20 +80,14 @@ test("large app sources load on demand and open in the virtualized editor", asyn
   await v.settle(40);
 
   assert.deepEqual(v.window.__sourceRequests, ["src/large.ts"], "only the opened file crosses IPC");
-  assert.ok(v.$("#source-body").classList.contains("monaco-source-body"), "large source opens virtualized without an extra click");
-  const toggle = v.$("#editor-mode-toggle");
-  assert.equal(toggle.textContent, "Review", "the user can still switch to the commentable renderer");
-  assert.equal(v.window.__monacoMock.editors[0].getModel().getValue(), largeContent);
-
-  v.click(toggle);
-  await v.settle(40);
-  assert.ok(!v.$("#source-body").classList.contains("monaco-source-body"), "Review mode remains available for line comments");
-  assert.equal(v.$all("#source-body .source-row").length, 1801, "the trailing newline remains visible in Review mode");
-  assert.equal(toggle.textContent, "Code", "the same file can return to its virtualized view");
+  assert.equal(v.$("#editor-mode-toggle"), null);
+  assert.equal(v.$("#source-body").classList.contains("monaco-source-body"), false);
+  assert.equal(v.window.__monacoMock.editors.length, 0, "large sources do not activate a separate code mode");
+  assert.equal(v.$all("#source-body .source-row").length, 1801, "the trailing newline remains visible in Review");
   v.close();
 });
 
-test("Code mode live refresh updates its model in place and keeps 15% cursor scroll-off", async () => {
+test("Review live refresh keeps the active source caret in the single renderer", async () => {
   const before = "export const first = 1;\nexport const second = 2;\nexport const third = 3;\n";
   const b1 = await makeReviewHtml([
     { path: "src/live.ts", before, after: before.replace("first = 1", "first = 10") },
@@ -130,75 +101,69 @@ test("Code mode live refresh updates its model in place and keeps 15% cursor scr
     analysisBridge: (request) => responseFor(request),
   });
   await v.openSourceFile("src/live.ts");
-  v.click(v.$("#editor-mode-toggle"));
-  await v.settle(30);
-
-  const editor = v.window.__monacoMock.editors[0];
-  editor.setPosition({ lineNumber: 2, column: 8 });
-  assert.equal(editor.options.cursorSurroundingLines, 6, "800px / 20px × 15% keeps six surrounding lines");
-  assert.equal(editor.options.cursorSurroundingLinesStyle, "all");
+  v.window.setSourceCursor("src/live.ts", 1, 8, false, -1);
 
   await v.pushDiffUpdate(b2.build.update);
-  assert.equal(v.window.__monacoMock.editors.length, 1, "the active Monaco DOM/editor is not recreated");
-  assert.match(editor.getModel().getValue(), /first = 100/, "the existing model receives the new source");
-  assert.deepEqual(editor.getPosition(), { lineNumber: 2, column: 8 }, "cursor position survives the model update");
+  assert.equal(v.window.__monacoMock.editors.length, 0);
+  assert.match(v.$("#source-body").textContent, /first = 100/, "the Review surface receives the new source");
+  assert.equal(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex, "1", "the active source line survives refresh");
+  assert.ok(v.$("#source-body .code-cursor"), "the caret is restored after refresh");
   v.close();
 });
 
-test("semantic providers reject stale generations and Peek keyboard navigation previews then opens source", async () => {
-  let responseGeneration = 7;
-  const requests = [];
+test("the caret-local semantic menu opens its selected source without a second editor", async () => {
   const v = await loadViewer(html, {
     monacoBridge: true,
-    analysisBridge(request) {
-      requests.push(request);
-      return responseFor(request, responseGeneration);
-    },
+    analysisBridge(request) { return responseFor(request); },
     analysisStatus: { generation: 7, phase: "ready", server: "typescript-language-server", updatedAt: new Date(0).toISOString() },
   });
   await v.openSourceFile("src/app.ts");
-  v.click(v.$("#editor-mode-toggle"));
-  await v.settle(30);
+  assert.equal(v.$("#editor-mode-toggle"), null);
+  assert.equal(v.window.__monacoMock.editors.length, 0);
 
-  const mock = v.window.__monacoMock;
-  const sourceModel = mock.editors[0].getModel();
-  const locations = await mock.providers.definition.provideDefinition(
-    sourceModel,
-    { lineNumber: 1, column: 16 },
-    { isCancellationRequested: false },
-  );
-  assert.equal(locations.length, 2);
-  assert.equal(locations[1].uri.path, "/src/target.ts");
-  assert.equal(requests[0].kind, "definition");
-
-  v.window.__analysisStatusCb({ generation: 8, phase: "ready", updatedAt: new Date(1).toISOString() });
-  responseGeneration = 7;
-  const stale = await mock.providers.definition.provideDefinition(
-    sourceModel,
-    { lineNumber: 1, column: 16 },
-    { isCancellationRequested: false },
-  );
-  assert.equal(stale.length, 0, "an answer from the previous project generation is discarded");
-
+  v.key("1", { metaKey: true, code: "Digit1" });
+  await v.settle(20); // leave logical focus in the file tree — the semantic menu must still own Enter
   v.window.openAnalysisUsages("target", responseFor({}, 8).locations, responseFor({}, 8), "references");
   await v.settle(50);
   assert.ok(!v.$("#semantic-peek").classList.contains("hidden"));
   assert.equal(v.$all("#semantic-peek-results .semantic-peek-item").length, 2);
   assert.match(v.$("#semantic-peek-meta").textContent, /typescript-language-server/);
   assert.match(v.$("#semantic-peek-meta").textContent, /g8/);
-  assert.equal(v.document.activeElement, v.$("#semantic-peek-results"), "the floating usages list owns arrow navigation");
-  assert.equal(mock.editors.at(-1).options.domReadOnly, true, "the lower source preview is passive");
-  assert.equal(mock.editors.at(-1).options.renderLineHighlight, "none", "the preview does not paint an editor caret row");
+  assert.equal(v.document.activeElement, v.$("#semantic-peek-results"), "the result dropdown owns arrow navigation");
+  assert.equal(v.$("#semantic-peek-editor"), null, "Cmd+B does not cover the code with a second preview editor");
+  assert.equal(v.window.__monacoMock.editors.length, 0, "opening the dropdown does not create another editor");
 
   v.key("ArrowDown");
   await v.settle(30);
   assert.equal(v.$("#semantic-peek-results .semantic-peek-item.active")?.dataset.index, "1");
-  assert.equal(mock.editors.at(-1).getModel().uri.path, "/src/target.ts", "ArrowDown previews the selected result");
-  assert.deepEqual(mock.editors.at(-1).getPosition(), { lineNumber: 1, column: 1 }, "previewing never moves a Monaco caret");
+  assert.equal(v.window.__monacoMock.editors.length, 0, "ArrowDown only changes the dropdown selection");
 
   v.key("Enter");
   await v.settle(50);
   assert.ok(v.$("#semantic-peek").classList.contains("hidden"), "Enter closes the usages popup");
   assert.equal(v.$("#source-viewer").dataset.openPath, "src/target.ts", "Enter opens the selected source location");
+  v.close();
+});
+
+test("Cmd+B failure shows a short caret hint and does not open an empty result panel", async () => {
+  const v = await loadViewer(html, {
+    monacoBridge: true,
+    analysisBridge(request) {
+      return { ...responseFor(request), locations: [] };
+    },
+    analysisStatus: { generation: 7, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  await v.openSourceFile("src/app.ts");
+  v.window.setSourceCursor("src/app.ts", 1, 26, false, -1); // `return`, which has no definition
+  v.key("b", { metaKey: true, code: "KeyB" });
+  await v.settle(60);
+
+  const hint = v.$(".mc-caret-hint");
+  assert.ok(hint?.classList.contains("show"), "the failure message appears beside the caret");
+  assert.match(hint.textContent, /Definition not found.*return/);
+  assert.ok(v.$("#semantic-peek").classList.contains("hidden"), "an empty dropdown is never shown");
+
+  await v.settle(2100);
+  assert.equal(hint.classList.contains("show"), false, "the caret hint dismisses itself");
   v.close();
 });

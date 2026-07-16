@@ -123,6 +123,23 @@ test("diff composer reserves both pane timelines and cancel removes stale layout
   assert.ok(unrelatedWrapper?.querySelector('.mc-comment-row'), "the unrelated saved comment remains mounted instead of being rebuilt");
   v.close();
 });
+
+test("closing a comment composer removes the hovered button shortcut bubble", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("c");
+
+  const input = v.visibleComposerInput();
+  const save = input.closest(".mc-comment-row").querySelector(".mc-save");
+  save.dispatchEvent(new v.window.MouseEvent("mouseover", { bubbles: true }));
+  assert.equal(v.$("#mc-button-hint").classList.contains("hidden"), false, "hover shows the Comment shortcut");
+
+  v.window.closeComposer();
+  await v.settle(0);
+  assert.equal(v.$("#mc-button-hint").classList.contains("hidden"), true, "the removed button cannot leave an orphan tooltip");
+  v.close();
+});
 // Keyboard navigation of comment boxes (arrow-stop, edit, delete) lives in comment-nav.test.mjs.
 
 test("Cmd+Enter saves from the focused composer", async () => {

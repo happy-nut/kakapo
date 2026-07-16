@@ -15,19 +15,9 @@ export type GitCommit = {
 // Field/record separators that can't occur in git output, so subjects with spaces/commas parse cleanly.
 const FS = "\x1f";
 const RS = "\x1e";
+const PRETTY = `--pretty=format:%H${FS}%P${FS}%an${FS}%ae${FS}%ad${FS}%D${FS}%s${RS}`;
 
-// Read up to `limit` commits (optionally skipping `skip`). Newest first — the order the graph walker expects.
-export function readGitLog(root: string, options: { limit?: number; skip?: number } = {}): GitCommit[] {
-  const limit = options.limit && options.limit > 0 ? options.limit : 200;
-  const args = [
-    "-c", "log.showSignature=false",
-    "log", "--no-color",
-    "--date=iso-strict",
-    `--pretty=format:%H${FS}%P${FS}%an${FS}%ae${FS}%ad${FS}%D${FS}%s${RS}`,
-    `-n`, String(limit),
-  ];
-  if (options.skip && options.skip > 0) args.push(`--skip=${options.skip}`);
-  const out = git(root, args);
+function parseGitCommits(out: string): GitCommit[] {
   if (!out) return [];
   return out
     .split(RS)
@@ -48,6 +38,54 @@ export function readGitLog(root: string, options: { limit?: number; skip?: numbe
     .filter((c) => c.hash);
 }
 
+// Read up to `limit` commits (optionally skipping `skip`). Newest first — the order the graph walker expects.
+export function readGitLog(root: string, options: { limit?: number; skip?: number } = {}): GitCommit[] {
+  const limit = options.limit && options.limit > 0 ? options.limit : 200;
+  const args = [
+    "-c", "log.showSignature=false",
+    "log", "--no-color",
+    // History is a repository graph, not just the first-parent walk from the checked-out branch.
+    // Topological order guarantees that every child is emitted before its parents, which is the
+    // contract used by the renderer's lane allocator. Full decoration lets the UI distinguish local
+    // branches from remotes even when either name contains slashes, independent of global Git settings.
+    "--all", "--topo-order", "--full-history", "--decorate=full",
+    "--date=iso-strict",
+    PRETTY,
+    `-n`, String(limit),
+  ];
+  if (options.skip && options.skip > 0) args.push(`--skip=${options.skip}`);
+  args.push("--", ".");
+  return parseGitCommits(git(root, args));
+}
+
+// Commits that actually changed one source line, newest first. `git log -L` follows the line through
+// edits instead of merely listing every commit that touched the file, which is the useful question when
+// a reviewer right-clicks a line number. The path is renderer input, so accept only a workspace-relative
+// Git path and require it to be tracked before placing it in the -L expression.
+export function readGitLineLog(
+  root: string,
+  request: { path: string; line: number; limit?: number },
+): GitCommit[] {
+  const path = String(request.path || "").replace(/\\/g, "/");
+  const line = Math.trunc(Number(request.line));
+  const limit = request.limit && request.limit > 0 ? Math.min(Math.trunc(request.limit), 500) : 300;
+  if (!path || path.startsWith("/") || path.includes(":") || path.includes("\0") || path.includes("\n")) return [];
+  if (path.split("/").some((part) => !part || part === "." || part === "..")) return [];
+  if (!Number.isInteger(line) || line < 1) return [];
+  if (!git(root, ["ls-files", "--error-unmatch", "--", path])) return [];
+  const out = git(root, [
+    "-c", "log.showSignature=false",
+    "log", "--no-color", "--no-patch",
+    "--decorate=full",
+    "--date=iso-strict",
+    PRETTY,
+    "-n", String(limit),
+    "-L", `${line},${line}:${path}`,
+    "--",
+  ]);
+  return parseGitCommits(out);
+}
+
 // Full detail for one commit: metadata, full message body, and the rendered diff (diff2html HTML).
 // Merge commits show no diff under plain `git show`; the renderer notes that case.
 export function readCommitDiff(root: string, sha: string): {
@@ -61,11 +99,11 @@ export function readCommitDiff(root: string, sha: string): {
   isMerge: boolean;
 } | null {
   if (!sha || !/^[0-9a-fA-F]{4,64}$/.test(sha)) return null; // guard: only a hash reaches `git`
-  const meta = git(root, ["show", "-s", `--pretty=format:%H${FS}%an${FS}%ae${FS}%ad${FS}%D${FS}%P${FS}%B`, "--date=iso-strict", sha]);
+  const meta = git(root, ["show", "-s", "--decorate=full", `--pretty=format:%H${FS}%an${FS}%ae${FS}%ad${FS}%D${FS}%P${FS}%B`, "--date=iso-strict", sha]);
   if (!meta) return null;
   const f = meta.split(FS);
   const parents = (f[5] || "").trim() ? (f[5] as string).trim().split(/\s+/) : [];
-  const diffText = git(root, ["show", sha, "--no-color", "--pretty=format:"]).replace(/^\n+/, "");
+  const diffText = git(root, ["show", "--relative", "--no-color", "--pretty=format:", sha, "--", "."]).replace(/^\n+/, "");
   return {
     hash: f[0] || sha,
     author: f[1] || "",

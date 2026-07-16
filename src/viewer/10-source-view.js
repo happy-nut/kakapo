@@ -121,10 +121,9 @@ function sourceLinesForRows(file, rows) {
     .trimEnd();
 }
 
-// Review-mode folding stays intentionally local and structural: imports are one default-closed header,
-// while Cmd/Ctrl+. folds the innermost multiline `{ ... }` block containing the caret. Strings and comments
-// are skipped so braces in messages/doc comments do not create phantom ranges. Monaco Code mode delegates
-// the same shortcut to Monaco's native folding model below.
+// Review folding stays intentionally local and structural: imports are one default-closed header, while
+// Cmd/Ctrl+. folds the innermost multiline `{ ... }` block containing the caret. Strings and comments are
+// skipped so braces in messages/doc comments do not create phantom ranges.
 function sourceBraceRanges(file) {
   if (!file || !file.embedded) return [];
   if (file.__foldBraceContent === file.content && Array.isArray(file.__foldBraceRanges)) return file.__foldBraceRanges;
@@ -227,7 +226,6 @@ function openSourceFoldButton(button) {
 }
 function toggleCurrentSourceFold() {
   if (!isSourceViewerVisible() || !viewerCursor) return false;
-  if (isMonacoSourceActive(viewerCursor.path)) return toggleMonacoSourceFold();
   var body = document.getElementById('source-body');
   if (!body || body.classList.contains('rendered-body') || isHttpFile(viewerCursor.path)) return false;
   var row = body.querySelector('.source-row[data-line-index="' + viewerCursor.lineIndex + '"]');
@@ -356,6 +354,7 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
   selectedCommentRow = null; // any explicit caret placement (click/move) ends a comment-box selection
   const file = sourceByPath.get(path);
   if (!file || !file.embedded) return;
+  flashReviewPanelFocus(document.getElementById('source-body'));
   const lines = file.content.split(/\r?\n/);
   const boundedLine = Math.max(0, Math.min(lineIndex, Math.max(lines.length - 1, 0)));
   const boundedColumn = Math.max(0, Math.min(column, (lines[boundedLine] || '').length));
@@ -373,12 +372,6 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
     && prev && prev.path === path && !isHttpFile(path) && sourceBodyPath === path);
 
   viewerCursor = { path, lineIndex: boundedLine, column: boundedColumn, targetLine };
-
-  if (isMonacoSourceActive(path)) {
-    updateMonacoSourcePosition(boundedLine, boundedColumn, shouldReveal, targetLine);
-    recordNav(navEntryOf('source'));
-    return;
-  }
 
   if (sameFileOpen) {
     // Coalesce caret render + scroll into ONE frame on reveal (ArrowDown) so a fast key-repeat doesn't run
@@ -524,10 +517,6 @@ function isSourceViewerVisible() {
 // no view target so the caller can fall back to the default.
 function selectAllInView() {
   var target = null;
-  if (isSourceViewerVisible() && isMonacoSourceActive()) {
-    selectAllMonacoSource();
-    return true;
-  }
   if (isSourceViewerVisible()) target = document.getElementById('source-body');
   else if (typeof isDiffViewVisible === 'function' && isDiffViewVisible()) {
     target = document.querySelector('#diff2html-container .d2h-file-wrapper:not(.df-inactive)') || document.getElementById('diff2html-container');
@@ -786,10 +775,19 @@ function wordAtCursor() {
 function goToSymbolUnderCursor() {
   const symbol = wordAtCursor();
   if (symbol) goToDefOrUsages(symbol.name, symbol);
+  else showSemanticNavigationFailure('symbol');
+}
+function showSemanticNavigationFailure(kind, name) {
+  var key = kind === 'references' ? 'monaco.referencesNotFound'
+    : kind === 'implementation' ? 'monaco.implementationNotFound'
+      : kind === 'symbol' ? 'monaco.noSymbol' : 'monaco.definitionNotFound';
+  var message = t(key).replace('{symbol}', String(name || ''));
+  if (typeof closeSemanticPeek === 'function') closeSemanticPeek();
+  showCaretHint(message);
 }
 // Cmd+B: on a declaration, show its usages (navigate if there's only one); elsewhere, go to the definition.
 async function goToDefOrUsages(name, explicitLoc) {
-  if (!name) return;
+  if (!name) { showSemanticNavigationFailure('symbol'); return; }
   var loc = explicitLoc || caretSourceLoc();
   var response = await queryProjectAnalysis('definition', name, loc);
   if (response && response.ok) {
@@ -812,13 +810,14 @@ async function goToDefOrUsages(name, explicitLoc) {
     openUsages(name, def);
     return;
   }
-  if (def) openSourceAt(def.path, def.lineIndex, def.column);
+  if (def) { openSourceAt(def.path, def.lineIndex, def.column); return; }
+  showSemanticNavigationFailure('definition', name);
 }
 async function goToImplementation() {
   var symbol = isSourceViewerVisible() ? wordAtCursor() : null;
   var name = symbol ? symbol.name : wordAtDiffCaret();
   var loc = symbol || caretSourceLoc();
-  if (!name || !loc) return;
+  if (!name || !loc) { showSemanticNavigationFailure('symbol'); return; }
   var response = await queryProjectAnalysis('implementation', name, loc);
   var items = response && response.locations || [];
   if (items.length === 1) { openSourceAt(items[0].path, items[0].lineIndex, items[0].column); return; }
@@ -872,16 +871,18 @@ function findUsages(name, defPath, defLine) {
 function openUsages(name, def) {
   var items = findUsages(name, def.path, def.lineIndex);
   if (items.length === 1) { openSourceAt(items[0].path, items[0].lineIndex, items[0].column); return; }
+  if (!items.length) { showSemanticNavigationFailure('references', name); return; }
   usageItems = items;
   usageActive = 0;
   showUsages(name, items.length);
 }
 function openAnalysisUsages(name, locations, response, kind) {
-  if ((locations || []).length > 1 && typeof openSemanticPeek === 'function' && monacoAvailable()) {
+  if (!(locations || []).length) { showSemanticNavigationFailure(kind || 'references', name); return; }
+  if (locations.length > 1 && typeof openSemanticPeek === 'function') {
     openSemanticPeek(name, locations, response, kind || 'references');
     return;
   }
-  openAnalysisUsagesFallback(name, locations);
+  openAnalysisUsagesFallback(name, locations, kind || 'references');
 }
 function showUsages(name, count) {
   var box = document.getElementById('usages');
@@ -1073,7 +1074,7 @@ function closeSourceTab(path) {
   var meta = document.getElementById('source-meta');
   if (title) { title.setAttribute('data-i18n', 'source.title'); title.textContent = t('source.title'); }
   if (meta) { meta.setAttribute('data-i18n', 'source.selectFile'); meta.textContent = t('source.selectFile'); }
-  if (body) { body.setAttribute('data-i18n', 'source.selectFile'); body.className = 'source-body empty'; body.textContent = t('source.selectFile'); }
+  if (body) { body.setAttribute('data-i18n', 'source.selectFile'); setPanelClassNamePreservingFocus(body, 'source-body empty'); body.textContent = t('source.selectFile'); }
   sourceLinks.forEach(function (l) { l.classList.remove('active'); });
   renderSourceTabs('');
 }

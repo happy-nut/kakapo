@@ -118,3 +118,30 @@ function openTreeRowMenu(row) {
   }
   showCustomDropdown(Math.round(r.left + 14), Math.round(r.bottom + 2), items, Math.round(r.top));
 }
+
+// Files mode (Cmd+1): a line-number context menu opens the commits that actually changed that line.
+// Event delegation survives source re-renders caused by caret moves, folding, Markdown/raw toggles, and
+// watch refreshes. Code-cell right-click keeps the platform's normal text context menu.
+(function wireSourceLineHistoryMenu() {
+  var body = document.getElementById('source-body');
+  if (!body) return;
+  body.addEventListener('contextmenu', function (event) {
+    var number = event.target && event.target.closest ? event.target.closest('.source-row .num') : null;
+    var row = number && number.closest ? number.closest('.source-row[data-line-index]') : null;
+    var viewer = document.getElementById('source-viewer');
+    var path = viewer && viewer.dataset.openPath || '';
+    if (!row || !path || !window.monacoriGit || typeof window.monacoriGit.lineLog !== 'function') return;
+    var line = Number(row.dataset.lineIndex) + 1;
+    if (!(line >= 1)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    showCustomDropdown(event.clientX, event.clientY, [{
+      label: t('menu.showLineHistory'),
+      onSelect: function () {
+        if (window.__monacoriHistory && typeof window.__monacoriHistory.openLine === 'function') {
+          window.__monacoriHistory.openLine(path, line);
+        }
+      },
+    }], event.clientY);
+  });
+})();

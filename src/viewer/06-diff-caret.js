@@ -190,6 +190,7 @@ function setDiffCursor(path, side, rowIndex, column, reveal) {
   if (!wrapper) return;
   var rows = diffRowsOf(diffSideTable(wrapper, side));
   if (!rows.length) return;
+  flashReviewPanelFocus(document.getElementById('diff2html-container'));
   var ri = Math.max(0, Math.min(rowIndex, rows.length - 1));
   var col = Math.max(0, Math.min(column, diffLineText(rows[ri]).length));
   diffCursor = { path: path, side: side, rowIndex: ri, column: col };
