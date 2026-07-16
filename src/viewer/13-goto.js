@@ -90,17 +90,31 @@ function openGotoLine() {
   setTimeout(function () { try { input.focus(); } catch (e) {} }, 0);
 }
 
-// Sidebar Opt+Enter: actions for a focused file row (copy path / reveal in Finder).
+// Sidebar Opt+Enter: project-grounded file actions for the focused row. Absolute paths are resolved by
+// Electron's main process so the renderer never needs the project root or direct filesystem access.
 function openTreeRowMenu(row) {
   if (!row) return;
   var path = row.dataset.sourceFile || row.dataset.file || '';
   if (!path) return;
   var r = row.getBoundingClientRect();
   var items = [
-    { label: t('menu.copyPath'), onSelect: function () { if (copyTextToClipboard(path) && typeof showToast === 'function') showToast(t('goto.copied') + ' ' + path); } },
+    { label: t('menu.copyRelativePath'), onSelect: function () { if (copyTextToClipboard(path) && typeof showToast === 'function') showToast(t('goto.copied') + ' ' + path); } },
   ];
+  if (window.monacoriApp && typeof window.monacoriApp.absolutePath === 'function') {
+    items.push({ label: t('menu.copyAbsolutePath'), onSelect: function () {
+      try {
+        Promise.resolve(window.monacoriApp.absolutePath(path)).then(function (result) {
+          var absolute = result && result.ok && typeof result.path === 'string' ? result.path : '';
+          if (absolute && copyTextToClipboard(absolute) && typeof showToast === 'function') showToast(t('goto.copied') + ' ' + absolute);
+        });
+      } catch (e) {}
+    } });
+  }
   if (window.monacoriApp && typeof window.monacoriApp.revealInFinder === 'function') {
     items.push({ label: t('menu.revealFinder'), onSelect: function () { try { window.monacoriApp.revealInFinder(path); } catch (e) {} } });
+  }
+  if (window.monacoriApp && typeof window.monacoriApp.openTerminal === 'function') {
+    items.push({ label: t('menu.openTerminal'), onSelect: function () { try { window.monacoriApp.openTerminal(path); } catch (e) {} } });
   }
   showCustomDropdown(Math.round(r.left + 14), Math.round(r.bottom + 2), items, Math.round(r.top));
 }

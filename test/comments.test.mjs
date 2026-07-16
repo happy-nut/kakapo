@@ -85,6 +85,44 @@ test("diff view: clicking Save persists the comment", async () => {
   assert.deepEqual(v.visibleCardTexts(), ["diff-view comment"]);
   v.close();
 });
+
+test("diff composer reserves both pane timelines and cancel removes stale layout immediately", async () => {
+  const v = await loadViewer(html);
+  v.window.addComment("q", "AGENTS.md", 5, "## Project", "unrelated saved comment");
+  v.window.refreshComments();
+  await v.openDiffFor("src/app.ts");
+  const wrapper = v.$("#diff2html-container .d2h-file-wrapper:not(.df-inactive)");
+  const activeRight = wrapper.querySelectorAll(".d2h-file-side-diff")[1];
+  const activeLine = Array.from(activeRight.querySelectorAll(".d2h-code-side-linenumber")).find((cell) => cell.textContent.trim());
+  v.click(activeLine.closest("tr").querySelector(".d2h-code-side-line"));
+  await v.settle(20);
+  await v.openComposer("q");
+
+  const sides = wrapper.querySelectorAll(".d2h-file-side-diff");
+  assert.ok(sides[1].querySelector(".mc-comment-row[data-comment-slot]"), "the working-tree pane owns the interactive comment row");
+  assert.ok(sides[0].querySelector(".mc-comment-spacer-row[data-comment-slot]"), "the base pane reserves the same timeline slot");
+  assert.equal(sides[0].querySelector(".mc-composer"), null, "the base spacer never duplicates an interactive textarea");
+
+  const oldStack = sides[0].querySelector(".mc-diff-layer-stack");
+  oldStack.style.transform = "translate3d(0, 120px, 0)"; // model the stale correction from the reported regression
+  wrapper.__asymmetricDiffState.offset = 120;
+  const refreshed = [];
+  const originalRefreshGutters = v.window.refreshLayeredDiffGutters;
+  v.window.refreshLayeredDiffGutters = (target) => {
+    refreshed.push(target);
+    return originalRefreshGutters(target);
+  };
+  v.window.closeComposer();
+
+  assert.equal(wrapper.querySelector(".mc-comment-row"), null, "cancel removes the comment row synchronously");
+  assert.equal(wrapper.querySelector(".mc-comment-spacer-row"), null, "cancel removes its paired timeline slot synchronously");
+  assert.equal(oldStack.style.transform, "", "cancel recomputes and clears a stale base-pane transform without waiting for scroll");
+  assert.ok(refreshed.length > 0, "the changed diff refreshes its line-number layer");
+  assert.ok(refreshed.every((target) => target === wrapper), "cancel never remeasures unrelated changed files");
+  const unrelatedWrapper = Array.from(v.document.querySelectorAll('.d2h-file-wrapper')).find((candidate) => candidate.querySelector('.d2h-file-name')?.textContent.trim() === 'AGENTS.md');
+  assert.ok(unrelatedWrapper?.querySelector('.mc-comment-row'), "the unrelated saved comment remains mounted instead of being rebuilt");
+  v.close();
+});
 // Keyboard navigation of comment boxes (arrow-stop, edit, delete) lives in comment-nav.test.mjs.
 
 test("Cmd+Enter saves from the focused composer", async () => {
@@ -197,6 +235,7 @@ test("saved comments roll up into the merged agent prompt", async () => {
   assert.ok(text, "merged-view modal opened");
   assert.match(text, /merge me into the prompt/);
   assert.match(text, /@AGENTS\.md#L5/, "merged prompt uses the canonical file-line reference");
+  assert.doesNotMatch(text, /Questions\s*\(\d+\)/, "the fluid comment count is omitted from the merged heading");
   v.close();
 });
 

@@ -256,6 +256,7 @@ export function renderDiffHtml(input: {
   const initialFileStates = input.lazyLoad
     ? input.fileStates.filter((file) => initialSourcePaths.has(file.path))
     : input.fileStates;
+  const integratedTitleBar = input.app && process.platform === "darwin";
 
   // IntelliJ-style activity rail: an icon per view; click navigates, hover shows a tooltip with the
   // shortcut. data-view drives both the click handler and the active-state highlight (see syncRail).
@@ -282,7 +283,7 @@ export function renderDiffHtml(input: {
       ? railButton("history", "rail.history", "History", "⌘9", '<circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/>')
       : "",
     // Settings gear (#app-info-btn) — existing click handler binds by id.
-    '<button type="button" id="app-info-btn" class="rail-btn" aria-haspopup="dialog" data-i18n-aria="settings.title" aria-label="Settings"><span class="rail-gear" aria-hidden="true">⚙</span><span class="rail-tip"><span data-i18n="settings.title">Settings</span><kbd>⌘,</kbd></span></button>',
+    '<button type="button" id="app-info-btn" class="rail-btn" aria-haspopup="dialog" data-i18n-aria="settings.title" aria-label="Settings"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.7 3.2h4.6l.5 2.1c.6.2 1.1.5 1.6.9l2-.7 2.3 4-1.6 1.4a7 7 0 0 1 0 2.2l1.6 1.4-2.3 4-2-.7c-.5.4-1 .7-1.6.9l-.5 2.1H9.7l-.5-2.1c-.6-.2-1.1-.5-1.6-.9l-2 .7-2.3-4 1.6-1.4a7 7 0 0 1 0-2.2L3.3 9.5l2.3-4 2 .7c.5-.4 1-.7 1.6-.9z"/><circle cx="12" cy="12" r="3"/></svg><span class="rail-tip"><span data-i18n="settings.title">Settings</span><kbd>⌘,</kbd></span></button>',
     "</div>",
     "</nav>",
   ].join("");
@@ -300,13 +301,13 @@ export function renderDiffHtml(input: {
     diffCss(),
     "</style>",
     "</head>",
-    "<body>",
+    `<body${integratedTitleBar ? ' class="native-app"' : ""}>`,
     // Boot overlay (removed by the renderer once bootstrap has painted) covers the blank gap after loadFile.
     '<div id="boot-overlay"><div class="boot-spinner"></div><div>monacori</div></div>',
     activityRail,
     '<aside class="sidebar" aria-label="Review navigation">',
+    `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name">${escapeHtml(input.branch || "")}</span></span></div>`,
     '<div class="sidebar-scroll">',
-    `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-mark">monacori</span><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name">${escapeHtml(input.branch || "")}</span></span></div>`,
     input.lazy
       ? '<div class="tabs"><button type="button" class="tab active" data-tab="changes" data-i18n="tab.changes" data-i18n-title="tab.changes.title" title="Changes (⌘0)">Changes</button><button type="button" class="tab" data-tab="files" data-i18n="tab.files" data-i18n-title="tab.files.title" title="Files (⌘1)">Files</button></div>'
       : '<div class="tabs"><button type="button" class="tab" data-tab="changes" data-i18n="tab.changes" data-i18n-title="tab.changes.title" title="Changes (⌘0)">Changes</button><button type="button" class="tab active" data-tab="files" data-i18n="tab.files" data-i18n-title="tab.files.title" title="Files (⌘1)">Files</button></div>',
@@ -327,15 +328,17 @@ export function renderDiffHtml(input: {
     '<div class="toolbar diff-toolbar">',
     '<div class="diff-toolbar-file"><span class="diff-file-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M3.5 1.75h5l4 4v8.5h-9z"/><path d="M8.5 1.75v4h4"/></svg></span><div class="breadcrumb" id="diff-breadcrumb"></div></div>',
     '<div class="diff-review-controls" role="group" data-i18n-aria="diff.navigation" aria-label="Change navigation">',
-    '<button type="button" id="diff-prev-change" class="diff-tool-button" data-i18n-title="diff.previous" data-i18n-aria="diff.previous" title="Previous change (Shift+F7)" aria-label="Previous change"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 10 4-4 4 4"/></svg></button>',
-    '<span id="diff-change-counter" class="diff-change-counter" aria-live="polite">—</span>',
-    '<button type="button" id="diff-next-change" class="diff-tool-button" data-i18n-title="diff.next" data-i18n-aria="diff.next" title="Next change (F7)" aria-label="Next change"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>',
+    '<button type="button" id="diff-sidebar-toggle" class="diff-tool-button" data-keyhint="⌘0" data-tooltip="Hide changed files" aria-pressed="false" title="Hide changed files (⌘0)" aria-label="Hide changed files"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.25"/><path d="M5.25 2.5v11"/></svg></button>',
     '<span class="diff-tool-separator" aria-hidden="true"></span>',
-    '<button type="button" id="diff-open-source" class="diff-tool-button" data-i18n-title="diff.openSource" data-i18n-aria="diff.openSource" title="Open source (Cmd/Ctrl+Down)" aria-label="Open source"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5h4l1.5 2h5.5v9h-11z"/><path d="m6 10 2 2 2-2M8 7v5"/></svg></button>',
+    '<button type="button" id="diff-prev-change" class="diff-tool-button" data-keyhint="⇧F7" data-i18n-title="diff.previous" data-i18n-aria="diff.previous" title="Previous change (Shift+F7)" aria-label="Previous change"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 10 4-4 4 4"/></svg></button>',
+    '<span id="diff-change-counter" class="diff-change-counter" aria-live="polite">—</span>',
+    '<button type="button" id="diff-next-change" class="diff-tool-button" data-keyhint="F7" data-i18n-title="diff.next" data-i18n-aria="diff.next" title="Next change (F7)" aria-label="Next change"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>',
+    '<span class="diff-tool-separator" aria-hidden="true"></span>',
+    '<button type="button" id="diff-open-source" class="diff-tool-button" data-keyhint="⌘↓" data-i18n-title="diff.openSource" data-i18n-aria="diff.openSource" title="Open source (Cmd/Ctrl+Down)" aria-label="Open source"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5h4l1.5 2h5.5v9h-11z"/><path d="m6 10 2 2 2-2M8 7v5"/></svg></button>',
     '</div>',
     '<div class="diff-toolbar-meta">',
     `<div class="review-status">${renderReviewStatus({ files: input.files.length, hunks: totalHunks, embeddedFiles, sourceFileCount: input.sourceFiles.length, ignoreWhitespace: input.ignoreWhitespace, watch: input.watch, generatedAt: input.generatedAt })}</div>`,
-    '<button type="button" id="diff-viewed-toggle" class="diff-viewed-toggle" aria-pressed="false" data-i18n="btn.viewed" data-i18n-title="btn.viewed.title" title="Toggle viewed (Cmd/Ctrl+<)" hidden>Viewed</button>',
+    '<button type="button" id="diff-viewed-toggle" class="diff-viewed-toggle" data-keyhint="⌘⇧," aria-pressed="false" data-i18n="btn.viewed" data-i18n-title="btn.viewed.title" title="Toggle viewed (Cmd/Ctrl+Shift+,)" hidden>Viewed</button>',
     '</div>',
     "</div>",
     '<div class="diff-pane-header" data-i18n-aria="diff.panes" aria-label="Diff panes">',
@@ -351,7 +354,7 @@ export function renderDiffHtml(input: {
     '<select id="http-env-select" class="http-env-select hidden" data-i18n-title="http.env.title" data-i18n-aria="http.env.aria" title="HTTP Client environment" aria-label="HTTP environment"></select>',
     '<button type="button" id="render-toggle" class="plain-button hidden" aria-pressed="false">Raw</button>',
     input.app ? '<button type="button" id="editor-mode-toggle" class="plain-button editor-mode-toggle hidden" aria-pressed="false" data-i18n="monaco.codeMode" data-i18n-title="monaco.codeMode.title" title="Open the virtualized code editor">Code</button>' : "",
-    '<button type="button" id="back-to-diff" class="plain-button" data-i18n="btn.diff" data-i18n-title="btn.diff.title" title="Back to diff (F7)">Diff</button>',
+    '<button type="button" id="back-to-diff" class="plain-button" data-keyhint="F7" data-i18n="btn.diff" data-i18n-title="btn.diff.title" title="Back to diff (F7)">Diff</button>',
     "</div>",
     '<div id="source-body" class="source-body empty" data-i18n="source.selectFile">Select a file from the Files tab.</div>',
     "</section>",
@@ -359,7 +362,7 @@ export function renderDiffHtml(input: {
     input.app
       ? '<aside id="impact-panel" class="impact-panel hidden" aria-label="Change Impact">'
         + '<div class="impact-header"><div><div class="impact-title" data-i18n="impact.title">Change Impact</div><div id="impact-engine" class="impact-engine"></div></div>'
-        + '<button type="button" id="impact-close" class="dock-btn" data-i18n-title="impact.close" title="Close" aria-label="Close">&times;</button></div>'
+        + '<button type="button" id="impact-close" class="dock-btn" data-keyhint="Esc" data-i18n-title="impact.close" title="Close" aria-label="Close">&times;</button></div>'
         + '<div id="impact-body" class="impact-body"><div class="impact-empty" data-i18n="impact.empty">Place the caret on a changed symbol to inspect its impact.</div></div>'
         + '</aside>'
       : "",
@@ -367,8 +370,8 @@ export function renderDiffHtml(input: {
       ? '<aside id="semantic-peek" class="semantic-peek hidden" aria-label="Semantic Peek">'
         + '<div class="semantic-peek-header"><div class="semantic-peek-heading"><div id="semantic-peek-title" class="semantic-peek-title">Semantic Peek</div><div id="semantic-peek-meta" class="semantic-peek-meta"></div></div>'
         + '<button type="button" id="semantic-peek-open" class="plain-button" data-i18n="monaco.openSource">Open source</button>'
-        + '<button type="button" id="semantic-peek-close" class="dock-btn" data-i18n-title="impact.close" title="Close" aria-label="Close">&times;</button></div>'
-        + '<div class="semantic-peek-body"><div id="semantic-peek-results" class="semantic-peek-results"></div><div id="semantic-peek-editor" class="semantic-peek-editor"></div></div>'
+        + '<button type="button" id="semantic-peek-close" class="dock-btn" data-keyhint="Esc" data-i18n-title="impact.close" title="Close" aria-label="Close">&times;</button></div>'
+        + '<div class="semantic-peek-body"><div id="semantic-peek-results" class="semantic-peek-results" role="listbox" tabindex="0" aria-label="Semantic locations"></div><div id="semantic-peek-editor" class="semantic-peek-editor" aria-label="Source preview"></div></div>'
         + '</aside>'
       : "",
     '<div id="quick-open" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="quickopen.aria" aria-label="Quick open">',
@@ -395,8 +398,10 @@ export function renderDiffHtml(input: {
     '<button type="button" id="app-info-update" class="plain-button app-info-update hidden" data-i18n="settings.updateRestart">Update &amp; Restart</button>',
     '<label class="settings-label" for="settings-language" data-i18n="settings.language">Language</label>',
     '<button type="button" id="settings-language" class="settings-select mc-select" data-i18n-aria="settings.language"></button>',
-    '<label class="settings-label" for="settings-theme" data-i18n="settings.theme">Theme</label>',
+    '<label class="settings-label" for="settings-theme" data-i18n="settings.theme">Appearance</label>',
     '<button type="button" id="settings-theme" class="settings-select mc-select" data-i18n-aria="settings.theme"></button>',
+    '<label class="settings-label" for="settings-syntax-theme" data-i18n="settings.syntaxTheme">Theme family</label>',
+    '<button type="button" id="settings-syntax-theme" class="settings-select mc-select" data-i18n-aria="settings.syntaxTheme"></button>',
     '<div class="app-info-keys">' +
     '<div class="app-info-keys-h" data-i18n="settings.kbd.title">Keyboard shortcuts</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.app">App</div>' +
@@ -406,7 +411,7 @@ export function renderDiffHtml(input: {
     '<kbd>⌘,</kbd><span data-i18n="kbd.openSettings">Settings</span>' +
     '<kbd>⌘L</kbd><span data-i18n="kbd.gotoLine">Go to line</span>' +
     '<kbd>⌘K</kbd><span data-i18n="kbd.copyLocation">Copy file:line</span>' +
-    '<kbd>⌥Enter</kbd><span data-i18n="kbd.rowActions">Sidebar file actions (path / Finder)</span>' +
+    '<kbd>⌥Enter</kbd><span data-i18n="kbd.rowActions">Sidebar file actions (path / Finder / Terminal)</span>' +
     '<kbd>Esc</kbd><span data-i18n="kbd.closeDialog">Close dialog / cancel</span>' +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.nav">Navigation</div>' +
@@ -422,6 +427,7 @@ export function renderDiffHtml(input: {
     '<kbd>⌘⌥B</kbd><span data-i18n="kbd.goToImplementation">Go to implementation</span>' +
     '<kbd>⌘⌥O</kbd><span data-i18n="kbd.workspaceSymbol">Workspace symbol</span>' +
     '<kbd>⌘&darr;</kbd><span data-i18n="kbd.goToDef">Go to definition</span>' +
+    '<kbd>⌘.</kbd><span data-i18n="kbd.toggleFold">Toggle code fold</span>' +
     '<kbd>⌘⇧[ / ]</kbd><span data-i18n="kbd.prevNextTab">Prev / next tab</span>' +
     '<kbd>⌘[ / ]</kbd><span data-i18n="kbd.cursorBackForward">Cursor back / forward</span>' +
     '<kbd>⌥&larr;/&rarr;</kbd><span data-i18n="kbd.wordJump">Word jump (vim w)</span>' +
@@ -434,7 +440,7 @@ export function renderDiffHtml(input: {
     '<div class="keys-cat" data-i18n="settings.kbd.cat.review">Review</div>' +
     '<div class="keys-grid">' +
     '<kbd>⌘8</kbd><span data-i18n="kbd.changeImpact">Change Impact</span>' +
-    '<kbd>⌘&lt;</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed</span>' +
+    '<kbd>⌘⇧,</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed</span>' +
     '<kbd>? &nbsp;&gt;</kbd><span data-i18n="kbd.addQuestionChange">Add question / change</span>' +
     '<kbd>⌘⇧/ .</kbd><span data-i18n="kbd.allQuestionsChanges">All questions / changes</span>' +
     '<kbd>⌘⇧W</kbd><span data-i18n="kbd.ignoreWhitespace">Ignore whitespace</span>' +
@@ -468,7 +474,7 @@ export function renderDiffHtml(input: {
     '<div class="history-bar">',
     '<span class="history-title" data-i18n="history.title">History</span>',
     '<input id="history-search" type="search" class="history-search" autocomplete="off" spellcheck="false" data-i18n-ph="history.search" placeholder="Filter by message or author">',
-    '<button type="button" id="history-close" class="dock-btn" data-i18n-title="history.close" title="Close" aria-label="Close">&times;</button>',
+    '<button type="button" id="history-close" class="dock-btn" data-keyhint="Esc" data-i18n-title="history.close" title="Close" aria-label="Close">&times;</button>',
     "</div>",
     '<div class="history-body">',
     '<div id="history-list" class="history-list"></div>',
@@ -524,10 +530,10 @@ export function renderDiffTree(files: DiffFile[]): string {
     const name = slash >= 0 ? file.displayPath.slice(slash + 1) : file.displayPath;
     const dir = slash > 0 ? file.displayPath.slice(0, slash) : "";
     return [
-      `<a class="file-link change-row${file.vcs ? " vcs-" + file.vcs : ""}" href="#file-${fileIndex}" data-hunk="${firstHunk}" data-file="${escapeAttr(file.displayPath)}" title="${escapeAttr(file.displayPath + " — " + file.status)}">`,
+      `<a class="file-link change-row${file.vcs ? " vcs-" + file.vcs : ""}" href="#file-${fileIndex}" data-hunk="${firstHunk}" data-file="${escapeAttr(file.displayPath)}" aria-label="${escapeAttr(file.displayPath + " — " + file.status)}">`,
       fileTypeIcon(file.displayPath),
       changeStatusBadge(file.status),
-      `<span class="change-name"><span class="path" title="${escapeAttr(file.displayPath)}">${escapeHtml(name)}</span>${dir ? `<span class="change-dir">${escapeHtml(dir)}</span>` : ""}</span>`,
+      `<span class="change-name"><span class="path">${escapeHtml(name)}</span>${dir ? `<span class="change-dir">${escapeHtml(dir)}</span>` : ""}</span>`,
       "</a>",
     ].join("");
   });
@@ -672,9 +678,8 @@ function renderSourceNode(node: SourceTreeNode, depth: number): string {
   if (node.file) {
     const file = node.file;
     const classes = ["file-link", "source-link", "tree-file", file.embedded ? "" : "not-embedded", file.vcs ? "vcs-" + file.vcs : ""].filter(Boolean).join(" ");
-    const tip = file.path + (file.embedded ? "" : " — not embedded");
     return [
-      `<button type="button" class="${classes}" data-source-file="${escapeAttr(file.path)}" style="--depth:${depth}" title="${escapeAttr(tip)}">`,
+      `<button type="button" class="${classes}" data-source-file="${escapeAttr(file.path)}" style="--depth:${depth}" aria-label="${escapeAttr(file.path)}">`,
       fileTypeIcon(file.path),
       `<span class="path">${escapeHtml(node.name)}</span>`,
       "</button>",

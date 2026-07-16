@@ -8,6 +8,57 @@ function isFloatingModalOpen() {
   // down the global nav shortcuts so typing / ▲▼ inside it isn't hijacked. Focus elsewhere -> shortcuts run.
   return isDockFocused();
 }
+
+// Cmd+0/1 and their rail icons are focus-aware. From content they reveal/focus the matching tree; only a
+// repeated activation while that tree owns the logical focus collapses it. A collapsed tree expands first.
+function activateChangesView(navigateToDiff) {
+  if (isDiffViewVisible()) {
+    if (reviewSidebarCollapsed) { setReviewSidebarCollapsed(false, { focusSidebar: true }); return; }
+    if (treeFocusIndex >= 0) { toggleReviewSidebar(); return; }
+    setTab('changes');
+    focusOpenFileInTree();
+    return;
+  }
+  // Outside the diff, keep the current content visible and move navigation to Changes. Enter on a row
+  // performs the actual diff transition, matching the existing Cmd+0 -> arrows -> Enter workflow.
+  setSourceSidebarCollapsed(false);
+  setReviewSidebarCollapsed(false);
+  if (navigateToDiff) showDiffView(false);
+  setTab('changes');
+  focusOpenFileInTree();
+}
+
+function activateFilesView() {
+  if (isSourceViewerVisible()) {
+    if (sourceSidebarCollapsed) { setSourceSidebarCollapsed(false, { focusSidebar: true }); return; }
+    if (treeFocusIndex >= 0) { toggleSourceSidebar(); return; }
+    setTab('files');
+    focusOpenFileInTree();
+    return;
+  }
+  setSourceSidebarCollapsed(false);
+  if (isDiffViewVisible()) {
+    var wrapper = diffActiveWrapper();
+    var name = wrapper && wrapper.querySelector('.d2h-file-name');
+    var path = (diffCursor && diffCursor.path) || (name ? (name.textContent || '').trim() : '');
+    if (path && sourceByPath.has(path)) {
+      openSourceFile(path);
+    } else {
+      // Never leave the UI in the invalid hybrid state "Files sidebar + Diff content". A deferred project
+      // index can still discover the path after the view opens; until then show the source placeholder.
+      showSourceView();
+      if (path && REVIEW_LAZY_LOAD && !projectIndexLoaded) {
+        ensureProjectIndex().then(function () {
+          if (sourceByPath.has(path)) openSourceFile(path);
+          focusOpenFileInTree();
+        });
+      }
+    }
+  }
+  if (!isSourceViewerVisible()) showSourceView();
+  setTab('files');
+  focusOpenFileInTree();
+}
 document.addEventListener('keydown', (event) => {
   if (!quickOpen?.classList.contains('hidden')) {
     if (handleQuickOpenKey(event)) return;
@@ -27,7 +78,8 @@ document.addEventListener('keydown', (event) => {
     toggleDockMaximized();
     return;
   }
-  if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.altKey && (event.code === 'Slash' || event.code === 'Period' || event.key === '?' || event.key === '>')) {
+  if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.altKey
+    && ((event.shiftKey && (event.code === 'Slash' || event.code === 'Period')) || event.key === '?' || event.key === '>')) {
     event.preventDefault();
     openMergedView((event.code === 'Slash' || event.key === '?') ? 'q' : 'c');
     return;
@@ -61,6 +113,18 @@ document.addEventListener('keydown', (event) => {
   // shortcuts (Cmd+1, F7, Cmd+[/], Cmd+B, …). Each has its own Esc + editing handlers.
   if (isFloatingModalOpen()) return;
 
+  // Cmd/Ctrl+. mirrors an IDE's "toggle fold" at the source caret. Review mode folds the innermost
+  // multiline brace range; Monaco Code mode delegates to its native folding controller. Shift+. remains
+  // the distinct merged change-request shortcut handled above.
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'Period' || event.key === '.')) {
+    var foldAe = document.activeElement;
+    if (!(foldAe && (foldAe.tagName === 'INPUT' || foldAe.tagName === 'TEXTAREA' || foldAe.tagName === 'SELECT'))
+      && typeof toggleCurrentSourceFold === 'function' && toggleCurrentSourceFold()) {
+      event.preventDefault();
+      return;
+    }
+  }
+
   // Cmd/Ctrl+A in the diff/source view selects ONLY that view's content (the browser default reached into
   // the sidebar). In an editable field, let the default select-within-field stand.
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.key === 'a' || event.key === 'A')) {
@@ -73,17 +137,7 @@ document.addEventListener('keydown', (event) => {
 
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === '1') {
     event.preventDefault();
-    // Coming from the diff: open the file you were viewing as source so Cmd+1 lands ON it (not a stale/blank
-    // source pane), and the tree below points at the same file. Capture the path BEFORE openSourceFile flips
-    // the view (isDiffViewVisible would then be false).
-    if (isDiffViewVisible()) {
-      var dw1 = diffActiveWrapper();
-      var dn1 = dw1 && dw1.querySelector('.d2h-file-name');
-      var dpath1 = (diffCursor && diffCursor.path) || (dn1 ? (dn1.textContent || '').trim() : '');
-      if (dpath1 && sourceByPath.has(dpath1)) openSourceFile(dpath1);
-    }
-    setTab('files');
-    focusOpenFileInTree();
+    activateFilesView();
     return;
   }
   // Cmd/Ctrl+L = go to line (numeric prompt); Cmd/Ctrl+K = copy the caret's file:line. Skip when an
@@ -106,8 +160,7 @@ document.addEventListener('keydown', (event) => {
   }
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === '0') {
     event.preventDefault();
-    setTab('changes');
-    focusOpenFileInTree();
+    activateChangesView(false);
     return;
   }
 
@@ -152,9 +205,11 @@ document.addEventListener('keydown', (event) => {
     }
   }
 
-  // Cmd/Ctrl+< toggles "viewed" for the keyboard-selected sidebar file. Keep plain < as a convenient
-  // compatibility shortcut when the tree is not focused; in that case it still targets the open file.
-  if (!event.altKey && event.key === '<') {
+  // The `<` glyph lives on Shift+Comma. Require the complete Cmd/Ctrl+Shift+, chord so the behavior and
+  // every displayed hint describe the same physical keys (and ordinary text entry never marks a file).
+  const toggleViewedShortcut = !event.altKey && (event.metaKey || event.ctrlKey) && event.shiftKey
+    && (event.key === '<' || event.code === 'Comma');
+  if (toggleViewedShortcut) {
     const ce2 = document.activeElement;
     const inEditable2 = ce2 && (ce2.tagName === 'INPUT' || ce2.tagName === 'TEXTAREA' || ce2.tagName === 'SELECT');
     if (!inEditable2) {
@@ -415,8 +470,8 @@ document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
   const btn = event.target.closest && event.target.closest('.rail-btn[data-view]');
   if (!btn) return;
   const view = btn.dataset.view;
-  if (view === 'changes') { setTab('changes'); if (!isDiffViewVisible()) showDiffView(false); }
-  else if (view === 'files') { setTab('files'); }
+  if (view === 'changes') { activateChangesView(true); }
+  else if (view === 'files') { activateFilesView(); }
   else if (view === 'q' || view === 'c') { toggleMergedRail(view); }
   else if (view === 'memo') { openMemoView(); } // openMemoView already toggles
   else if (view === 'impact') { toggleImpact(); }
@@ -434,12 +489,18 @@ document.getElementById('source-tabs')?.addEventListener('click', function (even
 document.getElementById('diff-viewed-toggle')?.addEventListener('click', function () {
   var btn = document.getElementById('diff-viewed-toggle');
   var path = btn ? (btn.dataset.file || '') : '';
-  if (path) setFileViewed(path, !isFileViewed(path));
+  if (path) {
+    var willView = !isFileViewed(path);
+    setFileViewed(path, willView);
+    if (willView) gotoNextUnviewedFile(path);
+  }
 });
 document.getElementById('diff-prev-change')?.addEventListener('click', function () { next(-1); });
 document.getElementById('diff-next-change')?.addEventListener('click', function () { next(1); });
 document.getElementById('diff-open-source')?.addEventListener('click', function () { openDiffFileAtCaret(); });
+document.getElementById('diff-sidebar-toggle')?.addEventListener('click', function () { toggleReviewSidebar(); });
 document.getElementById('source-body')?.addEventListener('click', handleSourceClick);
+document.getElementById('source-body')?.addEventListener('dblclick', handleSourceDoubleClick);
 document.getElementById('source-body')?.addEventListener('click', function (event) {
   var img = event.target && event.target.closest && event.target.closest('.image-preview');
   if (img) openLightbox(img.getAttribute('src'), img.getAttribute('alt'));
@@ -448,6 +509,65 @@ document.addEventListener('keydown', function (event) {
   if (event.key === 'Escape' && lightboxOpen()) { event.preventDefault(); event.stopPropagation(); closeLightbox(); }
 }, true);
 document.addEventListener('copy', handleSourceCopy);
+
+// One consistent shortcut tooltip for every ordinary button, including controls created after startup.
+// Explicit application shortcuts use data-keyhint; ordinary buttons advertise Enter, which is their native
+// keyboard activation. Custom select triggers are excluded: hovering a closed dropdown does not focus it,
+// so an Enter hint there promises an action that cannot occur. Activity-rail buttons keep their own tooltip.
+(function installButtonShortcutHints() {
+  var hint = document.createElement('div');
+  hint.id = 'mc-button-hint';
+  hint.className = 'mc-button-hint hidden';
+  hint.setAttribute('role', 'tooltip');
+  hint.innerHTML = '<span class="mc-button-hint-label"></span><kbd></kbd>';
+  document.body.appendChild(hint);
+  var owner = null;
+  function buttonFor(target) {
+    var button = target && target.closest ? target.closest('button') : null;
+    // File rows already expose their path through the Opt+Enter action menu. Showing the same path in a
+    // large hover bubble obscures neighbouring rows and competes with keyboard navigation.
+    return button && !button.classList.contains('rail-btn') && !button.classList.contains('mc-select')
+      && !button.classList.contains('file-link') ? button : null;
+  }
+  function buttonLabel(button) {
+    return button.getAttribute('data-tooltip') || button.getAttribute('aria-label')
+      || button.getAttribute('data-hint-title') || button.getAttribute('title')
+      || (button.textContent || '').trim() || 'Action';
+  }
+  function place(button) {
+    if (!button || !button.isConnected) return;
+    owner = button;
+    hint.querySelector('.mc-button-hint-label').textContent = buttonLabel(button);
+    // The custom bubble replaces the browser's delayed native `title` bubble. Keeping both produced two
+    // overlapping shortcut guides over Viewed and other toolbar controls.
+    if (button.hasAttribute('title')) {
+      button.setAttribute('data-hint-title', button.getAttribute('title') || '');
+      button.removeAttribute('title');
+    }
+    hint.querySelector('kbd').textContent = button.getAttribute('data-keyhint') || '↵';
+    hint.classList.remove('hidden');
+    var rect = button.getBoundingClientRect();
+    var box = hint.getBoundingClientRect();
+    var left = Math.max(8, Math.min(window.innerWidth - box.width - 8, rect.left + rect.width / 2 - box.width / 2));
+    var top = rect.bottom + 8;
+    if (top + box.height > window.innerHeight - 8) top = Math.max(8, rect.top - box.height - 8);
+    hint.style.left = left + 'px'; hint.style.top = top + 'px';
+  }
+  function hide(button) {
+    if (button && owner && button !== owner) return;
+    owner = null; hint.classList.add('hidden');
+  }
+  document.addEventListener('mouseover', function (event) { var button = buttonFor(event.target); if (button) place(button); });
+  document.addEventListener('mouseout', function (event) {
+    var button = buttonFor(event.target);
+    if (button && (!event.relatedTarget || !button.contains(event.relatedTarget))) hide(button);
+  });
+  document.addEventListener('focusin', function (event) { var button = buttonFor(event.target); if (button) place(button); });
+  document.addEventListener('focusout', function (event) { var button = buttonFor(event.target); if (button) hide(button); });
+  document.addEventListener('click', function () { hide(); }, true);
+  window.addEventListener('scroll', function () { hide(); }, true);
+  window.addEventListener('resize', function () { if (owner) place(owner); });
+})();
 
 applyI18n(); // first paint already shows English (inline); this swaps to the saved locale before the rest of init renders dynamic text
 populateHttpEnvSelect();
@@ -546,8 +666,21 @@ window.addEventListener('beforeunload', saveUiState);
   });
   container.addEventListener('click', (event) => {
     if (inComment(event)) return;
+    // The second click is completed by the dblclick handler below. Re-inserting the fake caret here would
+    // split the target text a second time and erase Chromium's pending word selection.
+    if (Number(event.detail) > 1) return;
     const info = diffRowInfoFromNode(event.target);
     if (info && info.path) setDiffCursor(info.path, info.side, info.rowIndex, 0, false);
+  });
+  container.addEventListener('dblclick', (event) => {
+    if (inComment(event)) return;
+    const code = event.target?.closest?.('.d2h-code-line-ctn');
+    const row = code?.closest?.('tr');
+    if (!code || !row || !isDiffCodeRow(row)) return;
+    const text = diffLineText(row);
+    const column = estimateColumnFromClick(code, event, text);
+    diffSelectionAnchor = null;
+    if (selectCodeWord(code, text, column)) event.preventDefault();
   });
   ensureDiffCursor();
 })();

@@ -24,11 +24,13 @@ function analysisResponse(request) {
     locations: [{ path: "src/service.ts", lineIndex: 0, column: 16 }],
     impact: {
       symbol: "process",
-      callers: [{ path: "src/caller.ts", lineIndex: 1, column: 22, relation: "caller", text: "export const result = process();" }],
-      dependencies: [{ path: "src/service.ts", lineIndex: 1, column: 9, name: "helper", relation: "call", text: "function helper() { return 2; }" }],
+      origin: { path: "src/service.ts", lineIndex: 0, column: 16 },
+      callers: [{ path: "src/caller.ts", lineIndex: 1, column: 22, relation: "caller", evidence: "semantic", text: "export const result = process();" }],
+      dependencies: [{ path: "src/service.ts", lineIndex: 1, column: 9, name: "helper", relation: "call", evidence: "heuristic", text: "function helper() { return 2; }" }],
       implementations: [],
-      tests: [{ path: "test/service.test.ts", lineIndex: 0, column: 22, relation: "test", text: "test('process', () => process());" }],
+      tests: [{ path: "test/service.test.ts", lineIndex: 0, column: 22, relation: "test", evidence: "semantic", text: "test('process', () => process());" }],
       contracts: [],
+      mentions: [],
     },
   };
 }
@@ -43,13 +45,24 @@ test("Change Impact rail queries main-process analysis and renders review relati
   await v.settle(80);
 
   assert.equal(v.$("#impact-panel").classList.contains("hidden"), false);
-  assert.match(v.$("#impact-engine").textContent, /semantic \+ heuristic · typescript-language-server \(bundled\) · process/);
+  assert.match(v.$("#impact-engine").textContent, /Targetprocesssrc\/service\.ts:1/);
+  assert.match(v.$("#impact-engine").textContent, /typescript-language-server \(bundled\)/);
+  assert.match(v.$("#impact-body").textContent, /Confirmed impact/);
+  assert.match(v.$("#impact-body").textContent, /Review candidates/);
   assert.match(v.$("#impact-body").textContent, /Callers & importers/);
   assert.match(v.$("#impact-body").textContent, /Related tests/);
   assert.match(v.$("#impact-body").textContent, /src\/caller\.ts:2/);
+  assert.ok(v.$('.impact-tier-confirmed .impact-item[data-impact-index="0"]'), "semantic references are separated as confirmed impact");
+  assert.ok(v.$('.impact-tier-candidates .impact-item'), "regex-derived dependencies stay review candidates");
+  assert.equal(v.document.activeElement, v.$('.impact-tier-confirmed .impact-item'), "the first result owns keyboard focus");
 
-  v.click(v.$('#impact-body .impact-item[data-impact-index="0"]'));
+  const active = v.document.activeElement;
+  active.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+  assert.equal(v.document.activeElement, v.$all('.impact-nav')[1], "ArrowDown moves through impact results");
+  v.document.activeElement.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true }));
+  v.document.activeElement.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
   await v.settle(50);
+  assert.equal(v.$("#impact-panel").classList.contains("hidden"), true, "opening a result reveals code instead of leaving the overlay in front");
   assert.equal(v.$("#source-viewer").dataset.openPath, "src/caller.ts", "impact result opens the exact source file");
   v.close();
 });

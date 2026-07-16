@@ -179,9 +179,24 @@ function scheduleScrollIntoView(el, scroller, marginFrac) {
 }
 
 var setActiveRaf = 0, setActiveScrollPending = true;
+// A viewed diff intentionally folds out of the review queue. Any navigation path that tries to activate it
+// (startup restore, sidebar click, quick open, etc.) should land on the next unviewed file instead of leaving
+// the content pane blank. If the whole queue is viewed, keep the requested file active so its body can remain
+// inspectable as the review-complete fallback.
+function preferredReviewHunk(index) {
+  var total = hunkTotal();
+  if (!total) return -1;
+  var requested = ((index % total) + total) % total;
+  if (!isFileViewed(hunkPathAt(requested) || '')) return requested;
+  for (var step = 1; step < total; step++) {
+    var candidate = (requested + step) % total;
+    if (!isFileViewed(hunkPathAt(candidate) || '')) return candidate;
+  }
+  return requested;
+}
 function setActive(index, shouldScroll = true) {
   if (hunkTotal() === 0) return;
-  current = ((index % hunkTotal()) + hunkTotal()) % hunkTotal();
+  current = preferredReviewHunk(index);
   // Coalesce rapid presses (holding/spamming F7 or Shift+F7) into one DOM apply per animation frame. The
   // key handler returns immediately and `current` updates synchronously (so next()/nav math stays correct),
   // while the heavy DOM work (full link/wrapper sweeps, body materialize) runs at most once per frame
@@ -233,9 +248,19 @@ function applySetActive(idx, shouldScroll) {
 
 function showOnlyFile(fileName, skipCursor) {
   if (REVIEW_LAZY) ensureFileReady(diffWrapperByPath(fileName));
+  var activeWrapper = null;
   document.querySelectorAll('.d2h-file-wrapper').forEach((wrapper) => {
-    wrapper.classList.toggle('df-inactive', diffWrapperPathKey(wrapper) !== fileName);
+    var active = diffWrapperPathKey(wrapper) === fileName;
+    wrapper.classList.toggle('df-inactive', !active);
+    // When every file is viewed there is nowhere to advance. Keep the chosen reviewed file readable instead
+    // of presenting a structurally valid toolbar over an empty canvas.
+    wrapper.classList.toggle('mc-active-diff', active);
+    if (active) activeWrapper = wrapper;
   });
+  // Inactive observers deliberately defer gutter projection. Refresh only the newly visible editor; this
+  // also ensures its line numbers are ready in the same animation frame as asymmetric scroll alignment.
+  if (activeWrapper && typeof scheduleLayeredDiffGutters === 'function') scheduleLayeredDiffGutters(activeWrapper);
+  scheduleAsymmetricDiffScroll();
   // applySetActive passes skipCursor: it sets the caret itself via focusDiffRow(targetRow). Letting
   // ensureDiffCursor run here would first place the caret on the file's FIRST code row, then focusDiffRow
   // overrides it to the change — a visible double jump (the F7 "first line → change" flash).
@@ -349,7 +374,17 @@ function next(delta) {
     if (!isFileViewed(hunkPathAt(norm) || '')) { setActive(norm); return; }
     idx += delta;
   }
-  // Every changed file is marked viewed — nothing left to review, so F7/[/] stay put.
+  // Every changed file is marked viewed. Inside the diff, staying put is the correct completed-review
+  // behavior. From Files/source view, however, a no-op leaves the entire diff unreachable and makes F7
+  // look broken. Re-enter the reviewed diff at the open file's own hunk when possible (otherwise the last
+  // active hunk); preferredReviewHunk deliberately permits a viewed target when the whole queue is viewed.
+  if (!isDiffViewVisible()) {
+    var sourceViewer = document.getElementById('source-viewer');
+    var sourcePath = sourceViewer ? (sourceViewer.dataset.openPath || '') : '';
+    var sourceHunk = sourcePath ? firstHunkForPath(sourcePath) : -1;
+    var fallbackHunk = sourceHunk >= 0 ? sourceHunk : (base >= 0 ? base : (current >= 0 ? current : 0));
+    setActive(fallbackHunk);
+  }
 }
 
 // Jump to the first change of the next unviewed file after `path` (wrapping). Used right after marking a

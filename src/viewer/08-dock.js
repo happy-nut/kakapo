@@ -75,12 +75,14 @@ function mountDock(id, titleText) {
   var maxBtn = document.createElement('button');
   maxBtn.type = 'button';
   maxBtn.className = 'dock-btn dock-max';
+  maxBtn.dataset.keyhint = "⌘⇧'";
   maxBtn.setAttribute('data-i18n-title', 'dock.maximize');
   maxBtn.title = t('dock.maximize');
   maxBtn.textContent = '⤢'; // ⤢ maximize glyph
   var closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.className = 'dock-btn dock-close';
+  closeBtn.dataset.keyhint = 'Esc';
   closeBtn.setAttribute('data-i18n', 'merged.close');
   closeBtn.textContent = t('merged.close');
   var body = document.createElement('div');
@@ -129,12 +131,28 @@ function openMergedView(kind) {
   mergedBody.className = 'mc-merged-body';
   var host = document.createElement('div');
   host.className = 'mc-inline-editor-host mc-merged-editor-host';
-  host.innerHTML = '<div class="mc-memo-empty">' + escapeHtml(t('memo.loading')) + '</div>';
+  host.innerHTML = loadingStateHtml(t('history.loading'), 'mc-memo-empty');
   var editor = null;
   var preview = null;
   var sourceText = buildMergedText(kind);
   var activeSeq = null;
+  var commentSyncTimer = 0;
+  var closingMergedView = false;
   function mergedItems() { return reviewComments.filter(function (comment) { return comment.kind === kind; }); }
+  function flushMergedComments() {
+    if (commentSyncTimer) { clearTimeout(commentSyncTimer); commentSyncTimer = 0; }
+    if (editor) sourceText = editor.getMarkdown();
+    return reconcileMergedComments(kind, sourceText);
+  }
+  function scheduleMergedCommentSync() {
+    if (commentSyncTimer) clearTimeout(commentSyncTimer);
+    commentSyncTimer = setTimeout(function () {
+      commentSyncTimer = 0;
+      var result = reconcileMergedComments(kind, sourceText);
+      if (!closingMergedView && result.hadComments && !result.remaining) { dock.close(); return; }
+      requestAnimationFrame(syncMergedAnchors);
+    }, 180);
+  }
   function syncMergedAnchors() {
     if (!preview) return;
     var items = mergedItems();
@@ -158,11 +176,6 @@ function openMergedView(kind) {
       heading.dataset.commentSeq = String(comment.seq);
       heading.tabIndex = -1;
     });
-    preview.querySelectorAll('.mc-merged-count').forEach(function (heading) { heading.classList.remove('mc-merged-count'); });
-    var countHeading = Array.from(preview.querySelectorAll('h1,h2,h3,h4,h5,h6')).find(function (heading) {
-      return !heading.dataset.commentSeq && /\(\d+\)\s*$/.test(heading.textContent.trim());
-    });
-    if (countHeading) countHeading.classList.add('mc-merged-count');
     if (!items.some(function (comment) { return comment.seq === activeSeq; })) activeSeq = items.length ? items[0].seq : null;
     selectMergedComment(activeSeq, false);
   }
@@ -212,23 +225,19 @@ function openMergedView(kind) {
     var rect = heading.getBoundingClientRect();
     var seq = activeSeq;
     showCustomDropdown(rect.left + 8, rect.bottom + 4, [
-      { label: t('dropdown.navigate'), onSelect: function () { dock.close(); navigateToComment(seq); } },
+      { label: t('dropdown.navigate'), onSelect: function () { flushMergedComments(); dock.close(); navigateToComment(seq); } },
       { label: t('dropdown.remove'), onSelect: function () {
+        if (editor) sourceText = editor.getMarkdown();
+        var sourceWithoutComment = removeMergedCommentSection(kind, sourceText, seq);
         var anchors = Array.from(preview.querySelectorAll('.mc-merged-comment-anchor'));
         var at = anchors.indexOf(heading);
         var nextHeading = at >= 0 ? anchors[at + 1] : null;
-        var countHeading = preview.querySelector('.mc-merged-count');
-        var countBase = countHeading ? countHeading.textContent.replace(/\s*\(\d+\)\s*$/, '') : '';
         deleteComment(seq);
         var items = mergedItems();
         if (!items.length) { dock.close(); return; }
         var deletedInline = editor && typeof editor.deleteBlockRange === 'function' && editor.deleteBlockRange(heading, nextHeading);
-        if (deletedInline && countHeading && typeof editor.replaceBlockText === 'function') {
-          editor.replaceBlockText(countHeading, countBase + ' (' + items.length + ')');
-        } else if (editor) {
-          editor.setMarkdown(buildMergedText(kind));
-        }
-        sourceText = editor ? editor.getMarkdown() : buildMergedText(kind);
+        if (!deletedInline && editor) editor.setMarkdown(sourceWithoutComment);
+        sourceText = editor ? editor.getMarkdown() : sourceWithoutComment;
         activeSeq = items[Math.max(0, Math.min(items.length - 1, at))].seq;
         syncMergedAnchors();
       } },
@@ -253,13 +262,18 @@ function openMergedView(kind) {
   copyBtn.textContent = t('merged.copyAll');
   copyBtn.addEventListener('click', function () {
     if (editor) sourceText = editor.getMarkdown();
+    flushMergedComments();
     var copied = typeof copyTextToClipboard === 'function' && copyTextToClipboard(sourceText);
     if (typeof showToast === 'function') showToast(t(copied ? 'merged.copied' : 'merged.copyFailed'));
   });
   dock.bar.insertBefore(copyBtn, dock.bar.querySelector('.dock-max'));
   mergedBody.appendChild(host);
   dock.body.appendChild(mergedBody);
-  dock.panel.__monacoriBeforeClose = function () { if (editor) editor.destroy(); };
+  dock.panel.__monacoriBeforeClose = function () {
+    closingMergedView = true;
+    flushMergedComments();
+    if (editor) editor.destroy();
+  };
   loadInlineMarkdownEditor().then(function (factory) {
     if (!document.getElementById('mc-merged-panel')) return;
     host.innerHTML = '';
@@ -270,6 +284,7 @@ function openMergedView(kind) {
       placeholder: kind === 'q' ? t('merged.qTitle') : t('merged.cTitle'),
       onUpdate: function (markdown) {
         sourceText = markdown;
+        scheduleMergedCommentSync();
         requestAnimationFrame(syncMergedAnchors);
       },
     });
@@ -339,7 +354,7 @@ function openMemoView() {
   dock.bar.insertBefore(clearBtn, dock.bar.querySelector('.dock-max'));
   var memoBody = document.createElement('div'); memoBody.className = 'mc-memo-body';
   var host = document.createElement('div'); host.className = 'mc-inline-editor-host';
-  host.innerHTML = '<div class="mc-memo-empty">' + escapeHtml(t('memo.loading')) + '</div>';
+  host.innerHTML = loadingStateHtml(t('memo.loading'), 'mc-memo-empty');
   memoBody.appendChild(host);
   dock.body.appendChild(memoBody);
   function flushMemo() {
@@ -573,5 +588,14 @@ if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function')
       theme = next;
       persistSave(THEME_KEY, theme);
       applyTheme();
+    });
+  syntaxThemeSelectRef = setupCustomSelect('settings-syntax-theme',
+    function () { return [{ value: 'default', label: t('syntaxTheme.default') }, { value: 'darcula', label: t('syntaxTheme.darcula') }]; },
+    function () { return syntaxTheme; },
+    function (next) {
+      if (next === syntaxTheme) return;
+      syntaxTheme = next;
+      persistSave(SYNTAX_THEME_KEY, syntaxTheme);
+      applySyntaxTheme();
     });
 })();

@@ -22,7 +22,13 @@ export type AnalysisRequest = {
   limit?: number;
 };
 
-export type ImpactItem = AnalysisLocation & { relation?: string };
+export type ImpactEvidence = "semantic" | "heuristic";
+
+export type ImpactItem = AnalysisLocation & {
+  relation?: string;
+  evidence: ImpactEvidence;
+};
+type RawImpactItem = Omit<ImpactItem, "evidence">;
 
 export type ChangeImpact = {
   symbol: string;
@@ -32,6 +38,7 @@ export type ChangeImpact = {
   implementations: ImpactItem[];
   tests: ImpactItem[];
   contracts: ImpactItem[];
+  mentions: ImpactItem[];
 };
 
 export type AnalysisResponse = {
@@ -214,12 +221,35 @@ function uniqueLocations<T extends AnalysisLocation>(items: T[], limit = MAX_LOC
   return out;
 }
 
+function uniqueImpactItems(items: ImpactItem[], limit = MAX_LOCATIONS): ImpactItem[] {
+  const seen = new Set<string>();
+  const out: ImpactItem[] = [];
+  for (const item of items) {
+    // A regex search may find the same symbol several times on one line. Review impact is line-oriented,
+    // so showing those as separate relationships creates noise without adding evidence.
+    const key = `${item.path}\0${item.lineIndex}\0${item.relation ?? ""}\0${item.evidence}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 function testPath(path: string): boolean {
   return /(^|\/)(test|tests|__tests__|spec|specs)(\/|$)|\.(?:test|spec)\.[^.]+$/i.test(path);
 }
 
 function contractPath(path: string): boolean {
   return /(^|\/)(types?|api|schema|schemas|config|configs)(\/|$)|(?:openapi|swagger|schema|config)|\.(?:graphql|gql|proto|json|ya?ml|toml)$/i.test(path);
+}
+
+function documentPath(path: string): boolean {
+  return /\.(?:md|mdx|txt|rst|adoc)$/i.test(path) || /(^|\/)(docs?|documentation|notes?|release-notes)(\/|$)/i.test(path);
+}
+
+function apparentCall(text: string, symbol: string): boolean {
+  return new RegExp(`\\b${escapeRegExp(symbol)}\\s*\\(`).test(text);
 }
 
 export class ProjectAnalysis {
@@ -609,15 +639,26 @@ export class ProjectAnalysis {
     const callers: ImpactItem[] = [];
     const tests: ImpactItem[] = [];
     const contracts: ImpactItem[] = [];
+    const mentions: ImpactItem[] = [];
+    const referenceEvidence: ImpactEvidence = referenceLsp.locations.length ? "semantic" : "heuristic";
     for (const item of references) {
       if (item.path === origin.path && item.lineIndex === origin.lineIndex) continue;
       const text = item.text ?? this.lineText(index, item.path, item.lineIndex);
       const enriched = { ...item, text };
-      if (testPath(item.path)) tests.push({ ...enriched, relation: "test" });
-      else if (contractPath(item.path)) contracts.push({ ...enriched, relation: "contract" });
-      else callers.push({ ...enriched, relation: /\b(?:import|require|use|include)\b/.test(text) ? "importer" : "caller" });
+      if (testPath(item.path)) tests.push({ ...enriched, relation: "test", evidence: referenceEvidence });
+      else if (contractPath(item.path)) contracts.push({ ...enriched, relation: "contract", evidence: referenceEvidence });
+      else if (documentPath(item.path)) mentions.push({ ...enriched, relation: "mention", evidence: referenceEvidence });
+      else if (/\b(?:import|require|use|include)\b/.test(text)) {
+        callers.push({ ...enriched, relation: "importer", evidence: referenceEvidence });
+      } else if (referenceEvidence === "semantic" || apparentCall(text, symbol)) {
+        callers.push({ ...enriched, relation: "caller", evidence: referenceEvidence });
+      } else {
+        // A whole-word regex hit is useful as a review lead, but it is not proof of a call relationship.
+        mentions.push({ ...enriched, relation: "mention", evidence: "heuristic" });
+      }
     }
-    const dependencies = this.outgoingDependencies(index, origin, symbol);
+    const dependencies = this.outgoingDependencies(index, origin, symbol)
+      .map((item) => ({ ...item, evidence: "heuristic" as const }));
     const inheritance: ImpactItem[] = [];
     const originDeclaration = origin.text ?? this.lineText(index, origin.path, origin.lineIndex);
     const inheritanceMatch = /\b(?:extends|implements)\s+([^\n{]+)/.exec(originDeclaration);
@@ -625,7 +666,7 @@ export class ProjectAnalysis {
       const parents = inheritanceMatch[1].match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? [];
       for (const parent of parents) {
         const target = (index.definitions.get(parent) ?? [])[0];
-        if (target) inheritance.push({ ...target, name: parent, relation: "inherits" });
+        if (target) inheritance.push({ ...target, name: parent, relation: "inherits", evidence: "heuristic" });
       }
     }
     const signatureTokens = (origin.text ?? this.lineText(index, origin.path, origin.lineIndex)).match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? [];
@@ -633,24 +674,26 @@ export class ProjectAnalysis {
       if (token === symbol) continue;
       for (const item of index.definitions.get(token) ?? []) {
         if (item.symbolKind === "type" || item.symbolKind === "interface" || contractPath(item.path)) {
-          contracts.push({ ...item, relation: "type" });
+          contracts.push({ ...item, relation: "type", evidence: "heuristic" });
         }
       }
     }
-    if (contractPath(origin.path)) contracts.unshift({ ...origin, relation: "changed contract" });
+    if (contractPath(origin.path)) contracts.unshift({ ...origin, relation: "changed contract", evidence: "heuristic" });
+    const implementationEvidence: ImpactEvidence = implementationLsp.locations.length ? "semantic" : "heuristic";
     const impact: ChangeImpact = {
       symbol,
       origin,
-      callers: uniqueLocations(callers, 120),
-      dependencies: uniqueLocations(dependencies, 120),
-      implementations: uniqueLocations<ImpactItem>([
+      callers: uniqueImpactItems(callers, 120),
+      dependencies: uniqueImpactItems(dependencies, 120),
+      implementations: uniqueImpactItems([
         ...implementations
           .filter((item) => item.path !== origin.path || item.lineIndex !== origin.lineIndex)
-          .map((item) => ({ ...item, relation: "implementation" })),
+          .map((item) => ({ ...item, relation: "implementation", evidence: implementationEvidence })),
         ...inheritance,
       ], 120),
-      tests: uniqueLocations(tests, 120),
-      contracts: uniqueLocations(contracts, 120),
+      tests: uniqueImpactItems(tests, 120),
+      contracts: uniqueImpactItems(contracts, 120),
+      mentions: uniqueImpactItems(mentions, 120),
     };
     return {
       ok: true,
@@ -667,12 +710,12 @@ export class ProjectAnalysis {
     };
   }
 
-  private outgoingDependencies(index: RegexIndex, origin: AnalysisLocation, symbol: string): ImpactItem[] {
+  private outgoingDependencies(index: RegexIndex, origin: AnalysisLocation, symbol: string): RawImpactItem[] {
     const content = index.files.get(origin.path) ?? "";
     const lines = content.split(/\r?\n/);
     const sameFileDefinitions = index.symbols.filter((item) => item.path === origin.path && item.lineIndex > origin.lineIndex);
     const nextDefinition = sameFileDefinitions.sort((a, b) => a.lineIndex - b.lineIndex)[0]?.lineIndex ?? Math.min(lines.length, origin.lineIndex + 160);
-    const out: ImpactItem[] = [];
+    const out: RawImpactItem[] = [];
     const scopeText = lines.slice(origin.lineIndex, nextDefinition).join("\n");
     // Imports normally live above a function/class declaration. Include a module when one of its bound
     // names is used inside the changed symbol's scope; dynamic/side-effect imports in the scope are handled

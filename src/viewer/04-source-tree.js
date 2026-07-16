@@ -62,7 +62,7 @@ function virtualSourceNodeHtml(node, depth) {
     var file = node.file;
     var classes = ['file-link', 'source-link', 'tree-file', file.embedded ? '' : 'not-embedded', file.vcs ? 'vcs-' + file.vcs : ''].filter(Boolean).join(' ');
     var color = virtualFileColor(file.path);
-    return '<button type="button" class="' + classes + '" data-source-file="' + escapeHtml(file.path) + '" style="--depth:' + depth + '" title="' + escapeHtml(file.path) + '">'
+    return '<button type="button" class="' + classes + '" data-source-file="' + escapeHtml(file.path) + '" style="--depth:' + depth + '" aria-label="' + escapeHtml(file.path) + '">'
       + '<svg class="ftype" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.25a1 1 0 0 1 1-1h4.3L12.5 4.7v9.05a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" fill="' + color + '" fill-opacity=".2" stroke="' + color + '" stroke-width="1.1"/><path d="M9.2 1.4v2.8a1 1 0 0 0 1 1h2.6" fill="none" stroke="' + color + '" stroke-width="1.1"/></svg>'
       + '<span class="path">' + escapeHtml(node.name) + '</span></button>';
   }
@@ -265,7 +265,7 @@ function handleTreeKey(event) {
   if (event.key === 'PageUp') { event.preventDefault(); focusTree(treeFocusIndex - treePageSize()); return true; }
   if (event.key === 'Enter' && event.altKey) {
     event.preventDefault();
-    if (row && typeof openTreeRowMenu === 'function') openTreeRowMenu(row); // copy path / Finder
+    if (row && typeof openTreeRowMenu === 'function') openTreeRowMenu(row); // path actions / Finder / Terminal
     return true;
   }
   if (event.key === 'Enter') {

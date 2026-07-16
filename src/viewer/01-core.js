@@ -1,8 +1,165 @@
+// Shared delayed-work state. Keeping one compact visual vocabulary for indexing, file hydration, history,
+// and editor startup makes genuine waits legible without animating already-responsive interactions.
+function loadingStateHtml(message, extraClass) {
+  return '<div class="mc-loading-state' + (extraClass ? ' ' + extraClass : '') + '" role="status" aria-live="polite">'
+    + '<span class="mc-spinner" aria-hidden="true"></span><span>' + escapeHtml(message) + '</span></div>';
+}
 
 const REVIEW_LAZY = document.getElementById('review-meta')?.dataset.lazy === 'true';
 // lazy-LOAD (Phase 2): file bodies are NOT embedded; they are fetched on demand (serve: GET /file,
 // Electron: window.monacoriFile.get) so the initial HTML stays small. Implies REVIEW_LAZY (shells).
 const REVIEW_LAZY_LOAD = document.getElementById('review-meta')?.dataset.lazyLoad === 'true';
+var diffImportOpenPaths = Object.create(null);
+
+// Shared lightweight import detection for the read-only source renderer and the diff. It deliberately
+// recognizes only top-level dependency declarations: an indented Python import inside a function or a
+// dynamic `import()` call remains ordinary code. Multiline `{ ... }`, `( ... )`, and `[ ... ]` imports are
+// consumed as one statement, while comments/package declarations may precede the import header.
+function isTopLevelImportLine(raw) {
+  var text = String(raw == null ? '' : raw).replace(/^\uFEFF/, '');
+  if (/^\s/.test(text)) return false;
+  return /^(?:import\b(?!\s*\()|from\s+\S+\s+import\b|use\s+|using\s+|#\s*include\b|require\s*\(|(?:const|let|var)\s+[^=]+?=\s*require\s*\(|export\s+(?:\{|\*)[^;]*\bfrom\b)/.test(text);
+}
+function importHeaderLine(raw) {
+  var text = String(raw == null ? '' : raw).trim();
+  return !text || /^(?:\/\/|\/\*|\*|\*\/|#(?!\s*include\b)|#!|package\b|namespace\b|module\b|@file:|['"]use strict['"])/.test(text);
+}
+function importBracketDelta(raw) {
+  var text = String(raw == null ? '' : raw), delta = 0, quote = '', escaped = false;
+  for (var i = 0; i < text.length; i++) {
+    var ch = text.charAt(i), next = text.charAt(i + 1);
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue; }
+    if (ch === '/' && next === '/') break;
+    if (ch === '#') break;
+    if (ch === '(' || ch === '[' || ch === '{') delta += 1;
+    else if (ch === ')' || ch === ']' || ch === '}') delta -= 1;
+  }
+  return delta;
+}
+function findImportRange(lines) {
+  var first = -1, last = -1, limit = Math.min((lines || []).length, 300);
+  for (var i = 0; i < limit; i++) {
+    var raw = lines[i];
+    if (raw == null) { if (first >= 0) break; continue; }
+    if (isTopLevelImportLine(raw)) {
+      if (first < 0) first = i;
+      var depth = importBracketDelta(raw);
+      last = i;
+      while ((depth > 0 || /\\\s*$/.test(String(raw))) && i + 1 < limit && lines[i + 1] != null) {
+        i += 1;
+        raw = lines[i];
+        depth += importBracketDelta(raw);
+        last = i;
+      }
+      continue;
+    }
+    if (importHeaderLine(raw)) continue;
+    break;
+  }
+  return first >= 0 && last >= first ? { start: first, end: last } : null;
+}
+function codeFoldMessage(kind, count) {
+  var messages = (typeof I18N !== 'undefined' && I18N)
+    ? (I18N[(typeof locale !== 'undefined' && locale) || 'en'] || I18N.en || {})
+    : {};
+  var key = kind === 'imports' ? 'fold.imports' : 'fold.block';
+  var fallback = kind === 'imports' ? 'Imports · {count} lines' : '{count} folded lines';
+  return String(messages[key] || fallback).replace('{count}', String(count || 0));
+}
+function codeFoldExpandTitle() {
+  var messages = (typeof I18N !== 'undefined' && I18N)
+    ? (I18N[(typeof locale !== 'undefined' && locale) || 'en'] || I18N.en || {})
+    : {};
+  return String(messages['fold.expand'] || 'Expand folded code');
+}
+function refreshCodeFoldLabels(root) {
+  var scope = root && root.querySelectorAll ? root : document;
+  Array.prototype.forEach.call(scope.querySelectorAll('.mc-code-fold-button'), function (button) {
+    var kind = button.dataset.foldKind || 'block';
+    var count = Number(button.dataset.foldCount) || 0;
+    var label = codeFoldMessage(kind, count);
+    var text = button.querySelector('.mc-code-fold-label');
+    if (text) text.textContent = label;
+    button.title = codeFoldExpandTitle() + (kind === 'block' ? ' (⌘.)' : '');
+  });
+}
+function resetDiffImportFolds(wrapper) {
+  if (!wrapper) return;
+  Array.prototype.forEach.call(wrapper.querySelectorAll('.mc-import-fold-row, .mc-import-fold-hidden'), function (row) {
+    row.classList.remove('mc-import-fold-row', 'mc-import-fold-hidden');
+  });
+  Array.prototype.forEach.call(wrapper.querySelectorAll('.d2h-code-line-ctn'), function (line) {
+    if (line.__mcImportFoldHtml == null) return;
+    line.innerHTML = line.__mcImportFoldHtml;
+    delete line.__mcImportFoldHtml;
+  });
+}
+function diffImportRangeHasChange(rows, range) {
+  if (!range) return false;
+  for (var i = range.start; i <= range.end; i++) {
+    var row = rows[i];
+    if (row && (row.classList.contains('mc-diff-change')
+      || row.querySelector('td.d2h-ins:not(.d2h-emptyplaceholder), td.d2h-del:not(.d2h-emptyplaceholder)'))) return true;
+  }
+  return false;
+}
+function paintDiffImportFoldRow(row, count) {
+  if (!row) return;
+  row.classList.add('mc-import-fold-row');
+  var line = row.querySelector('.d2h-code-line-ctn');
+  if (!line) return;
+  line.__mcImportFoldHtml = line.innerHTML;
+  line.textContent = '';
+  var button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'mc-code-fold-button mc-import-fold';
+  button.dataset.importExpand = '1';
+  button.dataset.foldKind = 'imports';
+  button.dataset.foldCount = String(count);
+  button.dataset.keyhint = 'Space';
+  var icon = document.createElement('span'); icon.className = 'mc-code-fold-icon'; icon.textContent = '›';
+  var label = document.createElement('span'); label.className = 'mc-code-fold-label';
+  button.appendChild(icon); button.appendChild(label); line.appendChild(button);
+  refreshCodeFoldLabels(row);
+}
+function decorateDiffImportFold(wrapper, oldRows, newRows) {
+  if (!wrapper) return;
+  var path = (wrapper.dataset && wrapper.dataset.path)
+    || ((wrapper.querySelector('.d2h-file-name') || {}).textContent || '').trim();
+  if (path && diffImportOpenPaths[path]) return;
+  var oldLines = oldRows.map(function (row) { return isDiffCodeRow(row) ? diffLineText(row) : null; });
+  var newLines = newRows.map(function (row) { return isDiffCodeRow(row) ? diffLineText(row) : null; });
+  var oldRange = findImportRange(oldLines), newRange = findImportRange(newLines);
+  // An added/deleted/misaligned import header is itself review evidence, so leave the entire header open.
+  if (!oldRange || !newRange || oldRange.start !== newRange.start || oldRange.end !== newRange.end) return;
+  if (diffImportRangeHasChange(oldRows, oldRange) || diffImportRangeHasChange(newRows, newRange)) return;
+  var count = oldRange.end - oldRange.start + 1;
+  paintDiffImportFoldRow(oldRows[oldRange.start], count);
+  paintDiffImportFoldRow(newRows[newRange.start], count);
+  for (var i = oldRange.start + 1; i <= oldRange.end; i++) {
+    if (oldRows[i]) oldRows[i].classList.add('mc-import-fold-hidden');
+    if (newRows[i]) newRows[i].classList.add('mc-import-fold-hidden');
+  }
+}
+function openDiffImportFold(row) {
+  var wrapper = row && row.closest ? row.closest('.d2h-file-wrapper') : null;
+  if (!wrapper) return;
+  var path = (wrapper.dataset && wrapper.dataset.path)
+    || ((wrapper.querySelector('.d2h-file-name') || {}).textContent || '').trim();
+  if (path) diffImportOpenPaths[path] = true;
+  if (typeof clearSelectedDiffFold === 'function') clearSelectedDiffFold();
+  resetDiffImportFolds(wrapper);
+  invalidateDiffRows(wrapper);
+  invalidateAsymmetricDiffGeometry(wrapper);
+  scheduleAsymmetricDiffScroll();
+  if (diffCursor && diffCursor.path === path) renderDiffCaret();
+}
 if (!REVIEW_LAZY) prepareDiff2HtmlHunks();
 const hunks = REVIEW_LAZY ? [] : Array.from(document.querySelectorAll('.hunk'));
 const hunkPeers = REVIEW_LAZY ? [] : Array.from(document.querySelectorAll('.hunk-peer'));
@@ -52,10 +209,11 @@ function hunkRowAt(i) {
   return document.getElementById('hunk-' + i);
 }
 // diff2html aligns the old/new tables row-for-row. Carry each @@ hunk id through those paired rows and
-// classify every changed pair once so CSS can paint a single semantic band across code and both centre
-// line-number gutters. Replacements stay blue on both sides, deletions are neutral gray, and insertions
-// keep their empty old-side peer neutral while the actual new-side source is green.
+// classify every changed pair once so CSS can paint semantic code bands while the curved overlay owns the
+// neutral centre line-number gutters. Replacements stay blue on both sides, deletions are neutral gray,
+// and insertions keep their empty old-side peer neutral while the actual new-side source is green.
 function annotateDiffHunkRows(wrapper) {
+  resetDiffImportFolds(wrapper);
   var sides = wrapper ? wrapper.querySelectorAll('.d2h-file-side-diff') : [];
   if (sides.length < 2) return;
   var cleanRows = function (side) {
@@ -77,11 +235,32 @@ function annotateDiffHunkRows(wrapper) {
     var number = row.querySelector('.d2h-code-side-linenumber');
     if (number && number !== row.firstElementChild) row.insertBefore(number, row.firstElementChild);
   });
-  var semanticClasses = ['mc-diff-change', 'mc-diff-modified', 'mc-diff-deleted', 'mc-diff-added', 'mc-change-start', 'mc-change-end', 'mc-diff-hunk-row', 'mc-active-hunk'];
+  var semanticClasses = ['mc-diff-change', 'mc-diff-modified', 'mc-diff-deleted', 'mc-diff-added', 'mc-change-start', 'mc-change-end', 'mc-diff-hunk-row', 'mc-active-hunk', 'mc-asymmetric-insert-gap', 'mc-asymmetric-insert-resume', 'mc-asymmetric-insert-tail'];
   oldRows.concat(newRows).forEach(function (row) {
     semanticClasses.forEach(function (name) { row.classList.remove(name); });
     row.removeAttribute('data-review-hunk-index');
   });
+
+  // The working tree is the canonical vertical timeline. Pure insertions therefore do not need a tall
+  // stack of empty rows in the base editor: collapse those positional peers, retain their DOM indices for
+  // caret/comment mapping, and record the right-side run so scrollAsymmetricDiff() can hold the base editor
+  // still while the working tree advances through it (the same visual model as IntelliJ's side-by-side diff).
+  var insertionGaps = [];
+  var openInsertionGap = null;
+  var closeInsertionGap = function () {
+    if (openInsertionGap) insertionGaps.push(openInsertionGap);
+    openInsertionGap = null;
+  };
+  var connectorRuns = [];
+  var openConnectorRun = null;
+  var closeConnectorRun = function () {
+    if (!openConnectorRun) return;
+    openConnectorRun.kind = openConnectorRun.hasOld && openConnectorRun.hasNew
+      ? 'modified'
+      : (openConnectorRun.hasNew ? 'added' : 'deleted');
+    connectorRuns.push(openConnectorRun);
+    openConnectorRun = null;
+  };
 
   var currentHunk = '';
   var previousType = '';
@@ -108,6 +287,31 @@ function annotateDiffHunkRows(wrapper) {
     var hasOld = !!(oldRow && oldRow.querySelector('td.d2h-del:not(.d2h-emptyplaceholder)'));
     var hasNew = !!(newRow && newRow.querySelector('td.d2h-ins:not(.d2h-emptyplaceholder)'));
     var type = hasOld && hasNew ? 'modified' : (hasOld ? 'deleted' : (hasNew ? 'added' : ''));
+    if (type) {
+      if (!openConnectorRun) {
+        openConnectorRun = {
+          startIndex: i,
+          endIndex: i,
+          oldRealRows: [],
+          newRealRows: [],
+          hasOld: false,
+          hasNew: false,
+        };
+      }
+      openConnectorRun.endIndex = i;
+      if (hasOld && oldRow) { openConnectorRun.oldRealRows.push(oldRow); openConnectorRun.hasOld = true; }
+      if (hasNew && newRow) { openConnectorRun.newRealRows.push(newRow); openConnectorRun.hasNew = true; }
+    } else {
+      closeConnectorRun();
+    }
+    var isPureInsertion = type === 'added' && !!(oldRow && oldRow.querySelector('.d2h-emptyplaceholder, .d2h-code-side-emptyplaceholder'));
+    if (isPureInsertion) {
+      oldRow.classList.add('mc-asymmetric-insert-gap');
+      if (!openInsertionGap) openInsertionGap = { startIndex: i, endIndex: i, firstNewRow: newRow, lastNewRow: newRow };
+      else { openInsertionGap.endIndex = i; openInsertionGap.lastNewRow = newRow; }
+    } else {
+      closeInsertionGap();
+    }
     if (!type) {
       if (previousType) addPairClass(previousPair, 'mc-change-end');
       previousType = '';
@@ -123,9 +327,339 @@ function annotateDiffHunkRows(wrapper) {
     previousType = type;
     previousPair = pair;
   }
+  closeInsertionGap();
+  closeConnectorRun();
   if (previousType) addPairClass(previousPair, 'mc-change-end');
+  insertionGaps.forEach(function (gap) {
+    var resume = oldRows[gap.endIndex + 1] || null;
+    if (resume) resume.classList.add('mc-asymmetric-insert-resume');
+    else {
+      var tail = oldRows[gap.startIndex - 1] || null;
+      if (tail) tail.classList.add('mc-asymmetric-insert-tail');
+    }
+  });
+  // Replace diff2html's visible per-row number cells with one gutter layer per pane before the alignment
+  // state captures its transform target. The stack contains BOTH code and gutter, so vertical correction
+  // can never make the line numbers trail the source by a frame.
+  // Only create the shared stack here. Import/context decoration below can still hide rows, so measuring
+  // now would build the gutter twice. The single refresh at the end sees the final row layout.
+  installLayeredDiffGutters(wrapper, true);
+  var oldContent = sides[0].querySelector('.mc-diff-layer-stack') || sides[0].querySelector('.d2h-code-wrapper') || sides[0].querySelector('.d2h-diff-table');
+  if (oldContent) {
+    oldContent.classList.toggle('mc-asymmetric-scroll-content', insertionGaps.length > 0);
+    oldContent.style.transform = '';
+  }
+  // Real shared rows are stronger alignment evidence than an accumulated line-height estimate. Keeping
+  // these anchors lets scrollAsymmetricDiff correct sub-pixel/border drift at the reader's current position.
+  var alignmentAnchors = [];
+  for (var anchorIndex = 0; anchorIndex < Math.min(oldRows.length, newRows.length); anchorIndex++) {
+    var anchorOld = oldRows[anchorIndex], anchorNew = newRows[anchorIndex];
+    if (!anchorOld || !anchorNew || anchorOld.classList.contains('mc-diff-change') || anchorNew.classList.contains('mc-diff-change')) continue;
+    var oldNumber = anchorOld.querySelector('.d2h-code-side-linenumber');
+    var newNumber = anchorNew.querySelector('.d2h-code-side-linenumber');
+    if (!oldNumber || !newNumber || !String(oldNumber.textContent || '').trim() || !String(newNumber.textContent || '').trim()) continue;
+    alignmentAnchors.push({ oldRow: anchorOld, newRow: anchorNew, kind: 'shared-row' });
+  }
+  // A large replacement can contain a stable symbol boundary that diff2html still marks as changed (for
+  // example the unchanged `def _exit_intents(` below a rewritten method). Pair unique, substantial source
+  // lines across the two compact editors so that boundary becomes an exact scroll anchor as well. This is
+  // intentionally conservative: duplicate/short lines and reordered crossings are discarded.
+  semanticDiffAlignmentAnchors(oldRows, newRows).forEach(function (anchor) {
+    var duplicate = alignmentAnchors.some(function (existing) {
+      return existing.oldRow === anchor.oldRow && existing.newRow === anchor.newRow;
+    });
+    if (!duplicate) alignmentAnchors.push(anchor);
+  });
+  wrapper.__asymmetricDiffState = oldContent ? {
+    gaps: insertionGaps,
+    content: oldContent,
+    anchors: alignmentAnchors,
+    connectorRuns: connectorRuns,
+    oldRows: oldRows,
+    newRows: newRows,
+    offset: 0,
+  } : null;
   decorateDiffContextFolds(wrapper, oldRows, newRows);
+  decorateDiffImportFold(wrapper, oldRows, newRows);
+  refreshLayeredDiffGutters(wrapper);
+  scheduleAsymmetricDiffScroll();
 }
+
+var asymmetricDiffScrollRaf = 0;
+function asymmetricGapProgress(y, start, end) {
+  return Math.max(0, Math.min(y - start, Math.max(0, end - start)));
+}
+function diffAlignmentLineText(row) {
+  var content = row && row.querySelector('.d2h-code-line-ctn');
+  return content ? String(content.textContent || '').trim().replace(/\s+/g, ' ') : '';
+}
+function semanticDiffAlignmentAnchors(oldRows, newRows) {
+  var collect = function (rows) {
+    var values = new Map();
+    rows.forEach(function (row, index) {
+      var number = row && row.querySelector('.d2h-code-side-linenumber');
+      var text = diffAlignmentLineText(row);
+      if (!number || !String(number.textContent || '').trim() || text.length < 12 || !/[A-Za-z0-9_$]/.test(text)) return;
+      var entry = values.get(text);
+      if (entry) entry.count += 1;
+      else values.set(text, { row: row, index: index, count: 1 });
+    });
+    return values;
+  };
+  var oldByText = collect(oldRows || []);
+  var newByText = collect(newRows || []);
+  var candidates = [];
+  newByText.forEach(function (newEntry, text) {
+    var oldEntry = oldByText.get(text);
+    if (!oldEntry || oldEntry.count !== 1 || newEntry.count !== 1) return;
+    candidates.push({
+      oldRow: oldEntry.row,
+      newRow: newEntry.row,
+      oldIndex: oldEntry.index,
+      newIndex: newEntry.index,
+      kind: 'semantic-line',
+    });
+  });
+  candidates.sort(function (a, b) { return a.newIndex - b.newIndex || a.oldIndex - b.oldIndex; });
+  // Keep the longest monotonic sequence. A moved block must not pull the base pane backwards or make the
+  // correction jump between two contradictory anchors while the reviewer scrolls.
+  var previous = [], tailIndices = [];
+  for (var i = 0; i < candidates.length; i++) {
+    var low = 0, high = tailIndices.length;
+    while (low < high) {
+      var middle = (low + high) >> 1;
+      if (candidates[tailIndices[middle]].oldIndex < candidates[i].oldIndex) low = middle + 1;
+      else high = middle;
+    }
+    previous[i] = low > 0 ? tailIndices[low - 1] : -1;
+    tailIndices[low] = i;
+  }
+  var anchors = [];
+  var best = tailIndices.length ? tailIndices[tailIndices.length - 1] : -1;
+  while (best >= 0) {
+    anchors.push(candidates[best]);
+    best = previous[best];
+  }
+  return anchors.reverse();
+}
+function diffRectHeight(rect) {
+  return rect ? Math.max(0, Number(rect.height) || (Number(rect.bottom) - Number(rect.top)) || 0) : 0;
+}
+function invalidateAsymmetricDiffGeometry(wrapper) {
+  var state = wrapper && wrapper.__asymmetricDiffState;
+  if (!state) return;
+  state.anchorGeometry = null;
+  state.gapGeometry = null;
+  state.connectorGeometry = null;
+  state.connectorPathNodes = null;
+  state.connectorRenderKey = '';
+  state.connectorLastOffset = null;
+}
+function diffRowBounds(rows, fallbackRows, run, side, surfaceRect) {
+  var realRows = side === 'old' ? run.oldRealRows : run.newRealRows;
+  if (realRows && realRows.length) {
+    var firstRect = realRows[0].getBoundingClientRect();
+    var lastRect = realRows[realRows.length - 1].getBoundingClientRect();
+    if (diffRectHeight(firstRect) || diffRectHeight(lastRect)) {
+      return { top: firstRect.top - surfaceRect.top, bottom: lastRect.bottom - surfaceRect.top };
+    }
+  }
+  // A pure insertion/deletion has no source extent on one side. Collapse that end of the connector to
+  // the boundary between the surrounding real rows, producing IntelliJ's tapered hunk shape.
+  for (var next = run.endIndex + 1; next < fallbackRows.length; next++) {
+    var nextRect = fallbackRows[next].getBoundingClientRect();
+    if (diffRectHeight(nextRect)) {
+      var nextY = nextRect.top - surfaceRect.top;
+      // A mathematically zero-height SVG edge can lose its final pixel to antialiasing where it meets the
+      // 1px base-side insertion marker. Give the collapsed end one physical CSS pixel centred on the same
+      // boundary so the horizontal marker and curved fill overlap without a hairline seam.
+      return { top: nextY - 0.5, bottom: nextY + 0.5 };
+    }
+  }
+  for (var previous = run.startIndex - 1; previous >= 0; previous--) {
+    var previousRect = fallbackRows[previous].getBoundingClientRect();
+    if (diffRectHeight(previousRect)) {
+      var previousY = previousRect.bottom - surfaceRect.top;
+      return { top: previousY - 0.5, bottom: previousY + 0.5 };
+    }
+  }
+  return null;
+}
+function diffConnectorGeometry(state, surfaceRect) {
+  if (state.connectorGeometry) return state.connectorGeometry;
+  var currentOffset = Number(state.offset) || 0;
+  state.connectorGeometry = (state.connectorRuns || []).map(function (run) {
+    var oldBounds = diffRowBounds(run.oldRealRows, state.oldRows || [], run, 'old', surfaceRect);
+    var newBounds = diffRowBounds(run.newRealRows, state.newRows || [], run, 'new', surfaceRect);
+    if (!oldBounds || !newBounds) return null;
+    // Old rows live inside the translated base stack. Store their untransformed document coordinates once;
+    // subsequent scroll frames only add the new offset and never re-read row layout.
+    return {
+      kind: run.kind,
+      oldTop: oldBounds.top - currentOffset,
+      oldBottom: oldBounds.bottom - currentOffset,
+      newTop: newBounds.top,
+      newBottom: newBounds.bottom,
+    };
+  }).filter(Boolean);
+  return state.connectorGeometry;
+}
+function renderDiffConnectors(wrapper, state) {
+  var surface = wrapper && wrapper.querySelector('.d2h-files-diff');
+  if (!surface || !state) return;
+  var svg = surface.querySelector(':scope > .mc-diff-connectors');
+  if (!svg) {
+    svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'mc-diff-connectors');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    surface.appendChild(svg);
+  }
+  var currentOffset = Number(state.offset) || 0;
+  // Outside an asymmetric insertion the offset does not change. The SVG is already part of the scrolled
+  // document, so there is nothing to repaint and—critically—no layout to measure on ordinary scroll frames.
+  if (state.connectorLastOffset === currentOffset && state.connectorRenderKey && state.connectorGeometry) return;
+  var surfaceRect = surface.getBoundingClientRect();
+  var height = Math.max(Number(surface.scrollHeight) || 0, diffRectHeight(surfaceRect));
+  if (!height) { svg.replaceChildren(); return; }
+  var surfaceWidth = Number(surfaceRect.width) || (Number(surfaceRect.right) - Number(surfaceRect.left)) || 0;
+  var connectorWidth = Math.min(104, surfaceWidth || 104);
+  var divider = surfaceWidth / 2;
+  // The surface is an exact two-column grid. Its midpoint is the divider, so reading both pane rectangles
+  // here only forces more layout without adding information.
+  var connectorLeft = Math.max(0, Math.min(Math.max(0, surfaceWidth - connectorWidth), divider - connectorWidth / 2));
+  svg.style.left = connectorLeft + 'px';
+  svg.style.width = connectorWidth + 'px';
+  svg.style.transform = 'none';
+  svg.setAttribute('viewBox', '0 0 ' + connectorWidth + ' ' + height);
+  var geometry = diffConnectorGeometry(state, surfaceRect);
+  if (!state.connectorPathNodes || state.connectorPathNodes.length !== geometry.length) {
+    var fragment = document.createDocumentFragment();
+    state.connectorPathNodes = geometry.map(function (entry) {
+      var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('class', 'mc-diff-connector mc-diff-connector-' + entry.kind);
+      fragment.appendChild(path);
+      return path;
+    });
+    svg.replaceChildren(fragment);
+  }
+  var edgeBleed = 1;
+  geometry.forEach(function (entry, index) {
+    var oldTop = Math.max(0, Math.min(height, entry.oldTop + currentOffset));
+    var oldBottom = Math.max(0, Math.min(height, entry.oldBottom + currentOffset));
+    var newTop = Math.max(0, Math.min(height, entry.newTop));
+    var newBottom = Math.max(0, Math.min(height, entry.newBottom));
+    var firstControl = Math.round(connectorWidth * 0.29 * 10) / 10;
+    var secondControl = Math.round(connectorWidth * 0.71 * 10) / 10;
+    // Bleed one physical pixel into both code canvases. This removes the antialiasing seam at the gutter
+    // boundary without adding an outline around the line-number area.
+    var d = 'M ' + (-edgeBleed) + ' ' + oldTop + ' C ' + firstControl + ' ' + oldTop + ', ' + secondControl + ' ' + newTop + ', ' + (connectorWidth + edgeBleed) + ' ' + newTop
+      + ' L ' + (connectorWidth + edgeBleed) + ' ' + newBottom + ' C ' + secondControl + ' ' + newBottom + ', ' + firstControl + ' ' + oldBottom + ', ' + (-edgeBleed) + ' ' + oldBottom + ' Z';
+    state.connectorPathNodes[index].setAttribute('d', d);
+  });
+  state.connectorLastOffset = currentOffset;
+  state.connectorRenderKey = [surfaceWidth, height, connectorLeft, connectorWidth, geometry.length].join(':');
+}
+function diffGapGeometry(state, containerRect, scrollTop) {
+  if (state.gapGeometry) return state.gapGeometry;
+  state.gapGeometry = (state.gaps || []).map(function (gap) {
+    if (!gap.firstNewRow || !gap.lastNewRow || !gap.firstNewRow.isConnected || !gap.lastNewRow.isConnected) return null;
+    var firstRect = gap.firstNewRow.getBoundingClientRect();
+    var lastRect = gap.lastNewRow.getBoundingClientRect();
+    return {
+      start: firstRect.top - containerRect.top + scrollTop,
+      end: lastRect.bottom - containerRect.top + scrollTop,
+    };
+  }).filter(Boolean);
+  return state.gapGeometry;
+}
+function diffAlignmentGeometry(state, containerRect, scrollTop) {
+  if (state.anchorGeometry) return state.anchorGeometry;
+  var currentOffset = Number(state.offset) || 0;
+  state.anchorGeometry = (state.anchors || []).map(function (pair) {
+    if (!pair.oldRow || !pair.newRow || !pair.oldRow.isConnected || !pair.newRow.isConnected) return null;
+    var oldRect = pair.oldRow.getBoundingClientRect();
+    var newRect = pair.newRow.getBoundingClientRect();
+    if (!diffRectHeight(oldRect) || !diffRectHeight(newRect)) return null;
+    return {
+      oldY: oldRect.top - containerRect.top + scrollTop - currentOffset,
+      newY: newRect.top - containerRect.top + scrollTop,
+      newCenter: newRect.top - containerRect.top + scrollTop + diffRectHeight(newRect) / 2,
+    };
+  }).filter(Boolean).sort(function (a, b) { return a.newCenter - b.newCenter; });
+  return state.anchorGeometry;
+}
+function interpolatedDiffAlignmentOffset(geometry, y) {
+  if (!geometry || !geometry.length) return null;
+  var low = 0, high = geometry.length;
+  while (low < high) {
+    var middle = (low + high) >> 1;
+    if (geometry[middle].newCenter < y) low = middle + 1;
+    else high = middle;
+  }
+  var after = geometry[Math.min(low, geometry.length - 1)];
+  var before = geometry[Math.max(0, low - 1)];
+  var beforeOffset = before.newY - before.oldY;
+  var afterOffset = after.newY - after.oldY;
+  if (before === after || after.newCenter <= before.newCenter) return beforeOffset;
+  var progress = Math.max(0, Math.min(1, (y - before.newCenter) / (after.newCenter - before.newCenter)));
+  return beforeOffset + (afterOffset - beforeOffset) * progress;
+}
+// The outer diff scroller follows the working-tree (right) editor. Once an insertion reaches the same 15%
+// upper reading band used by caret reveal, every pixel of right-side motion is cancelled on the base table;
+// after the insertion passes, both editors resume together. Reads are coalesced to one animation frame.
+function scrollAsymmetricDiff() {
+  var container = document.getElementById('diff2html-container');
+  var wrapper = typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null;
+  var state = wrapper && wrapper.__asymmetricDiffState;
+  if (!container || !state || !state.content || !container.clientHeight) {
+    if (state && state.content) state.content.style.transform = '';
+    return;
+  }
+  var containerRect = container.getBoundingClientRect();
+  var scrollTop = container.scrollTop || 0;
+  var anchor = Math.round(container.clientHeight * 0.15);
+  var canonicalY = scrollTop + anchor;
+  var offset = 0;
+  var insideGap = false;
+  diffGapGeometry(state, containerRect, scrollTop).forEach(function (gap) {
+    var start = gap.start;
+    var end = gap.end;
+    if (canonicalY >= start && canonicalY <= end) insideGap = true;
+    // Keep the two panes anchored at the same semantic row, including when an insertion already occupies
+    // the initial reading band. Subtracting that first-paint progress made every later shared row retain a
+    // permanent height error (for example, a function below two inserted import lines stayed two rows
+    // higher in the base pane). The progress itself is the complete height the base timeline must absorb.
+    offset += asymmetricGapProgress(canonicalY, start, end);
+  });
+  // Outside an insertion itself, interpolate between exact rendered/semantic anchors. This removes the
+  // cumulative 1–2px drift caused by fractional table heights while keeping a long rewritten region smooth;
+  // when a stable symbol boundary reaches the reading band its two copies are exactly level.
+  if (!insideGap && state.anchors && state.anchors.length) {
+    var exactOffset = interpolatedDiffAlignmentOffset(diffAlignmentGeometry(state, containerRect, scrollTop), canonicalY);
+    if (Number.isFinite(exactOffset)) offset = Math.max(0, exactOffset);
+  }
+  offset = Math.round(offset * 100) / 100;
+  state.offset = offset;
+  var transform = offset ? 'translate3d(0, ' + offset + 'px, 0)' : '';
+  if (state.content.style.transform !== transform) state.content.style.transform = transform;
+  renderDiffConnectors(wrapper, state);
+}
+function scheduleAsymmetricDiffScroll() {
+  if (asymmetricDiffScrollRaf) return;
+  asymmetricDiffScrollRaf = requestAnimationFrame(function () {
+    asymmetricDiffScrollRaf = 0;
+    scrollAsymmetricDiff();
+  });
+}
+var asymmetricDiffContainer = document.getElementById('diff2html-container');
+if (asymmetricDiffContainer) asymmetricDiffContainer.addEventListener('scroll', scheduleAsymmetricDiffScroll, { passive: true });
+window.addEventListener('resize', function () {
+  Array.prototype.forEach.call(document.querySelectorAll('.d2h-file-wrapper'), function (wrapper) {
+    invalidateAsymmetricDiffGeometry(wrapper);
+  });
+  scheduleAsymmetricDiffScroll();
+});
 
 function diffContextHeader(row) {
   var raw = row && (row.dataset.hunkHeader || (row.textContent || '').trim());
@@ -146,6 +680,7 @@ function diffContextMessage(key, count) {
 function paintDiffContextFoldRow(row, count, hunkIndex) {
   if (!row) return;
   row.classList.remove('mc-context-expanded-marker');
+  row.removeAttribute('aria-hidden');
   row.classList.add('mc-context-fold-row');
   row.dataset.contextHunk = String(hunkIndex);
   var line = row.querySelector('.d2h-code-side-line');
@@ -155,6 +690,7 @@ function paintDiffContextFoldRow(row, count, hunkIndex) {
   button.type = 'button';
   button.className = 'mc-context-fold';
   button.dataset.contextExpand = '1';
+  button.dataset.keyhint = 'Space';
   var icon = document.createElement('span'); icon.className = 'mc-context-fold-icon'; icon.textContent = '⋯';
   var label = document.createElement('span'); label.className = 'mc-context-fold-label'; label.textContent = diffContextMessage('diff.contextFold', count);
   button.title = label.textContent;
@@ -164,6 +700,10 @@ function finishDiffContextFoldRow(row) {
   if (!row) return;
   row.classList.remove('mc-context-fold-row');
   row.classList.add('mc-context-expanded-marker');
+  // Keep the @@ row in the DOM as the stable F7/hunk id, but remove it from the table layout. Leaving a
+  // nominal 1px row let diff2html's cell line-height expand it into an empty horizontal bar after context
+  // was opened. Navigation lands on the following code row, so the marker itself never needs to paint.
+  row.setAttribute('aria-hidden', 'true');
   delete row.dataset.contextHunk;
   delete row.dataset.contextLoading;
   ['contextOldStart', 'contextOldEnd', 'contextNewStart', 'contextNewEnd'].forEach(function (key) { delete row.dataset[key]; });
@@ -213,7 +753,11 @@ function refreshDiffContextFoldLabels() {
     if (label) label.textContent = row.dataset.contextLoading === '1'
       ? diffContextMessage('diff.contextLoading') : diffContextMessage('diff.contextFold', count);
     var button = row.querySelector('.mc-context-fold');
-    if (button && label) { button.title = label.textContent; button.disabled = row.dataset.contextLoading === '1'; }
+    if (button && label) {
+      button.title = label.textContent;
+      button.setAttribute('data-tooltip', label.textContent);
+      button.disabled = row.dataset.contextLoading === '1';
+    }
   });
 }
 function diffContextRequestForRow(row) {
@@ -442,7 +986,7 @@ var locale = (function () {
   return (v === 'ko' || v === 'en') ? v : 'en';
 })();
 function t(key) { var m = (I18N[locale] || I18N.en || {}); return (m && key in m) ? m[key] : ((I18N.en && I18N.en[key]) || key); }
-var langSelectRef = null, themeSelectRef = null;
+var langSelectRef = null, themeSelectRef = null, syntaxThemeSelectRef = null;
 // Replace a native <select> with a button that opens our custom dropdown (consistent with the comment
 // dropdown + themable; native <select> popups ignore the app theme). getOptions() -> [{value,label}];
 // returns { render } so localized labels can be refreshed on a language switch.
@@ -472,7 +1016,9 @@ function applyI18n() {
   document.documentElement.lang = locale;
   if (langSelectRef) langSelectRef.render();
   if (themeSelectRef) themeSelectRef.render(); // theme labels are localized — refresh on a language switch too
+  if (syntaxThemeSelectRef) syntaxThemeSelectRef.render();
   if (typeof refreshDiffContextFoldLabels === 'function') refreshDiffContextFoldLabels();
+  if (typeof refreshCodeFoldLabels === 'function') refreshCodeFoldLabels();
   if (typeof syncDiffReviewChrome === 'function') syncDiffReviewChrome();
 }
 // Theme mirrors the locale pattern: persisted choice, applied by toggling data-theme on <html> so the
@@ -487,8 +1033,25 @@ var theme = (function () {
 function applyTheme() {
   document.documentElement.setAttribute('data-theme', theme);
   if (themeSelectRef) themeSelectRef.render();
+  // Theme families own both app chrome and code colors. Changing the appearance therefore also swaps
+  // Monaco between the matching dark/light member (Darcula Dark or IntelliJ Light).
+  if (window.monaco && typeof applyMonacoTheme === 'function' && typeof syntaxTheme !== 'undefined') applyMonacoTheme(window.monaco);
 }
 applyTheme();
+// The persisted syntax choice is a complete theme family rather than a code-only palette. `theme` selects
+// the family's dark/light member, keeping navigation chrome, diff, raw source, HTTP, and Monaco coherent.
+var SYNTAX_THEME_KEY = 'monacori-syntax-theme';
+var syntaxTheme = (function () {
+  var v = persistRead(SYNTAX_THEME_KEY);
+  if (v !== 'default' && v !== 'darcula') { try { v = localStorage.getItem(SYNTAX_THEME_KEY); } catch (e) {} }
+  return (v === 'darcula' || v === 'default') ? v : 'default';
+})();
+function applySyntaxTheme() {
+  document.documentElement.setAttribute('data-syntax-theme', syntaxTheme);
+  if (syntaxThemeSelectRef) syntaxThemeSelectRef.render();
+  if (window.monaco && typeof applyMonacoTheme === 'function') applyMonacoTheme(window.monaco);
+}
+applySyntaxTheme();
 let fileStates = JSON.parse(document.getElementById('file-state-data')?.textContent || '[]');
 let httpEnvironments = JSON.parse(document.getElementById('http-env-data')?.textContent || '{}');
 let httpEnvNames = Object.keys(httpEnvironments);
@@ -560,6 +1123,8 @@ var sourceGeneration = 0; // increments on watch refresh so an older IPC respons
 // instead — else it patches the caret onto a stale body, leaving one file's content under another's path.
 var sourceBodyPath = null;
 var sourceTabs = []; // Files-mode tab paths (session-only); see addSourceTab / renderSourceTabs.
+var sourceImportOpenPaths = Object.create(null); // imports start folded in Review mode until explicitly opened
+var sourceManualFoldKeys = Object.create(null);  // path -> { "start:end": true } for Cmd/Ctrl+. brace folds
 function sourceContentLoaded(file) {
   return Boolean(file && (!REVIEW_LAZY_LOAD || !file.embedded || file.__loaded));
 }
@@ -567,8 +1132,10 @@ function mergeSourceRecord(record) {
   if (!record || !record.path) return null;
   var file = sourceByPath.get(record.path);
   if (!file) return null;
+  // Copy availability fields too: a deferred file can have become missing, binary, or oversized before
+  // it is opened. Conversely, a successful on-demand response clears deferred/skipped metadata.
+  Object.assign(file, record);
   file.content = String(record.content || '');
-  if (record.image) file.image = record.image;
   file.__loaded = true;
   return file;
 }
@@ -707,6 +1274,12 @@ function prepareDiff2HtmlHunks() {
 }
 
 document.addEventListener('click', function (event) {
+  var importButton = event.target && event.target.closest ? event.target.closest('[data-import-expand]') : null;
+  if (importButton) {
+    event.preventDefault();
+    openDiffImportFold(importButton.closest('.mc-import-fold-row'));
+    return;
+  }
   var button = event.target && event.target.closest ? event.target.closest('[data-context-expand]') : null;
   if (!button) return;
   event.preventDefault();

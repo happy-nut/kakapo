@@ -2,7 +2,16 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { DiffFile, DiffHunk, DiffLine, ReviewFileState, SourceFile } from "./types.js";
-import { FLOW_DIR, IMAGE_MAX_BYTES, PLAN_FILE, SOURCE_MAX_FILE_BYTES, SOURCE_MAX_FILES, SOURCE_MAX_TOTAL_BYTES } from "./constants.js";
+import {
+  FLOW_DIR,
+  IMAGE_MAX_BYTES,
+  PLAN_FILE,
+  SOURCE_MAX_FILE_BYTES,
+  SOURCE_MAX_FILES,
+  SOURCE_MAX_LAZY_FILE_BYTES,
+  SOURCE_MAX_TOTAL_BYTES,
+  SOURCE_VIRTUALIZE_FILE_BYTES,
+} from "./constants.js";
 import { formatBytes, hashText, isLikelyBinary, languageForPath, stripDiffPath } from "./util.js";
 import { git, repoRoot } from "./git.js";
 
@@ -230,7 +239,19 @@ function gitStatusMap(cwd: string): Map<string, "new" | "edited" | "staged"> {
   return map;
 }
 
-export function collectSourceFiles(diffFiles: DiffFile[], rootArg?: string): SourceFile[] {
+export function collectSourceFiles(
+  diffFiles: DiffFile[],
+  rootArg?: string,
+  options: {
+    previewLargeText?: boolean;
+    deferSourceContent?: boolean;
+    maxTotalBytes?: number;
+    maxFiles?: number;
+  } = {},
+): SourceFile[] {
+  const maxFileBytes = options.previewLargeText ? SOURCE_MAX_LAZY_FILE_BYTES : SOURCE_MAX_FILE_BYTES;
+  const maxTotalBytes = options.maxTotalBytes ?? SOURCE_MAX_TOTAL_BYTES;
+  const maxFiles = options.maxFiles ?? SOURCE_MAX_FILES;
   const changed = new Set(
     diffFiles
       .map((file) => file.displayPath)
@@ -261,11 +282,11 @@ export function collectSourceFiles(diffFiles: DiffFile[], rootArg?: string): Sou
       paths.add(path);
     }
   }
-  for (const path of changed) {
-    if (isSourceCandidate(path)) {
-      paths.add(path);
-    }
-  }
+  // The broad project tree intentionally skips tool/cache directories, but a path that is actually in the
+  // diff is review evidence and must remain openable from Cmd+1. In particular, agent configuration under
+  // .claude/.omc can be the change under review even though we do not want to index every file in those
+  // folders. Add only the changed paths here; unchanged siblings stay filtered by isSourceCandidate above.
+  for (const path of changed) paths.add(path);
   // The agent's plan lives under the gitignored FLOW_DIR, so neither `git ls-files --exclude-standard` nor
   // isSourceCandidate (which excludes FLOW_DIR) ever surfaces it. Force-include it when present so the plan
   // shows up as a normal source file — rendered as Markdown, searchable in Quick Open, and commentable. The
@@ -327,13 +348,27 @@ export function collectSourceFiles(diffFiles: DiffFile[], rootArg?: string): Sou
       continue;
     }
 
-    if (stats.size > SOURCE_MAX_FILE_BYTES) {
-      const skippedReason = `larger than ${formatBytes(SOURCE_MAX_FILE_BYTES)}`;
+    if (stats.size > maxFileBytes) {
+      const skippedReason = `larger than ${formatBytes(maxFileBytes)}`;
       sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0large\0${stats.size}`), skippedReason });
       continue;
     }
 
-    if (embeddedFiles >= SOURCE_MAX_FILES || embeddedBytes + stats.size > SOURCE_MAX_TOTAL_BYTES) {
+    if (embeddedFiles >= maxFiles || embeddedBytes + stats.size > maxTotalBytes) {
+      // Electron already has a per-file IPC bridge. Once the eager cache budget is exhausted, retain an
+      // openable metadata record instead of permanently disabling every later file in lexical order.
+      // The main process reads only the explicitly opened file via materializeDeferredSourceFile().
+      if (options.deferSourceContent) {
+        sourceFiles.push({
+          ...base,
+          size: stats.size,
+          embedded: true,
+          deferred: true,
+          virtualized: options.previewLargeText && stats.size > SOURCE_VIRTUALIZE_FILE_BYTES,
+          signature: hashText(`${path}\0deferred\0${stats.size}\0${stats.mtimeMs}`),
+        });
+        continue;
+      }
       const skippedReason = "source index budget reached";
       sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0budget\0${stats.size}`), skippedReason });
       continue;
@@ -349,12 +384,57 @@ export function collectSourceFiles(diffFiles: DiffFile[], rootArg?: string): Sou
       signature = hashText(`${path}\0${content}`);
       sourceContentCache.set(path, { mtimeMs: stats.mtimeMs, size: stats.size, content, signature });
     }
-    sourceFiles.push({ ...base, content, size: stats.size, embedded: true, signature });
+    sourceFiles.push({
+      ...base,
+      content,
+      size: stats.size,
+      embedded: true,
+      virtualized: options.previewLargeText && stats.size > SOURCE_VIRTUALIZE_FILE_BYTES,
+      signature,
+    });
     embeddedFiles += 1;
     embeddedBytes += stats.size;
   }
 
   return sourceFiles;
+}
+
+// Materialize an app-only deferred source record after the reviewer opens it. The path is accepted only
+// after app-main has resolved it from the window's sourceFiles map, so callers cannot use this helper as
+// an arbitrary filesystem reader. Per-file size and binary guards remain enforced at request time in case
+// the working-tree file changed since the project metadata was collected.
+export function materializeDeferredSourceFile(rootArg: string, file: SourceFile): SourceFile {
+  if (!file.deferred) return file;
+  const root = repoRoot(rootArg);
+  const absolute = join(root, file.path);
+  if (!existsSync(absolute)) {
+    const skippedReason = "file is not present in the working tree";
+    return { ...file, content: "", embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0missing\0${skippedReason}`) };
+  }
+  const stats = statSync(absolute);
+  if (!stats.isFile()) {
+    const skippedReason = "not a regular file";
+    return { ...file, content: "", embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0not-file`) };
+  }
+  if (stats.size > SOURCE_MAX_LAZY_FILE_BYTES) {
+    const skippedReason = `larger than ${formatBytes(SOURCE_MAX_LAZY_FILE_BYTES)}`;
+    return { ...file, content: "", size: stats.size, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0large\0${stats.size}`) };
+  }
+  if (isLikelyBinary(absolute)) {
+    const skippedReason = "binary file";
+    return { ...file, content: "", size: stats.size, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0binary\0${stats.size}`) };
+  }
+  const content = readFileSync(absolute, "utf8");
+  return {
+    ...file,
+    content,
+    size: stats.size,
+    embedded: true,
+    deferred: false,
+    virtualized: stats.size > SOURCE_VIRTUALIZE_FILE_BYTES,
+    skippedReason: undefined,
+    signature: hashText(`${file.path}\0${content}`),
+  };
 }
 
 export function collectReviewFileStates(diffFiles: DiffFile[], sourceFiles: SourceFile[]): ReviewFileState[] {

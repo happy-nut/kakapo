@@ -63,7 +63,14 @@ test("source line-number gutter stays compact and internally aligned", () => {
   const num = ruleBodyForExactSelector(".num");
   assert.ok(num, ".num rule must exist");
   assert.match(num, /width:\s*var\(--source-gutter-width\)/, "line-number cells use the shared gutter width");
+  assert.match(num, /min-width:\s*var\(--source-gutter-width\)/, "long source lines cannot crush the gutter");
+  assert.match(num, /max-width:\s*var\(--source-gutter-width\)/, "the gutter remains aligned with its painted background");
   assert.match(num, /padding:\s*2px\s+6px\b/, "line-number padding does not re-widen the gutter");
+
+  const sourceNum = ruleBodyContaining(".source-table .num");
+  assert.ok(sourceNum, "source table line-number override must exist");
+  assert.match(sourceNum, /white-space:\s*nowrap/, "multi-digit line numbers never stack vertically");
+  assert.match(sourceNum, /overflow-wrap:\s*normal/, "generic table-cell wrapping cannot split line numbers");
 
   assert.match(
     css,
@@ -89,4 +96,110 @@ test("shared Markdown typography preserves readable paragraph rhythm", () => {
   assert.ok(paragraph, "shared Markdown paragraph rule exists");
   assert.match(paragraph, /margin:\s*0\s+0\s+1\.1em/, "paragraphs retain a visible bottom gap");
   assert.doesNotMatch(css, /\.md-cell\s*>\s*:last-child\s*\{[^}]*margin-bottom:\s*0/, "source block rows no longer erase every block's bottom margin");
+});
+
+test("packaged app reuses its top toolbars as compact draggable window chrome", () => {
+  assert.match(css, /body\s*\{[^}]*--rail-width:\s*36px/, "the activity rail uses the compact desktop width");
+  assert.match(css, /body\.native-app\s*\{[^}]*--native-titlebar-height:\s*40px/, "native title bar has one compact shared height");
+  assert.match(css, /body\.native-app\s*\{[^}]*--native-traffic-safe-width:\s*76px/, "native window buttons expose their occupied width");
+  assert.match(css, /body\.native-app\s+\.activity-rail\s*\{[^}]*padding-top:\s*calc\(var\(--native-titlebar-height\)/, "traffic lights do not cover activity buttons");
+  assert.match(css, /body\.native-app\s+\.activity-rail\s*\{[^}]*border-right:\s*0/, "the full-height divider does not cross the traffic lights");
+  assert.match(css, /body\.native-app\s+\.activity-rail::after\s*\{[^}]*top:\s*var\(--native-titlebar-height\)/, "the rail divider starts below the native controls");
+  assert.match(css, /body\.native-app\s+\.activity-rail::before,[\s\S]{0,160}top:\s*var\(--native-titlebar-height\)/, "a horizontal divider closes the traffic-light strip");
+  assert.match(css, /\.rail-btn\s*\{[^}]*width:\s*28px;\s*height:\s*28px/, "activity buttons stay compact while retaining a click target");
+  assert.match(css, /\.rail-btn\s*>\s*svg\s*\{[^}]*width:\s*16px;\s*height:\s*16px/, "view icons match the smaller settings glyph");
+  assert.match(css, /body\.native-app\s+\.sidebar\s*\{[^}]*padding-top:\s*var\(--native-titlebar-height\)/, "the non-scrolling sidebar frame permanently reserves the traffic-light row");
+  assert.match(css, /body\.native-app\s+\.sidebar-scroll\s*\{[^}]*padding-top:\s*8px/, "the project tree keeps only its compact internal spacing");
+  assert.match(css, /body\.native-app\s+\.diff-toolbar,[\s\S]{0,180}-webkit-app-region:\s*drag/, "the existing review toolbar moves the window");
+  assert.match(css, /body\.native-app\s+\.diff-toolbar\s+button,[\s\S]{0,500}-webkit-app-region:\s*no-drag/, "toolbar actions remain clickable inside the drag region");
+  assert.match(css, /body\.native-app\.sidebar-collapsed\s+\.diff-toolbar,[\s\S]{0,240}padding-left:\s*calc\(var\(--native-traffic-safe-width\)\s*-\s*var\(--rail-width\)\s*\+\s*8px\)/, "a collapsed sidebar keeps breadcrumbs clear of traffic lights");
+  assert.match(css, /\.sidebar-brand,\s*\.sidebar-scroll,\s*\.sidebar-footer\s*\{[^}]*width:\s*var\(--sidebar-width,\s*264px\)/, "fixed header and scrolling contents keep their layout while the grid track closes");
+  assert.doesNotMatch(css, /body\.sidebar-collapsed\s+\.sidebar\s*\{[^}]*visibility:\s*hidden/, "sidebar content is not blanked before the close animation finishes");
+  assert.match(css, /\.sidebar-resizer\s*\{[^}]*transition:\s*left\s+180ms/, "the resize divider follows the collapsing track instead of jumping");
+});
+
+test("non-code panels use dedicated high-contrast chrome tokens", () => {
+  assert.match(css, /--chrome-bg:\s*#1c1d1f/, "dark chrome uses a neutral canvas without a blue cast");
+  assert.match(css, /--chrome-panel:\s*#232426/, "dark floating panels use a neutral surface");
+  assert.match(css, /--chrome-text:\s*#f1f1f2/, "dark chrome has brighter primary text");
+  assert.match(css, /--chrome-muted:\s*#b9bbc0/, "dark chrome secondary text remains readable");
+  assert.match(css, /--chrome-selected:\s*#3a3c40/, "menu selection fill stays neutral instead of tinting the whole UI blue");
+  assert.match(css, /\.activity-rail,[\s\S]{0,180}background:\s*var\(--chrome-bg\)/, "navigation uses the UI-only canvas");
+  assert.match(css, /\.settings-panel,[\s\S]{0,420}background:\s*var\(--chrome-panel\)/, "floating panels use the stronger surface");
+  const sourceBody = ruleBodyForExactSelector(".source-body");
+  assert.ok(sourceBody, "source body rule exists");
+  assert.match(sourceBody, /background:\s*var\(--panel\)/, "the code view keeps the code canvas");
+  assert.doesNotMatch(sourceBody, /--chrome-/, "UI tokens do not leak into the code view");
+});
+
+test("modern chrome uses one compact radius and elevation system without rounding code tables", () => {
+  assert.match(css, /--ui-radius-sm:\s*6px/, "compact controls share a six-pixel radius");
+  assert.match(css, /--ui-radius-xl:\s*14px/, "floating surfaces share a restrained large radius");
+  assert.match(css, /\.settings-panel,[\s\S]{0,180}border-radius:\s*var\(--ui-radius-xl\)/, "settings and floating panels use the surface radius");
+  assert.match(css, /\.tree-dir summary,[\s\S]{0,240}border-radius:\s*var\(--ui-radius-sm\)/, "navigation rows use the compact control radius");
+  assert.match(css, /\.settings-textarea,[\s\S]{0,180}border-radius:\s*var\(--ui-radius-md\)/, "form controls share the medium radius");
+  assert.match(css, /\.rail-btn\s*>\s*svg\s*\{[^}]*width:\s*16px;\s*height:\s*16px/, "all rail SVGs occupy the same optical box");
+  assert.match(css, /\.d2h-file-wrapper\s*\{[^}]*border-radius:\s*0/, "diff rows retain exact square alignment");
+  assert.match(css, /\.source-body\s*\{[^}]*border:\s*1px solid var\(--border\)/, "the source canvas remains a flat editor surface");
+});
+
+test("activity rail shortcut bubbles disappear when hover ends even if the button keeps focus", () => {
+  assert.match(css, /\.rail-btn:hover\s+\.rail-tip\s*\{[^}]*opacity:\s*1/, "pointer hover reveals the rail shortcut bubble");
+  assert.doesNotMatch(
+    css,
+    /\.rail-btn:focus-visible\s+\.rail-tip\s*\{[^}]*opacity:\s*1/,
+    "retained keyboard focus must not leave a shortcut bubble stuck over the project tree",
+  );
+});
+
+test("diff hunk connectors bridge both center line-number gutters without stealing input", () => {
+  const connector = ruleBodyContaining(".mc-diff-connectors");
+  assert.ok(connector, "the center-gutter connector overlay exists");
+  assert.match(connector, /width:\s*104px/, "the overlay spans both 52px line-number gutters");
+  assert.match(connector, /pointer-events:\s*none/, "connectors never block text selection or caret clicks");
+  assert.match(connector, /z-index:\s*4/, "the curve crosses the opaque gutter backgrounds");
+  const connectorShape = ruleBodyForExactSelector(".mc-diff-connector");
+  assert.match(connectorShape || "", /stroke:\s*none/, "the connector fill has no rectangular outline around the line-number gutters");
+  const addedConnector = ruleBodyForExactSelector(".mc-diff-connector-added");
+  assert.match(addedConnector || "", /fill:\s*color-mix\(in srgb, var\(--diff-added\) 78%, transparent\)/, "the addition curve stays translucent enough to preserve line-number legibility");
+  assert.match(connector, /shape-rendering:\s*geometricPrecision/, "curved connector edges use geometric precision");
+  const asymmetricLayer = ruleBodyForExactSelector(".mc-asymmetric-scroll-content");
+  assert.match(asymmetricLayer || "", /will-change:\s*transform/, "the base code and gutter stack stays on one composited scroll layer");
+
+  const changedNumber = ruleBodyContaining(".d2h-diff-table tr.mc-diff-change > td.d2h-code-side-linenumber");
+  assert.ok(changedNumber, "changed line numbers have an explicit connector-aware rule");
+  assert.match(changedNumber, /background-color:\s*var\(--panel\)\s*!important/, "the curve is not stacked over rectangular change fills");
+
+  const oldNumber = ruleBodyContaining(".d2h-file-side-diff:first-child .mc-diff-gutter-layer");
+  const newNumber = ruleBodyForExactSelector(".mc-diff-gutter-layer");
+  assert.ok(oldNumber && newNumber, "both diff gutters use the panel-level layer");
+  const numberCell = ruleBodyForExactSelector(".d2h-code-side-linenumber");
+  assert.match(numberCell || "", /position:\s*relative/, "diff2html number cells remain non-sticky model anchors");
+  assert.match(newNumber, /position:\s*sticky/, "each pane pins one native gutter layer instead of every row cell");
+  assert.match(newNumber, /pointer-events:\s*none/, "the gutter layer cannot interfere with selection or caret clicks");
+  assert.match(oldNumber, /left:\s*calc\(100cqw\s*-\s*52px\)/, "the base gutter sticks to the centre edge using the pane viewport, not code width");
+  assert.match(newNumber, /left:\s*0/, "the working-tree gutter sticks to the centre edge");
+  assert.match(css, /\.mc-layered-diff-side\s+\.d2h-code-side-linenumber\s*\{[^}]*visibility:\s*hidden/, "the original table cells are never painted as a second gutter");
+  const diffTable = ruleBodyForExactSelector(".d2h-diff-table");
+  assert.match(diffTable || "", /width:\s*max-content/, "the sticky containing block spans the full horizontal scroll range");
+  assert.match(diffTable || "", /min-width:\s*100%/, "short diffs still fill their pane");
+  assert.match(diffTable || "", /table-layout:\s*auto/, "the table exposes its real content width to sticky positioning");
+  assert.match(diffTable || "", /border-spacing:\s*0/, "table spacing cannot reopen a seam between the change background and gutter");
+  assert.doesNotMatch(css, /--mc-diff-(?:gutter|code)-offset/, "no scroll-following transform variables remain");
+
+  const insertionResume = ruleBodyContaining(".mc-asymmetric-insert-resume > td");
+  const insertionTail = ruleBodyContaining(".mc-asymmetric-insert-tail > td");
+  assert.match(insertionResume || "", /color-mix\(in srgb, var\(--diff-added\) 78%, transparent\)/, "the collapsed base-side marker matches the translucent addition curve");
+  assert.match(insertionTail || "", /color-mix\(in srgb, var\(--diff-added\) 78%, transparent\)/, "a trailing collapsed insertion matches the translucent addition curve");
+  assert.doesNotMatch((insertionResume || "") + (insertionTail || ""), /var\(--active\)/, "insertion markers never fall back to unrelated blue focus color");
+});
+
+test("diff comment composers stay pinned inside the working-tree viewport", () => {
+  const card = ruleBodyForExactSelector(".mc-layered-diff-side:last-of-type .mc-comment-row .mc-card");
+  assert.match(card || "", /position:\s*sticky/, "diff comments are viewport UI, not horizontally scrolling source text");
+  assert.match(card || "", /left:\s*62px/, "the comment begins ten pixels after the single visible working-tree gutter");
+  assert.match(card || "", /max-width:\s*calc\(100cqw\s*-\s*74px\)/, "the composer and its actions cannot be clipped at the pane's right edge");
+  const spacerCell = ruleBodyForExactSelector(".mc-comment-spacer-row td");
+  assert.match(spacerCell || "", /background:\s*var\(--bg\)/, "the paired base timeline slot cannot expose a split table background");
+  assert.match(css, /\.mc-comment-spacer\s*\{[^}]*pointer-events:\s*none/, "the invisible paired slot never steals review input");
 });

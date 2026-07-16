@@ -2,6 +2,9 @@
 // virtualizes large source files, and multi-result semantic navigation opens the Peek inspector below.
 var monacoLoadPromise = null;
 var monacoSourceMode = false;
+// A large source opens virtualized by default. The override lets the user temporarily switch that one
+// file to Review mode for comments without changing the preferred mode of every ordinary source file.
+var monacoReviewOverrides = Object.create(null);
 var monacoSourceEditor = null;
 var monacoSourceDecorations = null;
 var monacoSourceSyncing = false;
@@ -24,7 +27,10 @@ function monacoEligibleSource(path, file) {
 }
 
 function shouldRenderMonacoSource(path, file) {
-  return Boolean(monacoSourceMode && monacoEligibleSource(path, file));
+  // The standalone bootstrap can open its default file before this late viewer slice has run its
+  // top-level initializer. `var` is hoisted as undefined, so treat that brief state as no override.
+  if (!monacoEligibleSource(path, file) || (monacoReviewOverrides && monacoReviewOverrides[path])) return false;
+  return Boolean(monacoSourceMode || file.virtualized);
 }
 
 function isMonacoSourceActive(path) {
@@ -38,11 +44,12 @@ function syncMonacoModeToggle(path, file) {
   var eligible = monacoEligibleSource(path, file);
   button.classList.toggle('hidden', !eligible);
   if (!eligible) return;
-  var key = monacoSourceMode ? 'monaco.reviewMode' : 'monaco.codeMode';
-  var titleKey = monacoSourceMode ? 'monaco.reviewMode.title' : 'monaco.codeMode.title';
+  var codeMode = shouldRenderMonacoSource(path, file);
+  var key = codeMode ? 'monaco.reviewMode' : 'monaco.codeMode';
+  var titleKey = codeMode ? 'monaco.reviewMode.title' : 'monaco.codeMode.title';
   button.setAttribute('data-i18n', key);
   button.setAttribute('data-i18n-title', titleKey);
-  button.setAttribute('aria-pressed', monacoSourceMode ? 'true' : 'false');
+  button.setAttribute('aria-pressed', codeMode ? 'true' : 'false');
   button.textContent = t(key);
   button.title = t(titleKey);
 }
@@ -52,10 +59,27 @@ function toggleMonacoSourceMode() {
   var path = viewer && viewer.dataset.openPath;
   var file = path && sourceByPath.get(path);
   if (!path || !monacoEligibleSource(path, file)) return;
-  monacoSourceMode = !monacoSourceMode;
-  if (!monacoSourceMode) disposeMonacoSourceEditor();
+  var codeMode = shouldRenderMonacoSource(path, file);
+  if (file.virtualized) {
+    if (codeMode) monacoReviewOverrides[path] = true;
+    else delete monacoReviewOverrides[path];
+  } else {
+    monacoSourceMode = !monacoSourceMode;
+  }
+  if (codeMode) disposeMonacoSourceEditor();
   openSourceFile(path, false);
   syncMonacoModeToggle(path, file);
+}
+
+function toggleMonacoSourceFold() {
+  if (!monacoSourceEditor) return false;
+  var action = typeof monacoSourceEditor.getAction === 'function' && monacoSourceEditor.getAction('editor.toggleFold');
+  if (action && typeof action.run === 'function') { action.run(); return true; }
+  if (typeof monacoSourceEditor.trigger === 'function') {
+    monacoSourceEditor.trigger('monacori', 'editor.toggleFold', null);
+    return true;
+  }
+  return false;
 }
 
 function loadMonacoRuntime() {
@@ -101,6 +125,60 @@ function loadMonacoRuntime() {
 
 function applyMonacoTheme(monaco) {
   if (!monaco || !monaco.editor) return;
+  if (syntaxTheme === 'darcula') {
+    if (typeof monaco.editor.defineTheme === 'function') {
+      monaco.editor.defineTheme('monacori-darcula', {
+        base: 'vs-dark',
+        inherit: true,
+        rules: [
+          { token: 'comment', foreground: '808080', fontStyle: 'italic' },
+          { token: 'keyword', foreground: 'CC7832' },
+          { token: 'string', foreground: '6A8759' },
+          { token: 'number', foreground: '6897BB' },
+          { token: 'type.identifier', foreground: 'A9B7C6' },
+          { token: 'identifier.function', foreground: 'FFC66D' },
+          { token: 'annotation', foreground: 'BBB529', fontStyle: 'italic' },
+          { token: 'tag', foreground: 'E8BF6A' },
+        ],
+        colors: {
+          'editor.background': '#2B2B2B',
+          'editor.foreground': '#A9B7C6',
+          'editorCursor.foreground': '#A9B7C6',
+          'editor.lineHighlightBackground': '#323232',
+          'editor.selectionBackground': '#214283',
+          'editor.inactiveSelectionBackground': '#3A455A',
+          'editorLineNumber.foreground': '#808080',
+          'editorLineNumber.activeForeground': '#A4A3A3',
+        },
+      });
+      monaco.editor.defineTheme('monacori-intellij-light', {
+        base: 'vs',
+        inherit: true,
+        rules: [
+          { token: 'comment', foreground: '8C8C8C', fontStyle: 'italic' },
+          { token: 'keyword', foreground: '0033B3' },
+          { token: 'string', foreground: '067D17' },
+          { token: 'number', foreground: '1750EB' },
+          { token: 'type.identifier', foreground: '000000' },
+          { token: 'identifier.function', foreground: '00627A' },
+          { token: 'annotation', foreground: '9E880D', fontStyle: 'italic' },
+          { token: 'tag', foreground: '0033B3' },
+        ],
+        colors: {
+          'editor.background': '#FFFFFF',
+          'editor.foreground': '#000000',
+          'editorCursor.foreground': '#000000',
+          'editor.lineHighlightBackground': '#F3F4F5',
+          'editor.selectionBackground': '#A6D2FF',
+          'editor.inactiveSelectionBackground': '#D7E8F8',
+          'editorLineNumber.foreground': '#999999',
+          'editorLineNumber.activeForeground': '#555555',
+        },
+      });
+    }
+    monaco.editor.setTheme(theme === 'light' ? 'monacori-intellij-light' : 'monacori-darcula');
+    return;
+  }
   monaco.editor.setTheme(theme === 'light' ? 'vs' : 'vs-dark');
 }
 
@@ -144,6 +222,8 @@ function monacoEditorOptions(extra) {
     lineNumbersMinChars: 4,
     glyphMargin: true,
     folding: true,
+    foldingImportsByDefault: true,
+    showFoldingControls: 'mouseover',
     stickyScroll: { enabled: true },
     renderWhitespace: 'selection',
     scrollBeyondLastLine: false,
@@ -177,7 +257,9 @@ function renderMonacoSource(file) {
   loadMonacoRuntime().then(function (monaco) {
     var viewer = document.getElementById('source-viewer');
     var body = document.getElementById('source-body');
-    if (!monacoSourceMode || !viewer || viewer.dataset.openPath !== requestedPath || !body) return;
+    var currentFile = sourceByPath.get(requestedPath) || file;
+    if (!shouldRenderMonacoSource(requestedPath, currentFile)
+        || !viewer || viewer.dataset.openPath !== requestedPath || !body) return;
     disposeMonacoSourceEditor();
     body.className = 'source-body monaco-source-body';
     body.innerHTML = '<div id="monaco-source-host" class="monaco-source-host"></div>';
@@ -208,7 +290,8 @@ function renderMonacoSource(file) {
     monacoSourceEditor.focus();
   }).catch(function () {
     // A failed optional editor load returns to the proven Review renderer at the same caret.
-    monacoSourceMode = false;
+    if (file.virtualized) monacoReviewOverrides[requestedPath] = true;
+    else monacoSourceMode = false;
     if (document.getElementById('source-viewer')?.dataset.openPath === requestedPath) openSourceFile(requestedPath, false);
   });
 }
@@ -288,7 +371,9 @@ function switchMonacoToReviewAtCursor() {
   if (!isMonacoSourceActive()) return;
   var cursor = viewerCursor ? { ...viewerCursor } : null;
   var path = monacoSourcePath;
-  monacoSourceMode = false;
+  var file = sourceByPath.get(path);
+  if (file && file.virtualized) monacoReviewOverrides[path] = true;
+  else monacoSourceMode = false;
   disposeMonacoSourceEditor();
   openSourceFile(path, false);
   if (cursor) setSourceCursor(path, cursor.lineIndex, cursor.column, true, cursor.targetLine);
@@ -358,15 +443,26 @@ function openSemanticPeek(name, locations, response, kind) {
   }
   renderSemanticPeekResults();
   panel.classList.remove('hidden');
+  var results = document.getElementById('semantic-peek-results');
+  if (results && typeof results.focus === 'function') results.focus({ preventScroll: true });
   var seq = ++semanticPeekRequestSeq;
   loadMonacoRuntime().then(function (monaco) {
     if (seq !== semanticPeekRequestSeq || panel.classList.contains('hidden')) return;
     if (!monacoPeekEditor) {
       var host = document.getElementById('semantic-peek-editor');
       if (!host) return;
-      monacoPeekEditor = monaco.editor.create(host, monacoEditorOptions({ minimap: { enabled: false }, stickyScroll: { enabled: false } }));
+      monacoPeekEditor = monaco.editor.create(host, monacoEditorOptions({
+        domReadOnly: true,
+        minimap: { enabled: false },
+        stickyScroll: { enabled: false },
+        glyphMargin: false,
+        folding: false,
+        renderLineHighlight: 'none',
+        overviewRulerLanes: 0,
+        hideCursorInOverviewRuler: true,
+      }));
     }
-    showSemanticPeekItem(semanticPeekActive, true);
+    showSemanticPeekItem(semanticPeekActive);
   }).catch(function () {
     var host = document.getElementById('semantic-peek-editor');
     if (host) host.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('source.previewUnavailable')) + '</div>';
@@ -387,13 +483,15 @@ function renderSemanticPeekResults() {
   if (!results) return;
   if (!semanticPeekItems.length) { results.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('monaco.noResults')) + '</div>'; return; }
   results.innerHTML = semanticPeekItems.map(function (item, index) {
-    return '<button type="button" class="semantic-peek-item' + (index === semanticPeekActive ? ' active' : '') + '" data-index="' + index + '">'
-      + '<span class="semantic-peek-item-path">' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '</span>'
+    return '<button type="button" role="option" aria-selected="' + (index === semanticPeekActive ? 'true' : 'false')
+      + '" class="semantic-peek-item' + (index === semanticPeekActive ? ' active' : '') + '" data-index="' + index + '" title="' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '">'
+      + '<span class="semantic-peek-item-path">' + escapeHtml(item.path) + '</span>'
+      + '<span class="semantic-peek-item-line">' + (item.lineIndex + 1) + '</span>'
       + '<span class="semantic-peek-item-code">' + escapeHtml(item.text.trim().slice(0, 180)) + '</span></button>';
-  }).join('');
+  }).join('') + '<div class="semantic-peek-list-hint">' + escapeHtml(t('monaco.peekHint')) + '</div>';
 }
 
-function showSemanticPeekItem(index, focusEditor) {
+function showSemanticPeekItem(index) {
   if (!semanticPeekItems.length) return;
   semanticPeekActive = Math.max(0, Math.min(index, semanticPeekItems.length - 1));
   renderSemanticPeekResults();
@@ -406,14 +504,13 @@ function showSemanticPeekItem(index, focusEditor) {
     var model = monacoModelFor(window.monaco, item.path, file);
     monacoPeekEditor.setModel(model);
     var position = { lineNumber: item.lineIndex + 1, column: item.column + 1 };
-    monacoPeekEditor.setPosition(position);
+    // Peek is a passive preview: reveal and decorate the target without placing a second editor caret.
     monacoPeekEditor.revealPositionInCenter(position);
     if (monacoPeekDecorations) monacoPeekDecorations.clear();
     monacoPeekDecorations = monacoPeekEditor.createDecorationsCollection([{
       range: new window.monaco.Range(position.lineNumber, 1, position.lineNumber, 1),
-      options: { isWholeLine: true, className: 'monacori-changed-line', linesDecorationsClassName: 'monacori-changed-glyph' },
+      options: { isWholeLine: true, className: 'semantic-peek-target-line' },
     }]);
-    if (focusEditor) monacoPeekEditor.focus();
   });
 }
 
@@ -434,23 +531,32 @@ document.getElementById('semantic-peek-close')?.addEventListener('click', closeS
 document.getElementById('semantic-peek-open')?.addEventListener('click', openActiveSemanticPeekSource);
 document.getElementById('semantic-peek-results')?.addEventListener('click', function (event) {
   var item = event.target && event.target.closest && event.target.closest('.semantic-peek-item');
-  if (item) showSemanticPeekItem(Number(item.dataset.index) || 0, false);
+  if (item) {
+    showSemanticPeekItem(Number(item.dataset.index) || 0);
+    event.currentTarget.focus({ preventScroll: true });
+  }
+});
+document.getElementById('semantic-peek-results')?.addEventListener('dblclick', function (event) {
+  var item = event.target && event.target.closest && event.target.closest('.semantic-peek-item');
+  if (!item) return;
+  semanticPeekActive = Number(item.dataset.index) || 0;
+  openActiveSemanticPeekSource();
 });
 document.getElementById('semantic-peek-results')?.addEventListener('mousemove', function (event) {
   var item = event.target && event.target.closest && event.target.closest('.semantic-peek-item');
   if (!item) return;
   var index = Number(item.dataset.index) || 0;
-  if (index !== semanticPeekActive) { semanticPeekActive = index; renderSemanticPeekResults(); }
+  if (index !== semanticPeekActive) showSemanticPeekItem(index);
 });
 document.addEventListener('keydown', function (event) {
   var panel = document.getElementById('semantic-peek');
   if (!panel || panel.classList.contains('hidden')) return;
   if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeSemanticPeek(); return; }
-  var inResults = event.target && event.target.closest && event.target.closest('#semantic-peek-results');
-  if (!inResults) return;
-  if (event.key === 'ArrowDown') { event.preventDefault(); showSemanticPeekItem(semanticPeekActive + 1, false); }
-  else if (event.key === 'ArrowUp') { event.preventDefault(); showSemanticPeekItem(semanticPeekActive - 1, false); }
-  else if (event.key === 'Enter') { event.preventDefault(); openActiveSemanticPeekSource(); }
+  // Keep result navigation authoritative even if the user clicked the passive Monaco preview. This makes
+  // the floating list behave like IntelliJ's usages popup: arrows preview, Enter enters the source.
+  if (event.key === 'ArrowDown') { event.preventDefault(); event.stopPropagation(); showSemanticPeekItem(semanticPeekActive + 1); }
+  else if (event.key === 'ArrowUp') { event.preventDefault(); event.stopPropagation(); showSemanticPeekItem(semanticPeekActive - 1); }
+  else if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); openActiveSemanticPeekSource(); }
 }, true);
 
 // applyTheme is defined earlier; keep already-created Monaco editors in lockstep with the app setting.

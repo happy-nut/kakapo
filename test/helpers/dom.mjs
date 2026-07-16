@@ -549,7 +549,7 @@ function installMonacoMock(window) {
     return editor;
   };
 
-  window.__monacoMock = { models, editors, providers, openers };
+  window.__monacoMock = { models, editors, providers, openers, themes: {} };
   window.monaco = {
     Range,
     Uri: { parse: parseUri },
@@ -558,6 +558,7 @@ function installMonacoMock(window) {
     editor: {
       create: createEditor,
       createModel,
+      defineTheme(name, definition) { window.__monacoMock.themes[name] = definition; },
       setTheme(theme) { window.__monacoMock.theme = theme; },
       registerEditorOpener(opener) { openers.push(opener); return { dispose() {} }; },
     },

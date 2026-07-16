@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell } from "electron";
 import { buildDiffReview, performHttpRequest, renderLazyDiffBody, type HttpSendRequest } from "./cli.js";
 import { readGitLog, readCommitDiff } from "./git-log.js";
-import { readUnifiedDiff } from "./diff.js";
-import { git, isGitRepository } from "./git.js";
+import { materializeDeferredSourceFile, readUnifiedDiff } from "./diff.js";
+import { git, isGitRepository, repoRoot } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
 import { searchProject } from "./search.js";
@@ -162,7 +162,12 @@ ipcMain.handle("monacori:get-source", (event, request: { path?: string }) => {
   const state = stateFromEvent(event);
   const path = String(request?.path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
   if (!state || !path || path.startsWith("../")) return null;
-  return state.sourceFiles.get(path) ?? null;
+  const record = state.sourceFiles.get(path);
+  if (!record) return null;
+  if (!record.deferred) return record;
+  const materialized = materializeDeferredSourceFile(state.options.root, record);
+  state.sourceFiles.set(path, materialized);
+  return materialized;
 });
 // Project-wide metadata and the source tree are intentionally absent from the initial review document.
 // Return them as one lazy payload; source contents remain behind the per-file endpoint above.
@@ -269,13 +274,56 @@ ipcMain.handle("monacori:git-commit-diff", (event, request: { sha?: string }) =>
   try { return readCommitDiff(state.options.root, request.sha); } catch { return null; }
 });
 
-// Sidebar row actions (Opt+Enter menu): reveal a file in Finder.
-// `path` is repo-root-relative (the tree's data-source-file / data-file), resolved against this window's root.
+// Sidebar row actions (Opt+Enter menu). Only accept repo-relative paths and keep every resolved target
+// inside the calling window's project; a compromised renderer must not turn these shell actions into an
+// arbitrary-path launcher.
+function resolveProjectRowPath(state: WinState, requestedPath: unknown): string | undefined {
+  if (typeof requestedPath !== "string" || !requestedPath.trim() || isAbsolute(requestedPath)) return;
+  // Diff/source-tree paths are always relative to `git rev-parse --show-toplevel`, even when Monacori was
+  // launched from a monorepo subdirectory. Resolve against that same canonical root to avoid cwd/path
+  // duplication such as `.../turtle/turtle/backend/file.py`.
+  const root = resolve(repoRoot(state.options.root));
+  const target = resolve(root, requestedPath);
+  const fromRoot = relative(root, target);
+  if (fromRoot === ".." || fromRoot.startsWith("../") || fromRoot.startsWith("..\\") || isAbsolute(fromRoot)) return;
+  return target;
+}
+
+ipcMain.handle("monacori:absolute-file-path", (event, request: { path?: string }) => {
+  const state = stateFromEvent(event);
+  const path = state ? resolveProjectRowPath(state, request?.path) : undefined;
+  return path ? { ok: true, path } : { ok: false };
+});
+
 ipcMain.handle("monacori:reveal-in-finder", (event, request: { path?: string }) => {
   const state = stateFromEvent(event);
-  if (!state || !request?.path) return { ok: false };
-  try { shell.showItemInFolder(join(state.options.root, request.path)); return { ok: true }; }
+  const path = state ? resolveProjectRowPath(state, request?.path) : undefined;
+  if (!path) return { ok: false };
+  try { shell.showItemInFolder(path); return { ok: true }; }
   catch (e) { return { ok: false, error: String(e) }; }
+});
+
+ipcMain.handle("monacori:open-terminal", (event, request: { path?: string }) => {
+  const state = stateFromEvent(event);
+  const path = state ? resolveProjectRowPath(state, request?.path) : undefined;
+  if (!path) return { ok: false };
+  const directory = dirname(path);
+  if (!existsSync(directory)) return { ok: false, error: "missing-directory" };
+  try {
+    let child;
+    if (process.platform === "darwin") {
+      child = spawn("open", ["-a", "Terminal", directory], { detached: true, stdio: "ignore" });
+    } else if (process.platform === "win32") {
+      child = spawn("cmd.exe", ["/c", "start", "", "cmd.exe", "/K", "cd", "/d", directory], { detached: true, stdio: "ignore", windowsHide: true });
+    } else {
+      child = spawn(process.env.TERMINAL || "x-terminal-emulator", [], { cwd: directory, detached: true, stdio: "ignore" });
+    }
+    child.once("error", () => {});
+    child.unref();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 });
 // Welcome screen's "Open Folder" button: pick a directory; load it into the window that asked if it's a
 // git repo, else return the "not-git" code so the welcome renderer can show its inline hint (it keys off
@@ -541,6 +589,15 @@ function createWindow(root: string): WinState {
     icon: iconPath,
     backgroundColor: themeLight ? "#ffffff" : "#2b2b2b",
     autoHideMenuBar: true,
+    // Let the review chrome occupy the otherwise-empty macOS title bar. The renderer keeps the traffic
+    // light corner clear and turns its existing file toolbar into the draggable window surface, so we gain
+    // vertical room without introducing a second app-specific header. Other platforms keep native chrome.
+    ...(process.platform === "darwin"
+      ? {
+          titleBarStyle: "hiddenInset" as const,
+          trafficLightPosition: { x: 14, y: 13 },
+        }
+      : {}),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,

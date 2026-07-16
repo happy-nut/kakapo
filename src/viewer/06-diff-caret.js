@@ -100,6 +100,44 @@ function diffCaretDomPosition(ctn, column) {
   }
   return { node: ctn, offset: ctn.childNodes.length };
 }
+function codeWordBounds(text, column) {
+  var value = String(text || '');
+  if (!value.length) return null;
+  var at = Math.max(0, Math.min(Number(column) || 0, value.length - 1));
+  var isWord = function (char) { return /[$_\p{L}\p{N}\p{M}]/u.test(char || ''); };
+  // A rounded pixel-to-column estimate can land immediately after the word. Prefer the character on the
+  // left at that boundary, matching native editor double-click behavior.
+  if (!isWord(value[at]) && at > 0 && isWord(value[at - 1])) at -= 1;
+  if (!isWord(value[at])) return { start: at, end: Math.min(value.length, at + 1) };
+  var start = at, end = at + 1;
+  while (start > 0 && isWord(value[start - 1])) start -= 1;
+  while (end < value.length && isWord(value[end])) end += 1;
+  return { start: start, end: end };
+}
+// The review surfaces render their own fake caret by splitting highlighted text nodes. That DOM mutation
+// breaks Chromium's built-in double-click sequence, so reconstruct the exact word range after removing the
+// fake caret. This helper is shared by source and side-by-side diff views.
+function selectCodeWord(container, text, column) {
+  if (!container) return false;
+  container.querySelectorAll('.code-cursor').forEach(function (span) {
+    var parent = span.parentNode;
+    if (parent) { parent.removeChild(span); if (parent.normalize) parent.normalize(); }
+  });
+  if (diffCaretSpan && !diffCaretSpan.isConnected) diffCaretSpan = null;
+  var bounds = codeWordBounds(text, column);
+  var start = bounds && diffCaretDomPosition(container, bounds.start);
+  var end = bounds && diffCaretDomPosition(container, bounds.end);
+  var selection = window.getSelection && window.getSelection();
+  if (!bounds || !start || !end || !selection) return false;
+  try {
+    var range = document.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  } catch (e) { return false; }
+}
 var diffCaretSpan = null;
 function clearDiffCaret() {
   var container = document.getElementById('diff2html-container');
@@ -260,6 +298,7 @@ function applyDiffSelection() {
 }
 function isDiffCodeRow(row) {
   if (!row) return false;
+  if (row.classList.contains('mc-import-fold-row') || row.classList.contains('mc-import-fold-hidden')) return false;
   if (row.querySelector('.d2h-emptyplaceholder, .d2h-code-side-emptyplaceholder')) return false; // added/removed counterpart — no real line
   if (!row.querySelector('.d2h-code-line-ctn')) return false;
   var num = row.querySelector('.d2h-code-side-linenumber');
@@ -354,7 +393,7 @@ function diffFoldBetween(dir) {
   var step = dir < 0 ? -1 : 1;
   for (var i = diffCursor.rowIndex + step; i >= 0 && i < rows.length; i += step) {
     if (isDiffCodeRow(rows[i])) return null;
-    if (rows[i].classList.contains('mc-context-fold-row')) return rows[i];
+    if (rows[i].classList.contains('mc-context-fold-row') || rows[i].classList.contains('mc-import-fold-row')) return rows[i];
   }
   return null;
 }
@@ -399,7 +438,8 @@ function handleDiffCaretKey(event) {
       event.preventDefault();
       var fold = selectedDiffFoldRow;
       clearSelectedDiffFold();
-      expandDiffContext(fold);
+      if (fold.classList.contains('mc-import-fold-row')) openDiffImportFold(fold);
+      else expandDiffContext(fold);
       return true;
     }
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {

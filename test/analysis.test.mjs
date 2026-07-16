@@ -48,6 +48,7 @@ test("main-process fallback answers definition, references, implementation, symb
     { path: "src/caller.ts", content: "import { process } from './service';\nexport const result = process({ read: () => 'x' });\n" },
     { path: "test/service.test.ts", content: "import { process } from '../src/service';\ntest('process', () => process({ read: () => 'x' }));\n" },
     { path: "schemas/process.schema.json", content: "{ \"title\": \"process\" }\n" },
+    { path: "docs/process.md", content: "The process migration is reviewed separately.\n" },
   ];
   for (const file of files) write(root, file.path, file.content);
   const statuses = [];
@@ -79,6 +80,15 @@ test("main-process fallback answers definition, references, implementation, symb
   assert.ok(impact.impact?.dependencies.some((item) => item.name === "helper"), "outgoing call is classified");
   assert.ok(impact.impact?.tests.some((item) => item.path === "test/service.test.ts"), "related test is classified");
   assert.ok(impact.impact?.contracts.some((item) => item.name === "Store"), "signature type is classified");
+  assert.ok(impact.impact?.mentions.some((item) => item.path === "docs/process.md"), "plain documentation matches stay review candidates");
+  assert.ok(impact.impact?.callers.every((item) => item.path !== "docs/process.md"), "plain text is not mislabeled as a caller");
+  assert.ok([
+    ...impact.impact.callers,
+    ...impact.impact.dependencies,
+    ...impact.impact.tests,
+    ...impact.impact.contracts,
+    ...impact.impact.mentions,
+  ].every((item) => item.evidence === "heuristic"), "fallback provenance is retained on every impact item");
   analysis.dispose();
 });
 

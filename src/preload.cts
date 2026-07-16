@@ -76,8 +76,10 @@ contextBridge.exposeInMainWorld("monacoriApp", {
   openFolder: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("monacori:open-folder"),
   // Welcome screen's Recent Projects: open a remembered repo path in the current window.
   openRecent: (path: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("monacori:open-recent", { path }),
-  // Sidebar Opt+Enter menu: reveal a file in Finder.
+  // Sidebar Opt+Enter menu: path actions stay in main so the sandboxed renderer never receives the root.
+  absolutePath: (path: string): Promise<unknown> => ipcRenderer.invoke("monacori:absolute-file-path", { path }),
   revealInFinder: (path: string): Promise<unknown> => ipcRenderer.invoke("monacori:reveal-in-finder", { path }),
+  openTerminal: (path: string): Promise<unknown> => ipcRenderer.invoke("monacori:open-terminal", { path }),
 });
 
 // Clipboard bridge for review locations and grounded handoff prompts. Electron's clipboard is reliable

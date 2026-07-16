@@ -57,7 +57,7 @@ localStorage라 이 함정을 못 건드린다).
 - 한 뷰에서 단 코멘트는 다른 뷰로 옮겨가도 보인다
 - 코멘트가 달린 파일에는 개수 배지가 붙는다
 - Changes 행은 증감 줄 수나 긴 상태 문구 없이 상태 아이콘만 표시한다
-- `Cmd/Ctrl+<`는 열린 파일이 아니라 화살표로 선택한 Changes 행을 확인 처리한다
+- `Cmd/Ctrl+Shift+,`는 열린 파일이 아니라 화살표로 선택한 Changes 행을 확인 처리한다
 - diff toolbar의 이전/다음 버튼, 변경 카운터, Base/Working tree 헤더가 키보드 F7 흐름과 같은 위치를 가리킨다
 - 양쪽 라인 번호는 중앙 divider에 모이고, hunk id가 양쪽 행에 전파되며 수정=파랑·삭제=회색·추가=초록 배경이 빈 placeholder까지 이어진다
 - `Cmd/Ctrl+9` History를 열어도 왼쪽 activity rail은 유지된다

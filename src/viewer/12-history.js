@@ -110,7 +110,9 @@ function renderHistoryList() {
   var list = document.getElementById('history-list');
   if (!list) return;
   if (!historyCommits.length) {
-    list.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t(historyLoading ? 'history.loading' : 'history.empty')) + '</div>';
+    list.innerHTML = historyLoading
+      ? loadingStateHtml(t('history.loading'), 'quick-open-empty')
+      : '<div class="quick-open-empty">' + escapeHtml(t('history.empty')) + '</div>';
     return;
   }
   list.style.setProperty('--hgraph-w', (historyLaneX(historyMaxLane) + 9) + 'px');
@@ -175,7 +177,7 @@ function openHistoryCommit(sha) {
   if (!sha || !window.monacoriGit) return;
   selectHistoryCommit(sha, true);
   var detail = document.getElementById('history-detail');
-  if (detail) detail.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('history.loading')) + '</div>';
+  if (detail) detail.innerHTML = loadingStateHtml(t('history.loading'), 'quick-open-empty');
   Promise.resolve(window.monacoriGit.commitDiff(sha)).then(function (d) {
     if (!d || historyActiveSha !== sha) return; // selection moved on while loading
     renderHistoryDetail(d);

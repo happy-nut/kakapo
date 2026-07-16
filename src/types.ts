@@ -50,6 +50,11 @@ export type SourceFile = {
   size: number;
   changed: boolean;
   embedded: boolean;
+  // Desktop lazy reviews can keep only metadata after the project-wide source cache budget is reached.
+  // The main process materializes this record from disk when the reviewer explicitly opens the file.
+  deferred?: boolean;
+  // Large app-only previews open in Monaco so only the visible viewport is rendered.
+  virtualized?: boolean;
   changedLines: number[];
   signature: string;
   skippedReason?: string;

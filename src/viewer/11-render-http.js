@@ -24,8 +24,8 @@ function openSourceFile(path, shouldSwitch = true) {
     setSourceTypeIcon(path);
     revealTreeFor(path);
     var lb = document.getElementById('source-body');
-    lb.className = 'source-body empty';
-    lb.textContent = t('source.loading');
+    lb.className = 'source-body empty is-loading';
+    lb.innerHTML = loadingStateHtml(t('source.loading'));
     if (shouldSwitch) showSourceView();
     loadSourceFile(path).then(function () {
       var viewer = document.getElementById('source-viewer');
@@ -415,7 +415,7 @@ function renderHttpTable(file) {
     const reqIdx = hasRun ? runAtLine[index] : -1;
     const isCursorLine = Boolean(cursor && cursor.lineIndex === index);
     const gutter = hasRun
-      ? '<button type="button" class="http-run" data-req="' + reqIdx + '" title="Run request (⌘Enter / ⌥Enter)" aria-label="Run request">&#9654;</button>'
+      ? '<button type="button" class="http-run" data-keyhint="⌘↵" data-req="' + reqIdx + '" title="Run request (⌘Enter / ⌥Enter)" aria-label="Run request">&#9654;</button>'
       : '';
     rows += '<tr class="source-row http-row' + (hasRun ? ' http-request-line' : '') + (isCursorLine ? ' cursor-line' : '') + '" data-line-index="' + index + '">'
       + '<td class="num http-gutter">' + gutter + '<span class="num-text">' + (index + 1) + '</span></td>'
@@ -582,26 +582,48 @@ function renderSourceTable(file, query) {
   const lines = file.content.split(/\r?\n/);
   const cursor = viewerCursor && viewerCursor.path === file.path ? viewerCursor : null;
   const changedSet = new Set(file.changedLines || []);
-  const rows = lines.map((line, index) => {
+  const folds = normalizedQuery ? [] : sourceFoldRanges(file);
+  const foldAt = new Map(folds.map((fold) => [fold.start, fold]));
+  const rows = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const fold = foldAt.get(index);
     const hit = normalizedQuery.length > 0 && line.toLowerCase().includes(normalizedQuery);
     const isCursorLine = Boolean(cursor && cursor.lineIndex === index);
     const isSymbolTarget = Boolean(cursor && cursor.targetLine === index);
     const isChanged = changedSet.has(index + 1);
     const classes = [
       'source-row',
+      fold?.kind === 'imports' ? 'source-fold-row' : '',
+      fold?.kind === 'block' ? 'source-block-folded' : '',
       hit ? 'search-hit' : '',
       isChanged ? 'changed-line' : '',
       isCursorLine ? 'cursor-line' : '',
       isSymbolTarget ? 'symbol-target' : '',
     ].filter(Boolean).join(' ');
-    return [
+    if (fold?.kind === 'imports') {
+      const count = fold.end - fold.start + 1;
+      rows.push([
+        '<tr class="' + classes + '" data-line-index="' + index + '" data-fold-end="' + fold.end + '">',
+        '<td class="num">' + String(index + 1) + (fold.end > index ? '–' + String(fold.end + 1) : '') + '</td>',
+        '<td class="source-code">' + sourceFoldButtonHtml('imports', count, index, fold.end) + '</td>',
+        '</tr>',
+      ].join(''));
+      index = fold.end;
+      continue;
+    }
+    const foldButton = fold?.kind === 'block'
+      ? sourceFoldButtonHtml('block', fold.end - fold.start, fold.start, fold.end)
+      : '';
+    rows.push([
       '<tr class="' + classes + '" data-line-index="' + index + '">',
       '<td class="num">' + String(index + 1) + '</td>',
-      '<td class="source-code">' + highlightLine(line, file.language || 'text') + '</td>',
+      '<td class="source-code">' + highlightLine(line, file.language || 'text') + foldButton + '</td>',
       '</tr>',
-    ].join('');
-  }).join('');
-  return '<table class="source-table"><tbody>' + rows + '</tbody></table>';
+    ].join(''));
+    if (fold?.kind === 'block') index = fold.end;
+  }
+  return '<table class="source-table"><tbody>' + rows.join('') + '</tbody></table>';
 }
 
 function renderLineWithCursor(text, language, column) {

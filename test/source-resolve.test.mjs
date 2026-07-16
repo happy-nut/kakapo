@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DIST_BUILD = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "build.js");
+const DIST_DIFF = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "diff.js");
 const made = [];
 after(() => {
   for (const d of made) {
@@ -74,4 +75,25 @@ test("subdirectory run (cwd != repo root): source still resolves against the rep
     "source must resolve against the repo root, not cwd",
   );
   assert.match(build.html, /export const value = 2/, "the new source content is embedded");
+});
+
+test("desktop source budget defers later text files instead of making them permanently unavailable", async () => {
+  const dir = repoWithSubdirChange();
+  const { collectSourceFiles, materializeDeferredSourceFile } = await import(DIST_DIFF);
+  const records = collectSourceFiles([], dir, {
+    previewLargeText: true,
+    deferSourceContent: true,
+    maxTotalBytes: 0,
+  });
+  const deferred = records.find((file) => file.path === "pkg/app.ts");
+  assert.ok(deferred, "tracked source metadata is retained after the eager cache budget is exhausted");
+  assert.equal(deferred.embedded, true, "the renderer treats the deferred record as openable");
+  assert.equal(deferred.deferred, true, "the main process knows the content must be read on demand");
+  assert.equal(deferred.content, "", "project-index metadata does not carry the deferred body");
+  assert.equal(deferred.skippedReason, undefined, "budget exhaustion is no longer a preview error");
+
+  const loaded = materializeDeferredSourceFile(dir, deferred);
+  assert.equal(loaded.deferred, false);
+  assert.equal(loaded.embedded, true);
+  assert.match(loaded.content, /value = 2/, "opening the file materializes its current working-tree content");
 });

@@ -121,8 +121,155 @@ function sourceLinesForRows(file, rows) {
     .trimEnd();
 }
 
+// Review-mode folding stays intentionally local and structural: imports are one default-closed header,
+// while Cmd/Ctrl+. folds the innermost multiline `{ ... }` block containing the caret. Strings and comments
+// are skipped so braces in messages/doc comments do not create phantom ranges. Monaco Code mode delegates
+// the same shortcut to Monaco's native folding model below.
+function sourceBraceRanges(file) {
+  if (!file || !file.embedded) return [];
+  if (file.__foldBraceContent === file.content && Array.isArray(file.__foldBraceRanges)) return file.__foldBraceRanges;
+  var lines = String(file.content || '').split(/\r?\n/), stack = [], ranges = [];
+  var inBlockComment = false, quote = '', escaped = false;
+  for (var li = 0; li < lines.length; li++) {
+    var text = lines[li];
+    for (var ci = 0; ci < text.length; ci++) {
+      var ch = text.charAt(ci), next = text.charAt(ci + 1);
+      if (inBlockComment) {
+        if (ch === '*' && next === '/') { inBlockComment = false; ci += 1; }
+        continue;
+      }
+      if (quote) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === quote) quote = '';
+        continue;
+      }
+      if (ch === '/' && next === '*') { inBlockComment = true; ci += 1; continue; }
+      if (ch === '/' && next === '/') break;
+      if (ch === '#' && !text.slice(0, ci).trim()) break;
+      if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue; }
+      if (ch === '{') stack.push({ line: li, column: ci });
+      else if (ch === '}' && stack.length) {
+        var open = stack.pop();
+        if (li > open.line) ranges.push({ start: open.line, end: li, column: open.column, kind: 'block' });
+      }
+    }
+    if (quote && quote !== '`') { quote = ''; escaped = false; }
+  }
+  ranges.sort(function (a, b) {
+    var span = (a.end - a.start) - (b.end - b.start);
+    return span || b.start - a.start;
+  });
+  file.__foldBraceContent = file.content;
+  file.__foldBraceRanges = ranges;
+  return ranges;
+}
+function sourceFoldHasComment(file, range) {
+  if (!range || typeof reviewComments === 'undefined') return false;
+  return reviewComments.some(function (comment) {
+    var line = Number(comment.line) - 1;
+    return comment.path === file.path && line >= range.start && line <= range.end;
+  });
+}
+function sourceFoldRanges(file) {
+  if (!file || !file.embedded) return [];
+  var folds = [];
+  var importRange = findImportRange(String(file.content || '').split(/\r?\n/));
+  if (importRange && !sourceImportOpenPaths[file.path] && !sourceFoldHasComment(file, importRange)) {
+    folds.push({ start: importRange.start, end: importRange.end, column: 0, kind: 'imports' });
+  }
+  var stored = sourceManualFoldKeys[file.path] || Object.create(null);
+  var pairs = sourceBraceRanges(file), valid = Object.create(null);
+  pairs.forEach(function (pair) { valid[pair.start + ':' + pair.end] = pair; });
+  Object.keys(stored).forEach(function (key) {
+    var pair = valid[key];
+    if (!pair || sourceFoldHasComment(file, pair)) { delete stored[key]; return; }
+    folds.push(pair);
+  });
+  sourceManualFoldKeys[file.path] = stored;
+  folds.sort(function (a, b) { return a.start - b.start || b.end - a.end; });
+  // If a collapsed parent owns a region, its nested folds need no second marker until the parent reopens.
+  return folds.filter(function (fold, index) {
+    for (var i = 0; i < index; i++) {
+      if (folds[i].start <= fold.start && folds[i].end >= fold.end) return false;
+    }
+    return true;
+  });
+}
+function sourceFoldButtonHtml(kind, count, start, end) {
+  var label = codeFoldMessage(kind, count);
+  var title = codeFoldExpandTitle() + (kind === 'block' ? ' (⌘.)' : '');
+  return '<button type="button" class="mc-code-fold-button source-fold-toggle" data-source-fold="1"'
+    + ' data-fold-kind="' + kind + '" data-fold-count="' + count + '" data-fold-start="' + start + '" data-fold-end="' + end + '"'
+    + ' data-keyhint="⌘." title="' + escapeHtml(title) + '"><span class="mc-code-fold-icon">›</span>'
+    + '<span class="mc-code-fold-label">' + escapeHtml(label) + '</span></button>';
+}
+function repaintSourceFold(path, lineIndex, column) {
+  if (!path) return;
+  viewerCursor = { path: path, lineIndex: Math.max(0, Number(lineIndex) || 0), column: Math.max(0, Number(column) || 0), targetLine: -1 };
+  openSourceFile(path, false);
+  requestAnimationFrame(function () { revealSourceCursorWithMargin(); });
+}
+function openSourceFoldButton(button) {
+  var viewer = document.getElementById('source-viewer');
+  var path = viewer && viewer.dataset.openPath;
+  if (!path || !button) return false;
+  var start = Number(button.dataset.foldStart) || 0;
+  var end = Number(button.dataset.foldEnd) || start;
+  if (button.dataset.foldKind === 'imports') sourceImportOpenPaths[path] = true;
+  else {
+    var stored = sourceManualFoldKeys[path] || Object.create(null);
+    delete stored[start + ':' + end];
+    sourceManualFoldKeys[path] = stored;
+  }
+  repaintSourceFold(path, start, 0);
+  return true;
+}
+function toggleCurrentSourceFold() {
+  if (!isSourceViewerVisible() || !viewerCursor) return false;
+  if (isMonacoSourceActive(viewerCursor.path)) return toggleMonacoSourceFold();
+  var body = document.getElementById('source-body');
+  if (!body || body.classList.contains('rendered-body') || isHttpFile(viewerCursor.path)) return false;
+  var row = body.querySelector('.source-row[data-line-index="' + viewerCursor.lineIndex + '"]');
+  var existingButton = row && row.querySelector('[data-source-fold]');
+  if (existingButton) return openSourceFoldButton(existingButton);
+  var file = sourceByPath.get(viewerCursor.path);
+  if (!file || !file.embedded) return false;
+  var pair = sourceBraceRanges(file).filter(function (range) {
+    return range.start <= viewerCursor.lineIndex && range.end >= viewerCursor.lineIndex;
+  })[0]; // ranges are sorted inner-most first
+  if (!pair || sourceFoldHasComment(file, pair)) return false;
+  var stored = sourceManualFoldKeys[file.path] || Object.create(null);
+  stored[pair.start + ':' + pair.end] = true;
+  sourceManualFoldKeys[file.path] = stored;
+  repaintSourceFold(file.path, pair.start, pair.column + 1);
+  return true;
+}
+function sourceVisibleLineIndex(lineIndex, direction) {
+  var body = document.getElementById('source-body');
+  if (!body) return lineIndex;
+  var indices = Array.prototype.map.call(body.querySelectorAll('.source-row[data-line-index]'), function (row) {
+    return Number(row.dataset.lineIndex);
+  }).filter(function (line) { return Number.isFinite(line); });
+  if (!indices.length) return lineIndex;
+  var at = indices.indexOf(lineIndex), step = direction < 0 ? -1 : 1;
+  if (at < 0) {
+    for (var i = 0; i < indices.length; i++) {
+      if (indices[i] > lineIndex) return direction < 0 ? (indices[i - 1] == null ? indices[0] : indices[i - 1]) : indices[i];
+    }
+    return indices[indices.length - 1];
+  }
+  return indices[Math.max(0, Math.min(indices.length - 1, at + step))];
+}
+
 function handleSourceClick(event) {
   const target = event.target;
+  const foldButton = target?.closest?.('[data-source-fold]');
+  if (foldButton) {
+    event.preventDefault();
+    openSourceFoldButton(foldButton);
+    return;
+  }
   const runBtn = target?.closest?.('.http-run');
   if (runBtn) {
     event.preventDefault();
@@ -136,6 +283,9 @@ function handleSourceClick(event) {
     if (panel) panel.classList.toggle('hidden');
     return;
   }
+  // The second click belongs to the native word-selection gesture. Do not split the text node again by
+  // repainting the fake caret; handleSourceDoubleClick selects the stable logical word afterward.
+  if (Number(event.detail) > 1) return;
   const row = target?.closest?.('.source-row');
   if (!row) return;
   clearTreeFocus();
@@ -149,6 +299,20 @@ function handleSourceClick(event) {
   const codeCell = row.querySelector('.source-code');
   const column = estimateColumnFromClick(codeCell, event, line);
   setSourceCursor(path, lineIndex, column, false, -1);
+}
+
+function handleSourceDoubleClick(event) {
+  const target = event.target;
+  const codeCell = target?.closest?.('.source-code');
+  const row = codeCell?.closest?.('.source-row');
+  if (!codeCell || !row) return;
+  const path = document.getElementById('source-viewer')?.dataset.openPath || '';
+  const file = sourceByPath.get(path);
+  if (!file || !file.embedded) return;
+  const lineIndex = Number(row.dataset.lineIndex || 0);
+  const line = file.content.split(/\r?\n/)[lineIndex] || '';
+  const column = estimateColumnFromClick(codeCell, event, line);
+  if (selectCodeWord(codeCell, line, column)) event.preventDefault();
 }
 
 function estimateColumnFromClick(codeCell, event, line) {
@@ -265,7 +429,7 @@ function scheduleSourceReveal(prev) {
       // Raw code rows are fixed-height/no-wrap, so the arithmetic path avoids a full-layout read on every
       // key repeat. Comment/HTTP response rows add variable height between code lines; in that case use the
       // real cursor row geometry or lineIndex*rowHeight can put the caret below the viewport.
-      if (sb.querySelector('.mc-comment-row, .http-response')) revealSourceCursorWithMargin();
+      if (sb.querySelector('.mc-comment-row, .http-response, .source-fold-row, .source-block-folded')) revealSourceCursorWithMargin();
       else {
         var caretTop = viewerCursor.lineIndex * rowH;
         var ch = sb.clientHeight;
@@ -323,7 +487,11 @@ function updateSourceCaret(prev, lines, language) {
 function insertSourceCaret(row, column) {
   var cell = row.querySelector('.source-code');
   if (!cell) return;
-  var pos = diffCaretDomPosition(cell, column); // empty line: returns {node: cell, offset: 0} so the caret still shows
+  // A collapsed import header has no literal source text on screen. Keep its caret at the left edge of the
+  // summary instead of inserting it into the button label (which would look like an editable control).
+  var pos = row.classList.contains('source-fold-row')
+    ? { node: cell, offset: 0 }
+    : diffCaretDomPosition(cell, column); // empty line: returns {node: cell, offset: 0} so the caret still shows
   if (!pos) return;
   var span = document.createElement('span');
   span.className = 'code-cursor';
@@ -507,13 +675,13 @@ function moveSourceCursor(dLine, dColumn, extend) {
   let col = viewerCursor.column;
   if (dColumn < 0) {
     if (col > 0) col -= 1;
-    else if (line > 0) { line -= 1; col = (lines[line] || '').length; }
+    else if (line > 0) { line = sourceVisibleLineIndex(line, -1); col = (lines[line] || '').length; }
   } else if (dColumn > 0) {
     if (col < (lines[line] || '').length) col += 1;
-    else if (line < lines.length - 1) { line += 1; col = 0; }
+    else if (line < lines.length - 1) { line = sourceVisibleLineIndex(line, 1); col = 0; }
   }
   if (dLine !== 0) {
-    line = Math.max(0, Math.min(lines.length - 1, line + dLine));
+    line = sourceVisibleLineIndex(line, dLine);
     col = Math.min(col, (lines[line] || '').length);
   }
   if (extend) {
@@ -877,7 +1045,7 @@ function renderSourceTabs(activePath) {
     var active = p === activePath;
     return '<div class="source-tab' + (active ? ' active' : '') + '" data-tab-path="' + escapeHtml(p) + '" title="' + escapeHtml(p) + '">'
       + '<span class="source-tab-name">' + escapeHtml(sourceTabLabel(p)) + '</span>'
-      + '<button type="button" class="source-tab-close" data-close-path="' + escapeHtml(p) + '" aria-label="Close tab" title="Close (⌘W)">×</button>'
+      + '<button type="button" class="source-tab-close" data-keyhint="⌘W" data-close-path="' + escapeHtml(p) + '" aria-label="Close tab" title="Close (⌘W)">×</button>'
       + '</div>';
   }).join('');
   // Scroll the tab bar HORIZONTALLY only. scrollIntoView() walks every scrollable ancestor — on rapid

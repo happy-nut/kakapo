@@ -1,3 +1,5 @@
+var quickPreviewSeq = 0;
+
 function openQuickOpen(mode) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
   quickMode = mode;
@@ -17,13 +19,9 @@ function openQuickOpen(mode) {
   quickInput.value = '';
   updateRecentFilterDisplay();
   renderQuickOpenResults();
-  // Populate project-wide candidates after the overlay is visible. Startup contains only changed-file
-  // metadata, so the keyboard shortcut stays instant even in repositories with thousands of files.
-  if (REVIEW_LAZY_LOAD && !projectIndexLoaded) {
-    ensureProjectIndex().then(function () {
-      if (quickOpen && !quickOpen.classList.contains('hidden') && quickMode === mode) renderQuickOpenResults();
-    });
-  }
+  // File search intentionally stays empty until the user types. Loading the whole project index on open
+  // made an untouched dialog look like an arbitrary file browser and spent work before there was a query.
+  // The first real file-name query requests the deferred index in renderQuickOpenResults().
   if (mode === 'recent') { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
   else setTimeout(() => quickInput.focus(), 0);
 }
@@ -89,6 +87,19 @@ function renderQuickOpenResults() {
   const rawQuery = (isRecent ? recentFilter : (quickInput?.value || '')).trim();
   if (quickMode === 'content') { renderContentSearchResults(rawQuery); return; }
   if (quickMode === 'symbol') { renderWorkspaceSymbolResults(rawQuery); return; }
+  if (!isRecent && !rawQuery) {
+    quickItems = [];
+    quickActive = 0;
+    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.typeFileName')) + '</div>';
+    renderQuickPreview(null);
+    return;
+  }
+  if (!isRecent && REVIEW_LAZY_LOAD && !projectIndexLoaded) {
+    ensureProjectIndex().then(function () {
+      if (quickOpen && !quickOpen.classList.contains('hidden') && quickMode === 'all'
+        && String(quickInput && quickInput.value || '').trim()) renderQuickOpenResults();
+    });
+  }
   const query = rawQuery.toLowerCase();
   const candidates = isRecent ? recentItems() : allQuickItems();
   quickItems = candidates
@@ -105,6 +116,7 @@ function renderQuickOpenResults() {
   quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
   if (quickItems.length === 0) {
     quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.noFiles')) + '</div>';
+    renderQuickPreview(null);
     return;
   }
   quickResults.innerHTML = quickItems.map((item, index) => [
@@ -328,12 +340,29 @@ function updateQuickActive() {
 function renderQuickPreview(item) {
   const preview = document.getElementById('quick-open-preview');
   if (!preview) return;
+  const previewSeq = ++quickPreviewSeq;
   if (!item) { preview.innerHTML = ''; return; }
   const file = sourceByPath.get(item.path);
   if (!file || !file.embedded) {
     preview.innerHTML = item.kind === 'search'
       ? '<div class="qp-head">' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '</div><div class="qp-empty">' + searchSnippetHtml(item) + '</div>'
       : '<div class="qp-empty">' + escapeHtml(item.path) + '</div>';
+    return;
+  }
+  if (!sourceContentLoaded(file)) {
+    preview.innerHTML = '<div class="qp-head">' + escapeHtml(item.path) + '</div>'
+      + '<div class="qp-empty">' + escapeHtml(t('source.loading')) + '</div>';
+    loadSourceFile(item.path).then(function (loaded) {
+      if (previewSeq !== quickPreviewSeq || !quickOpen || quickOpen.classList.contains('hidden')) return;
+      var activeItem = quickItems[quickActive];
+      if (!activeItem || activeItem.path !== item.path) return;
+      if (!loaded || !sourceContentLoaded(loaded)) {
+        preview.innerHTML = '<div class="qp-head">' + escapeHtml(item.path) + '</div>'
+          + '<div class="qp-empty">' + escapeHtml(t('source.previewUnavailable')) + '</div>';
+        return;
+      }
+      renderQuickPreview(item);
+    });
     return;
   }
   const query = ((quickInput && quickInput.value) || '').trim().toLowerCase();

@@ -70,11 +70,49 @@ test("Code mode mounts Monaco and returning to Review preserves line comments", 
   assert.equal(toggle.textContent, "Review");
   assert.equal(v.window.__monacoMock.editors.length, 1, "one virtualized source editor mounted");
   assert.equal(v.window.__monacoMock.editors[0].getModel().uri.path, "/src/app.ts");
+  assert.equal(v.window.__monacoMock.editors[0].options.foldingImportsByDefault, true, "Code mode also starts with import regions folded");
 
   v.window.__monacoMock.editors[0].setPosition({ lineNumber: 2, column: 18 });
   await v.openComposer("q");
   assert.equal(toggle.textContent, "Code", "commenting returns to the review renderer");
   assert.ok(v.visibleComposerInput(), "the normal line-comment composer opens at the preserved caret");
+  v.close();
+});
+
+test("large app sources load on demand and open in the virtualized editor", async () => {
+  const largeContent = Array.from({ length: 1800 }, (_, index) =>
+    `export const generatedLine${index} = "${String(index).padStart(4, "0")}-${"x".repeat(110)}";`,
+  ).join("\n") + "\n";
+  assert.ok(Buffer.byteLength(largeContent) > 220_000, "fixture crosses the former 214.8 KiB ceiling");
+
+  const built = await makeReviewHtml([
+    { path: "src/large.ts", before: largeContent, after: largeContent },
+    { path: "src/change.ts", before: "export const before = 1;\n", after: "export const after = 2;\n" },
+  ], { app: true, lazyLoad: true });
+  const largeRecord = built.build.lazySourceFiles.find((file) => file.path === "src/large.ts");
+  assert.ok(largeRecord?.embedded, "large text remains available to the app source bridge");
+  assert.equal(largeRecord.virtualized, true, "large text is marked for viewport rendering");
+  assert.equal(largeRecord.skippedReason, undefined);
+
+  const v = await loadViewer(built.html, {
+    lazySourceData: JSON.stringify(built.build.lazySourceFiles),
+    monacoBridge: true,
+    analysisBridge: (request) => responseFor(request),
+  });
+  await v.openSourceFile("src/large.ts");
+  await v.settle(40);
+
+  assert.deepEqual(v.window.__sourceRequests, ["src/large.ts"], "only the opened file crosses IPC");
+  assert.ok(v.$("#source-body").classList.contains("monaco-source-body"), "large source opens virtualized without an extra click");
+  const toggle = v.$("#editor-mode-toggle");
+  assert.equal(toggle.textContent, "Review", "the user can still switch to the commentable renderer");
+  assert.equal(v.window.__monacoMock.editors[0].getModel().getValue(), largeContent);
+
+  v.click(toggle);
+  await v.settle(40);
+  assert.ok(!v.$("#source-body").classList.contains("monaco-source-body"), "Review mode remains available for line comments");
+  assert.equal(v.$all("#source-body .source-row").length, 1801, "the trailing newline remains visible in Review mode");
+  assert.equal(toggle.textContent, "Code", "the same file can return to its virtualized view");
   v.close();
 });
 
@@ -107,7 +145,7 @@ test("Code mode live refresh updates its model in place and keeps 15% cursor scr
   v.close();
 });
 
-test("semantic providers reject stale generations and Peek shows all current results", async () => {
+test("semantic providers reject stale generations and Peek keyboard navigation previews then opens source", async () => {
   let responseGeneration = 7;
   const requests = [];
   const v = await loadViewer(html, {
@@ -148,9 +186,19 @@ test("semantic providers reject stale generations and Peek shows all current res
   assert.equal(v.$all("#semantic-peek-results .semantic-peek-item").length, 2);
   assert.match(v.$("#semantic-peek-meta").textContent, /typescript-language-server/);
   assert.match(v.$("#semantic-peek-meta").textContent, /g8/);
+  assert.equal(v.document.activeElement, v.$("#semantic-peek-results"), "the floating usages list owns arrow navigation");
+  assert.equal(mock.editors.at(-1).options.domReadOnly, true, "the lower source preview is passive");
+  assert.equal(mock.editors.at(-1).options.renderLineHighlight, "none", "the preview does not paint an editor caret row");
 
-  v.click(v.$all("#semantic-peek-results .semantic-peek-item")[1]);
+  v.key("ArrowDown");
   await v.settle(30);
-  assert.equal(mock.editors.at(-1).getModel().uri.path, "/src/target.ts", "Peek previews the selected result");
+  assert.equal(v.$("#semantic-peek-results .semantic-peek-item.active")?.dataset.index, "1");
+  assert.equal(mock.editors.at(-1).getModel().uri.path, "/src/target.ts", "ArrowDown previews the selected result");
+  assert.deepEqual(mock.editors.at(-1).getPosition(), { lineNumber: 1, column: 1 }, "previewing never moves a Monaco caret");
+
+  v.key("Enter");
+  await v.settle(50);
+  assert.ok(v.$("#semantic-peek").classList.contains("hidden"), "Enter closes the usages popup");
+  assert.equal(v.$("#source-viewer").dataset.openPath, "src/target.ts", "Enter opens the selected source location");
   v.close();
 });

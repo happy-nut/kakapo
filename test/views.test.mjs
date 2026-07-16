@@ -45,6 +45,15 @@ test("changes list and file tree include every changed file", async () => {
   v.close();
 });
 
+test("macOS Electron review markup opts into integrated native window chrome", async () => {
+  const { html: appHtml } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const x = 1;\n", after: "export const x = 2;\n" },
+  ], { app: true });
+  const v = await loadViewer(appHtml);
+  assert.equal(v.document.body.classList.contains("native-app"), process.platform === "darwin");
+  v.close();
+});
+
 test("switches from the source view to the diff view and back", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
@@ -56,6 +65,93 @@ test("switches from the source view to the diff view and back", async () => {
   await v.openSourceFile("src/app.ts");
   assert.equal(v.visibleView(), "source");
   v.close();
+});
+
+test("double-click selects a complete word in both file and diff views", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  const sourceCell = v.$('#source-body .source-row[data-line-index="0"] .source-code');
+  sourceCell.getBoundingClientRect = () => ({ left: 0, right: 500, top: 0, bottom: 20, width: 500, height: 20 });
+  const sourceX = 10 + 8 * 7; // `export const`: inside `const` after the cell's 10px padding
+  sourceCell.dispatchEvent(new v.window.MouseEvent("click", { bubbles: true, cancelable: true, detail: 1, clientX: sourceX }));
+  sourceCell.dispatchEvent(new v.window.MouseEvent("click", { bubbles: true, cancelable: true, detail: 2, clientX: sourceX }));
+  sourceCell.dispatchEvent(new v.window.MouseEvent("dblclick", { bubbles: true, cancelable: true, detail: 2, clientX: sourceX }));
+  assert.equal(v.window.getSelection().toString(), "const", "file view preserves native-style word selection");
+
+  await v.openDiffFor("src/app.ts");
+  const wrapper = v.$('#diff2html-container .d2h-file-wrapper:not(.df-inactive)');
+  const diffCell = Array.from(wrapper.querySelectorAll('.d2h-file-side-diff:last-child .d2h-code-line-ctn'))
+    .find((cell) => cell.textContent.includes('export const y = 3'));
+  assert.ok(diffCell, "working-tree diff line is visible");
+  diffCell.getBoundingClientRect = () => ({ left: 0, right: 500, top: 0, bottom: 20, width: 500, height: 20 });
+  const diffX = 8 * 7;
+  diffCell.dispatchEvent(new v.window.MouseEvent("click", { bubbles: true, cancelable: true, detail: 1, clientX: diffX }));
+  diffCell.dispatchEvent(new v.window.MouseEvent("click", { bubbles: true, cancelable: true, detail: 2, clientX: diffX }));
+  diffCell.dispatchEvent(new v.window.MouseEvent("dblclick", { bubbles: true, cancelable: true, detail: 2, clientX: diffX }));
+  assert.equal(v.window.getSelection().toString(), "const", "diff view preserves native-style word selection");
+  v.close();
+});
+
+test("file view folds imports by default and Cmd+. toggles the caret's brace block", async () => {
+  const { html: foldHtml } = await makeReviewHtml([
+    {
+      path: "src/fold.ts",
+      before: "import { one } from './one';\nimport { two } from './two';\n\nfunction outer() {\n  const value = 1;\n  if (value) {\n    return one + two;\n  }\n}\n",
+      after: "import { one } from './one';\nimport { two } from './two';\n\nfunction outer() {\n  const value = 2;\n  if (value) {\n    return one + two;\n  }\n}\n",
+    },
+  ]);
+  const v = await loadViewer(foldHtml);
+  await v.openSourceFile("src/fold.ts");
+
+  const importFold = v.$("#source-body .source-fold-row [data-source-fold]");
+  assert.ok(importFold, "the import header starts collapsed");
+  assert.equal(importFold.dataset.foldKind, "imports");
+  assert.equal(v.$('#source-body .source-row[data-line-index="1"]'), null, "the second import row is hidden");
+
+  v.click(importFold);
+  assert.ok(v.$('#source-body .source-row[data-line-index="1"]'), "clicking the fold opens every import line");
+
+  await v.clickSourceLine(3); // function outer() {
+  v.key(".", { metaKey: true, code: "Period" });
+  await v.settle(40);
+  assert.ok(v.$('#source-body .source-row.source-block-folded[data-line-index="3"]'), "Cmd+. folds the current brace range");
+  assert.equal(v.$('#source-body .source-row[data-line-index="4"]'), null, "the block body is omitted while folded");
+
+  v.key(".", { metaKey: true, code: "Period" });
+  await v.settle(40);
+  assert.ok(v.$('#source-body .source-row[data-line-index="4"]'), "Cmd+. on the marker unfolds the block");
+  v.close();
+});
+
+test("diff folds unchanged imports but leaves an import edit fully visible", async () => {
+  const { html: unchangedImportHtml } = await makeReviewHtml([
+    {
+      path: "src/unchanged-import.ts",
+      before: "import { one } from './one';\nimport { two } from './two';\n\nexport function total() {\n  return 1;\n}\n",
+      after: "import { one } from './one';\nimport { two } from './two';\n\nexport function total() {\n  return 2;\n}\n",
+    },
+  ]);
+  const folded = await loadViewer(unchangedImportHtml);
+  await folded.openDiffFor("src/unchanged-import.ts");
+  assert.equal(folded.$all(".mc-import-fold-row").length, 2, "both diff panes show one import fold marker");
+  assert.ok(folded.$(".mc-import-fold-hidden"), "unchanged import rows after the marker are hidden");
+  folded.click(folded.$(".mc-import-fold"));
+  assert.equal(folded.$(".mc-import-fold-row"), null, "opening either marker expands imports in both panes");
+  assert.equal(folded.$(".mc-import-fold-hidden"), null);
+  folded.close();
+
+  const { html: changedImportHtml } = await makeReviewHtml([
+    {
+      path: "src/changed-import.ts",
+      before: "import { one } from './one';\nimport { two } from './two';\n\nexport const total = one + two;\n",
+      after: "import { three } from './three';\nimport { two } from './two';\n\nexport const total = three + two;\n",
+    },
+  ]);
+  const visible = await loadViewer(changedImportHtml);
+  await visible.openDiffFor("src/changed-import.ts");
+  assert.equal(visible.$(".mc-import-fold-row"), null, "a changed import keeps the dependency header open");
+  assert.match(visible.$("#diff2html-container").textContent, /three/, "the changed import remains visible for review");
+  visible.close();
 });
 
 test("markdown opens rendered as sparse, line-numbered blocks", async () => {
@@ -350,6 +446,42 @@ test("Cmd+0 focuses the Changes panel; arrow + Enter opens that file in the diff
   v.close();
 });
 
+test("Cmd+0 focuses Changes from content, then toggles its sidebar without losing the diff", async () => {
+  const v = await loadViewer(html);
+  await v.openDiffFor("src/app.ts");
+  const button = v.$("#diff-sidebar-toggle");
+  assert.ok(button, "the compact diff toolbar exposes a clickable sidebar control");
+
+  v.key("0", { metaKey: true, code: "Digit0" });
+  await v.settle(60);
+  assert.equal(v.window.document.body.classList.contains("sidebar-collapsed"), false, "content focus does not collapse Changes");
+  assert.ok(v.$(".change-row.tree-focus"), "Cmd+0 moves focus from the diff content to the Changes tree");
+  assert.equal(v.visibleView(), "diff", "moving focus keeps the review surface in place");
+
+  v.key("0", { metaKey: true, code: "Digit0" });
+  await v.settle(60);
+  assert.ok(v.window.document.body.classList.contains("sidebar-collapsed"), "a repeated press from the tree collapses it");
+  assert.equal(button.getAttribute("aria-pressed"), "true", "the pressed state is accessible");
+  assert.equal(v.$(".change-row.tree-focus"), null, "no hidden sidebar row keeps the logical cursor");
+  assert.ok(v.$(".sidebar").hasAttribute("inert"), "the clipped sidebar leaves keyboard navigation during the close animation");
+  assert.equal(v.$(".sidebar").getAttribute("aria-hidden"), "true", "the visually closing tree is hidden from accessibility navigation");
+  assert.equal(v.visibleView(), "diff", "the review surface keeps its place");
+
+  v.key("0", { metaKey: true, code: "Digit0" });
+  await v.settle(60);
+  assert.equal(v.window.document.body.classList.contains("sidebar-collapsed"), false, "the next press expands it");
+  assert.ok(v.$(".change-row.tree-focus"), "expanding restores keyboard navigation to the changed file");
+  assert.equal(v.$(".sidebar").hasAttribute("inert"), false, "the expanded sidebar is interactive again");
+
+  button.dispatchEvent(new v.window.MouseEvent("mouseover", { bubbles: true }));
+  await v.settle(20);
+  assert.match(v.$("#mc-button-hint").textContent, /⌘0/, "hover names the shortcut");
+  v.click(button);
+  await v.settle(40);
+  assert.ok(v.window.document.body.classList.contains("sidebar-collapsed"), "the icon performs the same action by mouse");
+  v.close();
+});
+
 test("merged view: Opt+Enter on the active rendered comment offers review actions", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
@@ -371,6 +503,36 @@ test("merged view: Opt+Enter on the active rendered comment offers review action
   items.find((b) => /remove|지우기/i.test(b.textContent)).click();
   await v.settle(60);
   assert.equal(v.$(".mc-comment-row"), null, "comment box removed in sync (deleteComment → refreshComments)");
+  v.close();
+});
+
+test("merged view edits persist back to the code comment and navigation opens that exact location", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("q");
+  await v.writeAndSave("original wording");
+  await v.openMergedView("q");
+
+  const preview = v.$(".mc-merged-preview");
+  const heading = preview.querySelector(".mc-merged-comment-anchor");
+  const body = heading.nextElementSibling;
+  v.typeInto(body, "edited in the merged prompt");
+  await v.settle(260);
+  assert.equal(v.storedComments()[0].text, "edited in the merged prompt", "merged prose updates the persisted source comment");
+
+  preview.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
+  await v.settle(30);
+  const actions = [...v.$("#mc-dropdown").querySelectorAll(".mc-dropdown-item")];
+  assert.equal(actions.length, 2, "Opt+Enter exposes exactly navigation and removal");
+  const navigate = actions.find((item) => /location|위치로 이동/i.test(item.textContent));
+  assert.ok(navigate, "the menu names location navigation explicitly");
+  navigate.click();
+  await v.settle(80);
+
+  assert.equal(v.$("#mc-merged-panel"), null, "navigation closes the merged handoff");
+  assert.equal(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex, "1", "the source caret lands on the comment line");
+  assert.deepEqual(v.visibleCardTexts(), ["edited in the merged prompt"], "the code-location card shows the merged edit");
   v.close();
 });
 
@@ -500,6 +662,8 @@ test("activity rail: icons navigate views, show shortcut tooltips, and reflect t
     v.$all(".activity-rail .rail-btn .rail-tip kbd").every((k) => k.textContent.trim().length > 0),
     "each rail tooltip names a shortcut",
   );
+  assert.ok(v.$("#app-info-btn > svg"), "Settings uses the same SVG icon system as every other rail action");
+  assert.equal(v.$("#app-info-btn .rail-gear"), null, "the optically smaller Unicode gear is gone");
 
   // Click navigates and the clicked icon becomes the active one.
   v.click(v.$('.activity-rail [data-view="changes"]'));
@@ -529,6 +693,9 @@ test("sidebar shows the current git branch", async () => {
   const chip = v.$(".brand-branch");
   assert.ok(chip && !chip.classList.contains("hidden"), "the branch chip is visible");
   assert.ok((v.$("#brand-branch-name")?.textContent || "").trim().length > 0, "it names a branch");
+  assert.equal(v.$(".sidebar > .sidebar-brand")?.parentElement, v.$(".sidebar"), "project and branch live outside the scrolling tree");
+  assert.equal(v.$(".sidebar-scroll .sidebar-brand"), null, "scrolling files cannot move the fixed project header");
+  assert.equal(v.$(".brand-mark"), null, "the redundant MONACORI label is omitted");
   v.close();
 });
 
@@ -601,6 +768,56 @@ test("Cmd+1 from the diff opens the file you were viewing as source (not a stale
   v.key("1", { metaKey: true });
   assert.equal(v.visibleView(), "source", "Cmd+1 from the diff switches to the source view");
   assert.equal(v.$("#source-viewer").dataset.openPath, "src/app.ts", "and opens the diff's current file");
+  v.close();
+});
+
+test("Cmd+1 focuses Files from content, then toggles its sidebar while preserving the source file", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  assert.equal(v.visibleView(), "source");
+
+  v.key("1", { metaKey: true, code: "Digit1" });
+  await v.settle(60);
+  assert.equal(v.window.document.body.classList.contains("sidebar-collapsed"), false, "content focus does not collapse Files");
+  assert.ok(v.$(".source-link.tree-focus"), "Cmd+1 moves focus from the file content to the Files tree");
+  assert.equal(v.$("#source-viewer").dataset.openPath, "src/app.ts", "the same source file stays open");
+
+  v.key("1", { metaKey: true, code: "Digit1" });
+  await v.settle(60);
+  assert.ok(v.window.document.body.classList.contains("sidebar-collapsed"), "a repeated press from the tree collapses Files");
+  assert.equal(v.$(".source-link.tree-focus"), null, "the hidden Files tree does not retain its cursor");
+
+  v.key("1", { metaKey: true, code: "Digit1" });
+  await v.settle(60);
+  assert.equal(v.window.document.body.classList.contains("sidebar-collapsed"), false, "the next press expands Files");
+  assert.ok(v.$(".source-link.tree-focus"), "expanding restores Files keyboard navigation");
+  assert.equal(v.$("#source-viewer").dataset.openPath, "src/app.ts", "toggling never replaces the open file");
+
+  v.click(v.$('.activity-rail [data-view="files"]'));
+  await v.settle(60);
+  assert.ok(v.window.document.body.classList.contains("sidebar-collapsed"), "Files icon uses the same collapse behavior");
+  v.click(v.$('.activity-rail [data-view="files"]'));
+  await v.settle(60);
+  assert.equal(v.window.document.body.classList.contains("sidebar-collapsed"), false, "Files icon expands it again");
+  v.close();
+});
+
+test("Cmd+1 opens a changed tool-config file even when its directory is excluded from the project index", async () => {
+  const { html: hiddenChangeHtml } = await makeReviewHtml([
+    {
+      path: ".claude/commands/review.md",
+      before: "# Review\n\nOld guidance.\n",
+      after: "# Review\n\nUpdated guidance.\n",
+    },
+  ]);
+  const v = await loadViewer(hiddenChangeHtml);
+  await v.openDiffFor(".claude/commands/review.md");
+  v.key("1", { metaKey: true });
+  await v.settle(40);
+
+  assert.equal(v.visibleView(), "source", "the shortcut always leaves the diff for the file view");
+  assert.equal(v.$("#source-viewer").dataset.openPath, ".claude/commands/review.md");
+  assert.match(v.$("#source-body").textContent, /Updated guidance/, "changed hidden config stays reviewable as source");
   v.close();
 });
 

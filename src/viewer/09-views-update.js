@@ -7,6 +7,90 @@ function setTab(name) {
   document.getElementById('files-panel')?.classList.toggle('hidden', name !== 'files');
   syncRail();
 }
+
+// Each primary review surface owns its sidebar preference: Cmd+0 toggles Changes while the diff is open,
+// and Cmd+1 toggles Files while a source file is open. Collapsing moves actual DOM focus out of the sidebar
+// before the grid animates so a hidden row never keeps receiving Arrow/Enter; expanding restores the
+// logical tree cursor to the open file.
+var reviewSidebarCollapsed = false;
+var reviewSidebarStateKey = 'monacori:diff-sidebar:' + location.pathname;
+var sourceSidebarCollapsed = false;
+var sourceSidebarStateKey = 'monacori:source-sidebar:' + location.pathname;
+try { reviewSidebarCollapsed = localStorage.getItem(reviewSidebarStateKey) === 'collapsed'; } catch (e) {}
+try { sourceSidebarCollapsed = localStorage.getItem(sourceSidebarStateKey) === 'collapsed'; } catch (e) {}
+function syncReviewSidebarVisibility() {
+  var diffCollapsed = reviewSidebarCollapsed && isDiffViewVisible();
+  var sourceCollapsed = sourceSidebarCollapsed && isSourceViewerVisible();
+  var collapsed = diffCollapsed || sourceCollapsed;
+  document.body.classList.toggle('sidebar-collapsed', collapsed);
+  var sidebar = document.querySelector('.sidebar');
+  if (sidebar) {
+    // Keep the DOM painted while the grid track closes; inert/aria-hidden remove the clipped tree from
+    // keyboard and accessibility navigation without `visibility:hidden` blanking it before the animation.
+    if (collapsed) { sidebar.setAttribute('inert', ''); sidebar.setAttribute('aria-hidden', 'true'); }
+    else { sidebar.removeAttribute('inert'); sidebar.removeAttribute('aria-hidden'); }
+  }
+  var button = document.getElementById('diff-sidebar-toggle');
+  if (button) {
+    var key = diffCollapsed ? 'diff.showSidebar' : 'diff.hideSidebar';
+    var label = t(key);
+    button.setAttribute('aria-pressed', diffCollapsed ? 'true' : 'false');
+    button.setAttribute('aria-label', label);
+    button.setAttribute('data-tooltip', label);
+    button.title = label + ' (⌘0)';
+  }
+  syncRail();
+}
+function focusDiffAfterSidebarCollapse() {
+  clearTreeFocus();
+  var sidebar = document.querySelector('.sidebar');
+  var active = document.activeElement;
+  if (sidebar && active && sidebar.contains(active)) {
+    var content = document.getElementById('diff2html-container');
+    if (content) {
+      content.tabIndex = -1;
+      try { content.focus({ preventScroll: true }); } catch (e) { try { content.focus(); } catch (ignore) {} }
+    }
+  }
+  if (!diffCursor && typeof ensureDiffCursor === 'function') ensureDiffCursor();
+}
+function setReviewSidebarCollapsed(collapsed, options) {
+  reviewSidebarCollapsed = !!collapsed;
+  try { localStorage.setItem(reviewSidebarStateKey, reviewSidebarCollapsed ? 'collapsed' : 'expanded'); } catch (e) {}
+  syncReviewSidebarVisibility();
+  if (reviewSidebarCollapsed) focusDiffAfterSidebarCollapse();
+  else if (options && options.focusSidebar) { setTab('changes'); focusOpenFileInTree(); }
+}
+function toggleReviewSidebar() {
+  if (!isDiffViewVisible()) return false;
+  setReviewSidebarCollapsed(!reviewSidebarCollapsed, { focusSidebar: reviewSidebarCollapsed });
+  return true;
+}
+function focusSourceAfterSidebarCollapse() {
+  clearTreeFocus();
+  var sidebar = document.querySelector('.sidebar');
+  var active = document.activeElement;
+  if (sidebar && active && sidebar.contains(active)) {
+    var content = document.getElementById('source-body');
+    if (content) {
+      content.tabIndex = -1;
+      try { content.focus({ preventScroll: true }); } catch (e) { try { content.focus(); } catch (ignore) {} }
+    }
+  }
+}
+function setSourceSidebarCollapsed(collapsed, options) {
+  sourceSidebarCollapsed = !!collapsed;
+  try { localStorage.setItem(sourceSidebarStateKey, sourceSidebarCollapsed ? 'collapsed' : 'expanded'); } catch (e) {}
+  syncReviewSidebarVisibility();
+  if (!isSourceViewerVisible()) return;
+  if (sourceSidebarCollapsed) focusSourceAfterSidebarCollapse();
+  else if (options && options.focusSidebar) { setTab('files'); focusOpenFileInTree(); }
+}
+function toggleSourceSidebar() {
+  if (!isSourceViewerVisible()) return false;
+  setSourceSidebarCollapsed(!sourceSidebarCollapsed, { focusSidebar: sourceSidebarCollapsed });
+  return true;
+}
 // Reflect the current view and dock state on the activity rail icons.
 function syncRail() {
   var rail = document.querySelector('.activity-rail');
@@ -42,7 +126,7 @@ function ensureTreeRendered() {
   if (island) {
     var html = island.textContent || '';
     island.parentNode && island.parentNode.removeChild(island);
-    panel.innerHTML = '<div class="empty-nav">' + escapeHtml(t('source.buildingTree')) + '</div>';
+    panel.innerHTML = loadingStateHtml(t('source.buildingTree'), 'empty-nav');
     setTimeout(function () {
       panel.innerHTML = html;
       panel.dataset.projectIndex = 'loaded';
@@ -51,7 +135,7 @@ function ensureTreeRendered() {
     }, 0);
     return Promise.resolve();
   }
-  panel.innerHTML = '<div class="empty-nav">' + escapeHtml(t('source.buildingTree')) + '</div>';
+  panel.innerHTML = loadingStateHtml(t('source.buildingTree'), 'empty-nav');
   return ensureProjectIndex().then(function (payload) {
     if (REVIEW_LAZY_LOAD && payload) renderDeferredSourceTree(sourceFiles);
     else panel.innerHTML = payload && payload.filesTree ? payload.filesTree : '<div class="empty-nav">' + escapeHtml(t('source.selectFile')) + '</div>';
@@ -65,6 +149,7 @@ function showDiffView(shouldScroll) {
   document.getElementById('source-viewer')?.classList.add('hidden');
   document.getElementById('diff-view')?.classList.remove('hidden');
   setTab('changes');
+  syncReviewSidebarVisibility();
   if (current < 0 && hunkTotal()) {
     setActive(0, shouldScroll);
     return;
@@ -85,6 +170,7 @@ function showSourceView() {
   document.getElementById('diff-view')?.classList.add('hidden');
   document.getElementById('source-viewer')?.classList.remove('hidden');
   setTab('files');
+  syncReviewSidebarVisibility();
 }
 
 function saveUiState() {

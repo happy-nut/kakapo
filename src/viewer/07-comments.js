@@ -210,7 +210,7 @@ function threadHtml(path, line) {
     html += '<div class="mc-card mc-' + c.kind + '">'
       + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(c.kind) + '</span>'
       + '<span class="mc-target" title="' + escapeHtml(target) + '">' + escapeHtml(target) + '</span>'
-      + '<button type="button" class="mc-del" data-seq="' + c.seq + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
+      + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
       + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div></div>';
   });
   if (composerState && composerState.path === path && composerState.line === line) {
@@ -226,7 +226,7 @@ function threadHtml(path, line) {
 }
 
 function injectThreadRow(anchorRow, path, line) {
-  if (!anchorRow || !anchorRow.parentNode) return;
+  if (!anchorRow || !anchorRow.parentNode) return null;
   var tr = document.createElement('tr');
   tr.className = 'mc-comment-row';
   var td = document.createElement('td');
@@ -236,29 +236,112 @@ function injectThreadRow(anchorRow, path, line) {
   td.innerHTML = threadHtml(path, line);
   tr.appendChild(td);
   anchorRow.parentNode.insertBefore(tr, anchorRow.nextSibling);
+  return tr;
+}
+
+// A diff comment is visible only in the working-tree pane, but its vertical space belongs to the shared
+// review timeline. Reserve the exact same height in the base pane so semantic anchors, connector curves,
+// and the one line-number layer never learn a false offset from opening/closing a comment.
+function injectDiffCommentSpacer(anchorRow, line) {
+  if (!anchorRow || !anchorRow.parentNode) return null;
+  var tr = document.createElement('tr');
+  tr.className = 'mc-spacer-row mc-comment-spacer-row';
+  tr.dataset.commentSlot = String(line);
+  tr.setAttribute('aria-hidden', 'true');
+  var td = document.createElement('td');
+  td.colSpan = 2;
+  var spacer = document.createElement('div');
+  spacer.className = 'mc-comment-spacer';
+  td.appendChild(spacer);
+  tr.appendChild(td);
+  anchorRow.parentNode.insertBefore(tr, anchorRow.nextSibling);
+  return tr;
+}
+
+function syncDiffCommentSpacerHeights(wrapper) {
+  if (!wrapper) return false;
+  var sides = wrapper.querySelectorAll('.d2h-file-side-diff');
+  if (sides.length < 2) return false;
+  var oldSpacers = {};
+  sides[0].querySelectorAll('.mc-comment-spacer-row').forEach(function (row) {
+    oldSpacers[row.dataset.commentSlot || ''] = row;
+  });
+  var changed = false;
+  sides[sides.length - 1].querySelectorAll('.mc-comment-row[data-comment-slot]').forEach(function (row) {
+    var peer = oldSpacers[row.dataset.commentSlot || ''];
+    var spacer = peer && peer.querySelector('.mc-comment-spacer');
+    if (!spacer) return;
+    var rect = row.getBoundingClientRect();
+    var height = Math.max(Number(rect.height) || 0, Number(row.offsetHeight) || 0);
+    if (!height) return; // jsdom/hidden wrapper: the next visible layout pass will provide a real height.
+    var next = Math.ceil(height * 100) / 100;
+    if (Math.abs((parseFloat(spacer.style.height) || 0) - next) <= 0.25) return;
+    spacer.style.height = next + 'px';
+    changed = true;
+  });
+  return changed;
 }
 
 function renderDiffComments() {
   var container = document.getElementById('diff2html-container');
-  if (!container) return;
-  container.querySelectorAll('.mc-comment-row').forEach(function (r) { r.remove(); });
+  if (!container) return [];
+  var affected = [];
+  var remember = function (wrapper) {
+    if (wrapper && affected.indexOf(wrapper) < 0) affected.push(wrapper);
+  };
+  var commentsByPath = {};
+  reviewComments.forEach(function (comment) {
+    (commentsByPath[comment.path] || (commentsByPath[comment.path] = [])).push(comment);
+  });
   container.querySelectorAll('.d2h-file-wrapper').forEach(function (w) {
     var nameEl = w.querySelector('.d2h-file-name');
     var path = (nameEl && nameEl.textContent ? nameEl.textContent : '').trim();
     if (!path) return;
+    var pathComments = commentsByPath[path] || [];
+    var activeComposer = composerState && composerState.path === path ? composerState : null;
+    var renderKey = JSON.stringify({
+      comments: pathComments.map(function (comment) {
+        return [comment.seq, comment.kind, comment.line, comment.from, comment.to, comment.text];
+      }),
+      composer: activeComposer
+        ? [activeComposer.kind, activeComposer.line, activeComposer.from, activeComposer.to, activeComposer.editSeq, activeComposer.editText || '']
+        : null,
+    });
     var lines = relevantLines(path);
+    var existingRows = w.querySelectorAll('.mc-comment-row');
+    var existingSpacers = w.querySelectorAll('.mc-comment-spacer-row');
+    // A watch/lazy body swap can remove rows without changing comment data. Count expected timeline slots as
+    // part of the cache validity check so that a newly materialized table still receives its comments.
+    if (w.__mcDiffCommentRenderKey === renderKey && existingRows.length === lines.length && existingSpacers.length === lines.length) return;
+    w.__mcDiffCommentRenderKey = renderKey;
+    if (!lines.length && !existingRows.length && !existingSpacers.length) return;
+    w.querySelectorAll('.mc-comment-row, .mc-comment-spacer-row').forEach(function (row) { row.remove(); });
+    remember(w);
     if (!lines.length) return;
     var sides = w.querySelectorAll('.d2h-file-side-diff');
     var right = sides[sides.length - 1];
-    if (!right) return;
-    var rows = right.querySelectorAll('tr');
+    var left = sides[0];
+    if (!right || !left || right === left) return;
+    var rows = Array.prototype.slice.call(right.querySelectorAll('tr')).filter(function (row) {
+      return !row.classList.contains('mc-comment-row') && !row.classList.contains('mc-spacer-row');
+    });
+    var leftRows = Array.prototype.slice.call(left.querySelectorAll('tr')).filter(function (row) {
+      return !row.classList.contains('mc-comment-row') && !row.classList.contains('mc-spacer-row');
+    });
     lines.forEach(function (line) {
       for (var i = 0; i < rows.length; i++) {
         var num = rows[i].querySelector('.d2h-code-side-linenumber');
-        if (num && (num.textContent || '').trim() === String(line)) { injectThreadRow(rows[i], path, line); break; }
+        if (num && (num.textContent || '').trim() === String(line)) {
+          var commentRow = injectThreadRow(rows[i], path, line);
+          if (commentRow) commentRow.dataset.commentSlot = String(line);
+          if (leftRows[i]) injectDiffCommentSpacer(leftRows[i], line);
+          break;
+        }
       }
     });
+    syncDiffCommentSpacerHeights(w);
   });
+  return affected;
 }
 
 function renderSourceComments() {
@@ -325,7 +408,22 @@ function applyCommentSelectionHighlight() {
   }
 }
 function refreshComments() {
-  renderDiffComments();
+  var changedDiffWrappers = renderDiffComments();
+  // Reproject ONLY wrappers whose comment rows changed. The previous all-files loop measured every row in
+  // every materialized diff on each keystroke/save/cancel, which became severe UI jank in large reviews.
+  changedDiffWrappers.forEach(function (wrapper) {
+    if (!wrapper.querySelector('.mc-layered-diff-side')) return;
+    syncDiffCommentSpacerHeights(wrapper);
+    invalidateAsymmetricDiffGeometry(wrapper);
+    if (wrapper === (typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null)) {
+      refreshLayeredDiffGutters(wrapper);
+    } else {
+      scheduleLayeredDiffGutters(wrapper);
+    }
+  });
+  // A removed comment must not leave the previous base transform or connector geometry on screen until the
+  // next user scroll. Recompute the active timeline in this same update, after both pane heights match.
+  if (changedDiffWrappers.length && typeof scrollAsymmetricDiff === 'function') scrollAsymmetricDiff();
   if (isSourceViewerVisible()) renderSourceComments();
   renderCommentBadges();
   if (typeof isMonacoSourceActive === 'function' && isMonacoSourceActive() && window.monaco) {
@@ -477,6 +575,69 @@ function navigateToComment(seq) {
   openSourceFile(c.path);
   requestAnimationFrame(function () { setSourceCursor(c.path, Math.max(0, (Number(c.from) || c.line || 1) - 1), 0, true, -1); });
 }
+
+// The merged prompt is an editable projection of the review comments. Its level-three location headings are
+// stable identities, so editing the prose below one updates the original comment and removing a section (or
+// leaving its body empty) removes the original comment. Agent-contract prose above the review section stays a
+// free-form, copy-only part of the merged document.
+function mergedCommentSections(kind, markdown) {
+  var items = reviewComments.filter(function (comment) { return comment.kind === kind; });
+  var byLabel = {};
+  items.forEach(function (comment) {
+    var label = commentTargetLabel(comment);
+    if (!byLabel[label]) byLabel[label] = [];
+    byLabel[label].push(comment);
+  });
+  var lines = String(markdown || '').replace(/\r\n?/g, '\n').split('\n');
+  var sections = [];
+  lines.forEach(function (line, index) {
+    var match = /^###\s+(.+?)\s*$/.exec(line);
+    // The production Tiptap editor returns Markdown. The lightweight browser/test fallback can return
+    // rendered plain text, so accept the exact visible location label too; arbitrary prose cannot match.
+    var label = match ? match[1] : line.trim();
+    var queue = byLabel[label];
+    if (!queue || !queue.length) return;
+    sections.push({ comment: queue.shift(), startLine: index, endLine: lines.length, text: '' });
+  });
+  sections.forEach(function (section, index) {
+    section.endLine = sections[index + 1] ? sections[index + 1].startLine : lines.length;
+    section.text = lines.slice(section.startLine + 1, section.endLine).join('\n').trim();
+  });
+  return { lines: lines, sections: sections };
+}
+
+function reconcileMergedComments(kind, markdown) {
+  var items = reviewComments.filter(function (comment) { return comment.kind === kind; });
+  if (!items.length) return { changed: false, hadComments: false, remaining: 0 };
+  var parsed = mergedCommentSections(kind, markdown);
+  var textBySeq = {};
+  parsed.sections.forEach(function (section) { textBySeq[section.comment.seq] = section.text; });
+  var removed = {};
+  var changed = false;
+  items.forEach(function (comment) {
+    var nextText = textBySeq[comment.seq];
+    if (typeof nextText !== 'string' || !nextText) { removed[comment.seq] = true; changed = true; return; }
+    if (comment.text !== nextText) { comment.text = nextText; changed = true; }
+  });
+  if (Object.keys(removed).length) {
+    reviewComments = reviewComments.filter(function (comment) { return !removed[comment.seq]; });
+  }
+  if (changed) { saveComments(); refreshComments(); }
+  return {
+    changed: changed,
+    hadComments: true,
+    remaining: reviewComments.filter(function (comment) { return comment.kind === kind; }).length,
+  };
+}
+
+function removeMergedCommentSection(kind, markdown, seq) {
+  var parsed = mergedCommentSections(kind, markdown);
+  var section = parsed.sections.find(function (candidate) { return candidate.comment.seq === seq; });
+  if (!section) return String(markdown || '');
+  parsed.lines.splice(section.startLine, section.endLine - section.startLine);
+  return parsed.lines.join('\n').replace(/\n{3,}$/g, '\n\n');
+}
+
 function buildMergedText(kind) {
   var items = reviewComments.filter(function (c) { return c.kind === kind; });
   var nl = String.fromCharCode(10);
@@ -488,7 +649,7 @@ function buildMergedText(kind) {
   // Per-kind agent contract heading (editable in Settings → Merge prompts; default otherwise).
   lines.push(mergePromptFor(kind));
   lines.push('');
-  lines.push((kind === 'q' ? t('merged.qHeading') : t('merged.cHeading')) + ' (' + items.length + ')');
+  lines.push(kind === 'q' ? t('merged.qHeading') : t('merged.cHeading'));
   lines.push('');
   items.forEach(function (c) {
     lines.push('### ' + commentTargetLabel(c));

@@ -52,6 +52,39 @@ test("two Shifts on DIFFERENT sides do not open quick-open", async () => {
   v.close();
 });
 
+test("file quick-open waits for a query and hydrates the selected lazy preview", async () => {
+  const { html: lazyHtml, build } = await makeReviewHtml([
+    {
+      path: "src/anchor.ts",
+      before: "export const anchor = 1;\n",
+      after: "export const anchor = 2;\n",
+    },
+    {
+      path: "AGENTS.md",
+      before: "# Review rules\n\nTrust but verify every change.\n",
+      after: "# Review rules\n\nTrust but verify every change.\n",
+    },
+  ], { lazyLoad: true });
+  const v = await loadViewer(lazyHtml, { lazySourceData: build.lazySourceData });
+
+  v.key("Shift", { location: 1 });
+  v.key("Shift", { location: 1 });
+  await v.settle(20);
+  assert.equal(v.$all("#quick-open-results .quick-open-item").length, 0, "an empty file query does not dump the project file list");
+  assert.match(v.$("#quick-open-results").textContent, /Type a file name to search/);
+  assert.equal(v.$("#quick-open-preview").textContent, "", "there is no arbitrary preview before a query");
+  assert.equal(v.window.getComputedStyle(v.$("#quick-open-preview")).display, "none", "the empty preview area consumes no space");
+  assert.equal(v.window.__projectIndexRequests, 0, "opening an untouched search does not load the project index");
+
+  v.typeInto(v.$("#quick-open-input"), "AGENTS");
+  await v.settle(180);
+  assert.equal(v.window.__projectIndexRequests, 1, "the first real query loads deferred project files once");
+  assert.equal(v.$all("#quick-open-results .quick-open-item").length, 1, "the matching file appears after typing");
+  assert.deepEqual(v.window.__sourceRequests, ["AGENTS.md"], "preview fetches the selected file body on demand");
+  assert.match(v.$("#quick-open-preview").textContent, /Trust but verify every change/, "the hydrated preview shows real file content");
+  v.close();
+});
+
 // Recent files (Cmd/Ctrl+E) is just the latest files — no search box. IntelliJ-style speed search: typed
 // letters narrow the list in place, Backspace deletes, Esc clears the filter (then closes).
 test("Recent files hides the search box and filters by typed letters (speed search)", async () => {
