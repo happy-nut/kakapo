@@ -418,7 +418,9 @@ quickInput?.addEventListener('input', () => renderQuickOpenResults());
 quickResults?.addEventListener('mousemove', (event) => {
   const item = event.target.closest?.('.quick-open-item');
   if (!item) return;
-  quickActive = Number(item.dataset.index || 0);
+  const next = Number(item.dataset.index || 0);
+  if (next === quickActive) return;
+  quickActive = next;
   updateQuickActive();
 });
 quickResults?.addEventListener('click', (event) => {
@@ -586,6 +588,24 @@ document.addEventListener('copy', handleSourceCopy);
       if (owner && !owner.isConnected) hide();
     }).observe(document.body, { childList: true, subtree: true });
   }
+})();
+
+// Chromium's custom scrollbar styling disables macOS' native overlay fade. Restore that behavior for
+// every current and future scroll surface without changing its reserved gutter (which would shift code).
+(function installAutoHidingScrollbars() {
+  var idleTimers = new WeakMap();
+  var idleMs = 900;
+  document.addEventListener('scroll', function (event) {
+    var target = event.target === document ? document.documentElement : event.target;
+    if (!target || !target.classList) return;
+    target.classList.add('mc-scroll-active');
+    var previous = idleTimers.get(target);
+    if (previous) clearTimeout(previous);
+    idleTimers.set(target, setTimeout(function () {
+      target.classList.remove('mc-scroll-active');
+      idleTimers.delete(target);
+    }, idleMs));
+  }, { capture: true, passive: true });
 })();
 
 applyI18n(); // first paint already shows English (inline); this swaps to the saved locale before the rest of init renders dynamic text

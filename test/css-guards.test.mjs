@@ -46,6 +46,24 @@ test("a focused dock / settings overlay hides the file's blinking caret beneath 
   assert.match(css, /body:has\(#settings-modal:not\(\.hidden\)\)\s*\.code-cursor/, "settings overlay covered");
 });
 
+test("current-file find stays beneath modal dim layers", () => {
+  const fileFind = ruleBodyForExactSelector(".file-find");
+  const quickOpen = ruleBodyForExactSelector(".quick-open");
+  assert.match(fileFind || "", /z-index:\s*45\b/, "the current-file search remains editor chrome, not a modal");
+  assert.match(quickOpen || "", /z-index:\s*50\b/, "Quick Open's dim backdrop paints above current-file search");
+});
+
+test("scrollbar thumbs remain layout-stable but only paint while scrolling", () => {
+  const gutter = ruleBodyContaining("::-webkit-scrollbar");
+  const thumb = ruleBodyForExactSelector("::-webkit-scrollbar-thumb");
+  const activeThumb = ruleBodyForExactSelector(".mc-scroll-active::-webkit-scrollbar-thumb");
+  assert.match(gutter || "", /width:\s*9px/, "hiding the thumb keeps a fixed scrollbar gutter so content never shifts");
+  assert.match(gutter || "", /height:\s*9px/, "horizontal scroll surfaces keep the same reserved gutter too");
+  assert.match(thumb || "", /background-color:\s*transparent/, "an idle scrollbar hides its thumb without removing its gutter");
+  assert.match(thumb || "", /transition:\s*background-color\s+180ms/, "the thumb fades instead of disappearing abruptly");
+  assert.match(activeThumb || "", /background-color:\s*color-mix/, "active scrolling reveals the thumb");
+});
+
 test("the comment composer textarea restores its own caret (not transparent-inherited from the diff)", () => {
   // .mc-input is injected INSIDE #diff2html-container, which sets caret-color: transparent (the file view
   // uses a fake .code-cursor). caret-color inherits, so .mc-input must restore it — a focused textarea must
@@ -167,13 +185,16 @@ test("panel focus is a brief shared flash instead of a persistent native outline
   assert.match(css, /\[data-mc-focus-panel\]:focus\s*\{[^}]*outline:\s*none/, "a stale DOM-focused scroller cannot keep a permanent blue rectangle");
   assert.match(css, /\.mc-panel-focus-flash\s*\{[^}]*animation:\s*mc-panel-focus-flash\s+520ms/, "every panel uses the same roughly half-second focus flash");
   assert.match(css, /@keyframes\s+mc-panel-focus-flash\s*\{[\s\S]{0,240}100%\s*\{[^}]*outline-color:\s*transparent/, "the focus effect fades completely away");
+  assert.match(css, /\.history-list\.mc-panel-focus-flash\s*\{[^}]*outline:\s*0;[^}]*animation:\s*mc-history-list-focus-flash/, "history focus does not draw over the activity-rail boundary");
+  assert.match(css, /@keyframes\s+mc-history-list-focus-flash\s*\{[\s\S]{0,520}inset\s+-2px\s+0[\s\S]{0,300}100%\s*\{[^}]*box-shadow:\s*inset\s+0\s+0\s+transparent/, "history keeps a three-sided focus cue that fades without a left edge");
   assert.match(css, /body\.native-app \.sidebar\.mc-panel-focus-flash::after\s*\{[^}]*top:\s*var\(--native-titlebar-height\)/, "the sidebar cue starts below the macOS traffic lights");
   assert.match(css, /body\.native-app \.activity-rail\.mc-panel-focus-flash\s*\{[^}]*outline:\s*0/, "the activity rail never outlines the traffic-light strip");
 });
 
 test("history commit details reserve the canvas for code until the message is expanded", () => {
   assert.match(css, /\.history-detail-head\s*\{[^}]*align-items:\s*flex-start[^}]*min-height:\s*62px[^}]*padding:\s*8px 10px 8px 14px/, "the default commit header is compact and its actions share one top edge");
-  assert.match(css, /\.history-detail-close,\s*\.history-message-toggle\s*\{[^}]*place-items:\s*center[^}]*width:\s*24px[^}]*height:\s*24px/, "history disclosure and close controls share the same box and centerline");
+  assert.match(css, /\.history-detail-close,\s*\.history-message-toggle\s*\{[^}]*place-items:\s*center[^}]*width:\s*26px[^}]*height:\s*26px/, "history disclosure and close controls share the same box and centerline");
+  assert.match(css, /\.history-detail-close svg,\s*\.history-message-toggle svg\s*\{[^}]*width:\s*15px[^}]*height:\s*15px/, "history actions use equal-sized baseline-stable icons");
   assert.match(css, /\.history-detail-head \.dock-btn:hover\s*\{[^}]*transform:\s*none/, "hover does not introduce a one-pixel action-button step");
   assert.match(css, /\.hd-body\s*\{[^}]*display:\s*none[^}]*max-height:\s*min\(24vh, 240px\)/, "long commit bodies are collapsed and bounded");
   assert.match(css, /\.history-detail-head\.message-expanded \.hd-body\s*\{[^}]*display:\s*block/, "the full message remains explicitly expandable");

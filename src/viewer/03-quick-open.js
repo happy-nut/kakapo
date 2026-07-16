@@ -1,4 +1,8 @@
 var quickPreviewSeq = 0;
+var quickPreviewState = null;
+var quickPreviewScrollFrame = 0;
+var QUICK_PREVIEW_RADIUS = 60;
+var QUICK_PREVIEW_CHUNK = 120;
 
 function openQuickOpen(mode) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
@@ -35,6 +39,9 @@ function updateRecentFilterDisplay() {
 
 function closeQuickOpen() {
   quickOpen?.classList.add('hidden');
+  quickPreviewState = null;
+  if (quickPreviewScrollFrame) cancelAnimationFrame(quickPreviewScrollFrame);
+  quickPreviewScrollFrame = 0;
 }
 
 function handleQuickOpenKey(event) {
@@ -341,6 +348,7 @@ function renderQuickPreview(item) {
   const preview = document.getElementById('quick-open-preview');
   if (!preview) return;
   const previewSeq = ++quickPreviewSeq;
+  quickPreviewState = null;
   if (!item) { preview.innerHTML = ''; return; }
   const file = sourceByPath.get(item.path);
   if (!file || !file.embedded) {
@@ -368,21 +376,70 @@ function renderQuickPreview(item) {
   const query = ((quickInput && quickInput.value) || '').trim().toLowerCase();
   const lines = file.content.split(/\r?\n/);
   const focusLine = item.kind === 'search' || item.kind === 'symbol' ? item.lineIndex : -1;
-  const firstLine = focusLine >= 0 ? Math.max(0, focusLine - 7) : 0;
-  const lastLine = focusLine >= 0 ? Math.min(lines.length, focusLine + 8) : lines.length;
+  const firstLine = focusLine >= 0 ? Math.max(0, focusLine - QUICK_PREVIEW_RADIUS) : 0;
+  const lastLine = focusLine >= 0
+    ? Math.min(lines.length, focusLine + QUICK_PREVIEW_RADIUS + 1)
+    : Math.min(lines.length, QUICK_PREVIEW_CHUNK);
+  quickPreviewState = {
+    seq: previewSeq,
+    path: item.path,
+    language: file.language || 'text',
+    lines: lines,
+    query: query,
+    focusLine: focusLine,
+    start: firstLine,
+    end: lastLine,
+  };
+  paintQuickPreviewWindow(preview, quickPreviewState, 'focus');
+}
+
+function paintQuickPreviewWindow(preview, state, scrollMode) {
+  if (!preview || !state || state !== quickPreviewState) return;
+  const oldTop = preview.scrollTop;
+  const oldHeight = preview.scrollHeight;
   let firstHit = -1;
-  const rows = lines.slice(firstLine, lastLine).map((line, offset) => {
-    const i = firstLine + offset;
-    const hit = focusLine >= 0 ? i === focusLine : query.length > 0 && line.toLowerCase().includes(query);
+  const rows = state.lines.slice(state.start, state.end).map((line, offset) => {
+    const i = state.start + offset;
+    const hit = state.focusLine >= 0 ? i === state.focusLine : state.query.length > 0 && line.toLowerCase().includes(state.query);
     if (hit && firstHit < 0) firstHit = i;
-    return '<div class="qp-line' + (hit ? ' qp-hit' : '') + '"><span class="qp-num">' + (i + 1) + '</span><span class="qp-code">' + highlightLine(line, file.language || 'text') + '</span></div>';
+    return '<div class="qp-line' + (hit ? ' qp-hit' : '') + '" data-line-index="' + i + '"><span class="qp-num">' + (i + 1) + '</span><span class="qp-code">' + highlightLine(line, state.language) + '</span></div>';
   }).join('');
-  preview.innerHTML = '<div class="qp-head">' + escapeHtml(item.path) + '</div><div class="qp-body">' + rows + '</div>';
-  if (firstHit >= 0) {
-    const target = preview.querySelectorAll('.qp-line')[Math.max(0, firstHit - firstLine)];
-    if (target) target.scrollIntoView({ block: 'center' });
+  preview.innerHTML = '<div class="qp-head">' + escapeHtml(state.path) + '</div><div class="qp-body">' + rows + '</div>';
+  if (scrollMode === 'prepend') {
+    preview.scrollTop = oldTop + Math.max(0, preview.scrollHeight - oldHeight);
+  } else if (scrollMode === 'preserve') {
+    preview.scrollTop = oldTop;
+  } else if (scrollMode === 'focus' && firstHit >= 0) {
+    requestAnimationFrame(function () {
+      if (state !== quickPreviewState || !preview.isConnected) return;
+      const target = preview.querySelector('.qp-line[data-line-index="' + firstHit + '"]');
+      if (!target || !preview.clientHeight) return;
+      const head = preview.querySelector('.qp-head');
+      const headHeight = head ? head.offsetHeight : 0;
+      const available = Math.max(0, preview.clientHeight - headHeight - target.offsetHeight);
+      preview.scrollTop = Math.max(0, target.offsetTop - headHeight - available / 2);
+    });
   }
 }
+
+function handleQuickPreviewScroll(event) {
+  const preview = event.currentTarget;
+  if (!quickPreviewState || !preview || quickPreviewScrollFrame) return;
+  quickPreviewScrollFrame = requestAnimationFrame(function () {
+    quickPreviewScrollFrame = 0;
+    const state = quickPreviewState;
+    if (!state || !preview.isConnected || preview.scrollHeight <= preview.clientHeight) return;
+    const nearTop = preview.scrollTop <= 56 && state.start > 0;
+    const nearBottom = preview.scrollTop + preview.clientHeight >= preview.scrollHeight - 72
+      && state.end < state.lines.length;
+    if (!nearTop && !nearBottom) return;
+    if (nearTop) state.start = Math.max(0, state.start - QUICK_PREVIEW_CHUNK);
+    if (nearBottom) state.end = Math.min(state.lines.length, state.end + QUICK_PREVIEW_CHUNK);
+    paintQuickPreviewWindow(preview, state, nearTop ? 'prepend' : 'preserve');
+  });
+}
+
+document.getElementById('quick-open-preview')?.addEventListener('scroll', handleQuickPreviewScroll, { passive: true });
 
 function openQuickItem(item) {
   if (!item) return;

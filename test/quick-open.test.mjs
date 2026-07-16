@@ -187,3 +187,52 @@ test("Find in Files falls back locally and returns every occurrence when rg is u
   assert.equal(v.$("#quick-open-filter").textContent, "3 results · local");
   v.close();
 });
+
+test("Find in Files preview incrementally reveals surrounding code while scrolling", async () => {
+  const lines = Array.from({ length: 400 }, (_, index) => index === 199 ? "const needle = 200;" : `const line_${index + 1} = ${index + 1};`);
+  const { html: searchable } = await makeReviewHtml([
+    { path: "src/long.ts", before: lines.join("\n").replace("needle", "oldValue") + "\n", after: lines.join("\n") + "\n" },
+  ]);
+  const v = await loadViewer(searchable, {
+    searchBridge() {
+      return {
+        available: true,
+        engine: "ripgrep",
+        truncated: false,
+        matches: [{ path: "src/long.ts", line: 200, column: 7, endColumn: 13, text: "const needle = 200;", matchText: "needle" }],
+      };
+    },
+  });
+
+  v.key("f", { metaKey: true, shiftKey: true, code: "KeyF" });
+  v.typeInto(v.$("#quick-open-input"), "needle");
+  await v.settle(180);
+  const preview = v.$("#quick-open-preview");
+  const visibleNumbers = () => v.$all("#quick-open-preview .qp-num").map((node) => Number(node.textContent));
+  assert.equal(visibleNumbers()[0], 140, "the initial window starts well above the selected line");
+  assert.equal(visibleNumbers().at(-1), 260, "the initial window continues well below the selected line");
+
+  Object.defineProperties(preview, {
+    clientHeight: { configurable: true, value: 200 },
+    scrollHeight: {
+      configurable: true,
+      get() { return v.$all("#quick-open-preview .qp-line").length * 18 + 24; },
+    },
+  });
+  preview.scrollTop = preview.scrollHeight - preview.clientHeight;
+  preview.dispatchEvent(new v.window.Event("scroll"));
+  await v.settle(40);
+  assert.equal(visibleNumbers().at(-1), 380, "scrolling near the edge appends the next surrounding-code chunk");
+
+  const heightBeforePrepend = preview.scrollHeight;
+  preview.scrollTop = 0;
+  preview.dispatchEvent(new v.window.Event("scroll"));
+  await v.settle(40);
+  assert.equal(visibleNumbers()[0], 20, "scrolling upward prepends the preceding surrounding-code chunk");
+  assert.equal(
+    preview.scrollTop,
+    preview.scrollHeight - heightBeforePrepend,
+    "prepending preserves the visible code anchor instead of jumping to the new first line",
+  );
+  v.close();
+});

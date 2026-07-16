@@ -10,7 +10,13 @@ var fileFindResults = [];
 var fileFindActive = -1;
 var fileFindRevision = 0;
 var fileFindRestoreFocus = null;
+var fileFindRefreshTimer = 0;
+var fileFindHighlightFrame = 0;
+var fileFindHighlightedRows = [];
 var FILE_FIND_LIMIT = 5000;
+var FILE_FIND_DEBOUNCE_MS = 90;
+var FILE_FIND_HIGHLIGHT_LIMIT = 200;
+var FILE_FIND_SHORT_QUERY_HIGHLIGHT_LIMIT = 48;
 
 function isFileFindOpen() {
   return Boolean(fileFindPanel && !fileFindPanel.classList.contains('hidden'));
@@ -41,9 +47,10 @@ function positionFileFind() {
 }
 
 function clearFileFindHighlights() {
-  document.querySelectorAll('.file-find-row-match, .file-find-row-active').forEach(function (row) {
+  fileFindHighlightedRows.forEach(function (row) {
     row.classList.remove('file-find-row-match', 'file-find-row-active');
   });
+  fileFindHighlightedRows = [];
   try {
     if (window.CSS && CSS.highlights) {
       CSS.highlights.delete('monacori-file-find');
@@ -100,10 +107,20 @@ function applyFileFindHighlights() {
   if (!fileFindResults.length || !fileFindInput?.value) return;
   var query = fileFindInput.value.toLocaleLowerCase();
   var allRanges = [], activeRanges = [];
-  fileFindResults.forEach(function (result, index) {
+  var rowSet = new Set();
+  var limit = query.length < 2 ? FILE_FIND_SHORT_QUERY_HIGHLIGHT_LIMIT : FILE_FIND_HIGHLIGHT_LIMIT;
+  var indexes = [];
+  for (var i = 0; i < Math.min(fileFindResults.length, limit); i++) indexes.push(i);
+  if (fileFindActive >= limit) indexes.push(fileFindActive);
+  indexes.forEach(function (index) {
+    var result = fileFindResults[index];
     var container = fileFindResultContainer(result);
     var row = result.kind === 'diff' ? result.row : sourceFindRow(result.lineIndex);
-    if (row) row.classList.add('file-find-row-match');
+    if (row && !rowSet.has(row)) {
+      rowSet.add(row);
+      fileFindHighlightedRows.push(row);
+      row.classList.add('file-find-row-match');
+    }
     if (index === fileFindActive && row) row.classList.add('file-find-row-active');
     if (!container) return;
     var shown = (container.textContent || '').toLocaleLowerCase();
@@ -121,6 +138,14 @@ function applyFileFindHighlights() {
       CSS.highlights.set('monacori-file-find-active', new window.Highlight(...activeRanges));
     }
   } catch (e) {}
+}
+
+function scheduleFileFindHighlights() {
+  if (fileFindHighlightFrame) cancelAnimationFrame(fileFindHighlightFrame);
+  fileFindHighlightFrame = requestAnimationFrame(function () {
+    fileFindHighlightFrame = 0;
+    applyFileFindHighlights();
+  });
 }
 
 function updateFileFindChrome() {
@@ -164,7 +189,9 @@ function collectDiffFindResults(wrapper, query) {
   var path = wrapper ? diffWrapperPathKey(wrapper) : '';
   // Imports are initially folded when unchanged. Searching the current file must still include them;
   // opening the paired marker restores the original rows on both panes before collecting occurrences.
-  var importFold = wrapper && wrapper.querySelector('.mc-import-fold-row');
+  // A one-character query can match nearly every import and should not mutate the diff while the user is
+  // still typing. Once the query is meaningful, restore imports so their contents remain searchable.
+  var importFold = query.length >= 2 && wrapper && wrapper.querySelector('.mc-import-fold-row');
   if (importFold) openDiffImportFold(importFold);
   ['old', 'new'].some(function (side) {
     var rows = diffRowsOf(diffSideTable(wrapper, side));
@@ -179,9 +206,9 @@ function collectDiffFindResults(wrapper, query) {
   return results;
 }
 
-function finishFileFindResults(revision, results, preserveActive) {
+function finishFileFindResults(revision, results, options) {
   if (revision !== fileFindRevision || !isFileFindOpen()) return;
-  var previous = preserveActive && fileFindResults[fileFindActive];
+  var previous = options && options.preserveActive && fileFindResults[fileFindActive];
   fileFindResults = results;
   fileFindActive = results.length ? 0 : -1;
   if (previous) {
@@ -194,23 +221,53 @@ function finishFileFindResults(revision, results, preserveActive) {
     if (same >= 0) fileFindActive = same;
   }
   updateFileFindChrome();
-  applyFileFindHighlights();
+  if (results.length && options && options.revealFirst) revealFileFindResult(fileFindActive);
+  else scheduleFileFindHighlights();
 }
 
 function refreshFileFindResults(options) {
   if (!isFileFindOpen()) return;
   var revision = ++fileFindRevision;
   var query = String(fileFindInput?.value || '').toLocaleLowerCase();
-  if (!query) { finishFileFindResults(revision, [], false); return; }
+  if (!query) { finishFileFindResults(revision, [], options); return; }
   if (isSourceViewerVisible()) {
-    finishFileFindResults(revision, collectSourceFindResults(query), Boolean(options && options.preserveActive));
+    finishFileFindResults(revision, collectSourceFindResults(query), options);
     return;
   }
   var wrapper = diffActiveWrapper();
-  if (!wrapper) { finishFileFindResults(revision, [], false); return; }
+  if (!wrapper) { finishFileFindResults(revision, [], options); return; }
   whenFileReady(wrapper, function () {
-    finishFileFindResults(revision, collectDiffFindResults(wrapper, query), Boolean(options && options.preserveActive));
+    finishFileFindResults(revision, collectDiffFindResults(wrapper, query), options);
   });
+}
+
+function cancelScheduledFileFindRefresh() {
+  if (!fileFindRefreshTimer) return;
+  clearTimeout(fileFindRefreshTimer);
+  fileFindRefreshTimer = 0;
+}
+
+function scheduleFileFindRefresh(options) {
+  cancelScheduledFileFindRefresh();
+  var revision = ++fileFindRevision;
+  clearFileFindHighlights();
+  fileFindResults = [];
+  fileFindActive = -1;
+  if (!fileFindInput?.value) {
+    refreshFileFindResults(options);
+    return;
+  }
+  if (fileFindCount) {
+    fileFindCount.classList.remove('is-empty');
+    fileFindCount.textContent = '…';
+  }
+  if (fileFindPrev) fileFindPrev.disabled = true;
+  if (fileFindNext) fileFindNext.disabled = true;
+  fileFindRefreshTimer = setTimeout(function () {
+    fileFindRefreshTimer = 0;
+    if (revision !== fileFindRevision || !isFileFindOpen()) return;
+    refreshFileFindResults(options);
+  }, FILE_FIND_DEBOUNCE_MS);
 }
 
 function expandSourceFindResult(result) {
@@ -237,14 +294,12 @@ function revealFileFindResult(index) {
   var result = fileFindResults[fileFindActive];
   if (result.kind === 'diff') {
     setDiffCursor(result.path, result.side, result.rowIndex, result.column, true);
-    requestAnimationFrame(applyFileFindHighlights);
   } else {
     expandSourceFindResult(result);
     setSourceCursor(result.path, result.lineIndex, result.column, true, result.lineIndex);
-    requestAnimationFrame(applyFileFindHighlights);
   }
   updateFileFindChrome();
-  applyFileFindHighlights();
+  scheduleFileFindHighlights();
 }
 
 function stepFileFind(direction) {
@@ -257,7 +312,8 @@ function openFileFind() {
   if (!isFileFindOpen()) fileFindRestoreFocus = document.activeElement;
   fileFindPanel.classList.remove('hidden');
   positionFileFind();
-  refreshFileFindResults({ preserveActive: true });
+  if (fileFindInput.value) scheduleFileFindRefresh({ preserveActive: true });
+  else refreshFileFindResults({ preserveActive: true });
   fileFindInput.focus({ preventScroll: true });
   fileFindInput.select();
   return true;
@@ -266,6 +322,9 @@ function openFileFind() {
 function closeFileFind(restoreFocus) {
   if (!fileFindPanel) return;
   fileFindRevision += 1;
+  cancelScheduledFileFindRefresh();
+  if (fileFindHighlightFrame) cancelAnimationFrame(fileFindHighlightFrame);
+  fileFindHighlightFrame = 0;
   fileFindPanel.classList.add('hidden');
   clearFileFindHighlights();
   fileFindResults = [];
@@ -280,7 +339,7 @@ function closeFileFind(restoreFocus) {
 function refreshFileFindForActiveView() {
   if (!isFileFindOpen()) return;
   positionFileFind();
-  refreshFileFindResults({ preserveActive: true });
+  scheduleFileFindRefresh({ preserveActive: true });
 }
 
 function fileFindBlockedByOverlay() {
@@ -314,8 +373,7 @@ function handleFileFindKey(event) {
 }
 
 fileFindInput?.addEventListener('input', function () {
-  refreshFileFindResults();
-  if (fileFindInput.value) requestAnimationFrame(function () { revealFileFindResult(0); });
+  scheduleFileFindRefresh({ revealFirst: true });
 });
 fileFindPrev?.addEventListener('click', function () { stepFileFind(-1); fileFindInput?.focus({ preventScroll: true }); });
 fileFindNext?.addEventListener('click', function () { stepFileFind(1); fileFindInput?.focus({ preventScroll: true }); });

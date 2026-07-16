@@ -27,7 +27,7 @@ test("Cmd+F searches only the open source file and Enter / Shift+Enter navigate 
   v.key("f", { metaKey: true, code: "KeyF" });
   assert.equal(v.document.activeElement, v.$("#file-find-input"));
   v.typeInto(v.$("#file-find-input"), "needle");
-  await v.settle(40);
+  await v.settle(130);
 
   const api = v.window.__monacoriFileFind;
   assert.equal(api.results().length, 3, "only the three matches in src/one.ts are included");
@@ -54,7 +54,7 @@ test("diff search stays inside the active file and covers Base and Working tree 
 
   v.key("f", { metaKey: true, code: "KeyF" });
   v.typeInto(v.$("#file-find-input"), "needle");
-  await v.settle(60);
+  await v.settle(140);
 
   const api = v.window.__monacoriFileFind;
   const results = api.results();
@@ -82,7 +82,7 @@ test("the single Review source view handles Cmd+F without an editor-mode toggle"
   v.key("f", { metaKey: true, code: "KeyF" });
   assert.equal(v.document.activeElement, v.$("#file-find-input"));
   v.typeInto(v.$("#file-find-input"), "value");
-  await v.settle(30);
+  await v.settle(130);
   assert.equal(v.$("#file-find-count").textContent, "1/1");
   assert.equal(v.window.__monacoMock.editors.length, 0, "search does not mount a second editor");
   v.close();
@@ -102,7 +102,7 @@ test("search reveals matches inside default-folded imports in File and Diff view
 
   v.key("f", { metaKey: true, code: "KeyF" });
   v.typeInto(v.$("#file-find-input"), "hiddenImport");
-  await v.settle(40);
+  await v.settle(130);
   assert.ok(v.$('#source-body .source-row[data-line-index="1"]'), "navigating the match opens its source fold");
   v.key("Escape");
 
@@ -110,8 +110,54 @@ test("search reveals matches inside default-folded imports in File and Diff view
   assert.ok(v.$(".mc-import-fold-row"), "the diff import region starts folded too");
   v.key("f", { metaKey: true, code: "KeyF" });
   v.typeInto(v.$("#file-find-input"), "hiddenImport");
-  await v.settle(50);
+  await v.settle(140);
   assert.equal(v.$(".mc-import-fold-row"), null, "diff search restores both import panes before matching");
   assert.equal(v.window.__monacoriFileFind.results().length, 2, "Base and Working tree each contain the import match");
+  v.close();
+});
+
+test("a broad one-character diff query stays responsive and limits painted highlights", async () => {
+  const lines = Array.from({ length: 300 }, (_, index) => `i i i i # ${index}`).join("\n") + "\n";
+  const { html: largeHtml } = await makeReviewHtml([
+    { path: "src/large.py", before: "", after: lines },
+  ]);
+  const v = await loadViewer(largeHtml);
+  await v.openDiffFor("src/large.py");
+
+  v.key("f", { metaKey: true, code: "KeyF" });
+  v.typeInto(v.$("#file-find-input"), "i");
+  assert.equal(v.window.__monacoriFileFind.results().length, 0, "input is not blocked by synchronous matching");
+  assert.equal(v.$("#file-find-count").textContent, "…");
+  await v.settle(160);
+
+  assert.equal(v.window.__monacoriFileFind.results().length, 1200, "navigation retains the complete result set");
+  assert.equal(v.$("#file-find-count").textContent, "1/1200");
+  assert.ok(v.$all(".file-find-row-match").length <= 48, "only a bounded set is painted into the DOM");
+  v.close();
+});
+
+test("continued typing cancels a pending broad query instead of publishing stale results", async () => {
+  const lines = [
+    "import target from './target';",
+    ...Array.from({ length: 240 }, (_, index) => `identifier_${index} = ${index}`),
+  ].join("\n") + "\n";
+  const { html: largeHtml } = await makeReviewHtml([
+    { path: "src/typing.js", before: "", after: lines },
+  ]);
+  const v = await loadViewer(largeHtml);
+  await v.openDiffFor("src/typing.js");
+
+  v.key("f", { metaKey: true, code: "KeyF" });
+  const input = v.$("#file-find-input");
+  v.typeInto(input, "i");
+  await v.settle(30);
+  v.typeInto(input, "import");
+  await v.settle(160);
+
+  const results = v.window.__monacoriFileFind.results();
+  assert.equal(input.value, "import");
+  assert.equal(results.length, 1, "the cancelled one-character search cannot overwrite the final query");
+  assert.match(results[0].row.textContent, /import target/);
+  assert.equal(v.$("#file-find-count").textContent, "1/1");
   v.close();
 });

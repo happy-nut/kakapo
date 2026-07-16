@@ -243,7 +243,7 @@ function renderHistoryDetail(d) {
   var subject = messageLines.shift() || '';
   var messageBody = messageLines.join('\n').trim();
   var messageToggle = messageBody
-    ? '<button type="button" id="history-message-toggle" class="dock-btn history-message-toggle" data-keyhint="M" data-tooltip="' + escapeHtml(t('history.showMessage')) + '" aria-expanded="false" aria-controls="history-message-body" aria-label="' + escapeHtml(t('history.showMessage')) + '"><span aria-hidden="true">⌄</span></button>'
+    ? '<button type="button" id="history-message-toggle" class="dock-btn history-message-toggle" data-keyhint="M" data-tooltip="' + escapeHtml(t('history.showMessage')) + '" aria-expanded="false" aria-controls="history-message-body" aria-label="' + escapeHtml(t('history.showMessage')) + '"><svg class="history-message-chevron" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6.25 8 10l4-3.75"/></svg></button>'
     : '';
   var head = '<div class="history-detail-head">'
     + '<div class="history-detail-copy"><div class="hd-summary"><div class="hd-subject" title="' + escapeHtml(subject) + '">' + escapeHtml(subject) + '</div>' + messageToggle + '</div>'
@@ -252,7 +252,7 @@ function renderHistoryDetail(d) {
     + '<span class="hd-author">' + escapeHtml(d.author) + (d.email ? ' &lt;' + escapeHtml(d.email) + '&gt;' : '') + '</span>'
     + '<span class="hd-date">' + escapeHtml(historyShortDate(d.date)) + '</span>'
     + historyRefBadges(d.refs) + '</div></div>'
-    + '<button type="button" id="history-detail-close" class="dock-btn history-detail-close" data-keyhint="Esc" aria-label="' + escapeHtml(t('history.close')) + '">&times;</button></div>';
+    + '<button type="button" id="history-detail-close" class="dock-btn history-detail-close" data-keyhint="Esc" aria-label="' + escapeHtml(t('history.close')) + '"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>';
   var body = (d.diffHtml && d.diffHtml.trim())
     ? '<div class="history-workspace"><aside id="history-files" class="history-files"></aside><div id="history-diff-container" class="history-diff diff2html-container" tabindex="0" aria-readonly="true">' + d.diffHtml + '</div></div>'
     : '<div class="quick-open-empty">' + escapeHtml(t(d.isMerge ? 'history.merge' : 'history.noDiff')) + '</div>';
@@ -274,8 +274,6 @@ function toggleHistoryCommitMessage(force) {
   button.setAttribute('aria-label', label);
   button.setAttribute('data-tooltip', label);
   body.setAttribute('aria-hidden', expanded ? 'false' : 'true');
-  var icon = button.querySelector('span');
-  if (icon) icon.textContent = expanded ? '⌃' : '⌄';
   return true;
 }
 
@@ -761,7 +759,8 @@ function handleHistoryKey(e) {
   if (e.key === 'F7' && !e.metaKey && !e.ctrlKey && !e.altKey) {
     e.preventDefault(); e.stopPropagation(); historyNextHunk(e.shiftKey ? -1 : 1); return true;
   }
-  if (!inSearch && isHistoryDetailOpen() && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === 'm' || e.key === 'M')) {
+  if (!inSearch && isHistoryDetailOpen() && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
+    && (e.code === 'KeyM' || e.key === 'm' || e.key === 'M')) {
     e.preventDefault(); e.stopPropagation(); toggleHistoryCommitMessage(); return true;
   }
   if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
@@ -806,9 +805,12 @@ function handleHistoryKey(e) {
   if (closeBtn) closeBtn.addEventListener('click', closeHistory);
   var view = document.getElementById('history-view');
   if (view) view.setAttribute('tabindex', '-1');
-  if (view) view.addEventListener('keydown', function (e) {
-    handleHistoryKey(e);
-  });
+  // The commit diff uses read-only logical carets and Chromium can leave native focus on a descendant (or
+  // even the document body after a render). Capture at document scope while History is open so its local
+  // shortcuts never depend on that incidental DOM focus. Handled keys stop propagation in handleHistoryKey.
+  document.addEventListener('keydown', function (e) {
+    if (isHistoryOpen()) handleHistoryKey(e);
+  }, true);
   var detail = document.getElementById('history-detail');
   if (detail) detail.addEventListener('click', function (e) {
     var close = e.target.closest && e.target.closest('#history-detail-close');

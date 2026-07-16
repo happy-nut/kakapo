@@ -242,10 +242,14 @@ test("long commit messages stay compact until explicitly expanded", async () => 
   const head = v.$("#history-detail .history-detail-head");
   const body = v.$("#history-message-body");
   const toggle = v.$("#history-message-toggle");
+  const close = v.$("#history-detail-close");
   assert.equal(v.$(".hd-subject").textContent, "newer commit", "only the commit subject occupies the fixed header");
   assert.match(body.textContent, /detailed rationale/, "the complete body remains available");
   assert.equal(v.window.getComputedStyle(body).display, "none", "the long body is collapsed by default");
   assert.equal(toggle.dataset.keyhint, "M", "the disclosure button exposes its keyboard shortcut");
+  assert.ok(toggle.querySelector("svg.history-message-chevron"), "the disclosure uses a baseline-stable SVG icon");
+  assert.ok(close.querySelector("svg"), "the close action uses the same SVG icon system");
+  assert.equal(v.window.getComputedStyle(toggle).height, v.window.getComputedStyle(close).height, "header actions share one button height");
   assert.ok(v.$("#history-diff-container .d2h-file-wrapper:not(.df-inactive)"), "the reclaimed space belongs to the code diff");
 
   v.click(toggle);
@@ -254,9 +258,13 @@ test("long commit messages stay compact until explicitly expanded", async () => 
   assert.equal(toggle.getAttribute("aria-expanded"), "true");
   assert.equal(v.window.getComputedStyle(body).display, "block");
 
-  v.key("m");
+  // History owns its keys even if Chromium left focus outside the floating detail. event.code keeps the
+  // physical M binding working under a Korean input source, where event.key is the Hangul glyph `ㅡ`.
+  v.document.body.dispatchEvent(new v.window.KeyboardEvent("keydown", {
+    key: "ㅡ", code: "KeyM", bubbles: true, cancelable: true,
+  }));
   await v.settle(20);
-  assert.equal(head.classList.contains("message-expanded"), false, "M collapses the message again");
+  assert.equal(head.classList.contains("message-expanded"), false, "physical M collapses the message regardless of DOM focus or input source");
   assert.equal(toggle.getAttribute("aria-expanded"), "false");
   v.close();
 });

@@ -1163,3 +1163,13 @@ test("caret scroll-off keeps a full 15% viewport margin at both edges", async ()
   assert.equal(scroller.scrollTop, 600, "bottom-edge caret is moved up to the 15% band");
   v.close();
 });
+
+test("scrollbars become visible during scrolling and hide again after idle", async () => {
+  const v = await loadViewer(html);
+  const scroller = v.$("#source-body");
+  scroller.dispatchEvent(new v.window.Event("scroll"));
+  assert.ok(scroller.classList.contains("mc-scroll-active"), "scroll activity reveals the thumb immediately");
+  await v.settle(1020);
+  assert.equal(scroller.classList.contains("mc-scroll-active"), false, "the thumb fades after the idle timeout");
+  v.close();
+});
