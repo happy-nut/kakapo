@@ -7,9 +7,9 @@ import { readOption } from "./util.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
-// monacori is a single command: open the desktop review app for the current repository. `mo` and
-// `monacori` (with or without flags) all do the same thing. `--cwd <path>` reviews another repo (used by
-// `npm run dev -- --cwd <path>`); `--no-watch` / `--foreground` are dev/internal knobs. `--help` prints help.
+// Kakapo is a single command: open the desktop review app for the current repository. `--cwd <path>`
+// reviews another repo (used by `npm run dev -- --cwd <path>`); `--no-watch` / `--foreground` are
+// development/internal knobs. `--help` prints help.
 export function main(): void {
   const rawArgs = process.argv.slice(2);
   try {
@@ -20,7 +20,7 @@ export function main(): void {
     launchReviewApp(rawArgs);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`monacori: ${message}`);
+    console.error(`kakapo: ${message}`);
     process.exit(1);
   }
 }
@@ -50,10 +50,10 @@ function launchReviewApp(args: string[]): void {
 
   ensureElectronRuntimeBranded();
   const electronBinary = resolveElectronBinary();
-  // In dev only (`npm run dev` sets MONACORI_DEV=1) announce which build is launching, so a local checkout
-  // is distinguishable from the installed package. Normal `mo` runs stay silent.
-  if (process.env.MONACORI_DEV === "1") {
-    console.error(`monacori: launching ${appMainPath()}`);
+  // In dev only (`npm run dev` sets KAKAPO_DEV=1) announce which build is launching, so a local checkout
+  // is distinguishable from the installed package. Normal `kakapo` runs stay silent.
+  if (process.env.KAKAPO_DEV === "1") {
+    console.error(`kakapo: launching ${appMainPath()}`);
   }
   if (args.includes("--foreground")) {
     const result = spawnSync(electronBinary, appArgs, { stdio: "inherit" });
@@ -62,7 +62,7 @@ function launchReviewApp(args: string[]): void {
 
   const child = spawn(electronBinary, appArgs, { detached: true, stdio: "ignore" });
   child.unref();
-  console.log("Opened monacori review app.");
+  console.log("Opened kakapo review app.");
 }
 
 type ElectronBrandDeps = {
@@ -111,10 +111,10 @@ function appMainPath(): string {
 }
 
 function printHelp(): void {
-  console.log(`monacori — desktop review app for AI-generated code changes.
+  console.log(`kakapo — desktop review app for AI-generated code changes.
 
 Usage:
-  mo            open the review app for the current repository
+  kakapo            open the review app for the current repository
 
 Diff review keys:
   F7 / Shift+F7     next / previous changed hunk

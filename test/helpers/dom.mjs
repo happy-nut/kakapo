@@ -73,7 +73,7 @@ export async function loadViewer(html, opts = {}) {
       // The production editor is a lazy Tiptap bundle served by Electron's private asset scheme. jsdom
       // cannot fetch that scheme, so dock tests use a tiny contract-compatible inline editor; a separate
       // bundle test loads the real Tiptap runtime and verifies Markdown round-tripping/heading rendering.
-      window.MonacoriMarkdownEditor = {
+      window.KakapoMarkdownEditor = {
         create({ element, markdown = "", onUpdate = () => {}, placeholder = "", className = "" }) {
           let value = String(markdown);
           const editable = window.document.createElement("div");
@@ -109,7 +109,7 @@ export async function loadViewer(html, opts = {}) {
         const frozen = deepFreeze(JSON.parse(JSON.stringify(opts.electronSettings)));
         const writes = {};
         window.__electronWrites = writes;
-        window.monacoriSettings = {
+        window.kakapoSettings = {
           all: frozen,
           set(key, value) {
             writes[key] = value;
@@ -118,7 +118,7 @@ export async function loadViewer(html, opts = {}) {
       }
       // Electron's diff-update bridge: capture the listener so a test can push a watch-refresh payload.
       if (opts.menuBridge) {
-        window.monacoriMenu = { onDiffUpdate: (cb) => { window.__diffUpdateCb = cb; } };
+        window.kakapoMenu = { onDiffUpdate: (cb) => { window.__diffUpdateCb = cb; } };
       }
       // lazy-LOAD source/diff bridge: serve source content + per-index diff bodies on demand, as
       // Electron/serve do. opts.getDiffBody(index, kind) lets a test swap the served body between builds
@@ -128,7 +128,7 @@ export async function loadViewer(html, opts = {}) {
         try { sourceRecords = JSON.parse(opts.lazySourceData ?? "[]"); } catch { sourceRecords = []; }
         window.__sourceRequests = [];
         window.__projectIndexRequests = 0;
-        window.monacoriFile = {
+        window.kakapoFile = {
           getIndex: () => {
             window.__projectIndexRequests += 1;
             if (opts.projectIndexBridge) return Promise.resolve(opts.projectIndexBridge());
@@ -156,12 +156,12 @@ export async function loadViewer(html, opts = {}) {
         };
       }
       if (opts.searchBridge) {
-        window.monacoriSearch = {
+        window.kakapoSearch = {
           query: (request) => Promise.resolve(opts.searchBridge(request)),
         };
       }
       if (opts.analysisBridge) {
-        window.monacoriAnalysis = {
+        window.kakapoAnalysis = {
           query: (request) => Promise.resolve(opts.analysisBridge(request)),
           status: () => Promise.resolve(opts.analysisStatus || {
             generation: 0,
@@ -177,7 +177,7 @@ export async function loadViewer(html, opts = {}) {
         state.updatedAt = state.updatedAt || null;
         const operations = [];
         window.__memoOperations = operations;
-        window.monacoriMemo = {
+        window.kakapoMemo = {
           read: () => Promise.resolve(JSON.parse(JSON.stringify(state))),
           write: (body) => {
             state.body = String(body); state.updatedAt = new Date().toISOString();
@@ -191,7 +191,7 @@ export async function loadViewer(html, opts = {}) {
         };
       }
       if (opts.perfBridge) {
-        window.monacoriPerf = { mark: (name, details) => opts.perfBridge(name, details) };
+        window.kakapoPerf = { mark: (name, details) => opts.perfBridge(name, details) };
       }
       if (opts.monacoBridge) installMonacoMock(window);
     },
@@ -231,10 +231,10 @@ class Viewer {
   }
   /** Read the persisted comments exactly as the viewer wrote them to localStorage. */
   storedComments() {
-    const raw = this.window.localStorage.getItem("monacori-comments:/review.html");
+    const raw = this.window.localStorage.getItem("kakapo-comments:/review.html");
     return raw ? JSON.parse(raw) : [];
   }
-  /** What the simulated Electron settings bridge (monacoriSettings.set) was asked to persist. */
+  /** What the simulated Electron settings bridge (kakapoSettings.set) was asked to persist. */
   electronWrites() {
     return this.window.__electronWrites || {};
   }

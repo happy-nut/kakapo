@@ -77,7 +77,7 @@ app.whenReady().then(async () => {
       dockButtonRegion,
     };
   })()`);
-  process.stdout.write(`MONACORI_NATIVE_TITLE_LAYOUT=${JSON.stringify(result)}\n`);
+  process.stdout.write(`KAKAPO_NATIVE_TITLE_LAYOUT=${JSON.stringify(result)}\n`);
   window.destroy();
   app.exit(0);
 }).catch((error) => {

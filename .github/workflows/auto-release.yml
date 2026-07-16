@@ -81,7 +81,7 @@ jobs:
         if: steps.gate.outputs.go == 'true'
         run: git push --follow-tags
 
-      # NODE_AUTH_TOKEN 없음: @happy-nut/monacori에 Trusted Publisher가 설정돼 있어 OIDC로 인증한다.
+      # NODE_AUTH_TOKEN 없음: @happy-nut/kakapo에 Trusted Publisher가 설정돼 있어 OIDC로 인증한다.
       # npm publish가 prepare 스크립트(npm run build)로 dist를 빌드한 뒤 패킹한다.
       - name: Publish to npm
         if: steps.gate.outputs.go == 'true'

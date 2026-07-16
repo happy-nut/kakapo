@@ -18,7 +18,7 @@ function git(cwd, args) {
 }
 
 before(() => {
-  fixture = mkdtempSync(join(tmpdir(), "monacori-upstream-"));
+  fixture = mkdtempSync(join(tmpdir(), "kakapo-upstream-"));
   const remote = join(fixture, "remote.git");
   repo = join(fixture, "repo");
   mkdirSync(repo);

@@ -17,14 +17,14 @@ function git(cwd, args) {
 }
 
 before(() => {
-  const base = mkdtempSync(join(tmpdir(), "monacori-memos-"));
+  const base = mkdtempSync(join(tmpdir(), "kakapo-memos-"));
   root = join(base, "repo");
   worktree = join(base, "feature-worktree");
   userData = join(base, "app-data");
   mkdirSync(root, { recursive: true });
   git(root, ["init", "-b", "main"]);
-  git(root, ["config", "user.name", "Monacori Test"]);
-  git(root, ["config", "user.email", "test@monacori.local"]);
+  git(root, ["config", "user.name", "Kakapo Test"]);
+  git(root, ["config", "user.email", "test@kakapo.local"]);
   writeFileSync(join(root, "README.md"), "# Test\n");
   git(root, ["add", "README.md"]);
   git(root, ["commit", "-m", "init"]);
@@ -41,7 +41,7 @@ test("the single memo persists in app data and survives a new store instance", (
   const file = markdownMemoFile(userData, root);
   assert.ok(existsSync(file), "the memo is stored below userData");
   assert.equal(file, join(workspaceDataDirectory(userData, root), "memo.json"), "memo follows the inspectable workspace folder mirror");
-  assert.equal(existsSync(join(root, ".monacori", "memos.json")), false, "no memo artifact is written into the source tree");
+  assert.equal(existsSync(join(root, ".kakapo", "memos.json")), false, "no memo artifact is written into the source tree");
 
   assert.match(saved.body, /Evidence/);
   store.write(root, "changed");

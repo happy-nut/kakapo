@@ -120,7 +120,7 @@ test("F7 still opens the diff from Files view after every changed file is viewed
 });
 
 test("viewed state survives restart for the same per-file diff", async () => {
-  const storageKey = "monacori-diff-viewed:/review.html";
+  const storageKey = "kakapo-diff-viewed:/review.html";
   const first = await loadViewer(html);
   first.window.setFileViewed("src/a.ts", true);
   const persisted = first.window.localStorage.getItem(storageKey);
@@ -161,7 +161,7 @@ test("live refresh keeps unchanged viewed marks visible and reopens a file when 
 });
 
 test("legacy path-only viewed booleans do not hide a newer diff", async () => {
-  const storageKey = "monacori-diff-viewed:/review.html";
+  const storageKey = "kakapo-diff-viewed:/review.html";
   const v = await loadViewer(html, { seedStorage: { [storageKey]: JSON.stringify({ "src/a.ts": true }) } });
   assert.equal(v.window.isFileViewed("src/a.ts"), false, "ambiguous legacy marks are safely returned to review");
   assert.equal(v.$('.change-row[data-file="src/a.ts"]').classList.contains("viewed"), false, "the file is visibly reviewable");
@@ -171,11 +171,11 @@ test("legacy path-only viewed booleans do not hide a newer diff", async () => {
 test("lazy F7 and direct selection include changed hidden config files", async () => {
   const review = await makeReviewHtml([
     { path: ".claude/settings.json", before: "{\n  \"enabled\": true\n}\n", after: "{\n  \"enabled\": true,\n  \"rules\": [\"review\"]\n}\n" },
-    { path: ".gitignore", before: "node_modules/\n", after: "node_modules/\n.monacori/\n" },
+    { path: ".gitignore", before: "node_modules/\n", after: "node_modules/\n.kakapo/\n" },
     { path: "docs/plan.md", before: "# Plan\nold\n", after: "# Plan\nnew\n" },
   ], { lazyLoad: true, app: true });
   const bodies = await renderLazyBodies(review.build);
-  const storageKey = "monacori-diff-viewed:/review.html";
+  const storageKey = "kakapo-diff-viewed:/review.html";
   const v = await loadViewer(review.html, {
     seedStorage: { [storageKey]: JSON.stringify({ ".claude/settings.json": true, ".gitignore": true }) },
     getDiffBody: (index) => bodies[index] || "",

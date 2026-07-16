@@ -257,8 +257,8 @@ function updateContentSearchStatus(query) {
 async function runContentSearch(query, seq) {
   var response = null;
   try {
-    if (window.monacoriSearch && typeof window.monacoriSearch.query === 'function') {
-      response = await window.monacoriSearch.query({ query: query, limit: 500 });
+    if (window.kakapoSearch && typeof window.kakapoSearch.query === 'function') {
+      response = await window.kakapoSearch.query({ query: query, limit: 500 });
     }
   } catch (e) { response = null; }
   if (seq !== contentSearchSeq || quickMode !== 'content' || query !== String(quickInput && quickInput.value || '').trim()) return;

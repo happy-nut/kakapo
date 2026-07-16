@@ -445,8 +445,8 @@ function highlightHttpLine(line, env) {
 }
 
 function sendHttp(request) {
-  if (window.monacoriHttp && typeof window.monacoriHttp.send === 'function') {
-    return Promise.resolve(window.monacoriHttp.send(request));
+  if (window.kakapoHttp && typeof window.kakapoHttp.send === 'function') {
+    return Promise.resolve(window.kakapoHttp.send(request));
   }
   return fetch('/__http_send', {
     method: 'POST',

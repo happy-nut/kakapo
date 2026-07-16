@@ -27,7 +27,7 @@ async function type(window, value) {
 app.whenReady().then(async () => {
   const window = new BrowserWindow({ show: false, width: 700, height: 280 });
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-  await window.webContents.executeJavaScript(`window.eval(${JSON.stringify(editorBundle)}); window.__memoEditor = window.MonacoriMarkdownEditor.create({ element: document.getElementById('host'), markdown: '' }); window.__memoEditor.focus();`);
+  await window.webContents.executeJavaScript(`window.eval(${JSON.stringify(editorBundle)}); window.__memoEditor = window.KakapoMarkdownEditor.create({ element: document.getElementById('host'), markdown: '' }); window.__memoEditor.focus();`);
   await type(window, "[] ");
 
   const layout = await window.webContents.executeJavaScript(`(() => {
@@ -50,7 +50,7 @@ app.whenReady().then(async () => {
   await wait();
   await type(window, "typed after click");
   const markdown = await window.webContents.executeJavaScript("window.__memoEditor.getMarkdown()");
-  process.stdout.write(`MONACORI_MARKDOWN_EDITOR=${JSON.stringify({ ...layout, markdown })}\n`);
+  process.stdout.write(`KAKAPO_MARKDOWN_EDITOR=${JSON.stringify({ ...layout, markdown })}\n`);
   window.destroy();
   app.exit(0);
 }).catch((error) => {

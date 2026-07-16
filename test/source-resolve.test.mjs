@@ -29,8 +29,8 @@ function repoWithSubdirChange() {
   made.push(dir);
   const g = (a) => execFileSync("git", a, { cwd: dir, stdio: "pipe" });
   g(["init", "-q"]);
-  g(["config", "user.email", "t@monacori.test"]);
-  g(["config", "user.name", "monacori test"]);
+  g(["config", "user.email", "t@kakapo.test"]);
+  g(["config", "user.name", "kakapo test"]);
   g(["config", "commit.gpgsign", "false"]);
   mkdirSync(join(dir, "pkg"), { recursive: true });
   writeFileSync(join(dir, "pkg/app.ts"), "export const value = 1;\n");
@@ -72,7 +72,7 @@ test("repo root run: the changed file's source is embedded (not missing)", async
 
 test("subdirectory run (cwd != repo root): selected folder is an isolated monorepo workspace", async () => {
   const dir = repoWithSubdirChange();
-  const build = await buildFrom(join(dir, "pkg")); // run `mo` from a subdir
+  const build = await buildFrom(join(dir, "pkg")); // run `kakapo` from a subdir
   const source = build.update?.sourceFilesMeta.find((file) => file.path === "app.ts");
   assert.ok(source, "source paths are relative to the explicitly opened folder");
   assert.equal(source.embedded, true);

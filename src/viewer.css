@@ -1122,8 +1122,8 @@ summary.tree-focus { background: color-mix(in srgb, var(--active) 20%, transpare
 .source-row.file-find-row-match > td { background-image: linear-gradient(color-mix(in srgb, #d6a84b 12%, transparent), color-mix(in srgb, #d6a84b 12%, transparent)); }
 .file-find-row-active > td,
 .source-row.file-find-row-active > td { background-image: linear-gradient(color-mix(in srgb, #d6a84b 25%, transparent), color-mix(in srgb, #d6a84b 25%, transparent)); }
-::highlight(monacori-file-find) { background: color-mix(in srgb, #d6a84b 38%, transparent); color: inherit; }
-::highlight(monacori-file-find-active) { background: color-mix(in srgb, #e2a93b 68%, transparent); color: inherit; }
+::highlight(kakapo-file-find) { background: color-mix(in srgb, #d6a84b 38%, transparent); color: inherit; }
+::highlight(kakapo-file-find-active) { background: color-mix(in srgb, #e2a93b 68%, transparent); color: inherit; }
 /* Pin the diff's horizontal scrollbar to the viewport bottom instead of letting it float
    mid-screen when a file's diff is short: fill the content column vertically so the last
    file's diff body extends all the way down. */

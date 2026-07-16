@@ -1,191 +1,139 @@
-# monacori
+# Kakapo
 
-**A local desktop review workspace for AI-generated code changes.**
+**AI가 만든 코드를 로컬에서 끝까지 검증하는 데스크톱 리뷰 워크스페이스.**
 
-Run `mo` after an AI edits your repository. monacori opens the real local diff, lets you inspect the surrounding project, attach line-level questions or change requests, and turn that evidence into a grounded follow-up prompt you can use with any AI tool.
+Kakapo는 채팅의 완료 보고가 아니라 실제 Git 변경 사항, 주변 프로젝트 구조, 언어 서버의 의미 분석을 근거로 리뷰하게 해줍니다. AI가 코드를 수정한 저장소에서 `kakapo`를 실행하고, diff에 질문이나 변경 요청을 남긴 뒤 정확한 파일·라인 정보가 포함된 후속 프롬프트를 복사하면 됩니다.
 
-![monacori reviewing an AI-generated diff, adding a line-level change request, and copying grounded review evidence](assets/monacori-core-flow.gif)
+![Kakapo에서 diff를 검토하고 라인 코멘트를 후속 프롬프트로 만드는 실행 화면](assets/kakapo-core-flow.gif)
 
-## Why monacori
+## 핵심 흐름
 
-AI coding tools are fast, but their "done" message is not a review. monacori gives the human reviewer a dedicated control surface for the gap between generated code and trusted code:
+1. AI가 만든 실제 Git diff를 확인합니다.
+2. 변경 라인에 질문 또는 변경 요청을 남깁니다.
+3. 코멘트를 `@경로#L행` 근거가 포함된 하나의 프롬프트로 합칩니다.
+4. 그 프롬프트를 다음 AI 작업에 전달해 수정 결과를 다시 검토합니다.
 
-- See every changed, added, and untracked file in an IntelliJ-style review sidebar.
-- Review side-by-side diffs with syntax highlighting, changed-line emphasis, and keyboard navigation.
-- Leave questions or change requests directly on the relevant line.
-- Merge all reviewer comments with file paths and code context, then copy the grounded handoff into any AI tool.
-- Keep generated review state local, plain, and inspectable without adding files to the repository.
+프로젝트 안에 Kakapo 상태 파일을 만들지 않습니다. 메모, 코멘트, Viewed 상태, UI 상태와 성능 증거는 운영체제의 애플리케이션 데이터 디렉터리에 워크스페이스 절대 경로별로 격리됩니다.
 
-## Core Flow
+## 주요 기능
 
-monacori's core value is a grounded correction loop:
+- IntelliJ 스타일의 side-by-side diff, 접힌 문맥 확장, hunk 밴드와 F7 탐색
+- 변경 파일, 일반 파일, untracked 파일을 포함하는 리뷰 트리
+- 파일/프로젝트 검색과 번들된 ripgrep 기반 대형 저장소 검색
+- LSP 우선 definition, references, implementation, workspace symbol 탐색
+- 호출자·importer·구현체·테스트·타입/API 후보를 구분하는 Change Impact
+- 코드 라인 질문/변경 요청과 편집 가능한 합본 프롬프트
+- 워크트리별 단일 인라인 Markdown 메모
+- 라인 Git 로그와 lane 기반 커밋 그래프
+- Markdown, 이미지, HTTP Client 파일의 로컬 리뷰
+- 메인 프로세스 검색·인덱싱과 지연 로딩을 통한 대형 프로젝트 대응
 
-1. Review the exact Git diff produced by an AI coding tool.
-2. Attach a question or change request on the relevant line.
-3. Merge those comments into a prompt that includes file paths, line numbers, and code context.
-4. Copy the prompt into the next AI turn so it starts from reviewed evidence, not a chat summary.
+Kakapo는 언어 분석기를 새로 구현하지 않습니다. 프로젝트에 설치된 language server를 우선 사용하고, 사용할 수 없는 언어만 정규식 인덱스로 폴백합니다. TypeScript/JavaScript sidecar와 VS Code의 ripgrep 바이너리는 앱에 포함됩니다.
 
-## Workflow
+## 설치와 실행
 
-1. Let an AI coding tool make changes in your repository.
-2. Run `mo` from that repository.
-3. Inspect the diff, mark files as viewed, and attach line comments where needed.
-4. Merge the questions or change requests into a focused prompt and copy it to your AI tool.
-
-The result is a tighter review loop: the AI produces changes, the human reviews the actual diff, and the next prompt is grounded in exact file and line context.
-
-## Install
+소스에서 설치:
 
 ```bash
-npm install -g @happy-nut/monacori
+git clone https://github.com/happy-nut/kakapo.git
+cd kakapo
+npm install
+npm link
 ```
 
-The short command is `mo`.
-
-## Quick Start
-
-Inside any Git repository:
+검토할 Git 저장소 또는 모노레포 내부 폴더에서 실행합니다.
 
 ```bash
-mo
+kakapo
+# 또는
+kakapo --cwd /path/to/repository/package
 ```
 
-`mo` reads the repository without creating a project-local state directory or changing `.gitignore`, and includes untracked files so new AI-created files appear immediately. If the worktree is clean but the current branch has local commits ahead of its configured upstream, monacori automatically reviews that merge-base-to-`HEAD` range instead of showing an empty change list.
+모노레포 내부 폴더를 열면 Git revision은 상위 저장소에서 읽되 변경 목록, 검색, 소스 탐색과 상태는 선택한 폴더 범위로 제한됩니다.
 
-## Highlights
+## 자주 쓰는 단축키
 
-- **IntelliJ-style desktop diff review**: reads the repository directly, refreshes from local Git state, and presents editor-like Base/Working tree panes with change navigation, expandable folded context, a live per-file change counter, center-aligned old/new line-number gutters, and hunk-spanning semantic bands (modified blue, deleted gray, added green).
-- **AI handoff comments**: questions and change requests are stored with their file, line, and code context.
-- **Grounded review handoff**: merge comments with exact file, line, and code context and copy them as one inspectable prompt.
-- **One worktree-scoped Markdown memo**: a calm, list-free writing surface that never adds a file to the repository. The memo lives under the application's user-data directory, survives restarts, and is isolated by the canonical Git worktree path.
-- **Notion-style inline Markdown**: the memo uses the MIT-licensed [Tiptap](https://github.com/ueberdosis/tiptap) editor, so shortcuts such as `# `, `- `, and `> ` become rich blocks in place while the persisted value remains plain Markdown. The editor bundle loads only when the memo opens.
-- **Readable Markdown documents**: source documents and merged handoff prompts use the same embedded [markdown-it](https://github.com/markdown-it/markdown-it) parser, sanitized by [DOMPurify](https://github.com/cure53/DOMPurify), and share the memo's typography without a side-by-side preview pane.
-- **One source review view**: every code file opens in the same line-addressable Review surface for syntax highlighting, folding, search, navigation, and comments. There is no second editor mode to reconcile with the review state.
-- **Current-file and project-wide search**: `Cmd/Ctrl+F` searches the open File/Code view or both panes of the current diff, with `Enter` / `Shift+Enter` stepping through matches. `Cmd/Ctrl+Shift+F` shows project-wide occurrence-level `file:line:column` results using the bundled, VS Code-maintained [ripgrep package](https://github.com/microsoft/vscode-ripgrep); static HTML reviews retain a dependency-free local fallback.
-- **LSP-first code intelligence**: definition/usages (`Cmd/Ctrl+B`), implementation (`Cmd/Ctrl+Alt+B`), and workspace-symbol search (`Cmd/Ctrl+Alt+O`) use a project language server when available. TypeScript/JavaScript also works out of the box through monacori's bundled background sidecar. Unsupported languages and unavailable servers fall back to the main-process regex index.
-- **Semantic Peek**: multi-result definitions, references, and implementations stay in context in a split inspector with a result list, source preview, exact location, server provenance, project generation, and query duration. Open the selected result only when you are ready to leave the current file.
-- **Change Impact**: place the caret on a changed symbol and press `Cmd/Ctrl+8` to inspect callers/importers, outgoing calls/dependencies, implementations/inheritance, related tests, and type/API/schema/config relationships.
-- **Large-project isolation**: search, LSP sessions, and fallback indexing run outside the renderer. Startup ships only changed-file metadata and a compact folded diff; the project index loads after first paint, folder children materialize only when expanded, and source contents load one file at a time.
-- **Visible analysis trust**: the sidebar footer shows whether semantic analysis is starting, ready, failed, or using the heuristic fallback. Its tooltip includes the repository generation, selected server/source, and exact fallback reason.
-- **Plain local artifacts**: generated review files and state are Markdown, JSON, and static HTML under the operating system's Monacori application-data directory, mirrored by the canonical workspace path.
+| 단축키 | 동작 |
+| --- | --- |
+| `Cmd/Ctrl+0` | Changes 패널로 포커스 이동 / 이미 포커스면 토글 |
+| `Cmd/Ctrl+1` | Files 패널로 포커스 이동 / 이미 포커스면 토글 |
+| `Cmd/Ctrl+F` | 현재 파일 또는 diff 안에서 검색 |
+| `Cmd/Ctrl+Shift+F` | 프로젝트 전체 검색 |
+| `F7` / `Shift+F7` | 다음 / 이전 diff hunk |
+| `Shift+,` | 선택된 변경 파일 Viewed 토글 |
+| `Cmd/Ctrl+B` | definition 찾기 |
+| `Cmd/Ctrl+Alt+B` | implementation 찾기 |
+| `Cmd/Ctrl+8` | Change Impact |
+| `Cmd/Ctrl+9` | Git History |
+| `Cmd/Ctrl+.` | 현재 괄호 범위 접기 / 펼치기 |
+| `Option/Alt+Enter` | 현재 항목의 컨텍스트 액션 |
 
-### Language servers
+전체 단축키 목록은 앱의 Settings > Keyboard Shortcuts에서 확인할 수 있습니다.
 
-monacori is an LSP client rather than a language analyzer. It starts servers as repository-scoped background processes after the first review page loads, reuses them while that review window is open, and stops them with the window.
+## 언어 서버
 
-Resolution order is an explicit `MONACORI_LSP_<LANGUAGE>` override, a repository-local executable (`node_modules/.bin`, `.venv/bin`, `venv/bin`, or `bin`), monacori's bundled TypeScript/JavaScript sidecar, and finally the launch `PATH`. The bundled sidecar contains `typescript-language-server` plus a compatible TypeScript 6.x fallback; a reviewed repository's own compatible TypeScript installation remains preferred by the server.
+탐색 순서는 다음과 같습니다.
 
-Supported server commands are:
+1. `KAKAPO_LSP_<LANGUAGE>`로 지정한 실행 파일
+2. 저장소 로컬 실행 파일 (`node_modules/.bin`, `.venv/bin`, `venv/bin`, `bin`)
+3. Kakapo에 포함된 TypeScript/JavaScript sidecar
+4. 실행 환경의 `PATH`
 
-- TypeScript/JavaScript: `typescript-language-server`
-- Python: `pyright-langserver` or `pylsp`
-- Go: `gopls`; Rust: `rust-analyzer`; C/C++: `clangd`
-- Java: `jdtls`; Kotlin: `kotlin-language-server`
-- Ruby: `solargraph`; PHP: `intelephense`
+지원하는 대표 서버는 `typescript-language-server`, `pyright-langserver`/`pylsp`, `gopls`, `rust-analyzer`, `clangd`, `jdtls`, `kotlin-language-server`, `solargraph`, `intelephense`입니다. 서버가 없거나 응답하지 않으면 탐색 기능은 근거 출처를 표시한 정규식 폴백을 사용합니다.
 
-To select a specific executable, set `MONACORI_LSP_<LANGUAGE>`, for example `MONACORI_LSP_TYPESCRIPT=/path/to/typescript-language-server`. If no matching server is available, navigation remains usable through the regex fallback. Change Impact labels its evidence as `semantic`, `semantic + heuristic`, or `heuristic` and identifies whether the active server came from the project, the bundle, an override, or `PATH`.
+## 로컬 데이터
 
-## Development
-
-Working on monacori itself? The globally-installed `mo` runs the **published** package, not your
-checkout — local edits won't appear until you build and run locally.
-
-Run your checkout directly (builds, then launches in the foreground with DevTools open):
-
-```bash
-npm run dev
-```
-
-This reviews the monacori repo itself. To review **another repo** with your local build, pass `--cwd`:
-
-```bash
-npm run dev -- --cwd /path/to/other-repo
-```
-
-`--cwd` may point at an internal folder of a larger Git monorepo. Git revisions still come from the
-enclosing repository, while changes, source navigation, search, history, and displayed paths are scoped
-to the selected folder. Opening `/repo/packages/payments`, for example, does not show sibling packages.
-
-**Which build is running?** A dev build titles its window `monacori (dev)` and opens DevTools, and
-every launch prints its app path — so a local checkout is distinguishable from the installed package
-even when their version numbers match:
+macOS에서 `/Users/me/repos/zoobox/turtle`을 열었다면 상태는 다음 위치에 저장됩니다.
 
 ```text
-monacori: launching /…/repos/monacori/dist/app-main.js                       # local checkout
-monacori: launching /…/lib/node_modules/@happy-nut/monacori/dist/app-main.js  # installed package
-```
-
-Prefer the `mo` command pointed at your checkout? `npm link` once, then rebuild after each change:
-
-```bash
-npm link                              # global `mo` now runs this checkout
-npm run build                         # rebuild dist/ after editing src/
-npm unlink -g @happy-nut/monacori     # restore the published `mo`
-```
-
-The numbered `src/viewer/*.js` slices, `src/viewer.css`, and the lazy Markdown editor are bundled/copied
-into `dist/` by the build, so re-run `npm run build` (or `npm run dev`) after editing them.
-
-Regenerate the README demo GIF from a temporary sample repository:
-
-```bash
-npm run demo:gif
-```
-
-Measure the lazy review build against a reproducible large-project fixture:
-
-```bash
-npm run benchmark
-# tune the fixture when comparing a change
-npm run benchmark -- --files 5000 --changed 200 --lines 120
-```
-
-The latest run is written to the current workspace's `perf/benchmark.json` in Monacori's application-data
-mirror. Desktop sessions also write `perf/latest.json` there with bounded startup, first-paint,
-analysis-status, and query-duration events. Both are local plain JSON evidence;
-performance collection never leaves the machine or modifies the repository.
-
-### Tests
-
-```bash
-npm test
-```
-
-`npm test` builds, then runs the jsdom regression suite (`test/*.test.mjs`) against the built `dist/`.
-It guards the core user flows end to end — see [test/USER_FLOWS.md](test/USER_FLOWS.md) — and the same
-suite gates every release.
-
-## Local State
-
-Running `mo` never creates or writes a `.monacori/` directory in the reviewed project. Reviews, comments,
-Viewed markers, panel state, the Markdown memo, and performance evidence are stored below Electron's
-application user-data directory. On macOS, for example, an opened workspace at
-`/Users/me/repos/zoobox/turtle` maps to:
-
-```text
-~/Library/Application Support/Monacori/workspaces/Users/me/repos/zoobox/turtle/
+~/Library/Application Support/Kakapo/workspaces/Users/me/repos/zoobox/turtle/
 ├── memo.json
 ├── state.json
 ├── perf/
 └── review/app-review.html
 ```
 
-The readable path mirror avoids opaque hashes and gives every explicitly opened folder its own state.
-Opening a monorepo root and one of its packages, or opening multiple Git worktrees simultaneously, therefore
-keeps their comments, memo, and UI state isolated. Reopening the same folder restores its state without ever
-modifying the source tree.
+경로를 해시로 숨기지 않아 직접 확인할 수 있으며, 저장소 루트와 내부 패키지, 서로 다른 worktree를 동시에 열어도 각각 독립된 상태를 가집니다.
 
-When a workspace still contains an untracked `.monacori/` directory created by an older Monacori release,
-the first open archives its complete contents as `legacy-project-state/` in this same workspace mirror and
-removes the obsolete project-local copy. A Git-tracked `.monacori/` is treated as user-owned and is never
-moved automatically.
+## 개발
 
-## Design Principles
+```bash
+npm install
+npm run build
+npm test
+npm run smoke
+```
 
-- Real diffs beat chat summaries.
-- Human review should stay close to the code and concrete project evidence.
-- The core should be local, inspectable, and agent-agnostic.
-- No required editor plugin, hosted service, worktree strategy, or agent-specific workflow.
+다른 저장소를 로컬 빌드로 검토:
+
+```bash
+npm run dev -- --cwd /path/to/repository
+```
+
+README 실행 GIF 재생성:
+
+```bash
+npm run demo:gif
+```
+
+스크립트는 임시 Git 저장소에 실제 변경을 만들고 Kakapo 리뷰 화면을 Electron에서 실행한 뒤 프레임을 영상으로 인코딩하고 최종 GIF를 생성합니다.
+
+성능 기준 측정:
+
+```bash
+npm run benchmark
+npm run benchmark -- --files 5000 --changed 200 --lines 120
+```
+
+테스트는 실제 임시 Git 저장소와 빌드된 `dist/`를 사용해 diff, 검색, 코멘트, 메모, History, LSP 폴백, 상태 영속화와 Electron 레이아웃의 주요 사용자 흐름을 회귀 검증합니다. 세부 목록은 [test/USER_FLOWS.md](test/USER_FLOWS.md)에 있습니다.
+
+## 설계 원칙
+
+- 채팅 요약보다 실제 diff를 신뢰합니다.
+- 확정된 영향과 확인 후보를 구분합니다.
+- 리뷰 근거는 파일과 라인에 가깝게 둡니다.
+- 상태는 로컬에 평문 Markdown/JSON/HTML로 보존합니다.
+- 특정 AI, 에디터 플러그인, worktree 전략이나 호스팅 서비스에 종속되지 않습니다.
 
 ## License
 

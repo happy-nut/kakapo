@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { buildDiffReview } from "../dist/build.js";
-import { defaultMonacoriUserDataDirectory, workspacePerformanceDirectory } from "../dist/workspace-data.js";
+import { defaultKakapoUserDataDirectory, workspacePerformanceDirectory } from "../dist/workspace-data.js";
 
 function option(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -21,7 +21,7 @@ const fileCount = option("--files", 3000);
 const changedCount = Math.min(fileCount, option("--changed", 120));
 const linesPerFile = option("--lines", 80);
 const outputRoot = resolve(process.cwd());
-const fixture = mkdtempSync(join(tmpdir(), "monacori-benchmark-"));
+const fixture = mkdtempSync(join(tmpdir(), "kakapo-benchmark-"));
 const started = performance.now();
 
 function git(args) {
@@ -41,8 +41,8 @@ function source(index, changed) {
 
 try {
   git(["init", "-q"]);
-  git(["config", "user.email", "benchmark@monacori.local"]);
-  git(["config", "user.name", "monacori benchmark"]);
+  git(["config", "user.email", "benchmark@kakapo.local"]);
+  git(["config", "user.name", "kakapo benchmark"]);
   git(["config", "commit.gpgsign", "false"]);
   for (let index = 0; index < fileCount; index += 1) {
     const path = join(fixture, "src", `module-${String(index).padStart(5, "0")}.ts`);
@@ -63,7 +63,7 @@ try {
     staged: false,
     includeUntracked: true,
     context: 12,
-    title: "monacori benchmark",
+    title: "kakapo benchmark",
     lazyLoad: true,
     app: true,
     root: fixture,
@@ -89,7 +89,7 @@ try {
       hunks: build.hunks,
     },
   };
-  const outputDir = workspacePerformanceDirectory(defaultMonacoriUserDataDirectory(), outputRoot);
+  const outputDir = workspacePerformanceDirectory(defaultKakapoUserDataDirectory(), outputRoot);
   mkdirSync(outputDir, { recursive: true });
   const output = join(outputDir, "benchmark.json");
   writeFileSync(output, JSON.stringify(report, null, 2) + "\n");

@@ -148,7 +148,7 @@ export function resolveLanguageServer(
     join(root, "bin"),
   ];
   const pathDirs = (env.PATH ?? "").split(delimiter).filter(Boolean);
-  const override = env[`MONACORI_LSP_${family.toUpperCase()}`];
+  const override = env[`KAKAPO_LSP_${family.toUpperCase()}`];
   if (override && existsSync(override) && executable(override)) {
     const spec = SERVER_SPECS[family]?.[0];
     if (spec) return nodeHostedCommand(resolvedCommand(family, spec.binary, override, spec.args, "override"));
@@ -297,7 +297,7 @@ export class LspClient {
       const rootUri = pathToFileURL(this.root).href;
       this.request("initialize", {
         processId: process.pid,
-        clientInfo: { name: "monacori" },
+        clientInfo: { name: "kakapo" },
         rootUri,
         workspaceFolders: [{ uri: rootUri, name: this.root.split(/[\\/]/).pop() || "workspace" }],
         capabilities: {
@@ -388,7 +388,7 @@ export class LspClient {
     } else if (message.method === "workspace/workspaceFolders") {
       result = [{ uri: pathToFileURL(this.root).href, name: this.root.split(/[\\/]/).pop() || "workspace" }];
     } else if (message.method === "workspace/applyEdit") {
-      result = { applied: false, failureReason: "Monacori analysis is read-only" };
+      result = { applied: false, failureReason: "Kakapo analysis is read-only" };
     }
     try { this.send({ jsonrpc: "2.0", id: message.id, result }); } catch { /* process failure is handled elsewhere */ }
   }

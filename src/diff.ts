@@ -3,7 +3,6 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import type { DiffFile, DiffHunk, DiffLine, ReviewFileState, SourceFile } from "./types.js";
 import {
-  FLOW_DIR,
   IMAGE_MAX_BYTES,
   SOURCE_MAX_FILE_BYTES,
   SOURCE_MAX_FILES,
@@ -60,7 +59,7 @@ function readUntrackedDiff(context: number, root: string): string {
   const files = git(root, ["ls-files", "--others", "--exclude-standard", "--", "."])
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith(`${FLOW_DIR}/`));
+    .filter(Boolean);
   const chunks: string[] = [];
 
   for (const file of files) {
@@ -489,7 +488,7 @@ export function collectHttpEnvironments(root: string): Record<string, Record<str
 
 function isSourceCandidate(path: string): boolean {
   const normalized = path.replace(/\\/g, "/");
-  if (!normalized || normalized.startsWith(`${FLOW_DIR}/`)) {
+  if (!normalized) {
     return false;
   }
   const blocked = [

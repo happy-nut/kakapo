@@ -7,7 +7,7 @@ function loadingStateHtml(message, extraClass) {
 
 const REVIEW_LAZY = document.getElementById('review-meta')?.dataset.lazy === 'true';
 // lazy-LOAD (Phase 2): file bodies are NOT embedded; they are fetched on demand (serve: GET /file,
-// Electron: window.monacoriFile.get) so the initial HTML stays small. Implies REVIEW_LAZY (shells).
+// Electron: window.kakapoFile.get) so the initial HTML stays small. Implies REVIEW_LAZY (shells).
 const REVIEW_LAZY_LOAD = document.getElementById('review-meta')?.dataset.lazyLoad === 'true';
 var diffImportOpenPaths = Object.create(null);
 
@@ -852,8 +852,8 @@ function fallbackDiffContext(request) {
   });
 }
 function loadDiffContext(request) {
-  if (window.monacoriFile && typeof window.monacoriFile.getDiffContext === 'function') {
-    return Promise.resolve(window.monacoriFile.getDiffContext(request));
+  if (window.kakapoFile && typeof window.kakapoFile.getDiffContext === 'function') {
+    return Promise.resolve(window.kakapoFile.getDiffContext(request));
   }
   if (REVIEW_LAZY_LOAD && typeof fetch !== 'undefined') {
     var query = Object.keys(request).map(function (key) { return encodeURIComponent(key) + '=' + encodeURIComponent(request[key]); }).join('&');
@@ -954,8 +954,8 @@ var bodyPromise = {}; // file index -> Promise that resolves once the body is ma
 function loadBodyHtml(index) {
   if (bodyCache[index] != null) return Promise.resolve(bodyCache[index]);
   var p;
-  if (typeof window !== 'undefined' && window.monacoriFile && typeof window.monacoriFile.get === 'function') {
-    p = Promise.resolve().then(function () { return window.monacoriFile.get(Number(index), 'diff'); });
+  if (typeof window !== 'undefined' && window.kakapoFile && typeof window.kakapoFile.get === 'function') {
+    p = Promise.resolve().then(function () { return window.kakapoFile.get(Number(index), 'diff'); });
   } else if (typeof fetch !== 'undefined') {
     p = fetch('file?index=' + index).then(function (r) { return r.ok ? r.text() : ''; });
   } else {
@@ -1030,17 +1030,17 @@ let sourceFiles = JSON.parse(document.getElementById('source-files-data')?.textC
 // whole UI switches live (no reload). t() feeds dynamically-built text; applyI18n() rewrites the static
 // chrome (data-i18n / -ph / -title / -aria). English is the first-paint default.
 var I18N = JSON.parse(document.getElementById('i18n-data')?.textContent || '{}');
-// Cross-reopen persistence. Electron persists via the main process (window.monacoriSettings — survives
+// Cross-reopen persistence. Electron persists via the main process (window.kakapoSettings — survives
 // app restart; file:// localStorage doesn't); browser/serve falls back to localStorage. persistRead
 // returns the bridge value (native) if present, else undefined so callers parse localStorage themselves.
 function persistRead(key) {
-  // window.monacoriSettings.all crosses Electron's contextBridge, which DEEP-FREEZES every value it
+  // window.kakapoSettings.all crosses Electron's contextBridge, which DEEP-FREEZES every value it
   // exposes. Returning that frozen object/array directly breaks callers that mutate the result —
   // reviewComments.push(...) and mergePrompts[kind]=... both throw "object is not extensible". Hand
   // back a mutable deep copy so the persisted snapshot is a starting point, not a locked one.
   try {
-    if (window.monacoriSettings && window.monacoriSettings.all && key in window.monacoriSettings.all) {
-      var v = window.monacoriSettings.all[key];
+    if (window.kakapoSettings && window.kakapoSettings.all && key in window.kakapoSettings.all) {
+      var v = window.kakapoSettings.all[key];
       return v && typeof v === 'object' ? JSON.parse(JSON.stringify(v)) : v;
     }
   } catch (e) {}
@@ -1048,9 +1048,9 @@ function persistRead(key) {
 }
 function persistSave(key, value) {
   try { localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value)); } catch (e) {}
-  try { if (window.monacoriSettings) window.monacoriSettings.set(key, value); } catch (e2) {}
+  try { if (window.kakapoSettings) window.kakapoSettings.set(key, value); } catch (e2) {}
 }
-var LOCALE_KEY = 'monacori-locale';
+var LOCALE_KEY = 'kakapo-locale';
 var locale = (function () {
   var v = persistRead(LOCALE_KEY);
   if (v !== 'ko' && v !== 'en') { try { v = localStorage.getItem(LOCALE_KEY); } catch (e) {} }
@@ -1095,7 +1095,7 @@ function applyI18n() {
 // Theme mirrors the locale pattern: persisted choice, applied by toggling data-theme on <html> so the
 // :root[data-theme="light"] palette takes over. Dark is the default (matches the inline :root). Applied
 // immediately at script start to minimize a first-paint flash from the dark default to light.
-var THEME_KEY = 'monacori-theme';
+var THEME_KEY = 'kakapo-theme';
 var theme = (function () {
   var v = persistRead(THEME_KEY);
   if (v !== 'light' && v !== 'dark') { try { v = localStorage.getItem(THEME_KEY); } catch (e) {} }
@@ -1109,7 +1109,7 @@ function applyTheme() {
 applyTheme();
 // The persisted syntax choice is a complete theme family rather than a code-only palette. `theme` selects
 // the family's dark/light member, keeping navigation chrome, diff, raw source, and HTTP coherent.
-var SYNTAX_THEME_KEY = 'monacori-syntax-theme';
+var SYNTAX_THEME_KEY = 'kakapo-syntax-theme';
 var syntaxTheme = (function () {
   var v = persistRead(SYNTAX_THEME_KEY);
   if (v !== 'default' && v !== 'darcula') { try { v = localStorage.getItem(SYNTAX_THEME_KEY); } catch (e) {} }
@@ -1123,7 +1123,7 @@ applySyntaxTheme();
 let fileStates = JSON.parse(document.getElementById('file-state-data')?.textContent || '[]');
 let httpEnvironments = JSON.parse(document.getElementById('http-env-data')?.textContent || '{}');
 let httpEnvNames = Object.keys(httpEnvironments);
-const httpEnvKey = 'monacori-http-env:' + location.pathname;
+const httpEnvKey = 'kakapo-http-env:' + location.pathname;
 const httpRequestsByPath = new Map();
 const httpVarsByPath = new Map();
 let sourceByPath = new Map(sourceFiles.map((file) => [file.path, file]));
@@ -1164,8 +1164,8 @@ function ensureProjectIndex() {
   if (projectIndexLoaded) return Promise.resolve(projectIndexPayload || { sourceFilesMeta: sourceFiles, filesTree: '' });
   if (projectIndexPromise) return projectIndexPromise;
   var request;
-  if (window.monacoriFile && typeof window.monacoriFile.getIndex === 'function') {
-    request = Promise.resolve().then(function () { return window.monacoriFile.getIndex(); });
+  if (window.kakapoFile && typeof window.kakapoFile.getIndex === 'function') {
+    request = Promise.resolve().then(function () { return window.kakapoFile.getIndex(); });
   } else if (typeof fetch !== 'undefined') {
     request = fetch('project-index', { cache: 'no-store' }).then(function (response) { return response.ok ? response.json() : null; });
   } else {
@@ -1182,7 +1182,7 @@ function ensureProjectIndex() {
 }
 // Electron starts with metadata only. Source bodies are fetched one file at a time so opening a large
 // project never clones every source file into the renderer. The browser server retains its bulk endpoint
-// as a compatibility fallback, but the desktop app always uses monacoriFile.getSource(path).
+// as a compatibility fallback, but the desktop app always uses kakapoFile.getSource(path).
 sourceFiles.forEach(function (file) { file.__loaded = !REVIEW_LAZY_LOAD || !file.embedded; });
 var sourceLoadPromises = Object.create(null);
 var bulkSourcePromise = null;
@@ -1214,8 +1214,8 @@ function loadSourceFile(path) {
   if (sourceLoadPromises[path]) return sourceLoadPromises[path];
   var generation = sourceGeneration;
   var promise;
-  if (typeof window !== 'undefined' && window.monacoriFile && typeof window.monacoriFile.getSource === 'function') {
-    promise = Promise.resolve().then(function () { return window.monacoriFile.getSource(path); }).then(function (record) {
+  if (typeof window !== 'undefined' && window.kakapoFile && typeof window.kakapoFile.getSource === 'function') {
+    promise = Promise.resolve().then(function () { return window.kakapoFile.getSource(path); }).then(function (record) {
       if (generation !== sourceGeneration) return sourceByPath.get(path) || null;
       return mergeSourceRecord(record) || file;
     });
@@ -1252,9 +1252,9 @@ let fileSignatureByPath = new Map(fileStates.map((file) => [file.path, file.sign
 const reviewMeta = document.getElementById('review-meta');
 const watchEnabled = reviewMeta?.dataset.watch === 'true';
 let currentSignature = reviewMeta?.dataset.signature || '';
-const uiStateKey = 'monacori-diff-ui:' + location.pathname;
-const recentKey = 'monacori-diff-recent:' + location.pathname;
-const viewedKey = 'monacori-diff-viewed:' + location.pathname;
+const uiStateKey = 'kakapo-diff-ui:' + location.pathname;
+const recentKey = 'kakapo-diff-recent:' + location.pathname;
+const viewedKey = 'kakapo-diff-viewed:' + location.pathname;
 const quickOpen = document.getElementById('quick-open');
 const quickInput = document.getElementById('quick-open-input');
 const quickResults = document.getElementById('quick-open-results');
@@ -1306,7 +1306,7 @@ let measuredCharWidth = 0;
 
 // Review-comment state — initialized here (early) so saved comments are loaded before
 // restoreUiState()/openDefaultSourceFile() run on startup and try to render them.
-var COMMENTS_KEY = 'monacori-comments:' + location.pathname;
+var COMMENTS_KEY = 'kakapo-comments:' + location.pathname;
 var reviewComments = [];
 reviewComments = (function () { var b = persistRead(COMMENTS_KEY); if (Array.isArray(b)) return b; try { return JSON.parse(localStorage.getItem(COMMENTS_KEY) || '[]'); } catch (commentsErr) { return []; } })();
 if (!Array.isArray(reviewComments)) reviewComments = [];

@@ -13,9 +13,9 @@ function setTab(name) {
 // before the grid animates so a hidden row never keeps receiving Arrow/Enter; expanding restores the
 // logical tree cursor to the open file.
 var reviewSidebarCollapsed = false;
-var reviewSidebarStateKey = 'monacori:diff-sidebar:' + location.pathname;
+var reviewSidebarStateKey = 'kakapo:diff-sidebar:' + location.pathname;
 var sourceSidebarCollapsed = false;
-var sourceSidebarStateKey = 'monacori:source-sidebar:' + location.pathname;
+var sourceSidebarStateKey = 'kakapo:source-sidebar:' + location.pathname;
 try { reviewSidebarCollapsed = (persistRead(reviewSidebarStateKey) || localStorage.getItem(reviewSidebarStateKey)) === 'collapsed'; } catch (e) {}
 try { sourceSidebarCollapsed = (persistRead(sourceSidebarStateKey) || localStorage.getItem(sourceSidebarStateKey)) === 'collapsed'; } catch (e) {}
 var sidebarLayoutRefreshTimer = 0;
@@ -283,7 +283,7 @@ function restoreUiState() {
 // In-place diff refresh (instead of a full window reload): apply a compact payload of just the changed
 // regions (diff container, sidebar trees, status, data) and re-run the bootstrap steps. The window never
 // reloads, so review comments and navigation context survive a watch refresh. Electron's
-// main pushes the payload over IPC (monacori:diff-update); serve mode's poller fetches /__ai_flow_update.
+// main pushes the payload over IPC (kakapo:diff-update); serve mode's poller fetches /__ai_flow_update.
 // Live watch refreshes are HELD while a comment composer is open. applyDiffUpdate rebuilds the diff DOM, so
 // applying it mid-compose would destroy the composer textarea every watch tick — input stalls and characters
 // arrive in bursts — and flicker the page. Keep only the latest pending payload; flush it on close/save.

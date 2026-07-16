@@ -18,7 +18,7 @@ function commit(message) {
 }
 
 before(() => {
-  root = mkdtempSync(join(tmpdir(), "monacori-line-log-"));
+  root = mkdtempSync(join(tmpdir(), "kakapo-line-log-"));
   git("init", "-q");
   git("config", "user.name", "Line Reviewer");
   git("config", "user.email", "line@example.test");

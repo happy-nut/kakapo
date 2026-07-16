@@ -111,14 +111,14 @@ test("sidebar path actions stay in Electron main and reject paths outside the pr
 
   assert.match(main, /function resolveProjectRowPath[\s\S]*?isAbsolute\(requestedPath\)[\s\S]*?resolve\(state\.options\.root\)[\s\S]*?fromRoot\.startsWith\("\.\.\/"\)/,
     "main resolves only selected-workspace-contained relative paths, including monorepo subdirectory launches");
-  assert.match(main, /ipcMain\.handle\("monacori:absolute-file-path"/);
-  assert.match(main, /ipcMain\.handle\("monacori:reveal-in-finder"/);
-  assert.match(main, /ipcMain\.handle\("monacori:open-terminal"[\s\S]*?spawn\("open", \["-a", "Terminal", directory\]/,
+  assert.match(main, /ipcMain\.handle\("kakapo:absolute-file-path"/);
+  assert.match(main, /ipcMain\.handle\("kakapo:reveal-in-finder"/);
+  assert.match(main, /ipcMain\.handle\("kakapo:open-terminal"[\s\S]*?spawn\("open", \["-a", "Terminal", directory\]/,
     "macOS terminal action opens the selected file's directory without a shell");
-  assert.match(preload, /absolutePath:[\s\S]*?monacori:absolute-file-path/);
-  assert.match(preload, /revealInFinder:[\s\S]*?monacori:reveal-in-finder/);
-  assert.match(preload, /openTerminal:[\s\S]*?monacori:open-terminal/);
-  assert.match(preload, /existingPaths:[\s\S]*?monacori:existing-project-paths/, "renderer can verify comment files without inferring deletion from index exclusions");
+  assert.match(preload, /absolutePath:[\s\S]*?kakapo:absolute-file-path/);
+  assert.match(preload, /revealInFinder:[\s\S]*?kakapo:reveal-in-finder/);
+  assert.match(preload, /openTerminal:[\s\S]*?kakapo:open-terminal/);
+  assert.match(preload, /existingPaths:[\s\S]*?kakapo:existing-project-paths/, "renderer can verify comment files without inferring deletion from index exclusions");
 });
 
 test("published Electron runtime stays pinned to the verified patch version", () => {

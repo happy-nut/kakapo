@@ -2,7 +2,7 @@
 
 // Programmatic clipboard write. Electron's bridge is reliable on file://; navigator.clipboard is the fallback.
 function copyTextToClipboard(text) {
-  try { if (window.monacoriClipboard && typeof window.monacoriClipboard.write === 'function') { window.monacoriClipboard.write(text); return true; } } catch (e) {}
+  try { if (window.kakapoClipboard && typeof window.kakapoClipboard.write === 'function') { window.kakapoClipboard.write(text); return true; } } catch (e) {}
   try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text); return true; } } catch (e) {}
   return false;
 }
@@ -100,21 +100,21 @@ function openTreeRowMenu(row) {
   var items = [
     { label: t('menu.copyRelativePath'), onSelect: function () { if (copyTextToClipboard(path) && typeof showToast === 'function') showToast(t('goto.copied') + ' ' + path); } },
   ];
-  if (window.monacoriApp && typeof window.monacoriApp.absolutePath === 'function') {
+  if (window.kakapoApp && typeof window.kakapoApp.absolutePath === 'function') {
     items.push({ label: t('menu.copyAbsolutePath'), onSelect: function () {
       try {
-        Promise.resolve(window.monacoriApp.absolutePath(path)).then(function (result) {
+        Promise.resolve(window.kakapoApp.absolutePath(path)).then(function (result) {
           var absolute = result && result.ok && typeof result.path === 'string' ? result.path : '';
           if (absolute && copyTextToClipboard(absolute) && typeof showToast === 'function') showToast(t('goto.copied') + ' ' + absolute);
         });
       } catch (e) {}
     } });
   }
-  if (window.monacoriApp && typeof window.monacoriApp.revealInFinder === 'function') {
-    items.push({ label: t('menu.revealFinder'), onSelect: function () { try { window.monacoriApp.revealInFinder(path); } catch (e) {} } });
+  if (window.kakapoApp && typeof window.kakapoApp.revealInFinder === 'function') {
+    items.push({ label: t('menu.revealFinder'), onSelect: function () { try { window.kakapoApp.revealInFinder(path); } catch (e) {} } });
   }
-  if (window.monacoriApp && typeof window.monacoriApp.openTerminal === 'function') {
-    items.push({ label: t('menu.openTerminal'), onSelect: function () { try { window.monacoriApp.openTerminal(path); } catch (e) {} } });
+  if (window.kakapoApp && typeof window.kakapoApp.openTerminal === 'function') {
+    items.push({ label: t('menu.openTerminal'), onSelect: function () { try { window.kakapoApp.openTerminal(path); } catch (e) {} } });
   }
   showCustomDropdown(Math.round(r.left + 14), Math.round(r.bottom + 2), items, Math.round(r.top));
 }
@@ -130,7 +130,7 @@ function openTreeRowMenu(row) {
     var row = number && number.closest ? number.closest('.source-row[data-line-index]') : null;
     var viewer = document.getElementById('source-viewer');
     var path = viewer && viewer.dataset.openPath || '';
-    if (!row || !path || !window.monacoriGit || typeof window.monacoriGit.lineLog !== 'function') return;
+    if (!row || !path || !window.kakapoGit || typeof window.kakapoGit.lineLog !== 'function') return;
     var line = Number(row.dataset.lineIndex) + 1;
     if (!(line >= 1)) return;
     event.preventDefault();
@@ -138,8 +138,8 @@ function openTreeRowMenu(row) {
     showCustomDropdown(event.clientX, event.clientY, [{
       label: t('menu.showLineHistory'),
       onSelect: function () {
-        if (window.__monacoriHistory && typeof window.__monacoriHistory.openLine === 'function') {
-          window.__monacoriHistory.openLine(path, line);
+        if (window.__kakapoHistory && typeof window.__kakapoHistory.openLine === 'function') {
+          window.__kakapoHistory.openLine(path, line);
         }
       },
     }], event.clientY);

@@ -27,9 +27,9 @@ test("real Chromium keeps every full-viewport title surface clear of macOS traff
   });
 
   assert.equal(result.code, 0, result.stderr || result.stdout);
-  const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("MONACORI_NATIVE_TITLE_LAYOUT="));
+  const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("KAKAPO_NATIVE_TITLE_LAYOUT="));
   assert.ok(marker, `native title layout result missing\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
-  const layout = JSON.parse(marker.slice("MONACORI_NATIVE_TITLE_LAYOUT=".length));
+  const layout = JSON.parse(marker.slice("KAKAPO_NATIVE_TITLE_LAYOUT=".length));
   assert.equal(layout.safeWidth, 76, "the measured native control reservation matches BrowserWindow traffic lights");
   assert.equal(layout.titlebarHeight, 40, "all custom title rows share the native titlebar height");
   assert.ok(layout.railActionTop >= layout.titlebarHeight, "activity buttons begin below the traffic-light row");
@@ -69,9 +69,9 @@ test("real Chromium keeps both diff gutters at the divider after maximum horizon
   });
 
   assert.equal(result.code, 0, result.stderr || result.stdout);
-  const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("MONACORI_DIFF_LAYOUT="));
+  const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("KAKAPO_DIFF_LAYOUT="));
   assert.ok(marker, `layout result missing\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
-  const layout = JSON.parse(marker.slice("MONACORI_DIFF_LAYOUT=".length));
+  const layout = JSON.parse(marker.slice("KAKAPO_DIFF_LAYOUT=".length));
   assert.ok(layout.oldScrollLeft > 500, "the base pane reached a destructive horizontal-scroll distance");
   assert.ok(layout.newScrollLeft > 500, "the working-tree pane reached a destructive horizontal-scroll distance");
   assert.equal(layout.gutterLayerCount, 2, "each pane owns exactly one visible gutter layer");
@@ -123,9 +123,9 @@ test("real Chromium keeps both panes aligned while a comment opens and closes", 
     child.on("close", (code) => resolve({ code, stdout, stderr }));
   });
   assert.equal(result.code, 0, result.stderr || result.stdout);
-  const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("MONACORI_COMMENT_LAYOUT="));
+  const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("KAKAPO_COMMENT_LAYOUT="));
   assert.ok(marker, `comment layout result missing\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
-  const layout = JSON.parse(marker.slice("MONACORI_COMMENT_LAYOUT=".length));
+  const layout = JSON.parse(marker.slice("KAKAPO_COMMENT_LAYOUT=".length));
   assert.ok(layout.pairedHeightGap <= 1, `paired comment heights differed by ${layout.pairedHeightGap}px`);
   assert.ok(layout.openFollowTopGap <= 1, `rows below the open comment diverged by ${layout.openFollowTopGap}px`);
   assert.ok(layout.removedFollowTopGap <= 1, `rows stayed split by ${layout.removedFollowTopGap}px after close`);

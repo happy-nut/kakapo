@@ -6,7 +6,7 @@
 // them, and t(key) feeds the dynamically-built UI. English is the first-paint default.
 //
 // Keys are stable + dot-namespaced. Excluded by design (NOT translated): diff/code content, file
-// paths, syntax-language names, the "monacori" brand, version strings, and literal <kbd> key names
+// paths, syntax-language names, the "kakapo" brand, version strings, and literal <kbd> key names
 // (F7, Cmd/Ctrl+B, …). Korean is written for Korean developers — natural, with common technical
 // terms left readable (커밋, 탭, 인덱스 …) rather than force-translated.
 export const MESSAGES: Record<string, Record<string, string>> = {
@@ -90,7 +90,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Sidebar footer / About
     "sidebar.updateAvailable": "update available",
-    "about.title": "About monacori",
+    "about.title": "About kakapo",
     "about.tip": "Settings (⌘,)",
     "dock.maximize": "Maximize panel (⌘⇧')",
     "dock.restore": "Restore panel (⌘⇧')",
@@ -183,7 +183,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "theme.dark": "Dark",
     "theme.light": "Light",
     "settings.syntaxTheme": "Theme family",
-    "syntaxTheme.default": "Monacori",
+    "syntaxTheme.default": "Kakapo",
     "syntaxTheme.darcula": "Darcula",
     "settings.checkingUpdates": "Checking for updates…",
     "settings.updateRestart": "Update & Restart",
@@ -191,7 +191,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.updateAvailable": "Update available",
     "settings.updating": "Updating… installing latest, the app will restart",
     "settings.updated": "Updated. Restarting…",
-    "settings.updateFailed": "Update failed — try again, or run: npm i -g @happy-nut/monacori",
+    "settings.updateFailed": "Update failed — try again, or run: npm i -g @happy-nut/kakapo",
     "settings.kbd.title": "Keyboard shortcuts",
     "settings.kbd.cat.app": "App",
     "settings.kbd.cat.nav": "Navigation",
@@ -304,7 +304,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "mergePrompt.default.q": "The following are questions about code you just wrote. Answer each one — explain the intent, rationale, or context. Do not change any code; this clarifies understanding before any revisions.",
     "mergePrompt.default.c": "The following are change requests for code you just wrote. For each, edit the code at the quoted location to satisfy the request. Keep changes minimal and focused; do not make unrelated edits.",
     // Plan contract — prepended to change requests and the prompt memo so every task starts with a small, verifiable plan written to a file.
-    "plan.contract": "Before changing any code, write a short implementation PLAN in your response. Break the work into small, independently verifiable steps — each with a one-line check for how you'll confirm it works. Get the plan right first, then implement one step at a time, keeping each step small enough to review on its own. Do not add monacori state files to the repository.",
+    "plan.contract": "Before changing any code, write a short implementation PLAN in your response. Break the work into small, independently verifiable steps — each with a one-line check for how you'll confirm it works. Get the plan right first, then implement one step at a time, keeping each step small enough to review on its own. Do not add kakapo state files to the repository.",
   },
   ko: {
     // Tabs (sidebar)
@@ -386,7 +386,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Sidebar footer / About
     "sidebar.updateAvailable": "업데이트 있음",
-    "about.title": "monacori 정보",
+    "about.title": "kakapo 정보",
     "about.tip": "설정 (⌘,)",
     "dock.maximize": "패널 최대화 (⌘⇧')",
     "dock.restore": "패널 복원 (⌘⇧')",
@@ -479,7 +479,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "theme.dark": "다크",
     "theme.light": "라이트",
     "settings.syntaxTheme": "테마 계열",
-    "syntaxTheme.default": "Monacori",
+    "syntaxTheme.default": "Kakapo",
     "syntaxTheme.darcula": "Darcula",
     "settings.checkingUpdates": "업데이트 확인 중…",
     "settings.updateRestart": "업데이트 후 재시작",
@@ -487,7 +487,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.updateAvailable": "업데이트 있음",
     "settings.updating": "업데이트 중… 최신 버전을 설치하면 앱이 재시작됩니다",
     "settings.updated": "업데이트 완료. 재시작 중…",
-    "settings.updateFailed": "업데이트 실패 — 다시 시도하거나 실행하세요: npm i -g @happy-nut/monacori",
+    "settings.updateFailed": "업데이트 실패 — 다시 시도하거나 실행하세요: npm i -g @happy-nut/kakapo",
     "settings.kbd.title": "키보드 단축키",
     "settings.kbd.cat.app": "앱",
     "settings.kbd.cat.nav": "탐색",

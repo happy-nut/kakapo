@@ -9,7 +9,7 @@ import { LspClient, normalizeLocationResult, resolveLanguageServer } from "../di
 
 const dirs = [];
 function tempProject() {
-  const root = mkdtempSync(join(tmpdir(), "monacori-analysis-"));
+  const root = mkdtempSync(join(tmpdir(), "kakapo-analysis-"));
   dirs.push(root);
   return root;
 }

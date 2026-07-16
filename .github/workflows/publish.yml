@@ -36,6 +36,6 @@ jobs:
         run: npm test
 
       # No NODE_AUTH_TOKEN: npm authenticates to the registry via OIDC because a
-      # Trusted Publisher is configured for @happy-nut/monacori on npmjs.com.
+      # Trusted Publisher is configured for @happy-nut/kakapo on npmjs.com.
       - name: Publish
         run: npm publish

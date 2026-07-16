@@ -174,7 +174,7 @@ test("source documents and merged prompts ship one audited Markdown renderer", (
   assert.match(js, /markdown-it 14\.3\.0/, "the open-source parser is embedded in the viewer bundle");
   assert.match(js, /DOMPurify 3\.4\.12/, "the audited sanitizer is embedded beside the parser");
   assert.match(js, /function renderMarkdownHtml\(/, "read-only document surfaces share the common rendering entry point");
-  assert.match(js, /monacori-asset:\/\/app\/markdown-editor\.js/, "the inline memo editor is loaded only on demand");
+  assert.match(js, /kakapo-asset:\/\/app\/markdown-editor\.js/, "the inline memo editor is loaded only on demand");
   assert.doesNotMatch(js, /function renderInlineMd\(/, "the old regex-only Markdown renderer is gone");
 });
 
@@ -765,7 +765,7 @@ test("sidebar shows the current git branch", async () => {
   assert.ok((v.$("#brand-branch-name")?.textContent || "").trim().length > 0, "it names a branch");
   assert.equal(v.$(".sidebar > .sidebar-brand")?.parentElement, v.$(".sidebar"), "project and branch live outside the scrolling tree");
   assert.equal(v.$(".sidebar-scroll .sidebar-brand"), null, "scrolling files cannot move the fixed project header");
-  assert.equal(v.$(".brand-mark"), null, "the redundant MONACORI label is omitted");
+  assert.equal(v.$(".brand-mark"), null, "the redundant KAKAPO label is omitted");
   v.close();
 });
 
@@ -1044,7 +1044,7 @@ test("remapComments never drops a comment, even one anchored to a deleted/old-si
 test("merged view copies grounded evidence and keeps only review actions in the comment menu", async () => {
   const v = await loadViewer(html);
   let copied = null;
-  v.window.monacoriClipboard = { write: (text) => { copied = text; } };
+  v.window.kakapoClipboard = { write: (text) => { copied = text; } };
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(1);
   await v.openComposer("q");

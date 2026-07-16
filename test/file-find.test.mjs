@@ -29,7 +29,7 @@ test("Cmd+F searches only the open source file and Enter / Shift+Enter navigate 
   v.typeInto(v.$("#file-find-input"), "needle");
   await v.settle(130);
 
-  const api = v.window.__monacoriFileFind;
+  const api = v.window.__kakapoFileFind;
   assert.equal(api.results().length, 3, "only the three matches in src/one.ts are included");
   assert.ok(api.results().every((item) => item.path === "src/one.ts"));
   assert.equal(v.$("#file-find-count").textContent, "1/3");
@@ -56,7 +56,7 @@ test("diff search stays inside the active file and covers Base and Working tree 
   v.typeInto(v.$("#file-find-input"), "needle");
   await v.settle(140);
 
-  const api = v.window.__monacoriFileFind;
+  const api = v.window.__kakapoFileFind;
   const results = api.results();
   assert.ok(results.length >= 3, "matches from both visible diff panes are searchable");
   assert.ok(results.every((item) => item.path === "src/one.ts"), "hidden changed files are excluded");
@@ -112,7 +112,7 @@ test("search reveals matches inside default-folded imports in File and Diff view
   v.typeInto(v.$("#file-find-input"), "hiddenImport");
   await v.settle(140);
   assert.equal(v.$(".mc-import-fold-row"), null, "diff search restores both import panes before matching");
-  assert.equal(v.window.__monacoriFileFind.results().length, 2, "Base and Working tree each contain the import match");
+  assert.equal(v.window.__kakapoFileFind.results().length, 2, "Base and Working tree each contain the import match");
   v.close();
 });
 
@@ -126,11 +126,11 @@ test("a broad one-character diff query stays responsive and limits painted highl
 
   v.key("f", { metaKey: true, code: "KeyF" });
   v.typeInto(v.$("#file-find-input"), "i");
-  assert.equal(v.window.__monacoriFileFind.results().length, 0, "input is not blocked by synchronous matching");
+  assert.equal(v.window.__kakapoFileFind.results().length, 0, "input is not blocked by synchronous matching");
   assert.equal(v.$("#file-find-count").textContent, "…");
   await v.settle(160);
 
-  assert.equal(v.window.__monacoriFileFind.results().length, 1200, "navigation retains the complete result set");
+  assert.equal(v.window.__kakapoFileFind.results().length, 1200, "navigation retains the complete result set");
   assert.equal(v.$("#file-find-count").textContent, "1/1200");
   assert.ok(v.$all(".file-find-row-match").length <= 48, "only a bounded set is painted into the DOM");
   v.close();
@@ -154,7 +154,7 @@ test("continued typing cancels a pending broad query instead of publishing stale
   v.typeInto(input, "import");
   await v.settle(160);
 
-  const results = v.window.__monacoriFileFind.results();
+  const results = v.window.__kakapoFileFind.results();
   assert.equal(input.value, "import");
   assert.equal(results.length, 1, "the cancelled one-character search cannot overwrite the final query");
   assert.match(results[0].row.textContent, /import target/);

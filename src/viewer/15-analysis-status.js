@@ -26,7 +26,7 @@ function renderAnalysisStatus(status) {
 }
 
 (function setupAnalysisStatus() {
-  var bridge = window.monacoriAnalysis;
+  var bridge = window.kakapoAnalysis;
   if (!bridge) return;
   if (typeof bridge.onStatus === 'function') bridge.onStatus(renderAnalysisStatus);
   if (typeof bridge.status === 'function') {
@@ -34,4 +34,4 @@ function renderAnalysisStatus(status) {
   }
 })();
 
-if (typeof window !== 'undefined') window.__monacoriAnalysisStatus = { render: renderAnalysisStatus };
+if (typeof window !== 'undefined') window.__kakapoAnalysisStatus = { render: renderAnalysisStatus };

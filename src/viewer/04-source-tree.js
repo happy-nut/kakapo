@@ -225,7 +225,7 @@ function treePageSize() {
   var h = scroller ? scroller.clientHeight : 320;
   return Math.max(1, Math.floor(h / 20) - 1); // ~20px per tree row, minus one for overlap
 }
-function treeOpenKey() { return 'monacori-tree-open:' + location.pathname; }
+function treeOpenKey() { return 'kakapo-tree-open:' + location.pathname; }
 function loadTreeOpen() {
   try {
     var stored = persistRead(treeOpenKey());

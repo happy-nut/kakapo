@@ -1,7 +1,7 @@
 // Builds the client viewer assets into dist/ after tsc (tsc only emits .ts output). The browser viewer is
 // authored as ordered slices in src/viewer/*.js (numbered to preserve order) and CONCATENATED here into the
 // single inlined script the renderer ships — concatenation only, so it stays one global scope, byte-for-byte
-// the same as the old monolithic src/viewer.client.js. cli.ts reads these at runtime via readViewerAsset().
+// the same as the former single-file viewer bundle. cli.ts reads these at runtime via readViewerAsset().
 import { readdirSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,7 +56,7 @@ try {
 
 copyFileSync(join(root, "src", "viewer.css"), join(distDir, "viewer.css"));
 
-// The rich Markdown editor is loaded lazily through Electron's narrow monacori-asset:// scheme. The
+// The rich Markdown editor is loaded lazily through Electron's narrow kakapo-asset:// scheme. The
 // directory keeps its historical name for protocol compatibility, but no code-editor runtime is shipped.
 rmSync(join(distDir, "monaco"), { recursive: true, force: true });
 mkdirSync(join(distDir, "monaco"), { recursive: true });

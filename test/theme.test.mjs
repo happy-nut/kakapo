@@ -54,7 +54,7 @@ test("switching to light flips data-theme on <html> and persists", async () => {
   await v.settle(20);
 
   assert.equal(v.document.documentElement.getAttribute("data-theme"), "light");
-  assert.equal(v.window.localStorage.getItem("monacori-theme"), "light");
+  assert.equal(v.window.localStorage.getItem("kakapo-theme"), "light");
   v.close();
 });
 
@@ -82,7 +82,7 @@ test("the Darcula family follows interface appearance across chrome and Review t
 
   assert.equal(v.document.documentElement.getAttribute("data-theme"), "dark");
   assert.equal(v.document.documentElement.getAttribute("data-syntax-theme"), "darcula");
-  assert.equal(v.window.localStorage.getItem("monacori-syntax-theme"), "darcula");
+  assert.equal(v.window.localStorage.getItem("kakapo-syntax-theme"), "darcula");
   assert.equal(
     v.window.getComputedStyle(v.document.documentElement).getPropertyValue("--token-keyword").trim().toLowerCase(),
     "#cc7832",

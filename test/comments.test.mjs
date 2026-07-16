@@ -17,8 +17,8 @@ before(async () => {
   ({ html } = await makeReviewHtml([
     {
       path: "AGENTS.md",
-      before: "# AGENTS\n\nGuidance for agents.\n\n## Project\n\nmonacori is a CLI.\n",
-      after: "# AGENTS\n\nGuidance for agents.\n\n## Project\n\nmonacori is a small CLI.\n",
+      before: "# AGENTS\n\nGuidance for agents.\n\n## Project\n\nkakapo is a CLI.\n",
+      after: "# AGENTS\n\nGuidance for agents.\n\n## Project\n\nkakapo is a small CLI.\n",
     },
     {
       path: "src/app.ts",
@@ -198,7 +198,7 @@ test("comments persist across a reopen (restored from localStorage)", async () =
   await v1.openComposer("q");
   await v1.writeAndSave("persist me");
   const snapshot = v1.exportStorage();
-  assert.ok(snapshot["monacori-comments:/review.html"], "comment was persisted");
+  assert.ok(snapshot["kakapo-comments:/review.html"], "comment was persisted");
   v1.close();
 
   // Session 2: fresh viewer seeded with that storage (simulates relaunching the app).
@@ -290,7 +290,7 @@ test("Electron bridge: saves onto a frozen (contextBridge) comments array", asyn
   // comments array already persisted is the minimal repro — reviewComments.push used to throw
   // "object is not extensible" here. (jsdom's localStorage path uses plain arrays and never hit it.)
   const v = await loadViewer(html, {
-    electronSettings: { "monacori-comments:/review.html": [] },
+    electronSettings: { "kakapo-comments:/review.html": [] },
   });
   await v.openSourceFile("AGENTS.md");
   await v.clickSourceLine(4);
@@ -300,14 +300,14 @@ test("Electron bridge: saves onto a frozen (contextBridge) comments array", asyn
   assert.equal(v.storedComments().length, 1);
   assert.equal(v.storedComments()[0].text, "saved under electron");
   // it also went back through the settings bridge for cross-restart persistence
-  assert.equal(v.electronWrites()["monacori-comments:/review.html"]?.length, 1);
+  assert.equal(v.electronWrites()["kakapo-comments:/review.html"]?.length, 1);
   v.close();
 });
 
 test("Electron bridge: appends to a frozen pre-existing thread, keeping both", async () => {
   const v = await loadViewer(html, {
     electronSettings: {
-      "monacori-comments:/review.html": [
+      "kakapo-comments:/review.html": [
         { seq: 1, kind: "q", path: "AGENTS.md", line: 5, code: "", text: "pre-existing" },
       ],
     },

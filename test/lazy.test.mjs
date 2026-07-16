@@ -1,7 +1,7 @@
 // CORE USER FLOW: lazy-LOAD source view (big repos / serve / Electron).
 //
 // In lazy-LOAD the standalone HTML ships source metadata only (no content); the body is fetched on demand
-// via window.monacoriFile.getSource(path). This guards the critical regression where one file's content
+// via window.kakapoFile.getSource(path). This guards the critical regression where one file's content
 // rendered under another file's path because the caret fast-path trusted metadata over the painted body —
 // fixed by tracking sourceBodyPath (the path actually painted) and re-rendering on mismatch.
 import { test, before, after } from "node:test";
@@ -24,7 +24,7 @@ before(async () => {
 after(cleanupFixtures);
 
 test("lazy-LOAD build keeps initial diff bodies as raw chunks, not pre-rendered HTML", async () => {
-  const marker = "MONACORI_LAZY_BODY_SENTINEL";
+  const marker = "KAKAPO_LAZY_BODY_SENTINEL";
   const r = await makeReviewHtml(
     [{ path: "src/lazy.ts", before: "export const lazy = 1;\n", after: `export const lazy = "${marker}";\n` }],
     { lazyLoad: true },

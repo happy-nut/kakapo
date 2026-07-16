@@ -1,5 +1,5 @@
 // ===== Git history view (Cmd+9): commit list with graph lanes + per-commit diff. =====
-// Data comes from the main process (window.monacoriGit.log / .commitDiff); the lane layout is computed
+// Data comes from the main process (window.kakapoGit.log / .commitDiff); the lane layout is computed
 // here from each commit's parents. Read-only — the per-commit diff is static diff2html HTML.
 
 var HISTORY_LANE_W = 16, HISTORY_DOT_R = 3.8, HISTORY_ROW_H = 26;
@@ -223,13 +223,13 @@ function applyHistoryFilter() {
 }
 
 function openHistoryCommit(sha) {
-  if (!sha || !window.monacoriGit) return;
+  if (!sha || !window.kakapoGit) return;
   selectHistoryCommit(sha, true);
   historyDetailSha = sha;
   setHistoryDetailOpen(true);
   var detail = document.getElementById('history-detail');
   if (detail) detail.innerHTML = loadingStateHtml(t('history.loading'), 'quick-open-empty');
-  Promise.resolve(window.monacoriGit.commitDiff(sha)).then(function (d) {
+  Promise.resolve(window.kakapoGit.commitDiff(sha)).then(function (d) {
     if (!d || historyActiveSha !== sha || historyDetailSha !== sha || !isHistoryDetailOpen()) return;
     renderHistoryDetail(d);
   }, function () {});
@@ -690,7 +690,7 @@ function updateHistoryScopeChrome() {
 function openHistory(scope) {
   var v = document.getElementById('history-view');
   if (!v) return;
-  if (!window.monacoriGit) return; // browser/serve mode: no git bridge
+  if (!window.kakapoGit) return; // browser/serve mode: no git bridge
   historyScope = scope && scope.path && Number(scope.line) >= 1
     ? { path: String(scope.path), line: Math.trunc(Number(scope.line)) }
     : null;
@@ -710,9 +710,9 @@ function openHistory(scope) {
   closeHistoryDetail(false);
   renderHistoryList();
   var seq = ++historyLoadSeq;
-  var request = historyScope && typeof window.monacoriGit.lineLog === 'function'
-    ? window.monacoriGit.lineLog({ path: historyScope.path, line: historyScope.line, limit: 300 })
-    : window.monacoriGit.log({ limit: 300 });
+  var request = historyScope && typeof window.kakapoGit.lineLog === 'function'
+    ? window.kakapoGit.lineLog({ path: historyScope.path, line: historyScope.line, limit: 300 })
+    : window.kakapoGit.log({ limit: 300 });
   Promise.resolve(request).then(function (commits) {
     if (seq !== historyLoadSeq || !isHistoryOpen()) return;
     historyLoading = false;
@@ -727,11 +727,11 @@ function openHistory(scope) {
   }, function () { if (seq === historyLoadSeq) { historyLoading = false; renderHistoryList(); } });
 }
 function openLineHistory(path, line) {
-  if (!window.monacoriGit || typeof window.monacoriGit.lineLog !== 'function') return;
+  if (!window.kakapoGit || typeof window.kakapoGit.lineLog !== 'function') return;
   openHistory({ path: path, line: line });
 }
 function toggleHistory() { if (isHistoryOpen()) closeHistory(); else openHistory(); }
-if (typeof window !== 'undefined') window.__monacoriHistory = { open: openHistory, openLine: openLineHistory, close: closeHistory, toggle: toggleHistory, isOpen: isHistoryOpen };
+if (typeof window !== 'undefined') window.__kakapoHistory = { open: openHistory, openLine: openLineHistory, close: closeHistory, toggle: toggleHistory, isOpen: isHistoryOpen };
 
 function handleHistoryKey(e) {
   if (!isHistoryOpen()) return false;

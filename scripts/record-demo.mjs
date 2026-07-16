@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { buildDiffReview } from "../dist/cli.js";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const outputGif = resolve(repoRoot, "assets", "monacori-core-flow.gif");
+const outputGif = resolve(repoRoot, "assets", "kakapo-core-flow.gif");
 const width = 1280;
 const height = 760;
 const frameRate = 10;
@@ -70,8 +70,8 @@ function createDemoRepo(workRoot) {
   );
 
   git(demoRepo, ["init", "-b", "main"]);
-  git(demoRepo, ["config", "user.email", "demo@monacori.local"]);
-  git(demoRepo, ["config", "user.name", "Monacori Demo"]);
+  git(demoRepo, ["config", "user.email", "demo@kakapo.local"]);
+  git(demoRepo, ["config", "user.name", "Kakapo Demo"]);
   git(demoRepo, ["add", "."]);
   git(demoRepo, ["commit", "-m", "baseline review flow"]);
 
@@ -128,9 +128,9 @@ function createDemoRepo(workRoot) {
 
 function demoBridgePrelude() {
   return String.raw`<script>
-window.monacoriClipboard = { write: function (text) { window.__demoClipboard = String(text || ''); } };
-window.monacoriSettings = { all: { 'monacori-theme': 'dark', 'monacori-locale': 'en' }, set: function (key, value) { this.all[key] = value; } };
-window.monacoriMenu = {};
+window.kakapoClipboard = { write: function (text) { window.__demoClipboard = String(text || ''); } };
+window.kakapoSettings = { all: { 'kakapo-theme': 'dark', 'kakapo-locale': 'en' }, set: function (key, value) { this.all[key] = value; } };
+window.kakapoMenu = {};
 window.__demoCaption = function (text) {
   var el = document.getElementById('demo-caption');
   if (!el) {
@@ -171,15 +171,18 @@ function renderDemoHtml(demoRepo, workRoot) {
     includeUntracked: true,
     staged: false,
     context: 4,
-    title: "monacori",
+    title: "kakapo",
     app: true,
     lazy: false,
     lazyLoad: false,
   });
+  const editorUrl = pathToFileURL(join(repoRoot, "dist", "monaco", "markdown-editor.js")).href;
+  // Inject into the document body before adding the editor bundle: vendor JavaScript itself contains
+  // HTML-shaped strings, and searching after insertion could otherwise target one of those strings.
   const html = review.html
-    .replace("</head>", `${demoStyles()}\n</head>`)
-    .replace("<body>", `<body>\n${demoBridgePrelude()}`);
-  const htmlPath = join(workRoot, "monacori-demo.html");
+    .replace(/<body([^>]*)>/, `<body$1>\n${demoBridgePrelude()}`)
+    .replace("</head>", `${demoStyles()}\n<script src="${editorUrl}"></script>\n</head>`);
+  const htmlPath = join(workRoot, "kakapo-demo.html");
   writeFileSync(htmlPath, html);
   return htmlPath;
 }
@@ -235,6 +238,14 @@ async function recordFrames(htmlPath, frameDir) {
       sandbox: false,
     },
   });
+  win.webContents.on("console-message", (_event, details) => {
+    if (details.level === "error" || details.level === "warning") {
+      console.error(`demo renderer: ${details.message} (${details.sourceId}:${details.lineNumber})`);
+    }
+  });
+  win.webContents.on("did-fail-load", (_event, code, description) => {
+    console.error(`demo load failed: ${code} ${description}`);
+  });
   const state = { index: 0 };
   await win.loadURL(`${pathToFileURL(htmlPath).href}#hunk-0`);
   await waitFor(win, "!document.getElementById('boot-overlay')");
@@ -268,7 +279,7 @@ async function recordFrames(htmlPath, frameDir) {
     window.__demoCaption('3. Merge comments into a grounded follow-up prompt');
     openMergedView('c');
   `);
-  await waitFor(win, "document.querySelector('#mc-merged-panel textarea')");
+  await waitFor(win, "document.querySelector('#mc-merged-panel .mc-inline-editor[contenteditable=true]')");
   await capture(win, frameDir, state, 10);
 
   await win.webContents.executeJavaScript(`
@@ -286,7 +297,24 @@ async function recordFrames(htmlPath, frameDir) {
 
 function makeGif(frameDir) {
   if (!existsSync(outputGif)) mkdirSync(dirname(outputGif), { recursive: true });
+  const video = join(frameDir, "kakapo-core-flow.mp4");
   const palette = join(frameDir, "palette.png");
+  // Encode a real video first. The README artifact is then derived from the same recorded frame stream,
+  // which keeps this script useful for both motion QA and a browser-friendly GIF.
+  run("ffmpeg", [
+    "-y",
+    "-framerate",
+    String(frameRate),
+    "-i",
+    join(frameDir, "frame-%04d.png"),
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-movflags",
+    "+faststart",
+    video,
+  ]);
   run("ffmpeg", [
     "-y",
     "-framerate",
@@ -312,7 +340,7 @@ function makeGif(frameDir) {
 }
 
 async function main() {
-  const workRoot = mkdtempSync(join(tmpdir(), "monacori-demo-"));
+  const workRoot = mkdtempSync(join(tmpdir(), "kakapo-demo-"));
   try {
     const demoRepo = createDemoRepo(workRoot);
     const htmlPath = renderDemoHtml(demoRepo, workRoot);
@@ -322,7 +350,7 @@ async function main() {
     makeGif(frameDir);
     console.log(`wrote ${outputGif} from ${frames} frames`);
   } finally {
-    if (process.env.MONACORI_KEEP_DEMO_FRAMES !== "1") {
+    if (process.env.KAKAPO_KEEP_DEMO_FRAMES !== "1") {
       rmSync(workRoot, { recursive: true, force: true });
     } else {
       console.log(`kept demo workdir: ${workRoot}`);

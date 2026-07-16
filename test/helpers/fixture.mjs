@@ -1,4 +1,4 @@
-// Build a real standalone review HTML from a throwaway git repo, exactly as `mo` ships it.
+// Build a real standalone review HTML from a throwaway git repo, exactly as `kakapo` ships it.
 //
 // We intentionally drive the *real* pipeline (git diff -> buildDiffReview) instead of hand-writing
 // HTML: the regression we guard (comment save reading the wrong textarea) lived in the interaction
@@ -37,12 +37,12 @@ const createdDirs = [];
  */
 export async function makeReviewHtml(files, opts = {}) {
   const buildDiffReview = await loadBuilder();
-  const dir = mkdtempSync(join(tmpdir(), "monacori-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "kakapo-test-"));
   createdDirs.push(dir);
   const git = (args) => execFileSync("git", args, { cwd: dir, stdio: "pipe" });
   git(["init", "-q"]);
-  git(["config", "user.email", "test@monacori.test"]);
-  git(["config", "user.name", "monacori test"]);
+  git(["config", "user.email", "test@kakapo.test"]);
+  git(["config", "user.name", "kakapo test"]);
   git(["config", "commit.gpgsign", "false"]);
 
   // Baseline commit: every file that has a `before` (i.e. exists prior to the change under review).
@@ -53,7 +53,7 @@ export async function makeReviewHtml(files, opts = {}) {
     git(["commit", "-qm", "baseline"]);
   } else {
     // git needs at least one commit for `git diff` to have a base.
-    writeFile(dir, ".monacori-keep", "");
+    writeFile(dir, ".kakapo-keep", "");
     git(["add", "-A"]);
     git(["commit", "-qm", "baseline"]);
   }

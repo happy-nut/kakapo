@@ -26,7 +26,7 @@ type CreateOptions = {
 
 declare global {
   interface Window {
-    MonacoriMarkdownEditor?: {
+    KakapoMarkdownEditor?: {
       create(options: CreateOptions): InlineMarkdownEditor;
     };
   }
@@ -41,7 +41,7 @@ function setEmptyState(element: HTMLElement, editor: Editor): void {
 //   ~text~ applies the existing Markdown strike mark (serialized as portable ~~text~~).
 // TaskItem already accepts the requested [] shorthand and StarterKit owns Mod-U underline.
 const NotionInputShortcuts = Extension.create({
-  name: "monacoriNotionInputShortcuts",
+  name: "kakapoNotionInputShortcuts",
   priority: 210,
   addInputRules() {
     const blockquote = this.editor.schema.nodes.blockquote;
@@ -71,7 +71,7 @@ function topLevelBlockPosition(editor: Editor, element: HTMLElement): number {
   return resolved.depth > 0 ? resolved.before(1) : inside;
 }
 
-window.MonacoriMarkdownEditor = {
+window.KakapoMarkdownEditor = {
   create(options: CreateOptions): InlineMarkdownEditor {
     const element = options.element;
     element.dataset.placeholder = options.placeholder ?? "";

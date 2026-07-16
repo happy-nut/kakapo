@@ -22,7 +22,7 @@ export function renderNotGitRepoHtml(root: string): string {
     "<head>",
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    "<title>monacori</title>",
+    "<title>kakapo</title>",
     "<style>",
     "* { box-sizing: border-box; }",
     "body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #2b2b2b; color: #a9b7c6; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }",
@@ -36,10 +36,10 @@ export function renderNotGitRepoHtml(root: string): string {
     "</head>",
     "<body>",
     '<div class="card">',
-    '<div class="badge">monacori</div>',
+    '<div class="badge">kakapo</div>',
     "<h1>Not a Git repository</h1>",
-    "<p>monacori reviews changes tracked by Git, but this folder isn't a Git repository yet.</p>",
-    "<p>Run <code>git init</code> in this folder, then reopen monacori.</p>",
+    "<p>kakapo reviews changes tracked by Git, but this folder isn't a Git repository yet.</p>",
+    "<p>Run <code>git init</code> in this folder, then reopen kakapo.</p>",
     `<p class="path">${escapeHtml(root)}</p>`,
     "</div>",
     "</body>",
@@ -48,12 +48,12 @@ export function renderNotGitRepoHtml(root: string): string {
 }
 
 // Welcome screen for the packaged .app (double-clicked, no cwd): an "Open Folder" button that asks the main
-// process (window.monacoriApp.openFolder, exposed via preload) to pick a git repo and load its review.
+// process (window.kakapoApp.openFolder, exposed via preload) to pick a git repo and load its review.
 export function renderWelcomeHtml(light = false, recent: { path: string; name: string }[] = []): string {
   const bg = light ? "#ffffff" : "#2b2b2b";
   const fg = light ? "#1f2328" : "#a9b7c6";
   // Recent projects (IntelliJ-style): one click reopens a previously reviewed repo. Each row carries its
-  // absolute path in data-path; the click handler hands it to monacoriApp.openRecent.
+  // absolute path in data-path; the click handler hands it to kakapoApp.openRecent.
   const recentItems = recent
     .map(
       (p) =>
@@ -72,7 +72,7 @@ export function renderWelcomeHtml(light = false, recent: { path: string; name: s
     "<head>",
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    "<title>Monacori</title>",
+    "<title>Kakapo</title>",
     "<style>",
     "* { box-sizing: border-box; }",
     // The same hiddenInset BrowserWindow hosts this screen. Auto margins center a short project list, but
@@ -99,7 +99,7 @@ export function renderWelcomeHtml(light = false, recent: { path: string; name: s
     "</head>",
     "<body>",
     '<div class="card">',
-    '<div class="badge">monacori</div>',
+    '<div class="badge">kakapo</div>',
     "<h1>Review a Git repository</h1>",
     "<p>Pick a folder under Git version control to review its changes.</p>",
     '<button class="open-btn" id="open" type="button">Open Folder…</button>',
@@ -109,9 +109,9 @@ export function renderWelcomeHtml(light = false, recent: { path: string; name: s
     "<script>",
     "var btn = document.getElementById('open'), hint = document.getElementById('hint');",
     "btn.addEventListener('click', function () {",
-    "  if (!(window.monacoriApp && window.monacoriApp.openFolder)) { hint.textContent = 'Open Folder is unavailable.'; return; }",
+    "  if (!(window.kakapoApp && window.kakapoApp.openFolder)) { hint.textContent = 'Open Folder is unavailable.'; return; }",
     "  btn.disabled = true; hint.textContent = '';",
-    "  window.monacoriApp.openFolder().then(function (r) {",
+    "  window.kakapoApp.openFolder().then(function (r) {",
     "    btn.disabled = false;",
     "    if (r && r.ok) return;",
     "    if (r && r.error === 'not-git') hint.textContent = 'That folder is not a Git repository.';",
@@ -123,9 +123,9 @@ export function renderWelcomeHtml(light = false, recent: { path: string; name: s
     "  var item = e.target.closest ? e.target.closest('.recent') : null;",
     "  if (!item) return;",
     "  var path = item.getAttribute('data-path');",
-    "  if (!path || !(window.monacoriApp && window.monacoriApp.openRecent)) return;",
+    "  if (!path || !(window.kakapoApp && window.kakapoApp.openRecent)) return;",
     "  item.disabled = true; hint.textContent = '';",
-    "  window.monacoriApp.openRecent(path).then(function (r) {",
+    "  window.kakapoApp.openRecent(path).then(function (r) {",
     "    if (r && r.ok) return;",
     "    item.disabled = false;",
     "    if (r && r.error === 'missing') { item.remove(); hint.textContent = 'That project folder is no longer available.'; }",
@@ -281,7 +281,7 @@ export function renderDiffHtml(input: {
     railButton("memo", "memo.title", "Markdown memo", "⌘⇧N", '<rect x="5.5" y="4" width="13" height="16" rx="1.5"/><line x1="8.5" y1="9" x2="15.5" y2="9"/><line x1="8.5" y1="12.5" x2="15.5" y2="12.5"/><line x1="8.5" y1="16" x2="12.5" y2="16"/>'),
     "</div>",
     '<div class="rail-group rail-bottom">',
-    // History (Cmd+9): Electron only — the git-log bridge (window.monacoriGit) is exposed there.
+    // History (Cmd+9): Electron only — the git-log bridge (window.kakapoGit) is exposed there.
     input.app
       ? railButton("history", "rail.history", "History", "⌘9", '<circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/>')
       : "",
@@ -306,7 +306,7 @@ export function renderDiffHtml(input: {
     "</head>",
     `<body${integratedTitleBar ? ' class="native-app"' : ""}>`,
     // Boot overlay (removed by the renderer once bootstrap has painted) covers the blank gap after loadFile.
-    '<div id="boot-overlay"><div class="boot-spinner"></div><div>monacori</div></div>',
+    '<div id="boot-overlay"><div class="boot-spinner"></div><div>kakapo</div></div>',
     activityRail,
     '<aside class="sidebar" aria-label="Review navigation">',
     `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name">${escapeHtml(input.branch || "")}</span></span></div>`,
@@ -323,7 +323,7 @@ export function renderDiffHtml(input: {
         : `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
       : `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
     "</div>",
-    `<div class="sidebar-footer"><span class="app-version">monacori${packageVersion ? " v" + escapeHtml(packageVersion) : ""}</span>${input.app ? '<span id="analysis-status" class="analysis-status is-idle" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-label">Analysis idle</span></span>' : ""}<span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span></div>`,
+    `<div class="sidebar-footer"><span class="app-version">kakapo${packageVersion ? " v" + escapeHtml(packageVersion) : ""}</span>${input.app ? '<span id="analysis-status" class="analysis-status is-idle" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-label">Analysis idle</span></span>' : ""}<span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span></div>`,
     "</aside>",
     '<div class="sidebar-resizer" aria-hidden="true"></div>',
     '<main class="content">',
@@ -400,7 +400,7 @@ export function renderDiffHtml(input: {
     '<aside class="settings-nav"><div class="settings-nav-title" data-i18n="settings.title">Settings</div><button type="button" class="settings-cat active" data-cat="general" data-i18n="settings.cat.general">General</button><button type="button" class="settings-cat" data-cat="prompts" data-i18n="settings.cat.prompts">Merge prompts</button></aside>',
     '<div class="settings-body">',
     '<section class="settings-section" data-cat="general">',
-    `<div class="settings-h">monacori <span class="settings-ver">${packageVersion ? "v" + escapeHtml(packageVersion) : ""}</span></div>`,
+    `<div class="settings-h">kakapo <span class="settings-ver">${packageVersion ? "v" + escapeHtml(packageVersion) : ""}</span></div>`,
     '<div id="app-info-status" class="app-info-status" data-i18n="settings.checkingUpdates">Checking for updates…</div>',
     '<button type="button" id="app-info-update" class="plain-button app-info-update hidden" data-i18n="settings.updateRestart">Update &amp; Restart</button>',
     '<label class="settings-label" for="settings-language" data-i18n="settings.language">Language</label>',
@@ -519,7 +519,7 @@ export function renderDiffHtml(input: {
     `<script type="application/json" id="source-files-data">${jsonForScript(input.lazyLoad ? initialSourceFiles.map(sourceFileMetadata) : initialSourceFiles)}</script>`,
     `<script type="application/json" id="file-state-data">${jsonForScript(initialFileStates)}</script>`,
     `<script type="application/json" id="http-env-data">${jsonForScript(input.httpEnvironments)}</script>`,
-    `<script>window.__MONACORI_VERSION__=${JSON.stringify(packageVersion)};</script>`,
+    `<script>window.__KAKAPO_VERSION__=${JSON.stringify(packageVersion)};</script>`,
     "<script>",
     diffScript(),
     "</script>",

@@ -18,7 +18,7 @@ after(cleanupFixtures);
 
 function installHistoryBridge(v) {
   const calls = [];
-  v.window.monacoriGit = {
+  v.window.kakapoGit = {
     log: () => Promise.resolve([
       { hash: "aaaaaaaa", parents: ["bbbbbbbb"], author: "A", email: "a@test", date: "2026-06-01T10:00:00+09:00", refs: "HEAD -> main", subject: "newer commit" },
       { hash: "bbbbbbbb", parents: [], author: "B", email: "b@test", date: "2026-05-31T10:00:00+09:00", refs: "", subject: "older commit" },
@@ -74,7 +74,7 @@ test("history graph: a merge opens a 2nd lane that collapses at the shared ances
 
 test("history graph: refs use branch and tag chips while merges retain topology", async () => {
   const v = await loadViewer(html);
-  v.window.monacoriGit = {
+  v.window.kakapoGit = {
     log: () => Promise.resolve([
       { hash: "mmmmmmmm", parents: ["aaaaaaaa", "bbbbbbbb"], author: "A", email: "a@test", date: "2026-06-04T10:00:00+09:00", refs: "HEAD -> refs/heads/main, tag: refs/tags/v2.0", subject: "Merge topic" },
       { hash: "aaaaaaaa", parents: ["cccccccc"], author: "A", email: "a@test", date: "2026-06-03T10:00:00+09:00", refs: "", subject: "main work" },
@@ -140,7 +140,7 @@ test("history keyboard: Cmd+9 then ArrowDown navigates commits before opening a 
 test("right-clicking a Files-mode line number opens that line's Git log", async () => {
   const v = await loadViewer(html);
   const lineCalls = [];
-  v.window.monacoriGit = {
+  v.window.kakapoGit = {
     log: () => Promise.reject(new Error("full history should not be loaded")),
     lineLog: (request) => {
       lineCalls.push(request);

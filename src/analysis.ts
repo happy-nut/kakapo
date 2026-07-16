@@ -146,7 +146,7 @@ async function listProjectFiles(root: string): Promise<string[]> {
   const rg = findRipgrepBinary();
   if (!rg) return [];
   return new Promise((resolveFiles) => {
-    const child = spawn(rg, ["--files", "--hidden", "--no-messages", "-g", "!.git/**", "-g", "!.monacori/**"], {
+    const child = spawn(rg, ["--files", "--hidden", "--no-messages", "-g", "!.git/**"], {
       cwd: root,
       stdio: ["ignore", "pipe", "ignore"],
       windowsHide: true,

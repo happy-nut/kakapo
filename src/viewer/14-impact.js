@@ -252,4 +252,4 @@ document.getElementById('impact-panel')?.addEventListener('keydown', function (e
   }
 });
 
-if (typeof window !== 'undefined') window.__monacoriImpact = { open: openImpact, close: closeImpact, toggle: toggleImpact };
+if (typeof window !== 'undefined') window.__kakapoImpact = { open: openImpact, close: closeImpact, toggle: toggleImpact };

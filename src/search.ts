@@ -75,13 +75,13 @@ function executable(path: string): boolean {
   catch { return false; }
 }
 
-// The VS Code ripgrep package ships a verified, platform-specific binary with monacori, so search never
-// depends on the user's PATH. MONACORI_RG_PATH remains an explicit development escape hatch; PATH and
+// The VS Code ripgrep package ships a verified, platform-specific binary with kakapo, so search never
+// depends on the user's PATH. KAKAPO_RG_PATH remains an explicit development escape hatch; PATH and
 // common install locations are only resilience fallbacks for a damaged/incomplete package install.
 export function findRipgrepBinary(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | undefined {
   const fileName = platform === "win32" ? "rg.exe" : "rg";
   const candidates: string[] = [];
-  if (env.MONACORI_RG_PATH) candidates.push(env.MONACORI_RG_PATH);
+  if (env.KAKAPO_RG_PATH) candidates.push(env.KAKAPO_RG_PATH);
   candidates.push(bundledRipgrepPath);
   for (const dir of (env.PATH ?? "").split(delimiter).filter(Boolean)) candidates.push(join(dir, fileName));
   if (platform === "darwin") candidates.push("/opt/homebrew/bin/rg", "/usr/local/bin/rg");

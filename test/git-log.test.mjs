@@ -20,7 +20,7 @@ function commitFile(name, content, message) {
 }
 
 before(() => {
-  root = mkdtempSync(join(tmpdir(), "monacori-git-graph-"));
+  root = mkdtempSync(join(tmpdir(), "kakapo-git-graph-"));
   git("init", "-q", "-b", "main");
   git("config", "user.name", "Graph Reviewer");
   git("config", "user.email", "graph@example.test");

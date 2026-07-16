@@ -51,7 +51,7 @@ test("the lazy inline editor round-trips Markdown as rich editable blocks", () =
   try {
     dom.window.eval(readFileSync("dist/monaco/markdown-editor.js", "utf8"));
     const host = dom.window.document.querySelector("#host");
-    const editor = dom.window.MonacoriMarkdownEditor.create({
+    const editor = dom.window.KakapoMarkdownEditor.create({
       element: host,
       markdown: "# Plan\n\nA **trusted** memo.",
     });
@@ -85,7 +85,7 @@ test("the inline editor applies Notion-style todo, toggle, quote, strike, and un
     Object.defineProperty(dom.window.navigator, "platform", { value: "MacIntel", configurable: true });
     dom.window.eval(readFileSync("dist/monaco/markdown-editor.js", "utf8"));
     const host = dom.window.document.querySelector("#host");
-    const editor = dom.window.MonacoriMarkdownEditor.create({ element: host, markdown: "" });
+    const editor = dom.window.KakapoMarkdownEditor.create({ element: host, markdown: "" });
     const surface = host.querySelector(".mc-inline-editor");
 
     editor.typeText("[] ");
@@ -132,8 +132,8 @@ test("the inline editor applies Notion-style todo, toggle, quote, strike, and un
 test("the rich editor stays out of the startup viewer bundle", () => {
   const startup = readFileSync("dist/viewer.client.js", "utf8");
   const lazyEditor = readFileSync("dist/monaco/markdown-editor.js", "utf8");
-  assert.doesNotMatch(startup, /MonacoriMarkdownEditor=\{/);
-  assert.match(lazyEditor, /MonacoriMarkdownEditor=\{/);
+  assert.doesNotMatch(startup, /KakapoMarkdownEditor=\{/);
+  assert.match(lazyEditor, /KakapoMarkdownEditor=\{/);
   assert.ok(lazyEditor.length > 100_000, "the real editor bundle was produced, not a placeholder");
 });
 
@@ -158,9 +158,9 @@ test("real Chromium keeps an empty todo editable on its checkbox row after keybo
   });
 
   assert.equal(result.code, 0, result.stderr || result.stdout);
-  const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("MONACORI_MARKDOWN_EDITOR="));
+  const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("KAKAPO_MARKDOWN_EDITOR="));
   assert.ok(marker, `editor result missing\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
-  const state = JSON.parse(marker.slice("MONACORI_MARKDOWN_EDITOR=".length));
+  const state = JSON.parse(marker.slice("KAKAPO_MARKDOWN_EDITOR=".length));
   assert.equal(state.taskDisplay, "flex", "the live task-item NodeView uses the horizontal task layout");
   assert.ok(state.editableWidth > 100, `the empty task paragraph only exposed a ${state.editableWidth}px click target`);
   assert.ok(Math.abs(state.taskTop - state.editableTop) <= 1, "the editable paragraph starts on the checkbox row");

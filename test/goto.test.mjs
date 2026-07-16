@@ -40,8 +40,8 @@ test("file rows have no hover path bubble and Opt+Enter menu exposes grounded pa
 
   const copied = [];
   const calls = [];
-  v.window.monacoriClipboard = { write: (text) => copied.push(text) };
-  v.window.monacoriApp = {
+  v.window.kakapoClipboard = { write: (text) => copied.push(text) };
+  v.window.kakapoApp = {
     absolutePath: async (path) => ({ ok: true, path: `/repo/${path}` }),
     revealInFinder: (path) => calls.push(["finder", path]),
     openTerminal: (path) => calls.push(["terminal", path]),

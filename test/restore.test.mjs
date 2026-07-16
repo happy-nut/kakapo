@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
 
-const UI_KEY = "monacori-diff-ui:/review.html"; // uiStateKey = 'monacori-diff-ui:' + location.pathname
+const UI_KEY = "kakapo-diff-ui:/review.html"; // uiStateKey = 'kakapo-diff-ui:' + location.pathname
 
 let html;
 before(async () => {

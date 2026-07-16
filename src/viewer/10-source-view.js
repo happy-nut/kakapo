@@ -824,7 +824,7 @@ async function goToImplementation() {
   openAnalysisUsages(name, items, response, 'implementation');
 }
 function queryProjectAnalysis(kind, symbol, loc, extra) {
-  if (!window.monacoriAnalysis || typeof window.monacoriAnalysis.query !== 'function') return Promise.resolve(null);
+  if (!window.kakapoAnalysis || typeof window.kakapoAnalysis.query !== 'function') return Promise.resolve(null);
   var request = Object.assign({
     kind: kind,
     symbol: symbol || undefined,
@@ -832,7 +832,7 @@ function queryProjectAnalysis(kind, symbol, loc, extra) {
     line: loc && loc.lineIndex,
     column: loc && loc.column,
   }, extra || {});
-  return Promise.resolve(window.monacoriAnalysis.query(request)).then(function (response) {
+  return Promise.resolve(window.kakapoAnalysis.query(request)).then(function (response) {
     if (typeof analysisGenerationIsCurrent === 'function' && !analysisGenerationIsCurrent(response)) return null;
     return response;
   }).catch(function () { return null; });

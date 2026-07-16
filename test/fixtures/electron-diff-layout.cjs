@@ -135,7 +135,7 @@ app.whenReady().then(async () => {
       newVerticalLock: (newRowAfterTransform.top - newRowBeforeTransform.top) - (newGutterAfterTransform.top - newGutterBeforeTransform.top),
     };
   })()`);
-  process.stdout.write(`MONACORI_DIFF_LAYOUT=${JSON.stringify(result)}\n`);
+  process.stdout.write(`KAKAPO_DIFF_LAYOUT=${JSON.stringify(result)}\n`);
   window.destroy();
   app.exit(0);
 }).catch((error) => {

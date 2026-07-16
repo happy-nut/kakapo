@@ -16,7 +16,7 @@ import { ProjectMarkdownMemo } from "./memos.js";
 import { readReviewDiffContext, type DiffContextRequest } from "./diff-context.js";
 import type { ProjectIndexPayload, SourceFile } from "./types.js";
 import { createHash } from "node:crypto";
-import { migrateLegacyProjectData, workspaceDataDirectory, workspaceReviewFile } from "./workspace-data.js";
+import { workspaceDataDirectory, workspaceReviewFile } from "./workspace-data.js";
 
 type AppOptions = {
   root: string;
@@ -48,11 +48,11 @@ type WinState = {
   reviewUpstream?: string; // tracking ref behind an automatic base; included in the watch signature
 };
 
-// `npm run dev` sets MONACORI_DEV=1 so a locally-built app announces itself — a window-title suffix
-// plus a boot log with its on-disk path — making it obvious whether `mo` launched THIS checkout or
+// `npm run dev` sets KAKAPO_DEV=1 so a locally-built app announces itself — a window-title suffix
+// plus a boot log with its on-disk path — making it obvious whether `kakapo` launched THIS checkout or
 // the globally-installed package (their version numbers can be identical; the path is the tell).
-const DEV_BUILD = process.env.MONACORI_DEV === "1";
-const APP_NAME = "Monacori";
+const DEV_BUILD = process.env.KAKAPO_DEV === "1";
+const APP_NAME = "Kakapo";
 const APP_TITLE = DEV_BUILD ? `${APP_NAME} (dev)` : APP_NAME;
 const REVIEW_FILE = "app-review.html";
 const WATCH_INTERVAL_MS = 1000;
@@ -73,13 +73,13 @@ function loadingHtml(light: boolean): string {
   .s{width:34px;height:34px;border:3px solid ${ring};border-top-color:${accent};border-radius:50%;
     animation:spin .8s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
-</style></head><body><div class="s"></div><div>monacori</div></body></html>`;
+</style></head><body><div class="s"></div><div>kakapo</div></body></html>`;
 }
-// The persisted theme (set by the renderer via monacoriSettings). Read at startup so the native window
+// The persisted theme (set by the renderer via kakapoSettings). Read at startup so the native window
 // chrome + loading screen match before the renderer boots. Defaults to dark.
 function isLightTheme(): boolean {
   try {
-    return readSettings()["monacori-theme"] === "light";
+    return readSettings()["kakapo-theme"] === "light";
   } catch {
     return false;
   }
@@ -89,7 +89,7 @@ app.setName(APP_NAME);
 // The lazy Markdown editor cannot reliably load from the repository's file:// review. A narrow, read-only
 // standard scheme serves only production assets copied under the historical dist/monaco directory.
 protocol.registerSchemesAsPrivileged([{
-  scheme: "monacori-asset",
+  scheme: "kakapo-asset",
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
 }]);
 // Never patch or rename Electron.app from inside the running Electron process. The CLI launcher performs
@@ -100,7 +100,7 @@ const iconPath = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "
 const preloadPath = join(dirname(fileURLToPath(import.meta.url)), "preload.cjs");
 
 // Development argv is `[electron, app-main.js, ...flags]`; a packaged app is
-// `[Monacori, ...flags]`. Dropping two entries unconditionally erased `--cwd` from the installed app,
+// `[Kakapo, ...flags]`. Dropping two entries unconditionally erased `--cwd` from the installed app,
 // so scripted relaunches landed on the welcome/recent-project screen instead of the requested folder.
 const runtimeArgs = app.isPackaged ? process.argv.slice(1) : process.argv.slice(2);
 const options = parseArgs(runtimeArgs);
@@ -136,20 +136,20 @@ function readMemoWithLegacyImport(root: string) {
   let document = memoStore().read(root);
   if (document.body) return document;
   const settings = readSettings();
-  const legacy = settings["monacori-memo"];
-  if (typeof legacy !== "string" || !legacy.trim() || settings["monacori-memo-migrated-worktree"]) return document;
+  const legacy = settings["kakapo-memo"];
+  if (typeof legacy !== "string" || !legacy.trim() || settings["kakapo-memo-migrated-worktree"]) return document;
   document = memoStore().write(root, legacy);
-  delete settings["monacori-memo"];
-  settings["monacori-memo-migrated-worktree"] = document.worktreePath;
+  delete settings["kakapo-memo"];
+  settings["kakapo-memo-migrated-worktree"] = document.worktreePath;
   writeSettings(settings);
   return document;
 }
 
-ipcMain.handle("monacori:http-send", (_event, request: HttpSendRequest) => performHttpRequest(request));
+ipcMain.handle("kakapo:http-send", (_event, request: HttpSendRequest) => performHttpRequest(request));
 
 // Phase 2 lazy-LOAD: serve a single file's diff body to the calling window's renderer on demand. Retained
 // from that window's most recent writeReviewFile() build so navigation/scroll can materialize bodies.
-ipcMain.handle("monacori:get-file", (event, request: { index?: number }) => {
+ipcMain.handle("kakapo:get-file", (event, request: { index?: number }) => {
   const state = stateFromEvent(event);
   if (!state) return "";
   const i = Number(request?.index);
@@ -162,7 +162,7 @@ ipcMain.handle("monacori:get-file", (event, request: { index?: number }) => {
 });
 // Serve one source file on demand. The renderer receives project metadata in the review HTML, but full
 // source content stays in the main process until a reviewer actually opens that file.
-ipcMain.handle("monacori:get-source", (event, request: { path?: string }) => {
+ipcMain.handle("kakapo:get-source", (event, request: { path?: string }) => {
   const state = stateFromEvent(event);
   const path = String(request?.path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
   if (!state || !path || path.startsWith("../")) return null;
@@ -175,7 +175,7 @@ ipcMain.handle("monacori:get-source", (event, request: { path?: string }) => {
 });
 // Project-wide metadata and the source tree are intentionally absent from the initial review document.
 // Return them as one lazy payload; source contents remain behind the per-file endpoint above.
-ipcMain.handle("monacori:get-project-index", (event): ProjectIndexPayload | null => {
+ipcMain.handle("kakapo:get-project-index", (event): ProjectIndexPayload | null => {
   const state = stateFromEvent(event);
   if (!state) return null;
   return {
@@ -191,7 +191,7 @@ ipcMain.handle("monacori:get-project-index", (event): ProjectIndexPayload | null
 });
 // Expand one omitted unchanged range in the side-by-side diff. Main resolves the exact reviewed
 // revisions (base vs worktree, or HEAD vs index for --staged) and returns at most one bounded chunk.
-ipcMain.handle("monacori:get-diff-context", (event, request: DiffContextRequest) => {
+ipcMain.handle("kakapo:get-diff-context", (event, request: DiffContextRequest) => {
   const state = stateFromEvent(event);
   if (!state) return { ok: false, oldStart: 0, newStart: 0, oldLines: [], newLines: [], error: "Review window is unavailable" };
   return readReviewDiffContext({
@@ -205,15 +205,15 @@ ipcMain.handle("monacori:get-diff-context", (event, request: DiffContextRequest)
 
 // The single Markdown memo is application data, never a repository artifact. Main derives the scope from
 // the calling window's canonical worktree; the sandboxed renderer cannot choose a filesystem path.
-ipcMain.handle("monacori:memo-read", (event) => {
+ipcMain.handle("kakapo:memo-read", (event) => {
   const state = stateFromEvent(event);
   return state ? readMemoWithLegacyImport(state.options.root) : { version: 1, worktreePath: "", body: "", updatedAt: null };
 });
-ipcMain.handle("monacori:memo-write", (event, input?: { body?: unknown }) => {
+ipcMain.handle("kakapo:memo-write", (event, input?: { body?: unknown }) => {
   const state = stateFromEvent(event);
   return state ? memoStore().write(state.options.root, input?.body) : null;
 });
-ipcMain.handle("monacori:memo-delete", (event) => {
+ipcMain.handle("kakapo:memo-delete", (event) => {
   const state = stateFromEvent(event);
   if (!state) return { ok: false };
   memoStore().remove(state.options.root);
@@ -222,7 +222,7 @@ ipcMain.handle("monacori:memo-delete", (event) => {
 
 // Definition/references/implementation/workspace-symbol/change-impact analysis. LSP processes and the
 // fallback index live outside the renderer and are scoped to the requesting window's repository.
-ipcMain.handle("monacori:analysis", async (event, request: AnalysisRequest) => {
+ipcMain.handle("kakapo:analysis", async (event, request: AnalysisRequest) => {
   const state = stateFromEvent(event);
   if (!state) return { ok: false, generation: 0, durationMs: 0, engine: "index", confidence: "heuristic", locations: [], error: "Review window is unavailable" };
   const response = await state.analysis.query(request);
@@ -235,7 +235,7 @@ ipcMain.handle("monacori:analysis", async (event, request: AnalysisRequest) => {
   });
   return response;
 });
-ipcMain.handle("monacori:analysis-status", (event) => stateFromEvent(event)?.analysis.getStatus() ?? {
+ipcMain.handle("kakapo:analysis-status", (event) => stateFromEvent(event)?.analysis.getStatus() ?? {
   generation: 0,
   phase: "failed",
   error: "Review window is unavailable",
@@ -244,7 +244,7 @@ ipcMain.handle("monacori:analysis-status", (event) => stateFromEvent(event)?.ana
 
 // Renderer-owned milestones (notably first-review-paint) complete the startup trace. Names and detail
 // values are constrained here so an untrusted review document cannot turn this into an arbitrary writer.
-ipcMain.on("monacori:perf-mark", (event, payload: { name?: unknown; details?: unknown }) => {
+ipcMain.on("kakapo:perf-mark", (event, payload: { name?: unknown; details?: unknown }) => {
   const state = stateFromEvent(event);
   const name = typeof payload?.name === "string" ? payload.name : "";
   if (!state || !/^[a-z][a-z0-9-]{0,63}$/.test(name)) return;
@@ -260,26 +260,26 @@ ipcMain.on("monacori:perf-mark", (event, payload: { name?: unknown; details?: un
 
 // Cmd/Ctrl+Shift+F project search. Resolve the repo from the calling window so multiple open reviews
 // never search each other's working trees.
-ipcMain.handle("monacori:search", (event, request: { query?: string; limit?: number }) => {
+ipcMain.handle("kakapo:search", (event, request: { query?: string; limit?: number }) => {
   const state = stateFromEvent(event);
   if (!state) return { available: false, engine: "fallback", matches: [], truncated: false };
   return searchProject(state.options.root, String(request?.query ?? ""), request?.limit);
 });
 
 // Git history view (Cmd+9): the log list and a single commit's full diff, for the calling window's repo.
-ipcMain.handle("monacori:git-log", (event, request: { limit?: number; skip?: number }) => {
+ipcMain.handle("kakapo:git-log", (event, request: { limit?: number; skip?: number }) => {
   const state = stateFromEvent(event);
   if (!state) return [];
   try { return readGitLog(state.options.root, { limit: request?.limit, skip: request?.skip }); } catch { return []; }
 });
-ipcMain.handle("monacori:git-line-log", (event, request: { path?: string; line?: number; limit?: number }) => {
+ipcMain.handle("kakapo:git-line-log", (event, request: { path?: string; line?: number; limit?: number }) => {
   const state = stateFromEvent(event);
   const path = typeof request?.path === "string" ? request.path : "";
   // Only paths from this window's already-confined source index may reach git -L.
   if (!state || !path || !state.sourceFiles.has(path)) return [];
   try { return readGitLineLog(state.options.root, { path, line: Number(request?.line), limit: request?.limit }); } catch { return []; }
 });
-ipcMain.handle("monacori:git-commit-diff", (event, request: { sha?: string }) => {
+ipcMain.handle("kakapo:git-commit-diff", (event, request: { sha?: string }) => {
   const state = stateFromEvent(event);
   if (!state || !request?.sha) return null;
   try { return readCommitDiff(state.options.root, request.sha); } catch { return null; }
@@ -299,7 +299,7 @@ function resolveProjectRowPath(state: WinState, requestedPath: unknown): string 
   return target;
 }
 
-ipcMain.handle("monacori:absolute-file-path", (event, request: { path?: string }) => {
+ipcMain.handle("kakapo:absolute-file-path", (event, request: { path?: string }) => {
   const state = stateFromEvent(event);
   const path = state ? resolveProjectRowPath(state, request?.path) : undefined;
   return path ? { ok: true, path } : { ok: false };
@@ -308,7 +308,7 @@ ipcMain.handle("monacori:absolute-file-path", (event, request: { path?: string }
 // Comment anchors may outlive a commit that deletes their file. Check existence in main so renderer-side
 // source-index exclusions (.claude, caches, etc.) are never mistaken for deletion. Paths remain confined
 // to the calling window's repository by the same resolver used by the sidebar actions.
-ipcMain.handle("monacori:existing-project-paths", (event, request: { paths?: unknown[] }) => {
+ipcMain.handle("kakapo:existing-project-paths", (event, request: { paths?: unknown[] }) => {
   const state = stateFromEvent(event);
   const requested = Array.isArray(request?.paths) ? request.paths.slice(0, 2000) : [];
   const existing: Record<string, boolean> = {};
@@ -321,7 +321,7 @@ ipcMain.handle("monacori:existing-project-paths", (event, request: { paths?: unk
   return existing;
 });
 
-ipcMain.handle("monacori:reveal-in-finder", (event, request: { path?: string }) => {
+ipcMain.handle("kakapo:reveal-in-finder", (event, request: { path?: string }) => {
   const state = stateFromEvent(event);
   const path = state ? resolveProjectRowPath(state, request?.path) : undefined;
   if (!path) return { ok: false };
@@ -329,7 +329,7 @@ ipcMain.handle("monacori:reveal-in-finder", (event, request: { path?: string }) 
   catch (e) { return { ok: false, error: String(e) }; }
 });
 
-ipcMain.handle("monacori:open-terminal", (event, request: { path?: string }) => {
+ipcMain.handle("kakapo:open-terminal", (event, request: { path?: string }) => {
   const state = stateFromEvent(event);
   const path = state ? resolveProjectRowPath(state, request?.path) : undefined;
   if (!path) return { ok: false };
@@ -354,7 +354,7 @@ ipcMain.handle("monacori:open-terminal", (event, request: { path?: string }) => 
 // Welcome screen's "Open Folder" button: pick a directory; load it into the window that asked if it's a
 // git repo, else return the "not-git" code so the welcome renderer can show its inline hint (it keys off
 // r.error === "not-git"). This flow reports errors in-page, so — unlike the File menu — no native box.
-ipcMain.handle("monacori:open-folder", async (event) => {
+ipcMain.handle("kakapo:open-folder", async (event) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false };
   const root = await pickDirectory(state.win, state.options.root);
@@ -366,7 +366,7 @@ ipcMain.handle("monacori:open-folder", async (event) => {
 
 // Welcome screen's Recent Projects list: open the clicked path into the calling window. If it's gone or no
 // longer a git repo, drop it from the list and tell the renderer (error: "missing") to remove that row.
-ipcMain.handle("monacori:open-recent", async (event, payload: { path?: string }) => {
+ipcMain.handle("kakapo:open-recent", async (event, payload: { path?: string }) => {
   const state = stateFromEvent(event);
   const path = typeof payload?.path === "string" ? payload.path : "";
   if (!state || state.win.isDestroyed() || !path) return { ok: false };
@@ -381,8 +381,8 @@ ipcMain.handle("monacori:open-recent", async (event, payload: { path?: string })
 // Self-update: install the latest published package globally, then relaunch so the updated code loads.
 // Runs in the main process because the sandboxed renderer can't spawn npm. Returns {ok:true} (and
 // relaunches shortly after) or {ok:false,error} so the renderer can fall back to the manual command.
-ipcMain.handle("monacori:self-update", (event) => new Promise<{ ok: boolean; error?: string }>((resolve) => {
-  // Relaunch the freshly-installed `mo` in the calling window's repo so the user lands back where they were.
+ipcMain.handle("kakapo:self-update", (event) => new Promise<{ ok: boolean; error?: string }>((resolve) => {
+  // Relaunch the freshly-installed `kakapo` in the calling window's repo so the user lands back where they were.
   const cwd = stateFromEvent(event)?.options.root ?? options.root;
   // Async, NOT spawnSync: spawnSync froze the ENTIRE main process for the whole npm install (up to
   // minutes), so the app looked hung and "nothing happened" — even the renderer's "Updating…" couldn't
@@ -420,13 +420,13 @@ ipcMain.handle("monacori:self-update", (event) => new Promise<{ ok: boolean; err
       done = true;
       resolve({ ok: true });
       // The global install replaced our on-disk dist, so THIS process is stale. Use Electron's native relaunch
-      // path instead of shelling out to `mo`: GUI apps often have a thin PATH, and a detached shell can fail
+      // path instead of shelling out to `kakapo`: GUI apps often have a thin PATH, and a detached shell can fail
       // without a reliable event before our exit timer fires.
       setTimeout(() => {
         try {
           relaunchUpdatedApp(app, process.argv, cwd);
         } catch (error) {
-          console.error("monacori: update installed, but relaunch failed: " + (error instanceof Error ? error.message : String(error)));
+          console.error("kakapo: update installed, but relaunch failed: " + (error instanceof Error ? error.message : String(error)));
         }
       }, 250);
     });
@@ -438,7 +438,7 @@ ipcMain.handle("monacori:self-update", (event) => new Promise<{ ok: boolean; err
 // via preload + the two handlers below. The renderer's file:// localStorage is NOT reliably persisted
 // across app restarts, so settings that must survive a reopen round-trip through the main process.
 function settingsFile(): string {
-  return join(app.getPath("userData"), "monacori-settings.json");
+  return join(app.getPath("userData"), "kakapo-settings.json");
 }
 function workspaceSettingsFile(root: string): string {
   return join(workspaceDataDirectory(app.getPath("userData"), root), "state.json");
@@ -474,46 +474,25 @@ function writeWorkspaceSettings(root: string, settings: Record<string, unknown>)
   }
 }
 const GLOBAL_SETTING_KEYS = new Set([
-  "monacori-locale",
-  "monacori-theme",
-  "monacori-syntax-theme",
-  "monacori-merge-prompts",
-  "monacori-recent-projects",
-  "monacori-dock-height",
-  "monacori-memo",
-  "monacori-memo-migrated-worktree",
+  "kakapo-locale",
+  "kakapo-theme",
+  "kakapo-syntax-theme",
+  "kakapo-merge-prompts",
+  "kakapo-recent-projects",
+  "kakapo-dock-height",
+  "kakapo-memo",
+  "kakapo-memo-migrated-worktree",
 ]);
 function rendererSettings(root: string): Record<string, unknown> {
   const global = readSettings();
   const workspace = readWorkspaceSettings(root);
-  const oldReview = join(resolve(root), ".monacori", REVIEW_FILE);
-  const newReview = workspaceReviewFile(app.getPath("userData"), root);
-  const pathReplacements = [
-    [oldReview, newReview],
-    [encodeURI(oldReview), encodeURI(newReview)],
-  ];
-  let migrated = false;
-  // Older releases placed workspace-scoped keys in the global settings JSON and encoded the former
-  // project-local review path in each key. Import only keys belonging to this root, preserving other open
-  // folders until their own window migrates them.
-  for (const [key, value] of Object.entries(global)) {
-    if (GLOBAL_SETTING_KEYS.has(key) || (!key.includes(resolve(root)) && !key.includes(encodeURI(resolve(root))))) continue;
-    const migratedKey = pathReplacements.reduce((next, pair) => next.replace(pair[0], pair[1]), key);
-    if (!(migratedKey in workspace)) workspace[migratedKey] = value;
-    delete global[key];
-    migrated = true;
-  }
-  if (migrated) {
-    writeWorkspaceSettings(root, workspace);
-    writeSettings(global);
-  }
   return { ...global, ...workspace };
 }
-ipcMain.on("monacori:get-settings", (event) => {
+ipcMain.on("kakapo:get-settings", (event) => {
   const state = stateFromEvent(event);
   event.returnValue = state ? rendererSettings(state.options.root) : readSettings();
 });
-ipcMain.on("monacori:set-setting", (event, msg: { key?: string; value?: unknown }) => {
+ipcMain.on("kakapo:set-setting", (event, msg: { key?: string; value?: unknown }) => {
   if (!msg || typeof msg.key !== "string") return;
   const state = stateFromEvent(event);
   if (!state || GLOBAL_SETTING_KEYS.has(msg.key)) {
@@ -530,7 +509,7 @@ ipcMain.on("monacori:set-setting", (event, msg: { key?: string; value?: unknown 
 // Recent projects (IntelliJ-style): the welcome screen lists repos opened before so they're one click away.
 // Persisted in the same userData settings JSON (survives restarts), most-recent-first, deduped, capped.
 type RecentProject = { path: string; name: string; openedAt: number };
-const RECENT_KEY = "monacori-recent-projects";
+const RECENT_KEY = "kakapo-recent-projects";
 const RECENT_MAX = 12;
 function readRecentProjects(): RecentProject[] {
   const raw = readSettings()[RECENT_KEY];
@@ -555,7 +534,7 @@ function forgetRecentProject(root: string): void {
 
 app.whenReady().then(async () => {
   const assetRoot = resolve(dirname(fileURLToPath(import.meta.url)), "monaco");
-  protocol.handle("monacori-asset", (request) => {
+  protocol.handle("kakapo-asset", (request) => {
     try {
       const url = new URL(request.url);
       const relativePath = decodeURIComponent(url.pathname).replace(/^\/+/, "");
@@ -575,7 +554,7 @@ app.whenReady().then(async () => {
   });
   // Foreground development runs surface this boot log; detached launches drop it. Either way the path
   // disambiguates a local checkout from the installed package.
-  console.error(`[monacori] ${DEV_BUILD ? "DEV build" : "build"} — ${app.getAppPath()} (electron ${process.versions.electron})`);
+  console.error(`[kakapo] ${DEV_BUILD ? "DEV build" : "build"} — ${app.getAppPath()} (electron ${process.versions.electron})`);
 
   buildApplicationMenu();
 
@@ -625,10 +604,10 @@ function buildApplicationMenu(): void {
   menuTemplate.push({
     label: "Review",
     submenu: [
-      { label: "All questions", accelerator: "Control+Command+Shift+/", click: () => sendToFocused("monacori:merged-view", "q") },
-      { label: "All change requests", accelerator: "Control+Command+Shift+.", click: () => sendToFocused("monacori:merged-view", "c") },
+      { label: "All questions", accelerator: "Control+Command+Shift+/", click: () => sendToFocused("kakapo:merged-view", "q") },
+      { label: "All change requests", accelerator: "Control+Command+Shift+.", click: () => sendToFocused("kakapo:merged-view", "c") },
       // Cmd/Ctrl+Shift+N opens (and toggles) the single freeform prompt memo — a Markdown scratchpad.
-      { label: "Markdown memo", accelerator: "CommandOrControl+Shift+N", click: () => sendToFocused("monacori:open-memo") },
+      { label: "Markdown memo", accelerator: "CommandOrControl+Shift+N", click: () => sendToFocused("kakapo:open-memo") },
       { type: "separator" },
       // Whitespace-ignore re-runs git diff with --ignore-all-space and reloads (main-process action,
       // so a menu checkbox is simpler than a renderer IPC round-trip). Per-window: applies to the focused
@@ -657,7 +636,7 @@ function buildApplicationMenu(): void {
       { role: "minimize" },
       { role: "zoom" },
       { type: "separator" },
-      { label: "Close Tab", accelerator: "CommandOrControl+W", click: () => sendToFocused("monacori:close-tab") },
+      { label: "Close Tab", accelerator: "CommandOrControl+W", click: () => sendToFocused("kakapo:close-tab") },
       { label: "Close Window", click: () => BrowserWindow.getFocusedWindow()?.close() },
     ],
   });
@@ -696,14 +675,13 @@ function createWindow(root: string): WinState {
     },
   });
   const resolvedRoot = resolve(root);
-  migrateLegacyProjectData(app.getPath("userData"), resolvedRoot);
   const perf = new ReviewPerformanceTrace(resolvedRoot, app.getPath("userData"));
   perf.mark("window-created");
   let state!: WinState;
   const analysis = new ProjectAnalysis(resolvedRoot, {
     onStatus: (status) => {
       if (!state || state.win.isDestroyed()) return;
-      state.win.webContents.send("monacori:analysis-status", status);
+      state.win.webContents.send("kakapo:analysis-status", status);
       state.perf.mark("analysis-status", {
         generation: status.generation,
         phase: status.phase,
@@ -825,7 +803,7 @@ async function refreshIfChanged(state: WinState): Promise<void> {
       // Refresh the diff in place instead of reloading the window so review context remains stable. Send
       // only the compact update payload; the renderer transplants it and re-fetches per-file bodies/source
       // over the existing IPC (state.bodyDiffs/state.sourceFiles were refreshed by writeReviewFile above).
-      if (next.update) state.win.webContents.send("monacori:diff-update", next.update);
+      if (next.update) state.win.webContents.send("kakapo:diff-update", next.update);
       scheduleAnalysisPrewarm(state);
     }
   } catch (error) {
@@ -845,7 +823,7 @@ function writeReviewFile(state: WinState): { signature: string; html: string; up
     context: state.options.context,
     title: APP_TITLE,
     ignoreWhitespace: state.options.ignoreWhitespace,
-    lazyLoad: true, // Electron streams per-file bodies/source over IPC (monacori:get-file / get-source)
+    lazyLoad: true, // Electron streams per-file bodies/source over IPC (kakapo:get-file / get-source)
     app: true, // enable Electron-only review affordances such as Git history
     root: state.options.root, // review THIS window's repo (no process.chdir; root is threaded through)
   });
@@ -892,7 +870,7 @@ function reviewPath(root: string): string {
 }
 
 // Welcome screen for the packaged .app (double-clicked, no cwd repo). Written to userData (we can't write
-// the review file under "/") and loaded so preload exposes window.monacoriApp.openFolder to its button.
+// the review file under "/") and loaded so preload exposes window.kakapoApp.openFolder to its button.
 async function showWelcome(state: WinState): Promise<void> {
   if (state.win.isDestroyed()) return;
   const welcomePath = join(app.getPath("userData"), "welcome.html");
@@ -909,13 +887,12 @@ async function openReview(state: WinState, root: string): Promise<void> {
   if (state.analysisWarmTimer) { clearTimeout(state.analysisWarmTimer); state.analysisWarmTimer = undefined; }
   state.analysis.dispose();
   state.options.root = resolve(root);
-  migrateLegacyProjectData(app.getPath("userData"), state.options.root);
   state.perf = new ReviewPerformanceTrace(state.options.root, app.getPath("userData"));
   state.perf.mark("review-opened");
   state.analysis = new ProjectAnalysis(state.options.root, {
     onStatus: (status) => {
       if (state.win.isDestroyed()) return;
-      state.win.webContents.send("monacori:analysis-status", status);
+      state.win.webContents.send("kakapo:analysis-status", status);
       state.perf.mark("analysis-status", {
         generation: status.generation,
         phase: status.phase,

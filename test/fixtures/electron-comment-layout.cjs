@@ -54,7 +54,7 @@ app.whenReady().then(async () => {
       backgroundMatches: spacerBackground === bodyBackground,
     };
   })()`);
-  process.stdout.write(`MONACORI_COMMENT_LAYOUT=${JSON.stringify(result)}\n`);
+  process.stdout.write(`KAKAPO_COMMENT_LAYOUT=${JSON.stringify(result)}\n`);
   window.destroy();
   app.exit(0);
 }).catch((error) => {

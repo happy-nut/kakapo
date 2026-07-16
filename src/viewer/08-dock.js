@@ -1,6 +1,6 @@
 // ===== Bottom dock: merged-prompt and memo share one docked slot below the editor =====
 // Only one is visible at a time. Cmd/Ctrl+Shift+' maximizes the active dock over the editor area.
-var dockHeightKey = 'monacori-dock-height';
+var dockHeightKey = 'kakapo-dock-height';
 var dockMaximized = false;
 function applyDockHeight(px) {
   var h = Math.max(140, Math.min(px, window.innerHeight - 120));
@@ -33,7 +33,7 @@ function closeMergedMemoDocks() {
   var n = document.getElementById('mc-memo-panel');
   [m, n].forEach(function (panel) {
     if (!panel) return;
-    try { if (typeof panel.__monacoriBeforeClose === 'function') panel.__monacoriBeforeClose(); } catch (e) {}
+    try { if (typeof panel.__kakapoBeforeClose === 'function') panel.__kakapoBeforeClose(); } catch (e) {}
     panel.remove();
   });
   document.querySelectorAll('.dock-backdrop').forEach(function (b) { b.remove(); });
@@ -42,7 +42,7 @@ function closeMergedMemoDocks() {
   applyDockMaximized();
   if (typeof syncRail === 'function') syncRail(); // clear the rail icon for the closed dock(s)
 }
-window.__monacoriCloseDocks = closeMergedMemoDocks;
+window.__kakapoCloseDocks = closeMergedMemoDocks;
 // Retry-focus a docked field (Electron async-restores focus to <body>, so a one-shot focus can lose the race).
 function focusDockField(field, panelSel) {
   var tries = 0;
@@ -282,10 +282,10 @@ function openMergedView(kind) {
     var removed = event && event.detail && Array.isArray(event.detail.comments) ? event.detail.comments : [];
     if (removed.some(function (comment) { return comment.kind === kind; })) dock.close();
   }
-  document.addEventListener('monacori:comments-pruned', handlePrunedComments);
-  dock.panel.__monacoriBeforeClose = function () {
+  document.addEventListener('kakapo:comments-pruned', handlePrunedComments);
+  dock.panel.__kakapoBeforeClose = function () {
     closingMergedView = true;
-    document.removeEventListener('monacori:comments-pruned', handlePrunedComments);
+    document.removeEventListener('kakapo:comments-pruned', handlePrunedComments);
     if (mergedInitialized) flushMergedComments();
     if (editor) editor.destroy();
   };
@@ -333,7 +333,7 @@ function openMergedView(kind) {
 
 // One Notion-style Markdown document per worktree. Electron persists it below app.getPath('userData'); the
 // static fallback uses a review-path localStorage key only for browser tests. No memo enters the repository.
-var memoFallbackKey = 'monacori-memo-document:' + location.pathname;
+var memoFallbackKey = 'kakapo-memo-document:' + location.pathname;
 function fallbackMemoDocument() {
   try {
     var value = JSON.parse(localStorage.getItem(memoFallbackKey) || '{}');
@@ -341,30 +341,30 @@ function fallbackMemoDocument() {
   } catch (e) { return { version: 1, worktreePath: location.pathname, body: '', updatedAt: null }; }
 }
 function readMemoDocument() {
-  if (window.monacoriMemo && typeof window.monacoriMemo.read === 'function') return window.monacoriMemo.read();
+  if (window.kakapoMemo && typeof window.kakapoMemo.read === 'function') return window.kakapoMemo.read();
   return Promise.resolve(fallbackMemoDocument());
 }
 function writeMemoDocument(body) {
-  if (window.monacoriMemo && typeof window.monacoriMemo.write === 'function') return window.monacoriMemo.write(body);
+  if (window.kakapoMemo && typeof window.kakapoMemo.write === 'function') return window.kakapoMemo.write(body);
   var document = { version: 1, worktreePath: location.pathname, body: String(body || ''), updatedAt: new Date().toISOString() };
   try { localStorage.setItem(memoFallbackKey, JSON.stringify(document)); } catch (e) {}
   return Promise.resolve(document);
 }
 function deleteMemoDocument() {
-  if (window.monacoriMemo && typeof window.monacoriMemo.remove === 'function') return window.monacoriMemo.remove();
+  if (window.kakapoMemo && typeof window.kakapoMemo.remove === 'function') return window.kakapoMemo.remove();
   try { localStorage.removeItem(memoFallbackKey); } catch (e) {}
   return Promise.resolve({ ok: true });
 }
 var inlineMarkdownEditorLoad = null;
 function loadInlineMarkdownEditor() {
-  if (window.MonacoriMarkdownEditor) return Promise.resolve(window.MonacoriMarkdownEditor);
+  if (window.KakapoMarkdownEditor) return Promise.resolve(window.KakapoMarkdownEditor);
   if (inlineMarkdownEditorLoad) return inlineMarkdownEditorLoad;
   inlineMarkdownEditorLoad = new Promise(function (resolve, reject) {
     var script = document.createElement('script');
-    script.src = 'monacori-asset://app/markdown-editor.js';
+    script.src = 'kakapo-asset://app/markdown-editor.js';
     script.async = true;
     script.addEventListener('load', function () {
-      if (window.MonacoriMarkdownEditor) resolve(window.MonacoriMarkdownEditor);
+      if (window.KakapoMarkdownEditor) resolve(window.KakapoMarkdownEditor);
       else reject(new Error('inline Markdown editor did not register'));
     });
     script.addEventListener('error', function () { reject(new Error('inline Markdown editor failed to load')); });
@@ -413,7 +413,7 @@ function openMemoView() {
       editor.focus();
     }).catch(function () { showToast(t('memo.deleteFailed')); });
   });
-  dock.panel.__monacoriBeforeClose = function () { flushMemo(); if (editor) editor.destroy(); };
+  dock.panel.__kakapoBeforeClose = function () { flushMemo(); if (editor) editor.destroy(); };
   readMemoDocument().then(function (memoDocument) {
     if (!document.getElementById('mc-memo-panel')) return;
     return loadInlineMarkdownEditor().then(function (factory) {
@@ -456,25 +456,25 @@ refreshComments();
 
 // In Electron, the Review menu's Cmd/Ctrl+Shift+/ and +. accelerators arrive here via IPC
 // (macOS reserves Cmd+? for its Help search, so the menu claims it and routes to these views).
-if (window.monacoriMenu && typeof window.monacoriMenu.onMergedView === 'function') {
-  window.monacoriMenu.onMergedView(function (kind) { openMergedView(kind); });
+if (window.kakapoMenu && typeof window.kakapoMenu.onMergedView === 'function') {
+  window.kakapoMenu.onMergedView(function (kind) { openMergedView(kind); });
 }
-if (window.monacoriMenu && typeof window.monacoriMenu.onOpenMemo === 'function') {
+if (window.kakapoMenu && typeof window.kakapoMenu.onOpenMemo === 'function') {
   // Cmd/Ctrl+Shift+N from the Review menu -> open/close the prompt memo.
-  window.monacoriMenu.onOpenMemo(function () { openMemoView(); });
+  window.kakapoMenu.onOpenMemo(function () { openMemoView(); });
 }
-if (window.monacoriMenu && typeof window.monacoriMenu.onDiffUpdate === 'function') {
+if (window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function') {
   // Electron watch: refresh review data in place so comments and navigation context stay stable.
-  window.monacoriMenu.onDiffUpdate(function (html) { try { applyDiffUpdate(html); } catch (e) {} });
+  window.kakapoMenu.onDiffUpdate(function (html) { try { applyDiffUpdate(html); } catch (e) {} });
 }
-if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function') {
-  window.monacoriMenu.onCloseTab(function () {
+if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
+  window.kakapoMenu.onCloseTab(function () {
     if (isSourceViewerVisible()) closeActiveSourceTab();
   });
 }
 
 (function checkForUpdate() {
-  var current = window.__MONACORI_VERSION__ || '';
+  var current = window.__KAKAPO_VERSION__ || '';
   if (!current) return;
   var isNewer = function (a, b) {
     var pa = String(a).split('.'), pb = String(b).split('.');
@@ -494,12 +494,12 @@ if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function')
       // One-click auto-update needs the Electron main process (it spawns npm). When available, reveal the
       // button so a click installs + restarts; otherwise (browser/static export) name the command instead.
       var ub = document.getElementById('app-info-update');
-      if (ub && window.monacoriUpdate && typeof window.monacoriUpdate.run === 'function') {
+      if (ub && window.kakapoUpdate && typeof window.kakapoUpdate.run === 'function') {
         ub.textContent = t('settings.updateRestart') + ' (v' + latest + ')';
         ub.classList.remove('hidden');
         if (status) { status.textContent = t('settings.updateAvailable') + ': v' + latest; status.classList.add('has-update'); }
       } else if (status) {
-        status.textContent = t('settings.updateAvailable') + ': v' + latest + ' — npm i -g @happy-nut/monacori';
+        status.textContent = t('settings.updateAvailable') + ': v' + latest + ' — npm i -g @happy-nut/kakapo';
         status.classList.add('has-update');
       }
     } else if (status) {
@@ -508,14 +508,14 @@ if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function')
   };
   // Cache the npm result for the session so watch-mode reloads reuse it instead of refetching.
   var cached = '';
-  try { cached = sessionStorage.getItem('monacori-update-latest') || ''; } catch (e) {}
+  try { cached = sessionStorage.getItem('kakapo-update-latest') || ''; } catch (e) {}
   if (cached) { apply(cached); return; }
   if (typeof fetch !== 'function') return;
-  fetch('https://registry.npmjs.org/@happy-nut/monacori/latest', { cache: 'no-store' })
+  fetch('https://registry.npmjs.org/@happy-nut/kakapo/latest', { cache: 'no-store' })
     .then(function (res) { return res && res.ok ? res.json() : null; })
     .then(function (data) {
       if (!data || !data.version) return;
-      try { sessionStorage.setItem('monacori-update-latest', data.version); } catch (e) {}
+      try { sessionStorage.setItem('kakapo-update-latest', data.version); } catch (e) {}
       apply(data.version);
     })
     .catch(function () {});
@@ -566,13 +566,13 @@ if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function')
     }
   }, true);
   // One-click self-update (Electron only): install latest globally via the main process, then relaunch.
-  if (updateBtn && window.monacoriUpdate && typeof window.monacoriUpdate.run === 'function') {
+  if (updateBtn && window.kakapoUpdate && typeof window.kakapoUpdate.run === 'function') {
     updateBtn.addEventListener('click', function () {
       if (updateBtn.disabled) return;
       updateBtn.disabled = true;
       var status = document.getElementById('app-info-status');
       if (status) { status.textContent = t('settings.updating'); status.classList.add('has-update'); }
-      window.monacoriUpdate.run().then(function (r) {
+      window.kakapoUpdate.run().then(function (r) {
         if (r && r.ok) { if (status) status.textContent = t('settings.updated'); }
         else {
           updateBtn.disabled = false;
@@ -580,7 +580,7 @@ if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function')
             status.textContent = t('settings.updateFailed');
             status.title = r && r.error ? String(r.error) : '';
           }
-          if (r && r.error) console.warn('monacori update failed:', r.error);
+          if (r && r.error) console.warn('kakapo update failed:', r.error);
         }
       }).catch(function (error) {
         updateBtn.disabled = false;
@@ -588,7 +588,7 @@ if (window.monacoriMenu && typeof window.monacoriMenu.onCloseTab === 'function')
           status.textContent = t('settings.updateFailed');
           status.title = error ? String(error) : '';
         }
-        if (error) console.warn('monacori update failed:', error);
+        if (error) console.warn('kakapo update failed:', error);
       });
     });
   }

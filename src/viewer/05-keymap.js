@@ -622,9 +622,9 @@ if (!restored) {
 }
 initSourceTreeFolds();
 syncRail(); // reflect the initial view on the activity rail
-// Electron receives live updates over IPC (monacoriMenu.onDiffUpdate); only serve/browser needs the HTTP
+// Electron receives live updates over IPC (kakapoMenu.onDiffUpdate); only serve/browser needs the HTTP
 // poller. Under file:// its fetch just fails every 1.5s for the app's whole life, so skip it in Electron.
-if (watchEnabled && !(window.monacoriMenu && typeof window.monacoriMenu.onDiffUpdate === 'function')) {
+if (watchEnabled && !(window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function')) {
   setInterval(checkForLiveUpdate, 1500);
 }
 window.addEventListener('beforeunload', saveUiState);
@@ -637,8 +637,8 @@ window.addEventListener('beforeunload', saveUiState);
   requestAnimationFrame(function () {
     requestAnimationFrame(function () {
       try {
-        if (window.monacoriPerf && typeof window.monacoriPerf.mark === 'function') {
-          window.monacoriPerf.mark('first-review-paint', {
+        if (window.kakapoPerf && typeof window.kakapoPerf.mark === 'function') {
+          window.kakapoPerf.mark('first-review-paint', {
             lazy: Boolean(REVIEW_LAZY),
             lazyLoad: Boolean(REVIEW_LAZY_LOAD),
           });
@@ -653,7 +653,7 @@ window.addEventListener('beforeunload', saveUiState);
 (function setupSidebarResize() {
   const resizer = document.querySelector('.sidebar-resizer');
   if (!resizer) return;
-  const sidebarKey = 'monacori-sidebar-width:' + location.pathname;
+  const sidebarKey = 'kakapo-sidebar-width:' + location.pathname;
   const saved = persistRead(sidebarKey) || localStorage.getItem(sidebarKey);
   if (saved) document.documentElement.style.setProperty('--sidebar-width', saved);
   let resizing = false;

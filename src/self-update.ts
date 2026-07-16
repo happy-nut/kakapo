@@ -26,7 +26,7 @@ export type SelfUpdateInstallAttempt = {
   shell: boolean;
 };
 
-const UPDATE_PACKAGE = "@happy-nut/monacori@latest";
+const UPDATE_PACKAGE = "@happy-nut/kakapo@latest";
 const UPDATE_NPM_ARGS = ["install", "-g", UPDATE_PACKAGE];
 const UPDATE_NPM_COMMAND = "npm install -g " + UPDATE_PACKAGE;
 
@@ -63,14 +63,14 @@ export function cliArgsForCwd(argv: string[], cwd: string): string[] {
   return args;
 }
 
-export function globalMoBinCandidates(prefix: string, platform: NodeJS.Platform): string[] {
+export function globalKakapoBinCandidates(prefix: string, platform: NodeJS.Platform): string[] {
   if (platform === "win32") {
-    return [join(prefix, "mo.cmd"), join(prefix, "mo")];
+    return [join(prefix, "kakapo.cmd"), join(prefix, "kakapo")];
   }
-  return [join(prefix, "bin", "mo"), join(prefix, "mo")];
+  return [join(prefix, "bin", "kakapo"), join(prefix, "kakapo")];
 }
 
-export function resolveGlobalMoBin(deps: RelaunchDeps = {}): string | null {
+export function resolveGlobalKakapoBin(deps: RelaunchDeps = {}): string | null {
   const spawnSyncImpl = deps.spawnSync ?? spawnSync;
   const existsImpl = deps.existsSync ?? existsSync;
   const platform = deps.platform ?? process.platform;
@@ -82,7 +82,7 @@ export function resolveGlobalMoBin(deps: RelaunchDeps = {}): string | null {
   if (result.status !== 0 || typeof result.stdout !== "string") return null;
   const prefix = result.stdout.trim().split(/\r?\n/).pop()?.trim();
   if (!prefix) return null;
-  return globalMoBinCandidates(prefix, platform).find((candidate) => existsImpl(candidate)) ?? null;
+  return globalKakapoBinCandidates(prefix, platform).find((candidate) => existsImpl(candidate)) ?? null;
 }
 
 function spawnDetached(spawnImpl: SpawnFn, command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, shell: boolean): ChildProcess {
@@ -96,10 +96,10 @@ export function relaunchUpdatedApp(app: RelaunchTarget, argv: string[], cwd: str
   const env = deps.env ?? process.env;
   const cliArgs = cliArgsForCwd(argv, cwd);
 
-  const moBin = resolveGlobalMoBin(deps);
-  if (moBin) {
+  const kakapoBin = resolveGlobalKakapoBin(deps);
+  if (kakapoBin) {
     try {
-      spawnDetached(spawnImpl, moBin, cliArgs, cwd, env, false);
+      spawnDetached(spawnImpl, kakapoBin, cliArgs, cwd, env, false);
       app.exit(0);
       return;
     } catch {
@@ -108,7 +108,7 @@ export function relaunchUpdatedApp(app: RelaunchTarget, argv: string[], cwd: str
   }
 
   try {
-    spawnDetached(spawnImpl, "npm", ["exec", "-g", "--", "mo", ...cliArgs], cwd, env, true);
+    spawnDetached(spawnImpl, "npm", ["exec", "-g", "--", "kakapo", ...cliArgs], cwd, env, true);
     app.exit(0);
     return;
   } catch {

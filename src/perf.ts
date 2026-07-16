@@ -1,7 +1,7 @@
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { defaultMonacoriUserDataDirectory, workspacePerformanceDirectory } from "./workspace-data.js";
+import { defaultKakapoUserDataDirectory, workspacePerformanceDirectory } from "./workspace-data.js";
 
 export type PerformanceDetails = Record<string, string | number | boolean | null | undefined>;
 
@@ -29,7 +29,7 @@ export class ReviewPerformanceTrace {
   private readonly startedAt = new Date().toISOString();
   private readonly events: PerformanceEvent[] = [];
 
-  constructor(readonly root: string, private readonly userData = defaultMonacoriUserDataDirectory()) {}
+  constructor(readonly root: string, private readonly userData = defaultKakapoUserDataDirectory()) {}
 
   mark(name: string, details?: PerformanceDetails): PerformanceEvent {
     const event: PerformanceEvent = {

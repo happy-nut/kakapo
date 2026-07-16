@@ -53,8 +53,8 @@ function clearFileFindHighlights() {
   fileFindHighlightedRows = [];
   try {
     if (window.CSS && CSS.highlights) {
-      CSS.highlights.delete('monacori-file-find');
-      CSS.highlights.delete('monacori-file-find-active');
+      CSS.highlights.delete('kakapo-file-find');
+      CSS.highlights.delete('kakapo-file-find-active');
     }
   } catch (e) {}
 }
@@ -134,8 +134,8 @@ function applyFileFindHighlights() {
   });
   try {
     if (window.CSS && CSS.highlights && typeof window.Highlight === 'function') {
-      CSS.highlights.set('monacori-file-find', new window.Highlight(...allRanges));
-      CSS.highlights.set('monacori-file-find-active', new window.Highlight(...activeRanges));
+      CSS.highlights.set('kakapo-file-find', new window.Highlight(...allRanges));
+      CSS.highlights.set('kakapo-file-find-active', new window.Highlight(...activeRanges));
     }
   } catch (e) {}
 }
@@ -380,7 +380,7 @@ fileFindNext?.addEventListener('click', function () { stepFileFind(1); fileFindI
 fileFindClose?.addEventListener('click', function () { closeFileFind(true); });
 window.addEventListener('resize', positionFileFind);
 
-if (typeof window !== 'undefined') window.__monacoriFileFind = {
+if (typeof window !== 'undefined') window.__kakapoFileFind = {
   open: openFileFind,
   close: closeFileFind,
   refresh: refreshFileFindForActiveView,

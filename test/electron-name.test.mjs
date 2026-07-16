@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const patchScript = join(repoRoot, "scripts", "patch-electron-name.mjs");
-const expectedElectronPath = "Monacori.app/Contents/MacOS/monacori";
+const expectedElectronPath = "Kakapo.app/Contents/MacOS/kakapo";
 
 function plist({
   name = "Electron",
@@ -42,7 +42,7 @@ function makeElectronRoot({
   bundleIdentifier = "com.github.Electron",
   pathTxt = appBundle + "/Contents/MacOS/" + executable,
 } = {}) {
-  const root = mkdtempSync(join(tmpdir(), "monacori-electron-name-"));
+  const root = mkdtempSync(join(tmpdir(), "kakapo-electron-name-"));
   const appDir = join(root, "dist", appBundle);
   mkdirSync(join(appDir, "Contents", "MacOS"), { recursive: true });
   writeFileSync(join(appDir, "Contents", "Info.plist"), plist({
@@ -61,26 +61,26 @@ function runPatch(root) {
     encoding: "utf8",
     env: {
       ...process.env,
-      MONACORI_ELECTRON_ROOT: root,
-      MONACORI_SKIP_LSREGISTER: "1",
+      KAKAPO_ELECTRON_ROOT: root,
+      KAKAPO_SKIP_LSREGISTER: "1",
     },
   });
 }
 
 function assertBranded(root) {
-  const brandedApp = join(root, "dist", "Monacori.app");
+  const brandedApp = join(root, "dist", "Kakapo.app");
   const patchedPlist = readFileSync(join(brandedApp, "Contents", "Info.plist"), "utf8");
   const distEntries = readdirSync(join(root, "dist"));
 
   assert.equal(distEntries.includes("Electron.app"), false, "Electron.app is renamed");
-  assert.equal(distEntries.includes("monacori.app"), false, "legacy monacori.app is renamed");
-  assert.equal(distEntries.includes("Monacori.app"), true, "Monacori.app exists");
-  assert.equal(existsSync(join(brandedApp, "Contents", "MacOS", "monacori")), true, "executable is renamed");
+  assert.equal(distEntries.includes("kakapo.app"), false, "legacy kakapo.app is renamed");
+  assert.equal(distEntries.includes("Kakapo.app"), true, "Kakapo.app exists");
+  assert.equal(existsSync(join(brandedApp, "Contents", "MacOS", "kakapo")), true, "executable is renamed");
   assert.equal(readFileSync(join(root, "path.txt"), "utf8"), expectedElectronPath);
-  assert.match(patchedPlist, /<key>CFBundleName<\/key>\s*<string>Monacori<\/string>/);
-  assert.match(patchedPlist, /<key>CFBundleDisplayName<\/key>\s*<string>Monacori<\/string>/);
-  assert.match(patchedPlist, /<key>CFBundleExecutable<\/key>\s*<string>monacori<\/string>/);
-  assert.match(patchedPlist, /<key>CFBundleIdentifier<\/key>\s*<string>dev\.happynut\.monacori<\/string>/);
+  assert.match(patchedPlist, /<key>CFBundleName<\/key>\s*<string>Kakapo<\/string>/);
+  assert.match(patchedPlist, /<key>CFBundleDisplayName<\/key>\s*<string>Kakapo<\/string>/);
+  assert.match(patchedPlist, /<key>CFBundleExecutable<\/key>\s*<string>kakapo<\/string>/);
+  assert.match(patchedPlist, /<key>CFBundleIdentifier<\/key>\s*<string>dev\.happynut\.kakapo<\/string>/);
 }
 
 test("patch-electron-name rebrands a stock directly-spawned Electron app", () => {
@@ -98,12 +98,12 @@ test("patch-electron-name rebrands a stock directly-spawned Electron app", () =>
 
 test("patch-electron-name completes the partial 0.1.25 rebrand state", () => {
   const { root } = makeElectronRoot({
-    executable: "monacori",
-    bundleName: "monacori",
-    bundleDisplayName: "monacori",
-    bundleExecutable: "monacori",
+    executable: "kakapo",
+    bundleName: "kakapo",
+    bundleDisplayName: "kakapo",
+    bundleExecutable: "kakapo",
     bundleIdentifier: "com.github.Electron",
-    pathTxt: "Electron.app/Contents/MacOS/monacori",
+    pathTxt: "Electron.app/Contents/MacOS/kakapo",
   });
 
   try {
@@ -119,10 +119,10 @@ test("patch-electron-name completes the partial 0.1.25 rebrand state", () => {
 test("patch-electron-name repairs a branded plist with the old Electron executable", () => {
   const { root } = makeElectronRoot({
     executable: "Electron",
-    bundleName: "Monacori",
-    bundleDisplayName: "Monacori",
-    bundleExecutable: "monacori",
-    bundleIdentifier: "dev.happynut.monacori",
+    bundleName: "Kakapo",
+    bundleDisplayName: "Kakapo",
+    bundleExecutable: "kakapo",
+    bundleIdentifier: "dev.happynut.kakapo",
     pathTxt: "Electron.app/Contents/MacOS/Electron",
   });
 
@@ -138,13 +138,13 @@ test("patch-electron-name repairs a branded plist with the old Electron executab
 
 test("patch-electron-name upgrades a lowercase branded bundle", () => {
   const { root } = makeElectronRoot({
-    appBundle: "monacori.app",
-    executable: "monacori",
-    bundleName: "monacori",
-    bundleDisplayName: "monacori",
-    bundleExecutable: "monacori",
-    bundleIdentifier: "dev.happynut.monacori",
-    pathTxt: "monacori.app/Contents/MacOS/monacori",
+    appBundle: "kakapo.app",
+    executable: "kakapo",
+    bundleName: "kakapo",
+    bundleDisplayName: "kakapo",
+    bundleExecutable: "kakapo",
+    bundleIdentifier: "dev.happynut.kakapo",
+    pathTxt: "kakapo.app/Contents/MacOS/kakapo",
   });
 
   try {
@@ -159,12 +159,12 @@ test("patch-electron-name upgrades a lowercase branded bundle", () => {
 
 test("patch-electron-name is stable on an already branded install", () => {
   const { root } = makeElectronRoot({
-    appBundle: "Monacori.app",
-    executable: "monacori",
-    bundleName: "Monacori",
-    bundleDisplayName: "Monacori",
-    bundleExecutable: "monacori",
-    bundleIdentifier: "dev.happynut.monacori",
+    appBundle: "Kakapo.app",
+    executable: "kakapo",
+    bundleName: "Kakapo",
+    bundleDisplayName: "Kakapo",
+    bundleExecutable: "kakapo",
+    bundleIdentifier: "dev.happynut.kakapo",
     pathTxt: expectedElectronPath,
   });
 

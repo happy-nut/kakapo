@@ -12,8 +12,8 @@ afterEach(() => {
 });
 
 test("performance trace preserves bounded, inspectable local evidence", () => {
-  const root = mkdtempSync(join(tmpdir(), "monacori-perf-"));
-  const userData = mkdtempSync(join(tmpdir(), "monacori-perf-data-"));
+  const root = mkdtempSync(join(tmpdir(), "kakapo-perf-"));
+  const userData = mkdtempSync(join(tmpdir(), "kakapo-perf-data-"));
   roots.push(root);
   roots.push(userData);
   const trace = new ReviewPerformanceTrace(root, userData);
@@ -26,5 +26,5 @@ test("performance trace preserves bounded, inspectable local evidence", () => {
   assert.deepEqual(artifact.events.map((event) => event.name), ["window-created", "first-review-paint"]);
   assert.equal(artifact.events[1].details.lazy, true);
   assert.ok(artifact.events[1].elapsedMs >= artifact.events[0].elapsedMs);
-  assert.equal(existsSync(join(root, ".monacori")), false, "performance evidence never creates project-local state");
+  assert.equal(existsSync(join(root, ".kakapo")), false, "performance evidence never creates project-local state");
 });

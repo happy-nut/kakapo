@@ -76,7 +76,7 @@ function saveComments() {
   persistSave(COMMENTS_KEY, reviewComments);
 }
 function hasProjectExistenceBridge() {
-  return !!(window.monacoriFile && typeof window.monacoriFile.existingPaths === 'function');
+  return !!(window.kakapoFile && typeof window.kakapoFile.existingPaths === 'function');
 }
 function commentFileIsKnownMissing(path) {
   var file = sourceByPath.get(path);
@@ -95,7 +95,7 @@ function removeCommentsForPaths(paths) {
   reviewComments = reviewComments.filter(function (comment) { return !missing.has(comment.path); });
   saveComments();
   try {
-    document.dispatchEvent(new CustomEvent('monacori:comments-pruned', { detail: { comments: removed } }));
+    document.dispatchEvent(new CustomEvent('kakapo:comments-pruned', { detail: { comments: removed } }));
   } catch (e) {}
   return removed.length;
 }
@@ -111,7 +111,7 @@ function verifyCommentFilesExist() {
   reviewComments.forEach(function (comment) { if (paths.indexOf(comment.path) < 0) paths.push(comment.path); });
   if (!paths.length) return Promise.resolve(0);
   if (hasProjectExistenceBridge()) {
-    return Promise.resolve(window.monacoriFile.existingPaths(paths)).then(function (result) {
+    return Promise.resolve(window.kakapoFile.existingPaths(paths)).then(function (result) {
       if (!result || typeof result !== 'object') return 0;
       return removeCommentsForPaths(paths.filter(function (path) { return result[path] === false; }));
     }, function () { return 0; });
@@ -553,7 +553,7 @@ function saveComposer(ta) {
 function defaultMergePrompt(kind) {
   return t(kind === 'q' ? 'mergePrompt.default.q' : kind === 'plan' ? 'plan.contract' : 'mergePrompt.default.c');
 }
-var mergePromptsKey = 'monacori-merge-prompts';
+var mergePromptsKey = 'kakapo-merge-prompts';
 function loadMergePrompts() {
   var b = persistRead(mergePromptsKey); if (b && typeof b === 'object') return b; try { var v = JSON.parse(localStorage.getItem(mergePromptsKey) || '{}'); return (v && typeof v === 'object') ? v : {}; } catch (e) { return {}; }
 }

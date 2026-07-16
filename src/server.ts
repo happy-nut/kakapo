@@ -111,7 +111,7 @@ export function serveDiffWatch(input: {
       staged: input.staged,
       includeUntracked: input.includeUntracked,
       context: input.context,
-      title: "monacori live diff",
+      title: "kakapo live diff",
       watch: true,
       ignoreWhitespace: input.ignoreWhitespace,
       lazyLoad: true, // serve can stream per-file bodies/source over /file + /source
@@ -181,7 +181,7 @@ export function serveDiffWatch(input: {
       }
 
       // Project-wide metadata/tree is fetched after first paint, only when a project navigation surface
-      // needs it. This mirrors Electron's monacori:get-project-index IPC endpoint.
+      // needs it. This mirrors Electron's kakapo:get-project-index IPC endpoint.
       if (requestUrl.pathname === "/project-index") {
         const b = lastBuild ?? build();
         const update = b.update;
@@ -220,7 +220,7 @@ export function serveDiffWatch(input: {
 
   server.on("error", (error) => {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`monacori: diff watch server failed: ${message}`);
+    console.error(`kakapo: diff watch server failed: ${message}`);
     process.exit(1);
   });
 

@@ -60,7 +60,7 @@ export function resolveAutomaticReviewBase(root: string, includeUntracked = true
 
 // Resolve the repository root. `git diff` and `git ls-files` print paths relative to it, and the
 // desktop tree shows them as-is — so every filesystem read of those paths must resolve against the
-// SAME root, not process.cwd(). When `mo` runs from a monorepo subdirectory (cwd != root), joining a
+// SAME root, not process.cwd(). When `kakapo` runs from a monorepo subdirectory (cwd != root), joining a
 // repo-root-relative path onto cwd points at a file that doesn't exist, which surfaced as a diff with
 // no source preview ("file is not present in the working tree"). Falls back to cwd outside a repo.
 export function repoRoot(cwd: string = process.cwd()): string {
