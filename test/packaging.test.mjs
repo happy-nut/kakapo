@@ -96,6 +96,11 @@ test("Linux release workflow tests, packages, boots, and publishes both native a
   assert.match(workflow, /npm run dist:linux:\$\{\{ matrix\.arch \}\}/);
   assert.match(workflow, /npm run smoke:linux/);
   assert.match(workflow, /gh release upload/);
+  assert.match(workflow, /GH_REPO: \$\{\{ github\.repository \}\}/);
+  assert.match(
+    readFileSync(join(repoRoot, "scripts", "smoke-linux.mjs"), "utf8"),
+    /child\.stdout\?\.destroy\(\);[\s\S]*child\.stderr\?\.destroy\(\);/,
+  );
   assert.match(autoRelease, /uses: \.\/\.github\/workflows\/linux\.yml/);
   assert.match(autoRelease, /needs: \[auto-release, linux-release\]/);
   assert.match(publish, /linux-release:[\s\S]*uses: \.\/\.github\/workflows\/linux\.yml/);

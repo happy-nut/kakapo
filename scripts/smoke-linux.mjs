@@ -63,17 +63,27 @@ export async function waitForKakapoRenderer({
 }
 
 async function stopProcessGroup(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
+  const childExited = child.exitCode !== null || child.signalCode !== null;
   try { process.kill(-child.pid, "SIGTERM"); }
   catch { try { child.kill("SIGTERM"); } catch {} }
 
-  const stopped = await Promise.race([
-    new Promise((resolveStop) => child.once("exit", () => resolveStop(true))),
-    delay(2_000).then(() => false),
-  ]);
-  if (stopped) return;
-  try { process.kill(-child.pid, "SIGKILL"); }
-  catch { try { child.kill("SIGKILL"); } catch {} }
+  if (!childExited) {
+    await Promise.race([
+      new Promise((resolveStop) => child.once("exit", resolveStop)),
+      delay(2_000),
+    ]);
+  } else {
+    // xvfb-run may exit before its Electron descendant. Give the process group a brief TERM window.
+    await delay(100);
+  }
+
+  try { process.kill(-child.pid, 0); process.kill(-child.pid, "SIGKILL"); }
+  catch {}
+
+  // A surviving descendant can otherwise keep these inherited pipes open for several minutes after the
+  // renderer check has already passed, making a successful CI smoke step look hung.
+  child.stdout?.destroy();
+  child.stderr?.destroy();
 }
 
 /** Launch the packaged app in Xvfb and require a real Chromium renderer page. */
