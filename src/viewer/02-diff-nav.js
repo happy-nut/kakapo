@@ -101,7 +101,6 @@ function syncDiffReviewChrome(path) {
   if (beforePath) { beforePath.textContent = activePath; beforePath.title = activePath; }
   if (afterPath) { afterPath.textContent = activePath; afterPath.title = activePath; }
 
-  var counter = document.getElementById('diff-change-counter');
   var previous = document.getElementById('diff-prev-change');
   var nextButton = document.getElementById('diff-next-change');
   var openSource = document.getElementById('diff-open-source');
@@ -109,26 +108,6 @@ function syncDiffReviewChrome(path) {
   if (previous) previous.disabled = disabled;
   if (nextButton) nextButton.disabled = disabled;
   if (openSource) openSource.disabled = disabled;
-  if (!counter) return;
-
-  var cursor = diffCursor && diffCursor.path === activePath ? diffCursor : null;
-  var wrapper = diffWrapperByPath(activePath);
-  var anchors = cursor && wrapper ? diffReviewAnchors(wrapper, cursor.side) : [];
-  if (!cursor || !anchors.length) {
-    counter.textContent = disabled ? t('diff.noChange') : '—';
-    counter.title = counter.textContent;
-    return;
-  }
-  var selected = 0;
-  for (var ai = 0; ai < anchors.length; ai++) {
-    if (anchors[ai] <= cursor.rowIndex) selected = ai;
-    else break;
-  }
-  var label = t('diff.changeCounter')
-    .replace('{current}', String(selected + 1))
-    .replace('{total}', String(anchors.length));
-  counter.textContent = label;
-  counter.title = label;
 }
 
 // Coalesce diff-nav scrolls: hammering F7 / [ / ] schedules at most one
@@ -221,9 +200,6 @@ function applySetActive(idx, shouldScroll) {
   links.forEach((link) => link.classList.toggle('active', link.dataset.file === file));
   renderBreadcrumb(document.getElementById('diff-breadcrumb'), file);
   syncDiffReviewChrome(file);
-  var dvt = document.getElementById('diff-viewed-toggle');
-  if (dvt) dvt.dataset.file = file || '';
-  updateDiffViewedToggle();
   if (file) rememberRecent(file, 'change');
   history.replaceState(null, '', '#hunk-' + idx);
   // Row-dependent work waits for the file body (sync for eager/Phase 1, async for cold lazy-LOAD).
@@ -391,22 +367,6 @@ function next(delta) {
     var fallbackHunk = sourceHunk >= 0 ? sourceHunk : (base >= 0 ? base : (current >= 0 ? current : 0));
     setActive(fallbackHunk);
   }
-}
-
-// Jump to the first change of the next unviewed file after `path` (wrapping). Used right after marking a
-// file viewed: its diff body is now hidden, so staying would blank the content — we advance to the next
-// change instead. Returns false when every changed file is viewed (nothing to advance to).
-function gotoNextUnviewedFile(path) {
-  const total = hunkTotal();
-  if (total === 0) return false;
-  const start = firstHunkForPath(path);
-  let idx = (start >= 0 ? start : (current >= 0 ? current : 0)) + 1;
-  for (let step = 0; step < total; step++) {
-    const norm = ((idx % total) + total) % total;
-    if (!isFileViewed(hunkPathAt(norm) || '')) { setActive(norm); return true; }
-    idx += 1;
-  }
-  return false;
 }
 
 function initialHunkForNavigation(delta) {

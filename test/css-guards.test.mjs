@@ -62,6 +62,40 @@ test("scrollbar thumbs remain layout-stable but only paint while scrolling", () 
   assert.match(thumb || "", /background-color:\s*transparent/, "an idle scrollbar hides its thumb without removing its gutter");
   assert.match(thumb || "", /transition:\s*background-color\s+180ms/, "the thumb fades instead of disappearing abruptly");
   assert.match(activeThumb || "", /background-color:\s*color-mix/, "active scrolling reveals the thumb");
+  assert.match(css, /::-webkit-scrollbar-corner,\s*\n::-webkit-resizer\s*\{\s*background:\s*transparent/, "scrollable previews never expose a white native corner or resize patch");
+});
+
+test("Find in Files uses a wide result canvas with compact, mode-local filters", () => {
+  const panel = ruleBodyForExactSelector(".quick-open-panel");
+  assert.match(panel || "", /width:\s*min\(980px,\s*calc\(100vw\s*-\s*48px\)\)/, "project search has enough width for file, match, and path columns");
+  assert.match(css, /\.quick-open-search-options\s*\{[^}]*display:\s*none/s, "search-only controls do not leak into file or recent dialogs");
+  assert.match(css, /\.quick-open\.quick-content \.quick-open-search-options\s*\{[^}]*display:\s*flex/s, "extension and noise filters appear in Find in Files");
+  assert.match(css, /\.qp-search-hit\s*\{[^}]*background:\s*color-mix/s, "the selected occurrence is visibly marked in the surrounding-code preview");
+});
+
+test("semantic navigation keeps filenames readable and test results visually distinct", () => {
+  const label = ruleBodyForExactSelector(".semantic-peek-item-path");
+  assert.match(label || "", /color:\s*var\(--chrome-text\)/, "basename:line labels use the high-contrast chrome text color");
+  assert.match(css, /\.semantic-peek-item\.is-test,[\s\S]{0,120}\.quick-open-item\.usage-item\.is-test\s*\{[^}]*background:\s*color-mix/s, "test results receive a green-tinted background in both semantic result surfaces");
+  assert.match(css, /\.semantic-peek-item\s*\{[^}]*grid-template-columns:\s*minmax\(145px,\s*36%\)\s+minmax\(0,\s*1fr\)/s, "the result row dedicates one compact column to basename:line instead of a full path plus line column");
+});
+
+test("Viewed state has no control inside the diff canvas or toolbar", () => {
+  const renderSource = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(renderSource, /id=["']diff-viewed-toggle["']/, "the diff toolbar has no Viewed pill");
+  const nativeViewed = ruleBodyForExactSelector(".d2h-file-collapse");
+  assert.match(nativeViewed || "", /display:\s*none\s*!important/, "diff2html's native file-header checkbox stays unavailable");
+});
+
+test("folded-context labels stay centred in the visible diff pane", () => {
+  const fold = ruleBodyForExactSelector(".mc-context-fold");
+  assert.match(fold || "", /position:\s*sticky/, "the control follows the pane viewport instead of the max-content table");
+  assert.match(fold || "", /left:\s*12px/, "equal viewport insets keep the control centred while horizontally scrolling");
+  assert.match(fold || "", /width:\s*calc\(100cqw\s*-\s*24px\)/, "the control fits within the pane and leaves room for native scrollbar gutters");
+  assert.match(fold || "", /max-width:\s*calc\(100cqw\s*-\s*24px\)/, "long labels cannot widen the control beyond the pane");
+  const label = ruleBodyForExactSelector(".mc-context-fold-label");
+  assert.match(label || "", /text-overflow:\s*ellipsis/, "an unusually long translation is clipped inside the centred control");
+  assert.match(label || "", /white-space:\s*nowrap/, "the compact fold bar remains one line tall");
 });
 
 test("the comment composer textarea restores its own caret (not transparent-inherited from the diff)", () => {
@@ -102,11 +136,35 @@ test("source line-number gutter stays compact and internally aligned", () => {
   );
 });
 
-test("raw source rows never soft-wrap, keeping caret scroll math stable", () => {
+test("raw source rows keep one-line defaults and expose an explicit wrap mode", () => {
   const css = readFileSync(new URL("../src/viewer.css", import.meta.url), "utf8");
   const rule = css.match(/\.source-body:not\(\.rendered-body\)\s+\.source-row\s*>\s*\.source-code\s*\{[^}]+\}/)?.[0] || "";
   assert.match(rule, /white-space:\s*pre\s*;/, "raw code behaves like an editor line, not a wrapping document");
   assert.match(rule, /overflow-wrap:\s*normal\s*;/, "long tokens use horizontal scrolling instead of growing row height");
+  const wrapRule = css.match(/\.source-body\.line-wrap:not\(\.rendered-body\)\s+\.source-row\s*>\s*\.source-code\s*\{[^}]+\}/)?.[0] || "";
+  assert.match(wrapRule, /white-space:\s*pre-wrap\s*;/, "line-wrap mode preserves indentation while wrapping long lines");
+  assert.match(wrapRule, /overflow-wrap:\s*anywhere\s*;/, "line-wrap mode also contains long unbroken tokens");
+  assert.match(css, /\.source-body\.line-wrap:not\(\.rendered-body\)\s+\.source-table\s*\{[^}]*table-layout:\s*fixed/, "wrap mode constrains the code column to the viewport");
+});
+
+test("diff line wrap constrains both panes while preserving the fixed gutter", () => {
+  const sourceCss = readFileSync(new URL("../src/viewer.css", import.meta.url), "utf8");
+  assert.match(
+    sourceCss,
+    /#diff2html-container\.line-wrap\s+\.d2h-diff-table\s*\{[^}]*width:\s*100%[^}]*table-layout:\s*auto/s,
+    "wrapped diff tables fit their pane while preserving the explicit line-number column after colspan hunk rows",
+  );
+  assert.match(
+    sourceCss,
+    /#diff2html-container\.line-wrap\s+\.d2h-code-line-ctn\s*\{[^}]*white-space:\s*pre-wrap[^}]*overflow-wrap:\s*anywhere/s,
+    "diff wrapping preserves indentation and contains long tokens",
+  );
+  assert.match(
+    sourceCss,
+    /#diff2html-container\.line-wrap\s+\.d2h-file-side-diff\s*\{[^}]*overflow-x:\s*hidden/,
+    "wrapped panes no longer expose a redundant horizontal scrollbar",
+  );
+  assert.match(sourceCss, /\.mc-diff-gutter-layer[^}]*width:\s*52px/, "the layered gutter width remains independent of wrapped code");
 });
 
 test("shared Markdown typography preserves readable paragraph rhythm", () => {

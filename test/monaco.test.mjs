@@ -145,6 +145,87 @@ test("the caret-local semantic menu opens its selected source without a second e
   v.close();
 });
 
+test("Cmd+B resolves the token at the active diff caret on both working and base panes", async () => {
+  const requests = [];
+  const v = await loadViewer(html, {
+    monacoBridge: true,
+    analysisBridge(request) {
+      requests.push(request);
+      return responseFor(request);
+    },
+  });
+  await v.openDiffFor("src/app.ts");
+  const wrapper = v.window.diffWrapperByPath("src/app.ts");
+
+  function placeCaret(side, needle) {
+    const rows = v.window.diffRowsOf(v.window.diffSideTable(wrapper, side));
+    const rowIndex = rows.findIndex((row) => v.window.diffLineText(row).includes(needle));
+    assert.notEqual(rowIndex, -1, `${side} diff contains ${needle}`);
+    const text = v.window.diffLineText(rows[rowIndex]);
+    const column = text.indexOf(needle) + 1;
+    v.window.setDiffCursor("src/app.ts", side, rowIndex, column, false);
+    return { row: rows[rowIndex], column: text.indexOf(needle) };
+  }
+
+  const working = placeCaret("new", "target");
+  v.key("b", { metaKey: true, code: "KeyB" });
+  await v.settle(40);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(requests.at(-1))),
+    {
+      kind: "definition",
+      symbol: "target",
+      path: "src/app.ts",
+      line: v.window.diffLineNumber(working.row) - 1,
+      column: working.column,
+    },
+    "the working-tree caret supplies its exact token and source coordinates",
+  );
+  assert.ok(!v.$("#semantic-peek").classList.contains("hidden"), "multiple definitions open the caret-local result dropdown");
+  v.key("Enter");
+  await v.settle(40);
+  assert.equal(v.$("#source-viewer").dataset.openPath, "src/app.ts", "Enter opens the selected definition from diff navigation");
+
+  await v.openDiffFor("src/app.ts");
+  const base = placeCaret("old", "oldValue");
+  v.key("b", { metaKey: true, code: "KeyB" });
+  await v.settle(40);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(requests.at(-1))),
+    {
+      kind: "definition",
+      symbol: "oldValue",
+      path: "src/app.ts",
+      line: v.window.diffLineNumber(base.row) - 1,
+      column: base.column,
+    },
+    "the base caret remains a valid semantic-navigation origin",
+  );
+  v.close();
+});
+
+test("semantic results show compact white file labels, omit docs/comments, and distinguish tests", async () => {
+  const v = await loadViewer(html, { monacoBridge: true, analysisBridge: (request) => responseFor(request) });
+  await v.openSourceFile("src/app.ts");
+  const locations = [
+    { path: "tests/unit/target.test.ts", lineIndex: 8, column: 2, text: "expect(target()).toBeTruthy();" },
+    { path: "src/deep/module/target.ts", lineIndex: 41, column: 7, text: "const value = target();" },
+    { path: "docs/target.md", lineIndex: 2, column: 0, text: "target is described here" },
+    { path: "src/comment.ts", lineIndex: 3, column: 3, text: "// target is intentionally disabled" },
+  ];
+  v.window.openAnalysisUsages("target", locations, responseFor({}, 8), "references");
+  await v.settle(20);
+
+  const items = v.$all("#semantic-peek-results .semantic-peek-item");
+  assert.equal(items.length, 2, "documentation and comment-only locations stay out of navigation");
+  assert.equal(items[0].querySelector(".semantic-peek-item-path")?.textContent, "target.ts:42", "the visible label is basename:line");
+  assert.equal(items[0].title, "src/deep/module/target.ts:42", "the full path remains available as secondary hover detail");
+  assert.ok(!items[0].classList.contains("is-test"), "production results remain above test evidence even when the analyzer returns a test first");
+  assert.ok(items[1].classList.contains("is-test"), "test code receives the dedicated green result treatment");
+  assert.equal(items[1].querySelector(".semantic-peek-item-path")?.textContent, "target.test.ts:9");
+  v.close();
+});
+
 test("Cmd+B failure shows a short caret hint and does not open an empty result panel", async () => {
   const v = await loadViewer(html, {
     monacoBridge: true,

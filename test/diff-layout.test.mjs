@@ -82,6 +82,10 @@ test("real Chromium keeps both diff gutters at the divider after maximum horizon
   assert.ok(layout.immediateNewDividerGap <= 1, `working-tree gutter lagged its scroll event by ${layout.immediateNewDividerGap}px`);
   assert.ok(layout.immediateOldBandGap <= 1, `base change background lagged its gutter by ${layout.immediateOldBandGap}px`);
   assert.ok(layout.immediateNewBandGap <= 1, `working-tree change background lagged its gutter by ${layout.immediateNewBandGap}px`);
+  assert.ok(layout.immediateOldFoldCenterGap <= 1, `base folded-context label missed the visible pane centre by ${layout.immediateOldFoldCenterGap}px`);
+  assert.ok(layout.immediateNewFoldCenterGap <= 1, `working folded-context label missed the visible pane centre by ${layout.immediateNewFoldCenterGap}px`);
+  assert.ok(layout.immediateOldFoldOverflow <= 1, `base folded-context control escaped its pane by ${layout.immediateOldFoldOverflow}px`);
+  assert.ok(layout.immediateNewFoldOverflow <= 1, `working folded-context control escaped its pane by ${layout.immediateNewFoldOverflow}px`);
   assert.ok(layout.oldDividerGap <= 1.5, `base gutter escaped the divider by ${layout.oldDividerGap}px`);
   assert.ok(layout.newDividerGap <= 1, `working-tree gutter escaped the divider by ${layout.newDividerGap}px`);
   assert.ok(Math.abs(layout.oldNumberWidth - 52) <= 1, `base gutter width changed to ${layout.oldNumberWidth}px`);
@@ -102,6 +106,24 @@ test("real Chromium keeps both diff gutters at the divider after maximum horizon
   assert.ok(Math.abs(layout.commentCardTravel) <= 1, `comment card moved ${layout.commentCardTravel}px with source text`);
   assert.ok(Math.abs(layout.oldVerticalLock) <= 0.5, "base code and its one gutter layer share the same vertical transform");
   assert.ok(Math.abs(layout.newVerticalLock) <= 0.5, "working-tree code and its one gutter layer share the same vertical transform");
+  assert.ok(layout.wrappedOldTextHeight > 30, `base long line did not wrap (${layout.wrappedOldTextHeight}px)`);
+  assert.ok(layout.wrappedNewTextHeight > 30, `working-tree long line did not wrap (${layout.wrappedNewTextHeight}px)`);
+  assert.ok(layout.wrappedOldTableOverflow <= 1, `wrapped base table overflowed its pane by ${layout.wrappedOldTableOverflow}px`);
+  assert.ok(layout.wrappedNewTableOverflow <= 1, `wrapped working table overflowed its pane by ${layout.wrappedNewTableOverflow}px`);
+  assert.ok(layout.wrappedOldNumberTopGap <= 1, `base wrapped line number started ${layout.wrappedOldNumberTopGap}px below its row`);
+  assert.ok(layout.wrappedNewNumberTopGap <= 1, `working wrapped line number started ${layout.wrappedNewNumberTopGap}px below its row`);
+  assert.ok(layout.wrappedOldNumberLineHeight < layout.wrappedOldTextHeight, "base line number stays on the first visual line");
+  assert.ok(layout.wrappedNewNumberLineHeight < layout.wrappedNewTextHeight, "working line number stays on the first visual line");
+  assert.ok(Math.abs(layout.wrappedOldAnchorWidth - 52) <= 1, `base wrap anchor grew to ${layout.wrappedOldAnchorWidth}px`);
+  assert.ok(Math.abs(layout.wrappedNewAnchorWidth - 52) <= 1, `working wrap anchor grew to ${layout.wrappedNewAnchorWidth}px`);
+  assert.ok(
+    Math.abs(layout.wrappedOldCodeWidth - (layout.wrappedOldPaneWidth - 52)) <= 1,
+    `base code used ${layout.wrappedOldCodeWidth}px of its ${layout.wrappedOldPaneWidth}px pane`,
+  );
+  assert.ok(
+    Math.abs(layout.wrappedNewCodeWidth - (layout.wrappedNewPaneWidth - 52)) <= 1,
+    `working code used ${layout.wrappedNewCodeWidth}px of its ${layout.wrappedNewPaneWidth}px pane`,
+  );
 });
 
 test("real Chromium keeps both panes aligned while a comment opens and closes", {

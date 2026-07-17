@@ -57,8 +57,8 @@ localStorage라 이 함정을 못 건드린다).
 - 한 뷰에서 단 코멘트는 다른 뷰로 옮겨가도 보인다
 - 코멘트가 달린 파일에는 개수 배지가 붙는다
 - Changes 행은 증감 줄 수나 긴 상태 문구 없이 상태 아이콘만 표시한다
-- `Shift+,`는 열린 파일이 아니라 화살표로 선택한 Changes 행을 확인 처리한다
-- diff toolbar의 이전/다음 버튼, 변경 카운터, Base/Working tree 헤더가 키보드 F7 흐름과 같은 위치를 가리킨다
+- Changes 행에 포커스한 뒤 `Space`를 누르면 열린 파일이 아니라 화살표로 선택한 행의 확인 표시를 토글한다
+- diff toolbar 맨 오른쪽의 이전/다음 버튼과 Base/Working tree 헤더가 키보드 F7 흐름과 같은 위치를 가리키며, 별도 변경 카운터는 표시하지 않는다
 - 양쪽 라인 번호는 중앙 divider에 모이고, hunk id가 양쪽 행에 전파되며 수정=파랑·삭제=회색·추가=초록 배경이 빈 placeholder까지 이어진다
 - `Cmd/Ctrl+9` History를 열어도 왼쪽 activity rail은 유지된다
 - History의 커밋 그래프는 전체 폭을 사용하고, `Enter`는 선택한 커밋의 파일 목록·diff를 큰 플로팅 워크스페이스로 연다
@@ -68,8 +68,10 @@ localStorage라 이 함정을 못 건드린다).
 - 파일 트리·코드·diff·오버레이 등 패널 사이의 포커스 이동은 목적지에만 약 0.5초 focus flash를 보여주고 완전히 사라져, 이전 DOM 포커스의 푸른 테두리가 남지 않는다
 - 왼쪽에만 존재하는 삭제 줄은 오른쪽에 회색 빈 행을 만들지 않는다. 오른쪽 실제 줄 번호는 연속되고 삭제 범위는 중앙 곡선으로만 연결된다
 - 파일 안 `Cmd/Ctrl+F`는 입력을 짧게 debounce하고, 한 글자 대량 검색도 전체 탐색 결과는 유지하되 DOM 하이라이트만 제한한다. 연속 입력 시 취소된 이전 검색이 최종 결과를 덮어쓰지 않는다
+- Find in Files가 열린 동안 입력 필드의 `Cmd/Ctrl+←/→` 같은 네이티브 편집 키는 유지되고, 처리되지 않은 키가 dim 처리된 파일·diff 전역 단축키로 전파되지 않는다
 - 프로젝트 검색 프리뷰는 선택 줄 주변 문맥을 먼저 그리고, 위·아래 스크롤에 따라 문맥을 점진적으로 확장하면서 현재 보던 코드의 스크롤 앵커를 유지한다
 - 모달 프로젝트 검색이 열리면 파일 안 검색도 함께 dim 처리되고, 모든 스크롤바는 거터 폭을 유지한 채 스크롤 중에만 나타났다가 유휴 상태에서 사라진다
+- Linux x64와 ARM64는 각각 네이티브 Ubuntu runner에서 전체 테스트, Electron 패키징, Xvfb 실제 렌더러 기동을 통과한 동일 산출물만 GitHub Release에 첨부한다
 
 ### Flow 5 — 프로젝트 코드 분석과 변경 영향 (`analysis.test.mjs`, `impact.test.mjs`, `monaco.test.mjs`)
 
@@ -89,7 +91,7 @@ npm test          # pretest가 빌드 후 node --test 로 test/*.test.mjs 실행
 
 CI에서는 세 곳이 같은 `npm test`를 돌린다:
 
-- `.github/workflows/test.yml` — 모든 main push·PR (머지 전 1차 게이트, Node 20/22 매트릭스)
+- `.github/workflows/test.yml` — 모든 main push·PR (머지 전 1차 게이트, Node 22.14/24 매트릭스)
 - `.github/workflows/publish.yml` — `v*` 태그 배포 직전 게이트
 - `.github/workflows/auto-release.yml` — 주간 자동 배포에서 version bump 직전 게이트
 

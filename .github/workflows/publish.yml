@@ -7,17 +7,32 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing v* tag to verify and publish.
+        required: true
+        type: string
 
 permissions:
   contents: read
   id-token: write # required: lets npm verify this workflow via OIDC + adds provenance
 
 jobs:
+  linux-release:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/linux.yml
+    with:
+      release_tag: ${{ inputs.release_tag }}
+
   publish:
+    needs: linux-release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - uses: actions/setup-node@v5
         with:

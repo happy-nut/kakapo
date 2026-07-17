@@ -440,7 +440,12 @@ body.native-app .source-tabs {
   font-size: 11px;
   color: var(--muted);
 }
-.sidebar-footer .app-version { margin-right: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar-footer .app-version {
+  margin-right: auto; display: inline-flex; align-items: center; gap: 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.app-version .kakapo-mark { width: 28px; height: 28px; }
+.app-version-text { overflow: hidden; text-overflow: ellipsis; }
 .analysis-status {
   min-width: 0; display: inline-flex; align-items: center; gap: 5px;
   overflow: hidden; color: var(--muted); white-space: nowrap;
@@ -448,7 +453,11 @@ body.native-app .source-tabs {
 }
 .analysis-status-label { overflow: hidden; text-overflow: ellipsis; }
 .analysis-status-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); opacity: .7; }
-.analysis-status.is-starting .analysis-status-dot { background: var(--active); animation: analysis-pulse 1.1s ease-in-out infinite; }
+.analysis-status-loader { display: none; flex: none; width: 24px; height: 24px; }
+.analysis-status-loader .kakapo-mark { width: 24px; height: 24px; }
+.analysis-status.is-starting .analysis-status-dot { display: none; }
+.analysis-status.is-starting .analysis-status-loader { display: inline-grid; place-items: center; }
+.analysis-status.is-starting .analysis-status-loader .kakapo-mark { animation: kakapo-peck 1.05s cubic-bezier(.45, 0, .25, 1) infinite; }
 .analysis-status.is-ready { color: var(--text); }
 .analysis-status.is-ready .analysis-status-dot { background: var(--token-string); opacity: 1; }
 .analysis-status.is-fallback .analysis-status-dot { background: var(--token-tag); opacity: 1; }
@@ -487,6 +496,7 @@ body.native-app .source-tabs {
 .app-info-head { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
 .app-info-head .app-info-ver { color: var(--muted); font-weight: 500; }
 .app-info-status { color: var(--muted); margin-bottom: 10px; }
+.app-info-status.is-loading { display: flex; align-items: center; gap: 8px; }
 .app-info-status.has-update { color: var(--active); font-weight: 600; }
 .app-info-update { width: 100%; margin: 0 0 10px; border-color: var(--active); color: var(--active); font-weight: 600; }
 .app-info-update:hover { background: color-mix(in srgb, var(--active) 14%, transparent); color: var(--active); }
@@ -520,6 +530,8 @@ body.native-app .source-tabs {
 .settings-cat.active { background: color-mix(in srgb, var(--active) 20%, transparent); color: var(--active); font-weight: 600; }
 .settings-body { flex: 1 1 auto; min-width: 0; padding: 24px 28px; overflow: auto; }
 .settings-h { font-size: 16px; font-weight: 650; color: var(--text); margin-bottom: 6px; }
+.settings-brand { display: flex; align-items: center; gap: 8px; min-height: 42px; }
+.settings-brand .kakapo-mark { width: 40px; height: 40px; }
 .settings-ver { color: var(--muted); font-weight: 500; font-size: 0.62em; letter-spacing: 0.02em; }
 .settings-desc { font-size: 12px; color: var(--muted); line-height: 1.6; margin-bottom: 18px; }
 .settings-label { display: block; font-size: 12px; font-weight: 600; color: var(--text); margin: 14px 0 6px; }
@@ -583,13 +595,13 @@ body.native-app .source-tabs {
      can't scroll and the caret leaves the screen near the bottom of a big file. Pin to content height. */
   flex-shrink: 0;
 }
-/* The per-file header is merged into the sticky toolbar (path + status + Viewed) to save vertical space. */
+/* The per-file header is merged into the sticky toolbar to save vertical space. */
 .d2h-file-header { display: none; }
 .diff-toolbar {
   flex: none; min-height: 36px; padding: 4px 8px; gap: 8px;
   background: var(--sidebar); backdrop-filter: none;
 }
-.diff-toolbar-file { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 260px; }
+.diff-toolbar-file { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; }
 .diff-file-icon { flex: none; display: inline-flex; color: var(--muted); }
 .diff-review-controls { flex: none; display: inline-flex; align-items: center; gap: 2px; }
 .diff-tool-button {
@@ -600,11 +612,7 @@ body.native-app .source-tabs {
 .diff-tool-button:focus-visible { outline: 1px solid var(--active); outline-offset: 1px; }
 .diff-tool-button:disabled { opacity: .35; cursor: default; background: transparent; border-color: transparent; }
 .diff-tool-separator { width: 1px; height: 16px; margin: 0 3px; background: var(--border); }
-.diff-change-counter {
-  min-width: 92px; padding: 0 5px; color: var(--muted); text-align: center; white-space: nowrap;
-  font: 10.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-.diff-toolbar-meta { min-width: 0; flex: 1 1 260px; display: flex; justify-content: flex-end; align-items: center; gap: 9px; }
+.diff-toolbar-meta { min-width: 0; flex: none; margin-left: auto; display: flex; justify-content: flex-end; align-items: center; gap: 9px; }
 .diff-pane-header {
   flex: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); height: 29px;
   background: color-mix(in srgb, var(--sidebar) 88%, var(--panel)); border-bottom: 1px solid var(--border);
@@ -613,14 +621,14 @@ body.native-app .source-tabs {
 .diff-pane:first-child { border-right: 1px solid color-mix(in srgb, var(--active) 24%, var(--border)); }
 .diff-pane-kind { flex: none; color: var(--text); font-size: 10.5px; font-weight: 650; }
 .diff-pane-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 10.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.diff-viewed-toggle {
+.source-line-wrap-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   flex: none;
-  padding: 3px 10px;
+  padding: 3px 9px;
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: 999px;
   color: var(--muted);
   background: var(--panel);
   font-size: 11px;
@@ -629,33 +637,32 @@ body.native-app .source-tabs {
   cursor: pointer;
   white-space: nowrap;
 }
-.diff-viewed-toggle[hidden] { display: none; }
-.diff-viewed-toggle:hover { border-color: var(--active); color: var(--text); }
-.diff-viewed-toggle::before {
+.source-line-wrap-toggle.hidden { display: none; }
+.source-line-wrap-toggle:hover { border-color: var(--active); color: var(--text); }
+.source-line-wrap-toggle::before {
   content: "";
   box-sizing: border-box;
   width: 13px;
   height: 13px;
   border: 1px solid currentColor;
-  border-radius: 0;
-  opacity: 0.75;
+  border-radius: 3px;
+  opacity: .78;
 }
-.diff-viewed-toggle.is-viewed {
-  color: #6ab04c;
-  border-color: color-mix(in srgb, #6ab04c 55%, transparent);
-  background: color-mix(in srgb, #6ab04c 16%, transparent);
+.source-line-wrap-toggle.is-checked {
+  color: var(--active);
+  border-color: color-mix(in srgb, var(--active) 55%, transparent);
+  background: color-mix(in srgb, var(--active) 12%, transparent);
 }
-.diff-viewed-toggle.is-viewed:hover { border-color: #6ab04c; color: #6ab04c; }
-.diff-viewed-toggle.is-viewed::before {
+.source-line-wrap-toggle.is-checked::before {
   content: "✓";
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-color: #6ab04c;
-  background: #6ab04c;
-  color: #fff;
+  border-color: var(--active);
+  background: var(--active);
+  color: var(--bg);
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 800;
   opacity: 1;
 }
 .d2h-file-wrapper.file-viewed {
@@ -769,6 +776,44 @@ body.native-app .source-tabs {
   -webkit-user-select: text;
   user-select: text;
 }
+/* Diff wrapping is deliberately opt-in. In the default editor mode the table remains max-content and each
+   pane scrolls horizontally. Wrap mode constrains both tables to their equal pane widths, preserves source
+   indentation, and lets only the code column grow vertically; the 52px layered gutters remain fixed. */
+#diff2html-container.line-wrap .d2h-file-side-diff { overflow-x: hidden; }
+#diff2html-container.line-wrap .mc-diff-layer-stack,
+#diff2html-container.line-wrap .mc-diff-layer-stack > .d2h-code-wrapper {
+  width: 100%;
+  min-width: 0;
+}
+#diff2html-container.line-wrap .d2h-diff-table {
+  width: 100%;
+  min-width: 0;
+  /* diff2html starts each hunk with a two-column `colspan` info row. With fixed layout Chromium uses
+     that row to split the table 50/50, so the hidden line-number anchor consumes half of the pane and
+     pushes working-tree code to the far right. Auto layout can honor the explicit 52px number column;
+     `overflow-wrap:anywhere` below still gives the code column a zero-safe min-content width. */
+  table-layout: auto;
+}
+#diff2html-container.line-wrap .d2h-code-side-line,
+#diff2html-container.line-wrap .d2h-code-line {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  white-space: normal;
+}
+#diff2html-container.line-wrap .d2h-code-line-ctn {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  vertical-align: top;
+}
+#diff2html-container.line-wrap .d2h-code-line-ctn ins,
+#diff2html-container.line-wrap .d2h-code-line-ctn del {
+  display: inline;
+}
 /* Changed lines: lift the base text brighter than the gray context so additions/deletions read as
    edits, not the same gray. hljs tokens keep their own colors; this only affects unhighlighted text. */
 td.d2h-ins:not(.d2h-code-side-linenumber),
@@ -814,9 +859,13 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 /* Expandable omitted context between hunks. Both panes expose the same full-width control and expand
    together; the @@ marker remains in the DOM as a navigation anchor but leaves no visual spacer. */
 .d2h-diff-table tr.mc-context-fold-row > td { padding-top: 0; padding-bottom: 0; background: color-mix(in srgb, var(--line) 82%, var(--panel)); }
+.d2h-diff-table tr.mc-context-fold-row > td.mc-context-fold-companion { display: none !important; }
 .mc-context-fold-row .d2h-code-side-line { padding: 0; color: var(--muted); user-select: none; }
 .mc-context-fold {
-  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 28px;
+  position: sticky; left: 12px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  box-sizing: border-box; width: calc(100cqw - 24px); max-width: calc(100cqw - 24px); min-width: 0; min-height: 28px;
+  overflow: hidden;
   padding: 3px 10px; border: 0; background: transparent; color: var(--muted);
   font: 11px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; cursor: pointer;
 }
@@ -828,7 +877,8 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   box-shadow: inset 0 0 0 2px var(--active);
 }
 .mc-context-fold:disabled { cursor: wait; opacity: .7; }
-.mc-context-fold-icon { font: 700 15px/1 Monaco, ui-monospace, monospace; letter-spacing: 2px; }
+.mc-context-fold-icon { flex: none; font: 700 15px/1 Monaco, ui-monospace, monospace; letter-spacing: 2px; }
+.mc-context-fold-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d2h-diff-table tr.mc-context-expanded-marker { display: none !important; }
 /* Unchanged dependency headers are review noise until requested. A changed import never receives these
    classes, so dependency edits remain ordinary, fully-visible diff rows. */
@@ -934,53 +984,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-file-side-diff:first-child tr.diff-active-row td.d2h-code-side-linenumber,
 .d2h-file-side-diff:last-of-type tr.diff-active-row td.d2h-code-side-linenumber { box-shadow: none; color: var(--text); }
 .review-status .ws-ignored { color: var(--token-tag); border: 1px solid color-mix(in srgb, var(--token-tag) 45%, transparent); border-radius: 0; padding: 0 7px; }
-.d2h-file-collapse {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: 8px;
-  padding: 3px 10px;
-  border: 1px solid var(--border);
-  border-radius: 0;
-  color: var(--muted);
-  background: var(--panel);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  white-space: nowrap;
-}
-.d2h-file-collapse:hover { border-color: var(--active); color: var(--text); }
-.d2h-file-collapse::before {
-  content: '';
-  box-sizing: border-box;
-  width: 13px;
-  height: 13px;
-  border: 1px solid currentColor;
-  border-radius: 0;
-  opacity: 0.75;
-}
-.d2h-file-collapse-input { display: none; }
-.d2h-file-wrapper.file-viewed .d2h-file-collapse {
-  color: #6ab04c;
-  border-color: color-mix(in srgb, #6ab04c 55%, transparent);
-  background: color-mix(in srgb, #6ab04c 16%, transparent);
-}
-.d2h-file-wrapper.file-viewed .d2h-file-collapse:hover { border-color: #6ab04c; color: #6ab04c; }
-.d2h-file-wrapper.file-viewed .d2h-file-collapse::before {
-  content: '✓';
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-color: #6ab04c;
-  background: #6ab04c;
-  color: #fff;
-  font-size: 9px;
-  font-weight: 700;
-  opacity: 1;
-}
+.d2h-file-collapse { display: none !important; }
 .tree { display: grid; gap: 1px; font-size: 11.5px; font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .tree-dir { display: grid; gap: 1px; }
 .tree-dir summary {
@@ -1146,6 +1150,8 @@ summary.tree-focus { background: color-mix(in srgb, var(--active) 20%, transpare
 .mc-scroll-active::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--muted) 32%, transparent); }
 .mc-scroll-active::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--muted) 52%, transparent); }
 ::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner,
+::-webkit-resizer { background: transparent; }
 .toolbar {
   position: sticky;
   top: 0;
@@ -1301,23 +1307,42 @@ h1 { margin: 0; font-size: 18px; }
   );
   background-repeat: no-repeat;
 }
+/* One real Kakapo icon is reused for branding and every delayed-work state. The small peck/bob reads as
+   activity without the generic spinning ring, and reduced-motion users get a quiet opacity pulse. */
+.kakapo-mark {
+  display: block;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  background: var(--kakapo-ui-icon) center/contain no-repeat;
+}
+.kakapo-loader { display: inline-grid; flex: none; place-items: center; }
+.kakapo-loader .kakapo-mark {
+  animation: kakapo-peck 1.05s cubic-bezier(.45, 0, .25, 1) infinite;
+  transform-origin: 52% 72%;
+}
+.kakapo-loader-inline { width: 34px; height: 34px; }
+.kakapo-loader-inline .kakapo-mark { width: 32px; height: 32px; }
+.kakapo-loader-micro { width: 24px; height: 24px; }
+.kakapo-loader-micro .kakapo-mark { width: 22px; height: 22px; }
+.kakapo-loader-boot { width: 76px; height: 76px; filter: drop-shadow(0 9px 15px rgba(0, 0, 0, .2)); }
+.kakapo-loader-boot .kakapo-mark { width: 68px; height: 68px; }
+@keyframes kakapo-peck {
+  0%, 100% { transform: translateY(0) rotate(0); opacity: .9; }
+  38% { transform: translateY(-3px) rotate(-3deg); opacity: 1; }
+  62% { transform: translateY(1px) rotate(2deg); }
+}
+
 /* Boot overlay: painted the instant the review HTML loads, removed once the renderer's bootstrap has drawn
-   the diff/tree — so there's no blank screen between the startup spinner and first render. Mirrors
-   app-main's LOADING_HTML spinner exactly so the hand-off from the loading screen is seamless. */
+   the diff/tree — so there's no blank screen between the native startup mark and first render. */
 #boot-overlay {
   position: fixed; inset: 0; z-index: 200;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  display: flex; align-items: center; justify-content: center;
   background: var(--bg); color: var(--muted);
   font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   transition: opacity 0.22s ease;
 }
 #boot-overlay.hide { opacity: 0; pointer-events: none; }
-.boot-spinner {
-  width: 34px; height: 34px;
-  border: 3px solid color-mix(in srgb, var(--muted) 28%, transparent); border-top-color: var(--active); border-radius: 50%;
-  animation: boot-spin 0.8s linear infinite;
-}
-@keyframes boot-spin { to { transform: rotate(360deg); } }
 /* Empty state ("Select a file…") centered in the available space, not top-left. */
 .source-body.empty {
   display: flex;
@@ -1337,13 +1362,19 @@ h1 { margin: 0; font-size: 18px; }
   overflow-wrap: anywhere;
   line-height: 1.45;
 }
-/* Code review is editor-like: raw source lines never soft-wrap. Besides making horizontal navigation
-   predictable, this guarantees the fast caret-follow calculation has one stable row height. Rendered
-   Markdown/CSV keep their own wrapping rules below. */
+/* Raw source is editor-like by default: long lines stay on one row for predictable horizontal navigation
+   and the fixed-height caret fast path. Line wrap is an explicit toolbar/Option+W mode; its fixed table
+   layout constrains the code column to the viewport and its variable rows use DOM geometry for reveal. */
 .source-body:not(.rendered-body) .source-row > .source-code {
   white-space: pre;
   overflow-wrap: normal;
   word-break: normal;
+}
+.source-body.line-wrap:not(.rendered-body) .source-table { table-layout: fixed; }
+.source-body.line-wrap:not(.rendered-body) .source-row > .source-code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 /* perf: let the browser skip layout/paint for off-screen rows in large files/diffs.
    DOM is unchanged (nav, search, comment anchoring still query every row); degrades
@@ -1538,7 +1569,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .impact-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 10px 20px; }
 .impact-empty { padding: 32px 18px; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .impact-loading { display: flex; align-items: center; gap: 10px; }
-.impact-loading .boot-spinner { position: static; width: 15px; height: 15px; flex: none; }
+.impact-loading .kakapo-loader { flex: none; }
 .impact-tier { margin-bottom: 10px; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--panel) 86%, var(--sidebar)); }
 .impact-tier-head { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border-bottom: 1px solid var(--border); }
 .impact-tier-mark { display: grid; flex: none; place-items: center; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; font-size: 10px; font-weight: 800; }
@@ -1596,7 +1627,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
   outline: none;
 }
 .semantic-peek-item {
-  width: 100%; display: grid; grid-template-columns: minmax(130px, 34%) 48px minmax(0, 1fr);
+  width: 100%; display: grid; grid-template-columns: minmax(145px, 36%) minmax(0, 1fr);
   align-items: center; gap: 9px; padding: 6px 9px; border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
   background: transparent; color: var(--text); text-align: left; cursor: pointer;
@@ -1604,7 +1635,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .semantic-peek-item:hover { background: color-mix(in srgb, var(--active) 13%, transparent); }
 .semantic-peek-item.active { background: var(--active); color: #fff; }
 .semantic-peek-item-path, .semantic-peek-item-code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.semantic-peek-item-path { color: var(--token-function); font: 11px/1.4 Monaco, ui-monospace, monospace; }
+.semantic-peek-item-path { color: var(--chrome-text); font: 11px/1.4 Monaco, ui-monospace, monospace; }
 .semantic-peek-item-line { color: var(--muted); text-align: right; font: 11px/1.4 Monaco, ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 .semantic-peek-item-code { color: var(--muted); font: 10.5px/1.4 Monaco, ui-monospace, monospace; }
 .semantic-peek-item.active .semantic-peek-item-path,
@@ -1817,16 +1848,17 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .quick-open.anchored { display: block; padding: 0; background: transparent; }
 .quick-open.anchored .quick-open-panel { position: absolute; max-height: none; }
 .quick-open-panel {
-  width: min(720px, calc(100vw - 32px));
+  width: min(980px, calc(100vw - 48px));
   max-height: min(680px, calc(100vh - 64px));
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   border: 1px solid var(--border);
   border-radius: 0;
   background: var(--panel);
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.28);
   overflow: hidden;
 }
+.quick-open.quick-content .quick-open-panel { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
 .quick-open-title {
   display: flex;
   justify-content: space-between;
@@ -1854,6 +1886,51 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   color: var(--text);
   font: 15px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
+.quick-open-search-options {
+  display: none;
+  align-items: center;
+  gap: 12px;
+  min-height: 38px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  background: var(--panel);
+  font-size: 11px;
+}
+.quick-open.quick-content .quick-open-search-options { display: flex; }
+.quick-open-extension-field { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#quick-open-extensions {
+  width: 170px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-sm);
+  outline: 0;
+  padding: 5px 8px;
+  color: var(--text);
+  background: var(--bg);
+  font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+#quick-open-extensions:focus { border-color: var(--active); box-shadow: 0 0 0 2px color-mix(in srgb, var(--active) 14%, transparent); }
+.quick-open-option-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  padding: 5px 7px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.quick-open-option-toggle:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
+.quick-open-option-check { width: 12px; height: 12px; border: 1px solid var(--muted); border-radius: 3px; }
+.quick-open-option-toggle.active { color: var(--text); }
+.quick-open-option-toggle.active .quick-open-option-check {
+  border-color: var(--active);
+  background: var(--active);
+  box-shadow: inset 0 0 0 3px var(--panel);
+}
 .quick-open-results { overflow: auto; padding: 6px; max-height: 232px; }
 /* Compound selector beats the later `.quick-open-item { display: grid }` (equal specificity, source order)
    that would otherwise drop the loc/code columns onto each other. */
@@ -1863,7 +1940,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .search-snippet { font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .search-hit { padding: 0; color: inherit; background: color-mix(in srgb, var(--active) 42%, transparent); }
 .quick-open-item.search-result .quick-open-badge { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
-.usage-loc { flex: none; color: var(--active); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
+.usage-loc { flex: none; color: var(--chrome-text); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
 .usage-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .quick-open-main { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
 .quick-open-path { flex: 1 1 auto; }
@@ -1888,6 +1965,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .qp-line { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 6px; padding: 0 8px; white-space: pre; line-height: 1.5; }
 .qp-num { color: var(--muted); text-align: right; user-select: none; }
 .qp-hit { background: color-mix(in srgb, var(--active) 20%, transparent); }
+.qp-search-hit { border-radius: 2px; background: color-mix(in srgb, var(--active) 48%, transparent); }
 .qp-empty { padding: 20px; color: var(--muted); }
 .quick-open-item {
   display: grid;
@@ -1951,6 +2029,11 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   .mc-diff-connectors { display: none; }
   .dock-panel { inset: 2vh 2vw; }
   .mc-inline-editor-host { width: calc(100% - 40px); }
+}
+@media (max-width: 700px) {
+  .quick-open-search-options { align-items: stretch; flex-direction: column; gap: 5px; }
+  .quick-open-extension-field { justify-content: space-between; }
+  #quick-open-extensions { width: min(240px, 60vw); }
 }
 .http-env-select {
   margin-left: auto;
@@ -2212,7 +2295,6 @@ body.native-app .sidebar.mc-panel-focus-flash::after {
 .diff-toolbar { min-height: 34px; padding: 3px 7px; gap: 7px; }
 .diff-tool-button { width: 27px; height: 27px; border-radius: 6px; }
 .plain-button { border-radius: 6px; padding: 5px 9px; background: var(--elevated); }
-.diff-viewed-toggle { border-radius: 999px; }
 .source-tab-close, .dock-btn, .mc-del { border-radius: 5px; }
 .http-run { border-radius: 4px; }
 .mc-card, .http-response { border-radius: 7px; }
@@ -2298,7 +2380,6 @@ summary.tree-focus,
 .diff-pane,
 .diff-file-icon,
 .diff-tool-button,
-.diff-change-counter,
 .review-status,
 .source-file-meta,
 .crumb,
@@ -2466,6 +2547,22 @@ summary.tree-focus,
 .semantic-peek-item.active .semantic-peek-item-path,
 .semantic-peek-item.active .semantic-peek-item-line,
 .semantic-peek-item.active .semantic-peek-item-code { color: var(--chrome-selected-text); }
+.semantic-peek-item.is-test,
+.quick-open-item.usage-item.is-test {
+  color: var(--chrome-text);
+  background: color-mix(in srgb, var(--diff-added) 78%, var(--chrome-elevated));
+  box-shadow: inset 3px 0 color-mix(in srgb, var(--diff-added-strong) 82%, var(--chrome-text));
+}
+.semantic-peek-item.is-test:hover,
+.semantic-peek-item.is-test.active,
+.quick-open-item.usage-item.is-test:hover,
+.quick-open-item.usage-item.is-test.active {
+  color: var(--chrome-selected-text);
+  background: color-mix(in srgb, var(--diff-added-strong) 72%, var(--chrome-selected));
+}
+.semantic-peek-item.is-test .semantic-peek-item-path,
+.semantic-peek-item.is-test.active .semantic-peek-item-path,
+.quick-open-item.usage-item.is-test .usage-loc { color: var(--chrome-selected-text); }
 .mc-dropdown-item { color: var(--chrome-text); }
 .mc-dropdown-item.active,
 .mc-dropdown-item:hover { color: var(--chrome-selected-text); background: var(--chrome-selected); }
@@ -2543,10 +2640,6 @@ summary.tree-focus,
 .diff-tool-button:active,
 .plain-button:active,
 .dock-btn:active { transform: translateY(0); }
-.diff-viewed-toggle,
-.d2h-file-collapse { border-radius: 999px; }
-.diff-viewed-toggle::before,
-.d2h-file-collapse::before { border-radius: var(--ui-radius-xs); }
 .source-tabs,
 body.native-app .source-tabs {
   align-items: flex-end;
@@ -2682,30 +2775,30 @@ body.native-app .source-tabs {
   transform: translateX(-75%);
   animation: mc-loading-sweep 1.35s ease-in-out infinite;
 }
-.mc-spinner {
-  flex: none;
-  width: 15px; height: 15px;
-  border: 2px solid color-mix(in srgb, var(--muted) 30%, transparent);
-  border-top-color: var(--active);
-  border-radius: 50%;
-  animation: boot-spin .72s linear infinite;
-}
 .source-body.is-loading .mc-loading-state { width: min(320px, 80%); }
 .empty-nav.mc-loading-state, .quick-open-empty.mc-loading-state { min-height: 72px; }
 .mc-context-fold-row[data-context-loading="1"] .mc-context-fold-icon {
-  width: 15px; height: 15px; overflow: hidden; color: transparent; letter-spacing: 0;
-  border: 2px solid color-mix(in srgb, var(--muted) 28%, transparent); border-top-color: var(--active);
-  border-radius: 50%; animation: boot-spin .72s linear infinite;
+  width: 24px; height: 24px; overflow: hidden; color: transparent; letter-spacing: 0;
+  background: var(--kakapo-ui-icon) center/contain no-repeat;
+  animation: kakapo-peck 1.05s cubic-bezier(.45, 0, .25, 1) infinite;
+  transform-origin: 52% 72%;
 }
-.http-response.loading { position: relative; padding-left: 36px; }
-.http-response.loading::before {
-  content: ""; position: absolute; left: 13px; top: 9px; width: 13px; height: 13px;
-  border: 2px solid color-mix(in srgb, var(--muted) 28%, transparent); border-top-color: var(--active);
-  border-radius: 50%; animation: boot-spin .72s linear infinite;
-}
+.http-response.loading { display: flex; align-items: center; gap: 8px; }
+.http-loading-copy { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-open-filter.is-loading { display: inline-flex; align-items: center; gap: 5px; }
 .impact-panel:not(.hidden), .dock-panel, .semantic-peek:not(.hidden) { animation: mc-surface-in 150ms cubic-bezier(.2, .8, .2, 1); }
 @keyframes mc-loading-sweep { 0% { transform: translateX(-75%); opacity: .25; } 50% { opacity: 1; } 100% { transform: translateX(75%); opacity: .25; } }
 @keyframes mc-surface-in { from { opacity: 0; transform: translateY(5px) scale(.995); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .kakapo-loader .kakapo-mark,
+  .analysis-status.is-starting .analysis-status-loader .kakapo-mark,
+  .mc-context-fold-row[data-context-loading="1"] .mc-context-fold-icon {
+    animation: kakapo-breathe 1.6s ease-in-out infinite;
+  }
+  .mc-loading-state::after { animation: none; opacity: .45; transform: none; }
+}
+@keyframes kakapo-breathe { 50% { opacity: .58; } }
 
 /* Global button shortcut tooltip. Dynamic controls receive it through delegated events. */
 .mc-button-hint {

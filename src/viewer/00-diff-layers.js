@@ -91,6 +91,7 @@ function refreshLayeredDiffSide(side) {
     };
   });
   var fallbackTop = 0;
+  var wrapped = !!(side.closest && side.closest('#diff2html-container.line-wrap'));
   var fragment = document.createDocumentFragment();
   var existing = new Map();
   layer.gutter.querySelectorAll('.mc-diff-gutter-number').forEach(function (item) {
@@ -108,7 +109,9 @@ function refreshLayeredDiffSide(side) {
     if (item.textContent !== entry.lineNumber) item.textContent = entry.lineNumber;
     item.style.top = top + 'px';
     item.style.height = height + 'px';
-    item.style.lineHeight = height + 'px';
+    // A wrapped source row can span several visual lines. Its logical line number belongs beside the first
+    // visual line, not vertically centred across the whole block.
+    item.style.lineHeight = wrapped ? '1.55' : height + 'px';
     fragment.appendChild(item);
     fallbackTop = Math.max(fallbackTop, top + height);
   });

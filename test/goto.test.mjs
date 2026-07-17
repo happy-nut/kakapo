@@ -52,7 +52,7 @@ test("file rows have no hover path bubble and Opt+Enter menu exposes grounded pa
   assert.ok(dd, "the row-action dropdown opened");
   assert.match(dd.textContent, /Copy relative path/, "it offers the repo-relative path");
   assert.match(dd.textContent, /Copy absolute path/, "it offers the resolved absolute path");
-  assert.match(dd.textContent, /Reveal in Finder/, "it offers Finder reveal");
+  assert.match(dd.textContent, /Show in File Manager/, "it offers a platform-neutral file-manager reveal");
   assert.match(dd.textContent, /Open Terminal here/, "it offers a terminal at the file directory");
 
   dd.querySelector("button").click();
@@ -66,7 +66,7 @@ test("file rows have no hover path bubble and Opt+Enter menu exposes grounded pa
   assert.deepEqual(copied, [path, `/repo/${path}`], "arrow + Enter copies the absolute path");
 
   v.window.openTreeRowMenu(row);
-  Array.from(v.$("#mc-dropdown").querySelectorAll("button")).find((button) => /Finder/.test(button.textContent)).click();
+  Array.from(v.$("#mc-dropdown").querySelectorAll("button")).find((button) => /File Manager/.test(button.textContent)).click();
   v.window.openTreeRowMenu(row);
   Array.from(v.$("#mc-dropdown").querySelectorAll("button")).find((button) => /Terminal/.test(button.textContent)).click();
   assert.deepEqual(calls, [["finder", path], ["terminal", path]]);

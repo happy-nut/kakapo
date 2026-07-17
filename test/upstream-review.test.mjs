@@ -1,11 +1,12 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { buildDiffReview } from "../dist/build.js";
 import { resolveAutomaticReviewBase } from "../dist/git.js";
+import { reviewDiffSignature, writeReviewWorkspace } from "../dist/review-workspace.js";
 
 let fixture;
 let repo;
@@ -78,4 +79,25 @@ test("an uncommitted edit keeps the normal HEAD-to-worktree review scope", () =>
   assert.equal(build.reviewBase, undefined);
   assert.equal(build.reviewUpstream, undefined);
   assert.equal(build.files, 1);
+});
+
+test("review workspace service persists a lazy snapshot and detects later Git changes", () => {
+  const options = {
+    root: repo,
+    staged: false,
+    includeUntracked: true,
+    context: 12,
+    ignoreWhitespace: false,
+  };
+  const target = join(fixture, "app-data", "review", "app-review.html");
+  const snapshot = writeReviewWorkspace(target, options, "Kakapo");
+
+  assert.equal(readFileSync(target, "utf8"), snapshot.html);
+  assert.ok(snapshot.bodyDiffs.length > 0, "lazy diff bodies remain available to the IPC adapter");
+  assert.ok(snapshot.sourceFiles.some((file) => file.path === "src/app.ts"), "source metadata survives the service boundary");
+
+  const before = reviewDiffSignature(options, snapshot.reviewBase, snapshot.reviewUpstream);
+  writeFileSync(join(repo, "src", "app.ts"), "export const value = 4;\n");
+  const afterChange = reviewDiffSignature(options, snapshot.reviewBase, snapshot.reviewUpstream);
+  assert.notEqual(afterChange, before, "the cheap watcher signature changes without rebuilding the review");
 });

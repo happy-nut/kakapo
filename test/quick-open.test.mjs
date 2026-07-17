@@ -170,6 +170,90 @@ test("Find in Files shows occurrence-level rg results and opens the exact source
   v.close();
 });
 
+test("Find in Files owns shortcuts without hijacking native search-field editing", async () => {
+  const { html: searchable } = await makeReviewHtml([
+    {
+      path: "src/search.ts",
+      before: "export const oldValue = 1;\n",
+      after: "export const WfaRunDescriptor = 1;\n",
+    },
+  ]);
+  const v = await loadViewer(searchable, {
+    searchBridge() {
+      return { available: true, engine: "ripgrep", truncated: false, matches: [] };
+    },
+  });
+
+  await v.openSourceFile("src/search.ts");
+  v.key("ArrowRight");
+  v.key("ArrowRight");
+  await v.settle(30);
+  v.key("f", { metaKey: true, shiftKey: true, code: "KeyF" });
+  await v.settle(20);
+
+  const input = v.$("#quick-open-input");
+  v.typeInto(input, "WfaRunDescriptor");
+  input.setSelectionRange(input.value.length, input.value.length);
+  v.$("#source-body").classList.remove("mc-panel-focus-flash");
+  const shortcut = new v.window.KeyboardEvent("keydown", {
+    key: "ArrowLeft",
+    code: "ArrowLeft",
+    metaKey: true,
+    bubbles: true,
+    cancelable: true,
+  });
+
+  assert.equal(input.dispatchEvent(shortcut), true, "the browser keeps ownership of native Cmd+Left input editing");
+  assert.equal(shortcut.defaultPrevented, false, "the modal scope does not cancel the input's native line-edge movement");
+  assert.equal(v.document.activeElement, input, "the search field keeps focus");
+  assert.equal(v.$("#source-body").classList.contains("mc-panel-focus-flash"), false, "the dimmed source panel is not reactivated");
+  assert.ok(v.quickOpenVisible(), "the search panel stays open");
+  v.close();
+});
+
+test("Find in Files filters extensions and excludes comment and test results with Option shortcuts", async () => {
+  const { html: searchable } = await makeReviewHtml([
+    { path: "src/main.py", before: "old = 1\n", after: "needle = 1\n# needle comment\n" },
+    { path: "src/main.ts", before: "old = 1;\n", after: "const needle = 1;\n" },
+    { path: "tests/test_main.py", before: "old = 1\n", after: "needle = 2\n" },
+  ]);
+  const requests = [];
+  const matches = [
+    { path: "src/main.py", line: 1, column: 1, endColumn: 7, text: "needle = 1", matchText: "needle" },
+    { path: "src/main.py", line: 2, column: 3, endColumn: 9, text: "# needle comment", matchText: "needle" },
+    { path: "src/main.ts", line: 1, column: 7, endColumn: 13, text: "const needle = 1;", matchText: "needle" },
+    { path: "tests/test_main.py", line: 1, column: 1, endColumn: 7, text: "needle = 2", matchText: "needle" },
+  ];
+  const v = await loadViewer(searchable, {
+    searchBridge(request) {
+      requests.push(request);
+      return { available: true, engine: "ripgrep", truncated: false, matches };
+    },
+  });
+
+  v.key("f", { metaKey: true, shiftKey: true, code: "KeyF" });
+  v.typeInto(v.$("#quick-open-input"), "needle");
+  v.key("e", { altKey: true, code: "KeyE" });
+  assert.equal(v.document.activeElement, v.$("#quick-open-extensions"), "Option+E focuses the extension filter");
+  v.typeInto(v.$("#quick-open-extensions"), ".py");
+  v.key("p", { altKey: true, code: "KeyP" });
+  await v.settle(190);
+
+  assert.equal(v.$("#quick-open-exclude-noise").getAttribute("aria-pressed"), "true");
+  assert.deepEqual(JSON.parse(JSON.stringify(requests.at(-1))), {
+    query: "needle",
+    limit: 500,
+    extensions: ["py"],
+    excludeCommentsAndTests: true,
+  });
+  assert.deepEqual(
+    v.$all("#quick-open-results .search-result .quick-open-name").map((node) => node.textContent),
+    ["main.py:1:1"],
+    "only the non-comment result in a matching non-test file remains",
+  );
+  v.close();
+});
+
 test("Find in Files falls back locally and returns every occurrence when rg is unavailable", async () => {
   const { html: searchable } = await makeReviewHtml([
     {
@@ -211,6 +295,7 @@ test("Find in Files preview incrementally reveals surrounding code while scrolli
   const visibleNumbers = () => v.$all("#quick-open-preview .qp-num").map((node) => Number(node.textContent));
   assert.equal(visibleNumbers()[0], 140, "the initial window starts well above the selected line");
   assert.equal(visibleNumbers().at(-1), 260, "the initial window continues well below the selected line");
+  assert.equal(v.$("#quick-open-preview .qp-search-hit")?.textContent, "needle", "the selected occurrence is visible and highlighted in preview");
 
   Object.defineProperties(preview, {
     clientHeight: { configurable: true, value: 200 },

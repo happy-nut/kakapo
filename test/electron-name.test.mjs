@@ -157,6 +157,30 @@ test("patch-electron-name upgrades a lowercase branded bundle", () => {
   }
 });
 
+test("patch-electron-name migrates the pre-Kakapo branded bundle", () => {
+  const previousDisplayName = ["Mona", "cori"].join("");
+  const previousExecutable = ["mona", "cori"].join("");
+  const { root } = makeElectronRoot({
+    appBundle: previousDisplayName + ".app",
+    executable: previousExecutable,
+    bundleName: previousDisplayName,
+    bundleDisplayName: previousDisplayName,
+    bundleExecutable: previousExecutable,
+    bundleIdentifier: "com.github.Electron",
+    pathTxt: previousDisplayName + ".app/Contents/MacOS/" + previousExecutable,
+  });
+
+  try {
+    const result = runPatch(root);
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assertBranded(root);
+    assert.equal(existsSync(join(root, "dist", previousDisplayName + ".app")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("patch-electron-name is stable on an already branded install", () => {
   const { root } = makeElectronRoot({
     appBundle: "Kakapo.app",

@@ -1,8 +1,16 @@
 import { createRequire } from "node:module";
-import type { DiffFile, ReviewFileState, SourceFile, SourceTreeNode } from "./types.js";
+import type { DiffFile, ReviewFileState, SourceFile } from "./types.js";
 import { escapeAttr, escapeHtml, jsonForScript } from "./util.js";
 import { diff2HtmlCss, diffCss, diffScript } from "./assets.js";
 import { MESSAGES } from "./i18n.js";
+import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
+import {
+  initialReviewSources,
+  renderDiffTree,
+  renderSourceTree,
+  sourceFileMetadata,
+} from "./render-tree.js";
+export { diffSubtitle, renderDiffTree, renderSourceTree } from "./render-tree.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -16,6 +24,7 @@ const packageVersion: string = (() => {
 })();
 
 export function renderNotGitRepoHtml(root: string): string {
+  const brandMark = kakapoIconHtml("brand-mark", "Kakapo");
   return [
     "<!doctype html>",
     '<html lang="en">',
@@ -24,10 +33,11 @@ export function renderNotGitRepoHtml(root: string): string {
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     "<title>kakapo</title>",
     "<style>",
+    `:root { ${kakapoIconCssVariable()}; }`,
     "* { box-sizing: border-box; }",
     "body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #2b2b2b; color: #a9b7c6; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }",
     ".card { max-width: 560px; padding: 40px; text-align: center; }",
-    ".card .badge { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #808080; }",
+    ".brand-mark { display: inline-block; width: 42px; height: 42px; background: var(--kakapo-ui-icon) center/contain no-repeat; }",
     ".card h1 { font-size: 22px; margin: 10px 0 16px; color: #ffc66d; }",
     ".card p { font-size: 14px; line-height: 1.7; margin: 10px 0; }",
     ".card code { background: #3c3f41; padding: 3px 9px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #6a8759; }",
@@ -36,10 +46,10 @@ export function renderNotGitRepoHtml(root: string): string {
     "</head>",
     "<body>",
     '<div class="card">',
-    '<div class="badge">kakapo</div>',
+    brandMark,
     "<h1>Not a Git repository</h1>",
-    "<p>kakapo reviews changes tracked by Git, but this folder isn't a Git repository yet.</p>",
-    "<p>Run <code>git init</code> in this folder, then reopen kakapo.</p>",
+    "<p>This app reviews changes tracked by Git, but this folder isn't a Git repository yet.</p>",
+    "<p>Run <code>git init</code> in this folder, then reopen the app.</p>",
     `<p class="path">${escapeHtml(root)}</p>`,
     "</div>",
     "</body>",
@@ -52,6 +62,7 @@ export function renderNotGitRepoHtml(root: string): string {
 export function renderWelcomeHtml(light = false, recent: { path: string; name: string }[] = []): string {
   const bg = light ? "#ffffff" : "#2b2b2b";
   const fg = light ? "#1f2328" : "#a9b7c6";
+  const brandMark = kakapoIconHtml("brand-mark", "Kakapo");
   // Recent projects (IntelliJ-style): one click reopens a previously reviewed repo. Each row carries its
   // absolute path in data-path; the click handler hands it to kakapoApp.openRecent.
   const recentItems = recent
@@ -74,13 +85,14 @@ export function renderWelcomeHtml(light = false, recent: { path: string; name: s
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     "<title>Kakapo</title>",
     "<style>",
+    `:root { ${kakapoIconCssVariable()}; }`,
     "* { box-sizing: border-box; }",
     // The same hiddenInset BrowserWindow hosts this screen. Auto margins center a short project list, but
     // collapse to zero when twelve recents make the card tall, so it scrolls from below the traffic lights
     // instead of overflowing upward underneath them.
     `body { margin: 0; min-height: 100vh; display: flex; padding: 40px 24px 24px; overflow: auto; background: ${bg}; color: ${fg}; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }`,
     ".card { width: 520px; max-width: 100%; padding: 40px; margin: auto; text-align: center; }",
-    ".card .badge { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #808080; }",
+    ".brand-mark { display: inline-block; width: 48px; height: 48px; background: var(--kakapo-ui-icon) center/contain no-repeat; }",
     ".card h1 { font-size: 24px; margin: 12px 0 14px; color: #4a88c7; }",
     ".card p { font-size: 14px; line-height: 1.7; margin: 10px 0; }",
     ".open-btn { margin-top: 22px; padding: 10px 24px; font-size: 14px; font-weight: 600; color: #fff; background: #4a88c7; border: 0; border-radius: 8px; cursor: pointer; }",
@@ -99,7 +111,7 @@ export function renderWelcomeHtml(light = false, recent: { path: string; name: s
     "</head>",
     "<body>",
     '<div class="card">',
-    '<div class="badge">kakapo</div>',
+    brandMark,
     "<h1>Review a Git repository</h1>",
     "<p>Pick a folder under Git version control to review its changes.</p>",
     '<button class="open-btn" id="open" type="button">Open Folder…</button>',
@@ -223,8 +235,8 @@ export function renderReviewStatus(_input: {
   // tab, the raw generatedAt ISO string is unreadable, and "<embedded>/<total> indexed" is a STATIC
   // ratio (not a live counter), so it reads as a frozen/broken progress number. Symbol analysis now runs
   // outside the renderer and reports its selected engine inside the Change Impact panel;
-  // the "viewed" toggle is a separate button outside this strip, so it stays. `.review-status:empty`
-  // collapses the now-empty strip so it takes no space next to the breadcrumb.
+  // Viewed state is intentionally changed only from the keyboard-selected row in the Changes sidebar.
+  // `.review-status:empty` collapses the now-empty strip so it takes no space next to the breadcrumb.
   return "";
 }
 
@@ -260,6 +272,8 @@ export function renderDiffHtml(input: {
     ? input.fileStates.filter((file) => initialSourcePaths.has(file.path))
     : input.fileStates;
   const integratedTitleBar = input.app && process.platform === "darwin";
+  const brandMark = kakapoIconHtml("kakapo-mark");
+  const brandLoader = `<span class="kakapo-loader kakapo-loader-boot" role="status" aria-label="Kakapo is loading">${brandMark}</span>`;
 
   // IntelliJ-style activity rail: an icon per view; click navigates, hover shows a tooltip with the
   // shortcut. data-view drives both the click handler and the active-state highlight (see syncRail).
@@ -300,13 +314,14 @@ export function renderDiffHtml(input: {
     '<link rel="icon" href="data:,">',
     `<title>${escapeHtml(input.title)} - ${escapeHtml(input.projectName)}</title>`,
     "<style>",
+    `:root { ${kakapoIconCssVariable()}; }`,
     diff2HtmlCss(),
     diffCss(),
     "</style>",
     "</head>",
     `<body${integratedTitleBar ? ' class="native-app"' : ""}>`,
     // Boot overlay (removed by the renderer once bootstrap has painted) covers the blank gap after loadFile.
-    '<div id="boot-overlay"><div class="boot-spinner"></div><div>kakapo</div></div>',
+    `<div id="boot-overlay">${brandLoader}</div>`,
     activityRail,
     '<aside class="sidebar" aria-label="Review navigation">',
     `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name">${escapeHtml(input.branch || "")}</span></span></div>`,
@@ -323,25 +338,24 @@ export function renderDiffHtml(input: {
         : `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
       : `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
     "</div>",
-    `<div class="sidebar-footer"><span class="app-version">kakapo${packageVersion ? " v" + escapeHtml(packageVersion) : ""}</span>${input.app ? '<span id="analysis-status" class="analysis-status is-idle" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-label">Analysis idle</span></span>' : ""}<span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span></div>`,
+    `<div class="sidebar-footer"><span class="app-version" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}${packageVersion ? '<span class="app-version-text">v' + escapeHtml(packageVersion) + "</span>" : ""}</span>${input.app ? `<span id="analysis-status" class="analysis-status is-idle" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-loader" aria-hidden="true">${brandMark}</span><span class="analysis-status-label">Analysis idle</span></span>` : ""}<span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span></div>`,
     "</aside>",
     '<div class="sidebar-resizer" aria-hidden="true"></div>',
     '<main class="content">',
     '<section id="diff-view" class="hidden">',
     '<div class="toolbar diff-toolbar">',
     '<div class="diff-toolbar-file"><span class="diff-file-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M3.5 1.75h5l4 4v8.5h-9z"/><path d="M8.5 1.75v4h4"/></svg></span><div class="breadcrumb" id="diff-breadcrumb"></div></div>',
+    '<div class="diff-toolbar-meta">',
+    `<div class="review-status">${renderReviewStatus({ files: input.files.length, hunks: totalHunks, embeddedFiles, sourceFileCount: input.sourceFiles.length, ignoreWhitespace: input.ignoreWhitespace, watch: input.watch, generatedAt: input.generatedAt })}</div>`,
+    '<button type="button" id="diff-line-wrap-toggle" class="source-line-wrap-toggle diff-line-wrap-toggle" role="checkbox" aria-checked="false" data-keyhint="⌥W" data-i18n="source.lineWrap" data-i18n-title="source.lineWrap.title" title="Toggle line wrap (Option+W)">Line wrap</button>',
+    '</div>',
     '<div class="diff-review-controls" role="group" data-i18n-aria="diff.navigation" aria-label="Change navigation">',
     '<button type="button" id="diff-sidebar-toggle" class="diff-tool-button" data-keyhint="⌘0" data-tooltip="Hide changed files" aria-pressed="false" title="Hide changed files (⌘0)" aria-label="Hide changed files"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.25"/><path d="M5.25 2.5v11"/></svg></button>',
     '<span class="diff-tool-separator" aria-hidden="true"></span>',
     '<button type="button" id="diff-prev-change" class="diff-tool-button" data-keyhint="⇧F7" data-i18n-title="diff.previous" data-i18n-aria="diff.previous" title="Previous change (Shift+F7)" aria-label="Previous change"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 10 4-4 4 4"/></svg></button>',
-    '<span id="diff-change-counter" class="diff-change-counter" aria-live="polite">—</span>',
     '<button type="button" id="diff-next-change" class="diff-tool-button" data-keyhint="F7" data-i18n-title="diff.next" data-i18n-aria="diff.next" title="Next change (F7)" aria-label="Next change"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>',
     '<span class="diff-tool-separator" aria-hidden="true"></span>',
     '<button type="button" id="diff-open-source" class="diff-tool-button" data-keyhint="⌘↓" data-i18n-title="diff.openSource" data-i18n-aria="diff.openSource" title="Open source (Cmd/Ctrl+Down)" aria-label="Open source"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5h4l1.5 2h5.5v9h-11z"/><path d="m6 10 2 2 2-2M8 7v5"/></svg></button>',
-    '</div>',
-    '<div class="diff-toolbar-meta">',
-    `<div class="review-status">${renderReviewStatus({ files: input.files.length, hunks: totalHunks, embeddedFiles, sourceFileCount: input.sourceFiles.length, ignoreWhitespace: input.ignoreWhitespace, watch: input.watch, generatedAt: input.generatedAt })}</div>`,
-    '<button type="button" id="diff-viewed-toggle" class="diff-viewed-toggle" data-keyhint="⇧," aria-pressed="false" data-i18n="btn.viewed" data-i18n-title="btn.viewed.title" title="Toggle viewed (Shift+,)" hidden>Viewed</button>',
     '</div>',
     "</div>",
     '<div class="diff-pane-header" data-i18n-aria="diff.panes" aria-label="Diff panes">',
@@ -355,7 +369,8 @@ export function renderDiffHtml(input: {
     '<div class="toolbar source-toolbar">',
     '<div class="source-file-meta"><span id="source-type-icon" class="source-type-icon" aria-hidden="true"></span><span id="source-title" data-i18n="source.title">Source</span><span id="source-meta" data-i18n="source.selectFile">Select a file from the Files tab.</span></div>',
     '<select id="http-env-select" class="http-env-select hidden" data-i18n-title="http.env.title" data-i18n-aria="http.env.aria" title="HTTP Client environment" aria-label="HTTP environment"></select>',
-    '<button type="button" id="render-toggle" class="plain-button hidden" aria-pressed="false">Raw</button>',
+    '<button type="button" id="render-toggle" class="plain-button hidden" data-keyhint="⌥R" title="Rendered / raw Markdown or CSV (Option+R)" aria-pressed="false">Raw</button>',
+    '<button type="button" id="line-wrap-toggle" class="source-line-wrap-toggle hidden" role="checkbox" aria-checked="false" data-keyhint="⌥W" data-i18n="source.lineWrap" data-i18n-title="source.lineWrap.title" title="Toggle line wrap (Option+W)">Line wrap</button>',
     '<button type="button" id="back-to-diff" class="plain-button" data-keyhint="F7" data-i18n="btn.diff" data-i18n-title="btn.diff.title" title="Back to diff (F7)">Diff</button>',
     "</div>",
     '<div id="source-body" class="source-body empty" data-i18n="source.selectFile">Select a file from the Files tab.</div>',
@@ -385,6 +400,10 @@ export function renderDiffHtml(input: {
     '<div class="quick-open-panel">',
     '<div class="quick-open-title"><span id="quick-open-mode" data-i18n="quickopen.searchFiles">Search files</span><span id="quick-open-filter" class="quick-open-filter"></span></div>',
     '<input id="quick-open-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.searchFiles" placeholder="Search files">',
+    '<div id="quick-open-search-options" class="quick-open-search-options">',
+    '<label class="quick-open-extension-field" for="quick-open-extensions"><span data-i18n="quickopen.extensions">Extensions</span><input id="quick-open-extensions" type="text" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.extensionsPlaceholder" placeholder="All · .py, .ts" title="Filter extensions (Option+E)"></label>',
+    '<button type="button" id="quick-open-exclude-noise" class="quick-open-option-toggle" aria-pressed="false" data-keyhint="⌥P"><span class="quick-open-option-check" aria-hidden="true"></span><span data-i18n="quickopen.excludeNoise">Exclude comments &amp; tests</span></button>',
+    '</div>',
     '<div id="quick-open-results" class="quick-open-results"></div>',
     '<div id="quick-open-preview" class="quick-open-preview"></div>',
     "</div>",
@@ -400,8 +419,8 @@ export function renderDiffHtml(input: {
     '<aside class="settings-nav"><div class="settings-nav-title" data-i18n="settings.title">Settings</div><button type="button" class="settings-cat active" data-cat="general" data-i18n="settings.cat.general">General</button><button type="button" class="settings-cat" data-cat="prompts" data-i18n="settings.cat.prompts">Merge prompts</button></aside>',
     '<div class="settings-body">',
     '<section class="settings-section" data-cat="general">',
-    `<div class="settings-h">kakapo <span class="settings-ver">${packageVersion ? "v" + escapeHtml(packageVersion) : ""}</span></div>`,
-    '<div id="app-info-status" class="app-info-status" data-i18n="settings.checkingUpdates">Checking for updates…</div>',
+    `<div class="settings-h settings-brand" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}<span class="settings-ver">${packageVersion ? "v" + escapeHtml(packageVersion) : ""}</span></div>`,
+    `<div id="app-info-status" class="app-info-status is-loading"><span class="kakapo-loader kakapo-loader-inline" aria-hidden="true">${brandMark}</span><span data-i18n="settings.checkingUpdates">Checking for updates…</span></div>`,
     '<button type="button" id="app-info-update" class="plain-button app-info-update hidden" data-i18n="settings.updateRestart">Update &amp; Restart</button>',
     '<label class="settings-label" for="settings-language" data-i18n="settings.language">Language</label>',
     '<button type="button" id="settings-language" class="settings-select mc-select" data-i18n-aria="settings.language"></button>',
@@ -419,7 +438,7 @@ export function renderDiffHtml(input: {
     '<kbd>⌘9</kbd><span data-i18n="kbd.openHistory">Git history</span>' +
     '<kbd>⌘L</kbd><span data-i18n="kbd.gotoLine">Go to line</span>' +
     '<kbd>⌘K</kbd><span data-i18n="kbd.copyLocation">Copy file:line</span>' +
-    '<kbd>⌥Enter</kbd><span data-i18n="kbd.rowActions">Sidebar file actions (path / Finder / Terminal)</span>' +
+    '<kbd>⌥Enter</kbd><span data-i18n="kbd.rowActions">Sidebar file actions (path / file manager / terminal)</span>' +
     '<kbd>Esc</kbd><span data-i18n="kbd.closeDialog">Close dialog / cancel</span>' +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.nav">Navigation</div>' +
@@ -433,6 +452,8 @@ export function renderDiffHtml(input: {
     '<kbd>⌘F</kbd><span data-i18n="kbd.findInFile">Find in current file</span>' +
     '<kbd>⌘G / ⌘⇧G</kbd><span data-i18n="kbd.findNextPrev">Next / previous match</span>' +
     '<kbd>⌘⇧F</kbd><span data-i18n="kbd.findInFiles">Find in files</span>' +
+    '<kbd>⌥E</kbd><span data-i18n="kbd.searchExtensions">Focus extension filter</span>' +
+    '<kbd>⌥P</kbd><span data-i18n="kbd.excludeSearchNoise">Exclude comments / tests</span>' +
     '<kbd>⌘E</kbd><span data-i18n="kbd.recentFiles">Recent files</span>' +
     '<kbd>⌘B</kbd><span data-i18n="kbd.defUsages">Definition / usages</span>' +
     '<kbd>⌘⌥B</kbd><span data-i18n="kbd.goToImplementation">Go to implementation</span>' +
@@ -452,13 +473,14 @@ export function renderDiffHtml(input: {
     '<kbd>PageUp / PageDown</kbd><span data-i18n="kbd.pageUpDown">Page up / down</span>' +
     '<kbd>Space</kbd><span data-i18n="kbd.expandDiffFold">Expand selected diff context</span>' +
     '<kbd>⌘Enter / ⌥Enter</kbd><span data-i18n="kbd.runHttp">Run HTTP request (.http)</span>' +
-    '<kbd>⌘⇧M</kbd><span data-i18n="kbd.toggleRendered">Rendered / raw Markdown or CSV</span>' +
+    '<kbd>⌥R</kbd><span data-i18n="kbd.toggleRendered">Rendered / raw Markdown or CSV</span>' +
+    '<kbd>⌥W</kbd><span data-i18n="kbd.toggleLineWrap">Toggle line wrap</span>' +
     '<kbd>⌘W</kbd><span data-i18n="kbd.closeTab">Close tab</span>' +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.review">Review</div>' +
     '<div class="keys-grid">' +
     '<kbd>⌘8</kbd><span data-i18n="kbd.changeImpact">Change Impact</span>' +
-    '<kbd>⇧,</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed</span>' +
+    '<kbd>Space</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed on selected Changes row</span>' +
     '<kbd>? &nbsp;&gt;</kbd><span data-i18n="kbd.addQuestionChange">Add question / change</span>' +
     '<kbd>⌘⇧/ .</kbd><span data-i18n="kbd.allQuestionsChanges">All questions / changes</span>' +
     '<kbd>⌘⇧W</kbd><span data-i18n="kbd.ignoreWhitespace">Ignore whitespace</span>' +
@@ -526,223 +548,4 @@ export function renderDiffHtml(input: {
     "</body>",
     "</html>",
   ].join("\n");
-}
-
-function sourceFileMetadata(file: SourceFile): SourceFile {
-  return { ...file, content: "", image: "" };
-}
-
-// Changed files are sufficient for the initial diff/source transition. A clean tree gets one inexpensive
-// default record so it can still open a README/source immediately; everything else arrives on demand.
-function initialReviewSources(diffFiles: DiffFile[], sourceFiles: SourceFile[]): SourceFile[] {
-  const changedPaths = new Set<string>();
-  for (const file of diffFiles) {
-    if (file.oldPath && file.oldPath !== "/dev/null") changedPaths.add(file.oldPath);
-    if (file.newPath && file.newPath !== "/dev/null") changedPaths.add(file.newPath);
-    if (file.displayPath) changedPaths.add(file.displayPath);
-  }
-  const changed = sourceFiles.filter((file) => file.changed || changedPaths.has(file.path));
-  if (changed.length) return changed;
-  const fallback = sourceFiles.find((file) => file.embedded && /^readme(?:\.|$)/i.test(file.name))
-    ?? sourceFiles.find((file) => file.embedded)
-    ?? sourceFiles[0];
-  return fallback ? [fallback] : [];
-}
-
-export function renderDiffTree(files: DiffFile[]): string {
-  if (files.length === 0) {
-    return '<div class="empty-nav">No changed files</div>';
-  }
-
-  let hunkIndex = 0;
-  const rows = files.map((file, fileIndex) => {
-    const firstHunk = hunkIndex;
-    hunkIndex += file.hunks.length;
-    const slash = file.displayPath.lastIndexOf("/");
-    const name = slash >= 0 ? file.displayPath.slice(slash + 1) : file.displayPath;
-    const dir = slash > 0 ? file.displayPath.slice(0, slash) : "";
-    return [
-      `<a class="file-link change-row${file.vcs ? " vcs-" + file.vcs : ""}" href="#file-${fileIndex}" data-hunk="${firstHunk}" data-file="${escapeAttr(file.displayPath)}" aria-label="${escapeAttr(file.displayPath + " — " + file.status)}">`,
-      fileTypeIcon(file.displayPath),
-      changeStatusBadge(file.status),
-      `<span class="change-name"><span class="path">${escapeHtml(name)}</span>${dir ? `<span class="change-dir">${escapeHtml(dir)}</span>` : ""}</span>`,
-      "</a>",
-    ].join("");
-  });
-  return `<nav class="tree changes-flat">${rows.join("")}</nav>`;
-}
-
-function changeStatusBadge(status: string): string {
-  const label = status ? status[0].toUpperCase() + status.slice(1) : "Changed";
-  let icon: string;
-  switch (status) {
-    case "added":
-      icon = '<path d="M8 3.5v9M3.5 8h9"/>';
-      break;
-    case "deleted":
-      icon = '<path d="M3.5 8h9"/>';
-      break;
-    case "renamed":
-      icon = '<path d="M3 5h8m-2.5-2.5L11 5 8.5 7.5M13 11H5m2.5-2.5L5 11l2.5 2.5"/>';
-      break;
-    case "modified":
-      icon = '<path d="m3.2 11.8.6-2.7 6.6-6.6a1.2 1.2 0 0 1 1.7 0l1.4 1.4a1.2 1.2 0 0 1 0 1.7L6.9 12.2l-2.7.6zM9.5 3.4l3.1 3.1"/>';
-      break;
-    default:
-      icon = '<circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/>';
-  }
-  return `<span class="status status-${escapeAttr(status)}" role="img" aria-label="${escapeAttr(label)}" title="${escapeAttr(label)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg></span>`;
-}
-
-export function renderSourceTree(files: SourceFile[]): string {
-  if (files.length === 0) {
-    return '<div class="empty-nav">No source files indexed</div>';
-  }
-
-  const root: SourceTreeNode = { name: "", path: "", children: new Map() };
-  files.forEach((file) => {
-    const parts = file.path.split("/").filter(Boolean);
-    let node = root;
-    let currentPath = "";
-    for (const part of parts.slice(0, -1)) {
-      currentPath = currentPath ? `${currentPath}/${part}` : part;
-      let child = node.children.get(part);
-      if (!child) {
-        child = { name: part, path: currentPath, children: new Map() };
-        node.children.set(part, child);
-      }
-      node = child;
-    }
-
-    const leafName = parts[parts.length - 1] ?? file.path;
-    node.children.set(`${leafName}\0${file.path}`, {
-      name: leafName,
-      path: file.path,
-      children: new Map(),
-      file,
-    });
-  });
-
-  return `<nav class="tree source-tree">${renderSourceChildren(root, 0)}</nav>`;
-}
-
-function renderSourceChildren(node: SourceTreeNode, depth: number): string {
-  return Array.from(node.children.values())
-    .sort((a, b) => {
-      if (Boolean(a.file) !== Boolean(b.file)) {
-        return a.file ? 1 : -1;
-      }
-      return a.name.localeCompare(b.name);
-    })
-    .map((child) => renderSourceNode(child, depth))
-    .join("\n");
-}
-
-function fileTypeColor(ext: string): string {
-  const map: Record<string, string> = {
-    ts: "#3178c6", tsx: "#3178c6", mts: "#3178c6", cts: "#3178c6", "d.ts": "#3178c6",
-    js: "#e8bf6a", jsx: "#e8bf6a", mjs: "#e8bf6a", cjs: "#e8bf6a",
-    json: "#cbcb41", jsonc: "#cbcb41",
-    yaml: "#cb9b41", yml: "#cb9b41", toml: "#cb9b41", ini: "#cb9b41", env: "#cb9b41", conf: "#cb9b41",
-    lock: "#9aa0a6", gitignore: "#9aa0a6", npmrc: "#9aa0a6", editorconfig: "#9aa0a6",
-    html: "#e44d26", htm: "#e44d26", vue: "#41b883", svelte: "#ff3e00", xml: "#e8bf6a", svg: "#e8bf6a",
-    css: "#42a5f5", scss: "#c6538c", sass: "#c6538c", less: "#2a6db5",
-    md: "#9aa0a6", mdx: "#9aa0a6", txt: "#9aa0a6", rst: "#9aa0a6",
-    go: "#00add8", rs: "#dea584", py: "#3572a5", rb: "#cc342d", java: "#b07219",
-    kt: "#a97bff", kts: "#a97bff", php: "#8892bf", swift: "#ff8a00", cs: "#9b59b6",
-    c: "#7aa6da", h: "#7aa6da", cpp: "#f34b7d", hpp: "#f34b7d",
-    sh: "#89e051", bash: "#89e051", zsh: "#89e051",
-    png: "#26a269", jpg: "#26a269", jpeg: "#26a269", gif: "#26a269", webp: "#26a269", ico: "#26a269", bmp: "#26a269",
-  };
-  return map[ext] || "#7f868d";
-}
-
-// Small file-type glyph (a tinted folded-corner document) for the Files tree, in place of a text badge.
-function fileTypeCategory(ext: string): string {
-  const sets: Record<string, string[]> = {
-    code: ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "go", "rs", "py", "rb", "java", "kt", "kts", "php", "c", "h", "cpp", "hpp", "cs", "swift", "sh", "bash", "zsh"],
-    data: ["json", "jsonc", "yaml", "yml", "toml", "ini", "env", "conf", "lock", "xml"],
-    markup: ["html", "htm", "vue", "svelte"],
-    style: ["css", "scss", "sass", "less"],
-    doc: ["md", "mdx", "txt", "rst"],
-    image: ["png", "jpg", "jpeg", "gif", "webp", "ico", "bmp", "svg"],
-  };
-  for (const cat of Object.keys(sets)) {
-    if (sets[cat].includes(ext)) return cat;
-  }
-  return "generic";
-}
-
-// A small, distinct glyph per file-type category, tinted with the language color, for the file lists.
-function fileTypeIcon(path: string): string {
-  const base = (path.split("/").pop() || path);
-  const dot = base.lastIndexOf(".");
-  const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : (base.startsWith(".") ? base.slice(1).toLowerCase() : "");
-  const c = fileTypeColor(ext);
-  const stroke = `fill="none" stroke="${c}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"`;
-  let inner: string;
-  switch (fileTypeCategory(ext)) {
-    case "code": // < >
-      inner = `<path d="M6 4.6 3 8l3 3.4M10 4.6 13 8l-3 3.4" ${stroke}/>`;
-      break;
-    case "markup": // </>
-      inner = `<path d="M5.6 4.6 2.8 8l2.8 3.4M10.4 4.6 13.2 8l-2.8 3.4M9.3 3.6 6.7 12.4" ${stroke}/>`;
-      break;
-    case "data": // { }
-      inner = `<path d="M7.4 3.6C6.3 3.6 6.3 4.8 6.3 5.8 6.3 6.8 5.6 7.4 4.8 7.4 5.6 7.4 6.3 8 6.3 9 6.3 10 6.3 11.4 7.4 11.4M8.6 3.6C9.7 3.6 9.7 4.8 9.7 5.8 9.7 6.8 10.4 7.4 11.2 7.4 10.4 7.4 9.7 8 9.7 9 9.7 10 9.7 11.4 8.6 11.4" fill="none" stroke="${c}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>`;
-      break;
-    case "style": // #
-      inner = `<path d="M6.4 4 5.2 12M10.2 4 9 12M3.9 6.6 12 6.6M3.4 9.4 11.5 9.4" ${stroke}/>`;
-      break;
-    case "doc": // page with text lines
-      inner = `<path d="M4.5 2.5h4.4L11.5 5v8a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z" fill="${c}" fill-opacity="0.16" stroke="${c}" stroke-width="1.2" stroke-linejoin="round"/><path d="M8.8 2.6V5h2.6M5.8 8h4M5.8 10.2h2.7" fill="none" stroke="${c}" stroke-width="1.2" stroke-linecap="round"/>`;
-      break;
-    case "image": // framed picture
-      inner = `<rect x="3" y="3.6" width="10" height="8.8" rx="1.4" fill="${c}" fill-opacity="0.14" stroke="${c}" stroke-width="1.2"/><circle cx="6" cy="6.4" r="1.05" fill="none" stroke="${c}" stroke-width="1.1"/><path d="M3.6 11.8 6.7 8.4l2 2.1 1.9-2.2 2.4 2.7" fill="none" stroke="${c}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>`;
-      break;
-    default: // folded-corner document
-      inner = `<path d="M4 2.25a1 1 0 0 1 1-1h4.3L12.5 4.7v9.05a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" fill="${c}" fill-opacity="0.2" stroke="${c}" stroke-width="1.1" stroke-linejoin="round"/><path d="M9.2 1.4v2.8a1 1 0 0 0 1 1h2.6" fill="none" stroke="${c}" stroke-width="1.1" stroke-linejoin="round"/>`;
-  }
-  return `<svg class="ftype" viewBox="0 0 16 16" aria-hidden="true">${inner}</svg>`;
-}
-
-function renderSourceNode(node: SourceTreeNode, depth: number): string {
-  if (node.file) {
-    const file = node.file;
-    const classes = ["file-link", "source-link", "tree-file", file.embedded ? "" : "not-embedded", file.vcs ? "vcs-" + file.vcs : ""].filter(Boolean).join(" ");
-    return [
-      `<button type="button" class="${classes}" data-source-file="${escapeAttr(file.path)}" style="--depth:${depth}" aria-label="${escapeAttr(file.path)}">`,
-      fileTypeIcon(file.path),
-      `<span class="path">${escapeHtml(node.name)}</span>`,
-      "</button>",
-    ].join("");
-  }
-
-  let labelNode: SourceTreeNode = node;
-  const names = [node.name];
-  for (;;) {
-    const entries = Array.from(labelNode.children.values());
-    if (entries.length !== 1 || entries[0].file) break;
-    names.push(entries[0].name);
-    labelNode = entries[0];
-  }
-
-  return [
-    `<details class="tree-dir source-dir" data-dir="${escapeAttr(labelNode.path)}" style="--depth:${depth}">`,
-    `<summary><span class="folder-icon"><svg class="folder-ic fi-closed" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><svg class="folder-ic fi-open" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H21a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg></span><span class="path">${escapeHtml(names.join("/"))}</span></summary>`,
-    renderSourceChildren(labelNode, depth + 1),
-    "</details>",
-  ].join("\n");
-}
-
-export function diffSubtitle(options: {
-  base?: string;
-  baseLabel?: string;
-  staged: boolean;
-  includeUntracked: boolean;
-  context: number;
-}): string {
-  const source = options.staged ? "staged changes" : `working tree vs ${options.baseLabel ?? options.base ?? "HEAD"}`;
-  const untracked = options.includeUntracked ? "including untracked files" : "tracked files only";
-  return `${source}; ${untracked}; ${options.context} context lines`;
 }

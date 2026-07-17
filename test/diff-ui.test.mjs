@@ -52,12 +52,12 @@ test("IntelliJ-style diff chrome tracks review stops and opens the current sourc
 
   assert.equal(v.$("#diff-before-path").textContent, "src/review.ts");
   assert.equal(v.$("#diff-after-path").textContent, "src/review.ts");
-  assert.match(v.$("#diff-change-counter").textContent, /1 of 2/);
+  assert.equal(v.$("#diff-change-counter"), null, "the toolbar omits the verbose change counter");
+  assert.equal(v.$(".diff-toolbar").lastElementChild, v.$(".diff-review-controls"), "change navigation stays at the far-right edge");
   assert.equal(v.window.getComputedStyle(v.$(".d2h-code-line-prefix")).display, "none", "patch +/- prefixes are hidden");
 
   v.click(v.$("#diff-next-change"));
   await v.settle(80);
-  assert.match(v.$("#diff-change-counter").textContent, /2 of 2/, "the toolbar follows the same next-change stop as F7");
 
   v.click(v.$("#diff-open-source"));
   await v.settle(80);
@@ -279,6 +279,61 @@ test("paired hunk rows use center gutters and IntelliJ semantic colors", async (
   v.close();
 });
 
+test("diff scrolling follows the pane under the pointer and rate-limits opposite-pane catch-up", async () => {
+  const v = await loadViewer(html, {
+    analysisBridge: () => null,
+    analysisStatus: { generation: 1, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  await v.openDiffFor("src/colors.ts");
+  await v.settle(80);
+
+  const container = v.$("#diff2html-container");
+  const wrapper = v.$("#diff2html-container .d2h-file-wrapper:not(.df-inactive)");
+  const sides = wrapper.querySelectorAll(".d2h-file-side-diff");
+  const state = wrapper.__asymmetricDiffState;
+  Object.defineProperty(container, "clientHeight", { configurable: true, value: 600 });
+  container.getBoundingClientRect = () => ({ top: 0, bottom: 600 });
+  state.gaps = [];
+  state.anchors = [];
+  state.initialized = true;
+  state.referenceSide = "new";
+  state.lastScrollTop = 400;
+  container.scrollTop = 430;
+  v.window.applyAsymmetricDiffOffsets(state, 240, 0);
+
+  sides[0].dispatchEvent(new v.window.MouseEvent("pointermove", { bubbles: true }));
+  assert.equal(state.pointerSide, "old", "moving over the base pane makes it the next canonical timeline");
+  state.scrollDriven = true;
+  state.pendingScrollBudget = 30;
+  v.window.scrollAsymmetricDiff();
+
+  assert.equal(state.referenceSide, "old", "the base pane owns vertical alignment while the pointer is over it");
+  assert.equal(state.offset, 0, "the selected base pane is rebased without retaining a growing transform margin");
+  assert.equal(container.scrollTop, 190, "scrollTop compensates the rebase in the same task");
+  assert.equal(-container.scrollTop + state.offset, -190, "the base code keeps the same visual position during the ownership switch");
+  assert.equal(state.newOffset, -210, "the working pane advances only by the 30px user gesture instead of snapping 240px");
+  assert.equal(state.catchingUp, true, "a large alignment delta remains explicitly in catch-up mode");
+
+  state.scrollDriven = true;
+  state.pendingScrollBudget = 210;
+  state.lastScrollTop = container.scrollTop;
+  v.window.scrollAsymmetricDiff();
+  assert.equal(state.newOffset, 0, "continued user motion lets the opposite pane reach the semantic anchor");
+  assert.equal(state.catchingUp, false, "normal coupled scrolling resumes after both timelines meet");
+
+  v.window.applyAsymmetricDiffOffsets(state, -180, 0);
+  sides[1].dispatchEvent(new v.window.MouseEvent("pointermove", { bubbles: true }));
+  state.scrollDriven = true;
+  state.pendingScrollBudget = 25;
+  state.lastScrollTop = container.scrollTop;
+  v.window.scrollAsymmetricDiff();
+  assert.equal(state.referenceSide, "new", "the same ownership rule works from the working-tree pane");
+  assert.equal(state.newOffset, 0, "the right reference pane remains fixed");
+  assert.equal(state.offset, -155, "the left pane is likewise capped to the user's 25px speed");
+
+  v.close();
+});
+
 test("a compact certification replacement leaves no gray or blank rows in the working tree", async () => {
   const v = await loadViewer(html, {
     analysisBridge: () => null,
@@ -319,6 +374,12 @@ test("omitted context expands in both diff panes without losing hunk navigation"
   assert.equal(folds.length, 2, "one paired fold control is shown for the omitted range");
   assert.match(folds[0].textContent, /20 unchanged lines/, "the control explains how much context is hidden");
   assert.equal(folds[0].tagName, "BUTTON", "the fold is keyboard accessible");
+  for (const fold of folds) {
+    const cell = fold.closest("td");
+    assert.equal(cell.colSpan, 2, "the fold owns the complete diff row instead of starting after a line-number cell");
+    const visibleCells = Array.from(fold.closest("tr").children).filter((peer) => v.window.getComputedStyle(peer).display !== "none");
+    assert.deepEqual(visibleCells, [cell], "no companion gutter cell offsets the viewport-centred control");
+  }
   const hunkCountBefore = wrapper.querySelectorAll("tr.hunk").length;
 
   const rightSide = wrapper.querySelectorAll(".d2h-file-side-diff")[1];

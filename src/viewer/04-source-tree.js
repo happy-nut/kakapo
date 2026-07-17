@@ -298,9 +298,17 @@ function handleTreeKey(event) {
   if (event.key === 'ArrowUp') { event.preventDefault(); focusTree(treeFocusIndex - 1); return true; }
   if (event.key === 'PageDown') { event.preventDefault(); focusTree(treeFocusIndex + treePageSize()); return true; }
   if (event.key === 'PageUp') { event.preventDefault(); focusTree(treeFocusIndex - treePageSize()); return true; }
+  // Viewed is a review-queue property, so it may only be changed from the keyboard-selected Changes row.
+  // Space in the code canvas keeps its existing editor/fold meaning and Files/source rows remain untouched.
+  if ((event.key === ' ' || event.code === 'Space') && row && row.classList.contains('change-row')) {
+    event.preventDefault();
+    var viewedPath = row.dataset.file || '';
+    if (viewedPath && currentFileSignature(viewedPath)) setFileViewed(viewedPath, !isFileViewed(viewedPath));
+    return true;
+  }
   if (event.key === 'Enter' && event.altKey) {
     event.preventDefault();
-    if (row && typeof openTreeRowMenu === 'function') openTreeRowMenu(row); // path actions / Finder / Terminal
+    if (row && typeof openTreeRowMenu === 'function') openTreeRowMenu(row); // path / file manager / terminal actions
     return true;
   }
   if (event.key === 'Enter') {
@@ -331,7 +339,11 @@ function handleTreeKey(event) {
 (function () {
   var dsc = document.getElementById('diff2html-container');
   if (dsc) dsc.addEventListener('wheel', function (e) {
-    if (Math.abs(e.deltaY) >= Math.abs(e.deltaX) && e.deltaY !== 0) { dsc.scrollTop += e.deltaY; e.preventDefault(); }
+    if (Math.abs(e.deltaY) >= Math.abs(e.deltaX) && e.deltaY !== 0) {
+      if (typeof prepareAsymmetricDiffWheel === 'function') prepareAsymmetricDiffWheel(e);
+      dsc.scrollTop += e.deltaY;
+      e.preventDefault();
+    }
   }, { passive: false });
 })();
 // A floating, focus-grabbing overlay (merged-comments, prompt memo, settings) is open. While one is up it

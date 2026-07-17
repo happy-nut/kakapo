@@ -65,7 +65,14 @@ document.addEventListener('keydown', (event) => {
   // selected definition when Cmd+B was invoked after Cmd+0/Cmd+1.
   if (typeof handleSemanticPeekKey === 'function' && handleSemanticPeekKey(event)) return;
   if (!quickOpen?.classList.contains('hidden')) {
-    if (handleQuickOpenKey(event)) return;
+    // Quick Open / Find in Files is a true modal keyboard scope. Let its own handler consume navigation
+    // and dismissal keys, then stop every other key from reaching the editor-level shortcut router (or
+    // later document listeners). Do NOT prevent an unhandled key's default: native input editing such as
+    // Cmd/Ctrl+Left/Right, Cmd/Ctrl+A, clipboard shortcuts, and text composition must keep working inside
+    // the focused search field without moving the dimmed source/diff caret behind the dialog.
+    handleQuickOpenKey(event);
+    event.stopImmediatePropagation();
+    return;
   }
   var usagesBox = document.getElementById('usages');
   if (usagesBox && !usagesBox.classList.contains('hidden')) {
@@ -211,39 +218,6 @@ document.addEventListener('keydown', (event) => {
     }
   }
 
-  // The `<` glyph lives on Shift+Comma. Viewed is a fast review action, so it intentionally uses that
-  // unmodified physical chord; editable fields remain exempt below so typing `<` is never intercepted.
-  const toggleViewedShortcut = !event.altKey && !event.metaKey && !event.ctrlKey && event.shiftKey
-    && (event.key === '<' || event.code === 'Comma');
-  if (toggleViewedShortcut) {
-    const ce2 = document.activeElement;
-    const inEditable2 = ce2 && (ce2.tagName === 'INPUT' || ce2.tagName === 'TEXTAREA' || ce2.tagName === 'SELECT');
-    if (!inEditable2) {
-      const sidebarOwnsTarget = treeFocusIndex >= 0;
-      const selectedRow = sidebarOwnsTarget && typeof treeRows === 'function' ? treeRows()[treeFocusIndex] : null;
-      let vp = selectedRow && selectedRow.classList.contains('file-link')
-        ? (selectedRow.dataset.file || selectedRow.dataset.sourceFile || '')
-        : '';
-      if (!sidebarOwnsTarget) {
-        vp = isSourceViewerVisible() ? (document.getElementById('source-viewer')?.dataset.openPath || '') : '';
-        if (!vp && typeof diffActiveWrapper === 'function') {
-          const vw = diffActiveWrapper();
-          const vn = vw && vw.querySelector('.d2h-file-name');
-          if (vn && vn.textContent) vp = vn.textContent.trim();
-        }
-      }
-      if (vp && currentFileSignature(vp)) {
-        event.preventDefault();
-        const willView = !isFileViewed(vp);
-        setFileViewed(vp, willView);
-        // When no sidebar row owns the target, marking the open file viewed hides its diff body, so move
-        // to the next change. A keyboard-selected sidebar row stays selected and never changes open files.
-        if (willView && !sidebarOwnsTarget) gotoNextUnviewedFile(vp);
-        return;
-      }
-    }
-  }
-
   // Opt/Alt + Left/Right: word-wise caret jump (source or diff view).
   if (event.altKey && !event.metaKey && !event.ctrlKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
     var wae = document.activeElement;
@@ -292,6 +266,18 @@ document.addEventListener('keydown', (event) => {
   if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
     event.preventDefault();
     openQuickOpen('content');
+    return;
+  }
+  if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && (event.code === 'KeyE' || event.key.toLowerCase() === 'e')) {
+    event.preventDefault();
+    openQuickOpen('content');
+    setTimeout(focusContentSearchExtensions, 0);
+    return;
+  }
+  if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && (event.code === 'KeyP' || event.key.toLowerCase() === 'p')) {
+    event.preventDefault();
+    openQuickOpen('content');
+    toggleContentSearchNoise();
     return;
   }
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'e') {
@@ -415,6 +401,8 @@ document.addEventListener('keydown', (event) => {
 });
 
 quickInput?.addEventListener('input', () => renderQuickOpenResults());
+quickExtensionInput?.addEventListener('input', restartContentSearch);
+quickExcludeNoiseButton?.addEventListener('click', toggleContentSearchNoise);
 quickResults?.addEventListener('mousemove', (event) => {
   const item = event.target.closest?.('.quick-open-item');
   if (!item) return;
@@ -497,15 +485,6 @@ document.getElementById('source-tabs')?.addEventListener('click', function (even
   if (closeBtn) { event.stopPropagation(); event.preventDefault(); closeSourceTab(closeBtn.getAttribute('data-close-path')); return; }
   var tab = event.target && event.target.closest && event.target.closest('.source-tab');
   if (tab) openSourceFile(tab.getAttribute('data-tab-path'));
-});
-document.getElementById('diff-viewed-toggle')?.addEventListener('click', function () {
-  var btn = document.getElementById('diff-viewed-toggle');
-  var path = btn ? (btn.dataset.file || '') : '';
-  if (path) {
-    var willView = !isFileViewed(path);
-    setFileViewed(path, willView);
-    if (willView) gotoNextUnviewedFile(path);
-  }
 });
 document.getElementById('diff-prev-change')?.addEventListener('click', function () { next(-1); });
 document.getElementById('diff-next-change')?.addEventListener('click', function () { next(1); });
@@ -630,7 +609,7 @@ if (watchEnabled && !(window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate
 window.addEventListener('beforeunload', saveUiState);
 
 // First render has painted — drop the boot overlay (it bridged the blank gap right after loadFile). Two
-// rAFs so the spinner stays until the diff/tree are actually on screen, then a short fade-out.
+// rAFs so the Kakapo loading mark stays until the diff/tree are actually on screen, then a short fade-out.
 (function () {
   var ov = document.getElementById('boot-overlay');
   if (!ov) return;

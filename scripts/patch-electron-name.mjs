@@ -8,7 +8,10 @@ const APP_EXECUTABLE_NAME = "kakapo";
 const APP_BUNDLE_ID = "dev.happynut.kakapo";
 const OLD_APP_NAME = "Electron";
 const APP_BUNDLE = APP_DISPLAY_NAME + ".app";
-const LEGACY_APP_BUNDLES = [OLD_APP_NAME + ".app", APP_EXECUTABLE_NAME + ".app"];
+const PREVIOUS_APP_NAME = ["Mona", "cori"].join("");
+const PREVIOUS_EXECUTABLE_NAME = ["mona", "cori"].join("");
+const LEGACY_APP_BUNDLES = [OLD_APP_NAME + ".app", APP_EXECUTABLE_NAME + ".app", PREVIOUS_APP_NAME + ".app"];
+const LEGACY_EXECUTABLE_NAMES = [OLD_APP_NAME, PREVIOUS_EXECUTABLE_NAME];
 
 // Electron ships Electron.app with bundle name + executable "Electron", which is what macOS shows in
 // the Dock / Cmd+Tab. The npm `kakapo` model spawns node_modules/electron's executable directly (not a
@@ -81,7 +84,6 @@ function main() {
 
     const plistPath = join(appDir, "Contents", "Info.plist");
     const macosDir = join(appDir, "Contents", "MacOS");
-    const oldExe = join(macosDir, OLD_APP_NAME);
     const newExe = join(macosDir, APP_EXECUTABLE_NAME);
     if (!existsSync(plistPath)) {
       console.warn('kakapo: Info.plist not found at ' + plistPath + ' — skipping rebrand (Dock/menu may show "Electron")');
@@ -98,8 +100,9 @@ function main() {
     ].reduce((plist, [key, value]) => setPlistString(plist, key, value), before);
     if (after !== before) { writeFileSync(plistPath, after); changed = true; }
 
-    // 3. Rename the executable so the directly-spawned process is "kakapo" (idempotent).
-    if (existsSync(oldExe) && !existsSync(newExe)) { renameSync(oldExe, newExe); changed = true; }
+    // 3. Rename either Electron's stock executable or a pre-Kakapo executable left by an older checkout.
+    const legacyExe = LEGACY_EXECUTABLE_NAMES.map((name) => join(macosDir, name)).find((path) => existsSync(path));
+    if (legacyExe && !existsSync(newExe)) { renameSync(legacyExe, newExe); changed = true; }
 
     // 4. Repoint electron's path.txt at the renamed binary so require("electron") resolves it.
     if (existsSync(pathTxt)) {

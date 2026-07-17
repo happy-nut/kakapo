@@ -181,7 +181,9 @@ test("source documents and merged prompts ship one audited Markdown renderer", (
 test("markdown raw toggle switches to contiguous, every-line text", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("README.md");
-  await v.clickRenderToggle();
+  assert.equal(v.$("#render-toggle").dataset.keyhint, "⌥R", "the toolbar advertises the real shortcut");
+  v.key("r", { altKey: true, code: "KeyR" });
+  await v.settle();
 
   const body = v.$("#source-body");
   assert.equal(body.classList.contains("rendered-body"), false, "raw mode drops rendered-body");
@@ -195,6 +197,71 @@ test("markdown raw toggle switches to contiguous, every-line text", async () => 
     "line indices are contiguous from 0 (one row per physical line)",
   );
   assert.ok(indices.length > 4, "raw shows more rows than the rendered block count");
+
+  await v.clickRenderToggle();
+  assert.equal(body.classList.contains("rendered-body"), true, "the toolbar button still toggles back to rendered mode");
+  v.close();
+});
+
+test("line wrap is a checkbox-style Option+W toggle for raw file views", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+
+  const toggle = v.$("#line-wrap-toggle");
+  const body = v.$("#source-body");
+  assert.ok(toggle && !toggle.classList.contains("hidden"), "raw code exposes the line-wrap checkbox");
+  assert.equal(toggle.dataset.keyhint, "⌥W", "the checkbox advertises Option+W");
+  assert.equal(toggle.getAttribute("role"), "checkbox");
+  assert.equal(toggle.getAttribute("aria-checked"), "false");
+
+  v.key("w", { altKey: true, code: "KeyW" });
+  await v.settle();
+  assert.ok(body.classList.contains("line-wrap"), "Option+W enables wrapping on the raw source body");
+  assert.equal(toggle.getAttribute("aria-checked"), "true");
+  assert.ok(toggle.classList.contains("is-checked"), "the toolbar checkbox visibly reflects the state");
+
+  await v.openSourceFile("README.md");
+  assert.ok(body.classList.contains("rendered-body"), "Markdown still opens rendered");
+  assert.equal(body.classList.contains("line-wrap"), false, "rendered documents do not inherit raw line wrapping");
+  assert.ok(toggle.classList.contains("hidden"), "the raw-only option is hidden for a rendered document");
+
+  await v.clickRenderToggle();
+  assert.equal(body.classList.contains("rendered-body"), false);
+  assert.ok(body.classList.contains("line-wrap"), "the persisted choice applies when Markdown switches to Raw");
+  assert.equal(toggle.getAttribute("aria-checked"), "true");
+
+  v.click(toggle);
+  await v.settle();
+  assert.equal(body.classList.contains("line-wrap"), false, "clicking the checkbox disables wrapping");
+  assert.equal(toggle.getAttribute("aria-checked"), "false");
+  v.close();
+});
+
+test("line wrap is available in side-by-side diff and shares the Option+W state", async () => {
+  const v = await loadViewer(html);
+  await v.openDiffFor("src/app.ts");
+
+  const toggle = v.$("#diff-line-wrap-toggle");
+  const diff = v.$("#diff2html-container");
+  assert.ok(toggle, "the diff toolbar exposes line wrapping without leaving review mode");
+  assert.equal(toggle.dataset.keyhint, "⌥W");
+  assert.equal(toggle.getAttribute("role"), "checkbox");
+  assert.equal(toggle.getAttribute("aria-checked"), "false");
+
+  v.key("w", { altKey: true, code: "KeyW" });
+  await v.settle();
+  assert.ok(diff.classList.contains("line-wrap"), "Option+W constrains the side-by-side diff to wrapped panes");
+  assert.equal(toggle.getAttribute("aria-checked"), "true");
+  assert.ok(toggle.classList.contains("is-checked"));
+
+  await v.openSourceFile("src/app.ts");
+  assert.ok(v.$("#source-body").classList.contains("line-wrap"), "the same display preference follows into raw source");
+  assert.equal(v.$("#line-wrap-toggle").getAttribute("aria-checked"), "true");
+
+  await v.openDiffFor("src/app.ts");
+  v.click(toggle);
+  await v.settle();
+  assert.equal(diff.classList.contains("line-wrap"), false, "the diff checkbox disables the shared mode");
   v.close();
 });
 
@@ -361,9 +428,8 @@ test("header strip is free of meta clutter (no file/hunk counts, indexed ratio, 
   const v = await loadViewer(html);
   const strip = v.$(".review-status");
   assert.equal((strip?.textContent || "").trim(), "", "review-status carries no meta text");
-  // The two things that must survive: the viewed toggle (a separate button) and the footer progress bar
-  // (the single, intended home for background-indexing progress).
-  assert.ok(v.$("#diff-viewed-toggle"), "viewed toggle button is still present");
+  // Viewed is changed only from the selected Changes row; the toolbar stays free of duplicate state controls.
+  assert.equal(v.$("#diff-viewed-toggle"), null, "the toolbar carries no Viewed pill");
   assert.equal(v.$("#footer-progress"), null, "renderer indexing progress is absent");
   v.close();
 });

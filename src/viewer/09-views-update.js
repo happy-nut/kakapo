@@ -183,6 +183,8 @@ function ensureTreeRendered() {
 function showDiffView(shouldScroll) {
   document.getElementById('source-viewer')?.classList.add('hidden');
   document.getElementById('diff-view')?.classList.remove('hidden');
+  if (typeof updateDiffLineWrapToggle === 'function') updateDiffLineWrapToggle();
+  if (typeof refreshDiffLineWrapLayout === 'function') refreshDiffLineWrapLayout();
   setTab('changes');
   syncReviewSidebarVisibility();
   if (current < 0 && hunkTotal()) {

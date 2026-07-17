@@ -1,0 +1,95 @@
+name: Linux Desktop
+
+# Linux is a release platform, not a best-effort npm target. Every main/PR/tag build runs the same
+# native-architecture contract: install, full tests, package, then open a real Electron renderer in Xvfb.
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+  workflow_dispatch: {}
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Tag to check out and publish when called by the weekly release workflow.
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Linux ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.14.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Linux desktop smoke dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            xvfb xauth \
+            libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libxss1 \
+            libatk-bridge2.0-0t64 libdrm2
+
+      - name: Run full test suite
+        run: npm test
+
+      - name: Package Linux ${{ matrix.arch }}
+        run: npm run dist:linux:${{ matrix.arch }}
+
+      - name: Open packaged Electron renderer
+        run: npm run smoke:linux -- release/Kakapo-linux-${{ matrix.arch }}/Kakapo
+
+      - name: Upload Linux ${{ matrix.arch }} package
+        uses: actions/upload-artifact@v4
+        with:
+          name: kakapo-linux-${{ matrix.arch }}
+          path: release/Kakapo-*-linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Attach Linux packages to release
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified Linux packages
+        uses: actions/download-artifact@v5
+        with:
+          pattern: kakapo-linux-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create GitHub release and upload Linux packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/*.tar.gz --clobber

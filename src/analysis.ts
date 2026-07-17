@@ -1,6 +1,5 @@
-import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { join } from "node:path";
 import {
   AnalysisLocation,
   LspClient,
@@ -8,7 +7,26 @@ import {
   resolveLanguageServer,
   type LanguageServerCommand,
 } from "./lsp.js";
-import { findRipgrepBinary, searchProject } from "./search.js";
+import { searchProject } from "./search.js";
+import {
+  buildProjectIndex,
+  buildRegexSymbolIndex,
+  documentPath,
+  identifierAt,
+  maskNonCode,
+  safeRelativePath,
+  type IndexedFile,
+  type RegexIndex,
+  type SymbolRecord,
+} from "./analysis-index.js";
+import {
+  buildChangeImpact,
+  type ChangeImpact,
+  type ImpactEvidence,
+} from "./analysis-impact.js";
+
+export { buildRegexSymbolIndex } from "./analysis-index.js";
+export type { ChangeImpact, ImpactEvidence, ImpactItem } from "./analysis-impact.js";
 
 export type AnalysisKind = "definition" | "references" | "implementation" | "workspaceSymbol" | "impact";
 
@@ -20,25 +38,6 @@ export type AnalysisRequest = {
   query?: string;
   symbol?: string;
   limit?: number;
-};
-
-export type ImpactEvidence = "semantic" | "heuristic";
-
-export type ImpactItem = AnalysisLocation & {
-  relation?: string;
-  evidence: ImpactEvidence;
-};
-type RawImpactItem = Omit<ImpactItem, "evidence">;
-
-export type ChangeImpact = {
-  symbol: string;
-  origin?: AnalysisLocation;
-  callers: ImpactItem[];
-  dependencies: ImpactItem[];
-  implementations: ImpactItem[];
-  tests: ImpactItem[];
-  contracts: ImpactItem[];
-  mentions: ImpactItem[];
 };
 
 export type AnalysisResponse = {
@@ -71,142 +70,13 @@ export type AnalysisStatus = {
 
 type AnalysisResult = Omit<AnalysisResponse, "generation" | "durationMs">;
 
-type SymbolRecord = AnalysisLocation & { name: string; symbolKind: string; declaration: string };
-type IndexedFile = { path: string; content: string };
-type RegexIndex = {
-  files: Map<string, string>;
-  definitions: Map<string, SymbolRecord[]>;
-  symbols: SymbolRecord[];
-};
-
 type AnalysisOptions = {
   resolveServer?: (root: string, path: string) => LanguageServerCommand | undefined;
   files?: IndexedFile[];
   onStatus?: (status: AnalysisStatus) => void;
 };
 
-const CODE_EXTENSIONS = new Set([
-  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".rb", ".go", ".rs", ".java", ".kt", ".kts",
-  ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hxx", ".php", ".cs", ".swift", ".scala", ".vue", ".svelte",
-  ".graphql", ".gql", ".proto", ".sql", ".json", ".yaml", ".yml", ".toml",
-]);
-const MAX_INDEX_FILES = 30_000;
-const MAX_INDEX_FILE_BYTES = 1_000_000;
 const MAX_LOCATIONS = 500;
-
-const DECLARATION_PATTERNS: Array<{ kind: string; re: RegExp }> = [
-  { kind: "function", re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
-  { kind: "class", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|sealed|data|inner|annotation|static|export|default|expect|actual|value)\s+)*(class|interface|object|enum|trait|struct)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
-  { kind: "type", re: /^\s*(?:export\s+)?(interface|type|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
-  { kind: "variable", re: /^\s*(?:export\s+)?(?:const|let|var|val)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
-  { kind: "function", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\s+)*(?:fun|def|fn|func)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
-  { kind: "method", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\s+)*([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^)]*\)\s*(?::\s*[^=]+)?\s*(?:\{|=>)/ },
-];
-
-function declarationFromLine(path: string, line: string, lineIndex: number): SymbolRecord | undefined {
-  for (const pattern of DECLARATION_PATTERNS) {
-    const match = pattern.re.exec(line);
-    if (!match) continue;
-    const name = match[2] && ["class", "interface", "object", "enum", "trait", "struct", "type"].includes(match[1]) ? match[2] : match[1];
-    if (!name || /^(if|for|while|switch|catch)$/.test(name)) continue;
-    return {
-      path,
-      lineIndex,
-      column: Math.max(0, line.indexOf(name)),
-      name,
-      symbolKind: pattern.kind === "class" ? String(match[1] || "class") : pattern.kind,
-      declaration: line,
-      text: line,
-    };
-  }
-  return undefined;
-}
-
-export function buildRegexSymbolIndex(files: IndexedFile[]): RegexIndex {
-  const fileMap = new Map<string, string>();
-  const definitions = new Map<string, SymbolRecord[]>();
-  const symbols: SymbolRecord[] = [];
-  for (const file of files) {
-    const path = file.path.replace(/\\/g, "/");
-    fileMap.set(path, file.content);
-    const lines = file.content.split(/\r?\n/);
-    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-      const record = declarationFromLine(path, lines[lineIndex], lineIndex);
-      if (!record) continue;
-      symbols.push(record);
-      const entries = definitions.get(record.name) ?? [];
-      entries.push(record);
-      definitions.set(record.name, entries);
-    }
-  }
-  return { files: fileMap, definitions, symbols };
-}
-
-async function listProjectFiles(root: string): Promise<string[]> {
-  const rg = findRipgrepBinary();
-  if (!rg) return [];
-  return new Promise((resolveFiles) => {
-    const child = spawn(rg, ["--files", "--hidden", "--no-messages", "-g", "!.git/**"], {
-      cwd: root,
-      stdio: ["ignore", "pipe", "ignore"],
-      windowsHide: true,
-    });
-    let output = "";
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      if (output.length < 20_000_000) output += chunk;
-      else child.kill();
-    });
-    child.once("error", () => resolveFiles([]));
-    child.once("close", () => {
-      const files = output.split(/\r?\n/)
-        .map((path) => path.trim().replace(/\\/g, "/"))
-        .filter((path) => path && CODE_EXTENSIONS.has(extname(path).toLowerCase()))
-        .slice(0, MAX_INDEX_FILES);
-      resolveFiles(files);
-    });
-  });
-}
-
-async function buildProjectIndex(root: string): Promise<RegexIndex> {
-  const paths = await listProjectFiles(root);
-  const files: IndexedFile[] = [];
-  for (let offset = 0; offset < paths.length; offset += 32) {
-    const batch = paths.slice(offset, offset + 32);
-    const loaded = await Promise.all(batch.map(async (path): Promise<IndexedFile | undefined> => {
-      try {
-        const content = await readFile(join(root, path), "utf8");
-        if (Buffer.byteLength(content, "utf8") > MAX_INDEX_FILE_BYTES || content.includes("\0")) return undefined;
-        return { path, content };
-      } catch {
-        return undefined;
-      }
-    }));
-    for (const file of loaded) if (file) files.push(file);
-    // Yield between batches so the Electron main loop can keep serving review/navigation IPC.
-    await new Promise<void>((resolveBatch) => setImmediate(resolveBatch));
-  }
-  return buildRegexSymbolIndex(files);
-}
-
-function safeRelativePath(root: string, path: string | undefined): string | undefined {
-  if (!path || isAbsolute(path)) return undefined;
-  const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
-  const absolute = resolve(root, normalized);
-  const rel = relative(root, absolute).replace(/\\/g, "/");
-  if (!rel || rel.startsWith("../")) return undefined;
-  return rel;
-}
-
-function identifierAt(text: string, column: number): string | undefined {
-  const position = Math.max(0, Math.min(column, text.length));
-  const re = /[A-Za-z_$][A-Za-z0-9_$]*/g;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(text))) {
-    if (position >= match.index && position <= match.index + match[0].length) return match[0];
-  }
-  return undefined;
-}
 
 function uniqueLocations<T extends AnalysisLocation>(items: T[], limit = MAX_LOCATIONS): T[] {
   const seen = new Set<string>();
@@ -219,37 +89,6 @@ function uniqueLocations<T extends AnalysisLocation>(items: T[], limit = MAX_LOC
     if (out.length >= limit) break;
   }
   return out;
-}
-
-function uniqueImpactItems(items: ImpactItem[], limit = MAX_LOCATIONS): ImpactItem[] {
-  const seen = new Set<string>();
-  const out: ImpactItem[] = [];
-  for (const item of items) {
-    // A regex search may find the same symbol several times on one line. Review impact is line-oriented,
-    // so showing those as separate relationships creates noise without adding evidence.
-    const key = `${item.path}\0${item.lineIndex}\0${item.relation ?? ""}\0${item.evidence}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(item);
-    if (out.length >= limit) break;
-  }
-  return out;
-}
-
-function testPath(path: string): boolean {
-  return /(^|\/)(test|tests|__tests__|spec|specs)(\/|$)|\.(?:test|spec)\.[^.]+$/i.test(path);
-}
-
-function contractPath(path: string): boolean {
-  return /(^|\/)(types?|api|schema|schemas|config|configs)(\/|$)|(?:openapi|swagger|schema|config)|\.(?:graphql|gql|proto|json|ya?ml|toml)$/i.test(path);
-}
-
-function documentPath(path: string): boolean {
-  return /\.(?:md|mdx|txt|rst|adoc)$/i.test(path) || /(^|\/)(docs?|documentation|notes?|release-notes)(\/|$)/i.test(path);
-}
-
-function apparentCall(text: string, symbol: string): boolean {
-  return new RegExp(`\\b${escapeRegExp(symbol)}\\s*\\(`).test(text);
 }
 
 export class ProjectAnalysis {
@@ -335,7 +174,8 @@ export class ProjectAnalysis {
           ? "textDocument/references"
           : "textDocument/implementation";
       const lsp = await this.lspLocations(path, context.lineIndex, context.column, method);
-      if (lsp.locations.length) {
+      const semanticLocations = await this.navigationLocations(lsp.locations);
+      if (semanticLocations.length) {
         return {
           ok: true,
           engine: "lsp",
@@ -343,13 +183,13 @@ export class ProjectAnalysis {
           server: lsp.server,
           serverSource: lsp.serverSource,
           symbol: context.symbol,
-          locations: await this.withText(lsp.locations),
+          locations: semanticLocations,
         };
       }
       const locations = request.kind === "definition"
-        ? await this.fallbackDefinitions(context.symbol, path, context.lineIndex)
+        ? await this.fallbackDefinitions(context.symbol, path, context.lineIndex, context.column)
         : request.kind === "references"
-          ? await this.fallbackReferences(context.symbol)
+          ? await this.fallbackReferences(context.symbol, true, path, context.lineIndex)
           : await this.fallbackImplementations(context.symbol);
       return {
         ok: true,
@@ -554,19 +394,20 @@ export class ProjectAnalysis {
         }
         try {
           const locations = uniqueLocations(await client.workspaceSymbols(query), Math.max(1, Math.min(Number(limit) || 200, 500)));
+          const codeLocations = await this.navigationLocations(locations, Math.max(1, Math.min(Number(limit) || 200, 500)));
           this.setStatus("ready", {
             family: client.server.family,
             server: client.server.name,
             serverSource: client.server.source,
           });
-          if (locations.length) {
+          if (codeLocations.length) {
             return {
               ok: true,
               engine: "lsp",
               confidence: "semantic",
               server: client.server.name,
               serverSource: client.server.source,
-              locations: await this.withText(locations),
+              locations: codeLocations,
             };
           }
           break;
@@ -587,21 +428,120 @@ export class ProjectAnalysis {
     return { ok: true, engine: "index", confidence: "heuristic", locations, fallbackReason };
   }
 
-  private async fallbackDefinitions(symbol: string, currentPath: string, line: number): Promise<AnalysisLocation[]> {
+  private pythonEnclosingClass(index: RegexIndex, path: string, line: number): string | undefined {
+    if (!path.toLowerCase().endsWith(".py")) return undefined;
+    const lines = index.codeLines.get(path) ?? [];
+    const indentOf = (text: string) => (text.match(/^[ \t]*/)?.[0].replace(/\t/g, "    ").length ?? 0);
+    const classes = index.symbols
+      .filter((item) => item.path === path && item.symbolKind === "class" && item.lineIndex < line)
+      .sort((a, b) => b.lineIndex - a.lineIndex);
+    for (const candidate of classes) {
+      const classIndent = indentOf(lines[candidate.lineIndex] ?? "");
+      let inside = true;
+      for (let at = candidate.lineIndex + 1; at <= line; at += 1) {
+        const code = lines[at] ?? "";
+        if (!code.trim() || code.trimStart().startsWith("@")) continue;
+        if (indentOf(code) <= classIndent) { inside = false; break; }
+      }
+      if (inside) return candidate.name;
+    }
+    return undefined;
+  }
+
+  private pythonBindings(index: RegexIndex, path: string, container: string): Set<string> {
+    const lines = index.codeLines.get(path) ?? [];
+    const escaped = escapeRegExp(container);
+    const bindings = new Set<string>();
+    const annotation = new RegExp(`\\b([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)\\s*:\\s*[^=,)]*\\b${escaped}\\b`, "g");
+    const construction = new RegExp(`\\b([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)\\s*(?::[^=]+)?=\\s*(?:await\\s+)?${escaped}\\s*\\(`, "g");
+    for (const line of lines) {
+      let match: RegExpExecArray | null;
+      while ((match = annotation.exec(line))) bindings.add(match[1]);
+      while ((match = construction.exec(line))) bindings.add(match[1]);
+    }
+    // Propagate one common constructor-injection shape: `self.runner = runner` where `runner: Runner`.
+    for (const line of lines) {
+      const alias = /\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\b/.exec(line);
+      if (alias && bindings.has(alias[2])) bindings.add(alias[1]);
+    }
+    return bindings;
+  }
+
+  private inferPythonMethodContainer(index: RegexIndex, hits: SymbolRecord[], path: string, line: number, column: number): string | undefined {
+    if (!path.toLowerCase().endsWith(".py")) return undefined;
+    const code = index.codeLines.get(path)?.[line] ?? "";
+    const symbol = hits[0]?.name ?? "";
+    const symbolStart = symbol ? code.lastIndexOf(symbol, Math.max(0, column)) : -1;
+    const before = code.slice(0, symbolStart >= 0 ? symbolStart : Math.max(0, column));
+    const direct = /([A-Z][A-Za-z0-9_]*)\s*\([^)]*\)\s*\.\s*$/.exec(before)?.[1];
+    if (direct && hits.some((item) => item.container === direct)) return direct;
+    const receiver = /([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\.\s*$/.exec(before)?.[1];
+    if (receiver === "self" || receiver === "cls") return this.pythonEnclosingClass(index, path, line);
+    if (!receiver) return this.pythonEnclosingClass(index, path, line);
+    const owners = Array.from(new Set(hits.map((item) => item.container).filter((item): item is string => Boolean(item))));
+    const inferred = owners.filter((owner) => this.pythonBindings(index, path, owner).has(receiver));
+    return inferred.length === 1 ? inferred[0] : undefined;
+  }
+
+  private async fallbackDefinitions(symbol: string, currentPath: string, line: number, column = 0): Promise<AnalysisLocation[]> {
     const index = await this.getIndex();
     const hits = index.definitions.get(symbol) ?? [];
+    const exact = hits.filter((item) => item.path === currentPath && item.lineIndex === line);
+    if (exact.length) return exact.map((item) => ({ ...item }));
+    const owner = this.inferPythonMethodContainer(index, hits, currentPath, line, column);
+    if (owner) {
+      const owned = hits.filter((item) => item.container === owner);
+      if (owned.length) return owned.map((item) => ({ ...item }));
+    }
+    const sameFile = hits.filter((item) => item.path === currentPath);
+    if (sameFile.length === 1) return sameFile.map((item) => ({ ...item }));
+    // A common Python method name (`execute`, `run`, `get`, …) is not a definition identity. Returning every
+    // class that happens to declare it makes heuristic output look authoritative while being mostly noise.
+    // Fail closed unless receiver/class context above identifies an owner; a language server can still
+    // provide complete polymorphic results when one is available.
+    const pythonMethods = hits.filter((item) => item.path.endsWith(".py") && Boolean(item.container));
+    if (pythonMethods.length > 1) {
+      const standalone = hits.filter((item) => !item.path.endsWith(".py") || !item.container);
+      return standalone.length <= 10 ? standalone.map((item) => ({ ...item })) : [];
+    }
+    if (hits.length > 40) return [];
     return hits
       .slice()
       .sort((a, b) => Number(b.path === currentPath) - Number(a.path === currentPath) || Math.abs(a.lineIndex - line) - Math.abs(b.lineIndex - line))
       .map((item) => ({ ...item }));
   }
 
-  private async fallbackReferences(symbol: string): Promise<AnalysisLocation[]> {
-    const result = await searchProject(this.root, symbol, MAX_LOCATIONS + 1);
+  private async fallbackReferences(symbol: string, codeOnly = true, originPath?: string, originLine?: number): Promise<AnalysisLocation[]> {
+    const index = codeOnly ? await this.getIndex() : undefined;
+    const origin = index && originPath != null && originLine != null
+      ? (index.definitions.get(symbol) ?? []).find((item) => item.path === originPath && item.lineIndex === originLine && item.path.endsWith(".py") && item.container)
+      : undefined;
+    // Generic names such as `execute` can exceed the normal display cap before ripgrep reaches the one
+    // receiver-qualified call we need. Scan a larger bounded set only when a Python owner is known, then
+    // apply the strict receiver filter below and still return at most MAX_LOCATIONS.
+    const result = await searchProject(this.root, symbol, origin ? 2000 : MAX_LOCATIONS + 1);
+    const bindings = new Map<string, Set<string>>();
     const matches = result.matches.filter((match) => {
       const before = match.text.charAt(match.column - 2);
       const after = match.text.charAt(match.endColumn - 1);
-      return !/[A-Za-z0-9_$]/.test(before) && !/[A-Za-z0-9_$]/.test(after);
+      if (/[A-Za-z0-9_$]/.test(before) || /[A-Za-z0-9_$]/.test(after)) return false;
+      if (!codeOnly) return true;
+      if (documentPath(match.path)) return false;
+      const codeLine = index?.codeLines.get(match.path)?.[match.line - 1] ?? "";
+      if (!codeLine.slice(Math.max(0, match.column - 1), Math.max(match.column, match.endColumn - 1)).trim()) return false;
+      if (!origin?.container || !index) return true;
+      if (match.path === origin.path && match.line - 1 === origin.lineIndex) return true;
+      const prefix = codeLine.slice(0, Math.max(0, match.column - 1));
+      if (new RegExp(`\\b${escapeRegExp(origin.container)}\\s*\\([^)]*\\)\\s*\\.\\s*$`).test(prefix)) return true;
+      const receiver = /([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\.\s*$/.exec(prefix)?.[1];
+      if (!receiver) return this.pythonEnclosingClass(index, match.path, match.line - 1) === origin.container;
+      if (receiver === "self" || receiver === "cls") return this.pythonEnclosingClass(index, match.path, match.line - 1) === origin.container;
+      let fileBindings = bindings.get(match.path);
+      if (!fileBindings) {
+        fileBindings = this.pythonBindings(index, match.path, origin.container);
+        bindings.set(match.path, fileBindings);
+      }
+      return fileBindings.has(receiver);
     });
     return uniqueLocations(matches.map((match) => ({
       path: match.path,
@@ -630,71 +570,28 @@ export class ProjectAnalysis {
     const server = definitionLsp.server || referenceLsp.server || implementationLsp.server;
     const serverSource = definitionLsp.serverSource || referenceLsp.serverSource || implementationLsp.serverSource;
     const [definitions, references, implementations, index] = await Promise.all([
-      definitionLsp.locations.length ? this.withText(definitionLsp.locations) : this.fallbackDefinitions(symbol, path, line),
-      referenceLsp.locations.length ? this.withText(referenceLsp.locations) : this.fallbackReferences(symbol),
+      definitionLsp.locations.length ? this.withText(definitionLsp.locations) : this.fallbackDefinitions(symbol, path, line, column),
+      referenceLsp.locations.length ? this.withText(referenceLsp.locations) : this.fallbackReferences(symbol, false, path, line),
       implementationLsp.locations.length ? this.withText(implementationLsp.locations) : this.fallbackImplementations(symbol),
       this.getIndex(),
     ]);
-    const origin = definitions[0] ?? { path, lineIndex: line, column, text: this.lineText(index, path, line) };
-    const callers: ImpactItem[] = [];
-    const tests: ImpactItem[] = [];
-    const contracts: ImpactItem[] = [];
-    const mentions: ImpactItem[] = [];
+    const origin = definitions[0] ?? {
+      path,
+      lineIndex: line,
+      column,
+      text: (index.files.get(path) ?? "").split(/\r?\n/)[line] ?? "",
+    };
     const referenceEvidence: ImpactEvidence = referenceLsp.locations.length ? "semantic" : "heuristic";
-    for (const item of references) {
-      if (item.path === origin.path && item.lineIndex === origin.lineIndex) continue;
-      const text = item.text ?? this.lineText(index, item.path, item.lineIndex);
-      const enriched = { ...item, text };
-      if (testPath(item.path)) tests.push({ ...enriched, relation: "test", evidence: referenceEvidence });
-      else if (contractPath(item.path)) contracts.push({ ...enriched, relation: "contract", evidence: referenceEvidence });
-      else if (documentPath(item.path)) mentions.push({ ...enriched, relation: "mention", evidence: referenceEvidence });
-      else if (/\b(?:import|require|use|include)\b/.test(text)) {
-        callers.push({ ...enriched, relation: "importer", evidence: referenceEvidence });
-      } else if (referenceEvidence === "semantic" || apparentCall(text, symbol)) {
-        callers.push({ ...enriched, relation: "caller", evidence: referenceEvidence });
-      } else {
-        // A whole-word regex hit is useful as a review lead, but it is not proof of a call relationship.
-        mentions.push({ ...enriched, relation: "mention", evidence: "heuristic" });
-      }
-    }
-    const dependencies = this.outgoingDependencies(index, origin, symbol)
-      .map((item) => ({ ...item, evidence: "heuristic" as const }));
-    const inheritance: ImpactItem[] = [];
-    const originDeclaration = origin.text ?? this.lineText(index, origin.path, origin.lineIndex);
-    const inheritanceMatch = /\b(?:extends|implements)\s+([^\n{]+)/.exec(originDeclaration);
-    if (inheritanceMatch) {
-      const parents = inheritanceMatch[1].match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? [];
-      for (const parent of parents) {
-        const target = (index.definitions.get(parent) ?? [])[0];
-        if (target) inheritance.push({ ...target, name: parent, relation: "inherits", evidence: "heuristic" });
-      }
-    }
-    const signatureTokens = (origin.text ?? this.lineText(index, origin.path, origin.lineIndex)).match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? [];
-    for (const token of signatureTokens) {
-      if (token === symbol) continue;
-      for (const item of index.definitions.get(token) ?? []) {
-        if (item.symbolKind === "type" || item.symbolKind === "interface" || contractPath(item.path)) {
-          contracts.push({ ...item, relation: "type", evidence: "heuristic" });
-        }
-      }
-    }
-    if (contractPath(origin.path)) contracts.unshift({ ...origin, relation: "changed contract", evidence: "heuristic" });
     const implementationEvidence: ImpactEvidence = implementationLsp.locations.length ? "semantic" : "heuristic";
-    const impact: ChangeImpact = {
+    const impact = buildChangeImpact({
       symbol,
       origin,
-      callers: uniqueImpactItems(callers, 120),
-      dependencies: uniqueImpactItems(dependencies, 120),
-      implementations: uniqueImpactItems([
-        ...implementations
-          .filter((item) => item.path !== origin.path || item.lineIndex !== origin.lineIndex)
-          .map((item) => ({ ...item, relation: "implementation", evidence: implementationEvidence })),
-        ...inheritance,
-      ], 120),
-      tests: uniqueImpactItems(tests, 120),
-      contracts: uniqueImpactItems(contracts, 120),
-      mentions: uniqueImpactItems(mentions, 120),
-    };
+      references,
+      implementations,
+      index,
+      referenceEvidence,
+      implementationEvidence,
+    });
     return {
       ok: true,
       engine,
@@ -710,49 +607,21 @@ export class ProjectAnalysis {
     };
   }
 
-  private outgoingDependencies(index: RegexIndex, origin: AnalysisLocation, symbol: string): RawImpactItem[] {
-    const content = index.files.get(origin.path) ?? "";
-    const lines = content.split(/\r?\n/);
-    const sameFileDefinitions = index.symbols.filter((item) => item.path === origin.path && item.lineIndex > origin.lineIndex);
-    const nextDefinition = sameFileDefinitions.sort((a, b) => a.lineIndex - b.lineIndex)[0]?.lineIndex ?? Math.min(lines.length, origin.lineIndex + 160);
-    const out: RawImpactItem[] = [];
-    const scopeText = lines.slice(origin.lineIndex, nextDefinition).join("\n");
-    // Imports normally live above a function/class declaration. Include a module when one of its bound
-    // names is used inside the changed symbol's scope; dynamic/side-effect imports in the scope are handled
-    // by the line scan below.
-    for (let lineIndex = 0; lineIndex < origin.lineIndex; lineIndex += 1) {
-      const text = lines[lineIndex];
-      const jsImport = /^\s*import\s+(.+?)\s+from\s+['"]([^'"]+)['"]/.exec(text);
-      const requireImport = /^\s*(?:const|let|var)\s+(.+?)\s*=\s*require\s*\(\s*['"]([^'"]+)['"]/.exec(text);
-      const pythonFrom = /^\s*from\s+([^\s]+)\s+import\s+(.+)/.exec(text);
-      const pythonImport = /^\s*import\s+([^\s,]+)/.exec(text);
-      const module = jsImport?.[2] || requireImport?.[2] || pythonFrom?.[1] || pythonImport?.[1];
-      const bindings = (jsImport?.[1] || requireImport?.[1] || pythonFrom?.[2] || pythonImport?.[1] || "")
-        .replace(/\b(?:type|as|default)\b/g, " ")
-        .match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? [];
-      if (module && bindings.some((binding) => new RegExp(`\\b${escapeRegExp(binding)}\\b`).test(scopeText))) {
-        out.push({ path: origin.path, lineIndex, column: Math.max(0, text.indexOf(module)), text, name: module, relation: "module" });
-      }
-    }
-    const keywordCalls = new Set(["if", "for", "while", "switch", "catch", "function", "return", "typeof", "super"]);
-    for (let lineIndex = origin.lineIndex; lineIndex < Math.min(lines.length, nextDefinition); lineIndex += 1) {
-      const text = lines[lineIndex];
-      const importMatch = /\b(?:from|require\s*\(|import\s*\(|use\s+)[\s'"]*([^'";)\s]+)/.exec(text);
-      if (importMatch) out.push({ path: origin.path, lineIndex, column: Math.max(0, text.indexOf(importMatch[1])), text, name: importMatch[1], relation: "module" });
-      const calls = /\b([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g;
-      let match: RegExpExecArray | null;
-      while ((match = calls.exec(text))) {
-        const name = match[1];
-        if (name === symbol || keywordCalls.has(name)) continue;
-        const target = (index.definitions.get(name) ?? [])[0];
-        if (target) out.push({ ...target, name, relation: "call" });
-      }
-    }
-    return uniqueLocations(out);
-  }
-
-  private lineText(index: RegexIndex, path: string, line: number): string {
-    return (index.files.get(path) ?? "").split(/\r?\n/)[line] ?? "";
+  private async navigationLocations(locations: AnalysisLocation[], limit = MAX_LOCATIONS): Promise<AnalysisLocation[]> {
+    if (!locations.length) return [];
+    const [enriched, index] = await Promise.all([
+      this.withText(uniqueLocations(locations, limit)),
+      this.getIndex(),
+    ]);
+    return enriched.filter((item) => {
+      if (documentPath(item.path)) return false;
+      const indexedLine = index.codeLines.get(item.path)?.[item.lineIndex];
+      const codeLine = indexedLine ?? maskNonCode(item.text ?? "", item.path)[0] ?? "";
+      const start = Math.max(0, Number(item.column) || 0);
+      // Some servers report the beginning of indentation rather than the identifier itself. Looking from
+      // that point to the end keeps those valid locations while a comment/string range remains all spaces.
+      return /\S/.test(codeLine.slice(start));
+    });
   }
 
   private async withText(locations: AnalysisLocation[]): Promise<AnalysisLocation[]> {

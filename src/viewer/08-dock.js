@@ -488,6 +488,7 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   var apply = function (latest) {
     if (!latest) return;
     var status = document.getElementById('app-info-status');
+    if (status) status.classList.remove('is-loading');
     if (isNewer(latest, current)) {
       var flag = document.getElementById('app-update-flag');
       if (flag) flag.classList.remove('hidden');
@@ -514,11 +515,18 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   fetch('https://registry.npmjs.org/@happy-nut/kakapo/latest', { cache: 'no-store' })
     .then(function (res) { return res && res.ok ? res.json() : null; })
     .then(function (data) {
-      if (!data || !data.version) return;
+      if (!data || !data.version) {
+        var status = document.getElementById('app-info-status');
+        if (status) { status.classList.remove('is-loading'); status.textContent = 'v' + current; }
+        return;
+      }
       try { sessionStorage.setItem('kakapo-update-latest', data.version); } catch (e) {}
       apply(data.version);
     })
-    .catch(function () {});
+    .catch(function () {
+      var status = document.getElementById('app-info-status');
+      if (status) { status.classList.remove('is-loading'); status.textContent = 'v' + current; }
+    });
 })();
 
 // Unified settings modal: the sidebar-footer gear opens it (General category by default), with
@@ -571,12 +579,16 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
       if (updateBtn.disabled) return;
       updateBtn.disabled = true;
       var status = document.getElementById('app-info-status');
-      if (status) { status.textContent = t('settings.updating'); status.classList.add('has-update'); }
+      if (status) {
+        status.classList.add('has-update', 'is-loading');
+        status.innerHTML = kakapoLoaderHtml('kakapo-loader-inline') + '<span>' + escapeHtml(t('settings.updating')) + '</span>';
+      }
       window.kakapoUpdate.run().then(function (r) {
-        if (r && r.ok) { if (status) status.textContent = t('settings.updated'); }
+        if (r && r.ok) { if (status) { status.classList.remove('is-loading'); status.textContent = t('settings.updated'); } }
         else {
           updateBtn.disabled = false;
           if (status) {
+            status.classList.remove('is-loading');
             status.textContent = t('settings.updateFailed');
             status.title = r && r.error ? String(r.error) : '';
           }
@@ -585,6 +597,7 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
       }).catch(function (error) {
         updateBtn.disabled = false;
         if (status) {
+          status.classList.remove('is-loading');
           status.textContent = t('settings.updateFailed');
           status.title = error ? String(error) : '';
         }

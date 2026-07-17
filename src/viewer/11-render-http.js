@@ -29,6 +29,7 @@ function openSourceFile(path, shouldSwitch = true, options) {
     var lb = document.getElementById('source-body');
     setPanelClassNamePreservingFocus(lb, 'source-body empty is-loading');
     lb.innerHTML = loadingStateHtml(t('source.loading'));
+    updateRenderToggle(path);
     if (shouldSwitch) showSourceView();
     loadSourceFile(path).then(function () {
       var viewer = document.getElementById('source-viewer');
@@ -120,17 +121,92 @@ function isMarkdownPath(p) { return /\.(md|mdx|markdown)$/i.test(p || ''); }
 function isCsvPath(p) { return /\.(csv|tsv)$/i.test(p || ''); }
 function isRenderToggleable(p) { return isMarkdownPath(p) || isCsvPath(p); }
 
+// Long code lines stay on one editor row by default. Line wrap is an explicit, persisted display choice
+// shared by side-by-side Diff and raw source (including Raw Markdown/CSV), never rendered documents/images.
+var lineWrapKey = 'kakapo-line-wrap';
+var lineWrapEnabled = (function () {
+  var saved = persistRead(lineWrapKey);
+  if (saved == null) { try { saved = localStorage.getItem(lineWrapKey); } catch (e) {} }
+  return saved === true || saved === 'true' || saved === '1';
+})();
+function sourceLineWrapAvailable(path) {
+  var body = document.getElementById('source-body');
+  var file = sourceByPath.get(path || '');
+  return Boolean(path && body && file && file.embedded && !file.image
+    && !body.classList.contains('empty') && !body.classList.contains('rendered-body'));
+}
+function updateLineWrapToggle(path) {
+  var body = document.getElementById('source-body');
+  var btn = document.getElementById('line-wrap-toggle');
+  var available = sourceLineWrapAvailable(path);
+  if (body) body.classList.toggle('line-wrap', available && lineWrapEnabled);
+  if (!btn) return;
+  btn.classList.toggle('hidden', !available);
+  btn.classList.toggle('is-checked', available && lineWrapEnabled);
+  btn.setAttribute('aria-checked', available && lineWrapEnabled ? 'true' : 'false');
+}
+function refreshDiffLineWrapLayout() {
+  var wrapper = typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null;
+  if (!wrapper) return;
+  if (typeof invalidateAsymmetricDiffGeometry === 'function') invalidateAsymmetricDiffGeometry(wrapper);
+  requestAnimationFrame(function () {
+    if (typeof refreshLayeredDiffGutters === 'function') refreshLayeredDiffGutters(wrapper);
+    if (typeof invalidateAsymmetricDiffGeometry === 'function') invalidateAsymmetricDiffGeometry(wrapper);
+    if (typeof scrollAsymmetricDiff === 'function') scrollAsymmetricDiff();
+    if (typeof diffCursor !== 'undefined' && diffCursor && diffCursor.path === (wrapper.dataset.path || '')
+      && typeof scheduleDiffReveal === 'function') scheduleDiffReveal(wrapper, diffCursor.side, diffCursor.rowIndex);
+    else if (typeof renderDiffCaret === 'function') renderDiffCaret();
+  });
+}
+function updateDiffLineWrapToggle() {
+  var container = document.getElementById('diff2html-container');
+  var btn = document.getElementById('diff-line-wrap-toggle');
+  if (container) {
+    container.classList.toggle('line-wrap', lineWrapEnabled);
+    if (lineWrapEnabled) container.querySelectorAll('.d2h-file-side-diff').forEach(function (side) { side.scrollLeft = 0; });
+  }
+  if (btn) {
+    btn.classList.toggle('is-checked', lineWrapEnabled);
+    btn.setAttribute('aria-checked', lineWrapEnabled ? 'true' : 'false');
+  }
+}
+function applyLineWrapState() {
+  var viewer = document.getElementById('source-viewer');
+  updateLineWrapToggle(viewer && viewer.dataset.openPath);
+  updateDiffLineWrapToggle();
+}
+function toggleLineWrap() {
+  if (!isSourceViewerVisible() && !(typeof isDiffViewVisible === 'function' && isDiffViewVisible())) return false;
+  if (isSourceViewerVisible()) {
+    var viewer = document.getElementById('source-viewer');
+    var open = viewer && viewer.dataset.openPath;
+    if (!open || !sourceLineWrapAvailable(open)) return false;
+  }
+  lineWrapEnabled = !lineWrapEnabled;
+  persistSave(lineWrapKey, lineWrapEnabled ? '1' : '0');
+  if (typeof _srcRowH !== 'undefined') _srcRowH = 0;
+  applyLineWrapState();
+  var body = document.getElementById('source-body');
+  if (body && lineWrapEnabled) body.scrollLeft = 0;
+  if (isSourceViewerVisible()) requestAnimationFrame(function () { revealSourceCursorWithMargin(); });
+  else refreshDiffLineWrapLayout();
+  return true;
+}
+
 // Markdown/CSV open rendered by default; this flips the open file to raw line-numbered text and back.
-// Session-global so the choice carries across files. The toolbar button + Cmd/Ctrl+Shift+M both call it.
+// Session-global so the choice carries across files. The toolbar button + Option+R both call it.
 var renderRawMode = false;
 function updateRenderToggle(path) {
   var btn = document.getElementById('render-toggle');
-  if (!btn) return;
   var on = isRenderToggleable(path);
-  btn.classList.toggle('hidden', !on);
-  if (!on) return;
-  btn.textContent = renderRawMode ? t('source.viewRendered') : t('source.viewRaw'); // label = the mode you switch TO
-  btn.setAttribute('aria-pressed', renderRawMode ? 'true' : 'false');
+  if (btn) {
+    btn.classList.toggle('hidden', !on);
+    if (on) {
+      btn.textContent = renderRawMode ? t('source.viewRendered') : t('source.viewRaw'); // label = the mode you switch TO
+      btn.setAttribute('aria-pressed', renderRawMode ? 'true' : 'false');
+    }
+  }
+  updateLineWrapToggle(path);
 }
 function toggleRenderMode() {
   var sv = document.getElementById('source-viewer');
@@ -142,12 +218,21 @@ function toggleRenderMode() {
 (function wireRenderToggle() {
   var btn = document.getElementById('render-toggle');
   if (btn) btn.addEventListener('click', function () { toggleRenderMode(); });
+  var wrapBtn = document.getElementById('line-wrap-toggle');
+  if (wrapBtn) wrapBtn.addEventListener('click', function () { toggleLineWrap(); });
+  var diffWrapBtn = document.getElementById('diff-line-wrap-toggle');
+  if (diffWrapBtn) diffWrapBtn.addEventListener('click', function () { toggleLineWrap(); });
+  applyLineWrapState();
+  if (lineWrapEnabled) refreshDiffLineWrapLayout();
   document.addEventListener('keydown', function (e) {
     if (isFloatingModalOpen()) return; // a floating overlay owns focus -> no render-toggle shortcut beneath it
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && (e.key === 'M' || e.key === 'm' || e.code === 'KeyM')) {
+    if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === 'R' || e.key === 'r' || e.code === 'KeyR')) {
       var sv = document.getElementById('source-viewer');
       var open = sv && sv.dataset.openPath;
       if (open && isRenderToggleable(open) && isSourceViewerVisible()) { e.preventDefault(); toggleRenderMode(); }
+    }
+    if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === 'W' || e.key === 'w' || e.code === 'KeyW')) {
+      if (toggleLineWrap()) e.preventDefault();
     }
   });
 })();
@@ -475,7 +560,8 @@ function runHttpRequest(reqIndex) {
   const target = document.getElementById('http-resp-' + reqIndex);
   if (target) {
     target.className = 'http-response loading';
-    target.textContent = resolved.method + ' ' + resolved.url;
+    target.innerHTML = kakapoLoaderHtml('kakapo-loader-inline') + '<span class="http-loading-copy">'
+      + escapeHtml(resolved.method + ' ' + resolved.url) + '</span>';
   }
   sendHttp(resolved).then(function (result) {
     if (target) renderHttpResponse(target, result);

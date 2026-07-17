@@ -24,6 +24,8 @@ concurrency:
 jobs:
   auto-release:
     runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -73,16 +75,50 @@ jobs:
 
       # patch만 올린다(0.0.1). npm version이 커밋 + v* 태그를 만든다. [skip ci]로 불필요한 재실행을 막는다.
       - name: Bump patch version
+        id: version
         if: steps.gate.outputs.go == 'true'
         run: |
           npm version patch -m "chore(release): v%s [skip ci]"
+          version="$(node -p "require('./package.json').version")"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
 
       - name: Push commit and tag
         if: steps.gate.outputs.go == 'true'
         run: git push --follow-tags
 
+  # A tag pushed with GITHUB_TOKEN does not trigger linux.yml. Call the same reusable Linux release
+  # contract explicitly so weekly releases cannot publish npm without verified x64/ARM64 desktop builds.
+  linux-release:
+    needs: auto-release
+    if: needs.auto-release.outputs.release_tag != ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/linux.yml
+    with:
+      release_tag: ${{ needs.auto-release.outputs.release_tag }}
+
+  # Publish only after both native Linux apps have passed their real-renderer smoke test and were attached
+  # to the GitHub release. This keeps npm, GitHub, x64, and ARM64 on one verified version boundary.
+  publish:
+    needs: [auto-release, linux-release]
+    if: needs.auto-release.outputs.release_tag != '' && needs.linux-release.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.auto-release.outputs.release_tag }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm ci
+
       # NODE_AUTH_TOKEN 없음: @happy-nut/kakapo에 Trusted Publisher가 설정돼 있어 OIDC로 인증한다.
-      # npm publish가 prepare 스크립트(npm run build)로 dist를 빌드한 뒤 패킹한다.
       - name: Publish to npm
-        if: steps.gate.outputs.go == 'true'
         run: npm publish

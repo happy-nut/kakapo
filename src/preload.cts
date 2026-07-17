@@ -56,7 +56,7 @@ contextBridge.exposeInMainWorld("kakapoPerf", {
 // Project-wide occurrence search. The main process uses kakapo's bundled ripgrep binary; browser/static
 // reviews, where native processes cannot run, retain the renderer's local fallback.
 contextBridge.exposeInMainWorld("kakapoSearch", {
-  query: (request: { query: string; limit?: number }): Promise<unknown> => ipcRenderer.invoke("kakapo:search", request),
+  query: (request: { query: string; limit?: number; extensions?: string[]; excludeCommentsAndTests?: boolean }): Promise<unknown> => ipcRenderer.invoke("kakapo:search", request),
 });
 
 // Git history view (Cmd+9): list commits and fetch one commit's full diff for the current window's repo.

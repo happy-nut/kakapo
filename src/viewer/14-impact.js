@@ -48,7 +48,7 @@ async function openImpact() {
     return;
   }
   var seq = ++impactRequestSeq;
-  body.innerHTML = '<div class="impact-empty impact-loading"><span class="boot-spinner"></span>' + escapeHtml(t('impact.loading')) + '</div>';
+  body.innerHTML = loadingStateHtml(t('impact.loading'), 'impact-empty impact-loading');
   var response = await queryProjectAnalysis('impact', impactCurrentTarget.symbol, impactCurrentTarget.loc);
   if (seq !== impactRequestSeq || !isImpactOpen()) return;
   if (!response || !response.ok || !response.impact) {

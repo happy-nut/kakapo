@@ -32,6 +32,23 @@ Kakapo는 언어 분석기를 새로 구현하지 않습니다. 프로젝트에 
 
 ## 설치와 실행
 
+### Linux 공식 빌드
+
+Kakapo는 Linux x64와 ARM64를 공식 지원합니다. 모든 PR, `main` 변경, 릴리스에서 각 아키텍처의 네이티브 Ubuntu runner가 전체 테스트를 실행하고, Electron 앱을 패키징한 뒤 Xvfb에서 실제 Chromium 렌더러가 열리는 것까지 확인합니다. 이 검증을 통과한 압축 파일만 [GitHub Releases](https://github.com/happy-nut/kakapo/releases)에 게시됩니다.
+
+릴리스에서 아키텍처에 맞는 `Kakapo-<version>-linux-x64.tar.gz` 또는 `Kakapo-<version>-linux-arm64.tar.gz`를 받은 뒤 실행합니다.
+
+```bash
+tar -xzf Kakapo-<version>-linux-x64.tar.gz
+./Kakapo-linux-x64/Kakapo --cwd /path/to/repository/package
+```
+
+ARM64에서는 두 경로의 `x64`를 `arm64`로 바꾸면 됩니다. 배포 파일은 별도 시스템 Electron이나 Node.js 설치를 요구하지 않습니다.
+
+### 소스 설치
+
+소스 설치에는 Node.js 22.14 이상이 필요합니다.
+
 소스에서 설치:
 
 ```bash
@@ -60,7 +77,7 @@ kakapo --cwd /path/to/repository/package
 | `Cmd/Ctrl+F` | 현재 파일 또는 diff 안에서 검색 |
 | `Cmd/Ctrl+Shift+F` | 프로젝트 전체 검색 |
 | `F7` / `Shift+F7` | 다음 / 이전 diff hunk |
-| `Shift+,` | 선택된 변경 파일 Viewed 토글 |
+| `Space` | Changes 패널에서 선택된 변경 파일 Viewed 토글 |
 | `Cmd/Ctrl+B` | definition 찾기 |
 | `Cmd/Ctrl+Alt+B` | implementation 찾기 |
 | `Cmd/Ctrl+8` | Change Impact |
@@ -95,6 +112,8 @@ macOS에서 `/Users/me/repos/zoobox/turtle`을 열었다면 상태는 다음 위
 
 경로를 해시로 숨기지 않아 직접 확인할 수 있으며, 저장소 루트와 내부 패키지, 서로 다른 worktree를 동시에 열어도 각각 독립된 상태를 가집니다.
 
+Linux에서는 같은 구조가 `${XDG_CONFIG_HOME:-~/.config}/Kakapo/workspaces/...` 아래에 저장됩니다.
+
 ## 개발
 
 ```bash
@@ -103,6 +122,15 @@ npm run build
 npm test
 npm run smoke
 ```
+
+Linux 배포 파일을 만들고 실제 데스크톱 렌더러까지 검사:
+
+```bash
+npm run dist:linux:x64   # 또는 dist:linux:arm64
+npm run smoke:linux
+```
+
+플랫폼별 optional dependency가 누락된 교차 빌드를 배포하지 않도록 Linux 패키지는 대상과 같은 아키텍처의 Linux 호스트에서만 생성됩니다. macOS에서 위 명령을 실행하면 불완전한 산출물을 만들지 않고 즉시 실패합니다.
 
 다른 저장소를 로컬 빌드로 검토:
 

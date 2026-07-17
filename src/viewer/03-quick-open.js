@@ -19,6 +19,8 @@ function openQuickOpen(mode) {
   // Recent files needs no search box — it's just the latest files. Hide the input and let typed letters
   // narrow the list (IntelliJ-style speed search); the global keydown routes keys to handleQuickOpenKey.
   quickOpen.classList.toggle('quick-recent', mode === 'recent');
+  quickOpen.classList.toggle('quick-content', mode === 'content');
+  syncContentSearchControls();
   recentFilter = '';
   quickInput.value = '';
   updateRecentFilterDisplay();
@@ -52,6 +54,18 @@ function handleQuickOpenKey(event) {
     closeQuickOpen();
     return true;
   }
+  if (quickMode === 'content' && event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey
+    && (event.code === 'KeyE' || event.key.toLowerCase() === 'e')) {
+    event.preventDefault();
+    focusContentSearchExtensions();
+    return true;
+  }
+  if (quickMode === 'content' && event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey
+    && (event.code === 'KeyP' || event.key.toLowerCase() === 'p')) {
+    event.preventDefault();
+    toggleContentSearchNoise();
+    return true;
+  }
   if (event.key === 'ArrowDown') {
     event.preventDefault();
     quickActive = Math.min(quickActive + 1, Math.max(quickItems.length - 1, 0));
@@ -66,6 +80,10 @@ function handleQuickOpenKey(event) {
   }
   if (event.key === 'Enter') {
     event.preventDefault();
+    if (document.activeElement === quickExtensionInput) {
+      quickInput.focus();
+      return true;
+    }
     openQuickItem(quickItems[quickActive]);
     return true;
   }
@@ -156,13 +174,13 @@ function renderWorkspaceSymbolResults(query) {
   quickItems = workspaceSymbolItems;
   quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
   if (quickFilterEl) {
-    quickFilterEl.className = 'quick-open-filter';
-    quickFilterEl.textContent = workspaceSymbolBusy
-      ? t('quickopen.searching')
-      : String(quickItems.length) + ' ' + t('quickopen.results') + ' · ' + workspaceSymbolEngine;
+    quickFilterEl.className = 'quick-open-filter' + (workspaceSymbolBusy ? ' is-loading' : '');
+    quickFilterEl.innerHTML = workspaceSymbolBusy
+      ? kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(t('quickopen.searching')) + '</span>'
+      : escapeHtml(String(quickItems.length) + ' ' + t('quickopen.results') + ' · ' + workspaceSymbolEngine);
   }
   if (workspaceSymbolBusy) {
-    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.searching')) + '</div>';
+    quickResults.innerHTML = loadingStateHtml(t('quickopen.searching'), 'quick-open-empty');
     renderQuickPreview(null);
     return;
   }
@@ -202,9 +220,76 @@ async function runWorkspaceSymbolSearch(query, seq) {
   renderWorkspaceSymbolResults(query);
 }
 
+function contentSearchExtensions() {
+  var seen = new Set();
+  return String(quickExtensionInput && quickExtensionInput.value || '')
+    .split(/[\s,;]+/)
+    .map(function (value) { return value.trim().toLowerCase().replace(/^\*?\./, ''); })
+    .filter(function (value) {
+      if (!value || !/^[a-z0-9][a-z0-9._+-]{0,31}$/.test(value) || seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
+}
+function contentSearchPathAllowed(path, extensions, excludeNoise) {
+  var normalized = String(path || '').replace(/\\/g, '/').toLowerCase();
+  if (extensions && extensions.length && !extensions.some(function (extension) { return normalized.endsWith('.' + extension); })) return false;
+  if (!excludeNoise) return true;
+  var segments = normalized.split('/');
+  var name = segments[segments.length - 1] || '';
+  return !segments.some(function (segment) { return segment === 'test' || segment === 'tests' || segment === '__tests__'; })
+    && !/(^test_.*|_test\.[^.]+$|\.(test|spec)\.[^.]+$)/.test(name);
+}
+function contentSearchLineIsComment(item) {
+  var text = String(item && item.text || '');
+  var path = String(item && item.path || '').toLowerCase();
+  var column = Math.max(0, Number(item && item.column) || 0);
+  var trimmed = text.trimStart();
+  if (/^(\/\/|\/\*|\*|#|--|;|<!--)/.test(trimmed)) return true;
+  var markers = /\.(py|pyi|rb|sh|bash|zsh|fish|ya?ml|toml|ini|conf)$/i.test(path)
+    ? ['#']
+    : /\.(sql|lua)$/i.test(path) ? ['--'] : ['//', '/*'];
+  return markers.some(function (marker) {
+    var at = text.indexOf(marker);
+    return at >= 0 && at < column;
+  });
+}
+function contentSearchItemAllowed(item, filters) {
+  return contentSearchPathAllowed(item && item.path, filters.extensions, filters.excludeNoise)
+    && (!filters.excludeNoise || !contentSearchLineIsComment(item));
+}
+function currentContentSearchFilters() {
+  return { extensions: contentSearchExtensions(), excludeNoise: contentSearchExcludeNoise };
+}
+function contentSearchRequestKey(query, filters) {
+  return JSON.stringify([query, filters.extensions, filters.excludeNoise]);
+}
+function syncContentSearchControls() {
+  if (quickExcludeNoiseButton) {
+    quickExcludeNoiseButton.setAttribute('aria-pressed', contentSearchExcludeNoise ? 'true' : 'false');
+    quickExcludeNoiseButton.classList.toggle('active', contentSearchExcludeNoise);
+  }
+}
+function restartContentSearch() {
+  contentSearchQuery = '\0';
+  if (quickMode === 'content') renderQuickOpenResults();
+}
+function focusContentSearchExtensions() {
+  if (!quickExtensionInput) return;
+  quickExtensionInput.focus();
+  quickExtensionInput.select();
+}
+function toggleContentSearchNoise() {
+  contentSearchExcludeNoise = !contentSearchExcludeNoise;
+  syncContentSearchControls();
+  restartContentSearch();
+}
+
 function renderContentSearchResults(query) {
-  if (query !== contentSearchQuery) {
-    contentSearchQuery = query;
+  var filters = currentContentSearchFilters();
+  var requestKey = contentSearchRequestKey(query, filters);
+  if (requestKey !== contentSearchQuery) {
+    contentSearchQuery = requestKey;
     contentSearchSeq += 1;
     if (contentSearchTimer) clearTimeout(contentSearchTimer);
     contentSearchItems = [];
@@ -212,7 +297,7 @@ function renderContentSearchResults(query) {
     contentSearchBusy = Boolean(query);
     if (query) {
       const seq = contentSearchSeq;
-      contentSearchTimer = setTimeout(function () { runContentSearch(query, seq); }, 120);
+      contentSearchTimer = setTimeout(function () { runContentSearch(query, seq, filters, requestKey); }, 120);
     }
   }
 
@@ -225,7 +310,7 @@ function renderContentSearchResults(query) {
     return;
   }
   if (contentSearchBusy) {
-    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.searching')) + '</div>';
+    quickResults.innerHTML = loadingStateHtml(t('quickopen.searching'), 'quick-open-empty');
     renderQuickPreview(null);
     return;
   }
@@ -249,26 +334,37 @@ function renderContentSearchResults(query) {
 function updateContentSearchStatus(query) {
   if (!quickFilterEl) return;
   quickFilterEl.className = 'quick-open-filter';
-  if (!query) { quickFilterEl.textContent = ''; return; }
-  if (contentSearchBusy) { quickFilterEl.textContent = t('quickopen.searching'); return; }
+  if (!query) { quickFilterEl.textContent = ''; quickFilterEl.classList.remove('is-loading'); return; }
+  if (contentSearchBusy) {
+    quickFilterEl.classList.add('is-loading');
+    quickFilterEl.innerHTML = kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(t('quickopen.searching')) + '</span>';
+    return;
+  }
+  quickFilterEl.classList.remove('is-loading');
   quickFilterEl.textContent = String(contentSearchItems.length) + (contentSearchTruncated ? '+' : '') + ' ' + t('quickopen.results') + ' · ' + contentSearchEngine;
 }
 
-async function runContentSearch(query, seq) {
+async function runContentSearch(query, seq, filters, requestKey) {
   var response = null;
   try {
     if (window.kakapoSearch && typeof window.kakapoSearch.query === 'function') {
-      response = await window.kakapoSearch.query({ query: query, limit: 500 });
+      var request = { query: query, limit: 500 };
+      if (filters.extensions.length) request.extensions = filters.extensions;
+      if (filters.excludeNoise) request.excludeCommentsAndTests = true;
+      response = await window.kakapoSearch.query(request);
     }
   } catch (e) { response = null; }
-  if (seq !== contentSearchSeq || quickMode !== 'content' || query !== String(quickInput && quickInput.value || '').trim()) return;
+  if (seq !== contentSearchSeq || quickMode !== 'content'
+    || requestKey !== contentSearchRequestKey(String(quickInput && quickInput.value || '').trim(), currentContentSearchFilters())) return;
 
   if (response && response.available && Array.isArray(response.matches)) {
-    contentSearchItems = response.matches.map(searchItemFromMatch).filter(Boolean);
+    contentSearchItems = response.matches.map(searchItemFromMatch).filter(Boolean).filter(function (item) {
+      return contentSearchItemAllowed(item, filters);
+    });
     contentSearchTruncated = Boolean(response.truncated);
     contentSearchEngine = response.engine === 'ripgrep' ? 'rg' : 'local';
   } else {
-    var localItems = localContentSearch(query, 501);
+    var localItems = localContentSearch(query, 501, filters);
     contentSearchTruncated = localItems.length > 500;
     contentSearchItems = localItems.slice(0, 500);
     contentSearchEngine = 'local';
@@ -298,13 +394,14 @@ function searchItemFromMatch(match) {
   };
 }
 
-function localContentSearch(query, limit) {
+function localContentSearch(query, limit, filters) {
+  filters = filters || { extensions: [], excludeNoise: false };
   var smartCase = /[A-Z]/.test(query);
   var needle = smartCase ? query : query.toLowerCase();
   var out = [];
   for (var fi = 0; fi < sourceFiles.length && out.length < limit; fi++) {
     var file = sourceFiles[fi];
-    if (!file.embedded) continue;
+    if (!file.embedded || !contentSearchPathAllowed(file.path, filters.extensions, filters.excludeNoise)) continue;
     var lines = String(file.content || '').split(/\r?\n/);
     for (var li = 0; li < lines.length && out.length < limit; li++) {
       var line = lines[li];
@@ -313,7 +410,8 @@ function localContentSearch(query, limit) {
       while (from <= haystack.length && out.length < limit) {
         var at = haystack.indexOf(needle, from);
         if (at < 0) break;
-        out.push({ path: file.path, name: file.name, detail: (li + 1) + ':' + (at + 1), kind: 'search', recent: false, lineIndex: li, column: at, endColumn: at + query.length, text: line, matchText: line.slice(at, at + query.length) });
+        var item = { path: file.path, name: file.name, detail: (li + 1) + ':' + (at + 1), kind: 'search', recent: false, lineIndex: li, column: at, endColumn: at + query.length, text: line, matchText: line.slice(at, at + query.length) };
+        if (contentSearchItemAllowed(item, filters)) out.push(item);
         from = at + Math.max(query.length, 1);
       }
     }
@@ -359,7 +457,7 @@ function renderQuickPreview(item) {
   }
   if (!sourceContentLoaded(file)) {
     preview.innerHTML = '<div class="qp-head">' + escapeHtml(item.path) + '</div>'
-      + '<div class="qp-empty">' + escapeHtml(t('source.loading')) + '</div>';
+      + loadingStateHtml(t('source.loading'), 'qp-empty');
     loadSourceFile(item.path).then(function (loaded) {
       if (previewSeq !== quickPreviewSeq || !quickOpen || quickOpen.classList.contains('hidden')) return;
       var activeItem = quickItems[quickActive];
@@ -387,10 +485,28 @@ function renderQuickPreview(item) {
     lines: lines,
     query: query,
     focusLine: focusLine,
+    focusColumn: item.kind === 'search' ? Math.max(0, Number(item.column) || 0) : -1,
+    focusEndColumn: item.kind === 'search' ? Math.max(0, Number(item.endColumn) || 0) : -1,
+    matchText: item.kind === 'search' ? String(item.matchText || '') : '',
     start: firstLine,
     end: lastLine,
   };
   paintQuickPreviewWindow(preview, quickPreviewState, 'focus');
+}
+
+function quickPreviewCodeHtml(line, state, lineIndex) {
+  if (lineIndex !== state.focusLine || state.focusColumn < 0) return highlightLine(line, state.language);
+  var start = Math.min(line.length, state.focusColumn);
+  var end = Math.min(line.length, Math.max(start, state.focusEndColumn));
+  if (end <= start) {
+    var fallback = state.matchText || state.query;
+    var at = fallback ? line.toLowerCase().indexOf(fallback.toLowerCase()) : -1;
+    if (at >= 0) { start = at; end = at + fallback.length; }
+  }
+  if (end <= start) return highlightLine(line, state.language);
+  return highlightLine(line.slice(0, start), state.language)
+    + '<mark class="search-hit qp-search-hit">' + highlightLine(line.slice(start, end), state.language) + '</mark>'
+    + highlightLine(line.slice(end), state.language);
 }
 
 function paintQuickPreviewWindow(preview, state, scrollMode) {
@@ -402,7 +518,7 @@ function paintQuickPreviewWindow(preview, state, scrollMode) {
     const i = state.start + offset;
     const hit = state.focusLine >= 0 ? i === state.focusLine : state.query.length > 0 && line.toLowerCase().includes(state.query);
     if (hit && firstHit < 0) firstHit = i;
-    return '<div class="qp-line' + (hit ? ' qp-hit' : '') + '" data-line-index="' + i + '"><span class="qp-num">' + (i + 1) + '</span><span class="qp-code">' + highlightLine(line, state.language) + '</span></div>';
+    return '<div class="qp-line' + (hit ? ' qp-hit' : '') + '" data-line-index="' + i + '"><span class="qp-num">' + (i + 1) + '</span><span class="qp-code">' + quickPreviewCodeHtml(line, state, i) + '</span></div>';
   }).join('');
   preview.innerHTML = '<div class="qp-head">' + escapeHtml(state.path) + '</div><div class="qp-body">' + rows + '</div>';
   if (scrollMode === 'prepend') {
@@ -417,7 +533,13 @@ function paintQuickPreviewWindow(preview, state, scrollMode) {
       const head = preview.querySelector('.qp-head');
       const headHeight = head ? head.offsetHeight : 0;
       const available = Math.max(0, preview.clientHeight - headHeight - target.offsetHeight);
-      preview.scrollTop = Math.max(0, target.offsetTop - headHeight - available / 2);
+      const previewRect = preview.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      if (targetRect.height || targetRect.top !== previewRect.top) {
+        preview.scrollTop = Math.max(0, preview.scrollTop + targetRect.top - previewRect.top - headHeight - available / 2);
+      } else {
+        preview.scrollTop = Math.max(0, target.offsetTop - headHeight - available / 2);
+      }
     });
   }
 }

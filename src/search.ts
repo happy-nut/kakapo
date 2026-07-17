@@ -20,6 +20,11 @@ export type ProjectSearchResult = {
   error?: string;
 };
 
+export type ProjectSearchOptions = {
+  extensions?: string[];
+  excludeCommentsAndTests?: boolean;
+};
+
 type EncodedText = { text?: string; bytes?: string } | undefined;
 
 function decodeText(value: EncodedText): string {
@@ -89,9 +94,58 @@ export function findRipgrepBinary(env: NodeJS.ProcessEnv = process.env, platform
   return Array.from(new Set(candidates)).find((candidate) => existsSync(candidate) && executable(candidate));
 }
 
-export function searchProject(root: string, query: string, limit = 500): Promise<ProjectSearchResult> {
+export function normalizeProjectSearchExtensions(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  return values
+    .map((value) => String(value ?? "").trim().toLowerCase().replace(/^\*?\./, ""))
+    .filter((value) => {
+      if (!value || !/^[a-z0-9][a-z0-9._+-]{0,31}$/.test(value) || seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    })
+    .slice(0, 20);
+}
+
+function isTestPath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  const segments = normalized.split("/");
+  const name = segments.at(-1) ?? "";
+  return segments.some((segment) => segment === "test" || segment === "tests" || segment === "__tests__")
+    || /(^test_.*|_test\.[^.]+$|\.(test|spec)\.[^.]+$)/.test(name);
+}
+
+function isLikelyCommentMatch(match: ProjectSearchMatch): boolean {
+  const text = match.text;
+  const path = match.path.toLowerCase();
+  const matchIndex = Math.max(0, match.column - 1);
+  const trimmed = text.trimStart();
+  if (/^(\/\/|\/\*|\*|#|--|;|<!--)/.test(trimmed)) return true;
+  const markers = /\.(py|pyi|rb|sh|bash|zsh|fish|ya?ml|toml|ini|conf)$/i.test(path)
+    ? ["#"]
+    : /\.(sql|lua)$/i.test(path) ? ["--"] : ["//", "/*"];
+  return markers.some((marker) => {
+    const at = text.indexOf(marker);
+    return at >= 0 && at < matchIndex;
+  });
+}
+
+export function projectSearchMatchAllowed(match: ProjectSearchMatch, options: ProjectSearchOptions = {}): boolean {
+  const extensions = normalizeProjectSearchExtensions(options.extensions);
+  const path = match.path.toLowerCase();
+  if (extensions.length && !extensions.some((extension) => path.endsWith(`.${extension}`))) return false;
+  if (!options.excludeCommentsAndTests) return true;
+  return !isTestPath(match.path) && !isLikelyCommentMatch(match);
+}
+
+export function searchProject(root: string, query: string, limit = 500, options: ProjectSearchOptions = {}): Promise<ProjectSearchResult> {
   const needle = String(query ?? "").slice(0, 500);
   const maxResults = Math.max(1, Math.min(Number(limit) || 500, 2000));
+  const extensions = normalizeProjectSearchExtensions(options.extensions);
+  const normalizedOptions: ProjectSearchOptions = {
+    extensions,
+    excludeCommentsAndTests: options.excludeCommentsAndTests === true,
+  };
   if (!needle) return Promise.resolve({ available: true, engine: "ripgrep", matches: [], truncated: false });
 
   const binary = findRipgrepBinary();
@@ -105,7 +159,15 @@ export function searchProject(root: string, query: string, limit = 500): Promise
     let stderr = "";
     let truncated = false;
     let settled = false;
-    const child = spawn(binary, ["--json", "--no-config", "--smart-case", "--fixed-strings", "--", needle, "."], {
+    const args = ["--json", "--no-config", "--smart-case", "--fixed-strings"];
+    for (const extension of extensions) args.push("--glob", `*.${extension}`);
+    if (normalizedOptions.excludeCommentsAndTests) {
+      for (const glob of ["!**/test/**", "!**/tests/**", "!**/__tests__/**", "!**/test_*", "!**/*_test.*", "!**/*.test.*", "!**/*.spec.*"]) {
+        args.push("--glob", glob);
+      }
+    }
+    args.push("--", needle, ".");
+    const child = spawn(binary, args, {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
@@ -119,6 +181,7 @@ export function searchProject(root: string, query: string, limit = 500): Promise
     const consume = (line: string) => {
       if (!line || truncated) return;
       for (const match of parseRipgrepJsonLine(line)) {
+        if (!projectSearchMatchAllowed(match, normalizedOptions)) continue;
         if (matches.length >= maxResults) {
           truncated = true;
           child.kill();

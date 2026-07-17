@@ -106,14 +106,14 @@ test("the welcome screen cannot overflow upward beneath macOS traffic lights", (
 });
 
 test("sidebar path actions stay in Electron main and reject paths outside the project", () => {
-  const main = readFileSync(join(repoRoot, "src", "app-main.ts"), "utf8");
+  const paths = readFileSync(join(repoRoot, "src", "app-path-ipc.ts"), "utf8");
   const preload = readFileSync(join(repoRoot, "src", "preload.cts"), "utf8");
 
-  assert.match(main, /function resolveProjectRowPath[\s\S]*?isAbsolute\(requestedPath\)[\s\S]*?resolve\(state\.options\.root\)[\s\S]*?fromRoot\.startsWith\("\.\.\/"\)/,
+  assert.match(paths, /function resolveProjectPath[\s\S]*?isAbsolute\(requestedPath\)[\s\S]*?resolve\(rootPath\)[\s\S]*?fromRoot\.startsWith\("\.\.\/"\)/,
     "main resolves only selected-workspace-contained relative paths, including monorepo subdirectory launches");
-  assert.match(main, /ipcMain\.handle\("kakapo:absolute-file-path"/);
-  assert.match(main, /ipcMain\.handle\("kakapo:reveal-in-finder"/);
-  assert.match(main, /ipcMain\.handle\("kakapo:open-terminal"[\s\S]*?spawn\("open", \["-a", "Terminal", directory\]/,
+  assert.match(paths, /ipc\.handle\("kakapo:absolute-file-path"/);
+  assert.match(paths, /ipc\.handle\("kakapo:reveal-in-finder"/);
+  assert.match(paths, /ipc\.handle\("kakapo:open-terminal"[\s\S]*?spawn\("open", \["-a", "Terminal", directory\]/,
     "macOS terminal action opens the selected file's directory without a shell");
   assert.match(preload, /absolutePath:[\s\S]*?kakapo:absolute-file-path/);
   assert.match(preload, /revealInFinder:[\s\S]*?kakapo:reveal-in-finder/);

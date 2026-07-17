@@ -1,22 +1,21 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell } from "electron";
-import { buildDiffReview, performHttpRequest, renderLazyDiffBody, type HttpSendRequest } from "./cli.js";
-import { readGitLog, readGitLineLog, readCommitDiff } from "./git-log.js";
-import { materializeDeferredSourceFile, readUnifiedDiff } from "./diff.js";
-import { git, isGitRepository } from "./git.js";
+import { isGitRepository } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
-import { searchProject } from "./search.js";
-import { ProjectAnalysis, type AnalysisRequest } from "./analysis.js";
+import { ProjectAnalysis } from "./analysis.js";
 import { ReviewPerformanceTrace } from "./perf.js";
 import { ProjectMarkdownMemo } from "./memos.js";
-import { readReviewDiffContext, type DiffContextRequest } from "./diff-context.js";
-import type { ProjectIndexPayload, SourceFile } from "./types.js";
-import { createHash } from "node:crypto";
-import { workspaceDataDirectory, workspaceReviewFile } from "./workspace-data.js";
+import type { SourceFile } from "./types.js";
+import { workspaceReviewFile } from "./workspace-data.js";
+import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
+import { reviewDiffSignature, writeReviewWorkspace } from "./review-workspace.js";
+import { AppPreferences } from "./app-preferences.js";
+import { registerReviewIpc } from "./app-review-ipc.js";
+import { registerProjectPathIpc } from "./app-path-ipc.js";
 
 type AppOptions = {
   root: string;
@@ -58,28 +57,31 @@ const REVIEW_FILE = "app-review.html";
 const WATCH_INTERVAL_MS = 1000;
 const ANALYSIS_PREWARM_DELAY_MS = 350;
 
-// Painted immediately while the first review build + HTML render run, so startup shows a spinner instead
+// Painted immediately while the first review build + HTML render run, so startup shows the Kakapo mark
 // of a blank window. Inlined as a data: URL so it needs no file on disk and appears before any review
 // work. Theme-aware so a light-theme user doesn't get a dark flash before the renderer applies the theme.
 function loadingHtml(light: boolean): string {
   const bg = light ? "#ffffff" : "#2b2b2b";
   const fg = light ? "#6e7781" : "#9aa4af";
-  const ring = light ? "#d0d7de" : "#3a3a3a";
-  const accent = light ? "#0969da" : "#4a9eff";
+  const mark = kakapoIconHtml("kakapo-mark");
   return `<!doctype html><html><head><meta charset="utf-8"><style>
+  :root{${kakapoIconCssVariable()}}
   html,body{margin:0;height:100vh;background:${bg};color:${fg};display:flex;flex-direction:column;
-    align-items:center;justify-content:center;gap:18px;
+    align-items:center;justify-content:center;
     font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-  .s{width:34px;height:34px;border:3px solid ${ring};border-top-color:${accent};border-radius:50%;
-    animation:spin .8s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-</style></head><body><div class="s"></div><div>kakapo</div></body></html>`;
+  .kakapo-loader{display:grid;place-items:center;width:72px;height:72px;filter:drop-shadow(0 9px 15px rgba(0,0,0,.2))}
+  .kakapo-mark{display:block;width:64px;height:64px;background:var(--kakapo-ui-icon) center/contain no-repeat;
+    animation:kakapo-peck 1.05s cubic-bezier(.45,0,.25,1) infinite;transform-origin:52% 72%}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  @keyframes kakapo-peck{0%,100%{transform:translateY(0) rotate(0);opacity:.9}38%{transform:translateY(-3px) rotate(-3deg);opacity:1}62%{transform:translateY(1px) rotate(2deg)}}
+  @media(prefers-reduced-motion:reduce){.kakapo-mark{animation:kakapo-breathe 1.6s ease-in-out infinite}@keyframes kakapo-breathe{50%{opacity:.65}}}
+</style></head><body><span class="kakapo-loader" role="status" aria-label="Kakapo is loading">${mark}<span class="sr-only">Kakapo is loading</span></span></body></html>`;
 }
 // The persisted theme (set by the renderer via kakapoSettings). Read at startup so the native window
 // chrome + loading screen match before the renderer boots. Defaults to dark.
 function isLightTheme(): boolean {
   try {
-    return readSettings()["kakapo-theme"] === "light";
+    return preferences.readGlobal()["kakapo-theme"] === "light";
   } catch {
     return false;
   }
@@ -105,6 +107,7 @@ const preloadPath = join(dirname(fileURLToPath(import.meta.url)), "preload.cjs")
 const runtimeArgs = app.isPackaged ? process.argv.slice(1) : process.argv.slice(2);
 const options = parseArgs(runtimeArgs);
 const states = new Map<number, WinState>();
+const preferences = new AppPreferences(app.getPath("userData"), isGitRepository);
 let markdownMemo: ProjectMarkdownMemo | undefined;
 
 if (!existsSync(options.root)) {
@@ -135,73 +138,19 @@ function memoStore(): ProjectMarkdownMemo {
 function readMemoWithLegacyImport(root: string) {
   let document = memoStore().read(root);
   if (document.body) return document;
-  const settings = readSettings();
+  const settings = preferences.readGlobal();
   const legacy = settings["kakapo-memo"];
   if (typeof legacy !== "string" || !legacy.trim() || settings["kakapo-memo-migrated-worktree"]) return document;
   document = memoStore().write(root, legacy);
   delete settings["kakapo-memo"];
   settings["kakapo-memo-migrated-worktree"] = document.worktreePath;
-  writeSettings(settings);
+  preferences.writeGlobal(settings);
   return document;
 }
 
-ipcMain.handle("kakapo:http-send", (_event, request: HttpSendRequest) => performHttpRequest(request));
-
-// Phase 2 lazy-LOAD: serve a single file's diff body to the calling window's renderer on demand. Retained
-// from that window's most recent writeReviewFile() build so navigation/scroll can materialize bodies.
-ipcMain.handle("kakapo:get-file", (event, request: { index?: number }) => {
-  const state = stateFromEvent(event);
-  if (!state) return "";
-  const i = Number(request?.index);
-  if (!Number.isInteger(i) || i < 0 || i >= state.bodyDiffs.length) return "";
-  const cached = state.bodyCache.get(i);
-  if (cached !== undefined) return cached;
-  const body = renderLazyDiffBody(state.bodyDiffs[i]);
-  state.bodyCache.set(i, body);
-  return body;
-});
-// Serve one source file on demand. The renderer receives project metadata in the review HTML, but full
-// source content stays in the main process until a reviewer actually opens that file.
-ipcMain.handle("kakapo:get-source", (event, request: { path?: string }) => {
-  const state = stateFromEvent(event);
-  const path = String(request?.path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
-  if (!state || !path || path.startsWith("../")) return null;
-  const record = state.sourceFiles.get(path);
-  if (!record) return null;
-  if (!record.deferred) return record;
-  const materialized = materializeDeferredSourceFile(state.options.root, record);
-  state.sourceFiles.set(path, materialized);
-  return materialized;
-});
-// Project-wide metadata and the source tree are intentionally absent from the initial review document.
-// Return them as one lazy payload; source contents remain behind the per-file endpoint above.
-ipcMain.handle("kakapo:get-project-index", (event): ProjectIndexPayload | null => {
-  const state = stateFromEvent(event);
-  if (!state) return null;
-  return {
-    signature: state.signature,
-    filesTree: "", // Electron builds folder children incrementally from sourceFilesMeta.
-    // Omit, rather than blank, heavyweight fields so the structured-clone payload stays compact. Each
-    // metadata record already carries its signature; a second project-wide fileStates array is redundant.
-    sourceFilesMeta: Array.from(state.sourceFiles.values(), (file) => {
-      const { content: _content, image: _image, ...metadata } = file;
-      return metadata as SourceFile;
-    }),
-  };
-});
-// Expand one omitted unchanged range in the side-by-side diff. Main resolves the exact reviewed
-// revisions (base vs worktree, or HEAD vs index for --staged) and returns at most one bounded chunk.
-ipcMain.handle("kakapo:get-diff-context", (event, request: DiffContextRequest) => {
-  const state = stateFromEvent(event);
-  if (!state) return { ok: false, oldStart: 0, newStart: 0, oldLines: [], newLines: [], error: "Review window is unavailable" };
-  return readReviewDiffContext({
-    root: state.options.root,
-    base: state.reviewBase ?? state.options.base,
-    staged: state.options.staged,
-    bodyDiffs: state.bodyDiffs,
-    request,
-  });
-});
+// The composition root supplies window-scoped state; the adapter owns review/query IPC details.
+registerReviewIpc(ipcMain, stateFromEvent);
+registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 
 // The single Markdown memo is application data, never a repository artifact. Main derives the scope from
 // the calling window's canonical worktree; the sandboxed renderer cannot choose a filesystem path.
@@ -218,138 +167,6 @@ ipcMain.handle("kakapo:memo-delete", (event) => {
   if (!state) return { ok: false };
   memoStore().remove(state.options.root);
   return { ok: true };
-});
-
-// Definition/references/implementation/workspace-symbol/change-impact analysis. LSP processes and the
-// fallback index live outside the renderer and are scoped to the requesting window's repository.
-ipcMain.handle("kakapo:analysis", async (event, request: AnalysisRequest) => {
-  const state = stateFromEvent(event);
-  if (!state) return { ok: false, generation: 0, durationMs: 0, engine: "index", confidence: "heuristic", locations: [], error: "Review window is unavailable" };
-  const response = await state.analysis.query(request);
-  state.perf.mark("analysis-query", {
-    kind: request?.kind ?? "unknown",
-    generation: response.generation,
-    durationMs: response.durationMs,
-    engine: response.engine,
-    ok: response.ok,
-  });
-  return response;
-});
-ipcMain.handle("kakapo:analysis-status", (event) => stateFromEvent(event)?.analysis.getStatus() ?? {
-  generation: 0,
-  phase: "failed",
-  error: "Review window is unavailable",
-  updatedAt: new Date().toISOString(),
-});
-
-// Renderer-owned milestones (notably first-review-paint) complete the startup trace. Names and detail
-// values are constrained here so an untrusted review document cannot turn this into an arbitrary writer.
-ipcMain.on("kakapo:perf-mark", (event, payload: { name?: unknown; details?: unknown }) => {
-  const state = stateFromEvent(event);
-  const name = typeof payload?.name === "string" ? payload.name : "";
-  if (!state || !/^[a-z][a-z0-9-]{0,63}$/.test(name)) return;
-  const raw = payload?.details && typeof payload.details === "object" ? payload.details as Record<string, unknown> : {};
-  const details: Record<string, string | number | boolean | null> = {};
-  for (const [key, value] of Object.entries(raw).slice(0, 20)) {
-    if (/^[a-zA-Z][a-zA-Z0-9-]{0,39}$/.test(key) && (value === null || ["string", "number", "boolean"].includes(typeof value))) {
-      details[key] = value as string | number | boolean | null;
-    }
-  }
-  state.perf.mark(name, details);
-});
-
-// Cmd/Ctrl+Shift+F project search. Resolve the repo from the calling window so multiple open reviews
-// never search each other's working trees.
-ipcMain.handle("kakapo:search", (event, request: { query?: string; limit?: number }) => {
-  const state = stateFromEvent(event);
-  if (!state) return { available: false, engine: "fallback", matches: [], truncated: false };
-  return searchProject(state.options.root, String(request?.query ?? ""), request?.limit);
-});
-
-// Git history view (Cmd+9): the log list and a single commit's full diff, for the calling window's repo.
-ipcMain.handle("kakapo:git-log", (event, request: { limit?: number; skip?: number }) => {
-  const state = stateFromEvent(event);
-  if (!state) return [];
-  try { return readGitLog(state.options.root, { limit: request?.limit, skip: request?.skip }); } catch { return []; }
-});
-ipcMain.handle("kakapo:git-line-log", (event, request: { path?: string; line?: number; limit?: number }) => {
-  const state = stateFromEvent(event);
-  const path = typeof request?.path === "string" ? request.path : "";
-  // Only paths from this window's already-confined source index may reach git -L.
-  if (!state || !path || !state.sourceFiles.has(path)) return [];
-  try { return readGitLineLog(state.options.root, { path, line: Number(request?.line), limit: request?.limit }); } catch { return []; }
-});
-ipcMain.handle("kakapo:git-commit-diff", (event, request: { sha?: string }) => {
-  const state = stateFromEvent(event);
-  if (!state || !request?.sha) return null;
-  try { return readCommitDiff(state.options.root, request.sha); } catch { return null; }
-});
-
-// Sidebar row actions (Opt+Enter menu). Only accept repo-relative paths and keep every resolved target
-// inside the calling window's project; a compromised renderer must not turn these shell actions into an
-// arbitrary-path launcher.
-function resolveProjectRowPath(state: WinState, requestedPath: unknown): string | undefined {
-  if (typeof requestedPath !== "string" || !requestedPath.trim() || isAbsolute(requestedPath)) return;
-  // Diff/source-tree paths are relative to the folder this window opened, even when that folder lives
-  // inside a larger Git repository. Confine file actions to that workspace rather than sibling packages.
-  const root = resolve(state.options.root);
-  const target = resolve(root, requestedPath);
-  const fromRoot = relative(root, target);
-  if (fromRoot === ".." || fromRoot.startsWith("../") || fromRoot.startsWith("..\\") || isAbsolute(fromRoot)) return;
-  return target;
-}
-
-ipcMain.handle("kakapo:absolute-file-path", (event, request: { path?: string }) => {
-  const state = stateFromEvent(event);
-  const path = state ? resolveProjectRowPath(state, request?.path) : undefined;
-  return path ? { ok: true, path } : { ok: false };
-});
-
-// Comment anchors may outlive a commit that deletes their file. Check existence in main so renderer-side
-// source-index exclusions (.claude, caches, etc.) are never mistaken for deletion. Paths remain confined
-// to the calling window's repository by the same resolver used by the sidebar actions.
-ipcMain.handle("kakapo:existing-project-paths", (event, request: { paths?: unknown[] }) => {
-  const state = stateFromEvent(event);
-  const requested = Array.isArray(request?.paths) ? request.paths.slice(0, 2000) : [];
-  const existing: Record<string, boolean> = {};
-  for (const requestedPath of requested) {
-    if (typeof requestedPath !== "string" || Object.prototype.hasOwnProperty.call(existing, requestedPath)) continue;
-    const path = state ? resolveProjectRowPath(state, requestedPath) : undefined;
-    try { existing[requestedPath] = Boolean(path && existsSync(path) && statSync(path).isFile()); }
-    catch { existing[requestedPath] = false; }
-  }
-  return existing;
-});
-
-ipcMain.handle("kakapo:reveal-in-finder", (event, request: { path?: string }) => {
-  const state = stateFromEvent(event);
-  const path = state ? resolveProjectRowPath(state, request?.path) : undefined;
-  if (!path) return { ok: false };
-  try { shell.showItemInFolder(path); return { ok: true }; }
-  catch (e) { return { ok: false, error: String(e) }; }
-});
-
-ipcMain.handle("kakapo:open-terminal", (event, request: { path?: string }) => {
-  const state = stateFromEvent(event);
-  const path = state ? resolveProjectRowPath(state, request?.path) : undefined;
-  if (!path) return { ok: false };
-  const directory = dirname(path);
-  if (!existsSync(directory)) return { ok: false, error: "missing-directory" };
-  try {
-    let child;
-    if (process.platform === "darwin") {
-      child = spawn("open", ["-a", "Terminal", directory], { detached: true, stdio: "ignore" });
-    } else if (process.platform === "win32") {
-      child = spawn("cmd.exe", ["/c", "start", "", "cmd.exe", "/K", "cd", "/d", directory], { detached: true, stdio: "ignore", windowsHide: true });
-    } else {
-      child = spawn(process.env.TERMINAL || "x-terminal-emulator", [], { cwd: directory, detached: true, stdio: "ignore" });
-    }
-    child.once("error", () => {});
-    child.unref();
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
 });
 // Welcome screen's "Open Folder" button: pick a directory; load it into the window that asked if it's a
 // git repo, else return the "not-git" code so the welcome renderer can show its inline hint (it keys off
@@ -371,7 +188,7 @@ ipcMain.handle("kakapo:open-recent", async (event, payload: { path?: string }) =
   const path = typeof payload?.path === "string" ? payload.path : "";
   if (!state || state.win.isDestroyed() || !path) return { ok: false };
   if (!existsSync(path) || !isGitRepository(path)) {
-    forgetRecentProject(path);
+    preferences.forgetRecentProject(path);
     return { ok: false, error: "missing" };
   }
   await openReview(state, path);
@@ -434,103 +251,17 @@ ipcMain.handle("kakapo:self-update", (event) => new Promise<{ ok: boolean; error
   runAttempt(0);
 }));
 
-// Persisted global settings (locale, …) live in a JSON file under userData and reach the renderer
-// via preload + the two handlers below. The renderer's file:// localStorage is NOT reliably persisted
-// across app restarts, so settings that must survive a reopen round-trip through the main process.
-function settingsFile(): string {
-  return join(app.getPath("userData"), "kakapo-settings.json");
-}
-function workspaceSettingsFile(root: string): string {
-  return join(workspaceDataDirectory(app.getPath("userData"), root), "state.json");
-}
-function readSettings(): Record<string, unknown> {
-  try {
-    return JSON.parse(readFileSync(settingsFile(), "utf8")) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-function readWorkspaceSettings(root: string): Record<string, unknown> {
-  try {
-    return JSON.parse(readFileSync(workspaceSettingsFile(root), "utf8")) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-function writeSettings(settings: Record<string, unknown>): void {
-  try {
-    writeFileSync(settingsFile(), JSON.stringify(settings, null, 2));
-  } catch {
-    /* best-effort: a failed write just means the setting isn't persisted */
-  }
-}
-function writeWorkspaceSettings(root: string, settings: Record<string, unknown>): void {
-  try {
-    const file = workspaceSettingsFile(root);
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
-  } catch {
-    /* best-effort: the review remains usable even if workspace UI state cannot be persisted */
-  }
-}
-const GLOBAL_SETTING_KEYS = new Set([
-  "kakapo-locale",
-  "kakapo-theme",
-  "kakapo-syntax-theme",
-  "kakapo-merge-prompts",
-  "kakapo-recent-projects",
-  "kakapo-dock-height",
-  "kakapo-memo",
-  "kakapo-memo-migrated-worktree",
-]);
-function rendererSettings(root: string): Record<string, unknown> {
-  const global = readSettings();
-  const workspace = readWorkspaceSettings(root);
-  return { ...global, ...workspace };
-}
+// The renderer uses synchronous IPC for startup settings, while AppPreferences owns persistence and
+// global-vs-worktree scoping outside the Electron composition root.
 ipcMain.on("kakapo:get-settings", (event) => {
   const state = stateFromEvent(event);
-  event.returnValue = state ? rendererSettings(state.options.root) : readSettings();
+  event.returnValue = state ? preferences.rendererSettings(state.options.root) : preferences.readGlobal();
 });
 ipcMain.on("kakapo:set-setting", (event, msg: { key?: string; value?: unknown }) => {
   if (!msg || typeof msg.key !== "string") return;
   const state = stateFromEvent(event);
-  if (!state || GLOBAL_SETTING_KEYS.has(msg.key)) {
-    const settings = readSettings();
-    settings[msg.key] = msg.value;
-    writeSettings(settings);
-    return;
-  }
-  const settings = readWorkspaceSettings(state.options.root);
-  settings[msg.key] = msg.value;
-  writeWorkspaceSettings(state.options.root, settings);
+  preferences.setRendererSetting(state?.options.root, msg.key, msg.value);
 });
-
-// Recent projects (IntelliJ-style): the welcome screen lists repos opened before so they're one click away.
-// Persisted in the same userData settings JSON (survives restarts), most-recent-first, deduped, capped.
-type RecentProject = { path: string; name: string; openedAt: number };
-const RECENT_KEY = "kakapo-recent-projects";
-const RECENT_MAX = 12;
-function readRecentProjects(): RecentProject[] {
-  const raw = readSettings()[RECENT_KEY];
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((x): x is RecentProject => !!x && typeof x === "object" && typeof (x as RecentProject).path === "string");
-}
-function recordRecentProject(root: string): void {
-  const path = resolve(root);
-  if (!isGitRepository(path)) return; // only remember real repos (bootWindow can build a non-git root)
-  const others = readRecentProjects().filter((p) => p.path !== path);
-  const next: RecentProject[] = [{ path, name: basename(path) || path, openedAt: Date.now() }, ...others].slice(0, RECENT_MAX);
-  const settings = readSettings();
-  settings[RECENT_KEY] = next;
-  writeSettings(settings);
-}
-function forgetRecentProject(root: string): void {
-  const path = resolve(root);
-  const settings = readSettings();
-  settings[RECENT_KEY] = readRecentProjects().filter((p) => p.path !== path);
-  writeSettings(settings);
-}
 
 app.whenReady().then(async () => {
   const assetRoot = resolve(dirname(fileURLToPath(import.meta.url)), "monaco");
@@ -643,7 +374,7 @@ function buildApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
 }
 
-// Create a window for `root`, register its WinState, wire teardown, and boot it (loading spinner ->
+// Create a window for `root`, register its WinState, wire teardown, and boot it (animated mark ->
 // first build, or the welcome screen for a packaged launch with no repo).
 function createWindow(root: string): WinState {
   const themeLight = isLightTheme();
@@ -710,7 +441,7 @@ function createWindow(root: string): WinState {
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("did-finish-load", () => {
     const url = win.webContents.getURL();
-    const document = url.startsWith("data:") ? "spinner" : url.includes(REVIEW_FILE) ? "review" : "welcome";
+    const document = url.startsWith("data:") ? "loading" : url.includes(REVIEW_FILE) ? "review" : "welcome";
     state.perf.mark("document-loaded", { document });
     scheduleAnalysisPrewarm(state);
   });
@@ -731,13 +462,13 @@ function createWindow(root: string): WinState {
   return state;
 }
 
-// Paint the spinner immediately, then build the (potentially heavy) review off the first paint and swap it
+// Paint the animated mark immediately, then build the (potentially heavy) review off the first paint and swap it
 // in. Building before the window exists left the screen blank for the first few seconds of startup.
 async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
   await state.win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(loadingHtml(themeLight)));
-  state.perf.mark("spinner-loaded");
-  // Give the spinner a few frames to paint before the (synchronous) first build blocks the main process —
-  // otherwise the spinner looks frozen until the build finishes. The boot overlay in the review HTML then
+  state.perf.mark("spinner-loaded"); // stable trace key retained for existing performance histories
+  // Give the mark a few frames to paint before the (synchronous) first build blocks the main process —
+  // otherwise the animation looks frozen until the build finishes. The boot overlay in the review HTML then
   // takes over, so there's no blank gap when loadFile swaps the page in.
   setTimeout(() => {
     // Bail if the window was closed during the spinner delay — its closed handler already tore down state,
@@ -750,12 +481,12 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
       if (app.isPackaged && !isGitRepository(state.options.root)) { void showWelcome(state); return; }
       const firstBuild = writeReviewFile(state);
       state.signature = firstBuild.signature;
-      recordRecentProject(state.options.root); // remember the launched/new-window repo for the welcome screen
+      preferences.recordRecentProject(state.options.root); // remember the launched/new-window repo for the welcome screen
       if (!state.win.isDestroyed()) void state.win.loadFile(reviewPath(state.options.root));
       if (state.options.watch) state.refreshTimer = setInterval(() => void refreshIfChanged(state), WATCH_INTERVAL_MS);
     } catch (error) {
       // One window's build failure shouldn't take down the whole app (other windows may be fine); log and
-      // leave this window on the spinner rather than quitting.
+      // leave this window on the loading mark rather than quitting.
       console.error(error instanceof Error ? error.message : String(error));
     }
   }, 60);
@@ -765,29 +496,9 @@ async function refreshIfChanged(state: WinState): Promise<void> {
   if (state.refreshing || state.win.isDestroyed()) return;
   state.refreshing = true;
   try {
-    // Fast path: hash only the git diff (~120ms) before the full build (~1s). The vast majority of
-    // watch ticks see no change, so skip the heavy buildDiffReview entirely then — keeping the main
-    // process free for review/search IPC so the UI never stalls on an unchanged tree.
-    const fastBase = state.reviewBase ?? state.options.base;
-    const upstreamRevision = state.reviewUpstream
-      ? git(state.options.root, ["rev-parse", state.reviewUpstream])
-      : "";
-    const diffSig = createHash("sha1")
-      .update(fastBase ?? "HEAD")
-      .update("\n")
-      .update(upstreamRevision)
-      .update("\n")
-      .update(
-        readUnifiedDiff({
-          base: fastBase,
-          staged: state.options.staged,
-          context: state.options.context,
-          includeUntracked: state.options.includeUntracked,
-          ignoreWhitespace: state.options.ignoreWhitespace,
-          root: state.options.root,
-        }),
-      )
-      .digest("hex");
+    // Fast path: the review-workspace service hashes only the Git diff before a full rebuild. Most watch
+    // ticks see no change, leaving this Electron orchestrator free to serve navigation/search IPC.
+    const diffSig = reviewDiffSignature(state.options, state.reviewBase, state.reviewUpstream);
     // The first watch tick establishes the baseline for the review that boot/openReview just built.
     // Without this guard, lastDiffSig starts empty and an unchanged repository is rebuilt once about a
     // second after first paint — exactly when the reviewer starts interacting with it.
@@ -816,30 +527,16 @@ async function refreshIfChanged(state: WinState): Promise<void> {
 function writeReviewFile(state: WinState): { signature: string; html: string; update?: import("./types.js").DiffReviewUpdate } {
   const started = performance.now();
   state.perf.mark("review-build-start");
-  const build = buildDiffReview({
-    base: state.options.base,
-    staged: state.options.staged,
-    includeUntracked: state.options.includeUntracked,
-    context: state.options.context,
-    title: APP_TITLE,
-    ignoreWhitespace: state.options.ignoreWhitespace,
-    lazyLoad: true, // Electron streams per-file bodies/source over IPC (kakapo:get-file / get-source)
-    app: true, // enable Electron-only review affordances such as Git history
-    root: state.options.root, // review THIS window's repo (no process.chdir; root is threaded through)
-  });
+  const build = writeReviewWorkspace(reviewPath(state.options.root), state.options, APP_TITLE);
   state.reviewBase = build.reviewBase;
   state.reviewUpstream = build.reviewUpstream;
   // The review artifact mirrors the workspace's absolute folder structure below userData. Different
   // repositories, nested monorepo packages, and worktrees therefore never share a file or touch source.
-  const target = reviewPath(state.options.root);
-  mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, build.html);
-  state.bodyDiffs = build.lazyBodyDiffs ?? [];
+  state.bodyDiffs = build.bodyDiffs;
   state.bodyCache.clear();
-  // buildDiffReview runs in this process, so retain its native records instead of serializing and parsing
-  // the whole project index (which can approach the source budget on large repositories).
-  const sourceFiles: SourceFile[] = build.lazySourceFiles ?? [];
-  state.sourceFiles = new Map(sourceFiles.map((file) => [file.path, file]));
+  // Retain native records from the workspace snapshot instead of serializing and parsing the whole project
+  // index (which can approach the source budget on large repositories).
+  state.sourceFiles = new Map(build.sourceFiles.map((file) => [file.path, file]));
   state.analysis.invalidate();
   state.perf.mark("review-build-complete", {
     durationMs: Math.round((performance.now() - started) * 10) / 10,
@@ -875,7 +572,7 @@ async function showWelcome(state: WinState): Promise<void> {
   if (state.win.isDestroyed()) return;
   const welcomePath = join(app.getPath("userData"), "welcome.html");
   mkdirSync(dirname(welcomePath), { recursive: true });
-  const recent = readRecentProjects().filter((p) => existsSync(p.path)); // hide entries whose folder is gone
+  const recent = preferences.readRecentProjects().filter((p) => existsSync(p.path)); // hide entries whose folder is gone
   writeFileSync(welcomePath, renderWelcomeHtml(isLightTheme(), recent));
   await state.win.loadFile(welcomePath);
 }
@@ -901,7 +598,7 @@ async function openReview(state: WinState, root: string): Promise<void> {
       });
     },
   });
-  recordRecentProject(state.options.root); // remember it for the welcome screen's Recent Projects
+  preferences.recordRecentProject(state.options.root); // remember it for the welcome screen's Recent Projects
   state.lastDiffSig = ""; // new repo -> force the next watch tick to rebuild
   if (state.refreshTimer) { clearInterval(state.refreshTimer); state.refreshTimer = undefined; }
   const build = writeReviewFile(state);

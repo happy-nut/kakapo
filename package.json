@@ -20,6 +20,9 @@
     "dist",
     "assets",
     "scripts/patch-electron-name.mjs",
+    "scripts/create-dmg.mjs",
+    "scripts/package-linux.mjs",
+    "scripts/smoke-linux.mjs",
     "scripts/record-demo.mjs",
     "scripts/benchmark.mjs",
     "README.md",
@@ -40,7 +43,11 @@
     "pretest": "npm run build",
     "test": "node --test test/*.test.mjs",
     "dist:mac": "npm run build && electron-packager . Kakapo --platform=darwin --arch=arm64 --icon=assets/icon.icns --app-bundle-id=dev.happynut.kakapo --app-category-type=public.app-category.developer-tools --out=release --overwrite --no-asar --ignore=/src/ --ignore=/test/ --ignore=/release --ignore=/.git --ignore=/.github --ignore=/.omc --ignore=/node_modules/electron/ --ignore=/node_modules/@electron --ignore=/node_modules/jsdom",
-    "dist:mac:dmg": "npm run dist:mac && create-dmg --overwrite --no-code-sign --dmg-title=Kakapo 'release/Kakapo-darwin-arm64/Kakapo.app' release/ || true"
+    "dist:mac:dmg": "npm run dist:mac && node scripts/create-dmg.mjs",
+    "dist:linux": "npm run dist:linux:x64",
+    "dist:linux:x64": "npm run build && node scripts/package-linux.mjs x64",
+    "dist:linux:arm64": "npm run build && node scripts/package-linux.mjs arm64",
+    "smoke:linux": "node scripts/smoke-linux.mjs"
   },
   "keywords": [
     "ai",
@@ -61,7 +68,6 @@
     "@tiptap/pm": "3.27.4",
     "@tiptap/starter-kit": "3.27.4",
     "@types/node": "^22.15.21",
-    "create-dmg": "^8.1.0",
     "dompurify": "3.4.12",
     "esbuild": "0.28.1",
     "jsdom": "^29.1.1",
@@ -69,7 +75,7 @@
     "terser": "^5.48.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.14.0"
   },
   "dependencies": {
     "@vscode/ripgrep": "1.18.0",

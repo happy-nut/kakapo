@@ -1,8 +1,8 @@
-// CORE USER FLOW: marking a file "viewed" (Shift+,) and continuing the review with F7.
+// CORE USER FLOW: focus a row in Changes and press Space to toggle its viewed state.
 //
 // A viewed file's diff body is hidden (display:none), so the caret must never be left stranded on it — that
-// blanks the content area and makes F7 look stuck. Marking viewed auto-advances to the next unviewed change,
-// and F7 skips viewed files. Guards the regression where viewing the file you were reading froze navigation.
+// blanks the content area and makes F7 look stuck. Marking from the sidebar must not replace the open file,
+// and F7 skips viewed files. Code-canvas shortcuts cannot mutate this sidebar-owned review state.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures, renderLazyBodies } from "./helpers/fixture.mjs";
@@ -16,42 +16,36 @@ before(async () => {
   ]));
 });
 after(cleanupFixtures);
-const toggleViewed = (v) => v.key("<", { code: "Comma", shiftKey: true });
-
-test("marking the current diff file viewed auto-advances to the next unviewed change", async () => {
+test("Space toggles Viewed only for the keyboard-selected Changes row", async () => {
   const v = await loadViewer(html);
   await v.openDiffFor("src/a.ts");
   await v.settle(100);
   assert.equal(v.activeDiffFile(), "src/a.ts", "started reviewing a.ts");
 
-  v.key(",", { code: "Comma" });
+  v.key(" ", { code: "Space" });
   await v.settle(40);
-  assert.equal(v.activeDiffFile(), "src/a.ts", "an unmodified comma does not mark a review file");
-  v.key("<", { metaKey: true, code: "Comma", shiftKey: true });
+  assert.equal(v.window.isFileViewed("src/a.ts"), false, "Space in the diff canvas cannot mark a file");
+  v.key("<", { code: "Comma", shiftKey: true });
   await v.settle(40);
-  assert.equal(v.activeDiffFile(), "src/a.ts", "the retired Cmd+Shift+, chord no longer marks a review file");
-  toggleViewed(v);
-  await v.settle(140);
-  assert.equal(v.activeDiffFile(), "src/b.ts", "auto-advanced to the next unviewed file (not stranded on a.ts)");
+  assert.equal(v.window.isFileViewed("src/a.ts"), false, "the retired Shift+Comma shortcut cannot mark a file");
+
+  v.key("0", { metaKey: true, code: "Digit0" });
+  await v.settle(40);
+  assert.ok(v.$('.change-row[data-file="src/a.ts"]').classList.contains("tree-focus"), "the open file owns the sidebar cursor");
+  v.key(" ", { code: "Space" });
+  await v.settle(80);
+  assert.equal(v.window.isFileViewed("src/a.ts"), true, "Space marks the selected Changes row");
+  assert.equal(v.activeDiffFile(), "src/a.ts", "marking a sidebar row does not replace or advance the open diff");
+  v.key(" ", { code: "Space" });
+  await v.settle(80);
+  assert.equal(v.window.isFileViewed("src/a.ts"), false, "Space toggles the selected row back to unviewed");
   v.close();
 });
 
-test("clicking the Viewed toolbar button advances instead of leaving an empty diff", async () => {
+test("Viewed has no toolbar or per-file diff-header control", async () => {
   const v = await loadViewer(html);
-  await v.openDiffFor("src/a.ts");
-  await v.settle(100);
-
-  const viewedButton = v.$("#diff-viewed-toggle");
-  assert.equal(viewedButton.dataset.keyhint, "⇧,", "the compact hint names the actual physical chord");
-  assert.match(viewedButton.getAttribute("title"), /Shift\+,/, "the long hint names Shift+Comma without Cmd/Ctrl");
-  viewedButton.dispatchEvent(new v.window.MouseEvent("mouseover", { bubbles: true }));
-  await v.settle(20);
-  assert.match(v.$("#mc-button-hint").textContent, /⇧,/, "the custom tooltip shows the corrected chord");
-  assert.equal(viewedButton.hasAttribute("title"), false, "the native title bubble is suppressed while the custom hint owns hover");
-  v.click(viewedButton);
-  await v.settle(140);
-  assert.equal(v.activeDiffFile(), "src/b.ts", "mouse and keyboard viewed actions share the same advance rule");
-  assert.ok(v.$('.d2h-file-wrapper:not(.df-inactive) .d2h-files-diff'), "the next diff body is visible");
+  assert.equal(v.$("#diff-viewed-toggle"), null, "the toolbar Viewed pill is removed");
+  assert.equal(v.window.getComputedStyle(v.$(".d2h-file-collapse")).display, "none", "diff2html's file-header toggle is also unavailable");
   v.close();
 });
 
@@ -68,16 +62,11 @@ test("explicitly selecting a previously viewed file opens that exact diff", asyn
   v.close();
 });
 
-test("when every file is viewed, marking the last stays put (content never goes blank)", async () => {
+test("when every file is viewed, the active reviewed diff remains readable", async () => {
   const v = await loadViewer(html);
-  await v.openDiffFor("src/a.ts");
-  await v.settle(100);
-
-  toggleViewed(v); // a.ts viewed -> advance to b.ts
-  await v.settle(140);
-  assert.equal(v.activeDiffFile(), "src/b.ts");
-
-  toggleViewed(v); // b.ts viewed -> nothing unviewed left -> stay on b.ts (no blank jump)
+  v.window.setFileViewed("src/a.ts", true);
+  v.window.setFileViewed("src/b.ts", true);
+  await v.openDiffFor("src/b.ts");
   await v.settle(140);
   assert.equal(v.activeDiffFile(), "src/b.ts", "all viewed: stays on the last file instead of blanking");
   const activeBody = v.$('.d2h-file-wrapper:not(.df-inactive) .d2h-files-diff');
@@ -88,9 +77,8 @@ test("when every file is viewed, marking the last stays put (content never goes 
 
 test("F7 skips a viewed file instead of landing on its hidden body", async () => {
   const v = await loadViewer(html);
-  await v.openDiffFor("src/a.ts");
-  await v.settle(100);
-  toggleViewed(v); // a viewed -> auto-advance to b
+  v.window.setFileViewed("src/a.ts", true);
+  await v.openDiffFor("src/b.ts");
   await v.settle(140);
   assert.equal(v.activeDiffFile(), "src/b.ts");
 
@@ -197,7 +185,7 @@ test("lazy F7 and direct selection include changed hidden config files", async (
   v.close();
 });
 
-test("Shift+, marks the arrow-selected Changes row instead of the open file", async () => {
+test("Space marks the arrow-selected Changes row instead of the open file", async () => {
   const v = await loadViewer(html);
   await v.openDiffFor("src/a.ts");
   await v.settle(100);
@@ -209,7 +197,7 @@ test("Shift+, marks the arrow-selected Changes row instead of the open file", as
   await v.settle(40);
   assert.ok(v.$('.change-row[data-file="src/b.ts"]').classList.contains("tree-focus"), "b.ts is selected by the sidebar cursor");
 
-  toggleViewed(v);
+  v.key(" ", { code: "Space" });
   await v.settle(80);
   assert.ok(v.$('.change-row[data-file="src/b.ts"]').classList.contains("viewed"), "selected b.ts is marked viewed");
   assert.equal(v.$('.change-row[data-file="src/a.ts"]').classList.contains("viewed"), false, "open a.ts is untouched");

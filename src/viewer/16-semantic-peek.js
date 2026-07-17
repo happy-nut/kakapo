@@ -4,6 +4,38 @@
 var semanticPeekItems = [];
 var semanticPeekActive = 0;
 
+function semanticTestPath(path) {
+  return /(^|\/)(test|tests|__tests__|spec|specs)(\/|$)|\.(?:test|spec)\.[^.]+$/i.test(String(path || ''));
+}
+
+function semanticDocumentPath(path) {
+  return /\.(?:md|mdx|txt|rst|adoc)$/i.test(String(path || ''))
+    || /(^|\/)(docs?|documentation|notes?|release-notes)(\/|$)/i.test(String(path || ''));
+}
+
+function semanticFileLabel(path, lineIndex) {
+  var parts = String(path || '').replace(/\\/g, '/').split('/');
+  return (parts[parts.length - 1] || path || '') + ':' + ((Number(lineIndex) || 0) + 1);
+}
+
+function semanticCommentOnlyLine(text) {
+  var trimmed = String(text || '').trim();
+  return /^(?:\/\/|\/\*|\*\/|\*|#|--|<!--|\"\"\"|''')/.test(trimmed);
+}
+
+function semanticNavigationLocations(locations) {
+  return (locations || []).map(function (item, index) {
+    return { item: item, index: index, test: item && semanticTestPath(item.path) };
+  }).filter(function (entry) {
+    var item = entry.item;
+    return item && item.path && !semanticDocumentPath(item.path) && !semanticCommentOnlyLine(item.text);
+  }).sort(function (a, b) {
+    // Keep the analyzer/LSP relevance order inside each group, but move test evidence below production
+    // code so a long green test block never interrupts the primary definition/usage scan.
+    return Number(a.test) - Number(b.test) || a.index - b.index;
+  }).map(function (entry) { return entry.item; });
+}
+
 function analysisGenerationIsCurrent(response) {
   if (!response || !Number.isFinite(Number(response.generation))) return true;
   var status = document.getElementById('analysis-status');
@@ -14,8 +46,8 @@ function analysisGenerationIsCurrent(response) {
 function openSemanticPeek(name, locations, response, kind) {
   var panel = document.getElementById('semantic-peek');
   if (!panel) { openAnalysisUsagesFallback(name, locations, kind); return; }
-  semanticPeekItems = (locations || []).map(function (item) {
-    return { path: item.path, lineIndex: Number(item.lineIndex) || 0, column: Number(item.column) || 0, text: String(item.text || '') };
+  semanticPeekItems = semanticNavigationLocations(locations).map(function (item) {
+    return { path: item.path, lineIndex: Number(item.lineIndex) || 0, column: Number(item.column) || 0, text: String(item.text || ''), isTest: semanticTestPath(item.path) };
   });
   if (!semanticPeekItems.length) { showSemanticNavigationFailure(kind || 'references', name); return; }
   semanticPeekActive = 0;
@@ -39,8 +71,8 @@ function openSemanticPeek(name, locations, response, kind) {
 }
 
 function openAnalysisUsagesFallback(name, locations, kind) {
-  usageItems = (locations || []).map(function (item) {
-    return { path: item.path, lineIndex: Number(item.lineIndex) || 0, column: Number(item.column) || 0, text: String(item.text || '') };
+  usageItems = semanticNavigationLocations(locations).map(function (item) {
+    return { path: item.path, lineIndex: Number(item.lineIndex) || 0, column: Number(item.column) || 0, text: String(item.text || ''), isTest: semanticTestPath(item.path) };
   });
   if (usageItems.length === 1) { openUsageItem(usageItems[0]); return; }
   if (!usageItems.length) { showSemanticNavigationFailure(kind || 'references', name); return; }
@@ -89,9 +121,8 @@ function renderSemanticPeekResults() {
   if (!semanticPeekItems.length) { results.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('monaco.noResults')) + '</div>'; return; }
   results.innerHTML = semanticPeekItems.map(function (item, index) {
     return '<button type="button" role="option" aria-selected="' + (index === semanticPeekActive ? 'true' : 'false')
-      + '" class="semantic-peek-item' + (index === semanticPeekActive ? ' active' : '') + '" data-index="' + index + '" title="' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '">'
-      + '<span class="semantic-peek-item-path">' + escapeHtml(item.path) + '</span>'
-      + '<span class="semantic-peek-item-line">' + (item.lineIndex + 1) + '</span>'
+      + '" class="semantic-peek-item' + (item.isTest ? ' is-test' : '') + (index === semanticPeekActive ? ' active' : '') + '" data-index="' + index + '" title="' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '">'
+      + '<span class="semantic-peek-item-path">' + escapeHtml(semanticFileLabel(item.path, item.lineIndex)) + '</span>'
       + '<span class="semantic-peek-item-code">' + escapeHtml(item.text.trim().slice(0, 180)) + '</span></button>';
   }).join('') + '<div class="semantic-peek-list-hint">' + escapeHtml(t('monaco.peekHint')) + '</div>';
 }

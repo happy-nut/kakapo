@@ -19,7 +19,7 @@ test("settings lists current app, editor, review, and history shortcuts", async 
   }
 
   const keyNames = v.$all("#settings-modal .keys-grid kbd").map((node) => node.textContent.replace(/\s+/g, " ").trim());
-  for (const key of ["⌘9", "⌘G / ⌘⇧G", "⌘A", "Space", "⌘⇧M", "⇧,", "M"]) {
+  for (const key of ["⌘9", "⌘G / ⌘⇧G", "⌘A", "Space", "⌥R", "⌥W", "M"]) {
     assert.ok(keyNames.includes(key), `settings documents ${key}`);
   }
 
@@ -28,7 +28,9 @@ test("settings lists current app, editor, review, and history shortcuts", async 
     "Open / close Git history",
     "Next / previous match",
     "Rendered / raw Markdown or CSV",
+    "Toggle line wrap",
     "Expand selected diff context",
+    "Toggle viewed on selected Changes row",
     "Focus changed files",
     "Show / hide commit message",
   ]) {
