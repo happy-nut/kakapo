@@ -160,9 +160,9 @@ export async function loadViewer(html, opts = {}) {
           query: (request) => Promise.resolve(opts.searchBridge(request)),
         };
       }
-      if (opts.analysisBridge) {
+      if (opts.analysisBridge || opts.diagnosticsBridge) {
         window.kakapoAnalysis = {
-          query: (request) => Promise.resolve(opts.analysisBridge(request)),
+          query: (request) => Promise.resolve(opts.analysisBridge ? opts.analysisBridge(request) : null),
           status: () => Promise.resolve(opts.analysisStatus || {
             generation: 0,
             phase: "idle",
@@ -170,6 +170,13 @@ export async function loadViewer(html, opts = {}) {
           }),
           onStatus: (cb) => { window.__analysisStatusCb = cb; },
         };
+        if (opts.diagnosticsBridge) {
+          window.__diagnosticsRequests = [];
+          window.kakapoAnalysis.diagnostics = (path) => {
+            window.__diagnosticsRequests.push(path);
+            return Promise.resolve(opts.diagnosticsBridge(path));
+          };
+        }
       }
       if (opts.memoBridge) {
         const state = JSON.parse(JSON.stringify(opts.memoBridge));

@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { verifyLanguageServerPackage } from "./verify-language-server-package.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const defaultRepoRoot = dirname(dirname(scriptPath));
@@ -108,6 +109,7 @@ export function packageLinux({
       + "Reinstall dependencies on the target Linux architecture before packaging.",
     );
   }
+  verifyLanguageServerPackage(join(bundlePath, "resources", "app"), "linux", targetArch);
 
   runCommand("tar", ["-C", outputRoot, "-czf", archivePath, bundleName], repoRoot);
   process.stdout.write(`Created ${relative(repoRoot, archivePath)}\n`);

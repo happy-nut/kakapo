@@ -15,6 +15,8 @@ var historyDetailSha = '';
 var historyFilesCollapsed = false;
 var historyScope = null; // null | { path, line } — right-clicked source line history
 var historyLoadSeq = 0;
+var historyDirectDetail = false; // a gutter attribution opened one commit diff without the graph first
+var historyDirectPath = '';
 
 // Lane layout. Walk commits newest-first (git --topo-order) and track the parent hash each open lane is
 // waiting for. A lane is an object rather than just a hash so its color survives merges. Once a branch
@@ -259,7 +261,8 @@ function renderHistoryDetail(d) {
   detail.innerHTML = head + body;
   setHistoryDetailOpen(true);
   setupHistoryDiffWorkspace(d.hash || historyActiveSha);
-  if (historyScope && historyWrapperByPath(historyScope.path)) historyShowFile(historyScope.path, undefined, true);
+  var preferredPath = historyDirectPath || (historyScope && historyScope.path) || '';
+  if (preferredPath && historyWrapperByPath(preferredPath)) historyShowFile(preferredPath, undefined, true);
 }
 
 function toggleHistoryCommitMessage(force) {
@@ -399,8 +402,63 @@ function setupHistoryDiffWorkspace(sha) {
       historySetDiffCursor(info.path, info.side, info.rowIndex, 0, false);
     }
   });
+  container.addEventListener('scroll', function () {
+    var wrapper = historyActiveDiffWrapper();
+    var state = wrapper && wrapper.__asymmetricDiffState;
+    if (state) state.scrollDriven = true;
+    scheduleHistoryDiffAlignment();
+  }, { passive: true });
+  container.addEventListener('wheel', function (event) {
+    var wrapper = historyActiveDiffWrapper();
+    var state = wrapper && wrapper.__asymmetricDiffState;
+    if (!state) return;
+    var side = typeof asymmetricDiffSideFromTarget === 'function' ? asymmetricDiffSideFromTarget(event.target) : '';
+    if (side) state.wheelSide = side;
+    state.pendingScrollBudget = (Number(state.pendingScrollBudget) || 0) + Math.abs(Number(event.deltaY) || 0);
+    state.scrollDriven = true;
+  }, { passive: true });
+  container.addEventListener('pointermove', function (event) {
+    var wrapper = historyActiveDiffWrapper();
+    var state = wrapper && wrapper.__asymmetricDiffState;
+    if (state && typeof asymmetricDiffSideFromTarget === 'function') state.pointerSide = asymmetricDiffSideFromTarget(event.target);
+  }, { passive: true });
+  container.addEventListener('pointerleave', function () {
+    var wrapper = historyActiveDiffWrapper();
+    var state = wrapper && wrapper.__asymmetricDiffState;
+    if (state) state.pointerSide = '';
+  }, { passive: true });
   if (files[0]) historyShowFile(files[0].path, files[0].hunk, false);
   focusHistoryDiff();
+}
+var historyDiffAlignmentRaf = 0;
+function historyActiveDiffWrapper() {
+  if (!historyDiffState) return null;
+  return historyWrapperByPath(historyCurrentFile())
+    || historyDiffState.wrappers.find(function (wrapper) { return !wrapper.classList.contains('df-inactive'); })
+    || null;
+}
+function scheduleHistoryDiffAlignment() {
+  if (historyDiffAlignmentRaf || !historyDiffState) return;
+  historyDiffAlignmentRaf = requestAnimationFrame(function () {
+    historyDiffAlignmentRaf = 0;
+    if (!historyDiffState || typeof scrollAsymmetricDiffSurface !== 'function') return;
+    scrollAsymmetricDiffSurface(historyDiffState.container, historyActiveDiffWrapper(), historyDiffState.cursor);
+  });
+}
+function prepareHistoryReviewDiff(wrapper) {
+  if (!wrapper || wrapper.__historyReviewDiffPrepared) return;
+  wrapper.__historyReviewDiffPrepared = true;
+  // Reuse the exact Review pipeline: semantic row classification, centre gutters, compact asymmetric
+  // peers, curved hunk connectors, import/context folding, and synchronized scroll geometry.
+  if (typeof annotateDiffHunkRows === 'function') annotateDiffHunkRows(wrapper);
+  else if (typeof installLayeredDiffGutters === 'function') installLayeredDiffGutters(wrapper);
+  if (typeof syncDiffBlameWrapper === 'function') syncDiffBlameWrapper(wrapper);
+  requestAnimationFrame(function () {
+    if (!wrapper.isConnected) return;
+    if (typeof refreshLayeredDiffGutters === 'function') refreshLayeredDiffGutters(wrapper);
+    if (typeof invalidateAsymmetricDiffGeometry === 'function') invalidateAsymmetricDiffGeometry(wrapper);
+    scheduleHistoryDiffAlignment();
+  });
 }
 function historySetFileFocus(index) {
   if (!historyDiffState || !historyDiffState.files.length) return;
@@ -470,6 +528,7 @@ function historyShowFile(path, hunkIndex, shouldScroll) {
     button.classList.toggle('active', on);
     if (on) historyDiffState.fileFocusIndex = i;
   });
+  prepareHistoryReviewDiff(historyWrapperByPath(path));
   var file = historyDiffState.files.find(function (f) { return f.path === path; });
   var target = typeof hunkIndex === 'number' && hunkIndex >= 0 ? hunkIndex : (file ? file.hunk : -1);
   if (target >= 0 && historyDiffState.hunks[target]) historySetActiveHunk(target, shouldScroll !== false);
@@ -493,6 +552,7 @@ function historySetActiveHunk(index, shouldScroll) {
     button.classList.toggle('active', on);
     if (on) historyDiffState.fileFocusIndex = i;
   });
+  prepareHistoryReviewDiff(historyWrapperByPath(h.path));
   historyDiffState.container.querySelectorAll('.history-hunk.active, .history-hunk-peer.active').forEach(function (row) { row.classList.remove('active'); });
   historyDiffState.container.querySelectorAll('[data-history-hunk-index="' + idx + '"]').forEach(function (row) { row.classList.add('active'); });
   var targetRow = historyFirstChangeRowForCaret(h.row);
@@ -552,6 +612,7 @@ function historySetDiffCursor(path, side, rowIndex, column, reveal) {
   var col = Math.max(0, Math.min(column, diffLineText(rows[ri]).length));
   historyDiffState.cursor = { path: path, side: side, rowIndex: ri, column: col };
   historyRenderDiffCaret();
+  scheduleHistoryDiffAlignment();
   if (reveal) scrolloffReveal(rows[ri], historyDiffState.container, 0.15);
 }
 function historyMoveDiffCursor(dLine, dColumn) {
@@ -658,6 +719,10 @@ function setHistoryDetailOpen(open) {
   }
 }
 function closeHistoryDetail(restoreFocus) {
+  if (historyDirectDetail && restoreFocus !== false) {
+    closeHistory();
+    return;
+  }
   historyDetailSha = '';
   historyDiffState = null;
   historyFocus = 'commits';
@@ -671,8 +736,10 @@ function closeHistoryDetail(restoreFocus) {
 }
 function closeHistory() {
   historyLoadSeq += 1;
+  historyDirectDetail = false;
+  historyDirectPath = '';
   var v = document.getElementById('history-view');
-  if (v) v.classList.add('hidden');
+  if (v) { v.classList.add('hidden'); v.classList.remove('history-direct-diff'); }
   closeHistoryDetail(false);
   if (typeof syncRail === 'function') syncRail();
 }
@@ -691,6 +758,9 @@ function openHistory(scope) {
   var v = document.getElementById('history-view');
   if (!v) return;
   if (!window.kakapoGit) return; // browser/serve mode: no git bridge
+  historyDirectDetail = false;
+  historyDirectPath = '';
+  v.classList.remove('history-direct-diff');
   historyScope = scope && scope.path && Number(scope.line) >= 1
     ? { path: String(scope.path), line: Math.trunc(Number(scope.line)) }
     : null;
@@ -730,8 +800,27 @@ function openLineHistory(path, line) {
   if (!window.kakapoGit || typeof window.kakapoGit.lineLog !== 'function') return;
   openHistory({ path: path, line: line });
 }
+function openHistoryCommitFromSource(sha, path) {
+  if (!sha || !window.kakapoGit || typeof window.kakapoGit.commitDiff !== 'function') return;
+  var v = document.getElementById('history-view');
+  if (!v) return;
+  historyLoadSeq += 1;
+  closeHistoryDetail(false);
+  historyDirectDetail = true;
+  historyDirectPath = path ? String(path) : '';
+  historyScope = null;
+  updateHistoryScopeChrome();
+  historyCommits = [];
+  historyGraph = [];
+  historyActiveSha = sha;
+  historyFocus = 'diff';
+  v.classList.add('history-direct-diff');
+  v.classList.remove('hidden');
+  if (typeof syncRail === 'function') syncRail();
+  openHistoryCommit(sha);
+}
 function toggleHistory() { if (isHistoryOpen()) closeHistory(); else openHistory(); }
-if (typeof window !== 'undefined') window.__kakapoHistory = { open: openHistory, openLine: openLineHistory, close: closeHistory, toggle: toggleHistory, isOpen: isHistoryOpen };
+if (typeof window !== 'undefined') window.__kakapoHistory = { open: openHistory, openLine: openLineHistory, openCommit: openHistoryCommitFromSource, close: closeHistory, toggle: toggleHistory, isOpen: isHistoryOpen };
 
 function handleHistoryKey(e) {
   if (!isHistoryOpen()) return false;

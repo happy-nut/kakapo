@@ -1,6 +1,7 @@
 // CORE USER FLOW: merged prompts and the memo share one review-focused floating slot.
 //
-// The merged views and the memo open as large FLOATING panels (.dock-panel + a dim .dock-backdrop, ~90% of
+// The merged views and the memo open as focused FLOATING writing panels (.dock-panel + a dim .dock-backdrop,
+// sized to the document width rather than the whole window),
 // the window), sharing ONE slot — opening one closes the others — and Cmd/Ctrl+Shift+' maximizes the active
 // panel to full screen. Guards that wiring: floating panel + backdrop, exclusive slot, toggle, maximize/restore.
 import { test, before, after } from "node:test";
@@ -16,7 +17,7 @@ before(async () => {
 });
 after(cleanupFixtures);
 
-test("merged view opens as a large floating panel (.dock-panel + backdrop), not the old inline dock/modal", async () => {
+test("merged view opens as a focused floating panel (.dock-panel + backdrop), not the old inline dock/modal", async () => {
   const v = await loadViewer(html);
   await v.openMergedView("q");
   assert.ok(v.$("#mc-merged-panel.dock-panel"), "merged opens as a .dock-panel");

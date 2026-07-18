@@ -2,6 +2,36 @@
 // the visible line-number UI. A pane owns one gutter layer, built from a compact row model, and that layer
 // shares the same vertical transform as the code table. Horizontal pinning is therefore one native sticky
 // operation per pane instead of hundreds of independently composited sticky <td>s.
+var diffViewportResizing = false;
+var diffViewportResizeTimer = 0;
+
+function visibleDiffWrappersAfterResize() {
+  return Array.prototype.filter.call(
+    document.querySelectorAll('.d2h-file-wrapper:not(.df-inactive)'),
+    function (wrapper) { return wrapper.getClientRects().length > 0; }
+  );
+}
+
+function settleDiffViewportResize() {
+  diffViewportResizeTimer = 0;
+  diffViewportResizing = false;
+  // A viewport resize changes every wrapped row, but only the active review (and possibly the single
+  // History detail) is painted. Rebuild those layers once after native resizing settles. Measuring every
+  // row on every intermediate BrowserWindow frame left Chromium unable to paint the newly exposed strip.
+  visibleDiffWrappersAfterResize().forEach(function (wrapper) {
+    wrapper.__mcDiffLayersDirty = true;
+    if (typeof invalidateAsymmetricDiffGeometry === 'function') invalidateAsymmetricDiffGeometry(wrapper);
+    scheduleLayeredDiffGutters(wrapper);
+  });
+  if (typeof scheduleAsymmetricDiffScroll === 'function') scheduleAsymmetricDiffScroll();
+}
+
+window.addEventListener('resize', function () {
+  diffViewportResizing = true;
+  if (diffViewportResizeTimer) clearTimeout(diffViewportResizeTimer);
+  diffViewportResizeTimer = setTimeout(settleDiffViewportResize, 140);
+}, { passive: true });
+
 function buildDiffRowModel(side) {
   var table = side && side.querySelector('.d2h-diff-table');
   var rows = table ? Array.prototype.slice.call(table.querySelectorAll('tr')) : [];
@@ -49,6 +79,13 @@ function ensureLayeredDiffSide(side) {
       // active editor again.
       if (wrapper && wrapper.classList && wrapper.classList.contains('df-inactive')) {
         wrapper.__mcDiffLayersDirty = true;
+        return;
+      }
+      // BrowserWindow maximize/drag can deliver a ResizeObserver callback for each native resize frame.
+      // Keep the currently painted CSS responsive, but defer the O(rows) gutter projection until the final
+      // viewport size is stable; settleDiffViewportResize refreshes every visible wrapper exactly once.
+      if (diffViewportResizing) {
+        if (wrapper) wrapper.__mcDiffLayersDirty = true;
         return;
       }
       if (typeof syncDiffCommentSpacerHeights === 'function') syncDiffCommentSpacerHeights(wrapper);
@@ -106,7 +143,11 @@ function refreshLayeredDiffSide(side) {
     var item = existing.get(key) || document.createElement('span');
     item.className = diffGutterNumberClass(entry.row);
     item.dataset.diffRowIndex = key;
-    if (item.textContent !== entry.lineNumber) item.textContent = entry.lineNumber;
+    if (typeof decorateDiffBlameGutterItem === 'function') {
+      decorateDiffBlameGutterItem(item, entry, side);
+    } else if (item.textContent !== entry.lineNumber) {
+      item.textContent = entry.lineNumber;
+    }
     item.style.top = top + 'px';
     item.style.height = height + 'px';
     // A wrapped source row can span several visual lines. Its logical line number belongs beside the first
@@ -127,6 +168,7 @@ function refreshLayeredDiffGutters(wrapper) {
     wrapper.__mcDiffLayersDirty = true;
     return [];
   }
+  if (typeof syncDiffBlameWrapper === 'function') syncDiffBlameWrapper(wrapper);
   var result = Array.prototype.map.call(wrapper.querySelectorAll('.d2h-file-side-diff'), refreshLayeredDiffSide).filter(Boolean);
   wrapper.__mcDiffLayersDirty = false;
   return result;

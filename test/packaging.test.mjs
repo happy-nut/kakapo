@@ -13,6 +13,12 @@ import {
   SUPPORTED_LINUX_ARCHES,
 } from "../scripts/package-linux.mjs";
 import { waitForKakapoRenderer } from "../scripts/smoke-linux.mjs";
+import {
+  BUNDLED_LANGUAGE_FAMILIES,
+  expectedServerPaths,
+  platformTarget,
+  SERVER_VERSIONS,
+} from "../scripts/install-language-servers.mjs";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -62,6 +68,34 @@ test("Linux packaging exposes deterministic x64 and ARM64 release names", () => 
   );
 });
 
+test("language-server packaging covers every advertised language family with pinned sidecars", () => {
+  assert.deepEqual(BUNDLED_LANGUAGE_FAMILIES, [
+    "typescript", "python", "go", "rust", "clang", "java", "kotlin", "ruby", "php",
+  ]);
+  assert.equal(platformTarget("darwin", "arm64"), "darwin-arm64");
+  assert.equal(platformTarget("linux", "x64"), "linux-x64");
+  assert.throws(() => platformTarget("win32", "x64"), /support darwin\/linux/);
+  assert.deepEqual(Object.keys(expectedServerPaths("/bundle", "linux-arm64")), [
+    "go", "rust", "clang", "java", "kotlin", "ruby", "php",
+  ]);
+  assert.match(SERVER_VERSIONS.gopls, /^\d+\.\d+\.\d+$/);
+  assert.match(SERVER_VERSIONS.kotlin, /^\d+\.\d+\.\d+$/);
+  const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+  assert.equal(packageJson.dependencies.pyright, "1.1.411");
+  assert.equal(packageJson.dependencies.intelephense, undefined);
+  assert.equal(SERVER_VERSIONS.php, "8.4.23");
+  assert.equal(SERVER_VERSIONS.phpactor, "2026.06.25.0");
+  assert.match(packageJson.scripts["dist:mac"], /^npm run lsp:install && npm run build && npm run lsp:smoke/);
+});
+
+test("Kotlin packaging preserves relative JBR links instead of retaining temporary paths", () => {
+  const installer = readFileSync(join(repoRoot, "scripts", "install-language-servers.mjs"), "utf8");
+  assert.match(
+    installer,
+    /cpSync\(dirname\(dirname\(server\)\), output, \{ recursive: true, verbatimSymlinks: true \}\)/,
+  );
+});
+
 test("Linux GUI smoke requires an actual Kakapo renderer page", async () => {
   const page = await waitForKakapoRenderer({
     port: 9222,
@@ -87,8 +121,8 @@ test("Linux release workflow tests, packages, boots, and publishes both native a
   const autoRelease = readFileSync(join(repoRoot, ".github", "workflows", "auto-release.yml"), "utf8");
   const publish = readFileSync(join(repoRoot, ".github", "workflows", "publish.yml"), "utf8");
 
-  assert.equal(packageJson.scripts["dist:linux:x64"], "npm run build && node scripts/package-linux.mjs x64");
-  assert.equal(packageJson.scripts["dist:linux:arm64"], "npm run build && node scripts/package-linux.mjs arm64");
+  assert.equal(packageJson.scripts["dist:linux:x64"], "npm run lsp:install && npm run build && npm run lsp:smoke && node scripts/package-linux.mjs x64");
+  assert.equal(packageJson.scripts["dist:linux:arm64"], "npm run lsp:install && npm run build && npm run lsp:smoke && node scripts/package-linux.mjs arm64");
   assert.equal(packageJson.scripts["smoke:linux"], "node scripts/smoke-linux.mjs");
   assert.match(workflow, /runner: ubuntu-24\.04\n/);
   assert.match(workflow, /runner: ubuntu-24\.04-arm/);

@@ -6,6 +6,7 @@ import {
   resolveBundledLanguageServer,
   resolveLanguageServer,
   type LanguageServerCommand,
+  type LspDiagnostic,
 } from "./lsp.js";
 import { searchProject } from "./search.js";
 import {
@@ -52,6 +53,17 @@ export type AnalysisResponse = {
   locations: AnalysisLocation[];
   impact?: ChangeImpact;
   fallbackReason?: string;
+  error?: string;
+};
+
+export type DiagnosticsResponse = {
+  ok: boolean;
+  generation: number;
+  available: boolean; // false when no language server covers this file — the regex fallback cannot diagnose
+  engine: "lsp" | "index";
+  diagnostics: LspDiagnostic[];
+  server?: string;
+  serverSource?: LanguageServerCommand["source"];
   error?: string;
 };
 
@@ -160,6 +172,26 @@ export class ProjectAnalysis {
     return { ...result, generation, durationMs: Math.round((performance.now() - started) * 10) / 10 };
   }
 
+  // Diagnostics for a single file, sourced only from a real language server. Unlike navigation there is no
+  // regex fallback: heuristics cannot judge correctness, so an unsupported language reports available:false
+  // rather than a misleading empty "no problems". A transport failure quarantines the server like navigation.
+  async diagnostics(path: string): Promise<DiagnosticsResponse> {
+    const generation = this.generation;
+    const relative = safeRelativePath(this.root, path);
+    if (!relative) {
+      return { ok: false, generation, available: false, engine: "index", diagnostics: [], error: "A project-relative source path is required" };
+    }
+    const client = this.clientFor(relative);
+    if (!client) return { ok: true, generation, available: false, engine: "index", diagnostics: [] };
+    try {
+      const diagnostics = await client.diagnosticsFor(relative);
+      return { ok: true, generation, available: true, engine: "lsp", diagnostics, server: client.server.name, serverSource: client.server.source };
+    } catch (error) {
+      if (this.transportFailure(error)) this.quarantine(client, error);
+      return { ok: false, generation, available: true, engine: "lsp", diagnostics: [], error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   private async runQuery(request: AnalysisRequest): Promise<AnalysisResult> {
     const path = safeRelativePath(this.root, request.path);
     try {
@@ -253,8 +285,8 @@ export class ProjectAnalysis {
   private clientFor(path: string): LspClient | undefined {
     const primary = this.resolveServer(this.root, path);
     const servers = primary ? [primary] : [];
-    if (primary?.family === "typescript" && primary.source && primary.source !== "bundled") {
-      const bundled = resolveBundledLanguageServer(path);
+    if (primary?.source && primary.source !== "bundled") {
+      const bundled = resolveBundledLanguageServer(path, this.root);
       if (bundled) servers.push(bundled);
     }
     for (const server of servers) {
@@ -377,7 +409,7 @@ export class ProjectAnalysis {
         }
         lastError = error instanceof Error ? error.message : String(error);
         this.quarantine(client, error);
-        // A failed project/PATH TypeScript server is followed by the packaged sidecar in clientFor().
+        // A failed explicit/project-local server is followed by the packaged sidecar in clientFor().
       }
     }
   }

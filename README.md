@@ -28,7 +28,7 @@ Kakapo는 채팅의 완료 보고가 아니라 실제 Git 변경 사항, 주변 
 - Markdown, 이미지, HTTP Client 파일의 로컬 리뷰
 - 메인 프로세스 검색·인덱싱과 지연 로딩을 통한 대형 프로젝트 대응
 
-Kakapo는 언어 분석기를 새로 구현하지 않습니다. 프로젝트에 설치된 language server를 우선 사용하고, 사용할 수 없는 언어만 정규식 인덱스로 폴백합니다. TypeScript/JavaScript sidecar와 VS Code의 ripgrep 바이너리는 앱에 포함됩니다.
+Kakapo는 언어 분석기를 새로 구현하지 않습니다. 배포 앱에는 TypeScript/JavaScript, Python, Go, Rust, C/C++, Java, Kotlin, Ruby, PHP용 language server와 필요한 런타임/toolchain이 함께 들어 있습니다. GUI 프로세스의 `PATH`를 탐색하지 않으며, 지원 밖의 언어나 서버가 의미 위치를 반환하지 못한 경우에만 출처가 표시된 정규식 인덱스로 폴백합니다. 프로젝트 검색용 ripgrep도 앱에 포함됩니다.
 
 ## 설치와 실행
 
@@ -43,7 +43,7 @@ tar -xzf Kakapo-<version>-linux-x64.tar.gz
 ./Kakapo-linux-x64/Kakapo --cwd /path/to/repository/package
 ```
 
-ARM64에서는 두 경로의 `x64`를 `arm64`로 바꾸면 됩니다. 배포 파일은 별도 시스템 Electron이나 Node.js 설치를 요구하지 않습니다.
+ARM64에서는 두 경로의 `x64`를 `arm64`로 바꾸면 됩니다. 배포 파일은 별도 시스템 Electron, Node.js, language server, JRE, PHP, Go/Rust toolchain 설치를 요구하지 않습니다.
 
 ### 소스 설치
 
@@ -55,6 +55,7 @@ ARM64에서는 두 경로의 `x64`를 `arm64`로 바꾸면 됩니다. 배포 파
 git clone https://github.com/happy-nut/kakapo.git
 cd kakapo
 npm install
+npm run lsp:install
 npm link
 ```
 
@@ -67,6 +68,19 @@ kakapo --cwd /path/to/repository/package
 ```
 
 모노레포 내부 폴더를 열면 Git revision은 상위 저장소에서 읽되 변경 목록, 검색, 소스 탐색과 상태는 선택한 폴더 범위로 제한됩니다.
+
+### 비교 base 선택
+
+기본값은 working tree를 자동 base와 비교합니다 — 브랜치에 아직 push하지 않은 커밋이 있으면 upstream의 merge-base를, 아니면 HEAD를 base로 잡습니다. AI 작업이 이미 커밋되어 있는 경우에는 비교 base를 직접 지정할 수 있습니다.
+
+```bash
+kakapo --base main          # working tree를 main과 비교 (AI 피처 브랜치 전체 리뷰)
+kakapo --base v0.2.0        # 특정 태그와 비교
+kakapo --base 9f3c1a2       # 특정 커밋과 비교
+kakapo --staged             # 인덱스(스테이징)를 HEAD와 비교
+```
+
+`--base`는 브랜치·태그·커밋 어떤 revision이든 받고 실행 시점에 검증합니다. `--staged`와 `--base`는 함께 쓸 수 없습니다. 상단 리뷰 상태줄에 현재 비교 대상("working tree vs main", "staged changes")이 표시됩니다.
 
 ## 자주 쓰는 단축키
 
@@ -89,14 +103,23 @@ kakapo --cwd /path/to/repository/package
 
 ## 언어 서버
 
-탐색 순서는 다음과 같습니다.
+배포 앱은 다음 분석기를 앱 리소스에서 직접 실행합니다.
 
-1. `KAKAPO_LSP_<LANGUAGE>`로 지정한 실행 파일
-2. 저장소 로컬 실행 파일 (`node_modules/.bin`, `.venv/bin`, `venv/bin`, `bin`)
-3. Kakapo에 포함된 TypeScript/JavaScript sidecar
-4. 실행 환경의 `PATH`
+| 언어 | 내장 분석기 | 함께 포함되는 실행 환경 |
+| --- | --- | --- |
+| TypeScript / JavaScript | `typescript-language-server` | Electron의 Node 호스트 |
+| Python | Pyright | Electron의 Node 호스트 |
+| Go | `gopls` | Go SDK |
+| Rust | `rust-analyzer` | Cargo, Rust stable, `rust-src` |
+| C / C++ | `clangd` | 플랫폼 네이티브 clangd |
+| Java | Eclipse JDT LS | Temurin JRE 21 |
+| Kotlin | JetBrains 공식 Kotlin LSP | 전용 JetBrains Runtime |
+| Ruby | Sorbet | 플랫폼 네이티브 Sorbet |
+| PHP | Phpactor | 정적 PHP 8.4 런타임 |
 
-지원하는 대표 서버는 `typescript-language-server`, `pyright-langserver`/`pylsp`, `gopls`, `rust-analyzer`, `clangd`, `jdtls`, `kotlin-language-server`, `solargraph`, `intelephense`입니다. 서버가 없거나 응답하지 않으면 탐색 기능은 근거 출처를 표시한 정규식 폴백을 사용합니다.
+정상 배포본에서는 이 번들이 항상 우선이며 셸의 `PATH`는 검색하지 않습니다. 개발자가 명시한 `KAKAPO_LSP_<LANGUAGE>` 실행 파일만 우선할 수 있고, 소스 체크아웃에서 번들을 아직 설치하지 않은 경우에 한해 저장소 로컬 실행 파일을 개발 폴백으로 허용합니다. 패키징은 9개 언어군의 번들 존재 여부와 실제 cross-file definition을 모두 검사한 뒤에만 진행됩니다.
+
+언어 서버의 의미 분석 품질은 프로젝트 메타데이터에도 영향을 받습니다. Java/Kotlin은 Maven 또는 Gradle 모델, Rust는 `Cargo.toml`, Go는 `go.mod`, C/C++ 대형 프로젝트는 `compile_commands.json`, PHP는 Composer autoload 정보가 있으면 가장 정확합니다. 분석 캐시와 JDT/Kotlin workspace는 저장소 안이 아니라 운영체제 임시/애플리케이션 데이터 영역에 둡니다.
 
 ## 로컬 데이터
 
@@ -118,7 +141,9 @@ Linux에서는 같은 구조가 `${XDG_CONFIG_HOME:-~/.config}/Kakapo/workspaces
 
 ```bash
 npm install
+npm run lsp:install
 npm run build
+npm run lsp:smoke
 npm test
 npm run smoke
 ```

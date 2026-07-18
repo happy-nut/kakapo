@@ -58,6 +58,21 @@ export function resolveAutomaticReviewBase(root: string, includeUntracked = true
   return { revision, upstream, label: `${upstream}...HEAD`, ahead };
 }
 
+// Validate a user-supplied review base (the CLI --base value) before it reaches `git diff <base>`. spawnSync
+// uses argv (no shell) so the ref cannot inject a command; this check just rejects typos and refs that don't
+// exist in the repository, and fails fast at launch with a clear message instead of an empty/garbage diff.
+export function validateReviewBase(root: string, ref: string): string {
+  const trimmed = ref.trim();
+  if (!trimmed || !/^[\w./@^~{}-]+$/.test(trimmed)) {
+    throw new Error(`Invalid --base value ${JSON.stringify(ref)}: expected a branch, tag, or commit.`);
+  }
+  const resolved = git(root, ["rev-parse", "--verify", "--quiet", `${trimmed}^{commit}`]);
+  if (!resolved) {
+    throw new Error(`--base ${trimmed} is not a commit in this repository (try a branch, tag, or commit SHA).`);
+  }
+  return trimmed;
+}
+
 // Resolve the repository root. `git diff` and `git ls-files` print paths relative to it, and the
 // desktop tree shows them as-is — so every filesystem read of those paths must resolve against the
 // SAME root, not process.cwd(). When `kakapo` runs from a monorepo subdirectory (cwd != root), joining a

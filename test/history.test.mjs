@@ -129,6 +129,8 @@ test("history keyboard: Cmd+9 then ArrowDown navigates commits before opening a 
   assert.match(css, /\.history-detail\s*\{[^}]*position:\s*absolute[^}]*inset:\s*clamp/, "diff workspace floats over the full-width commit graph");
   assert.ok(v.$("#history-files .history-file[data-file='src/a.ts']"), "diff workspace includes changed-file list");
   assert.ok(v.$("#history-diff-container .d2h-file-wrapper:not(.df-inactive)"), "diff workspace shows a changed file");
+  assert.equal(v.$all("#history-diff-container .d2h-file-wrapper:not(.df-inactive) .mc-layered-diff-side").length, 2, "commit diff reuses both Review editor panes");
+  assert.equal(v.$all("#history-diff-container .d2h-file-wrapper:not(.df-inactive) .mc-diff-gutter-layer").length, 2, "commit diff reuses the centre line-number gutters");
 
   v.key("Escape");
   await v.settle(20);
@@ -137,28 +139,32 @@ test("history keyboard: Cmd+9 then ArrowDown navigates commits before opening a 
   v.close();
 });
 
-test("right-clicking a Files-mode line number opens that line's Git log", async () => {
+test("right-clicking a Files-mode line number shows blame in the gutter and opens its commit diff", async () => {
   const v = await loadViewer(html);
-  const lineCalls = [];
+  const blameCalls = [];
+  const diffCalls = [];
   v.window.kakapoGit = {
     log: () => Promise.reject(new Error("full history should not be loaded")),
-    lineLog: (request) => {
-      lineCalls.push(request);
+    blame: (request) => {
+      blameCalls.push(request);
       return Promise.resolve([
-        { hash: "aaaaaaaa", parents: ["bbbbbbbb"], author: "A", email: "a@test", date: "2026-06-01T10:00:00+09:00", refs: "HEAD -> main", subject: "changed selected line" },
-        { hash: "bbbbbbbb", parents: [], author: "B", email: "b@test", date: "2026-05-31T10:00:00+09:00", refs: "", subject: "introduced selected line" },
+        { line: 1, hash: "aaaaaaaa", author: "Ada Reviewer", date: "2026-06-01", summary: "changed selected line" },
+        { line: 2, hash: "cccccccc", author: "Grace Reviewer", date: "2025-06-01", summary: "older stable line" },
       ]);
     },
-    commitDiff: (sha) => Promise.resolve({
-      hash: sha,
-      author: "A",
-      email: "a@test",
-      date: "2026-06-01T10:00:00+09:00",
-      refs: "",
-      message: "changed selected line",
-      diffHtml: build.update.diffContainer,
-      isMerge: false,
-    }),
+    commitDiff: (sha) => {
+      diffCalls.push(sha);
+      return Promise.resolve({
+        hash: sha,
+        author: "Ada Reviewer",
+        email: "a@test",
+        date: "2026-06-01T10:00:00+09:00",
+        refs: "",
+        message: "changed selected line",
+        diffHtml: build.update.diffContainer,
+        isMerge: false,
+      });
+    },
   };
 
   await v.openSourceFile("src/b.ts");
@@ -170,22 +176,112 @@ test("right-clicking a Files-mode line number opens that line's Git log", async 
     clientY: 80,
   }));
   assert.equal(opened, false, "the custom line-number menu replaces the native context menu");
-  assert.equal(v.$("#mc-dropdown .mc-dropdown-item").textContent, "Show Git log for this line");
+  assert.equal(v.$("#mc-dropdown .mc-dropdown-item").textContent, "Show date and author");
 
   v.key("Enter");
   await v.settle(80);
-  assert.equal(lineCalls.length, 1);
-  assert.equal(lineCalls[0].path, "src/b.ts");
-  assert.equal(lineCalls[0].line, 1);
-  assert.equal(lineCalls[0].limit, 300);
-  assert.equal(v.$("#history-view").classList.contains("hidden"), false, "line history uses the existing History workspace");
-  assert.equal(v.$("#history-view .history-title").textContent, "Line history");
-  assert.equal(v.$("#history-scope").textContent, "src/b.ts:L1");
-  assert.deepEqual(v.$all("#history-list .hrow").map((row) => row.dataset.sha), ["aaaaaaaa", "bbbbbbbb"]);
+  assert.equal(blameCalls.length, 1);
+  assert.equal(blameCalls[0].path, "src/b.ts");
+  assert.equal(v.$("#history-view").classList.contains("hidden"), true, "blame does not replace the current file with a history panel");
+  assert.ok(v.$("#source-body").classList.contains("source-blame-visible"));
+  assert.equal(v.$('.source-row[data-line-index="0"] .source-line-number').textContent, "1");
+  assert.equal(v.$('.source-row[data-line-index="0"] .source-blame-date').textContent, "2026-06-01");
+  assert.equal(v.$('.source-row[data-line-index="0"] .source-blame-author').textContent, "Ada Reviewer");
+  assert.ok(v.$('.source-row[data-line-index="0"] .source-blame-entry').classList.contains('mc-blame-age-0'), "newest source attribution uses the clearest age color");
+  assert.ok(v.$('.source-row[data-line-index="1"] .source-blame-entry').classList.contains('mc-blame-age-4'), "oldest source attribution uses the most muted age color");
+  const sourceBlameCell = v.$('.source-row[data-line-index="0"] .num');
+  assert.ok(
+    sourceBlameCell.querySelector('.source-blame-entry').compareDocumentPosition(sourceBlameCell.querySelector('.source-line-number'))
+      & v.window.Node.DOCUMENT_POSITION_FOLLOWING,
+    "date and author precede the line number so the number remains adjacent to source code",
+  );
 
-  v.key("Enter");
+  v.$('.source-row[data-line-index="0"] [data-blame-sha]').click();
   await v.settle(80);
-  assert.equal(v.$("#history-files .history-file.active").dataset.file, "src/b.ts", "opening a line-history commit selects the scoped file, not the first changed file");
+  assert.deepEqual(diffCalls, ["aaaaaaaa"]);
+  assert.equal(v.$("#history-view").classList.contains("hidden"), false, "clicking date/author opens the corresponding commit diff");
+  assert.equal(v.$("#history-files .history-file.active").dataset.file, "src/b.ts", "the clicked attribution selects that file inside the commit diff");
+  const sourceCommitWrapper = v.$("#history-diff-container .d2h-file-wrapper:not(.df-inactive)");
+  assert.equal(sourceCommitWrapper.querySelectorAll('.mc-layered-diff-side').length, 2, "annotation navigation still opens the shared Review diff renderer");
+  assert.equal(sourceCommitWrapper.classList.contains('mc-diff-blame-visible'), false, "annotation navigation opens the commit diff with annotations closed");
+  assert.equal(sourceCommitWrapper.querySelector('.mc-diff-blame-entry'), null, "the commit diff does not inherit source annotation cells");
+
+  v.key("Escape");
+  assert.equal(v.$("#history-view").classList.contains("hidden"), true, "closing a directly opened commit returns to the source file");
+  v.close();
+});
+
+test("right-clicking a diff line number loads both revisions and keeps numbers against their code panes", async () => {
+  const v = await loadViewer(html);
+  const wrapper = v.$('#diff2html-container .d2h-file-wrapper:not(.df-inactive)');
+  const sides = wrapper.querySelectorAll('.d2h-file-side-diff');
+  const oldItem = sides[0].querySelector('.mc-diff-gutter-number');
+  const newItem = sides[1].querySelector('.mc-diff-gutter-number');
+  const oldLine = Number(oldItem.textContent.trim());
+  const newLine = Number(newItem.textContent.trim());
+  const calls = [];
+  v.window.kakapoGit = {
+    blame: (request) => {
+      calls.push(request);
+      return Promise.resolve([{
+        line: request.side === 'old' ? oldLine : newLine,
+        hash: request.side === 'old' ? 'aaaaaaaa' : 'bbbbbbbb',
+        author: request.side === 'old' ? 'Base Author' : 'Working Author',
+        date: request.side === 'old' ? '2026-05-01' : '2026-07-18',
+        summary: 'line attribution',
+      }]);
+    },
+    commitDiff: (sha) => Promise.resolve({
+      hash: sha,
+      author: 'Working Author',
+      email: 'working@test',
+      date: '2026-07-18T10:00:00+09:00',
+      refs: '',
+      message: 'line attribution',
+      diffHtml: build.update.diffContainer,
+      isMerge: false,
+    }),
+  };
+
+  const opened = oldItem.dispatchEvent(new v.window.MouseEvent('contextmenu', {
+    bubbles: true,
+    cancelable: true,
+    clientX: 0,
+    clientY: 0,
+  }));
+  assert.equal(opened, false, 'diff line numbers use the inline blame menu');
+  assert.equal(v.$('#mc-dropdown .mc-dropdown-item').textContent, 'Show date and author');
+  v.key('Enter');
+  await v.settle(80);
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].path, 'src/a.ts');
+  assert.equal(calls[0].side, 'old');
+  assert.equal(calls[1].path, 'src/a.ts');
+  assert.equal(calls[1].side, 'new');
+  assert.ok(wrapper.classList.contains('mc-diff-blame-visible'));
+  const paintedOld = sides[0].querySelector('.mc-diff-gutter-number');
+  const paintedNew = sides[1].querySelector('.mc-diff-gutter-number');
+  assert.equal(paintedOld.querySelector('.mc-diff-line-number').textContent, String(oldLine));
+  assert.equal(paintedNew.querySelector('.mc-diff-line-number').textContent, String(newLine));
+  assert.ok(paintedOld.querySelector('.mc-diff-blame-entry').classList.contains('mc-blame-age-4'), 'older base attribution receives the oldest age bucket');
+  assert.ok(paintedNew.querySelector('.mc-diff-blame-entry').classList.contains('mc-blame-age-0'), 'newer working attribution receives the newest age bucket');
+  assert.ok(
+    paintedOld.querySelector('.mc-diff-line-number').compareDocumentPosition(paintedOld.querySelector('.mc-diff-blame-entry'))
+      & v.window.Node.DOCUMENT_POSITION_FOLLOWING,
+    'base order is code, line number, date, author',
+  );
+  assert.ok(
+    paintedNew.querySelector('.mc-diff-blame-entry').compareDocumentPosition(paintedNew.querySelector('.mc-diff-line-number'))
+      & v.window.Node.DOCUMENT_POSITION_FOLLOWING,
+    'working-tree order is date, author, line number, code',
+  );
+  paintedNew.querySelector('[data-blame-sha]').click();
+  await v.settle(80);
+  const diffCommitWrapper = v.$('#history-diff-container .d2h-file-wrapper:not(.df-inactive)');
+  assert.equal(diffCommitWrapper.querySelectorAll('.mc-layered-diff-side').length, 2, 'diff annotation navigation reuses the centre-gutter Review renderer');
+  assert.equal(diffCommitWrapper.classList.contains('mc-diff-blame-visible'), false, 'the destination commit diff starts with annotation closed even for the same path');
+  assert.equal(diffCommitWrapper.querySelector('.mc-diff-blame-entry'), null, 'no blame cells leak into the destination commit diff');
   v.close();
 });
 

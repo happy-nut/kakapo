@@ -209,6 +209,7 @@ function showSourceView() {
   document.getElementById('source-viewer')?.classList.remove('hidden');
   setTab('files');
   syncReviewSidebarVisibility();
+  if (typeof scheduleSourceTabOverflow === 'function') scheduleSourceTabOverflow(currentSourceTabPath());
   if (typeof refreshFileFindForActiveView === 'function') setTimeout(refreshFileFindForActiveView, 0);
 }
 

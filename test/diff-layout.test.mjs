@@ -45,6 +45,40 @@ test("real Chromium keeps every full-viewport title surface clear of macOS traff
   assert.equal(layout.dockButtonRegion, "no-drag", "maximized writing-panel actions remain clickable");
 });
 
+test("real Chromium fills the enlarged native window and settles one visible diff projection", {
+  skip: process.platform !== "darwin" ? "macOS native resize regression" : false,
+  timeout: 30_000,
+}, async () => {
+  const electron = require("electron");
+  const fixture = fileURLToPath(new URL("./fixtures/electron-window-resize.cjs", import.meta.url));
+  const css = fileURLToPath(new URL("../dist/viewer.css", import.meta.url));
+  const layers = fileURLToPath(new URL("../src/viewer/00-diff-layers.js", import.meta.url));
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(electron, [fixture, css, layers], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
+  });
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+  const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("KAKAPO_WINDOW_RESIZE="));
+  assert.ok(marker, `window resize result missing\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  const layout = JSON.parse(marker.slice("KAKAPO_WINDOW_RESIZE=".length));
+  for (const [phase, measurement] of Object.entries(layout)) {
+    assert.ok(Math.abs(measurement.bodyWidth - measurement.innerWidth) <= 1, `${phase}: body left a native background strip`);
+    assert.ok(Math.abs(measurement.contentRight - measurement.innerWidth) <= 1, `${phase}: content did not reach the window edge`);
+    assert.ok(Math.abs(measurement.toolbarRight - measurement.innerWidth) <= 1, `${phase}: review toolbar retained its previous width`);
+    assert.equal(measurement.gutterLayerCount, 2, `${phase}: resize duplicated a diff gutter layer`);
+    assert.equal(measurement.resizeSettled, true, `${phase}: viewport projection never settled`);
+  }
+  assert.ok(layout.after.innerWidth > layout.before.innerWidth, "the test actually enlarges the BrowserWindow");
+});
+
 test("real Chromium keeps both diff gutters at the divider after maximum horizontal scroll", {
   skip: process.platform !== "darwin" ? "macOS packaged layout regression" : false,
   timeout: 30_000,

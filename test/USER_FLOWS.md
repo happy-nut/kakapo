@@ -75,13 +75,46 @@ localStorage라 이 함정을 못 건드린다).
 
 ### Flow 5 — 프로젝트 코드 분석과 변경 영향 (`analysis.test.mjs`, `impact.test.mjs`, `monaco.test.mjs`)
 
-- 프로젝트에 설치된 language server와 stdio JSON-RPC로 definition/references/implementation/workspace symbol을 조회한다
+- 앱에 내장된 9개 언어군의 language server와 stdio JSON-RPC로 definition/references/implementation/workspace symbol을 조회하며 셸 PATH를 탐색하지 않는다
 - language server가 없거나 언어가 지원되지 않으면 메인 프로세스 정규식 인덱스가 같은 요청을 처리한다
 - Change Impact는 호출자/importer, 호출 대상/의존성, 구현체/상속, 테스트, 타입·API·스키마·설정을 분류한다
 - 검색·인덱싱은 렌더러 밖에서 수행하고, lazy-load 뷰어는 실제로 연 파일의 소스만 요청한다
 - 모든 코드 파일은 하나의 Review 렌더러에서 열리며 검색·폴딩·네비게이션·코멘트가 같은 커서 상태를 공유한다
 - Review 화면의 definition/reference/implementation 요청은 현재 프로젝트 generation의 응답만 받아들인다
 - 여러 semantic 결과는 현재 파일을 떠나지 않고 caret-local Semantic Peek 목록에서 비교한다
+
+### Flow 6 — 언어 서버 진단(diagnostics) (`diagnostics.test.mjs`, `analysis.test.mjs`)
+
+AI가 고친 파일을 소스 뷰에서 열면, 언어 서버가 밀어준(`textDocument/publishDiagnostics`) 에러·경고가
+그 줄에 물결 밑줄과 거터 마커로 보이고, `F2`/`Shift+F2`로 파일 안의 문제를 오가며 검토할 수 있어야 한다.
+
+- 메인은 서버가 push하는 진단을 URI별로 캡처하고, 최초 조회는 첫 publish를 (bounded로) 기다렸다가 0-based
+  line/column 모델로 정규화한다 (`analysis.test.mjs`: fake LSP가 didOpen 후 진단을 push → `diagnosticsFor`).
+- 진단에는 정규식 폴백이 없다. 언어 서버가 없는 파일은 오해를 부르는 빈 "문제 없음"이 아니라 `available:false`로
+  보고한다.
+- 에러(빨강)·경고(앰버)만 표시하며 info/hint는 수집하되 노출하지 않는다. 에러/경고 줄에는 심각도 색 거터 마커가
+  붙고, 깨끗한 줄에는 아무 표시도 없다.
+- 문제 줄에 포인터를 ~1초 올려두면 커스텀 dwell 툴팁이 메시지를 보여주고, 줄을 벗어나면 사라진다(네이티브 title이
+  아니라 지연·스타일을 앱이 소유; jsdom엔 레이아웃/`caretRangeFromPoint`가 없어 줄 단위 메시지로 검증).
+- 환경 의존적인 import/모듈 해석 진단(Pyright `reportMissingImports`, tsserver 2307 등)은 억제된다. kakapo는
+  프로젝트 런타임 환경(venv/node_modules/인터프리터)을 소유하지 않아 설치된 패키지에도 false positive를 내기
+  때문이다. 환경 없이도 신뢰 가능한 구문·타입·미정의 이름 진단만 남는다(`analysis.test.mjs`의 mapLspDiagnostics).
+- `F2`/`Shift+F2`는 현재 파일 안의 문제를 앞뒤로 순회하고 양끝에서 감싼다. 파일 경계는 기존 `F7`/사이드바가 맡는다.
+- caret fast-path가 문제 줄을 in-place로 다시 그려도 물결 밑줄이 유지된다(직전 회귀의 재현 지점).
+- 진단이 있는 줄에서 `Opt+Enter`는 그 진단 메시지를 담은 "수정" change-request 코멘트를 즉시 만든다.
+  깨끗한 줄에서는 아무것도 만들지 않는다.
+
+### Flow 7 — 반복 리뷰의 코멘트 수명주기 (`comment-lifecycle.test.mjs`)
+
+에이전트가 코멘트를 반영해 다음 라운드 diff를 만들고 kakapo를 다시 실행해도, 리뷰어가 "내 지적 중
+무엇이 반영됐는지"를 잃지 않아야 한다.
+
+- 코멘트는 `anchorCode`(단 줄의 스냅샷)로 새 내용에 재앵커링되고 절대 자동 삭제되지 않는다.
+- 코멘트가 가리키던 줄이 이번 라운드에 사라졌고(생성 시 존재했던 앵커가 없어졌으면) '반영된 듯(후보)'으로
+  표시된다. 확정이 아니라 후보이므로 리뷰어가 재열기(↺)로 되돌릴 수 있다. old-side diff 앵커처럼 애초에
+  현재 내용에 없던 코멘트는 절대 이 상태로 넘어가지 않는다(첫 라운드를 놓치지 않도록 존재 여부는 생성 시 기록).
+- '반영된 듯' 코멘트는 다음 병합 프롬프트에서 기본 제외되어 매 라운드가 열린 항목만 싣고, 재열기하면 다시 포함된다.
+  (제외는 렌더·reconcile 양쪽에서 이뤄져 프롬프트에 안 보이는 코멘트가 reconcile로 삭제되지 않는다.)
 
 ## 실행
 

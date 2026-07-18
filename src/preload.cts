@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld("kakapoFile", {
 // receives compact result locations; project sources and language-server processes stay in main.
 contextBridge.exposeInMainWorld("kakapoAnalysis", {
   query: (request: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:analysis", request),
+  diagnostics: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:diagnostics", { path }),
   status: (): Promise<unknown> => ipcRenderer.invoke("kakapo:analysis-status"),
   onStatus: (cb: (status: unknown) => void): void => {
     ipcRenderer.on("kakapo:analysis-status", (_event, status: unknown) => cb(status));
@@ -63,6 +64,7 @@ contextBridge.exposeInMainWorld("kakapoSearch", {
 contextBridge.exposeInMainWorld("kakapoGit", {
   log: (request: { limit?: number; skip?: number }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-log", request),
   lineLog: (request: { path: string; line: number; limit?: number }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-line-log", request),
+  blame: (request: { path: string; side?: "old" | "new" }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-blame", request),
   commitDiff: (sha: string): Promise<unknown> => ipcRenderer.invoke("kakapo:git-commit-diff", { sha }),
 });
 

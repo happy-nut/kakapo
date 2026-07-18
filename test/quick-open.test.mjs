@@ -82,6 +82,10 @@ test("file quick-open waits for a query and hydrates the selected lazy preview",
   assert.equal(v.$all("#quick-open-results .quick-open-item").length, 1, "the matching file appears after typing");
   assert.deepEqual(v.window.__sourceRequests, ["AGENTS.md"], "preview fetches the selected file body on demand");
   assert.match(v.$("#quick-open-preview").textContent, /Trust but verify every change/, "the hydrated preview shows real file content");
+
+  const row = v.$("#quick-open-results .quick-open-item");
+  row.dispatchEvent(new v.window.MouseEvent("mouseover", { bubbles: true }));
+  assert.equal(v.$("#mc-button-hint").classList.contains("hidden"), true, "a visible file row is not repeated in a tooltip");
   v.close();
 });
 

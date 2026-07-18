@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell } from "electron";
-import { isGitRepository } from "./git.js";
+import { isGitRepository, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
 import { ProjectAnalysis } from "./analysis.js";
@@ -16,6 +16,7 @@ import { reviewDiffSignature, writeReviewWorkspace } from "./review-workspace.js
 import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
+import { installWindowSurfaceRecovery } from "./window-layout.js";
 
 type AppOptions = {
   root: string;
@@ -45,6 +46,7 @@ type WinState = {
   lastDiffSig: string; // watch fast-path: hash of the last git diff, to skip rebuilds when unchanged
   reviewBase?: string; // exact base used by the latest build (may be an automatic upstream merge-base)
   reviewUpstream?: string; // tracking ref behind an automatic base; included in the watch signature
+  disposeWindowSurfaceRecovery: () => void;
 };
 
 // `npm run dev` sets KAKAPO_DEV=1 so a locally-built app announces itself — a window-title suffix
@@ -434,6 +436,7 @@ function createWindow(root: string): WinState {
     lastDiffSig: "",
     reviewBase: undefined,
     reviewUpstream: undefined,
+    disposeWindowSurfaceRecovery: installWindowSurfaceRecovery(win),
   };
   const id = win.id;
   states.set(id, state);
@@ -454,6 +457,7 @@ function createWindow(root: string): WinState {
   win.on("closed", () => {
     if (state.refreshTimer) clearInterval(state.refreshTimer);
     if (state.analysisWarmTimer) clearTimeout(state.analysisWarmTimer);
+    state.disposeWindowSurfaceRecovery();
     state.analysis.dispose();
     states.delete(id);
   });
@@ -653,13 +657,23 @@ function makeOptions(root: string): AppOptions {
 }
 
 function parseArgs(args: string[]): AppOptions {
-  const root = readOption(args, "--cwd") ?? process.cwd();
+  const root = resolve(readOption(args, "--cwd") ?? process.cwd());
   const contextValue = readOption(args, "--context");
+  const staged = args.includes("--staged");
+  const baseValue = readOption(args, "--base");
+  if (staged && baseValue !== undefined) {
+    throw new Error("Use either --staged or --base, not both: --staged compares the index against HEAD.");
+  }
+  // Default (neither flag): diff the working tree against an automatic base — the upstream merge-base when the
+  // branch has unpushed commits, otherwise HEAD. --base <ref> reviews the working tree against any branch/tag/
+  // commit (e.g. the whole AI feature branch: --base main). --staged reviews the index against HEAD.
+  const base = baseValue !== undefined && isGitRepository(root)
+    ? validateReviewBase(root, baseValue)
+    : baseValue;
   return {
-    root: resolve(root),
-    // staged review and custom --base were removed from the CLI; always diff the working tree against
-    // HEAD (base omitted → defaults to HEAD downstream).
-    staged: false,
+    root,
+    base,
+    staged,
     includeUntracked: args.includes("--include-untracked"),
     context: contextValue ? parsePositiveInteger(contextValue, "--context") : 12,
     watch: !args.includes("--no-watch"),

@@ -1,6 +1,6 @@
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { performHttpRequest, renderLazyDiffBody, type HttpSendRequest } from "./cli.js";
-import { readGitLog, readGitLineLog, readCommitDiff } from "./git-log.js";
+import { readGitLog, readGitLineLog, readGitBlame, readCommitDiff } from "./git-log.js";
 import { materializeDeferredSourceFile } from "./diff.js";
 import { searchProject } from "./search.js";
 import type { AnalysisRequest, ProjectAnalysis } from "./analysis.js";
@@ -96,6 +96,19 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     updatedAt: new Date().toISOString(),
   });
 
+  ipc.handle("kakapo:diagnostics", async (event, request: { path?: string }) => {
+    const state = stateFromEvent(event);
+    if (!state) return { ok: false, generation: 0, available: false, engine: "index", diagnostics: [], error: "Review window is unavailable" };
+    const response = await state.analysis.diagnostics(typeof request?.path === "string" ? request.path : "");
+    state.perf.mark("diagnostics-query", {
+      generation: response.generation,
+      available: response.available,
+      count: response.diagnostics.length,
+      ok: response.ok,
+    });
+    return response;
+  });
+
   ipc.on("kakapo:perf-mark", (event, payload: { name?: unknown; details?: unknown }) => {
     const state = stateFromEvent(event);
     const name = typeof payload?.name === "string" ? payload.name : "";
@@ -130,6 +143,16 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     const path = typeof request?.path === "string" ? request.path : "";
     if (!state || !path || !state.sourceFiles.has(path)) return [];
     try { return readGitLineLog(state.options.root, { path, line: Number(request?.line), limit: request?.limit }); } catch { return []; }
+  });
+
+  ipc.handle("kakapo:git-blame", (event, request: { path?: string; side?: "old" | "new" }) => {
+    const state = stateFromEvent(event);
+    const path = typeof request?.path === "string" ? request.path : "";
+    if (!state || !path || !state.sourceFiles.has(path)) return [];
+    const revision = request?.side === "old"
+      ? (state.reviewBase ?? state.options.base ?? "HEAD")
+      : undefined;
+    try { return readGitBlame(state.options.root, path, revision); } catch { return []; }
   });
 
   ipc.handle("kakapo:git-commit-diff", (event, request: { sha?: string }) => {

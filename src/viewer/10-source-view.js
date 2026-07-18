@@ -262,6 +262,15 @@ function sourceVisibleLineIndex(lineIndex, direction) {
 
 function handleSourceClick(event) {
   const target = event.target;
+  const blameEntry = target?.closest?.('[data-blame-sha]');
+  if (blameEntry) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (window.__kakapoHistory && typeof window.__kakapoHistory.openCommit === 'function') {
+      window.__kakapoHistory.openCommit(blameEntry.dataset.blameSha, blameEntry.dataset.blamePath || '');
+    }
+    return;
+  }
   const foldButton = target?.closest?.('[data-source-fold]');
   if (foldButton) {
     event.preventDefault();
@@ -780,16 +789,112 @@ function setSourceTypeIcon(path) {
   holder.innerHTML = icon ? icon.outerHTML : '';
 }
 // Files-mode tabs: each distinct file opened in the source viewer becomes a tab (session-only).
-// Cmd/Ctrl+W closes the active tab; Cmd/Ctrl+Shift+[ / ] cycle tabs; the × button closes one.
+// Cmd/Ctrl+W closes the active tab; Cmd/Ctrl+Shift+[ / ] cycle tabs; the × button closes one. Tabs that
+// cannot fit the current window are collapsed into one N+ menu while the active file always stays visible.
 // (sourceTabs is declared near the other source state up top so early restore-state openSourceFile
 // calls run before this block don't see an undefined array.)
 function addSourceTab(path) { if (path && sourceTabs.indexOf(path) < 0) sourceTabs.push(path); }
 function sourceTabLabel(path) { var p = String(path || ''); var s = p.lastIndexOf('/'); return s >= 0 ? p.slice(s + 1) : p; }
+function sourceTabMenuLabel(path) {
+  var p = String(path || ''), name = sourceTabLabel(p), slash = p.lastIndexOf('/');
+  return slash > 0 ? name + '  —  ' + p.slice(0, slash) : name;
+}
 function currentSourceTabPath() { var v = document.getElementById('source-viewer'); return (v && v.dataset.openPath) || ''; }
+var sourceTabOverflowPaths = [];
+var sourceTabOverflowRaf = 0;
+var sourceTabResizeObserver = null;
+
+function sourceTabElementWidth(element, fallback) {
+  if (!element) return fallback || 0;
+  var rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
+  return Math.ceil((rect && rect.width) || element.offsetWidth || fallback || 0);
+}
+
+function syncSourceTabOverflow(activePath) {
+  sourceTabOverflowRaf = 0;
+  var bar = document.getElementById('source-tabs');
+  if (!bar || bar.classList.contains('hidden')) return;
+  var tabs = Array.prototype.slice.call(bar.querySelectorAll('.source-tab'));
+  var overflow = bar.querySelector('.source-tab-overflow');
+  if (!overflow) return;
+  tabs.forEach(function (tab) { tab.classList.remove('source-tab-overflowed'); });
+  overflow.classList.add('hidden');
+  bar.classList.remove('tabs-overflowing');
+  sourceTabOverflowPaths = [];
+  if (tabs.length < 2 || !bar.clientWidth) return;
+
+  var style = window.getComputedStyle ? window.getComputedStyle(bar) : null;
+  var padding = style ? (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0) : 0;
+  var gap = style ? (parseFloat(style.columnGap || style.gap) || 0) : 1;
+  var available = Math.max(0, bar.clientWidth - padding);
+  var widths = tabs.map(function (tab) { return sourceTabElementWidth(tab, 120); });
+  var total = widths.reduce(function (sum, width) { return sum + width; }, 0) + gap * Math.max(0, tabs.length - 1);
+  if (total <= available) return;
+
+  // The counter has a fixed compact width, so changing 4+ to 12+ cannot reopen the overflow calculation.
+  var overflowWidth = sourceTabElementWidth(overflow, 44);
+  var tabBudget = Math.max(0, available - overflowWidth - gap);
+  var visible = new Set();
+  var activeIndex = tabs.findIndex(function (tab) { return tab.getAttribute('data-tab-path') === activePath; });
+  var used = 0;
+  if (activeIndex >= 0) {
+    visible.add(activeIndex);
+    used = widths[activeIndex];
+  }
+  tabs.forEach(function (_tab, index) {
+    if (visible.has(index)) return;
+    var next = widths[index] + (visible.size ? gap : 0);
+    if (used + next <= tabBudget) {
+      visible.add(index);
+      used += next;
+    }
+  });
+  // With an extremely narrow window, preserving the active editor is more important than fitting the
+  // counter perfectly. If there is no active path, keep the first tab as the keyboard/navigation anchor.
+  if (!visible.size && tabs.length) visible.add(activeIndex >= 0 ? activeIndex : 0);
+
+  tabs.forEach(function (tab, index) {
+    var hidden = !visible.has(index);
+    tab.classList.toggle('source-tab-overflowed', hidden);
+    if (hidden) sourceTabOverflowPaths.push(tab.getAttribute('data-tab-path') || '');
+  });
+  sourceTabOverflowPaths = sourceTabOverflowPaths.filter(Boolean);
+  if (!sourceTabOverflowPaths.length) return;
+  overflow.textContent = sourceTabOverflowPaths.length + '+';
+  overflow.setAttribute('aria-label', t('source.hiddenTabs').replace('{count}', String(sourceTabOverflowPaths.length)));
+  overflow.setAttribute('title', t('source.hiddenTabs').replace('{count}', String(sourceTabOverflowPaths.length)));
+  overflow.classList.remove('hidden');
+  bar.classList.add('tabs-overflowing');
+}
+
+function scheduleSourceTabOverflow(activePath) {
+  if (sourceTabOverflowRaf) cancelAnimationFrame(sourceTabOverflowRaf);
+  sourceTabOverflowRaf = requestAnimationFrame(function () {
+    syncSourceTabOverflow(activePath || currentSourceTabPath());
+  });
+}
+
+function observeSourceTabWidth(bar) {
+  if (!bar || sourceTabResizeObserver || typeof ResizeObserver !== 'function') return;
+  sourceTabResizeObserver = new ResizeObserver(function () { scheduleSourceTabOverflow(currentSourceTabPath()); });
+  sourceTabResizeObserver.observe(bar);
+}
+
+function showSourceTabOverflowMenu(button) {
+  if (!button || !sourceTabOverflowPaths.length || typeof showCustomDropdown !== 'function') return;
+  var rect = button.getBoundingClientRect();
+  showCustomDropdown(Math.max(8, rect.right - 280), rect.bottom + 4, sourceTabOverflowPaths.map(function (path) {
+    return { label: sourceTabMenuLabel(path), onSelect: function () { openSourceFile(path); } };
+  }), rect.top - 4, 'source-tab-overflow-menu');
+}
+
 function renderSourceTabs(activePath) {
   var bar = document.getElementById('source-tabs');
   if (!bar) return;
-  if (!sourceTabs.length) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+  if (!sourceTabs.length) {
+    bar.classList.add('hidden'); bar.innerHTML = ''; sourceTabOverflowPaths = [];
+    return;
+  }
   bar.classList.remove('hidden');
   bar.innerHTML = sourceTabs.map(function (p) {
     var active = p === activePath;
@@ -797,16 +902,12 @@ function renderSourceTabs(activePath) {
       + '<span class="source-tab-name">' + escapeHtml(sourceTabLabel(p)) + '</span>'
       + '<button type="button" class="source-tab-close" data-keyhint="⌘W" data-close-path="' + escapeHtml(p) + '" aria-label="Close tab" title="Close (⌘W)">×</button>'
       + '</div>';
-  }).join('');
-  // Scroll the tab bar HORIZONTALLY only. scrollIntoView() walks every scrollable ancestor — on rapid
-  // Cmd+Shift+[/] cycling it nudged a vertical ancestor and clipped the tab strip at the top. Adjusting
-  // bar.scrollLeft directly keeps the active tab in view without ever touching vertical scroll.
-  var act = bar.querySelector('.source-tab.active');
-  if (act) {
-    var bl = bar.getBoundingClientRect(), al = act.getBoundingClientRect();
-    if (al.left < bl.left) bar.scrollLeft -= (bl.left - al.left) + 8;
-    else if (al.right > bl.right) bar.scrollLeft += (al.right - bl.right) + 8;
-  }
+  }).join('')
+    + '<button type="button" class="source-tab-overflow hidden" aria-haspopup="menu"></button>';
+  observeSourceTabWidth(bar);
+  // openSourceFile renders before showSourceView reveals a hidden Files surface. Measure on the next frame,
+  // after the final sidebar/window width is available, so maximization and Cmd+1 never use a stale width.
+  scheduleSourceTabOverflow(activePath);
 }
 function closeSourceTab(path) {
   var idx = sourceTabs.indexOf(path);
@@ -834,3 +935,4 @@ function cycleSourceTab(dir) {
   if (cur < 0) cur = 0;
   openSourceFile(sourceTabs[(cur + dir + sourceTabs.length) % sourceTabs.length]);
 }
+window.addEventListener('resize', function () { scheduleSourceTabOverflow(currentSourceTabPath()); }, { passive: true });

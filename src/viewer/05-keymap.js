@@ -293,6 +293,11 @@ document.addEventListener('keydown', (event) => {
       runHttpAtCaret();
       return;
     }
+    // Option+Enter on a diagnostic line drafts a "fix this" change-request comment for the agent.
+    if (event.altKey && typeof createFixCommentAtCaret === 'function' && createFixCommentAtCaret()) {
+      event.preventDefault();
+      return;
+    }
   }
 
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === 'ArrowDown') {
@@ -376,6 +381,13 @@ document.addEventListener('keydown', (event) => {
       if (event.key === '[') navBack(); else navForward();
       return;
     }
+  }
+
+  if (event.key === 'F2' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    // F2 / Shift+F2 steps between language-server problems inside the open source file. It only consumes the
+    // key when the source view owns it (a code file is on screen); otherwise the event falls through.
+    if (typeof gotoDiagnostic === 'function' && gotoDiagnostic(event.shiftKey ? -1 : 1)) event.preventDefault();
+    return;
   }
 
   if (event.key === 'F7' && !event.metaKey && !event.ctrlKey && !event.altKey) {
@@ -483,6 +495,8 @@ document.getElementById('back-to-diff')?.addEventListener('click', () => showDif
 document.getElementById('source-tabs')?.addEventListener('click', function (event) {
   var closeBtn = event.target && event.target.closest && event.target.closest('.source-tab-close');
   if (closeBtn) { event.stopPropagation(); event.preventDefault(); closeSourceTab(closeBtn.getAttribute('data-close-path')); return; }
+  var overflow = event.target && event.target.closest && event.target.closest('.source-tab-overflow');
+  if (overflow) { event.stopPropagation(); event.preventDefault(); showSourceTabOverflowMenu(overflow); return; }
   var tab = event.target && event.target.closest && event.target.closest('.source-tab');
   if (tab) openSourceFile(tab.getAttribute('data-tab-path'));
 });
@@ -501,10 +515,10 @@ document.addEventListener('keydown', function (event) {
 }, true);
 document.addEventListener('copy', handleSourceCopy);
 
-// One consistent shortcut tooltip for every ordinary button, including controls created after startup.
-// Explicit application shortcuts use data-keyhint; ordinary buttons advertise Enter, which is their native
-// keyboard activation. Custom select triggers are excluded: hovering a closed dropdown does not focus it,
-// so an Enter hint there promises an action that cannot occur. Activity-rail buttons keep their own tooltip.
+// One consistent tooltip for controls that have an explicit application shortcut, including controls
+// created after startup. Do not synthesize an Enter tooltip for ordinary buttons: list rows, tabs and menu
+// items already state their action on screen, so repeating that label in a large bubble only obscures content.
+// Custom select triggers are excluded, and activity-rail buttons keep their own tooltip.
 (function installButtonShortcutHints() {
   var hint = document.createElement('div');
   hint.id = 'mc-button-hint';
@@ -515,9 +529,8 @@ document.addEventListener('copy', handleSourceCopy);
   var owner = null;
   function buttonFor(target) {
     var button = target && target.closest ? target.closest('button') : null;
-    // File rows already expose their path through the Opt+Enter action menu. Showing the same path in a
-    // large hover bubble obscures neighbouring rows and competes with keyboard navigation.
-    return button && !button.classList.contains('rail-btn') && !button.classList.contains('mc-select')
+    return button && button.hasAttribute('data-keyhint')
+      && !button.classList.contains('rail-btn') && !button.classList.contains('mc-select')
       && !button.classList.contains('file-link') ? button : null;
   }
   function buttonLabel(button) {
@@ -535,7 +548,7 @@ document.addEventListener('copy', handleSourceCopy);
       button.setAttribute('data-hint-title', button.getAttribute('title') || '');
       button.removeAttribute('title');
     }
-    hint.querySelector('kbd').textContent = button.getAttribute('data-keyhint') || '↵';
+    hint.querySelector('kbd').textContent = button.getAttribute('data-keyhint');
     hint.classList.remove('hidden');
     var rect = button.getBoundingClientRect();
     var box = hint.getBoundingClientRect();

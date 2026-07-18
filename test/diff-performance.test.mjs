@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const layers = readFileSync(new URL("../src/viewer/00-diff-layers.js", import.meta.url), "utf8");
+const alignment = readFileSync(new URL("../src/viewer/01-diff-alignment.js", import.meta.url), "utf8");
 
 test("layered diff gutter batches every row measurement before mutating live gutter DOM", () => {
   const match = layers.match(/function refreshLayeredDiffSide\b[\s\S]*?(?=\nfunction refreshLayeredDiffGutters\b)/);
@@ -30,5 +31,28 @@ test("inactive diff files defer gutter work until navigation makes them visible"
     layers,
     /function scheduleLayeredDiffGutters\b[\s\S]*?classList\.contains\('df-inactive'\)[\s\S]*?return;/,
     "scheduled projection also ignores hidden files",
+  );
+});
+
+test("native window resizing defers row projection and connector geometry until the viewport settles", () => {
+  assert.match(
+    layers,
+    /window\.addEventListener\('resize',[\s\S]*?diffViewportResizing = true;[\s\S]*?setTimeout\(settleDiffViewportResize, 140\)/,
+    "viewport resize enters one debounced settling phase",
+  );
+  assert.match(
+    layers,
+    /ResizeObserver\(function \(\) \{[\s\S]*?if \(diffViewportResizing\) \{[\s\S]*?__mcDiffLayersDirty = true;[\s\S]*?return;/,
+    "row measurement is skipped while native bounds are still changing",
+  );
+  assert.match(
+    layers,
+    /function settleDiffViewportResize\b[\s\S]*?visibleDiffWrappersAfterResize\(\)\.forEach[\s\S]*?scheduleLayeredDiffGutters\(wrapper\)/,
+    "only visible diff layers are refreshed once at the final viewport width",
+  );
+  assert.match(
+    alignment,
+    /if \(typeof diffViewportResizing === 'undefined' \|\| !diffViewportResizing\) scheduleAsymmetricDiffScroll\(\)/,
+    "connector alignment does not force layout during intermediate resize frames",
   );
 });

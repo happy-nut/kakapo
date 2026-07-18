@@ -229,11 +229,14 @@ function interpolatedDiffAlignmentOffset(geometry, y, referenceSide) {
   var progress = Math.max(0, Math.min(1, (y - before[centerKey]) / (after[centerKey] - before[centerKey])));
   return beforeOffset + (afterOffset - beforeOffset) * progress;
 }
-function diffReferenceSide(wrapper, state) {
+function diffReferenceSide(wrapper, state, cursor) {
   if (state && (state.wheelSide === 'old' || state.wheelSide === 'new')) return state.wheelSide;
   if (state && (state.pointerSide === 'old' || state.pointerSide === 'new')) return state.pointerSide;
-  if (typeof diffCursor !== 'undefined' && diffCursor && wrapper && diffCursor.path === wrapper.dataset.path) {
-    return diffCursor.side === 'old' ? 'old' : 'new';
+  var activeCursor = arguments.length >= 3
+    ? cursor
+    : (typeof diffCursor !== 'undefined' ? diffCursor : null);
+  if (activeCursor && wrapper && activeCursor.path === wrapper.dataset.path) {
+    return activeCursor.side === 'old' ? 'old' : 'new';
   }
   return state && state.referenceSide === 'old' ? 'old' : 'new';
 }
@@ -293,9 +296,7 @@ function rebaseAsymmetricDiffReference(container, state, referenceSide, scrollTo
 // always keeps its current transform, so changing sides never snaps code under the reviewer. If a distant
 // semantic anchor asks for a large correction, only the opposite pane catches up, capped by the distance
 // of the user's own scroll gesture; once it reaches the target the two panes resume moving together.
-function scrollAsymmetricDiff() {
-  var container = document.getElementById('diff2html-container');
-  var wrapper = typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null;
+function scrollAsymmetricDiffSurface(container, wrapper, cursor) {
   var state = wrapper && wrapper.__asymmetricDiffState;
   if (!container || !state || !state.oldContent || !state.newContent || !container.clientHeight) {
     if (state && state.oldContent) state.oldContent.style.transform = '';
@@ -305,7 +306,7 @@ function scrollAsymmetricDiff() {
   var scrollTop = container.scrollTop || 0;
   var originalScrollTop = scrollTop;
   var anchor = Math.round(container.clientHeight * 0.15);
-  var referenceSide = diffReferenceSide(wrapper, state);
+  var referenceSide = diffReferenceSide(wrapper, state, cursor);
   var referenceChanged = state.initialized && state.referenceSide !== referenceSide;
   var scrollDistance = Math.abs(originalScrollTop - (Number.isFinite(state.lastScrollTop) ? state.lastScrollTop : originalScrollTop));
   if (referenceChanged) scrollTop = rebaseAsymmetricDiffReference(container, state, referenceSide, scrollTop);
@@ -341,6 +342,12 @@ function scrollAsymmetricDiff() {
   state.referenceChanged = referenceChanged;
   applyAsymmetricDiffOffsets(state, oldOffset, newOffset);
   renderDiffConnectors(wrapper, state);
+}
+function scrollAsymmetricDiff() {
+  var container = document.getElementById('diff2html-container');
+  var wrapper = typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null;
+  var cursor = typeof diffCursor !== 'undefined' ? diffCursor : null;
+  scrollAsymmetricDiffSurface(container, wrapper, cursor);
 }
 function scheduleAsymmetricDiffScroll() {
   if (asymmetricDiffScrollRaf) return;
@@ -386,8 +393,11 @@ if (asymmetricDiffContainer) {
   }, { passive: true });
 }
 window.addEventListener('resize', function () {
-  Array.prototype.forEach.call(document.querySelectorAll('.d2h-file-wrapper'), function (wrapper) {
+  Array.prototype.forEach.call(document.querySelectorAll('.d2h-file-wrapper:not(.df-inactive)'), function (wrapper) {
     invalidateAsymmetricDiffGeometry(wrapper);
   });
-  scheduleAsymmetricDiffScroll();
+  // 00-diff-layers owns viewport settling. Running alignment immediately here forces connector/anchor
+  // layout on every intermediate native resize frame and can leave the expanded window showing its old
+  // compositor surface. The settling callback schedules one alignment pass at the final width.
+  if (typeof diffViewportResizing === 'undefined' || !diffViewportResizing) scheduleAsymmetricDiffScroll();
 });

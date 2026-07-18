@@ -46,6 +46,20 @@ test("a focused dock / settings overlay hides the file's blinking caret beneath 
   assert.match(css, /body:has\(#settings-modal:not\(\.hidden\)\)\s*\.code-cursor/, "settings overlay covered");
 });
 
+test("merged prompts and memo keep compact 24px content insets and clickable header controls", () => {
+  const host = ruleBodyForExactSelector(".mc-inline-editor-host");
+  assert.match(css, /\.dock-panel\s*\{\s*position:\s*fixed;[^}]*width:\s*min\(1048px,\s*calc\(100vw\s*-\s*48px\)\)/s, "the floating panel wraps the 920px document with 64px of padding per side");
+  assert.match(css, /\.dock-panel\s*\{\s*position:\s*fixed;[^}]*left:\s*50%/s, "the narrower writing panel stays centred");
+  assert.match(host || "", /width:\s*min\(920px,\s*calc\(100%\s*-\s*48px\)\)/, "the shared editor preserves its readable max width while leaving 24px on each side when constrained");
+  assert.match(host || "", /padding:\s*24px\s+0\s+64px/, "the shared editor starts 24px below the header");
+  const empty = ruleBodyForExactSelector('.mc-inline-editor-host[data-empty="true"]::before');
+  assert.match(empty || "", /top:\s*24px/, "an empty memo placeholder follows the same compact top inset");
+  const dockButtons = ruleBodyForExactSelector(".dock-bar button");
+  const activeDockButtons = ruleBodyForExactSelector(".dock-bar button:not(:disabled)");
+  assert.match(dockButtons || "", /-webkit-app-region:\s*no-drag/, "every dock-header button remains interactive in Electron chrome");
+  assert.match(activeDockButtons || "", /cursor:\s*pointer/, "clear, copy, and maximize controls advertise clickability");
+});
+
 test("current-file find stays beneath modal dim layers", () => {
   const fileFind = ruleBodyForExactSelector(".file-find");
   const quickOpen = ruleBodyForExactSelector(".quick-open");
@@ -134,6 +148,24 @@ test("source line-number gutter stays compact and internally aligned", () => {
     /\.source-table\s+\.mc-thread-cell[^{}]*\{[^}]*calc\(var\(--source-gutter-width\)\s*\+\s*10px\)/,
     "source comment rows stay aligned with the compact gutter",
   );
+  assert.match(
+    css,
+    /\.source-body\.source-blame-visible[^{}]*\{[^}]*--source-gutter-width:\s*clamp\(/,
+    "blame expands the existing gutter instead of opening a separate panel",
+  );
+  assert.match(
+    css,
+    /\.source-blame-entry\s*\{[^}]*grid-template-columns:\s*64px\s+minmax\(0,\s*1fr\)/,
+    "blame keeps distinct date and author columns beside the line number",
+  );
+  assert.match(
+    css,
+    /\.source-body\.source-blame-visible\s+\.source-table \.num\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/,
+    "date and author grow to the left while the original source line-number edge stays beside code",
+  );
+  assert.match(css, /\.source-body\.source-blame-visible\s+\.source-table \.num\s*\{[^}]*gap:\s*6px/, "source attribution leaves a compact gap before the intrinsic-width line number");
+  assert.match(css, /\.source-blame-entry\.mc-blame-age-0[^}]*background:/, "newest source blame rows have an age color");
+  assert.match(css, /\.source-blame-entry\.mc-blame-age-4[^}]*background:/, "oldest source blame rows have a distinct age color");
 });
 
 test("raw source rows keep one-line defaults and expose an explicit wrap mode", () => {
@@ -165,6 +197,18 @@ test("diff line wrap constrains both panes while preserving the fixed gutter", (
     "wrapped panes no longer expose a redundant horizontal scrollbar",
   );
   assert.match(sourceCss, /\.mc-diff-gutter-layer[^}]*width:\s*52px/, "the layered gutter width remains independent of wrapped code");
+  assert.match(
+    sourceCss,
+    /\.mc-diff-blame-visible \.d2h-file-side-diff:first-child \.mc-diff-gutter-number[^}]*grid-template-columns:\s*max-content\s+minmax\(0,\s*1fr\)/,
+    "base blame keeps its line number first, directly beside base code",
+  );
+  assert.match(
+    sourceCss,
+    /\.mc-diff-blame-visible \.d2h-file-side-diff:last-of-type \.mc-diff-gutter-number[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+max-content/,
+    "working-tree blame keeps its line number last, directly beside working code",
+  );
+  assert.match(sourceCss, /\.mc-diff-blame-visible \.mc-diff-gutter-number[^}]*gap:\s*6px/, "diff attribution and line number remain visibly separated on both panes");
+  assert.match(sourceCss, /\.mc-diff-blame-entry\.mc-blame-age-0[^}]*background:/, "diff blame uses the same newest age color");
 });
 
 test("shared Markdown typography preserves readable paragraph rhythm", () => {
@@ -227,6 +271,8 @@ test("modern chrome uses one compact radius and elevation system without roundin
   assert.match(css, /\.source-tabs,[\s\S]{0,180}align-items:\s*flex-end[^}]*padding:\s*4px 6px 0/, "file tabs sit on the strip divider instead of floating above it");
   assert.match(css, /\.source-tab\s*\{[^}]*border-radius:\s*var\(--ui-radius-md\) var\(--ui-radius-md\) 0 0/, "file tabs only round their attached top corners");
   assert.match(css, /\.source-tab\.active\s*\{[^}]*margin-bottom:\s*-1px[^}]*background:\s*var\(--chrome-bg\)[^}]*box-shadow:\s*none/, "the active tab joins the content surface without a floating shadow");
+  assert.match(css, /\.source-tabs\s*\{[^}]*overflow:\s*hidden/, "overflowing file tabs are collected instead of exposing a horizontal scroller");
+  assert.match(css, /\.source-tab-overflow\s*\{[^}]*flex:\s*0\s+0\s+44px/, "the N+ group reserves one stable compact tab width");
   assert.match(css, /\.settings-cat\.active\s*\{[^}]*box-shadow:\s*none/, "settings navigation follows the same full-surface selection language");
 });
 

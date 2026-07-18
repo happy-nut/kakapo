@@ -12,10 +12,25 @@ export type GitCommit = {
   subject: string;
 };
 
+export type GitBlameLine = {
+  line: number;
+  hash: string;
+  author: string;
+  date: string; // YYYY-MM-DD
+  summary: string;
+};
+
 // Field/record separators that can't occur in git output, so subjects with spaces/commas parse cleanly.
 const FS = "\x1f";
 const RS = "\x1e";
 const PRETTY = `--pretty=format:%H${FS}%P${FS}%an${FS}%ae${FS}%ad${FS}%D${FS}%s${RS}`;
+
+function trackedWorkspacePath(root: string, requestedPath: string): string {
+  const path = String(requestedPath || "").replace(/\\/g, "/");
+  if (!path || path.startsWith("/") || path.includes(":") || path.includes("\0") || path.includes("\n")) return "";
+  if (path.split("/").some((part) => !part || part === "." || part === "..")) return "";
+  return git(root, ["ls-files", "--error-unmatch", "--", path]) ? path : "";
+}
 
 function parseGitCommits(out: string): GitCommit[] {
   if (!out) return [];
@@ -66,13 +81,11 @@ export function readGitLineLog(
   root: string,
   request: { path: string; line: number; limit?: number },
 ): GitCommit[] {
-  const path = String(request.path || "").replace(/\\/g, "/");
+  const path = trackedWorkspacePath(root, request.path);
   const line = Math.trunc(Number(request.line));
   const limit = request.limit && request.limit > 0 ? Math.min(Math.trunc(request.limit), 500) : 300;
-  if (!path || path.startsWith("/") || path.includes(":") || path.includes("\0") || path.includes("\n")) return [];
-  if (path.split("/").some((part) => !part || part === "." || part === "..")) return [];
+  if (!path) return [];
   if (!Number.isInteger(line) || line < 1) return [];
-  if (!git(root, ["ls-files", "--error-unmatch", "--", path])) return [];
   const out = git(root, [
     "-c", "log.showSignature=false",
     "log", "--no-color", "--no-patch",
@@ -84,6 +97,61 @@ export function readGitLineLog(
     "--",
   ]);
   return parseGitCommits(out);
+}
+
+// One stable commit attribution per working-tree line. Porcelain mode is locale-independent and keeps
+// author names with spaces intact. Root commits are normal hashes (`--root`) rather than boundary hashes,
+// so every committed annotation can open the existing commit-diff renderer directly.
+export function readGitBlame(root: string, requestedPath: string, revision?: string): GitBlameLine[] {
+  const path = trackedWorkspacePath(root, requestedPath);
+  if (!path) return [];
+  const requestedRevision = String(revision || "");
+  // The revision comes from the review snapshot owned by main, never arbitrary renderer input. Resolve a
+  // normal branch/tag/base name to an immutable commit before placing it in blame's option-bearing argv.
+  if (requestedRevision && !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(requestedRevision)) return [];
+  const target = requestedRevision
+    ? git(root, ["rev-parse", "--verify", `${requestedRevision}^{commit}`])
+    : "";
+  if (requestedRevision && !/^[0-9a-fA-F]{40,64}$/.test(target)) return [];
+  const args = ["blame", "--line-porcelain", "--root"];
+  if (target) args.push(target);
+  args.push("--", path);
+  const out = git(root, args);
+  if (!out) return [];
+  const rows = out.split("\n");
+  const result: GitBlameLine[] = [];
+  for (let index = 0; index < rows.length;) {
+    const header = rows[index]?.match(/^([0-9a-fA-F]{40,64})\s+\d+\s+(\d+)(?:\s+\d+)?$/);
+    if (!header) { index += 1; continue; }
+    const hash = header[1];
+    const line = Number(header[2]);
+    const metadata: Record<string, string> = {};
+    index += 1;
+    while (index < rows.length && !rows[index].startsWith("\t")) {
+      const separator = rows[index].indexOf(" ");
+      if (separator > 0) metadata[rows[index].slice(0, separator)] = rows[index].slice(separator + 1);
+      index += 1;
+    }
+    if (index < rows.length && rows[index].startsWith("\t")) index += 1;
+    const seconds = Number(metadata["author-time"]);
+    const zone = String(metadata["author-tz"] || "").match(/^([+-])(\d{2})(\d{2})$/);
+    const zoneMinutes = zone
+      ? (zone[1] === "-" ? -1 : 1) * (Number(zone[2]) * 60 + Number(zone[3]))
+      : 0;
+    const date = Number.isFinite(seconds) && seconds > 0
+      ? new Date((seconds + zoneMinutes * 60) * 1000).toISOString().slice(0, 10)
+      : "";
+    if (Number.isInteger(line) && line > 0) {
+      result.push({
+        line,
+        hash,
+        author: metadata.author || "",
+        date,
+        summary: metadata.summary || "",
+      });
+    }
+  }
+  return result;
 }
 
 // Full detail for one commit: metadata, full message body, and the rendered diff (diff2html HTML).

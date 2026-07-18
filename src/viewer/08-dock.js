@@ -141,7 +141,7 @@ function openMergedView(kind) {
   var closingMergedView = false;
   var mergedInitialized = false;
   var validatingCommentFiles = true;
-  function mergedItems() { return reviewComments.filter(function (comment) { return comment.kind === kind; }); }
+  function mergedItems() { return reviewComments.filter(function (comment) { return comment.kind === kind && !comment.addressed; }); }
   function flushMergedComments() {
     if (commentSyncTimer) { clearTimeout(commentSyncTimer); commentSyncTimer = 0; }
     if (editor) sourceText = editor.getMarkdown();
@@ -438,6 +438,8 @@ function openMemoView() {
 document.addEventListener('click', function (event) {
   var t = event.target;
   if (!t || !t.closest) return;
+  var reopen = t.closest('.mc-reopen');
+  if (reopen) { event.preventDefault(); reopenComment(parseInt(reopen.dataset.seq, 10)); return; }
   var del = t.closest('.mc-del');
   if (del) { event.preventDefault(); deleteComment(parseInt(del.dataset.seq, 10)); return; }
   if (t.closest('.mc-save')) { event.preventDefault(); saveComposer(); return; }
@@ -550,14 +552,16 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   }
   function fill() {
     var s = loadMergePrompts();
-    if (pta) { pta.value = typeof s.plan === 'string' ? s.plan : ''; pta.placeholder = defaultMergePrompt('plan'); }
-    if (qta) { qta.value = typeof s.q === 'string' ? s.q : ''; qta.placeholder = defaultMergePrompt('q'); }
-    if (cta) { cta.value = typeof s.c === 'string' ? s.c : ''; cta.placeholder = defaultMergePrompt('c'); }
+    // Defaults are real editable values, not placeholders. This makes the effective prompt visible
+    // before the first edit and lets a reviewer verify exactly what was saved after reopening Settings.
+    if (pta) { pta.value = (typeof s.plan === 'string' && s.plan.trim()) ? s.plan : defaultMergePrompt('plan'); pta.placeholder = ''; }
+    if (qta) { qta.value = (typeof s.q === 'string' && s.q.trim()) ? s.q : defaultMergePrompt('q'); qta.placeholder = ''; }
+    if (cta) { cta.value = (typeof s.c === 'string' && s.c.trim()) ? s.c : defaultMergePrompt('c'); cta.placeholder = ''; }
   }
   function open(cat) { fill(); if (cat) showCat(cat); modal.classList.remove('hidden'); }
   function close() { modal.classList.add('hidden'); }
   var flashTimer = null;
-  function flash() { if (!savedMsg) return; savedMsg.textContent = 'Saved'; if (flashTimer) clearTimeout(flashTimer); flashTimer = setTimeout(function () { savedMsg.textContent = ''; }, 1200); }
+  function flash() { if (!savedMsg) return; savedMsg.textContent = t('settings.saved'); if (flashTimer) clearTimeout(flashTimer); flashTimer = setTimeout(function () { savedMsg.textContent = ''; }, 1200); }
   if (gearBtn) gearBtn.addEventListener('click', function (e) { e.stopPropagation(); if (modal.classList.contains('hidden')) open('general'); else close(); });
   if (flag) flag.addEventListener('click', function (e) { e.stopPropagation(); open('general'); });
   cats.forEach(function (c) { c.addEventListener('click', function () { showCat(c.dataset.cat); }); });
@@ -619,7 +623,7 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
       locale = next;
       persistSave(LOCALE_KEY, locale);
       applyI18n();
-      fill(); // merge-prompt placeholders are locale-dependent defaults
+      fill(); // unsaved merge-prompt defaults follow the active locale
       try { if (typeof refreshComments === 'function') refreshComments(); } catch (e) {}
       var mergedModal = document.getElementById('mc-modal');
       if (mergedModal) { var mk = mergedModal.dataset.kind || 'q'; mergedModal.remove(); openMergedView(mk); }

@@ -134,6 +134,7 @@ test("closing a comment composer removes the hovered button shortcut bubble", as
   const save = input.closest(".mc-comment-row").querySelector(".mc-save");
   save.dispatchEvent(new v.window.MouseEvent("mouseover", { bubbles: true }));
   assert.equal(v.$("#mc-button-hint").classList.contains("hidden"), false, "hover shows the Comment shortcut");
+  assert.equal(v.$("#mc-button-hint kbd").textContent, "⌘↵", "the tooltip advertises the real save shortcut instead of generic Enter");
 
   v.window.closeComposer();
   await v.settle(0);

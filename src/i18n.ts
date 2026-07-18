@@ -86,7 +86,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.copyAbsolutePath": "Copy absolute path",
     "menu.revealFinder": "Show in File Manager",
     "menu.openTerminal": "Open Terminal here",
-    "menu.showLineHistory": "Show Git log for this line",
+    "menu.showLineHistory": "Show date and author",
+    "menu.hideLineHistory": "Hide date and author",
 
     // Sidebar footer / About
     "sidebar.updateAvailable": "update available",
@@ -123,6 +124,12 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Diff view
     "diff.noDiff": "No diff to review.",
     "diff.lastHunk": "Last change in this file — press F7 again to go to the next file.",
+    "diag.none": "No language-server problems in this file.",
+    "diag.fixComment": "Fix this problem: {message}",
+    "diag.fixAdded": "Added a change request to fix this problem.",
+    "comment.addressed": "possibly addressed",
+    "comment.addressed.hint": "The line this comment was anchored to changed in the latest revision — the agent likely addressed it. Reopen if it isn't resolved.",
+    "comment.reopen": "Reopen",
     "diff.previous": "Previous change (Shift+F7)",
     "diff.next": "Next change (F7)",
     "diff.hideSidebar": "Hide changed files",
@@ -140,6 +147,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Source toolbar
     "source.title": "Source",
     "source.selectFile": "Select a file from the Files tab.",
+    "source.hiddenTabs": "{count} hidden tabs",
     "http.env.title": "HTTP Client environment",
     "http.env.aria": "HTTP environment",
     "btn.diff": "Diff",
@@ -262,10 +270,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Settings — Merge prompts
     "mergePrompts.title": "Merge prompts",
-    "mergePrompts.desc": "Headings prepended to the prompts you send to the agent. The plan contract is prepended to change requests (⌘⇧.) and to the prompt memo. Leave any field blank to use the default.",
+    "mergePrompts.desc": "These editable defaults are prepended to prompts sent to the agent and are saved automatically. The plan contract is prepended to change requests (⌘⇧.) and to the prompt memo.",
     "mergePrompts.planHeading": "Plan contract (change requests + memo)",
     "mergePrompts.qHeading": "Questions heading",
-    "mergePrompts.cHeading": "Change-requests heading",
+    "mergePrompts.cHeading": "Change-request instructions",
     "mergePrompts.reset": "Reset to defaults",
     "settings.saved": "Saved",
 
@@ -307,7 +315,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Merge-prompt default agent contracts (these follow the locale — a Korean user gets Korean defaults)
     "mergePrompt.default.q": "The following are questions about code you just wrote. Answer each one — explain the intent, rationale, or context. Do not change any code; this clarifies understanding before any revisions.",
-    "mergePrompt.default.c": "The following are change requests for code you just wrote. For each, edit the code at the quoted location to satisfy the request. Keep changes minimal and focused; do not make unrelated edits.",
+    "mergePrompt.default.c": "The following are change requests for code you just wrote. Work in small units that a human can review independently. Complete and verify one independently reviewable unit at a time before moving to the next. For each request, edit the code at the quoted location to satisfy it. Keep changes minimal and focused; do not combine unrelated changes.",
     // Plan contract — prepended to change requests and the prompt memo so every task starts with a small, verifiable plan written to a file.
     "plan.contract": "Before changing any code, write a short implementation PLAN in your response. Break the work into small, independently verifiable steps — each with a one-line check for how you'll confirm it works. Get the plan right first, then implement one step at a time, keeping each step small enough to review on its own. Do not add kakapo state files to the repository.",
   },
@@ -385,7 +393,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.copyAbsolutePath": "절대 경로 복사",
     "menu.revealFinder": "파일 관리자에서 열기",
     "menu.openTerminal": "해당 위치에서 터미널 열기",
-    "menu.showLineHistory": "이 줄의 Git 로그 보기",
+    "menu.showLineHistory": "날짜와 작성자 표시",
+    "menu.hideLineHistory": "날짜와 작성자 숨기기",
     "tab.changes.title": "변경사항 (⌘0)",
     "tab.files.title": "파일 (⌘1)",
 
@@ -424,6 +433,12 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Diff view
     "diff.noDiff": "검토할 변경사항이 없습니다.",
     "diff.lastHunk": "이 파일의 마지막 변경입니다 — F7을 한 번 더 누르면 다음 파일로 이동합니다.",
+    "diag.none": "이 파일에는 언어 서버 문제가 없습니다.",
+    "diag.fixComment": "이 문제를 고쳐줘: {message}",
+    "diag.fixAdded": "이 문제를 고치는 변경 요청을 추가했습니다.",
+    "comment.addressed": "반영된 듯",
+    "comment.addressed.hint": "이 코멘트가 가리키던 줄이 최신 변경에서 바뀌었습니다 — 에이전트가 반영했을 가능성이 큽니다. 아직 안 됐으면 재열기하세요.",
+    "comment.reopen": "재열기",
     "diff.previous": "이전 변경 (Shift+F7)",
     "diff.next": "다음 변경 (F7)",
     "diff.hideSidebar": "변경 파일 패널 숨기기",
@@ -441,6 +456,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Source toolbar
     "source.title": "소스",
     "source.selectFile": "파일 탭에서 파일을 선택하세요.",
+    "source.hiddenTabs": "숨겨진 탭 {count}개",
     "http.env.title": "HTTP 클라이언트 환경",
     "http.env.aria": "HTTP 환경",
     "btn.diff": "Diff",
@@ -563,10 +579,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Settings — Merge prompts
     "mergePrompts.title": "병합 프롬프트",
-    "mergePrompts.desc": "에이전트에게 보내는 프롬프트 맨 앞에 붙는 머리말입니다. 플랜 계약문은 변경요청(⌘⇧.)과 프롬프트 메모 앞에 붙습니다. 각 칸을 비워 두면 기본값을 사용합니다.",
+    "mergePrompts.desc": "에이전트에게 보내는 프롬프트 앞에 붙는 편집 가능한 기본값이며 수정 내용은 자동 저장됩니다. 플랜 계약문은 변경요청(⌘⇧.)과 프롬프트 메모 앞에 붙습니다.",
     "mergePrompts.planHeading": "플랜 계약문 (변경요청 + 메모)",
     "mergePrompts.qHeading": "질문 머리말",
-    "mergePrompts.cHeading": "변경요청 머리말",
+    "mergePrompts.cHeading": "변경요청 작업 지침",
     "mergePrompts.reset": "기본값으로 초기화",
     "settings.saved": "저장됨",
 
@@ -609,7 +625,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Merge-prompt default agent contracts (Korean default for Korean users)
     "mergePrompt.default.q": "다음은 방금 작성한 코드에 대한 질문입니다. 각 질문에 답하면서 의도, 근거, 맥락을 설명하세요. 코드는 변경하지 마세요. 이 단계는 수정에 앞서 이해를 명확히 하기 위한 것입니다.",
-    "mergePrompt.default.c": "다음은 방금 작성한 코드에 대한 변경 요청입니다. 각 요청에 대해 인용된 위치의 코드를 수정하여 요구사항을 충족하세요. 변경은 최소한으로 집중해서 하고, 관련 없는 수정은 하지 마세요.",
+    "mergePrompt.default.c": "다음은 방금 작성한 코드에 대한 변경 요청입니다. 작업을 사람이 독립적으로 리뷰할 수 있는 작은 단위로 나누세요. 각 단위를 구현하고 검증한 뒤 다음 단위로 진행하세요. 각 요청은 인용된 위치의 코드를 수정해 충족하세요. 변경은 최소한으로 집중해서 하고, 관련 없는 변경을 한 작업에 섞지 마세요.",
     // 플랜 계약문 — 모든 작업이 파일로 작성된 작고 검증 가능한 플랜에서 시작하도록 변경요청과 프롬프트 메모 앞에 붙는다.
     "plan.contract": "코드를 변경하기 전에, 먼저 응답에 짧은 구현 플랜을 작성하세요. 작업을 독립적으로 검증 가능한 작은 단계로 쪼개고, 각 단계마다 어떻게 확인할지 한 줄짜리 검증 기준을 적으세요. 플랜이 맞는지 먼저 확정한 뒤 한 번에 한 단계씩 구현하고, 각 단계는 따로 리뷰할 수 있을 만큼 작게 유지하세요. 저장소에는 모나코리 상태 파일을 추가하지 마세요.",
   },

@@ -1,11 +1,11 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ProjectAnalysis, buildRegexSymbolIndex } from "../dist/analysis.js";
-import { LspClient, normalizeLocationResult, resolveLanguageServer } from "../dist/lsp.js";
+import { LspClient, mapLspDiagnostics, normalizeLocationResult, resolveLanguageServer } from "../dist/lsp.js";
 
 const dirs = [];
 function tempProject() {
@@ -250,12 +250,12 @@ process.stdin.on('data', (chunk) => {
   }
 });
 
-test("language-server resolution prefers a project-local executable and rejects outside locations", () => {
+test("language-server resolution uses a project-local executable only when no bundle exists", () => {
   const root = tempProject();
-  const executable = join(root, "node_modules", ".bin", "typescript-language-server");
-  write(root, "node_modules/.bin/typescript-language-server", "#!/bin/sh\nexit 0\n");
+  const executable = join(root, "node_modules", ".bin", "gopls");
+  write(root, "node_modules/.bin/gopls", "#!/bin/sh\nexit 0\n");
   chmodSync(executable, 0o755);
-  const resolved = resolveLanguageServer(root, "src/app.ts", { PATH: "" }, process.platform);
+  const resolved = resolveLanguageServer(root, "src/app.go", { PATH: "", KAKAPO_LSP_BUNDLE_ROOT: join(root, "missing") }, process.platform);
   assert.equal(resolved?.command, executable);
   assert.equal(resolved?.source, "project");
 
@@ -281,6 +281,89 @@ test("TypeScript resolution uses the packaged sidecar before PATH", () => {
   assert.equal(resolved?.env?.ELECTRON_RUN_AS_NODE, "1");
 });
 
+test("Python and PHP resolve packaged sidecars without consulting PATH", () => {
+  const root = tempProject();
+  const python = resolveLanguageServer(root, "src/app.py", { PATH: "/definitely/missing" }, process.platform);
+  assert.equal(python?.source, "bundled");
+  assert.equal(python?.name, "pyright-langserver");
+  assert.equal(python?.command, process.execPath);
+  assert.match(python?.args[0] ?? "", /pyright[/\\]langserver\.index\.js$/);
+
+  const bundle = join(root, "bundle");
+  const phpRuntime = join(bundle, `${process.platform}-${process.arch}`, "php", "php");
+  write(root, `bundle/${process.platform}-${process.arch}/php/php`, "#!/bin/sh\nexit 0\n");
+  write(root, `bundle/${process.platform}-${process.arch}/php/phpactor.phar`, "test fixture\n");
+  chmodSync(phpRuntime, 0o755);
+  const php = resolveLanguageServer(root, "src/app.php", {
+    PATH: "/definitely/missing",
+    KAKAPO_LSP_BUNDLE_ROOT: bundle,
+  }, process.platform);
+  assert.equal(php?.source, "bundled");
+  assert.equal(php?.name, "phpactor");
+  assert.equal(php?.command, phpRuntime);
+  assert.match(php?.args[0] ?? "", /phpactor\.phar$/);
+  assert.deepEqual(php?.args.slice(1), ["language-server"]);
+});
+
+test("language-server resolution never searches the shell PATH", () => {
+  const root = tempProject();
+  const pathBin = join(root, "path-only");
+  write(root, "path-only/gopls", "#!/bin/sh\nexit 0\n");
+  chmodSync(join(pathBin, "gopls"), 0o755);
+  const resolved = resolveLanguageServer(root, "src/app.go", {
+    PATH: pathBin,
+    KAKAPO_LSP_BUNDLE_ROOT: join(root, "missing-bundle"),
+  }, process.platform);
+  assert.equal(resolved, undefined);
+});
+
+const bundledPhpactor = join(
+  process.cwd(), "vendor", "language-servers", `${process.platform}-${process.arch}`, "php", "phpactor.phar",
+);
+test("bundled Phpactor resolves a cross-file definition semantically", {
+  timeout: 30_000,
+  skip: !existsSync(bundledPhpactor),
+}, async () => {
+  const root = tempProject();
+  write(root, "composer.json", JSON.stringify({ autoload: { "psr-4": { "App\\\\": "src/" } } }));
+  write(root, "src/Target.php", "<?php\nnamespace App;\nfinal class Target { public function value(): int { return 42; } }\n");
+  write(root, "src/App.php", "<?php\nnamespace App;\n$result = (new Target())->value();\n");
+  const analysis = new ProjectAnalysis(root);
+  try {
+    await analysis.prewarm(["src/App.php"]);
+    const definition = await analysis.query({ kind: "definition", path: "src/App.php", line: 2, column: 16, symbol: "Target" });
+    assert.equal(definition.engine, "lsp");
+    assert.equal(definition.confidence, "semantic");
+    assert.equal(definition.server, "phpactor");
+    assert.equal(definition.serverSource, "bundled");
+    assert.equal(definition.locations[0]?.path, "src/Target.php");
+  } finally {
+    analysis.dispose();
+  }
+});
+
+test("packaged Pyright sidecar resolves a cross-file definition semantically", { timeout: 20_000 }, async () => {
+  const root = tempProject();
+  write(root, "pyrightconfig.json", JSON.stringify({ include: ["src"] }));
+  write(root, "src/target.py", "def target() -> int:\n    return 42\n");
+  write(root, "src/app.py", "from target import target\nvalue = target()\n");
+  const analysis = new ProjectAnalysis(root);
+  try {
+    await analysis.prewarm(["src/app.py"]);
+    const definition = await analysis.query({ kind: "definition", path: "src/app.py", line: 1, column: 10, symbol: "target" });
+    assert.equal(definition.engine, "lsp");
+    assert.equal(definition.confidence, "semantic");
+    assert.equal(definition.server, "pyright-langserver");
+    assert.equal(definition.serverSource, "bundled");
+    assert.deepEqual(
+      definition.locations[0] && [definition.locations[0].path, definition.locations[0].lineIndex, definition.locations[0].column],
+      ["src/target.py", 0, 4],
+    );
+  } finally {
+    analysis.dispose();
+  }
+});
+
 test("packaged TypeScript sidecar resolves a cross-file definition semantically", { timeout: 20_000 }, async () => {
   const root = tempProject();
   write(root, "tsconfig.json", JSON.stringify({ compilerOptions: { module: "commonjs", target: "es2022" }, include: ["src"] }));
@@ -303,7 +386,7 @@ test("packaged TypeScript sidecar resolves a cross-file definition semantically"
   }
 });
 
-test("a broken project TypeScript server falls through to the packaged sidecar", {
+test("a broken project TypeScript server cannot displace the packaged sidecar", {
   timeout: 20_000,
   skip: process.platform === "win32",
 }, async () => {
@@ -321,6 +404,103 @@ test("a broken project TypeScript server falls through to the packaged sidecar",
     assert.equal(definition.engine, "lsp");
     assert.equal(definition.serverSource, "bundled");
     assert.equal(definition.locations[0]?.path, "src/target.ts");
+  } finally {
+    analysis.dispose();
+  }
+});
+
+test("mapLspDiagnostics normalizes severity and ranges and drops unusable entries", () => {
+  const mapped = mapLspDiagnostics([
+    { range: { start: { line: 4, character: 2 }, end: { line: 4, character: 9 } }, severity: 1, message: "boom", source: "tsc", code: 2345 },
+    { range: { start: { line: 7, character: 0 }, end: { line: 9, character: 3 } }, severity: 2, message: "spans lines" },
+    { range: { start: { line: 3, character: 1 }, end: { line: 3, character: 1 } }, message: "missing severity is treated as error" },
+    { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, severity: 1, message: "   " },
+    { severity: 1, message: "no range" },
+    { range: { start: { line: -1, character: 0 } }, severity: 1, message: "negative line" },
+  ]);
+  assert.equal(mapped.length, 3);
+  assert.deepEqual(mapped.map((d) => d.severity), ["error", "warning", "error"]);
+  assert.deepEqual([mapped[0].lineIndex, mapped[0].column, mapped[0].endColumn], [4, 2, 9]);
+  assert.equal(mapped[0].code, "2345");
+  assert.equal(mapped[0].source, "tsc");
+  assert.deepEqual([mapped[1].lineIndex, mapped[1].endLineIndex], [7, 9]);
+  assert.deepEqual(mapLspDiagnostics(null), []);
+  assert.deepEqual(mapLspDiagnostics("nope"), []);
+});
+
+test("mapLspDiagnostics drops environment-dependent import-resolution noise but keeps real defects", () => {
+  const mapped = mapLspDiagnostics([
+    // Pyright reportMissingImports on an installed package — false positive without a configured venv.
+    { range: { start: { line: 32, character: 7 }, end: { line: 32, character: 13 } }, severity: 1, code: "reportMissingImports", message: 'Import "pandas" could not be resolved', source: "Pyright" },
+    // tsserver "cannot find module" (code as { value }) — also environment-dependent.
+    { range: { start: { line: 1, character: 0 }, end: { line: 1, character: 20 } }, severity: 1, code: { value: 2307, target: "x" }, message: "Cannot find module 'orjson'." },
+    // A message-only import-resolution hit (server version without a matching code) is still dropped.
+    { range: { start: { line: 2, character: 0 }, end: { line: 2, character: 5 } }, severity: 1, message: 'Import "config" could not be resolved' },
+    // A genuine defect that needs no environment survives.
+    { range: { start: { line: 10, character: 4 }, end: { line: 10, character: 9 } }, severity: 1, code: "reportUndefinedVariable", message: '"total" is not defined', source: "Pyright" },
+  ]);
+  assert.equal(mapped.length, 1, "only the environment-independent defect survives");
+  assert.equal(mapped[0].code, "reportUndefinedVariable");
+  assert.match(mapped[0].message, /not defined/);
+});
+
+test("LSP adapter captures pushed diagnostics and returns them for the opened document", async () => {
+  const root = tempProject();
+  write(root, "src/app.ts", "ok\nconst broken = 1;\nfine\nunused;\n");
+  const fake = join(root, "fake-lsp.mjs");
+  writeFileSync(fake, `
+let buffer = Buffer.alloc(0);
+function send(value) {
+  const body = Buffer.from(JSON.stringify(value));
+  process.stdout.write('Content-Length: ' + body.length + '\\r\\n\\r\\n');
+  process.stdout.write(body);
+}
+process.stdin.on('data', (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+  while (true) {
+    const end = buffer.indexOf('\\r\\n\\r\\n');
+    if (end < 0) return;
+    const header = buffer.subarray(0, end).toString();
+    const length = Number(/Content-Length:\\s*(\\d+)/i.exec(header)?.[1]);
+    if (buffer.length < end + 4 + length) return;
+    const message = JSON.parse(buffer.subarray(end + 4, end + 4 + length));
+    buffer = buffer.subarray(end + 4 + length);
+    if (message.method === 'initialize') { send({ jsonrpc: '2.0', id: message.id, result: { capabilities: {} } }); continue; }
+    if (message.method === 'textDocument/didOpen') {
+      const uri = message.params.textDocument.uri;
+      send({ jsonrpc: '2.0', method: 'textDocument/publishDiagnostics', params: { uri, diagnostics: [
+        { range: { start: { line: 1, character: 6 }, end: { line: 1, character: 12 } }, severity: 1, message: 'Type error', source: 'fake' },
+        { range: { start: { line: 3, character: 0 }, end: { line: 3, character: 6 } }, severity: 2, message: 'Unused symbol' },
+      ] } });
+      continue;
+    }
+    if (typeof message.id === 'number') send({ jsonrpc: '2.0', id: message.id, result: null });
+  }
+});
+`);
+  const client = new LspClient(root, { family: "typescript", name: "fake-lsp", command: process.execPath, args: [fake] });
+  try {
+    const diagnostics = await client.diagnosticsFor("src/app.ts");
+    assert.equal(diagnostics.length, 2);
+    assert.deepEqual(diagnostics.map((d) => d.severity), ["error", "warning"]);
+    assert.deepEqual([diagnostics[0].lineIndex, diagnostics[0].column, diagnostics[0].endColumn], [1, 6, 12]);
+    assert.equal(diagnostics[0].message, "Type error");
+    assert.equal(diagnostics[0].source, "fake");
+  } finally {
+    client.dispose();
+  }
+});
+
+test("project diagnostics report available:false when no language server covers the file", async () => {
+  const root = tempProject();
+  write(root, "src/app.ts", "export const x = 1;\n");
+  const analysis = new ProjectAnalysis(root, { resolveServer: () => undefined });
+  try {
+    const response = await analysis.diagnostics("src/app.ts");
+    assert.equal(response.ok, true);
+    assert.equal(response.available, false);
+    assert.equal(response.engine, "index");
+    assert.deepEqual(response.diagnostics, []);
   } finally {
     analysis.dispose();
   }

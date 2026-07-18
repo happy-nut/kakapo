@@ -33,6 +33,7 @@ export function languageForPath(path: string): string {
   if (lower.endsWith(".md") || lower.endsWith(".mdx")) return "markdown";
   if (lower.endsWith(".py")) return "python";
   if (lower.endsWith(".rb")) return "ruby";
+  if (lower.endsWith(".php")) return "php";
   if (lower.endsWith(".go")) return "go";
   if (lower.endsWith(".rs")) return "rust";
   if (lower.endsWith(".java") || lower.endsWith(".kt") || lower.endsWith(".kts")) return "java";

@@ -39,15 +39,29 @@ function hideCaretHint() {
   if (caretHintTimer) { clearTimeout(caretHintTimer); caretHintTimer = 0; }
   if (caretHintEl) caretHintEl.classList.remove('show');
 }
-// Follow each comment to its snapshot line (c.code) in the current content: same line if unchanged, else the
-// nearest exact match of that line. A comment is NEVER auto-deleted. If its line can't be found we leave it
-// where it is — this happens routinely WITHOUT the file changing: a comment anchored to a deleted/old-side
-// diff line (comments carry no side, so old-side text never matches the new content) would otherwise vanish.
-// Silently dropping user-authored comments loses data; the reviewer can remove a stale one with the × button.
+// Is a comment's anchor line (its snapshot of the commented text) present in the file's current content?
+// Used both when a comment is created (to record that the line was real then) and on every rebuild. A blank
+// or multi-line snapshot has no stable single-line anchor and reports false.
+function anchorLinePresent(path, anchorCode, code) {
+  var file = sourceByPath.get(path);
+  if (!file || !file.embedded || typeof file.content !== 'string' || !file.content) return false;
+  var ac = String(anchorCode == null ? (code == null ? '' : code) : anchorCode);
+  if (!ac.trim() || ac.indexOf('\n') >= 0) return false;
+  return file.content.split(/\r?\n/).indexOf(ac) >= 0;
+}
+// Reconcile comments against the current content after a rebuild (the AI's next round) or a source load.
+// Two jobs:
+//  1. Follow each comment to its anchor line: same line if unchanged, else the nearest exact match. A comment
+//     is NEVER auto-deleted. If its line can't be found we leave it — this happens routinely WITHOUT a change:
+//     a comment on a deleted/old-side diff line never matches the new content and would otherwise vanish.
+//  2. Track resolution across rounds: a comment whose anchor line WAS present but has now disappeared was very
+//     likely acted on by the agent, so mark it addressed (a candidate, not a deletion — the reviewer reopens
+//     if the heuristic was wrong). anchorPresent is set at creation so the first round is not missed; an
+//     old-side anchor is never present, so it never flips to addressed.
 // Files whose content isn't loaded yet (lazy) are skipped here and reconciled after loadSourceFile resolves.
 function remapComments() {
   if (!reviewComments.length) return;
-  var moved = 0;
+  var changed = 0;
   reviewComments.forEach(function (c) {
     var file = sourceByPath.get(c.path);
     if (!file || !file.embedded || typeof file.content !== 'string' || !file.content) return;
@@ -55,20 +69,31 @@ function remapComments() {
     if (code.indexOf('\n') >= 0) return; // legacy multi-line snapshots had no stable anchor line
     if (!code.trim()) return;
     var lines = file.content.split(/\r?\n/);
-    if (lines[c.line - 1] === code) return;
-    var best = -1, bestDist = Infinity;
-    for (var i = 0; i < lines.length; i++) {
-      if (lines[i] === code) { var d = Math.abs(i - (c.line - 1)); if (d < bestDist) { bestDist = d; best = i; } }
+    var present;
+    if (lines[c.line - 1] === code) {
+      present = true; // unchanged at its current line
+    } else {
+      var best = -1, bestDist = Infinity;
+      for (var i = 0; i < lines.length; i++) {
+        if (lines[i] === code) { var d = Math.abs(i - (c.line - 1)); if (d < bestDist) { bestDist = d; best = i; } }
+      }
+      present = best >= 0;
+      if (present && c.line !== best + 1) {
+        var delta = (best + 1) - c.line;
+        c.line = best + 1;
+        if (Number.isFinite(Number(c.from))) c.from = Number(c.from) + delta;
+        if (Number.isFinite(Number(c.to))) c.to = Number(c.to) + delta;
+        changed++;
+      }
     }
-    if (best >= 0 && c.line !== best + 1) {
-      var delta = (best + 1) - c.line;
-      c.line = best + 1;
-      if (Number.isFinite(Number(c.from))) c.from = Number(c.from) + delta;
-      if (Number.isFinite(Number(c.to))) c.to = Number(c.to) + delta;
-      moved++;
-    } // moved to follow the line; not found -> keep as-is
+    if (present) {
+      if (!c.anchorPresent) { c.anchorPresent = true; changed++; } // confirm the anchor is real in this content
+    } else if (c.anchorPresent && !c.addressed) {
+      c.addressed = true; // the commented line is gone in the new content — the agent likely addressed it
+      changed++;
+    }
   });
-  if (!moved) return; // nothing moved — skip the save/re-render
+  if (!changed) return; // nothing moved or re-flagged — skip the save/re-render
   saveComments();
   refreshComments();
 }
@@ -155,8 +180,21 @@ function addComment(kind, path, line, code, text, from, to, side, anchorCode) {
   reviewComments.push({
     seq: commentSeq, kind: kind, path: path, line: line, code: String(code || ''), text: trimmed,
     from: start, to: end, side: side || null, anchorCode: String(anchorCode == null ? code || '' : anchorCode),
+    // Record whether the anchor line exists now so a later rebuild can tell "the line I commented on changed"
+    // from "this old-side anchor was never in the working tree". addressed starts false.
+    anchorPresent: anchorLinePresent(path, anchorCode, code), addressed: false,
   });
   saveComments();
+}
+// The reviewer disagrees with the "possibly addressed" heuristic: reopen the comment. Clear anchorPresent too
+// so it only becomes addressed again if its anchor first reappears and then disappears in a future round.
+function reopenComment(seq) {
+  var c = reviewComments.find(function (x) { return x.seq === seq; });
+  if (!c || !c.addressed) return;
+  c.addressed = false;
+  c.anchorPresent = false;
+  saveComments();
+  refreshComments();
 }
 // Edit an existing comment in place (e on a selected box -> composer prefilled -> save). Empty text deletes it.
 function updateComment(seq, text) {
@@ -252,9 +290,12 @@ function threadHtml(path, line) {
   commentsAt(path, line).forEach(function (c) {
     if (composerState && composerState.editSeq === c.seq) return; // being edited -> rendered as the composer below
     var target = commentTargetLabel(c);
-    html += '<div class="mc-card mc-' + c.kind + '">'
+    var addressed = !!c.addressed;
+    html += '<div class="mc-card mc-' + c.kind + (addressed ? ' mc-addressed' : '') + '">'
       + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(c.kind) + '</span>'
       + '<span class="mc-target" title="' + escapeHtml(target) + '">' + escapeHtml(target) + '</span>'
+      + (addressed ? '<span class="mc-addressed-tag" title="' + escapeHtml(t('comment.addressed.hint')) + '">' + escapeHtml(t('comment.addressed')) + '</span>' : '')
+      + (addressed ? '<button type="button" class="mc-reopen" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reopen')) + '" title="' + escapeHtml(t('comment.reopen')) + '">↺</button>' : '')
       + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
       + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div></div>';
   });
@@ -263,8 +304,8 @@ function threadHtml(path, line) {
     html += '<div class="mc-card mc-' + composerState.kind + ' mc-composer">'
       + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(composerState.kind) + '</span><span class="mc-target" title="' + escapeHtml(commentTargetLabel(composerState)) + '">' + escapeHtml(commentTargetLabel(composerState)) + '</span></div>'
       + '<textarea class="mc-input" rows="3" placeholder="' + escapeHtml(ph) + '">' + escapeHtml(composerState.editText || '') + '</textarea>'
-      + '<div class="mc-actions"><button type="button" class="mc-btn mc-save">' + escapeHtml(t('composer.save')) + '</button>'
-      + '<button type="button" class="mc-btn mc-ghost mc-cancel">' + escapeHtml(t('composer.cancel')) + '</button>'
+      + '<div class="mc-actions"><button type="button" class="mc-btn mc-save" data-keyhint="⌘↵">' + escapeHtml(t('composer.save')) + '</button>'
+      + '<button type="button" class="mc-btn mc-ghost mc-cancel" data-keyhint="Esc">' + escapeHtml(t('composer.cancel')) + '</button>'
       + '<span class="mc-hint">' + escapeHtml(t('composer.hint')) + '</span></div></div>';
   }
   return html;
@@ -569,12 +610,12 @@ function saveMergePrompt(kind, text) {
 
 // Reusable custom dropdown (keyboard + mouse). options: [{ label, onSelect }]. First item is pre-selected;
 // Arrow keys move, Enter chooses, Esc / click-outside dismiss. Replaces native <select>/menus everywhere.
-function showCustomDropdown(x, y, options, flipTop) {
+function showCustomDropdown(x, y, options, flipTop, className) {
   var existing = document.getElementById('mc-dropdown');
   if (existing) existing.remove();
   var dd = document.createElement('div');
   dd.id = 'mc-dropdown';
-  dd.className = 'mc-dropdown';
+  dd.className = 'mc-dropdown' + (className ? ' ' + className : '');
   var active = 0;
   function setActive(i) { active = i; for (var j = 0; j < dd.children.length; j++) dd.children[j].classList.toggle('active', j === i); }
   function close() { dd.remove(); document.removeEventListener('keydown', onKey, true); document.removeEventListener('mousedown', onOutside, true); }
@@ -650,7 +691,9 @@ function mergedCommentSections(kind, markdown) {
 }
 
 function reconcileMergedComments(kind, markdown) {
-  var items = reviewComments.filter(function (comment) { return comment.kind === kind; });
+  // Addressed comments are not rendered into the merged text, so they must be excluded here too — otherwise
+  // reconcile would see them "missing" from the markdown and delete them.
+  var items = reviewComments.filter(function (comment) { return comment.kind === kind && !comment.addressed; });
   if (!items.length) return { changed: false, hadComments: false, remaining: 0 };
   var parsed = mergedCommentSections(kind, markdown);
   var textBySeq = {};
@@ -669,7 +712,7 @@ function reconcileMergedComments(kind, markdown) {
   return {
     changed: changed,
     hadComments: true,
-    remaining: reviewComments.filter(function (comment) { return comment.kind === kind; }).length,
+    remaining: reviewComments.filter(function (comment) { return comment.kind === kind && !comment.addressed; }).length,
   };
 }
 
@@ -682,7 +725,8 @@ function removeMergedCommentSection(kind, markdown, seq) {
 }
 
 function buildMergedText(kind) {
-  var items = reviewComments.filter(function (c) { return c.kind === kind; });
+  // "possibly addressed" comments are held back from the prompt so each round only carries the open items.
+  var items = reviewComments.filter(function (c) { return c.kind === kind && !c.addressed; });
   var nl = String.fromCharCode(10);
   var lines = [];
   // Change requests are task instructions, so they lead with the plan contract: plan first and decompose

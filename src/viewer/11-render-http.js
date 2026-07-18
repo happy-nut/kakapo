@@ -88,6 +88,7 @@ function openSourceFile(path, shouldSwitch = true, options) {
     if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
     updateRenderToggle(path);
     renderSourceComments();
+    if (typeof refreshSourceBlamePaint === 'function') refreshSourceBlamePaint(path);
     if (shouldSwitch) showSourceView();
     return;
   }
@@ -101,6 +102,7 @@ function openSourceFile(path, shouldSwitch = true, options) {
     if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
     updateRenderToggle(path);
     renderSourceComments();
+    if (typeof refreshSourceBlamePaint === 'function') refreshSourceBlamePaint(path);
     if (shouldSwitch) showSourceView();
     return;
   }
@@ -114,6 +116,8 @@ function openSourceFile(path, shouldSwitch = true, options) {
   }
   updateRenderToggle(path);
   renderSourceComments();
+  if (typeof refreshSourceBlamePaint === 'function') refreshSourceBlamePaint(path);
+  if (typeof refreshSourceDiagnostics === 'function') refreshSourceDiagnostics(path);
   if (shouldSwitch) showSourceView();
 }
 
