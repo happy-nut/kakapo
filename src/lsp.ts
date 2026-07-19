@@ -450,6 +450,7 @@ export class LspClient {
   private workspaceQuiescent = false;
   private workspaceWaiters = new Set<() => void>();
   private startupGrace?: Promise<void>;
+  private initialNavigationSettled = false;
   // Diagnostics are pushed by the server via textDocument/publishDiagnostics, not pulled per request. Keep the
   // latest set per document URI plus per-URI waiters so a first read can await the initial publish once.
   private diagnostics = new Map<string, unknown[]>();
@@ -475,8 +476,23 @@ export class LspClient {
       position: { line: Math.max(0, lineIndex), character: Math.max(0, column) },
     };
     if (method === "textDocument/references") params.context = { includeDeclaration: false };
-    const result = await this.requestAfterWorkspaceReady(method, params);
-    return normalizeLocationResult(result, this.root);
+    const retryInitialEmpty = !this.initialNavigationSettled
+      && this.server.source === "bundled"
+      && ["kotlin", "php"].includes(this.server.family);
+    const attempts = retryInitialEmpty ? 4 : 1;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const result = await this.requestAfterWorkspaceReady(method, params);
+      const locations = normalizeLocationResult(result, this.root);
+      if (locations.length || attempt === attempts - 1) {
+        this.initialNavigationSettled = true;
+        return locations;
+      }
+      // Both servers may acknowledge initialize while their first workspace scan is still committing its
+      // index. An empty first answer is ambiguous, so retry it briefly once per client; later genuine misses
+      // remain immediate and never turn ordinary navigation into a polling loop.
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 400 * (attempt + 1)));
+    }
+    return [];
   }
 
   async workspaceSymbols(query: string): Promise<AnalysisLocation[]> {
@@ -751,7 +767,10 @@ export class LspClient {
   }
 
   private async waitForWorkspaceReady(): Promise<void> {
-    const startupGraceMs = this.server.family === "php" ? 1_200 : this.server.family === "kotlin" ? 10_000 : 0;
+    // These bundled servers do not publish a portable "workspace ready" notification. Their initialize
+    // response only means the protocol is live, not that definitions are queryable. Keep the grace in the
+    // background prewarm path so first-use navigation is deterministic on slower Linux runners/workstations.
+    const startupGraceMs = this.server.family === "php" ? 6_000 : this.server.family === "kotlin" ? 18_000 : 0;
     if (startupGraceMs) {
       this.startupGrace ??= new Promise<void>((resolveReady) => {
         const timer = setTimeout(resolveReady, startupGraceMs);

@@ -96,6 +96,12 @@ test("Kotlin packaging preserves relative JBR links instead of retaining tempora
   );
 });
 
+test("Linux ARM64 clang packaging dereferences temporary .deb links", () => {
+  const installer = readFileSync(join(repoRoot, "scripts", "install-language-servers.mjs"), "utf8");
+  assert.match(installer, /cpSync\(realpathSync\(clangd\), join\(output, "bin", "clangd"\)\)/);
+  assert.match(installer, /cpSync\(realpathSync\(found\), join\(output, "lib", library\)\)/);
+});
+
 test("Linux GUI smoke requires an actual Kakapo renderer page", async () => {
   const page = await waitForKakapoRenderer({
     port: 9222,

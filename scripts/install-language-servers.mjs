@@ -13,6 +13,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
 } from "node:fs";
@@ -198,10 +199,14 @@ async function installClang(target, output, cache, work) {
     if (!clangd) throw new Error("clangd was missing from Ubuntu ARM64 packages");
     mkdirSync(join(output, "bin"), { recursive: true });
     mkdirSync(join(output, "lib"), { recursive: true });
-    cpSync(clangd, join(output, "bin", "clangd"));
+    // Ubuntu's clangd and LLVM packages expose versioned files through links inside the extracted .deb
+    // tree. Copying the links verbatim leaves the sidecar pointing back into `work`, which is removed as
+    // soon as installation completes. Dereference every portable payload so the packaged bundle is wholly
+    // self-contained after that cleanup.
+    cpSync(realpathSync(clangd), join(output, "bin", "clangd"));
     for (const library of ["libclang-cpp.so.18", "libLLVM.so.18.1"]) {
       const found = walk(apt, (path) => basename(path) === library);
-      if (found) cpSync(found, join(output, "lib", library));
+      if (found) cpSync(realpathSync(found), join(output, "lib", library));
     }
     chmodSync(join(output, "bin", "clangd"), 0o755);
     return;
