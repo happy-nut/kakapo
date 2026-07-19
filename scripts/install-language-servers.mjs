@@ -165,6 +165,16 @@ function walk(root, predicate) {
   return undefined;
 }
 
+function walkFiles(root, visit) {
+  if (!existsSync(root)) return;
+  for (const name of readdirSync(root)) {
+    const path = join(root, name);
+    const stat = statSync(path);
+    if (stat.isDirectory()) walkFiles(path, visit);
+    else visit(path);
+  }
+}
+
 function extract(archive, destination) {
   mkdirSync(destination, { recursive: true });
   if (/\.(zip|sit)$/i.test(archive)) run("unzip", ["-q", archive, "-d", destination]);
@@ -209,9 +219,17 @@ async function installClang(target, output, cache, work) {
   if (!spec && target === "linux-arm64") {
     const apt = join(work, "clang-apt");
     mkdirSync(apt, { recursive: true });
-    run("apt-get", ["download", "clangd-18", "libclang-cpp18", "libllvm18"], { cwd: apt });
+    // Ubuntu's ARM64 clangd enables remote-index support and therefore links gRPC, Protobuf and Abseil
+    // in addition to LLVM. Download the complete non-glibc runtime closure so the app never relies on
+    // packages that happen to be installed on the build runner or the user's workstation.
+    run("apt-get", ["download",
+      "clangd-18", "libclang-common-18-dev", "libclang-cpp18", "libllvm18",
+      "libabsl20220623t64", "libgrpc++1.51t64", "libgrpc29t64",
+      "libprotobuf32t64", "libprotoc32t64", "libcares2", "libre2-10",
+      "libzstd1", "libtinfo6", "libxml2", "zlib1g",
+    ], { cwd: apt });
     const debs = readdirSync(apt).filter((name) => name.endsWith(".deb"));
-    if (debs.length < 3) throw new Error("Ubuntu clangd-18 ARM64 packages were not downloaded");
+    if (debs.length < 15) throw new Error("Ubuntu clangd-18 ARM64 runtime packages were not downloaded");
     for (const deb of debs) run("dpkg-deb", ["-x", join(apt, deb), apt]);
     const clangd = walk(apt, (path) => /\/clangd$/.test(path));
     if (!clangd) throw new Error("clangd was missing from Ubuntu ARM64 packages");
@@ -222,11 +240,16 @@ async function installClang(target, output, cache, work) {
     // soon as installation completes. Dereference every portable payload so the packaged bundle is wholly
     // self-contained after that cleanup.
     cpSync(realpathSync(clangd), join(output, "bin", "clangd"));
-    for (const library of ["libclang-cpp.so.18", "libLLVM.so.18.1"]) {
-      const found = walk(apt, (path) => basename(path) === library);
-      if (found) cpSync(realpathSync(found), join(output, "lib", library));
-    }
+    walkFiles(apt, (path) => {
+      if (!/\.so(?:\.|$)/.test(basename(path))) return;
+      cpSync(realpathSync(path), join(output, "lib", basename(path)));
+    });
+    const resourceDir = join(apt, "usr", "lib", "llvm-18", "lib", "clang", "18");
+    if (existsSync(resourceDir)) cpSync(resourceDir, join(output, "lib", "clang", "18"), { recursive: true });
     chmodSync(join(output, "bin", "clangd"), 0o755);
+    run(join(output, "bin", "clangd"), ["--version"], {
+      env: { ...process.env, LD_LIBRARY_PATH: join(output, "lib") },
+    });
     return;
   }
   const [name, checksum] = spec;

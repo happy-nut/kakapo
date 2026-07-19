@@ -770,7 +770,7 @@ export class LspClient {
     // These bundled servers do not publish a portable "workspace ready" notification. Their initialize
     // response only means the protocol is live, not that definitions are queryable. Keep the grace in the
     // background prewarm path so first-use navigation is deterministic on slower Linux runners/workstations.
-    const startupGraceMs = this.server.family === "php" ? 6_000 : this.server.family === "kotlin" ? 45_000 : 0;
+    const startupGraceMs = this.server.family === "php" ? 6_000 : this.server.family === "kotlin" ? 75_000 : 0;
     if (startupGraceMs) {
       this.startupGrace ??= new Promise<void>((resolveReady) => {
         const timer = setTimeout(resolveReady, startupGraceMs);

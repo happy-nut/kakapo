@@ -102,7 +102,12 @@ test("Kotlin packaging preserves relative JBR links instead of retaining tempora
 test("Linux ARM64 clang packaging dereferences temporary .deb links", () => {
   const installer = readFileSync(join(repoRoot, "scripts", "install-language-servers.mjs"), "utf8");
   assert.match(installer, /cpSync\(realpathSync\(clangd\), join\(output, "bin", "clangd"\)\)/);
-  assert.match(installer, /cpSync\(realpathSync\(found\), join\(output, "lib", library\)\)/);
+  for (const runtime of ["libgrpc++1.51t64", "libprotobuf32t64", "libabsl20220623t64"]) {
+    assert.match(installer, new RegExp(runtime.replace(/[+.]/g, "\\$&")));
+  }
+  assert.match(installer, /walkFiles\(apt, \(path\) =>/);
+  assert.match(installer, /LD_LIBRARY_PATH: join\(output, "lib"\)/);
+  assert.match(installer, /\["--version"\]/);
 });
 
 test("language-server downloads retry transient server failures without weakening checksums", async () => {

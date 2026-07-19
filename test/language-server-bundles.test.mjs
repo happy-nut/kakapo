@@ -111,7 +111,7 @@ test("bundled JDT LS and JRE resolve a Java definition", {
 }));
 
 test("bundled official Kotlin LSP resolves a Gradle project definition", {
-  timeout: 90_000,
+  timeout: 120_000,
   skip: !bundled.kotlin || !existsSync(bundled.kotlin),
 }, async () => expectSemanticDefinition({
   family: "kotlin", path: "src/main/kotlin/demo/App.kt", line: 1, column: 14, symbol: "Target", expectedPath: "src/main/kotlin/demo/Target.kt", server: "kotlin-lsp",
