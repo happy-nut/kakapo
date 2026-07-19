@@ -156,7 +156,8 @@ function walk(root, predicate) {
   if (!existsSync(root)) return undefined;
   for (const name of readdirSync(root)) {
     const path = join(root, name);
-    const stat = statSync(path);
+    let stat;
+    try { stat = statSync(path); } catch { continue; }
     if (stat.isDirectory()) {
       const nested = walk(path, predicate);
       if (nested) return nested;
@@ -169,7 +170,8 @@ function walkFiles(root, visit) {
   if (!existsSync(root)) return;
   for (const name of readdirSync(root)) {
     const path = join(root, name);
-    const stat = statSync(path);
+    let stat;
+    try { stat = statSync(path); } catch { continue; }
     if (stat.isDirectory()) walkFiles(path, visit);
     else visit(path);
   }
@@ -269,7 +271,10 @@ async function installJava(target, output, cache, work) {
   extract(javaArchive, javaExtracted);
   const java = walk(javaExtracted, (path) => /\/bin\/java$/.test(path));
   if (!java) throw new Error("Temurin JRE archive did not contain bin/java");
-  cpSync(dirname(dirname(java)), join(output, "jre"), { recursive: true });
+  cpSync(dirname(dirname(java)), join(output, "jre"), {
+    recursive: true,
+    verbatimSymlinks: true,
+  });
 
   const jdtName = `jdt-language-server-${SERVER_VERSIONS.jdtls}.tar.gz`;
   const jdtUrl = `https://download.eclipse.org/jdtls/milestones/1.60.0/${jdtName}`;

@@ -99,6 +99,14 @@ test("Kotlin packaging preserves relative JBR links instead of retaining tempora
   );
 });
 
+test("Java packaging preserves relative Temurin JRE links instead of retaining temporary paths", () => {
+  const installer = readFileSync(join(repoRoot, "scripts", "install-language-servers.mjs"), "utf8");
+  assert.match(
+    installer,
+    /cpSync\(dirname\(dirname\(java\)\), join\(output, "jre"\), \{\s*recursive: true,\s*verbatimSymlinks: true,\s*\}\)/,
+  );
+});
+
 test("Linux ARM64 clang packaging dereferences temporary .deb links", () => {
   const installer = readFileSync(join(repoRoot, "scripts", "install-language-servers.mjs"), "utf8");
   assert.match(installer, /cpSync\(realpathSync\(clangd\), join\(output, "bin", "clangd"\)\)/);
@@ -106,6 +114,7 @@ test("Linux ARM64 clang packaging dereferences temporary .deb links", () => {
     assert.match(installer, new RegExp(runtime.replace(/[+.]/g, "\\$&")));
   }
   assert.match(installer, /walkFiles\(apt, \(path\) =>/);
+  assert.match(installer, /try \{ stat = statSync\(path\); \} catch \{ continue; \}/);
   assert.match(installer, /LD_LIBRARY_PATH: join\(output, "lib"\)/);
   assert.match(installer, /\["--version"\]/);
 });
