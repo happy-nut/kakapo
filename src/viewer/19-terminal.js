@@ -83,6 +83,14 @@
     try { if (window.kakapoClipboard && window.kakapoClipboard.write) { window.kakapoClipboard.write(text); return; } } catch (e) {}
     try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text); } catch (e) {}
   }
+  // Pull the terminal colors from the app's own theme variables so the panel matches the editor
+  // (a flat #161616 read as "too black" next to the tinted --panel chrome) and follows light/dark + darcula.
+  function themeColors() {
+    var cs = getComputedStyle(document.documentElement);
+    var bg = (cs.getPropertyValue('--panel') || '').trim() || '#1e2229';
+    var fg = (cs.getPropertyValue('--text') || '').trim() || '#a9b7c6';
+    return { background: bg, foreground: fg, cursor: fg, selectionBackground: '#214283' };
+  }
   function makePane() {
     if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw
     var el = document.createElement('div');
@@ -97,7 +105,7 @@
     var term = new window.Terminal({
       fontSize: 12,
       fontFamily: 'Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-      theme: { background: '#161616', foreground: '#a9b7c6', cursor: '#a9b7c6', selectionBackground: '#214283' },
+      theme: themeColors(),
       cursorBlink: true,
     });
     var fit = new window.FitAddon.FitAddon();
@@ -234,12 +242,26 @@
   window.kakapoPty.onExit(function (msg) { removePane(msg.id); });
 
   function isOpen() { return !panel.classList.contains('hidden'); }
+  // The floating panel dims the app behind it; clicking the backdrop closes the terminal (dock-style).
+  function setBackdrop(show) {
+    var bd = document.getElementById('terminal-backdrop');
+    if (show && !bd) {
+      bd = document.createElement('div');
+      bd.id = 'terminal-backdrop';
+      bd.className = 'terminal-backdrop';
+      bd.addEventListener('mousedown', function () { setOpen(false); });
+      document.body.appendChild(bd);
+    } else if (!show && bd) {
+      bd.remove();
+    }
+  }
   function setOpen(open) {
-    // The terminal shares the bottom dock slot with merged/memo — opening it closes those (exclusive slot).
+    // The terminal shares the exclusive dock slot with merged/memo — opening it closes those.
     if (open && typeof window.__kakapoCloseDocks === 'function') { try { window.__kakapoCloseDocks(); } catch (e) {} }
     panel.classList.toggle('hidden', !open);
     document.body.classList.toggle('terminal-open', open);
     if (toggleBtn) toggleBtn.classList.toggle('is-active', open);
+    setBackdrop(open);
     try { sessionStorage.setItem(openKey, open ? '1' : '0'); } catch (e) {}
     if (typeof applyDockMaximized === 'function') applyDockMaximized(); // keep Cmd+Shift+' maximize in sync
     if (open) {

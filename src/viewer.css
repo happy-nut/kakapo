@@ -212,10 +212,7 @@ body {
   --rail-width: 36px;
   display: grid;
   grid-template-columns: var(--rail-width) var(--sidebar-width, 264px) minmax(0, 1fr);
-  /* Row 1 = content, row 2 = the integrated terminal. The terminal is a real grid row (not a fixed
-     overlay), so content shrinks above it and the caret can never scroll behind it. When the terminal
-     is .hidden (display:none) the auto row collapses to 0 and content fills the viewport. */
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   background: var(--bg);
   color: var(--text);
@@ -2043,24 +2040,27 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .dock-body > .mc-memo-body { flex: 1 1 auto; height: auto; }
 /* Maximize the floating merged/memo panel to fill the viewport. */
 body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border-radius: 0; }
-/* The terminal is still a grid dock, so its maximize hides the editor area above it (grid rows 1/3). */
-body.dock-maximized .terminal-panel:not(.hidden) { grid-row: 1 / 3; height: auto; }
+/* Maximized: the floating terminal fills the whole viewport. */
+body.dock-maximized .terminal-panel:not(.hidden) { inset: 0; border-radius: 0; }
 
-/* --- Integrated terminal panel (Electron only): occupies the content column's bottom grid row,
-   height-resizable. The active toggle marks it as the merged-prompt send target while it's open. --- */
+/* --- Integrated terminal panel (Electron only): a floating overlay covering ~90% of the viewport,
+   dimmed backdrop behind it. The active toggle marks it as the merged-prompt send target while open. --- */
 .terminal-panel {
-  grid-column: 3;
-  grid-row: 2;
+  position: fixed;
+  inset: 5vh 5vw;
+  z-index: 60;
   min-height: 0;
-  height: var(--terminal-height, 320px);
   display: flex;
   flex-direction: column;
-  background: var(--bg);
-  border-top: 1px solid var(--border);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-lg, 12px);
+  box-shadow: var(--ui-shadow-float, 0 24px 72px rgba(0, 0, 0, 0.42));
+  overflow: hidden;
 }
 .terminal-panel.hidden { display: none; }
-.terminal-resizer { flex: none; height: 6px; margin-top: -3px; cursor: row-resize; }
-.terminal-resizer:hover, .terminal-resizer.resizing { background: var(--active); }
+.terminal-backdrop { position: fixed; inset: 0; z-index: 59; background: color-mix(in srgb, #000 40%, transparent); }
+.terminal-resizer { display: none; } /* a centered ~90% floating panel has no edge to drag */
 .terminal-bar {
   flex: none; display: flex; align-items: center; justify-content: space-between;
   padding: 4px 10px; background: var(--sidebar); border-bottom: 1px solid var(--border);
@@ -2071,7 +2071,7 @@ body.dock-maximized .terminal-panel:not(.hidden) { grid-row: 1 / 3; height: auto
 .terminal-x:hover { color: var(--text); }
 /* Split panes sit side by side (no tabs); the 1px gap shows the --border underneath as a divider. */
 .terminal-host { flex: 1 1 auto; min-height: 0; display: flex; gap: 1px; overflow: hidden; background: var(--border); }
-.terminal-pane { flex: 1 1 0; min-width: 0; background: var(--bg); overflow: hidden; display: flex; flex-direction: column; }
+.terminal-pane { flex: 1 1 0; min-width: 0; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
 /* Per-pane name strip at the top; double-click or Cmd/Ctrl+Alt+R to rename inline. */
 .terminal-pane-label {
   flex: none; padding: 2px 10px; font-size: 10px; letter-spacing: 0.04em;
@@ -2290,8 +2290,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .quick-open-badge { align-self: center; color: var(--muted); font-size: 12px; }
 .quick-open-empty { padding: 28px 14px; color: var(--muted); font-size: 13px; }
 @media (max-width: 900px) {
-  body { grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr) auto; }
-  .terminal-panel { grid-column: 1; grid-row: 4; }
+  body { grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr); }
   body.native-app { padding-top: var(--native-titlebar-height); }
   body.native-app .activity-rail { padding-top: 4px; }
   body.native-app .sidebar { padding-top: 0; }

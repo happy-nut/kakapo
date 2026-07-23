@@ -239,7 +239,7 @@ function openMergedView(kind) {
     if (!heading) return;
     var rect = heading.getBoundingClientRect();
     var seq = activeSeq;
-    showCustomDropdown(rect.left + 8, rect.bottom + 4, [
+    var actions = [
       { label: t('dropdown.navigate'), onSelect: function () { flushMergedComments(); dock.close(); navigateToComment(seq); } },
       { label: t('dropdown.remove'), onSelect: function () {
         if (editor) sourceText = editor.getMarkdown();
@@ -256,7 +256,19 @@ function openMergedView(kind) {
         activeSeq = items[Math.max(0, Math.min(items.length - 1, at))].seq;
         syncMergedAnchors();
       } },
-    ], rect.top);
+    ];
+    // When the integrated terminal has live panes, offer to send the whole merged prompt into one of them:
+    // this closes the dock and enters the terminal's pane-pick mode (arrows choose the pane, Enter sends).
+    if (window.__kakapoTerminal && typeof window.__kakapoTerminal.paneCount === 'function' && window.__kakapoTerminal.paneCount() > 0) {
+      actions.push({ label: t('merged.sendToTerminal'), onSelect: function () {
+        if (editor) sourceText = editor.getMarkdown();
+        flushMergedComments();
+        var text = buildMergedText(kind);
+        dock.close();
+        window.__kakapoTerminal.enterSendMode(text);
+      } });
+    }
+    showCustomDropdown(rect.left + 8, rect.bottom + 4, actions, rect.top);
   }
   function handleMergedClick(event) {
     var seq = mergedCommentAtNode(event.target);

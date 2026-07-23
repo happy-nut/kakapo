@@ -1,6 +1,6 @@
 // CORE USER FLOW: the integrated terminal opens a clean login shell.
 //
-// Launching monacori through npm (`npm run dev`, or a global install behind an npm shim) injects
+// Launching kakapo through npm (`npm run dev`, or a global install behind an npm shim) injects
 // npm_config_* vars into the process. Inheriting them into the pty makes nvm warn on every new shell
 // ("nvm is not compatible with the npm_config_prefix environment variable") — which doesn't happen in
 // iTerm. sanitizeTerminalEnv keeps the integrated terminal indistinguishable from the user's own.
@@ -16,7 +16,7 @@ test("strips every npm_*-injected var (incl. the npm_config_prefix nvm rejects)"
     npm_config_prefix: "/Users/x/.nvm/versions/node/v22.22.2",
     npm_config_cache: "/Users/x/.npm",
     npm_lifecycle_event: "dev",
-    npm_package_name: "@happy-nut/monacori",
+    npm_package_name: "@happy-nut/kakapo",
     npm_node_execpath: "/usr/bin/node",
   });
   assert.equal("npm_config_prefix" in out, false, "the var nvm rejects is gone");
