@@ -1126,7 +1126,6 @@ summary.tree-focus { background: color-mix(in srgb, var(--active) 20%, transpare
 .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .count { color: var(--muted); font-size: 11px; }
 .change-name { display: flex; align-items: baseline; gap: 7px; min-width: 0; overflow: hidden; }
-.change-dir { color: var(--muted); opacity: 0.5; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .status {
   display: inline-flex;
   align-items: center;
@@ -2548,9 +2547,7 @@ body.native-app .sidebar.mc-panel-focus-flash::after {
 .sidebar-footer,
 .analysis-status,
 .live-status,
-.count,
-.change-dir { color: var(--chrome-muted); }
-.change-dir { opacity: .78; }
+.count { color: var(--chrome-muted); }
 .rail-btn { color: var(--chrome-muted); }
 .rail-btn:hover { color: var(--chrome-text); background: var(--chrome-line); }
 .rail-btn.is-active { color: var(--chrome-selected-text); background: var(--chrome-selected); }
