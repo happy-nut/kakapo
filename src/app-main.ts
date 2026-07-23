@@ -16,6 +16,8 @@ import { reviewDiffSignature, writeReviewWorkspace } from "./review-workspace.js
 import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
+import { registerTerminalIpc } from "./app-terminal-ipc.js";
+import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 
 type AppOptions = {
@@ -42,6 +44,7 @@ type WinState = {
   bodyCache: Map<number, string>; // rendered per-file diff bodies, scoped to the current build
   sourceFiles: Map<string, SourceFile>; // source content stays in main; renderer requests one open file at a time
   analysis: ProjectAnalysis; // LSP-first project analysis + main-process regex fallback
+  terms: Map<number, IPty>; // integrated-terminal ptys owned by this window (killed on close)
   perf: ReviewPerformanceTrace; // local startup/analysis evidence under this workspace's app-data mirror
   lastDiffSig: string; // watch fast-path: hash of the last git diff, to skip rebuilds when unchanged
   reviewBase?: string; // exact base used by the latest build (may be an automatic upstream merge-base)
@@ -90,6 +93,8 @@ function isLightTheme(): boolean {
 }
 
 app.setName(APP_NAME);
+// Opt-in local CDP endpoint for automated verification (never on in normal runs).
+if (process.env.KAKAPO_REMOTE_DEBUG) app.commandLine.appendSwitch("remote-debugging-port", process.env.KAKAPO_REMOTE_DEBUG);
 // The lazy Markdown editor cannot reliably load from the repository's file:// review. A narrow, read-only
 // standard scheme serves only production assets copied under the historical dist/monaco directory.
 protocol.registerSchemesAsPrivileged([{
@@ -153,6 +158,7 @@ function readMemoWithLegacyImport(root: string) {
 // The composition root supplies window-scoped state; the adapter owns review/query IPC details.
 registerReviewIpc(ipcMain, stateFromEvent);
 registerProjectPathIpc(ipcMain, shell, stateFromEvent);
+registerTerminalIpc(ipcMain, stateFromEvent);
 
 // The single Markdown memo is application data, never a repository artifact. Main derives the scope from
 // the calling window's canonical worktree; the sandboxed renderer cannot choose a filesystem path.
@@ -361,6 +367,20 @@ function buildApplicationMenu(): void {
       },
     ],
   });
+  // Terminal toggle/split/pane shortcuts as menu accelerators: Chromium swallows Cmd+D / Ctrl+` before they
+  // reach the renderer's keydown, so route them through the app menu to the focused window's terminal client.
+  menuTemplate.push({
+    label: "Terminal",
+    submenu: [
+      { label: "Toggle Terminal", accelerator: "Control+`", click: () => sendToFocused("kakapo:terminal-toggle") },
+      { label: "Toggle Terminal (F12)", accelerator: "Alt+F12", click: () => sendToFocused("kakapo:terminal-toggle") },
+      { label: "Split Terminal", accelerator: "CommandOrControl+D", click: () => sendToFocused("kakapo:terminal-split") },
+      { type: "separator" },
+      { label: "Focus Previous Pane", accelerator: "CommandOrControl+Alt+[", click: () => sendToFocused("kakapo:terminal-pane-focus", -1) },
+      { label: "Focus Next Pane", accelerator: "CommandOrControl+Alt+]", click: () => sendToFocused("kakapo:terminal-pane-focus", 1) },
+      { label: "Rename Pane", accelerator: "CommandOrControl+Alt+R", click: () => sendToFocused("kakapo:terminal-pane-rename") },
+    ],
+  });
   // Cmd/Ctrl+W closes the active Files-mode tab (routed to the renderer) instead of the window, matching
   // editor/browser tab behavior. Closing the window stays available via the menu item and Cmd/Ctrl+Q.
   menuTemplate.push({
@@ -432,6 +452,7 @@ function createWindow(root: string): WinState {
     bodyCache: new Map(),
     sourceFiles: new Map(),
     analysis,
+    terms: new Map(),
     perf,
     lastDiffSig: "",
     reviewBase: undefined,
@@ -442,6 +463,17 @@ function createWindow(root: string): WinState {
   states.set(id, state);
 
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  // Dev-only: surface renderer console output in the terminal that launched `npm run dev`, so viewer-side
+  // logs/errors are visible without opening DevTools.
+  if (DEV_BUILD) {
+    win.webContents.on("console-message", (...args: unknown[]) => {
+      // Electron 36+ passes a single details object ({ message, level, ... }); older builds passed
+      // positional (event, level, message). Handle both so the dev log works across versions.
+      const first = args[0] as { message?: string; level?: unknown } | undefined;
+      const message = first && typeof first === "object" && "message" in first ? first.message : args[2];
+      process.stdout.write(`[renderer] ${String(message)}\n`);
+    });
+  }
   win.webContents.on("did-finish-load", () => {
     const url = win.webContents.getURL();
     const document = url.startsWith("data:") ? "loading" : url.includes(REVIEW_FILE) ? "review" : "welcome";
@@ -453,8 +485,10 @@ function createWindow(root: string): WinState {
     state.win.show();
     if (DEV_BUILD) state.win.webContents.openDevTools({ mode: "detach" });
   });
-  // Window teardown: clear this window's watch timer and drop its state.
+  // Window teardown: kill this window's ptys, clear its watch timer, and drop its state.
   win.on("closed", () => {
+    for (const t of state.terms.values()) { try { t.kill(); } catch { /* already exited */ } }
+    state.terms.clear();
     if (state.refreshTimer) clearInterval(state.refreshTimer);
     if (state.analysisWarmTimer) clearTimeout(state.analysisWarmTimer);
     state.disposeWindowSurfaceRecovery();
