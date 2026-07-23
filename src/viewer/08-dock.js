@@ -230,18 +230,23 @@ function openMergedView(kind) {
     if (index < 0) index = 0;
     selectMergedComment(items[Math.max(0, Math.min(items.length - 1, index + dir))].seq, true);
   }
+  function terminalHasPanes() {
+    return !!(window.__kakapoTerminal && typeof window.__kakapoTerminal.paneCount === 'function' && window.__kakapoTerminal.paneCount() > 0);
+  }
   function openMergedActions() {
+    // Resolve which comment (if any) the caret sits in. Per-comment actions (navigate/remove) need one;
+    // "Send to terminal" sends the WHOLE prompt, so it stays available even when the caret isn't on a comment.
+    // caret on a comment -> select it; caret explicitly off any comment (null) -> clear; unresolved
+    // (undefined, e.g. the editor wasn't precisely focused) -> keep whatever was already active.
     var caretSeq = mergedCommentAtCaret();
     if (typeof caretSeq === 'number' && !isNaN(caretSeq)) selectMergedComment(caretSeq, false);
-    else if (caretSeq === null) { selectMergedComment(null, false); return; }
-    if (activeSeq == null) return;
-    var heading = preview.querySelector('.mc-merged-comment-anchor.active');
-    if (!heading) return;
-    var rect = heading.getBoundingClientRect();
+    else if (caretSeq === null) selectMergedComment(null, false);
+    var heading = activeSeq != null ? preview.querySelector('.mc-merged-comment-anchor.active') : null;
     var seq = activeSeq;
-    var actions = [
-      { label: t('dropdown.navigate'), onSelect: function () { flushMergedComments(); dock.close(); navigateToComment(seq); } },
-      { label: t('dropdown.remove'), onSelect: function () {
+    var actions = [];
+    if (heading) {
+      actions.push({ label: t('dropdown.navigate'), onSelect: function () { flushMergedComments(); dock.close(); navigateToComment(seq); } });
+      actions.push({ label: t('dropdown.remove'), onSelect: function () {
         if (editor) sourceText = editor.getMarkdown();
         var sourceWithoutComment = removeMergedCommentSection(kind, sourceText, seq);
         var anchors = Array.from(preview.querySelectorAll('.mc-merged-comment-anchor'));
@@ -255,11 +260,10 @@ function openMergedView(kind) {
         sourceText = editor ? editor.getMarkdown() : sourceWithoutComment;
         activeSeq = items[Math.max(0, Math.min(items.length - 1, at))].seq;
         syncMergedAnchors();
-      } },
-    ];
-    // When the integrated terminal has live panes, offer to send the whole merged prompt into one of them:
-    // this closes the dock and enters the terminal's pane-pick mode (arrows choose the pane, Enter sends).
-    if (window.__kakapoTerminal && typeof window.__kakapoTerminal.paneCount === 'function' && window.__kakapoTerminal.paneCount() > 0) {
+      } });
+    }
+    // Send the whole merged prompt into a terminal pane (arrows choose the pane, Enter sends).
+    if (terminalHasPanes()) {
       actions.push({ label: t('merged.sendToTerminal'), onSelect: function () {
         if (editor) sourceText = editor.getMarkdown();
         flushMergedComments();
@@ -268,7 +272,10 @@ function openMergedView(kind) {
         window.__kakapoTerminal.enterSendMode(text);
       } });
     }
-    showCustomDropdown(rect.left + 8, rect.bottom + 4, actions, rect.top);
+    if (!actions.length) return; // nothing to offer (no comment under the caret, no terminal panes)
+    var anchor = heading || preview;
+    var rect = anchor.getBoundingClientRect();
+    showCustomDropdown(rect.left + 8, (heading ? rect.bottom : rect.top + 28) + 4, actions, rect.top);
   }
   function handleMergedClick(event) {
     var seq = mergedCommentAtNode(event.target);

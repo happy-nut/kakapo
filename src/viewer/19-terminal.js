@@ -118,6 +118,13 @@
     // Exception: keep focus for clipboard/selection combos (Cmd+C/V/X/A) so the terminal's own copy &
     // paste keep working — blurring on Cmd+V drops the textarea focus the paste event needs.
     term.attachCustomKeyEventHandler(function (e) {
+      // Escape dismisses the floating terminal — but only at a normal shell prompt. A fullscreen TUI
+      // (vim, less, claude/codex) runs in xterm's ALTERNATE buffer and needs Esc itself, so there we
+      // pass it through to the shell instead of closing.
+      if (e.type === 'keydown' && e.key === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        try { if (term.buffer && term.buffer.active && term.buffer.active.type === 'normal') { setOpen(false); return false; } } catch (x) {}
+        return true;
+      }
       // F7 / Shift+F7 are diff prev/next-change nav. Don't let the terminal eat them (it would send an
       // escape sequence to the shell); return false so xterm ignores the key and it bubbles to the document
       // handler. We DON'T blur — the diff caret is a JS cursor, so nav runs while the terminal keeps focus.
