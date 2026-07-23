@@ -35,12 +35,11 @@ export function renderDiffTree(files: DiffFile[]): string {
     hunkIndex += file.hunks.length;
     const slash = file.displayPath.lastIndexOf("/");
     const name = slash >= 0 ? file.displayPath.slice(slash + 1) : file.displayPath;
-    const dir = slash > 0 ? file.displayPath.slice(0, slash) : "";
     return [
       `<a class="file-link change-row${file.vcs ? " vcs-" + file.vcs : ""}" href="#file-${fileIndex}" data-hunk="${firstHunk}" data-file="${escapeAttr(file.displayPath)}" aria-label="${escapeAttr(file.displayPath + " — " + file.status)}">`,
       fileTypeIcon(file.displayPath),
       changeStatusBadge(file.status),
-      `<span class="change-name"><span class="path">${escapeHtml(name)}</span>${dir ? `<span class="change-dir">${escapeHtml(dir)}</span>` : ""}</span>`,
+      `<span class="change-name"><span class="path">${escapeHtml(name)}</span></span>`,
       "</a>",
     ].join("");
   });
