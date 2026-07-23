@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import type { DiffFile, ReviewFileState, SourceFile } from "./types.js";
 import { escapeAttr, escapeHtml, jsonForScript } from "./util.js";
-import { diff2HtmlCss, diffCss, diffScript } from "./assets.js";
+import { diff2HtmlCss, diffCss, diffScript, xtermCss, xtermScript } from "./assets.js";
 import { MESSAGES } from "./i18n.js";
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import {
@@ -295,6 +295,11 @@ export function renderDiffHtml(input: {
     railButton("memo", "memo.title", "Markdown memo", "⌘⇧N", '<rect x="5.5" y="4" width="13" height="16" rx="1.5"/><line x1="8.5" y1="9" x2="15.5" y2="9"/><line x1="8.5" y1="12.5" x2="15.5" y2="12.5"/><line x1="8.5" y1="16" x2="12.5" y2="16"/>'),
     "</div>",
     '<div class="rail-group rail-bottom">',
+    // Terminal (Electron only; #terminal-toggle stays hidden until a pty exists). Keeps its own id-based
+    // handler in the terminal client slice rather than the data-view rail dispatcher.
+    input.app
+      ? '<button type="button" id="terminal-toggle" class="rail-btn terminal-toggle hidden" data-i18n-aria="terminal.title" aria-label="Terminal"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg><span class="rail-tip"><span data-i18n="terminal.title">Terminal</span><kbd>⌃`</kbd></span></button>'
+      : "",
     // History (Cmd+9): Electron only — the git-log bridge (window.kakapoGit) is exposed there.
     input.app
       ? railButton("history", "rail.history", "History", "⌘9", '<circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/>')
@@ -317,6 +322,7 @@ export function renderDiffHtml(input: {
     `:root { ${kakapoIconCssVariable()}; }`,
     diff2HtmlCss(),
     diffCss(),
+    input.app ? xtermCss() : "",
     "</style>",
     "</head>",
     `<body${integratedTitleBar ? ' class="native-app"' : ""}>`,
@@ -382,6 +388,11 @@ export function renderDiffHtml(input: {
     '<button type="button" id="file-find-next" class="file-find-button" data-keyhint="↵" data-i18n-title="find.next" data-i18n-aria="find.next" title="Next match (Enter)" aria-label="Next match">&#8595;</button>',
     '<button type="button" id="file-find-close" class="file-find-button file-find-close" data-keyhint="Esc" data-i18n-title="find.close" data-i18n-aria="find.close" title="Close (Esc)" aria-label="Close">&times;</button>',
     '</div>',
+    // Integrated terminal (Electron only): a bottom-docked xterm panel with split panes, revealed by the
+    // rail toggle / Ctrl+`. Hidden until first opened; the client slice mounts xterm into #terminal-host.
+    input.app
+      ? '<div id="terminal-panel" class="terminal-panel hidden"><div class="terminal-resizer" aria-hidden="true"></div><div class="terminal-bar"><span class="terminal-title" data-i18n="terminal.title">Terminal</span><button type="button" id="terminal-close" class="terminal-x" data-i18n-title="terminal.close" title="Close terminal" aria-label="Close terminal">&times;</button></div><div id="terminal-host" class="terminal-host"></div></div>'
+      : "",
     "</main>",
     input.app
       ? '<aside id="impact-panel" class="impact-panel hidden" aria-label="Change Impact">'
@@ -428,6 +439,10 @@ export function renderDiffHtml(input: {
     '<button type="button" id="settings-theme" class="settings-select mc-select" data-i18n-aria="settings.theme"></button>',
     '<label class="settings-label" for="settings-syntax-theme" data-i18n="settings.syntaxTheme">Theme family</label>',
     '<button type="button" id="settings-syntax-theme" class="settings-select mc-select" data-i18n-aria="settings.syntaxTheme"></button>',
+    // Integrated-terminal bell → native notification opt-out (Electron only).
+    input.app
+      ? '<label class="settings-check"><input type="checkbox" id="set-bell-notify"><span data-i18n="settings.bellNotify">Notify when a terminal task finishes (bell)</span></label>'
+      : "",
     '<div class="app-info-keys">' +
     '<div class="app-info-keys-h" data-i18n="settings.kbd.title">Keyboard shortcuts</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.app">App</div>' +
@@ -504,6 +519,16 @@ export function renderDiffHtml(input: {
     '<kbd>⌘A</kbd><span data-i18n="kbd.historySelectDiff">Select commit diff</span>' +
     '<kbd>PageUp / PageDown</kbd><span data-i18n="kbd.pageUpDown">Page up / down</span>' +
     '</div>' +
+    (input.app
+      ? '<div class="keys-cat" data-i18n="settings.kbd.cat.terminal">Terminal</div>' +
+        '<div class="keys-grid">' +
+        '<kbd>⌃` / ⌥F12</kbd><span data-i18n="kbd.toggleTerminal">Toggle terminal</span>' +
+        '<kbd>⌘D</kbd><span data-i18n="kbd.splitPane">Split pane</span>' +
+        '<kbd>⌘⌥[ / ]</kbd><span data-i18n="kbd.focusPane">Focus prev / next pane</span>' +
+        '<kbd>⌘⌥R</kbd><span data-i18n="kbd.renamePane">Rename pane</span>' +
+        '<kbd>⌘W</kbd><span data-i18n="kbd.closeTerminal">Close terminal (when focused)</span>' +
+        '</div>'
+      : '') +
     '</div>',
     "</section>",
     '<section class="settings-section hidden" data-cat="prompts">',
@@ -542,6 +567,9 @@ export function renderDiffHtml(input: {
     `<script type="application/json" id="file-state-data">${jsonForScript(initialFileStates)}</script>`,
     `<script type="application/json" id="http-env-data">${jsonForScript(input.httpEnvironments)}</script>`,
     `<script>window.__KAKAPO_VERSION__=${JSON.stringify(packageVersion)};</script>`,
+    // xterm ships as an inert island (type=text/html, not parsed at startup) and is injected into a real
+    // <script> by the terminal client on first open, so the ~490 KB bundle never costs a cold launch.
+    input.app ? `<script type="text/html" id="xterm-code">${xtermScript()}</script>` : "",
     "<script>",
     diffScript(),
     "</script>",
