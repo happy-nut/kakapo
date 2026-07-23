@@ -230,8 +230,8 @@ function openMergedView(kind) {
     if (index < 0) index = 0;
     selectMergedComment(items[Math.max(0, Math.min(items.length - 1, index + dir))].seq, true);
   }
-  function terminalHasPanes() {
-    return !!(window.__kakapoTerminal && typeof window.__kakapoTerminal.paneCount === 'function' && window.__kakapoTerminal.paneCount() > 0);
+  function terminalAvailable() {
+    return !!(window.__kakapoTerminal && typeof window.__kakapoTerminal.enterSendMode === 'function');
   }
   function openMergedActions() {
     // Resolve which comment (if any) the caret sits in. Per-comment actions (navigate/remove) need one;
@@ -262,13 +262,15 @@ function openMergedView(kind) {
         syncMergedAnchors();
       } });
     }
-    // Send the whole merged prompt into a terminal pane (arrows choose the pane, Enter sends).
-    if (terminalHasPanes()) {
+    // Send the whole merged prompt into a terminal pane (arrows choose the pane, Enter sends). Available
+    // whenever the integrated terminal exists; if no pane is open yet, one is created first.
+    if (terminalAvailable()) {
       actions.push({ label: t('merged.sendToTerminal'), onSelect: function () {
         if (editor) sourceText = editor.getMarkdown();
         flushMergedComments();
         var text = buildMergedText(kind);
         dock.close();
+        if (window.__kakapoTerminal.paneCount() === 0) window.__kakapoTerminal.open();
         window.__kakapoTerminal.enterSendMode(text);
       } });
     }

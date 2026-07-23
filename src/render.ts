@@ -388,12 +388,13 @@ export function renderDiffHtml(input: {
     '<button type="button" id="file-find-next" class="file-find-button" data-keyhint="↵" data-i18n-title="find.next" data-i18n-aria="find.next" title="Next match (Enter)" aria-label="Next match">&#8595;</button>',
     '<button type="button" id="file-find-close" class="file-find-button file-find-close" data-keyhint="Esc" data-i18n-title="find.close" data-i18n-aria="find.close" title="Close (Esc)" aria-label="Close">&times;</button>',
     '</div>',
-    // Integrated terminal (Electron only): a bottom-docked xterm panel with split panes, revealed by the
-    // rail toggle / Ctrl+`. Hidden until first opened; the client slice mounts xterm into #terminal-host.
+    "</main>",
+    // Integrated terminal (Electron only): a floating xterm overlay with split panes, revealed by the rail
+    // toggle / Ctrl+`. A direct body child (NOT inside .content) so send-mode dimming of .content can't make
+    // this fixed panel see-through. Hidden until first opened; the client mounts xterm into #terminal-host.
     input.app
       ? '<div id="terminal-panel" class="terminal-panel hidden"><div class="terminal-resizer" aria-hidden="true"></div><div class="terminal-bar"><span class="terminal-title" data-i18n="terminal.title">Terminal</span><button type="button" id="terminal-close" class="terminal-x" data-i18n-title="terminal.close" title="Close terminal" aria-label="Close terminal">&times;</button></div><div id="terminal-host" class="terminal-host"></div></div>'
       : "",
-    "</main>",
     input.app
       ? '<aside id="impact-panel" class="impact-panel hidden" aria-label="Change Impact">'
         + '<div class="impact-header"><div><div class="impact-title" data-i18n="impact.title">Change Impact</div><div id="impact-engine" class="impact-engine"></div></div>'
