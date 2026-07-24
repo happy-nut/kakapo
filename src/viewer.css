@@ -1109,8 +1109,6 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   color: var(--muted);
 }
 .folder-icon .folder-ic { width: 14px; height: 14px; display: block; }
-.mc-virtual-folder { font: 18px/14px system-ui, sans-serif; transform: rotate(0deg); transition: transform .1s ease; }
-.mc-virtual-dir[open] > summary .mc-virtual-folder { transform: rotate(90deg); }
 .mc-virtual-children { display: block; }
 /* Closed vs open folder glyph (replaces the old rotated "v" chevron). */
 .tree-dir > summary .fi-open { display: none; }
@@ -1152,7 +1150,6 @@ summary.tree-focus { background: color-mix(in srgb, var(--active) 20%, transpare
 .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .count { color: var(--muted); font-size: 11px; }
 .change-name { display: flex; align-items: baseline; gap: 7px; min-width: 0; overflow: hidden; }
-.change-dir { color: var(--muted); opacity: 0.5; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .status {
   display: inline-flex;
   align-items: center;
@@ -1894,6 +1891,11 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 /* ===== Git history view (Cmd+9): full commit graph with a floating changed-files + diff workspace. ===== */
 .history-view { position: fixed; inset: 0 0 0 var(--rail-width); z-index: 75; display: flex; flex-direction: column; background: var(--bg); }
 .history-view.hidden { display: none; }
+/* The dialog holds keyboard focus as a bare container (tabindex=-1, focused on open and whenever the detail
+   closes). Because it opens off a keypress, Chromium paints its :focus-visible ring — which hugs the window's
+   top-left edge, crosses the macOS traffic lights, and stays put for the whole session (it is focus, not the
+   timed arrival flash). The active commit row is the real selection cue, so drop the container's own outline. */
+.history-view:focus { outline: none; }
 .history-bar { flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--sidebar); border-bottom: 1px solid var(--border); }
 .history-title { font-weight: 650; font-size: 13px; letter-spacing: 0.02em; }
 .history-scope { min-width: 0; max-width: min(42vw, 620px); overflow: hidden; color: var(--muted); font: 11px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
@@ -1923,7 +1925,13 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
   box-shadow: 0 22px 70px rgba(0, 0, 0, .52);
 }
 body.native-app .history-bar {
+  /* Pin the bar to exactly the title-bar height so its bottom border lines up with the activity rail's
+     title-strip divider (::before at --native-titlebar-height - 1). The default 8px top/bottom padding made
+     it 45px tall, leaving a 5px step at the rail/panel seam. The search input stays vertically centered. */
+  height: var(--native-titlebar-height);
   min-height: var(--native-titlebar-height);
+  padding-top: 0;
+  padding-bottom: 0;
   padding-left: var(--native-title-safe-after-rail);
   -webkit-app-region: drag;
 }
@@ -2086,6 +2094,70 @@ body:not(.dock-maximized) .dock-panel { animation: dock-in 165ms cubic-bezier(.2
 .dock-body > .mc-memo-body { flex: 1 1 auto; height: auto; }
 /* Maximize the floating merged/memo panel to fill the viewport. */
 body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border-radius: 0; }
+/* Maximized: the floating terminal fills the whole viewport. */
+body.dock-maximized .terminal-panel:not(.hidden) { inset: 0; border-radius: 0; }
+
+/* --- Integrated terminal panel (Electron only): a floating overlay covering ~90% of the viewport,
+   dimmed backdrop behind it. The active toggle marks it as the merged-prompt send target while open. --- */
+.terminal-panel {
+  position: fixed;
+  inset: 5vh 5vw;
+  z-index: 60;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-lg, 12px);
+  box-shadow: var(--ui-shadow-float, 0 24px 72px rgba(0, 0, 0, 0.42));
+  overflow: hidden;
+}
+.terminal-panel.hidden { display: none; }
+.terminal-backdrop { position: fixed; inset: 0; z-index: 59; background: color-mix(in srgb, #000 40%, transparent); }
+.terminal-resizer { display: none; } /* a centered ~90% floating panel has no edge to drag */
+.terminal-bar {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 10px; background: var(--sidebar); border-bottom: 1px solid var(--border);
+  font-size: 11px; color: var(--muted);
+}
+.terminal-title { letter-spacing: 0.08em; text-transform: uppercase; }
+.terminal-x { border: 0; background: transparent; color: var(--muted); font-size: 16px; line-height: 1; padding: 0 4px; cursor: pointer; }
+.terminal-x:hover { color: var(--text); }
+/* Split panes sit side by side (no tabs); the 1px gap shows the --border underneath as a divider. */
+.terminal-host { flex: 1 1 auto; min-height: 0; display: flex; gap: 1px; overflow: hidden; background: var(--border); }
+.terminal-pane { flex: 1 1 0; min-width: 0; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
+/* Per-pane name strip at the top; double-click or Cmd/Ctrl+Alt+R to rename inline. */
+.terminal-pane-label {
+  flex: none; padding: 2px 10px; font-size: 10px; letter-spacing: 0.04em;
+  color: var(--muted); background: var(--sidebar); border-bottom: 1px solid var(--border);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text;
+}
+.terminal-pane-label:hover { color: var(--text); }
+.terminal-pane-label[contenteditable="true"] { color: var(--text); background: var(--bg); outline: none; }
+.terminal-pane.is-active .terminal-pane-label { color: var(--text); }
+.terminal-pane-host { flex: 1 1 auto; min-width: 0; min-height: 0; padding: 4px 8px; } /* right padding too, so xterm's last column isn't clipped against the pane edge */
+/* Bell badge: a small dot on a pane's label when its TUI rang the bell while you were looking elsewhere. */
+.terminal-pane-label.has-bell::after { content: "\25CF"; margin-left: 6px; color: var(--active); font-size: 9px; vertical-align: middle; }
+/* Settings on/off row (terminal-bell notification toggle). */
+.settings-check { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--text); font-size: 13px; cursor: pointer; }
+.settings-check input { accent-color: var(--active); margin: 0; }
+/* No border on the active pane — the inactive panes dim back instead. Only applies with 2+ panes. */
+.terminal-pane { transition: opacity 120ms ease; }
+.terminal-panel:not(.send-mode) .terminal-pane.is-inactive { opacity: 0.4; }
+/* Pane-pick mode (merged "Send to terminal"): chosen pane ringed + full opacity, the rest dimmed. */
+.terminal-pane.is-dimmed { opacity: 0.3; }
+.terminal-pane.is-send-target { box-shadow: inset 0 0 0 2px var(--active); opacity: 1; position: relative; }
+/* Faint ⏎ hint floating over the chosen pane; it vanishes the instant Enter exits send mode. */
+.terminal-pane.is-send-target::after {
+  content: "⏎";
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 56px; color: var(--active); opacity: 0.32; pointer-events: none; z-index: 5;
+}
+/* Send mode dims the rest of the app (sidebar + file/diff view) so only the terminal pops. */
+body.terminal-send-mode .sidebar,
+body.terminal-send-mode .content,
+body.terminal-send-mode .sidebar-resizer { opacity: 0.25; pointer-events: none; }
+.terminal-toggle.is-active { color: var(--active); }
 /* A maximized writing panel becomes the window's topmost full-viewport surface. Its title therefore needs
    the same native-control reservation as History and the collapsed review toolbar. Normal writing panels are
    already inset from every window edge and deliberately keep their compact bar. */
@@ -2594,9 +2666,7 @@ body.native-app .sidebar.mc-panel-focus-flash::after {
 .sidebar-footer,
 .analysis-status,
 .live-status,
-.count,
-.change-dir { color: var(--chrome-muted); }
-.change-dir { opacity: .78; }
+.count { color: var(--chrome-muted); }
 .rail-btn { color: var(--chrome-muted); }
 .rail-btn:hover { color: var(--chrome-text); background: var(--chrome-line); }
 .rail-btn.is-active { color: var(--chrome-selected-text); background: var(--chrome-selected); }

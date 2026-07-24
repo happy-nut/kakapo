@@ -8,17 +8,22 @@ function applyDockHeight(px) {
 }
 (function () { var s = parseInt(persistRead(dockHeightKey) || localStorage.getItem(dockHeightKey) || '', 10); if (s) applyDockHeight(s); })();
 function activeDockPanel() {
-  return document.getElementById('mc-merged-panel') || document.getElementById('mc-memo-panel');
+  var mm = document.getElementById('mc-merged-panel') || document.getElementById('mc-memo-panel');
+  if (mm) return mm;
+  var term = document.getElementById('terminal-panel');
+  return (term && !term.classList.contains('hidden')) ? term : null;
 }
 function applyDockMaximized() {
   if (!activeDockPanel()) dockMaximized = false; // nothing docked -> can't stay maximized
   document.body.classList.toggle('dock-maximized', dockMaximized);
 }
 function toggleDockMaximized() {
-  // Maximize only the merged/memo panel that currently owns focus.
+  // Maximize only the panel you're FOCUSED in: the merged/memo dock (.dock-panel) or the terminal
+  // (.terminal-panel). From the sidebar tree (treeFocusIndex >= 0) or the diff/source content this is a
+  // no-op — pressing it there must NOT maximize a terminal you aren't actually in.
   if (treeFocusIndex >= 0) return;
   var ae = document.activeElement;
-  if (!(ae && ae.closest && ae.closest('.dock-panel'))) return;
+  if (!(ae && ae.closest && (ae.closest('.dock-panel') || ae.closest('.terminal-panel')))) return;
   if (!activeDockPanel()) return; // nothing docked -> nothing to maximize
   dockMaximized = !dockMaximized;
   applyDockMaximized();
@@ -59,7 +64,11 @@ function focusDockField(field, panelSel) {
   if (!tryF()) { var iv = setInterval(function () { if (tryF() || ++tries > 12) clearInterval(iv); }, 25); }
 }
 // Build a docked panel shell (resizer + bar with Maximize/Close + body) and mount it below the editor.
+// Opening it closes the integrated terminal so the docked slot stays exclusive.
 function mountDock(id, titleText) {
+  if (window.__kakapoTerminal && typeof window.__kakapoTerminal.close === 'function') {
+    try { window.__kakapoTerminal.close(); } catch (e) {}
+  }
   closeMergedMemoDocks();
   var panel = document.createElement('div');
   panel.id = id;
@@ -263,18 +272,35 @@ function openMergedView(kind) {
     if (index < 0) index = 0;
     selectMergedComment(items[Math.max(0, Math.min(items.length - 1, index + dir))].seq, true);
   }
-  // Show the navigate/remove dropdown for a specific comment. Shared by Opt+Enter (caret) and the per-comment
-  // hamburger button so both paths behave identically.
+  function terminalAvailable() {
+    return !!(window.__kakapoTerminal && typeof window.__kakapoTerminal.enterSendMode === 'function');
+  }
+  // Send the WHOLE merged prompt into a terminal pane (v0.2.7): arrows choose the pane, Enter sends. Available
+  // whenever the integrated terminal exists; if no pane is open yet, one is created first.
+  function sendMergedToTerminalAction() {
+    return { label: t('merged.sendToTerminal'), onSelect: function () {
+      if (editor) sourceText = editor.getMarkdown();
+      flushMergedComments();
+      var text = buildMergedText(kind);
+      dock.close();
+      if (window.__kakapoTerminal.paneCount() === 0) window.__kakapoTerminal.open();
+      window.__kakapoTerminal.enterSendMode(text);
+    } };
+  }
+  // Show the navigate/remove (+ send-to-terminal) dropdown for a specific comment. Shared by Opt+Enter (caret)
+  // and the per-comment hamburger button so both paths behave identically.
   function showCommentActionsFor(seq) {
     if (typeof seq !== 'number' || isNaN(seq) || !preview) return;
     selectMergedComment(seq, false);
     var heading = preview.querySelector('.mc-merged-comment-anchor[data-comment-seq="' + seq + '"]');
     if (!heading) return;
-    var rect = heading.getBoundingClientRect();
-    showCustomDropdown(rect.left + 8, rect.bottom + 4, [
+    var actions = [
       { label: t('dropdown.navigate'), onSelect: function () { flushMergedComments(); dock.close(); navigateToComment(seq); } },
       { label: t('dropdown.remove'), onSelect: function () { removeMergedCommentBySeq(seq); } },
-    ], rect.top);
+    ];
+    if (terminalAvailable()) actions.push(sendMergedToTerminalAction());
+    var rect = heading.getBoundingClientRect();
+    showCustomDropdown(rect.left + 8, rect.bottom + 4, actions, rect.top);
   }
   function removeMergedCommentBySeq(seq) {
     var heading = preview ? preview.querySelector('.mc-merged-comment-anchor[data-comment-seq="' + seq + '"]') : null;
@@ -295,8 +321,13 @@ function openMergedView(kind) {
   function openMergedActions() {
     var caretSeq = mergedCommentAtCaret();
     if (typeof caretSeq === 'number' && !isNaN(caretSeq)) { showCommentActionsFor(caretSeq); return; }
-    if (caretSeq === null) { selectMergedComment(null, false); return; } // caret in the intro: no comment action
-    if (typeof activeSeq === 'number') showCommentActionsFor(activeSeq);
+    if (typeof activeSeq === 'number') { showCommentActionsFor(activeSeq); return; }
+    if (caretSeq === null) selectMergedComment(null, false); // caret in the intro: no per-comment action
+    // Off any comment: still offer sending the whole prompt to a terminal (v0.2.7) if one exists.
+    if (terminalAvailable() && preview) {
+      var rect = preview.getBoundingClientRect();
+      showCustomDropdown(rect.left + 8, rect.top + 28 + 4, [sendMergedToTerminalAction()], rect.top);
+    }
   }
   function handleMergedClick(event) {
     var seq = mergedCommentAtNode(event.target);
@@ -519,7 +550,11 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function') {
   window.kakapoMenu.onDiffUpdate(function (html) { try { applyDiffUpdate(html); } catch (e) {} });
 }
 if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
+  // Cmd/Ctrl+W: close whatever the focus is on. A focused terminal pane closes just that pane (the last
+  // pane collapses the panel); otherwise close the active Files-mode tab (no-op outside the source viewer).
   window.kakapoMenu.onCloseTab(function () {
+    var term = window.__kakapoTerminal;
+    if (term && term.isOpen() && term.hasFocus()) { term.closeActivePane(); return; }
     if (isSourceViewerVisible()) closeActiveSourceTab();
   });
 }
@@ -695,4 +730,11 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
       persistSave(SYNTAX_THEME_KEY, syntaxTheme);
       applySyntaxTheme();
     });
+  // Integrated-terminal bell → native notification opt-out. Default on; the terminal client reads the same
+  // key ('kakapo-terminal-bell-notify') before raising a notification.
+  var bellCb = document.getElementById('set-bell-notify');
+  if (bellCb) {
+    bellCb.checked = persistRead('kakapo-terminal-bell-notify') !== false;
+    bellCb.addEventListener('change', function () { persistSave('kakapo-terminal-bell-notify', bellCb.checked); });
+  }
 })();

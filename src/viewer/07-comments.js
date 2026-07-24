@@ -20,9 +20,24 @@ function showToast(message) {
 // corner toast when there's no on-screen caret (e.g. source view).
 var caretHintEl = null, caretHintTimer = 0;
 function showCaretHint(message, anchor) {
-  var row = anchor || document.querySelector('#source-body .code-cursor')
-    || document.querySelector('#diff2html-container .code-cursor')
-    || activeDiffRow || document.querySelector('#diff2html-container .diff-active-row');
+  // Anchor to the caret in the VISIBLE view. Both the source and diff carets persist in the DOM, so the
+  // hidden view's .code-cursor is still queryable — and while it is display:none its rect is all-zero, which
+  // would pin the hint at the window's top-left, over the macOS traffic lights. Gate candidates by which view
+  // is actually showing (the .hidden class), not by geometry, so this is right even without layout.
+  var candidates;
+  if (anchor) {
+    candidates = [anchor];
+  } else {
+    var srcOnly = typeof isSourceViewerVisible === 'function' && isSourceViewerVisible();
+    var diffShown = typeof isDiffViewVisible !== 'function' || isDiffViewVisible();
+    candidates = srcOnly
+      ? [document.querySelector('#source-body .code-cursor')]
+      : diffShown
+        ? [document.querySelector('#diff2html-container .code-cursor'), activeDiffRow, document.querySelector('#diff2html-container .diff-active-row')]
+        : [document.querySelector('#source-body .code-cursor'), document.querySelector('#diff2html-container .code-cursor'), activeDiffRow, document.querySelector('#diff2html-container .diff-active-row')];
+  }
+  var row = null;
+  for (var i = 0; i < candidates.length; i++) { if (candidates[i]) { row = candidates[i]; break; } }
   if (!row || (!row.getBoundingClientRect && !Number.isFinite(Number(row.bottom)))) { showToast(message); return; }
   if (!caretHintEl) { caretHintEl = document.createElement('div'); caretHintEl.className = 'mc-caret-hint'; document.body.appendChild(caretHintEl); }
   caretHintEl.textContent = message;

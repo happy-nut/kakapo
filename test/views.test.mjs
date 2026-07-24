@@ -45,6 +45,27 @@ test("changes list and file tree include every changed file", async () => {
   v.close();
 });
 
+test("the Changes list groups files into a collapsible folder tree", async () => {
+  const v = await loadViewer(html);
+  const srcDir = v.$('#changes-panel .changes-dir[data-dir="src"]');
+  assert.ok(srcDir, "the Changes navigation nests files under a src/ folder instead of a flat list");
+  assert.ok(srcDir.hasAttribute("open"), "changed-file folders start expanded so every change stays visible");
+
+  const appRow = v.$('.change-row[data-file="src/app.ts"]');
+  assert.equal(appRow.closest(".changes-dir"), srcDir, "src/app.ts lives inside the src/ folder");
+  assert.equal(
+    v.$('.change-row[data-file="README.md"]').closest(".changes-dir"),
+    null,
+    "root-level files are not nested under any folder",
+  );
+
+  // Collapsing a folder drops its files out of arrow-key tree navigation, exactly like the Files tree.
+  assert.equal(v.window.isTreeRowVisible(appRow), true, "an open folder exposes its files to navigation");
+  srcDir.open = false;
+  assert.equal(v.window.isTreeRowVisible(appRow), false, "a collapsed folder hides its files from navigation");
+  v.close();
+});
+
 test("macOS Electron review markup opts into integrated native window chrome", async () => {
   const { html: appHtml } = await makeReviewHtml([
     { path: "src/app.ts", before: "export const x = 1;\n", after: "export const x = 2;\n" },

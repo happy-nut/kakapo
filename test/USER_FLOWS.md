@@ -129,7 +129,7 @@ npm test          # pretest가 빌드 후 node --test 로 test/*.test.mjs 실행
 CI에서는 세 곳이 같은 `npm test`를 돌린다:
 
 - `.github/workflows/test.yml` — 모든 main push·PR (머지 전 1차 게이트, Node 22.14/24 매트릭스)
-- `.github/workflows/publish.yml` — `v*` 태그 배포 직전 게이트
+- `.github/workflows/release.yml` — `v*` 태그 배포(Linux tarball + macOS dmg) 직전 게이트
 - `.github/workflows/auto-release.yml` — 주간 자동 배포에서 version bump 직전 게이트
 
 즉 빨간 빌드는 머지도, 배포도 되지 않는다.

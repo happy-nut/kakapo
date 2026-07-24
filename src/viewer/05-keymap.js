@@ -624,6 +624,7 @@ if (!restored) {
   else openDefaultSourceFile();
 }
 initSourceTreeFolds();
+initChangesTreeFolds();
 syncRail(); // reflect the initial view on the activity rail
 // Electron receives live updates over IPC (kakapoMenu.onDiffUpdate); only serve/browser needs the HTTP
 // poller. Under file:// its fetch just fails every 1.5s for the app's whole life, so skip it in Electron.

@@ -2,21 +2,20 @@ name: Weekly auto patch release
 
 # 매주 일요일 00:00 KST(= UTC 토요일 15:00)에 실행한다. 지난 v* 릴리스 태그 이후 커밋이 하나라도
 #있으면 patch(0.0.1)만 자동으로 올려서 배포한다. minor/major(예: 0.1.0)는 사람이 직접 올린다:
-#   npm version <minor|major> && git push --follow-tags   (그 태그 push는 publish.yml이 처리)
+#   npm version <minor|major> && git push --follow-tags   (그 태그 push는 release.yml이 처리)
 #
-# GITHUB_TOKEN으로 push한 태그는 다른 워크플로우(publish.yml의 on.push.tags)를 트리거하지 않으므로,
-# 이 워크플로우가 버전업 + 태그 + 배포까지 한 번에 끝낸다.
+# GITHUB_TOKEN으로 push한 태그는 다른 워크플로우(release.yml의 on.push.tags)를 트리거하지 않으므로,
+# 이 워크플로우가 버전업 + 태그 + 배포(Linux tarball + macOS dmg)까지 한 번에 끝낸다.
 on:
   schedule:
     - cron: "0 15 * * 6" # UTC 토 15:00 == KST 일 00:00
   workflow_dispatch: {}
 
-# 태그/커밋 push에 contents:write, npm Trusted Publishing(OIDC)에 id-token:write가 필요하다.
+# 릴리스 커밋/태그 push와 GitHub Release 업로드에 contents:write가 필요하다.
 permissions:
   contents: write
-  id-token: write
 
-# 수동 publish.yml과 동시에 두 번 배포되지 않도록 직렬화한다.
+# 수동 release.yml과 동시에 두 번 배포되지 않도록 직렬화한다.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -87,7 +86,7 @@ jobs:
         run: git push --follow-tags
 
   # A tag pushed with GITHUB_TOKEN does not trigger linux.yml. Call the same reusable Linux release
-  # contract explicitly so weekly releases cannot publish npm without verified x64/ARM64 desktop builds.
+  # contract explicitly so weekly releases cannot ship without verified x64/ARM64 desktop builds.
   linux-release:
     needs: auto-release
     if: needs.auto-release.outputs.release_tag != ''
@@ -97,28 +96,13 @@ jobs:
     with:
       release_tag: ${{ needs.auto-release.outputs.release_tag }}
 
-  # Publish only after both native Linux apps have passed their real-renderer smoke test and were attached
-  # to the GitHub release. This keeps npm, GitHub, x64, and ARM64 on one verified version boundary.
-  publish:
+  # Build the macOS dmg after the Linux packages are attached, so all desktop artifacts land on one
+  # verified version boundary. Runs after linux-release so the GitHub release already exists.
+  macos-release:
     needs: [auto-release, linux-release]
     if: needs.auto-release.outputs.release_tag != '' && needs.linux-release.result == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.auto-release.outputs.release_tag }}
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Upgrade npm
-        run: npm install -g npm@latest
-
-      - name: Install dependencies
-        run: npm ci
-
-      # NODE_AUTH_TOKEN 없음: @happy-nut/kakapo에 Trusted Publisher가 설정돼 있어 OIDC로 인증한다.
-      - name: Publish to npm
-        run: npm publish
+    permissions:
+      contents: write
+    uses: ./.github/workflows/macos.yml
+    with:
+      release_tag: ${{ needs.auto-release.outputs.release_tag }}

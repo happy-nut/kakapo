@@ -46,28 +46,86 @@ function virtualSourceChildren(node) {
   });
 }
 
-function virtualFileColor(path) {
-  var ext = String(path || '').split('/').pop().split('.').pop().toLowerCase();
-  var colors = {
-    ts:'#3178c6',tsx:'#3178c6',js:'#e8bf6a',jsx:'#e8bf6a',json:'#cbcb41',yaml:'#cb9b41',yml:'#cb9b41',
-    html:'#e44d26',vue:'#41b883',svelte:'#ff3e00',css:'#42a5f5',scss:'#c6538c',md:'#9aa0a6',mdx:'#9aa0a6',
-    go:'#00add8',rs:'#dea584',py:'#3572a5',rb:'#cc342d',java:'#b07219',kt:'#a97bff',php:'#8892bf',swift:'#ff8a00',
-    c:'#7aa6da',h:'#7aa6da',cpp:'#f34b7d',hpp:'#f34b7d',sh:'#89e051',png:'#26a269',jpg:'#26a269',svg:'#e8bf6a'
+// Icon parity with the Changes tree and the eager Files tree: the deferred/virtual tree must use the SAME
+// folder glyph and category-based file glyphs as render-tree.ts (fileTypeIcon / FOLDER_ICON), not a bare "›"
+// chevron and a single generic document. These mirror render-tree.ts exactly (the client cannot import it).
+var VIRTUAL_FOLDER_ICON = '<span class="folder-icon"><svg class="folder-ic fi-closed" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><svg class="folder-ic fi-open" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H21a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg></span>';
+
+function virtualFileExt(path) {
+  var base = String(path || '').split('/').pop() || String(path || '');
+  var dot = base.lastIndexOf('.');
+  return dot > 0 ? base.slice(dot + 1).toLowerCase() : (base.charAt(0) === '.' ? base.slice(1).toLowerCase() : '');
+}
+function virtualFileColor(ext) {
+  var map = {
+    ts:'#3178c6', tsx:'#3178c6', mts:'#3178c6', cts:'#3178c6',
+    js:'#e8bf6a', jsx:'#e8bf6a', mjs:'#e8bf6a', cjs:'#e8bf6a',
+    json:'#cbcb41', jsonc:'#cbcb41',
+    yaml:'#cb9b41', yml:'#cb9b41', toml:'#cb9b41', ini:'#cb9b41', env:'#cb9b41', conf:'#cb9b41',
+    lock:'#9aa0a6', gitignore:'#9aa0a6', npmrc:'#9aa0a6', editorconfig:'#9aa0a6',
+    html:'#e44d26', htm:'#e44d26', vue:'#41b883', svelte:'#ff3e00', xml:'#e8bf6a', svg:'#e8bf6a',
+    css:'#42a5f5', scss:'#c6538c', sass:'#c6538c', less:'#2a6db5',
+    md:'#9aa0a6', mdx:'#9aa0a6', txt:'#9aa0a6', rst:'#9aa0a6',
+    go:'#00add8', rs:'#dea584', py:'#3572a5', rb:'#cc342d', java:'#b07219',
+    kt:'#a97bff', kts:'#a97bff', php:'#8892bf', swift:'#ff8a00', cs:'#9b59b6',
+    c:'#7aa6da', h:'#7aa6da', cpp:'#f34b7d', hpp:'#f34b7d',
+    sh:'#89e051', bash:'#89e051', zsh:'#89e051',
+    png:'#26a269', jpg:'#26a269', jpeg:'#26a269', gif:'#26a269', webp:'#26a269', ico:'#26a269', bmp:'#26a269'
   };
-  return colors[ext] || '#7f868d';
+  return map[ext] || '#7f868d';
+}
+function virtualFileCategory(ext) {
+  var sets = {
+    code: ['ts','tsx','mts','cts','js','jsx','mjs','cjs','go','rs','py','rb','java','kt','kts','php','c','h','cpp','hpp','cs','swift','sh','bash','zsh'],
+    data: ['json','jsonc','yaml','yml','toml','ini','env','conf','lock','xml'],
+    markup: ['html','htm','vue','svelte'],
+    style: ['css','scss','sass','less'],
+    doc: ['md','mdx','txt','rst'],
+    image: ['png','jpg','jpeg','gif','webp','ico','bmp','svg']
+  };
+  for (var cat in sets) { if (sets[cat].indexOf(ext) !== -1) return cat; }
+  return 'generic';
+}
+function virtualTypeIcon(path) {
+  var ext = virtualFileExt(path);
+  var c = virtualFileColor(ext);
+  var stroke = 'fill="none" stroke="' + c + '" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"';
+  var inner;
+  switch (virtualFileCategory(ext)) {
+    case 'code':
+      inner = '<path d="M6 4.6 3 8l3 3.4M10 4.6 13 8l-3 3.4" ' + stroke + '/>';
+      break;
+    case 'markup':
+      inner = '<path d="M5.6 4.6 2.8 8l2.8 3.4M10.4 4.6 13.2 8l-2.8 3.4M9.3 3.6 6.7 12.4" ' + stroke + '/>';
+      break;
+    case 'data':
+      inner = '<path d="M7.4 3.6C6.3 3.6 6.3 4.8 6.3 5.8 6.3 6.8 5.6 7.4 4.8 7.4 5.6 7.4 6.3 8 6.3 9 6.3 10 6.3 11.4 7.4 11.4M8.6 3.6C9.7 3.6 9.7 4.8 9.7 5.8 9.7 6.8 10.4 7.4 11.2 7.4 10.4 7.4 9.7 8 9.7 9 9.7 10 9.7 11.4 8.6 11.4" fill="none" stroke="' + c + '" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>';
+      break;
+    case 'style':
+      inner = '<path d="M6.4 4 5.2 12M10.2 4 9 12M3.9 6.6 12 6.6M3.4 9.4 11.5 9.4" ' + stroke + '/>';
+      break;
+    case 'doc':
+      inner = '<path d="M4.5 2.5h4.4L11.5 5v8a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z" fill="' + c + '" fill-opacity="0.16" stroke="' + c + '" stroke-width="1.2" stroke-linejoin="round"/><path d="M8.8 2.6V5h2.6M5.8 8h4M5.8 10.2h2.7" fill="none" stroke="' + c + '" stroke-width="1.2" stroke-linecap="round"/>';
+      break;
+    case 'image':
+      inner = '<rect x="3" y="3.6" width="10" height="8.8" rx="1.4" fill="' + c + '" fill-opacity="0.14" stroke="' + c + '" stroke-width="1.2"/><circle cx="6" cy="6.4" r="1.05" fill="none" stroke="' + c + '" stroke-width="1.1"/><path d="M3.6 11.8 6.7 8.4l2 2.1 1.9-2.2 2.4 2.7" fill="none" stroke="' + c + '" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>';
+      break;
+    default:
+      inner = '<path d="M4 2.25a1 1 0 0 1 1-1h4.3L12.5 4.7v9.05a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" fill="' + c + '" fill-opacity="0.2" stroke="' + c + '" stroke-width="1.1" stroke-linejoin="round"/><path d="M9.2 1.4v2.8a1 1 0 0 0 1 1h2.6" fill="none" stroke="' + c + '" stroke-width="1.1" stroke-linejoin="round"/>';
+  }
+  return '<svg class="ftype" viewBox="0 0 16 16" aria-hidden="true">' + inner + '</svg>';
 }
 
 function virtualSourceNodeHtml(node, depth) {
   if (node.file) {
     var file = node.file;
     var classes = ['file-link', 'source-link', 'tree-file', file.embedded ? '' : 'not-embedded', file.vcs ? 'vcs-' + file.vcs : ''].filter(Boolean).join(' ');
-    var color = virtualFileColor(file.path);
     return '<button type="button" class="' + classes + '" data-source-file="' + escapeHtml(file.path) + '" style="--depth:' + depth + '" aria-label="' + escapeHtml(file.path) + '">'
-      + '<svg class="ftype" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.25a1 1 0 0 1 1-1h4.3L12.5 4.7v9.05a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" fill="' + color + '" fill-opacity=".2" stroke="' + color + '" stroke-width="1.1"/><path d="M9.2 1.4v2.8a1 1 0 0 0 1 1h2.6" fill="none" stroke="' + color + '" stroke-width="1.1"/></svg>'
+      + virtualTypeIcon(file.path)
       + '<span class="path">' + escapeHtml(node.name) + '</span></button>';
   }
   return '<details class="tree-dir source-dir mc-virtual-dir" data-dir="' + escapeHtml(node.path) + '" style="--depth:' + depth + '">'
-    + '<summary><span class="folder-icon mc-virtual-folder" aria-hidden="true">›</span><span class="path">' + escapeHtml(node.name) + '</span></summary>'
+    + '<summary>' + VIRTUAL_FOLDER_ICON + '<span class="path">' + escapeHtml(node.name) + '</span></summary>'
     + '<div class="mc-virtual-children" data-depth="' + (depth + 1) + '"></div></details>';
 }
 
@@ -357,6 +415,39 @@ function initSourceTreeFolds() {
     d.open = saved.has(dir) || !!reveal;
   });
   setTimeout(function () { treeRevealing = false; }, 0);
+}
+// The Changes tree is the inverse of the source tree: folders default OPEN (every change should be visible
+// without a click), so we persist only the folders the reviewer explicitly COLLAPSED — otherwise a watch-tick
+// rebuild (which replaces #changes-panel wholesale, dropping per-element listeners) would re-expand them.
+function changesCollapsedKey() { return 'kakapo-changes-collapsed:' + location.pathname; }
+function loadChangesCollapsed() {
+  try {
+    var stored = persistRead(changesCollapsedKey());
+    if (Array.isArray(stored)) return new Set(stored);
+    return new Set(JSON.parse(sessionStorage.getItem(changesCollapsedKey()) || '[]'));
+  } catch (e) { return new Set(); }
+}
+function saveChangesCollapsed(set) {
+  var paths = Array.from(set);
+  persistSave(changesCollapsedKey(), paths);
+  try { sessionStorage.setItem(changesCollapsedKey(), JSON.stringify(paths)); } catch (e) {}
+}
+function initChangesTreeFolds() {
+  var dirs = Array.prototype.slice.call(document.querySelectorAll('#changes-panel .changes-dir'));
+  if (!dirs.length) return;
+  var collapsed = loadChangesCollapsed();
+  var applying = true; // the initial d.open below must not be mistaken for a user toggle
+  dirs.forEach(function (d) {
+    d.addEventListener('toggle', function () {
+      if (applying) return;
+      var set = loadChangesCollapsed();
+      var dir = d.dataset.dir || '';
+      if (d.open) set.delete(dir); else set.add(dir);
+      saveChangesCollapsed(set);
+    });
+    d.open = !collapsed.has(d.dataset.dir || '');
+  });
+  setTimeout(function () { applying = false; }, 0);
 }
 // Expand a file's ancestor folders so it is visible in the tree (transient — not persisted). Semantic and
 // keyboard navigation may also reveal the selected row; a pointer click suppresses that scroll because the

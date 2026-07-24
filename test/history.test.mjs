@@ -111,6 +111,10 @@ test("history keyboard: Cmd+9 then ArrowDown navigates commits before opening a 
   const css = Array.from(v.document.querySelectorAll("style"), (style) => style.textContent || "").join("\n");
   assert.match(css, /\.history-view\s*\{[^}]*inset:\s*0 0 0 var\(--rail-width\)/, "History starts after the desktop rail");
   assert.match(css, /body\.native-app\s+\.history-bar\s*\{[^}]*padding-left:\s*var\(--native-title-safe-after-rail\)/, "History title uses the shared macOS traffic-light safe inset");
+  // The dialog itself holds keyboard focus on open, so its default :focus ring would hug the window's top
+  // edge (across the macOS traffic lights) and never fade. It must be suppressed; the active row is the cue.
+  assert.equal(v.document.activeElement, v.$("#history-view"), "the History dialog holds keyboard focus on open");
+  assert.match(css, /\.history-view:focus\s*\{[^}]*outline:\s*none/, "the focus-holding History dialog suppresses its own focus outline");
   assert.equal(v.$("#history-list .hrow.active").dataset.sha, "aaaaaaaa", "newest commit selected");
   assert.equal(v.$("#history-detail").classList.contains("hidden"), true, "commit graph owns the full canvas before Enter");
   assert.deepEqual(calls, [], "opening history does not auto-load a narrow diff preview");
@@ -136,6 +140,23 @@ test("history keyboard: Cmd+9 then ArrowDown navigates commits before opening a 
   await v.settle(20);
   assert.equal(v.$("#history-detail").classList.contains("hidden"), true, "Escape closes only the floating diff first");
   assert.equal(v.$("#history-view").classList.contains("hidden"), false, "commit history remains open after closing its diff");
+  v.close();
+});
+
+test("history keyboard: Cmd+1 leaves History for the Files view", async () => {
+  const v = await loadViewer(html);
+  installHistoryBridge(v);
+
+  v.key("9", { metaKey: true, code: "Digit9" });
+  await v.settle(80);
+  assert.equal(v.$("#history-view").classList.contains("hidden"), false, "history opens");
+
+  // Cmd+1 is the global Files shortcut; from History it must close the overlay AND reveal the source view,
+  // not run under the still-open overlay (which left the switch invisible).
+  v.key("1", { metaKey: true, code: "Digit1" });
+  await v.settle(60);
+  assert.equal(v.$("#history-view").classList.contains("hidden"), true, "Cmd+1 closes the History overlay");
+  assert.equal(v.visibleView(), "source", "Cmd+1 reveals the Files/source view underneath");
   v.close();
 });
 

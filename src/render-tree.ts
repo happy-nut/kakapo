@@ -1,5 +1,10 @@
-import type { DiffFile, SourceFile, SourceTreeNode } from "./types.js";
+import type { DiffFile, DiffTreeNode, SourceFile, SourceTreeNode } from "./types.js";
 import { escapeAttr, escapeHtml } from "./util.js";
+
+// The two-state (closed/open) folder glyph shared by the Changes and Files trees. CSS toggles which SVG
+// shows based on the parent <details>[open] state, so both are always emitted.
+const FOLDER_ICON =
+  '<span class="folder-icon"><svg class="folder-ic fi-closed" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><svg class="folder-ic fi-open" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H21a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg></span>';
 
 // Navigation rendering is kept separate from the review-document shell so tree semantics
 // and file presentation can evolve without expanding the HTML composition root.
@@ -24,27 +29,90 @@ export function initialReviewSources(diffFiles: DiffFile[], sourceFiles: SourceF
   return fallback ? [fallback] : [];
 }
 
+// The changed-files navigation mirrors renderSourceTree's folder hierarchy so a reviewer can see where
+// changes cluster and collapse whole directories, instead of scanning one flat list. Leaves keep the same
+// href/data-hunk/data-file contract the diff caret and click handler rely on.
 export function renderDiffTree(files: DiffFile[]): string {
   if (files.length === 0) {
     return '<div class="empty-nav">No changed files</div>';
   }
 
+  const root: DiffTreeNode = { name: "", path: "", children: new Map() };
   let hunkIndex = 0;
-  const rows = files.map((file, fileIndex) => {
+  files.forEach((file, fileIndex) => {
     const firstHunk = hunkIndex;
     hunkIndex += file.hunks.length;
-    const slash = file.displayPath.lastIndexOf("/");
-    const name = slash >= 0 ? file.displayPath.slice(slash + 1) : file.displayPath;
-    const dir = slash > 0 ? file.displayPath.slice(0, slash) : "";
+    const parts = file.displayPath.split("/").filter(Boolean);
+    let node = root;
+    let currentPath = "";
+    for (const part of parts.slice(0, -1)) {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      let child = node.children.get(part);
+      if (!child) {
+        child = { name: part, path: currentPath, children: new Map() };
+        node.children.set(part, child);
+      }
+      node = child;
+    }
+
+    const leafName = parts[parts.length - 1] ?? file.displayPath;
+    node.children.set(`${leafName}\0${file.displayPath}`, {
+      name: leafName,
+      path: file.displayPath,
+      children: new Map(),
+      file,
+      fileIndex,
+      firstHunk,
+    });
+  });
+
+  return `<nav class="tree changes-tree">${renderDiffChildren(root, 0)}</nav>`;
+}
+
+function renderDiffChildren(node: DiffTreeNode, depth: number): string {
+  return Array.from(node.children.values())
+    .sort((a, b) => {
+      if (Boolean(a.file) !== Boolean(b.file)) {
+        return a.file ? 1 : -1;
+      }
+      return a.name.localeCompare(b.name);
+    })
+    .map((child) => renderDiffNode(child, depth))
+    .join("");
+}
+
+function renderDiffNode(node: DiffTreeNode, depth: number): string {
+  if (node.file) {
+    const file = node.file;
+    const classes = ["file-link", "change-row", "tree-file", file.vcs ? "vcs-" + file.vcs : ""].filter(Boolean).join(" ");
     return [
-      `<a class="file-link change-row${file.vcs ? " vcs-" + file.vcs : ""}" href="#file-${fileIndex}" data-hunk="${firstHunk}" data-file="${escapeAttr(file.displayPath)}" aria-label="${escapeAttr(file.displayPath + " — " + file.status)}">`,
+      `<a class="${classes}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + file.status)}">`,
       fileTypeIcon(file.displayPath),
       changeStatusBadge(file.status),
-      `<span class="change-name"><span class="path">${escapeHtml(name)}</span>${dir ? `<span class="change-dir">${escapeHtml(dir)}</span>` : ""}</span>`,
+      `<span class="change-name"><span class="path">${escapeHtml(node.name)}</span></span>`,
       "</a>",
     ].join("");
-  });
-  return `<nav class="tree changes-flat">${rows.join("")}</nav>`;
+  }
+
+  // Collapse single-child directory chains ("a/b/c") into one summary row, exactly as renderSourceNode does,
+  // so a lone nested folder does not cost a click to expand.
+  let labelNode: DiffTreeNode = node;
+  const names = [node.name];
+  for (;;) {
+    const entries = Array.from(labelNode.children.values());
+    if (entries.length !== 1 || entries[0].file) break;
+    names.push(entries[0].name);
+    labelNode = entries[0];
+  }
+
+  // Changed-file folders default to open — a review wants every change visible up front; 04-source-tree.js
+  // restores any folder the reviewer chose to collapse.
+  return [
+    `<details class="tree-dir changes-dir" data-dir="${escapeAttr(labelNode.path)}" style="--depth:${depth}" open>`,
+    `<summary>${FOLDER_ICON}<span class="path">${escapeHtml(names.join("/"))}</span></summary>`,
+    renderDiffChildren(labelNode, depth + 1),
+    "</details>",
+  ].join("");
 }
 
 function changeStatusBadge(status: string): string {
@@ -204,7 +272,7 @@ function renderSourceNode(node: SourceTreeNode, depth: number): string {
 
   return [
     `<details class="tree-dir source-dir" data-dir="${escapeAttr(labelNode.path)}" style="--depth:${depth}">`,
-    `<summary><span class="folder-icon"><svg class="folder-ic fi-closed" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><svg class="folder-ic fi-open" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H21a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg></span><span class="path">${escapeHtml(names.join("/"))}</span></summary>`,
+    `<summary>${FOLDER_ICON}<span class="path">${escapeHtml(names.join("/"))}</span></summary>`,
     renderSourceChildren(labelNode, depth + 1),
     "</details>",
   ].join("\n");

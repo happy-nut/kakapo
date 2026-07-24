@@ -87,6 +87,17 @@ export type SourceTreeNode = {
   file?: SourceFile;
 };
 
+// Folder-hierarchy node for the Changes navigation. Leaves carry the diff file plus the flat index/hunk
+// offsets the diff caret navigation keys rows by; interior folders leave those undefined.
+export type DiffTreeNode = {
+  name: string;
+  path: string;
+  children: Map<string, DiffTreeNode>;
+  file?: DiffFile;
+  fileIndex?: number;
+  firstHunk?: number;
+};
+
 export type DiffReviewResult = {
   path: string;
   url: string;
