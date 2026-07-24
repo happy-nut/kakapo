@@ -1087,8 +1087,6 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   color: var(--muted);
 }
 .folder-icon .folder-ic { width: 14px; height: 14px; display: block; }
-.mc-virtual-folder { font: 18px/14px system-ui, sans-serif; transform: rotate(0deg); transition: transform .1s ease; }
-.mc-virtual-dir[open] > summary .mc-virtual-folder { transform: rotate(90deg); }
 .mc-virtual-children { display: block; }
 /* Closed vs open folder glyph (replaces the old rotated "v" chevron). */
 .tree-dir > summary .fi-open { display: none; }
