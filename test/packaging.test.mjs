@@ -162,11 +162,12 @@ test("Linux GUI smoke requires an actual Kakapo renderer page", async () => {
   assert.match(page.url, /^file:/);
 });
 
-test("Linux release workflow tests, packages, boots, and publishes both native architectures", () => {
+test("release workflow tests, packages, and attaches Linux tarballs + a macOS dmg (no npm publish)", () => {
   const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
   const workflow = readFileSync(join(repoRoot, ".github", "workflows", "linux.yml"), "utf8");
   const autoRelease = readFileSync(join(repoRoot, ".github", "workflows", "auto-release.yml"), "utf8");
-  const publish = readFileSync(join(repoRoot, ".github", "workflows", "publish.yml"), "utf8");
+  const release = readFileSync(join(repoRoot, ".github", "workflows", "release.yml"), "utf8");
+  const macos = readFileSync(join(repoRoot, ".github", "workflows", "macos.yml"), "utf8");
 
   assert.equal(packageJson.scripts["dist:linux:x64"], "npm run lsp:install && npm run build && npm run lsp:smoke && node scripts/package-linux.mjs x64");
   assert.equal(packageJson.scripts["dist:linux:arm64"], "npm run lsp:install && npm run build && npm run lsp:smoke && node scripts/package-linux.mjs arm64");
@@ -183,10 +184,20 @@ test("Linux release workflow tests, packages, boots, and publishes both native a
     readFileSync(join(repoRoot, "scripts", "smoke-linux.mjs"), "utf8"),
     /child\.stdout\?\.destroy\(\);[\s\S]*child\.stderr\?\.destroy\(\);/,
   );
+
+  // The tag-triggered release and the weekly auto-release both build Linux + the macOS dmg, and neither
+  // publishes to npm (Trusted Publishing was never set up; the app ships from GitHub Releases).
+  assert.match(release, /linux-release:[\s\S]*uses: \.\/\.github\/workflows\/linux\.yml/);
+  assert.match(release, /macos-release:[\s\S]*needs: linux-release[\s\S]*uses: \.\/\.github\/workflows\/macos\.yml/);
+  assert.match(release, /release_tag:\s*\$\{\{ inputs\.release_tag \}\}/);
+  assert.doesNotMatch(release, /run: npm publish/);
   assert.match(autoRelease, /uses: \.\/\.github\/workflows\/linux\.yml/);
-  assert.match(autoRelease, /needs: \[auto-release, linux-release\]/);
-  assert.match(publish, /linux-release:[\s\S]*uses: \.\/\.github\/workflows\/linux\.yml/);
-  assert.match(publish, /publish:[\s\S]*needs: linux-release/);
-  assert.match(publish, /release_tag:\s*\$\{\{ inputs\.release_tag \}\}/);
-  assert.match(publish, /ref: \$\{\{ inputs\.release_tag \|\| github\.ref \}\}/);
+  assert.match(autoRelease, /uses: \.\/\.github\/workflows\/macos\.yml/);
+  assert.match(autoRelease, /macos-release:[\s\S]*needs: \[auto-release, linux-release\]/);
+  assert.doesNotMatch(autoRelease, /run: npm publish/);
+
+  // The macOS reusable workflow builds the unsigned dmg with system tools and uploads it to the release.
+  assert.match(macos, /npm run dist:mac:dmg/);
+  assert.match(macos, /gh release upload "\$RELEASE_TAG" release\/Kakapo-\*\.dmg/);
+  assert.match(macos, /ref: \$\{\{ inputs\.release_tag \|\| github\.ref \}\}/);
 });

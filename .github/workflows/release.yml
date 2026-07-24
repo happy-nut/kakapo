@@ -1,0 +1,40 @@
+name: Release
+
+# Push a v* tag (e.g. `npm version patch && git push --follow-tags`) to build the desktop packages and
+# attach them to a GitHub Release: Linux x64/arm64 tarballs and a macOS (Apple Silicon) .dmg.
+# There is no npm publish — the app ships from the GitHub Releases page only.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing v* tag to build and attach desktop packages to.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Serialize with the weekly auto-release so a tag never builds the same version twice at once.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  linux-release:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/linux.yml
+    with:
+      release_tag: ${{ inputs.release_tag }}
+
+  # Runs after Linux so the release already exists; then it just uploads the dmg to it.
+  macos-release:
+    needs: linux-release
+    permissions:
+      contents: write
+    uses: ./.github/workflows/macos.yml
+    with:
+      release_tag: ${{ inputs.release_tag }}
