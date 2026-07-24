@@ -146,10 +146,65 @@ function treeRows() {
   return Array.from(panel.querySelectorAll('summary, .file-link')).filter(isTreeRowVisible);
 }
 
-function focusTree(index) {
+// Range multi-selection for batch "mark as viewed": Shift+Arrow / Shift+Click select a contiguous run of rows
+// from an anchor to the focus; Space then toggles Viewed for every selected changed file at once.
+var treeSelectionAnchor = -1;
+function treeSelectionRange() {
+  if (treeSelectionAnchor < 0 || treeFocusIndex < 0) return null;
+  var lo = Math.min(treeSelectionAnchor, treeFocusIndex);
+  var hi = Math.max(treeSelectionAnchor, treeFocusIndex);
+  return hi > lo ? { lo: lo, hi: hi } : null; // a single row is not a multi-selection
+}
+function renderTreeSelection() {
+  var rows = treeRows();
+  var range = treeSelectionRange();
+  rows.forEach(function (row, i) {
+    row.classList.toggle('tree-selected', !!(range && i >= range.lo && i <= range.hi));
+  });
+}
+function clearTreeSelection() {
+  treeSelectionAnchor = -1;
+  document.querySelectorAll('.tree-selected').forEach(function (el) { el.classList.remove('tree-selected'); });
+}
+// Shift+Click: extend from the anchor (or the current focus) to the clicked row, WITHOUT opening the file.
+function extendTreeSelectionToRow(row) {
+  var rows = treeRows();
+  var index = rows.indexOf(row);
+  if (index < 0) return false;
+  if (treeSelectionAnchor < 0) treeSelectionAnchor = treeFocusIndex >= 0 ? treeFocusIndex : index;
+  treeFocusIndex = index;
+  renderTreeSelection();
+  if (typeof flashReviewPanelFocus === 'function') flashReviewPanelFocus(row.closest('.sidebar'));
+  try { row.focus({ preventScroll: true }); } catch (e) {}
+  return true;
+}
+// Space over a multi-selection: mark every selected CHANGED file viewed; if all are already viewed, unview
+// them all — so the whole run toggles together ("모두 mark as viewed"). Returns false when there is no range.
+function applyViewedToTreeSelection() {
+  var range = treeSelectionRange();
+  if (!range) return false;
+  var rows = treeRows();
+  var paths = [];
+  for (var i = range.lo; i <= range.hi; i++) {
+    var r = rows[i];
+    var p = r && r.classList.contains('change-row') ? (r.dataset.file || '') : '';
+    if (p && currentFileSignature(p) && paths.indexOf(p) < 0) paths.push(p);
+  }
+  if (!paths.length) return false;
+  var markViewed = paths.some(function (p) { return !isFileViewed(p); });
+  paths.forEach(function (p) { setFileViewed(p, markViewed); });
+  return true;
+}
+function focusTree(index, extendSelection) {
   const rows = treeRows();
   if (rows.length === 0) return;
+  var prevIndex = treeFocusIndex;
   treeFocusIndex = Math.max(0, Math.min(rows.length - 1, index));
+  if (extendSelection) {
+    if (treeSelectionAnchor < 0) treeSelectionAnchor = prevIndex >= 0 ? prevIndex : treeFocusIndex;
+  } else {
+    clearTreeSelection();
+  }
   // Render the focus class AND scroll in the SAME frame. A fast key-repeat queues many ArrowDowns before a
   // frame; moving the focus class instantly while the coalesced scroll lags makes the panel jump. Coalescing
   // both keeps focus + scroll in lockstep, and scrolloffReveal scrolls ONLY when the focused row nears the
@@ -163,6 +218,7 @@ function scheduleTreeFocus() {
   treeFocusRaf = requestAnimationFrame(function () {
     treeFocusRaf = 0;
     const rows = treeRows();
+    renderTreeSelection();
     if (treeFocusIndex < 0 || treeFocusIndex >= rows.length) return;
     const el = rows[treeFocusIndex];
     document.querySelectorAll('.tree-focus').forEach((e) => { if (e !== el) e.classList.remove('tree-focus'); });
@@ -183,6 +239,7 @@ function focusTreeRowFromPointer(row) {
   const rows = treeRows();
   const index = rows.indexOf(row);
   if (index < 0) return;
+  clearTreeSelection(); // a plain pointer click starts a fresh single selection
   treeFocusIndex = index;
   if (treeFocusRaf) {
     cancelAnimationFrame(treeFocusRaf);
@@ -196,6 +253,7 @@ function focusTreeRowFromPointer(row) {
 
 function clearTreeFocus() {
   treeFocusIndex = -1;
+  clearTreeSelection();
   document.querySelectorAll('.tree-focus').forEach((el) => el.classList.remove('tree-focus'));
 }
 
@@ -219,6 +277,39 @@ function focusOpenFileInTree() {
   }
   focusTree(idx);
 }
+
+// Reveal the currently-open file in the sidebar tree, scrolled to the CENTER of the panel (the header button
+// and ⌥F1). Expands the sidebar and ancestor folders first, then centers and flashes the row.
+function revealOpenFileInTree() {
+  var openPath = (document.getElementById('source-viewer') && document.getElementById('source-viewer').dataset.openPath) || '';
+  if (!openPath && typeof diffActiveWrapper === 'function') {
+    var w = diffActiveWrapper();
+    var n = w && w.querySelector('.d2h-file-name');
+    if (n && n.textContent) openPath = n.textContent.trim();
+  }
+  if (!openPath) return;
+  if (typeof isDiffViewVisible === 'function' && isDiffViewVisible() && typeof setReviewSidebarCollapsed === 'function') setReviewSidebarCollapsed(false);
+  else if (typeof isSourceViewerVisible === 'function' && isSourceViewerVisible() && typeof setSourceSidebarCollapsed === 'function') setSourceSidebarCollapsed(false);
+  if (typeof revealTreeFor === 'function') revealTreeFor(openPath, false); // open ancestor folders; center below
+  // Folders may have just opened, so locate + center on the next frame.
+  requestAnimationFrame(function () {
+    var rows = treeRows();
+    var target = null;
+    for (var i = 0; i < rows.length; i++) {
+      var ds = rows[i].dataset || {};
+      if (ds.sourceFile === openPath || ds.file === openPath) { target = rows[i]; treeFocusIndex = i; break; }
+    }
+    if (!target) return;
+    document.querySelectorAll('.tree-focus').forEach(function (el) { if (el !== target) el.classList.remove('tree-focus'); });
+    target.classList.add('tree-focus');
+    if (target.scrollIntoView) { try { target.scrollIntoView({ block: 'center' }); } catch (e) { target.scrollIntoView(); } }
+    if (typeof flashReviewPanelFocus === 'function') flashReviewPanelFocus(target.closest('.sidebar'));
+  });
+}
+document.addEventListener('click', function (event) {
+  var btn = event.target && event.target.closest && event.target.closest('#brand-reveal');
+  if (btn) { event.preventDefault(); revealOpenFileInTree(); }
+});
 
 function treePageSize() {
   var scroller = document.querySelector('.sidebar-scroll');
@@ -294,17 +385,22 @@ function handleTreeKey(event) {
   if (treeFocusIndex >= rows.length) treeFocusIndex = rows.length - 1;
   const row = rows[treeFocusIndex];
   const isFolder = row && row.tagName === 'SUMMARY';
-  if (event.key === 'ArrowDown') { event.preventDefault(); focusTree(treeFocusIndex + 1); return true; }
-  if (event.key === 'ArrowUp') { event.preventDefault(); focusTree(treeFocusIndex - 1); return true; }
-  if (event.key === 'PageDown') { event.preventDefault(); focusTree(treeFocusIndex + treePageSize()); return true; }
-  if (event.key === 'PageUp') { event.preventDefault(); focusTree(treeFocusIndex - treePageSize()); return true; }
+  // Shift+Arrow / Shift+PageUp/Down extend a contiguous multi-selection from the anchor.
+  if (event.key === 'ArrowDown') { event.preventDefault(); focusTree(treeFocusIndex + 1, event.shiftKey); return true; }
+  if (event.key === 'ArrowUp') { event.preventDefault(); focusTree(treeFocusIndex - 1, event.shiftKey); return true; }
+  if (event.key === 'PageDown') { event.preventDefault(); focusTree(treeFocusIndex + treePageSize(), event.shiftKey); return true; }
+  if (event.key === 'PageUp') { event.preventDefault(); focusTree(treeFocusIndex - treePageSize(), event.shiftKey); return true; }
   // Viewed is a review-queue property, so it may only be changed from the keyboard-selected Changes row.
   // Space in the code canvas keeps its existing editor/fold meaning and Files/source rows remain untouched.
-  if ((event.key === ' ' || event.code === 'Space') && row && row.classList.contains('change-row')) {
-    event.preventDefault();
-    var viewedPath = row.dataset.file || '';
-    if (viewedPath && currentFileSignature(viewedPath)) setFileViewed(viewedPath, !isFileViewed(viewedPath));
-    return true;
+  if (event.key === ' ' || event.code === 'Space') {
+    // A multi-selection toggles Viewed for the whole run at once; otherwise the single focused change row.
+    if (applyViewedToTreeSelection()) { event.preventDefault(); return true; }
+    if (row && row.classList.contains('change-row')) {
+      event.preventDefault();
+      var viewedPath = row.dataset.file || '';
+      if (viewedPath && currentFileSignature(viewedPath)) setFileViewed(viewedPath, !isFileViewed(viewedPath));
+      return true;
+    }
   }
   if (event.key === 'Enter' && event.altKey) {
     event.preventDefault();

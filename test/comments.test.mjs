@@ -326,3 +326,156 @@ test("Electron bridge: appends to a frozen pre-existing thread, keeping both", a
   );
   v.close();
 });
+
+test("composer disables OS autocorrect/spellcheck so it can't mangle code or swallow spaces after punctuation", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("q");
+  const input = v.$(".mc-composer .mc-input");
+  assert.ok(input, "composer textarea is present");
+  assert.equal(input.getAttribute("spellcheck"), "false", "spellcheck is disabled");
+  assert.equal(input.getAttribute("autocorrect"), "off", "macOS autocorrect is disabled");
+  assert.equal(input.getAttribute("autocapitalize"), "off", "autocapitalize is disabled");
+  v.close();
+});
+
+test("merged prompt: a section-less editor read on close never wipes existing comments, but real edits still sync (#5)", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1); // 0-based line 1 -> comment on 1-based line 2
+  await v.openComposer("q");
+  await v.writeAndSave("why 43?");
+  assert.equal(v.storedComments().length, 1, "the comment is saved");
+
+  // Close-time reconcile receiving empty / heading-less text (a lossy editor read) must NOT delete everything.
+  const guarded = v.window.reconcileMergedComments("q", "");
+  assert.equal(v.storedComments().length, 1, "comment survives a section-less reconcile");
+  assert.equal(guarded.remaining, 1);
+
+  // A genuine per-section edit is still applied.
+  v.window.reconcileMergedComments("q", "### @src/app.ts#L2\nrewritten question\n");
+  assert.equal(v.storedComments()[0].text, "rewritten question", "an edit through the merged prompt still syncs");
+  v.close();
+});
+
+test("merged prompt: comments stay visible after opening then closing the merged view (#5)", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("q");
+  await v.writeAndSave("keep me");
+  v.window.openMergedView("q");
+  await v.settle(120); // let the inline editor initialize
+  v.window.__kakapoCloseDocks();
+  await v.settle(60);
+  assert.equal(v.storedComments().length, 1, "comment still exists after closing the merged view");
+  assert.ok(v.$all(".mc-card").length >= 1, "the comment card is re-rendered/visible after the dock closes");
+  v.close();
+});
+
+test("header: the reveal button (⌥F1) focuses/centers the open file's row in the sidebar tree (#3)", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  if (typeof v.window.clearTreeFocus === "function") v.window.clearTreeFocus();
+  const btn = v.$("#brand-reveal");
+  assert.ok(btn, "reveal button is present in the one-line header");
+  v.click(btn);
+  await v.settle(50);
+  const focused = v.$(".tree-focus");
+  assert.ok(focused, "a tree row is focused after reveal");
+  assert.equal(focused.dataset.sourceFile || focused.dataset.file, "src/app.ts", "the open file's row is the revealed one");
+  v.close();
+});
+
+test("Korean IME: the physical E key (code KeyE, key 'ㄷ') still triggers comment edit — shortcuts match on event.code", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("q");
+  await v.writeAndSave("original text");
+  const body = v.$("#source-body");
+  if (body) { body.tabIndex = -1; body.focus(); } // ensure focus is not on a textarea so the caret handler runs
+  const row = v.$(".mc-comment-row");
+  assert.ok(row, "the comment box rendered in the source view");
+  v.window.selectCommentRow(row);
+  // Under a Korean IME the E key reports key='ㄷ' (composed Hangul) but code='KeyE'. The old key-only check
+  // ('e'/'E') missed this; matching on event.code fixes it.
+  v.key("ㄷ", { code: "KeyE" });
+  await v.settle(50);
+  const input = v.$(".mc-composer .mc-input");
+  assert.ok(input, "edit composer opened despite the Hangul key value");
+  assert.equal(input.value, "original text", "composer is pre-filled with the comment for editing");
+  v.close();
+});
+
+test("merged prompt: each comment has a hamburger menu; its Remove deletes just that comment (#actions)", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1); await v.openComposer("q"); await v.writeAndSave("first question");
+  await v.clickSourceLine(0); await v.openComposer("q"); await v.writeAndSave("second question");
+  assert.equal(v.storedComments().filter((c) => c.kind === "q").length, 2);
+
+  v.window.openMergedView("q");
+  await v.settle(150); // inline editor init + syncMergedAnchors
+  const btns = v.$all(".mc-merged-menu-btn");
+  assert.equal(btns.length, 2, "one hamburger button per comment, in the gutter overlay");
+  // the buttons live OUTSIDE the contenteditable so they never enter the prompt
+  assert.ok(!btns[0].closest(".mc-inline-editor"), "gutter button is not inside the editable content");
+
+  btns[0].dispatchEvent(new v.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  await v.settle(30);
+  const items = v.$all("#mc-dropdown .mc-dropdown-item");
+  assert.ok(items.length >= 2, "the hamburger opens the navigate/remove dropdown");
+  items[items.length - 1].dispatchEvent(new v.window.MouseEvent("click", { bubbles: true, cancelable: true })); // Remove
+  await v.settle(80);
+  assert.equal(v.storedComments().filter((c) => c.kind === "q").length, 1, "Remove deletes exactly that comment");
+  v.close();
+});
+
+test("merged prompt: emptying a comment's body removes that comment while keeping the others (#body-delete)", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1); await v.openComposer("q"); await v.writeAndSave("keep me");
+  await v.clickSourceLine(0); await v.openComposer("q"); await v.writeAndSave("delete my body");
+  assert.equal(v.storedComments().filter((c) => c.kind === "q").length, 2);
+  const edited = v.window.buildMergedText("q").replace("delete my body", ""); // heading kept, body blanked
+  v.window.reconcileMergedComments("q", edited);
+  const after = v.storedComments().filter((c) => c.kind === "q");
+  assert.equal(after.length, 1, "the comment whose body was emptied is removed");
+  assert.equal(after[0].text, "keep me", "the untouched comment survives");
+  v.close();
+});
+
+test("merged prompt: a path with markdown-special chars (_ , __init__) round-trips without one comment swallowing others (#escape)", async () => {
+  // The commented paths must exist in the review (else they'd be pruned as missing files), so build a fixture
+  // that actually contains these markdown-special paths.
+  const { html: escHtml } = await makeReviewHtml([
+    { path: "scripts/CLAUDE.md", before: "# claude\n", after: "# claude\nmore\n" },
+    { path: "src/app/shared/canonical_runtime/__init__.py", before: "x = 1\n", after: "x = 2\n" },
+    { path: "src/app/shared/optimizer/__init__.py", before: "y = 1\n", after: "y = 2\n" },
+  ]);
+  const seeded = [
+    { seq: 1, kind: "q", path: "scripts/CLAUDE.md", line: 1, code: "", text: "question A", from: 1, to: 1, side: null, anchorCode: "", anchorPresent: true, addressed: false },
+    { seq: 2, kind: "q", path: "src/app/shared/canonical_runtime/__init__.py", line: 1, code: "", text: "question B", from: 1, to: 1, side: null, anchorCode: "", anchorPresent: true, addressed: false },
+    { seq: 3, kind: "q", path: "src/app/shared/optimizer/__init__.py", line: 1, code: "", text: "question C", from: 1, to: 1, side: null, anchorCode: "", anchorPresent: true, addressed: false },
+  ];
+  const v = await loadViewer(escHtml, { seedStorage: { "kakapo-comments:/review.html": JSON.stringify(seeded) } });
+  await v.settle(30);
+  // The Tiptap editor escapes/normalizes emphasis in the headings: `_` -> `\_`, `__init__` -> `**init**`.
+  const mangled = [
+    "### @scripts/CLAUDE.md#L1",
+    "question A",
+    "### @src/app/shared/canonical\\_runtime/**init**.py#L1",
+    "question B",
+    "### @src/app/shared/optimizer/**init**.py#L1",
+    "question C",
+  ].join("\n");
+  v.window.reconcileMergedComments("q", mangled);
+  const stored = v.storedComments();
+  assert.equal(stored.length, 3, "all three comments survive the round-trip");
+  assert.equal(stored.find((c) => c.seq === 1).text, "question A", "the first comment keeps only its own body (no swallowing)");
+  assert.equal(stored.find((c) => c.seq === 2).text, "question B");
+  assert.equal(stored.find((c) => c.seq === 3).text, "question C");
+  v.close();
+});

@@ -140,7 +140,7 @@ document.addEventListener('keydown', (event) => {
 
   // Cmd/Ctrl+A in the diff/source view selects ONLY that view's content (the browser default reached into
   // the sidebar). In an editable field, let the default select-within-field stand.
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.key === 'a' || event.key === 'A')) {
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyA' || event.key === 'a' || event.key === 'A')) {
     var aae = document.activeElement;
     if (!(aae && (aae.tagName === 'INPUT' || aae.tagName === 'TEXTAREA' || aae.tagName === 'SELECT')) && selectAllInView()) {
       event.preventDefault();
@@ -155,7 +155,7 @@ document.addEventListener('keydown', (event) => {
   }
   // Cmd/Ctrl+L = go to line (numeric prompt); Cmd/Ctrl+K = copy the caret's file:line. Skip when an
   // editable field owns focus (a comment composer textarea) so we don't hijack the user's typing.
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.key === 'l' || event.key === 'L')) {
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyL' || event.key === 'l' || event.key === 'L')) {
     var lkae = document.activeElement;
     if (!(lkae && (lkae.tagName === 'INPUT' || lkae.tagName === 'TEXTAREA' || lkae.tagName === 'SELECT'))) {
       event.preventDefault();
@@ -163,7 +163,7 @@ document.addEventListener('keydown', (event) => {
       return;
     }
   }
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.key === 'k' || event.key === 'K')) {
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyK' || event.key === 'k' || event.key === 'K')) {
     var kkae = document.activeElement;
     if (!(kkae && (kkae.tagName === 'INPUT' || kkae.tagName === 'TEXTAREA' || kkae.tagName === 'SELECT'))) {
       event.preventDefault();
@@ -263,7 +263,7 @@ document.addEventListener('keydown', (event) => {
     lastShiftSide = side;
   }
 
-  if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
+  if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && (event.code === 'KeyF' || event.key.toLowerCase() === 'f')) {
     event.preventDefault();
     openQuickOpen('content');
     return;
@@ -280,7 +280,7 @@ document.addEventListener('keydown', (event) => {
     toggleContentSearchNoise();
     return;
   }
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'e') {
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyE' || event.key.toLowerCase() === 'e')) {
     event.preventDefault();
     openQuickOpen('recent');
     return;
@@ -321,7 +321,7 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.key === 'b' || event.key === 'B')) {
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyB' || event.key === 'b' || event.key === 'B')) {
     var aeB = document.activeElement;
     if (aeB && (aeB.tagName === 'INPUT' || aeB.tagName === 'TEXTAREA' || aeB.tagName === 'SELECT')) return;
     event.preventDefault();
@@ -381,6 +381,12 @@ document.addEventListener('keydown', (event) => {
       if (event.key === '[') navBack(); else navForward();
       return;
     }
+  }
+
+  if (event.key === 'F1' && event.altKey && !event.metaKey && !event.ctrlKey) {
+    // ⌥F1: reveal the open file centered in the sidebar tree.
+    if (typeof revealOpenFileInTree === 'function') { event.preventDefault(); revealOpenFileInTree(); }
+    return;
   }
 
   if (event.key === 'F2' && !event.metaKey && !event.ctrlKey && !event.altKey) {
@@ -453,6 +459,11 @@ document.getElementById('usages')?.addEventListener('click', function (event) {
 document.getElementById('changes-panel')?.addEventListener('click', (event) => {
   const link = event.target && event.target.closest ? event.target.closest('.file-link') : null;
   if (!link) return;
+  // Shift+Click extends a multi-file selection (for batch "mark as viewed" with Space) instead of opening.
+  if (event.shiftKey && typeof extendTreeSelectionToRow === 'function' && extendTreeSelectionToRow(link)) {
+    event.preventDefault();
+    return;
+  }
   const pointerSelection = reviewFocusInputModality === 'pointer';
   showDiffView(false);
   const target = Number(link.dataset.hunk);

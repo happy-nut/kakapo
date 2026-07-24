@@ -303,7 +303,10 @@ function threadHtml(path, line) {
     var ph = composerState.kind === 'q' ? t('composer.question') : t('composer.changeRequest');
     html += '<div class="mc-card mc-' + composerState.kind + ' mc-composer">'
       + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(composerState.kind) + '</span><span class="mc-target" title="' + escapeHtml(commentTargetLabel(composerState)) + '">' + escapeHtml(commentTargetLabel(composerState)) + '</span></div>'
-      + '<textarea class="mc-input" rows="3" placeholder="' + escapeHtml(ph) + '">' + escapeHtml(composerState.editText || '') + '</textarea>'
+      // spellcheck/autocorrect/autocapitalize off: a code-review comment carries identifiers and symbols that
+      // macOS/Chromium text substitution mangles (foo_bar -> foo bar, capitalizing names) — and that OS-level
+      // autocorrect is the leading suspect for a space being swallowed right after punctuation like "?".
+      + '<textarea class="mc-input" rows="3" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="' + escapeHtml(ph) + '">' + escapeHtml(composerState.editText || '') + '</textarea>'
       + '<div class="mc-actions"><button type="button" class="mc-btn mc-save" data-keyhint="⌘↵">' + escapeHtml(t('composer.save')) + '</button>'
       + '<button type="button" class="mc-btn mc-ghost mc-cancel" data-keyhint="Esc">' + escapeHtml(t('composer.cancel')) + '</button>'
       + '<span class="mc-hint">' + escapeHtml(t('composer.hint')) + '</span></div></div>';
@@ -664,13 +667,21 @@ function navigateToComment(seq) {
 // stable identities, so editing the prose below one updates the original comment and removing a section (or
 // leaving its body empty) removes the original comment. Agent-contract prose above the review section stays a
 // free-form, copy-only part of the merged document.
+// The merged prompt round-trips through a Markdown editor that escapes/normalizes emphasis characters inside
+// the `### @path#Lline` heading — a path's `__init__` comes back as `**init**`, `_runtime` as `\_runtime`.
+// Match headings to comments on a key with those markers stripped so a location label survives the round-trip;
+// without this a path containing `_` or `*` fails to match, and the first comment swallows the rest of the
+// document into its text (and the unmatched ones get deleted).
+function mergedLabelKey(s) {
+  return String(s == null ? '' : s).replace(/[\\*_]/g, '');
+}
 function mergedCommentSections(kind, markdown) {
   var items = reviewComments.filter(function (comment) { return comment.kind === kind; });
   var byLabel = {};
   items.forEach(function (comment) {
-    var label = commentTargetLabel(comment);
-    if (!byLabel[label]) byLabel[label] = [];
-    byLabel[label].push(comment);
+    var key = mergedLabelKey(commentTargetLabel(comment));
+    if (!byLabel[key]) byLabel[key] = [];
+    byLabel[key].push(comment);
   });
   var lines = String(markdown || '').replace(/\r\n?/g, '\n').split('\n');
   var sections = [];
@@ -678,8 +689,8 @@ function mergedCommentSections(kind, markdown) {
     var match = /^###\s+(.+?)\s*$/.exec(line);
     // The production Tiptap editor returns Markdown. The lightweight browser/test fallback can return
     // rendered plain text, so accept the exact visible location label too; arbitrary prose cannot match.
-    var label = match ? match[1] : line.trim();
-    var queue = byLabel[label];
+    var key = mergedLabelKey(match ? match[1] : line.trim());
+    var queue = byLabel[key];
     if (!queue || !queue.length) return;
     sections.push({ comment: queue.shift(), startLine: index, endLine: lines.length, text: '' });
   });
@@ -696,6 +707,11 @@ function reconcileMergedComments(kind, markdown) {
   var items = reviewComments.filter(function (comment) { return comment.kind === kind && !comment.addressed; });
   if (!items.length) return { changed: false, hadComments: false, remaining: 0 };
   var parsed = mergedCommentSections(kind, markdown);
+  // Guard against a lossy editor read wiping every comment: if the markdown carries NO recognizable comment
+  // sections while comments still exist (e.g. the editor returned empty/rendered text on close), treat it as
+  // "nothing to sync" instead of deleting them all. A real edit that removes one section still leaves the
+  // others, so per-comment deletion keeps working — only the all-or-nothing wipe is refused.
+  if (!parsed.sections.length) return { changed: false, hadComments: true, remaining: items.length };
   var textBySeq = {};
   parsed.sections.forEach(function (section) { textBySeq[section.comment.seq] = section.text; });
   var removed = {};

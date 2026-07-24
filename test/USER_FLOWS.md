@@ -58,6 +58,10 @@ localStorage라 이 함정을 못 건드린다).
 - 코멘트가 달린 파일에는 개수 배지가 붙는다
 - Changes 행은 증감 줄 수나 긴 상태 문구 없이 상태 아이콘만 표시한다
 - Changes 행에 포커스한 뒤 `Space`를 누르면 열린 파일이 아니라 화살표로 선택한 행의 확인 표시를 토글한다
+- Changes 패널에서 `Shift+↑/↓`(키보드)나 `Shift+Click`(마우스)으로 연속 범위를 다중 선택한 뒤 `Space`를 누르면
+  선택된 변경 파일 전체의 Viewed가 한 번에 토글된다(하나라도 unviewed면 모두 viewed, 전부 viewed면 모두 해제).
+  일반 클릭/화살표는 선택을 초기화한다 (`multi-select.test.mjs`)
+- 헤더의 reveal 버튼(⌥F1)은 현재 열린 파일(소스/ diff 공통)을 사이드바 트리 중앙으로 스크롤해 찾아준다
 - diff toolbar 맨 오른쪽의 이전/다음 버튼과 Base/Working tree 헤더가 키보드 F7 흐름과 같은 위치를 가리키며, 별도 변경 카운터는 표시하지 않는다
 - 양쪽 라인 번호는 중앙 divider에 모이고, hunk id가 양쪽 행에 전파되며 수정=파랑·삭제=회색·추가=초록 배경이 빈 placeholder까지 이어진다
 - `Cmd/Ctrl+9` History를 열어도 왼쪽 activity rail은 유지된다

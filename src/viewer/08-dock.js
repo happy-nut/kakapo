@@ -31,6 +31,7 @@ function isDockFocused() {
 function closeMergedMemoDocks() {
   var m = document.getElementById('mc-merged-panel');
   var n = document.getElementById('mc-memo-panel');
+  var hadDock = !!(m || n);
   [m, n].forEach(function (panel) {
     if (!panel) return;
     try { if (typeof panel.__kakapoBeforeClose === 'function') panel.__kakapoBeforeClose(); } catch (e) {}
@@ -41,6 +42,9 @@ function closeMergedMemoDocks() {
   document.body.classList.toggle('floating-dock', !!(document.getElementById('mc-merged-panel') || document.getElementById('mc-memo-panel')));
   applyDockMaximized();
   if (typeof syncRail === 'function') syncRail(); // clear the rail icon for the closed dock(s)
+  // The merged view reconciles/prunes comments while open; re-render the diff/source cards so the reviewer's
+  // comments are visible again the instant the dock closes and never appear to vanish behind it.
+  if (hadDock && typeof refreshComments === 'function') { try { refreshComments(); } catch (e) {} }
 }
 window.__kakapoCloseDocks = closeMergedMemoDocks;
 // Retry-focus a docked field (Electron async-restores focus to <body>, so a one-shot focus can lose the race).
@@ -181,6 +185,44 @@ function openMergedView(kind) {
     });
     if (!items.some(function (comment) { return comment.seq === activeSeq; })) activeSeq = items.length ? items[0].seq : null;
     selectMergedComment(activeSeq, false);
+    renderMergedGutter();
+  }
+  // A per-comment hamburger button in the left gutter (mouse alternative to Opt+Enter). Buttons live in an
+  // overlay layer that is a sibling of the contenteditable — never inside it, so ProseMirror doesn't manage
+  // them and they never enter the copied prompt. Positioned absolutely in the host's left margin so they add
+  // no content width. Re-rendered on every anchor sync, so they track headings as the prompt is edited.
+  function renderMergedGutter() {
+    if (!preview) return;
+    var gutter = host.querySelector('.mc-merged-gutter');
+    if (!gutter) {
+      gutter = document.createElement('div');
+      gutter.className = 'mc-merged-gutter';
+      gutter.setAttribute('aria-hidden', 'true'); // decorative container; each button carries its own label
+      host.appendChild(gutter);
+    }
+    var anchors = Array.prototype.slice.call(preview.querySelectorAll('.mc-merged-comment-anchor'));
+    var liveSeqs = anchors.map(function (a) { return a.dataset.commentSeq; });
+    Array.prototype.slice.call(gutter.children).forEach(function (btn) {
+      if (liveSeqs.indexOf(btn.dataset.seq) < 0) btn.remove();
+    });
+    var hostTop = host.getBoundingClientRect().top; // rect-delta positioning is robust to any positioned wrapper
+    anchors.forEach(function (heading) {
+      var seq = heading.dataset.commentSeq;
+      var btn = gutter.querySelector('.mc-merged-menu-btn[data-seq="' + seq + '"]');
+      if (!btn) {
+        btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'mc-merged-menu-btn';
+        btn.dataset.seq = seq;
+        btn.setAttribute('aria-label', t('dropdown.actions'));
+        btn.title = t('dropdown.actions');
+        btn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11"/><path d="M2.5 8h11"/><path d="M2.5 11.5h11"/></svg>';
+        btn.addEventListener('mousedown', function (e) { e.preventDefault(); }); // keep the editor caret/selection
+        btn.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); showCommentActionsFor(parseInt(btn.dataset.seq, 10)); });
+        gutter.appendChild(btn);
+      }
+      btn.style.top = (heading.getBoundingClientRect().top - hostTop + 6) + 'px'; // align with the heading's title line
+    });
   }
   function selectMergedComment(seq, shouldFocus) {
     activeSeq = seq;
@@ -221,33 +263,40 @@ function openMergedView(kind) {
     if (index < 0) index = 0;
     selectMergedComment(items[Math.max(0, Math.min(items.length - 1, index + dir))].seq, true);
   }
-  function openMergedActions() {
-    var caretSeq = mergedCommentAtCaret();
-    if (typeof caretSeq === 'number' && !isNaN(caretSeq)) selectMergedComment(caretSeq, false);
-    else if (caretSeq === null) { selectMergedComment(null, false); return; }
-    if (activeSeq == null) return;
-    var heading = preview.querySelector('.mc-merged-comment-anchor.active');
+  // Show the navigate/remove dropdown for a specific comment. Shared by Opt+Enter (caret) and the per-comment
+  // hamburger button so both paths behave identically.
+  function showCommentActionsFor(seq) {
+    if (typeof seq !== 'number' || isNaN(seq) || !preview) return;
+    selectMergedComment(seq, false);
+    var heading = preview.querySelector('.mc-merged-comment-anchor[data-comment-seq="' + seq + '"]');
     if (!heading) return;
     var rect = heading.getBoundingClientRect();
-    var seq = activeSeq;
     showCustomDropdown(rect.left + 8, rect.bottom + 4, [
       { label: t('dropdown.navigate'), onSelect: function () { flushMergedComments(); dock.close(); navigateToComment(seq); } },
-      { label: t('dropdown.remove'), onSelect: function () {
-        if (editor) sourceText = editor.getMarkdown();
-        var sourceWithoutComment = removeMergedCommentSection(kind, sourceText, seq);
-        var anchors = Array.from(preview.querySelectorAll('.mc-merged-comment-anchor'));
-        var at = anchors.indexOf(heading);
-        var nextHeading = at >= 0 ? anchors[at + 1] : null;
-        deleteComment(seq);
-        var items = mergedItems();
-        if (!items.length) { dock.close(); return; }
-        var deletedInline = editor && typeof editor.deleteBlockRange === 'function' && editor.deleteBlockRange(heading, nextHeading);
-        if (!deletedInline && editor) editor.setMarkdown(sourceWithoutComment);
-        sourceText = editor ? editor.getMarkdown() : sourceWithoutComment;
-        activeSeq = items[Math.max(0, Math.min(items.length - 1, at))].seq;
-        syncMergedAnchors();
-      } },
+      { label: t('dropdown.remove'), onSelect: function () { removeMergedCommentBySeq(seq); } },
     ], rect.top);
+  }
+  function removeMergedCommentBySeq(seq) {
+    var heading = preview ? preview.querySelector('.mc-merged-comment-anchor[data-comment-seq="' + seq + '"]') : null;
+    if (editor) sourceText = editor.getMarkdown();
+    var sourceWithoutComment = removeMergedCommentSection(kind, sourceText, seq);
+    var anchors = preview ? Array.from(preview.querySelectorAll('.mc-merged-comment-anchor')) : [];
+    var at = heading ? anchors.indexOf(heading) : -1;
+    var nextHeading = at >= 0 ? anchors[at + 1] : null;
+    deleteComment(seq);
+    var items = mergedItems();
+    if (!items.length) { dock.close(); return; }
+    var deletedInline = heading && editor && typeof editor.deleteBlockRange === 'function' && editor.deleteBlockRange(heading, nextHeading);
+    if (!deletedInline && editor) editor.setMarkdown(sourceWithoutComment);
+    sourceText = editor ? editor.getMarkdown() : sourceWithoutComment;
+    activeSeq = items[Math.max(0, Math.min(items.length - 1, at < 0 ? 0 : at))].seq;
+    syncMergedAnchors();
+  }
+  function openMergedActions() {
+    var caretSeq = mergedCommentAtCaret();
+    if (typeof caretSeq === 'number' && !isNaN(caretSeq)) { showCommentActionsFor(caretSeq); return; }
+    if (caretSeq === null) { selectMergedComment(null, false); return; } // caret in the intro: no comment action
+    if (typeof activeSeq === 'number') showCommentActionsFor(activeSeq);
   }
   function handleMergedClick(event) {
     var seq = mergedCommentAtNode(event.target);
@@ -322,13 +371,13 @@ function openMergedView(kind) {
       showToast(t('memo.loadFailed'));
     });
   }
-  verifyCommentFilesExist().then(function () {
+  // Defer the (heavy) editor mount by one frame so the panel's entrance animation paints smoothly first
+  // instead of stuttering while ProseMirror initializes.
+  function startMergedEditor() {
     validatingCommentFiles = false;
-    initializeMergedEditor();
-  }, function () {
-    validatingCommentFiles = false;
-    initializeMergedEditor();
-  });
+    requestAnimationFrame(initializeMergedEditor);
+  }
+  verifyCommentFilesExist().then(startMergedEditor, startMergedEditor);
 }
 
 // One Notion-style Markdown document per worktree. Electron persists it below app.getPath('userData'); the

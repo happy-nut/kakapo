@@ -366,7 +366,7 @@ function handleFileFindKey(event) {
   if (event.key === 'Enter') {
     event.preventDefault(); event.stopPropagation(); stepFileFind(event.shiftKey ? -1 : 1); return true;
   }
-  if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.key === 'g' || event.key === 'G')) {
+  if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.code === 'KeyG' || event.key === 'g' || event.key === 'G')) {
     event.preventDefault(); event.stopPropagation(); stepFileFind(event.shiftKey ? -1 : 1); return true;
   }
   return false;

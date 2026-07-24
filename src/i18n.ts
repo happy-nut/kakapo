@@ -19,6 +19,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "rail.questions": "Questions",
     "rail.changeRequests": "Change requests",
     "rail.branch": "Current branch",
+    "brand.revealFile": "Reveal open file in the sidebar (⌥F1)",
     "rail.history": "History",
     "rail.impact": "Change Impact",
     "impact.title": "Change Impact",
@@ -298,6 +299,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "merged.close": "Close",
     "dropdown.navigate": "Go to location",
     "dropdown.remove": "Remove",
+    "dropdown.actions": "Comment actions",
     "merged.qHeading": "# Questions",
     "merged.cHeading": "# Change requests",
 
@@ -326,6 +328,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "rail.questions": "질문",
     "rail.changeRequests": "변경 요청",
     "rail.branch": "현재 브랜치",
+    "brand.revealFile": "열린 파일을 사이드바에서 보기 (⌥F1)",
     "rail.history": "히스토리",
     "rail.impact": "변경 영향",
     "impact.title": "변경 영향",
@@ -607,6 +610,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "merged.close": "닫기",
     "dropdown.navigate": "해당 위치로 이동",
     "dropdown.remove": "지우기",
+    "dropdown.actions": "코멘트 액션",
     // Structural markers stay English in both locales (the preamble prose below follows the locale).
     "merged.qHeading": "# Questions",
     "merged.cHeading": "# Change requests",

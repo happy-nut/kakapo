@@ -345,13 +345,14 @@ body.native-app .source-tabs {
 .sidebar-brand {
   flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 8px;
   padding: 10px 10px 12px;
   border-bottom: 1px solid var(--border);
   min-width: 0;
 }
 .sidebar-brand .brand-project {
+  flex: 0 1 auto;
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
@@ -359,6 +360,21 @@ body.native-app .source-tabs {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Reveal-open-file button pinned to the right edge of the one-line header (⌥F1). */
+.brand-reveal {
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.brand-reveal:hover { color: var(--active); background: color-mix(in srgb, var(--active) 15%, transparent); }
 .tabs { display: none; }
 /* ===== IntelliJ-style activity rail: icon-per-view column, hover tooltip with the shortcut. ===== */
 .activity-rail {
@@ -415,7 +431,7 @@ body.native-app .source-tabs {
   border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px;
 }
 /* Current branch chip under the project name in the sidebar header. */
-.brand-branch { display: inline-flex; align-items: center; gap: 5px; margin-top: 3px; min-width: 0; color: var(--muted); font-size: 12px; }
+.brand-branch { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 5px; margin-top: 0; min-width: 0; color: var(--muted); font-size: 12px; }
 .brand-branch-icon { flex: none; opacity: 0.8; }
 .brand-branch-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .tab, .plain-button {
@@ -819,7 +835,9 @@ body.native-app .source-tabs {
   border-spacing: 0;
   font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-.d2h-diff-table td { line-height: 1.55; }
+/* Pin one tight line-height for diff code rows so it is identical whether or not line-wrap is on (wrap mode
+   turns the code line into a block, which otherwise rendered a slightly looser line box). */
+.d2h-diff-table td { line-height: 1.5; }
 .d2h-code-side-linenumber, .d2h-code-linenumber {
   width: 52px;
   color: var(--muted);
@@ -845,10 +863,14 @@ body.native-app .source-tabs {
   padding: 0 3px 0 8px;
   text-align: left;
 }
-.d2h-code-line-ctn { position: relative; } /* anchors the absolutely-positioned empty-line caret (so blank rows need no inline position) */
+.d2h-code-line-ctn { position: relative; line-height: 1.5; vertical-align: top; } /* anchors the empty-line caret; vertical-align:top drops the inline-block baseline gap so wrap/no-wrap rows are the same height */
 .d2h-code-side-line, .d2h-code-line {
   padding: 0 0.7em;
   width: 100%;
+  line-height: 1.5;
+  /* No-wrap renders these as inline-block, which reserves baseline descender space and made rows ~1.2px taller
+     than wrap mode (block). vertical-align:top removes that gap; wrap mode (block) ignores it. */
+  vertical-align: top;
   color: var(--text);
   cursor: text;
   -webkit-user-select: text;
@@ -1099,6 +1121,10 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
    border — so navigating the file tree reads the same as the diff-side selection (not a faint 1px outline). */
 .tree-focus { background: color-mix(in srgb, var(--active) 20%, transparent); border-radius: 0; }
 .file-link.tree-focus { border-color: var(--active); }
+/* Rows in a Shift+Arrow / Shift+Click multi-selection (batch mark-as-viewed). Lighter than the focus row so
+   the focused end of the range still stands out. */
+.tree-selected { background: color-mix(in srgb, var(--active) 12%, transparent); }
+.file-link.tree-selected { border-color: color-mix(in srgb, var(--active) 55%, transparent); }
 summary.tree-focus { background: color-mix(in srgb, var(--active) 20%, transparent); }
 .file-link {
   display: grid;
@@ -1990,6 +2016,16 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .mc-merged-body { flex: 1 1 auto; min-width: 0; min-height: 0; height: 100%; overflow: auto; background: var(--panel); }
 .mc-merged-editor-host .mc-merged-preview { flex: none; min-width: 0; min-height: calc(90vh - 150px); overflow: visible; padding: 0; background: var(--panel); outline: none; }
 .mc-merged-comment-anchor { padding: 7px 10px; margin-left: -10px !important; border-radius: 5px; cursor: default; }
+/* Per-comment hamburger menu button, overlaid in the host's left margin (no content-width impact). The gutter
+   itself is click-through; only the buttons capture pointer events. */
+.mc-merged-gutter { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+.mc-merged-menu-btn {
+  position: absolute; left: -24px; width: 20px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted);
+  cursor: pointer; opacity: 0.6; pointer-events: auto;
+}
+.mc-merged-menu-btn:hover { opacity: 1; color: var(--text); background: color-mix(in srgb, var(--muted) 20%, transparent); }
 .mc-merged-comment-anchor:hover { background: color-mix(in srgb, var(--active) 9%, transparent); }
 .mc-merged-comment-anchor.active { background: color-mix(in srgb, var(--active) 17%, transparent); box-shadow: inset 3px 0 var(--active); }
 .mc-merged-comment-anchor:focus-visible { outline: 1px solid var(--active); outline-offset: 2px; }
@@ -2020,7 +2056,17 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
   overflow: hidden;
 }
 /* Dim the editor behind the floating panel; clicking it closes (handler wired in mountDock). */
-.dock-backdrop { position: fixed; inset: 0; z-index: 59; background: color-mix(in srgb, #000 40%, transparent); }
+.dock-backdrop { position: fixed; inset: 0; z-index: 59; background: color-mix(in srgb, #000 40%, transparent); animation: dock-backdrop-in 140ms ease; }
+/* Smooth entrance so the panel eases in from the center instead of popping (which read as a stutter). The
+   keyframe keeps the base translateX(-50%) centering; the heavy editor mounts a frame later (see openMergedView)
+   so it never blocks this animation. */
+@keyframes dock-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+@keyframes dock-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+body:not(.dock-maximized) .dock-panel { animation: dock-in 165ms cubic-bezier(.2, .8, .2, 1); will-change: transform, opacity; }
+@media (prefers-reduced-motion: reduce) { .dock-panel, .dock-backdrop { animation: none; } }
 .dock-resizer { display: none; } /* a centered ~90% floating panel has no bottom edge to drag */
 .dock-bar {
   flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px;

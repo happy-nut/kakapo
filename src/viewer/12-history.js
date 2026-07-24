@@ -838,7 +838,7 @@ function handleHistoryKey(e) {
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === '0') {
     if (historyDiffState) { e.preventDefault(); e.stopPropagation(); activateHistoryFiles(); return true; }
   }
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === 'a' || e.key === 'A') && historyFocus === 'diff') {
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.code === 'KeyA' || e.key === 'a' || e.key === 'A') && historyFocus === 'diff') {
     e.preventDefault(); e.stopPropagation(); historySelectAllDiff(); return true;
   }
   if (e.key === 'PageDown' || e.key === 'PageUp') {
