@@ -8,12 +8,16 @@ import StarterKit from "@tiptap/starter-kit";
 type InlineMarkdownEditor = {
   getMarkdown(): string;
   setMarkdown(markdown: string): void;
-  focus(): void;
+  focus(position?: "start" | "end"): void;
   destroy(): void;
   deleteBlockRange(start: HTMLElement, end?: HTMLElement | null): boolean;
   replaceBlockText(block: HTMLElement, text: string): boolean;
   getCaretElement(): HTMLElement | null;
   typeText(text: string): void;
+  // True when the caret has no more content in `direction` within this editor's own document — the real
+  // (word-wrap-aware) ProseMirror signal for "should this arrow key escape to whatever sits outside the
+  // editor" rather than a naive "position === 0 / doc size" check, which would be wrong mid-paragraph.
+  atBoundary(direction: "up" | "down"): boolean;
 };
 
 type CreateOptions = {
@@ -125,7 +129,14 @@ window.KakapoMarkdownEditor = {
         editor.commands.setContent(markdown, { contentType: "markdown", emitUpdate: false });
         setEmptyState(element, editor);
       },
-      focus: () => { editor.commands.focus(); },
+      focus: (position?: "start" | "end") => { editor.commands.focus(position ?? undefined); },
+      atBoundary: (direction: "up" | "down") => {
+        try {
+          return editor.view.endOfTextblock(direction);
+        } catch {
+          return true;
+        }
+      },
       deleteBlockRange: (start: HTMLElement, end?: HTMLElement | null) => {
         try {
           const from = topLevelBlockPosition(editor, start);

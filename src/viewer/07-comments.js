@@ -165,8 +165,8 @@ function commentKindLabel(kind) {
   return kind === 'q' ? t('comment.kind.q') : t('comment.kind.c');
 }
 // Monochrome inline icons for the two comment kinds: a help-circle for questions, a pencil for change
-// requests (the pencil path matches the activity-rail "c" button). No emoji, no color — stroke=currentColor
-// so the kind pill stays monotone (.mc-kind in viewer.css); the icon, not the color, distinguishes q vs c.
+// requests. No emoji, no color — stroke=currentColor so the kind pill stays monotone (.mc-kind in
+// viewer.css); the icon, not the color, distinguishes q vs c.
 function commentKindIcon(kind) {
   var path = kind === 'q'
     ? '<circle cx="12" cy="12" r="9"/><path d="M9.4 9.3a2.7 2.7 0 0 1 5.2 1c0 1.8-2.6 2.4-2.6 2.4"/><line x1="12" y1="16.7" x2="12.01" y2="16.7"/>'
@@ -219,10 +219,33 @@ function updateComment(seq, text) {
   if (trimmed) { c.text = trimmed; saveComments(); }
   else { deleteComment(seq); }
 }
+// Session-only undo stack for comment removal (Cmd/Ctrl+Z, see 05-keymap.js). Deletion became one keystroke
+// away from the merged panel's Enter->navigate+edit flow, so an accidental Backspace at the destination
+// needs a safety net. Each entry is the full batch removed together (deleteCommentsInRow removes every
+// comment on a row in one Backspace), so one undo restores exactly what one deletion removed.
+var commentUndoStack = [];
+function removeComments(seqs) {
+  var removed = reviewComments.filter(function (c) { return seqs.indexOf(c.seq) !== -1; });
+  if (!removed.length) return;
+  commentUndoStack.push(removed);
+  if (commentUndoStack.length > 20) commentUndoStack.shift();
+  reviewComments = reviewComments.filter(function (c) { return seqs.indexOf(c.seq) === -1; });
+  saveComments();
+}
 function deleteComment(seq) {
-  reviewComments = reviewComments.filter(function (c) { return c.seq !== seq; });
+  removeComments([seq]);
+  refreshComments();
+}
+// Cmd/Ctrl+Z outside any native text-editing surface: restore the last removed comment(s). Returns false
+// (a no-op) when the stack is empty, so the caller can decide not to swallow the key in that case.
+function undoLastCommentRemoval() {
+  var batch = commentUndoStack.pop();
+  if (!batch || !batch.length) return false;
+  reviewComments = reviewComments.concat(batch);
   saveComments();
   refreshComments();
+  showToast(t(batch.length > 1 ? 'comment.restoredMany' : 'comment.restored'));
+  return true;
 }
 
 function sourceRowLineOf(node) {
@@ -677,102 +700,78 @@ function navigateToComment(seq) {
   openSourceFile(c.path);
   requestAnimationFrame(function () { setSourceCursor(c.path, Math.max(0, (Number(c.from) || c.line || 1) - 1), 0, true, -1); });
 }
-
-// The merged prompt is an editable projection of the review comments. Its level-three location headings are
-// stable identities, so editing the prose below one updates the original comment and removing a section (or
-// leaving its body empty) removes the original comment. Agent-contract prose above the review section stays a
-// free-form, copy-only part of the merged document.
-// The merged prompt round-trips through a Markdown editor that escapes/normalizes emphasis characters inside
-// the `### @path#Lline` heading — a path's `__init__` comes back as `**init**`, `_runtime` as `\_runtime`.
-// Match headings to comments on a key with those markers stripped so a location label survives the round-trip;
-// without this a path containing `_` or `*` fails to match, and the first comment swallows the rest of the
-// document into its text (and the unmatched ones get deleted).
-function mergedLabelKey(s) {
-  return String(s == null ? '' : s).replace(/[\\*_]/g, '');
-}
-function mergedCommentSections(kind, markdown) {
-  var items = reviewComments.filter(function (comment) { return comment.kind === kind; });
-  var byLabel = {};
-  items.forEach(function (comment) {
-    var key = mergedLabelKey(commentTargetLabel(comment));
-    if (!byLabel[key]) byLabel[key] = [];
-    byLabel[key].push(comment);
-  });
-  var lines = String(markdown || '').replace(/\r\n?/g, '\n').split('\n');
-  var sections = [];
-  lines.forEach(function (line, index) {
-    var match = /^###\s+(.+?)\s*$/.exec(line);
-    // The production Tiptap editor returns Markdown. The lightweight browser/test fallback can return
-    // rendered plain text, so accept the exact visible location label too; arbitrary prose cannot match.
-    var key = mergedLabelKey(match ? match[1] : line.trim());
-    var queue = byLabel[key];
-    if (!queue || !queue.length) return;
-    sections.push({ comment: queue.shift(), startLine: index, endLine: lines.length, text: '' });
-  });
-  sections.forEach(function (section, index) {
-    section.endLine = sections[index + 1] ? sections[index + 1].startLine : lines.length;
-    section.text = lines.slice(section.startLine + 1, section.endLine).join('\n').trim();
-  });
-  return { lines: lines, sections: sections };
-}
-
-function reconcileMergedComments(kind, markdown) {
-  // Addressed comments are not rendered into the merged text, so they must be excluded here too — otherwise
-  // reconcile would see them "missing" from the markdown and delete them.
-  var items = reviewComments.filter(function (comment) { return comment.kind === kind && !comment.addressed; });
-  if (!items.length) return { changed: false, hadComments: false, remaining: 0 };
-  var parsed = mergedCommentSections(kind, markdown);
-  // Guard against a lossy editor read wiping every comment: if the markdown carries NO recognizable comment
-  // sections while comments still exist (e.g. the editor returned empty/rendered text on close), treat it as
-  // "nothing to sync" instead of deleting them all. A real edit that removes one section still leaves the
-  // others, so per-comment deletion keeps working — only the all-or-nothing wipe is refused.
-  if (!parsed.sections.length) return { changed: false, hadComments: true, remaining: items.length };
-  var textBySeq = {};
-  parsed.sections.forEach(function (section) { textBySeq[section.comment.seq] = section.text; });
-  var removed = {};
-  var changed = false;
-  items.forEach(function (comment) {
-    var nextText = textBySeq[comment.seq];
-    if (typeof nextText !== 'string' || !nextText) { removed[comment.seq] = true; changed = true; return; }
-    if (comment.text !== nextText) { comment.text = nextText; changed = true; }
-  });
-  if (Object.keys(removed).length) {
-    reviewComments = reviewComments.filter(function (comment) { return !removed[comment.seq]; });
+// Merged-panel Enter on a selected comment card: navigate to the comment's source location AND land
+// straight in its edit composer, combining what "Navigate" + a manual "E" press would do separately.
+// Reuses navigateToComment's exact timing (one requestAnimationFrame after openSourceFile) and
+// editCommentInRow's composerState shape (10-source-view.js) — refreshComments() already retry-focuses
+// the composer textarea itself, so no extra focus plumbing is needed here.
+function navigateToCommentAndEdit(seq) {
+  var c = reviewComments.find(function (x) { return x.seq === seq; });
+  if (!c) return;
+  if (commentFileIsKnownMissing(c.path)) {
+    removeCommentsForPaths([c.path]);
+    refreshComments();
+    return;
   }
-  if (changed) { saveComments(); refreshComments(); }
-  return {
-    changed: changed,
-    hadComments: true,
-    remaining: reviewComments.filter(function (comment) { return comment.kind === kind && !comment.addressed; }).length,
-  };
+  openSourceFile(c.path);
+  requestAnimationFrame(function () {
+    setSourceCursor(c.path, Math.max(0, (Number(c.from) || c.line || 1) - 1), 0, true, -1);
+    composerState = {
+      kind: c.kind, path: c.path, line: c.line, code: c.code, anchorCode: c.anchorCode,
+      from: c.from, to: c.to, side: c.side, editSeq: seq, editText: c.text,
+    };
+    refreshComments();
+  });
 }
 
-function removeMergedCommentSection(kind, markdown, seq) {
-  var parsed = mergedCommentSections(kind, markdown);
-  var section = parsed.sections.find(function (candidate) { return candidate.comment.seq === seq; });
-  if (!section) return String(markdown || '');
-  parsed.lines.splice(section.startLine, section.endLine - section.startLine);
-  return parsed.lines.join('\n').replace(/\n{3,}$/g, '\n\n');
+// The merged prompt's data shape: one block per kind that has open comments (its agent-contract prose,
+// then its items), in order — questions first, so the agent answers those (no edits) before touching code
+// for the change requests. A kind with no open comments is omitted entirely (heading, contract, and all).
+// When NEITHER kind has anything open, one empty block is still returned so the panel isn't a dead surface
+// (matching its long-standing behavior of a blank scratch document you can still type into and copy).
+// Comment bodies are never edited by typing into this document (see mergedCardHtml/the merged dock) — they
+// render `comment.text` verbatim and read/write straight through `reviewComments`, so there is no markdown
+// round-trip of comment text to get wrong, and no reconcile step needed at all.
+function mergedBlocks() {
+  var qItems = reviewComments.filter(function (c) { return c.kind === 'q' && !c.addressed; });
+  var cItems = reviewComments.filter(function (c) { return c.kind === 'c' && !c.addressed; });
+  var blocks = [];
+  if (qItems.length) blocks.push({ prose: mergePromptFor('q'), items: qItems });
+  if (cItems.length) {
+    // Change requests are task instructions, so they lead with the plan contract: plan first and decompose
+    // into verifiable steps without asking the agent to add an application-state file to the repository.
+    blocks.push({ prose: mergePromptFor('plan') + '\n\n' + mergePromptFor('c'), items: cItems });
+  }
+  if (!blocks.length) blocks.push({ prose: '', items: [] });
+  return blocks;
 }
 
-function buildMergedText(kind) {
-  // "possibly addressed" comments are held back from the prompt so each round only carries the open items.
-  var items = reviewComments.filter(function (c) { return c.kind === kind && !c.addressed; });
+// One unified hand-off document as a single string (Copy all's default, "Send to terminal", and tests).
+// The live merged dock instead renders each block as its own small editable surface plus one non-editable
+// card per comment (see openMergedView/currentMergedText in 08-dock.js) — this stays the static/default view.
+function buildMergedText() {
   var nl = String.fromCharCode(10);
   var lines = [];
-  // Change requests are task instructions, so they lead with the plan contract: plan first and decompose
-  // into verifiable steps without asking the agent to add an application-state file to the repository.
-  // Questions are read-only clarifications, so they skip it.
-  if (kind === 'c') { lines.push(mergePromptFor('plan')); lines.push(''); }
-  // Per-kind agent contract heading (editable in Settings → Merge prompts; default otherwise).
-  lines.push(mergePromptFor(kind));
-  lines.push('');
-  lines.push(kind === 'q' ? t('merged.qHeading') : t('merged.cHeading'));
-  lines.push('');
-  items.forEach(function (c) {
-    lines.push('### ' + commentTargetLabel(c));
-    lines.push(c.text);
-    lines.push('');
+  mergedBlocks().forEach(function (block) {
+    if (!block.prose && !block.items.length) return; // the empty scratch-pad block prints nothing
+    if (block.prose) { lines.push(block.prose); lines.push(''); }
+    block.items.forEach(function (c) {
+      lines.push('### ' + commentTargetLabel(c));
+      lines.push(c.text);
+      lines.push('');
+    });
   });
   return lines.join(nl);
+}
+
+// A comment's read-only card in the merged dock: same .mc-card/.mc-card-head/.mc-kind/.mc-target/.mc-card-body
+// classes threadHtml() already renders in the diff/source view, so it looks and feels like the same "comment
+// box" — just without the reopen/delete buttons (deletion happens by navigating to the source and using the
+// existing select-row-then-Backspace flow there, not from this panel). `.mc-merged-card` carries the
+// selection/keyboard behavior; `tabindex="-1"` makes it programmatically focusable without joining Tab order.
+function mergedCardHtml(comment) {
+  return '<div class="mc-card mc-merged-card mc-' + comment.kind + '" data-comment-seq="' + comment.seq + '" tabindex="-1" role="button">'
+    + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(comment.kind) + '</span>'
+    + '<span class="mc-target">' + escapeHtml(commentTargetLabel(comment)) + '</span></div>'
+    + '<div class="mc-card-body">' + escapeHtml(comment.text) + '</div></div>';
 }

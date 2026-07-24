@@ -19,7 +19,7 @@ after(cleanupFixtures);
 
 test("merged view opens as a focused floating panel (.dock-panel + backdrop), not the old inline dock/modal", async () => {
   const v = await loadViewer(html);
-  await v.openMergedView("q");
+  await v.openMergedView();
   assert.ok(v.$("#mc-merged-panel.dock-panel"), "merged opens as a .dock-panel");
   assert.ok(v.$(".dock-backdrop"), "a dim backdrop sits behind the floating panel");
   assert.ok(v.window.document.body.classList.contains("floating-dock"), "body.floating-dock scopes the floating + maximize CSS");
@@ -38,7 +38,7 @@ test("memo toggles open then closed with its shortcut", async () => {
 
 test("opening one dock closes the other (exclusive slot)", async () => {
   const v = await loadViewer(html);
-  await v.openMergedView("q");
+  await v.openMergedView();
   assert.ok(v.$("#mc-merged-panel"), "merged open");
   await v.openMemo();
   assert.ok(v.$("#mc-memo-panel"), "memo open");
@@ -92,10 +92,11 @@ test("the single Markdown memo can be cleared without a note-list workflow", asy
 
 test("merged prompts render as one sanitized Markdown document instead of a side-by-side preview", async () => {
   const v = await loadViewer(html);
-  await v.openMergedView("q");
+  v.window.addComment("q", "src/app.ts", 1, "", "why this change?"); // a section with no open comments renders no heading at all
+  await v.openMergedView();
   const preview = v.$("#mc-merged-panel .mc-merged-preview.markdown-body");
   assert.ok(preview, "the merged prompt has one rendered document");
-  assert.ok(preview.querySelector("h1"), "prompt headings are rendered as Markdown");
+  assert.ok(preview.querySelector("p"), "the question contract is rendered as Markdown, not raw text");
   assert.equal(preview.querySelector("script"), null, "the shared sanitizer remains active");
   assert.equal(v.$("#mc-merged-panel textarea"), null, "no raw source pane competes with the rendered document");
   v.close();
@@ -105,7 +106,7 @@ test("the merged prompt reuses the inline Markdown editor and Copy all reflects 
   const v = await loadViewer(html);
   let copied = null;
   v.window.kakapoClipboard = { write: (text) => { copied = text; } };
-  await v.openMergedView("q");
+  await v.openMergedView();
   const editor = v.$("#mc-merged-panel .mc-inline-editor.mc-merged-preview[contenteditable='true']");
   assert.ok(editor, "the merged prompt is the same inline-editable surface as the memo");
   v.typeInto(editor, "Edited handoff prompt");
@@ -117,7 +118,7 @@ test("the merged prompt reuses the inline Markdown editor and Copy all reflects 
 
 test("Cmd/Ctrl+Shift+' maximizes the active dock and restores it (toggle)", async () => {
   const v = await loadViewer(html);
-  await v.openMergedView("q");
+  await v.openMergedView();
   assert.equal(v.isDockMaximized(), false, "starts un-maximized");
   v.toggleDockMax();
   await v.settle(20);
@@ -141,7 +142,7 @@ test("Cmd/Ctrl+Shift+' does nothing when no dock is open", async () => {
 
 test("closing a maximized dock clears the maximized state", async () => {
   const v = await loadViewer(html);
-  await v.openMergedView("q");
+  await v.openMergedView();
   v.toggleDockMax();
   await v.settle(20);
   assert.equal(v.isDockMaximized(), true);

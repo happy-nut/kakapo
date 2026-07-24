@@ -16,8 +16,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "tab.files": "Files",
     "tab.changes.title": "Changes (⌘0)",
     "tab.files.title": "Files (⌘1)",
-    "rail.questions": "Questions",
-    "rail.changeRequests": "Change requests",
+    "rail.reviewComments": "Review comments",
     "rail.branch": "Current branch",
     "brand.revealFile": "Reveal open file in the sidebar (⌥F1)",
     "rail.history": "History",
@@ -143,6 +142,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.addressed": "possibly addressed",
     "comment.addressed.hint": "The line this comment was anchored to changed in the latest revision — the agent likely addressed it. Reopen if it isn't resolved.",
     "comment.reopen": "Reopen",
+    "comment.restored": "Comment restored",
+    "comment.restoredMany": "Comments restored",
     "diff.previous": "Previous change (Shift+F7)",
     "diff.next": "Next change (F7)",
     "diff.hideSidebar": "Hide changed files",
@@ -303,17 +304,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "badge.changeRequests": "change request(s)",
 
     // Merged comments modal
-    "merged.qTitle": "Question comments",
-    "merged.cTitle": "Change-request comments",
+    "merged.title": "Review comments",
     "merged.copyAll": "Copy all",
     "merged.copied": "Copied",
     "merged.copyFailed": "Copy failed",
     "merged.close": "Close",
-    "dropdown.navigate": "Go to location",
-    "dropdown.remove": "Remove",
-    "dropdown.actions": "Comment actions",
-    "merged.qHeading": "# Questions",
-    "merged.cHeading": "# Change requests",
 
     // One worktree memo (Cmd/Ctrl+Shift+N) — Markdown shortcuts become rich blocks in place.
     "memo.title": "Markdown memo",
@@ -337,8 +332,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Tabs (sidebar)
     "tab.changes": "변경사항",
     "tab.files": "파일",
-    "rail.questions": "질문",
-    "rail.changeRequests": "변경 요청",
+    "rail.reviewComments": "리뷰 코멘트",
     "rail.branch": "현재 브랜치",
     "brand.revealFile": "열린 파일을 사이드바에서 보기 (⌥F1)",
     "rail.history": "히스토리",
@@ -466,6 +460,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.addressed": "반영된 듯",
     "comment.addressed.hint": "이 코멘트가 가리키던 줄이 최신 변경에서 바뀌었습니다 — 에이전트가 반영했을 가능성이 큽니다. 아직 안 됐으면 재열기하세요.",
     "comment.reopen": "재열기",
+    "comment.restored": "코멘트를 복원했습니다",
+    "comment.restoredMany": "코멘트들을 복원했습니다",
     "diff.previous": "이전 변경 (Shift+F7)",
     "diff.next": "다음 변경 (F7)",
     "diff.hideSidebar": "변경 파일 패널 숨기기",
@@ -626,18 +622,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "badge.changeRequests": "개 변경 요청",
 
     // Merged comments modal
-    "merged.qTitle": "질문 코멘트",
-    "merged.cTitle": "변경 요청 코멘트",
+    "merged.title": "리뷰 코멘트",
     "merged.copyAll": "전체 복사",
     "merged.copied": "복사됨",
     "merged.copyFailed": "복사 실패",
     "merged.close": "닫기",
-    "dropdown.navigate": "해당 위치로 이동",
-    "dropdown.remove": "지우기",
-    "dropdown.actions": "코멘트 액션",
-    // Structural markers stay English in both locales (the preamble prose below follows the locale).
-    "merged.qHeading": "# Questions",
-    "merged.cHeading": "# Change requests",
 
     // 워크트리 메모 한 장 (Cmd/Ctrl+Shift+N) — 마크다운 단축 문법이 그 자리에서 서식 블록으로 바뀐다.
     "memo.title": "마크다운 메모",

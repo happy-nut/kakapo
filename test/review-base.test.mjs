@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { buildDiffReview } from "../dist/cli.js";
 import { validateReviewBase } from "../dist/git.js";
 
@@ -78,4 +78,24 @@ test("--staged reviews the index against HEAD, excluding unstaged edits", () => 
 
   const worktree = review(root, { base: "HEAD" });
   assert.equal(worktree.files, 2, "the working-tree diff shows both the staged and the unstaged file");
+});
+
+test("sidebar project name resolves from the main repository, not a linked worktree directory named after its branch", () => {
+  const { root, git } = tempRepo();
+  write(root, "a.ts", "one\n");
+  git(["add", "-A"]);
+  git(["commit", "-qm", "c1"]);
+
+  // Worktrees (git worktree add, or Orca-managed worktrees) are routinely named after their branch — the
+  // exact setup where basename(root) alone would repeat the branch chip as the "project name" too.
+  const branchName = "crypto-single-run-removal";
+  const worktreeDir = join(dirname(root), branchName);
+  dirs.push(worktreeDir);
+  git(["worktree", "add", "-b", branchName, worktreeDir]);
+
+  const mainName = basename(root);
+  const build = review(worktreeDir);
+  assert.match(build.html, new RegExp(`class="brand-project">${mainName}<`), "the bold project name names the main repository directory");
+  assert.doesNotMatch(build.html, new RegExp(`class="brand-project">${branchName}<`), "the worktree's own branch-named directory is not shown as the project name");
+  assert.match(build.html, new RegExp(`id="brand-branch-name">${branchName}<`), "the branch chip still names the actual branch");
 });

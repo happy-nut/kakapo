@@ -357,3 +357,24 @@ test("diff comment composers stay pinned inside the working-tree viewport", () =
   assert.match(spacerCell || "", /background:\s*var\(--bg\)/, "the paired base timeline slot cannot expose a split table background");
   assert.match(css, /\.mc-comment-spacer\s*\{[^}]*pointer-events:\s*none/, "the invisible paired slot never steals review input");
 });
+
+test("merged panel: a per-block prose region never inherits the memo's near-full-viewport min-height", () => {
+  // The bug: .mc-inline-editor (the base class every editor surface gets, including the memo's single
+  // full-page one) sets min-height: calc(90vh - 150px). The merged panel now mounts several SMALL per-block
+  // prose regions (each also carrying .mc-inline-editor) interleaved with comment cards — without an
+  // explicit override, every region was forced to ~90vh tall, blowing a huge blank gap between each
+  // contract heading and its first card (and pushing the rest of the document far below the fold).
+  const preview = ruleBodyContaining(".mc-merged-editor-host .mc-merged-preview");
+  assert.ok(preview, ".mc-merged-editor-host .mc-merged-preview rule must exist");
+  assert.match(preview, /min-height:\s*0\b/, "the fix: each merged-panel prose region must reset min-height to 0, not inherit ~90vh from .mc-inline-editor");
+});
+
+test("merged panel: the editor host itself never inherits the memo's full-panel min-height", () => {
+  // The bug: .mc-inline-editor-host (shared with the single full-page memo editor) sets min-height: 100%,
+  // forcing the merged panel's host to the full panel height even once its actual (much shorter) content
+  // fits comfortably. The extra space is invisible until scrollIntoView/arrow navigation scrolls down far
+  // enough to reveal it as a sudden gap below the real content.
+  const host = ruleBodyContaining(".mc-inline-editor-host.mc-merged-editor-host");
+  assert.ok(host, ".mc-inline-editor-host.mc-merged-editor-host rule must exist");
+  assert.match(host, /min-height:\s*0\b/, "the fix: the merged panel's host must reset min-height to 0, not inherit 100% from .mc-inline-editor-host");
+});

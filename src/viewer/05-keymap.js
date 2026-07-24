@@ -84,7 +84,7 @@ document.addEventListener('keydown', (event) => {
 
   // Dock controls fire regardless of focus (merged / memo) — they sit ABOVE the focus guard so
   // they still work from inside a dock panel. Cmd/Ctrl+Shift+' maximizes the active dock; Cmd/Ctrl+Shift+/
-  // and +. open the merged views; Cmd/Ctrl+Shift+N toggles the memo. (Match event.code so IME/layout never
+  // opens the merged view; Cmd/Ctrl+Shift+N toggles the memo. (Match event.code so IME/layout never
   // swallows the combo.) Settings is a true overlay, so these stand down while it is up.
   var settingsUp = (function () { var s = document.getElementById('settings-modal'); return !!(s && !s.classList.contains('hidden')); })();
   if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.code === 'Quote') {
@@ -93,9 +93,9 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.altKey
-    && ((event.shiftKey && (event.code === 'Slash' || event.code === 'Period')) || event.key === '?' || event.key === '>')) {
+    && ((event.shiftKey && event.code === 'Slash') || event.key === '?')) {
     event.preventDefault();
-    openMergedView((event.code === 'Slash' || event.key === '?') ? 'q' : 'c');
+    openMergedView();
     return;
   }
   if (!settingsUp && (event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && (event.code === 'KeyN' || event.key === 'n' || event.key === 'N')) {
@@ -122,6 +122,22 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (typeof isHistoryOpen === 'function' && isHistoryOpen() && typeof handleHistoryKey === 'function' && handleHistoryKey(event)) return;
+
+  // Cmd/Ctrl+Z: undo the last comment removal. Above the focus guard so it still fires right after a
+  // Backspace-delete on a selected card in the merged panel, which leaves focus on the reselected card —
+  // i.e. still "inside" the dock — where the guard below would otherwise swallow it. Deleting one is now
+  // just a Backspace away from the merged panel's Enter->navigate+edit flow, so an accidental delete needs
+  // a safety net right where it happens. Never intercepts inside a native input/textarea or a rich-text
+  // surface (memo/merged prose) — those keep their own native/library undo history; only swallow the key
+  // when there was actually something to restore.
+  if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && (event.key === 'z' || event.key === 'Z' || event.code === 'KeyZ')) {
+    var zae = document.activeElement;
+    var zInField = zae && (zae.tagName === 'INPUT' || zae.tagName === 'TEXTAREA' || zae.tagName === 'SELECT' || zae.isContentEditable);
+    if (!zInField && typeof undoLastCommentRemoval === 'function' && undoLastCommentRemoval()) {
+      event.preventDefault();
+      return;
+    }
+  }
 
   // Settings overlay (or a focused merged/memo dock) captures keys: stand down the rest of the global
   // shortcuts (Cmd+1, F7, Cmd+[/], Cmd+B, …). Each has its own Esc + editing handlers.
@@ -495,7 +511,7 @@ document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
   const view = btn.dataset.view;
   if (view === 'changes') { activateChangesView(true); }
   else if (view === 'files') { activateFilesView(); }
-  else if (view === 'q' || view === 'c') { toggleMergedRail(view); }
+  else if (view === 'merged') { toggleMergedRail(); }
   else if (view === 'memo') { openMemoView(); } // openMemoView already toggles
   else if (view === 'impact') { toggleImpact(); }
   else if (view === 'history') { toggleHistory(); }

@@ -338,13 +338,12 @@ function buildApplicationMenu(): void {
   // Keep the standard Edit/Window roles so Cmd+C/V/X/A (copy comments into prompts) and Cmd+Q work.
   // The in-window menu bar stays hidden on Windows/Linux via autoHideMenuBar; macOS shows it in the top bar.
   menuTemplate.push({ role: "editMenu" });
-  // Ctrl+Cmd+Shift+/ ("?") and Ctrl+Cmd+Shift+. (">") open the merged question / change-request views.
-  // ? and > are Shift+/ and Shift+. so Shift is part of the combo; Ctrl+Cmd avoids macOS's Cmd+? Help grab.
+  // Ctrl+Cmd+Shift+/ ("?") opens the merged review-comments view (questions, then change requests).
+  // ? is Shift+/ so Shift is part of the combo; Ctrl+Cmd avoids macOS's Cmd+? Help grab.
   menuTemplate.push({
     label: "Review",
     submenu: [
-      { label: "All questions", accelerator: "Control+Command+Shift+/", click: () => sendToFocused("kakapo:merged-view", "q") },
-      { label: "All change requests", accelerator: "Control+Command+Shift+.", click: () => sendToFocused("kakapo:merged-view", "c") },
+      { label: "All review comments", accelerator: "Control+Command+Shift+/", click: () => sendToFocused("kakapo:merged-view") },
       // Cmd/Ctrl+Shift+N opens (and toggles) the single freeform prompt memo — a Markdown scratchpad.
       { label: "Markdown memo", accelerator: "CommandOrControl+Shift+N", click: () => sendToFocused("kakapo:open-memo") },
       { type: "separator" },

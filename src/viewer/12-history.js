@@ -260,7 +260,7 @@ function renderHistoryDetail(d) {
     : '<div class="quick-open-empty">' + escapeHtml(t(d.isMerge ? 'history.merge' : 'history.noDiff')) + '</div>';
   detail.innerHTML = head + body;
   setHistoryDetailOpen(true);
-  setupHistoryDiffWorkspace(d.hash || historyActiveSha);
+  setupHistoryDiffWorkspace(d.hash || historyActiveSha, d.fileStatus);
   var preferredPath = historyDirectPath || (historyScope && historyScope.path) || '';
   if (preferredPath && historyWrapperByPath(preferredPath)) historyShowFile(preferredPath, undefined, true);
 }
@@ -353,7 +353,73 @@ function historyFirstChangeRowForCaret(hunkRow) {
   }
   return historyFirstCodeRowOfHunk(hunkRow);
 }
-function setupHistoryDiffWorkspace(sha) {
+// Real per-status badge for the changed-files tree, mirroring render-tree.ts's changeStatusBadge exactly
+// (the client cannot import it). Falls back to the "modified" icon for any status readCommitDiff couldn't
+// resolve — e.g. a rename, whose diff2html file-name label doesn't match the fileStatus lookup key.
+function historyStatusBadge(status) {
+  var label = status ? status[0].toUpperCase() + status.slice(1) : 'Modified';
+  var icon;
+  switch (status) {
+    case 'added': icon = '<path d="M8 3.5v9M3.5 8h9"/>'; break;
+    case 'deleted': icon = '<path d="M3.5 8h9"/>'; break;
+    case 'renamed': icon = '<path d="M3 5h8m-2.5-2.5L11 5 8.5 7.5M13 11H5m2.5-2.5L5 11l2.5 2.5"/>'; break;
+    default: icon = '<path d="m3.2 11.8.6-2.7 6.6-6.6a1.2 1.2 0 0 1 1.7 0l1.4 1.4a1.2 1.2 0 0 1 0 1.7L6.9 12.2l-2.7.6zM9.5 3.4l3.1 3.1"/>';
+  }
+  return '<span class="status status-' + escapeHtml(status || 'modified') + '" role="img" aria-label="' + escapeHtml(label) + '" title="' + escapeHtml(label) + '"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + icon + '</svg></span>';
+}
+// Groups the flat, DOM-walk-ordered `files` list (built below in setupHistoryDiffWorkspace) into a folder
+// tree — the same nesting/single-child-chain shape as render-tree.ts's renderDiffTree/Changes tree, reusing
+// its exact "changes-dir"/"tree-file"/"change-row" classes and the Files tree's virtualTypeIcon/
+// VIRTUAL_FOLDER_ICON glyphs (04-source-tree.js) so no new CSS is needed and the History tree looks and
+// collapses identically to Cmd+0's. Order is preserved (not re-sorted alphabetically like the Changes
+// tree) so historyDiffState.files stays index-aligned with the rendered .history-file DOM order —
+// historySetFileFocus/historyShowFile/historySetActiveHunk all index into that array by DOM position.
+function buildHistoryFileTree(files) {
+  var root = { name: '', path: '', children: new Map() };
+  files.forEach(function (file, index) {
+    var parts = String(file.path || '').split('/').filter(Boolean);
+    var node = root, current = '';
+    for (var i = 0; i < parts.length - 1; i++) {
+      current = current ? current + '/' + parts[i] : parts[i];
+      var child = node.children.get(parts[i]);
+      if (!child) { child = { name: parts[i], path: current, children: new Map() }; node.children.set(parts[i], child); }
+      node = child;
+    }
+    var leaf = parts[parts.length - 1] || file.path;
+    node.children.set(leaf + '\0' + file.path, { name: leaf, path: file.path, children: new Map(), file: file, fileIndex: index });
+  });
+  return root;
+}
+function historyFileTreeChildrenHtml(node, depth) {
+  return Array.from(node.children.values()).map(function (child) { return historyFileTreeNodeHtml(child, depth); }).join('');
+}
+function historyFileTreeNodeHtml(node, depth) {
+  if (node.file) {
+    var file = node.file;
+    return '<button type="button" class="file-link history-file change-row tree-file" data-index="' + node.fileIndex + '" data-file="' + escapeHtml(file.path) + '" data-hunk="' + file.hunk + '" style="--depth:' + depth + '" aria-label="' + escapeHtml(file.path) + '">'
+      + virtualTypeIcon(file.path)
+      + historyStatusBadge(file.status)
+      + '<span class="change-name"><span class="path" title="' + escapeHtml(file.path) + '">' + escapeHtml(node.name) + '</span></span></button>';
+  }
+  // Collapse single-child directory chains ("a/b/c") into one summary row, exactly as the Changes tree does.
+  var labelNode = node;
+  var names = [node.name];
+  for (;;) {
+    var entries = Array.from(labelNode.children.values());
+    if (entries.length !== 1 || entries[0].file) break;
+    names.push(entries[0].name);
+    labelNode = entries[0];
+  }
+  return '<details class="tree-dir changes-dir" data-dir="' + escapeHtml(labelNode.path) + '" style="--depth:' + depth + '" open>'
+    + '<summary>' + VIRTUAL_FOLDER_ICON + '<span class="path">' + escapeHtml(names.join('/')) + '</span></summary>'
+    + historyFileTreeChildrenHtml(labelNode, depth + 1)
+    + '</details>';
+}
+function renderHistoryFileTree(files) {
+  if (!files.length) return '';
+  return '<nav class="tree changes-tree">' + historyFileTreeChildrenHtml(buildHistoryFileTree(files), 0) + '</nav>';
+}
+function setupHistoryDiffWorkspace(sha, fileStatus) {
   var container = document.getElementById('history-diff-container');
   var filesEl = document.getElementById('history-files');
   if (!container || !filesEl) { historyDiffState = null; return; }
@@ -382,18 +448,11 @@ function setupHistoryDiffWorkspace(sha) {
       row.dataset.historyHunkIndex = String(idx);
       row.dataset.historyFile = path;
     });
-    files.push({ path: path, hunk: first, count: hunkIndex - first });
+    files.push({ path: path, hunk: first, count: hunkIndex - first, status: (fileStatus && fileStatus[path]) || 'modified' });
   });
   historyDiffState = { sha: sha, container: container, filesEl: filesEl, wrappers: wrappers, files: files, hunks: hunks, currentHunk: -1, cursor: null, fileFocusIndex: 0 };
   historyFilesCollapsed = false;
-  filesEl.innerHTML = files.map(function (file, i) {
-    var slash = file.path.lastIndexOf('/');
-    var name = slash >= 0 ? file.path.slice(slash + 1) : file.path;
-    var dir = slash >= 0 ? file.path.slice(0, slash) : '';
-    return '<button type="button" class="file-link history-file" data-index="' + i + '" data-file="' + escapeHtml(file.path) + '" data-hunk="' + file.hunk + '">'
-      + '<span class="status status-modified" role="img" aria-label="Modified" title="Modified"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3.2 11.8.6-2.7 6.6-6.6a1.2 1.2 0 0 1 1.7 0l1.4 1.4a1.2 1.2 0 0 1 0 1.7L6.9 12.2l-2.7.6zM9.5 3.4l3.1 3.1"/></svg></span><span class="change-name"><span class="path" title="' + escapeHtml(file.path) + '">' + escapeHtml(name) + '</span>'
-      + (dir ? '<span class="change-dir">' + escapeHtml(dir) + '</span>' : '') + '</span></button>';
-  }).join('');
+  filesEl.innerHTML = renderHistoryFileTree(files);
   syncHistoryFilesVisibility();
   container.addEventListener('click', function (event) {
     var info = historyDiffRowInfoFromNode(event.target);

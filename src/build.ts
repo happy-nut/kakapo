@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { basename } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import type { DiffReviewBuild } from "./types.js";
 import { isGitRepository, git, resolveAutomaticReviewBase } from "./git.js";
 import { collectHttpEnvironments, collectReviewFileStates, collectSourceFiles, parseUnifiedDiff, readUnifiedDiff } from "./diff.js";
@@ -70,6 +70,18 @@ export function buildDiffReview(input: {
   const generatedAt = new Date().toISOString();
   // Current branch for the sidebar chip (empty on a detached HEAD); refreshed in the watch payload too.
   const branch = git(root, ["branch", "--show-current"]);
+  // A linked worktree's own directory is often named after its branch (git worktree add ../branch branch,
+  // or Orca-managed worktrees) — basename(root) would then just repeat the branch chip next to it in the
+  // sidebar. Name it after the shared repository instead, found via --git-common-dir's parent — but ONLY
+  // when root really is a separate worktree (its own --show-toplevel differs from that shared repo dir).
+  // A monorepo review scoped to a subdirectory of the SAME working tree (toplevel === shared repo dir)
+  // must keep showing the opened folder's own name: that's the intentionally isolated workspace identity.
+  const toplevel = git(root, ["rev-parse", "--show-toplevel"]);
+  const gitCommonDir = git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  const sharedRepoDir = gitCommonDir ? dirname(gitCommonDir) : "";
+  const projectName = (sharedRepoDir && toplevel && resolve(toplevel) !== resolve(sharedRepoDir))
+    ? basename(sharedRepoDir)
+    : basename(root);
   const totalLines = files.reduce((sum, file) => sum + file.hunks.reduce((t, h) => t + h.lines.length, 0), 0);
   // lazy-LOAD (Phase 2) serves each file body + source on demand instead of embedding them; it implies
   // lazy (shells). The transport opts in (serve/Electron pass lazyLoad:true) and we honor it regardless
@@ -107,7 +119,7 @@ export function buildDiffReview(input: {
     httpEnvironments,
     title: input.title,
     subtitle: diffSubtitle({ ...input, base: reviewBase, baseLabel: automaticBase?.label }),
-    projectName: basename(root),
+    projectName,
     projectPath: root,
     branch,
     watch: Boolean(input.watch),

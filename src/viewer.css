@@ -30,7 +30,9 @@
   --chrome-elevated: #2b2c2f;
   --chrome-text: #f1f1f2;
   --chrome-muted: #b9bbc0;
-  --chrome-border: #494b50;
+  /* Closer to --chrome-bg than a fully mid-gray border reads calmer across every dock/tab/rail divider —
+     still a visible line, not invisible against the dark chrome. */
+  --chrome-border: #34363a;
   --chrome-line: #34363a;
   --chrome-selected: #3a3c40;
   --chrome-selected-text: #ffffff;
@@ -142,7 +144,8 @@
   --chrome-elevated: #434447;
   --chrome-text: #f0f0f1;
   --chrome-muted: #bfc0c3;
-  --chrome-border: #606165;
+  /* Same treatment as the default dark theme: a border closer to --chrome-bg than a full mid-gray line. */
+  --chrome-border: #4a4b4e;
   --chrome-line: #4a4b4e;
   --chrome-selected: #505155;
   --chrome-selected-text: #ffffff;
@@ -2020,23 +2023,36 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 /* Inline hint anchored just under the diff caret (F7 "last change" boundary announcement); fades on its own. */
 .mc-caret-hint { position: fixed; z-index: 75; max-width: 460px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-left: 3px solid var(--active); border-radius: 0; padding: 5px 10px; font-size: 12px; line-height: 1.4; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
 .mc-caret-hint.show { opacity: 1; transform: translateY(0); }
-/* Merged prompts render as one readable document; comment headings remain keyboard-selectable review stops. */
+/* Merged prompts render as several small editable prose regions (agent-contract text) interleaved with
+   read-only comment cards — not one continuous editable document (see openMergedView in 08-dock.js). */
 .mc-merged-body { flex: 1 1 auto; min-width: 0; min-height: 0; height: 100%; overflow: auto; background: var(--panel); }
-.mc-merged-editor-host .mc-merged-preview { flex: none; min-width: 0; min-height: calc(90vh - 150px); overflow: visible; padding: 0; background: var(--panel); outline: none; }
-.mc-merged-comment-anchor { padding: 7px 10px; margin-left: -10px !important; border-radius: 5px; cursor: default; }
-/* Per-comment hamburger menu button, overlaid in the host's left margin (no content-width impact). The gutter
-   itself is click-through; only the buttons capture pointer events. */
-.mc-merged-gutter { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
-.mc-merged-menu-btn {
-  position: absolute; left: -24px; width: 20px; height: 22px;
-  display: inline-flex; align-items: center; justify-content: center;
-  padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted);
-  cursor: pointer; opacity: 0.6; pointer-events: auto;
-}
-.mc-merged-menu-btn:hover { opacity: 1; color: var(--text); background: color-mix(in srgb, var(--muted) 20%, transparent); }
-.mc-merged-comment-anchor:hover { background: color-mix(in srgb, var(--active) 9%, transparent); }
-.mc-merged-comment-anchor.active { background: color-mix(in srgb, var(--active) 17%, transparent); box-shadow: inset 3px 0 var(--active); }
-.mc-merged-comment-anchor:focus-visible { outline: 1px solid var(--active); outline-offset: 2px; }
+/* .mc-inline-editor-host's own base rule (below) sets min-height: 100% for the memo's single full-page
+   editor, which forces this host to the full panel height even once its actual (much shorter) content
+   fits comfortably — the "extra" space is invisible until scrollIntoView/arrow navigation scrolls down far
+   enough to reveal it as a sudden gap. Reset it here so the merged panel host only ever takes the height its
+   own content needs. */
+.mc-inline-editor-host.mc-merged-editor-host { min-height: 0; }
+.mc-merged-editor-host .mc-merged-editor-region:not(:last-child) { margin-bottom: 8px; }
+/* .mc-inline-editor's own base rule sets min-height: calc(90vh - 150px) for the memo's single full-page
+   editor — every one of these several smaller per-block regions inherits that class too, so it must be
+   overridden here explicitly (a higher-specificity selector with no value at all does NOT win; the lone
+   .mc-inline-editor rule would still apply and force each region to ~90vh, blowing the gap between the
+   contract heading and its first card up to nearly a full screen). */
+.mc-merged-editor-host .mc-merged-preview { flex: none; min-width: 0; min-height: 0; overflow: visible; padding: 0; background: var(--panel); outline: none; }
+/* A comment's card in the merged dock — same .mc-card look as its counterpart in the diff/source view, plus
+   the same "selected while navigating with arrows" treatment as .mc-comment-row.mc-row-selected there
+   (a box-shadow ring, not a background tint, so it reads identically in every theme). Not contenteditable:
+   arrow-key navigation selects it as one inert block instead of placing a free text caret inside it. */
+.mc-merged-card { cursor: default; outline: none; }
+.mc-merged-card:hover { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28), 0 0 0 1px color-mix(in srgb, var(--active) 45%, transparent); }
+.mc-merged-card.selected { box-shadow: 0 0 0 2px var(--active); }
+.mc-merged-card:focus-visible { outline: 1px solid var(--active); outline-offset: 2px; }
+/* Cmd+A in the merged panel selects the WHOLE hand-off document at once, cards included (native ProseMirror
+   selectAll only ever covers the one prose region that happens to be focused). Cmd+C while this state is
+   active copies the same assembled text the "Copy all" button does (see copyMergedText in 08-dock.js), so
+   the visual state below just needs to make every region and card read as selected together. */
+.mc-merged-select-all .mc-merged-card { box-shadow: 0 0 0 2px var(--active); }
+.mc-merged-select-all .mc-merged-preview { background: color-mix(in srgb, var(--active) 20%, transparent); }
 
 /* One worktree-scoped, Notion-style inline Markdown document (Tiptap -> persisted Markdown). */
 .mc-memo-body { min-width: 0; min-height: 0; height: 100%; overflow: auto; background: var(--panel); }
@@ -2866,8 +2882,6 @@ summary.tree-focus,
   background: var(--chrome-panel);
 }
 .dock-panel .mc-inline-editor { caret-color: var(--chrome-text); }
-.mc-merged-comment-anchor:hover { background: var(--chrome-line); }
-.mc-merged-comment-anchor.active { color: var(--chrome-text); background: var(--chrome-selected); }
 
 .quick-open-results { background: var(--chrome-panel); }
 .quick-open-item { color: var(--chrome-text); }
@@ -3064,7 +3078,6 @@ body.native-app .source-tabs {
 .impact-relation,
 .href { border-radius: 999px; }
 .mc-del { border-radius: var(--ui-radius-xs); }
-.mc-merged-comment-anchor { border-radius: var(--ui-radius-md); }
 
 /* Cmd+0/1 collapse the active Changes/Files sidebar. The activity rail stays pinned and clickable. */
 @media (min-width: 901px) {

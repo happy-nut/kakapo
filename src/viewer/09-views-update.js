@@ -136,20 +136,17 @@ function syncRail() {
   };
   setOn('changes', !document.getElementById('changes-panel')?.classList.contains('hidden'));
   setOn('files', !document.getElementById('files-panel')?.classList.contains('hidden'));
-  var merged = document.getElementById('mc-merged-panel');
-  setOn('q', !!(merged && merged.dataset.kind === 'q'));
-  setOn('c', !!(merged && merged.dataset.kind === 'c'));
+  setOn('merged', !!document.getElementById('mc-merged-panel'));
   setOn('memo', !!document.getElementById('mc-memo-panel'));
   var hv = document.getElementById('history-view');
   setOn('history', !!(hv && !hv.classList.contains('hidden')));
   var impact = document.getElementById('impact-panel');
   setOn('impact', !!(impact && !impact.classList.contains('hidden')));
 }
-// Rail click for the merged views toggles: a 2nd click on the open kind closes it (memo already toggles).
-function toggleMergedRail(kind) {
-  var m = document.getElementById('mc-merged-panel');
-  if (m && m.dataset.kind === kind) { closeMergedMemoDocks(); return; }
-  openMergedView(kind);
+// Rail click for the merged view toggles: a 2nd click closes it (memo already toggles the same way).
+function toggleMergedRail() {
+  if (document.getElementById('mc-merged-panel')) { closeMergedMemoDocks(); return; }
+  openMergedView();
 }
 // Big repos ship the source tree as an inert island (see render.ts); build it the first time the Files
 // tab is opened so the (potentially huge) tree never blocks startup. No-op for inline (small) trees.

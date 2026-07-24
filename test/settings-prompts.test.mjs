@@ -46,7 +46,7 @@ test("the generated change-request handoff includes the human-reviewable-unit co
   const v = await loadViewer(html);
   v.window.addComment("c", "src/app.ts", 1, "export const n = 2;", "keep this focused");
 
-  const merged = v.window.buildMergedText("c");
+  const merged = v.window.buildMergedText();
   assert.match(merged, /human can review independently/);
   assert.match(merged, /one independently reviewable unit at a time/);
   assert.match(merged, /keep this focused/);

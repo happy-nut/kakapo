@@ -90,11 +90,40 @@ export async function loadViewer(html, opts = {}) {
           return {
             getMarkdown: () => value,
             setMarkdown(next) { value = String(next); render(); },
-            focus() { editable.focus(); },
+            focus(position) {
+              editable.focus();
+              if (position !== "start" && position !== "end") return;
+              try {
+                const range = window.document.createRange();
+                const sel = window.getSelection();
+                if (position === "start") range.setStart(editable, 0);
+                else range.setStart(editable, editable.childNodes.length);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+              } catch (e) {}
+            },
             getCaretElement() {
               const selection = window.getSelection();
               const node = selection && selection.rangeCount ? selection.anchorNode : null;
               return node ? (node.nodeType === 1 ? node : node.parentElement) : null;
+            },
+            // jsdom has no real layout/line-wrap, so this approximates the real editor's word-wrap-aware
+            // boundary check: is there any text before (up) / after (down) the caret in the whole surface.
+            atBoundary(direction) {
+              const selection = window.getSelection();
+              if (!selection || !selection.rangeCount) return true;
+              const range = selection.getRangeAt(0);
+              if (!editable.contains(range.startContainer)) return true;
+              const probe = window.document.createRange();
+              if (direction === "up") {
+                probe.setStart(editable, 0);
+                probe.setEnd(range.startContainer, range.startOffset);
+              } else {
+                probe.setStart(range.endContainer, range.endOffset);
+                probe.setEnd(editable, editable.childNodes.length);
+              }
+              return probe.toString().length === 0;
             },
             destroy() {},
           };
@@ -424,13 +453,9 @@ class Viewer {
   sourceRowLineIndices() {
     return this.$all("#source-body .source-row").map((r) => Number(r.dataset.lineIndex));
   }
-  /** Open the merged-prompt modal (Cmd+Shift+/ for questions, Cmd+Shift+. for change requests). */
-  async openMergedView(kind = "q") {
-    this.key(kind === "q" ? "?" : ">", {
-      metaKey: true,
-      shiftKey: true,
-      code: kind === "q" ? "Slash" : "Period",
-    });
+  /** Open the unified merged-prompt dock (Cmd+Shift+/). */
+  async openMergedView() {
+    this.key("?", { metaKey: true, shiftKey: true, code: "Slash" });
     await this.settle(40);
   }
   /** Toggle the prompt memo dock (Cmd/Ctrl+Shift+N). */
@@ -447,9 +472,13 @@ class Viewer {
     return this.document.body.classList.contains("dock-maximized");
   }
   /** The rendered text of the open merged-prompt document, or null if none is open. */
+  /** The merged dock's full rendered text: each prose region's editable surface, plus each comment card, in
+   * document order — the merged panel is now several small editors interleaved with read-only cards, not one
+   * continuous editable surface (see openMergedView in 08-dock.js). */
   mergedModalText() {
-    const document = this.$("#mc-merged-panel .mc-merged-preview");
-    return document ? document.textContent : null;
+    const host = this.$("#mc-merged-panel .mc-merged-editor-host");
+    if (!host) return null;
+    return Array.from(host.children).map((node) => node.textContent).join("\n");
   }
   /** Type into the visible composer and save with Cmd+Enter (the keyboard path). */
   async writeAndSaveWithKeyboard(text) {

@@ -137,210 +137,167 @@ function mountDock(id, titleText) {
   return { panel: panel, body: body, bar: bar, close: close };
 }
 
-function openMergedView(kind) {
+function openMergedView() {
   if (pruneCommentsForMissingFiles()) refreshComments();
-  var dock = mountDock('mc-merged-panel', kind === 'q' ? t('merged.qTitle') : t('merged.cTitle'));
-  dock.panel.dataset.kind = kind; // remembered so a live locale switch can re-render this same view
+  var dock = mountDock('mc-merged-panel', t('merged.title'));
   var mergedBody = document.createElement('div');
   mergedBody.className = 'mc-merged-body';
   var host = document.createElement('div');
   host.className = 'mc-inline-editor-host mc-merged-editor-host';
   host.innerHTML = loadingStateHtml(t('history.loading'), 'mc-memo-empty');
-  var editor = null;
-  var preview = null;
-  var sourceText = '';
-  var activeSeq = null;
-  var commentSyncTimer = 0;
-  var closingMergedView = false;
-  var mergedInitialized = false;
+  mergedBody.appendChild(host);
+  dock.body.appendChild(mergedBody);
   var validatingCommentFiles = true;
-  function mergedItems() { return reviewComments.filter(function (comment) { return comment.kind === kind && !comment.addressed; }); }
-  function flushMergedComments() {
-    if (commentSyncTimer) { clearTimeout(commentSyncTimer); commentSyncTimer = 0; }
-    if (editor) sourceText = editor.getMarkdown();
-    return reconcileMergedComments(kind, sourceText);
+  var blocks = [];   // mergedBlocks() snapshot captured once, at build time
+  var editors = [];  // [{ region, editor }] — one per block's prose, in document order
+  var selectedCard = null;
+
+  // The alternating top-level children of `host`: an editor region per block, one non-editable card per
+  // comment right after it. Arrow-key handoff and Enter both walk this list, not reviewComments directly,
+  // so behavior always matches what's actually on screen.
+  function regionNodes() { return Array.prototype.slice.call(host.children); }
+  function siblingRegion(node, dir) {
+    var kids = regionNodes();
+    var i = kids.indexOf(node);
+    return i < 0 ? null : (kids[i + dir] || null);
   }
-  function scheduleMergedCommentSync() {
-    if (commentSyncTimer) clearTimeout(commentSyncTimer);
-    commentSyncTimer = setTimeout(function () {
-      commentSyncTimer = 0;
-      var result = reconcileMergedComments(kind, sourceText);
-      if (!closingMergedView && result.hadComments && !result.remaining) { dock.close(); return; }
-      requestAnimationFrame(syncMergedAnchors);
-    }, 180);
+  function editorEntryForRegion(region) {
+    return editors.find(function (entry) { return entry.region === region; });
   }
-  function syncMergedAnchors() {
-    if (!preview) return;
-    var items = mergedItems();
-    preview.querySelectorAll('.mc-merged-comment-anchor').forEach(function (heading) {
-      var seq = parseInt(heading.dataset.commentSeq, 10);
-      if (!items.some(function (comment) { return comment.seq === seq; })) {
-        heading.classList.remove('mc-merged-comment-anchor', 'active');
-        delete heading.dataset.commentSeq;
-        heading.removeAttribute('aria-selected');
-      }
-    });
-    var headings = Array.from(preview.querySelectorAll('h3'));
-    items.forEach(function (comment) {
-      var existing = preview.querySelector('.mc-merged-comment-anchor[data-comment-seq="' + comment.seq + '"]');
-      var expected = commentTargetLabel(comment);
-      var heading = existing || headings.find(function (candidate) {
-        return !candidate.dataset.commentSeq && candidate.textContent.trim() === expected;
-      });
-      if (!heading) return;
-      heading.classList.add('mc-merged-comment-anchor');
-      heading.dataset.commentSeq = String(comment.seq);
-      heading.tabIndex = -1;
-    });
-    if (!items.some(function (comment) { return comment.seq === activeSeq; })) activeSeq = items.length ? items[0].seq : null;
-    selectMergedComment(activeSeq, false);
-    renderMergedGutter();
+  function deselectCard() {
+    if (!selectedCard) return;
+    selectedCard.classList.remove('selected');
+    selectedCard.setAttribute('aria-selected', 'false');
+    selectedCard = null;
   }
-  // A per-comment hamburger button in the left gutter (mouse alternative to Opt+Enter). Buttons live in an
-  // overlay layer that is a sibling of the contenteditable — never inside it, so ProseMirror doesn't manage
-  // them and they never enter the copied prompt. Positioned absolutely in the host's left margin so they add
-  // no content width. Re-rendered on every anchor sync, so they track headings as the prompt is edited.
-  function renderMergedGutter() {
-    if (!preview) return;
-    var gutter = host.querySelector('.mc-merged-gutter');
-    if (!gutter) {
-      gutter = document.createElement('div');
-      gutter.className = 'mc-merged-gutter';
-      gutter.setAttribute('aria-hidden', 'true'); // decorative container; each button carries its own label
-      host.appendChild(gutter);
-    }
-    var anchors = Array.prototype.slice.call(preview.querySelectorAll('.mc-merged-comment-anchor'));
-    var liveSeqs = anchors.map(function (a) { return a.dataset.commentSeq; });
-    Array.prototype.slice.call(gutter.children).forEach(function (btn) {
-      if (liveSeqs.indexOf(btn.dataset.seq) < 0) btn.remove();
-    });
-    var hostTop = host.getBoundingClientRect().top; // rect-delta positioning is robust to any positioned wrapper
-    anchors.forEach(function (heading) {
-      var seq = heading.dataset.commentSeq;
-      var btn = gutter.querySelector('.mc-merged-menu-btn[data-seq="' + seq + '"]');
-      if (!btn) {
-        btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'mc-merged-menu-btn';
-        btn.dataset.seq = seq;
-        btn.setAttribute('aria-label', t('dropdown.actions'));
-        btn.title = t('dropdown.actions');
-        btn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11"/><path d="M2.5 8h11"/><path d="M2.5 11.5h11"/></svg>';
-        btn.addEventListener('mousedown', function (e) { e.preventDefault(); }); // keep the editor caret/selection
-        btn.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); showCommentActionsFor(parseInt(btn.dataset.seq, 10)); });
-        gutter.appendChild(btn);
-      }
-      btn.style.top = (heading.getBoundingClientRect().top - hostTop + 6) + 'px'; // align with the heading's title line
-    });
+  function selectCard(card, shouldFocus) {
+    deselectCard();
+    if (!card) return;
+    selectedCard = card;
+    card.classList.add('selected');
+    card.setAttribute('aria-selected', 'true');
+    if (shouldFocus) { card.focus(); card.scrollIntoView({ block: 'nearest' }); }
   }
-  function selectMergedComment(seq, shouldFocus) {
-    activeSeq = seq;
-    if (!preview) return;
-    preview.querySelectorAll('.mc-merged-comment-anchor').forEach(function (heading) {
-      heading.classList.toggle('active', String(heading.dataset.commentSeq) === String(seq));
-      heading.setAttribute('aria-selected', String(String(heading.dataset.commentSeq) === String(seq)));
-    });
-    var activeHeading = preview.querySelector('.mc-merged-comment-anchor.active');
-    if (shouldFocus && activeHeading) { activeHeading.focus(); activeHeading.scrollIntoView({ block: 'center' }); }
-  }
-  // Resolve the review section that contains the actual ProseMirror caret. A caret in the introduction
-  // intentionally has no comment action; keyboard-selected headings still fall back to activeSeq.
-  function mergedCommentAtNode(node) {
-    if (!preview || !node || !preview.contains(node)) return undefined;
-    var element = node.nodeType === 1 ? node : node.parentElement;
-    if (!element) return undefined;
-    if (element === preview) return undefined; // focus without an established DOM caret: retain keyboard selection
-    var direct = element.closest && element.closest('.mc-merged-comment-anchor');
-    if (direct) return parseInt(direct.dataset.commentSeq, 10);
-    var candidate = null;
-    Array.from(preview.querySelectorAll('.mc-merged-comment-anchor')).forEach(function (heading) {
-      if (heading === element || heading.contains(element) || (heading.compareDocumentPosition(element) & 4)) candidate = heading;
-    });
-    return candidate ? parseInt(candidate.dataset.commentSeq, 10) : null;
-  }
-  function mergedCommentAtCaret() {
-    var editorNode = editor && typeof editor.getCaretElement === 'function' ? editor.getCaretElement() : null;
-    var editorSeq = editorNode ? mergedCommentAtNode(editorNode) : undefined;
-    if (editorSeq !== undefined) return editorSeq;
-    var selection = window.getSelection && window.getSelection();
-    return selection && selection.rangeCount ? mergedCommentAtNode(selection.anchorNode) : undefined;
-  }
-  function moveMergedComment(dir) {
-    var items = mergedItems();
-    if (!items.length) return;
-    var index = items.findIndex(function (comment) { return comment.seq === activeSeq; });
-    if (index < 0) index = 0;
-    selectMergedComment(items[Math.max(0, Math.min(items.length - 1, index + dir))].seq, true);
+  function clearSelectAll() { host.classList.remove('mc-merged-select-all'); }
+  // Land on whichever kind of region comes next: a card is selected outright; an editor is focused at the
+  // edge you're entering from (its 'start' when arriving from above, 'end' from below) so the caret picks up
+  // exactly where a real multi-block document would put it.
+  function focusRegion(node, edge) {
+    if (!node) return;
+    if (node.classList.contains('mc-merged-card')) { selectCard(node, true); return; }
+    var entry = editorEntryForRegion(node);
+    if (entry) { deselectCard(); entry.editor.focus(edge); }
   }
   function terminalAvailable() {
     return !!(window.__kakapoTerminal && typeof window.__kakapoTerminal.enterSendMode === 'function');
   }
+  // Assemble the CURRENT text: each block's prose is read live from its editor (so in-panel edits to the
+  // agent contracts are respected), each comment's body is read straight from reviewComments (comments are
+  // never edited by typing here — see mergedCardHtml). Mirrors buildMergedText's exact line structure.
+  function currentMergedText() {
+    var nl = String.fromCharCode(10);
+    var lines = [];
+    blocks.forEach(function (block, index) {
+      var entry = editors[index];
+      var prose = entry ? entry.editor.getMarkdown() : block.prose;
+      if (!prose && !block.items.length) return;
+      if (prose) { lines.push(prose); lines.push(''); }
+      block.items.forEach(function (c) {
+        lines.push('### ' + commentTargetLabel(c));
+        lines.push(c.text);
+        lines.push('');
+      });
+    });
+    return lines.join(nl);
+  }
   // Send the WHOLE merged prompt into a terminal pane (v0.2.7): arrows choose the pane, Enter sends. Available
   // whenever the integrated terminal exists; if no pane is open yet, one is created first.
-  function sendMergedToTerminalAction() {
-    return { label: t('merged.sendToTerminal'), onSelect: function () {
-      if (editor) sourceText = editor.getMarkdown();
-      flushMergedComments();
-      var text = buildMergedText(kind);
-      dock.close();
-      if (window.__kakapoTerminal.paneCount() === 0) window.__kakapoTerminal.open();
-      window.__kakapoTerminal.enterSendMode(text);
-    } };
+  function sendWholeDocToTerminal() {
+    var text = currentMergedText();
+    dock.close();
+    if (window.__kakapoTerminal.paneCount() === 0) window.__kakapoTerminal.open();
+    window.__kakapoTerminal.enterSendMode(text);
   }
-  // Show the navigate/remove (+ send-to-terminal) dropdown for a specific comment. Shared by Opt+Enter (caret)
-  // and the per-comment hamburger button so both paths behave identically.
-  function showCommentActionsFor(seq) {
-    if (typeof seq !== 'number' || isNaN(seq) || !preview) return;
-    selectMergedComment(seq, false);
-    var heading = preview.querySelector('.mc-merged-comment-anchor[data-comment-seq="' + seq + '"]');
-    if (!heading) return;
-    var actions = [
-      { label: t('dropdown.navigate'), onSelect: function () { flushMergedComments(); dock.close(); navigateToComment(seq); } },
-      { label: t('dropdown.remove'), onSelect: function () { removeMergedCommentBySeq(seq); } },
-    ];
-    if (terminalAvailable()) actions.push(sendMergedToTerminalAction());
-    var rect = heading.getBoundingClientRect();
-    showCustomDropdown(rect.left + 8, rect.bottom + 4, actions, rect.top);
+  // Shared by the Copy-all button and Cmd+C-after-Cmd+A (see handleMergedKeydown) so both paths copy the
+  // exact same assembled text.
+  function copyMergedText() {
+    var copied = typeof copyTextToClipboard === 'function' && copyTextToClipboard(currentMergedText());
+    if (typeof showToast === 'function') showToast(t(copied ? 'merged.copied' : 'merged.copyFailed'));
   }
-  function removeMergedCommentBySeq(seq) {
-    var heading = preview ? preview.querySelector('.mc-merged-comment-anchor[data-comment-seq="' + seq + '"]') : null;
-    if (editor) sourceText = editor.getMarkdown();
-    var sourceWithoutComment = removeMergedCommentSection(kind, sourceText, seq);
-    var anchors = preview ? Array.from(preview.querySelectorAll('.mc-merged-comment-anchor')) : [];
-    var at = heading ? anchors.indexOf(heading) : -1;
-    var nextHeading = at >= 0 ? anchors[at + 1] : null;
-    deleteComment(seq);
-    var items = mergedItems();
-    if (!items.length) { dock.close(); return; }
-    var deletedInline = heading && editor && typeof editor.deleteBlockRange === 'function' && editor.deleteBlockRange(heading, nextHeading);
-    if (!deletedInline && editor) editor.setMarkdown(sourceWithoutComment);
-    sourceText = editor ? editor.getMarkdown() : sourceWithoutComment;
-    activeSeq = items[Math.max(0, Math.min(items.length - 1, at < 0 ? 0 : at))].seq;
-    syncMergedAnchors();
+  // Deleting the selected card removes it from reviewComments (with the same shared undo stack the
+  // diff/source view's row-Backspace uses — Cmd/Ctrl+Z restores it, see 05-keymap.js), then rebuilds the
+  // panel so it never shows a stale card list. reselectIndex carries the deleted card's position across the
+  // rebuild so the selection lands on whatever now occupies that slot instead of being lost.
+  function deleteSelectedCard(card) {
+    var cards = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
+    var index = cards.indexOf(card);
+    removeComments([parseInt(card.dataset.commentSeq, 10)]);
+    refreshComments();
+    initializeMergedEditor({ reselectIndex: index });
   }
-  function openMergedActions() {
-    var caretSeq = mergedCommentAtCaret();
-    if (typeof caretSeq === 'number' && !isNaN(caretSeq)) { showCommentActionsFor(caretSeq); return; }
-    if (typeof activeSeq === 'number') { showCommentActionsFor(activeSeq); return; }
-    if (caretSeq === null) selectMergedComment(null, false); // caret in the intro: no per-comment action
-    // Off any comment: still offer sending the whole prompt to a terminal (v0.2.7) if one exists.
-    if (terminalAvailable() && preview) {
-      var rect = preview.getBoundingClientRect();
-      showCustomDropdown(rect.left + 8, rect.top + 28 + 4, [sendMergedToTerminalAction()], rect.top);
+  function handleMergedKeydown(event) {
+    var isCmd = event.metaKey || event.ctrlKey;
+    if (isCmd && !event.altKey && !event.shiftKey && (event.key === 'a' || event.key === 'A' || event.code === 'KeyA')) {
+      event.preventDefault();
+      host.classList.add('mc-merged-select-all');
+      return;
+    }
+    if (host.classList.contains('mc-merged-select-all')) {
+      if (isCmd && !event.altKey && !event.shiftKey && (event.key === 'c' || event.key === 'C' || event.code === 'KeyC')) {
+        event.preventDefault();
+        copyMergedText();
+        return;
+      }
+      clearSelectAll();
+    }
+    var target = event.target;
+    var card = target && target.closest ? target.closest('.mc-merged-card') : null;
+    if (card) {
+      if (!event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+        event.preventDefault();
+        focusRegion(siblingRegion(card, event.key === 'ArrowDown' ? 1 : -1), event.key === 'ArrowDown' ? 'start' : 'end');
+        return;
+      }
+      if (!event.altKey && (event.key === 'Enter' || event.code === 'Enter')) {
+        event.preventDefault();
+        var seq = parseInt(card.dataset.commentSeq, 10);
+        dock.close();
+        navigateToCommentAndEdit(seq);
+        return;
+      }
+      if (!event.altKey && (event.key === 'Backspace' || event.key === 'Delete')) {
+        event.preventDefault();
+        deleteSelectedCard(card);
+        return;
+      }
+      if (event.altKey && (event.key === 'Enter' || event.code === 'Enter') && terminalAvailable()) {
+        event.preventDefault();
+        sendWholeDocToTerminal();
+      }
+      return;
+    }
+    var region = target && target.closest ? target.closest('.mc-merged-editor-region') : null;
+    var entry = region && editorEntryForRegion(region);
+    if (entry) {
+      if (!event.altKey && !event.shiftKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+        var dir = event.key === 'ArrowDown' ? 'down' : 'up';
+        if (entry.editor.atBoundary(dir)) {
+          var sib = siblingRegion(region, dir === 'down' ? 1 : -1);
+          if (sib) { event.preventDefault(); focusRegion(sib, dir === 'down' ? 'start' : 'end'); }
+        }
+        return;
+      }
+      if (event.altKey && (event.key === 'Enter' || event.code === 'Enter') && terminalAvailable()) {
+        event.preventDefault();
+        sendWholeDocToTerminal();
+      }
     }
   }
   function handleMergedClick(event) {
-    var seq = mergedCommentAtNode(event.target);
-    if (typeof seq === 'number' && !isNaN(seq)) selectMergedComment(seq, false);
-  }
-  function handleMergedKeydown(event) {
-    if (!preview || !(event.target === preview || preview.contains(event.target))) return;
-    if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-      event.preventDefault(); event.stopPropagation(); moveMergedComment(event.key === 'ArrowDown' ? 1 : -1); return;
-    }
-    if (event.altKey && (event.key === 'Enter' || event.code === 'Enter')) {
-      event.preventDefault(); event.stopPropagation(); openMergedActions();
-    }
+    clearSelectAll();
+    var card = event.target && event.target.closest ? event.target.closest('.mc-merged-card') : null;
+    if (card) { selectCard(card, false); return; }
+    deselectCard(); // a click into an editor's prose ends any card selection
   }
   var copyBtn = document.createElement('button');
   copyBtn.type = 'button';
@@ -348,55 +305,52 @@ function openMergedView(kind) {
   copyBtn.setAttribute('data-i18n', 'merged.copyAll');
   copyBtn.textContent = t('merged.copyAll');
   copyBtn.disabled = true;
-  copyBtn.addEventListener('click', function () {
-    if (editor) sourceText = editor.getMarkdown();
-    flushMergedComments();
-    var copied = typeof copyTextToClipboard === 'function' && copyTextToClipboard(sourceText);
-    if (typeof showToast === 'function') showToast(t(copied ? 'merged.copied' : 'merged.copyFailed'));
-  });
+  copyBtn.addEventListener('click', copyMergedText);
   dock.bar.insertBefore(copyBtn, dock.bar.querySelector('.dock-max'));
-  mergedBody.appendChild(host);
-  dock.body.appendChild(mergedBody);
+  // Registered once (not per-rebuild inside initializeMergedEditor) so a Backspace-delete rebuild never
+  // stacks a second copy of either listener.
+  host.addEventListener('click', handleMergedClick);
+  // Capture so this wins the race against ProseMirror's own keymap for Alt+Enter/Cmd+A.
+  dock.panel.addEventListener('keydown', handleMergedKeydown, true);
   function handlePrunedComments(event) {
     if (validatingCommentFiles) return;
     var removed = event && event.detail && Array.isArray(event.detail.comments) ? event.detail.comments : [];
-    if (removed.some(function (comment) { return comment.kind === kind; })) dock.close();
+    if (removed.length) dock.close(); // the one panel now represents every comment, of either kind
   }
   document.addEventListener('kakapo:comments-pruned', handlePrunedComments);
   dock.panel.__kakapoBeforeClose = function () {
-    closingMergedView = true;
     document.removeEventListener('kakapo:comments-pruned', handlePrunedComments);
-    if (mergedInitialized) flushMergedComments();
-    if (editor) editor.destroy();
+    editors.forEach(function (entry) { entry.editor.destroy(); });
   };
-  function initializeMergedEditor() {
+  // options.reselectIndex, when given, means this rebuild followed a card deletion: reselect whatever card
+  // now sits at that position (clamped — the deleted card's neighbors shift down by one) instead of the
+  // normal open-time behavior of focusing the first prose region.
+  function initializeMergedEditor(options) {
     if (!dock.panel.isConnected) return;
-    sourceText = buildMergedText(kind);
-    mergedInitialized = true;
+    var reselectIndex = options && typeof options.reselectIndex === 'number' ? options.reselectIndex : null;
+    blocks = mergedBlocks();
     loadInlineMarkdownEditor().then(function (factory) {
       if (!dock.panel.isConnected) return;
       host.innerHTML = '';
-      editor = factory.create({
-        element: host,
-        markdown: sourceText,
-        className: 'mc-merged-preview',
-        placeholder: kind === 'q' ? t('merged.qTitle') : t('merged.cTitle'),
-        onUpdate: function (markdown) {
-          sourceText = markdown;
-          scheduleMergedCommentSync();
-          requestAnimationFrame(syncMergedAnchors);
-        },
+      editors = [];
+      selectedCard = null;
+      blocks.forEach(function (block) {
+        var region = document.createElement('div');
+        region.className = 'mc-merged-editor-region';
+        host.appendChild(region);
+        editors.push({
+          region: region,
+          editor: factory.create({ element: region, markdown: block.prose, className: 'mc-merged-preview', placeholder: t('merged.title') }),
+        });
+        block.items.forEach(function (comment) { host.insertAdjacentHTML('beforeend', mergedCardHtml(comment)); });
       });
-      preview = host.querySelector('.mc-inline-editor');
-      if (!preview) throw new Error('inline editor surface is unavailable');
-      preview.tabIndex = 0;
-      preview.addEventListener('click', handleMergedClick);
-      // Capture before ProseMirror's keymap can consume Option+Enter. The editor's own selection adapter
-      // above still supplies the exact comment block, so the dropdown follows the visible caret.
-      dock.panel.addEventListener('keydown', handleMergedKeydown, true);
       copyBtn.disabled = false;
-      syncMergedAnchors();
-      focusDockField(preview, '#mc-merged-panel');
+      if (reselectIndex !== null) {
+        var cards = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
+        if (cards.length) { selectCard(cards[Math.min(reselectIndex, cards.length - 1)], true); return; }
+      }
+      var firstSurface = editors.length ? editors[0].region.querySelector('.mc-inline-editor') : host;
+      focusDockField(firstSurface, '#mc-merged-panel');
     }).catch(function () {
       host.innerHTML = '<div class="mc-memo-empty">' + escapeHtml(t('memo.loadFailed')) + '</div>';
       showToast(t('memo.loadFailed'));
@@ -539,7 +493,7 @@ refreshComments();
 // In Electron, the Review menu's Cmd/Ctrl+Shift+/ and +. accelerators arrive here via IPC
 // (macOS reserves Cmd+? for its Help search, so the menu claims it and routes to these views).
 if (window.kakapoMenu && typeof window.kakapoMenu.onMergedView === 'function') {
-  window.kakapoMenu.onMergedView(function (kind) { openMergedView(kind); });
+  window.kakapoMenu.onMergedView(function () { openMergedView(); });
 }
 if (window.kakapoMenu && typeof window.kakapoMenu.onOpenMemo === 'function') {
   // Cmd/Ctrl+Shift+N from the Review menu -> open/close the prompt memo.
@@ -709,8 +663,9 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
       applyI18n();
       fill(); // unsaved merge-prompt defaults follow the active locale
       try { if (typeof refreshComments === 'function') refreshComments(); } catch (e) {}
-      var mergedModal = document.getElementById('mc-modal');
-      if (mergedModal) { var mk = mergedModal.dataset.kind || 'q'; mergedModal.remove(); openMergedView(mk); }
+      // Reopening runs mountDock's own closeMergedMemoDocks() first, so the outgoing panel still gets its
+      // __kakapoBeforeClose flush instead of being yanked out from under the editor.
+      if (document.getElementById('mc-merged-panel')) openMergedView();
     });
   themeSelectRef = setupCustomSelect('settings-theme',
     function () { return [{ value: 'dark', label: t('theme.dark') }, { value: 'light', label: t('theme.light') }]; },

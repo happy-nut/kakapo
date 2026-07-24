@@ -32,7 +32,7 @@ test("application chrome uses a neutral high-contrast palette without replacing 
   const v = await loadViewer(html);
   const root = v.window.getComputedStyle(v.document.documentElement);
   assert.equal(root.getPropertyValue("--chrome-text").trim().toLowerCase(), "#f1f1f2");
-  assert.equal(root.getPropertyValue("--chrome-border").trim().toLowerCase(), "#494b50");
+  assert.equal(root.getPropertyValue("--chrome-border").trim().toLowerCase(), "#34363a", "the panel border sits close to --chrome-bg rather than a full mid-gray line");
   assert.equal(root.getPropertyValue("--chrome-selected").trim().toLowerCase(), "#3a3c40", "menu selection is neutral gray");
   assert.equal(root.getPropertyValue("--text").trim().toLowerCase(), "#d8e0eb", "code text keeps its quieter palette");
   assert.equal(root.getPropertyValue("--panel").trim().toLowerCase(), "#171b21", "code surfaces keep their original canvas");
