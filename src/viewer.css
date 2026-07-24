@@ -1901,7 +1901,13 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
   box-shadow: 0 22px 70px rgba(0, 0, 0, .52);
 }
 body.native-app .history-bar {
+  /* Pin the bar to exactly the title-bar height so its bottom border lines up with the activity rail's
+     title-strip divider (::before at --native-titlebar-height - 1). The default 8px top/bottom padding made
+     it 45px tall, leaving a 5px step at the rail/panel seam. The search input stays vertically centered. */
+  height: var(--native-titlebar-height);
   min-height: var(--native-titlebar-height);
+  padding-top: 0;
+  padding-bottom: 0;
   padding-left: var(--native-title-safe-after-rail);
   -webkit-app-region: drag;
 }
