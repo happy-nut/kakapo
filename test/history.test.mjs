@@ -385,3 +385,87 @@ test("long commit messages stay compact until explicitly expanded", async () => 
   assert.equal(toggle.getAttribute("aria-expanded"), "false");
   v.close();
 });
+
+// GitHub-issue-style request: the History changed-files list should be a real folder tree (reusing the
+// Cmd+0 Changes tree's structure/classes), not a flat list of full repo-relative paths.
+test("history changed-files list: files in different directories render as a real folder tree, reusing the Changes tree's classes", async () => {
+  const { html: treeHtml, build: treeBuild } = await makeReviewHtml([
+    { path: "src/nested/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+    { path: "docs/readme.md", before: "# Readme\n", after: "# Readme\n\nMore.\n" },
+  ], { app: true });
+  const v = await loadViewer(treeHtml);
+  v.window.kakapoGit = {
+    log: () => Promise.resolve([
+      { hash: "aaaaaaaa", parents: [], author: "A", email: "a@test", date: "2026-06-01T10:00:00+09:00", refs: "HEAD -> main", subject: "touch two directories" },
+    ]),
+    commitDiff: () => Promise.resolve({
+      hash: "aaaaaaaa", author: "A", email: "a@test", date: "2026-06-01T10:00:00+09:00", refs: "",
+      message: "touch two directories", diffHtml: treeBuild.update.diffContainer, isMerge: false,
+    }),
+  };
+
+  v.key("9", { metaKey: true, code: "Digit9" });
+  await v.settle(80);
+  v.key("Enter");
+  await v.settle(80);
+
+  const dirs = v.$all("#history-files .tree-dir");
+  assert.ok(dirs.some((d) => d.dataset.dir === "src/nested"), "a folder row groups the file under src/nested");
+  assert.ok(dirs.some((d) => d.dataset.dir === "docs"), "a separate folder row groups the file under docs");
+  assert.ok(v.$("#history-files nav.tree.changes-tree"), "the tree wrapper reuses the Changes tree's own nav class");
+  assert.ok(v.$("#history-files .history-file[data-file='src/nested/a.ts']").closest(".tree-dir").querySelector(".path").textContent.includes("nested"), "the file nests under its real folder, not a flat path label");
+  assert.equal(v.$("#history-files .change-dir"), null, "the old flat inline directory suffix is gone now that folders provide the grouping");
+
+  // Collapsing a folder still leaves the other one openable and clickable (click-to-open contract intact).
+  dirs.find((d) => d.dataset.dir === "docs").open = false;
+  const readmeFile = v.$("#history-files .history-file[data-file='docs/readme.md']");
+  assert.ok(readmeFile, "a collapsed folder's file row stays in the DOM (just visually hidden)");
+  v.$("#history-files .history-file[data-file='src/nested/a.ts']").click();
+  await v.settle(40);
+  assert.equal(v.$("#history-files .history-file.active").dataset.file, "src/nested/a.ts", "clicking a nested tree leaf still opens that file (unchanged click contract)");
+  v.close();
+});
+
+test("history changed-files list: real per-file status badges replace the old hardcoded 'Modified' for every row", async () => {
+  const { html: statusHtml, build: statusBuild } = await makeReviewHtml([
+    { path: "src/existing.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+    { path: "src/new-file.ts", after: "export const b = 1;\n" },
+  ], { app: true });
+  const v = await loadViewer(statusHtml);
+  v.window.kakapoGit = {
+    log: () => Promise.resolve([
+      { hash: "aaaaaaaa", parents: [], author: "A", email: "a@test", date: "2026-06-01T10:00:00+09:00", refs: "HEAD -> main", subject: "add and edit" },
+    ]),
+    commitDiff: () => Promise.resolve({
+      hash: "aaaaaaaa", author: "A", email: "a@test", date: "2026-06-01T10:00:00+09:00", refs: "",
+      message: "add and edit", diffHtml: statusBuild.update.diffContainer, isMerge: false,
+      fileStatus: { "src/existing.ts": "modified", "src/new-file.ts": "added" },
+    }),
+  };
+
+  v.key("9", { metaKey: true, code: "Digit9" });
+  await v.settle(80);
+  v.key("Enter");
+  await v.settle(80);
+
+  const existingBadge = v.$("#history-files .history-file[data-file='src/existing.ts'] .status");
+  const addedBadge = v.$("#history-files .history-file[data-file='src/new-file.ts'] .status");
+  assert.ok(existingBadge.classList.contains("status-modified"), "the edited file keeps a Modified badge");
+  assert.ok(addedBadge.classList.contains("status-added"), "the new file gets a real Added badge instead of the old hardcoded Modified");
+  assert.notEqual(existingBadge.innerHTML, addedBadge.innerHTML, "added and modified badges render visually distinct icons");
+  v.close();
+});
+
+test("history changed-files list: a commitDiff response without fileStatus still falls back to Modified (no crash)", async () => {
+  const v = await loadViewer(html);
+  installHistoryBridge(v); // this fixture's mock commitDiff omits fileStatus entirely, as older/other call sites might
+
+  v.key("9", { metaKey: true, code: "Digit9" });
+  await v.settle(80);
+  v.key("Enter");
+  await v.settle(80);
+
+  const badge = v.$("#history-files .history-file[data-file='src/a.ts'] .status");
+  assert.ok(badge.classList.contains("status-modified"), "a missing fileStatus map defaults every file to Modified");
+  v.close();
+});

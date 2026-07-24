@@ -7,11 +7,11 @@ contextBridge.exposeInMainWorld("kakapoHttp", {
   send: (request: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:http-send", request),
 });
 
-// Lets the Review menu's Cmd/Ctrl+Shift+/ and +. accelerators open the merged comment views in
-// the renderer (the keys macOS would otherwise reserve for its Help search).
+// Lets the Review menu's Cmd/Ctrl+Shift+/ accelerator open the merged review-comments view in
+// the renderer (the key macOS would otherwise reserve for its Help search).
 contextBridge.exposeInMainWorld("kakapoMenu", {
-  onMergedView: (cb: (kind: string) => void): void => {
-    ipcRenderer.on("kakapo:merged-view", (_event, kind: string) => cb(kind));
+  onMergedView: (cb: () => void): void => {
+    ipcRenderer.on("kakapo:merged-view", () => cb());
   },
   // Review menu's Cmd/Ctrl+Shift+N -> open/close the prompt memo in the renderer.
   onOpenMemo: (cb: () => void): void => {

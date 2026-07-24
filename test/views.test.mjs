@@ -605,27 +605,26 @@ test("Cmd+0 focuses Changes from content, then toggles its sidebar without losin
   v.close();
 });
 
-test("merged view: Opt+Enter on the active rendered comment offers review actions", async () => {
+test("merged view: Enter on a comment card navigates to the code and opens its edit composer directly", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(1);
   await v.openComposer("q");
   await v.writeAndSave("removeme");
-  v.key("?", { metaKey: true }); // Cmd+? → merged questions view
+  v.key("?", { metaKey: true }); // Cmd+? → merged view
   await v.settle(80);
-  const preview = v.$(".mc-merged-preview");
-  assert.ok(preview, "one rendered merged document is present");
-  assert.match(preview.textContent, /removeme/, "comment text is in the merged view");
-  assert.ok(preview.querySelector(".mc-merged-comment-anchor.active"), "the first review stop is selected");
-  preview.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
-  await v.settle(40);
-  const dd = v.$("#mc-dropdown");
-  assert.ok(dd, "custom dropdown appears on Opt+Enter");
-  const items = [...dd.querySelectorAll(".mc-dropdown-item")];
-  assert.equal(items.length, 2, "single caret offers navigate + remove");
-  items.find((b) => /remove|지우기/i.test(b.textContent)).click();
-  await v.settle(60);
-  assert.equal(v.$(".mc-comment-row"), null, "comment box removed in sync (deleteComment → refreshComments)");
+  const card = v.$(".mc-merged-card");
+  assert.ok(card, "the comment renders as a card in the merged view");
+  assert.match(card.textContent, /removeme/, "comment text is in the merged view");
+  assert.equal(v.$(".mc-merged-menu-btn"), null, "the per-comment hamburger menu is gone");
+
+  card.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  await v.settle(80);
+  assert.equal(v.$("#mc-merged-panel"), null, "Enter closes the merged panel");
+  assert.equal(v.$("#mc-dropdown"), null, "no dropdown — Enter goes straight to navigate+edit");
+  const input = v.$(".mc-composer .mc-input");
+  assert.ok(input, "the edit composer is open at the destination");
+  assert.equal(input.value, "removeme", "prefilled with the comment's current text");
   v.close();
 });
 
@@ -651,46 +650,39 @@ test("desktop existence check removes deleted comments without pruning indexed-o
   v.window.addComment("c", "removed.md", 1, "", "remove missing file");
   v.window.addComment("c", ".claude/commands/kept.md", 1, "", "keep excluded but existing file");
 
-  await v.openMergedView("c");
+  await v.openMergedView();
   await v.settle(40);
 
   assert.equal(v.window.reviewComments.map((comment) => comment.path).join("|"), ".claude/commands/kept.md", "main-process existence, not index membership, decides deletion");
-  assert.match(v.$(".mc-merged-preview").textContent, /keep excluded but existing file/);
-  assert.doesNotMatch(v.$(".mc-merged-preview").textContent, /remove missing file/);
+  assert.match(v.mergedModalText(), /keep excluded but existing file/);
+  assert.doesNotMatch(v.mergedModalText(), /remove missing file/);
   v.close();
 });
 
-test("merged view edits persist back to the code comment and navigation opens that exact location", async () => {
+test("merged view: Enter navigates to that exact location and an edit there persists back to the same comment", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(1);
   await v.openComposer("q");
   await v.writeAndSave("original wording");
-  await v.openMergedView("q");
+  await v.openMergedView();
 
-  const preview = v.$(".mc-merged-preview");
-  const heading = preview.querySelector(".mc-merged-comment-anchor");
-  const body = heading.nextElementSibling;
-  v.typeInto(body, "edited in the merged prompt");
-  await v.settle(260);
-  assert.equal(v.storedComments()[0].text, "edited in the merged prompt", "merged prose updates the persisted source comment");
-
-  preview.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
-  await v.settle(30);
-  const actions = [...v.$("#mc-dropdown").querySelectorAll(".mc-dropdown-item")];
-  assert.equal(actions.length, 2, "Opt+Enter exposes exactly navigation and removal");
-  const navigate = actions.find((item) => /location|위치로 이동/i.test(item.textContent));
-  assert.ok(navigate, "the menu names location navigation explicitly");
-  navigate.click();
+  const card = v.$(".mc-merged-card");
+  card.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
   await v.settle(80);
 
   assert.equal(v.$("#mc-merged-panel"), null, "navigation closes the merged handoff");
   assert.equal(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex, "1", "the source caret lands on the comment line");
-  assert.deepEqual(v.visibleCardTexts(), ["edited in the merged prompt"], "the code-location card shows the merged edit");
+  const input = v.$(".mc-composer .mc-input");
+  assert.equal(input?.value, "original wording", "the edit composer opens prefilled with the comment's current text");
+
+  await v.writeAndSave("edited in the merged prompt");
+  assert.equal(v.storedComments()[0].text, "edited in the merged prompt", "the edit at the destination persists back to the same comment");
+  assert.deepEqual(v.visibleCardTexts(), ["edited in the merged prompt"], "the code-location card shows the edit");
   v.close();
 });
 
-test("merged view: Opt+Arrow steps between rendered comment headings", async () => {
+test("merged view: ArrowDown/ArrowUp step between comment cards, and out of the prose editor above them", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(0);
@@ -699,49 +691,106 @@ test("merged view: Opt+Arrow steps between rendered comment headings", async () 
   await v.clickSourceLine(1);
   await v.openComposer("q");
   await v.writeAndSave("second comment");
-  v.key("?", { metaKey: true }); // Cmd+? → merged questions view
+  v.key("?", { metaKey: true }); // Cmd+? → merged view
   await v.settle(80);
-  const preview = v.$(".mc-merged-preview");
-  const headers = [...preview.querySelectorAll(".mc-merged-comment-anchor")];
-  assert.equal(headers.length, 2, "two rendered comment headings are review stops");
-  assert.equal(headers[0].classList.contains("active"), true, "the first stop starts selected");
-  const optArrow = (key) => preview.dispatchEvent(new v.window.KeyboardEvent("keydown", { key, altKey: true, bubbles: true, cancelable: true }));
-  optArrow("ArrowDown");
-  assert.equal(headers[1].classList.contains("active"), true, "Opt+Down selects the second rendered heading");
-  optArrow("ArrowUp");
-  assert.equal(headers[0].classList.contains("active"), true, "Opt+Up selects the first rendered heading");
+
+  const cards = v.$all(".mc-merged-card");
+  assert.equal(cards.length, 2, "both comments render as cards");
+  const proseEditor = v.$(".mc-merged-preview");
+  // Place the caret at the true end of the prose editor's content — only from there does ArrowDown have
+  // nowhere left to go within the editor itself, matching a real "last line of the contract text" caret.
+  const endRange = v.document.createRange();
+  endRange.selectNodeContents(proseEditor);
+  endRange.collapse(false);
+  const proseSelection = v.window.getSelection();
+  proseSelection.removeAllRanges();
+  proseSelection.addRange(endRange);
+  proseEditor.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+  assert.ok(cards[0].classList.contains("selected"), "ArrowDown out of the prose editor selects the first card");
+
+  cards[0].dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+  assert.ok(cards[1].classList.contains("selected"), "ArrowDown moves to the next card");
+  assert.equal(cards[0].classList.contains("selected"), false, "the previous card is deselected");
+
+  cards[1].dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }));
+  assert.ok(cards[0].classList.contains("selected"), "ArrowUp moves back to the first card");
   v.close();
 });
 
-test("merged view: Opt+Enter resolves the comment section at the actual editing caret", async () => {
+test("merged view: typing inside a comment card is impossible — it is not a contenteditable surface", async () => {
   const v = await loadViewer(html);
-  await v.openSourceFile("src/app.ts");
-  await v.clickSourceLine(0);
-  await v.openComposer("q");
-  await v.writeAndSave("keep first");
-  await v.clickSourceLine(1);
-  await v.openComposer("q");
-  await v.writeAndSave("remove second");
-  await v.openMergedView("q");
-  const preview = v.$(".mc-merged-preview");
-  const headings = [...preview.querySelectorAll(".mc-merged-comment-anchor")];
-  const secondBody = headings[1].nextElementSibling;
-  const range = v.document.createRange();
-  range.selectNodeContents(secondBody);
-  range.collapse(true);
-  const selection = v.window.getSelection();
-  selection.removeAllRanges();
-  selection.addRange(range);
+  v.window.addComment("q", "src/app.ts", 1, "", "unchanged");
+  await v.openMergedView();
+  await v.settle(80);
+  const card = v.$(".mc-merged-card");
+  assert.notEqual(card.getAttribute("contenteditable"), "true", "the card itself never becomes editable");
+  assert.equal(card.closest(".mc-inline-editor"), null, "the card lives outside every ProseMirror editable surface");
+  v.close();
+});
 
-  // ProseMirror may consume the key before it bubbles out of the selected paragraph. The dock-level capture
-  // listener must still open the action menu for the comment containing the real editing caret.
-  secondBody.addEventListener("keydown", (event) => event.stopPropagation());
-  secondBody.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
-  await v.settle(30);
-  const remove = [...v.$("#mc-dropdown").querySelectorAll(".mc-dropdown-item")].find((item) => /remove|지우기/i.test(item.textContent));
-  remove.click();
-  await v.settle(40);
-  assert.equal(v.window.reviewComments.filter((c) => c.kind === "q").map((c) => c.text).join("|"), "keep first", "the caret's second comment was removed, not the initially active first one");
+test("merged view: Cmd+A visually selects the whole document (cards included), and Cmd+C then copies exactly what Copy all copies", async () => {
+  const v = await loadViewer(html);
+  v.window.addComment("q", "src/app.ts", 1, "", "first comment");
+  v.window.addComment("c", "src/app.ts", 2, "", "second comment");
+  await v.openMergedView();
+  await v.settle(80);
+
+  const panel = v.$("#mc-merged-panel");
+  const host = v.$(".mc-merged-editor-host");
+  panel.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "a", metaKey: true, code: "KeyA", bubbles: true, cancelable: true }));
+  assert.ok(host.classList.contains("mc-merged-select-all"), "Cmd+A marks the whole document, cards included, as selected");
+
+  let copiedViaCmdC = null;
+  v.window.kakapoClipboard = { write: (text) => { copiedViaCmdC = text; } };
+  panel.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "c", metaKey: true, code: "KeyC", bubbles: true, cancelable: true }));
+  await v.settle(20);
+  assert.match(copiedViaCmdC, /first comment/);
+  assert.match(copiedViaCmdC, /second comment/);
+
+  let copiedViaButton = null;
+  v.window.kakapoClipboard = { write: (text) => { copiedViaButton = text; } };
+  v.$(".mc-copy-all").click();
+  await v.settle(20);
+  assert.equal(copiedViaCmdC, copiedViaButton, "Cmd+C after Cmd+A copies exactly what the Copy all button copies");
+  v.close();
+});
+
+test("merged view: any other key after Cmd+A drops the whole-document selection", async () => {
+  const v = await loadViewer(html);
+  v.window.addComment("q", "src/app.ts", 1, "", "only comment");
+  await v.openMergedView();
+  await v.settle(80);
+  const panel = v.$("#mc-merged-panel");
+  const host = v.$(".mc-merged-editor-host");
+  panel.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "a", metaKey: true, code: "KeyA", bubbles: true, cancelable: true }));
+  assert.ok(host.classList.contains("mc-merged-select-all"));
+  panel.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+  assert.equal(host.classList.contains("mc-merged-select-all"), false, "a non-copy key drops the whole-document selection");
+  v.close();
+});
+
+test("merged view: Backspace on a selected card removes that comment, reselects the next one, and Cmd+Z restores it", async () => {
+  const v = await loadViewer(html);
+  v.window.addComment("q", "src/app.ts", 1, "", "first comment");
+  v.window.addComment("q", "src/app.ts", 2, "", "second comment");
+  await v.openMergedView();
+  await v.settle(80);
+
+  const cardsBefore = v.$all(".mc-merged-card");
+  assert.equal(cardsBefore.length, 2);
+  cardsBefore[0].dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
+  await v.settle(80);
+
+  assert.equal(v.storedComments().length, 1, "Backspace removes the selected card's comment");
+  assert.equal(v.storedComments()[0].text, "second comment");
+  const cardsAfter = v.$all(".mc-merged-card");
+  assert.equal(cardsAfter.length, 1, "the panel rebuilds with the remaining comment");
+  assert.ok(cardsAfter[0].classList.contains("selected"), "the card now at that position is reselected");
+
+  v.document.body.focus(); // not inside any native input/editor
+  v.key("z", { metaKey: true, code: "KeyZ" });
+  await v.settle(20);
+  assert.equal(v.storedComments().length, 2, "Cmd+Z restores the comment removed from the merged panel");
   v.close();
 });
 
@@ -812,7 +861,7 @@ test("activity rail: icons navigate views, show shortcut tooltips, and reflect t
   assert.ok(rail, "the activity rail is rendered");
   // Every navigable icon carries a shortcut in its hover tooltip (the IntelliJ-style nudge).
   const views = v.$all(".activity-rail .rail-btn[data-view]").map((b) => b.dataset.view);
-  for (const view of ["changes", "files", "q", "c", "memo"]) {
+  for (const view of ["changes", "files", "merged", "memo"]) {
     assert.ok(views.includes(view), `rail has a ${view} icon`);
   }
   assert.ok(
@@ -1128,7 +1177,7 @@ test("remapComments never drops a comment, even one anchored to a deleted/old-si
   v.close();
 });
 
-test("merged view copies grounded evidence and keeps only review actions in the comment menu", async () => {
+test("merged view copies grounded evidence via Copy all", async () => {
   const v = await loadViewer(html);
   let copied = null;
   v.window.kakapoClipboard = { write: (text) => { copied = text; } };
@@ -1136,28 +1185,15 @@ test("merged view copies grounded evidence and keeps only review actions in the 
   await v.clickSourceLine(1);
   await v.openComposer("q");
   await v.writeAndSave("shipit");
-  v.key("?", { metaKey: true }); // Cmd+? → merged questions view
+  v.key("?", { metaKey: true }); // Cmd+? → merged view
   await v.settle(80);
-  const preview = v.$(".mc-merged-preview");
-  assert.ok(preview, "merged view renders as one document");
+  assert.ok(v.$(".mc-merged-preview"), "merged view renders");
   const copyAll = v.$(".mc-copy-all");
   assert.ok(copyAll, "the review handoff exposes a Copy all action");
   copyAll.click();
   await v.settle(20);
   assert.match(copied, /shipit/, "Copy all writes the complete grounded review text");
   assert.ok(v.$("#mc-merged-panel"), "copying keeps the evidence visible for inspection");
-
-  // Opt+Enter stays review-only on the selected rendered comment stop.
-  preview.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
-  await v.settle(40);
-  const items = [...v.$("#mc-dropdown").querySelectorAll(".mc-dropdown-item")];
-  assert.equal(items.length, 2, "the comment stop offers navigate + remove only");
-  const remove = items.find((item) => /remove|지우기/i.test(item.textContent));
-  assert.ok(remove, "one action removes the selected comment");
-
-  remove.click();
-  await v.settle(40);
-  assert.equal(v.$("#mc-merged-panel"), null, "the empty merged view closes after removal");
   v.close();
 });
 

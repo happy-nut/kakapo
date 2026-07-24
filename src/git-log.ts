@@ -1,5 +1,6 @@
 import { git } from "./git.js";
 import { renderDiff2Html } from "./highlight.js";
+import { parseUnifiedDiff } from "./diff.js";
 
 // One commit row for the history view. parents drives the graph lanes (computed in the renderer).
 export type GitCommit = {
@@ -164,6 +165,11 @@ export function readCommitDiff(root: string, sha: string): {
   refs: string;
   message: string;
   diffHtml: string;
+  // Real per-file status (added/deleted/renamed/modified), keyed by the path diff2html displays — lets
+  // the renderer's changed-files tree show accurate status badges instead of assuming every file was
+  // merely modified. A renamed file's diff2html label ("old -> new") won't match this key, so it falls
+  // back to "modified" client-side; that is a known, acceptable gap rather than a lookup crash.
+  fileStatus: Record<string, string>;
   isMerge: boolean;
 } | null {
   if (!sha || !/^[0-9a-fA-F]{4,64}$/.test(sha)) return null; // guard: only a hash reaches `git`
@@ -172,6 +178,8 @@ export function readCommitDiff(root: string, sha: string): {
   const f = meta.split(FS);
   const parents = (f[5] || "").trim() ? (f[5] as string).trim().split(/\s+/) : [];
   const diffText = git(root, ["show", "--relative", "--no-color", "--pretty=format:", sha, "--", "."]).replace(/^\n+/, "");
+  const fileStatus: Record<string, string> = {};
+  for (const file of parseUnifiedDiff(diffText)) fileStatus[file.displayPath] = file.status;
   return {
     hash: f[0] || sha,
     author: f[1] || "",
@@ -180,6 +188,7 @@ export function readCommitDiff(root: string, sha: string): {
     refs: f[4] || "",
     message: (f[6] || "").trim(),
     diffHtml: renderDiff2Html(diffText),
+    fileStatus,
     isMerge: parents.length > 1,
   };
 }

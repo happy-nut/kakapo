@@ -248,7 +248,7 @@ test("saved comments roll up into the merged agent prompt", async () => {
   await v.openComposer("q");
   await v.writeAndSave("merge me into the prompt");
 
-  await v.openMergedView("q");
+  await v.openMergedView();
   const text = v.mergedModalText();
   assert.ok(text, "merged-view modal opened");
   assert.match(text, /merge me into the prompt/);
@@ -275,13 +275,13 @@ test("multi-line comments persist and render one canonical range without quoted 
   assert.deepEqual({ line: stored.line, from: stored.from, to: stored.to }, { line: 6, from: 3, to: 6 }, "the complete range survives persistence");
   assert.equal(v.$("#source-body .mc-card:not(.mc-composer) .mc-target")?.textContent, expected, "saved comment card keeps the same reference");
 
-  const merged = v.window.buildMergedText("q");
+  const merged = v.window.buildMergedText();
   assert.match(merged, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "merged text keeps the canonical range");
   assert.doesNotMatch(merged, /^> /m, "merged text does not attach selected source as a blockquote");
   assert.doesNotMatch(merged, /export const line3 = 3/, "selected source text is omitted from the handoff");
 
-  await v.openMergedView("q");
-  assert.equal(v.$(".mc-merged-comment-anchor")?.textContent.trim(), expected, "rendered merged heading uses the same reference");
+  await v.openMergedView();
+  assert.equal(v.$(".mc-merged-card .mc-target")?.textContent, expected, "rendered merged card uses the same reference");
   assert.equal(v.$(".mc-merged-preview blockquote"), null, "rendered merged view has no redundant source blockquote");
   v.close();
 });
@@ -340,32 +340,13 @@ test("composer disables OS autocorrect/spellcheck so it can't mangle code or swa
   v.close();
 });
 
-test("merged prompt: a section-less editor read on close never wipes existing comments, but real edits still sync (#5)", async () => {
-  const v = await loadViewer(html);
-  await v.openSourceFile("src/app.ts");
-  await v.clickSourceLine(1); // 0-based line 1 -> comment on 1-based line 2
-  await v.openComposer("q");
-  await v.writeAndSave("why 43?");
-  assert.equal(v.storedComments().length, 1, "the comment is saved");
-
-  // Close-time reconcile receiving empty / heading-less text (a lossy editor read) must NOT delete everything.
-  const guarded = v.window.reconcileMergedComments("q", "");
-  assert.equal(v.storedComments().length, 1, "comment survives a section-less reconcile");
-  assert.equal(guarded.remaining, 1);
-
-  // A genuine per-section edit is still applied.
-  v.window.reconcileMergedComments("q", "### @src/app.ts#L2\nrewritten question\n");
-  assert.equal(v.storedComments()[0].text, "rewritten question", "an edit through the merged prompt still syncs");
-  v.close();
-});
-
 test("merged prompt: comments stay visible after opening then closing the merged view (#5)", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(1);
   await v.openComposer("q");
   await v.writeAndSave("keep me");
-  v.window.openMergedView("q");
+  v.window.openMergedView();
   await v.settle(120); // let the inline editor initialize
   v.window.__kakapoCloseDocks();
   await v.settle(60);
@@ -409,73 +390,151 @@ test("Korean IME: the physical E key (code KeyE, key 'ㄷ') still triggers comme
   v.close();
 });
 
-test("merged prompt: each comment has a hamburger menu; its Remove deletes just that comment (#actions)", async () => {
+// Undo (Cmd/Ctrl+Z): deleting a comment became one keystroke away from the merged panel's Enter->navigate+edit
+// flow, so an accidental Backspace at the destination needs a safety net (see removeComments/
+// undoLastCommentRemoval in 07-comments.js and the global handler in 05-keymap.js).
+test("Cmd+Z restores a comment removed via the delete (×) button", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
-  await v.clickSourceLine(1); await v.openComposer("q"); await v.writeAndSave("first question");
-  await v.clickSourceLine(0); await v.openComposer("q"); await v.writeAndSave("second question");
-  assert.equal(v.storedComments().filter((c) => c.kind === "q").length, 2);
+  await v.clickSourceLine(1);
+  await v.openComposer("q");
+  await v.writeAndSave("please undo my removal");
+  assert.equal(v.storedComments().length, 1);
 
-  v.window.openMergedView("q");
-  await v.settle(150); // inline editor init + syncMergedAnchors
-  const btns = v.$all(".mc-merged-menu-btn");
-  assert.equal(btns.length, 2, "one hamburger button per comment, in the gutter overlay");
-  // the buttons live OUTSIDE the contenteditable so they never enter the prompt
-  assert.ok(!btns[0].closest(".mc-inline-editor"), "gutter button is not inside the editable content");
+  v.$(".mc-del").click();
+  await v.settle(20);
+  assert.equal(v.storedComments().length, 0, "the comment is removed");
 
-  btns[0].dispatchEvent(new v.window.MouseEvent("click", { bubbles: true, cancelable: true }));
-  await v.settle(30);
-  const items = v.$all("#mc-dropdown .mc-dropdown-item");
-  assert.ok(items.length >= 2, "the hamburger opens the navigate/remove dropdown");
-  items[items.length - 1].dispatchEvent(new v.window.MouseEvent("click", { bubbles: true, cancelable: true })); // Remove
-  await v.settle(80);
-  assert.equal(v.storedComments().filter((c) => c.kind === "q").length, 1, "Remove deletes exactly that comment");
+  v.document.body.focus(); // not inside any native input/editor
+  v.key("z", { metaKey: true, code: "KeyZ" });
+  await v.settle(20);
+  assert.equal(v.storedComments().length, 1, "Cmd+Z restores it");
+  assert.equal(v.storedComments()[0].text, "please undo my removal", "with its original text intact");
   v.close();
 });
 
-test("merged prompt: emptying a comment's body removes that comment while keeping the others (#body-delete)", async () => {
+test("Cmd+Z restores every comment removed together by one Backspace on a shared row", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
-  await v.clickSourceLine(1); await v.openComposer("q"); await v.writeAndSave("keep me");
-  await v.clickSourceLine(0); await v.openComposer("q"); await v.writeAndSave("delete my body");
-  assert.equal(v.storedComments().filter((c) => c.kind === "q").length, 2);
-  const edited = v.window.buildMergedText("q").replace("delete my body", ""); // heading kept, body blanked
-  v.window.reconcileMergedComments("q", edited);
-  const after = v.storedComments().filter((c) => c.kind === "q");
-  assert.equal(after.length, 1, "the comment whose body was emptied is removed");
-  assert.equal(after[0].text, "keep me", "the untouched comment survives");
+  await v.clickSourceLine(1);
+  await v.openComposer("q");
+  await v.writeAndSave("first on this line");
+  await v.openComposer("c");
+  await v.writeAndSave("second on this line");
+  assert.equal(v.storedComments().length, 2);
+
+  const row = v.$(".mc-comment-row");
+  v.window.selectCommentRow(row);
+  v.key("Backspace");
+  await v.settle(20);
+  assert.equal(v.storedComments().length, 0, "Backspace on the selected row removes both comments on it");
+
+  v.key("z", { metaKey: true, code: "KeyZ" });
+  await v.settle(20);
+  assert.deepEqual(v.storedComments().map((c) => c.text).sort(), ["first on this line", "second on this line"], "one undo restores the whole batch");
   v.close();
 });
 
-test("merged prompt: a path with markdown-special chars (_ , __init__) round-trips without one comment swallowing others (#escape)", async () => {
-  // The commented paths must exist in the review (else they'd be pruned as missing files), so build a fixture
-  // that actually contains these markdown-special paths.
-  const { html: escHtml } = await makeReviewHtml([
-    { path: "scripts/CLAUDE.md", before: "# claude\n", after: "# claude\nmore\n" },
-    { path: "src/app/shared/canonical_runtime/__init__.py", before: "x = 1\n", after: "x = 2\n" },
-    { path: "src/app/shared/optimizer/__init__.py", before: "y = 1\n", after: "y = 2\n" },
-  ]);
-  const seeded = [
-    { seq: 1, kind: "q", path: "scripts/CLAUDE.md", line: 1, code: "", text: "question A", from: 1, to: 1, side: null, anchorCode: "", anchorPresent: true, addressed: false },
-    { seq: 2, kind: "q", path: "src/app/shared/canonical_runtime/__init__.py", line: 1, code: "", text: "question B", from: 1, to: 1, side: null, anchorCode: "", anchorPresent: true, addressed: false },
-    { seq: 3, kind: "q", path: "src/app/shared/optimizer/__init__.py", line: 1, code: "", text: "question C", from: 1, to: 1, side: null, anchorCode: "", anchorPresent: true, addressed: false },
-  ];
-  const v = await loadViewer(escHtml, { seedStorage: { "kakapo-comments:/review.html": JSON.stringify(seeded) } });
-  await v.settle(30);
-  // The Tiptap editor escapes/normalizes emphasis in the headings: `_` -> `\_`, `__init__` -> `**init**`.
-  const mangled = [
-    "### @scripts/CLAUDE.md#L1",
-    "question A",
-    "### @src/app/shared/canonical\\_runtime/**init**.py#L1",
-    "question B",
-    "### @src/app/shared/optimizer/**init**.py#L1",
-    "question C",
-  ].join("\n");
-  v.window.reconcileMergedComments("q", mangled);
+test("Cmd+Z inside a real text input does not touch comments — native undo owns that key there", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("q");
+  await v.writeAndSave("keep me");
+  v.$(".mc-del").click();
+  await v.settle(20);
+  assert.equal(v.storedComments().length, 0);
+
+  await v.openComposer("q"); // focus lands in a live <textarea>
+  const input = v.visibleComposerInput();
+  input.focus();
+  v.key("z", { metaKey: true, code: "KeyZ" });
+  await v.settle(20);
+  assert.equal(v.storedComments().length, 0, "Cmd+Z while a composer textarea is focused is left to the browser, not intercepted for comment undo");
+  v.close();
+});
+
+// GitHub issue #9: the merged prompt panel is a single unified hand-off (no separate question/change-request
+// panels), with the question section first so an agent answers questions (no edits) before touching code.
+test("unified merged prompt: questions and change requests share one document, questions first, both contracts included", async () => {
+  const v = await loadViewer(html);
+  v.window.addComment("q", "AGENTS.md", 5, "", "why this wording?");
+  v.window.addComment("c", "src/app.ts", 1, "", "simplify this");
+
+  const merged = v.window.buildMergedText();
+  const t = v.window.t;
+  const qContractAt = merged.indexOf(t("mergePrompt.default.q"));
+  const questionAt = merged.indexOf("why this wording?");
+  const planContractAt = merged.indexOf(t("plan.contract"));
+  const cContractAt = merged.indexOf(t("mergePrompt.default.c"));
+  const changeAt = merged.indexOf("simplify this");
+  assert.ok(
+    qContractAt >= 0 && qContractAt < questionAt
+      && questionAt < planContractAt && planContractAt < cContractAt
+      && cContractAt < changeAt,
+    "document order is: question contract -> questions -> plan contract -> change-request contract -> change requests",
+  );
+  v.close();
+});
+
+test("unified merged prompt: a kind with no open comments omits its contract entirely", async () => {
+  const v = await loadViewer(html);
+  v.window.addComment("c", "src/app.ts", 1, "", "only a change request");
+  const t = v.window.t;
+
+  const onlyC = v.window.buildMergedText();
+  assert.ok(!onlyC.includes(t("mergePrompt.default.q")), "no question contract when there are no open questions");
+  assert.ok(onlyC.includes(t("mergePrompt.default.c")) && onlyC.includes("only a change request"));
+
+  v.window.addComment("q", "AGENTS.md", 5, "", "only a question");
+  v.window.deleteComment(v.storedComments().find((c) => c.kind === "c").seq);
+  const onlyQ = v.window.buildMergedText();
+  assert.ok(!onlyQ.includes(t("plan.contract")) && !onlyQ.includes(t("mergePrompt.default.c")), "no plan/change-request contract when there are no open change requests");
+  v.close();
+});
+
+test("unified merged prompt: one dock panel renders both a question and a change request together", async () => {
+  const v = await loadViewer(html);
+  v.window.addComment("q", "AGENTS.md", 5, "", "one open question");
+  v.window.addComment("c", "src/app.ts", 1, "", "one open change request");
+
+  await v.openMergedView();
+  const panels = v.$all("#mc-merged-panel");
+  assert.equal(panels.length, 1, "a single merged panel opens for both kinds");
+  const text = v.mergedModalText();
+  assert.match(text, /one open question/);
+  assert.match(text, /one open change request/);
+  v.close();
+});
+
+// Regression: the plan/change-request contract prose sits BETWEEN the last question and the first change
+// request in the unified document. The now-removed reconcileMergedComments used to treat everything between
+// two comment headings as belonging to the earlier one, so on close that structural preamble (and, on a
+// second close, a second copy of it) got silently absorbed into the last question's text instead of being
+// left as inert document scaffolding.
+test("unified merged prompt: closing/reopening never absorbs the plan/change-request contract into the last question's text", async () => {
+  const v = await loadViewer(html);
+  v.window.addComment("q", "AGENTS.md", 5, "", "one open question");
+  await v.openMergedView();
+  await v.settle(150);
+
+  v.window.addComment("c", "src/app.ts", 1, "", "one open change request");
+  v.window.openMergedView(); // closes+reconciles the q-only session, then rebuilds with both kinds
+  await v.settle(150);
+  v.window.addComment("c", "src/app.ts", 2, "", "second change request");
+  v.window.openMergedView(); // closes+reconciles the two-item session, then rebuilds with three
+  await v.settle(150);
+
   const stored = v.storedComments();
-  assert.equal(stored.length, 3, "all three comments survive the round-trip");
-  assert.equal(stored.find((c) => c.seq === 1).text, "question A", "the first comment keeps only its own body (no swallowing)");
-  assert.equal(stored.find((c) => c.seq === 2).text, "question B");
-  assert.equal(stored.find((c) => c.seq === 3).text, "question C");
+  assert.equal(stored.length, 3, "no comment was dropped across the reopen cycles");
+  assert.equal(stored.find((c) => c.kind === "q").text, "one open question", "the question's text stays exactly what was typed — no contract prose absorbed into it");
+  assert.deepEqual(
+    stored.filter((c) => c.kind === "c").map((c) => c.text),
+    ["one open change request", "second change request"],
+    "both change requests keep their own short text untouched",
+  );
+
+  const merged = v.window.buildMergedText();
+  assert.equal((merged.match(/Before changing any code, write a short implementation PLAN/g) || []).length, 1, "the plan contract appears exactly once, not duplicated into the question");
   v.close();
 });

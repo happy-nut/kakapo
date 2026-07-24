@@ -52,14 +52,14 @@ test("iterative review: a comment whose line the agent changed is flagged 'possi
 
 test("iterative review: addressed comments drop out of the merged prompt, and reopening brings them back", async () => {
   const v = await loadNextRound();
-  let merged = v.window.buildMergedText("c");
+  let merged = v.window.buildMergedText();
   assert.ok(!merged.includes("fix the broken assignment"), "the addressed request is held out of the next merged prompt");
   assert.ok(merged.includes("rename c to something clearer"), "the open request is still carried into the prompt");
 
   v.window.reopenComment(1);
   await v.settle(20);
   assert.equal(v.storedComments().find((c) => c.seq === 1).addressed, false, "reopening clears the addressed flag");
-  merged = v.window.buildMergedText("c");
+  merged = v.window.buildMergedText();
   assert.ok(merged.includes("fix the broken assignment"), "a reopened request returns to the merged prompt");
   v.close();
 });

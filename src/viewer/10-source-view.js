@@ -607,10 +607,7 @@ function deleteCommentsInRow(row) {
   if (!row) return;
   var seqs = Array.prototype.slice.call(row.querySelectorAll('.mc-del')).map(function (b) { return parseInt(b.dataset.seq, 10); });
   selectedCommentRow = null;
-  if (seqs.length) {
-    reviewComments = reviewComments.filter(function (c) { return seqs.indexOf(c.seq) < 0; });
-    saveComments();
-  }
+  if (seqs.length) removeComments(seqs);
   refreshComments(); // remaining comment rows re-injected; the caret stays hidden until the next arrow press
 }
 // Open the composer in EDIT mode for the first comment in `row`, pre-filled with its text. threadHtml renders
