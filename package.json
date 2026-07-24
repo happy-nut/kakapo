@@ -1,6 +1,6 @@
 {
   "name": "@happy-nut/kakapo",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Local desktop review workspace for AI-generated code changes.",
   "type": "module",
   "main": "dist/app-main.js",
