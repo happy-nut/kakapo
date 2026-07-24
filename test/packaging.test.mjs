@@ -197,7 +197,11 @@ test("release workflow tests, packages, and attaches Linux tarballs + a macOS dm
   assert.doesNotMatch(autoRelease, /run: npm publish/);
 
   // The macOS reusable workflow builds the unsigned dmg with system tools and uploads it to the release.
-  assert.match(macos, /npm run dist:mac:dmg/);
+  // It uses the :ci variant, which skips the runtime lsp:smoke gate (flaky on the cold macOS runner) but
+  // still verifies the bundled-server structure.
+  assert.match(macos, /npm run dist:mac:dmg:ci/);
   assert.match(macos, /gh release upload "\$RELEASE_TAG" release\/Kakapo-\*\.dmg/);
   assert.match(macos, /ref: \$\{\{ inputs\.release_tag \|\| github\.ref \}\}/);
+  assert.equal(packageJson.scripts["dist:mac:dmg:ci"], "npm run dist:mac:ci && node scripts/create-dmg.mjs");
+  assert.doesNotMatch(packageJson.scripts["dist:mac:ci"], /lsp:smoke/);
 });
