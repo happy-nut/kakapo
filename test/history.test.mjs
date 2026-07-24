@@ -143,6 +143,23 @@ test("history keyboard: Cmd+9 then ArrowDown navigates commits before opening a 
   v.close();
 });
 
+test("history keyboard: Cmd+1 leaves History for the Files view", async () => {
+  const v = await loadViewer(html);
+  installHistoryBridge(v);
+
+  v.key("9", { metaKey: true, code: "Digit9" });
+  await v.settle(80);
+  assert.equal(v.$("#history-view").classList.contains("hidden"), false, "history opens");
+
+  // Cmd+1 is the global Files shortcut; from History it must close the overlay AND reveal the source view,
+  // not run under the still-open overlay (which left the switch invisible).
+  v.key("1", { metaKey: true, code: "Digit1" });
+  await v.settle(60);
+  assert.equal(v.$("#history-view").classList.contains("hidden"), true, "Cmd+1 closes the History overlay");
+  assert.equal(v.visibleView(), "source", "Cmd+1 reveals the Files/source view underneath");
+  v.close();
+});
+
 test("right-clicking a Files-mode line number shows blame in the gutter and opens its commit diff", async () => {
   const v = await loadViewer(html);
   const blameCalls = [];

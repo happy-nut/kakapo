@@ -829,6 +829,15 @@ function handleHistoryKey(e) {
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.code === 'Digit9' || e.key === '9')) {
     e.preventDefault(); e.stopPropagation(); closeHistory(); return true;
   }
+  // Cmd/Ctrl+1 has no History-local meaning, so honor the global "Files" shortcut: leave History and reveal
+  // the source tree. Without this the fallthrough ran activateFilesView() under the still-open overlay, so
+  // the switch was invisible.
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.code === 'Digit1' || e.key === '1')) {
+    e.preventDefault(); e.stopPropagation();
+    closeHistory();
+    if (typeof activateFilesView === 'function') activateFilesView();
+    return true;
+  }
   if (e.key === 'Escape') {
     e.preventDefault(); e.stopPropagation();
     if (isHistoryDetailOpen()) closeHistoryDetail(true);
