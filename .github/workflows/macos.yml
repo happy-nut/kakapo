@@ -1,0 +1,55 @@
+name: macOS Desktop
+
+# macOS is a release platform: build the Apple Silicon app, wrap it in a .dmg with the built-in
+# hdiutil/ditto tooling, and attach it to the GitHub release. Called by the release workflows on a v* tag.
+# The .dmg is unsigned (no Apple Developer cert), so first launch needs a right-click → Open on Gatekeeper.
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Tag to check out and attach the dmg to when called by a release workflow.
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: macOS arm64 dmg
+    # Only build/attach on a real release (tag push or an explicit release_tag from the weekly workflow).
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.14.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # dist:mac:dmg = bundle language servers, build, package the Apple Silicon app (electron-packager),
+      # verify the bundled servers, then create release/Kakapo-<version>-arm64.dmg via hdiutil.
+      - name: Build macOS dmg (Apple Silicon)
+        run: npm run dist:mac:dmg
+
+      - name: Attach dmg to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" release/Kakapo-*.dmg --clobber
