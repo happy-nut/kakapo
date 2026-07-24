@@ -626,6 +626,7 @@ function applyDiffUpdate(u) {
   applyI18n();
   populateHttpEnvSelect();
   initSourceTreeFolds();
+  initChangesTreeFolds(); // #changes-panel was just replaced, so its folder listeners must be reattached
   remapComments(); // follow/drop comments whose anchor line moved or vanished in the new build
   refreshComments();
 

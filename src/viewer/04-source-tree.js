@@ -267,6 +267,39 @@ function initSourceTreeFolds() {
   });
   setTimeout(function () { treeRevealing = false; }, 0);
 }
+// The Changes tree is the inverse of the source tree: folders default OPEN (every change should be visible
+// without a click), so we persist only the folders the reviewer explicitly COLLAPSED — otherwise a watch-tick
+// rebuild (which replaces #changes-panel wholesale, dropping per-element listeners) would re-expand them.
+function changesCollapsedKey() { return 'kakapo-changes-collapsed:' + location.pathname; }
+function loadChangesCollapsed() {
+  try {
+    var stored = persistRead(changesCollapsedKey());
+    if (Array.isArray(stored)) return new Set(stored);
+    return new Set(JSON.parse(sessionStorage.getItem(changesCollapsedKey()) || '[]'));
+  } catch (e) { return new Set(); }
+}
+function saveChangesCollapsed(set) {
+  var paths = Array.from(set);
+  persistSave(changesCollapsedKey(), paths);
+  try { sessionStorage.setItem(changesCollapsedKey(), JSON.stringify(paths)); } catch (e) {}
+}
+function initChangesTreeFolds() {
+  var dirs = Array.prototype.slice.call(document.querySelectorAll('#changes-panel .changes-dir'));
+  if (!dirs.length) return;
+  var collapsed = loadChangesCollapsed();
+  var applying = true; // the initial d.open below must not be mistaken for a user toggle
+  dirs.forEach(function (d) {
+    d.addEventListener('toggle', function () {
+      if (applying) return;
+      var set = loadChangesCollapsed();
+      var dir = d.dataset.dir || '';
+      if (d.open) set.delete(dir); else set.add(dir);
+      saveChangesCollapsed(set);
+    });
+    d.open = !collapsed.has(d.dataset.dir || '');
+  });
+  setTimeout(function () { applying = false; }, 0);
+}
 // Expand a file's ancestor folders so it is visible in the tree (transient — not persisted). Semantic and
 // keyboard navigation may also reveal the selected row; a pointer click suppresses that scroll because the
 // row is already visible and the sidebar must stay under the mouse.
