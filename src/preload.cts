@@ -146,6 +146,16 @@ contextBridge.exposeInMainWorld("kakapoMemo", {
   remove: (): Promise<unknown> => ipcRenderer.invoke("kakapo:memo-delete"),
 });
 
+// Explain view: an external AI agent writes a content-spec JSON file to this workspace's support
+// directory; main polls it and pushes updates here. `read` also returns the destination path so the
+// renderer can show the agent where to write the spec.
+contextBridge.exposeInMainWorld("kakapoExplain", {
+  read: (): Promise<{ path: string; spec: unknown; updatedAt: number | null }> => ipcRenderer.invoke("kakapo:explain-read"),
+  onUpdate: (cb: (payload: { spec: unknown; updatedAt: number }) => void): void => {
+    ipcRenderer.on("kakapo:explain-update", (_event, payload: { spec: unknown; updatedAt: number }) => cb(payload));
+  },
+});
+
 // Global settings (locale, …) persisted by the main process under userData so they survive app
 // restarts — the renderer's file:// localStorage is not reliably persisted across reopens. `all` is
 // read synchronously at preload so the renderer can pick the locale before first paint; `set` writes

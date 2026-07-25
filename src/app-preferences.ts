@@ -11,6 +11,7 @@ const GLOBAL_SETTING_KEYS = new Set([
   "kakapo-theme",
   "kakapo-syntax-theme",
   "kakapo-merge-prompts",
+  "kakapo-explain-prompt",
   RECENT_KEY,
   "kakapo-dock-height",
   "kakapo-memo",

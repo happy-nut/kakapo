@@ -18,6 +18,7 @@ import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerTerminalIpc } from "./app-terminal-ipc.js";
 import { registerAnswersIpc, syncAnswersFile, answersFilePath } from "./answers-ipc.js";
+import { registerExplainIpc, refreshExplainIfChanged } from "./app-explain-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 
@@ -58,6 +59,10 @@ type WinState = {
   reviewBase?: string; // exact base used by the latest build (may be an automatic upstream merge-base)
   reviewUpstream?: string; // tracking ref behind an automatic base; included in the watch signature
   disposeWindowSurfaceRecovery: () => void;
+  explainTimer?: NodeJS.Timeout; // Explain view: polls this workspace's content-spec file, independent of --watch
+  explainSig: string; // last-seen spec file mtime+size, to skip re-parsing when unchanged
+  explainSpec: unknown; // last-parsed content spec, served immediately to a newly-opened Explain view
+  explainUpdatedAt: number | null;
 };
 
 // `npm run dev` sets KAKAPO_DEV=1 so a locally-built app announces itself — a window-title suffix
@@ -168,6 +173,7 @@ registerReviewIpc(ipcMain, stateFromEvent);
 registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerTerminalIpc(ipcMain, stateFromEvent);
 registerAnswersIpc(ipcMain, stateFromEvent);
+registerExplainIpc(ipcMain, stateFromEvent);
 
 // The single Markdown memo is application data, never a repository artifact. Main derives the scope from
 // the calling window's canonical worktree; the sandboxed renderer cannot choose a filesystem path.
@@ -394,8 +400,8 @@ function buildApplicationMenu(): void {
       { label: "Toggle Terminal (F12)", accelerator: "Alt+F12", click: () => sendToFocused("kakapo:terminal-toggle") },
       { label: "Split Terminal", accelerator: "CommandOrControl+D", click: () => sendToFocused("kakapo:terminal-split") },
       { type: "separator" },
-      { label: "Focus Previous Pane", accelerator: "CommandOrControl+Alt+[", click: () => sendToFocused("kakapo:terminal-pane-focus", -1) },
-      { label: "Focus Next Pane", accelerator: "CommandOrControl+Alt+]", click: () => sendToFocused("kakapo:terminal-pane-focus", 1) },
+      { label: "Focus Previous Pane", accelerator: "CommandOrControl+Alt+Left", click: () => sendToFocused("kakapo:terminal-pane-focus", -1) },
+      { label: "Focus Next Pane", accelerator: "CommandOrControl+Alt+Right", click: () => sendToFocused("kakapo:terminal-pane-focus", 1) },
       { label: "Rename Pane", accelerator: "CommandOrControl+Alt+R", click: () => sendToFocused("kakapo:terminal-pane-rename") },
     ],
   });
@@ -476,6 +482,9 @@ function createWindow(root: string): WinState {
     reviewBase: undefined,
     reviewUpstream: undefined,
     disposeWindowSurfaceRecovery: installWindowSurfaceRecovery(win),
+    explainSig: "",
+    explainSpec: null,
+    explainUpdatedAt: null,
   };
   const id = win.id;
   states.set(id, state);
@@ -509,6 +518,7 @@ function createWindow(root: string): WinState {
     state.terms.clear();
     if (state.refreshTimer) clearInterval(state.refreshTimer);
     if (state.answersTimer) clearInterval(state.answersTimer);
+    if (state.explainTimer) clearInterval(state.explainTimer);
     if (state.analysisWarmTimer) clearTimeout(state.analysisWarmTimer);
     state.disposeWindowSurfaceRecovery();
     state.analysis.dispose();
@@ -542,10 +552,13 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
       preferences.recordRecentProject(state.options.root); // remember the launched/new-window repo for the welcome screen
       if (!state.win.isDestroyed()) void state.win.loadFile(reviewPath(state.options.root));
       if (state.options.watch) state.refreshTimer = setInterval(() => void refreshIfChanged(state), WATCH_INTERVAL_MS);
-      // Independent of --watch: an agent can write answers whether or not the diff itself is being polled.
-      // One immediate sync catches up on anything written before this window existed.
+      // Independent of --watch: an agent can write answers/the Explain content spec whether or not the
+      // diff itself is being polled. One immediate answers sync catches up on anything written before this
+      // window existed (the Explain spec has no such backlog concern — nothing could have targeted this
+      // window's spec file before it existed).
       state.answersTimer = setInterval(() => void syncAnswersFile(state), WATCH_INTERVAL_MS);
       void syncAnswersFile(state);
+      state.explainTimer = setInterval(() => refreshExplainIfChanged(state), WATCH_INTERVAL_MS);
     } catch (error) {
       // One window's build failure shouldn't take down the whole app (other windows may be fine); log and
       // leave this window on the loading mark rather than quitting.
@@ -667,12 +680,17 @@ async function openReview(state: WinState, root: string): Promise<void> {
   state.answersFile = answersFilePath(state.options.root);
   state.answersFileSig = undefined;
   state.lastAnswers = undefined;
+  state.explainSig = ""; // new repo -> different workspace's spec file, force a fresh read
+  state.explainSpec = null;
+  state.explainUpdatedAt = null;
+  if (state.explainTimer) { clearInterval(state.explainTimer); state.explainTimer = undefined; }
   const build = writeReviewFile(state);
   state.signature = build.signature;
   if (!state.win.isDestroyed()) await state.win.loadFile(reviewPath(state.options.root));
   if (state.options.watch) state.refreshTimer = setInterval(() => void refreshIfChanged(state), WATCH_INTERVAL_MS);
   state.answersTimer = setInterval(() => void syncAnswersFile(state), WATCH_INTERVAL_MS);
   void syncAnswersFile(state);
+  state.explainTimer = setInterval(() => refreshExplainIfChanged(state), WATCH_INTERVAL_MS);
 }
 
 // File > Open Folder (Cmd/Ctrl+O): pick a repo and load it into the focused window.

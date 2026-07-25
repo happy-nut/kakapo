@@ -228,7 +228,6 @@ function openMergedView() {
     });
     dock.close();
     function deliver(finalText) {
-      if (window.__kakapoTerminal.paneCount() === 0) window.__kakapoTerminal.open();
       window.__kakapoTerminal.enterSendMode(finalText);
     }
     if (items.length && window.kakapoAnswers && typeof window.kakapoAnswers.write === 'function') {
@@ -626,6 +625,7 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   var cta = document.getElementById('settings-prompt-c');
   var resetBtn = document.getElementById('settings-reset');
   var savedMsg = document.getElementById('settings-saved');
+  var explainTa = document.getElementById('settings-prompt-explain');
   var cats = Array.prototype.slice.call(modal.querySelectorAll('.settings-cat'));
   var secs = Array.prototype.slice.call(modal.querySelectorAll('.settings-section'));
   function showCat(cat) {
@@ -639,6 +639,7 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
     if (pta) { pta.value = (typeof s.plan === 'string' && s.plan.trim()) ? s.plan : defaultMergePrompt('plan'); pta.placeholder = ''; }
     if (qta) { qta.value = (typeof s.q === 'string' && s.q.trim()) ? s.q : defaultMergePrompt('q'); qta.placeholder = ''; }
     if (cta) { cta.value = (typeof s.c === 'string' && s.c.trim()) ? s.c : defaultMergePrompt('c'); cta.placeholder = ''; }
+    if (explainTa && typeof loadExplainPrompt === 'function') { explainTa.value = loadExplainPrompt(); explainTa.placeholder = ''; }
   }
   function open(cat) { fill(); if (cat) showCat(cat); modal.classList.remove('hidden'); }
   function close() { modal.classList.add('hidden'); }
@@ -694,7 +695,12 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   if (pta) pta.addEventListener('input', function () { saveMergePrompt('plan', pta.value); flash(); });
   if (qta) qta.addEventListener('input', function () { saveMergePrompt('q', qta.value); flash(); });
   if (cta) cta.addEventListener('input', function () { saveMergePrompt('c', cta.value); flash(); });
-  if (resetBtn) resetBtn.addEventListener('click', function () { saveMergePrompt('plan', ''); saveMergePrompt('q', ''); saveMergePrompt('c', ''); fill(); flash(); });
+  if (resetBtn) resetBtn.addEventListener('click', function () {
+    saveMergePrompt('plan', ''); saveMergePrompt('q', ''); saveMergePrompt('c', '');
+    if (typeof saveExplainPrompt === 'function') saveExplainPrompt('');
+    fill(); flash();
+  });
+  if (explainTa) explainTa.addEventListener('input', function () { if (typeof saveExplainPrompt === 'function') saveExplainPrompt(explainTa.value); flash(); });
   // Language: live-switch the whole UI (no reload). Persist, re-apply the static chrome, then re-render
   // any currently-shown dynamic text (open composer / merged modal / index status) so it follows too.
   langSelectRef = setupCustomSelect('settings-language',

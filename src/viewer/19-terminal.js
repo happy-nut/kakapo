@@ -335,7 +335,7 @@
   }
   // Pane-pick mode: triggered from the merged modal's "Send to terminal". The chosen pane is highlighted,
   // the rest are dimmed; arrows change the pick, Enter sends, Esc cancels. Single pane → send at once.
-  var sendModeText = null, sendModeIdx = 0;
+  var sendModeText = null, sendModeIdx = 0, sendModeWasOpen = false;
   function paintSendMode() {
     panes.forEach(function (p, i) {
       p.el.classList.toggle('is-send-target', i === sendModeIdx);
@@ -348,9 +348,19 @@
     panel.classList.remove('send-mode');
     document.body.classList.remove('terminal-send-mode'); // un-dim the rest of the app
     panes.forEach(function (p) { p.el.classList.remove('is-send-target', 'is-dimmed'); });
+    // Cancel (Esc): if enterSendMode had to open the panel itself, close it back down so Esc fully undoes
+    // the "Send to terminal" action instead of leaving a stray open panel that a second Esc then has to
+    // fall through past (to whatever view was behind it). Confirm (Enter) also calls exitSendMode first,
+    // but writeToPane() unconditionally re-opens right after, so this never fights that path.
+    if (!sendModeWasOpen) setOpen(false);
   }
   function enterSendMode(text) {
-    if (panes.length === 0) return;
+    // Capture "was the panel already open" BEFORE anything below can change it — callers open the panel
+    // first just to guarantee a pane exists (paneCount() === 0 -> open()), which would otherwise make this
+    // read true even when the panel was closed a moment ago, and Esc-cancel would never close it back down.
+    sendModeWasOpen = isOpen();
+    if (panes.length === 0) makePane();
+    if (panes.length === 0) return; // xterm unavailable — nothing to send to
     setOpen(true);
     sendModeText = text;
     sendModeIdx = Math.max(0, panes.indexOf(active));

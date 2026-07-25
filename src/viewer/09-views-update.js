@@ -142,6 +142,8 @@ function syncRail() {
   setOn('history', !!(hv && !hv.classList.contains('hidden')));
   var impact = document.getElementById('impact-panel');
   setOn('impact', !!(impact && !impact.classList.contains('hidden')));
+  var explainView = document.getElementById('explain-view');
+  setOn('explain', !!(explainView && !explainView.classList.contains('hidden')));
 }
 // Rail click for the merged view toggles: a 2nd click closes it (memo already toggles the same way).
 function toggleMergedRail() {
