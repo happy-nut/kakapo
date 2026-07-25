@@ -2052,7 +2052,11 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
    active copies the same assembled text the "Copy all" button does (see copyMergedText in 08-dock.js), so
    the visual state below just needs to make every region and card read as selected together. */
 .mc-merged-select-all .mc-merged-card { box-shadow: 0 0 0 2px var(--active); }
-.mc-merged-select-all .mc-merged-preview { background: color-mix(in srgb, var(--active) 20%, transparent); }
+/* Doubled up as .mc-merged-select-all.mc-merged-editor-host (both classes land on the same host element) so
+   this outranks the later, equal-specificity ".mc-merged-editor-host .mc-merged-preview" chrome background
+   rule below — otherwise that rule wins the cascade by source order and the tint never renders. */
+.mc-merged-select-all .mc-merged-preview,
+.mc-merged-select-all.mc-merged-editor-host .mc-merged-preview { background: color-mix(in srgb, var(--active) 20%, transparent); }
 
 /* One worktree-scoped, Notion-style inline Markdown document (Tiptap -> persisted Markdown). */
 .mc-memo-body { min-width: 0; min-height: 0; height: 100%; overflow: auto; background: var(--panel); }

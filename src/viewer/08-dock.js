@@ -139,6 +139,10 @@ function mountDock(id, titleText) {
 
 function openMergedView() {
   if (pruneCommentsForMissingFiles()) refreshComments();
+  // Claim Cmd+A/Cmd+C from the app menu's native accelerators (role: "editMenu" in app-main.ts) for as long
+  // as this dock is open, so only this panel's own keydown handling responds — see handleMergedKeydown and
+  // the setIgnoreMenuShortcuts IPC handler in app-main.ts for why the native accelerator otherwise races it.
+  if (window.kakapoApp && typeof window.kakapoApp.setIgnoreMenuShortcuts === 'function') window.kakapoApp.setIgnoreMenuShortcuts(true);
   var dock = mountDock('mc-merged-panel', t('merged.title'));
   var mergedBody = document.createElement('div');
   mergedBody.className = 'mc-merged-body';
@@ -224,6 +228,18 @@ function openMergedView() {
     var copied = typeof copyTextToClipboard === 'function' && copyTextToClipboard(currentMergedText());
     if (typeof showToast === 'function') showToast(t(copied ? 'merged.copied' : 'merged.copyFailed'));
   }
+  // The app menu keeps the standard Edit role so real text fields still get native Cut/Paste/Undo (see
+  // app-main.ts) — but that means Cmd+C is ALSO a native accelerator that fires webContents.copy()
+  // independently of this panel's own keydown handling; a renderer-side preventDefault on keydown cannot
+  // stop it. Rather than race that native copy, hijack its actual 'copy' ClipboardEvent (fired by
+  // execCommand('copy') regardless of which path triggered it) and force our own payload onto it whenever
+  // the fake select-all state is active, so Cmd+C is correct no matter what the real DOM selection is.
+  function handleNativeCopy(event) {
+    if (!host.classList.contains('mc-merged-select-all')) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', currentMergedText());
+    if (typeof showToast === 'function') showToast(t('merged.copied'));
+  }
   // Deleting the selected card removes it from reviewComments (with the same shared undo stack the
   // diff/source view's row-Backspace uses — Cmd/Ctrl+Z restores it, see 05-keymap.js), then rebuilds the
   // panel so it never shows a stale card list. reselectIndex carries the deleted card's position across the
@@ -236,6 +252,11 @@ function openMergedView() {
     initializeMergedEditor({ reselectIndex: index });
   }
   function handleMergedKeydown(event) {
+    // Holding Cmd between tapping A and C (the normal way to chord Cmd+A -> Cmd+C) makes macOS/Chromium
+    // redeliver a bare keydown for the Meta/Control key itself mid-hold — not a real second keystroke. Treating
+    // that as "some other key was pressed" cleared the select-all flag before the real Cmd+C keydown arrived,
+    // so Cmd+C silently did nothing. A held modifier alone should never count as a deselecting keystroke.
+    if (event.key === 'Meta' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Shift') return;
     var isCmd = event.metaKey || event.ctrlKey;
     if (isCmd && !event.altKey && !event.shiftKey && (event.key === 'a' || event.key === 'A' || event.code === 'KeyA')) {
       event.preventDefault();
@@ -312,6 +333,7 @@ function openMergedView() {
   host.addEventListener('click', handleMergedClick);
   // Capture so this wins the race against ProseMirror's own keymap for Alt+Enter/Cmd+A.
   dock.panel.addEventListener('keydown', handleMergedKeydown, true);
+  document.addEventListener('copy', handleNativeCopy);
   function handlePrunedComments(event) {
     if (validatingCommentFiles) return;
     var removed = event && event.detail && Array.isArray(event.detail.comments) ? event.detail.comments : [];
@@ -320,6 +342,8 @@ function openMergedView() {
   document.addEventListener('kakapo:comments-pruned', handlePrunedComments);
   dock.panel.__kakapoBeforeClose = function () {
     document.removeEventListener('kakapo:comments-pruned', handlePrunedComments);
+    document.removeEventListener('copy', handleNativeCopy);
+    if (window.kakapoApp && typeof window.kakapoApp.setIgnoreMenuShortcuts === 'function') window.kakapoApp.setIgnoreMenuShortcuts(false);
     editors.forEach(function (entry) { entry.editor.destroy(); });
   };
   // options.reselectIndex, when given, means this rebuild followed a card deletion: reselect whatever card
