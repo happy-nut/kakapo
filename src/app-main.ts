@@ -270,6 +270,16 @@ ipcMain.on("kakapo:set-setting", (event, msg: { key?: string; value?: unknown })
   const state = stateFromEvent(event);
   preferences.setRendererSetting(state?.options.root, msg.key, msg.value);
 });
+// The merged-prompt dock implements its own whole-document Cmd+A/Cmd+C (select every card + prose region,
+// copy the assembled hand-off text — see openMergedView in 08-dock.js). The app menu's `role: "editMenu"`
+// (kept so real text fields get native Cut/Paste/Undo) binds the SAME accelerators, and on macOS the menu's
+// native Select All/Copy can fire independently of — and race — the page's own keydown handling. While the
+// dock signals it owns these keys, ignore the menu's accelerators for its window so only the page's handler
+// responds; the dock un-ignores on close so every other Cmd+A/Cmd+C in the app (comment composer, memo,
+// terminal) keeps its normal native behavior.
+ipcMain.on("kakapo:set-ignore-menu-shortcuts", (event, msg: { ignore?: boolean }) => {
+  event.sender.setIgnoreMenuShortcuts(!!(msg && msg.ignore));
+});
 
 app.whenReady().then(async () => {
   const assetRoot = resolve(dirname(fileURLToPath(import.meta.url)), "monaco");

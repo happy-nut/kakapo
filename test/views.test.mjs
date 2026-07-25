@@ -755,6 +755,32 @@ test("merged view: Cmd+A visually selects the whole document (cards included), a
   v.close();
 });
 
+test("merged view: the native copy event (Electron's editMenu Cmd+C accelerator) is overridden with the merged text", async () => {
+  // app-main.ts keeps `role: "editMenu"` so real text fields get native Cut/Paste/Undo — but that also makes
+  // Cmd+C a native accelerator that fires webContents.copy() independently of this panel's own keydown
+  // handler, racing it with whatever the real (mostly empty) DOM selection is. The panel must win that race
+  // by overriding the actual 'copy' ClipboardEvent, not by relying on keydown preventDefault alone.
+  const v = await loadViewer(html);
+  v.window.addComment("q", "src/app.ts", 1, "", "first comment");
+  v.window.addComment("c", "src/app.ts", 2, "", "second comment");
+  await v.openMergedView();
+  await v.settle(80);
+
+  const panel = v.$("#mc-merged-panel");
+  const host = v.$(".mc-merged-editor-host");
+  panel.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "a", metaKey: true, code: "KeyA", bubbles: true, cancelable: true }));
+  assert.ok(host.classList.contains("mc-merged-select-all"));
+
+  let written = null;
+  const nativeCopyEvent = new v.window.Event("copy", { bubbles: true, cancelable: true });
+  nativeCopyEvent.clipboardData = { setData: (type, text) => { written = text; } };
+  const notPrevented = v.document.dispatchEvent(nativeCopyEvent);
+  assert.equal(notPrevented, false, "the panel calls preventDefault so the native (empty) selection never wins");
+  assert.match(written, /first comment/);
+  assert.match(written, /second comment/);
+  v.close();
+});
+
 test("merged view: any other key after Cmd+A drops the whole-document selection", async () => {
   const v = await loadViewer(html);
   v.window.addComment("q", "src/app.ts", 1, "", "only comment");
@@ -766,6 +792,27 @@ test("merged view: any other key after Cmd+A drops the whole-document selection"
   assert.ok(host.classList.contains("mc-merged-select-all"));
   panel.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
   assert.equal(host.classList.contains("mc-merged-select-all"), false, "a non-copy key drops the whole-document selection");
+  v.close();
+});
+
+test("merged view: holding Cmd between Cmd+A and Cmd+C survives the modifier-only keydown macOS redelivers mid-hold", async () => {
+  // Chording Cmd+A -> Cmd+C the normal way (hold Cmd, tap A, tap C) makes macOS/Chromium redeliver a bare
+  // "Meta" keydown while Cmd is still held between the two taps — not a real second keystroke. That used to
+  // be treated as "some other key was pressed" and dropped the selection before Cmd+C ever arrived.
+  const v = await loadViewer(html);
+  v.window.addComment("q", "src/app.ts", 1, "", "held-cmd comment");
+  await v.openMergedView();
+  await v.settle(80);
+  const panel = v.$("#mc-merged-panel");
+  const host = v.$(".mc-merged-editor-host");
+  panel.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "a", metaKey: true, code: "KeyA", bubbles: true, cancelable: true }));
+  assert.ok(host.classList.contains("mc-merged-select-all"));
+  panel.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Meta", metaKey: true, code: "MetaLeft", bubbles: true, cancelable: true }));
+  assert.ok(host.classList.contains("mc-merged-select-all"), "a redelivered bare Meta keydown must not drop the selection");
+  let copied = null;
+  v.window.kakapoClipboard = { write: (text) => { copied = text; } };
+  panel.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "c", metaKey: true, code: "KeyC", bubbles: true, cancelable: true }));
+  assert.match(copied, /held-cmd comment/, "Cmd+C after the spurious Meta keydown still copies");
   v.close();
 });
 
