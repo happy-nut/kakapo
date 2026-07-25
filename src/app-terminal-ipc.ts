@@ -9,6 +9,9 @@ export type TerminalIpcState = {
   win: BrowserWindow;
   options: { root: string };
   terms: Map<number, IPty>;
+  // Absolute path to this window's answers-exchange file (see answers-ipc.ts), passed into every pty
+  // spawned in this window so an agent can find it without depending on the prompt text being intact.
+  answersFile?: string;
 };
 
 type TerminalEvent = IpcMainEvent | IpcMainInvokeEvent;
@@ -34,7 +37,12 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
       cols: size?.cols ?? 80,
       rows: size?.rows ?? 24,
       cwd: state.options.root,
-      env: ensureUtf8Locale({ ...sanitizeTerminalEnv(process.env), TERM: "xterm-256color", COLORTERM: "truecolor" }),
+      env: ensureUtf8Locale({
+        ...sanitizeTerminalEnv(process.env),
+        TERM: "xterm-256color",
+        COLORTERM: "truecolor",
+        ...(state.answersFile ? { KAKAPO_ANSWERS_FILE: state.answersFile } : {}),
+      }),
     });
     state.terms.set(id, t);
     // Guard every relay with isDestroyed(): a pty can outlive its window (close races pty teardown), and

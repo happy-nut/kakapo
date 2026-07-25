@@ -139,6 +139,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diag.none": "No language-server problems in this file.",
     "diag.fixComment": "Fix this problem: {message}",
     "diag.fixAdded": "Added a change request to fix this problem.",
+    "comment.nav.none": "No comments in this review.",
     "comment.addressed": "possibly addressed",
     "comment.addressed.hint": "The line this comment was anchored to changed in the latest revision — the agent likely addressed it. Reopen if it isn't resolved.",
     "comment.reopen": "Reopen",
@@ -327,6 +328,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "mergePrompt.default.c": "The following are change requests for code you just wrote. Work in small units that a human can review independently. Complete and verify one independently reviewable unit at a time before moving to the next. For each request, edit the code at the quoted location to satisfy it. Keep changes minimal and focused; do not combine unrelated changes.",
     // Plan contract — prepended to change requests and the prompt memo so every task starts with a small, verifiable plan written to a file.
     "plan.contract": "Before changing any code, write a short implementation PLAN in your response. Break the work into small, independently verifiable steps — each with a one-line check for how you'll confirm it works. Get the plan right first, then implement one step at a time, keeping each step small enough to review on its own. Do not add kakapo state files to the repository.",
+    // Sent once at the top of a terminal hand-off (sendWholeDocToTerminal, 08-dock.js) whenever kakapo wrote
+    // an answers checklist for the items below — the absolute path is appended right after this line.
+    "mergePrompt.answersFile": "Write your answers into the JSON checklist at the path below instead of replying here — fill in each item's answer and answeredAt for its matching seq, and leave everything else unchanged:",
+    "comment.answer": "Answer",
   },
   ko: {
     // Tabs (sidebar)
@@ -457,6 +462,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diag.none": "이 파일에는 언어 서버 문제가 없습니다.",
     "diag.fixComment": "이 문제를 고쳐줘: {message}",
     "diag.fixAdded": "이 문제를 고치는 변경 요청을 추가했습니다.",
+    "comment.nav.none": "이 리뷰에는 코멘트가 없습니다.",
     "comment.addressed": "반영된 듯",
     "comment.addressed.hint": "이 코멘트가 가리키던 줄이 최신 변경에서 바뀌었습니다 — 에이전트가 반영했을 가능성이 큽니다. 아직 안 됐으면 재열기하세요.",
     "comment.reopen": "재열기",
@@ -645,5 +651,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "mergePrompt.default.c": "다음은 방금 작성한 코드에 대한 변경 요청입니다. 작업을 사람이 독립적으로 리뷰할 수 있는 작은 단위로 나누세요. 각 단위를 구현하고 검증한 뒤 다음 단위로 진행하세요. 각 요청은 인용된 위치의 코드를 수정해 충족하세요. 변경은 최소한으로 집중해서 하고, 관련 없는 변경을 한 작업에 섞지 마세요.",
     // 플랜 계약문 — 모든 작업이 파일로 작성된 작고 검증 가능한 플랜에서 시작하도록 변경요청과 프롬프트 메모 앞에 붙는다.
     "plan.contract": "코드를 변경하기 전에, 먼저 응답에 짧은 구현 플랜을 작성하세요. 작업을 독립적으로 검증 가능한 작은 단계로 쪼개고, 각 단계마다 어떻게 확인할지 한 줄짜리 검증 기준을 적으세요. 플랜이 맞는지 먼저 확정한 뒤 한 번에 한 단계씩 구현하고, 각 단계는 따로 리뷰할 수 있을 만큼 작게 유지하세요. 저장소에는 모나코리 상태 파일을 추가하지 마세요.",
+    // 터미널로 보내는 합본 프롬프트(sendWholeDocToTerminal, 08-dock.js) 맨 앞에 한 번 붙는다 — kakapo가 아래
+    // 항목들에 대한 답변 체크리스트를 이미 써둔 경우에만 붙으며, 바로 다음 줄에 절대 경로가 이어진다.
+    "mergePrompt.answersFile": "아래 답변은 여기에 직접 적지 말고, 다음 경로의 JSON 체크리스트에 기록하세요 — 각 항목의 seq에 맞춰 answer와 answeredAt만 채우고 나머지는 그대로 두세요:",
+    "comment.answer": "답변",
   },
 };

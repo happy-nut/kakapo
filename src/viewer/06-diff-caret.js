@@ -60,6 +60,13 @@ function diffRowAt(wrapper, side, rowIndex) {
   var rows = diffRowsOf(diffSideTable(wrapper, side));
   return rows[rowIndex] || null;
 }
+// Inverse of diffLineNumber: which row index on this side shows a given line number. Used by comment
+// navigation (Cmd+F7, 07-comments.js) to land the diff caret on a comment's anchor line.
+function diffRowIndexForLine(wrapper, side, line) {
+  var rows = diffRowsOf(diffSideTable(wrapper, side));
+  for (var i = 0; i < rows.length; i++) if (diffLineNumber(rows[i]) === line) return i;
+  return -1;
+}
 function diffCellCtn(row) {
   return row ? row.querySelector('.d2h-code-line-ctn') : null;
 }

@@ -198,6 +198,8 @@ function addComment(kind, path, line, code, text, from, to, side, anchorCode) {
     // Record whether the anchor line exists now so a later rebuild can tell "the line I commented on changed"
     // from "this old-side anchor was never in the working tree". addressed starts false.
     anchorPresent: anchorLinePresent(path, anchorCode, code), addressed: false,
+    // Filled in by applyAnswersUpdate() once an agent writes into answers.json (see 08-dock.js/answers-ipc.ts).
+    answer: null, answeredAt: null,
   });
   saveComments();
 }
@@ -323,6 +325,13 @@ function commentTargetLabel(s) {
   if (from > to) { var swap = from; from = to; to = swap; }
   return '@' + String(s && s.path || '') + '#L' + from + (to !== from ? '-' + to : '');
 }
+// Rendered inside a comment's .mc-card, right after .mc-card-body, once an agent has written an answer
+// into answers.json (see applyAnswersUpdate below). Empty string — nothing rendered — until then.
+function commentAnswerHtml(c) {
+  if (!c || !c.answer) return '';
+  return '<div class="mc-card-answer"><span class="mc-answer-label">' + escapeHtml(t('comment.answer')) + '</span>'
+    + '<div class="mc-answer-body">' + escapeHtml(c.answer) + '</div></div>';
+}
 function threadHtml(path, line) {
   var html = '';
   commentsAt(path, line).forEach(function (c) {
@@ -335,7 +344,7 @@ function threadHtml(path, line) {
       + (addressed ? '<span class="mc-addressed-tag" title="' + escapeHtml(t('comment.addressed.hint')) + '">' + escapeHtml(t('comment.addressed')) + '</span>' : '')
       + (addressed ? '<button type="button" class="mc-reopen" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reopen')) + '" title="' + escapeHtml(t('comment.reopen')) + '">↺</button>' : '')
       + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
-      + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div></div>';
+      + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div>' + commentAnswerHtml(c) + '</div>';
   });
   if (composerState && composerState.path === path && composerState.line === line) {
     var ph = composerState.kind === 'q' ? t('composer.question') : t('composer.changeRequest');
@@ -428,7 +437,7 @@ function renderDiffComments() {
     var activeComposer = composerState && composerState.path === path ? composerState : null;
     var renderKey = JSON.stringify({
       comments: pathComments.map(function (comment) {
-        return [comment.seq, comment.kind, comment.line, comment.from, comment.to, comment.text];
+        return [comment.seq, comment.kind, comment.line, comment.from, comment.to, comment.text, comment.answer, comment.answeredAt];
       }),
       composer: activeComposer
         ? [activeComposer.kind, activeComposer.line, activeComposer.from, activeComposer.to, activeComposer.editSeq, activeComposer.editText || '']
@@ -724,6 +733,87 @@ function navigateToCommentAndEdit(seq) {
   });
 }
 
+// Cmd+F7 / Shift+Cmd+F7 (05-keymap.js): step between comments the same way F7/Shift+F7 steps between diff
+// hunks. path -> first-seen hunk index, walking hunkPathAt in the exact order F7 already traverses (NOT
+// sourceFiles' plain alphabetical order, and NOT the sidebar tree's directory-grouped order) so "next
+// comment" moves top-to-bottom the way the reviewer sees the diff. Cheap enough (a handful of array reads,
+// same as one F7 press) to recompute on every call rather than cache/invalidate.
+function commentNavOrder() {
+  var order = {};
+  if (typeof hunkTotal !== 'function' || typeof hunkPathAt !== 'function') return order;
+  var next = 0;
+  for (var i = 0; i < hunkTotal(); i++) {
+    var p = hunkPathAt(i);
+    if (p && !(p in order)) order[p] = next++;
+  }
+  return order;
+}
+function sortedNavComments() {
+  var order = commentNavOrder();
+  return reviewComments.slice().sort(function (a, b) {
+    var oa = a.path in order ? order[a.path] : Infinity;
+    var ob = b.path in order ? order[b.path] : Infinity;
+    if (oa !== ob) return oa - ob;
+    var la = Number(a.from) || a.line || 0, lb = Number(b.from) || b.line || 0;
+    if (la !== lb) return la - lb;
+    return a.seq - b.seq;
+  });
+}
+// Land the DIFF caret on a comment's row (kept the diff view active, matching how F7 never leaves it).
+// Most comments carry side: null (made from the keyboard caret, not a mouse drag — see
+// currentCommentTarget), so try the NEW side first, same "track the new file" convention hunk-nav uses
+// (02-diff-nav.js), then fall back to the other side. Returns false when there's no matching row (e.g. the
+// file's diff body isn't materialized yet) so the caller can fall back to the source-view jump.
+function navigateToCommentInDiff(seq) {
+  var c = reviewComments.find(function (x) { return x.seq === seq; });
+  if (!c) return false;
+  var wrapper = typeof diffWrapperByPath === 'function' ? diffWrapperByPath(c.path) : null;
+  if (!wrapper) return false;
+  var line = Number(c.from) || c.line;
+  var sides = c.side === 'old' ? ['old', 'new'] : ['new', 'old'];
+  for (var i = 0; i < sides.length; i++) {
+    var rowIndex = diffRowIndexForLine(wrapper, sides[i], line);
+    if (rowIndex >= 0) { setDiffCursor(c.path, sides[i], rowIndex, 0, true); return true; }
+  }
+  return false;
+}
+// The Cmd+F7 entry point (05-keymap.js). delta: +1 next, -1 previous, wrapping at both ends — a short
+// browsing aid, not F7's "press again to cross a file" boundary gate (that exists to protect against
+// skipping an unviewed file, which doesn't apply to a deliberately-browsed comment list).
+function gotoComment(delta) {
+  if (!reviewComments.length) { showCaretHint(t('comment.nav.none')); return true; }
+  var list = sortedNavComments();
+  var order = commentNavOrder();
+  var curPath = null, curLine = -1;
+  if (isDiffViewVisible() && diffCursor) {
+    var curWrapper = diffWrapperByPath(diffCursor.path);
+    var curRow = curWrapper ? diffRowAt(curWrapper, diffCursor.side, diffCursor.rowIndex) : null;
+    curPath = diffCursor.path; curLine = curRow ? diffLineNumber(curRow) : -1;
+  } else if (isSourceViewerVisible() && viewerCursor) {
+    curPath = viewerCursor.path; curLine = viewerCursor.lineIndex + 1;
+  }
+  var curOrder = curPath != null && curPath in order ? order[curPath] : null;
+  var target = null;
+  if (delta > 0) {
+    target = list.find(function (c) {
+      var co = c.path in order ? order[c.path] : Infinity;
+      var cl = Number(c.from) || c.line || 0;
+      if (curOrder == null) return true;
+      return co > curOrder || (co === curOrder && cl > curLine);
+    }) || list[0];
+  } else {
+    for (var i = list.length - 1; i >= 0; i--) {
+      var c = list[i];
+      var co2 = c.path in order ? order[c.path] : Infinity;
+      var cl2 = Number(c.from) || c.line || 0;
+      if (curOrder == null || co2 < curOrder || (co2 === curOrder && cl2 < curLine)) { target = c; break; }
+    }
+    if (!target) target = list[list.length - 1];
+  }
+  if (!isDiffViewVisible() || !navigateToCommentInDiff(target.seq)) navigateToComment(target.seq);
+  return true;
+}
+
 // The merged prompt's data shape: one block per kind that has open comments (its agent-contract prose,
 // then its items), in order — questions first, so the agent answers those (no edits) before touching code
 // for the change requests. A kind with no open comments is omitted entirely (heading, contract, and all).
@@ -773,5 +863,22 @@ function mergedCardHtml(comment) {
   return '<div class="mc-card mc-merged-card mc-' + comment.kind + '" data-comment-seq="' + comment.seq + '" tabindex="-1" role="button">'
     + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(comment.kind) + '</span>'
     + '<span class="mc-target">' + escapeHtml(commentTargetLabel(comment)) + '</span></div>'
-    + '<div class="mc-card-body">' + escapeHtml(comment.text) + '</div></div>';
+    + '<div class="mc-card-body">' + escapeHtml(comment.text) + '</div>' + commentAnswerHtml(comment) + '</div>';
+}
+
+// Pushed from main (kakapo:answers-update, see answers-ipc.ts's syncAnswersFile) whenever the agent writes
+// new answers into answers.json. Matches each item back to reviewComments by seq — the only id stable
+// across a comment's text being edited later; an item whose seq no longer exists (comment deleted in the
+// meantime) is dropped silently rather than resurrecting it.
+function applyAnswersUpdate(items) {
+  if (!Array.isArray(items) || !items.length) return;
+  var changed = false;
+  items.forEach(function (item) {
+    var c = reviewComments.find(function (x) { return x.seq === item.seq; });
+    if (!c) return;
+    c.answer = item.answer;
+    c.answeredAt = item.answeredAt;
+    changed = true;
+  });
+  if (changed) { saveComments(); refreshComments(); }
 }

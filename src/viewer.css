@@ -1772,6 +1772,14 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-reopen { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 1px 5px; border-radius: 0; }
 .mc-reopen:hover { color: var(--active); background: color-mix(in srgb, var(--active) 16%, transparent); }
 .mc-card-body { padding: 2px 12px 11px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* An agent's answer (issue #10), written into answers.json and synced back — sits below .mc-card-body,
+   set off by a top border and a faint active-color tint so an answered card reads as such at a glance. */
+.mc-card-answer { border-top: 1px solid var(--border); padding: 8px 12px 11px; background: color-mix(in srgb, var(--active) 6%, transparent); }
+.mc-answer-label {
+  display: block; font-weight: 700; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 3px;
+}
+.mc-answer-body { color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .mc-input {
   display: block; box-sizing: border-box; resize: vertical;
   margin: 0 10px 10px; width: calc(100% - 20px); min-height: 60px;
