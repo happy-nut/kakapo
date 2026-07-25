@@ -216,11 +216,28 @@ function openMergedView() {
   }
   // Send the WHOLE merged prompt into a terminal pane (v0.2.7): arrows choose the pane, Enter sends. Available
   // whenever the integrated terminal exists; if no pane is open yet, one is created first.
+  //
+  // Issue #10: before typing the prompt in, kakapo writes an answers.json checklist for the comments being
+  // sent (window.kakapoAnswers.write) and prepends an instruction + the file's absolute path, so the agent
+  // can write structured answers back instead of only replying in the terminal. text/items are captured
+  // BEFORE dock.close() — closing destroys the live editors currentMergedText() reads from.
   function sendWholeDocToTerminal() {
     var text = currentMergedText();
+    var items = blocks.reduce(function (acc, block) { return acc.concat(block.items); }, []).map(function (c) {
+      return { seq: c.seq, kind: c.kind, target: commentTargetLabel(c), prompt: c.text, answer: null, answeredAt: null };
+    });
     dock.close();
-    if (window.__kakapoTerminal.paneCount() === 0) window.__kakapoTerminal.open();
-    window.__kakapoTerminal.enterSendMode(text);
+    function deliver(finalText) {
+      if (window.__kakapoTerminal.paneCount() === 0) window.__kakapoTerminal.open();
+      window.__kakapoTerminal.enterSendMode(finalText);
+    }
+    if (items.length && window.kakapoAnswers && typeof window.kakapoAnswers.write === 'function') {
+      window.kakapoAnswers.write(items).then(function (result) {
+        deliver(result && result.ok && result.path ? t('mergePrompt.answersFile') + '\n' + result.path + '\n\n' + text : text);
+      }, function () { deliver(text); });
+    } else {
+      deliver(text);
+    }
   }
   // Shared by the Copy-all button and Cmd+C-after-Cmd+A (see handleMergedKeydown) so both paths copy the
   // exact same assembled text.
@@ -522,6 +539,9 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onMergedView === 'function') {
 if (window.kakapoMenu && typeof window.kakapoMenu.onOpenMemo === 'function') {
   // Cmd/Ctrl+Shift+N from the Review menu -> open/close the prompt memo.
   window.kakapoMenu.onOpenMemo(function () { openMemoView(); });
+}
+if (window.kakapoAnswers && typeof window.kakapoAnswers.onUpdate === 'function') {
+  window.kakapoAnswers.onUpdate(function (items) { try { applyAnswersUpdate(items); } catch (e) {} });
 }
 if (window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function') {
   // Electron watch: refresh review data in place so comments and navigation context stay stable.

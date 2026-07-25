@@ -125,10 +125,11 @@
         try { if (term.buffer && term.buffer.active && term.buffer.active.type === 'normal') { setOpen(false); return false; } } catch (x) {}
         return true;
       }
-      // F7 / Shift+F7 are diff prev/next-change nav. Don't let the terminal eat them (it would send an
-      // escape sequence to the shell); return false so xterm ignores the key and it bubbles to the document
-      // handler. We DON'T blur — the diff caret is a JS cursor, so nav runs while the terminal keeps focus.
-      if (e.type === 'keydown' && e.key === 'F7' && !e.metaKey && !e.ctrlKey && !e.altKey) return false;
+      // F7 / Shift+F7 (diff prev/next-change) and Cmd+F7 / Shift+Cmd+F7 (comment prev/next) are nav keys.
+      // Don't let the terminal eat them (it would send an escape sequence to the shell); return false so
+      // xterm ignores the key and it bubbles to the document handler. We DON'T blur — both are JS-cursor
+      // nav, so they run while the terminal keeps focus.
+      if (e.type === 'keydown' && e.key === 'F7' && !e.altKey) return false;
       if (e.type === 'keydown' && e.metaKey) {
         var k = (e.key || '').toLowerCase();
         // The bare modifier press (Cmd goes down BEFORE the letter on macOS) must not blur — blurring

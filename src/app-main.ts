@@ -17,6 +17,7 @@ import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerTerminalIpc } from "./app-terminal-ipc.js";
+import { registerAnswersIpc, syncAnswersFile, answersFilePath } from "./answers-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 
@@ -40,6 +41,13 @@ type WinState = {
   refreshing: boolean;
   refreshTimer?: NodeJS.Timeout;
   analysisWarmTimer?: NodeJS.Timeout;
+  // Agent-answers exchange (see answers-ipc.ts): this window's answers.json path, its poll timer (runs
+  // independent of --watch), the last raw file content seen (change short-circuit), and the last known
+  // answer/answeredAt per comment seq (delta computation).
+  answersFile?: string;
+  answersFileSig?: string;
+  answersTimer?: NodeJS.Timeout;
+  lastAnswers?: Map<number, { answer: string | null; answeredAt: string | null }>;
   bodyDiffs: string[]; // Phase 2 lazy-LOAD: raw per-file diffs rendered for THIS window's renderer on demand
   bodyCache: Map<number, string>; // rendered per-file diff bodies, scoped to the current build
   sourceFiles: Map<string, SourceFile>; // source content stays in main; renderer requests one open file at a time
@@ -159,6 +167,7 @@ function readMemoWithLegacyImport(root: string) {
 registerReviewIpc(ipcMain, stateFromEvent);
 registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerTerminalIpc(ipcMain, stateFromEvent);
+registerAnswersIpc(ipcMain, stateFromEvent);
 
 // The single Markdown memo is application data, never a repository artifact. Main derives the scope from
 // the calling window's canonical worktree; the sandboxed renderer cannot choose a filesystem path.
@@ -499,6 +508,7 @@ function createWindow(root: string): WinState {
     for (const t of state.terms.values()) { try { t.kill(); } catch { /* already exited */ } }
     state.terms.clear();
     if (state.refreshTimer) clearInterval(state.refreshTimer);
+    if (state.answersTimer) clearInterval(state.answersTimer);
     if (state.analysisWarmTimer) clearTimeout(state.analysisWarmTimer);
     state.disposeWindowSurfaceRecovery();
     state.analysis.dispose();
@@ -526,11 +536,16 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
       // A packaged .app (double-clicked) can launch with no useful cwd repo. Show the welcome screen
       // (an Open Folder button) instead of an empty diff. New windows always get a validated repo.
       if (app.isPackaged && !isGitRepository(state.options.root)) { void showWelcome(state); return; }
+      state.answersFile = answersFilePath(state.options.root);
       const firstBuild = writeReviewFile(state);
       state.signature = firstBuild.signature;
       preferences.recordRecentProject(state.options.root); // remember the launched/new-window repo for the welcome screen
       if (!state.win.isDestroyed()) void state.win.loadFile(reviewPath(state.options.root));
       if (state.options.watch) state.refreshTimer = setInterval(() => void refreshIfChanged(state), WATCH_INTERVAL_MS);
+      // Independent of --watch: an agent can write answers whether or not the diff itself is being polled.
+      // One immediate sync catches up on anything written before this window existed.
+      state.answersTimer = setInterval(() => void syncAnswersFile(state), WATCH_INTERVAL_MS);
+      void syncAnswersFile(state);
     } catch (error) {
       // One window's build failure shouldn't take down the whole app (other windows may be fine); log and
       // leave this window on the loading mark rather than quitting.
@@ -648,10 +663,16 @@ async function openReview(state: WinState, root: string): Promise<void> {
   preferences.recordRecentProject(state.options.root); // remember it for the welcome screen's Recent Projects
   state.lastDiffSig = ""; // new repo -> force the next watch tick to rebuild
   if (state.refreshTimer) { clearInterval(state.refreshTimer); state.refreshTimer = undefined; }
+  if (state.answersTimer) { clearInterval(state.answersTimer); state.answersTimer = undefined; }
+  state.answersFile = answersFilePath(state.options.root);
+  state.answersFileSig = undefined;
+  state.lastAnswers = undefined;
   const build = writeReviewFile(state);
   state.signature = build.signature;
   if (!state.win.isDestroyed()) await state.win.loadFile(reviewPath(state.options.root));
   if (state.options.watch) state.refreshTimer = setInterval(() => void refreshIfChanged(state), WATCH_INTERVAL_MS);
+  state.answersTimer = setInterval(() => void syncAnswersFile(state), WATCH_INTERVAL_MS);
+  void syncAnswersFile(state);
 }
 
 // File > Open Folder (Cmd/Ctrl+O): pick a repo and load it into the focused window.

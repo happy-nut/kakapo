@@ -432,6 +432,17 @@ document.addEventListener('keydown', (event) => {
     }
     next(delta);
   }
+
+  // Cmd+F7 / Shift+Cmd+F7: step between review comments, mirroring plain F7/Shift+F7 for diff hunks. A
+  // modifier combo — unlike bare F7 it can land in a text field (e.g. an open comment composer, which
+  // isn't inside .dock-panel so isFloatingModalOpen() above wouldn't catch it) — guard that explicitly,
+  // same idiom as the other modifier-combo shortcuts in this handler.
+  if (event.key === 'F7' && (event.metaKey || event.ctrlKey) && !event.altKey) {
+    var cfAe = document.activeElement;
+    if (cfAe && (cfAe.tagName === 'INPUT' || cfAe.tagName === 'TEXTAREA' || cfAe.tagName === 'SELECT' || cfAe.isContentEditable)) return;
+    event.preventDefault();
+    if (typeof gotoComment === 'function') gotoComment(event.shiftKey ? -1 : 1);
+  }
 });
 
 quickInput?.addEventListener('input', () => renderQuickOpenResults());

@@ -60,6 +60,16 @@ contextBridge.exposeInMainWorld("kakapoPty", {
   },
 });
 
+// Agent-answers exchange (issue #10): `write` seeds answers.json with the checklist for whatever's in the
+// merged prompt right now; `onUpdate` pushes only the items whose answer changed since the last poll tick
+// (see answers-ipc.ts's syncAnswersFile), matched back to reviewComments by seq in 07-comments.js.
+contextBridge.exposeInMainWorld("kakapoAnswers", {
+  write: (items: unknown): Promise<{ ok: boolean; path?: string }> => ipcRenderer.invoke("kakapo:answers-write", items),
+  onUpdate: (cb: (items: Array<{ seq: number; answer: string | null; answeredAt: string | null }>) => void): void => {
+    ipcRenderer.on("kakapo:answers-update", (_event, items) => cb(items));
+  },
+});
+
 // Phase 2 lazy-LOAD: fetch a single file's diff body from the main process on demand, so the initial
 // HTML can omit the embedded diff bodies (tens of MB on big repos) and stay small.
 contextBridge.exposeInMainWorld("kakapoFile", {

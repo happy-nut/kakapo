@@ -83,6 +83,13 @@ export function repoRoot(cwd: string = process.cwd()): string {
   return top || cwd;
 }
 
+// 이 워크트리 고유의 `.git/worktrees/<name>` 경로를 가리킨다 (워크트리가 아닌 일반 clone이면 `.git`) —
+// answers 교환 파일이 이 경로 아래에 저장된다 (answers-ipc.ts 참고). git은 자신의 `.git/` 내용물을
+// 추적하지 않으므로, 에이전트가 `git status`를 더럽히지 않고 파일을 쓸 수 있는 장소이기 때문이다.
+export function absoluteGitDir(root: string): string {
+  return git(root, ["rev-parse", "--absolute-git-dir"]);
+}
+
 export function canonicalWorkspaceRoot(cwd: string = process.cwd()): string {
   const root = resolve(cwd);
   try { return realpathSync.native(root); } catch { return root; }
