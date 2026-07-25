@@ -3,6 +3,8 @@ function isFloatingModalOpen() {
   if (sm && !sm.classList.contains('hidden')) return true;
   var hv = document.getElementById('history-view');
   if (hv && !hv.classList.contains('hidden')) return true; // history overlay owns the keys (Esc/filter/click)
+  var xv = document.getElementById('explain-view');
+  if (xv && !xv.classList.contains('hidden')) return true; // Explain overlay owns the keys (Esc/Option+Enter/click)
   if (document.getElementById('goto-line')) return true; // go-to-line prompt owns the keys until Enter/Esc
   // The merged/memo panels are now docked (inline), not overlays — but while one OWNS focus we still stand
   // down the global nav shortcuts so typing / ▲▼ inside it isn't hijacked. Focus elsewhere -> shortcuts run.
@@ -116,12 +118,46 @@ document.addEventListener('keydown', (event) => {
     toggleImpact();
     return;
   }
+  // Cmd/Ctrl+7 toggles the Explain view (an AI-agent-authored content spec, rendered in place). Same
+  // "above the focus guard" placement as History/Impact so a 2nd press closes it from inside.
+  if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'Digit7' || event.key === '7') && typeof toggleExplainView === 'function') {
+    event.preventDefault();
+    toggleExplainView();
+    return;
+  }
   if (event.key === 'Escape' && typeof isImpactOpen === 'function' && isImpactOpen()) {
     event.preventDefault();
     closeImpact();
     return;
   }
+  if (event.key === 'Escape' && typeof isExplainViewVisible === 'function' && isExplainViewVisible()) {
+    event.preventDefault();
+    // First Escape drops the block selection (if any), same as clearing a selection before leaving a
+    // list; only close the view once nothing is selected.
+    if (typeof explainClearSelection === 'function' && explainClearSelection()) return;
+    closeExplainView();
+    return;
+  }
   if (typeof isHistoryOpen === 'function' && isHistoryOpen() && typeof handleHistoryKey === 'function' && handleHistoryKey(event)) return;
+
+  // Explain view: Up/Down move the selected block (no modifier, not while typing); "?" opens a comment
+  // composer on the selected block — the keyboard equivalent of the diff/source "?" -> currentCommentTarget()
+  // flow, just against explainOpenComposerForSelection() instead (21-explain-comments.js). All three must
+  // sit above the isFloatingModalOpen() guard below for the same reason Option+Enter does.
+  if (typeof isExplainViewVisible === 'function' && isExplainViewVisible()) {
+    var exAe = document.activeElement;
+    var exInField = exAe && (exAe.tagName === 'INPUT' || exAe.tagName === 'TEXTAREA' || exAe.tagName === 'SELECT' || exAe.isContentEditable);
+    if (!exInField && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault();
+      if (typeof explainMoveSelection === 'function') explainMoveSelection(event.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
+    if (!exInField && !event.metaKey && !event.ctrlKey && !event.altKey && event.key === '?') {
+      event.preventDefault();
+      if (typeof explainOpenComposerForSelection === 'function') explainOpenComposerForSelection();
+      return;
+    }
+  }
 
   // Cmd/Ctrl+Z: undo the last comment removal. Above the focus guard so it still fires right after a
   // Backspace-delete on a selected card in the merged panel, which leaves focus on the reselected card —
@@ -133,14 +169,48 @@ document.addEventListener('keydown', (event) => {
   if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && (event.key === 'z' || event.key === 'Z' || event.code === 'KeyZ')) {
     var zae = document.activeElement;
     var zInField = zae && (zae.tagName === 'INPUT' || zae.tagName === 'TEXTAREA' || zae.tagName === 'SELECT' || zae.isContentEditable);
-    if (!zInField && typeof undoLastCommentRemoval === 'function' && undoLastCommentRemoval()) {
+    // The Explain view has its own comment store (21-explain-comments.js) — route undo to whichever store
+    // the visible view owns, so Cmd+Z in Explain never resurrects a diff/source comment (or vice versa).
+    var zUndoFn = (typeof isExplainViewVisible === 'function' && isExplainViewVisible() && typeof undoLastExplainCommentRemoval === 'function')
+      ? undoLastExplainCommentRemoval
+      : undoLastCommentRemoval;
+    if (!zInField && typeof zUndoFn === 'function' && zUndoFn()) {
       event.preventDefault();
       return;
     }
   }
 
+  // Option+Enter in the Explain view sends its prompt to the integrated terminal. Must be above the
+  // isFloatingModalOpen() guard below — isFloatingModalOpen() now treats the Explain overlay as a floating
+  // modal (so unrelated shortcuts stand down beneath it) and returns early, which would make this
+  // unreachable if it sat below that guard like the plain source-view Option+Enter handler does.
+  if (event.altKey && event.key === 'Enter' && typeof isExplainViewVisible === 'function' && isExplainViewVisible()) {
+    event.preventDefault();
+    if (typeof sendExplainPromptToTerminal === 'function') sendExplainPromptToTerminal();
+    return;
+  }
+
+  // Cmd/Ctrl+0 / +1 (Changes / Files) stay live even behind a full-view overlay (History/Explain) — above
+  // the guard below, closing whichever overlay is open first so the view they just activated is actually
+  // visible, not activated invisibly underneath it. Settings/goto-line/a focused dock still swallow these
+  // (closeExplainView/closeHistory are no-ops when neither is open, so this is always safe to call).
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === '0') {
+    event.preventDefault();
+    if (typeof isExplainViewVisible === 'function' && isExplainViewVisible()) closeExplainView();
+    if (typeof isHistoryOpen === 'function' && isHistoryOpen()) closeHistory();
+    activateChangesView(false);
+    return;
+  }
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === '1') {
+    event.preventDefault();
+    if (typeof isExplainViewVisible === 'function' && isExplainViewVisible()) closeExplainView();
+    if (typeof isHistoryOpen === 'function' && isHistoryOpen()) closeHistory();
+    activateFilesView();
+    return;
+  }
+
   // Settings overlay (or a focused merged/memo dock) captures keys: stand down the rest of the global
-  // shortcuts (Cmd+1, F7, Cmd+[/], Cmd+B, …). Each has its own Esc + editing handlers.
+  // shortcuts (F7, Cmd+[/], Cmd+B, …). Each has its own Esc + editing handlers.
   if (isFloatingModalOpen()) return;
 
   // Cmd/Ctrl+. mirrors an IDE's "toggle fold" at the source caret. The Review renderer folds the
@@ -164,11 +234,6 @@ document.addEventListener('keydown', (event) => {
     }
   }
 
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === '1') {
-    event.preventDefault();
-    activateFilesView();
-    return;
-  }
   // Cmd/Ctrl+L = go to line (numeric prompt); Cmd/Ctrl+K = copy the caret's file:line. Skip when an
   // editable field owns focus (a comment composer textarea) so we don't hijack the user's typing.
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyL' || event.key === 'l' || event.key === 'L')) {
@@ -186,11 +251,6 @@ document.addEventListener('keydown', (event) => {
       copyCaretLocation();
       return;
     }
-  }
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === '0') {
-    event.preventDefault();
-    activateChangesView(false);
-    return;
   }
 
   // Tab / Shift+Tab move the "cursor" horizontally between the left sidebar and the right content pane.
@@ -525,6 +585,7 @@ document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
   else if (view === 'merged') { toggleMergedRail(); }
   else if (view === 'memo') { openMemoView(); } // openMemoView already toggles
   else if (view === 'impact') { toggleImpact(); }
+  else if (view === 'explain') { toggleExplainView(); }
   else if (view === 'history') { toggleHistory(); }
   syncRail();
 });

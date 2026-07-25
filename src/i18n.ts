@@ -21,6 +21,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "brand.revealFile": "Reveal open file in the sidebar (⌥F1)",
     "rail.history": "History",
     "rail.impact": "Change Impact",
+    "rail.explain": "Explain",
     "impact.title": "Change Impact",
     "impact.close": "Close",
     "impact.loading": "Analyzing the changed symbol…",
@@ -61,6 +62,23 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "impact.server.project": "project",
     "impact.server.override": "override",
     "impact.server.path": "PATH",
+
+    // Explain view (⌘7): an AI agent writes a content-spec JSON file; kakapo renders it in place.
+    "explain.title": "Explain",
+    "explain.waiting": "No content spec yet. Copy the prompt below to an AI coding agent, or send it straight to the integrated terminal — once the agent explores this diff and saves a spec here, it renders automatically.",
+    "explain.copyPrompt": "Copy prompt",
+    "explain.sendPrompt": "Send to terminal",
+    "explain.sendComments": "Send comments",
+    "explain.close": "Close",
+    "explain.copied": "Copied",
+    "explain.copyFailed": "Copy failed",
+    "explain.toc": "Contents",
+    "explain.quizHeading": "Quiz",
+    "explain.addComment": "Add comment",
+    "explain.diagramLoading": "Loading diagram…",
+    "explain.diagramInvalid": "This diagram could not be rendered.",
+    "explain.diagramLoadFailed": "Could not load the diagram renderer.",
+
     "history.title": "History",
     "history.lineTitle": "Line history",
     "history.search": "Filter by message or author",
@@ -200,7 +218,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.aria": "Settings",
     "settings.title": "Settings",
     "settings.cat.general": "General",
-    "settings.cat.prompts": "Merge prompts",
+    "settings.cat.prompts": "Prompts",
 
     // Settings — General
     "settings.language": "Language",
@@ -247,6 +265,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.reviewStops": "Step through comments / folded context",
     "kbd.stepComments": "Step between comments (merged)",
     "kbd.mergedSend": "Comment actions (merged)",
+    "kbd.explainSend": "Send Explain prompt to terminal",
     "kbd.nextChange": "Next change",
     "kbd.prevChange": "Previous change",
     "kbd.closeTab": "Close tab",
@@ -262,6 +281,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.goToImplementation": "Go to implementation",
     "kbd.workspaceSymbol": "Workspace symbol",
     "kbd.changeImpact": "Change Impact",
+    "kbd.openExplain": "Explain",
     "kbd.goToDef": "Open symbol / source at caret",
     "kbd.toggleFold": "Toggle code fold",
     "kbd.filesChangesTab": "Focus / toggle Files or Changes sidebar",
@@ -290,6 +310,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "mergePrompts.qHeading": "Questions heading",
     "mergePrompts.cHeading": "Change-request instructions",
     "mergePrompts.reset": "Reset to defaults",
+
+    // Settings — Explain prompt (grouped under the same "Prompts" tab as merge prompts, see settings.cat.prompts)
+    "explainPrompt.title": "Explain prompt",
+    "explainPrompt.desc": "This editable default is shown in the Explain view (⌘7) for whichever AI agent writes the content spec. Saved automatically. {{SPEC_PATH}} is replaced with this workspace's spec file path when shown.",
     "settings.saved": "Saved",
 
     // Composer (per-line question / change-request)
@@ -332,6 +356,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // an answers checklist for the items below — the absolute path is appended right after this line.
     "mergePrompt.answersFile": "Write your answers into the JSON checklist at the path below instead of replying here — fill in each item's answer and answeredAt for its matching seq, and leave everything else unchanged:",
     "comment.answer": "Answer",
+
+    // Explain view default prompt — instructs an AI agent to explore the repo/diff and write a
+    // structured content-spec JSON (not HTML) so kakapo's own renderer owns every bit of styling.
+    // {{SPEC_PATH}} is substituted client-side with this workspace's spec file path before display.
+    "explain.prompt.default": 'Explore this repository and the current diff, then write a rich explanation of the change as a JSON content spec — not HTML. Kakapo renders the spec itself, so just follow the schema below and let it handle every bit of styling.\n\nSave the JSON to exactly this path (create parent directories if they do not exist):\n{{SPEC_PATH}}\n\nCover four sections, in this order:\n1. Background — explain the existing system this change touches. Explore the surrounding code broadly for this. Include a deeper background for readers unfamiliar with the area (note that it can be skipped), then a narrower background directly relevant to the change.\n2. Intuition — explain the essence of the change with a concrete toy example. Use diagrams liberally.\n3. Code — a high-level, well-ordered walkthrough of the actual changes.\n4. A "quiz" array of 5 medium-difficulty multiple-choice questions that require real understanding of the change to answer (not gotchas), each option carrying its own feedback.\n\nWrite with the clarity and flow of Martin Kleppmann — engaging, with smooth transitions between sections, no filler.\n\nSchema:\n{\n  "version": 1,\n  "title": string, "subtitle": string (optional),\n  "sections": [{ "id": "kebab-case-slug", "heading": string, "blocks": [Block] }],\n  "quiz": [{ "question": markdown, "options": [{ "text": markdown, "correct": boolean, "feedback": markdown (optional) }] }]\n}\nDo not invent block or question ids — kakapo assigns them automatically.\n\nBlock is one of:\n  { "type": "p", "text": markdown }\n  { "type": "callout", "tone": "info"|"warning"|"danger"|"success", "title": string (optional), "text": markdown }\n  { "type": "code", "lang": string, "code": raw source (not markdown — no fencing), "caption": string (optional) }\n  { "type": "table", "headers": [string], "rows": [[markdown]], "caption": string (optional) }\n  { "type": "diagram", "kind": ..., "title": string (optional), "data": ... } — see diagram kinds below\n\nDiagram kinds — pick whichever fits each idea best, and reuse the same family across the document where that helps. "context", "swimlane", and "flowchart" are rendered by Mermaid — write real Mermaid syntax for these, the same syntax you already know:\n  "flow" — a linear box-arrow-box chain, rendered as simple HTML (not Mermaid — a straight sequence needs no layout engine). data: { "nodes": [{ "label", "state": "normal"|"fail"|"success" }], "edges": [{ "label" }] }. edges.length must equal nodes.length minus 1; put example data on the edge labels.\n  "ui-mockup" — a simplified sketch of what the user sees, rendered as simple HTML. data: { "canvas": {"w","h"}, "regions": [{ "x","y","w","h","label","kind": "bar"|"panel"|"control"|"text", "highlight": boolean (optional), "children": [...] }] }. children nest one level deep only.\n  "context" — one central system plus surrounding actors. data: { "mermaid": "flowchart TD\\n  ..." } — write a small flowchart with the central system as a hub node and each actor as a satellite connected to it; label each edge with what flows across it.\n  "swimlane" — parallel actors exchanging messages over time. data: { "mermaid": "sequenceDiagram\\n  ..." } — one participant per actor, one message arrow per step, with the payload as the arrow\'s own label.\n  "flowchart" — any other flowchart (decision branches, process steps). data: { "mermaid": "flowchart TD\\n  ..." }. Keep it small enough to read at a glance (a handful of nodes) — split a large flow into two blocks rather than one sprawling diagram.\n\nEvery markdown field renders through the sanitized markdown pipeline. Diagram label, note, and title fields are plain text, not markdown.\n\nAfter writing the file, stop — kakapo detects and renders it automatically.',
   },
   ko: {
     // Tabs (sidebar)
@@ -342,6 +371,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "brand.revealFile": "열린 파일을 사이드바에서 보기 (⌥F1)",
     "rail.history": "히스토리",
     "rail.impact": "변경 영향",
+    "rail.explain": "설명",
     "impact.title": "변경 영향",
     "impact.close": "닫기",
     "impact.loading": "변경된 심볼을 분석하는 중…",
@@ -382,6 +412,23 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "impact.server.project": "프로젝트",
     "impact.server.override": "지정",
     "impact.server.path": "PATH",
+
+    // Explain 뷰 (⌘7): AI 에이전트가 콘텐츠 스펙 JSON 파일을 작성하면 kakapo가 그 자리에서 렌더링합니다.
+    "explain.title": "설명",
+    "explain.waiting": "아직 콘텐츠 스펙이 없습니다. 아래 프롬프트를 AI 코딩 에이전트에게 복사해 전달하거나 통합 터미널로 바로 보내세요 — 에이전트가 이 diff를 탐색해 스펙을 저장하면 자동으로 렌더링됩니다.",
+    "explain.copyPrompt": "프롬프트 복사",
+    "explain.sendPrompt": "터미널로 보내기",
+    "explain.sendComments": "코멘트 보내기",
+    "explain.close": "닫기",
+    "explain.copied": "복사됨",
+    "explain.copyFailed": "복사 실패",
+    "explain.toc": "목차",
+    "explain.quizHeading": "퀴즈",
+    "explain.addComment": "코멘트 추가",
+    "explain.diagramLoading": "다이어그램을 불러오는 중…",
+    "explain.diagramInvalid": "이 다이어그램을 그릴 수 없습니다.",
+    "explain.diagramLoadFailed": "다이어그램 렌더러를 불러오지 못했습니다.",
+
     "history.title": "히스토리",
     "history.lineTitle": "라인 히스토리",
     "history.search": "메시지·작성자로 필터",
@@ -523,7 +570,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.aria": "설정",
     "settings.title": "설정",
     "settings.cat.general": "일반",
-    "settings.cat.prompts": "병합 프롬프트",
+    "settings.cat.prompts": "프롬프트",
 
     // Settings — General
     "settings.language": "언어",
@@ -570,6 +617,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.reviewStops": "코멘트 / 접힌 구간 단위 이동",
     "kbd.stepComments": "코멘트 단위 이동 (합본)",
     "kbd.mergedSend": "코멘트 작업 (합본)",
+    "kbd.explainSend": "설명 프롬프트를 터미널로 보내기",
     "kbd.nextChange": "다음 변경",
     "kbd.prevChange": "이전 변경",
     "kbd.closeTab": "탭 닫기",
@@ -585,6 +633,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.goToImplementation": "구현체로 이동",
     "kbd.workspaceSymbol": "워크스페이스 심볼",
     "kbd.changeImpact": "변경 영향",
+    "kbd.openExplain": "설명",
     "kbd.goToDef": "커서 위치의 심볼 / 소스 열기",
     "kbd.toggleFold": "현재 코드 블록 접기 / 펼치기",
     "kbd.filesChangesTab": "파일 / 변경 사이드바 포커스·토글",
@@ -613,6 +662,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "mergePrompts.qHeading": "질문 머리말",
     "mergePrompts.cHeading": "변경요청 작업 지침",
     "mergePrompts.reset": "기본값으로 초기화",
+
+    // Settings — Explain prompt ("Merge prompts"와 같은 "Prompts" 탭 안에 묶여 표시됨, settings.cat.prompts 참고)
+    "explainPrompt.title": "설명 프롬프트",
+    "explainPrompt.desc": "Explain 뷰(⌘7)에 표시되어 콘텐츠 스펙을 작성할 AI 에이전트에게 전달되는, 편집 가능한 기본 프롬프트입니다. 자동 저장됩니다. {{SPEC_PATH}}는 표시될 때 이 워크스페이스의 스펙 파일 경로로 치환됩니다.",
     "settings.saved": "저장됨",
 
     // Composer
@@ -655,5 +708,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // 항목들에 대한 답변 체크리스트를 이미 써둔 경우에만 붙으며, 바로 다음 줄에 절대 경로가 이어진다.
     "mergePrompt.answersFile": "아래 답변은 여기에 직접 적지 말고, 다음 경로의 JSON 체크리스트에 기록하세요 — 각 항목의 seq에 맞춰 answer와 answeredAt만 채우고 나머지는 그대로 두세요:",
     "comment.answer": "답변",
+
+    // Explain 뷰 기본 프롬프트 — 에이전트가 리포/diff를 탐색해 HTML이 아닌 구조화된 콘텐츠 스펙 JSON을
+    // 작성하도록 지시한다. 스타일은 전부 kakapo 렌더러가 담당한다. {{SPEC_PATH}}는 표시 시점에 이
+    // 워크스페이스의 스펙 파일 경로로 클라이언트에서 치환된다.
+    "explain.prompt.default": '이 저장소와 현재 diff를 탐색한 다음, 이 변경 사항에 대한 풍부한 설명을 JSON 콘텐츠 스펙으로 작성하세요 — HTML이 아닙니다. 스타일은 kakapo가 전담하니 아래 스키마만 따르면 됩니다.\n\n다음 경로에 정확히 JSON을 저장하세요(상위 디렉터리가 없으면 만드세요):\n{{SPEC_PATH}}\n\n아래 순서로 네 섹션을 다루세요:\n1. Background — 이 변경이 다루는 기존 시스템을 설명합니다. 이를 위해 주변 코드를 폭넓게 탐색하세요. 이 영역이 낯선 독자를 위한 더 깊은 배경(건너뛸 수 있다고 안내)과, 변경과 직접 관련된 좁은 배경을 함께 포함하세요.\n2. Intuition — 구체적인 toy example로 변경의 핵심을 설명합니다. 다이어그램을 적극적으로 사용하세요.\n3. Code — 실제 변경 사항을 이해하기 쉬운 순서로 하이레벨로 훑어봅니다.\n4. 이 변경을 실제로 이해해야 풀 수 있는(단순 트릭 문제가 아닌) medium 난이도 객관식 5문항을 "quiz" 배열로 작성합니다. 각 선택지마다 피드백을 답니다.\n\nMartin Kleppmann의 명료함과 흐름으로 — 매력적으로, 섹션 간 전환이 매끄럽게, 군더더기 없이 작성하세요.\n\n본문 산문(설명 텍스트)은 모두 한국어로 작성하세요. 코드, 식별자, 파일 경로, 커밋 해시는 원문 그대로 둡니다.\n\n스키마:\n{\n  "version": 1,\n  "title": string, "subtitle": string(선택),\n  "sections": [{ "id": "kebab-case-슬러그", "heading": string, "blocks": [Block] }],\n  "quiz": [{ "question": markdown, "options": [{ "text": markdown, "correct": boolean, "feedback": markdown(선택) }] }]\n}\nblock/question id는 직접 만들지 마세요 — kakapo가 자동으로 부여합니다.\n\nBlock은 다음 중 하나입니다:\n  { "type": "p", "text": markdown }\n  { "type": "callout", "tone": "info"|"warning"|"danger"|"success", "title": string(선택), "text": markdown }\n  { "type": "code", "lang": string, "code": 원본 소스(markdown 아님 — 코드펜스 없이), "caption": string(선택) }\n  { "type": "table", "headers": [string], "rows": [[markdown]], "caption": string(선택) }\n  { "type": "diagram", "kind": ..., "title": string(선택), "data": ... } — 아래 다이어그램 종류 참고\n\n다이어그램 종류 — 내용에 가장 잘 맞는 것을 고르고, 문서 전체에서 같은 종류를 재사용할 수 있으면 재사용하세요. "context", "swimlane", "flowchart"는 Mermaid로 렌더링됩니다 — 이미 알고 있는 그 Mermaid 문법을 그대로 쓰세요:\n  "flow" — 박스-화살표-박스로 이어지는 선형 체인, 단순 HTML로 렌더링됩니다(Mermaid 아님 — 일직선 흐름은 레이아웃 엔진이 필요 없음). data: { "nodes": [{ "label", "state": "normal"|"fail"|"success" }], "edges": [{ "label" }] }. edges.length는 반드시 nodes.length - 1이어야 하며, 예시 데이터는 edge label에 담으세요.\n  "ui-mockup" — 사용자가 보는 화면을 단순화한 스케치, 단순 HTML로 렌더링됩니다. data: { "canvas": {"w","h"}, "regions": [{ "x","y","w","h","label","kind": "bar"|"panel"|"control"|"text", "highlight": boolean(선택), "children": [...] }] }. children은 1단계까지만 중첩하세요.\n  "context" — 중심 시스템 하나와 주변 액터들. data: { "mermaid": "flowchart TD\\n  ..." } — 중심 시스템을 허브 노드로, 각 액터를 그 허브에 연결된 위성 노드로 하는 작은 flowchart를 쓰세요. 각 엣지에는 무엇이 오가는지 라벨을 붙이세요.\n  "swimlane" — 시간 순서대로 메시지를 주고받는 액터들. data: { "mermaid": "sequenceDiagram\\n  ..." } — 액터마다 participant 하나, 각 단계마다 메시지 화살표 하나, 페이로드는 화살표 자체의 라벨로 표현하세요.\n  "flowchart" — 그 외의 흐름도(분기, 처리 단계 등). data: { "mermaid": "flowchart TD\\n  ..." }. 한눈에 읽힐 정도로 작게 유지하세요(노드 몇 개 수준) — 흐름이 크면 하나의 복잡한 다이어그램 대신 여러 개의 작은 flowchart 블록으로 나누세요.\n\n모든 markdown 필드는 정제된 markdown 파이프라인을 거쳐 렌더링됩니다. 다이어그램의 label, note, title 필드는 markdown이 아닌 일반 텍스트입니다.\n\n파일을 저장한 뒤에는 멈추세요 — kakapo가 자동으로 감지해 렌더링합니다.',
   },
 };

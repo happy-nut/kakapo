@@ -94,6 +94,7 @@ kakapo --staged             # 인덱스(스테이징)를 HEAD와 비교
 | `Space` | Changes 패널에서 선택된 변경 파일 Viewed 토글 |
 | `Cmd/Ctrl+B` | definition 찾기 |
 | `Cmd/Ctrl+Alt+B` | implementation 찾기 |
+| `Cmd/Ctrl+7` | Explain (AI 에이전트가 작성한 설명 문서 보기) |
 | `Cmd/Ctrl+8` | Change Impact |
 | `Cmd/Ctrl+9` | Git History |
 | `Cmd/Ctrl+.` | 현재 괄호 범위 접기 / 펼치기 |

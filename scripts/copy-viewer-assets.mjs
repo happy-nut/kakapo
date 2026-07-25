@@ -63,4 +63,9 @@ mkdirSync(join(distDir, "monaco"), { recursive: true });
 // The rich editor is needed only when the memo opens. Keep it out of the startup script and serve it from
 // the narrow asset scheme so ordinary diff review pays no parse/evaluation cost.
 writeFileSync(join(distDir, "monaco", "markdown-editor.js"), editorBundle);
-console.log(`bundled ${parts.length} viewer slices -> dist/viewer.client.js (${bundle.length} bytes); copied viewer.css + lazy Markdown editor`);
+// Mermaid renders the Explain view's context/swimlane/flowchart diagrams (proper graph layout instead of a
+// hand-rolled one — see 20-explain.js's loadMermaid). It's several MB even minified, so it rides the same
+// lazy kakapo-asset:// path as the Markdown editor: fetched only the first time an Explain doc actually
+// contains one of those diagram kinds, never part of the eagerly-parsed startup script.
+copyFileSync(join(root, "node_modules", "mermaid", "dist", "mermaid.min.js"), join(distDir, "monaco", "mermaid.js"));
+console.log(`bundled ${parts.length} viewer slices -> dist/viewer.client.js (${bundle.length} bytes); copied viewer.css + lazy Markdown editor + lazy Mermaid`);

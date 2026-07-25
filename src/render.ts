@@ -290,6 +290,10 @@ export function renderDiffHtml(input: {
     input.app
       ? railButton("impact", "rail.impact", "Change Impact", "⌘8", '<circle cx="6" cy="12" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M8.2 11.2l7.6-4.1M8.2 12.8l7.6 4.1"/>')
       : "",
+    // Explain (Electron only; renders an AI-agent-authored content spec, and its terminal-send action needs the pty bridge).
+    input.app
+      ? railButton("explain", "rail.explain", "Explain", "⌘7", '<path d="M4 5.5c2.4-1 5.4-1 8 0v13c-2.6-1-5.6-1-8 0z"/><path d="M20 5.5c-2.4-1-5.4-1-8 0v13c2.6-1 5.6-1 8 0z"/>')
+      : "",
     railButton("merged", "rail.reviewComments", "Review comments", "⌘⇧/", '<path d="M5.5 5.5h13c.8 0 1.5.7 1.5 1.5v6.4c0 .8-.7 1.5-1.5 1.5H12l-4.5 3.6V16.4H5.5c-.8 0-1.5-.7-1.5-1.5V7c0-.8.7-1.5 1.5-1.5z"/>'),
     railButton("memo", "memo.title", "Markdown memo", "⌘⇧N", '<rect x="5.5" y="4" width="13" height="16" rx="1.5"/><line x1="8.5" y1="9" x2="15.5" y2="9"/><line x1="8.5" y1="12.5" x2="15.5" y2="12.5"/><line x1="8.5" y1="16" x2="12.5" y2="16"/>'),
     "</div>",
@@ -427,7 +431,7 @@ export function renderDiffHtml(input: {
     "</div>",
     '<div id="settings-modal" class="settings-modal hidden" role="dialog" aria-modal="true" data-i18n-aria="settings.aria" aria-label="Settings">',
     '<div class="settings-panel">',
-    '<aside class="settings-nav"><div class="settings-nav-title" data-i18n="settings.title">Settings</div><button type="button" class="settings-cat active" data-cat="general" data-i18n="settings.cat.general">General</button><button type="button" class="settings-cat" data-cat="prompts" data-i18n="settings.cat.prompts">Merge prompts</button></aside>',
+    '<aside class="settings-nav"><div class="settings-nav-title" data-i18n="settings.title">Settings</div><button type="button" class="settings-cat active" data-cat="general" data-i18n="settings.cat.general">General</button><button type="button" class="settings-cat" data-cat="prompts" data-i18n="settings.cat.prompts">Prompts</button></aside>',
     '<div class="settings-body">',
     '<section class="settings-section" data-cat="general">',
     `<div class="settings-h settings-brand" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}<span class="settings-ver">${packageVersion ? "v" + escapeHtml(packageVersion) : ""}</span></div>`,
@@ -524,7 +528,7 @@ export function renderDiffHtml(input: {
         '<div class="keys-grid">' +
         '<kbd>⌃` / ⌥F12</kbd><span data-i18n="kbd.toggleTerminal">Toggle terminal</span>' +
         '<kbd>⌘D</kbd><span data-i18n="kbd.splitPane">Split pane</span>' +
-        '<kbd>⌘⌥[ / ]</kbd><span data-i18n="kbd.focusPane">Focus prev / next pane</span>' +
+        '<kbd>⌘⌥← / →</kbd><span data-i18n="kbd.focusPane">Focus prev / next pane</span>' +
         '<kbd>⌘⌥R</kbd><span data-i18n="kbd.renamePane">Rename pane</span>' +
         '<kbd>⌘W</kbd><span data-i18n="kbd.closeTerminal">Close terminal (when focused)</span>' +
         '</div>'
@@ -540,6 +544,11 @@ export function renderDiffHtml(input: {
     '<textarea id="settings-prompt-q" class="settings-textarea" rows="4" spellcheck="false"></textarea>',
     '<label class="settings-label" for="settings-prompt-c" data-i18n="mergePrompts.cHeading">Change-request instructions</label>',
     '<textarea id="settings-prompt-c" class="settings-textarea" rows="4" spellcheck="false"></textarea>',
+    '<div class="settings-subsection">',
+    '<div class="settings-h" data-i18n="explainPrompt.title">Explain prompt</div>',
+    '<div class="settings-desc" data-i18n="explainPrompt.desc">This editable default is shown in the Explain view (⌘7) for whichever AI agent writes the content spec. Saved automatically. {{SPEC_PATH}} is replaced with this workspace\'s spec file path when shown.</div>',
+    '<textarea id="settings-prompt-explain" class="settings-textarea" rows="10" spellcheck="false"></textarea>',
+    '</div>',
     '<div class="settings-actions"><button type="button" id="settings-reset" class="plain-button" data-i18n="mergePrompts.reset">Reset to defaults</button><span id="settings-saved" class="settings-saved"></span></div>',
     "</section>",
     "</div>",
@@ -560,6 +569,34 @@ export function renderDiffHtml(input: {
     '<div id="history-detail" class="history-detail hidden" role="document" aria-hidden="true"></div>',
     "</div>",
     "</div>",
+    // Explain (⌘7, Electron only): a full-page overlay, same shape as history-view. An AI agent writes a
+    // content-spec JSON to this workspace's spec file (see the prompt in #explain-prompt-text); kakapo
+    // watches that path and swaps #explain-empty for #explain-doc once a valid spec appears.
+    input.app
+      ? '<div id="explain-view" class="explain-view hidden" role="dialog" aria-modal="true" data-i18n-aria="explain.title" aria-label="Explain">'
+        // Title-bar-height row (native drag region, traffic-light-safe): matches .sidebar-brand's own
+        // "project name first" convention instead of hiding it behind a generic view label — only the
+        // close button lives here, same as .history-bar.
+        + '<div class="explain-bar">'
+        + `<span class="explain-project" title="${escapeAttr(input.projectPath)}">${escapeHtml(input.projectName)}</span>`
+        + '<span class="explain-title" data-i18n="explain.title">Explain</span>'
+        + '<button type="button" id="explain-close" class="dock-btn" data-keyhint="Esc" data-i18n-title="explain.close" title="Close" aria-label="Close">&times;</button>'
+        + '</div>'
+        // Ordinary (non-drag) action row, inside the panel proper — not squeezed into the title strip.
+        + '<div class="explain-toolbar">'
+        + '<button type="button" id="explain-copy-prompt" class="dock-btn" data-i18n="explain.copyPrompt">Copy prompt</button>'
+        + '<button type="button" id="explain-send-prompt" class="dock-btn" data-keyhint="⌥⏎" data-i18n="explain.sendPrompt">Send to terminal</button>'
+        + '<button type="button" id="explain-send-comments" class="dock-btn hidden" data-i18n="explain.sendComments">Send comments</button>'
+        + '</div>'
+        + '<div class="explain-body">'
+        + '<div id="explain-empty" class="explain-empty">'
+        + '<p class="explain-empty-hint" data-i18n="explain.waiting">No content spec yet. Copy the prompt below to an AI coding agent, or send it straight to the integrated terminal — once the agent explores this diff and saves a spec here, it renders automatically.</p>'
+        + '<textarea id="explain-prompt-text" class="explain-prompt-textarea" readonly spellcheck="false"></textarea>'
+        + '</div>'
+        + '<div id="explain-doc" class="explain-doc markdown-body hidden"></div>'
+        + '</div>'
+        + '</div>'
+      : "",
     input.diffIslands || "",
     `<script type="application/json" id="review-meta" data-watch="${input.watch ? "true" : "false"}" data-signature="${escapeAttr(input.signature ?? "")}" data-generated-at="${escapeAttr(input.generatedAt ?? "")}" data-lazy="${input.lazy ? "true" : "false"}" data-lazy-load="${input.lazyLoad ? "true" : "false"}">{}</script>`,
     `<script type="application/json" id="i18n-data">${jsonForScript(MESSAGES)}</script>`,
