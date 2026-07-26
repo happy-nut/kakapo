@@ -59,6 +59,9 @@ type WinState = {
   lastDiffSig: string; // watch fast-path: hash of the last git diff, to skip rebuilds when unchanged
   reviewBase?: string; // exact base used by the latest build (may be an automatic upstream merge-base)
   reviewTarget?: string; // exact right/new side revision for an A→B compare (undefined = working tree)
+  // Commits of the range opened from the Cmd+9 history (oldest→newest). While set, the compare bar's two
+  // dropdowns pick base/target from THIS list, so B..D within an opened A..F is selectable. Cleared on exit.
+  compareScope?: { sha: string; shortSha: string; subject: string; date: string }[];
   reviewUpstream?: string; // tracking ref behind an automatic base; included in the watch signature
   disposeWindowSurfaceRecovery: () => void;
   explainTimer?: NodeJS.Timeout; // Explain view: polls this workspace's content-spec file, independent of --watch
@@ -248,18 +251,44 @@ ipcMain.handle("kakapo:set-review-target", (event, payload: { ref?: unknown }) =
   }
 });
 
+// Validate/clamp the pickable commit list the renderer sends when opening a range from Cmd+9. The SHAs are
+// only ever used as dropdown data-refs (re-validated by set-review-compare before any git call); the rest is
+// display metadata, so this just rejects junk and bounds sizes.
+function sanitizeCompareScope(raw: unknown[]): { sha: string; shortSha: string; subject: string; date: string }[] {
+  const out: { sha: string; shortSha: string; subject: string; date: string }[] = [];
+  for (const item of raw.slice(0, 500)) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const sha = String(record.sha ?? "");
+    if (!/^[0-9a-fA-F]{4,64}$/.test(sha)) continue;
+    out.push({
+      sha,
+      shortSha: String(record.shortSha ?? sha.slice(0, 7)).slice(0, 16),
+      subject: String(record.subject ?? "").slice(0, 300),
+      date: String(record.date ?? "").slice(0, 40),
+    });
+  }
+  return out;
+}
+
 // Set both sides at once (base A + target B) in a single rebuild — used by the Cmd+9 history view to open a
 // shift-selected commit range in the main review, where the full comment system applies. "auto"/"worktree"
-// sentinels reset a side to its default. This is how reviewing an already-merged range with comments works.
-ipcMain.handle("kakapo:set-review-compare", (event, payload: { base?: unknown; target?: unknown }) => {
+// sentinels reset a side to its default. `scope` (sent when opening a range) is the pickable commit list, so
+// the compare bar's dropdowns can then select any B..D within the opened A..F.
+ipcMain.handle("kakapo:set-review-compare", (event, payload: { base?: unknown; target?: unknown; scope?: unknown }) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false };
   const rawBase = typeof payload?.base === "string" ? payload.base.trim() : "";
   const rawTarget = typeof payload?.target === "string" ? payload.target.trim() : "";
   if (!rawBase || !rawTarget) return { ok: false };
   try {
+    if (Array.isArray(payload?.scope)) {
+      const scope = sanitizeCompareScope(payload.scope);
+      state.compareScope = scope.length ? scope : undefined;
+    }
     state.options.base = rawBase === "auto" ? undefined : validateReviewBase(state.options.root, rawBase);
     state.options.target = rawTarget === "worktree" ? undefined : validateReviewBase(state.options.root, rawTarget);
+    if (rawBase === "auto" || rawTarget === "worktree") state.compareScope = undefined; // exiting compare clears the scope
     state.options.staged = false;
     state.lastDiffSig = "";
     const build = writeReviewFile(state);

@@ -19,6 +19,7 @@ export type ReviewIpcState = {
   perf: ReviewPerformanceTrace;
   reviewBase?: string;
   reviewTarget?: string;
+  compareScope?: { sha: string; shortSha: string; subject: string; date: string }[];
 };
 
 type ReviewIpcEvent = IpcMainEvent | IpcMainInvokeEvent;
@@ -178,6 +179,17 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     const state = stateFromEvent(event);
     if (!state) return null;
     try {
+      // While a range opened from Cmd+9 is active, the dropdowns pick base/target from THAT range's commits
+      // (so B..D within an opened A..F is selectable), not the local commits-ahead-of-branch-point.
+      if (state.compareScope && state.compareScope.length) {
+        return {
+          activeBase: state.reviewBase ?? state.options.base ?? "auto",
+          activeTarget: state.reviewTarget ?? state.options.target ?? "worktree",
+          head: state.compareScope[state.compareScope.length - 1].sha,
+          commits: state.compareScope,
+          scoped: true,
+        };
+      }
       const list = readPatchSets(state.options.root);
       // Highlight against the base the build actually resolved (a SHA), not the raw option. When no
       // explicit base was set, reviewBase is the automatic merge-base, or undefined → the diff used HEAD.

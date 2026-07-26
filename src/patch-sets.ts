@@ -24,6 +24,9 @@ export type PatchSetList = {
   head: string;
   // Commits in branchPoint..HEAD, oldest → newest. Empty when the branch has no commits ahead.
   commits: PatchSet[];
+  // True when `commits` is a compare scope opened from Cmd+9 (a fixed A..F range) rather than the local
+  // commits-ahead list. In this mode both dropdowns pick base/target from `commits`.
+  scoped?: boolean;
 };
 
 // Field/record separators that can't occur in git output — the same idiom readGitLog uses (git-log.ts).

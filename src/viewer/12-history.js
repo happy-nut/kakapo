@@ -266,7 +266,16 @@ function reviewHistoryRangeInMain() {
     openHistoryCurrentSelection();
     return;
   }
-  Promise.resolve(window.kakapoGit.setReviewCompare(ep.olderSha, ep.newerSha)).then(function (res) {
+  // Pass every commit in the selected span (oldest → newest) as the compare scope, so the main review's two
+  // dropdowns can then pick any B..D within this opened A..F.
+  var a = historyIndexOfSha(historyAnchorSha), b = historyIndexOfSha(historyActiveSha);
+  var lo = Math.min(a, b), hi = Math.max(a, b);
+  var scope = [];
+  for (var i = hi; i >= lo; i--) {
+    var c = historyCommits[i];
+    scope.push({ sha: c.hash, shortSha: (c.hash || '').slice(0, 7), subject: c.subject, date: c.date });
+  }
+  Promise.resolve(window.kakapoGit.setReviewCompare(ep.olderSha, ep.newerSha, scope)).then(function (res) {
     if (res && res.ok) closeHistory();
   }).catch(function () {});
 }

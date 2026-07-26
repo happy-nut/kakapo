@@ -116,7 +116,8 @@ contextBridge.exposeInMainWorld("kakapoGit", {
   setReviewBase: (ref: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-base", { ref }),
   setReviewTarget: (ref: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-target", { ref }),
   // Open a two-commit range from the history view as the main review's A→B compare (both sides at once).
-  setReviewCompare: (base: string, target: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-compare", { base, target }),
+  // `scope` (optional) is the pickable commit list, so the compare bar's dropdowns can select any B..D in it.
+  setReviewCompare: (base: string, target: string, scope?: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-compare", { base, target, scope }),
 });
 
 // Self-update: ask the main process to install the latest version globally and relaunch. Only present

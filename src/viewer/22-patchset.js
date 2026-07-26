@@ -82,6 +82,13 @@ function renderPatchSetPopover() {
   if (!pop || !patchSetData) return;
   var rows = [];
   var i;
+  if (patchSetData.scoped) {
+    // A range opened from Cmd+9: both dropdowns pick base/target from the range's own commits.
+    var activeRef = patchSetPopoverWhich === 'target' ? (patchSetData.activeTarget || '') : (patchSetData.activeBase || '');
+    for (i = 0; i < patchSetData.commits.length; i++) rows.push(patchSetCommitRow(patchSetData, i, activeRef));
+    pop.innerHTML = rows.join('');
+    return;
+  }
   if (patchSetPopoverWhich === 'target') {
     var at = patchSetData.activeTarget || 'worktree';
     rows.push(patchSetRow('worktree', t('patchset.workingTree'), t('patchset.latest'), at === 'worktree'));
@@ -151,6 +158,21 @@ function togglePatchSetPopover(which) {
 // Ask main to switch the base or target, then refresh the bar face. The diff repaints via kakapo:diff-update.
 function selectPatchSet(which, ref) {
   if (!window.kakapoGit) return;
+  // In a Cmd+9-opened range, base and target are both commits in the scope; set both at once (keeping the
+  // scope) so picking left=B, right=D shows B..D.
+  if (patchSetData && patchSetData.scoped && typeof window.kakapoGit.setReviewCompare === 'function') {
+    var base = which === 'base' ? ref : patchSetData.activeBase;
+    var target = which === 'target' ? ref : patchSetData.activeTarget;
+    if (base === patchSetData.activeBase && target === patchSetData.activeTarget) return;
+    Promise.resolve(window.kakapoGit.setReviewCompare(base, target)).then(function (res) {
+      if (res && res.ok && patchSetData) {
+        patchSetData.activeBase = res.activeBase || base;
+        patchSetData.activeTarget = res.activeTarget || target;
+        renderPatchSetBar();
+      }
+    }).catch(function () {});
+    return;
+  }
   if (which === 'target') {
     if (typeof window.kakapoGit.setReviewTarget !== 'function') return;
     if (patchSetData && (patchSetData.activeTarget || 'worktree') === ref) return;
