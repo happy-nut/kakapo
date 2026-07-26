@@ -23,6 +23,8 @@ export function renderLazyDiffBody(diffText: string): string {
 
 export function buildDiffReview(input: {
   base?: string;
+  // Right/new side revision (A→B compare). undefined → compare against the working tree (default).
+  target?: string;
   staged: boolean;
   includeUntracked: boolean;
   context: number;
@@ -44,12 +46,16 @@ export function buildDiffReview(input: {
       generatedAt: new Date().toISOString(),
     };
   }
-  const automaticBase = !input.base && !input.staged
+  // A→B compare pins both sides to revisions, so the automatic (clean-branch merge-base) resolution and the
+  // working-tree/index sides don't apply.
+  const automaticBase = !input.base && !input.staged && !input.target
     ? resolveAutomaticReviewBase(root, input.includeUntracked)
     : undefined;
   const reviewBase = input.base ?? automaticBase?.revision;
+  const reviewTarget = input.target;
   const diffText = readUnifiedDiff({
     base: reviewBase,
+    target: reviewTarget,
     staged: input.staged,
     context: input.context,
     includeUntracked: input.includeUntracked,
@@ -63,6 +69,7 @@ export function buildDiffReview(input: {
   const sourceFiles = collectSourceFiles(files, root, {
     previewLargeText: appLazySource,
     deferSourceContent: appLazySource,
+    target: reviewTarget,
   });
   const fileStates = collectReviewFileStates(files, sourceFiles);
   const httpEnvironments = collectHttpEnvironments(root);
@@ -101,6 +108,8 @@ export function buildDiffReview(input: {
       })();
   const signature = createHash("sha1")
     .update(reviewBase ?? "HEAD")
+    .update("\n")
+    .update(reviewTarget ?? "")
     .update("\n")
     .update(diffText)
     .update("\n")
@@ -161,6 +170,7 @@ export function buildDiffReview(input: {
     signature,
     generatedAt,
     reviewBase,
+    reviewTarget,
     reviewUpstream: automaticBase?.upstream,
     lazyBodies: lazyLoad ? [] : diffSplit.bodies,
     lazyBodyDiffs,

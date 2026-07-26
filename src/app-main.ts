@@ -25,6 +25,7 @@ import { installWindowSurfaceRecovery } from "./window-layout.js";
 type AppOptions = {
   root: string;
   base?: string;
+  target?: string; // A→B compare: right/new side revision (undefined = working tree)
   staged: boolean;
   includeUntracked: boolean;
   context: number;
@@ -57,6 +58,10 @@ type WinState = {
   perf: ReviewPerformanceTrace; // local startup/analysis evidence under this workspace's app-data mirror
   lastDiffSig: string; // watch fast-path: hash of the last git diff, to skip rebuilds when unchanged
   reviewBase?: string; // exact base used by the latest build (may be an automatic upstream merge-base)
+  reviewTarget?: string; // exact right/new side revision for an A→B compare (undefined = working tree)
+  // Commits of the range opened from the Cmd+9 history (oldest→newest). While set, the compare bar's two
+  // dropdowns pick base/target from THIS list, so B..D within an opened A..F is selectable. Cleared on exit.
+  compareScope?: { sha: string; shortSha: string; subject: string; date: string }[];
   reviewUpstream?: string; // tracking ref behind an automatic base; included in the watch signature
   disposeWindowSurfaceRecovery: () => void;
   explainTimer?: NodeJS.Timeout; // Explain view: polls this workspace's content-spec file, independent of --watch
@@ -191,6 +196,111 @@ ipcMain.handle("kakapo:memo-delete", (event) => {
   memoStore().remove(state.options.root);
   return { ok: true };
 });
+// Patch-set compare bar: switch the diff base to a chosen patch set (or "auto" to restore the automatic
+// upstream merge-base). Mirrors the "Ignore whitespace" menu toggle — mutate this window's options,
+// rebuild, and push the diff in place (like refreshIfChanged) so comments/scroll survive. The right side
+// stays the working tree ("latest"); only the base moves, and base already threads through diff/context/
+// blame/source, so no other plumbing changes.
+ipcMain.handle("kakapo:set-review-base", (event, payload: { ref?: unknown }) => {
+  const state = stateFromEvent(event);
+  if (!state || state.win.isDestroyed()) return { ok: false };
+  const raw = typeof payload?.ref === "string" ? payload.ref.trim() : "";
+  if (!raw) return { ok: false };
+  try {
+    if (raw === "auto") {
+      state.options.base = undefined; // restore the automatic base + upstream watching
+    } else {
+      // The ref originates from the enumerated patch-set list, but validate before it reaches git diff.
+      state.options.base = validateReviewBase(state.options.root, raw);
+    }
+    state.options.staged = false; // --staged takes precedence over --base in readUnifiedDiff; clear it
+    state.lastDiffSig = ""; // re-baseline the watch fast-path against the new base
+    const build = writeReviewFile(state);
+    state.signature = build.signature;
+    if (build.update) state.win.webContents.send("kakapo:diff-update", build.update);
+    scheduleAnalysisPrewarm(state);
+    return { ok: true, activeBase: state.options.base ?? "auto" };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+// Right/new side of the compare bar: pick a patch set as target B (A→B compare) or the sentinel
+// "worktree" to return to base-vs-working-tree. Same rebuild+in-place-update shape as set-review-base;
+// the source model then serves commit B's content so comments reconcile against B.
+ipcMain.handle("kakapo:set-review-target", (event, payload: { ref?: unknown }) => {
+  const state = stateFromEvent(event);
+  if (!state || state.win.isDestroyed()) return { ok: false };
+  const raw = typeof payload?.ref === "string" ? payload.ref.trim() : "";
+  if (!raw) return { ok: false };
+  try {
+    if (raw === "worktree") {
+      state.options.target = undefined; // compare against the working tree (today's default)
+    } else {
+      state.options.target = validateReviewBase(state.options.root, raw);
+      state.options.staged = false; // an A→B compare has no index side
+    }
+    state.lastDiffSig = "";
+    const build = writeReviewFile(state);
+    state.signature = build.signature;
+    if (build.update) state.win.webContents.send("kakapo:diff-update", build.update);
+    scheduleAnalysisPrewarm(state);
+    return { ok: true, activeTarget: state.options.target ?? "worktree" };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+// Validate/clamp the pickable commit list the renderer sends when opening a range from Cmd+9. The SHAs are
+// only ever used as dropdown data-refs (re-validated by set-review-compare before any git call); the rest is
+// display metadata, so this just rejects junk and bounds sizes.
+function sanitizeCompareScope(raw: unknown[]): { sha: string; shortSha: string; subject: string; date: string }[] {
+  const out: { sha: string; shortSha: string; subject: string; date: string }[] = [];
+  for (const item of raw.slice(0, 500)) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const sha = String(record.sha ?? "");
+    if (!/^[0-9a-fA-F]{4,64}$/.test(sha)) continue;
+    out.push({
+      sha,
+      shortSha: String(record.shortSha ?? sha.slice(0, 7)).slice(0, 16),
+      subject: String(record.subject ?? "").slice(0, 300),
+      date: String(record.date ?? "").slice(0, 40),
+    });
+  }
+  return out;
+}
+
+// Set both sides at once (base A + target B) in a single rebuild — used by the Cmd+9 history view to open a
+// shift-selected commit range in the main review, where the full comment system applies. "auto"/"worktree"
+// sentinels reset a side to its default. `scope` (sent when opening a range) is the pickable commit list, so
+// the compare bar's dropdowns can then select any B..D within the opened A..F.
+ipcMain.handle("kakapo:set-review-compare", (event, payload: { base?: unknown; target?: unknown; scope?: unknown }) => {
+  const state = stateFromEvent(event);
+  if (!state || state.win.isDestroyed()) return { ok: false };
+  const rawBase = typeof payload?.base === "string" ? payload.base.trim() : "";
+  const rawTarget = typeof payload?.target === "string" ? payload.target.trim() : "";
+  if (!rawBase || !rawTarget) return { ok: false };
+  try {
+    if (Array.isArray(payload?.scope)) {
+      const scope = sanitizeCompareScope(payload.scope);
+      state.compareScope = scope.length ? scope : undefined;
+    }
+    state.options.base = rawBase === "auto" ? undefined : validateReviewBase(state.options.root, rawBase);
+    state.options.target = rawTarget === "worktree" ? undefined : validateReviewBase(state.options.root, rawTarget);
+    if (rawBase === "auto" || rawTarget === "worktree") state.compareScope = undefined; // exiting compare clears the scope
+    state.options.staged = false;
+    state.lastDiffSig = "";
+    const build = writeReviewFile(state);
+    state.signature = build.signature;
+    if (build.update) state.win.webContents.send("kakapo:diff-update", build.update);
+    scheduleAnalysisPrewarm(state);
+    return { ok: true, activeBase: state.options.base ?? "auto", activeTarget: state.options.target ?? "worktree" };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
 // Welcome screen's "Open Folder" button: pick a directory; load it into the window that asked if it's a
 // git repo, else return the "not-git" code so the welcome renderer can show its inline hint (it keys off
 // r.error === "not-git"). This flow reports errors in-page, so — unlike the File menu — no native box.
@@ -604,6 +714,7 @@ function writeReviewFile(state: WinState): { signature: string; html: string; up
   state.perf.mark("review-build-start");
   const build = writeReviewWorkspace(reviewPath(state.options.root), state.options, APP_TITLE);
   state.reviewBase = build.reviewBase;
+  state.reviewTarget = build.reviewTarget;
   state.reviewUpstream = build.reviewUpstream;
   // The review artifact mirrors the workspace's absolute folder structure below userData. Different
   // repositories, nested monorepo packages, and worktrees therefore never share a file or touch source.

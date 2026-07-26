@@ -347,7 +347,7 @@ export function renderDiffHtml(input: {
         : `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
       : `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
     "</div>",
-    `<div class="sidebar-footer"><span class="app-version" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}${packageVersion ? '<span class="app-version-text">v' + escapeHtml(packageVersion) + "</span>" : ""}</span>${input.app ? `<span id="analysis-status" class="analysis-status is-idle" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-loader" aria-hidden="true">${brandMark}</span><span class="analysis-status-label">Analysis idle</span></span>` : ""}<span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span></div>`,
+    `<div class="sidebar-footer"><span class="app-version" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}${packageVersion ? '<span class="app-version-text">v' + escapeHtml(packageVersion) + "</span>" : ""}</span>${input.app ? `<span id="analysis-status" class="analysis-status is-idle" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-label">Analysis idle</span></span>` : ""}<span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span></div>`,
     "</aside>",
     '<div class="sidebar-resizer" aria-hidden="true"></div>',
     '<main class="content">',
@@ -367,6 +367,23 @@ export function renderDiffHtml(input: {
     '<button type="button" id="diff-open-source" class="diff-tool-button" data-keyhint="⌘↓" data-i18n-title="diff.openSource" data-i18n-aria="diff.openSource" title="Open source (Cmd/Ctrl+Down)" aria-label="Open source"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5h4l1.5 2h5.5v9h-11z"/><path d="m6 10 2 2 2-2M8 7v5"/></svg></button>',
     '</div>',
     "</div>",
+    // Patch-set compare bar (Electron only): numbered patch-set buttons split base-left / target-right to
+    // match the side-by-side diff (old | new). The viewer module fills the two groups from
+    // kakapoGit.patchSets(); each button hovers its commit message. Distinct from the per-file path
+    // .diff-pane-header below, which the diff nav fills with the focused file's old→new path.
+    input.app
+      ? '<div class="patchset-bar" id="patchset-bar" role="group" data-i18n-aria="patchset.bar" aria-label="Compare patch sets">'
+        + '<div class="patchset-side patchset-side-base">'
+        + '<span class="patchset-kind" data-i18n="patchset.base">Base</span>'
+        + '<div class="patchset-nums" id="patchset-base-nums" role="group" data-i18n-aria="patchset.pick" aria-label="Base patch set"></div>'
+        + '</div>'
+        + '<div class="patchset-side patchset-side-target">'
+        + '<div class="patchset-nums" id="patchset-target-nums" role="group" data-i18n-aria="patchset.pickTarget" aria-label="Target patch set"></div>'
+        + '<span class="patchset-kind" data-i18n="patchset.target">Target</span>'
+        + '<button type="button" id="patchset-reset" class="patchset-reset hidden" data-i18n-title="patchset.exitCompare" title="Exit compare (back to working tree)" aria-label="Exit compare"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>'
+        + '</div>'
+        + '</div>'
+      : '',
     '<div class="diff-pane-header" data-i18n-aria="diff.panes" aria-label="Diff panes">',
     '<div class="diff-pane diff-pane-base"><span class="diff-pane-kind" data-i18n="diff.base">Base</span><span id="diff-before-path" class="diff-pane-path"></span></div>',
     '<div class="diff-pane diff-pane-working"><span class="diff-pane-kind" data-i18n="diff.workingTree">Working tree</span><span id="diff-after-path" class="diff-pane-path"></span></div>',
@@ -563,6 +580,10 @@ export function renderDiffHtml(input: {
     '<input id="history-search" type="search" class="history-search" autocomplete="off" spellcheck="false" data-i18n-ph="history.search" placeholder="Filter by message or author">',
     '<button type="button" id="history-close" class="dock-btn" data-keyhint="Esc" data-i18n-title="history.close" title="Close" aria-label="Close">&times;</button>',
     "</div>",
+    // Selection/compare status strip: shows how to compare (hint) when one commit is selected, and the
+    // pending two-commit compare (with Open/Clear) once a range is shift-selected. The visible affordance
+    // for picking patch sets to compare.
+    '<div id="history-select-bar" class="history-select-bar hidden" aria-live="polite"></div>',
     '<div class="history-body">',
     '<div id="history-list" class="history-list"></div>',
     '<div id="history-detail-backdrop" class="history-detail-backdrop hidden" aria-hidden="true"></div>',

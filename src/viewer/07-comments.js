@@ -612,6 +612,17 @@ function closeComposer() {
   refreshComments();
   flushPendingDiffUpdate(); // apply any live watch refresh that was held while composing
 }
+// After Esc-closing the composer, return keyboard focus to the code caret (diff or source) so arrows keep
+// moving it. Without this the textarea is removed, focus falls away, and the side tree (which owns arrows
+// while treeFocusIndex >= 0) captures navigation — the "focus jumped to the side panel" surprise.
+function returnCaretAfterComposer() {
+  if (typeof clearTreeFocus === 'function') clearTreeFocus();
+  if (typeof isDiffViewVisible === 'function' && isDiffViewVisible() && typeof diffCursor !== 'undefined' && diffCursor && typeof setDiffCursor === 'function') {
+    setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, diffCursor.column, false);
+  } else if (typeof isSourceViewerVisible === 'function' && isSourceViewerVisible() && typeof viewerCursor !== 'undefined' && viewerCursor && typeof setSourceCursor === 'function') {
+    setSourceCursor(viewerCursor.path, viewerCursor.lineIndex, viewerCursor.column, false);
+  }
+}
 // The composer is injected into BOTH the diff and source views (refreshComments renders comments in
 // each), but only one view is on screen at a time — the other lives inside a `.hidden` container with
 // its own, empty textarea. Pick the textarea in the *visible* view so save/auto-focus never grab the

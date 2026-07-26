@@ -1,6 +1,7 @@
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { performHttpRequest, renderLazyDiffBody, type HttpSendRequest } from "./cli.js";
-import { readGitLog, readGitLineLog, readGitBlame, readCommitDiff } from "./git-log.js";
+import { readGitLog, readGitLineLog, readGitBlame, readCommitDiff, readRangeDiff } from "./git-log.js";
+import { readPatchSets } from "./patch-sets.js";
 import { materializeDeferredSourceFile } from "./diff.js";
 import { searchProject } from "./search.js";
 import type { AnalysisRequest, ProjectAnalysis } from "./analysis.js";
@@ -9,7 +10,7 @@ import { readReviewDiffContext, type DiffContextRequest } from "./diff-context.j
 import type { ProjectIndexPayload, SourceFile } from "./types.js";
 
 export type ReviewIpcState = {
-  options: { root: string; base?: string; staged: boolean };
+  options: { root: string; base?: string; target?: string; staged: boolean };
   signature: string;
   bodyDiffs: string[];
   bodyCache: Map<number, string>;
@@ -17,6 +18,8 @@ export type ReviewIpcState = {
   analysis: ProjectAnalysis;
   perf: ReviewPerformanceTrace;
   reviewBase?: string;
+  reviewTarget?: string;
+  compareScope?: { sha: string; shortSha: string; subject: string; date: string }[];
 };
 
 type ReviewIpcEvent = IpcMainEvent | IpcMainInvokeEvent;
@@ -45,7 +48,7 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     const record = state.sourceFiles.get(path);
     if (!record) return null;
     if (!record.deferred) return record;
-    const materialized = materializeDeferredSourceFile(state.options.root, record);
+    const materialized = materializeDeferredSourceFile(state.options.root, record, state.reviewTarget ?? state.options.target);
     state.sourceFiles.set(path, materialized);
     return materialized;
   });
@@ -69,6 +72,7 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     return readReviewDiffContext({
       root: state.options.root,
       base: state.reviewBase ?? state.options.base,
+      target: state.reviewTarget ?? state.options.target,
       staged: state.options.staged,
       bodyDiffs: state.bodyDiffs,
       request,
@@ -151,7 +155,7 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     if (!state || !path || !state.sourceFiles.has(path)) return [];
     const revision = request?.side === "old"
       ? (state.reviewBase ?? state.options.base ?? "HEAD")
-      : undefined;
+      : (state.reviewTarget ?? state.options.target); // A→B: new-side blame is commit B, else working tree
     try { return readGitBlame(state.options.root, path, revision); } catch { return []; }
   });
 
@@ -159,5 +163,40 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     const state = stateFromEvent(event);
     if (!state || !request?.sha) return null;
     try { return readCommitDiff(state.options.root, request.sha); } catch { return null; }
+  });
+
+  // Combined diff between two commits shift-selected in the history view (readRangeDiff validates the SHAs).
+  ipc.handle("kakapo:git-range-diff", (event, request: { oldSha?: string; newSha?: string }) => {
+    const state = stateFromEvent(event);
+    if (!state || !request?.oldSha || !request?.newSha) return null;
+    try { return readRangeDiff(state.options.root, request.oldSha, request.newSha); } catch { return null; }
+  });
+
+  // Patch sets available as diff bases for the compare bar. activeBase reflects the live review options
+  // ("auto" when no explicit base), so the renderer can highlight the current selection. Read-only; the
+  // mutating counterpart (kakapo:set-review-base) lives in app-main because it triggers a rebuild.
+  ipc.handle("kakapo:git-patch-sets", (event) => {
+    const state = stateFromEvent(event);
+    if (!state) return null;
+    try {
+      // While a range opened from Cmd+9 is active, the dropdowns pick base/target from THAT range's commits
+      // (so B..D within an opened A..F is selectable), not the local commits-ahead-of-branch-point.
+      if (state.compareScope && state.compareScope.length) {
+        return {
+          activeBase: state.reviewBase ?? state.options.base ?? "auto",
+          activeTarget: state.reviewTarget ?? state.options.target ?? "worktree",
+          head: state.compareScope[state.compareScope.length - 1].sha,
+          commits: state.compareScope,
+          scoped: true,
+        };
+      }
+      const list = readPatchSets(state.options.root);
+      // Highlight against the base the build actually resolved (a SHA), not the raw option. When no
+      // explicit base was set, reviewBase is the automatic merge-base, or undefined → the diff used HEAD.
+      list.activeBase = state.reviewBase || list.head;
+      // Right side: a chosen patch set (commit) or the working tree ("worktree" sentinel).
+      list.activeTarget = state.reviewTarget ?? state.options.target ?? "worktree";
+      return list;
+    } catch { return null; }
   });
 }

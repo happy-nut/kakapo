@@ -137,6 +137,8 @@ export type DiffReviewBuild = {
   // Actual base revision used for this build. When a clean branch is ahead of its upstream this is the
   // merge-base, allowing context expansion to read the same revision as the rendered diff.
   reviewBase?: string;
+  // Right/new side revision for an A→B compare (undefined = compared against the working tree).
+  reviewTarget?: string;
   // Tracking ref that selected reviewBase automatically. Electron watches it so a later push clears the
   // already-reviewed commit range without requiring an app restart.
   reviewUpstream?: string;

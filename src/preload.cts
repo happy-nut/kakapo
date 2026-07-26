@@ -109,6 +109,15 @@ contextBridge.exposeInMainWorld("kakapoGit", {
   lineLog: (request: { path: string; line: number; limit?: number }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-line-log", request),
   blame: (request: { path: string; side?: "old" | "new" }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-blame", request),
   commitDiff: (sha: string): Promise<unknown> => ipcRenderer.invoke("kakapo:git-commit-diff", { sha }),
+  // History shift-select: combined diff between two commits (old→new endpoints).
+  rangeDiff: (oldSha: string, newSha: string): Promise<unknown> => ipcRenderer.invoke("kakapo:git-range-diff", { oldSha, newSha }),
+  // Patch-set compare bar: list selectable bases, and switch the diff base to one (or "auto").
+  patchSets: (): Promise<unknown> => ipcRenderer.invoke("kakapo:git-patch-sets"),
+  setReviewBase: (ref: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-base", { ref }),
+  setReviewTarget: (ref: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-target", { ref }),
+  // Open a two-commit range from the history view as the main review's A→B compare (both sides at once).
+  // `scope` (optional) is the pickable commit list, so the compare bar's dropdowns can select any B..D in it.
+  setReviewCompare: (base: string, target: string, scope?: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-compare", { base, target, scope }),
 });
 
 // Self-update: ask the main process to install the latest version globally and relaunch. Only present

@@ -522,7 +522,7 @@ document.addEventListener('click', function (event) {
 document.addEventListener('keydown', function (event) {
   var t = event.target;
   if (!t || !t.classList || !t.classList.contains('mc-input')) return;
-  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeComposer(); return; }
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeComposer(); returnCaretAfterComposer(); return; }
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); saveComposer(t); return; }
 }, true);
 

@@ -17,6 +17,7 @@ var historyScope = null; // null | { path, line } — right-clicked source line 
 var historyLoadSeq = 0;
 var historyDirectDetail = false; // a gutter attribution opened one commit diff without the graph first
 var historyDirectPath = '';
+var historyAnchorSha = ''; // shift-select range anchor; the other end is historyActiveSha (the focus)
 
 // Lane layout. Walk commits newest-first (git --topo-order) and track the parent hash each open lane is
 // waiting for. A lane is an object rather than just a hash so its color survives merges. Once a branch
@@ -201,7 +202,166 @@ function moveHistoryCommit(delta) {
   if (idx < 0) idx = delta > 0 ? -1 : 0;
   idx = Math.max(0, Math.min(rows.length - 1, idx + delta));
   historyFocus = 'commits';
+  clearHistoryRange(); // a plain move collapses any shift-selection back to a single commit
+  historyAnchorSha = rows[idx].dataset.sha;
   selectHistoryCommit(rows[idx].dataset.sha, true);
+}
+
+// ===== Shift-select: compare two commits (patch sets) as one combined diff. =====
+function historyIndexOfSha(sha) {
+  for (var i = 0; i < historyCommits.length; i++) if (historyCommits[i].hash === sha) return i;
+  return -1;
+}
+// Drop the range highlight and anchor, returning to single-commit selection.
+function clearHistoryRange() {
+  historyAnchorSha = '';
+  var list = document.getElementById('history-list');
+  if (list) list.querySelectorAll('.hrow.in-range').forEach(function (r) { r.classList.remove('in-range', 'range-end'); });
+  updateHistorySelectBar();
+}
+// The two endpoints of the current selection, or null. historyCommits is newest-first, so the lower
+// index is the newer commit. isRange is false when the anchor and focus are the same commit.
+function historyRangeEndpoints() {
+  var a = historyIndexOfSha(historyAnchorSha);
+  var b = historyIndexOfSha(historyActiveSha);
+  if (a < 0 || b < 0) return null;
+  var lo = Math.min(a, b), hi = Math.max(a, b);
+  return { olderSha: historyCommits[hi].hash, newerSha: historyCommits[lo].hash, count: hi - lo + 1, isRange: hi > lo };
+}
+// Extend the selection from the anchor to focusSha and highlight the span. Selection only — never opens
+// the diff; the reviewer opens it with Enter, double-click, or the compare bar's Open button.
+function selectHistoryRange(focusSha, shouldScroll) {
+  if (!focusSha) return;
+  if (!historyAnchorSha) historyAnchorSha = historyActiveSha || focusSha;
+  var a = historyIndexOfSha(historyAnchorSha);
+  var b = historyIndexOfSha(focusSha);
+  if (a < 0 || b < 0) { // anchor/focus scrolled out of the loaded page — fall back to single
+    historyAnchorSha = focusSha;
+    selectHistoryCommit(focusSha, shouldScroll);
+    updateHistorySelectBar();
+    return;
+  }
+  var lo = Math.min(a, b), hi = Math.max(a, b);
+  historyActiveSha = focusSha;
+  var inRange = {};
+  for (var i = lo; i <= hi; i++) inRange[historyCommits[i].hash] = true;
+  var list = document.getElementById('history-list');
+  var active = null;
+  if (list) list.querySelectorAll('.hrow').forEach(function (r) {
+    var sha = r.dataset.sha;
+    r.classList.toggle('active', sha === focusSha);
+    r.classList.toggle('in-range', !!inRange[sha]);
+    r.classList.toggle('range-end', sha === historyAnchorSha || sha === focusSha);
+    if (sha === focusSha) active = r;
+  });
+  if (shouldScroll !== false && active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+  updateHistorySelectBar();
+}
+// Open the shift-selected range in the MAIN review (git diff older..newer), where the full comment system
+// applies, and close the history overlay. This is how an already-committed / merged range becomes a
+// comment-able review. Falls back to the read-only in-history detail for a single commit or in serve mode.
+function reviewHistoryRangeInMain() {
+  var ep = historyRangeEndpoints();
+  if (!ep || !ep.isRange || !window.kakapoGit || typeof window.kakapoGit.setReviewCompare !== 'function') {
+    openHistoryCurrentSelection();
+    return;
+  }
+  // Pass every commit in the selected span (oldest → newest) as the compare scope, so the main review's two
+  // dropdowns can then pick any B..D within this opened A..F.
+  var a = historyIndexOfSha(historyAnchorSha), b = historyIndexOfSha(historyActiveSha);
+  var lo = Math.min(a, b), hi = Math.max(a, b);
+  var scope = [];
+  for (var i = hi; i >= lo; i--) {
+    var c = historyCommits[i];
+    scope.push({ sha: c.hash, shortSha: (c.hash || '').slice(0, 7), subject: c.subject, date: c.date });
+  }
+  if (typeof requestDiffViewOnNextCompare === 'function') requestDiffViewOnNextCompare(); // land on the diff, not a stale source pane
+  Promise.resolve(window.kakapoGit.setReviewCompare(ep.olderSha, ep.newerSha, scope)).then(function (res) {
+    if (res && res.ok) closeHistory();
+  }).catch(function () {});
+}
+// Open whatever is currently selected: the range diff when a span is selected, else the single commit.
+function openHistoryCurrentSelection() {
+  var ep = historyRangeEndpoints();
+  if (ep && ep.isRange) { openHistoryRange(ep.olderSha, ep.newerSha); return; }
+  var sha = historyActiveSha;
+  if (!sha) { var rows = historyVisibleRows(); sha = rows[0] && rows[0].dataset.sha; }
+  if (sha) openHistoryCommit(sha);
+}
+// The selection/compare strip below the history bar. Shows a discoverability hint for a single commit,
+// and the pending two-commit compare (with Open / Clear) once a range is selected. Hidden in line-history
+// scope, where arbitrary-commit compare does not apply.
+function updateHistorySelectBar() {
+  var bar = document.getElementById('history-select-bar');
+  if (!bar) return;
+  if (!isHistoryOpen() || historyScope) { bar.classList.add('hidden'); bar.classList.remove('has-range'); bar.innerHTML = ''; return; }
+  var ep = historyRangeEndpoints();
+  if (ep && ep.isRange) {
+    bar.classList.remove('hidden');
+    bar.classList.add('has-range');
+    bar.innerHTML = '<span class="hsel-info"><span class="hsel-kind">' + escapeHtml(t('history.rangeCompare')) + '</span>'
+      + '<span class="hsel-sha">' + escapeHtml((ep.olderSha || '').slice(0, 7)) + '</span>'
+      + '<span class="hsel-arrow" aria-hidden="true">→</span>'
+      + '<span class="hsel-sha">' + escapeHtml((ep.newerSha || '').slice(0, 7)) + '</span>'
+      + '<span class="hsel-count">' + escapeHtml(ep.count + ' ' + t(ep.count === 1 ? 'history.commit' : 'history.commits')) + '</span></span>'
+      + '<span class="hsel-actions">'
+      + '<button type="button" id="hsel-review" class="hsel-btn hsel-open" data-keyhint="⏎">' + escapeHtml(t('history.reviewCompare')) + '</button>'
+      + '<button type="button" id="hsel-open" class="hsel-btn">' + escapeHtml(t('history.quickLook')) + '</button>'
+      + '<button type="button" id="hsel-clear" class="hsel-btn">' + escapeHtml(t('history.clearRange')) + '</button></span>';
+  } else if (historyActiveSha) {
+    bar.classList.remove('hidden');
+    bar.classList.remove('has-range');
+    bar.innerHTML = '<span class="hsel-hint">' + escapeHtml(t('history.selectHint')) + '</span>';
+  } else {
+    bar.classList.add('hidden');
+    bar.classList.remove('has-range');
+    bar.innerHTML = '';
+  }
+}
+// Shift+Arrow variant of moveHistoryCommit: keep the anchor, move the focus, re-diff the span.
+function moveHistoryRange(delta) {
+  var rows = historyVisibleRows();
+  if (!rows.length) return;
+  if (!historyAnchorSha) historyAnchorSha = historyActiveSha || rows[0].dataset.sha;
+  var idx = rows.findIndex(function (r) { return r.dataset.sha === historyActiveSha; });
+  if (idx < 0) idx = 0;
+  idx = Math.max(0, Math.min(rows.length - 1, idx + delta));
+  historyFocus = 'commits';
+  selectHistoryRange(rows[idx].dataset.sha, true);
+}
+// Fetch + render the combined diff for a two-commit span (older → newer).
+function openHistoryRange(olderSha, newerSha) {
+  if (!olderSha || !newerSha || !window.kakapoGit || typeof window.kakapoGit.rangeDiff !== 'function') return;
+  var key = olderSha + '..' + newerSha;
+  historyDetailSha = key;
+  setHistoryDetailOpen(true);
+  var detail = document.getElementById('history-detail');
+  if (detail) detail.innerHTML = loadingStateHtml(t('history.loading'), 'quick-open-empty');
+  Promise.resolve(window.kakapoGit.rangeDiff(olderSha, newerSha)).then(function (d) {
+    if (!d || historyDetailSha !== key || !isHistoryDetailOpen()) return;
+    renderHistoryRangeDetail(d);
+  }, function () {});
+}
+function renderHistoryRangeDetail(d) {
+  var detail = document.getElementById('history-detail');
+  if (!detail) return;
+  var countLabel = (d.count || 0) + ' ' + t(d.count === 1 ? 'history.commit' : 'history.commits');
+  var head = '<div class="history-detail-head">'
+    + '<div class="history-detail-copy"><div class="hd-summary"><div class="hd-subject hd-range" title="'
+    + escapeHtml((d.oldShort || '') + ' → ' + (d.newShort || '')) + '">'
+    + '<span class="hd-range-kind">' + escapeHtml(t('history.rangeCompare')) + '</span> '
+    + '<span class="hd-hash">' + escapeHtml(d.oldShort || (d.oldHash || '').slice(0, 7)) + '</span>'
+    + '<span class="hd-range-arrow" aria-hidden="true"> → </span>'
+    + '<span class="hd-hash">' + escapeHtml(d.newShort || (d.newHash || '').slice(0, 7)) + '</span>'
+    + '</div></div>'
+    + '<div class="hd-meta"><span class="hd-range-count">' + escapeHtml(countLabel) + '</span></div></div>'
+    + '<button type="button" id="history-detail-close" class="dock-btn history-detail-close" data-keyhint="Esc" aria-label="' + escapeHtml(t('history.close')) + '"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>';
+  var body = (d.diffHtml && d.diffHtml.trim())
+    ? '<div class="history-workspace"><aside id="history-files" class="history-files"></aside><div id="history-diff-container" class="history-diff diff2html-container" tabindex="0" aria-readonly="true">' + d.diffHtml + '</div></div>'
+    : '<div class="quick-open-empty">' + escapeHtml(t('history.noDiff')) + '</div>';
+  detail.innerHTML = head + body;
+  setHistoryDetailOpen(true);
+  setupHistoryDiffWorkspace(d.newHash || historyActiveSha, d.fileStatus);
 }
 
 // Text filter (subject / author). The graph only reads right on the full contiguous history, so filtering
@@ -785,6 +945,7 @@ function closeHistoryDetail(restoreFocus) {
   historyDetailSha = '';
   historyDiffState = null;
   historyFocus = 'commits';
+  clearHistoryRange(); // closing the diff drops any shift-select compare range
   setHistoryDetailOpen(false);
   var detail = document.getElementById('history-detail');
   if (detail) detail.innerHTML = '';
@@ -834,6 +995,7 @@ function openHistory(scope) {
   historyGraph = [];
   historyMaxLane = 0;
   historyActiveSha = '';
+  historyAnchorSha = '';
   historyFocus = 'commits';
   historyDiffState = null;
   closeHistoryDetail(false);
@@ -851,7 +1013,8 @@ function openHistory(scope) {
     renderHistoryList();
     var detail = document.getElementById('history-detail');
     if (detail) detail.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('history.selectCommit')) + '</div>';
-    if (historyCommits[0]) selectHistoryCommit(historyCommits[0].hash, false);
+    if (historyCommits[0]) { historyAnchorSha = historyCommits[0].hash; selectHistoryCommit(historyCommits[0].hash, false); }
+    updateHistorySelectBar(); // show the compare hint as soon as the list is ready
     setTimeout(function () { try { v.focus(); } catch (e) {} }, 0);
   }, function () { if (seq === historyLoadSeq) { historyLoading = false; renderHistoryList(); } });
 }
@@ -925,6 +1088,7 @@ function handleHistoryKey(e) {
     var delta = e.key === 'ArrowDown' ? 1 : -1;
     if (historyFocus === 'files') historySetFileFocus((historyDiffState ? historyDiffState.fileFocusIndex : 0) + delta);
     else if (historyFocus === 'diff' && historyDiffState) historyMoveDiffCursor(delta, 0);
+    else if (e.shiftKey) moveHistoryRange(delta); // Shift+Arrow extends the compare range
     else moveHistoryCommit(delta);
     return true;
   }
@@ -940,9 +1104,7 @@ function handleHistoryKey(e) {
       if (file) historyShowFile(file.path, file.hunk, true);
       focusHistoryDiff();
     } else {
-      var rows = historyVisibleRows();
-      var row = rows.find(function (r) { return r.dataset.sha === historyActiveSha; }) || rows[0];
-      if (row) openHistoryCommit(row.dataset.sha);
+      reviewHistoryRangeInMain(); // Enter: open the range in the main review (comments); single commit -> read-only
     }
     return true;
   }
@@ -954,7 +1116,27 @@ function handleHistoryKey(e) {
   var list = document.getElementById('history-list');
   if (list) list.addEventListener('click', function (e) {
     var row = e.target.closest && e.target.closest('.hrow[data-sha]');
-    if (row) openHistoryCommit(row.dataset.sha);
+    if (!row) return;
+    historyFocus = 'commits';
+    if (e.shiftKey) { e.preventDefault(); selectHistoryRange(row.dataset.sha, false); } // extend the compare range
+    else { clearHistoryRange(); historyAnchorSha = row.dataset.sha; selectHistoryCommit(row.dataset.sha, false); updateHistorySelectBar(); } // select only; open on double-click/Enter
+  });
+  // Double-click activates: open the compare range when the row is inside it, else that single commit.
+  if (list) list.addEventListener('dblclick', function (e) {
+    var row = e.target.closest && e.target.closest('.hrow[data-sha]');
+    if (!row) return;
+    e.preventDefault();
+    historyFocus = 'commits';
+    var ep = historyRangeEndpoints();
+    if (ep && ep.isRange && row.classList.contains('in-range')) { openHistoryRange(ep.olderSha, ep.newerSha); return; }
+    clearHistoryRange(); historyAnchorSha = row.dataset.sha; selectHistoryCommit(row.dataset.sha, false); updateHistorySelectBar();
+    openHistoryCommit(row.dataset.sha);
+  });
+  var selBar = document.getElementById('history-select-bar');
+  if (selBar) selBar.addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('#hsel-review')) reviewHistoryRangeInMain(); // open in main review (comments)
+    else if (e.target.closest && e.target.closest('#hsel-open')) openHistoryCurrentSelection(); // read-only quick look
+    else if (e.target.closest && e.target.closest('#hsel-clear')) clearHistoryRange();
   });
   var search = document.getElementById('history-search');
   if (search) search.addEventListener('input', applyHistoryFilter);
