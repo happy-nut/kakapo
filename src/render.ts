@@ -383,6 +383,7 @@ export function renderDiffHtml(input: {
         + '<span class="patchset-current" id="patchset-target-current"></span>'
         + '<svg class="patchset-chev" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>'
         + '</button>'
+        + '<button type="button" id="patchset-reset" class="patchset-reset hidden" data-i18n-title="patchset.exitCompare" title="Exit compare (back to working tree)" aria-label="Exit compare"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>'
         + '</div>'
       : '',
     '<div class="diff-pane-header" data-i18n-aria="diff.panes" aria-label="Diff panes">',

@@ -673,6 +673,13 @@ body.native-app .source-tabs {
   padding: 1.5px 7px; border-radius: 999px; font-size: 10px; font-weight: 650;
   color: var(--active); background: color-mix(in srgb, var(--active) 16%, transparent);
 }
+.patchset-reset {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--muted); background: var(--panel); cursor: pointer;
+}
+.patchset-reset:hover { border-color: var(--active); color: var(--text); }
+.patchset-reset.hidden { display: none; }
 
 /* Floating base picker, appended to <body> and positioned under the button. */
 .patchset-popover {

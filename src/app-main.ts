@@ -248,6 +248,30 @@ ipcMain.handle("kakapo:set-review-target", (event, payload: { ref?: unknown }) =
   }
 });
 
+// Set both sides at once (base A + target B) in a single rebuild — used by the Cmd+9 history view to open a
+// shift-selected commit range in the main review, where the full comment system applies. "auto"/"worktree"
+// sentinels reset a side to its default. This is how reviewing an already-merged range with comments works.
+ipcMain.handle("kakapo:set-review-compare", (event, payload: { base?: unknown; target?: unknown }) => {
+  const state = stateFromEvent(event);
+  if (!state || state.win.isDestroyed()) return { ok: false };
+  const rawBase = typeof payload?.base === "string" ? payload.base.trim() : "";
+  const rawTarget = typeof payload?.target === "string" ? payload.target.trim() : "";
+  if (!rawBase || !rawTarget) return { ok: false };
+  try {
+    state.options.base = rawBase === "auto" ? undefined : validateReviewBase(state.options.root, rawBase);
+    state.options.target = rawTarget === "worktree" ? undefined : validateReviewBase(state.options.root, rawTarget);
+    state.options.staged = false;
+    state.lastDiffSig = "";
+    const build = writeReviewFile(state);
+    state.signature = build.signature;
+    if (build.update) state.win.webContents.send("kakapo:diff-update", build.update);
+    scheduleAnalysisPrewarm(state);
+    return { ok: true, activeBase: state.options.base ?? "auto", activeTarget: state.options.target ?? "worktree" };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
 // Welcome screen's "Open Folder" button: pick a directory; load it into the window that asked if it's a
 // git repo, else return the "not-git" code so the welcome renderer can show its inline hint (it keys off
 // r.error === "not-git"). This flow reports errors in-page, so — unlike the File menu — no native box.

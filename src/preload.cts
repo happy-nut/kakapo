@@ -115,6 +115,8 @@ contextBridge.exposeInMainWorld("kakapoGit", {
   patchSets: (): Promise<unknown> => ipcRenderer.invoke("kakapo:git-patch-sets"),
   setReviewBase: (ref: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-base", { ref }),
   setReviewTarget: (ref: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-target", { ref }),
+  // Open a two-commit range from the history view as the main review's A→B compare (both sides at once).
+  setReviewCompare: (base: string, target: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-compare", { base, target }),
 });
 
 // Self-update: ask the main process to install the latest version globally and relaunch. Only present

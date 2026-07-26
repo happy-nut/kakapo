@@ -257,6 +257,19 @@ function selectHistoryRange(focusSha, shouldScroll) {
   if (shouldScroll !== false && active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
   updateHistorySelectBar();
 }
+// Open the shift-selected range in the MAIN review (git diff older..newer), where the full comment system
+// applies, and close the history overlay. This is how an already-committed / merged range becomes a
+// comment-able review. Falls back to the read-only in-history detail for a single commit or in serve mode.
+function reviewHistoryRangeInMain() {
+  var ep = historyRangeEndpoints();
+  if (!ep || !ep.isRange || !window.kakapoGit || typeof window.kakapoGit.setReviewCompare !== 'function') {
+    openHistoryCurrentSelection();
+    return;
+  }
+  Promise.resolve(window.kakapoGit.setReviewCompare(ep.olderSha, ep.newerSha)).then(function (res) {
+    if (res && res.ok) closeHistory();
+  }).catch(function () {});
+}
 // Open whatever is currently selected: the range diff when a span is selected, else the single commit.
 function openHistoryCurrentSelection() {
   var ep = historyRangeEndpoints();
@@ -281,7 +294,9 @@ function updateHistorySelectBar() {
       + '<span class="hsel-arrow" aria-hidden="true">→</span>'
       + '<span class="hsel-sha">' + escapeHtml((ep.newerSha || '').slice(0, 7)) + '</span>'
       + '<span class="hsel-count">' + escapeHtml(ep.count + ' ' + t(ep.count === 1 ? 'history.commit' : 'history.commits')) + '</span></span>'
-      + '<span class="hsel-actions"><button type="button" id="hsel-open" class="hsel-btn hsel-open" data-keyhint="⏎">' + escapeHtml(t('history.openCompare')) + '</button>'
+      + '<span class="hsel-actions">'
+      + '<button type="button" id="hsel-review" class="hsel-btn hsel-open" data-keyhint="⏎">' + escapeHtml(t('history.reviewCompare')) + '</button>'
+      + '<button type="button" id="hsel-open" class="hsel-btn">' + escapeHtml(t('history.quickLook')) + '</button>'
       + '<button type="button" id="hsel-clear" class="hsel-btn">' + escapeHtml(t('history.clearRange')) + '</button></span>';
   } else if (historyActiveSha) {
     bar.classList.remove('hidden');
@@ -1079,7 +1094,7 @@ function handleHistoryKey(e) {
       if (file) historyShowFile(file.path, file.hunk, true);
       focusHistoryDiff();
     } else {
-      openHistoryCurrentSelection(); // open the compare range if one is selected, else the single commit
+      reviewHistoryRangeInMain(); // Enter: open the range in the main review (comments); single commit -> read-only
     }
     return true;
   }
@@ -1109,7 +1124,8 @@ function handleHistoryKey(e) {
   });
   var selBar = document.getElementById('history-select-bar');
   if (selBar) selBar.addEventListener('click', function (e) {
-    if (e.target.closest && e.target.closest('#hsel-open')) openHistoryCurrentSelection();
+    if (e.target.closest && e.target.closest('#hsel-review')) reviewHistoryRangeInMain(); // open in main review (comments)
+    else if (e.target.closest && e.target.closest('#hsel-open')) openHistoryCurrentSelection(); // read-only quick look
     else if (e.target.closest && e.target.closest('#hsel-clear')) clearHistoryRange();
   });
   var search = document.getElementById('history-search');

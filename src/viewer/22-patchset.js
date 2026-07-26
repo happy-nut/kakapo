@@ -48,12 +48,17 @@ function patchSetTargetLabel(data) {
 function renderPatchSetBar() {
   var bar = patchSetBarEl();
   if (!bar) return;
-  if (!patchSetData || !patchSetData.commits.length) { bar.classList.add('hidden'); return; }
+  // Show whenever there are patch sets to pick, OR the review is in an A→B compare (target set — e.g. a range
+  // opened from the Cmd+9 history), so the reviewer always sees what's being compared and can exit.
+  var inCompare = !!patchSetData && (patchSetData.activeTarget || 'worktree') !== 'worktree';
+  if (!patchSetData || (!patchSetData.commits.length && !inCompare)) { bar.classList.add('hidden'); return; }
   bar.classList.remove('hidden');
   var b = document.getElementById('patchset-current');
   if (b) b.textContent = patchSetBaseLabel(patchSetData);
   var tg = document.getElementById('patchset-target-current');
   if (tg) tg.textContent = patchSetTargetLabel(patchSetData);
+  var reset = document.getElementById('patchset-reset');
+  if (reset) reset.classList.toggle('hidden', !inCompare); // exit-compare only shown while comparing A→B
 }
 
 function patchSetRow(ref, title, meta, active) {
@@ -176,6 +181,12 @@ function initPatchSetBar() {
   if ((!baseBtn && !targetBtn) || !window.kakapoGit) return; // browser/serve mode, or bar not present
   if (baseBtn) baseBtn.addEventListener('click', function (e) { e.stopPropagation(); togglePatchSetPopover('base'); });
   if (targetBtn) targetBtn.addEventListener('click', function (e) { e.stopPropagation(); togglePatchSetPopover('target'); });
+  var resetBtn = document.getElementById('patchset-reset');
+  if (resetBtn) resetBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (!window.kakapoGit || typeof window.kakapoGit.setReviewCompare !== 'function') return;
+    Promise.resolve(window.kakapoGit.setReviewCompare('auto', 'worktree')).then(function () { refreshPatchSets(); }).catch(function () {});
+  });
   document.addEventListener('click', function (e) {
     if (!patchSetPopoverWhich) return;
     var pop = document.getElementById('patchset-popover');
