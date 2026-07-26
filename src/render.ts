@@ -367,6 +367,21 @@ export function renderDiffHtml(input: {
     '<button type="button" id="diff-open-source" class="diff-tool-button" data-keyhint="⌘↓" data-i18n-title="diff.openSource" data-i18n-aria="diff.openSource" title="Open source (Cmd/Ctrl+Down)" aria-label="Open source"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5h4l1.5 2h5.5v9h-11z"/><path d="m6 10 2 2 2-2M8 7v5"/></svg></button>',
     '</div>',
     "</div>",
+    // Patch-set compare bar (Electron only): pick an earlier patch set as the diff base; the right side
+    // stays the working tree ("latest"). The base button opens a popover the viewer module fills from
+    // kakapoGit.patchSets(). This is a revision selector — distinct from the per-file path .diff-pane-header
+    // below, which the diff nav fills with the focused file's old→new path.
+    input.app
+      ? '<div class="patchset-bar" id="patchset-bar" role="group" data-i18n-aria="patchset.bar" aria-label="Compare base">'
+        + '<button type="button" id="patchset-base-btn" class="patchset-base-btn" aria-haspopup="listbox" aria-expanded="false" data-i18n-title="patchset.pick" title="Choose a patch set to compare against">'
+        + '<span class="patchset-kind" data-i18n="patchset.base">Base</span>'
+        + '<span class="patchset-current" id="patchset-current"></span>'
+        + '<svg class="patchset-chev" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>'
+        + '</button>'
+        + '<span class="patchset-arrow" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg></span>'
+        + '<span class="patchset-latest"><span class="patchset-kind" data-i18n="patchset.workingTree">Working tree</span><span class="patchset-latest-tag" data-i18n="patchset.latest">latest</span></span>'
+        + '</div>'
+      : '',
     '<div class="diff-pane-header" data-i18n-aria="diff.panes" aria-label="Diff panes">',
     '<div class="diff-pane diff-pane-base"><span class="diff-pane-kind" data-i18n="diff.base">Base</span><span id="diff-before-path" class="diff-pane-path"></span></div>',
     '<div class="diff-pane diff-pane-working"><span class="diff-pane-kind" data-i18n="diff.workingTree">Working tree</span><span id="diff-after-path" class="diff-pane-path"></span></div>',
@@ -563,6 +578,10 @@ export function renderDiffHtml(input: {
     '<input id="history-search" type="search" class="history-search" autocomplete="off" spellcheck="false" data-i18n-ph="history.search" placeholder="Filter by message or author">',
     '<button type="button" id="history-close" class="dock-btn" data-keyhint="Esc" data-i18n-title="history.close" title="Close" aria-label="Close">&times;</button>',
     "</div>",
+    // Selection/compare status strip: shows how to compare (hint) when one commit is selected, and the
+    // pending two-commit compare (with Open/Clear) once a range is shift-selected. The visible affordance
+    // for picking patch sets to compare.
+    '<div id="history-select-bar" class="history-select-bar hidden" aria-live="polite"></div>',
     '<div class="history-body">',
     '<div id="history-list" class="history-list"></div>',
     '<div id="history-detail-backdrop" class="history-detail-backdrop hidden" aria-hidden="true"></div>',

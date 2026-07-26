@@ -191,6 +191,35 @@ ipcMain.handle("kakapo:memo-delete", (event) => {
   memoStore().remove(state.options.root);
   return { ok: true };
 });
+// Patch-set compare bar: switch the diff base to a chosen patch set (or "auto" to restore the automatic
+// upstream merge-base). Mirrors the "Ignore whitespace" menu toggle — mutate this window's options,
+// rebuild, and push the diff in place (like refreshIfChanged) so comments/scroll survive. The right side
+// stays the working tree ("latest"); only the base moves, and base already threads through diff/context/
+// blame/source, so no other plumbing changes.
+ipcMain.handle("kakapo:set-review-base", (event, payload: { ref?: unknown }) => {
+  const state = stateFromEvent(event);
+  if (!state || state.win.isDestroyed()) return { ok: false };
+  const raw = typeof payload?.ref === "string" ? payload.ref.trim() : "";
+  if (!raw) return { ok: false };
+  try {
+    if (raw === "auto") {
+      state.options.base = undefined; // restore the automatic base + upstream watching
+    } else {
+      // The ref originates from the enumerated patch-set list, but validate before it reaches git diff.
+      state.options.base = validateReviewBase(state.options.root, raw);
+    }
+    state.options.staged = false; // --staged takes precedence over --base in readUnifiedDiff; clear it
+    state.lastDiffSig = ""; // re-baseline the watch fast-path against the new base
+    const build = writeReviewFile(state);
+    state.signature = build.signature;
+    if (build.update) state.win.webContents.send("kakapo:diff-update", build.update);
+    scheduleAnalysisPrewarm(state);
+    return { ok: true, activeBase: state.options.base ?? "auto" };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
 // Welcome screen's "Open Folder" button: pick a directory; load it into the window that asked if it's a
 // git repo, else return the "not-git" code so the welcome renderer can show its inline hint (it keys off
 // r.error === "not-git"). This flow reports errors in-page, so — unlike the File menu — no native box.

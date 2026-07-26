@@ -649,6 +649,48 @@ body.native-app .source-tabs {
 .diff-pane:first-child { border-right: 1px solid color-mix(in srgb, var(--active) 24%, var(--border)); }
 .diff-pane-kind { flex: none; color: var(--text); font-size: 10.5px; font-weight: 650; }
 .diff-pane-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 10.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+/* Patch-set compare bar (issue #11): base selector on the left, static "working tree · latest" on the
+   right. Sits above the per-file .diff-pane-header. */
+.patchset-bar {
+  flex: none; display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px;
+  background: color-mix(in srgb, var(--sidebar) 82%, var(--panel)); border-bottom: 1px solid var(--border);
+}
+.patchset-bar.hidden { display: none; }
+.patchset-kind { flex: none; color: var(--muted); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }
+.patchset-base-btn {
+  display: inline-flex; align-items: center; gap: 7px; flex: none; max-width: 60%;
+  padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px;
+  color: var(--text); background: var(--panel); font-size: 11.5px; line-height: 1; cursor: pointer;
+}
+.patchset-base-btn:hover { border-color: var(--active); }
+.patchset-base-btn[aria-expanded="true"] { border-color: var(--active); box-shadow: 0 0 0 2px color-mix(in srgb, var(--active) 28%, transparent); }
+.patchset-current { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.patchset-chev { flex: none; opacity: 0.7; }
+.patchset-arrow { flex: none; display: inline-flex; color: var(--muted); }
+.patchset-latest { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.patchset-latest-tag {
+  padding: 1.5px 7px; border-radius: 999px; font-size: 10px; font-weight: 650;
+  color: var(--active); background: color-mix(in srgb, var(--active) 16%, transparent);
+}
+
+/* Floating base picker, appended to <body> and positioned under the button. */
+.patchset-popover {
+  position: fixed; z-index: 80; max-width: 460px; max-height: 60vh; overflow-y: auto;
+  padding: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+.patchset-popover.hidden { display: none; }
+.patchset-option {
+  display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left;
+  padding: 6px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); cursor: pointer;
+}
+.patchset-option:hover { background: color-mix(in srgb, var(--active) 12%, transparent); }
+.patchset-option.active { background: color-mix(in srgb, var(--active) 18%, transparent); }
+.patchset-option-check { flex: none; width: 12px; color: var(--active); font-size: 11px; line-height: 1.4; }
+.patchset-option-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.patchset-option-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.patchset-option-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 10.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .source-line-wrap-toggle {
   display: inline-flex;
   align-items: center;
@@ -1918,6 +1960,25 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .history-search { flex: 1 1 auto; max-width: 440px; height: 28px; border: 1px solid var(--border); border-radius: 0; background: var(--bg); color: var(--text); padding: 0 10px; font-size: 13px; outline: none; }
 .history-search:focus { border-color: var(--active); }
 .history-bar .dock-btn { margin-left: auto; font-size: 16px; }
+/* Selection/compare strip below the history bar: hint for one commit, compare controls for a range. */
+.history-select-bar {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 30px; padding: 4px 12px; background: color-mix(in srgb, var(--sidebar) 90%, var(--panel));
+  border-bottom: 1px solid var(--border); font-size: 11.5px; color: var(--muted);
+}
+.history-select-bar.hidden { display: none; }
+.history-select-bar.has-range { color: var(--text); }
+.hsel-hint { color: var(--muted); }
+.hsel-info { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.hsel-kind { color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; font-size: 10px; }
+.hsel-sha { font: 11.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); }
+.hsel-arrow { color: var(--muted); }
+.hsel-count { color: var(--muted); }
+.hsel-actions { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.hsel-btn { padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--text); font-size: 11px; font-weight: 600; line-height: 1.4; cursor: pointer; }
+.hsel-btn:hover { border-color: var(--active); }
+.hsel-btn.hsel-open { color: var(--active); border-color: color-mix(in srgb, var(--active) 45%, var(--border)); }
+.hrow { -webkit-user-select: none; user-select: none; } /* double-click activates, never selects row text */
 .history-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; overflow: hidden; }
 .history-list { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 4px 0; }
 .history-detail-backdrop {
@@ -1968,6 +2029,16 @@ body.native-app .explain-bar button { -webkit-app-region: no-drag; }
 .hrow { display: grid; grid-template-columns: var(--hgraph-w, 62px) minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; height: 26px; padding: 0 12px 0 0; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; font-size: 12.5px; }
 .hrow:hover { background: color-mix(in srgb, var(--active) 8%, transparent); }
 .hrow.active { background: color-mix(in srgb, var(--active) 16%, transparent); }
+/* Shift-select compare range: commits between the two endpoints get a subtle band; the endpoints a bar. */
+.hrow.in-range { background: color-mix(in srgb, var(--active) 12%, transparent); }
+.hrow.in-range.active { background: color-mix(in srgb, var(--active) 22%, transparent); }
+.hrow.range-end { box-shadow: inset 2px 0 0 var(--active); }
+/* Range compare detail header (two-commit span). */
+.hd-subject.hd-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hd-range-kind { color: var(--muted); font-weight: 600; }
+.hd-range .hd-hash { font: 12px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); }
+.hd-range-arrow { color: var(--muted); }
+.hd-range-count { color: var(--muted); font-size: 11px; }
 .hgraph-cell { height: 26px; line-height: 0; }
 .hgraph { display: block; overflow: visible; }
 /* Filtering breaks the contiguous graph, so hide the lane column and show a flat list (IntelliJ does too). */

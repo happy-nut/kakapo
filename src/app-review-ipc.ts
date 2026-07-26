@@ -1,6 +1,7 @@
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { performHttpRequest, renderLazyDiffBody, type HttpSendRequest } from "./cli.js";
-import { readGitLog, readGitLineLog, readGitBlame, readCommitDiff } from "./git-log.js";
+import { readGitLog, readGitLineLog, readGitBlame, readCommitDiff, readRangeDiff } from "./git-log.js";
+import { readPatchSets } from "./patch-sets.js";
 import { materializeDeferredSourceFile } from "./diff.js";
 import { searchProject } from "./search.js";
 import type { AnalysisRequest, ProjectAnalysis } from "./analysis.js";
@@ -159,5 +160,27 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     const state = stateFromEvent(event);
     if (!state || !request?.sha) return null;
     try { return readCommitDiff(state.options.root, request.sha); } catch { return null; }
+  });
+
+  // Combined diff between two commits shift-selected in the history view (readRangeDiff validates the SHAs).
+  ipc.handle("kakapo:git-range-diff", (event, request: { oldSha?: string; newSha?: string }) => {
+    const state = stateFromEvent(event);
+    if (!state || !request?.oldSha || !request?.newSha) return null;
+    try { return readRangeDiff(state.options.root, request.oldSha, request.newSha); } catch { return null; }
+  });
+
+  // Patch sets available as diff bases for the compare bar. activeBase reflects the live review options
+  // ("auto" when no explicit base), so the renderer can highlight the current selection. Read-only; the
+  // mutating counterpart (kakapo:set-review-base) lives in app-main because it triggers a rebuild.
+  ipc.handle("kakapo:git-patch-sets", (event) => {
+    const state = stateFromEvent(event);
+    if (!state) return null;
+    try {
+      const list = readPatchSets(state.options.root);
+      // Highlight against the base the build actually resolved (a SHA), not the raw option. When no
+      // explicit base was set, reviewBase is the automatic merge-base, or undefined → the diff used HEAD.
+      list.activeBase = state.reviewBase || list.head;
+      return list;
+    } catch { return null; }
   });
 }

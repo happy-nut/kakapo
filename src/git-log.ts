@@ -192,3 +192,48 @@ export function readCommitDiff(root: string, sha: string): {
     isMerge: parents.length > 1,
   };
 }
+
+// Combined diff between two commits picked in the history view (shift-select). Endpoints semantics:
+// `git diff <old> <new>` shows the state at old vs the state at new — i.e. everything that changed after
+// the older patch set, up to the newer one. This answers "what changed between patch set A and B" when the
+// work is already committed/merged and there is no working tree to compare against. Both args are commit
+// SHAs owned by the history snapshot; validate them before they reach git. Returns the same shape as
+// readCommitDiff (plus range fields) so the renderer can reuse the history diff workspace.
+export function readRangeDiff(root: string, oldSha: string, newSha: string): {
+  range: true;
+  oldHash: string;
+  newHash: string;
+  oldShort: string;
+  newShort: string;
+  oldSubject: string;
+  newSubject: string;
+  count: number;
+  diffHtml: string;
+  fileStatus: Record<string, string>;
+  isMerge: false;
+} | null {
+  if (!/^[0-9a-fA-F]{4,64}$/.test(oldSha) || !/^[0-9a-fA-F]{4,64}$/.test(newSha)) return null;
+  const oldMeta = git(root, ["show", "-s", `--pretty=format:%h${FS}%s`, oldSha]);
+  const newMeta = git(root, ["show", "-s", `--pretty=format:%h${FS}%s`, newSha]);
+  if (!oldMeta || !newMeta) return null;
+  const oldFields = oldMeta.split(FS);
+  const newFields = newMeta.split(FS);
+  // Commits introduced between the two endpoints (for the "N commits" header). Empty/0 for unrelated refs.
+  const count = Number(git(root, ["rev-list", "--count", `${oldSha}..${newSha}`])) || 0;
+  const diffText = git(root, ["diff", "--relative", "--no-color", "--find-renames", oldSha, newSha, "--", "."]).replace(/^\n+/, "");
+  const fileStatus: Record<string, string> = {};
+  for (const file of parseUnifiedDiff(diffText)) fileStatus[file.displayPath] = file.status;
+  return {
+    range: true,
+    oldHash: oldSha,
+    newHash: newSha,
+    oldShort: oldFields[0] || oldSha.slice(0, 7),
+    newShort: newFields[0] || newSha.slice(0, 7),
+    oldSubject: oldFields[1] || "",
+    newSubject: newFields[1] || "",
+    count,
+    diffHtml: renderDiff2Html(diffText),
+    fileStatus,
+    isMerge: false,
+  };
+}
