@@ -28,6 +28,8 @@ const MAX_CONTEXT_LINES = 1_000;
 export function readReviewDiffContext(input: {
   root: string;
   base?: string;
+  // A→B compare: read the new-side context from this revision (commit B) instead of the working tree.
+  target?: string;
   staged: boolean;
   bodyDiffs: string[];
   request: DiffContextRequest;
@@ -60,9 +62,11 @@ export function readReviewDiffContext(input: {
     : readGitBlob(root, `${input.staged ? "HEAD" : input.base || "HEAD"}:${gitPath(file.oldPath)}`);
   const newText = file.newPath === "/dev/null"
     ? ""
-    : input.staged
-      ? readGitBlob(root, `:${gitPath(file.newPath)}`)
-      : readWorktreeFile(workspaceRoot, file.newPath);
+    : input.target
+      ? readGitBlob(root, `${input.target}:${gitPath(file.newPath)}`)
+      : input.staged
+        ? readGitBlob(root, `:${gitPath(file.newPath)}`)
+        : readWorktreeFile(workspaceRoot, file.newPath);
 
   if (oldText === null && file.oldPath !== "/dev/null") return empty("Base source is unavailable");
   if (newText === null && file.newPath !== "/dev/null") return empty("Working source is unavailable");

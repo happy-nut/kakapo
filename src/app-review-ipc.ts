@@ -10,7 +10,7 @@ import { readReviewDiffContext, type DiffContextRequest } from "./diff-context.j
 import type { ProjectIndexPayload, SourceFile } from "./types.js";
 
 export type ReviewIpcState = {
-  options: { root: string; base?: string; staged: boolean };
+  options: { root: string; base?: string; target?: string; staged: boolean };
   signature: string;
   bodyDiffs: string[];
   bodyCache: Map<number, string>;
@@ -18,6 +18,7 @@ export type ReviewIpcState = {
   analysis: ProjectAnalysis;
   perf: ReviewPerformanceTrace;
   reviewBase?: string;
+  reviewTarget?: string;
 };
 
 type ReviewIpcEvent = IpcMainEvent | IpcMainInvokeEvent;
@@ -46,7 +47,7 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     const record = state.sourceFiles.get(path);
     if (!record) return null;
     if (!record.deferred) return record;
-    const materialized = materializeDeferredSourceFile(state.options.root, record);
+    const materialized = materializeDeferredSourceFile(state.options.root, record, state.reviewTarget ?? state.options.target);
     state.sourceFiles.set(path, materialized);
     return materialized;
   });
@@ -70,6 +71,7 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     return readReviewDiffContext({
       root: state.options.root,
       base: state.reviewBase ?? state.options.base,
+      target: state.reviewTarget ?? state.options.target,
       staged: state.options.staged,
       bodyDiffs: state.bodyDiffs,
       request,
@@ -152,7 +154,7 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     if (!state || !path || !state.sourceFiles.has(path)) return [];
     const revision = request?.side === "old"
       ? (state.reviewBase ?? state.options.base ?? "HEAD")
-      : undefined;
+      : (state.reviewTarget ?? state.options.target); // A→B: new-side blame is commit B, else working tree
     try { return readGitBlame(state.options.root, path, revision); } catch { return []; }
   });
 
@@ -180,6 +182,8 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
       // Highlight against the base the build actually resolved (a SHA), not the raw option. When no
       // explicit base was set, reviewBase is the automatic merge-base, or undefined → the diff used HEAD.
       list.activeBase = state.reviewBase || list.head;
+      // Right side: a chosen patch set (commit) or the working tree ("worktree" sentinel).
+      list.activeTarget = state.reviewTarget ?? state.options.target ?? "worktree";
       return list;
     } catch { return null; }
   });

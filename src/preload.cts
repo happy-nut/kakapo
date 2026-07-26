@@ -114,6 +114,7 @@ contextBridge.exposeInMainWorld("kakapoGit", {
   // Patch-set compare bar: list selectable bases, and switch the diff base to one (or "auto").
   patchSets: (): Promise<unknown> => ipcRenderer.invoke("kakapo:git-patch-sets"),
   setReviewBase: (ref: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-base", { ref }),
+  setReviewTarget: (ref: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-target", { ref }),
 });
 
 // Self-update: ask the main process to install the latest version globally and relaunch. Only present

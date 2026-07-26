@@ -14,6 +14,9 @@ export type PatchSetList = {
   // Currently active base as the review options hold it: a commit SHA, a ref name (CLI --base), or the
   // sentinel "auto" (no explicit base — the automatic merge-base/HEAD). Drives which row is highlighted.
   activeBase: string;
+  // Currently active right/target side: a commit SHA, or the sentinel "worktree" (compare against the
+  // working tree — today's default). Filled by the IPC handler from the live options.
+  activeTarget: string;
   // The branch point the "All changes" (Auto) row diffs against: the upstream merge-base, or the
   // merge-base with a conventional default branch. Absent when neither can be resolved.
   branchPoint?: { sha: string; label: string };
@@ -78,6 +81,7 @@ export function readPatchSets(root: string): PatchSetList {
   }
   return {
     activeBase: "",
+    activeTarget: "worktree",
     branchPoint: branchPoint ? { sha: branchPoint.sha, label: branchPoint.label } : undefined,
     upstream: branchPoint?.upstream,
     head,

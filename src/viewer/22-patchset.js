@@ -1,57 +1,61 @@
-// ===== Patch-set compare bar: pick an earlier patch set as the diff base (issue #11). =====
-// The right side of the review is always the working tree ("latest"); this bar only moves the base.
-// Data comes from window.kakapoGit.patchSets(); selecting a row calls setReviewBase(ref), and the
-// resulting in-place kakapo:diff-update repaints the diff (same path the watch loop uses). Electron only
-// — the bar markup is gated on input.app and the bridge (window.kakapoGit) is absent in browser/serve.
+// ===== Patch-set compare bar: pick base (A) and target (B) to compare (issue #11). =====
+// Left dropdown picks the base; right dropdown picks the target — a patch set, or "Working tree · latest"
+// (the default, = today's base-vs-working-tree). Data comes from window.kakapoGit.patchSets(); selecting
+// calls setReviewBase / setReviewTarget and the resulting in-place kakapo:diff-update repaints the diff.
+// Electron only — the bar markup is gated on input.app and window.kakapoGit is absent in browser/serve.
 
-var patchSetData = null; // last { activeBase, branchPoint, upstream, head, commits[] } from main
-var patchSetPopoverOpen = false;
+var patchSetData = null; // last { activeBase, activeTarget, branchPoint, upstream, head, commits[] }
+var patchSetPopoverWhich = null; // null | 'base' | 'target' — which dropdown the popover is open for
 
 function patchSetBarEl() { return document.getElementById('patchset-bar'); }
-function patchSetBtnEl() { return document.getElementById('patchset-base-btn'); }
+function patchSetBaseBtn() { return document.getElementById('patchset-base-btn'); }
+function patchSetTargetBtn() { return document.getElementById('patchset-target-btn'); }
 
-// A compact one-line summary of the active base for the button face.
 function patchSetShortRef(ref) {
   if (!ref) return '';
   var trimmed = String(ref).replace(/^refs\/heads\//, '').replace(/^refs\/remotes\//, '');
   return trimmed.length > 28 ? trimmed.slice(0, 27) + '…' : trimmed;
 }
-
 function patchSetShortDate(iso) {
   if (!iso) return '';
   var d = new Date(iso);
   if (isNaN(d.getTime())) return '';
   var now = new Date();
-  var opts = d.getFullYear() === now.getFullYear()
-    ? { month: 'short', day: 'numeric' }
-    : { year: 'numeric', month: 'short', day: 'numeric' };
+  var opts = d.getFullYear() === now.getFullYear() ? { month: 'short', day: 'numeric' } : { year: 'numeric', month: 'short', day: 'numeric' };
   try { return d.toLocaleDateString(undefined, opts); } catch (e) { return iso.slice(0, 10); }
 }
+function patchSetCommitBySha(data, sha) {
+  for (var i = 0; i < data.commits.length; i++) if (data.commits[i].sha === sha) return { commit: data.commits[i], index: i };
+  return null;
+}
 
-// The label shown on the button for whatever base is currently active.
-function patchSetActiveLabel(data) {
+// Button labels for the two active selections.
+function patchSetBaseLabel(data) {
   var active = data.activeBase || 'auto';
   if (active === 'auto') return data.branchPoint ? patchSetShortRef(data.branchPoint.label) : 'HEAD';
   if (data.branchPoint && active === data.branchPoint.sha) return patchSetShortRef(data.branchPoint.label);
-  for (var i = 0; i < data.commits.length; i++) {
-    if (data.commits[i].sha === active) return data.commits[i].shortSha;
-  }
-  return patchSetShortRef(active); // a CLI --base ref that isn't one of the enumerated patch sets
+  var hit = patchSetCommitBySha(data, active);
+  return hit ? hit.commit.shortSha : patchSetShortRef(active);
+}
+function patchSetTargetLabel(data) {
+  var active = data.activeTarget || 'worktree';
+  if (active === 'worktree') return t('patchset.workingTree');
+  var hit = patchSetCommitBySha(data, active);
+  return hit ? hit.commit.shortSha : patchSetShortRef(active);
 }
 
-// Refresh the bar face from the latest data. The bar only makes sense when the branch has at least one
-// patch set ahead of its branch point; otherwise every option collapses to "vs HEAD", so hide it and
-// leave today's plain working-tree-vs-HEAD review untouched.
+// Refresh both button faces. Hidden when the branch has no patch sets ahead (nothing to compare).
 function renderPatchSetBar() {
   var bar = patchSetBarEl();
   if (!bar) return;
   if (!patchSetData || !patchSetData.commits.length) { bar.classList.add('hidden'); return; }
   bar.classList.remove('hidden');
-  var current = document.getElementById('patchset-current');
-  if (current) current.textContent = patchSetActiveLabel(patchSetData);
+  var b = document.getElementById('patchset-current');
+  if (b) b.textContent = patchSetBaseLabel(patchSetData);
+  var tg = document.getElementById('patchset-target-current');
+  if (tg) tg.textContent = patchSetTargetLabel(patchSetData);
 }
 
-// Build one selectable row. ref is what setReviewBase receives ("auto" or a commit SHA).
 function patchSetRow(ref, title, meta, active) {
   return '<button type="button" class="patchset-option' + (active ? ' active' : '') + '" role="option"'
     + ' aria-selected="' + (active ? 'true' : 'false') + '" data-ref="' + escapeHtml(ref) + '">'
@@ -61,34 +65,39 @@ function patchSetRow(ref, title, meta, active) {
     + (meta ? '<span class="patchset-option-meta">' + escapeHtml(meta) + '</span>' : '')
     + '</span></button>';
 }
+function patchSetCommitRow(data, index, activeRef) {
+  var c = data.commits[index];
+  var title = t('patchset.set') + ' ' + (index + 1) + ' · ' + c.subject;
+  var meta = c.shortSha + (c.date ? ' · ' + patchSetShortDate(c.date) : '');
+  return patchSetRow(c.sha, title, meta, c.sha === activeRef);
+}
 
 function renderPatchSetPopover() {
   var pop = document.getElementById('patchset-popover');
   if (!pop || !patchSetData) return;
-  var active = patchSetData.activeBase || 'auto';
   var rows = [];
-  // "All changes" — diff the whole branch: branch point → latest working tree. Send the branch-point SHA
-  // explicitly (not "auto"): the automatic base falls back to HEAD on a dirty tree or with no upstream,
-  // which would hide the committed history. The branch point is resolvable in those cases too.
-  if (patchSetData.branchPoint) {
-    var allRef = patchSetData.branchPoint.sha;
-    var allMeta = t('patchset.branchPoint') + ' · ' + patchSetShortRef(patchSetData.branchPoint.label);
-    rows.push(patchSetRow(allRef, t('patchset.allChanges'), allMeta, active === allRef));
-  }
-  // Each commit ahead of the branch point = one patch set, oldest → newest. Selecting one shows
-  // everything after it, up to the latest working tree.
-  for (var i = 0; i < patchSetData.commits.length; i++) {
-    var c = patchSetData.commits[i];
-    var title = t('patchset.set') + ' ' + (i + 1) + ' · ' + c.subject;
-    var meta = c.shortSha + (c.date ? ' · ' + patchSetShortDate(c.date) : '');
-    rows.push(patchSetRow(c.sha, title, meta, c.sha === active));
+  var i;
+  if (patchSetPopoverWhich === 'target') {
+    var at = patchSetData.activeTarget || 'worktree';
+    rows.push(patchSetRow('worktree', t('patchset.workingTree'), t('patchset.latest'), at === 'worktree'));
+    for (i = 0; i < patchSetData.commits.length; i++) rows.push(patchSetCommitRow(patchSetData, i, at));
+  } else {
+    var ab = patchSetData.activeBase || 'auto';
+    if (patchSetData.branchPoint) {
+      var allRef = patchSetData.branchPoint.sha;
+      var allMeta = t('patchset.branchPoint') + ' · ' + patchSetShortRef(patchSetData.branchPoint.label);
+      rows.push(patchSetRow(allRef, t('patchset.allChanges'), allMeta, ab === allRef));
+    }
+    for (i = 0; i < patchSetData.commits.length; i++) rows.push(patchSetCommitRow(patchSetData, i, ab));
   }
   pop.innerHTML = rows.join('');
 }
 
+function patchSetActiveBtn() { return patchSetPopoverWhich === 'target' ? patchSetTargetBtn() : patchSetBaseBtn(); }
+
 function positionPatchSetPopover() {
   var pop = document.getElementById('patchset-popover');
-  var btn = patchSetBtnEl();
+  var btn = patchSetActiveBtn();
   if (!pop || !btn) return;
   var r = btn.getBoundingClientRect();
   pop.style.top = Math.round(r.bottom + 4) + 'px';
@@ -99,13 +108,14 @@ function positionPatchSetPopover() {
 function closePatchSetPopover() {
   var pop = document.getElementById('patchset-popover');
   if (pop) pop.classList.add('hidden');
-  var btn = patchSetBtnEl();
-  if (btn) btn.setAttribute('aria-expanded', 'false');
-  patchSetPopoverOpen = false;
+  var b = patchSetBaseBtn(); if (b) b.setAttribute('aria-expanded', 'false');
+  var tg = patchSetTargetBtn(); if (tg) tg.setAttribute('aria-expanded', 'false');
+  patchSetPopoverWhich = null;
 }
 
-function openPatchSetPopover() {
+function openPatchSetPopover(which) {
   if (!patchSetData) return;
+  patchSetPopoverWhich = which;
   var pop = document.getElementById('patchset-popover');
   if (!pop) {
     pop = document.createElement('div');
@@ -117,63 +127,67 @@ function openPatchSetPopover() {
       var opt = e.target.closest ? e.target.closest('.patchset-option') : null;
       if (!opt) return;
       var ref = opt.getAttribute('data-ref');
+      var which = patchSetPopoverWhich;
       closePatchSetPopover();
-      if (ref) selectPatchSetBase(ref);
+      if (ref) selectPatchSet(which, ref);
     });
   }
   renderPatchSetPopover();
   pop.classList.remove('hidden');
   positionPatchSetPopover();
-  var btn = patchSetBtnEl();
+  var btn = patchSetActiveBtn();
   if (btn) btn.setAttribute('aria-expanded', 'true');
-  patchSetPopoverOpen = true;
 }
 
-function togglePatchSetPopover() {
-  if (patchSetPopoverOpen) closePatchSetPopover(); else openPatchSetPopover();
+function togglePatchSetPopover(which) {
+  if (patchSetPopoverWhich === which) closePatchSetPopover(); else openPatchSetPopover(which);
 }
 
-// Ask main to switch the base, then refresh the bar. The diff itself repaints via kakapo:diff-update.
-function selectPatchSetBase(ref) {
-  if (!window.kakapoGit || typeof window.kakapoGit.setReviewBase !== 'function') return;
-  if (patchSetData && (patchSetData.activeBase || 'auto') === ref) return; // no-op reselection
-  Promise.resolve(window.kakapoGit.setReviewBase(ref)).then(function (res) {
-    if (res && res.ok && patchSetData) {
-      patchSetData.activeBase = res.activeBase || ref;
-      renderPatchSetBar();
-    }
-    // A full refresh follows anyway when the diff-update lands; this keeps the face responsive meanwhile.
-  }).catch(function () {});
+// Ask main to switch the base or target, then refresh the bar face. The diff repaints via kakapo:diff-update.
+function selectPatchSet(which, ref) {
+  if (!window.kakapoGit) return;
+  if (which === 'target') {
+    if (typeof window.kakapoGit.setReviewTarget !== 'function') return;
+    if (patchSetData && (patchSetData.activeTarget || 'worktree') === ref) return;
+    Promise.resolve(window.kakapoGit.setReviewTarget(ref)).then(function (res) {
+      if (res && res.ok && patchSetData) { patchSetData.activeTarget = res.activeTarget || ref; renderPatchSetBar(); }
+    }).catch(function () {});
+  } else {
+    if (typeof window.kakapoGit.setReviewBase !== 'function') return;
+    if (patchSetData && (patchSetData.activeBase || 'auto') === ref) return;
+    Promise.resolve(window.kakapoGit.setReviewBase(ref)).then(function (res) {
+      if (res && res.ok && patchSetData) { patchSetData.activeBase = res.activeBase || ref; renderPatchSetBar(); }
+    }).catch(function () {});
+  }
 }
 
-// (Re)load the patch-set list from main and repaint the bar. Called on init and after every diff update
-// (a new commit adds a patch set; a base switch changes the active row).
 function refreshPatchSets() {
   if (!window.kakapoGit || typeof window.kakapoGit.patchSets !== 'function') return;
   Promise.resolve(window.kakapoGit.patchSets()).then(function (data) {
     patchSetData = (data && Array.isArray(data.commits)) ? data : null;
     renderPatchSetBar();
-    if (patchSetPopoverOpen) { renderPatchSetPopover(); positionPatchSetPopover(); }
+    if (patchSetPopoverWhich) { renderPatchSetPopover(); positionPatchSetPopover(); }
   }).catch(function () { patchSetData = null; renderPatchSetBar(); });
 }
 
 function initPatchSetBar() {
-  var btn = patchSetBtnEl();
-  if (!btn || !window.kakapoGit) return; // browser/serve mode, or bar not present
-  btn.addEventListener('click', function (e) { e.stopPropagation(); togglePatchSetPopover(); });
-  // Dismiss on outside click / Escape / scroll of the diff.
+  var baseBtn = patchSetBaseBtn();
+  var targetBtn = patchSetTargetBtn();
+  if ((!baseBtn && !targetBtn) || !window.kakapoGit) return; // browser/serve mode, or bar not present
+  if (baseBtn) baseBtn.addEventListener('click', function (e) { e.stopPropagation(); togglePatchSetPopover('base'); });
+  if (targetBtn) targetBtn.addEventListener('click', function (e) { e.stopPropagation(); togglePatchSetPopover('target'); });
   document.addEventListener('click', function (e) {
-    if (!patchSetPopoverOpen) return;
+    if (!patchSetPopoverWhich) return;
     var pop = document.getElementById('patchset-popover');
     if (pop && pop.contains(e.target)) return;
-    if (btn.contains(e.target)) return;
+    if (baseBtn && baseBtn.contains(e.target)) return;
+    if (targetBtn && targetBtn.contains(e.target)) return;
     closePatchSetPopover();
   });
   document.addEventListener('keydown', function (e) {
-    if (patchSetPopoverOpen && (e.key === 'Escape' || e.key === 'Esc')) { closePatchSetPopover(); }
+    if (patchSetPopoverWhich && (e.key === 'Escape' || e.key === 'Esc')) closePatchSetPopover();
   });
-  window.addEventListener('resize', function () { if (patchSetPopoverOpen) positionPatchSetPopover(); });
-  // Refresh the list whenever the diff is rebuilt in place (watch tick or our own base switch).
+  window.addEventListener('resize', function () { if (patchSetPopoverWhich) positionPatchSetPopover(); });
   if (window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function') {
     window.kakapoMenu.onDiffUpdate(function () { try { refreshPatchSets(); } catch (err) {} });
   }

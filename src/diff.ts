@@ -20,6 +20,9 @@ const sourceContentCache = new Map<string, { mtimeMs: number; size: number; cont
 
 export function readUnifiedDiff(options: {
   base?: string;
+  // Right/new side. When set, the review compares two revisions A..B (base vs target) instead of
+  // base-vs-working-tree — used to review already-committed/merged patch sets. base is required here.
+  target?: string;
   staged: boolean;
   context: number;
   includeUntracked: boolean;
@@ -32,7 +35,10 @@ export function readUnifiedDiff(options: {
   const root = canonicalWorkspaceRoot(options.root ?? process.cwd());
   const args = ["diff", "--no-ext-diff", "--find-renames", "--relative", `--unified=${options.context}`];
   if (options.ignoreWhitespace) args.push("--ignore-all-space");
-  if (options.staged) {
+  if (options.target) {
+    // Two-revision compare: no working tree/index side, so no --cached and no untracked append.
+    args.push(options.base ?? "HEAD", options.target);
+  } else if (options.staged) {
     args.push("--cached");
   } else {
     args.push(options.base ?? "HEAD");
@@ -49,7 +55,7 @@ export function readUnifiedDiff(options: {
   }
 
   const chunks = [result.stdout ?? ""];
-  if (options.includeUntracked && !options.staged) {
+  if (options.includeUntracked && !options.staged && !options.target) {
     chunks.push(readUntrackedDiff(options.context, root));
   }
   return chunks.filter(Boolean).join("\n");
@@ -261,6 +267,9 @@ export function collectSourceFiles(
     deferSourceContent?: boolean;
     maxTotalBytes?: number;
     maxFiles?: number;
+    // A→B compare: serve the source content of each changed file from this revision (commit B) instead of
+    // the working tree, so comments (remap / anchor / Cmd+1) reconcile against B. app-only path.
+    target?: string;
   } = {},
 ): SourceFile[] {
   const maxFileBytes = options.previewLargeText ? SOURCE_MAX_LAZY_FILE_BYTES : SOURCE_MAX_FILE_BYTES;
@@ -283,7 +292,9 @@ export function collectSourceFiles(
     changedLinesByPath.set(file.displayPath, nums);
   }
   const root = canonicalWorkspaceRoot(rootArg ?? process.cwd());
-  const vcsByPath = gitStatusMap(root);
+  const target = options.target;
+  // In A→B compare there is no working-tree status; color the Changes list from the diff's own file status.
+  const vcsByPath = target ? diffStatusVcsMap(diffFiles) : gitStatusMap(root);
   for (const file of diffFiles) {
     const kind = vcsByPath.get(file.displayPath);
     if (kind) file.vcs = kind; // color the Changes list from the same status map
@@ -319,6 +330,14 @@ export function collectSourceFiles(
       signature: "",
       vcs: vcsByPath.get(path),
     };
+
+    // A→B compare: changed files are served from commit B on demand (materializeDeferredSourceFile reads the
+    // blob). Deferring keeps the read off the build path and reuses the existing lazy get-source IPC. Files
+    // deleted in the working tree but present in B are therefore NOT skipped here.
+    if (target && base.changed) {
+      sourceFiles.push({ ...base, embedded: true, deferred: true, signature: hashText(`${path}\0target\0${target}`) });
+      continue;
+    }
 
     if (!existsSync(absolute)) {
       const skippedReason = "file is not present in the working tree";
@@ -403,13 +422,68 @@ export function collectSourceFiles(
   return sourceFiles;
 }
 
+// Sidebar VCS badge for A→B compare, derived from the diff's own file status (no working-tree concept).
+function diffStatusVcsMap(diffFiles: DiffFile[]): Map<string, "new" | "edited" | "staged"> {
+  const map = new Map<string, "new" | "edited" | "staged">();
+  for (const file of diffFiles) {
+    if (!file.displayPath || file.displayPath === "/dev/null") continue;
+    map.set(file.displayPath, file.status === "added" ? "new" : "edited");
+  }
+  return map;
+}
+
+// Repo-root-relative prefix for the opened workspace, so git blob specs (`<rev>:<repo-path>`) resolve for a
+// monorepo subfolder. Mirrors the prefixing in diff-context.ts.
+function workspaceGitPrefix(root: string): string {
+  const prefix = relative(repoRoot(root), root).replace(/\\/g, "/");
+  return prefix && prefix !== "." ? prefix : "";
+}
+
+// Read one file's content from commit `target` (A→B compare) instead of the working tree. Returns a fully
+// materialized SourceFile: image data URI, text content, or a skipped record (absent-in-B / binary / large).
+function readTargetBlobSource(root: string, file: SourceFile, target: string): SourceFile {
+  const prefix = workspaceGitPrefix(root);
+  const spec = `${target}:${prefix ? prefix + "/" : ""}${file.path}`;
+  const imageMime = imageMimeForPath(file.path);
+  if (imageMime) {
+    const out = spawnSync("git", ["show", spec], { cwd: root, encoding: "buffer", maxBuffer: 1024 * 1024 * 50 });
+    if (out.status !== 0) {
+      const skippedReason = "file is not present in this revision";
+      return { ...file, content: "", embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0missing-target\0${target}`) };
+    }
+    const data = out.stdout as Buffer;
+    if (data.length > IMAGE_MAX_BYTES) {
+      const skippedReason = `image larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
+      return { ...file, content: "", size: data.length, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0image-large\0${data.length}`) };
+    }
+    return { ...file, content: "", size: data.length, deferred: false, image: `data:${imageMime};base64,${data.toString("base64")}`, signature: hashText(`${file.path}\0image-target\0${data.length}`) };
+  }
+  const out = spawnSync("git", ["show", spec], { cwd: root, encoding: "utf8", maxBuffer: 1024 * 1024 * 50 });
+  if (out.status !== 0) {
+    const skippedReason = "file is not present in this revision";
+    return { ...file, content: "", embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0missing-target\0${target}`) };
+  }
+  const content = out.stdout ?? "";
+  if (content.includes("\0")) {
+    const skippedReason = "binary file";
+    return { ...file, content: "", size: content.length, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0binary-target\0${target}`) };
+  }
+  if (content.length > SOURCE_MAX_LAZY_FILE_BYTES) {
+    const skippedReason = `larger than ${formatBytes(SOURCE_MAX_LAZY_FILE_BYTES)}`;
+    return { ...file, content: "", size: content.length, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0large-target\0${content.length}`) };
+  }
+  return { ...file, content, size: content.length, embedded: true, deferred: false, skippedReason: undefined, signature: hashText(`${file.path}\0${content}`) };
+}
+
 // Materialize an app-only deferred source record after the reviewer opens it. The path is accepted only
 // after app-main has resolved it from the window's sourceFiles map, so callers cannot use this helper as
 // an arbitrary filesystem reader. Per-file size and binary guards remain enforced at request time in case
-// the working-tree file changed since the project metadata was collected.
-export function materializeDeferredSourceFile(rootArg: string, file: SourceFile): SourceFile {
+// the working-tree file changed since the project metadata was collected. In A→B compare, `target` serves
+// the file's content from commit B instead of the working tree.
+export function materializeDeferredSourceFile(rootArg: string, file: SourceFile, target?: string): SourceFile {
   if (!file.deferred) return file;
   const root = canonicalWorkspaceRoot(rootArg);
+  if (target) return readTargetBlobSource(root, file, target);
   const absolute = join(root, file.path);
   if (!existsSync(absolute)) {
     const skippedReason = "file is not present in the working tree";

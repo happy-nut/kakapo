@@ -25,6 +25,7 @@ import { installWindowSurfaceRecovery } from "./window-layout.js";
 type AppOptions = {
   root: string;
   base?: string;
+  target?: string; // A→B compare: right/new side revision (undefined = working tree)
   staged: boolean;
   includeUntracked: boolean;
   context: number;
@@ -57,6 +58,7 @@ type WinState = {
   perf: ReviewPerformanceTrace; // local startup/analysis evidence under this workspace's app-data mirror
   lastDiffSig: string; // watch fast-path: hash of the last git diff, to skip rebuilds when unchanged
   reviewBase?: string; // exact base used by the latest build (may be an automatic upstream merge-base)
+  reviewTarget?: string; // exact right/new side revision for an A→B compare (undefined = working tree)
   reviewUpstream?: string; // tracking ref behind an automatic base; included in the watch signature
   disposeWindowSurfaceRecovery: () => void;
   explainTimer?: NodeJS.Timeout; // Explain view: polls this workspace's content-spec file, independent of --watch
@@ -215,6 +217,32 @@ ipcMain.handle("kakapo:set-review-base", (event, payload: { ref?: unknown }) => 
     if (build.update) state.win.webContents.send("kakapo:diff-update", build.update);
     scheduleAnalysisPrewarm(state);
     return { ok: true, activeBase: state.options.base ?? "auto" };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+// Right/new side of the compare bar: pick a patch set as target B (A→B compare) or the sentinel
+// "worktree" to return to base-vs-working-tree. Same rebuild+in-place-update shape as set-review-base;
+// the source model then serves commit B's content so comments reconcile against B.
+ipcMain.handle("kakapo:set-review-target", (event, payload: { ref?: unknown }) => {
+  const state = stateFromEvent(event);
+  if (!state || state.win.isDestroyed()) return { ok: false };
+  const raw = typeof payload?.ref === "string" ? payload.ref.trim() : "";
+  if (!raw) return { ok: false };
+  try {
+    if (raw === "worktree") {
+      state.options.target = undefined; // compare against the working tree (today's default)
+    } else {
+      state.options.target = validateReviewBase(state.options.root, raw);
+      state.options.staged = false; // an A→B compare has no index side
+    }
+    state.lastDiffSig = "";
+    const build = writeReviewFile(state);
+    state.signature = build.signature;
+    if (build.update) state.win.webContents.send("kakapo:diff-update", build.update);
+    scheduleAnalysisPrewarm(state);
+    return { ok: true, activeTarget: state.options.target ?? "worktree" };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -633,6 +661,7 @@ function writeReviewFile(state: WinState): { signature: string; html: string; up
   state.perf.mark("review-build-start");
   const build = writeReviewWorkspace(reviewPath(state.options.root), state.options, APP_TITLE);
   state.reviewBase = build.reviewBase;
+  state.reviewTarget = build.reviewTarget;
   state.reviewUpstream = build.reviewUpstream;
   // The review artifact mirrors the workspace's absolute folder structure below userData. Different
   // repositories, nested monorepo packages, and worktrees therefore never share a file or touch source.

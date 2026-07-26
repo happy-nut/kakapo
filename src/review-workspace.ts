@@ -11,6 +11,7 @@ import type { DiffReviewUpdate, SourceFile } from "./types.js";
 export type ReviewWorkspaceOptions = {
   root: string;
   base?: string;
+  target?: string; // A→B compare: right/new side revision (undefined = working tree)
   staged: boolean;
   includeUntracked: boolean;
   context: number;
@@ -22,6 +23,7 @@ export type ReviewWorkspaceSnapshot = {
   html: string;
   update?: DiffReviewUpdate;
   reviewBase?: string;
+  reviewTarget?: string;
   reviewUpstream?: string;
   bodyDiffs: string[];
   sourceFiles: SourceFile[];
@@ -34,6 +36,7 @@ export function writeReviewWorkspace(
 ): ReviewWorkspaceSnapshot {
   const build = buildDiffReview({
     base: options.base,
+    target: options.target,
     staged: options.staged,
     includeUntracked: options.includeUntracked,
     context: options.context,
@@ -50,6 +53,7 @@ export function writeReviewWorkspace(
     html: build.html,
     update: build.update,
     reviewBase: build.reviewBase,
+    reviewTarget: build.reviewTarget,
     reviewUpstream: build.reviewUpstream,
     bodyDiffs: build.lazyBodyDiffs ?? [],
     sourceFiles: build.lazySourceFiles ?? [],
@@ -72,6 +76,7 @@ export function reviewDiffSignature(
     .update("\n")
     .update(readUnifiedDiff({
       base,
+      target: options.target,
       staged: options.staged,
       context: options.context,
       includeUntracked: options.includeUntracked,

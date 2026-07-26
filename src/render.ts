@@ -379,7 +379,10 @@ export function renderDiffHtml(input: {
         + '<svg class="patchset-chev" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>'
         + '</button>'
         + '<span class="patchset-arrow" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg></span>'
-        + '<span class="patchset-latest"><span class="patchset-kind" data-i18n="patchset.workingTree">Working tree</span><span class="patchset-latest-tag" data-i18n="patchset.latest">latest</span></span>'
+        + '<button type="button" id="patchset-target-btn" class="patchset-base-btn patchset-target-btn" aria-haspopup="listbox" aria-expanded="false" data-i18n-title="patchset.pickTarget" title="Choose the right side to compare against">'
+        + '<span class="patchset-current" id="patchset-target-current"></span>'
+        + '<svg class="patchset-chev" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>'
+        + '</button>'
         + '</div>'
       : '',
     '<div class="diff-pane-header" data-i18n-aria="diff.panes" aria-label="Diff panes">',
