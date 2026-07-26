@@ -1,15 +1,13 @@
-// ===== Patch-set compare bar: pick base (A) and target (B) to compare (issue #11). =====
-// Left dropdown picks the base; right dropdown picks the target — a patch set, or "Working tree · latest"
-// (the default, = today's base-vs-working-tree). Data comes from window.kakapoGit.patchSets(); selecting
-// calls setReviewBase / setReviewTarget and the resulting in-place kakapo:diff-update repaints the diff.
-// Electron only — the bar markup is gated on input.app and window.kakapoGit is absent in browser/serve.
+// ===== Patch-set compare bar: numbered patch-set buttons, base-left / target-right (issue #11). =====
+// Each patch set is a numbered button (1..N, oldest→newest); hovering shows its commit message. The base
+// group sits on the left, the target group on the right, matching the side-by-side diff (old | new). Base
+// also offers "All" (the branch point) and target offers "WT" (working tree · latest) in the normal local
+// case; a range opened from Cmd+9 lists only that range's own commits on both sides. Selecting refreshes
+// the diff via kakapo:diff-update. Electron only — window.kakapoGit is absent in browser/serve.
 
-var patchSetData = null; // last { activeBase, activeTarget, branchPoint, upstream, head, commits[] }
-var patchSetPopoverWhich = null; // null | 'base' | 'target' — which dropdown the popover is open for
+var patchSetData = null; // last { activeBase, activeTarget, branchPoint, upstream, head, commits[], scoped }
 
 function patchSetBarEl() { return document.getElementById('patchset-bar'); }
-function patchSetBaseBtn() { return document.getElementById('patchset-base-btn'); }
-function patchSetTargetBtn() { return document.getElementById('patchset-target-btn'); }
 
 function patchSetShortRef(ref) {
   if (!ref) return '';
@@ -24,153 +22,76 @@ function patchSetShortDate(iso) {
   var opts = d.getFullYear() === now.getFullYear() ? { month: 'short', day: 'numeric' } : { year: 'numeric', month: 'short', day: 'numeric' };
   try { return d.toLocaleDateString(undefined, opts); } catch (e) { return iso.slice(0, 10); }
 }
-function patchSetCommitBySha(data, sha) {
-  for (var i = 0; i < data.commits.length; i++) if (data.commits[i].sha === sha) return { commit: data.commits[i], index: i };
-  return null;
+function patchSetCommitTitle(index, c) {
+  var meta = c.shortSha + (c.date ? ' · ' + patchSetShortDate(c.date) : '');
+  return (index + 1) + '. ' + c.subject + '  (' + meta + ')';
 }
 
-// Button labels for the two active selections.
-function patchSetBaseLabel(data) {
+// Option list for each side: [{ ref, label, title, wide, active }].
+function patchSetBaseOptions(data) {
+  var opts = [];
   var active = data.activeBase || 'auto';
-  if (active === 'auto') return data.branchPoint ? patchSetShortRef(data.branchPoint.label) : 'HEAD';
-  if (data.branchPoint && active === data.branchPoint.sha) return patchSetShortRef(data.branchPoint.label);
-  var hit = patchSetCommitBySha(data, active);
-  return hit ? hit.commit.shortSha : patchSetShortRef(active);
+  if (!data.scoped && data.branchPoint) {
+    opts.push({
+      ref: data.branchPoint.sha, label: t('patchset.allShort'), wide: true,
+      title: t('patchset.allChanges') + ' · ' + patchSetShortRef(data.branchPoint.label),
+      active: active === 'auto' || active === data.branchPoint.sha,
+    });
+  }
+  for (var i = 0; i < data.commits.length; i++) {
+    var c = data.commits[i];
+    opts.push({ ref: c.sha, label: String(i + 1), title: patchSetCommitTitle(i, c), active: c.sha === active });
+  }
+  return opts;
 }
-function patchSetTargetLabel(data) {
+function patchSetTargetOptions(data) {
+  var opts = [];
   var active = data.activeTarget || 'worktree';
-  if (active === 'worktree') return t('patchset.workingTree');
-  var hit = patchSetCommitBySha(data, active);
-  return hit ? hit.commit.shortSha : patchSetShortRef(active);
+  for (var i = 0; i < data.commits.length; i++) {
+    var c = data.commits[i];
+    opts.push({ ref: c.sha, label: String(i + 1), title: patchSetCommitTitle(i, c), active: c.sha === active });
+  }
+  if (!data.scoped) {
+    opts.push({
+      ref: 'worktree', label: t('patchset.workingTreeShort'), wide: true,
+      title: t('patchset.workingTree') + ' · ' + t('patchset.latest'), active: active === 'worktree',
+    });
+  }
+  return opts;
 }
 
-// Refresh both button faces. Hidden when the branch has no patch sets ahead (nothing to compare).
+function patchSetNumButton(which, opt) {
+  return '<button type="button" class="patchset-num' + (opt.active ? ' active' : '') + (opt.wide ? ' patchset-num-wide' : '') + '"'
+    + ' data-which="' + which + '" data-ref="' + escapeHtml(opt.ref) + '" title="' + escapeHtml(opt.title) + '"'
+    + ' aria-pressed="' + (opt.active ? 'true' : 'false') + '">' + escapeHtml(opt.label) + '</button>';
+}
+
+// Fill both groups. Hidden when there are no patch sets to pick and no active A→B compare.
 function renderPatchSetBar() {
   var bar = patchSetBarEl();
   if (!bar) return;
-  // Show whenever there are patch sets to pick, OR the review is in an A→B compare (target set — e.g. a range
-  // opened from the Cmd+9 history), so the reviewer always sees what's being compared and can exit.
   var inCompare = !!patchSetData && (patchSetData.activeTarget || 'worktree') !== 'worktree';
   if (!patchSetData || (!patchSetData.commits.length && !inCompare)) { bar.classList.add('hidden'); return; }
   bar.classList.remove('hidden');
-  var b = document.getElementById('patchset-current');
-  if (b) b.textContent = patchSetBaseLabel(patchSetData);
-  var tg = document.getElementById('patchset-target-current');
-  if (tg) tg.textContent = patchSetTargetLabel(patchSetData);
+  var baseWrap = document.getElementById('patchset-base-nums');
+  var targetWrap = document.getElementById('patchset-target-nums');
+  if (baseWrap) baseWrap.innerHTML = patchSetBaseOptions(patchSetData).map(function (o) { return patchSetNumButton('base', o); }).join('');
+  if (targetWrap) targetWrap.innerHTML = patchSetTargetOptions(patchSetData).map(function (o) { return patchSetNumButton('target', o); }).join('');
   var reset = document.getElementById('patchset-reset');
-  if (reset) reset.classList.toggle('hidden', !inCompare); // exit-compare only shown while comparing A→B
+  if (reset) reset.classList.toggle('hidden', !inCompare);
 }
 
-function patchSetRow(ref, title, meta, active) {
-  return '<button type="button" class="patchset-option' + (active ? ' active' : '') + '" role="option"'
-    + ' aria-selected="' + (active ? 'true' : 'false') + '" data-ref="' + escapeHtml(ref) + '">'
-    + '<span class="patchset-option-check" aria-hidden="true">' + (active ? '✓' : '') + '</span>'
-    + '<span class="patchset-option-body">'
-    + '<span class="patchset-option-title">' + escapeHtml(title) + '</span>'
-    + (meta ? '<span class="patchset-option-meta">' + escapeHtml(meta) + '</span>' : '')
-    + '</span></button>';
-}
-function patchSetCommitRow(data, index, activeRef) {
-  var c = data.commits[index];
-  var title = t('patchset.set') + ' ' + (index + 1) + ' · ' + c.subject;
-  var meta = c.shortSha + (c.date ? ' · ' + patchSetShortDate(c.date) : '');
-  return patchSetRow(c.sha, title, meta, c.sha === activeRef);
-}
-
-function renderPatchSetPopover() {
-  var pop = document.getElementById('patchset-popover');
-  if (!pop || !patchSetData) return;
-  var rows = [];
-  var i;
-  if (patchSetData.scoped) {
-    // A range opened from Cmd+9: both dropdowns pick base/target from the range's own commits.
-    var activeRef = patchSetPopoverWhich === 'target' ? (patchSetData.activeTarget || '') : (patchSetData.activeBase || '');
-    for (i = 0; i < patchSetData.commits.length; i++) rows.push(patchSetCommitRow(patchSetData, i, activeRef));
-    pop.innerHTML = rows.join('');
-    return;
-  }
-  if (patchSetPopoverWhich === 'target') {
-    var at = patchSetData.activeTarget || 'worktree';
-    rows.push(patchSetRow('worktree', t('patchset.workingTree'), t('patchset.latest'), at === 'worktree'));
-    for (i = 0; i < patchSetData.commits.length; i++) rows.push(patchSetCommitRow(patchSetData, i, at));
-  } else {
-    var ab = patchSetData.activeBase || 'auto';
-    if (patchSetData.branchPoint) {
-      var allRef = patchSetData.branchPoint.sha;
-      var allMeta = t('patchset.branchPoint') + ' · ' + patchSetShortRef(patchSetData.branchPoint.label);
-      rows.push(patchSetRow(allRef, t('patchset.allChanges'), allMeta, ab === allRef));
-    }
-    for (i = 0; i < patchSetData.commits.length; i++) rows.push(patchSetCommitRow(patchSetData, i, ab));
-  }
-  pop.innerHTML = rows.join('');
-}
-
-function patchSetActiveBtn() { return patchSetPopoverWhich === 'target' ? patchSetTargetBtn() : patchSetBaseBtn(); }
-
-function positionPatchSetPopover() {
-  var pop = document.getElementById('patchset-popover');
-  var btn = patchSetActiveBtn();
-  if (!pop || !btn) return;
-  var r = btn.getBoundingClientRect();
-  pop.style.top = Math.round(r.bottom + 4) + 'px';
-  pop.style.left = Math.round(r.left) + 'px';
-  pop.style.minWidth = Math.round(r.width) + 'px';
-}
-
-function closePatchSetPopover() {
-  var pop = document.getElementById('patchset-popover');
-  if (pop) pop.classList.add('hidden');
-  var b = patchSetBaseBtn(); if (b) b.setAttribute('aria-expanded', 'false');
-  var tg = patchSetTargetBtn(); if (tg) tg.setAttribute('aria-expanded', 'false');
-  patchSetPopoverWhich = null;
-}
-
-function openPatchSetPopover(which) {
-  if (!patchSetData) return;
-  patchSetPopoverWhich = which;
-  var pop = document.getElementById('patchset-popover');
-  if (!pop) {
-    pop = document.createElement('div');
-    pop.id = 'patchset-popover';
-    pop.className = 'patchset-popover hidden';
-    pop.setAttribute('role', 'listbox');
-    document.body.appendChild(pop);
-    pop.addEventListener('click', function (e) {
-      var opt = e.target.closest ? e.target.closest('.patchset-option') : null;
-      if (!opt) return;
-      var ref = opt.getAttribute('data-ref');
-      var which = patchSetPopoverWhich;
-      closePatchSetPopover();
-      if (ref) selectPatchSet(which, ref);
-    });
-  }
-  renderPatchSetPopover();
-  pop.classList.remove('hidden');
-  positionPatchSetPopover();
-  var btn = patchSetActiveBtn();
-  if (btn) btn.setAttribute('aria-expanded', 'true');
-}
-
-function togglePatchSetPopover(which) {
-  if (patchSetPopoverWhich === which) closePatchSetPopover(); else openPatchSetPopover(which);
-}
-
-// Ask main to switch the base or target, then refresh the bar face. The diff repaints via kakapo:diff-update.
+// Switch base or target, then refresh the bar. The diff repaints via kakapo:diff-update.
 function selectPatchSet(which, ref) {
-  if (!window.kakapoGit) return;
-  // In a Cmd+9-opened range, base and target are both commits in the scope; set both at once (keeping the
-  // scope) so picking left=B, right=D shows B..D.
+  if (!window.kakapoGit || !ref) return;
+  if (typeof requestDiffViewOnNextCompare === 'function') requestDiffViewOnNextCompare();
+  // In a Cmd+9-opened range, both sides are commits in the scope; set them together so B..D shows.
   if (patchSetData && patchSetData.scoped && typeof window.kakapoGit.setReviewCompare === 'function') {
     var base = which === 'base' ? ref : patchSetData.activeBase;
     var target = which === 'target' ? ref : patchSetData.activeTarget;
     if (base === patchSetData.activeBase && target === patchSetData.activeTarget) return;
-    if (typeof requestDiffViewOnNextCompare === 'function') requestDiffViewOnNextCompare();
     Promise.resolve(window.kakapoGit.setReviewCompare(base, target)).then(function (res) {
-      if (res && res.ok && patchSetData) {
-        patchSetData.activeBase = res.activeBase || base;
-        patchSetData.activeTarget = res.activeTarget || target;
-        renderPatchSetBar();
-      }
+      if (res && res.ok && patchSetData) { patchSetData.activeBase = res.activeBase || base; patchSetData.activeTarget = res.activeTarget || target; renderPatchSetBar(); }
     }).catch(function () {});
     return;
   }
@@ -194,34 +115,21 @@ function refreshPatchSets() {
   Promise.resolve(window.kakapoGit.patchSets()).then(function (data) {
     patchSetData = (data && Array.isArray(data.commits)) ? data : null;
     renderPatchSetBar();
-    if (patchSetPopoverWhich) { renderPatchSetPopover(); positionPatchSetPopover(); }
   }).catch(function () { patchSetData = null; renderPatchSetBar(); });
 }
 
 function initPatchSetBar() {
-  var baseBtn = patchSetBaseBtn();
-  var targetBtn = patchSetTargetBtn();
-  if ((!baseBtn && !targetBtn) || !window.kakapoGit) return; // browser/serve mode, or bar not present
-  if (baseBtn) baseBtn.addEventListener('click', function (e) { e.stopPropagation(); togglePatchSetPopover('base'); });
-  if (targetBtn) targetBtn.addEventListener('click', function (e) { e.stopPropagation(); togglePatchSetPopover('target'); });
-  var resetBtn = document.getElementById('patchset-reset');
-  if (resetBtn) resetBtn.addEventListener('click', function (e) {
-    e.stopPropagation();
-    if (!window.kakapoGit || typeof window.kakapoGit.setReviewCompare !== 'function') return;
-    Promise.resolve(window.kakapoGit.setReviewCompare('auto', 'worktree')).then(function () { refreshPatchSets(); }).catch(function () {});
+  var bar = patchSetBarEl();
+  if (!bar || !window.kakapoGit) return; // browser/serve mode, or bar not present
+  bar.addEventListener('click', function (e) {
+    var num = e.target.closest && e.target.closest('.patchset-num[data-ref]');
+    if (num) { selectPatchSet(num.getAttribute('data-which'), num.getAttribute('data-ref')); return; }
+    if (e.target.closest && e.target.closest('#patchset-reset')) {
+      if (typeof window.kakapoGit.setReviewCompare !== 'function') return;
+      if (typeof requestDiffViewOnNextCompare === 'function') requestDiffViewOnNextCompare();
+      Promise.resolve(window.kakapoGit.setReviewCompare('auto', 'worktree')).then(function () { refreshPatchSets(); }).catch(function () {});
+    }
   });
-  document.addEventListener('click', function (e) {
-    if (!patchSetPopoverWhich) return;
-    var pop = document.getElementById('patchset-popover');
-    if (pop && pop.contains(e.target)) return;
-    if (baseBtn && baseBtn.contains(e.target)) return;
-    if (targetBtn && targetBtn.contains(e.target)) return;
-    closePatchSetPopover();
-  });
-  document.addEventListener('keydown', function (e) {
-    if (patchSetPopoverWhich && (e.key === 'Escape' || e.key === 'Esc')) closePatchSetPopover();
-  });
-  window.addEventListener('resize', function () { if (patchSetPopoverWhich) positionPatchSetPopover(); });
   if (window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function') {
     window.kakapoMenu.onDiffUpdate(function () { try { refreshPatchSets(); } catch (err) {} });
   }
