@@ -161,6 +161,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Diff view
     "diff.noDiff": "No diff to review.",
+    "changes.empty": "No changed files",
     "diff.lastHunk": "Last change in this file — press F7 again to go to the next file.",
     "diag.none": "No language-server problems in this file.",
     "diag.fixComment": "Fix this problem: {message}",
@@ -534,6 +535,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Diff view
     "diff.noDiff": "검토할 변경사항이 없습니다.",
+    "changes.empty": "변경된 파일 없음",
     "diff.lastHunk": "이 파일의 마지막 변경입니다 — F7을 한 번 더 누르면 다음 파일로 이동합니다.",
     "diag.none": "이 파일에는 언어 서버 문제가 없습니다.",
     "diag.fixComment": "이 문제를 고쳐줘: {message}",

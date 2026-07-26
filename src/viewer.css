@@ -476,11 +476,19 @@ body.native-app .source-tabs {
 }
 .analysis-status-label { overflow: hidden; text-overflow: ellipsis; }
 .analysis-status-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); opacity: .7; }
-.analysis-status-loader { display: none; flex: none; width: 24px; height: 24px; }
-.analysis-status-loader .kakapo-mark { width: 24px; height: 24px; }
-.analysis-status.is-starting .analysis-status-dot { display: none; }
-.analysis-status.is-starting .analysis-status-loader { display: inline-grid; place-items: center; }
-.analysis-status.is-starting .analysis-status-loader .kakapo-mark { animation: kakapo-peck 1.05s cubic-bezier(.45, 0, .25, 1) infinite; }
+.analysis-status-loader { display: none; } /* deprecated: the analysis parrot was removed (one brand mark only) */
+/* Analysis in progress: pulse the status dot instead of a second parrot spinner. */
+.analysis-status.is-starting .analysis-status-dot { background: var(--active); opacity: 1; animation: analysis-dot-pulse 1s ease-in-out infinite; }
+@keyframes analysis-dot-pulse { 0%, 100% { opacity: .3; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.25); } }
+/* Empty Changes panel: a small centered icon + label, vertically/horizontally centred in the panel,
+   instead of a bare top-left line. */
+.empty-nav.changes-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  min-height: calc(100vh - 210px); padding: 24px 16px; box-sizing: border-box;
+  color: var(--muted); text-align: center;
+}
+.empty-nav.changes-empty .empty-nav-icon { opacity: .45; }
+.empty-nav.changes-empty .empty-nav-text { font-size: 12px; }
 .analysis-status.is-ready { color: var(--text); }
 .analysis-status.is-ready .analysis-status-dot { background: var(--token-string); opacity: 1; }
 .analysis-status.is-fallback .analysis-status-dot { background: var(--token-tag); opacity: 1; }
@@ -3427,6 +3435,7 @@ body.native-app .source-tabs {
     animation: kakapo-breathe 1.6s ease-in-out infinite;
   }
   .mc-loading-state::after { animation: none; opacity: .45; transform: none; }
+  .analysis-status.is-starting .analysis-status-dot { animation: none; }
 }
 @keyframes kakapo-breathe { 50% { opacity: .58; } }
 
