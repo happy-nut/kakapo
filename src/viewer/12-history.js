@@ -275,6 +275,7 @@ function reviewHistoryRangeInMain() {
     var c = historyCommits[i];
     scope.push({ sha: c.hash, shortSha: (c.hash || '').slice(0, 7), subject: c.subject, date: c.date });
   }
+  if (typeof requestDiffViewOnNextCompare === 'function') requestDiffViewOnNextCompare(); // land on the diff, not a stale source pane
   Promise.resolve(window.kakapoGit.setReviewCompare(ep.olderSha, ep.newerSha, scope)).then(function (res) {
     if (res && res.ok) closeHistory();
   }).catch(function () {});

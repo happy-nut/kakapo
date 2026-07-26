@@ -472,6 +472,13 @@ function refreshOpenSourceAfterUpdate(path, cursorSnapshot) {
     }
   });
 }
+// Set by the "open A→B compare" flows (Cmd+9 range → main review, or the compare-bar dropdowns) so the next
+// in-place update lands on the DIFF even if the main view was last showing a source file. Without this, the
+// deliberate "compare these commits" action could leave the reader on a stale source pane (looks like the
+// diff panel just closed). Consumed on the next applyDiffUpdate.
+var forceDiffViewOnNextCompare = false;
+function requestDiffViewOnNextCompare() { forceDiffViewOnNextCompare = true; }
+
 function applyDiffUpdate(u) {
   if (!u || !u.signature || u.signature === currentSignature) return false; // unchanged — nothing to do
   if (composerState) { pendingDiffUpdate = u; return false; } // composing a comment — hold the refresh until close/save
@@ -631,10 +638,12 @@ function applyDiffUpdate(u) {
 
   // 5) Best-effort restore of what the user was looking at. Re-render the source view only when the open file
   // actually changed; an unchanged file stays painted as-is, so an unrelated edit doesn't flicker the pane.
-  if (wasSource && openPath && sourceByPath.has(openPath)) {
+  var forceDiff = forceDiffViewOnNextCompare;
+  forceDiffViewOnNextCompare = false; // consume: only the update immediately after "open compare" is forced
+  if (!forceDiff && wasSource && openPath && sourceByPath.has(openPath)) {
     if (openFileChanged) refreshOpenSourceAfterUpdate(openPath, sourceCursorSnapshot);
   } else if (container) {
-    showDiffView(false);
+    showDiffView(forceDiff); // a just-opened A→B compare scrolls to its first change
     // Same active file survived → keep the user's exact scroll. If it was committed away (current reset to
     // -1, showDiffView landed on the first change), restoring the old, now-out-of-range scrollTop would push
     // the shorter new diff off-screen and look blank — so reset to the top instead.

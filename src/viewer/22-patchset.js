@@ -164,6 +164,7 @@ function selectPatchSet(which, ref) {
     var base = which === 'base' ? ref : patchSetData.activeBase;
     var target = which === 'target' ? ref : patchSetData.activeTarget;
     if (base === patchSetData.activeBase && target === patchSetData.activeTarget) return;
+    if (typeof requestDiffViewOnNextCompare === 'function') requestDiffViewOnNextCompare();
     Promise.resolve(window.kakapoGit.setReviewCompare(base, target)).then(function (res) {
       if (res && res.ok && patchSetData) {
         patchSetData.activeBase = res.activeBase || base;
