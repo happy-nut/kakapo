@@ -181,9 +181,11 @@ let appQuitting = false;
 // Switching workspaces never removes the review's own Changes/Files sidebar, so there is no "how do I get
 // back" state — you never left. `hubOpen` stays true; the rail is not a mode you toggle into and out of.
 const HUB_WIDTH = 52;
-// Expanded (⌘⇧E / hover / pinned) the rail widens to show each workspace's full name + branch. The review
-// views can't overlay the shell page (it renders behind them), so expansion PUSHES them right by this width.
-const HUB_EXPANDED = 232;
+// Expanded (⌘⇧E / pinned) the rail widens to show each workspace's full name + branch. The review views
+// can't overlay the shell page (it renders behind them), so expansion PUSHES them right by this width.
+// Matched to the review sidebar's default width so that, as the rail opens and the pushed view's file tree
+// collapses, the two panels swap over the same span for a continuous motion.
+const HUB_EXPANDED = 264;
 let hubWidth = HUB_WIDTH; // current rail width the review views are laid out against
 // A full-width title strip gives the macOS traffic lights their own clean band, so no vertical divider
 // runs up into them. The review views sit below it; the active workspace's name lives in the strip.
@@ -260,15 +262,28 @@ ipcMain.on("kakapo:workspace-hub-toggle", () => { /* rail is persistent — no t
 // step with the shell's CSS width transition; the active view collapses its own sidebar while pushed.
 let railExpanded = false;
 let hubAnimTimer: ReturnType<typeof setInterval> | undefined;
+// cubic-bezier(.2,.8,.2,1) — the exact easing the review sidebar's grid-template-columns transition uses, so
+// the rail push and the file-tree collapse stay in lockstep for one continuous motion.
+function easeRail(p: number): number {
+  const cx = 3 * 0.2, bx = 3 * (0.2 - 0.2) - cx, ax = 1 - cx - bx;
+  const cy = 3 * 0.8, by = 3 * (1 - 0.8) - cy, ay = 1 - cy - by;
+  let t = p;
+  for (let i = 0; i < 6; i++) {
+    const x = ((ax * t + bx) * t + cx) * t - p;
+    const d = (3 * ax * t + 2 * bx) * t + cx;
+    if (Math.abs(d) < 1e-6) break;
+    t -= x / d;
+  }
+  return ((ay * t + by) * t + cy) * t;
+}
 function animateHubWidth(target: number): void {
   if (hubAnimTimer) { clearInterval(hubAnimTimer); hubAnimTimer = undefined; }
   const start = hubWidth;
   if (start === target) { hubWidth = target; layoutWorkspaceViews(); return; }
-  const t0 = Date.now(), dur = 170;
+  const t0 = Date.now(), dur = 180;
   hubAnimTimer = setInterval(() => {
     const p = Math.min(1, (Date.now() - t0) / dur);
-    const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic — matches the shell rail's CSS transition
-    hubWidth = Math.round(start + (target - start) * eased);
+    hubWidth = Math.round(start + (target - start) * easeRail(p));
     layoutWorkspaceViews();
     if (p >= 1 && hubAnimTimer) { clearInterval(hubAnimTimer); hubAnimTimer = undefined; }
   }, 16);
@@ -1004,7 +1019,7 @@ body{display:flex;flex-direction:column}
 #tools button.tb.active{color:#4d86d9;background:${light ? "#dfe7f5" : "#2a3446"}}
 #tools button.tb.hidden{display:none!important}
 #tools button.tb svg{width:17px;height:17px}
-#hub{width:${HUB_WIDTH}px;flex:1;min-height:0;border-right:1px solid ${line};display:flex;flex-direction:column;align-items:center;gap:2px;overflow:hidden;transition:width 170ms cubic-bezier(.215,.61,.355,1)}
+#hub{width:${HUB_WIDTH}px;flex:1;min-height:0;border-right:1px solid ${line};display:flex;flex-direction:column;align-items:center;gap:2px;overflow:hidden;transition:width 180ms cubic-bezier(.2,.8,.2,1)}
 body.rail-exp #hub{width:${HUB_EXPANDED}px;align-items:stretch}
 button{border:1px solid ${line};background:transparent;color:inherit;border-radius:6px;padding:4px 8px}
 #list{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 0;width:100%}
@@ -1030,7 +1045,7 @@ body.rail-exp .ws-label{display:flex}
 body.rail-exp #railfoot{flex-direction:row;justify-content:flex-end;padding:7px 6px;gap:4px}
 #railfoot button{width:34px;height:32px;border:0;border-radius:8px;font-size:17px;color:${light ? "#666" : "#999"};display:grid;place-items:center;padding:0}
 #railfoot button:hover{background:${light ? "#dfe7f5" : "#373d49"};color:${fg}}
-#pin svg{width:16px;height:16px;transition:transform 170ms cubic-bezier(.215,.61,.355,1)}
+#pin svg{width:16px;height:16px;transition:transform 180ms cubic-bezier(.2,.8,.2,1)}
 body.rail-exp #pin svg{transform:rotate(180deg)}
 body.rail-exp #pin{color:#4d86d9}
 #railfoot #new{border:1px dashed ${line}}
