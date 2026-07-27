@@ -3570,7 +3570,7 @@ body.workspace-view .sidebar { grid-column: 2; grid-row: 1; }
 /* Brand header = one row aligned with the content toolbar (the shell draws the title bar, so no extra
    title-strip reservation). The branch already shows in the shell title bar, so drop it here — that also
    frees the row for the full project name instead of squeezing it to an ellipsis. */
-body.workspace-view .sidebar-brand { display: flex; min-height: var(--native-titlebar-height); padding-top: 0; }
+body.workspace-view .sidebar-brand { display: flex; align-items: center; min-height: var(--native-titlebar-height); padding-top: 0; padding-bottom: 0; }
 body.workspace-view .sidebar-brand .brand-branch { display: none; }
 body.workspace-view .content { grid-column: 3; grid-row: 1; }
 body.workspace-view .sidebar-resizer { left: calc(var(--rail-width) + var(--sidebar-width, 264px) - 2px); }
