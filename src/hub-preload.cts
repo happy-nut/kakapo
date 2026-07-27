@@ -32,4 +32,8 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   railAction: (action: string) => ipcRenderer.send("kakapo:hub-rail-action", action),
   onRailState: (callback: (state: { active?: string[]; terminal?: boolean }) => void) =>
     ipcRenderer.on("kakapo:hub-rail-state", (_event, state) => callback(state)),
+  // The rail can widen (hover / ⌘⇧E / pin) to show full workspace names. It reports the new state to main so
+  // the review views are pushed right to make room (they render on top of the shell page, so no overlay).
+  setHubExpanded: (expanded: boolean) => ipcRenderer.send("kakapo:hub-expanded", expanded),
+  onToggleExpand: (callback: () => void) => ipcRenderer.on("kakapo:hub-toggle-expand", callback),
 });
