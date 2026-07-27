@@ -126,8 +126,10 @@ function toggleSourceSidebar() {
 // Reflect the current view and dock state on the activity rail icons.
 function syncRail() {
   var rail = document.querySelector('.activity-rail');
-  if (!rail) return;
+  var active = [];
   var setOn = function (view, on) {
+    if (on) active.push(view);
+    if (!rail) return;
     var btn = rail.querySelector('[data-view="' + view + '"]');
     if (btn) btn.classList.toggle('is-active', !!on);
   };
@@ -141,6 +143,11 @@ function syncRail() {
   setOn('impact', !!(impact && !impact.classList.contains('hidden')));
   var explainView = document.getElementById('explain-view');
   setOn('explain', !!(explainView && !explainView.classList.contains('hidden')));
+  // Mirror the same state onto the shell title-bar tools (single-instance app only).
+  var term = document.getElementById('terminal-toggle');
+  if (window.kakapoMenu && window.kakapoMenu.sendRailState) {
+    try { window.kakapoMenu.sendRailState({ active: active, terminal: !!(term && !term.classList.contains('hidden')) }); } catch (e) {}
+  }
 }
 // Rail click for the merged view toggles: a 2nd click closes it (memo already toggles the same way).
 function toggleMergedRail() {

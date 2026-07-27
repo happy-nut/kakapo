@@ -51,6 +51,12 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
     ipcRenderer.on("kakapo:open-quick-switcher", () => cb());
   },
   activateWorkspace: (id: number): void => ipcRenderer.send("kakapo:hub-activate", id),
+  // The shell title-bar mirrors the activity rail: main relays a title-bar tool click here so the viewer
+  // replays it through its own rail dispatcher, and the viewer reports view/terminal state back for highlight.
+  onRailAction: (cb: (action: string) => void): void => {
+    ipcRenderer.on("kakapo:rail-action", (_event, action: string) => cb(action));
+  },
+  sendRailState: (state: { active: string[]; terminal: boolean }): void => ipcRenderer.send("kakapo:rail-state", state),
 });
 
 // Integrated terminal: bridge the renderer's xterm view to a node-pty owned by the main process (the

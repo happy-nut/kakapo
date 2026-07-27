@@ -592,6 +592,17 @@ document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
   syncRail();
 });
 
+// The shell title-bar mirrors these tools (single-instance app). A title-bar click is relayed here as a
+// rail action; replay it by clicking the matching (possibly CSS-hidden) rail control so every existing
+// handler and syncRail run unchanged. Terminal and More carry id-based handlers, not data-view.
+if (window.kakapoMenu && window.kakapoMenu.onRailAction) {
+  window.kakapoMenu.onRailAction((action) => {
+    if (action === 'terminal') { document.getElementById('terminal-toggle')?.click(); return; }
+    if (action === 'more') { document.getElementById('workspace-more-toggle')?.click(); return; }
+    document.querySelector('.rail-btn[data-view="' + action + '"]')?.click();
+  });
+}
+
 (function setupWorkspaceMoreMenu() {
   var toggle = document.getElementById('workspace-more-toggle');
   var menu = document.getElementById('workspace-more-menu');

@@ -26,4 +26,10 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   forget: (path: string) => ipcRenderer.invoke("kakapo:hub-forget", { path }),
   reconnect: (oldPath: string, newPath: string) => ipcRenderer.invoke("kakapo:hub-reconnect", { oldPath, newPath }),
   requestState: () => ipcRenderer.send("kakapo:hub-ready"),
+  // Title-bar review tools: the buttons live in this shell page but the actions run in the active review
+  // view (a separate WebContentsView). Forward the click to main, which relays it to that view; the view
+  // reports its active-view/terminal state back so the title-bar buttons can mirror the highlight.
+  railAction: (action: string) => ipcRenderer.send("kakapo:hub-rail-action", action),
+  onRailState: (callback: (state: { active?: string[]; terminal?: boolean }) => void) =>
+    ipcRenderer.on("kakapo:hub-rail-state", (_event, state) => callback(state)),
 });

@@ -236,6 +236,18 @@ registerTerminalIpc(ipcMain, stateFromEvent);
 registerAnswersIpc(ipcMain, stateFromEvent);
 registerExplainIpc(ipcMain, stateFromEvent);
 ipcMain.on("kakapo:hub-ready", renderHub);
+// Title-bar review tools live in the shell page but act on the active review view. Relay the click to that
+// view (which replays it through its own rail dispatcher). Guard on an active workspace existing.
+ipcMain.on("kakapo:hub-rail-action", (_event, action: unknown) => {
+  if (typeof action !== "string" || activeStateId === undefined) return;
+  states.get(activeStateId)?.win.webContents.send("kakapo:rail-action", action);
+});
+// The active view reports which views are open + whether its terminal exists, so the title-bar buttons can
+// mirror the highlight. Ignore reports from background views to avoid a stale view overwriting the state.
+ipcMain.on("kakapo:rail-state", (event, state: unknown) => {
+  if (event.sender.id !== activeStateId) return;
+  if (shellWindow && !shellWindow.isDestroyed()) shellWindow.webContents.send("kakapo:hub-rail-state", state);
+});
 // The rail is always visible, so there is nothing to toggle. Kept as a harmless no-op so the viewer's
 // existing chip-click / ⌘K wiring does not error; a floating quick-switcher can hook here later.
 ipcMain.on("kakapo:workspace-hub-toggle", () => { /* rail is persistent — no takeover to toggle */ });
@@ -943,6 +955,14 @@ body{display:flex;flex-direction:column}
 #titlebar{height:${TITLEBAR_H}px;flex:none;-webkit-app-region:drag;display:flex;align-items:center;gap:8px;padding:0 12px 0 84px;border-bottom:1px solid ${line};background:${light ? "#ececec" : "#1b1e25"}}
 #wsname{-webkit-app-region:no-drag;display:flex;align-items:center;gap:7px;max-width:72%;font-weight:600;color:${fg};font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #wsname .wsdot{width:6px;height:6px;border-radius:50%;background:#4d9a51;flex:none}#wsname .rp{color:${light ? "#888" : "#7d828c"};font-weight:400}
+.tb-spacer{flex:1;align-self:stretch}
+#tools{-webkit-app-region:no-drag;display:flex;align-items:center;gap:2px;flex:none}
+#tools .tb-sep{width:1px;height:16px;background:${line};margin:0 5px}
+#tools button.tb{width:28px;height:26px;border:0;border-radius:6px;color:${light ? "#5f6470" : "#9aa0ab"};display:grid;place-items:center;padding:0;background:transparent}
+#tools button.tb:hover{background:${light ? "#dfe7f5" : "#373d49"};color:${fg}}
+#tools button.tb.active{color:#4d86d9;background:${light ? "#dfe7f5" : "#2a3446"}}
+#tools button.tb.hidden{display:none!important}
+#tools button.tb svg{width:17px;height:17px}
 #hub{width:${HUB_WIDTH}px;flex:1;min-height:0;border-right:1px solid ${line};display:flex;flex-direction:column;align-items:center;gap:2px}
 button{border:1px solid ${line};background:transparent;color:inherit;border-radius:6px;padding:4px 8px}
 #list{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 0;width:100%}
@@ -962,13 +982,16 @@ label{display:block;margin:10px 0 4px;color:#888}input{width:100%;padding:8px;bo
 .actions{display:flex;justify-content:flex-end;gap:7px;margin-top:16px}.error{color:#d66;min-height:16px;margin-top:8px}
 .context-menu{position:fixed;z-index:20;width:172px;padding:5px;background:${bg};border:1px solid ${line};border-radius:8px;box-shadow:0 12px 30px #0008}
 .context-menu button{display:block;width:100%;border:0;text-align:left;padding:7px 9px}.context-menu button:hover{background:${light ? "#dfe7f5" : "#373d49"}}.context-menu .danger{color:#df6868}.hidden{display:none!important}</style>
-<div id="titlebar"><span id="wsname"></span></div><main id="hub"><section id="list"></section><div id="railfoot"><button id="new" title="New workspace (⌘N)">＋</button><button id="settings" title="Settings — v${APP_VERSION}">⚙</button></div></main>
+<div id="titlebar"><span id="wsname"></span><span class="tb-spacer"></span><div id="tools"><button class="tb" data-act="changes" title="Changes (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" title="Files (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" title="Terminal (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" title="History (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button><button class="tb" data-act="more" title="More review tools"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button></div></div><main id="hub"><section id="list"></section><div id="railfoot"><button id="new" title="New workspace (⌘N)">＋</button><button id="settings" title="Settings — v${APP_VERSION}">⚙</button></div></main>
 <dialog id="create"><b>New workspace</b><label>Local repository</label><div><input id="repo" readonly><button id="choose">Choose…</button></div><label>Task name</label><input id="label" placeholder="workspace-hub"><div id="preview" class="meta"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate">Cancel</button><button id="doCreate">Fetch & create</button></div></dialog>
 <div id="workspaceMenu" class="context-menu hidden" role="menu"><button data-action="activate">Switch</button><button data-action="resume" class="hidden">Resume session</button><button data-action="rename">Rename…</button><button data-action="memo">Edit memo…</button><button data-action="detach">Open in new window</button><button data-action="close">Close workspace</button><button data-action="delete" class="danger">Delete worktree…</button></div>
 <script>
 const list=document.querySelector("#list"),dlg=document.querySelector("#create"),menu=document.querySelector("#workspaceMenu"),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));let menuCard=null;
 let creating=false;const openCreate=()=>{dlg.showModal();window.kakapoHub.modal(true)};dlg.addEventListener('close',()=>window.kakapoHub.modal(false));document.querySelector("#new").onclick=openCreate;document.querySelector("#cancelCreate").onclick=()=>{if(creating)window.kakapoHub.cancelCreate();else dlg.close()};
 document.querySelector("#settings").onclick=()=>window.kakapoHub.settings();
+const tools=document.getElementById('tools');
+tools.addEventListener('click',e=>{const b=e.target.closest('button.tb');if(!b)return;window.kakapoHub.railAction(b.dataset.act)});
+window.kakapoHub.onRailState(s=>{s=s||{};const active=s.active||[];for(const b of tools.querySelectorAll('button.tb')){const a=b.dataset.act;if(a==='terminal'){b.classList.toggle('hidden',!s.terminal);}b.classList.toggle('active',active.indexOf(a)>=0);}});
 window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(openCreate);
 async function preview(){const r=await window.kakapoHub.preview(document.querySelector("#repo").value,document.querySelector("#label").value);document.querySelector("#preview").innerHTML=r.ok?'slug: '+esc(r.slug)+'<br>base: '+esc(r.base)+'<br>branch: '+esc(r.branch)+'<br>'+esc(r.path):''}
 document.querySelector("#choose").onclick=async()=>{const r=await window.kakapoHub.chooseRepo();if(r.ok){document.querySelector("#repo").value=r.repo;preview()}};

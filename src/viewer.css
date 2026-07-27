@@ -235,6 +235,11 @@ body.native-app {
   --native-title-safe-left: calc(var(--native-traffic-safe-width) + 8px);
   --native-title-safe-after-rail: calc(var(--native-traffic-safe-width) - var(--rail-width) + 8px);
 }
+/* Single-instance app: the activity rail's icons now live in the shell title bar, so the in-view rail is
+   hidden and its grid column collapses to 0 — the project sidebar becomes the left-most viewer column. Every
+   rail control stays in the DOM (only CSS-hidden), so the title-bar mirror can still click it via IPC. */
+body.native-app { --rail-width: 0px; }
+body.native-app .activity-rail { display: none; }
 body.native-app .activity-rail {
   position: relative;
   padding-top: calc(var(--native-titlebar-height) + 6px);
