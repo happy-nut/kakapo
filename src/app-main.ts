@@ -171,6 +171,12 @@ const states = new Map<number, WinState>();
 let shellWindow: BrowserWindow | undefined;
 let activeStateId: number | undefined;
 let quitConfirmed = false;
+// Set once the shell window is closing (Cmd+Q, red-X, or app.quit()). Every review view is torn down during
+// shutdown, and each teardown would otherwise rewrite kakapo-open-workspaces from the shrinking live set —
+// leaving an empty list that erases the restore-on-launch session. Skip that teardown persist while quitting
+// so the workspaces open at quit time survive to the next launch. Explicit single-workspace closes (hub-remove,
+// detached-window close) happen with this flag false, so they still drop the workspace from the saved list.
+let appQuitting = false;
 // The workspace rail is a thin, ALWAYS-VISIBLE column of workspace tiles (like an editor's activity bar).
 // Switching workspaces never removes the review's own Changes/Files sidebar, so there is no "how do I get
 // back" state — you never left. `hubOpen` stays true; the rail is not a mode you toggle into and out of.
@@ -781,6 +787,7 @@ function buildApplicationMenu(): void {
 
 function ensureShellWindow(light: boolean): BrowserWindow {
   if (shellWindow && !shellWindow.isDestroyed()) return shellWindow;
+  appQuitting = false; // a fresh shell means we're up-and-running again, not tearing down
   shellWindow = new BrowserWindow({
     width: 1440, height: 960, minWidth: 960, minHeight: 640, show: false, title: APP_TITLE,
     icon: iconPath, backgroundColor: light ? "#f5f5f5" : "#202124", autoHideMenuBar: true,
@@ -794,6 +801,9 @@ function ensureShellWindow(light: boolean): BrowserWindow {
     const first = args[0] as { message?: string } | undefined;
     console.error(`[hub] ${String(first && typeof first === "object" ? first.message : args[2])}`);
   });
+  // "close" fires before the window (and its child review views) are destroyed, so latch the quitting flag
+  // here — this is the one point that precedes every view teardown for both Cmd+Q and the shell's red-X.
+  shellWindow.on("close", () => { appQuitting = true; });
   shellWindow.on("closed", () => {
     for (const state of states.values()) state.win.webContents.close();
     shellWindow = undefined;
@@ -1127,7 +1137,7 @@ function createWindow(root: string, deferBoot = false): WinState {
     if (state.idleTimer) clearTimeout(state.idleTimer);
     state.analysis.dispose();
     states.delete(id);
-    persistWorkspaceSession();
+    if (!appQuitting) persistWorkspaceSession(); // don't let shutdown teardown erase the restore session
     renderHub();
   });
 

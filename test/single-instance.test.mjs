@@ -43,3 +43,13 @@ test("desktop composition uses one shell BrowserWindow, isolated views, and expl
   assert.match(source, /isDetached: \(\)/);
   assert.equal((source.match(/new BrowserWindow\(/g) || []).length, 2);
 });
+
+test("shutdown teardown does not erase the restore-on-launch workspace session", () => {
+  const source = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
+  // The shell "close" event is the one point that precedes every review-view teardown; it must latch the flag.
+  assert.match(source, /shellWindow\.on\("close",\s*\(\)\s*=>\s*\{\s*appQuitting = true;/);
+  // The per-view teardown persist must be gated on that flag, otherwise quitting rewrites the saved list empty.
+  assert.match(source, /if \(!appQuitting\) persistWorkspaceSession\(\);/);
+  // A fresh shell window means we are running again, so the flag must reset (guards shell recreation).
+  assert.match(source, /appQuitting = false;[^\n]*\n\s*shellWindow = new BrowserWindow\(/);
+});
