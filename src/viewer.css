@@ -3488,10 +3488,11 @@ body.native-app .source-tabs {
 }
 .csv-empty { color: var(--muted); font-style: italic; padding: 16px; }
 
-/* One persistent activity rail owns workspace switching and every primary review destination. The
-   adjacent tree is the only persistent panel; the workspace hub temporarily replaces both. */
+/* The review tools moved to the shell title bar, so the in-view activity rail is gone: its track collapses
+   to 0 and the project tree becomes the left-most column, flush against the shell's workspace rail. (This
+   rule redefines the grid for the workspace view, so its --rail-width is what actually wins here.) */
 body.workspace-view {
-  --rail-width: 48px;
+  --rail-width: 0px;
   grid-template-columns: var(--rail-width) var(--sidebar-width, 264px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
 }
