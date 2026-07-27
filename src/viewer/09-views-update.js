@@ -14,6 +14,9 @@ function setTab(name) {
 // logical tree cursor to the open file.
 var reviewSidebarCollapsed = false;
 var sourceSidebarCollapsed = false;
+// Forced by the shell when the workspace rail is expanded — collapses the in-view file tree without touching
+// the user's own collapse preference, so it restores exactly when the rail collapses again.
+var railPushedCollapse = false;
 // A collapsed navigation column is a temporary focus mode, not a durable workspace preference.
 // Always reopen with workspace identity and review navigation visible so a previous session cannot
 // make the app appear contextless or broken.
@@ -53,7 +56,7 @@ document.body.addEventListener('transitionend', function (event) {
 function syncReviewSidebarVisibility() {
   var diffCollapsed = reviewSidebarCollapsed && isDiffViewVisible();
   var sourceCollapsed = sourceSidebarCollapsed && isSourceViewerVisible();
-  var collapsed = diffCollapsed || sourceCollapsed;
+  var collapsed = railPushedCollapse || diffCollapsed || sourceCollapsed;
   var changed = document.body.classList.contains('sidebar-collapsed') !== collapsed;
   document.body.classList.toggle('sidebar-collapsed', collapsed);
   if (changed) scheduleViewerAfterSidebarLayout();
@@ -74,6 +77,9 @@ function syncReviewSidebarVisibility() {
     button.title = label + ' (⌘0)';
   }
   syncRail();
+}
+if (window.kakapoMenu && typeof window.kakapoMenu.onRailPushed === 'function') {
+  window.kakapoMenu.onRailPushed(function (pushed) { railPushedCollapse = !!pushed; syncReviewSidebarVisibility(); });
 }
 function focusDiffAfterSidebarCollapse() {
   clearTreeFocus();

@@ -57,6 +57,11 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
     ipcRenderer.on("kakapo:rail-action", (_event, action: string) => cb(action));
   },
   sendRailState: (state: { active: string[]; terminal: boolean }): void => ipcRenderer.send("kakapo:rail-state", state),
+  // While the workspace rail is expanded (pushing this view right), collapse the in-view file tree so the two
+  // panels don't compete; restore it when the rail collapses.
+  onRailPushed: (cb: (pushed: boolean) => void): void => {
+    ipcRenderer.on("kakapo:rail-pushed", (_event, pushed: boolean) => cb(pushed));
+  },
 });
 
 // Integrated terminal: bridge the renderer's xterm view to a node-pty owned by the main process (the

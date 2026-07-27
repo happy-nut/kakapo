@@ -255,11 +255,32 @@ ipcMain.on("kakapo:rail-state", (event, state: unknown) => {
 // The rail is always visible, so there is nothing to toggle. Kept as a harmless no-op so the viewer's
 // existing chip-click / ⌘K wiring does not error; a floating quick-switcher can hook here later.
 ipcMain.on("kakapo:workspace-hub-toggle", () => { /* rail is persistent — no takeover to toggle */ });
-// The shell page reports when the rail expands/collapses (hover, ⌘⇧E, or the pin) so the review views can be
-// pushed right to make room — they can't overlay the shell page, which renders behind them.
+// The shell page reports when the rail expands/collapses (⌘⇧E or the pin) so the review views can be pushed
+// right to make room — they can't overlay the shell page, which renders behind them. The width is animated in
+// step with the shell's CSS width transition; the active view collapses its own sidebar while pushed.
+let railExpanded = false;
+let hubAnimTimer: ReturnType<typeof setInterval> | undefined;
+function animateHubWidth(target: number): void {
+  if (hubAnimTimer) { clearInterval(hubAnimTimer); hubAnimTimer = undefined; }
+  const start = hubWidth;
+  if (start === target) { hubWidth = target; layoutWorkspaceViews(); return; }
+  const t0 = Date.now(), dur = 170;
+  hubAnimTimer = setInterval(() => {
+    const p = Math.min(1, (Date.now() - t0) / dur);
+    const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic — matches the shell rail's CSS transition
+    hubWidth = Math.round(start + (target - start) * eased);
+    layoutWorkspaceViews();
+    if (p >= 1 && hubAnimTimer) { clearInterval(hubAnimTimer); hubAnimTimer = undefined; }
+  }, 16);
+}
+function sendRailPushed(): void {
+  const active = activeStateId != null ? states.get(activeStateId) : undefined;
+  if (active && !active.win.isDestroyed()) active.win.webContents.send("kakapo:rail-pushed", railExpanded);
+}
 ipcMain.on("kakapo:hub-expanded", (_event, expanded: unknown) => {
-  hubWidth = expanded ? HUB_EXPANDED : HUB_WIDTH;
-  layoutWorkspaceViews();
+  railExpanded = !!expanded;
+  animateHubWidth(railExpanded ? HUB_EXPANDED : HUB_WIDTH);
+  sendRailPushed();
 });
 
 // A shell-page modal (the New-workspace dialog) is painted UNDER the review WebContentsViews, so it is
@@ -927,6 +948,7 @@ function activateWorkspace(id: number): void {
   focusActiveReviewView(); // keyboard belongs to the review viewer, not the rail
   // The rail stays put — selecting a workspace does not collapse anything, so there is no "return" step.
   persistWorkspaceSession(states.get(id)?.options.root);
+  sendRailPushed(); // the newly active view collapses its sidebar too while the rail is expanded
   renderHub();
 }
 
@@ -975,7 +997,7 @@ body{display:flex;flex-direction:column}
 #tools button.tb.active{color:#4d86d9;background:${light ? "#dfe7f5" : "#2a3446"}}
 #tools button.tb.hidden{display:none!important}
 #tools button.tb svg{width:17px;height:17px}
-#hub{width:${HUB_WIDTH}px;flex:1;min-height:0;border-right:1px solid ${line};display:flex;flex-direction:column;align-items:center;gap:2px;overflow:hidden}
+#hub{width:${HUB_WIDTH}px;flex:1;min-height:0;border-right:1px solid ${line};display:flex;flex-direction:column;align-items:center;gap:2px;overflow:hidden;transition:width 170ms cubic-bezier(.215,.61,.355,1)}
 body.rail-exp #hub{width:${HUB_EXPANDED}px;align-items:stretch}
 button{border:1px solid ${line};background:transparent;color:inherit;border-radius:6px;padding:4px 8px}
 #list{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 0;width:100%}
@@ -1001,15 +1023,16 @@ body.rail-exp .ws-label{display:flex}
 body.rail-exp #railfoot{flex-direction:row;justify-content:flex-end;padding:7px 6px;gap:4px}
 #railfoot button{width:34px;height:32px;border:0;border-radius:8px;font-size:17px;color:${light ? "#666" : "#999"};display:grid;place-items:center;padding:0}
 #railfoot button:hover{background:${light ? "#dfe7f5" : "#373d49"};color:${fg}}
-#pin svg{width:16px;height:16px}
-#pin.pinned{color:#4d86d9;background:${light ? "#dfe7f5" : "#2a3446"}}
+#pin svg{width:16px;height:16px;transition:transform 170ms cubic-bezier(.215,.61,.355,1)}
+body.rail-exp #pin svg{transform:rotate(180deg)}
+body.rail-exp #pin{color:#4d86d9}
 #railfoot #new{border:1px dashed ${line}}
 dialog{border:1px solid ${line};border-radius:10px;background:${bg};color:${fg};width:360px;padding:18px}dialog::backdrop{background:#0008}
 label{display:block;margin:10px 0 4px;color:#888}input{width:100%;padding:8px;border:1px solid ${line};border-radius:6px;background:transparent;color:inherit}
 .actions{display:flex;justify-content:flex-end;gap:7px;margin-top:16px}.error{color:#d66;min-height:16px;margin-top:8px}
 .context-menu{position:fixed;z-index:20;width:172px;padding:5px;background:${bg};border:1px solid ${line};border-radius:8px;box-shadow:0 12px 30px #0008}
 .context-menu button{display:block;width:100%;border:0;text-align:left;padding:7px 9px}.context-menu button:hover{background:${light ? "#dfe7f5" : "#373d49"}}.context-menu .danger{color:#df6868}.hidden{display:none!important}</style>
-<div id="titlebar"><span id="wsname"></span><span class="tb-spacer"></span><div id="tools"><button class="tb" data-act="changes" title="Changes (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" title="Files (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" title="Terminal (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" title="History (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button><button class="tb" data-act="more" title="More review tools"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button></div></div><main id="hub"><section id="list"></section><div id="railfoot"><button id="pin" title="Pin expanded rail (⌘⇧E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6"/><path d="M10 4l-.5 6-2 2v1.5h9V12l-2-2L14 4"/><path d="M12 15.5V20"/></svg></button><button id="new" title="New workspace (⌘N)">＋</button><button id="settings" title="Settings — v${APP_VERSION}">⚙</button></div></main>
+<div id="titlebar"><span id="wsname"></span><span class="tb-spacer"></span><div id="tools"><button class="tb" data-act="changes" title="Changes (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" title="Files (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" title="Terminal (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" title="History (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button><button class="tb" data-act="more" title="More review tools"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button></div></div><main id="hub"><section id="list"></section><div id="railfoot"><button id="pin" title="Expand workspace rail (⌘⇧E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button><button id="new" title="New workspace (⌘N)">＋</button><button id="settings" title="Settings — v${APP_VERSION}">⚙</button></div></main>
 <dialog id="create"><b>New workspace</b><label>Local repository</label><div><input id="repo" readonly><button id="choose">Choose…</button></div><label>Task name</label><input id="label" placeholder="workspace-hub"><div id="preview" class="meta"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate">Cancel</button><button id="doCreate">Fetch & create</button></div></dialog>
 <div id="workspaceMenu" class="context-menu hidden" role="menu"><button data-action="activate">Switch</button><button data-action="resume" class="hidden">Resume session</button><button data-action="rename">Rename…</button><button data-action="memo">Edit memo…</button><button data-action="detach">Open in new window</button><button data-action="close">Close workspace</button><button data-action="delete" class="danger">Delete worktree…</button></div>
 <script>
@@ -1020,14 +1043,12 @@ const tools=document.getElementById('tools');
 tools.addEventListener('click',e=>{const b=e.target.closest('button.tb');if(!b)return;window.kakapoHub.railAction(b.dataset.act)});
 window.kakapoHub.onRailState(s=>{s=s||{};const active=s.active||[];for(const b of tools.querySelectorAll('button.tb')){const a=b.dataset.act;if(a==='terminal'){b.classList.toggle('hidden',!s.terminal);}b.classList.toggle('active',active.indexOf(a)>=0);}});
 window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(openCreate);
-// Rail expand: hover peeks it open, ⌘⇧E / the pin keeps it open. Either way main pushes the review views
-// right (they render over the shell page, so the rail can't overlay them). exp = pinned || hovering.
-let railPinned=false,railHover=false;const hubEl=document.getElementById('hub'),pinBtn=document.getElementById('pin');
-function applyRail(){const exp=railPinned||railHover;document.body.classList.toggle('rail-exp',exp);pinBtn.classList.toggle('pinned',railPinned);window.kakapoHub.setHubExpanded(exp);}
-hubEl.addEventListener('mouseenter',()=>{railHover=true;applyRail();});
-hubEl.addEventListener('mouseleave',()=>{railHover=false;applyRail();});
-pinBtn.onclick=()=>{railPinned=!railPinned;applyRail();};
-window.kakapoHub.onToggleExpand(()=>{railPinned=!railPinned;applyRail();});
+// Rail expand: ⌘⇧E or the » button toggles it open; main then pushes the review views right (they render over
+// the shell page, so the rail can't overlay them) and collapses the active view's file tree to make room.
+let railExp=false;const pinBtn=document.getElementById('pin');
+function applyRail(){document.body.classList.toggle('rail-exp',railExp);window.kakapoHub.setHubExpanded(railExp);}
+pinBtn.onclick=()=>{railExp=!railExp;applyRail();};
+window.kakapoHub.onToggleExpand(()=>{railExp=!railExp;applyRail();});
 async function preview(){const r=await window.kakapoHub.preview(document.querySelector("#repo").value,document.querySelector("#label").value);document.querySelector("#preview").innerHTML=r.ok?'slug: '+esc(r.slug)+'<br>base: '+esc(r.base)+'<br>branch: '+esc(r.branch)+'<br>'+esc(r.path):''}
 document.querySelector("#choose").onclick=async()=>{const r=await window.kakapoHub.chooseRepo();if(r.ok){document.querySelector("#repo").value=r.repo;preview()}};
 document.querySelector("#label").oninput=preview;
