@@ -1,13 +1,13 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { BrowserWindow, IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
+import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent, WebContents } from "electron";
 import { absoluteGitDir } from "./git.js";
 
 // The window state the Explain spec watcher needs: the BrowserWindow to push updates to, the repo root
 // used to resolve this window's spec-file path, and the last-seen signature/spec/timestamp so repeat
 // polls with no change are near-free.
 export type ExplainIpcState = {
-  win: BrowserWindow;
+  win: { isDestroyed(): boolean; webContents: WebContents };
   options: { root: string };
   explainSig: string;
   explainSpec: unknown;

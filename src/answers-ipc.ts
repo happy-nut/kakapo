@@ -1,4 +1,4 @@
-import type { BrowserWindow } from "electron";
+import type { WebContents } from "electron";
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -25,7 +25,7 @@ export type AnswersDoc = {
 // Narrower than app-main.ts's WinState (same pattern as TerminalIpcState in app-terminal-ipc.ts) — a real
 // WinState satisfies this structurally, so app-main.ts can pass its stateFromEvent straight through.
 export type AnswersIpcState = {
-  win: BrowserWindow;
+  win: { isDestroyed(): boolean; webContents: WebContents };
   options: { root: string };
   answersFile?: string;
   answersFileSig?: string;

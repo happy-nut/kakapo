@@ -618,6 +618,7 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   var modal = document.getElementById('settings-modal');
   if (!modal) return;
   var gearBtn = document.getElementById('app-info-btn');
+  var closeBtn = document.getElementById('settings-close');
   var flag = document.getElementById('app-update-flag');
   var updateBtn = document.getElementById('app-info-update');
   var pta = document.getElementById('settings-prompt-plan');
@@ -646,6 +647,7 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   var flashTimer = null;
   function flash() { if (!savedMsg) return; savedMsg.textContent = t('settings.saved'); if (flashTimer) clearTimeout(flashTimer); flashTimer = setTimeout(function () { savedMsg.textContent = ''; }, 1200); }
   if (gearBtn) gearBtn.addEventListener('click', function (e) { e.stopPropagation(); if (modal.classList.contains('hidden')) open('general'); else close(); });
+  if (closeBtn) closeBtn.addEventListener('click', close);
   if (flag) flag.addEventListener('click', function (e) { e.stopPropagation(); open('general'); });
   cats.forEach(function (c) { c.addEventListener('click', function () { showCat(c.dataset.cat); }); });
   modal.addEventListener('click', function (e) { if (e.target === modal) close(); });

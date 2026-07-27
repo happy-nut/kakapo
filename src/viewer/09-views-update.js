@@ -13,11 +13,10 @@ function setTab(name) {
 // before the grid animates so a hidden row never keeps receiving Arrow/Enter; expanding restores the
 // logical tree cursor to the open file.
 var reviewSidebarCollapsed = false;
-var reviewSidebarStateKey = 'kakapo:diff-sidebar:' + location.pathname;
 var sourceSidebarCollapsed = false;
-var sourceSidebarStateKey = 'kakapo:source-sidebar:' + location.pathname;
-try { reviewSidebarCollapsed = (persistRead(reviewSidebarStateKey) || localStorage.getItem(reviewSidebarStateKey)) === 'collapsed'; } catch (e) {}
-try { sourceSidebarCollapsed = (persistRead(sourceSidebarStateKey) || localStorage.getItem(sourceSidebarStateKey)) === 'collapsed'; } catch (e) {}
+// A collapsed navigation column is a temporary focus mode, not a durable workspace preference.
+// Always reopen with workspace identity and review navigation visible so a previous session cannot
+// make the app appear contextless or broken.
 var sidebarLayoutRefreshTimer = 0;
 var sidebarLayoutRefreshRaf = 0;
 function refreshViewerAfterSidebarLayout() {
@@ -91,7 +90,6 @@ function focusDiffAfterSidebarCollapse() {
 }
 function setReviewSidebarCollapsed(collapsed, options) {
   reviewSidebarCollapsed = !!collapsed;
-  persistSave(reviewSidebarStateKey, reviewSidebarCollapsed ? 'collapsed' : 'expanded');
   syncReviewSidebarVisibility();
   if (reviewSidebarCollapsed) focusDiffAfterSidebarCollapse();
   else if (options && options.focusSidebar) { setTab('changes'); focusOpenFileInTree(); }
@@ -115,7 +113,6 @@ function focusSourceAfterSidebarCollapse() {
 }
 function setSourceSidebarCollapsed(collapsed, options) {
   sourceSidebarCollapsed = !!collapsed;
-  persistSave(sourceSidebarStateKey, sourceSidebarCollapsed ? 'collapsed' : 'expanded');
   syncReviewSidebarVisibility();
   if (!isSourceViewerVisible()) return;
   if (sourceSidebarCollapsed) focusSourceAfterSidebarCollapse();
@@ -679,3 +676,112 @@ async function checkForLiveUpdate() {
     checkingForUpdates = false;
   }
 }
+
+// The app-level workspace picker and the review tree share one physical left slot. The selector keeps
+// current/background activity visible while the picker is closed; opening it replaces this sidebar.
+(function initWorkspaceSelector() {
+  var bridge = window.kakapoMenu;
+  var selector = document.getElementById('workspace-selector');
+  if (!bridge || !selector || typeof bridge.onWorkspaceState !== 'function') return;
+  var qsItems = [], qsCurrentId = null;
+  selector.addEventListener('click', function () {
+    if (typeof bridge.toggleWorkspaceHub === 'function') bridge.toggleWorkspaceHub();
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && document.body.classList.contains('workspace-hub-open')) {
+      event.preventDefault();
+      if (typeof bridge.toggleWorkspaceHub === 'function') bridge.toggleWorkspaceHub();
+    }
+  });
+  bridge.onWorkspaceState(function (payload) {
+    var items = payload && Array.isArray(payload.items) ? payload.items : [];
+    qsItems = items; qsCurrentId = payload && payload.currentId;
+    var current = items.find(function (item) { return item.id === payload.currentId; });
+    var unread = items.reduce(function (count, item) { return count + (item.unread ? 1 : 0); }, 0);
+    var backgroundRunning = items.some(function (item) { return item.id !== payload.currentId && item.running; });
+    var name = document.getElementById('workspace-selector-name');
+    var meta = document.getElementById('workspace-selector-meta');
+    var activity = document.getElementById('workspace-selector-activity');
+    var running = document.getElementById('workspace-selector-running');
+    var badge = document.getElementById('workspace-selector-unread');
+    if (current) {
+      if (name) name.textContent = current.alias || current.branch || '';
+      if (meta) meta.textContent = current.alias && current.alias !== current.branch
+        ? (current.repoName || '') + ' · ' + (current.branch || '')
+        : (current.repoName || '');
+      selector.title = (current.repoName || '') + ' / ' + (current.alias || current.branch || '') + ' — Switch workspace (⌘K)';
+      if (activity) activity.classList.toggle('running', !!current.running);
+    }
+    if (running) running.classList.toggle('hidden', !backgroundRunning);
+    if (badge) {
+      badge.classList.toggle('hidden', unread === 0);
+      badge.textContent = unread > 9 ? '9+' : String(unread);
+    }
+    selector.setAttribute('aria-expanded', payload && payload.open ? 'true' : 'false');
+    document.body.classList.toggle('workspace-hub-open', !!(payload && payload.open));
+  });
+
+  // ⌘K quick-switcher: a floating command-palette rendered over the diff (the review stays visible behind
+  // it). Filters the workspaces the rail already knows about; Enter/click switches, Esc closes.
+  if (typeof bridge.onOpenQuickSwitcher === 'function' && typeof bridge.activateWorkspace === 'function') {
+    var qsRoot = null, qsInput = null, qsList = null, qsHi = 0, qsFiltered = [];
+    function qsEsc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    function qsInitials(w) {
+      var s = String(w.alias || w.branch || w.repoName || '?').replace(/^(feature|fix|chore|bugfix|hotfix|release)[/-]/i, '');
+      var p = s.split(/[^a-z0-9]+/i).filter(Boolean);
+      return ((p[0] ? p[0][0] : '?') + (p[1] ? p[1][0] : (p[0] && p[0][1] ? p[0][1] : ''))).toUpperCase();
+    }
+    function qsBuild() {
+      if (qsRoot) return;
+      qsRoot = document.createElement('div');
+      qsRoot.style.cssText = 'position:fixed;inset:0;z-index:2147482000;display:none;justify-content:center;align-items:flex-start;padding-top:12vh;background:color-mix(in srgb,#000 45%,transparent)';
+      qsRoot.innerHTML = '<div style="width:460px;max-width:88vw;background:var(--elevated);border:1px solid var(--border);border-radius:12px;box-shadow:0 24px 60px var(--shadow);overflow:hidden">'
+        + '<input class="kk-qs-input" placeholder="Switch workspace…" spellcheck="false" autocomplete="off" style="width:100%;border:0;background:transparent;color:var(--fg);font-size:15px;padding:14px 16px;outline:none;font-family:inherit">'
+        + '<div class="kk-qs-list" style="max-height:46vh;overflow:auto;padding:5px;border-top:1px solid var(--border)"></div></div>';
+      document.body.appendChild(qsRoot);
+      qsInput = qsRoot.querySelector('.kk-qs-input');
+      qsList = qsRoot.querySelector('.kk-qs-list');
+      qsInput.addEventListener('input', function () { qsHi = 0; qsRender(); });
+      qsInput.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowDown') { e.preventDefault(); qsHi = Math.min(qsFiltered.length - 1, qsHi + 1); qsRender(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); qsHi = Math.max(0, qsHi - 1); qsRender(); }
+        else if (e.key === 'Enter') { e.preventDefault(); qsChoose(qsFiltered[qsHi]); }
+        else if (e.key === 'Escape') { e.preventDefault(); qsClose(); }
+      });
+      qsRoot.addEventListener('mousedown', function (e) { if (e.target === qsRoot) qsClose(); });
+      qsList.addEventListener('click', function (e) {
+        var row = e.target.closest('[data-id]');
+        if (row) qsChoose(qsItems.find(function (w) { return String(w.id) === row.getAttribute('data-id'); }));
+      });
+    }
+    function qsRender() {
+      var q = (qsInput.value || '').trim().toLowerCase();
+      qsFiltered = qsItems.filter(function (w) {
+        if (w.disconnected) return false;
+        var hay = ((w.alias || '') + ' ' + (w.branch || '') + ' ' + (w.repoName || '')).toLowerCase();
+        return !q || hay.indexOf(q) >= 0;
+      });
+      if (qsHi >= qsFiltered.length) qsHi = Math.max(0, qsFiltered.length - 1);
+      qsList.innerHTML = qsFiltered.length ? qsFiltered.map(function (w, k) {
+        return '<div data-id="' + w.id + '" style="display:grid;grid-template-columns:26px 1fr auto;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;cursor:pointer;' + (k === qsHi ? 'background:color-mix(in srgb,var(--accent) 22%,transparent)' : '') + '">'
+          + '<span style="width:24px;height:24px;border-radius:7px;background:var(--sidebar);color:var(--muted);font-weight:700;font-size:11px;display:grid;place-items:center">' + qsEsc(qsInitials(w)) + '</span>'
+          + '<span style="min-width:0"><b style="font-weight:600">' + qsEsc(w.alias || w.branch || '') + '</b><small style="display:block;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + qsEsc(w.repoName || '') + (w.dirtyCount ? ' · ' + w.dirtyCount + ' changed' : '') + '</small></span>'
+          + (w.id === qsCurrentId ? '<span style="color:var(--accent);font-size:11px">current</span>' : (w.running ? '<span style="color:#4d9a51;font-size:11px">● running</span>' : '<span></span>'))
+          + '</div>';
+      }).join('') : '<div style="padding:12px;color:var(--muted);font-size:12px">No matching workspace</div>';
+    }
+    function qsOpen() {
+      qsBuild();
+      if (!qsItems.length) return;
+      qsRoot.style.display = 'flex';
+      qsInput.value = '';
+      qsHi = 0; qsRender();
+      var ci = qsFiltered.findIndex(function (w) { return w.id === qsCurrentId; });
+      if (ci >= 0) { qsHi = ci; qsRender(); }
+      setTimeout(function () { qsInput.focus(); }, 0);
+    }
+    function qsClose() { if (qsRoot) qsRoot.style.display = 'none'; }
+    function qsChoose(w) { if (!w) return; qsClose(); if (w.id !== qsCurrentId) bridge.activateWorkspace(w.id); }
+    bridge.onOpenQuickSwitcher(qsOpen);
+  }
+})();

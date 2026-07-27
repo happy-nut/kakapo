@@ -1,17 +1,22 @@
 import { app, BrowserWindow, Notification } from "electron";
+import type { WebContents } from "electron";
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { spawn as spawnPty, type IPty } from "node-pty";
 import { sanitizeTerminalEnv, ensureUtf8Locale } from "./util.js";
+import { resumeCommandForInput } from "./agent-resume.js";
 
 // The window state the terminal needs: the BrowserWindow to relay pty output to, the repo root the shell
 // starts in, and the per-window map of live ptys (so closing a window kills only its own terminals).
 export type TerminalIpcState = {
-  win: BrowserWindow;
+  win: { isDestroyed(): boolean; webContents: WebContents; show(): void; focus(): void };
   options: { root: string };
   terms: Map<number, IPty>;
   // Absolute path to this window's answers-exchange file (see answers-ipc.ts), passed into every pty
   // spawned in this window so an agent can find it without depending on the prompt text being intact.
   answersFile?: string;
+  commandBuffers?: Map<number, string>;
+  onResumeCommand?: (command: string | undefined) => void;
+  onAgentFinished?: () => void;
 };
 
 type TerminalEvent = IpcMainEvent | IpcMainInvokeEvent;
@@ -45,6 +50,7 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
       }),
     });
     state.terms.set(id, t);
+    state.commandBuffers?.set(id, "");
     // Guard every relay with isDestroyed(): a pty can outlive its window (close races pty teardown), and
     // sending to a closed window's webContents throws "Object has been destroyed".
     const deliver = (channel: string, payload: unknown) => {
@@ -53,12 +59,24 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     // Relay pty output to the renderer immediately, one IPC per chunk. (A coalescing buffer was tried as an
     // optimization but it broke terminal I/O — the shell prompt and echo stopped appearing — so it's removed.)
     t.onData((data) => deliver("kakapo:pty-data", { id, data }));
-    t.onExit(() => { state.terms.delete(id); deliver("kakapo:pty-exit", { id }); });
+    t.onExit(() => {
+      state.terms.delete(id);
+      state.commandBuffers?.delete(id);
+      state.onAgentFinished?.();
+      deliver("kakapo:pty-exit", { id });
+    });
     return { ok: true, id };
   });
 
   ipc.on("kakapo:pty-write", (event, msg: { id: number; data: string }) => {
-    stateFromEvent(event)?.terms.get(msg?.id)?.write(msg.data);
+    const state = stateFromEvent(event);
+    state?.terms.get(msg?.id)?.write(msg.data);
+    if (!state?.commandBuffers || typeof msg?.data !== "string") return;
+    const next = (state.commandBuffers.get(msg.id) ?? "") + msg.data;
+    if (!/[\r\n]/.test(next)) { state.commandBuffers.set(msg.id, next.slice(-500)); return; }
+    state.commandBuffers.set(msg.id, "");
+    const resume = resumeCommandForInput(next);
+    if (resume) state.onResumeCommand?.(resume);
   });
   ipc.on("kakapo:pty-resize", (event, msg: { id: number; cols: number; rows: number }) => {
     try { stateFromEvent(event)?.terms.get(msg?.id)?.resize(msg.cols, msg.rows); } catch { /* resize can race the pty teardown — ignore */ }
@@ -67,22 +85,24 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     const state = stateFromEvent(event);
     const t = state?.terms.get(msg?.id);
     if (t) { try { t.kill(); } catch { /* already exited */ } state!.terms.delete(msg.id); }
+    state?.commandBuffers?.delete(msg.id);
   });
 
   // A TUI in the integrated terminal rang the bell (e.g. Claude Code finished a turn / needs input). Raise a
   // native notification when the window ISN'T focused — while you're watching, the bell itself is enough — plus
   // a dock bounce / taskbar flash. Clicking the notification brings the window forward.
   ipc.on("kakapo:bell", (event, msg: { title?: string; body?: string }) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win || win.isDestroyed() || win.isFocused()) return;
+    const state = stateFromEvent(event);
+    const win = BrowserWindow.getFocusedWindow();
+    if (!state || state.win.isDestroyed() || win?.isFocused()) return;
     try {
       if (Notification.isSupported()) {
         const note = new Notification({ title: msg?.title || "kakapo", body: msg?.body || "Terminal task finished" });
-        note.on("click", () => { if (!win.isDestroyed()) { win.show(); win.focus(); } });
+        note.on("click", () => { if (!state.win.isDestroyed()) { state.win.show(); state.win.focus(); } });
         note.show();
       }
     } catch { /* notifications are best-effort */ }
-    try { win.flashFrame(true); } catch { /* taskbar flash — Windows/Linux */ }
+    try { BrowserWindow.getAllWindows()[0]?.flashFrame(true); } catch { /* taskbar flash — Windows/Linux */ }
     if (process.platform === "darwin" && app.dock) { try { app.dock.bounce("informational"); } catch { /* best-effort */ } }
   });
 }

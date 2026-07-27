@@ -84,6 +84,7 @@ function openSourceFile(path, shouldSwitch = true, options) {
     } else {
       body.classList.add('rendered-body');
       body.innerHTML = renderMarkdownRows(file.content);
+      rewriteMarkdownAssets(body, path);
     }
     if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
     updateRenderToggle(path);
@@ -352,6 +353,42 @@ function renderMarkdownRows(content) {
     return '<tr class="source-row md-row" data-line-index="' + b.line + '" data-line-end="' + b.endLine + '"><td class="num">' + (b.line + 1) + '</td><td class="source-code md-cell markdown-body">' + b.html + '</td></tr>';
   }).join('');
   return '<table class="source-table md-doc"><tbody>' + rows + '</tbody></table>';
+}
+
+// Join a document-relative image src against the markdown file's directory and collapse ./ and ../ segments,
+// yielding a repo-root-relative path. Query/hash are dropped. Returns null for empty/unusable input; a path
+// that still climbs above the root is left for main's containment check to reject.
+function normalizeMarkdownAssetPath(baseDir, src) {
+  var clean = String(src || '').split(/[?#]/)[0];
+  if (!clean) return null;
+  var parts = baseDir ? baseDir.split('/') : [];
+  clean.split('/').forEach(function (seg) {
+    if (seg === '' || seg === '.') return;
+    if (seg === '..') { if (parts.length) parts.pop(); }
+    else parts.push(seg);
+  });
+  var rel = parts.join('/');
+  return rel || null;
+}
+
+// The rendered preview keeps markdown-it's document-relative <img src> (e.g. assets/x.gif), which cannot load
+// from the file:// review page. Resolve each such src against the document's directory and swap in a data:
+// URL from main. Absolute, remote, and data: sources are left untouched.
+function rewriteMarkdownAssets(container, docPath) {
+  if (!container || !window.kakapoFile || typeof window.kakapoFile.getAsset !== 'function') return;
+  var imgs = container.querySelectorAll('img[src]');
+  if (!imgs.length) return;
+  var slash = String(docPath || '').lastIndexOf('/');
+  var baseDir = slash >= 0 ? docPath.slice(0, slash) : '';
+  Array.prototype.forEach.call(imgs, function (img) {
+    var src = img.getAttribute('src') || '';
+    if (!src || src.charAt(0) === '/' || src.charAt(0) === '#' || /^(?:[a-z][a-z0-9+.\-]*:|\/\/)/i.test(src)) return;
+    var rel = normalizeMarkdownAssetPath(baseDir, src);
+    if (!rel) return;
+    window.kakapoFile.getAsset(rel).then(function (res) {
+      if (res && res.dataUrl && img.isConnected) img.src = res.dataUrl;
+    }).catch(function () {});
+  });
 }
 
 // RFC-4180-ish delimited parser: handles quoted fields with embedded delimiters, newlines, and "" escapes.

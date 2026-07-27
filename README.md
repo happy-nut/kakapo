@@ -27,6 +27,8 @@ Kakapo는 채팅의 완료 보고가 아니라 실제 Git 변경 사항, 주변 
 - 라인 Git 로그와 lane 기반 커밋 그래프
 - Markdown, 이미지, HTTP Client 파일의 로컬 리뷰
 - 메인 프로세스 검색·인덱싱과 지연 로딩을 통한 대형 프로젝트 대응
+- 단일 앱 창의 repo별 워크스페이스 허브와 백그라운드 터미널/에이전트 유지
+- fetch 후 중앙 관리 worktree 생성, 안전 경고가 있는 닫기/삭제, 세션 복원
 
 Kakapo는 언어 분석기를 새로 구현하지 않습니다. 배포 앱에는 TypeScript/JavaScript, Python, Go, Rust, C/C++, Java, Kotlin, Ruby, PHP용 language server와 필요한 런타임/toolchain이 함께 들어 있습니다. GUI 프로세스의 `PATH`를 탐색하지 않으며, 지원 밖의 언어나 서버가 의미 위치를 반환하지 못한 경우에만 출처가 표시된 정규식 인덱스로 폴백합니다. 프로젝트 검색용 ripgrep도 앱에 포함됩니다.
 
@@ -67,7 +69,33 @@ kakapo
 kakapo --cwd /path/to/repository/package
 ```
 
-모노레포 내부 폴더를 열면 Git revision은 상위 저장소에서 읽되 변경 목록, 검색, 소스 탐색과 상태는 선택한 폴더 범위로 제한됩니다.
+Kakapo는 한 번만 실행됩니다. 다른 저장소나 worktree에서 `kakapo`를 다시 실행하면 기존 앱
+프로세스에 합류해 해당 워크스페이스를 열고, 이미 열린 경로라면 그 창으로 이동합니다.
+하위 폴더에서 실행해도 Git top-level로 정규화되므로 같은 checkout이 중복으로 열리지 않으며,
+서로 다른 Git worktree는 별도 워크스페이스로 격리됩니다.
+
+### 워크스페이스 허브
+
+왼쪽 탐색 영역은 워크스페이스 목록과 Changes/Files 패널이 한 자리를 번갈아 사용합니다.
+평소에는 상단 selector에 현재 repo/워크스페이스와 실행·미확인 상태가 압축 표시되고,
+selector 또는 `Cmd/Ctrl+K`로 워크스페이스 목록을 열면 파일 패널을 대체합니다.
+`Esc`나 워크스페이스 선택으로 다시 파일 패널로 돌아오며, `Cmd/Ctrl+Alt+1–9`로도 바로
+전환할 수 있습니다. 전환된 뒤에도 다른 워크스페이스의 터미널과 에이전트 프로세스는
+백그라운드에서 계속 실행됩니다.
+
+`Cmd/Ctrl+N` 또는 허브의 **New**에서 이미 clone된 로컬 저장소와 작업 이름을 선택하면
+`~/kakapo/workspaces/<repo>/<slug>`에 `<prefix>/<slug>` 브랜치의 worktree를 만듭니다.
+Kakapo는 `origin/HEAD`, `origin/main`, `origin/master`, `main`, `master` 순서로 base를
+찾고 먼저 fetch합니다. 오프라인이면 로컬 base로 계속 진행하며 경고를 남깁니다.
+fetch 단계는 UI를 막지 않으며 **Cancel**로 중단할 수 있고, 생성이 끝나면 새 worktree의
+터미널을 열어 두되 에이전트나 시작 명령은 자동 실행하지 않습니다.
+
+워크스페이스의 `⋯` 메뉴에서 표시 별칭을 바꾸거나 새 창으로 분리하거나 목록에서 닫을 수 있습니다. 생성된
+worktree 삭제 시 미커밋 변경, push하지 않은 커밋, 실행 중 터미널/에이전트를 각각
+경고하며 기본적으로 브랜치는 남깁니다. 메인 checkout은 삭제할 수 없고 닫기만 가능합니다.
+앱을 다시 열면 이전 목록과 마지막 활성 워크스페이스가 복원됩니다. 경로가 사라진 항목은
+조용히 제거하지 않고 `disconnected`로 남습니다. Claude 또는 Codex 실행이 감지된 세션은
+허브에서 resume할 수 있습니다.
 
 ### 비교 base 선택
 
@@ -87,7 +115,9 @@ kakapo --staged             # 인덱스(스테이징)를 HEAD와 비교
 | 단축키 | 동작 |
 | --- | --- |
 | `Cmd/Ctrl+0` | Changes 패널로 포커스 이동 / 이미 포커스면 토글 |
-| `Cmd/Ctrl+1` | Files 패널로 포커스 이동 / 이미 포커스면 토글 |
+| `Cmd/Ctrl+K` | 워크스페이스 허브 접기 / 펼치기 |
+| `Cmd/Ctrl+N` | 새 worktree 워크스페이스 만들기 |
+| `Cmd/Ctrl+Alt+1–9` | 해당 순서의 워크스페이스로 전환 |
 | `Cmd/Ctrl+F` | 현재 파일 또는 diff 안에서 검색 |
 | `Cmd/Ctrl+Shift+F` | 프로젝트 전체 검색 |
 | `F7` / `Shift+F7` | 다음 / 이전 diff hunk |
@@ -95,7 +125,6 @@ kakapo --staged             # 인덱스(스테이징)를 HEAD와 비교
 | `Cmd/Ctrl+B` | definition 찾기 |
 | `Cmd/Ctrl+Alt+B` | implementation 찾기 |
 | `Cmd/Ctrl+7` | Explain (AI 에이전트가 작성한 설명 문서 보기) |
-| `Cmd/Ctrl+8` | Change Impact |
 | `Cmd/Ctrl+9` | Git History |
 | `Cmd/Ctrl+.` | 현재 괄호 범위 접기 / 펼치기 |
 | `Option/Alt+Enter` | 현재 항목의 컨텍스트 액션 |

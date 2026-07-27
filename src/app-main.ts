@@ -2,8 +2,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell } from "electron";
-import { isGitRepository, validateReviewBase } from "./git.js";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell, WebContentsView } from "electron";
+import type { WebContents } from "electron";
+import { git, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
 import { ProjectAnalysis } from "./analysis.js";
@@ -21,6 +22,7 @@ import { registerAnswersIpc, syncAnswersFile, answersFilePath } from "./answers-
 import { registerExplainIpc, refreshExplainIfChanged } from "./app-explain-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
+import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug } from "./workspaces.js";
 
 type AppOptions = {
   root: string;
@@ -33,11 +35,25 @@ type AppOptions = {
   ignoreWhitespace: boolean;
 };
 
+type ReviewSurface = {
+  webContents: WebContents;
+  isDestroyed(): boolean;
+  isMinimized(): boolean;
+  restore(): void;
+  show(): void;
+  hide(): void;
+  focus(): void;
+  loadURL(url: string): Promise<void>;
+  loadFile(path: string): Promise<void>;
+  detach(): void;
+  isDetached(): boolean;
+};
+
 // Per-window state. Everything that used to be a module-level global (the review signature, watch timer,
 // lazily-served diff bodies/source, and last-diff hash) now lives here, keyed
 // by BrowserWindow.id, so two windows reviewing different repos don't trample each other's state.
 type WinState = {
-  win: BrowserWindow;
+  win: ReviewSurface;
   options: AppOptions; // this window's repo + diff flags (root + ignoreWhitespace are per-window)
   signature: string;
   refreshing: boolean;
@@ -54,7 +70,15 @@ type WinState = {
   bodyCache: Map<number, string>; // rendered per-file diff bodies, scoped to the current build
   sourceFiles: Map<string, SourceFile>; // source content stays in main; renderer requests one open file at a time
   analysis: ProjectAnalysis; // LSP-first project analysis + main-process regex fallback
+  analysisSuspended: boolean;
+  idleTimer?: NodeJS.Timeout;
   terms: Map<number, IPty>; // integrated-terminal ptys owned by this window (killed on close)
+  commandBuffers: Map<number, string>;
+  resumeCommand?: string;
+  onResumeCommand: (command: string | undefined) => void;
+  onAgentFinished: () => void;
+  unread: boolean;
+  bootStarted: boolean;
   perf: ReviewPerformanceTrace; // local startup/analysis evidence under this workspace's app-data mirror
   lastDiffSig: string; // watch fast-path: hash of the last git diff, to skip rebuilds when unchanged
   reviewBase?: string; // exact base used by the latest build (may be an automatic upstream merge-base)
@@ -76,6 +100,13 @@ type WinState = {
 const DEV_BUILD = process.env.KAKAPO_DEV === "1";
 const APP_NAME = "Kakapo";
 const APP_TITLE = DEV_BUILD ? `${APP_NAME} (dev)` : APP_NAME;
+const APP_VERSION = app.isPackaged ? app.getVersion() : (() => {
+  try {
+    return JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8")).version as string;
+  } catch {
+    return app.getVersion();
+  }
+})();
 const REVIEW_FILE = "app-review.html";
 const WATCH_INTERVAL_MS = 1000;
 const ANALYSIS_PREWARM_DELAY_MS = 350;
@@ -111,6 +142,7 @@ function isLightTheme(): boolean {
 }
 
 app.setName(APP_NAME);
+if (DEV_BUILD) app.setPath("userData", join(app.getPath("userData"), "dev"));
 // Opt-in local CDP endpoint for automated verification (never on in normal runs).
 if (process.env.KAKAPO_REMOTE_DEBUG) app.commandLine.appendSwitch("remote-debugging-port", process.env.KAKAPO_REMOTE_DEBUG);
 // The lazy Markdown editor cannot reliably load from the repository's file:// review. A narrow, read-only
@@ -125,14 +157,34 @@ protocol.registerSchemesAsPrivileged([{
 
 const iconPath = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "icon.png");
 const preloadPath = join(dirname(fileURLToPath(import.meta.url)), "preload.cjs");
+const hubPreloadPath = join(dirname(fileURLToPath(import.meta.url)), "hub-preload.cjs");
 
 // Development argv is `[electron, app-main.js, ...flags]`; a packaged app is
 // `[Kakapo, ...flags]`. Dropping two entries unconditionally erased `--cwd` from the installed app,
 // so scripted relaunches landed on the welcome/recent-project screen instead of the requested folder.
 const runtimeArgs = app.isPackaged ? process.argv.slice(1) : process.argv.slice(2);
 const options = parseArgs(runtimeArgs);
+// Electron forwards this small, serializable payload to the primary process. Keeping the canonical path
+// in additionalData avoids relying on platform-specific command-line/cwd behavior during handoff.
+const hasSingleInstanceLock = app.requestSingleInstanceLock({ workspaceRoot: options.root });
 const states = new Map<number, WinState>();
+let shellWindow: BrowserWindow | undefined;
+let activeStateId: number | undefined;
+let quitConfirmed = false;
+// The workspace rail is a thin, ALWAYS-VISIBLE column of workspace tiles (like an editor's activity bar).
+// Switching workspaces never removes the review's own Changes/Files sidebar, so there is no "how do I get
+// back" state — you never left. `hubOpen` stays true; the rail is not a mode you toggle into and out of.
+const HUB_WIDTH = 52;
+// A full-width title strip gives the macOS traffic lights their own clean band, so no vertical divider
+// runs up into them. The review views sit below it; the active workspace's name lives in the strip.
+const TITLEBAR_H = 38;
+let hubOpen = true;
+// True while a shell-page modal (the New-workspace dialog) is up. Suppresses the "return keyboard focus to
+// the review view" behavior so the dialog keeps focus.
+let modalOpen = false;
+let workspaceCreation: AbortController | undefined;
 const preferences = new AppPreferences(app.getPath("userData"), isGitRepository);
+const startupWorkspaceMetadata = preferences.readOpenWorkspaces();
 let markdownMemo: ProjectMarkdownMemo | undefined;
 
 if (!existsSync(options.root)) {
@@ -142,17 +194,15 @@ if (!existsSync(options.root)) {
 // Resolve the WinState for an IPC call by mapping its sender back to a window — this is how get-file /
 // source/analysis requests are routed to the right window's state instead of a shared global.
 function stateFromEvent(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): WinState | undefined {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  return win ? states.get(win.id) : undefined;
+  return states.get(event.sender.id);
 }
 function focusedState(): WinState | undefined {
-  const win = BrowserWindow.getFocusedWindow();
-  return win ? states.get(win.id) : undefined;
+  return activeStateId === undefined ? undefined : states.get(activeStateId);
 }
 // Menu accelerators are application-global, so they act on whichever window is focused.
 function sendToFocused(channel: string, payload?: unknown): void {
-  const win = BrowserWindow.getFocusedWindow();
-  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+  const state = focusedState();
+  if (state && !state.win.isDestroyed()) state.win.webContents.send(channel, payload);
 }
 
 function memoStore(): ProjectMarkdownMemo {
@@ -179,6 +229,139 @@ registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerTerminalIpc(ipcMain, stateFromEvent);
 registerAnswersIpc(ipcMain, stateFromEvent);
 registerExplainIpc(ipcMain, stateFromEvent);
+ipcMain.on("kakapo:hub-ready", renderHub);
+// The rail is always visible, so there is nothing to toggle. Kept as a harmless no-op so the viewer's
+// existing chip-click / ⌘K wiring does not error; a floating quick-switcher can hook here later.
+ipcMain.on("kakapo:workspace-hub-toggle", () => { /* rail is persistent — no takeover to toggle */ });
+
+// A shell-page modal (the New-workspace dialog) is painted UNDER the review WebContentsViews, so it is
+// invisible behind them except over the 52px rail. Hide the review views while the modal is up so the
+// dialog is fully visible and clickable, and restore the active view when it closes.
+ipcMain.on("kakapo:hub-modal", (_event, open: unknown) => { modalOpen = !!open; setReviewViewsVisible(!open); });
+
+// Keyboard shortcuts live in the review viewer (a WebContentsView). Clicking the shell-page rail moves
+// keyboard focus to the shell, where those shortcuts do nothing — so hand focus back to the active review
+// view after any rail interaction (and whenever the window is re-activated), unless a modal owns focus.
+function focusActiveReviewView(): void {
+  if (modalOpen || !shellWindow || shellWindow.isDestroyed()) return;
+  const active = activeStateId != null ? states.get(activeStateId) : undefined;
+  if (active && !active.win.isDetached() && !active.win.isDestroyed()) active.win.webContents.focus();
+}
+ipcMain.on("kakapo:hub-refocus", () => focusActiveReviewView());
+ipcMain.on("kakapo:hub-activate", (_event, id: unknown) => {
+  if (typeof id === "number") activateWorkspace(id);
+});
+ipcMain.on("kakapo:hub-activate-index", (_event, index: unknown) => {
+  if (typeof index !== "number") return;
+  const state = Array.from(states.values())[index];
+  if (state) activateWorkspace(state.win.webContents.id);
+});
+ipcMain.on("kakapo:hub-resume", (_event, id: unknown) => {
+  if (typeof id !== "number") return;
+  const state = states.get(id);
+  if (!state?.resumeCommand) return;
+  activateWorkspace(id);
+  state.win.webContents.send("kakapo:agent-resume", state.resumeCommand);
+});
+ipcMain.on("kakapo:hub-settings", () => {
+  const state = focusedState();
+  if (!state) return;
+  state.win.webContents.sendInputEvent({ type: "keyDown", keyCode: ",", modifiers: process.platform === "darwin" ? ["meta"] : ["control"] });
+  state.win.webContents.sendInputEvent({ type: "keyUp", keyCode: ",", modifiers: process.platform === "darwin" ? ["meta"] : ["control"] });
+});
+ipcMain.on("kakapo:hub-detach", (_event, id: unknown) => {
+  if (typeof id === "number") states.get(id)?.win.detach();
+});
+ipcMain.handle("kakapo:hub-choose-repo", async () => {
+  const repo = await pickRepo(shellWindow, focusedState()?.options.root);
+  return repo ? { ok: true, repo } : { ok: false };
+});
+ipcMain.handle("kakapo:hub-preview", (_event, payload: { repo?: unknown; label?: unknown }) => {
+  if (typeof payload?.repo !== "string" || typeof payload?.label !== "string" || !isGitRepository(payload.repo)) return { ok: false };
+  const repo = workspaceRecord(payload.repo), slug = workspaceSlug(payload.label);
+  return { ok: true, slug, base: defaultBase(repo.repoRoot), branch: `kakapo/${slug}`,
+    path: join("~", "kakapo", "workspaces", repo.repoName, slug) };
+});
+ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; label?: unknown }) => {
+  if (typeof payload?.repo !== "string" || typeof payload?.label !== "string") return { ok: false };
+  if (workspaceCreation) return { ok: false, error: "A workspace is already being created." };
+  workspaceCreation = new AbortController();
+  try {
+    const created = await createManagedWorkspaceAsync(payload.repo, payload.label, { signal: workspaceCreation.signal });
+    const records = savedWorkspaceMetadata().filter((item) => resolveWorkspaceRoot(item.path) !== created.path);
+    records.push(created);
+    preferences.writeOpenWorkspaces(records, created.path);
+    const state = openOrFocusWorkspace(created.path);
+    const openTerminal = () => {
+      if (state.win.webContents.isDestroyed()) return;
+      if (!state.win.webContents.getURL().includes(REVIEW_FILE)) return;
+      state.win.webContents.removeListener("did-finish-load", openTerminal);
+      state.win.webContents.send("kakapo:terminal-toggle");
+    };
+    state.win.webContents.on("did-finish-load", openTerminal);
+    openTerminal();
+    return { ok: true, warning: created.fetchWarning };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    workspaceCreation = undefined;
+  }
+});
+ipcMain.on("kakapo:hub-cancel-create", () => workspaceCreation?.abort());
+ipcMain.handle("kakapo:hub-forget", (_event, payload: { path?: unknown }) => {
+  if (typeof payload?.path !== "string") return { ok: false };
+  const next = savedWorkspaceMetadata().filter((item) => item.path !== payload.path);
+  const startupIndex = startupWorkspaceMetadata.findIndex((item) => item.path === payload.path);
+  if (startupIndex >= 0) startupWorkspaceMetadata.splice(startupIndex, 1);
+  preferences.writeOpenWorkspaces(next, focusedState()?.options.root);
+  renderHub();
+  return { ok: true };
+});
+ipcMain.handle("kakapo:hub-reconnect", (_event, payload: { oldPath?: unknown; newPath?: unknown }) => {
+  if (typeof payload?.oldPath !== "string" || typeof payload?.newPath !== "string" || !isGitRepository(payload.newPath)) return { ok: false };
+  const old = savedWorkspaceMetadata().find((item) => item.path === payload.oldPath);
+  const replacement = { ...workspaceRecord(payload.newPath), alias: old?.alias, memo: old?.memo, base: old?.base };
+  const next = savedWorkspaceMetadata().filter((item) => item.path !== payload.oldPath);
+  const startupIndex = startupWorkspaceMetadata.findIndex((item) => item.path === payload.oldPath);
+  if (startupIndex >= 0) startupWorkspaceMetadata.splice(startupIndex, 1);
+  next.push(replacement);
+  preferences.writeOpenWorkspaces(next, replacement.path);
+  openOrFocusWorkspace(replacement.path);
+  return { ok: true };
+});
+ipcMain.handle("kakapo:hub-rename", (_event, payload: { id?: unknown; alias?: unknown; memo?: unknown }) => {
+  if (typeof payload?.id !== "number") return { ok: false };
+  const state = states.get(payload.id);
+  if (!state) return { ok: false };
+  const records = preferences.readOpenWorkspaces();
+  const record = records.find((item) => resolveWorkspaceRoot(item.path) === resolveWorkspaceRoot(state.options.root));
+  if (record && typeof payload.alias === "string") record.alias = payload.alias.trim();
+  if (record && typeof payload.memo === "string") record.memo = payload.memo.trim();
+  preferences.writeOpenWorkspaces(records, focusedState()?.options.root);
+  renderHub();
+  return { ok: true };
+});
+ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unknown; force?: unknown; deleteBranch?: unknown }) => {
+  if (typeof payload?.id !== "number" || (payload.mode !== "close" && payload.mode !== "delete")) return { ok: false };
+  const state = states.get(payload.id);
+  if (!state) return { ok: false };
+  const record = workspaceRecord(state.options.root);
+  const metadata = savedWorkspaceMetadata().find((item) => resolveWorkspaceRoot(item.path) === record.path);
+  record.base = metadata?.base;
+  const risk = removalRisk(record, state.terms.size > 0);
+  if (payload.mode === "delete") {
+    if (record.kind === "main") return { ok: false, error: "The main checkout can only be closed.", risk };
+    if (!payload.force && (risk.dirty || risk.unpushed || risk.runningProcesses)) return { ok: false, needsConfirmation: true, risk };
+    for (const term of state.terms.values()) try { term.kill(); } catch {}
+    removeManagedWorkspace(record, !!payload.force, !!payload.deleteBranch);
+  }
+  const metadataIndex = startupWorkspaceMetadata.findIndex((item) => resolveWorkspaceRoot(item.path) === record.path);
+  if (metadataIndex >= 0) startupWorkspaceMetadata.splice(metadataIndex, 1);
+  state.win.webContents.close();
+  const next = Array.from(states.values()).find((item) => item !== state);
+  if (next) activateWorkspace(next.win.webContents.id);
+  return { ok: true };
+});
 
 // The single Markdown memo is application data, never a repository artifact. Main derives the scope from
 // the calling window's canonical worktree; the sandboxed renderer cannot choose a filesystem path.
@@ -307,7 +490,7 @@ ipcMain.handle("kakapo:set-review-compare", (event, payload: { base?: unknown; t
 ipcMain.handle("kakapo:open-folder", async (event) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false };
-  const root = await pickDirectory(state.win, state.options.root);
+  const root = await pickDirectory(shellWindow, state.options.root);
   if (!root) return { ok: false };
   if (!isGitRepository(root)) return { ok: false, error: "not-git" };
   await openReview(state, root);
@@ -406,7 +589,16 @@ ipcMain.on("kakapo:set-ignore-menu-shortcuts", (event, msg: { ignore?: boolean }
   event.sender.setIgnoreMenuShortcuts(!!(msg && msg.ignore));
 });
 
-app.whenReady().then(async () => {
+if (hasSingleInstanceLock) app.on("second-instance", (_event, commandLine, workingDirectory, additionalData) => {
+  const handoff = additionalData as { workspaceRoot?: unknown } | undefined;
+  const suppliedRoot = handoff && typeof handoff.workspaceRoot === "string"
+    ? handoff.workspaceRoot
+    : readOption(commandLine, "--cwd") ?? workingDirectory;
+  if (!suppliedRoot || !existsSync(suppliedRoot) || !isGitRepository(suppliedRoot)) return;
+  openOrFocusWorkspace(resolveWorkspaceRoot(suppliedRoot));
+});
+
+if (hasSingleInstanceLock) app.whenReady().then(async () => {
   const assetRoot = resolve(dirname(fileURLToPath(import.meta.url)), "monaco");
   protocol.handle("kakapo-asset", (request) => {
     try {
@@ -439,13 +631,48 @@ app.whenReady().then(async () => {
 
   // First window uses the CLI-resolved root + flags. The repository stays read-only: each window writes
   // generated review state into its mirrored directory below Electron userData.
-  createWindow(options.root);
+  const restored = preferences.readOpenWorkspaces()
+    .filter((workspace) => existsSync(workspace.path) && isGitRepository(workspace.path));
+  const activePath = preferences.readActiveWorkspace();
+  const restoreActive = app.isPackaged && !isGitRepository(options.root) && activePath;
+  const requested = createWindow(options.root, !!restoreActive);
+  for (const workspace of restored) {
+    if (resolveWorkspaceRoot(workspace.path) !== resolveWorkspaceRoot(options.root)) {
+      createWindow(workspace.path, !restoreActive || resolveWorkspaceRoot(workspace.path) !== resolveWorkspaceRoot(restoreActive));
+    }
+  }
+  const active = restoreActive && Array.from(states.values()).find(
+    (state) => resolveWorkspaceRoot(state.options.root) === resolveWorkspaceRoot(restoreActive),
+  );
+  if (active && active !== requested) {
+    requested.win.hide();
+    active.win.show();
+    active.win.focus();
+  }
 }).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : String(error));
   app.quit();
 });
+else app.quit();
 
 // Each window's "closed" handler clears its timer and deletes its state, so quit once the last window is gone.
+app.on("before-quit", (event) => {
+  if (quitConfirmed) return;
+  const running = Array.from(states.values()).filter((state) => state.terms.size > 0).length;
+  if (!running) { quitConfirmed = true; return; }
+  event.preventDefault();
+  const messageOptions: Electron.MessageBoxSyncOptions = {
+    type: "warning",
+    title: "Agents are still running",
+    message: `${running} workspace${running === 1 ? "" : "s"} still has a running terminal or agent.`,
+    detail: "Quitting stops these processes. Resume metadata will be kept when the agent can be identified.",
+    buttons: ["Keep Kakapo Open", "Quit and Stop Agents"],
+    defaultId: 0,
+    cancelId: 0,
+  };
+  const choice = shellWindow ? dialog.showMessageBoxSync(shellWindow, messageOptions) : dialog.showMessageBoxSync(messageOptions);
+  if (choice === 1) { quitConfirmed = true; app.quit(); }
+});
 app.on("window-all-closed", () => {
   app.quit();
 });
@@ -473,6 +700,28 @@ function buildApplicationMenu(): void {
   // Keep the standard Edit/Window roles so Cmd+C/V/X/A (copy comments into prompts) and Cmd+Q work.
   // The in-window menu bar stays hidden on Windows/Linux via autoHideMenuBar; macOS shows it in the top bar.
   menuTemplate.push({ role: "editMenu" });
+  menuTemplate.push({
+    label: "Workspace",
+    submenu: [
+      { label: "Switch Workspace", accelerator: "CommandOrControl+K", click: () => {
+        // Open the floating quick-switcher inside the active review view (it renders over the diff, so the
+        // review stays visible behind it). Focus the view first so its input receives keystrokes.
+        const active = activeStateId != null ? states.get(activeStateId) : undefined;
+        if (active && !active.win.isDetached() && !active.win.isDestroyed()) {
+          active.win.webContents.focus();
+          active.win.webContents.send("kakapo:open-quick-switcher");
+        }
+      } },
+      { label: "New Workspace", accelerator: "CommandOrControl+N", click: () => {
+        shellWindow?.webContents.send("kakapo:hub-new");
+      } },
+      { type: "separator" },
+      ...Array.from({ length: 9 }, (_, index): Electron.MenuItemConstructorOptions => ({
+        label: `Workspace ${index + 1}`, accelerator: `CommandOrControl+Alt+${index + 1}`, visible: false,
+        click: () => { const state = Array.from(states.values())[index]; if (state) activateWorkspace(state.win.webContents.id); },
+      })),
+    ],
+  });
   // Ctrl+Cmd+Shift+/ ("?") opens the merged review-comments view (questions, then change requests).
   // ? is Shift+/ so Shift is part of the combo; Ctrl+Cmd avoids macOS's Cmd+? Help grab.
   menuTemplate.push({
@@ -530,37 +779,266 @@ function buildApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
 }
 
+function ensureShellWindow(light: boolean): BrowserWindow {
+  if (shellWindow && !shellWindow.isDestroyed()) return shellWindow;
+  shellWindow = new BrowserWindow({
+    width: 1440, height: 960, minWidth: 960, minHeight: 640, show: false, title: APP_TITLE,
+    icon: iconPath, backgroundColor: light ? "#f5f5f5" : "#202124", autoHideMenuBar: true,
+    ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 14, y: 12 } } : {}),
+    webPreferences: { preload: hubPreloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  installWindowSurfaceRecovery(shellWindow);
+  shellWindow.on("resize", layoutWorkspaceViews);
+  shellWindow.on("focus", focusActiveReviewView); // re-activating the app returns keys to the review viewer
+  if (DEV_BUILD) shellWindow.webContents.on("console-message", (...args: unknown[]) => {
+    const first = args[0] as { message?: string } | undefined;
+    console.error(`[hub] ${String(first && typeof first === "object" ? first.message : args[2])}`);
+  });
+  shellWindow.on("closed", () => {
+    for (const state of states.values()) state.win.webContents.close();
+    shellWindow = undefined;
+  });
+  void shellWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(hubHtml(light)));
+  shellWindow.webContents.on("did-finish-load", renderHub);
+  shellWindow.once("ready-to-show", () => shellWindow?.show());
+  return shellWindow;
+}
+
+function layoutWorkspaceViews(): void {
+  if (!shellWindow || shellWindow.isDestroyed()) return;
+  const [width, height] = shellWindow.getContentSize();
+  const hubWidth = HUB_WIDTH; // the rail is always present; the review view sits to its right
+  for (const state of states.values()) {
+    if (state.win.isDetached()) continue;
+    const view = shellWindow.contentView.children.find(
+      (child): child is WebContentsView => child instanceof WebContentsView && child.webContents.id === state.win.webContents.id,
+    );
+    view?.setBounds({ x: hubWidth, y: TITLEBAR_H, width: Math.max(1, width - hubWidth), height: Math.max(1, height - TITLEBAR_H) });
+  }
+}
+
+// Show or hide the docked review views (used while a shell-page modal is open). When restoring, only the
+// active workspace's view becomes visible again — matching the normal single-visible-view invariant.
+function setReviewViewsVisible(visible: boolean): void {
+  if (!shellWindow || shellWindow.isDestroyed()) return;
+  for (const state of states.values()) {
+    if (state.win.isDetached()) continue;
+    const view = shellWindow.contentView.children.find(
+      (child): child is WebContentsView => child instanceof WebContentsView && child.webContents.id === state.win.webContents.id,
+    );
+    view?.setVisible(visible && state.win.webContents.id === activeStateId);
+  }
+}
+
+function setWorkspaceHubOpen(open: boolean): void {
+  hubOpen = open;
+  layoutWorkspaceViews();
+  shellWindow?.webContents.send("kakapo:hub-toggle", open);
+  for (const state of states.values()) {
+    if (!state.win.isDestroyed()) state.win.webContents.send("kakapo:workspace-hub-open", open);
+  }
+  renderHub();
+}
+
+function activateWorkspace(id: number): void {
+  if (!shellWindow || shellWindow.isDestroyed() || !states.has(id)) return;
+  activeStateId = id;
+  const activated = states.get(id);
+  if (activated) {
+    activated.unread = false;
+    if (activated.idleTimer) { clearTimeout(activated.idleTimer); activated.idleTimer = undefined; }
+    if (activated.analysisSuspended) {
+      activated.analysis = new ProjectAnalysis(activated.options.root);
+      activated.analysisSuspended = false;
+      const rebuilt = writeReviewFile(activated);
+      activated.signature = rebuilt.signature;
+      if (rebuilt.update) activated.win.webContents.send("kakapo:diff-update", rebuilt.update);
+      scheduleAnalysisPrewarm(activated);
+    }
+    if (!activated.bootStarted) {
+      activated.bootStarted = true;
+      void bootWindow(activated, isLightTheme());
+    }
+    if (activated.win.isDetached()) {
+      activated.win.focus();
+      persistWorkspaceSession(activated.options.root);
+      renderHub();
+      return;
+    }
+  }
+  const identity = activated && workspaceRecord(activated.options.root);
+  if (identity) {
+    const metadata = savedWorkspaceMetadata().find((item) => resolveWorkspaceRoot(item.path) === identity.path);
+    shellWindow.setTitle(`${metadata?.alias || identity.branch} · ${identity.repoName} — ${APP_TITLE}`);
+  }
+  for (const state of states.values()) {
+    if (state.win.isDetached()) continue;
+    const view = shellWindow.contentView.children.find(
+      (child): child is WebContentsView => child instanceof WebContentsView && child.webContents.id === state.win.webContents.id,
+    );
+    view?.setVisible(state.win.webContents.id === id);
+    if (state.win.webContents.id !== id) {
+      if (state.idleTimer) clearTimeout(state.idleTimer);
+      state.idleTimer = setTimeout(() => {
+        state.analysis.dispose();
+        state.analysisSuspended = true;
+        state.sourceFiles.clear();
+        state.bodyCache.clear();
+      }, 5 * 60_000);
+      state.idleTimer.unref?.();
+    }
+  }
+  shellWindow.show();
+  shellWindow.focus();
+  focusActiveReviewView(); // keyboard belongs to the review viewer, not the rail
+  // The rail stays put — selecting a workspace does not collapse anything, so there is no "return" step.
+  persistWorkspaceSession(states.get(id)?.options.root);
+  renderHub();
+}
+
+function renderHub(): void {
+  if (!shellWindow || shellWindow.isDestroyed()) return;
+  const saved = savedWorkspaceMetadata();
+  const live = Array.from(states.values()).map((state) => {
+    const current = workspaceRecord(state.options.root);
+    const metadata = saved.find((item) => resolveWorkspaceRoot(item.path) === current.path);
+    const dirtyCount = git(current.path, ["status", "--porcelain"]).split("\n").filter(Boolean).length;
+    return { id: state.win.webContents.id, ...current, alias: metadata?.alias, memo: metadata?.memo,
+      base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount,
+      active: state.win.webContents.id === activeStateId, running: state.terms.size > 0,
+      resume: state.resumeCommand, unread: state.unread, detached: state.win.isDetached() };
+  });
+  const disconnected = saved.filter((item) => !existsSync(item.path)).map((item, index) => ({
+    ...item, id: -(index + 1), active: false, running: false, unread: false, disconnected: true,
+  }));
+  const workspaces = [...live, ...disconnected];
+  void shellWindow.webContents.send("kakapo:hub-state", workspaces);
+  for (const state of states.values()) {
+    if (state.win.isDestroyed()) continue;
+    state.win.webContents.send("kakapo:workspace-state", {
+      items: workspaces,
+      currentId: state.win.webContents.id,
+      // The rail never hijacks the review's own Changes/Files sidebar, so the viewer must never enter the
+      // hub-open state that hides it. The rail's own visibility is owned entirely by the shell page.
+      open: false,
+    });
+  }
+}
+
+function hubHtml(light: boolean): string {
+  const bg = light ? "#f4f4f4" : "#252526", fg = light ? "#242424" : "#ddd", line = light ? "#d0d0d0" : "#454545";
+  return `<!doctype html><meta charset="utf-8"><style>
+*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:${bg};color:${fg};font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{display:flex;flex-direction:column}
+#titlebar{height:${TITLEBAR_H}px;flex:none;-webkit-app-region:drag;display:flex;align-items:center;gap:8px;padding:0 12px 0 84px;border-bottom:1px solid ${line};background:${light ? "#ececec" : "#1b1e25"}}
+#wsname{-webkit-app-region:no-drag;display:flex;align-items:center;gap:7px;max-width:72%;font-weight:600;color:${fg};font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#wsname .wsdot{width:6px;height:6px;border-radius:50%;background:#4d9a51;flex:none}#wsname .rp{color:${light ? "#888" : "#7d828c"};font-weight:400}
+#hub{width:${HUB_WIDTH}px;flex:1;min-height:0;border-right:1px solid ${line};display:flex;flex-direction:column;align-items:center;gap:2px}
+button{border:1px solid ${line};background:transparent;color:inherit;border-radius:6px;padding:4px 8px}
+#list{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 0;width:100%}
+.repo-sep{width:24px;height:1px;background:${line};margin:3px 0;flex:none}
+.ws{position:relative;width:36px;height:36px;flex:none;border:1px solid ${line};background:${light ? "#e6e6e6" : "#2d2d30"};color:${light ? "#555" : "#b9bcc4"};border-radius:9px;display:grid;place-items:center;font-weight:700;font-size:12px;padding:0;letter-spacing:.02em}
+.ws:hover{border-color:#4d86d9;color:${fg}}
+.ws.active{border-color:#4d86d9;color:#4d86d9;background:${light ? "#dfe7f5" : "#2a3446"};box-shadow:0 0 0 1px #4d86d9}
+.ws.disc{opacity:.5}
+.ws .rundot{position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:#4d9a51;border:2px solid ${bg}}
+.ws .unread{position:absolute;top:-3px;left:-3px;width:9px;height:9px;border-radius:50%;background:#e0a54b;border:2px solid ${bg}}
+#railfoot{display:flex;flex-direction:column;align-items:center;gap:5px;padding:7px 0;border-top:1px solid ${line};width:100%;flex:none}
+#railfoot button{width:34px;height:32px;border:0;border-radius:8px;font-size:17px;color:${light ? "#666" : "#999"};display:grid;place-items:center;padding:0}
+#railfoot button:hover{background:${light ? "#dfe7f5" : "#373d49"};color:${fg}}
+#railfoot #new{border:1px dashed ${line}}
+dialog{border:1px solid ${line};border-radius:10px;background:${bg};color:${fg};width:360px;padding:18px}dialog::backdrop{background:#0008}
+label{display:block;margin:10px 0 4px;color:#888}input{width:100%;padding:8px;border:1px solid ${line};border-radius:6px;background:transparent;color:inherit}
+.actions{display:flex;justify-content:flex-end;gap:7px;margin-top:16px}.error{color:#d66;min-height:16px;margin-top:8px}
+.context-menu{position:fixed;z-index:20;width:172px;padding:5px;background:${bg};border:1px solid ${line};border-radius:8px;box-shadow:0 12px 30px #0008}
+.context-menu button{display:block;width:100%;border:0;text-align:left;padding:7px 9px}.context-menu button:hover{background:${light ? "#dfe7f5" : "#373d49"}}.context-menu .danger{color:#df6868}.hidden{display:none!important}</style>
+<div id="titlebar"><span id="wsname"></span></div><main id="hub"><section id="list"></section><div id="railfoot"><button id="new" title="New workspace (⌘N)">＋</button><button id="settings" title="Settings — v${APP_VERSION}">⚙</button></div></main>
+<dialog id="create"><b>New workspace</b><label>Local repository</label><div><input id="repo" readonly><button id="choose">Choose…</button></div><label>Task name</label><input id="label" placeholder="workspace-hub"><div id="preview" class="meta"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate">Cancel</button><button id="doCreate">Fetch & create</button></div></dialog>
+<div id="workspaceMenu" class="context-menu hidden" role="menu"><button data-action="activate">Switch</button><button data-action="resume" class="hidden">Resume session</button><button data-action="rename">Rename…</button><button data-action="memo">Edit memo…</button><button data-action="detach">Open in new window</button><button data-action="close">Close workspace</button><button data-action="delete" class="danger">Delete worktree…</button></div>
+<script>
+const list=document.querySelector("#list"),dlg=document.querySelector("#create"),menu=document.querySelector("#workspaceMenu"),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));let menuCard=null;
+let creating=false;const openCreate=()=>{dlg.showModal();window.kakapoHub.modal(true)};dlg.addEventListener('close',()=>window.kakapoHub.modal(false));document.querySelector("#new").onclick=openCreate;document.querySelector("#cancelCreate").onclick=()=>{if(creating)window.kakapoHub.cancelCreate();else dlg.close()};
+document.querySelector("#settings").onclick=()=>window.kakapoHub.settings();
+window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(openCreate);
+async function preview(){const r=await window.kakapoHub.preview(document.querySelector("#repo").value,document.querySelector("#label").value);document.querySelector("#preview").innerHTML=r.ok?'slug: '+esc(r.slug)+'<br>base: '+esc(r.base)+'<br>branch: '+esc(r.branch)+'<br>'+esc(r.path):''}
+document.querySelector("#choose").onclick=async()=>{const r=await window.kakapoHub.chooseRepo();if(r.ok){document.querySelector("#repo").value=r.repo;preview()}};
+document.querySelector("#label").oninput=preview;
+document.querySelector("#doCreate").onclick=async()=>{const btn=document.querySelector("#doCreate"),err=document.querySelector("#createError");creating=true;btn.disabled=true;btn.textContent="Fetching base…";err.textContent="";
+const r=await window.kakapoHub.create(document.querySelector("#repo").value,document.querySelector("#label").value);creating=false;btn.disabled=false;btn.textContent="Fetch & create";if(r.ok)dlg.close();else err.textContent=r.error||"Could not create workspace"};
+const ago=value=>{const seconds=Math.max(0,Math.floor((Date.now()-Number(value||Date.now()))/1000));return seconds<60?'now':seconds<3600?Math.floor(seconds/60)+'m ago':seconds<86400?Math.floor(seconds/3600)+'h ago':Math.floor(seconds/86400)+'d ago'};
+window.kakapoHub.onState(items=>{const groups=new Map;for(const w of items){if(!groups.has(w.repoName))groups.set(w.repoName,[]);groups.get(w.repoName).push(w)}
+const _a=items.find(w=>w.active);const _wn=document.getElementById('wsname');if(_wn)_wn.innerHTML=_a?'<span class="wsdot"></span>'+esc(_a.alias||_a.branch)+' <span class="rp">· '+esc(_a.repoName)+'</span>':'';
+const initials=w=>{const s=String(w.alias||w.branch||w.repoName||'?').replace(/^(feature|fix|chore|bugfix|hotfix|release)[\\/-]/i,'');const p=s.split(/[^a-z0-9]+/i).filter(Boolean);return((p[0]?p[0][0]:'?')+(p[1]?p[1][0]:(p[0]&&p[0][1]?p[0][1]:''))).toUpperCase()};
+const tip=w=>(w.alias||w.branch)+' · '+w.repoName+(w.dirtyCount?' · '+w.dirtyCount+' changed':'')+(w.running?' · ● running':w.resume?' · resumable':w.disconnected?' · disconnected':'');
+list.innerHTML=[...groups].map(([repo,ws],gi)=>(gi>0?'<div class="repo-sep"></div>':'')+ws.map(w=>'<button class="ws '+(w.active?'active':'')+(w.disconnected?' disc':'')+'" title="'+esc(tip(w))+'" data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-resume="'+(w.resume&&!w.running?'1':'')+'">'+esc(initials(w))+(w.running?'<span class="rundot"></span>':'')+(w.unread?'<span class="unread"></span>':'')+'</button>').join('')).join('');
+for(const el of list.querySelectorAll('.ws')){el.onclick=async()=>{const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){const action=prompt('reconnect | remove','reconnect');if(action==='remove')window.kakapoHub.forget(path);else if(action==='reconnect'){const r=await window.kakapoHub.chooseRepo();if(r.ok)window.kakapoHub.reconnect(path,r.repo)}return}window.kakapoHub.activate(id)};}
+});
+function openWorkspaceMenu(card){menuCard=card;const r=card.getBoundingClientRect();menu.querySelector('[data-action="resume"]').classList.toggle('hidden',card.dataset.resume!=='1');menu.style.left=Math.min(r.right+4,innerWidth-180)+'px';menu.style.top=Math.min(r.top,innerHeight-250)+'px';menu.classList.remove('hidden')}
+menu.onclick=e=>{const action=e.target.dataset.action,card=menuCard;if(!action||!card)return;menu.classList.add('hidden');const id=Number(card.dataset.id),name=card.dataset.name||'';if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='rename'){const alias=prompt('Workspace alias',name);if(alias!==null)window.kakapoHub.rename(id,alias)}else if(action==='memo'){const memo=prompt('One-line memo','');if(memo!==null)window.kakapoHub.rename(id,undefined,memo)}else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id)};
+document.addEventListener('click',e=>{if(!menu.contains(e.target)&&!e.target.classList.contains('more'))menu.classList.add('hidden')});
+async function removeWorkspace(id){const delBranch=confirm('Also delete the local branch?\\nOK deletes it; Cancel keeps it.');let r=await window.kakapoHub.remove(id,'delete',false,delBranch);if(r.needsConfirmation){const x=r.risk;if(confirm('Delete worktree?'+(x.dirty?'\\n• uncommitted changes':'')+(x.unpushed?'\\n• '+x.unpushed+' unpushed commits':'')+(x.runningProcesses?'\\n• running terminal/agent':'')+'\\n\\nThis cannot be undone.'))r=await window.kakapoHub.remove(id,'delete',true,delBranch)}if(!r.ok&&!r.needsConfirmation)alert(r.error||'Delete failed')}
+document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.ws');if(card){e.preventDefault();openWorkspaceMenu(card)}});
+document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.altKey&&/^[1-9]$/.test(e.key)){e.preventDefault();window.kakapoHub.activateIndex(Number(e.key)-1)}});
+document.addEventListener('click',e=>{if(!e.target.closest('button,input,textarea,dialog,#wsname'))window.kakapoHub.refocusReview()});
+window.kakapoHub.requestState();
+</script>`;
+}
+
 // Create a window for `root`, register its WinState, wire teardown, and boot it (animated mark ->
 // first build, or the welcome screen for a packaged launch with no repo).
-function createWindow(root: string): WinState {
+function createWindow(root: string, deferBoot = false): WinState {
   const themeLight = isLightTheme();
-  const win = new BrowserWindow({
-    width: 1440,
-    height: 960,
-    minWidth: 960,
-    minHeight: 640,
-    show: false,
-    title: APP_TITLE,
-    icon: iconPath,
-    backgroundColor: themeLight ? "#ffffff" : "#2b2b2b",
-    autoHideMenuBar: true,
-    // Let the review chrome occupy the otherwise-empty macOS title bar. The renderer keeps the traffic
-    // light corner clear and turns its existing file toolbar into the draggable window surface, so we gain
-    // vertical room without introducing a second app-specific header. Other platforms keep native chrome.
-    ...(process.platform === "darwin"
-      ? {
-          titleBarStyle: "hiddenInset" as const,
-          trafficLightPosition: { x: 14, y: 13 },
-        }
-      : {}),
-    webPreferences: {
-      preload: preloadPath,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      spellcheck: false,
+  const host = ensureShellWindow(themeLight);
+  const view = new WebContentsView({ webPreferences: {
+    preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false,
+  } });
+  host.contentView.addChildView(view);
+  view.setVisible(false);
+  layoutWorkspaceViews();
+  let surfaceHost = host;
+  let detachedHost: BrowserWindow | undefined;
+  const win: ReviewSurface = {
+    webContents: view.webContents,
+    isDestroyed: () => view.webContents.isDestroyed(),
+    isMinimized: () => surfaceHost.isMinimized(),
+    restore: () => surfaceHost.restore(),
+    show: () => detachedHost ? win.focus() : activateWorkspace(view.webContents.id),
+    hide: () => view.setVisible(false),
+    focus: () => { surfaceHost.show(); surfaceHost.focus(); },
+    loadURL: (url) => view.webContents.loadURL(url),
+    loadFile: (path) => view.webContents.loadFile(path),
+    isDetached: () => !!detachedHost && !detachedHost.isDestroyed(),
+    detach: () => {
+      if (detachedHost && !detachedHost.isDestroyed()) {
+        detachedHost.show();
+        detachedHost.focus();
+        return;
+      }
+      host.contentView.removeChildView(view);
+      detachedHost = new BrowserWindow({
+        width: 1180, height: 820, minWidth: 720, minHeight: 480, show: false,
+        title: `${workspaceRecord(root).branch} — ${APP_TITLE}`,
+        icon: iconPath, backgroundColor: themeLight ? "#f5f5f5" : "#202124", autoHideMenuBar: true,
+      });
+      surfaceHost = detachedHost;
+      detachedHost.contentView.addChildView(view);
+      const fitDetachedView = () => {
+        if (!detachedHost || detachedHost.isDestroyed()) return;
+        const [width, height] = detachedHost.getContentSize();
+        view.setBounds({ x: 0, y: 0, width, height });
+      };
+      detachedHost.on("resize", fitDetachedView);
+      detachedHost.on("closed", () => {
+        detachedHost = undefined;
+        if (!view.webContents.isDestroyed()) view.webContents.close();
+      });
+      fitDetachedView();
+      view.setVisible(true);
+      detachedHost.show();
+      detachedHost.focus();
+      renderHub();
     },
-  });
+  };
   const resolvedRoot = resolve(root);
   const perf = new ReviewPerformanceTrace(resolvedRoot, app.getPath("userData"));
   perf.mark("window-created");
@@ -586,18 +1064,32 @@ function createWindow(root: string): WinState {
     bodyCache: new Map(),
     sourceFiles: new Map(),
     analysis,
+    analysisSuspended: false,
     terms: new Map(),
+    commandBuffers: new Map(),
+    resumeCommand: typeof preferences.readWorkspace(resolvedRoot)["kakapo-agent-resume"] === "string"
+      ? preferences.readWorkspace(resolvedRoot)["kakapo-agent-resume"] as string : undefined,
+    onResumeCommand: (command) => {
+      state.resumeCommand = command;
+      preferences.setRendererSetting(state.options.root, "kakapo-agent-resume", command);
+      renderHub();
+    },
+    onAgentFinished: () => { state.unread = state.win.webContents.id !== activeStateId; renderHub(); },
+    unread: false,
+    bootStarted: false,
     perf,
     lastDiffSig: "",
     reviewBase: undefined,
     reviewUpstream: undefined,
-    disposeWindowSurfaceRecovery: installWindowSurfaceRecovery(win),
+    disposeWindowSurfaceRecovery: () => {},
     explainSig: "",
     explainSpec: null,
     explainUpdatedAt: null,
   };
-  const id = win.id;
+  const id = view.webContents.id;
   states.set(id, state);
+  layoutWorkspaceViews();
+  persistWorkspaceSession(resolvedRoot);
 
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   // Dev-only: surface renderer console output in the terminal that launched `npm run dev`, so viewer-side
@@ -617,26 +1109,73 @@ function createWindow(root: string): WinState {
     state.perf.mark("document-loaded", { document });
     scheduleAnalysisPrewarm(state);
   });
-  win.once("ready-to-show", () => {
-    if (state.win.isDestroyed()) return;
-    state.win.show();
+  view.webContents.once("did-finish-load", () => {
+    if (activeStateId === undefined) activateWorkspace(id);
+    // The hub may already be open while this review document is loading. Re-broadcast after the
+    // renderer has installed its listener so it cannot retain a hidden sidebar's empty grid column.
+    renderHub();
     if (DEV_BUILD) state.win.webContents.openDevTools({ mode: "detach" });
   });
-  // Window teardown: kill this window's ptys, clear its watch timer, and drop its state.
-  win.on("closed", () => {
+  view.webContents.on("destroyed", () => {
     for (const t of state.terms.values()) { try { t.kill(); } catch { /* already exited */ } }
     state.terms.clear();
+    state.commandBuffers.clear();
     if (state.refreshTimer) clearInterval(state.refreshTimer);
     if (state.answersTimer) clearInterval(state.answersTimer);
     if (state.explainTimer) clearInterval(state.explainTimer);
     if (state.analysisWarmTimer) clearTimeout(state.analysisWarmTimer);
-    state.disposeWindowSurfaceRecovery();
+    if (state.idleTimer) clearTimeout(state.idleTimer);
     state.analysis.dispose();
     states.delete(id);
+    persistWorkspaceSession();
+    renderHub();
   });
 
-  void bootWindow(state, themeLight);
+  if (!deferBoot) { state.bootStarted = true; void bootWindow(state, themeLight); }
   return state;
+}
+
+// A second CLI launch joins this app process. Duplicate launches (including launches from nested
+// directories) focus the existing workspace; a different worktree gets its own isolated window/state
+// inside the same Electron instance until the hub view replaces this presentation layer.
+function openOrFocusWorkspace(root: string): WinState {
+  const canonicalRoot = resolveWorkspaceRoot(root);
+  const existing = Array.from(states.values()).find(
+    (state) => resolveWorkspaceRoot(state.options.root) === canonicalRoot,
+  );
+  if (existing && !existing.win.isDestroyed()) {
+    if (existing.win.isMinimized()) existing.win.restore();
+    existing.win.show();
+    existing.win.focus();
+    persistWorkspaceSession(canonicalRoot);
+    return existing;
+  }
+  const created = createWindow(canonicalRoot);
+  created.win.show();
+  created.win.focus();
+  return created;
+}
+
+function persistWorkspaceSession(activeRoot?: string): void {
+  const saved = savedWorkspaceMetadata();
+  const records: import("./workspaces.js").WorkspaceRecord[] = Array.from(states.values())
+    .filter((state) => !state.win.isDestroyed() && isGitRepository(state.options.root))
+    .map((state) => {
+      const current = workspaceRecord(state.options.root, Date.now());
+      const prior = saved.find((item) => resolveWorkspaceRoot(item.path) === current.path);
+      return { ...current, alias: prior?.alias, memo: prior?.memo, base: prior?.base, fetchWarning: prior?.fetchWarning };
+    });
+  records.push(...saved.filter((item) => !existsSync(item.path)));
+  const active = activeRoot ?? focusedState()?.options.root ?? preferences.readActiveWorkspace();
+  preferences.writeOpenWorkspaces(records, active);
+}
+
+function savedWorkspaceMetadata() {
+  const saved = [...preferences.readOpenWorkspaces()];
+  for (const item of startupWorkspaceMetadata) {
+    if (!saved.some((entry) => resolveWorkspaceRoot(entry.path) === resolveWorkspaceRoot(item.path))) saved.push(item);
+  }
+  return saved;
 }
 
 // Paint the animated mark immediately, then build the (potentially heavy) review off the first paint and swap it
@@ -808,7 +1347,7 @@ async function openReview(state: WinState, root: string): Promise<void> {
 async function openFolderInCurrent(): Promise<void> {
   const state = focusedState();
   if (!state) return;
-  const root = await pickRepo(state.win, state.options.root);
+  const root = await pickRepo(shellWindow, state.options.root);
   if (root) await openReview(state, root);
 }
 // File > Open in New Window (Cmd/Ctrl+Shift+O): pick a repo and open it in a brand-new window.
@@ -840,17 +1379,18 @@ async function pickRepo(parent: BrowserWindow | undefined, defaultPath?: string)
     dialog.showErrorBox("Not a Git repository", `${root} is not a Git repository.`);
     return undefined;
   }
-  return root;
+  return resolveWorkspaceRoot(root);
 }
 
 // Clone the CLI-resolved flags for a new window, overriding only the repo root. root + ignoreWhitespace are
 // then mutated per window without affecting other windows or the template.
 function makeOptions(root: string): AppOptions {
-  return { ...options, root: resolve(root) };
+  return { ...options, root: resolveWorkspaceRoot(root) };
 }
 
 function parseArgs(args: string[]): AppOptions {
-  const root = resolve(readOption(args, "--cwd") ?? process.cwd());
+  const requestedRoot = resolve(readOption(args, "--cwd") ?? process.cwd());
+  const root = isGitRepository(requestedRoot) ? resolveWorkspaceRoot(requestedRoot) : requestedRoot;
   const contextValue = readOption(args, "--context");
   const staged = args.includes("--staged");
   const baseValue = readOption(args, "--base");
