@@ -91,7 +91,7 @@ test("macOS app integrates the review toolbar into the native title bar", () => 
   const source = readFileSync(join(repoRoot, "src", "app-main.ts"), "utf8");
 
   assert.match(source, /process\.platform === "darwin"[\s\S]{0,240}titleBarStyle:\s*"hiddenInset"/, "macOS uses compact inset window chrome");
-  assert.match(source, /trafficLightPosition:\s*\{\s*x:\s*14,\s*y:\s*13\s*\}/, "traffic lights retain a deliberate safe corner");
+  assert.match(source, /trafficLightPosition:\s*\{\s*x:\s*14,\s*y:\s*12\s*\}/, "traffic lights retain a deliberate safe corner");
 });
 
 test("the welcome screen cannot overflow upward beneath macOS traffic lights", () => {

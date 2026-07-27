@@ -32,7 +32,7 @@ test("real Chromium keeps every full-viewport title surface clear of macOS traff
   const layout = JSON.parse(marker.slice("KAKAPO_NATIVE_TITLE_LAYOUT=".length));
   assert.equal(layout.safeWidth, 76, "the measured native control reservation matches BrowserWindow traffic lights");
   assert.equal(layout.titlebarHeight, 40, "all custom title rows share the native titlebar height");
-  assert.ok(layout.railActionTop >= layout.titlebarHeight, "activity buttons begin below the traffic-light row");
+  assert.equal(layout.railDisplay, "none", "the in-view activity rail is hidden — its tools moved to the shell title bar");
   assert.ok(layout.sidebarBrandTop >= layout.titlebarHeight, "the expanded project header begins below the traffic-light row");
   assert.equal(layout.sidebarFocusTop, layout.titlebarHeight, "the sidebar keyboard cue begins below the traffic-light row");
   assert.equal(layout.sidebarFocusOutline, "none", "the sidebar does not draw a full-box outline through native controls");

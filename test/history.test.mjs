@@ -106,8 +106,8 @@ test("history keyboard: Cmd+9 then ArrowDown navigates commits before opening a 
   v.key("9", { metaKey: true, code: "Digit9" });
   await v.settle(80);
   assert.equal(v.$("#history-view").classList.contains("hidden"), false, "history overlay opens");
-  assert.equal(v.window.getComputedStyle(v.$(".activity-rail")).display, "flex", "workspace navigation remains available beside History");
-  assert.ok(v.$('.rail-btn[data-view="history"]').classList.contains("is-active"), "History remains represented by its active rail icon");
+  assert.equal(v.window.getComputedStyle(v.$(".activity-rail")).display, "none", "the in-view rail is hidden — workspace navigation lives in the shell title bar");
+  assert.ok(v.$('.rail-btn[data-view="history"]').classList.contains("is-active"), "History is still tracked by its (now shell-mirrored) rail icon state");
   const css = Array.from(v.document.querySelectorAll("style"), (style) => style.textContent || "").join("\n");
   assert.match(css, /\.history-view\s*\{[^}]*inset:\s*0 0 0 var\(--rail-width\)/, "History starts after the desktop rail");
   assert.match(css, /body\.native-app\s+\.history-bar\s*\{[^}]*padding-left:\s*var\(--native-title-safe-after-rail\)/, "History title uses the shared macOS traffic-light safe inset");
