@@ -283,10 +283,17 @@ ipcMain.on("kakapo:hub-expanded", (_event, expanded: unknown) => {
   sendRailPushed();
 });
 
-// A shell-page modal (the New-workspace dialog) is painted UNDER the review WebContentsViews, so it is
-// invisible behind them except over the 52px rail. Hide the review views while the modal is up so the
-// dialog is fully visible and clickable, and restore the active view when it closes.
-ipcMain.on("kakapo:hub-modal", (_event, open: unknown) => { modalOpen = !!open; setReviewViewsVisible(!open); });
+// A shell-page modal (the New-workspace dialog, the tile context menu) is painted UNDER the review
+// WebContentsViews, so it is invisible behind them except over the rail. Hide the review views while the
+// modal is up so it is fully visible and clickable. Keyboard focus otherwise stays on the (now hidden)
+// active view, so Esc/typing never reach the dialog — hand focus to the shell page while modal, and give it
+// back to the review view when it closes.
+ipcMain.on("kakapo:hub-modal", (_event, open: unknown) => {
+  modalOpen = !!open;
+  setReviewViewsVisible(!open);
+  if (modalOpen) shellWindow?.webContents.focus();
+  else focusActiveReviewView();
+});
 
 // Keyboard shortcuts live in the review viewer (a WebContentsView). Clicking the shell-page rail moves
 // keyboard focus to the shell, where those shortcuts do nothing — so hand focus back to the active review
@@ -1027,17 +1034,38 @@ body.rail-exp #railfoot{flex-direction:row;justify-content:flex-end;padding:7px 
 body.rail-exp #pin svg{transform:rotate(180deg)}
 body.rail-exp #pin{color:#4d86d9}
 #railfoot #new{border:1px dashed ${line}}
-dialog{border:1px solid ${line};border-radius:10px;background:${bg};color:${fg};width:360px;padding:18px}dialog::backdrop{background:#0008}
-label{display:block;margin:10px 0 4px;color:#888}input{width:100%;padding:8px;border:1px solid ${line};border-radius:6px;background:transparent;color:inherit}
-.actions{display:flex;justify-content:flex-end;gap:7px;margin-top:16px}.error{color:#d66;min-height:16px;margin-top:8px}
+dialog#create{border:1px solid ${line};border-radius:14px;background:${light ? "#fbfbfc" : "#242529"};color:${fg};width:456px;max-width:calc(100vw - 40px);padding:0;box-shadow:0 30px 90px #000a}
+dialog#create::backdrop{background:#0009}
+#create .dh{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 2px}
+#create .dh b{font-size:15.5px;font-weight:650}
+#create .dx{width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:${light ? "#888" : "#8a8f99"};font-size:14px;display:grid;place-items:center;padding:0}
+#create .dx:hover{background:${light ? "#eaeaea" : "#33383f"};color:${fg}}
+#create .db{padding:6px 20px 20px}
+#create label{display:block;margin:15px 0 7px;color:${light ? "#6b7280" : "#8a8f99"};font-size:11.5px;font-weight:600;letter-spacing:.02em}
+#create .field{width:100%;display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid ${line};border-radius:10px;background:${light ? "#fff" : "#2c2d31"};color:inherit;text-align:left;font-size:13.5px}
+#create .field:hover{border-color:#4d86d9}
+#create .field .fi{flex:none;color:${light ? "#9aa0ab" : "#8a8f99"};display:grid;place-items:center}
+#create .field .fv{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#create .field .fv.ph{color:${light ? "#9aa0ab" : "#71767f"}}
+#create input.tin{width:100%;padding:11px 12px;border:1px solid ${line};border-radius:10px;background:${light ? "#fff" : "#2c2d31"};color:inherit;font-size:13.5px}
+#create input.tin:focus{outline:none;border-color:#4d86d9}
+#create input.tin::placeholder{color:${light ? "#9aa0ab" : "#71767f"}}
+#create #preview{margin-top:11px;font-size:11px;color:${light ? "#6b7280" : "#8a8f99"};line-height:1.65;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+#create .error{color:#e0736b;min-height:15px;margin-top:11px;font-size:12px}
+#create .actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:20px}
+#create .dbtn{border:1px solid ${line};background:transparent;color:inherit;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:550}
+#create .dbtn:hover{background:${light ? "#eee" : "#33383f"}}
+#create .dbtn.pri{background:${light ? "#1a1a1a" : "#f0f0f2"};color:${light ? "#fff" : "#1a1a1a"};border-color:transparent;display:inline-flex;align-items:center;gap:8px}
+#create .dbtn.pri:hover{opacity:.9}#create .dbtn.pri:disabled{opacity:.5}
+#create .dbtn.pri kbd{font:11px ui-monospace,monospace;background:#00000022;border-radius:5px;padding:1px 5px;opacity:.8}
 .context-menu{position:fixed;z-index:20;width:172px;padding:5px;background:${bg};border:1px solid ${line};border-radius:8px;box-shadow:0 12px 30px #0008}
 .context-menu button{display:block;width:100%;border:0;text-align:left;padding:7px 9px}.context-menu button:hover{background:${light ? "#dfe7f5" : "#373d49"}}.context-menu .danger{color:#df6868}.hidden{display:none!important}</style>
 <div id="titlebar"><span id="wsname"></span><span class="tb-spacer"></span><div id="tools"><button class="tb" data-act="changes" title="Changes (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" title="Files (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" title="Terminal (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" title="History (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button><button class="tb" data-act="more" title="More review tools"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button></div></div><main id="hub"><section id="list"></section><div id="railfoot"><button id="pin" title="Expand workspace rail (⌘⇧E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button><button id="new" title="New workspace (⌘N)">＋</button><button id="settings" title="Settings — v${APP_VERSION}">⚙</button></div></main>
-<dialog id="create"><b>New workspace</b><label>Local repository</label><div><input id="repo" readonly><button id="choose">Choose…</button></div><label>Task name</label><input id="label" placeholder="workspace-hub"><div id="preview" class="meta"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate">Cancel</button><button id="doCreate">Fetch & create</button></div></dialog>
+<dialog id="create"><div class="dh"><b>New workspace</b><button class="dx" id="dlgClose" aria-label="Close">✕</button></div><div class="db"><label>Project</label><button id="choose" class="field"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">Choose a Git repository…</span></button><input type="hidden" id="repo"><label>Task name</label><input id="label" class="tin" placeholder="e.g. fix-login-crash" autocomplete="off" spellcheck="false"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">Cancel</button><button id="doCreate" class="dbtn pri"><span class="dcl">Fetch &amp; create</span><kbd>⌘↵</kbd></button></div></div></dialog>
 <div id="workspaceMenu" class="context-menu hidden" role="menu"><button data-action="activate">Switch</button><button data-action="resume" class="hidden">Resume session</button><button data-action="rename">Rename…</button><button data-action="memo">Edit memo…</button><button data-action="detach">Open in new window</button><button data-action="close">Close workspace</button><button data-action="delete" class="danger">Delete worktree…</button></div>
 <script>
 const list=document.querySelector("#list"),dlg=document.querySelector("#create"),menu=document.querySelector("#workspaceMenu"),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));let menuCard=null;
-let creating=false;const openCreate=()=>{dlg.showModal();window.kakapoHub.modal(true)};dlg.addEventListener('close',()=>window.kakapoHub.modal(false));document.querySelector("#new").onclick=openCreate;document.querySelector("#cancelCreate").onclick=()=>{if(creating)window.kakapoHub.cancelCreate();else dlg.close()};
+let creating=false;const openCreate=()=>{dlg.showModal();window.kakapoHub.modal(true);setTimeout(()=>{(document.querySelector("#repo").value?document.querySelector("#label"):document.querySelector("#choose")).focus();},0)};dlg.addEventListener('close',()=>window.kakapoHub.modal(false));document.querySelector("#new").onclick=openCreate;document.querySelector("#cancelCreate").onclick=()=>{if(creating)window.kakapoHub.cancelCreate();else dlg.close()};
 document.querySelector("#settings").onclick=()=>window.kakapoHub.settings();
 const tools=document.getElementById('tools');
 tools.addEventListener('click',e=>{const b=e.target.closest('button.tb');if(!b)return;window.kakapoHub.railAction(b.dataset.act)});
@@ -1050,10 +1078,12 @@ function applyRail(){document.body.classList.toggle('rail-exp',railExp);window.k
 pinBtn.onclick=()=>{railExp=!railExp;applyRail();};
 window.kakapoHub.onToggleExpand(()=>{railExp=!railExp;applyRail();});
 async function preview(){const r=await window.kakapoHub.preview(document.querySelector("#repo").value,document.querySelector("#label").value);document.querySelector("#preview").innerHTML=r.ok?'slug: '+esc(r.slug)+'<br>base: '+esc(r.base)+'<br>branch: '+esc(r.branch)+'<br>'+esc(r.path):''}
-document.querySelector("#choose").onclick=async()=>{const r=await window.kakapoHub.chooseRepo();if(r.ok){document.querySelector("#repo").value=r.repo;preview()}};
+document.querySelector("#choose").onclick=async()=>{const r=await window.kakapoHub.chooseRepo();if(r.ok){document.querySelector("#repo").value=r.repo;const n=document.querySelector("#repoName");n.textContent=r.repo.split('/').filter(Boolean).pop()||r.repo;n.classList.remove('ph');preview()}};
 document.querySelector("#label").oninput=preview;
-document.querySelector("#doCreate").onclick=async()=>{const btn=document.querySelector("#doCreate"),err=document.querySelector("#createError");creating=true;btn.disabled=true;btn.textContent="Fetching base…";err.textContent="";
-const r=await window.kakapoHub.create(document.querySelector("#repo").value,document.querySelector("#label").value);creating=false;btn.disabled=false;btn.textContent="Fetch & create";if(r.ok)dlg.close();else err.textContent=r.error||"Could not create workspace"};
+document.querySelector("#dlgClose").onclick=()=>{if(!creating)dlg.close()};
+dlg.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();document.querySelector("#doCreate").click();}});
+document.querySelector("#doCreate").onclick=async()=>{const btn=document.querySelector("#doCreate"),lbl=btn.querySelector('.dcl'),err=document.querySelector("#createError");if(creating)return;if(!document.querySelector("#repo").value){err.textContent="Choose a repository first.";return;}creating=true;btn.disabled=true;lbl.textContent="Fetching base…";err.textContent="";
+const r=await window.kakapoHub.create(document.querySelector("#repo").value,document.querySelector("#label").value);creating=false;btn.disabled=false;lbl.textContent="Fetch & create";if(r.ok)dlg.close();else err.textContent=r.error||"Could not create workspace"};
 const ago=value=>{const seconds=Math.max(0,Math.floor((Date.now()-Number(value||Date.now()))/1000));return seconds<60?'now':seconds<3600?Math.floor(seconds/60)+'m ago':seconds<86400?Math.floor(seconds/3600)+'h ago':Math.floor(seconds/86400)+'d ago'};
 window.kakapoHub.onState(items=>{const groups=new Map;for(const w of items){if(!groups.has(w.repoName))groups.set(w.repoName,[]);groups.get(w.repoName).push(w)}
 const _a=items.find(w=>w.active);const _wn=document.getElementById('wsname');if(_wn)_wn.innerHTML=_a?'<span class="wsdot"></span>'+esc(_a.alias||_a.branch)+' <span class="rp">· '+esc(_a.repoName)+'</span>':'';
