@@ -274,7 +274,9 @@ body.native-app .activity-rail::after {
 /* Reserve the native controls outside the scrolling element. Padding the scroll contents themselves
    looked correct only at scrollTop=0; once the tree moved, that padding scrolled away and the project
    heading slid underneath the traffic lights. The sidebar frame keeps this inset permanently. */
-body.native-app .sidebar { padding-top: var(--native-titlebar-height); }
+/* The shell window owns the title bar + traffic lights above this view, so the sidebar no longer reserves a
+   title-strip row; its brand header aligns with the content toolbar as one header band. */
+body.native-app .sidebar { padding-top: 0; }
 body.native-app .sidebar-scroll { padding-top: 8px; }
 body.native-app .diff-toolbar,
 body.native-app .source-tabs,
@@ -3565,7 +3567,11 @@ body.workspace-view .workspace-selector:hover { color: var(--text); }
   color: white; background: var(--active); text-align: center; font: 600 9px/12px ui-sans-serif, system-ui;
 }
 body.workspace-view .sidebar { grid-column: 2; grid-row: 1; }
-body.workspace-view .sidebar-brand { display: flex; min-height: 52px; padding-top: 25px; }
+/* Brand header = one row aligned with the content toolbar (the shell draws the title bar, so no extra
+   title-strip reservation). The branch already shows in the shell title bar, so drop it here — that also
+   frees the row for the full project name instead of squeezing it to an ellipsis. */
+body.workspace-view .sidebar-brand { display: flex; min-height: var(--native-titlebar-height); padding-top: 0; }
+body.workspace-view .sidebar-brand .brand-branch { display: none; }
 body.workspace-view .content { grid-column: 3; grid-row: 1; }
 body.workspace-view .sidebar-resizer { left: calc(var(--rail-width) + var(--sidebar-width, 264px) - 2px); }
 .workspace-more-menu {

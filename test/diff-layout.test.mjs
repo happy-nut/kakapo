@@ -33,7 +33,7 @@ test("real Chromium keeps every full-viewport title surface clear of macOS traff
   assert.equal(layout.safeWidth, 76, "the measured native control reservation matches BrowserWindow traffic lights");
   assert.equal(layout.titlebarHeight, 40, "all custom title rows share the native titlebar height");
   assert.equal(layout.railDisplay, "none", "the in-view activity rail is hidden — its tools moved to the shell title bar");
-  assert.ok(layout.sidebarBrandTop >= layout.titlebarHeight, "the expanded project header begins below the traffic-light row");
+  assert.equal(layout.sidebarBrandTop, 0, "the project header sits flush at the top — the shell window owns the title bar above this view");
   assert.equal(layout.sidebarFocusTop, layout.titlebarHeight, "the sidebar keyboard cue begins below the traffic-light row");
   assert.equal(layout.sidebarFocusOutline, "none", "the sidebar does not draw a full-box outline through native controls");
   assert.equal(layout.railFocusOutline, "none", "the activity rail does not outline the traffic-light corner");

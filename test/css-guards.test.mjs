@@ -230,7 +230,7 @@ test("packaged app reuses its top toolbars as compact draggable window chrome", 
   assert.match(css, /body\.native-app\s+\.activity-rail::before,[\s\S]{0,260}top:\s*calc\(var\(--native-titlebar-height\)\s*-\s*1px\)/, "the traffic-light divider shares the toolbar border's exact pixel");
   assert.match(css, /\.rail-btn\s*\{[^}]*width:\s*28px;\s*height:\s*28px/, "activity buttons stay compact while retaining a click target");
   assert.match(css, /\.rail-btn\s*>\s*svg\s*\{[^}]*width:\s*16px;\s*height:\s*16px/, "view icons match the smaller settings glyph");
-  assert.match(css, /body\.native-app\s+\.sidebar\s*\{[^}]*padding-top:\s*var\(--native-titlebar-height\)/, "the non-scrolling sidebar frame permanently reserves the traffic-light row");
+  assert.match(css, /body\.native-app\s+\.sidebar\s*\{[^}]*padding-top:\s*0/, "the sidebar no longer reserves a title-strip row — the shell window owns the title bar above this view");
   assert.match(css, /body\.native-app\s+\.sidebar-scroll\s*\{[^}]*padding-top:\s*8px/, "the project tree keeps only its compact internal spacing");
   assert.match(css, /body\.native-app\s+\.diff-toolbar,[\s\S]{0,180}-webkit-app-region:\s*drag/, "the existing review toolbar moves the window");
   assert.match(css, /body\.native-app\s+\.diff-toolbar\s+button,[\s\S]{0,500}-webkit-app-region:\s*no-drag/, "toolbar actions remain clickable inside the drag region");
