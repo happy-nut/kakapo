@@ -990,10 +990,18 @@ function activateWorkspace(id: number): void {
     if (activated.analysisSuspended) {
       activated.analysis = new ProjectAnalysis(activated.options.root);
       activated.analysisSuspended = false;
-      const rebuilt = writeReviewFile(activated);
-      activated.signature = rebuilt.signature;
-      if (rebuilt.update) activated.win.webContents.send("kakapo:diff-update", rebuilt.update);
       scheduleAnalysisPrewarm(activated);
+      // Rebuilding the review here (writeReviewFile) takes ~1s+ on large repos (6k+ source files), and it ran
+      // SYNCHRONOUSLY on the switch — freezing the whole app for ~2s on every switch to an idle workspace. Defer
+      // it off the switch path: the view keeps its last-rendered diff, and the refreshed diff/state is pushed a
+      // moment later. Skip if the user has already switched away again.
+      const target = activated;
+      setTimeout(() => {
+        if (target.win.isDestroyed() || target.win.webContents.id !== activeStateId) return;
+        const rebuilt = writeReviewFile(target);
+        target.signature = rebuilt.signature;
+        if (rebuilt.update && !target.win.isDestroyed()) target.win.webContents.send("kakapo:diff-update", rebuilt.update);
+      }, 0);
     }
     if (!activated.bootStarted) {
       activated.bootStarted = true;
