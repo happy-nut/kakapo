@@ -5,5 +5,7 @@ export const SOURCE_MAX_FILE_BYTES = 220_000;
 export const SOURCE_MAX_LAZY_FILE_BYTES = 10_000_000;
 export const SOURCE_MAX_TOTAL_BYTES = 50_000_000;
 export const SOURCE_MAX_FILES = 20000;
-// Raster images up to this size are embedded as base64 data URIs for inline preview.
-export const IMAGE_MAX_BYTES = 2_000_000;
+// Raster images up to this size are embedded as base64 data URIs for inline preview. Kept in step with
+// SOURCE_MAX_LAZY_FILE_BYTES so opening a normal screenshot/diagram in the tree previews instead of showing
+// "Source preview unavailable".
+export const IMAGE_MAX_BYTES = 10_000_000;

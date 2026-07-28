@@ -37,7 +37,7 @@ const REVIEW_ASSET_MIME: Record<string, string> = {
   ".webp": "image/webp", ".svg": "image/svg+xml", ".bmp": "image/bmp", ".ico": "image/x-icon",
   ".avif": "image/avif", ".apng": "image/apng",
 };
-const MAX_REVIEW_ASSET_BYTES = 8 * 1024 * 1024; // 8 MiB — comfortably covers README GIFs, rejects accidents
+const MAX_REVIEW_ASSET_BYTES = 10 * 1024 * 1024; // 10 MiB — covers larger README GIFs/screenshots, rejects accidents
 
 /** Registers read-only review, analysis, search, and history adapters. */
 export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResolver): void {
