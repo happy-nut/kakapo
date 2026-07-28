@@ -209,6 +209,15 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
+  // ⌥F1 reveals the open file in the tree from ANY view — it runs BEFORE the isFloatingModalOpen stand-down
+  // below so History/Explain (and merged/memo docks), which otherwise own the keys, don't swallow it. Only a
+  // genuine text-input modal (settings, go-to-line) still keeps it; there the "main panel" isn't focused.
+  if (event.key === 'F1' && event.altKey && !event.metaKey && !event.ctrlKey) {
+    var revealSm = document.getElementById('settings-modal');
+    var revealBlocked = (revealSm && !revealSm.classList.contains('hidden')) || !!document.getElementById('goto-line');
+    if (!revealBlocked && typeof revealOpenFileInTree === 'function') { event.preventDefault(); revealOpenFileInTree(); return; }
+  }
+
   // Settings overlay (or a focused merged/memo dock) captures keys: stand down the rest of the global
   // shortcuts (F7, Cmd+[/], Cmd+B, …). Each has its own Esc + editing handlers.
   if (isFloatingModalOpen()) return;
@@ -457,12 +466,6 @@ document.addEventListener('keydown', (event) => {
       if (event.key === '[') navBack(); else navForward();
       return;
     }
-  }
-
-  if (event.key === 'F1' && event.altKey && !event.metaKey && !event.ctrlKey) {
-    // ⌥F1: reveal the open file centered in the sidebar tree.
-    if (typeof revealOpenFileInTree === 'function') { event.preventDefault(); revealOpenFileInTree(); }
-    return;
   }
 
   if (event.key === 'F2' && !event.metaKey && !event.ctrlKey && !event.altKey) {
