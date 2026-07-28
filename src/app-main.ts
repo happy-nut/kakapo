@@ -1118,6 +1118,8 @@ body.rail-exp #list > .ws-group-head:first-child{padding-top:4px}
 body.rail-exp .ws{width:100%;height:40px;justify-content:flex-start;padding:0 5px}
 body.rail-exp .ws:hover{background:${light ? "#e4eaf6" : "#2b303a"}}
 body.rail-exp .ws.active{background:${light ? "#dfe7f5" : "#2a3446"}}
+/* Keyboard selection while the expanded rail has focus (↑/↓ navigation). */
+body.rail-exp .ws.kbd-sel{background:${light ? "#e4eaf6" : "#2b303a"};box-shadow:inset 0 0 0 2px #4d86d9}
 .ws-badge{position:relative;width:36px;height:36px;flex:none;border:1px solid ${line};background:${light ? "#e6e6e6" : "#2d2d30"};color:${light ? "#555" : "#b9bcc4"};border-radius:9px;display:grid;place-items:center;font-weight:700;font-size:12px;letter-spacing:.02em}
 .ws:hover .ws-badge{border-color:#4d86d9;color:${fg}}
 .ws.active .ws-badge{border-color:#4d86d9;color:#4d86d9;background:${light ? "#dfe7f5" : "#2a3446"};box-shadow:0 0 0 1px #4d86d9}
@@ -1214,12 +1216,25 @@ let railExp=false;const pinBtn=document.getElementById('pin');
 function paintRail(){document.body.classList.toggle('rail-exp',railExp);}
 // User action (⌘⇧E / the » pin): flip and tell main, which animates the view push, collapses the file tree, and
 // moves focus onto the rail.
-function toggleRail(){railExp=!railExp;paintRail();window.kakapoHub.setHubExpanded(railExp);}
+function toggleRail(){railExp=!railExp;paintRail();window.kakapoHub.setHubExpanded(railExp);if(railExp)initRailSel();else railClearSel();}
+// While the expanded rail holds focus, ↑/↓ move a selection through the workspace tiles and Enter opens it.
+let railSel=-1;
+function railTiles(){return [...document.querySelectorAll('#list .ws:not(.disc)')];}
+function railSelect(i){const t=railTiles();if(!t.length){railSel=-1;return;}railSel=Math.max(0,Math.min(t.length-1,i));t.forEach((el,j)=>el.classList.toggle('kbd-sel',j===railSel));const el=t[railSel];if(el&&el.scrollIntoView)el.scrollIntoView({block:'nearest'});}
+function railClearSel(){railSel=-1;document.querySelectorAll('#list .ws.kbd-sel').forEach(el=>el.classList.remove('kbd-sel'));}
+function initRailSel(){const t=railTiles();const ai=t.findIndex(el=>el.classList.contains('active'));railSelect(ai>=0?ai:0);}
+document.addEventListener('keydown',e=>{
+  if(!railExp||document.querySelector('dialog[open]'))return; // only when the rail is expanded and no dialog owns keys
+  const a=document.activeElement;if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'))return;
+  if(e.key==='ArrowDown'){e.preventDefault();railSelect(railSel<0?0:railSel+1);}
+  else if(e.key==='ArrowUp'){e.preventDefault();railSelect(railSel<0?0:railSel-1);}
+  else if(e.key==='Enter'){const t=railTiles();if(railSel>=0&&t[railSel]){e.preventDefault();t[railSel].click();}}
+});
 pinBtn.onclick=toggleRail;
 window.kakapoHub.onToggleExpand(toggleRail);
 // Main collapses the rail (visual only, no echo) when focus returns to the review view — clicking back into the
 // "main window" dismisses the peek.
-window.kakapoHub.onSetExpanded(open=>{railExp=!!open;paintRail();});
+window.kakapoHub.onSetExpanded(open=>{railExp=!!open;paintRail();if(!railExp)railClearSel();});
 async function preview(){const r=await window.kakapoHub.preview(document.querySelector("#repo").value,document.querySelector("#label").value);document.querySelector("#preview").innerHTML=r.ok?'slug: '+esc(r.slug)+'<br>base: '+esc(r.base)+'<br>branch: '+esc(r.branch)+'<br>'+esc(r.path):''}
 // Project field is a dropdown of the Git projects Kakapo already knows (main.hub-projects) plus a "Browse for a
 // folder…" fallback, so making another worktree for an existing project is one click instead of a folder pick.
@@ -1248,6 +1263,7 @@ const tip=w=>(w.alias||w.branch)+' · '+w.repoName+(w.dirtyCount?' · '+w.dirtyC
 const badgeCls=w=>'ws-badge'+(w.busy?' busy':'')+(w.running?' running':'')+(w.unread?' attn':'');
 list.innerHTML=[...groups].map(([repo,ws],gi)=>(gi>0?'<div class="repo-sep"></div>':'')+'<div class="ws-group-head" title="'+esc(repo)+'">'+esc(repo)+'</div>'+ws.map(w=>'<button class="ws '+(w.active?'active':'')+(w.disconnected?' disc':'')+'" title="'+esc(tip(w))+'" data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-resume="'+(w.resume&&!w.running?'1':'')+'"><span class="'+badgeCls(w)+'">'+esc(initials(w))+'<span class="rundot"></span><span class="unread"></span></span><span class="ws-label"><span class="n">'+esc(w.alias||w.branch)+'</span></span></button>').join('')).join('');
 for(const el of list.querySelectorAll('.ws')){el.onclick=async()=>{const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){const action=prompt('reconnect | remove','reconnect');if(action==='remove')window.kakapoHub.forget(path);else if(action==='reconnect'){const r=await window.kakapoHub.chooseRepo();if(r.ok)window.kakapoHub.reconnect(path,r.repo)}return}window.kakapoHub.activate(id)};}
+if(railExp)railSelect(railSel<0?0:railSel); // re-apply the keyboard selection after a re-render
 });
 // Lightweight agent-activity ticks (spinner / attention dot) that toggle classes on existing tiles without a
 // full re-render, so a streaming agent doesn't rebuild the rail DOM and drop hover/focus state.
