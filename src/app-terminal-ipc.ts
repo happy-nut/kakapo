@@ -17,6 +17,11 @@ export type TerminalIpcState = {
   commandBuffers?: Map<number, string>;
   onResumeCommand?: (command: string | undefined) => void;
   onAgentFinished?: () => void;
+  // Rail activity indicators: onAgentOutput fires on every pty output chunk (drives the "working" spinner via a
+  // debounce in main); onAgentBell fires when a TUI rings the bell (Claude Code finished a turn / needs input),
+  // which lights the "needs attention" dot on the workspace tile.
+  onAgentOutput?: () => void;
+  onAgentBell?: () => void;
 };
 
 type TerminalEvent = IpcMainEvent | IpcMainInvokeEvent;
@@ -58,7 +63,7 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     };
     // Relay pty output to the renderer immediately, one IPC per chunk. (A coalescing buffer was tried as an
     // optimization but it broke terminal I/O — the shell prompt and echo stopped appearing — so it's removed.)
-    t.onData((data) => deliver("kakapo:pty-data", { id, data }));
+    t.onData((data) => { deliver("kakapo:pty-data", { id, data }); state.onAgentOutput?.(); });
     t.onExit(() => {
       state.terms.delete(id);
       state.commandBuffers?.delete(id);
@@ -93,8 +98,12 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
   // a dock bounce / taskbar flash. Clicking the notification brings the window forward.
   ipc.on("kakapo:bell", (event, msg: { title?: string; body?: string }) => {
     const state = stateFromEvent(event);
+    if (!state || state.win.isDestroyed()) return;
+    // Light the tile's attention dot whenever a background turn finishes — even if the app is focused on a
+    // different workspace. This runs before the focus check below, which only gates the native notification.
+    state.onAgentBell?.();
     const win = BrowserWindow.getFocusedWindow();
-    if (!state || state.win.isDestroyed() || win?.isFocused()) return;
+    if (win?.isFocused()) return;
     try {
       if (Notification.isSupported()) {
         const note = new Notification({ title: msg?.title || "kakapo", body: msg?.body || "Terminal task finished" });

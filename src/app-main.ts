@@ -77,7 +77,11 @@ type WinState = {
   resumeCommand?: string;
   onResumeCommand: (command: string | undefined) => void;
   onAgentFinished: () => void;
-  unread: boolean;
+  onAgentOutput: () => void;
+  onAgentBell: () => void;
+  unread: boolean; // an agent turn finished / needs input in this (non-active) workspace — the tile's red dot
+  busy: boolean; // an agent is actively producing output here — the tile's animated "working" spinner
+  busyTimer?: NodeJS.Timeout; // debounce: cleared/reset on each output chunk; on expiry the workspace goes idle
   bootStarted: boolean;
   perf: ReviewPerformanceTrace; // local startup/analysis evidence under this workspace's app-data mirror
   lastDiffSig: string; // watch fast-path: hash of the last git diff, to skip rebuilds when unchanged
@@ -182,10 +186,10 @@ let appQuitting = false;
 // back" state — you never left. `hubOpen` stays true; the rail is not a mode you toggle into and out of.
 const HUB_WIDTH = 52;
 // Expanded (⌘⇧E / pinned) the rail widens to show each workspace's full name + branch. The review views
-// can't overlay the shell page (it renders behind them), so expansion PUSHES them right by this width.
-// Matched to the review sidebar's default width so that, as the rail opens and the pushed view's file tree
-// collapses, the two panels swap over the same span for a continuous motion.
-const HUB_EXPANDED = 264;
+// can't overlay the shell page (it renders behind them), so expansion PUSHES them right. Set to the collapsed
+// rail width plus the review sidebar's default width, so the expanded rail reaches exactly where the file
+// tree's right edge was — the rail replaces the tree in place and the content doesn't shift.
+const HUB_EXPANDED = HUB_WIDTH + 264;
 let hubWidth = HUB_WIDTH; // current rail width the review views are laid out against
 // A full-width title strip gives the macOS traffic lights their own clean band, so no vertical divider
 // runs up into them. The review views sit below it; the active workspace's name lives in the strip.
@@ -296,7 +300,20 @@ ipcMain.on("kakapo:hub-expanded", (_event, expanded: unknown) => {
   railExpanded = !!expanded;
   animateHubWidth(railExpanded ? HUB_EXPANDED : HUB_WIDTH);
   sendRailPushed();
+  // While expanded, keys belong to the rail so it can be navigated; the moment focus returns to the review view
+  // (a click into the "main window"), collapseRailFromReview() pulls it back in.
+  if (railExpanded) shellWindow?.webContents.focus();
+  else focusActiveReviewView();
 });
+// The expanded rail is a transient peek. When the user clicks back into the active review view, collapse it —
+// visual-only on the shell side (no echo back to main), matching the width animation main runs here.
+function collapseRailFromReview(): void {
+  if (!railExpanded) return;
+  railExpanded = false;
+  animateHubWidth(HUB_WIDTH);
+  sendRailPushed();
+  if (shellWindow && !shellWindow.isDestroyed()) shellWindow.webContents.send("kakapo:hub-set-expanded", false);
+}
 
 // A shell-page modal (the New-workspace dialog, the tile context menu) is painted UNDER the review
 // WebContentsViews, so it is invisible behind them except over the rail. Hide the review views while the
@@ -346,6 +363,49 @@ ipcMain.on("kakapo:hub-detach", (_event, id: unknown) => {
 ipcMain.handle("kakapo:hub-choose-repo", async () => {
   const repo = await pickRepo(shellWindow, focusedState()?.options.root);
   return repo ? { ok: true, repo } : { ok: false };
+});
+// The distinct Git projects Kakapo already knows about (open workspaces + saved + recent), deduped by their
+// main repo root, so the New-workspace dialog can offer them in a dropdown instead of forcing a folder pick
+// every time. `path` is the main repo root — createManagedWorkspace resolves the worktree container from it.
+ipcMain.handle("kakapo:hub-projects", () => {
+  const seen = new Set<string>();
+  const projects: { name: string; path: string }[] = [];
+  const add = (candidate: string) => {
+    try {
+      if (!candidate || !existsSync(candidate) || !isGitRepository(candidate)) return;
+      const record = workspaceRecord(candidate);
+      if (seen.has(record.repoRoot)) return;
+      seen.add(record.repoRoot);
+      projects.push({ name: record.repoName, path: record.repoRoot });
+    } catch { /* unreadable/removed repo — skip it rather than break the whole list */ }
+  };
+  for (const state of states.values()) add(state.options.root);
+  for (const item of savedWorkspaceMetadata()) add(item.path);
+  for (const recent of preferences.readRecentProjects()) add(recent.path);
+  projects.sort((a, b) => a.name.localeCompare(b.name));
+  return projects;
+});
+// The workspace tile context menu is a NATIVE menu, not an HTML one. The HTML menu lived on the shell page,
+// which renders BEHIND the review views, so it had to hide every view to be seen — blanking the main panel.
+// A native menu draws above the views at the OS level, so the review stays on screen while it's open.
+ipcMain.on("kakapo:tile-menu", (_event, info: { id?: unknown; name?: unknown; resume?: unknown }) => {
+  if (!shellWindow || shellWindow.isDestroyed()) return;
+  const id = Number(info?.id);
+  if (!Number.isFinite(id)) return;
+  const name = typeof info?.name === "string" ? info.name : "";
+  const act = (action: string) => () => shellWindow?.webContents.send("kakapo:tile-action", { id, action, name });
+  const template: Electron.MenuItemConstructorOptions[] = [
+    { label: "Switch", click: act("activate") },
+    ...(info?.resume ? [{ label: "Resume session", click: act("resume") } as Electron.MenuItemConstructorOptions] : []),
+    { type: "separator" },
+    { label: "Rename…", click: act("rename") },
+    { label: "Edit memo…", click: act("memo") },
+    { label: "Open in new window", click: act("detach") },
+    { type: "separator" },
+    { label: "Close workspace", click: act("close") },
+    { label: "Delete worktree…", click: act("delete") },
+  ];
+  Menu.buildFromTemplate(template).popup({ window: shellWindow });
 });
 ipcMain.handle("kakapo:hub-preview", (_event, payload: { repo?: unknown; label?: unknown }) => {
   if (typeof payload?.repo !== "string" || typeof payload?.label !== "string" || !isGitRepository(payload.repo)) return { ok: false };
@@ -864,7 +924,10 @@ function ensureShellWindow(light: boolean): BrowserWindow {
   });
   installWindowSurfaceRecovery(shellWindow);
   shellWindow.on("resize", layoutWorkspaceViews);
-  shellWindow.on("focus", focusActiveReviewView); // re-activating the app returns keys to the review viewer
+  // Re-activating the app returns keys to the review viewer — UNLESS the rail is expanded, where keys belong to
+  // the rail. Without this guard, focusing the shell to hold rail focus (in the hub-expanded handler) would loop
+  // back through here to the review view and instantly collapse the rail via its focus listener.
+  shellWindow.on("focus", () => { if (!railExpanded) focusActiveReviewView(); });
   if (DEV_BUILD) shellWindow.webContents.on("console-message", (...args: unknown[]) => {
     const first = args[0] as { message?: string } | undefined;
     console.error(`[hub] ${String(first && typeof first === "object" ? first.message : args[2])}`);
@@ -967,11 +1030,33 @@ function activateWorkspace(id: number): void {
   }
   shellWindow.show();
   shellWindow.focus();
-  focusActiveReviewView(); // keyboard belongs to the review viewer, not the rail
-  // The rail stays put — selecting a workspace does not collapse anything, so there is no "return" step.
+  focusActiveReviewView(); // keyboard belongs to the review viewer, not the rail — this also collapses an
+  // expanded rail (the view's focus handler calls collapseRailFromReview), so picking a workspace dismisses the peek.
   persistWorkspaceSession(states.get(id)?.options.root);
   sendRailPushed(); // the newly active view collapses its sidebar too while the rail is expanded
   renderHub();
+}
+
+// Push only the per-workspace agent-activity flags (busy spinner + attention dot) to the rail, so the tiles'
+// indicators update without a full renderHub — which re-runs `git status` for every workspace and rebuilds the
+// rail DOM (dropping hover/focus). The shell toggles CSS classes on the existing tiles from this.
+function sendAgentActivity(): void {
+  if (!shellWindow || shellWindow.isDestroyed()) return;
+  const activity = Array.from(states.values()).map((state) => ({
+    id: state.win.webContents.id, busy: state.busy, unread: state.unread, running: state.terms.size > 0,
+  }));
+  void shellWindow.webContents.send("kakapo:hub-activity", activity);
+}
+// An output chunk arrived: mark the workspace "working" and (re)arm the idle timer. Only notify the rail on the
+// idle->busy edge; while output keeps flowing the timer just resets, so a streaming agent doesn't spam IPC.
+function markAgentBusy(state: WinState): void {
+  if (state.busyTimer) clearTimeout(state.busyTimer);
+  if (!state.busy) { state.busy = true; sendAgentActivity(); }
+  state.busyTimer = setTimeout(() => { state.busyTimer = undefined; if (state.busy) { state.busy = false; sendAgentActivity(); } }, 1200);
+}
+function clearAgentBusy(state: WinState): void {
+  if (state.busyTimer) { clearTimeout(state.busyTimer); state.busyTimer = undefined; }
+  if (state.busy) { state.busy = false; sendAgentActivity(); }
 }
 
 function renderHub(): void {
@@ -984,10 +1069,10 @@ function renderHub(): void {
     return { id: state.win.webContents.id, ...current, alias: metadata?.alias, memo: metadata?.memo,
       base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount,
       active: state.win.webContents.id === activeStateId, running: state.terms.size > 0,
-      resume: state.resumeCommand, unread: state.unread, detached: state.win.isDetached() };
+      resume: state.resumeCommand, unread: state.unread, busy: state.busy, detached: state.win.isDetached() };
   });
   const disconnected = saved.filter((item) => !existsSync(item.path)).map((item, index) => ({
-    ...item, id: -(index + 1), active: false, running: false, unread: false, disconnected: true,
+    ...item, id: -(index + 1), active: false, running: false, unread: false, busy: false, disconnected: true,
   }));
   const workspaces = [...live, ...disconnected];
   void shellWindow.webContents.send("kakapo:hub-state", workspaces);
@@ -1025,7 +1110,10 @@ button{border:1px solid ${line};background:transparent;color:inherit;border-radi
 #list{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 0;width:100%}
 body.rail-exp #list{align-items:stretch;padding:4px 6px}
 .repo-sep{width:24px;height:1px;background:${line};margin:3px 0;flex:none}
-body.rail-exp .repo-sep{width:auto;margin:5px 4px}
+body.rail-exp .repo-sep{display:none}
+.ws-group-head{display:none}
+body.rail-exp .ws-group-head{display:block;padding:11px 8px 4px;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:${light ? "#8a8f99" : "#71767f"};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.rail-exp #list > .ws-group-head:first-child{padding-top:4px}
 .ws{position:relative;flex:none;display:flex;align-items:center;justify-content:center;gap:9px;border:0;background:transparent;padding:0;width:36px;height:36px;border-radius:9px}
 body.rail-exp .ws{width:100%;height:40px;justify-content:flex-start;padding:0 5px}
 body.rail-exp .ws:hover{background:${light ? "#e4eaf6" : "#2b303a"}}
@@ -1034,8 +1122,16 @@ body.rail-exp .ws.active{background:${light ? "#dfe7f5" : "#2a3446"}}
 .ws:hover .ws-badge{border-color:#4d86d9;color:${fg}}
 .ws.active .ws-badge{border-color:#4d86d9;color:#4d86d9;background:${light ? "#dfe7f5" : "#2a3446"};box-shadow:0 0 0 1px #4d86d9}
 .ws.disc{opacity:.5}
-.ws-badge .rundot{position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:#4d9a51;border:2px solid ${bg}}
-.ws-badge .unread{position:absolute;top:-3px;left:-3px;width:9px;height:9px;border-radius:50%;background:#e0a54b;border:2px solid ${bg}}
+.ws-badge .rundot{position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:#4d9a51;border:2px solid ${bg};display:none}
+.ws-badge.running:not(.busy) .rundot{display:block}
+.ws-badge .unread{position:absolute;top:-3px;left:-3px;width:9px;height:9px;border-radius:50%;background:#e5484d;border:2px solid ${bg};display:none}
+.ws-badge.attn .unread{display:block}
+/* Agent working: a breathing accent ring around the badge — it scales + fades in place rather than rotating,
+   so several working workspaces don't make the rail spin busily. Sits 2px outside the 9px-radius badge (own
+   radius 11px); pointer-events:none keeps the badge clickable through it. */
+.ws-badge.busy::after{content:"";position:absolute;inset:-2px;border-radius:11px;border:2px solid #4d86d9;animation:wsbreathe 1.3s ease-in-out infinite;pointer-events:none}
+@keyframes wsbreathe{0%,100%{opacity:.25;transform:scale(.97)}50%{opacity:.9;transform:scale(1.06)}}
+@media (prefers-reduced-motion:reduce){.ws-badge.busy::after{animation:none;opacity:.7}}
 .ws-label{display:none;flex-direction:column;min-width:0;text-align:left;line-height:1.25}
 body.rail-exp .ws-label{display:flex}
 .ws-label .n{font-size:12px;font-weight:600;color:${fg};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1062,6 +1158,31 @@ dialog#create::backdrop{background:#0009}
 #create .field .fi{flex:none;color:${light ? "#9aa0ab" : "#8a8f99"};display:grid;place-items:center}
 #create .field .fv{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #create .field .fv.ph{color:${light ? "#9aa0ab" : "#71767f"}}
+#create .field-wrap{position:relative}
+#create .field .fc{flex:none;margin-left:auto;color:${light ? "#9aa0ab" : "#8a8f99"};display:grid;place-items:center;transition:transform .15s}
+#create .field[aria-expanded="true"]{border-color:#4d86d9}
+#create .field[aria-expanded="true"] .fc{transform:rotate(180deg)}
+#create .pmenu{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:20;background:${light ? "#fff" : "#2c2d31"};border:1px solid ${line};border-radius:10px;box-shadow:0 16px 40px #0007;padding:5px;max-height:232px;overflow-y:auto}
+#create .pmenu.hidden{display:none}
+#create .pmenu button{width:100%;display:flex;align-items:center;gap:9px;padding:8px 9px;border:0;border-radius:7px;background:transparent;color:inherit;text-align:left;font-size:13px}
+#create .pmenu button:hover,#create .pmenu button.on{background:${light ? "#eef1f6" : "#33383f"}}
+#create .pmenu .pm-ic{flex:none;color:${light ? "#9aa0ab" : "#8a8f99"};display:grid;place-items:center}
+#create .pmenu .pm-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#create .pmenu .pm-path{flex:none;max-width:44%;color:${light ? "#9aa0ab" : "#71767f"};font-size:10.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:right}
+#create .pmenu .pm-sep{height:1px;background:${line};margin:5px 3px}
+#create .pmenu .pm-browse{color:#4d86d9;font-weight:550}
+/* Rename / memo prompt — Electron has no window.prompt(), so these actions need an in-page input dialog. */
+dialog#prompt{border:1px solid ${line};border-radius:14px;background:${light ? "#fbfbfc" : "#242529"};color:${fg};width:400px;max-width:calc(100vw - 40px);padding:0;box-shadow:0 30px 90px #000a}
+dialog#prompt::backdrop{background:#0009}
+#prompt .dh{padding:18px 20px 2px}#prompt .dh b{font-size:15px;font-weight:650}
+#prompt .db{padding:6px 20px 20px}
+#prompt input.tin{width:100%;margin-top:12px;padding:11px 12px;border:1px solid ${line};border-radius:10px;background:${light ? "#fff" : "#2c2d31"};color:inherit;font-size:13.5px}
+#prompt input.tin:focus{outline:none;border-color:#4d86d9}
+#prompt .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+#prompt .dbtn{border:1px solid ${line};background:transparent;color:inherit;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:550}
+#prompt .dbtn:hover{background:${light ? "#eee" : "#33383f"}}
+#prompt .dbtn.pri{background:${light ? "#1a1a1a" : "#f0f0f2"};color:${light ? "#fff" : "#1a1a1a"};border-color:transparent}
+#prompt .dbtn.pri:hover{opacity:.9}
 #create input.tin{width:100%;padding:11px 12px;border:1px solid ${line};border-radius:10px;background:${light ? "#fff" : "#2c2d31"};color:inherit;font-size:13.5px}
 #create input.tin:focus{outline:none;border-color:#4d86d9}
 #create input.tin::placeholder{color:${light ? "#9aa0ab" : "#71767f"}}
@@ -1076,11 +1197,10 @@ dialog#create::backdrop{background:#0009}
 .context-menu{position:fixed;z-index:20;width:172px;padding:5px;background:${bg};border:1px solid ${line};border-radius:8px;box-shadow:0 12px 30px #0008}
 .context-menu button{display:block;width:100%;border:0;text-align:left;padding:7px 9px}.context-menu button:hover{background:${light ? "#dfe7f5" : "#373d49"}}.context-menu .danger{color:#df6868}.hidden{display:none!important}</style>
 <div id="titlebar"><span id="wsname"></span><span class="tb-spacer"></span><div id="tools"><button class="tb" data-act="changes" title="Changes (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" title="Files (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" title="Terminal (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" title="History (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button><button class="tb" data-act="more" title="More review tools"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button></div></div><main id="hub"><section id="list"></section><div id="railfoot"><button id="pin" title="Expand workspace rail (⌘⇧E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button><button id="new" title="New workspace (⌘N)">＋</button><button id="settings" title="Settings — v${APP_VERSION}">⚙</button></div></main>
-<dialog id="create"><div class="dh"><b>New workspace</b><button class="dx" id="dlgClose" aria-label="Close">✕</button></div><div class="db"><label>Project</label><button id="choose" class="field"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">Choose a Git repository…</span></button><input type="hidden" id="repo"><label>Task name</label><input id="label" class="tin" placeholder="e.g. fix-login-crash" autocomplete="off" spellcheck="false"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">Cancel</button><button id="doCreate" class="dbtn pri"><span class="dcl">Fetch &amp; create</span><kbd>⌘↵</kbd></button></div></div></dialog>
-<div id="workspaceMenu" class="context-menu hidden" role="menu"><button data-action="activate">Switch</button><button data-action="resume" class="hidden">Resume session</button><button data-action="rename">Rename…</button><button data-action="memo">Edit memo…</button><button data-action="detach">Open in new window</button><button data-action="close">Close workspace</button><button data-action="delete" class="danger">Delete worktree…</button></div>
-<script>
-const list=document.querySelector("#list"),dlg=document.querySelector("#create"),menu=document.querySelector("#workspaceMenu"),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));let menuCard=null;
-let creating=false;const openCreate=()=>{dlg.showModal();window.kakapoHub.modal(true);setTimeout(()=>{(document.querySelector("#repo").value?document.querySelector("#label"):document.querySelector("#choose")).focus();},0)};dlg.addEventListener('close',()=>window.kakapoHub.modal(false));document.querySelector("#new").onclick=openCreate;document.querySelector("#cancelCreate").onclick=()=>{if(creating)window.kakapoHub.cancelCreate();else dlg.close()};
+<dialog id="create"><div class="dh"><b>New workspace</b><button class="dx" id="dlgClose" aria-label="Close">✕</button></div><div class="db"><label>Project</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">Select a project…</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label>Task name</label><input id="label" class="tin" placeholder="e.g. fix-login-crash" autocomplete="off" spellcheck="false"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">Cancel</button><button id="doCreate" class="dbtn pri"><span class="dcl">Fetch &amp; create</span><kbd>⌘↵</kbd></button></div></div></dialog>
+<dialog id="prompt"><div class="dh"><b id="promptTitle"></b></div><div class="db"><input id="promptInput" class="tin" autocomplete="off" spellcheck="false"><div class="actions"><button id="promptCancel" class="dbtn">Cancel</button><button id="promptOk" class="dbtn pri">OK</button></div></div></dialog><script>
+const list=document.querySelector("#list"),dlg=document.querySelector("#create"),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let creating=false;const openCreate=()=>{loadProjects();closeProjectMenu();dlg.showModal();window.kakapoHub.modal(true);setTimeout(()=>{(document.querySelector("#repo").value?document.querySelector("#label"):document.querySelector("#choose")).focus();},0)};dlg.addEventListener('close',()=>window.kakapoHub.modal(false));document.querySelector("#new").onclick=openCreate;document.querySelector("#cancelCreate").onclick=()=>{if(creating)window.kakapoHub.cancelCreate();else dlg.close()};
 document.querySelector("#settings").onclick=()=>window.kakapoHub.settings();
 const tools=document.getElementById('tools');
 tools.addEventListener('click',e=>{const b=e.target.closest('button.tb');if(!b)return;window.kakapoHub.railAction(b.dataset.act)});
@@ -1089,11 +1209,29 @@ window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));
 // Rail expand: ⌘⇧E or the » button toggles it open; main then pushes the review views right (they render over
 // the shell page, so the rail can't overlay them) and collapses the active view's file tree to make room.
 let railExp=false;const pinBtn=document.getElementById('pin');
-function applyRail(){document.body.classList.toggle('rail-exp',railExp);window.kakapoHub.setHubExpanded(railExp);}
-pinBtn.onclick=()=>{railExp=!railExp;applyRail();};
-window.kakapoHub.onToggleExpand(()=>{railExp=!railExp;applyRail();});
+// Visual state only. Main owns keyboard focus: it focuses the rail while expanded (so arrows/Enter navigate
+// workspaces) and returns focus to the review view when it collapses.
+function paintRail(){document.body.classList.toggle('rail-exp',railExp);}
+// User action (⌘⇧E / the » pin): flip and tell main, which animates the view push, collapses the file tree, and
+// moves focus onto the rail.
+function toggleRail(){railExp=!railExp;paintRail();window.kakapoHub.setHubExpanded(railExp);}
+pinBtn.onclick=toggleRail;
+window.kakapoHub.onToggleExpand(toggleRail);
+// Main collapses the rail (visual only, no echo) when focus returns to the review view — clicking back into the
+// "main window" dismisses the peek.
+window.kakapoHub.onSetExpanded(open=>{railExp=!!open;paintRail();});
 async function preview(){const r=await window.kakapoHub.preview(document.querySelector("#repo").value,document.querySelector("#label").value);document.querySelector("#preview").innerHTML=r.ok?'slug: '+esc(r.slug)+'<br>base: '+esc(r.base)+'<br>branch: '+esc(r.branch)+'<br>'+esc(r.path):''}
-document.querySelector("#choose").onclick=async()=>{const r=await window.kakapoHub.chooseRepo();if(r.ok){document.querySelector("#repo").value=r.repo;const n=document.querySelector("#repoName");n.textContent=r.repo.split('/').filter(Boolean).pop()||r.repo;n.classList.remove('ph');preview()}};
+// Project field is a dropdown of the Git projects Kakapo already knows (main.hub-projects) plus a "Browse for a
+// folder…" fallback, so making another worktree for an existing project is one click instead of a folder pick.
+const projectMenu=document.querySelector("#projectMenu"),chooseBtn=document.querySelector("#choose");
+function closeProjectMenu(){projectMenu.classList.add('hidden');chooseBtn.setAttribute('aria-expanded','false');}
+function pickProject(path,name){document.querySelector("#repo").value=path;const n=document.querySelector("#repoName");n.textContent=name||(path.split('/').filter(Boolean).pop()||path);n.classList.remove('ph');closeProjectMenu();preview();document.querySelector("#label").focus();}
+async function browseForRepo(){closeProjectMenu();const r=await window.kakapoHub.chooseRepo();if(r.ok)pickProject(r.repo);}
+const _pmFolder='<span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span>';
+async function loadProjects(){let ps=[];try{ps=await window.kakapoHub.listProjects();}catch(e){}if(!Array.isArray(ps))ps=[];let html='';for(const p of ps)html+='<button type="button" role="option" data-path="'+esc(p.path)+'" data-name="'+esc(p.name)+'">'+_pmFolder+'<span class="pm-name">'+esc(p.name)+'</span><span class="pm-path">'+esc(p.path)+'</span></button>';if(ps.length)html+='<div class="pm-sep"></div>';html+='<button type="button" id="pmBrowse" class="pm-browse"><span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span><span class="pm-name">Browse for a folder…</span></button>';projectMenu.innerHTML=html;}
+projectMenu.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='pmBrowse'){browseForRepo();return;}if(b.dataset.path)pickProject(b.dataset.path,b.dataset.name);});
+chooseBtn.onclick=()=>{const willOpen=projectMenu.classList.contains('hidden');projectMenu.classList.toggle('hidden',!willOpen);chooseBtn.setAttribute('aria-expanded',String(willOpen));};
+dlg.addEventListener('mousedown',e=>{if(!e.target.closest('.field-wrap'))closeProjectMenu();});
 document.querySelector("#label").oninput=preview;
 document.querySelector("#dlgClose").onclick=()=>{if(!creating)dlg.close()};
 dlg.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();document.querySelector("#doCreate").click();}});
@@ -1102,21 +1240,33 @@ const r=await window.kakapoHub.create(document.querySelector("#repo").value,docu
 const ago=value=>{const seconds=Math.max(0,Math.floor((Date.now()-Number(value||Date.now()))/1000));return seconds<60?'now':seconds<3600?Math.floor(seconds/60)+'m ago':seconds<86400?Math.floor(seconds/3600)+'h ago':Math.floor(seconds/86400)+'d ago'};
 window.kakapoHub.onState(items=>{const groups=new Map;for(const w of items){if(!groups.has(w.repoName))groups.set(w.repoName,[]);groups.get(w.repoName).push(w)}
 const _a=items.find(w=>w.active);const _wn=document.getElementById('wsname');if(_wn)_wn.innerHTML=_a?'<span class="wsdot"></span>'+esc(_a.alias||_a.branch)+' <span class="rp">· '+esc(_a.repoName)+'</span>':'';
-const initials=w=>{const s=String(w.alias||w.branch||w.repoName||'?').replace(/^(feature|fix|chore|bugfix|hotfix|release)[\\/-]/i,'');const p=s.split(/[^a-z0-9]+/i).filter(Boolean);return((p[0]?p[0][0]:'?')+(p[1]?p[1][0]:(p[0]&&p[0][1]?p[0][1]:''))).toUpperCase()};
+// Badge initials. Split on separators only (NOT on every non-Latin char) so Korean/CJK names keep their
+// letters instead of collapsing to "?". Latin → uppercased two-word/two-letter initials; CJK → the first one
+// or two characters as-is (Hangul has no case).
+const initials=w=>{var s=String(w.alias||w.branch||w.repoName||'?').replace(/^(feature|fix|chore|bugfix|hotfix|release)[\\/_-]/i,'').trim();if(!s)return'?';var parts=s.split(/[\\s._/-]+/).filter(Boolean);var a=parts[0]||s,ac=Array.from(a),latin=/^[A-Za-z0-9]/.test(a),r;if(parts.length>1){var bc=Array.from(parts[1]);r=(ac[0]||'')+(bc[0]||'');}else{r=ac.slice(0,2).join('');}return latin?r.toUpperCase():r;};
 const tip=w=>(w.alias||w.branch)+' · '+w.repoName+(w.dirtyCount?' · '+w.dirtyCount+' changed':'')+(w.running?' · ● running':w.resume?' · resumable':w.disconnected?' · disconnected':'');
-list.innerHTML=[...groups].map(([repo,ws],gi)=>(gi>0?'<div class="repo-sep"></div>':'')+ws.map(w=>'<button class="ws '+(w.active?'active':'')+(w.disconnected?' disc':'')+'" title="'+esc(tip(w))+'" data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-resume="'+(w.resume&&!w.running?'1':'')+'"><span class="ws-badge">'+esc(initials(w))+(w.running?'<span class="rundot"></span>':'')+(w.unread?'<span class="unread"></span>':'')+'</span><span class="ws-label"><span class="n">'+esc(w.alias||w.branch)+'</span><span class="s">'+esc(w.repoName)+'</span></span></button>').join('')).join('');
+const badgeCls=w=>'ws-badge'+(w.busy?' busy':'')+(w.running?' running':'')+(w.unread?' attn':'');
+list.innerHTML=[...groups].map(([repo,ws],gi)=>(gi>0?'<div class="repo-sep"></div>':'')+'<div class="ws-group-head" title="'+esc(repo)+'">'+esc(repo)+'</div>'+ws.map(w=>'<button class="ws '+(w.active?'active':'')+(w.disconnected?' disc':'')+'" title="'+esc(tip(w))+'" data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-resume="'+(w.resume&&!w.running?'1':'')+'"><span class="'+badgeCls(w)+'">'+esc(initials(w))+'<span class="rundot"></span><span class="unread"></span></span><span class="ws-label"><span class="n">'+esc(w.alias||w.branch)+'</span></span></button>').join('')).join('');
 for(const el of list.querySelectorAll('.ws')){el.onclick=async()=>{const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){const action=prompt('reconnect | remove','reconnect');if(action==='remove')window.kakapoHub.forget(path);else if(action==='reconnect'){const r=await window.kakapoHub.chooseRepo();if(r.ok)window.kakapoHub.reconnect(path,r.repo)}return}window.kakapoHub.activate(id)};}
 });
-// The menu is a shell-page element, which renders BEHIND the review views — so hide them (modal) while it is
-// open, exactly like the New-workspace dialog, otherwise the menu is painted under the active view.
-function openWorkspaceMenu(card){menuCard=card;const r=card.getBoundingClientRect();menu.querySelector('[data-action="resume"]').classList.toggle('hidden',card.dataset.resume!=='1');menu.style.left=Math.min(r.right+4,innerWidth-180)+'px';menu.style.top=Math.min(r.top,innerHeight-250)+'px';menu.classList.remove('hidden');window.kakapoHub.modal(true)}
-function closeWorkspaceMenu(){if(!menu.classList.contains('hidden')){menu.classList.add('hidden');window.kakapoHub.modal(false)}}
-menu.onclick=e=>{const action=e.target.dataset.action,card=menuCard;if(!action||!card)return;menu.classList.add('hidden');const id=Number(card.dataset.id),name=card.dataset.name||'';if(action==='rename'){const alias=prompt('Workspace alias',name);window.kakapoHub.modal(false);if(alias!==null)window.kakapoHub.rename(id,alias)}else if(action==='memo'){const memo=prompt('One-line memo','');window.kakapoHub.modal(false);if(memo!==null)window.kakapoHub.rename(id,undefined,memo)}else{window.kakapoHub.modal(false);if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id)}};
-document.addEventListener('click',e=>{if(!menu.contains(e.target)&&!e.target.classList.contains('more'))closeWorkspaceMenu()});
+// Lightweight agent-activity ticks (spinner / attention dot) that toggle classes on existing tiles without a
+// full re-render, so a streaming agent doesn't rebuild the rail DOM and drop hover/focus state.
+window.kakapoHub.onActivity(list=>{for(const a of list){const b=document.querySelector('.ws[data-id="'+a.id+'"] .ws-badge');if(!b)continue;b.classList.toggle('busy',!!a.busy);b.classList.toggle('running',!!a.running);b.classList.toggle('attn',!!a.unread);}});
+// Electron has no window.prompt(), so rename/memo use this in-page dialog instead (prompt() silently returned
+// null, which is why those menu items did nothing). Resolves to the entered string, or null if cancelled.
+const promptDlg=document.querySelector("#prompt"),promptInput=document.querySelector("#promptInput"),promptTitle=document.querySelector("#promptTitle");
+function showPrompt(title,initial){return new Promise(resolve=>{promptTitle.textContent=title;promptInput.value=initial||'';const onClose=()=>{promptDlg.removeEventListener('close',onClose);resolve(promptDlg.returnValue==='ok'?promptInput.value:null);};promptDlg.addEventListener('close',onClose);promptDlg.showModal();setTimeout(()=>{promptInput.focus();promptInput.select();},0);});}
+document.querySelector("#promptOk").onclick=()=>promptDlg.close('ok');
+document.querySelector("#promptCancel").onclick=()=>promptDlg.close('cancel');
+promptInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();promptDlg.close('ok');}else if(e.key==='Escape'){e.preventDefault();promptDlg.close('cancel');}});
+// The native tile menu (built in main) sends the chosen action back here. Rename/memo open the in-page prompt,
+// which DOES need the views hidden (it's a shell-page dialog) — but only for the brief text entry, not for the
+// whole menu as before.
+window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){window.kakapoHub.modal(true);showPrompt('Rename workspace',name).then(alias=>{window.kakapoHub.modal(false);if(alias!==null)window.kakapoHub.rename(id,alias);});}else if(action==='memo'){window.kakapoHub.modal(true);showPrompt('One-line memo','').then(memo=>{window.kakapoHub.modal(false);if(memo!==null)window.kakapoHub.rename(id,undefined,memo);});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id);});
 async function removeWorkspace(id){const delBranch=confirm('Also delete the local branch?\\nOK deletes it; Cancel keeps it.');let r=await window.kakapoHub.remove(id,'delete',false,delBranch);if(r.needsConfirmation){const x=r.risk;if(confirm('Delete worktree?'+(x.dirty?'\\n• uncommitted changes':'')+(x.unpushed?'\\n• '+x.unpushed+' unpushed commits':'')+(x.runningProcesses?'\\n• running terminal/agent':'')+'\\n\\nThis cannot be undone.'))r=await window.kakapoHub.remove(id,'delete',true,delBranch)}if(!r.ok&&!r.needsConfirmation)alert(r.error||'Delete failed')}
-document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.ws');if(card){e.preventDefault();openWorkspaceMenu(card)}});
+document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.ws');if(card){e.preventDefault();window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1'});}});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.altKey&&/^[1-9]$/.test(e.key)){e.preventDefault();window.kakapoHub.activateIndex(Number(e.key)-1)}});
-document.addEventListener('click',e=>{if(!e.target.closest('button,input,textarea,dialog,#wsname'))window.kakapoHub.refocusReview()});
+document.addEventListener('click',e=>{if(!railExp&&!e.target.closest('button,input,textarea,dialog,#wsname'))window.kakapoHub.refocusReview()});
 window.kakapoHub.requestState();
 </script>`;
 }
@@ -1131,6 +1281,9 @@ function createWindow(root: string, deferBoot = false): WinState {
   } });
   host.contentView.addChildView(view);
   view.setVisible(false);
+  // Clicking into the active review view returns focus to the "main window" — collapse an expanded rail so its
+  // peek dismisses. Only the active (visible) view can receive a user click, so this never fires for a background one.
+  view.webContents.on("focus", () => { if (view.webContents.id === activeStateId) collapseRailFromReview(); });
   layoutWorkspaceViews();
   let surfaceHost = host;
   let detachedHost: BrowserWindow | undefined;
@@ -1211,8 +1364,21 @@ function createWindow(root: string, deferBoot = false): WinState {
       preferences.setRendererSetting(state.options.root, "kakapo-agent-resume", command);
       renderHub();
     },
-    onAgentFinished: () => { state.unread = state.win.webContents.id !== activeStateId; renderHub(); },
+    onAgentFinished: () => {
+      if (state.busyTimer) { clearTimeout(state.busyTimer); state.busyTimer = undefined; }
+      state.busy = false;
+      state.unread = state.win.webContents.id !== activeStateId;
+      renderHub();
+    },
+    onAgentOutput: () => markAgentBusy(state),
+    onAgentBell: () => {
+      if (state.busyTimer) { clearTimeout(state.busyTimer); state.busyTimer = undefined; }
+      state.busy = false;
+      if (state.win.webContents.id !== activeStateId) state.unread = true;
+      sendAgentActivity();
+    },
     unread: false,
+    busy: false,
     bootStarted: false,
     perf,
     lastDiffSig: "",
@@ -1323,7 +1489,7 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
   // Give the mark a few frames to paint before the (synchronous) first build blocks the main process —
   // otherwise the animation looks frozen until the build finishes. The boot overlay in the review HTML then
   // takes over, so there's no blank gap when loadFile swaps the page in.
-  setTimeout(() => {
+  setTimeout(async () => {
     // Bail if the window was closed during the spinner delay — its closed handler already tore down state,
     // so building/loading here is wasted and (critically) arming the watch timer below would re-create an
     // interval that nothing will ever clear, leaking it and pinning the deleted WinState.
@@ -1336,7 +1502,14 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
       const firstBuild = writeReviewFile(state);
       state.signature = firstBuild.signature;
       preferences.recordRecentProject(state.options.root); // remember the launched/new-window repo for the welcome screen
-      if (!state.win.isDestroyed()) void state.win.loadFile(reviewPath(state.options.root));
+      if (!state.win.isDestroyed()) {
+        await state.win.loadFile(reviewPath(state.options.root));
+        // ⌘0/⌘1 (and the other in-view shortcuts) are renderer keydown handlers, so they only fire while the
+        // review view holds keyboard focus. loadFile swaps the page out from under the focus set during
+        // activateWorkspace, leaving the freshly-painted review looking ready but ignoring its own shortcuts
+        // for the first few seconds until the user clicks into it. Re-focus once the review is on screen.
+        if (!state.win.isDestroyed() && state.win.webContents.id === activeStateId) focusActiveReviewView();
+      }
       if (state.options.watch) state.refreshTimer = setInterval(() => void refreshIfChanged(state), WATCH_INTERVAL_MS);
       // Independent of --watch: an agent can write answers/the Explain content spec whether or not the
       // diff itself is being polled. One immediate answers sync catches up on anything written before this

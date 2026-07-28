@@ -7,10 +7,16 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   activate: (id: number) => ipcRenderer.send("kakapo:hub-activate", id),
   activateIndex: (index: number) => ipcRenderer.send("kakapo:hub-activate-index", index),
   chooseRepo: () => ipcRenderer.invoke("kakapo:hub-choose-repo"),
+  // Known Git projects (deduped by repo root) for the New-workspace dialog's project dropdown.
+  listProjects: (): Promise<{ name: string; path: string }[]> => ipcRenderer.invoke("kakapo:hub-projects"),
   preview: (repo: string, label: string) => ipcRenderer.invoke("kakapo:hub-preview", { repo, label }),
   create: (repo: string, label: string) => ipcRenderer.invoke("kakapo:hub-create", { repo, label }),
   cancelCreate: () => ipcRenderer.send("kakapo:hub-cancel-create"),
   rename: (id: number, alias?: string, memo?: string) => ipcRenderer.invoke("kakapo:hub-rename", { id, alias, memo }),
+  // Native workspace-tile context menu (drawn above the review views, so it doesn't blank the main panel).
+  tileMenu: (info: { id: number; name: string; resume: boolean }) => ipcRenderer.send("kakapo:tile-menu", info),
+  onTileAction: (callback: (data: { id: number; action: string; name: string }) => void) =>
+    ipcRenderer.on("kakapo:tile-action", (_event, data) => callback(data)),
   remove: (id: number, mode: "close" | "delete", force = false, deleteBranch = false) =>
     ipcRenderer.invoke("kakapo:hub-remove", { id, mode, force, deleteBranch }),
   resume: (id: number) => ipcRenderer.send("kakapo:hub-resume", id),
@@ -32,8 +38,14 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   railAction: (action: string) => ipcRenderer.send("kakapo:hub-rail-action", action),
   onRailState: (callback: (state: { active?: string[]; terminal?: boolean }) => void) =>
     ipcRenderer.on("kakapo:hub-rail-state", (_event, state) => callback(state)),
+  // Per-workspace agent-activity deltas (busy spinner / attention dot), applied to existing tiles without a
+  // full rail re-render.
+  onActivity: (callback: (list: { id: number; busy: boolean; unread: boolean; running: boolean }[]) => void) =>
+    ipcRenderer.on("kakapo:hub-activity", (_event, list) => callback(list)),
   // The rail can widen (hover / ⌘⇧E / pin) to show full workspace names. It reports the new state to main so
   // the review views are pushed right to make room (they render on top of the shell page, so no overlay).
   setHubExpanded: (expanded: boolean) => ipcRenderer.send("kakapo:hub-expanded", expanded),
   onToggleExpand: (callback: () => void) => ipcRenderer.on("kakapo:hub-toggle-expand", callback),
+  // Main collapses the rail (visual only) when focus returns to the review view.
+  onSetExpanded: (callback: (open: boolean) => void) => ipcRenderer.on("kakapo:hub-set-expanded", (_event, open) => callback(open)),
 });
