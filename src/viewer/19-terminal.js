@@ -296,6 +296,14 @@
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalSplit === 'function') window.kakapoMenu.onTerminalSplit(split);
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalPaneFocus === 'function') window.kakapoMenu.onTerminalPaneFocus(focusPaneByDelta);
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalPaneRename === 'function') window.kakapoMenu.onTerminalPaneRename(function () { renamePane(active); });
+  if (window.kakapoMenu && typeof window.kakapoMenu.onAgentResume === 'function') window.kakapoMenu.onAgentResume(function (command) {
+    setOpen(true);
+    var tries = 0, send = function () {
+      if (active && active.id != null) { window.kakapoPty.write({ id: active.id, data: String(command || '') + '\r' }); return true; }
+      return false;
+    };
+    if (!send()) { var iv = setInterval(function () { if (send() || ++tries > 40) clearInterval(iv); }, 50); }
+  });
 
   var ro = (typeof ResizeObserver === 'function') ? new ResizeObserver(function () { if (isOpen()) fitAll(); }) : null;
   if (ro) ro.observe(host);

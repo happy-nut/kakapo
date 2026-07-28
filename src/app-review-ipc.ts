@@ -1,4 +1,6 @@
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
+import { readFileSync, statSync } from "node:fs";
+import { resolve, relative, isAbsolute, extname } from "node:path";
 import { performHttpRequest, renderLazyDiffBody, type HttpSendRequest } from "./cli.js";
 import { readGitLog, readGitLineLog, readGitBlame, readCommitDiff, readRangeDiff } from "./git-log.js";
 import { readPatchSets } from "./patch-sets.js";
@@ -24,6 +26,18 @@ export type ReviewIpcState = {
 
 type ReviewIpcEvent = IpcMainEvent | IpcMainInvokeEvent;
 type ReviewStateResolver = (event: ReviewIpcEvent) => ReviewIpcState | undefined;
+
+// Markdown previews reference images with document-relative paths (`![](assets/x.gif)`). The review page is
+// a file:// document under userData, so those paths never resolve there. The renderer joins the path against
+// the document's directory and asks main to inline the bytes as a data: URL — the sandboxed renderer still
+// never learns the repository root, and containment below keeps requests inside it. Only known image types
+// are served (an <img> data: URL cannot execute), with a size cap so a stray large binary can't bloat memory.
+const REVIEW_ASSET_MIME: Record<string, string> = {
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+  ".webp": "image/webp", ".svg": "image/svg+xml", ".bmp": "image/bmp", ".ico": "image/x-icon",
+  ".avif": "image/avif", ".apng": "image/apng",
+};
+const MAX_REVIEW_ASSET_BYTES = 10 * 1024 * 1024; // 10 MiB — covers larger README GIFs/screenshots, rejects accidents
 
 /** Registers read-only review, analysis, search, and history adapters. */
 export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResolver): void {
@@ -51,6 +65,26 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     const materialized = materializeDeferredSourceFile(state.options.root, record, state.reviewTarget ?? state.options.target);
     state.sourceFiles.set(path, materialized);
     return materialized;
+  });
+
+  // Inline a document-relative image for the Markdown preview. `path` arrives already joined against the
+  // markdown file's directory and normalized by the renderer; main is the sole authority on the root and the
+  // containment check, so a crafted `../` path can never escape the reviewed repository.
+  ipc.handle("kakapo:get-asset", (event, request: { path?: string }) => {
+    const state = stateFromEvent(event);
+    const rel = String(request?.path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
+    if (!state || !rel || rel.startsWith("../")) return null;
+    const mime = REVIEW_ASSET_MIME[extname(rel).toLowerCase()];
+    if (!mime) return null; // only known image types are inlineable by design
+    const root = resolve(state.options.root);
+    const target = resolve(root, rel);
+    const within = relative(root, target);
+    if (within === ".." || within.startsWith("../") || within.startsWith("..\\") || isAbsolute(within)) return null;
+    try {
+      const stats = statSync(target);
+      if (!stats.isFile() || stats.size > MAX_REVIEW_ASSET_BYTES) return null;
+      return { dataUrl: `data:${mime};base64,${readFileSync(target).toString("base64")}` };
+    } catch { return null; }
   });
 
   ipc.handle("kakapo:get-project-index", (event): ProjectIndexPayload | null => {

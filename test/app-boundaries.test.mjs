@@ -49,6 +49,22 @@ test("recent projects are validated, deduplicated, and bounded", () => {
   }
 });
 
+test("open workspace session and active path round-trip independently of recent projects", () => {
+  const base = mkdtempSync(join(tmpdir(), "kakapo-session-"));
+  try {
+    const preferences = new AppPreferences(join(base, "app-data"));
+    const record = {
+      path: join(base, "repo"), repoRoot: join(base, "repo"), repoName: "repo",
+      branch: "feature/hub", kind: "worktree", alias: "Hub", openedAt: 123,
+    };
+    preferences.writeOpenWorkspaces([record], record.path);
+    assert.deepEqual(preferences.readOpenWorkspaces(), [record]);
+    assert.equal(preferences.readActiveWorkspace(), record.path);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("project path boundary accepts only relative paths contained by the opened folder", () => {
   const root = resolve("/tmp/kakapo-workspace/packages/reviewer");
   assert.equal(resolveProjectPath(root, "src/main.ts"), join(root, "src", "main.ts"));

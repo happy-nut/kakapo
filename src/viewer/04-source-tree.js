@@ -339,29 +339,47 @@ function focusOpenFileInTree() {
 // Reveal the currently-open file in the sidebar tree, scrolled to the CENTER of the panel (the header button
 // and ⌥F1). Expands the sidebar and ancestor folders first, then centers and flashes the row.
 function revealOpenFileInTree() {
-  var openPath = (document.getElementById('source-viewer') && document.getElementById('source-viewer').dataset.openPath) || '';
-  if (!openPath && typeof diffActiveWrapper === 'function') {
-    var w = diffActiveWrapper();
-    var n = w && w.querySelector('.d2h-file-name');
-    if (n && n.textContent) openPath = n.textContent.trim();
-  }
-  if (!openPath) return;
-  if (typeof isDiffViewVisible === 'function' && isDiffViewVisible() && typeof setReviewSidebarCollapsed === 'function') setReviewSidebarCollapsed(false);
-  else if (typeof isSourceViewerVisible === 'function' && isSourceViewerVisible() && typeof setSourceSidebarCollapsed === 'function') setSourceSidebarCollapsed(false);
-  if (typeof revealTreeFor === 'function') revealTreeFor(openPath, false); // open ancestor folders; center below
-  // Folders may have just opened, so locate + center on the next frame.
+  // Reveal must work from ANY panel. History/Explain/Impact/merged/memo render OVER the diff/source view, so
+  // close whichever is open to uncover the tree, then bring the Files tree forward (never toggling it closed)
+  // and center + flash the open file. Previously this bailed unless the diff or source view already owned the
+  // screen, so it silently did nothing while another panel was up.
+  if (typeof isExplainViewVisible === 'function' && isExplainViewVisible() && typeof closeExplainView === 'function') closeExplainView();
+  if (typeof isHistoryOpen === 'function' && isHistoryOpen() && typeof closeHistory === 'function') closeHistory();
+  if (typeof isImpactOpen === 'function' && isImpactOpen() && typeof closeImpact === 'function') closeImpact(false);
+  if (typeof closeMergedMemoDocks === 'function') closeMergedMemoDocks();
+
+  var srcOn = typeof isSourceViewerVisible === 'function' && isSourceViewerVisible();
+  var diffOn = typeof isDiffViewVisible === 'function' && isDiffViewVisible();
+  if (!srcOn && !diffOn && typeof showSourceView === 'function') { showSourceView(); srcOn = true; }
+  // Force the file tree open (setSource/Review collapsed(false) sets state — it doesn't toggle).
+  if (typeof setTab === 'function') setTab('files');
+  if (srcOn && typeof setSourceSidebarCollapsed === 'function') setSourceSidebarCollapsed(false);
+  else if (diffOn && typeof setReviewSidebarCollapsed === 'function') setReviewSidebarCollapsed(false);
+
+  // Resolve the open file AFTER switching views (the source viewer now owns dataset.openPath), then center on
+  // the next frame (folders/sidebar may have just opened).
   requestAnimationFrame(function () {
-    var rows = treeRows();
-    var target = null;
-    for (var i = 0; i < rows.length; i++) {
-      var ds = rows[i].dataset || {};
-      if (ds.sourceFile === openPath || ds.file === openPath) { target = rows[i]; treeFocusIndex = i; break; }
+    var openPath = (document.getElementById('source-viewer') && document.getElementById('source-viewer').dataset.openPath) || '';
+    if (!openPath && typeof diffActiveWrapper === 'function') {
+      var w = diffActiveWrapper();
+      var n = w && w.querySelector('.d2h-file-name');
+      if (n && n.textContent) openPath = n.textContent.trim();
     }
-    if (!target) return;
-    document.querySelectorAll('.tree-focus').forEach(function (el) { if (el !== target) el.classList.remove('tree-focus'); });
-    target.classList.add('tree-focus');
-    if (target.scrollIntoView) { try { target.scrollIntoView({ block: 'center' }); } catch (e) { target.scrollIntoView(); } }
-    if (typeof flashReviewPanelFocus === 'function') flashReviewPanelFocus(target.closest('.sidebar'));
+    if (!openPath) return;
+    if (typeof revealTreeFor === 'function') revealTreeFor(openPath, false); // open ancestor folders; center below
+    requestAnimationFrame(function () {
+      var rows = treeRows();
+      var target = null;
+      for (var i = 0; i < rows.length; i++) {
+        var ds = rows[i].dataset || {};
+        if (ds.sourceFile === openPath || ds.file === openPath) { target = rows[i]; treeFocusIndex = i; break; }
+      }
+      if (!target) return;
+      document.querySelectorAll('.tree-focus').forEach(function (el) { if (el !== target) el.classList.remove('tree-focus'); });
+      target.classList.add('tree-focus');
+      if (target.scrollIntoView) { try { target.scrollIntoView({ block: 'center' }); } catch (e) { target.scrollIntoView(); } }
+      if (typeof flashReviewPanelFocus === 'function') flashReviewPanelFocus(target.closest('.sidebar'));
+    });
   });
 }
 document.addEventListener('click', function (event) {

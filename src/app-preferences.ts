@@ -1,11 +1,14 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { workspaceDataDirectory } from "./workspace-data.js";
+import type { WorkspaceRecord } from "./workspaces.js";
 
 export type RecentProject = { path: string; name: string; openedAt: number };
 
 const RECENT_KEY = "kakapo-recent-projects";
 const RECENT_MAX = 12;
+const OPEN_WORKSPACES_KEY = "kakapo-open-workspaces";
+const ACTIVE_WORKSPACE_KEY = "kakapo-active-workspace";
 const GLOBAL_SETTING_KEYS = new Set([
   "kakapo-locale",
   "kakapo-theme",
@@ -13,6 +16,8 @@ const GLOBAL_SETTING_KEYS = new Set([
   "kakapo-merge-prompts",
   "kakapo-explain-prompt",
   RECENT_KEY,
+  OPEN_WORKSPACES_KEY,
+  ACTIVE_WORKSPACE_KEY,
   "kakapo-dock-height",
   "kakapo-memo",
   "kakapo-memo-migrated-worktree",
@@ -83,6 +88,26 @@ export class AppPreferences {
     const settings = this.readGlobal();
     settings[RECENT_KEY] = this.readRecentProjects().filter((project) => project.path !== path);
     this.writeGlobal(settings);
+  }
+
+  readOpenWorkspaces(): WorkspaceRecord[] {
+    const raw = this.readGlobal()[OPEN_WORKSPACES_KEY];
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((entry): entry is WorkspaceRecord => !!entry && typeof entry === "object"
+      && typeof entry.path === "string" && typeof entry.repoRoot === "string"
+      && typeof entry.branch === "string" && (entry.kind === "main" || entry.kind === "worktree"));
+  }
+
+  writeOpenWorkspaces(workspaces: WorkspaceRecord[], activePath?: string): void {
+    const settings = this.readGlobal();
+    settings[OPEN_WORKSPACES_KEY] = workspaces;
+    settings[ACTIVE_WORKSPACE_KEY] = activePath;
+    this.writeGlobal(settings);
+  }
+
+  readActiveWorkspace(): string | undefined {
+    const value = this.readGlobal()[ACTIVE_WORKSPACE_KEY];
+    return typeof value === "string" ? value : undefined;
   }
 
   private workspaceFile(root: string): string {

@@ -43,6 +43,7 @@ app.whenReady().then(async () => {
     const sidebarFocusOutline = getComputedStyle(sidebar).outlineStyle;
     sidebar.classList.remove('mc-panel-focus-flash');
     const rail = document.querySelector('.activity-rail');
+    const railDisplay = getComputedStyle(rail).display;
     rail.classList.add('mc-panel-focus-flash');
     const railFocusOutline = getComputedStyle(rail).outlineStyle;
     rail.classList.remove('mc-panel-focus-flash');
@@ -68,6 +69,7 @@ app.whenReady().then(async () => {
       sidebarFocusTop,
       sidebarFocusOutline,
       railFocusOutline,
+      railDisplay,
       reviewTitleLeft,
       railActionTop,
       historyTitleLeft,

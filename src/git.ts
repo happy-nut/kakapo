@@ -95,6 +95,14 @@ export function canonicalWorkspaceRoot(cwd: string = process.cwd()): string {
   try { return realpathSync.native(root); } catch { return root; }
 }
 
+// A Kakapo workspace is identified by the Git worktree top-level, not by the subdirectory from which
+// the CLI happened to be launched. This gives single-instance handoff a stable identity: launching from
+// two different folders in the same checkout focuses the existing workspace, while another worktree
+// remains a distinct workspace.
+export function resolveWorkspaceRoot(cwd: string = process.cwd()): string {
+  return canonicalWorkspaceRoot(repoRoot(canonicalWorkspaceRoot(cwd)));
+}
+
 export function readGitSnapshot(root: string): GitSnapshot {
   return {
     branch: git(root, ["branch", "--show-current"]),

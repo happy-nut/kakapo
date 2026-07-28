@@ -209,6 +209,15 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
+  // ⌥F1 reveals the open file in the tree from ANY view — it runs BEFORE the isFloatingModalOpen stand-down
+  // below so History/Explain (and merged/memo docks), which otherwise own the keys, don't swallow it. Only a
+  // genuine text-input modal (settings, go-to-line) still keeps it; there the "main panel" isn't focused.
+  if (event.key === 'F1' && event.altKey && !event.metaKey && !event.ctrlKey) {
+    var revealSm = document.getElementById('settings-modal');
+    var revealBlocked = (revealSm && !revealSm.classList.contains('hidden')) || !!document.getElementById('goto-line');
+    if (!revealBlocked && typeof revealOpenFileInTree === 'function') { event.preventDefault(); revealOpenFileInTree(); return; }
+  }
+
   // Settings overlay (or a focused merged/memo dock) captures keys: stand down the rest of the global
   // shortcuts (F7, Cmd+[/], Cmd+B, …). Each has its own Esc + editing handlers.
   if (isFloatingModalOpen()) return;
@@ -459,12 +468,6 @@ document.addEventListener('keydown', (event) => {
     }
   }
 
-  if (event.key === 'F1' && event.altKey && !event.metaKey && !event.ctrlKey) {
-    // ⌥F1: reveal the open file centered in the sidebar tree.
-    if (typeof revealOpenFileInTree === 'function') { event.preventDefault(); revealOpenFileInTree(); }
-    return;
-  }
-
   if (event.key === 'F2' && !event.metaKey && !event.ctrlKey && !event.altKey) {
     // F2 / Shift+F2 steps between language-server problems inside the open source file. It only consumes the
     // key when the source view owns it (a code file is on screen); otherwise the event falls through.
@@ -587,8 +590,50 @@ document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
   else if (view === 'impact') { toggleImpact(); }
   else if (view === 'explain') { toggleExplainView(); }
   else if (view === 'history') { toggleHistory(); }
+  document.getElementById('workspace-more-menu')?.classList.add('hidden');
+  document.getElementById('workspace-more-toggle')?.setAttribute('aria-expanded', 'false');
   syncRail();
 });
+
+// The shell title-bar mirrors these tools (single-instance app). A title-bar click is relayed here as a
+// rail action; replay it by clicking the matching (possibly CSS-hidden) rail control so every existing
+// handler and syncRail run unchanged. Terminal and More carry id-based handlers, not data-view.
+if (window.kakapoMenu && window.kakapoMenu.onRailAction) {
+  window.kakapoMenu.onRailAction((action) => {
+    if (action === 'terminal') { document.getElementById('terminal-toggle')?.click(); return; }
+    if (action === 'more') { document.getElementById('workspace-more-toggle')?.click(); return; }
+    document.querySelector('.rail-btn[data-view="' + action + '"]')?.click();
+  });
+}
+
+(function setupWorkspaceMoreMenu() {
+  var toggle = document.getElementById('workspace-more-toggle');
+  var menu = document.getElementById('workspace-more-menu');
+  if (!toggle || !menu) return;
+  toggle.addEventListener('click', function (event) {
+    event.stopPropagation();
+    var opening = menu.classList.contains('hidden');
+    menu.classList.toggle('hidden', !opening);
+    toggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
+  });
+  menu.addEventListener('click', function () {
+    menu.classList.add('hidden');
+    toggle.setAttribute('aria-expanded', 'false');
+  });
+  document.addEventListener('click', function (event) {
+    if (!menu.contains(event.target) && event.target !== toggle) {
+      menu.classList.add('hidden');
+      toggle.setAttribute('aria-expanded', 'false');
+    }
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && !menu.classList.contains('hidden')) {
+      menu.classList.add('hidden');
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.focus();
+    }
+  });
+})();
 
 document.getElementById('back-to-diff')?.addEventListener('click', () => showDiffView(true));
 document.getElementById('source-tabs')?.addEventListener('click', function (event) {

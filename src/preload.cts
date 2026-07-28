@@ -39,6 +39,29 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
   onTerminalPaneRename: (cb: () => void): void => {
     ipcRenderer.on("kakapo:terminal-pane-rename", () => cb());
   },
+  onAgentResume: (cb: (command: string) => void): void => {
+    ipcRenderer.on("kakapo:agent-resume", (_event, command: string) => cb(command));
+  },
+  onWorkspaceState: (cb: (state: unknown) => void): void => {
+    ipcRenderer.on("kakapo:workspace-state", (_event, state: unknown) => cb(state));
+  },
+  toggleWorkspaceHub: (): void => ipcRenderer.send("kakapo:workspace-hub-toggle"),
+  // ⌘K opens a floating quick-switcher rendered over the review (the review stays visible behind it).
+  onOpenQuickSwitcher: (cb: () => void): void => {
+    ipcRenderer.on("kakapo:open-quick-switcher", () => cb());
+  },
+  activateWorkspace: (id: number): void => ipcRenderer.send("kakapo:hub-activate", id),
+  // The shell title-bar mirrors the activity rail: main relays a title-bar tool click here so the viewer
+  // replays it through its own rail dispatcher, and the viewer reports view/terminal state back for highlight.
+  onRailAction: (cb: (action: string) => void): void => {
+    ipcRenderer.on("kakapo:rail-action", (_event, action: string) => cb(action));
+  },
+  sendRailState: (state: { active: string[]; terminal: boolean }): void => ipcRenderer.send("kakapo:rail-state", state),
+  // While the workspace rail is expanded (pushing this view right), collapse the in-view file tree so the two
+  // panels don't compete; restore it when the rail collapses.
+  onRailPushed: (cb: (pushed: boolean) => void): void => {
+    ipcRenderer.on("kakapo:rail-pushed", (_event, pushed: boolean) => cb(pushed));
+  },
 });
 
 // Integrated terminal: bridge the renderer's xterm view to a node-pty owned by the main process (the
@@ -76,6 +99,7 @@ contextBridge.exposeInMainWorld("kakapoFile", {
   get: (index: number, kind: string): Promise<string> => ipcRenderer.invoke("kakapo:get-file", { index, kind }),
   getIndex: (): Promise<unknown> => ipcRenderer.invoke("kakapo:get-project-index"),
   getSource: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:get-source", { path }),
+  getAsset: (path: string): Promise<{ dataUrl: string } | null> => ipcRenderer.invoke("kakapo:get-asset", { path }),
   existingPaths: (paths: string[]): Promise<unknown> => ipcRenderer.invoke("kakapo:existing-project-paths", { paths }),
   getDiffContext: (request: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:get-diff-context", request),
 });

@@ -115,10 +115,13 @@ function printHelp(): void {
 
 Usage:
   kakapo            open the review app for the current repository
+                    reuse the running app; focus the same worktree or open another
 
 Diff review keys:
   F7 / Shift+F7     next / previous changed hunk
-  Cmd/Ctrl+0 / +1   focus the Changes / Files panel (arrows + Enter to open a file)
+  Cmd/Ctrl+0        focus the Changes panel (arrows + Enter to open a file)
+  Cmd/Ctrl+K / +N   toggle the workspace hub / create a managed worktree
+  Cmd/Ctrl+Alt+1–9  switch workspace
   Shift Shift       file search across project files
   Cmd/Ctrl+F        search the open file (Enter / Shift+Enter to navigate)
   Cmd/Ctrl+Shift+F  project-wide content search (file:line:column)
@@ -127,6 +130,5 @@ Diff review keys:
   Cmd/Ctrl+Down     jump to symbol under cursor
   Cmd/Ctrl+Alt+B    go to implementation
   Cmd/Ctrl+Alt+O    workspace symbol search
-  Cmd/Ctrl+8        change impact for the current symbol
 `);
 }

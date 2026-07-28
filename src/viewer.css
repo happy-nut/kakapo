@@ -235,6 +235,11 @@ body.native-app {
   --native-title-safe-left: calc(var(--native-traffic-safe-width) + 8px);
   --native-title-safe-after-rail: calc(var(--native-traffic-safe-width) - var(--rail-width) + 8px);
 }
+/* Single-instance app: the activity rail's icons now live in the shell title bar, so the in-view rail is
+   hidden and its grid column collapses to 0 — the project sidebar becomes the left-most viewer column. Every
+   rail control stays in the DOM (only CSS-hidden), so the title-bar mirror can still click it via IPC. */
+body.native-app { --rail-width: 0px; }
+body.native-app .activity-rail { display: none; }
 body.native-app .activity-rail {
   position: relative;
   padding-top: calc(var(--native-titlebar-height) + 6px);
@@ -269,7 +274,9 @@ body.native-app .activity-rail::after {
 /* Reserve the native controls outside the scrolling element. Padding the scroll contents themselves
    looked correct only at scrollTop=0; once the tree moved, that padding scrolled away and the project
    heading slid underneath the traffic lights. The sidebar frame keeps this inset permanently. */
-body.native-app .sidebar { padding-top: var(--native-titlebar-height); }
+/* The shell window owns the title bar + traffic lights above this view, so the sidebar no longer reserves a
+   title-strip row; its brand header aligns with the content toolbar as one header band. */
+body.native-app .sidebar { padding-top: 0; }
 body.native-app .sidebar-scroll { padding-top: 8px; }
 body.native-app .diff-toolbar,
 body.native-app .source-tabs,
@@ -433,6 +440,7 @@ body.native-app .source-tabs {
   color: var(--text); background: var(--bg);
   border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px;
 }
+
 /* Current branch chip under the project name in the sidebar header. */
 .brand-branch { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 5px; margin-top: 0; min-width: 0; color: var(--muted); font-size: 12px; }
 .brand-branch-icon { flex: none; opacity: 0.8; }
@@ -546,12 +554,19 @@ body.native-app .source-tabs {
 }
 .settings-modal.hidden { display: none; }
 .settings-panel {
+  position: relative;
   position: relative; z-index: 1; contain: paint; transform: translateZ(0);
   display: flex;
   width: 980px; max-width: 90vw; height: 700px; max-height: 88vh;
   background: var(--panel); border: 1px solid var(--border); border-radius: 0;
   overflow: hidden; box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
 }
+.settings-close {
+  position: absolute; z-index: 2; top: 10px; right: 12px;
+  width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px;
+  color: var(--muted); background: transparent; font: 20px/28px ui-sans-serif, system-ui;
+}
+.settings-close:hover { color: var(--text); background: var(--hover); }
 .settings-nav {
   flex: 0 0 200px; padding: 16px 10px;
   background: var(--sidebar); border-right: 1px solid var(--border);
@@ -3474,3 +3489,133 @@ body.native-app .source-tabs {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
 .csv-empty { color: var(--muted); font-style: italic; padding: 16px; }
+
+/* The review tools moved to the shell title bar, so the in-view activity rail is gone: its track collapses
+   to 0 and the project tree becomes the left-most column, flush against the shell's workspace rail. (This
+   rule redefines the grid for the workspace view, so its --rail-width is what actually wins here.) */
+body.workspace-view {
+  --rail-width: 0px;
+  grid-template-columns: var(--rail-width) var(--sidebar-width, 264px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+body.workspace-view .activity-rail {
+  grid-column: 1;
+  grid-row: 1;
+  width: var(--rail-width);
+  height: auto;
+  padding: 30px 6px 7px;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  border-bottom: 0;
+  overflow: visible;
+}
+body.workspace-view .activity-rail::before,
+body.workspace-view .activity-rail::after,
+body.workspace-view .sidebar::before { display: none; }
+body.workspace-view .activity-rail .rail-group { flex-direction: column; }
+body.workspace-view .activity-rail .rail-actions { margin-top: auto; margin-left: 0; }
+body.workspace-view .activity-rail .rail-btn {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+}
+body.workspace-view .activity-rail .rail-label { display: none; }
+body.workspace-view .activity-rail .rail-tip {
+  left: calc(100% + 9px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+.rail-separator { width: 24px; height: 1px; margin: 5px 0 7px; background: var(--border); }
+body.workspace-view .workspace-selector {
+  position: relative;
+  display: flex;
+  color: var(--muted);
+}
+body.workspace-view .workspace-selector:hover { color: var(--text); }
+.workspace-selector-icon { width: 18px; height: 18px; }
+.workspace-selector-label { display: none; }
+.workspace-selector-activity {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--sidebar);
+  border-radius: 50%;
+  background: var(--muted);
+}
+.workspace-selector-activity.running {
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid color-mix(in srgb, var(--active) 35%, transparent);
+  border-top-color: var(--active);
+  background: transparent;
+  animation: workspace-selector-spin .8s linear infinite;
+}
+@keyframes workspace-selector-spin { to { transform: rotate(360deg); } }
+.workspace-selector-running {
+  position: absolute; right: -2px; top: -2px; width: 9px; height: 9px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--active) 40%, transparent);
+  border-top-color: var(--active);
+  animation: workspace-selector-spin .8s linear infinite;
+}
+.workspace-selector-unread {
+  position: absolute; right: -5px; top: -5px; min-width: 16px; height: 16px; padding: 0 3px;
+  border: 2px solid var(--sidebar); border-radius: 9px;
+  color: white; background: var(--active); text-align: center; font: 600 9px/12px ui-sans-serif, system-ui;
+}
+body.workspace-view .sidebar { grid-column: 2; grid-row: 1; }
+/* Brand header = one row aligned with the content toolbar (the shell draws the title bar, so no extra
+   title-strip reservation). The branch already shows in the shell title bar, so drop it here — that also
+   frees the row for the full project name instead of squeezing it to an ellipsis. */
+body.workspace-view .sidebar-brand { display: flex; align-items: center; min-height: var(--native-titlebar-height); padding-top: 0; padding-bottom: 0; }
+body.workspace-view .sidebar-brand .brand-branch { display: none; }
+body.workspace-view .content { grid-column: 3; grid-row: 1; }
+body.workspace-view .sidebar-resizer { left: calc(var(--rail-width) + var(--sidebar-width, 264px) - 2px); }
+.workspace-more-menu {
+  position: fixed;
+  left: 45px;
+  bottom: 8px;
+  top: auto;
+  z-index: 190;
+  width: 190px;
+  padding: 5px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px var(--shadow);
+}
+/* The overflow ("More") menu (z-index: 190) is a child of .activity-rail, which is its own stacking
+   context (z-index: 32) — so the popup was trapped BELOW full-view overlays like History/Explain
+   (z-index: 75) that it pops out over. While the menu is open, lift the rail's context above them. */
+body.workspace-view .activity-rail:has(.workspace-more-menu:not(.hidden)) { z-index: 80; }
+body.workspace-view .activity-rail .workspace-more-menu .rail-btn {
+  width: 100%;
+  height: 31px;
+  display: flex;
+  justify-content: flex-start;
+  gap: 9px;
+  padding: 0 9px;
+  color: var(--text);
+}
+body.workspace-view .activity-rail .workspace-more-menu .rail-label { display: inline; font-size: 12px; }
+body.workspace-view .activity-rail .workspace-more-menu .rail-tip { display: none; }
+body.workspace-view.workspace-hub-open {
+  grid-template-columns: 0 0 minmax(0, 1fr);
+}
+body.workspace-view.workspace-hub-open .activity-rail,
+body.workspace-view.workspace-hub-open .sidebar,
+body.workspace-view.workspace-hub-open .sidebar-resizer { display: none; }
+body.workspace-view.workspace-hub-open .content { grid-column: 3; grid-row: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .workspace-selector-activity.running,
+  .workspace-selector-running { animation: none; border-color: var(--active); }
+}
+body.workspace-view.sidebar-collapsed {
+  grid-template-columns: var(--rail-width) 0 minmax(0, 1fr);
+}
+body.workspace-view.sidebar-collapsed .sidebar,
+body.workspace-view.sidebar-collapsed .sidebar-resizer { display: none; }
+body.workspace-view.sidebar-collapsed .content { grid-column: 3; grid-row: 1; }

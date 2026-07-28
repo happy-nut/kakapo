@@ -274,45 +274,50 @@ export function renderDiffHtml(input: {
   const integratedTitleBar = input.app && process.platform === "darwin";
   const brandMark = kakapoIconHtml("kakapo-mark");
   const brandLoader = `<span class="kakapo-loader kakapo-loader-boot" role="status" aria-label="Kakapo is loading">${brandMark}</span>`;
+  const workspaceSelector = input.app
+    ? `<button type="button" id="workspace-selector" class="workspace-selector rail-btn" aria-haspopup="listbox" aria-expanded="false" title="Switch workspace (⌘K)"><svg class="workspace-selector-icon" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4.5" width="16" height="15" rx="2"/><path d="M4 9h16M9 9v10"/></svg><span id="workspace-selector-activity" class="workspace-selector-activity" aria-hidden="true"></span><span class="workspace-selector-label"><span id="workspace-selector-name" class="workspace-selector-name">${escapeHtml(input.branch || input.projectName)}</span><span id="workspace-selector-meta" class="workspace-selector-meta">${escapeHtml(input.projectName)}</span></span><span id="workspace-selector-running" class="workspace-selector-running hidden" title="Background workspaces running"></span><span id="workspace-selector-unread" class="workspace-selector-unread hidden" title="Unread workspace activity"></span><span class="rail-tip"><span>Workspaces</span><kbd>⌘K</kbd></span></button>`
+    : "";
 
   // IntelliJ-style activity rail: an icon per view; click navigates, hover shows a tooltip with the
   // shortcut. data-view drives both the click handler and the active-state highlight (see syncRail).
   const railButton = (view: string, labelKey: string, defaultLabel: string, kbd: string, svg: string): string =>
     `<button type="button" class="rail-btn" data-view="${view}" data-i18n-aria="${labelKey}" aria-label="${escapeAttr(defaultLabel)}">` +
     `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${svg}</svg>` +
+    `<span class="rail-label">${escapeHtml(defaultLabel)}</span>` +
     `<span class="rail-tip"><span data-i18n="${labelKey}">${escapeHtml(defaultLabel)}</span><kbd>${escapeHtml(kbd)}</kbd></span>` +
     "</button>";
+  const impactButton = input.app
+    ? railButton("impact", "rail.impact", "Change Impact", "⌘8", '<circle cx="6" cy="12" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M8.2 11.2l7.6-4.1M8.2 12.8l7.6 4.1"/>')
+    : "";
+  const explainButton = input.app
+    ? railButton("explain", "rail.explain", "Explain", "⌘7", '<path d="M4 5.5c2.4-1 5.4-1 8 0v13c-2.6-1-5.6-1-8 0z"/><path d="M20 5.5c-2.4-1-5.4-1-8 0v13c2.6-1 5.6-1 8 0z"/>')
+    : "";
   const activityRail = [
     '<nav class="activity-rail" aria-label="Views">',
-    '<div class="rail-group">',
+    workspaceSelector,
+    '<span class="rail-separator" aria-hidden="true"></span>',
+    '<div class="rail-group rail-primary">',
     railButton("changes", "tab.changes", "Changes", "⌘0", '<circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/>'),
     railButton("files", "tab.files", "Files", "⌘1", '<path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/>'),
-    input.app
-      ? railButton("impact", "rail.impact", "Change Impact", "⌘8", '<circle cx="6" cy="12" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M8.2 11.2l7.6-4.1M8.2 12.8l7.6 4.1"/>')
-      : "",
-    // Explain (Electron only; renders an AI-agent-authored content spec, and its terminal-send action needs the pty bridge).
-    input.app
-      ? railButton("explain", "rail.explain", "Explain", "⌘7", '<path d="M4 5.5c2.4-1 5.4-1 8 0v13c-2.6-1-5.6-1-8 0z"/><path d="M20 5.5c-2.4-1-5.4-1-8 0v13c2.6-1 5.6-1 8 0z"/>')
-      : "",
-    railButton("merged", "rail.reviewComments", "Review comments", "⌘⇧/", '<path d="M5.5 5.5h13c.8 0 1.5.7 1.5 1.5v6.4c0 .8-.7 1.5-1.5 1.5H12l-4.5 3.6V16.4H5.5c-.8 0-1.5-.7-1.5-1.5V7c0-.8.7-1.5 1.5-1.5z"/>'),
-    railButton("memo", "memo.title", "Markdown memo", "⌘⇧N", '<rect x="5.5" y="4" width="13" height="16" rx="1.5"/><line x1="8.5" y1="9" x2="15.5" y2="9"/><line x1="8.5" y1="12.5" x2="15.5" y2="12.5"/><line x1="8.5" y1="16" x2="12.5" y2="16"/>'),
     "</div>",
-    '<div class="rail-group rail-bottom">',
+    '<div class="rail-group rail-actions">',
     // Terminal (Electron only; #terminal-toggle stays hidden until a pty exists). Keeps its own id-based
     // handler in the terminal client slice rather than the data-view rail dispatcher.
     input.app
-      ? '<button type="button" id="terminal-toggle" class="rail-btn terminal-toggle hidden" data-i18n-aria="terminal.title" aria-label="Terminal"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg><span class="rail-tip"><span data-i18n="terminal.title">Terminal</span><kbd>⌃`</kbd></span></button>'
+      ? '<button type="button" id="terminal-toggle" class="rail-btn terminal-toggle hidden" data-i18n-aria="terminal.title" aria-label="Terminal"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg><span class="rail-label">Terminal</span><span class="rail-tip"><span data-i18n="terminal.title">Terminal</span><kbd>⌃`</kbd></span></button>'
       : "",
-    // History (Cmd+9): Electron only — the git-log bridge (window.kakapoGit) is exposed there.
-    input.app
-      ? railButton("history", "rail.history", "History", "⌘9", '<circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/>')
-      : "",
-    // Settings gear (#app-info-btn) — existing click handler binds by id.
-    '<button type="button" id="app-info-btn" class="rail-btn" aria-haspopup="dialog" data-i18n-aria="settings.title" aria-label="Settings"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.7 3.2h4.6l.5 2.1c.6.2 1.1.5 1.6.9l2-.7 2.3 4-1.6 1.4a7 7 0 0 1 0 2.2l1.6 1.4-2.3 4-2-.7c-.5.4-1 .7-1.6.9l-.5 2.1H9.7l-.5-2.1c-.6-.2-1.1-.5-1.6-.9l-2 .7-2.3-4 1.6-1.4a7 7 0 0 1 0-2.2L3.3 9.5l2.3-4 2 .7c.5-.4 1-.7 1.6-.9z"/><circle cx="12" cy="12" r="3"/></svg><span class="rail-tip"><span data-i18n="settings.title">Settings</span><kbd>⌘,</kbd></span></button>',
+    '<button type="button" id="workspace-more-toggle" class="rail-btn workspace-more-toggle" aria-haspopup="menu" aria-expanded="false" aria-label="More review tools"><svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span class="rail-label">More</span></button>',
+    "</div>",
+    '<div id="workspace-more-menu" class="workspace-more-menu hidden" role="menu">',
+    impactButton,
+    explainButton,
+    railButton("merged", "rail.reviewComments", "Review comments", "⌘⇧/", '<path d="M5.5 5.5h13c.8 0 1.5.7 1.5 1.5v6.4c0 .8-.7 1.5-1.5 1.5H12l-4.5 3.6V16.4H5.5c-.8 0-1.5-.7-1.5-1.5V7c0-.8.7-1.5 1.5-1.5z"/>'),
+    railButton("memo", "memo.title", "Markdown memo", "⌘⇧N", '<rect x="5.5" y="4" width="13" height="16" rx="1.5"/><line x1="8.5" y1="9" x2="15.5" y2="9"/><line x1="8.5" y1="12.5" x2="15.5" y2="12.5"/><line x1="8.5" y1="16" x2="12.5" y2="16"/>'),
+    input.app ? railButton("history", "rail.history", "History", "⌘9", '<circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/>') : "",
+    '<button type="button" id="app-info-btn" class="rail-btn" role="menuitem" aria-haspopup="dialog" data-i18n-aria="settings.title" aria-label="Settings"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.7 3.2h4.6l.5 2.1c.6.2 1.1.5 1.6.9l2-.7 2.3 4-1.6 1.4a7 7 0 0 1 0 2.2l1.6 1.4-2.3 4-2-.7c-.5.4-1 .7-1.6.9l-.5 2.1H9.7l-.5-2.1c-.6-.2-1.1-.5-1.6-.9l-2 .7-2.3-4 1.6-1.4a7 7 0 0 1 0-2.2L3.3 9.5l2.3-4 2 .7c.5-.4 1-.7 1.6-.9z"/><circle cx="12" cy="12" r="3"/></svg><span class="rail-label">Settings</span></button>',
     "</div>",
     "</nav>",
   ].join("");
-
   return [
     "<!doctype html>",
     '<html lang="en">',
@@ -328,7 +333,7 @@ export function renderDiffHtml(input: {
     input.app ? xtermCss() : "",
     "</style>",
     "</head>",
-    `<body${integratedTitleBar ? ' class="native-app"' : ""}>`,
+    `<body${integratedTitleBar ? ' class="native-app workspace-view"' : ""}>`,
     // Boot overlay (removed by the renderer once bootstrap has painted) covers the blank gap after loadFile.
     `<div id="boot-overlay">${brandLoader}</div>`,
     activityRail,
@@ -448,6 +453,7 @@ export function renderDiffHtml(input: {
     "</div>",
     '<div id="settings-modal" class="settings-modal hidden" role="dialog" aria-modal="true" data-i18n-aria="settings.aria" aria-label="Settings">',
     '<div class="settings-panel">',
+    '<button type="button" id="settings-close" class="settings-close" aria-label="Close settings" title="Close (Esc)">×</button>',
     '<aside class="settings-nav"><div class="settings-nav-title" data-i18n="settings.title">Settings</div><button type="button" class="settings-cat active" data-cat="general" data-i18n="settings.cat.general">General</button><button type="button" class="settings-cat" data-cat="prompts" data-i18n="settings.cat.prompts">Prompts</button></aside>',
     '<div class="settings-body">',
     '<section class="settings-section" data-cat="general">',
@@ -471,9 +477,10 @@ export function renderDiffHtml(input: {
     '<kbd>⌘O</kbd><span data-i18n="kbd.openFolder">Open folder</span>' +
     '<kbd>⌘⇧O</kbd><span data-i18n="kbd.openNewWindow">Open in new window</span>' +
     '<kbd>⌘,</kbd><span data-i18n="kbd.openSettings">Settings</span>' +
+    '<kbd>⌘K</kbd><span>Switch workspace</span>' +
+    '<kbd>⌘⌥1–9</kbd><span>Switch directly to workspace</span>' +
     '<kbd>⌘9</kbd><span data-i18n="kbd.openHistory">Git history</span>' +
     '<kbd>⌘L</kbd><span data-i18n="kbd.gotoLine">Go to line</span>' +
-    '<kbd>⌘K</kbd><span data-i18n="kbd.copyLocation">Copy file:line</span>' +
     '<kbd>⌥Enter</kbd><span data-i18n="kbd.rowActions">Sidebar file actions (path / file manager / terminal)</span>' +
     '<kbd>Esc</kbd><span data-i18n="kbd.closeDialog">Close dialog / cancel</span>' +
     '</div>' +
