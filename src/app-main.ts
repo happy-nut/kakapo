@@ -1059,6 +1059,39 @@ function clearAgentBusy(state: WinState): void {
   if (state.busy) { state.busy = false; sendAgentActivity(); }
 }
 
+// GitHub project icons: the repo owner's avatar (github.com/<owner>.png) used as the workspace badge so the
+// rail reads like GitHub instead of colored initials. Parsed from origin (cached per root), fetched once per
+// owner (cached as a data URL). Falls back to the colored initials when there's no GitHub remote or the fetch
+// fails (offline / private / unknown user).
+const rootOwner = new Map<string, string | null>();
+const ownerAvatar = new Map<string, string>();
+const ownerAvatarPending = new Set<string>();
+function githubOwnerFor(root: string): string | undefined {
+  if (rootOwner.has(root)) return rootOwner.get(root) ?? undefined;
+  let owner: string | undefined;
+  try {
+    const url = git(root, ["config", "--get", "remote.origin.url"]).trim();
+    const match = url.match(/github\.com[:/]+([^/]+)\/[^/]+/i);
+    owner = match ? match[1] : undefined;
+  } catch { /* not a git repo / no origin */ }
+  rootOwner.set(root, owner ?? null);
+  return owner;
+}
+async function ensureOwnerAvatar(owner: string): Promise<void> {
+  if (ownerAvatar.has(owner) || ownerAvatarPending.has(owner)) return;
+  ownerAvatarPending.add(owner);
+  try {
+    const response = await fetch(`https://github.com/${encodeURIComponent(owner)}.png?size=80`, { redirect: "follow" });
+    if (response.ok) {
+      const type = response.headers.get("content-type") || "image/png";
+      const base64 = Buffer.from(await response.arrayBuffer()).toString("base64");
+      ownerAvatar.set(owner, `data:${type};base64,${base64}`);
+      renderHub(); // re-render so the badge swaps from initials to the fetched icon
+    }
+  } catch { /* offline / no such user — keep the initials fallback */ }
+  finally { ownerAvatarPending.delete(owner); }
+}
+
 function renderHub(): void {
   if (!shellWindow || shellWindow.isDestroyed()) return;
   const saved = savedWorkspaceMetadata();
@@ -1066,8 +1099,11 @@ function renderHub(): void {
     const current = workspaceRecord(state.options.root);
     const metadata = saved.find((item) => resolveWorkspaceRoot(item.path) === current.path);
     const dirtyCount = git(current.path, ["status", "--porcelain"]).split("\n").filter(Boolean).length;
+    const owner = githubOwnerFor(state.options.root);
+    const avatar = owner ? ownerAvatar.get(owner) : undefined;
+    if (owner && !avatar) void ensureOwnerAvatar(owner);
     return { id: state.win.webContents.id, ...current, alias: metadata?.alias, memo: metadata?.memo,
-      base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount,
+      base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount, avatar,
       active: state.win.webContents.id === activeStateId, running: state.terms.size > 0,
       resume: state.resumeCommand, unread: state.unread, busy: state.busy, detached: state.win.isDetached() };
   });
@@ -1123,6 +1159,9 @@ body.rail-exp .ws.active{background:${light ? "#dfe7f5" : "#2a3446"}}
 body.rail-exp .ws.kbd-sel{background:${light ? "#e4eaf6" : "#2b303a"};padding-left:12px}
 body.rail-exp .ws.kbd-sel::before{content:"";position:absolute;left:3px;top:8px;bottom:8px;width:3px;border-radius:2px;background:#4d86d9}
 .ws-badge{position:relative;width:36px;height:36px;flex:none;border:1px solid ${line};background:${light ? "#e6e6e6" : "#2d2d30"};color:${light ? "#555" : "#b9bcc4"};border-radius:9px;display:grid;place-items:center;font-weight:700;font-size:12px;letter-spacing:.02em}
+/* GitHub owner avatar as the badge (falls back to colored initials when unavailable). */
+.ws-badge.has-av{background:transparent;border-color:transparent}
+.ws-av{width:100%;height:100%;border-radius:8px;object-fit:cover;display:block}
 .ws:hover .ws-badge{border-color:#4d86d9;color:${fg}}
 .ws.active .ws-badge{border-color:#4d86d9;color:#4d86d9;background:${light ? "#dfe7f5" : "#2a3446"};box-shadow:0 0 0 1px #4d86d9}
 .ws.disc{opacity:.5}
@@ -1268,7 +1307,8 @@ const badgeCls=w=>'ws-badge'+(w.busy?' busy':'')+(w.running?' running':'')+(w.un
 // distinguishable at a glance instead of a column of look-alike gray 2-letter badges. Disconnected tiles stay gray.
 const projHue=n=>{let h=0;const s=String(n||'');for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h%360;};
 const badgeStyle=(repo,wi,w)=>w.disconnected?'':' style="background:hsl('+projHue(repo)+',40%,'+Math.min(70,52+wi*9)+'%);border-color:transparent;color:#14171e"';
-list.innerHTML=[...groups].map(([repo,ws],gi)=>(gi>0?'<div class="repo-sep"></div>':'')+'<div class="ws-group-head" title="'+esc(repo)+'">'+esc(repo)+'</div>'+ws.map((w,wi)=>'<button class="ws '+(w.active?'active':'')+(w.disconnected?' disc':'')+'" title="'+esc(tip(w))+'" data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-resume="'+(w.resume&&!w.running?'1':'')+'"><span class="'+badgeCls(w)+'"'+badgeStyle(repo,wi,w)+'>'+esc(initials(w))+'<span class="rundot"></span><span class="unread"></span></span><span class="ws-label"><span class="n">'+esc(w.alias||w.branch)+'</span></span></button>').join('')).join('');
+const badgeInner=(repo,wi,w)=>w.avatar?['<img class="ws-av" src="'+w.avatar+'" alt="">','',' has-av'] : [esc(initials(w)),badgeStyle(repo,wi,w),''];
+list.innerHTML=[...groups].map(([repo,ws],gi)=>(gi>0?'<div class="repo-sep"></div>':'')+'<div class="ws-group-head" title="'+esc(repo)+'">'+esc(repo)+'</div>'+ws.map((w,wi)=>{const bi=badgeInner(repo,wi,w);return '<button class="ws '+(w.active?'active':'')+(w.disconnected?' disc':'')+'" title="'+esc(tip(w))+'" data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-resume="'+(w.resume&&!w.running?'1':'')+'"><span class="'+badgeCls(w)+bi[2]+'"'+bi[1]+'>'+bi[0]+'<span class="rundot"></span><span class="unread"></span></span><span class="ws-label"><span class="n">'+esc(w.alias||w.branch)+'</span></span></button>';}).join('')).join('');
 for(const el of list.querySelectorAll('.ws')){el.onclick=async()=>{const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){const action=prompt('reconnect | remove','reconnect');if(action==='remove')window.kakapoHub.forget(path);else if(action==='reconnect'){const r=await window.kakapoHub.chooseRepo();if(r.ok)window.kakapoHub.reconnect(path,r.repo)}return}window.kakapoHub.activate(id)};}
 if(railExp)railSelect(railSel<0?0:railSel); // re-apply the keyboard selection after a re-render
 });
