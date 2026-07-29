@@ -23,7 +23,17 @@ export function initialReviewSources(diffFiles: DiffFile[], sourceFiles: SourceF
   }
   const changed = sourceFiles.filter((file) => file.changed || changedPaths.has(file.path));
   if (changed.length) return changed;
-  const fallback = sourceFiles.find((file) => file.embedded && /^readme(?:\.|$)/i.test(file.name))
+  // A clean tree opens straight to a README, so pick the project-root one — breadth-first (fewest path
+  // segments), not the lexicographically-first match. `sourceFiles` is sorted by localeCompare, so a deep
+  // `pkg/a/b/README.md` sorts before the root `README.md` and would otherwise hijack the initial open. This
+  // is the ONLY README the client receives in the lazy-load path, so the depth choice must happen here.
+  const readmes = sourceFiles.filter((file) => file.embedded && /^readme(?:\.|$)/i.test(file.name));
+  const depth = (file: SourceFile) => file.path.split("/").length;
+  const rootReadme = readmes.reduce<SourceFile | undefined>(
+    (best, file) => (!best || depth(file) < depth(best) ? file : best),
+    undefined,
+  );
+  const fallback = rootReadme
     ?? sourceFiles.find((file) => file.embedded)
     ?? sourceFiles[0];
   return fallback ? [fallback] : [];
