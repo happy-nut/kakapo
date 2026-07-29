@@ -24,7 +24,10 @@ test("restore: source view + blank sourcePath opens the first tab (no empty body
   assert.equal(v.visibleView(), "source", "source view restored");
   assert.equal(v.$("#source-viewer").dataset.openPath, "src/app.ts", "the first restored tab was opened");
   assert.equal(v.$("#source-body").classList.contains("empty"), false, "body is painted, not the placeholder");
-  assert.ok(v.$('.source-tab[data-tab-path="src/app.ts"]'), "the tab is shown");
+  // A lone open file needs no tab strip (the source toolbar's breadcrumb already names it), so the strip
+  // is hidden and renders no .source-tab — the file identity lives in the breadcrumb, not a redundant tab.
+  assert.equal(v.$('.source-tab[data-tab-path="src/app.ts"]'), null, "a single file renders no tab");
+  assert.ok(v.$("#source-tabs").classList.contains("hidden"), "the tab strip is hidden for a lone file");
   v.close();
 });
 
