@@ -223,11 +223,23 @@
   // Cmd/Ctrl+W inside the terminal: close just the FOCUSED pane (kill its pty), not the whole panel. The
   // last pane closing collapses the panel via removePaneRef -> setOpen(false). Remove the pane immediately
   // (don't wait for the pty's onExit) so the UI responds at once; the later onExit -> removePane no-ops.
+  function killPane(p) {
+    if (p.id != null) { try { window.kakapoPty.kill({ id: p.id }); } catch (e) {} }
+    removePaneRef(p);
+  }
   function closeActivePane() {
     var p = active || panes[panes.length - 1];
     if (!p) { setOpen(false); return; }
-    if (p.id != null) { try { window.kakapoPty.kill({ id: p.id }); } catch (e) {} }
-    removePaneRef(p);
+    // If an agent/command is running in this pane, confirm before ⌘W kills it. The check is async (main reads
+    // the pty's foreground process), so panes with a spawn still in flight or an unavailable probe just close.
+    if (p.id != null && window.kakapoPty && typeof window.kakapoPty.foreground === 'function') {
+      Promise.resolve(window.kakapoPty.foreground({ id: p.id })).then(function (info) {
+        if (info && info.running && !window.confirm(t('terminal.closeRunningConfirm').replace('{name}', info.name || '?'))) return;
+        killPane(p);
+      }, function () { killPane(p); });
+      return;
+    }
+    killPane(p);
   }
 
   function split() {

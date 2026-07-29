@@ -93,6 +93,21 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     state?.commandBuffers?.delete(msg.id);
   });
 
+  // Whether a pane is running a foreground process (an agent/command) rather than sitting idle at the shell
+  // prompt. node-pty's `process` reports the pty's foreground process name; when it's no longer the shell,
+  // something is running — the renderer uses this to confirm before ⌘W kills the pane out from under it.
+  ipc.handle("kakapo:pty-foreground", (event, msg: { id?: number }) => {
+    const state = stateFromEvent(event);
+    const t = typeof msg?.id === "number" ? state?.terms.get(msg.id) : undefined;
+    if (!t) return { running: false, name: "" };
+    const shell = process.env.SHELL || (process.platform === "win32" ? "powershell.exe" : "/bin/zsh");
+    const shellName = shell.split(/[\\/]/).pop() || shell;
+    let fg = "";
+    try { fg = t.process || ""; } catch { /* pty may have exited mid-query */ }
+    const name = fg.replace(/^-/, ""); // login shells surface as "-zsh"
+    return { running: !!name && name !== shellName, name };
+  });
+
   // A TUI in the integrated terminal rang the bell (e.g. Claude Code finished a turn / needs input). Raise a
   // native notification when the window ISN'T focused — while you're watching, the bell itself is enough — plus
   // a dock bounce / taskbar flash. Clicking the notification brings the window forward.

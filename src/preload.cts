@@ -72,6 +72,8 @@ contextBridge.exposeInMainWorld("kakapoPty", {
   write: (msg: { id: number; data: string }): void => ipcRenderer.send("kakapo:pty-write", msg),
   resize: (msg: { id: number; cols: number; rows: number }): void => ipcRenderer.send("kakapo:pty-resize", msg),
   kill: (msg: { id: number }): void => ipcRenderer.send("kakapo:pty-kill", msg),
+  // Is a foreground process (agent/command) running in this pane? Used to confirm before ⌘W closes it.
+  foreground: (msg: { id: number }): Promise<{ running: boolean; name: string }> => ipcRenderer.invoke("kakapo:pty-foreground", msg),
   // A TUI in the pane rang the terminal bell (e.g. Claude Code finished a turn / needs input). The renderer
   // passes a pre-localized title+body; the main process decides whether to raise a native notification.
   bell: (msg: { title: string; body: string }): void => ipcRenderer.send("kakapo:bell", msg),
