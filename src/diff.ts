@@ -264,6 +264,40 @@ function statusPathRelativeToPrefix(prefix: string, gitPath: string): string {
   return normalized === prefix ? "" : normalized.startsWith(prefix + "/") ? normalized.slice(prefix.length + 1) : "";
 }
 
+// The change set derived purely from the diff: which paths changed and, per path, the added line numbers.
+// Split from tree enumeration and content collection (below) so a future partial rebuild can pair a fresh
+// change set with a cached project index instead of re-deriving the whole tree every watch tick.
+export function computeChangeSet(diffFiles: DiffFile[]): { changed: Set<string>; changedLinesByPath: Map<string, number[]> } {
+  const changed = new Set<string>();
+  const changedLinesByPath = new Map<string, number[]>();
+  for (const file of diffFiles) {
+    if (!file.displayPath || file.displayPath === "/dev/null") continue;
+    changed.add(file.displayPath);
+    const nums: number[] = [];
+    for (const hunk of file.hunks) for (const line of hunk.lines) {
+      if (line.kind === "add" && typeof line.newLine === "number") nums.push(line.newLine);
+    }
+    changedLinesByPath.set(file.displayPath, nums);
+  }
+  return { changed, changedLinesByPath };
+}
+
+// Enumerate the source paths to index: the project's tracked + untracked source candidates plus any changed
+// path (review evidence must stay openable even under a filtered directory), sorted for stable output. This
+// tree walk is the piece a cached project index would own across ticks — it rarely changes tick-to-tick.
+export function enumerateProjectPaths(root: string, changed: Set<string>): string[] {
+  const paths = new Set<string>();
+  const gitFiles = git(root, ["ls-files", "--cached", "--others", "--exclude-standard", "--", "."]);
+  for (const file of gitFiles.split(/\r?\n/)) {
+    const path = file.trim();
+    if (path && isSourceCandidate(path)) paths.add(path);
+  }
+  // Add changed paths even when isSourceCandidate would filter them (e.g. agent config under .claude/.omc):
+  // the file under review must remain openable from Cmd+1, while unchanged siblings stay filtered above.
+  for (const path of changed) paths.add(path);
+  return Array.from(paths).sort((a, b) => a.localeCompare(b));
+}
+
 export function collectSourceFiles(
   diffFiles: DiffFile[],
   rootArg?: string,
@@ -280,22 +314,7 @@ export function collectSourceFiles(
   const maxFileBytes = options.previewLargeText ? SOURCE_MAX_LAZY_FILE_BYTES : SOURCE_MAX_FILE_BYTES;
   const maxTotalBytes = options.maxTotalBytes ?? SOURCE_MAX_TOTAL_BYTES;
   const maxFiles = options.maxFiles ?? SOURCE_MAX_FILES;
-  const changed = new Set(
-    diffFiles
-      .map((file) => file.displayPath)
-      .filter((path) => path && path !== "/dev/null"),
-  );
-  const changedLinesByPath = new Map<string, number[]>();
-  for (const file of diffFiles) {
-    if (!file.displayPath || file.displayPath === "/dev/null") continue;
-    const nums: number[] = [];
-    for (const hunk of file.hunks) {
-      for (const line of hunk.lines) {
-        if (line.kind === "add" && typeof line.newLine === "number") nums.push(line.newLine);
-      }
-    }
-    changedLinesByPath.set(file.displayPath, nums);
-  }
+  const { changed, changedLinesByPath } = computeChangeSet(diffFiles);
   const root = canonicalWorkspaceRoot(rootArg ?? process.cwd());
   const target = options.target;
   // In A→B compare there is no working-tree status; color the Changes list from the diff's own file status.
@@ -304,24 +323,12 @@ export function collectSourceFiles(
     const kind = vcsByPath.get(file.displayPath);
     if (kind) file.vcs = kind; // color the Changes list from the same status map
   }
-  const paths = new Set<string>();
-  const gitFiles = git(root, ["ls-files", "--cached", "--others", "--exclude-standard", "--", "."]);
-  for (const file of gitFiles.split(/\r?\n/)) {
-    const path = file.trim();
-    if (path && isSourceCandidate(path)) {
-      paths.add(path);
-    }
-  }
-  // The broad project tree intentionally skips tool/cache directories, but a path that is actually in the
-  // diff is review evidence and must remain openable from Cmd+1. In particular, agent configuration under
-  // .claude/.omc can be the change under review even though we do not want to index every file in those
-  // folders. Add only the changed paths here; unchanged siblings stay filtered by isSourceCandidate above.
-  for (const path of changed) paths.add(path);
+  const orderedPaths = enumerateProjectPaths(root, changed);
   const sourceFiles: SourceFile[] = [];
   let embeddedFiles = 0;
   let embeddedBytes = 0;
 
-  for (const path of Array.from(paths).sort((a, b) => a.localeCompare(b))) {
+  for (const path of orderedPaths) {
     const absolute = join(root, path);
     const base: SourceFile = {
       path,
