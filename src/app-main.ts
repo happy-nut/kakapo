@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell, WebContentsView } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, screen, shell, WebContentsView } from "electron";
 import type { WebContents } from "electron";
 import { git, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
@@ -385,27 +385,106 @@ ipcMain.handle("kakapo:hub-projects", () => {
   projects.sort((a, b) => a.name.localeCompare(b.name));
   return projects;
 });
-// The workspace tile context menu is a NATIVE menu, not an HTML one. The HTML menu lived on the shell page,
-// which renders BEHIND the review views, so it had to hide every view to be seen — blanking the main panel.
-// A native menu draws above the views at the OS level, so the review stays on screen while it's open.
-ipcMain.on("kakapo:tile-menu", (_event, info: { id?: unknown; name?: unknown; resume?: unknown }) => {
+// The workspace-tile context menu is a custom design-system component, not the OS native menu. It renders in a
+// small frameless, transparent child window at the cursor, so it floats ABOVE the review views (which cover the
+// shell page) without blanking the panel — the reason the old in-shell HTML menu couldn't work. The window is
+// sized to its content (the page reports its measured size), positioned at the cursor, and dismissed on choose,
+// blur, Escape, or a click outside the menu box.
+let tileMenuWindow: BrowserWindow | undefined;
+let tileMenuTarget: { id: number; name: string } | undefined;
+let tileMenuAnchor: { x: number; y: number } | undefined;
+let tileMenuShown = false;
+function closeTileMenu(): void {
+  const win = tileMenuWindow;
+  tileMenuWindow = undefined; tileMenuTarget = undefined; tileMenuAnchor = undefined; tileMenuShown = false;
+  if (win && !win.isDestroyed()) win.close();
+}
+function tileMenuHtml(resume: boolean, canDelete: boolean, light: boolean): string {
+  const bg = light ? "#ffffff" : "#242529", line = light ? "#e3e3e6" : "#3a3d44", fg = light ? "#242424" : "#e6e8ec";
+  const hl = "#4d86d9", danger = light ? "#cf3b38" : "#e5615e", dangerHl = "#d63d3d";
+  const item = (action: string, label: string, cls = ""): string => `<div class="mi ${cls}" data-action="${action}">${label}</div>`;
+  return `<!doctype html><meta charset="utf-8"><style>
+:root{color-scheme:${light ? "light" : "dark"}}
+*{box-sizing:border-box;margin:0}
+html,body{background:transparent;overflow:hidden}
+body{padding:14px;-webkit-user-select:none;user-select:none;cursor:default;font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.menu{background:${bg};border:1px solid ${line};border-radius:11px;padding:5px;min-width:216px;box-shadow:0 14px 40px #0007,0 3px 12px #0005}
+.mi{display:flex;align-items:center;height:31px;padding:0 12px;border-radius:7px;color:${fg};white-space:nowrap;font-size:13px}
+.mi.hl{background:${hl};color:#fff}
+.mi.danger{color:${danger}}
+.mi.danger.hl{background:${dangerHl};color:#fff}
+.sep{height:1px;background:${line};margin:5px 9px}
+</style>
+<div class="menu">
+${item("activate", "Switch", "hl")}
+${resume ? item("resume", "Resume session") : ""}
+<div class="sep"></div>
+${item("rename", "Rename…")}
+${item("memo", "Edit memo…")}
+${item("detach", "Open in new window")}
+<div class="sep"></div>
+${item("close", "Close workspace")}
+${canDelete ? item("delete", "Delete worktree…", "danger") : ""}
+</div>
+<script>
+const {ipcRenderer}=require('electron');
+const items=[...document.querySelectorAll('.mi')];
+let hl=0;
+function paint(){items.forEach((el,i)=>el.classList.toggle('hl',i===hl));}
+function move(d){if(items.length){hl=(hl+d+items.length)%items.length;paint();}}
+paint();
+items.forEach((el,i)=>{el.addEventListener('mouseenter',()=>{hl=i;paint();});el.addEventListener('click',()=>ipcRenderer.send('kakapo:menu-choose',el.dataset.action));});
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowDown'){e.preventDefault();move(1);}
+  else if(e.key==='ArrowUp'){e.preventDefault();move(-1);}
+  else if(e.key==='Enter'){e.preventDefault();const el=items[hl];if(el)ipcRenderer.send('kakapo:menu-choose',el.dataset.action);}
+  else if(e.key==='Escape'){e.preventDefault();ipcRenderer.send('kakapo:menu-close');}
+});
+document.addEventListener('mousedown',e=>{if(!e.target.closest('.menu'))ipcRenderer.send('kakapo:menu-close');});
+function report(){const m=document.querySelector('.menu').getBoundingClientRect();ipcRenderer.send('kakapo:menu-size',{w:Math.ceil(m.width)+28,h:Math.ceil(m.height)+28});}
+report();requestAnimationFrame(report);
+</script>`;
+}
+ipcMain.on("kakapo:tile-menu", (_event, info: { id?: unknown; name?: unknown; resume?: unknown; kind?: unknown }) => {
   if (!shellWindow || shellWindow.isDestroyed()) return;
   const id = Number(info?.id);
   if (!Number.isFinite(id)) return;
-  const name = typeof info?.name === "string" ? info.name : "";
-  const act = (action: string) => () => shellWindow?.webContents.send("kakapo:tile-action", { id, action, name });
-  const template: Electron.MenuItemConstructorOptions[] = [
-    { label: "Switch", click: act("activate") },
-    ...(info?.resume ? [{ label: "Resume session", click: act("resume") } as Electron.MenuItemConstructorOptions] : []),
-    { type: "separator" },
-    { label: "Rename…", click: act("rename") },
-    { label: "Edit memo…", click: act("memo") },
-    { label: "Open in new window", click: act("detach") },
-    { type: "separator" },
-    { label: "Close workspace", click: act("close") },
-    { label: "Delete worktree…", click: act("delete") },
-  ];
-  Menu.buildFromTemplate(template).popup({ window: shellWindow });
+  closeTileMenu();
+  tileMenuTarget = { id, name: typeof info?.name === "string" ? info.name : "" };
+  tileMenuAnchor = screen.getCursorScreenPoint();
+  const win = new BrowserWindow({
+    width: 248, height: 220, show: false, frame: false, transparent: true, resizable: false, movable: false,
+    minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, hasShadow: false,
+    parent: shellWindow, webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false },
+  });
+  tileMenuWindow = win;
+  win.on("blur", () => { if (tileMenuWindow === win && tileMenuShown) closeTileMenu(); });
+  win.on("closed", () => { if (tileMenuWindow === win) { tileMenuWindow = undefined; tileMenuTarget = undefined; tileMenuAnchor = undefined; tileMenuShown = false; } });
+  void win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(tileMenuHtml(Boolean(info?.resume), info?.kind !== "main", isLightTheme())));
+});
+ipcMain.on("kakapo:menu-size", (event, size: { w?: unknown; h?: unknown }) => {
+  const win = tileMenuWindow;
+  if (!win || win.isDestroyed() || event.sender !== win.webContents || !tileMenuAnchor) return;
+  const w = Math.max(80, Math.min(640, Math.ceil(Number(size?.w) || 248)));
+  const h = Math.max(48, Math.min(900, Math.ceil(Number(size?.h) || 220)));
+  const wa = screen.getDisplayNearestPoint(tileMenuAnchor).workArea;
+  let x = tileMenuAnchor.x - 14, y = tileMenuAnchor.y - 14;
+  if (x + w > wa.x + wa.width) x = wa.x + wa.width - w;
+  if (y + h > wa.y + wa.height) y = wa.y + wa.height - h;
+  x = Math.max(wa.x, x); y = Math.max(wa.y, y);
+  win.setBounds({ x: Math.round(x), y: Math.round(y), width: w, height: h });
+  if (!tileMenuShown) { tileMenuShown = true; win.show(); win.focus(); }
+});
+ipcMain.on("kakapo:menu-choose", (event, action: unknown) => {
+  const win = tileMenuWindow;
+  if (!win || event.sender !== win.webContents) return;
+  const target = tileMenuTarget;
+  closeTileMenu();
+  if (target && shellWindow && !shellWindow.isDestroyed() && typeof action === "string")
+    shellWindow.webContents.send("kakapo:tile-action", { id: target.id, action, name: target.name });
+});
+ipcMain.on("kakapo:menu-close", (event) => {
+  if (tileMenuWindow && event.sender === tileMenuWindow.webContents) closeTileMenu();
 });
 ipcMain.handle("kakapo:hub-preview", (_event, payload: { repo?: unknown; label?: unknown }) => {
   if (typeof payload?.repo !== "string" || typeof payload?.label !== "string" || !isGitRepository(payload.repo)) return { ok: false };
@@ -1151,43 +1230,62 @@ body{display:flex;flex-direction:column}
 #hub{width:${HUB_WIDTH}px;flex:1;min-height:0;border-right:1px solid ${line};display:flex;flex-direction:column;align-items:center;gap:2px;overflow:hidden;transition:width 180ms cubic-bezier(.2,.8,.2,1)}
 body.rail-exp #hub{width:${HUB_EXPANDED}px;align-items:stretch}
 button{border:1px solid ${line};background:transparent;color:inherit;border-radius:6px;padding:4px 8px}
-#list{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 0;width:100%}
-body.rail-exp #list{align-items:stretch;padding:4px 6px}
-.repo-sep{width:24px;height:1px;background:${line};margin:3px 0;flex:none}
-body.rail-exp .repo-sep{display:none}
-.ws-group-head{display:none}
-body.rail-exp .ws-group-head{display:block;padding:11px 8px 4px;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:${light ? "#8a8f99" : "#71767f"};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-body.rail-exp #list > .ws-group-head:first-child{padding-top:4px}
-.ws{position:relative;flex:none;display:flex;align-items:center;justify-content:center;gap:9px;border:0;background:transparent;padding:0;width:36px;height:36px;border-radius:9px}
-body.rail-exp .ws{width:100%;height:40px;justify-content:flex-start;padding:0 5px}
-body.rail-exp .ws:hover{background:${light ? "#e4eaf6" : "#2b303a"}}
-body.rail-exp .ws.active{background:${light ? "#dfe7f5" : "#2a3446"}}
-/* Keyboard selection while the expanded rail has focus (↑/↓): a left accent bar + subtle fill, NOT a ring —
-   a ring nested inside the active badge's own ring and read as a doubled border. */
-body.rail-exp .ws.kbd-sel{background:${light ? "#e4eaf6" : "#2b303a"};padding-left:12px}
-body.rail-exp .ws.kbd-sel::before{content:"";position:absolute;left:3px;top:8px;bottom:8px;width:3px;border-radius:2px;background:#4d86d9}
-.ws-badge{position:relative;width:36px;height:36px;flex:none;border:1px solid ${line};background:${light ? "#e6e6e6" : "#2d2d30"};color:${light ? "#555" : "#b9bcc4"};border-radius:9px;display:grid;place-items:center;font-weight:700;font-size:12px;letter-spacing:.02em}
-/* GitHub owner avatar as the badge (falls back to colored initials when unavailable). */
-.ws-badge.has-av{background:transparent;border-color:transparent}
-.ws-av{width:100%;height:100%;border-radius:8px;object-fit:cover;display:block}
-.ws:hover .ws-badge{border-color:#4d86d9;color:${fg}}
-.ws.active .ws-badge{border-color:#4d86d9;color:#4d86d9;background:${light ? "#dfe7f5" : "#2a3446"};box-shadow:0 0 0 1px #4d86d9}
-.ws.disc{opacity:.5}
-.ws-badge .rundot{position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:#4d9a51;border:2px solid ${bg};display:none}
-.ws-badge.running:not(.busy) .rundot{display:block}
-.ws-badge .unread{position:absolute;top:-3px;left:-3px;width:9px;height:9px;border-radius:50%;background:#e5484d;border:2px solid ${bg};display:none}
-.ws-badge.attn .unread{display:block}
-/* Agent working: a breathing accent ring around the badge — it scales + fades in place rather than rotating,
-   so several working workspaces don't make the rail spin busily. Sits 2px outside the 9px-radius badge (own
-   radius 11px); pointer-events:none keeps the badge clickable through it. */
-.ws-badge.busy::after{content:"";position:absolute;inset:-2px;border-radius:11px;border:2px solid #4d86d9;animation:wsbreathe 1.3s ease-in-out infinite;pointer-events:none}
-@keyframes wsbreathe{0%,100%{opacity:.25;transform:scale(.97)}50%{opacity:.9;transform:scale(1.06)}}
-@media (prefers-reduced-motion:reduce){.ws-badge.busy::after{animation:none;opacity:.7}}
-.ws-label{display:none;flex-direction:column;min-width:0;text-align:left;line-height:1.25}
-body.rail-exp .ws-label{display:flex}
-.ws-label .n{font-size:12px;font-weight:600;color:${fg};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ws-label .s{font-size:10.5px;color:${light ? "#888" : "#7d828c"};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ws.active .ws-label .n{color:#4d86d9}
+#list{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;width:100%}
+.wt{position:relative;cursor:pointer;border:0;background:transparent;padding:0;font:inherit;color:inherit;text-align:left}
+/* ---------- collapsed rail: one rounded block per project — a prominent avatar header (identity, shown once)
+   over small 24px worktree initial badges, so the grouping reads and the avatar isn't repeated per worktree. --- */
+.cv{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px 0;width:100%}
+body.rail-exp .cv{display:none}
+.grp{display:flex;flex-direction:column;align-items:center;gap:3px;width:44px;padding:5px 3px 6px;background:${light ? "#eaecef" : "#212327"};border-radius:12px}
+.phav{position:relative;width:32px;height:32px;border-radius:9px;overflow:hidden;flex:none;cursor:pointer;display:grid;place-items:center;font-weight:700;font-size:13px;color:#0e1116}
+.phav img{width:100%;height:100%;object-fit:cover;display:block}
+.wts{display:flex;flex-direction:column;align-items:center;gap:3px;margin-top:1px}
+.cv .wt{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-weight:700;font-size:10.5px;color:${light ? "#3a3f47" : "#c9cdd4"};background:${light ? "#d7dbe1" : "#2c2f35"}}
+.cv .wt.act{color:#dfe8fb;background:${light ? "#c5d4ee" : "#33456a"};box-shadow:0 0 0 2px #4d86d9}
+.cv .wt.disc{opacity:.45}
+.cv .wt .rdot{position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#4cc38a;border:2px solid ${light ? "#eaecef" : "#212327"};display:none}
+.cv .wt.running:not(.busy) .rdot{display:block}
+.cv .wt .udot{position:absolute;top:-2px;left:-2px;width:8px;height:8px;border-radius:50%;background:#e5484d;border:2px solid ${light ? "#eaecef" : "#212327"};display:none}
+.cv .wt.attn .udot{display:block}
+/* Agent working: a breathing ring around the badge — scales + fades in place rather than rotating, so several
+   working worktrees don't make the rail spin. pointer-events:none keeps the badge clickable through it. */
+.cv .wt.busy::after{content:"";position:absolute;inset:-2px;border-radius:9px;border:2px solid #4d86d9;animation:wsbreathe 1.3s ease-in-out infinite;pointer-events:none}
+@keyframes wsbreathe{0%,100%{opacity:.25;transform:scale(.94)}50%{opacity:.9;transform:scale(1.09)}}
+@media (prefers-reduced-motion:reduce){.cv .wt.busy::after{animation:none;opacity:.7}}
+/* ---------- expanded rail (⌘⇧E): Orca-style card panel — project header (avatar + name + count + chevron,
+   click collapses the group) then a worktree card each (status dot + name + change tag + branch). ---------- */
+.ev{display:none;flex:1;min-height:0;flex-direction:column;width:100%}
+body.rail-exp .ev{display:flex}
+.phead{display:flex;align-items:center;padding:5px 12px 7px;flex:none}
+.phead .t{font-weight:650;font-size:12.5px;color:${fg};letter-spacing:.01em}
+.plist{flex:1;overflow-y:auto;overflow-x:hidden;padding:0 6px 8px}
+.proj{margin-top:5px}
+.proj:first-child{margin-top:0}
+.prow{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:8px;cursor:pointer}
+.prow:hover{background:${light ? "#e4eaf6" : "#25272c"}}
+.pav{width:22px;height:22px;border-radius:6px;flex:none;display:grid;place-items:center;font-weight:700;font-size:11px;color:#0e1116;overflow:hidden}
+.pav img{width:100%;height:100%;object-fit:cover;display:block}
+.pname{font-weight:650;font-size:12.5px;color:${fg};flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pcount{font-size:11px;color:${light ? "#9aa0aa" : "#666b73"};font-variant-numeric:tabular-nums}
+.chev{width:14px;height:14px;color:${light ? "#9aa0aa" : "#666b73"};transition:transform .15s;flex:none}
+.proj.collapsed .chev{transform:rotate(-90deg)}
+.proj.collapsed .ewts{display:none}
+.ewts{padding:2px 0 2px 9px;display:flex;flex-direction:column;gap:2px}
+.ev .wt{padding:7px 9px 7px 11px;border-radius:9px}
+.ev .wt:hover{background:${light ? "#e4eaf6" : "#25272c"}}
+.ev .wt.kbd-sel{background:${light ? "#dbe6f8" : "#2c333f"};box-shadow:inset 0 0 0 1.5px ${light ? "#4d86d9" : "#5f92df"}}
+.ev .wt.act{background:${light ? "#dfe7f5" : "#2a3446"}}
+.ev .wt.disc{opacity:.5}
+.wt-top{display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%;flex:none;background:${light ? "#b7bcc4" : "#5b616b"}}
+.ev .wt.running .dot,.ev .wt.busy .dot{background:#4cc38a;box-shadow:0 0 0 3px #4cc38a22}
+.ev .wt.busy .dot{animation:dotpulse 1.3s ease-in-out infinite}
+@keyframes dotpulse{0%,100%{opacity:1}50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.ev .wt.busy .dot{animation:none}}
+.wt-name{font-weight:600;font-size:12.5px;color:${fg};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.ev .wt.act .wt-name{color:#79a6ea}
+.wt-tag{font-size:9.5px;font-weight:700;color:${light ? "#9aa0aa" : "#8b909a"};border:1px solid ${line};border-radius:5px;padding:1px 5px;flex:none;font-variant-numeric:tabular-nums}
+.wt-branch{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:${light ? "#9aa0aa" : "#666b73"};margin:3px 0 0 16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #railfoot{display:flex;flex-direction:column;align-items:center;gap:5px;padding:7px 0;border-top:1px solid ${line};width:100%;flex:none}
 body.rail-exp #railfoot{flex-direction:row;justify-content:flex-end;padding:7px 6px;gap:4px}
 #railfoot button{width:34px;height:32px;border:0;border-radius:8px;font-size:17px;color:${light ? "#666" : "#999"};display:grid;place-items:center;padding:0}
@@ -1268,13 +1366,21 @@ function paintRail(){document.body.classList.toggle('rail-exp',railExp);}
 function toggleRail(){railExp=!railExp;paintRail();window.kakapoHub.setHubExpanded(railExp);if(railExp)initRailSel();else railClearSel();}
 // While the expanded rail holds focus, ↑/↓ move a selection through the workspace tiles and Enter opens it.
 let railSel=-1;
-function railTiles(){return [...document.querySelectorAll('#list .ws:not(.disc)')];}
+function railTiles(){return [...document.querySelectorAll('.ev .proj:not(.collapsed) .wt:not(.disc)')];}
 function railSelect(i){const t=railTiles();if(!t.length){railSel=-1;return;}railSel=Math.max(0,Math.min(t.length-1,i));t.forEach((el,j)=>el.classList.toggle('kbd-sel',j===railSel));const el=t[railSel];if(el&&el.scrollIntoView)el.scrollIntoView({block:'nearest'});}
-function railClearSel(){railSel=-1;document.querySelectorAll('#list .ws.kbd-sel').forEach(el=>el.classList.remove('kbd-sel'));}
-function initRailSel(){const t=railTiles();const ai=t.findIndex(el=>el.classList.contains('active'));railSelect(ai>=0?ai:0);}
+function railClearSel(){railSel=-1;document.querySelectorAll('.ev .wt.kbd-sel').forEach(el=>el.classList.remove('kbd-sel'));}
+function initRailSel(){const t=railTiles();const ai=t.findIndex(el=>el.classList.contains('act'));railSelect(ai>=0?ai:0);}
 document.addEventListener('keydown',e=>{
   if(!railExp||document.querySelector('dialog[open]'))return; // only when the rail is expanded and no dialog owns keys
   const a=document.activeElement;if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'))return;
+  // While expanded the shell holds keyboard focus, so review shortcuts (Changes/Files/History/Terminal) never reach the review view.
+  // Collapse the rail (which returns focus to the review) and forward the tool action, so e.g. ⌘1 still opens Files.
+  let fwd=null;
+  if(e.metaKey&&!e.ctrlKey&&!e.shiftKey&&!e.altKey&&e.key==='0')fwd='changes';
+  else if(e.metaKey&&!e.ctrlKey&&!e.shiftKey&&!e.altKey&&e.key==='1')fwd='files';
+  else if(e.metaKey&&!e.ctrlKey&&!e.shiftKey&&!e.altKey&&e.key==='9')fwd='history';
+  else if(e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&e.code==='Backquote')fwd='terminal';
+  if(fwd){e.preventDefault();toggleRail();window.kakapoHub.railAction(fwd+':open');return;}
   if(e.key==='ArrowDown'){e.preventDefault();railSelect(railSel<0?0:railSel+1);}
   else if(e.key==='ArrowUp'){e.preventDefault();railSelect(railSel<0?0:railSel-1);}
   else if(e.key==='Enter'){const t=railTiles();if(railSel>=0&&t[railSel]){e.preventDefault();t[railSel].click();}}
@@ -1310,19 +1416,32 @@ const _a=items.find(w=>w.active);const _wn=document.getElementById('wsname');if(
 // or two characters as-is (Hangul has no case).
 const initials=w=>{var s=String(w.alias||w.branch||w.repoName||'?').replace(/^(feature|fix|chore|bugfix|hotfix|release)[\\/_-]/i,'').trim();if(!s)return'?';var parts=s.split(/[\\s._/-]+/).filter(Boolean);var a=parts[0]||s,ac=Array.from(a),latin=/^[A-Za-z0-9]/.test(a),r;if(parts.length>1){var bc=Array.from(parts[1]);r=(ac[0]||'')+(bc[0]||'');}else{r=ac.slice(0,2).join('');}return latin?r.toUpperCase():r;};
 const tip=w=>(w.alias||w.branch)+' · '+w.repoName+(w.dirtyCount?' · '+w.dirtyCount+' changed':'')+(w.running?' · ● running':w.resume?' · resumable':w.disconnected?' · disconnected':'');
-const badgeCls=w=>'ws-badge'+(w.busy?' busy':'')+(w.running?' running':'')+(w.unread?' attn':'');
-// Stable per-project hue (all worktrees of a project share it, differ by lightness) so the collapsed rail is
-// distinguishable at a glance instead of a column of look-alike gray 2-letter badges. Disconnected tiles stay gray.
+// Stable per-project hue (all worktrees share it) — tints the collapsed group's accent bar + avatar
+// placeholder and the expanded panel's project badge, so projects read apart at a glance.
 const projHue=n=>{let h=0;const s=String(n||'');for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h%360;};
-const badgeStyle=(repo,wi,w)=>w.disconnected?'':' style="background:hsl('+projHue(repo)+',40%,'+Math.min(70,52+wi*9)+'%);border-color:transparent;color:#14171e"';
-const badgeInner=(repo,wi,w)=>w.avatar?['<img class="ws-av" src="'+w.avatar+'" alt="">','',' has-av'] : [esc(initials(w)),badgeStyle(repo,wi,w),''];
-list.innerHTML=[...groups].map(([repo,ws],gi)=>(gi>0?'<div class="repo-sep"></div>':'')+'<div class="ws-group-head" title="'+esc(repo)+'">'+esc(repo)+'</div>'+ws.map((w,wi)=>{const bi=badgeInner(repo,wi,w);return '<button class="ws '+(w.active?'active':'')+(w.disconnected?' disc':'')+'" title="'+esc(tip(w))+'" data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-resume="'+(w.resume&&!w.running?'1':'')+'"><span class="'+badgeCls(w)+bi[2]+'"'+bi[1]+'>'+bi[0]+'<span class="rundot"></span><span class="unread"></span></span><span class="ws-label"><span class="n">'+esc(w.alias||w.branch)+'</span></span></button>';}).join('')).join('');
-for(const el of list.querySelectorAll('.ws')){el.onclick=async()=>{const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){const action=prompt('reconnect | remove','reconnect');if(action==='remove')window.kakapoHub.forget(path);else if(action==='reconnect'){const r=await window.kakapoHub.chooseRepo();if(r.ok)window.kakapoHub.reconnect(path,r.repo)}return}window.kakapoHub.activate(id)};}
+// Shared per-worktree bits: state classes and the data-* every click/activate/context-menu handler reads.
+const wcls=w=>(w.active?' act':'')+(w.disconnected?' disc':'')+(w.busy?' busy':'')+(w.running?' running':'')+(w.unread?' attn':'');
+const wattr=w=>' data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-resume="'+(w.resume&&!w.running?'1':'')+'" data-kind="'+esc(w.kind||'')+'" title="'+esc(tip(w))+'"';
+const grpAvatar=ws=>{for(const w of ws)if(w.avatar)return w.avatar;return null;};
+const projMark=repo=>{const a=Array.from(String(repo||'?').trim());const c=a[0]||'?';return /[A-Za-z0-9]/.test(c)?c.toUpperCase():c;};
+const avInner=(ws,repo)=>{const av=grpAvatar(ws);return av?'<img src="'+av+'" alt="">':esc(projMark(repo));};
+const avStyle=(ws,repo)=>grpAvatar(ws)?'':' style="background:hsl('+projHue(repo)+',44%,60%)"';
+const chev='<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>';
+const cv='<div class="cv">'+[...groups].map(([repo,ws])=>'<div class="grp"><div class="phav" data-repo="'+esc(repo)+'" title="'+esc(repo)+'"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</div><div class="wts">'+ws.map(w=>'<button class="wt'+wcls(w)+'"'+wattr(w)+'>'+esc(initials(w))+'<span class="rdot"></span><span class="udot"></span></button>').join('')+'</div></div>').join('')+'</div>';
+const ev='<div class="ev"><div class="phead"><span class="t">Workspaces</span></div><div class="plist">'+[...groups].map(([repo,ws])=>'<div class="proj"><div class="prow" data-repo="'+esc(repo)+'"><span class="pav"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</span><span class="pname">'+esc(repo)+'</span><span class="pcount">'+ws.length+'</span>'+chev+'</div><div class="ewts">'+ws.map(w=>{const nm=esc(w.alias||w.branch);const showBr=w.branch&&(!w.alias||w.branch!==w.alias);const brLine=showBr?'<div class="wt-branch">'+esc(w.branch)+'</div>':'';const tag=w.dirtyCount?'<span class="wt-tag">'+w.dirtyCount+'</span>':'';return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
+list.innerHTML=cv+ev;
+// Worktree click → activate (or reconnect/forget a disconnected one). Collapsed badges and expanded cards are
+// both .wt with the same data-*, so one handler covers both views.
+for(const el of list.querySelectorAll('.wt')){el.onclick=async()=>{const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){const action=prompt('reconnect | remove','reconnect');if(action==='remove')window.kakapoHub.forget(path);else if(action==='reconnect'){const r=await window.kakapoHub.chooseRepo();if(r.ok)window.kakapoHub.reconnect(path,r.repo)}return}window.kakapoHub.activate(id)};}
+// Collapsed project avatar → jump to that project's active (or first) worktree.
+for(const el of list.querySelectorAll('.phav')){el.onclick=()=>{const ws=groups.get(el.dataset.repo)||[];const t=ws.find(w=>w.active&&!w.disconnected)||ws.find(w=>!w.disconnected)||ws[0];if(t)window.kakapoHub.activate(t.id);};}
+// Expanded project header → collapse/expand its worktree list (chevron rotates).
+for(const el of list.querySelectorAll('.prow')){el.onclick=()=>el.parentElement.classList.toggle('collapsed');}
 if(railExp)railSelect(railSel<0?0:railSel); // re-apply the keyboard selection after a re-render
 });
 // Lightweight agent-activity ticks (spinner / attention dot) that toggle classes on existing tiles without a
 // full re-render, so a streaming agent doesn't rebuild the rail DOM and drop hover/focus state.
-window.kakapoHub.onActivity(list=>{for(const a of list){const b=document.querySelector('.ws[data-id="'+a.id+'"] .ws-badge');if(!b)continue;b.classList.toggle('busy',!!a.busy);b.classList.toggle('running',!!a.running);b.classList.toggle('attn',!!a.unread);}});
+window.kakapoHub.onActivity(list=>{for(const a of list){for(const el of document.querySelectorAll('.wt[data-id="'+a.id+'"]')){el.classList.toggle('busy',!!a.busy);el.classList.toggle('running',!!a.running);el.classList.toggle('attn',!!a.unread);}}});
 // Electron has no window.prompt(), so rename/memo use this in-page dialog instead (prompt() silently returned
 // null, which is why those menu items did nothing). Resolves to the entered string, or null if cancelled.
 const promptDlg=document.querySelector("#prompt"),promptInput=document.querySelector("#promptInput"),promptTitle=document.querySelector("#promptTitle");
@@ -1338,7 +1457,7 @@ promptInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault(
 function renameWorkspace(id,name){window.kakapoHub.modal(true);showPrompt('Rename workspace',name).then(alias=>{window.kakapoHub.modal(false);if(alias!==null)window.kakapoHub.rename(id,alias);});}
 window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){renameWorkspace(id,name);}else if(action==='memo'){window.kakapoHub.modal(true);showPrompt('One-line memo','').then(memo=>{window.kakapoHub.modal(false);if(memo!==null)window.kakapoHub.rename(id,undefined,memo);});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id);});
 async function removeWorkspace(id){const delBranch=confirm('Also delete the local branch?\\nOK deletes it; Cancel keeps it.');let r=await window.kakapoHub.remove(id,'delete',false,delBranch);if(r.needsConfirmation){const x=r.risk;if(confirm('Delete worktree?'+(x.dirty?'\\n• uncommitted changes':'')+(x.unpushed?'\\n• '+x.unpushed+' unpushed commits':'')+(x.runningProcesses?'\\n• running terminal/agent':'')+'\\n\\nThis cannot be undone.'))r=await window.kakapoHub.remove(id,'delete',true,delBranch)}if(!r.ok&&!r.needsConfirmation)alert(r.error||'Delete failed')}
-document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.ws');if(card){e.preventDefault();window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1'});}});
+document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.wt');if(card){e.preventDefault();window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1',kind:card.dataset.kind||''});}});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.altKey&&/^[1-9]$/.test(e.key)){e.preventDefault();window.kakapoHub.activateIndex(Number(e.key)-1)}});
 document.addEventListener('click',e=>{if(!railExp&&!e.target.closest('button,input,textarea,dialog,#wsname'))window.kakapoHub.refocusReview()});
 window.kakapoHub.requestState();

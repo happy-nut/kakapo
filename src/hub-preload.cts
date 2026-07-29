@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   cancelCreate: () => ipcRenderer.send("kakapo:hub-cancel-create"),
   rename: (id: number, alias?: string, memo?: string) => ipcRenderer.invoke("kakapo:hub-rename", { id, alias, memo }),
   // Native workspace-tile context menu (drawn above the review views, so it doesn't blank the main panel).
-  tileMenu: (info: { id: number; name: string; resume: boolean }) => ipcRenderer.send("kakapo:tile-menu", info),
+  tileMenu: (info: { id: number; name: string; resume: boolean; kind?: string }) => ipcRenderer.send("kakapo:tile-menu", info),
   onTileAction: (callback: (data: { id: number; action: string; name: string }) => void) =>
     ipcRenderer.on("kakapo:tile-action", (_event, data) => callback(data)),
   remove: (id: number, mode: "close" | "delete", force = false, deleteBranch = false) =>
