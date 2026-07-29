@@ -78,9 +78,16 @@ export function validateReviewBase(root: string, ref: string): string {
 // SAME root, not process.cwd(). When `kakapo` runs from a monorepo subdirectory (cwd != root), joining a
 // repo-root-relative path onto cwd points at a file that doesn't exist, which surfaced as a diff with
 // no source preview ("file is not present in the working tree"). Falls back to cwd outside a repo.
+// A directory's git top-level is stable for the life of the process, so memoize by cwd — this is a hot
+// helper reached from the review build and several path-resolution sites, and each miss is a subprocess.
+const repoRootCache = new Map<string, string>();
 export function repoRoot(cwd: string = process.cwd()): string {
+  const cached = repoRootCache.get(cwd);
+  if (cached !== undefined) return cached;
   const top = git(cwd, ["rev-parse", "--show-toplevel"]);
-  return top || cwd;
+  const root = top || cwd;
+  repoRootCache.set(cwd, root);
+  return root;
 }
 
 // 이 워크트리 고유의 `.git/worktrees/<name>` 경로를 가리킨다 (워크트리가 아닌 일반 clone이면 `.git`) —

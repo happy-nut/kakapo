@@ -232,6 +232,11 @@ function gitStatusMap(cwd: string): Map<string, "new" | "edited" | "staged"> {
   } catch {
     return map;
   }
+  // The repo-root-relative prefix depends only on cwd — compute it ONCE. It used to be recomputed per
+  // status line inside workspaceRelativeStatusPath, and each recompute spawned a `git rev-parse`
+  // subprocess (repoRoot); a 120-file change therefore ran ~120 git spawns (~420ms) in this map alone.
+  const workspace = canonicalWorkspaceRoot(cwd);
+  const statusPrefix = relative(repoRoot(workspace), workspace).replace(/\\/g, "/");
   for (const line of out.split(/\r?\n/)) {
     if (line.length < 3) continue;
     const x = line[0];
@@ -240,7 +245,7 @@ function gitStatusMap(cwd: string): Map<string, "new" | "edited" | "staged"> {
     const arrow = path.indexOf(" -> ");
     if (arrow >= 0) path = path.slice(arrow + 4); // rename: color the new path
     if (path.startsWith('"') && path.endsWith('"')) path = path.slice(1, -1);
-    path = workspaceRelativeStatusPath(cwd, path);
+    path = statusPathRelativeToPrefix(statusPrefix, path);
     if (!path) continue;
     let kind: "new" | "edited" | "staged";
     if (x === "?" && y === "?") kind = "new";
@@ -251,9 +256,9 @@ function gitStatusMap(cwd: string): Map<string, "new" | "edited" | "staged"> {
   return map;
 }
 
-function workspaceRelativeStatusPath(workspaceRoot: string, gitPath: string): string {
-  const workspace = canonicalWorkspaceRoot(workspaceRoot);
-  const prefix = relative(repoRoot(workspace), workspace).replace(/\\/g, "/");
+// Strip the monorepo-subdir prefix off a repo-root-relative git-status path so it matches the diff's
+// `--relative` paths. Pure string math — the caller computes `prefix` once per status map (see gitStatusMap).
+function statusPathRelativeToPrefix(prefix: string, gitPath: string): string {
   const normalized = gitPath.replace(/\\/g, "/").replace(/^\.\//, "");
   if (!prefix || prefix === ".") return normalized;
   return normalized === prefix ? "" : normalized.startsWith(prefix + "/") ? normalized.slice(prefix.length + 1) : "";
