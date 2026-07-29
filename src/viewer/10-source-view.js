@@ -888,7 +888,9 @@ function showSourceTabOverflowMenu(button) {
 function renderSourceTabs(activePath) {
   var bar = document.getElementById('source-tabs');
   if (!bar) return;
-  if (!sourceTabs.length) {
+  // A single open file needs no tab strip: the source toolbar's breadcrumb already names it, so the extra
+  // title-bar-height row above it is pure dead space. Only show tabs once a second file makes them useful.
+  if (sourceTabs.length < 2) {
     bar.classList.add('hidden'); bar.innerHTML = ''; sourceTabOverflowPaths = [];
     return;
   }
