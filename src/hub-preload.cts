@@ -21,10 +21,15 @@ contextBridge.exposeInMainWorld("kakapoHub", {
     ipcRenderer.invoke("kakapo:hub-remove", { id, mode, force, deleteBranch }),
   resume: (id: number) => ipcRenderer.send("kakapo:hub-resume", id),
   settings: () => ipcRenderer.send("kakapo:hub-settings"),
-  // The New-workspace <dialog> lives in the shell page, which is covered by the review WebContentsView
-  // everywhere except the 52px rail. Ask main to hide the review views while a shell modal is open so the
-  // dialog (and its backdrop) are actually visible and clickable, then restore on close.
-  modal: (open: boolean) => ipcRenderer.send("kakapo:hub-modal", open),
+  // The New-workspace / rename / memo dialogs live in a transparent overlay WebContentsView layered ABOVE the
+  // review view, so the live content dims behind them (no snapshot). The rail calls openModal to ask main to
+  // show the overlay and which dialog to open; the overlay page receives that via onModalOpen and asks main to
+  // hide the overlay again via closeModal.
+  openModal: (type: string, data?: { id?: number; name?: string }) =>
+    ipcRenderer.send("kakapo:hub-open-modal", { type, ...(data || {}) }),
+  closeModal: () => ipcRenderer.send("kakapo:hub-close-modal"),
+  onModalOpen: (callback: (payload: { type: string; id?: number; name?: string }) => void) =>
+    ipcRenderer.on("kakapo:modal-open", (_event, payload) => callback(payload)),
   // Ask main to return keyboard focus to the active review view (its shortcuts don't fire while the shell
   // rail holds focus). Called after clicking non-interactive rail/title-bar chrome.
   refocusReview: () => ipcRenderer.send("kakapo:hub-refocus"),

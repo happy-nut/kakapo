@@ -23,7 +23,7 @@ import { registerExplainIpc, refreshExplainIfChanged } from "./app-explain-ipc.j
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
-import { hubHtml, tileMenuHtml } from "./shell-pages.js";
+import { hubHtml, modalOverlayHtml, tileMenuHtml } from "./shell-pages.js";
 import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug } from "./workspaces.js";
 
 type AppOptions = {
@@ -197,6 +197,11 @@ let hubOpen = true;
 // True while a shell-page modal (the New-workspace dialog) is up. Suppresses the "return keyboard focus to
 // the review view" behavior so the dialog keeps focus.
 let modalOpen = false;
+// The New-workspace / rename / memo dialogs render in a transparent WebContentsView layered above the review
+// views, so the live content dims behind them. Kept for the shell window's lifetime; toggled visible per modal.
+let modalView: WebContentsView | undefined;
+let modalViewReady = false;
+let pendingModalOpen: unknown = null;
 let workspaceCreation: AbortController | undefined;
 const preferences = new AppPreferences(app.getPath("userData"), isGitRepository);
 const startupWorkspaceMetadata = preferences.readOpenWorkspaces();
@@ -314,16 +319,28 @@ function collapseRailFromReview(): void {
   if (shellWindow && !shellWindow.isDestroyed()) shellWindow.webContents.send("kakapo:hub-set-expanded", false);
 }
 
-// A shell-page modal (the New-workspace dialog, the tile context menu) is painted UNDER the review
-// WebContentsViews, so it is invisible behind them except over the rail. Hide the review views while the
-// modal is up so it is fully visible and clickable. Keyboard focus otherwise stays on the (now hidden)
-// active view, so Esc/typing never reach the dialog — hand focus to the shell page while modal, and give it
-// back to the review view when it closes.
-ipcMain.on("kakapo:hub-modal", (_event, open: unknown) => {
-  modalOpen = !!open;
-  setReviewViewsVisible(!open);
-  if (modalOpen) shellWindow?.webContents.focus();
-  else focusActiveReviewView();
+// The New-workspace / rename / memo dialogs render in a transparent overlay WebContentsView (modalView) that
+// is layered above the review views, so the live review content dims behind them rather than blanking. The
+// rail asks to open one here; main brings the overlay to the front, shows it, focuses it, and tells its page
+// which dialog to open. Keyboard focus is handed to the overlay so Esc/typing reach the dialog.
+ipcMain.on("kakapo:hub-open-modal", (_event, payload: unknown) => {
+  const view = ensureModalView(isLightTheme());
+  if (!view || !shellWindow || shellWindow.isDestroyed()) return;
+  modalOpen = true;
+  // A review view opened after the overlay would sit on top of it; re-add the overlay to keep it frontmost.
+  shellWindow.contentView.removeChildView(view);
+  shellWindow.contentView.addChildView(view);
+  layoutModalView();
+  view.setVisible(true);
+  view.webContents.focus();
+  if (modalViewReady) view.webContents.send("kakapo:modal-open", payload);
+  else pendingModalOpen = payload;
+});
+ipcMain.on("kakapo:hub-close-modal", () => {
+  modalOpen = false;
+  pendingModalOpen = null;
+  modalView?.setVisible(false);
+  focusActiveReviewView();
 });
 
 // Keyboard shortcuts live in the review viewer (a WebContentsView). Clicking the shell-page rail moves
@@ -971,10 +988,12 @@ function ensureShellWindow(light: boolean): BrowserWindow {
   shellWindow.on("closed", () => {
     for (const state of states.values()) state.win.webContents.close();
     shellWindow = undefined;
+    modalView = undefined; modalViewReady = false; pendingModalOpen = null; modalOpen = false;
   });
   void shellWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(hubHtml(light, APP_VERSION)));
   shellWindow.webContents.on("did-finish-load", renderHub);
   shellWindow.once("ready-to-show", () => shellWindow?.show());
+  ensureModalView(light); // preload the (hidden) modal overlay so the first New/rename open has no load delay
   return shellWindow;
 }
 
@@ -988,19 +1007,38 @@ function layoutWorkspaceViews(): void {
     );
     view?.setBounds({ x: hubWidth, y: TITLEBAR_H, width: Math.max(1, width - hubWidth), height: Math.max(1, height - TITLEBAR_H) });
   }
+  layoutModalView();
 }
 
-// Show or hide the docked review views (used while a shell-page modal is open). When restoring, only the
-// active workspace's view becomes visible again — matching the normal single-visible-view invariant.
-function setReviewViewsVisible(visible: boolean): void {
-  if (!shellWindow || shellWindow.isDestroyed()) return;
-  for (const state of states.values()) {
-    if (state.win.isDetached()) continue;
-    const view = shellWindow.contentView.children.find(
-      (child): child is WebContentsView => child instanceof WebContentsView && child.webContents.id === state.win.webContents.id,
-    );
-    view?.setVisible(visible && state.win.webContents.id === activeStateId);
-  }
+// The transparent overlay that hosts the New-workspace / rename / memo dialogs. Created once per shell window
+// and left hidden until a modal opens. Its page background is transparent and the dialogs' ::backdrop is a
+// translucent dim, so the live review view shows through dimmed — no snapshot of the content is needed.
+function ensureModalView(light: boolean): WebContentsView | undefined {
+  if (!shellWindow || shellWindow.isDestroyed()) return undefined;
+  if (modalView && !modalView.webContents.isDestroyed()) return modalView;
+  const view = new WebContentsView({ webPreferences: {
+    preload: hubPreloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true,
+  } });
+  view.setBackgroundColor("#00000000"); // transparent so the review view below shows through the CSS dim
+  view.setVisible(false);
+  shellWindow.contentView.addChildView(view);
+  modalView = view;
+  modalViewReady = false;
+  view.webContents.on("did-finish-load", () => {
+    modalViewReady = true;
+    if (pendingModalOpen != null) { view.webContents.send("kakapo:modal-open", pendingModalOpen); pendingModalOpen = null; }
+  });
+  void view.webContents.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(modalOverlayHtml(light)));
+  layoutModalView();
+  return view;
+}
+
+// Cover everything below the title bar (rail + review area) so the whole background dims; the native title
+// bar stays uncovered so its traffic lights and window drag keep working while a modal is up.
+function layoutModalView(): void {
+  if (!shellWindow || shellWindow.isDestroyed() || !modalView || modalView.webContents.isDestroyed()) return;
+  const [width, height] = shellWindow.getContentSize();
+  modalView.setBounds({ x: 0, y: TITLEBAR_H, width, height: Math.max(1, height - TITLEBAR_H) });
 }
 
 function setWorkspaceHubOpen(open: boolean): void {

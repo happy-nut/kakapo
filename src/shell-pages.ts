@@ -140,67 +140,17 @@ body.rail-exp #railfoot{flex-direction:row;justify-content:flex-end;padding:7px 
 body.rail-exp #pin svg{transform:rotate(180deg)}
 body.rail-exp #pin{color:#4d86d9}
 #railfoot #new{border:1px dashed ${line}}
-dialog#create{border:1px solid ${line};border-radius:14px;background:${light ? "#fbfbfc" : "#242529"};color:${fg};width:456px;max-width:calc(100vw - 40px);padding:0;box-shadow:0 30px 90px #000a}
-dialog#create::backdrop{background:#0009}
-#create .dh{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 2px}
-#create .dh b{font-size:15.5px;font-weight:650}
-#create .dx{width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:${light ? "#888" : "#8a8f99"};font-size:14px;display:grid;place-items:center;padding:0}
-#create .dx:hover{background:${light ? "#eaeaea" : "#33383f"};color:${fg}}
-#create .db{padding:6px 20px 20px}
-#create label{display:block;margin:15px 0 7px;color:${light ? "#6b7280" : "#8a8f99"};font-size:11.5px;font-weight:600;letter-spacing:.02em}
-#create .field{width:100%;display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid ${line};border-radius:10px;background:${light ? "#fff" : "#2c2d31"};color:inherit;text-align:left;font-size:13.5px}
-#create .field:hover{border-color:#4d86d9}
-#create .field .fi{flex:none;color:${light ? "#9aa0ab" : "#8a8f99"};display:grid;place-items:center}
-#create .field .fv{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#create .field .fv.ph{color:${light ? "#9aa0ab" : "#71767f"}}
-#create .field-wrap{position:relative}
-#create .field .fc{flex:none;margin-left:auto;color:${light ? "#9aa0ab" : "#8a8f99"};display:grid;place-items:center;transition:transform .15s}
-#create .field[aria-expanded="true"]{border-color:#4d86d9}
-#create .field[aria-expanded="true"] .fc{transform:rotate(180deg)}
-#create .pmenu{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:20;background:${light ? "#fff" : "#2c2d31"};border:1px solid ${line};border-radius:10px;box-shadow:0 16px 40px #0007;padding:5px;max-height:232px;overflow-y:auto}
-#create .pmenu.hidden{display:none}
-#create .pmenu button{width:100%;display:flex;align-items:center;gap:9px;padding:8px 9px;border:0;border-radius:7px;background:transparent;color:inherit;text-align:left;font-size:13px}
-#create .pmenu button:hover,#create .pmenu button.on{background:${light ? "#eef1f6" : "#33383f"}}
-#create .pmenu .pm-ic{flex:none;color:${light ? "#9aa0ab" : "#8a8f99"};display:grid;place-items:center}
-#create .pmenu .pm-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#create .pmenu .pm-path{flex:none;max-width:44%;color:${light ? "#9aa0ab" : "#71767f"};font-size:10.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:right}
-#create .pmenu .pm-sep{height:1px;background:${line};margin:5px 3px}
-#create .pmenu .pm-browse{color:#4d86d9;font-weight:550}
-/* Rename / memo prompt — Electron has no window.prompt(), so these actions need an in-page input dialog. */
-dialog#prompt{border:1px solid ${line};border-radius:14px;background:${light ? "#fbfbfc" : "#242529"};color:${fg};width:400px;max-width:calc(100vw - 40px);padding:0;box-shadow:0 30px 90px #000a}
-dialog#prompt::backdrop{background:#0009}
-#prompt .dh{padding:18px 20px 2px}#prompt .dh b{font-size:15px;font-weight:650}
-#prompt .db{padding:6px 20px 20px}
-#prompt input.tin{width:100%;margin-top:12px;padding:11px 12px;border:1px solid ${line};border-radius:10px;background:${light ? "#fff" : "#2c2d31"};color:inherit;font-size:13.5px}
-#prompt input.tin:focus{outline:none;border-color:#4d86d9}
-#prompt .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
-#prompt .dbtn{border:1px solid ${line};background:transparent;color:inherit;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:550}
-#prompt .dbtn:hover{background:${light ? "#eee" : "#33383f"}}
-#prompt .dbtn.pri{background:${light ? "#1a1a1a" : "#f0f0f2"};color:${light ? "#fff" : "#1a1a1a"};border-color:transparent}
-#prompt .dbtn.pri:hover{opacity:.9}
-#create input.tin{width:100%;padding:11px 12px;border:1px solid ${line};border-radius:10px;background:${light ? "#fff" : "#2c2d31"};color:inherit;font-size:13.5px}
-#create input.tin:focus{outline:none;border-color:#4d86d9}
-#create input.tin::placeholder{color:${light ? "#9aa0ab" : "#71767f"}}
-#create #preview{margin-top:11px;font-size:11px;color:${light ? "#6b7280" : "#8a8f99"};line-height:1.65;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-#create .error{color:#e0736b;min-height:15px;margin-top:11px;font-size:12px}
-#create .actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:20px}
-#create .dbtn{border:1px solid ${line};background:transparent;color:inherit;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:550}
-#create .dbtn:hover{background:${light ? "#eee" : "#33383f"}}
-#create .dbtn.pri{background:${light ? "#1a1a1a" : "#f0f0f2"};color:${light ? "#fff" : "#1a1a1a"};border-color:transparent;display:inline-flex;align-items:center;gap:8px}
-#create .dbtn.pri:hover{opacity:.9}#create .dbtn.pri:disabled{opacity:.5}
-#create .dbtn.pri kbd{font:11px ui-monospace,monospace;background:#00000022;border-radius:5px;padding:1px 5px;opacity:.8}
 .context-menu{position:fixed;z-index:20;width:172px;padding:5px;background:${bg};border:1px solid ${line};border-radius:8px;box-shadow:0 12px 30px #0008}
 .context-menu button{display:block;width:100%;border:0;text-align:left;padding:7px 9px}.context-menu button:hover{background:${light ? "#dfe7f5" : "#373d49"}}.context-menu .danger{color:#df6868}.hidden{display:none!important}</style>
 <div id="titlebar"><span id="wsname"></span><span class="tb-spacer"></span><div id="tools"><button class="tb" data-act="changes" title="Changes (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" title="Files (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" title="Terminal (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" title="History (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button><button class="tb" data-act="more" title="More review tools"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button></div></div><main id="hub"><section id="list"></section><div id="railfoot"><button id="pin" title="Expand workspace rail (⌘⇧E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button><button id="new" title="New workspace (⌘N)">＋</button><button id="settings" title="Settings — v${appVersion}">⚙</button></div></main>
-<dialog id="create"><div class="dh"><b>New workspace</b><button class="dx" id="dlgClose" aria-label="Close">✕</button></div><div class="db"><label>Project</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">Select a project…</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label>Task name</label><input id="label" class="tin" placeholder="e.g. fix-login-crash" autocomplete="off" spellcheck="false"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">Cancel</button><button id="doCreate" class="dbtn pri"><span class="dcl">Fetch &amp; create</span><kbd>⌘↵</kbd></button></div></div></dialog>
-<dialog id="prompt"><div class="dh"><b id="promptTitle"></b></div><div class="db"><input id="promptInput" class="tin" autocomplete="off" spellcheck="false"><div class="actions"><button id="promptCancel" class="dbtn">Cancel</button><button id="promptOk" class="dbtn pri">OK</button></div></div></dialog><script>
-const list=document.querySelector("#list"),dlg=document.querySelector("#create"),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let creating=false;const openCreate=()=>{loadProjects();closeProjectMenu();dlg.showModal();window.kakapoHub.modal(true);setTimeout(()=>{(document.querySelector("#repo").value?document.querySelector("#label"):document.querySelector("#choose")).focus();},0)};dlg.addEventListener('close',()=>window.kakapoHub.modal(false));document.querySelector("#new").onclick=openCreate;document.querySelector("#cancelCreate").onclick=()=>{if(creating)window.kakapoHub.cancelCreate();else dlg.close()};
+<script>
+const list=document.querySelector("#list"),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+document.querySelector("#new").onclick=()=>window.kakapoHub.openModal('new');
 document.querySelector("#settings").onclick=()=>window.kakapoHub.settings();
 const tools=document.getElementById('tools');
 tools.addEventListener('click',e=>{const b=e.target.closest('button.tb');if(!b)return;window.kakapoHub.railAction(b.dataset.act)});
 window.kakapoHub.onRailState(s=>{s=s||{};const active=s.active||[];for(const b of tools.querySelectorAll('button.tb')){const a=b.dataset.act;if(a==='terminal'){b.classList.toggle('hidden',!s.terminal);}b.classList.toggle('active',active.indexOf(a)>=0);}});
-window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(openCreate);
+window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(()=>window.kakapoHub.openModal('new'));
 // Rail expand: ⌘⇧E or the » button toggles it open; main then pushes the review views right (they render over
 // the shell page, so the rail can't overlay them) and collapses the active view's file tree to make room.
 let railExp=false;const pinBtn=document.getElementById('pin');
@@ -230,30 +180,13 @@ document.addEventListener('keydown',e=>{
   if(e.key==='ArrowDown'){e.preventDefault();railSelect(railSel<0?0:railSel+1);}
   else if(e.key==='ArrowUp'){e.preventDefault();railSelect(railSel<0?0:railSel-1);}
   else if(e.key==='Enter'){const t=railTiles();if(railSel>=0&&t[railSel]){e.preventDefault();t[railSel].click();}}
-  else if((e.key==='e'||e.key==='E')&&!e.metaKey&&!e.ctrlKey&&!e.altKey){const t=railTiles();const el=railSel>=0?t[railSel]:null;if(el&&el.dataset.disconnected!=='true'){e.preventDefault();renameWorkspace(Number(el.dataset.id),el.dataset.name||'');}}
+  else if((e.key==='e'||e.key==='E')&&!e.metaKey&&!e.ctrlKey&&!e.altKey){const t=railTiles();const el=railSel>=0?t[railSel]:null;if(el&&el.dataset.disconnected!=='true'){e.preventDefault();window.kakapoHub.openModal('rename',{id:Number(el.dataset.id),name:el.dataset.name||''});}}
 });
 pinBtn.onclick=toggleRail;
 window.kakapoHub.onToggleExpand(toggleRail);
 // Main collapses the rail (visual only, no echo) when focus returns to the review view — clicking back into the
 // "main window" dismisses the peek.
 window.kakapoHub.onSetExpanded(open=>{railExp=!!open;paintRail();if(!railExp)railClearSel();});
-async function preview(){const r=await window.kakapoHub.preview(document.querySelector("#repo").value,document.querySelector("#label").value);document.querySelector("#preview").innerHTML=r.ok?'slug: '+esc(r.slug)+'<br>base: '+esc(r.base)+'<br>branch: '+esc(r.branch)+'<br>'+esc(r.path):''}
-// Project field is a dropdown of the Git projects Kakapo already knows (main.hub-projects) plus a "Browse for a
-// folder…" fallback, so making another worktree for an existing project is one click instead of a folder pick.
-const projectMenu=document.querySelector("#projectMenu"),chooseBtn=document.querySelector("#choose");
-function closeProjectMenu(){projectMenu.classList.add('hidden');chooseBtn.setAttribute('aria-expanded','false');}
-function pickProject(path,name){document.querySelector("#repo").value=path;const n=document.querySelector("#repoName");n.textContent=name||(path.split('/').filter(Boolean).pop()||path);n.classList.remove('ph');closeProjectMenu();preview();document.querySelector("#label").focus();}
-async function browseForRepo(){closeProjectMenu();const r=await window.kakapoHub.chooseRepo();if(r.ok)pickProject(r.repo);}
-const _pmFolder='<span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span>';
-async function loadProjects(){let ps=[];try{ps=await window.kakapoHub.listProjects();}catch(e){}if(!Array.isArray(ps))ps=[];let html='';for(const p of ps)html+='<button type="button" role="option" data-path="'+esc(p.path)+'" data-name="'+esc(p.name)+'">'+_pmFolder+'<span class="pm-name">'+esc(p.name)+'</span><span class="pm-path">'+esc(p.path)+'</span></button>';if(ps.length)html+='<div class="pm-sep"></div>';html+='<button type="button" id="pmBrowse" class="pm-browse"><span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span><span class="pm-name">Browse for a folder…</span></button>';projectMenu.innerHTML=html;}
-projectMenu.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='pmBrowse'){browseForRepo();return;}if(b.dataset.path)pickProject(b.dataset.path,b.dataset.name);});
-chooseBtn.onclick=()=>{const willOpen=projectMenu.classList.contains('hidden');projectMenu.classList.toggle('hidden',!willOpen);chooseBtn.setAttribute('aria-expanded',String(willOpen));};
-dlg.addEventListener('mousedown',e=>{if(!e.target.closest('.field-wrap'))closeProjectMenu();});
-document.querySelector("#label").oninput=preview;
-document.querySelector("#dlgClose").onclick=()=>{if(!creating)dlg.close()};
-dlg.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();document.querySelector("#doCreate").click();}});
-document.querySelector("#doCreate").onclick=async()=>{const btn=document.querySelector("#doCreate"),lbl=btn.querySelector('.dcl'),err=document.querySelector("#createError");if(creating)return;if(!document.querySelector("#repo").value){err.textContent="Choose a repository first.";return;}creating=true;btn.disabled=true;lbl.textContent="Fetching base…";err.textContent="";
-const r=await window.kakapoHub.create(document.querySelector("#repo").value,document.querySelector("#label").value);creating=false;btn.disabled=false;lbl.textContent="Fetch & create";if(r.ok)dlg.close();else err.textContent=r.error||"Could not create workspace"};
 const ago=value=>{const seconds=Math.max(0,Math.floor((Date.now()-Number(value||Date.now()))/1000));return seconds<60?'now':seconds<3600?Math.floor(seconds/60)+'m ago':seconds<86400?Math.floor(seconds/3600)+'h ago':Math.floor(seconds/86400)+'d ago'};
 window.kakapoHub.onState(items=>{const groups=new Map;for(const w of items){if(!groups.has(w.repoName))groups.set(w.repoName,[]);groups.get(w.repoName).push(w)}
 const _a=items.find(w=>w.active);const _wn=document.getElementById('wsname');if(_wn)_wn.innerHTML=_a?'<span class="wsdot"></span>'+esc(_a.alias||_a.branch)+' <span class="rp">· '+esc(_a.repoName)+'</span>':'';
@@ -290,24 +223,110 @@ if(railExp)railSelect(railSel<0?0:railSel); // re-apply the keyboard selection a
 // Lightweight agent-activity ticks (spinner / attention dot) that toggle classes on existing tiles without a
 // full re-render, so a streaming agent doesn't rebuild the rail DOM and drop hover/focus state.
 window.kakapoHub.onActivity(list=>{for(const a of list){for(const el of document.querySelectorAll('.wt[data-id="'+a.id+'"]')){el.classList.toggle('busy',!!a.busy);el.classList.toggle('running',!!a.running);el.classList.toggle('attn',!!a.unread);}}});
-// Electron has no window.prompt(), so rename/memo use this in-page dialog instead (prompt() silently returned
-// null, which is why those menu items did nothing). Resolves to the entered string, or null if cancelled.
-const promptDlg=document.querySelector("#prompt"),promptInput=document.querySelector("#promptInput"),promptTitle=document.querySelector("#promptTitle");
-function showPrompt(title,initial){return new Promise(resolve=>{promptTitle.textContent=title;promptInput.value=initial||'';const onClose=()=>{promptDlg.removeEventListener('close',onClose);resolve(promptDlg.returnValue==='ok'?promptInput.value:null);};promptDlg.addEventListener('close',onClose);promptDlg.showModal();setTimeout(()=>{promptInput.focus();promptInput.select();},0);});}
-document.querySelector("#promptOk").onclick=()=>promptDlg.close('ok');
-document.querySelector("#promptCancel").onclick=()=>promptDlg.close('cancel');
-promptInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();promptDlg.close('ok');}else if(e.key==='Escape'){e.preventDefault();promptDlg.close('cancel');}});
-// The native tile menu (built in main) sends the chosen action back here. Rename/memo open the in-page prompt,
-// which DOES need the views hidden (it's a shell-page dialog) — but only for the brief text entry, not for the
-// whole menu as before.
-// Rename opens the in-page prompt (Electron has no window.prompt); shared by the native menu and the rail's 'e'
-// shortcut. modal(true) hides the review views so the shell-page dialog is visible, restored on close.
-function renameWorkspace(id,name){window.kakapoHub.modal(true);showPrompt('Rename workspace',name).then(alias=>{window.kakapoHub.modal(false);if(alias!==null)window.kakapoHub.rename(id,alias);});}
-window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){renameWorkspace(id,name);}else if(action==='memo'){window.kakapoHub.modal(true);showPrompt('One-line memo','').then(memo=>{window.kakapoHub.modal(false);if(memo!==null)window.kakapoHub.rename(id,undefined,memo);});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id);});
+window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){window.kakapoHub.openModal('rename',{id,name});}else if(action==='memo'){window.kakapoHub.openModal('memo',{id,name});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id);});
 async function removeWorkspace(id){const delBranch=confirm('Also delete the local branch?\\nOK deletes it; Cancel keeps it.');let r=await window.kakapoHub.remove(id,'delete',false,delBranch);if(r.needsConfirmation){const x=r.risk;if(confirm('Delete worktree?'+(x.dirty?'\\n• uncommitted changes':'')+(x.unpushed?'\\n• '+x.unpushed+' unpushed commits':'')+(x.runningProcesses?'\\n• running terminal/agent':'')+'\\n\\nThis cannot be undone.'))r=await window.kakapoHub.remove(id,'delete',true,delBranch)}if(!r.ok&&!r.needsConfirmation)alert(r.error||'Delete failed')}
 document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.wt');if(card){e.preventDefault();window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1',kind:card.dataset.kind||''});}});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.altKey&&/^[1-9]$/.test(e.key)){e.preventDefault();window.kakapoHub.activateIndex(Number(e.key)-1)}});
 document.addEventListener('click',e=>{if(!railExp&&!e.target.closest('button,input,textarea,dialog,#wsname'))window.kakapoHub.refocusReview()});
 window.kakapoHub.requestState();
+</script>`;
+}
+
+// The New-workspace / rename / memo dialogs, rendered in a transparent WebContentsView that main layers ABOVE
+// the review view. Because the page background is transparent and the dialog's ::backdrop is a translucent
+// dim, the live review content shows through dimmed rather than blanking — no snapshot/capturePage needed.
+// The rail (hubHtml) asks main to show this via openModal(); main tells this page which dialog to open via
+// onModalOpen(); closing any dialog asks main to hide the overlay again via closeModal().
+export function modalOverlayHtml(light: boolean): string {
+  const fg = light ? "#242424" : "#ddd", line = light ? "#d0d0d0" : "#454545";
+  const dim = "rgba(0,0,0,.45)";
+  return `<!doctype html><meta charset="utf-8"><style>
+*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:transparent;color:${fg};font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button{border:1px solid ${line};background:transparent;color:inherit;border-radius:6px;padding:4px 8px}
+.hidden{display:none!important}
+dialog#create{border:1px solid ${line};border-radius:14px;background:${light ? "#fbfbfc" : "#242529"};color:${fg};width:456px;max-width:calc(100vw - 40px);padding:0;box-shadow:0 30px 90px #000a}
+dialog#create::backdrop{background:${dim}}
+#create .dh{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 2px}
+#create .dh b{font-size:15.5px;font-weight:650}
+#create .dx{width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:${light ? "#888" : "#8a8f99"};font-size:14px;display:grid;place-items:center;padding:0}
+#create .dx:hover{background:${light ? "#eaeaea" : "#33383f"};color:${fg}}
+#create .db{padding:6px 20px 20px}
+#create label{display:block;margin:15px 0 7px;color:${light ? "#6b7280" : "#8a8f99"};font-size:11.5px;font-weight:600;letter-spacing:.02em}
+#create .field{width:100%;display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid ${line};border-radius:10px;background:${light ? "#fff" : "#2c2d31"};color:inherit;text-align:left;font-size:13.5px}
+#create .field:hover{border-color:#4d86d9}
+#create .field .fi{flex:none;color:${light ? "#9aa0ab" : "#8a8f99"};display:grid;place-items:center}
+#create .field .fv{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#create .field .fv.ph{color:${light ? "#9aa0ab" : "#71767f"}}
+#create .field-wrap{position:relative}
+#create .field .fc{flex:none;margin-left:auto;color:${light ? "#9aa0ab" : "#8a8f99"};display:grid;place-items:center;transition:transform .15s}
+#create .field[aria-expanded="true"]{border-color:#4d86d9}
+#create .field[aria-expanded="true"] .fc{transform:rotate(180deg)}
+#create .pmenu{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:20;background:${light ? "#fff" : "#2c2d31"};border:1px solid ${line};border-radius:10px;box-shadow:0 16px 40px #0007;padding:5px;max-height:232px;overflow-y:auto}
+#create .pmenu.hidden{display:none}
+#create .pmenu button{width:100%;display:flex;align-items:center;gap:9px;padding:8px 9px;border:0;border-radius:7px;background:transparent;color:inherit;text-align:left;font-size:13px}
+#create .pmenu button:hover,#create .pmenu button.on{background:${light ? "#eef1f6" : "#33383f"}}
+#create .pmenu .pm-ic{flex:none;color:${light ? "#9aa0ab" : "#8a8f99"};display:grid;place-items:center}
+#create .pmenu .pm-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#create .pmenu .pm-path{flex:none;max-width:44%;color:${light ? "#9aa0ab" : "#71767f"};font-size:10.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:right}
+#create .pmenu .pm-sep{height:1px;background:${line};margin:5px 3px}
+#create .pmenu .pm-browse{color:#4d86d9;font-weight:550}
+dialog#prompt{border:1px solid ${line};border-radius:14px;background:${light ? "#fbfbfc" : "#242529"};color:${fg};width:400px;max-width:calc(100vw - 40px);padding:0;box-shadow:0 30px 90px #000a}
+dialog#prompt::backdrop{background:${dim}}
+#prompt .dh{padding:18px 20px 2px}#prompt .dh b{font-size:15px;font-weight:650}
+#prompt .db{padding:6px 20px 20px}
+#prompt input.tin{width:100%;margin-top:12px;padding:11px 12px;border:1px solid ${line};border-radius:10px;background:${light ? "#fff" : "#2c2d31"};color:inherit;font-size:13.5px}
+#prompt input.tin:focus{outline:none;border-color:#4d86d9}
+#prompt .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+#prompt .dbtn{border:1px solid ${line};background:transparent;color:inherit;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:550}
+#prompt .dbtn:hover{background:${light ? "#eee" : "#33383f"}}
+#prompt .dbtn.pri{background:${light ? "#1a1a1a" : "#f0f0f2"};color:${light ? "#fff" : "#1a1a1a"};border-color:transparent}
+#prompt .dbtn.pri:hover{opacity:.9}
+#create input.tin{width:100%;padding:11px 12px;border:1px solid ${line};border-radius:10px;background:${light ? "#fff" : "#2c2d31"};color:inherit;font-size:13.5px}
+#create input.tin:focus{outline:none;border-color:#4d86d9}
+#create input.tin::placeholder{color:${light ? "#9aa0ab" : "#71767f"}}
+#create #preview{margin-top:11px;font-size:11px;color:${light ? "#6b7280" : "#8a8f99"};line-height:1.65;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+#create .error{color:#e0736b;min-height:15px;margin-top:11px;font-size:12px}
+#create .actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:20px}
+#create .dbtn{border:1px solid ${line};background:transparent;color:inherit;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:550}
+#create .dbtn:hover{background:${light ? "#eee" : "#33383f"}}
+#create .dbtn.pri{background:${light ? "#1a1a1a" : "#f0f0f2"};color:${light ? "#fff" : "#1a1a1a"};border-color:transparent;display:inline-flex;align-items:center;gap:8px}
+#create .dbtn.pri:hover{opacity:.9}#create .dbtn.pri:disabled{opacity:.5}
+#create .dbtn.pri kbd{font:11px ui-monospace,monospace;background:#00000022;border-radius:5px;padding:1px 5px;opacity:.8}</style>
+<dialog id="create"><div class="dh"><b>New workspace</b><button class="dx" id="dlgClose" aria-label="Close">✕</button></div><div class="db"><label>Project</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">Select a project…</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label>Task name</label><input id="label" class="tin" placeholder="e.g. fix-login-crash" autocomplete="off" spellcheck="false"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">Cancel</button><button id="doCreate" class="dbtn pri"><span class="dcl">Fetch &amp; create</span><kbd>⌘↵</kbd></button></div></div></dialog>
+<dialog id="prompt"><div class="dh"><b id="promptTitle"></b></div><div class="db"><input id="promptInput" class="tin" autocomplete="off" spellcheck="false"><div class="actions"><button id="promptCancel" class="dbtn">Cancel</button><button id="promptOk" class="dbtn pri">OK</button></div></div></dialog><script>
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dlg=document.querySelector("#create");let creating=false;
+// Each open starts clean (the overlay page persists across opens, so stale repo/label would otherwise linger).
+function openCreate(){document.querySelector("#repo").value='';const n=document.querySelector("#repoName");n.textContent='Select a project…';n.classList.add('ph');document.querySelector("#label").value='';document.querySelector("#preview").innerHTML='';document.querySelector("#createError").textContent='';loadProjects();closeProjectMenu();dlg.showModal();setTimeout(()=>document.querySelector("#choose").focus(),0);}
+// Any close of the create dialog (cancel / ✕ / Esc / success) tells main to hide the overlay.
+dlg.addEventListener('close',()=>window.kakapoHub.closeModal());
+document.querySelector("#cancelCreate").onclick=()=>{if(creating)window.kakapoHub.cancelCreate();else dlg.close()};
+async function preview(){const r=await window.kakapoHub.preview(document.querySelector("#repo").value,document.querySelector("#label").value);document.querySelector("#preview").innerHTML=r.ok?'slug: '+esc(r.slug)+'<br>base: '+esc(r.base)+'<br>branch: '+esc(r.branch)+'<br>'+esc(r.path):''}
+const projectMenu=document.querySelector("#projectMenu"),chooseBtn=document.querySelector("#choose");
+function closeProjectMenu(){projectMenu.classList.add('hidden');chooseBtn.setAttribute('aria-expanded','false');}
+function pickProject(path,name){document.querySelector("#repo").value=path;const n=document.querySelector("#repoName");n.textContent=name||(path.split('/').filter(Boolean).pop()||path);n.classList.remove('ph');closeProjectMenu();preview();document.querySelector("#label").focus();}
+async function browseForRepo(){closeProjectMenu();const r=await window.kakapoHub.chooseRepo();if(r.ok)pickProject(r.repo);}
+const _pmFolder='<span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span>';
+async function loadProjects(){let ps=[];try{ps=await window.kakapoHub.listProjects();}catch(e){}if(!Array.isArray(ps))ps=[];let html='';for(const p of ps)html+='<button type="button" role="option" data-path="'+esc(p.path)+'" data-name="'+esc(p.name)+'">'+_pmFolder+'<span class="pm-name">'+esc(p.name)+'</span><span class="pm-path">'+esc(p.path)+'</span></button>';if(ps.length)html+='<div class="pm-sep"></div>';html+='<button type="button" id="pmBrowse" class="pm-browse"><span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span><span class="pm-name">Browse for a folder…</span></button>';projectMenu.innerHTML=html;}
+projectMenu.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='pmBrowse'){browseForRepo();return;}if(b.dataset.path)pickProject(b.dataset.path,b.dataset.name);});
+chooseBtn.onclick=()=>{const willOpen=projectMenu.classList.contains('hidden');projectMenu.classList.toggle('hidden',!willOpen);chooseBtn.setAttribute('aria-expanded',String(willOpen));};
+dlg.addEventListener('mousedown',e=>{if(!e.target.closest('.field-wrap'))closeProjectMenu();});
+document.querySelector("#label").oninput=preview;
+document.querySelector("#dlgClose").onclick=()=>{if(!creating)dlg.close()};
+dlg.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();document.querySelector("#doCreate").click();}});
+document.querySelector("#doCreate").onclick=async()=>{const btn=document.querySelector("#doCreate"),lbl=btn.querySelector('.dcl'),err=document.querySelector("#createError");if(creating)return;if(!document.querySelector("#repo").value){err.textContent="Choose a repository first.";return;}creating=true;btn.disabled=true;lbl.textContent="Fetching base…";err.textContent="";
+const r=await window.kakapoHub.create(document.querySelector("#repo").value,document.querySelector("#label").value);creating=false;btn.disabled=false;lbl.textContent="Fetch & create";if(r.ok)dlg.close();else err.textContent=r.error||"Could not create workspace"};
+const promptDlg=document.querySelector("#prompt"),promptInput=document.querySelector("#promptInput"),promptTitle=document.querySelector("#promptTitle");
+function showPrompt(title,initial){return new Promise(resolve=>{promptTitle.textContent=title;promptInput.value=initial||'';const onClose=()=>{promptDlg.removeEventListener('close',onClose);resolve(promptDlg.returnValue==='ok'?promptInput.value:null);};promptDlg.addEventListener('close',onClose);promptDlg.showModal();setTimeout(()=>{promptInput.focus();promptInput.select();},0);});}
+document.querySelector("#promptOk").onclick=()=>promptDlg.close('ok');
+document.querySelector("#promptCancel").onclick=()=>promptDlg.close('cancel');
+promptInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();promptDlg.close('ok');}else if(e.key==='Escape'){e.preventDefault();promptDlg.close('cancel');}});
+// Main tells this overlay which dialog to open. Rename/memo resolve to a value, apply it, then hide the overlay.
+window.kakapoHub.onModalOpen(d=>{d=d||{};
+  if(d.type==='rename'){showPrompt('Rename workspace',d.name||'').then(alias=>{if(alias!==null)window.kakapoHub.rename(d.id,alias);window.kakapoHub.closeModal();});}
+  else if(d.type==='memo'){showPrompt('One-line memo','').then(memo=>{if(memo!==null)window.kakapoHub.rename(d.id,undefined,memo);window.kakapoHub.closeModal();});}
+  else openCreate();});
+// Esc with no dialog open (e.g. the brief frame before showModal) still dismisses the overlay.
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.querySelector('dialog[open]'))window.kakapoHub.closeModal();});
 </script>`;
 }
