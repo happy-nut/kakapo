@@ -25,7 +25,7 @@ import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
 import { hubHtml, modalOverlayHtml, tileMenuHtml } from "./shell-pages.js";
-import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug } from "./workspaces.js";
+import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
 
 type AppOptions = {
   root: string;
@@ -85,6 +85,10 @@ type WinState = {
   unread: boolean; // an agent turn finished / needs input in this (non-active) workspace — the tile's red dot
   busy: boolean; // an agent is actively producing output here — the tile's animated "working" spinner
   busyTimer?: NodeJS.Timeout; // debounce: cleared/reset on each output chunk; on expiry the workspace goes idle
+  // Rail tile data (repo record + working-tree dirty count) is git-derived — ~5 subprocesses/workspace.
+  // renderHub fires on every agent-activity event, so cache it per workspace with a short TTL: without this
+  // an N-workspace hub render spawns ~5N git processes on the main thread each time an agent turn finishes.
+  hubTile?: { record: WorkspaceRecord; dirtyCount: number; computedAt: number };
   bootStarted: boolean;
   perf: ReviewPerformanceTrace; // local startup/analysis evidence under this workspace's app-data mirror
   lastDiffSig: string; // watch fast-path: hash of the last git diff, to skip rebuilds when unchanged
@@ -1172,13 +1176,25 @@ async function ensureOwnerAvatar(owner: string): Promise<void> {
   finally { ownerAvatarPending.delete(owner); }
 }
 
+// Git-derived rail tile data (repo record + dirty count), cached per workspace for HUB_TILE_TTL_MS so a burst
+// of renderHub calls (agent activity across N workspaces) doesn't re-spawn ~5N git subprocesses. Branch/dirty
+// changes surface within the TTL — fine for a rail badge, and freshly-created workspaces have no cache yet.
+const HUB_TILE_TTL_MS = 1000;
+function hubTileFor(state: WinState): { record: WorkspaceRecord; dirtyCount: number } {
+  const now = Date.now();
+  if (state.hubTile && now - state.hubTile.computedAt < HUB_TILE_TTL_MS) return state.hubTile;
+  const record = workspaceRecord(state.options.root);
+  const dirtyCount = git(record.path, ["status", "--porcelain"]).split("\n").filter(Boolean).length;
+  state.hubTile = { record, dirtyCount, computedAt: now };
+  return state.hubTile;
+}
+
 function renderHub(): void {
   if (!shellWindow || shellWindow.isDestroyed()) return;
   const saved = savedWorkspaceMetadata();
   const live = Array.from(states.values()).map((state) => {
-    const current = workspaceRecord(state.options.root);
+    const { record: current, dirtyCount } = hubTileFor(state);
     const metadata = saved.find((item) => resolveWorkspaceRoot(item.path) === current.path);
-    const dirtyCount = git(current.path, ["status", "--porcelain"]).split("\n").filter(Boolean).length;
     const owner = githubOwnerFor(state.options.root);
     const avatar = owner ? ownerAvatar.get(owner) : undefined;
     if (owner && !avatar) void ensureOwnerAvatar(owner);
