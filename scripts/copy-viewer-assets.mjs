@@ -14,7 +14,24 @@ mkdirSync(distDir, { recursive: true });
 // Concatenate the numbered slices in order (01-, 02-, …). join("") — each slice already ends with its
 // trailing newline, so the result is identical to the original single file (no extra separators added).
 const viewerDir = join(root, "src", "viewer");
-const parts = readdirSync(viewerDir).filter((f) => f.endsWith(".js")).sort();
+// Explicit load order (was readdirSync().sort()). Order matters for the slices with top-level executable
+// statements (e.g. 05-keymap's init block runs on load); making it explicit removes the same-numeric-prefix
+// lexicographic-tie fragility and lets a new slice be placed precisely. The check below fails the build
+// loudly if a slice is added/removed without updating this list — instead of silently mis-ordering.
+const VIEWER_SLICES = [
+  "00-diff-layers.js", "01-core.js", "01-diff-alignment.js", "01-diff-model.js", "02-diff-nav.js",
+  "03-quick-open.js", "04-source-tree.js", "05-keymap.js", "06-diff-caret.js", "07-comments.js",
+  "08-dock.js", "09-views-update.js", "10-source-view.js", "11-render-http.js", "12-history.js",
+  "13-goto.js", "14-impact.js", "15-analysis-status.js", "15-semantic-navigation.js", "16-semantic-peek.js",
+  "17-file-find.js", "18-diagnostics.js", "19-terminal.js", "20-explain.js", "21-explain-comments.js",
+  "22-patchset.js",
+];
+const onDisk = readdirSync(viewerDir).filter((f) => f.endsWith(".js")).sort();
+const listed = [...VIEWER_SLICES].sort();
+if (onDisk.length !== listed.length || onDisk.some((f, i) => f !== listed[i])) {
+  throw new Error(`VIEWER_SLICES is out of sync with src/viewer/*.js — update scripts/copy-viewer-assets.mjs.\n  on disk: ${onDisk.join(", ")}\n  listed:  ${listed.join(", ")}`);
+}
+const parts = VIEWER_SLICES;
 // One audited read-only Markdown stack is embedded ahead of the app slices, so source previews and merged
 // prompts execute the exact same parser + sanitizer in Electron and static/browser reviews.
 const markdownVendors = [
