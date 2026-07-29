@@ -14,6 +14,7 @@ import type { SourceFile } from "./types.js";
 import { workspaceReviewFile } from "./workspace-data.js";
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import { reviewDiffSignature, writeReviewWorkspace } from "./review-workspace.js";
+import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
@@ -1467,17 +1468,14 @@ async function refreshIfChanged(state: WinState): Promise<void> {
     // Fast path: the review-workspace service hashes only the Git diff before a full rebuild. Most watch
     // ticks see no change, leaving this Electron orchestrator free to serve navigation/search IPC.
     const diffSig = reviewDiffSignature(state.options, state.reviewBase, state.reviewUpstream);
-    // The first watch tick establishes the baseline for the review that boot/openReview just built.
-    // Without this guard, lastDiffSig starts empty and an unchanged repository is rebuilt once about a
-    // second after first paint — exactly when the reviewer starts interacting with it.
-    if (!state.lastDiffSig) {
-      state.lastDiffSig = diffSig;
-      return;
-    }
-    if (diffSig === state.lastDiffSig) return;
-    state.lastDiffSig = diffSig;
+    // The first watch tick seeds the baseline for the review boot/openReview just built; without it an
+    // unchanged repository would rebuild ~1s after first paint, exactly as the reviewer starts interacting.
+    const decision = decideWatchTick(state.lastDiffSig, diffSig);
+    if (decision.action === "seed") { state.lastDiffSig = decision.diffSig; return; }
+    if (decision.action === "skip") return;
+    state.lastDiffSig = decision.diffSig;
     const next = writeReviewFile(state);
-    if (next.signature !== state.signature) {
+    if (shouldPushUpdate(state.signature, next.signature)) {
       state.signature = next.signature;
       // Refresh the diff in place instead of reloading the window so review context remains stable. Send
       // only the compact update payload; the renderer transplants it and re-fetches per-file bodies/source
