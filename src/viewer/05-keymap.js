@@ -595,11 +595,38 @@ document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
   syncRail();
 });
 
-// The shell title-bar mirrors these tools (single-instance app). A title-bar click is relayed here as a
-// rail action; replay it by clicking the matching (possibly CSS-hidden) rail control so every existing
-// handler and syncRail run unchanged. Terminal and More carry id-based handlers, not data-view.
+// Force-open (never toggle) a review view. Used when a review shortcut (⌘0/⌘1/⌘9/Ctrl+`) is pressed while the
+// workspace rail is expanded: the shell forwards e.g. 'files:open'. Unlike a toolbar click (which toggles), this
+// always ends with the view shown and its sidebar expanded, so the shortcut can only open — never close — it.
+function openRailView(view) {
+  if (view === 'files') {
+    if (!isSourceViewerVisible()) showSourceView();
+    setSourceSidebarCollapsed(false);
+    setTab('files');
+    focusOpenFileInTree();
+  } else if (view === 'changes') {
+    setSourceSidebarCollapsed(false);
+    setReviewSidebarCollapsed(false);
+    if (!isDiffViewVisible()) showDiffView(false);
+    setTab('changes');
+    focusOpenFileInTree();
+  } else if (view === 'history') {
+    if (typeof openHistory === 'function' && (typeof isHistoryOpen !== 'function' || !isHistoryOpen())) openHistory();
+  } else if (view === 'terminal') {
+    var tp = document.getElementById('terminal-panel');
+    if (tp && tp.classList.contains('hidden')) document.getElementById('terminal-toggle')?.click();
+  } else {
+    document.querySelector('.rail-btn[data-view="' + view + '"]')?.click();
+  }
+  if (typeof syncRail === 'function') syncRail();
+}
+// The shell title-bar mirrors these tools (single-instance app). A title-bar click is relayed here as a rail
+// action; replay it by clicking the matching (possibly CSS-hidden) rail control so every existing handler and
+// syncRail run unchanged. An ':open' suffix (from a shortcut fired while the rail is expanded) force-opens
+// instead of toggling. Terminal and More carry id-based handlers, not data-view.
 if (window.kakapoMenu && window.kakapoMenu.onRailAction) {
   window.kakapoMenu.onRailAction((action) => {
+    if (typeof action === 'string' && action.slice(-5) === ':open') { openRailView(action.slice(0, -5)); return; }
     if (action === 'terminal') { document.getElementById('terminal-toggle')?.click(); return; }
     if (action === 'more') { document.getElementById('workspace-more-toggle')?.click(); return; }
     document.querySelector('.rail-btn[data-view="' + action + '"]')?.click();

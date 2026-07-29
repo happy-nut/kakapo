@@ -41,7 +41,10 @@ test("desktop composition uses one shell BrowserWindow, isolated views, and expl
   assert.match(source, /kakapo:workspace-state/);
   assert.match(source, /setWorkspaceHubOpen/);
   assert.match(source, /isDetached: \(\)/);
-  assert.equal((source.match(/new BrowserWindow\(/g) || []).length, 2);
+  // Three BrowserWindows total: the shell, the detached-host window, and the transient tile context-menu popup
+  // (a frameless child window so the custom design-system menu can float above the review views). Workspaces
+  // themselves are always WebContentsViews, never windows — that per-workspace invariant is what this guards.
+  assert.equal((source.match(/new BrowserWindow\(/g) || []).length, 3);
 });
 
 test("shutdown teardown does not erase the restore-on-launch workspace session", () => {

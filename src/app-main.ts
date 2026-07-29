@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell, WebContentsView } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, screen, shell, WebContentsView } from "electron";
 import type { WebContents } from "electron";
 import { git, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
@@ -22,6 +22,8 @@ import { registerAnswersIpc, syncAnswersFile, answersFilePath } from "./answers-
 import { registerExplainIpc, refreshExplainIfChanged } from "./app-explain-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
+import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
+import { hubHtml, tileMenuHtml } from "./shell-pages.js";
 import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug } from "./workspaces.js";
 
 type AppOptions = {
@@ -184,16 +186,13 @@ let appQuitting = false;
 // The workspace rail is a thin, ALWAYS-VISIBLE column of workspace tiles (like an editor's activity bar).
 // Switching workspaces never removes the review's own Changes/Files sidebar, so there is no "how do I get
 // back" state — you never left. `hubOpen` stays true; the rail is not a mode you toggle into and out of.
-const HUB_WIDTH = 52;
 // Expanded (⌘⇧E / pinned) the rail widens to show each workspace's full name + branch. The review views
 // can't overlay the shell page (it renders behind them), so expansion PUSHES them right. Set to the collapsed
 // rail width plus the review sidebar's default width, so the expanded rail reaches exactly where the file
 // tree's right edge was — the rail replaces the tree in place and the content doesn't shift.
-const HUB_EXPANDED = HUB_WIDTH + 264;
 let hubWidth = HUB_WIDTH; // current rail width the review views are laid out against
 // A full-width title strip gives the macOS traffic lights their own clean band, so no vertical divider
 // runs up into them. The review views sit below it; the active workspace's name lives in the strip.
-const TITLEBAR_H = 38;
 let hubOpen = true;
 // True while a shell-page modal (the New-workspace dialog) is up. Suppresses the "return keyboard focus to
 // the review view" behavior so the dialog keeps focus.
@@ -385,27 +384,61 @@ ipcMain.handle("kakapo:hub-projects", () => {
   projects.sort((a, b) => a.name.localeCompare(b.name));
   return projects;
 });
-// The workspace tile context menu is a NATIVE menu, not an HTML one. The HTML menu lived on the shell page,
-// which renders BEHIND the review views, so it had to hide every view to be seen — blanking the main panel.
-// A native menu draws above the views at the OS level, so the review stays on screen while it's open.
-ipcMain.on("kakapo:tile-menu", (_event, info: { id?: unknown; name?: unknown; resume?: unknown }) => {
+// The workspace-tile context menu is a custom design-system component, not the OS native menu. It renders in a
+// small frameless, transparent child window at the cursor, so it floats ABOVE the review views (which cover the
+// shell page) without blanking the panel — the reason the old in-shell HTML menu couldn't work. The window is
+// sized to its content (the page reports its measured size), positioned at the cursor, and dismissed on choose,
+// blur, Escape, or a click outside the menu box.
+let tileMenuWindow: BrowserWindow | undefined;
+let tileMenuTarget: { id: number; name: string } | undefined;
+let tileMenuAnchor: { x: number; y: number } | undefined;
+let tileMenuShown = false;
+function closeTileMenu(): void {
+  const win = tileMenuWindow;
+  tileMenuWindow = undefined; tileMenuTarget = undefined; tileMenuAnchor = undefined; tileMenuShown = false;
+  if (win && !win.isDestroyed()) win.close();
+}
+
+ipcMain.on("kakapo:tile-menu", (_event, info: { id?: unknown; name?: unknown; resume?: unknown; kind?: unknown }) => {
   if (!shellWindow || shellWindow.isDestroyed()) return;
   const id = Number(info?.id);
   if (!Number.isFinite(id)) return;
-  const name = typeof info?.name === "string" ? info.name : "";
-  const act = (action: string) => () => shellWindow?.webContents.send("kakapo:tile-action", { id, action, name });
-  const template: Electron.MenuItemConstructorOptions[] = [
-    { label: "Switch", click: act("activate") },
-    ...(info?.resume ? [{ label: "Resume session", click: act("resume") } as Electron.MenuItemConstructorOptions] : []),
-    { type: "separator" },
-    { label: "Rename…", click: act("rename") },
-    { label: "Edit memo…", click: act("memo") },
-    { label: "Open in new window", click: act("detach") },
-    { type: "separator" },
-    { label: "Close workspace", click: act("close") },
-    { label: "Delete worktree…", click: act("delete") },
-  ];
-  Menu.buildFromTemplate(template).popup({ window: shellWindow });
+  closeTileMenu();
+  tileMenuTarget = { id, name: typeof info?.name === "string" ? info.name : "" };
+  tileMenuAnchor = screen.getCursorScreenPoint();
+  const win = new BrowserWindow({
+    width: 248, height: 220, show: false, frame: false, transparent: true, resizable: false, movable: false,
+    minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, hasShadow: false,
+    parent: shellWindow, webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false },
+  });
+  tileMenuWindow = win;
+  win.on("blur", () => { if (tileMenuWindow === win && tileMenuShown) closeTileMenu(); });
+  win.on("closed", () => { if (tileMenuWindow === win) { tileMenuWindow = undefined; tileMenuTarget = undefined; tileMenuAnchor = undefined; tileMenuShown = false; } });
+  void win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(tileMenuHtml(Boolean(info?.resume), info?.kind !== "main", isLightTheme())));
+});
+ipcMain.on("kakapo:menu-size", (event, size: { w?: unknown; h?: unknown }) => {
+  const win = tileMenuWindow;
+  if (!win || win.isDestroyed() || event.sender !== win.webContents || !tileMenuAnchor) return;
+  const w = Math.max(80, Math.min(640, Math.ceil(Number(size?.w) || 248)));
+  const h = Math.max(48, Math.min(900, Math.ceil(Number(size?.h) || 220)));
+  const wa = screen.getDisplayNearestPoint(tileMenuAnchor).workArea;
+  let x = tileMenuAnchor.x - 14, y = tileMenuAnchor.y - 14;
+  if (x + w > wa.x + wa.width) x = wa.x + wa.width - w;
+  if (y + h > wa.y + wa.height) y = wa.y + wa.height - h;
+  x = Math.max(wa.x, x); y = Math.max(wa.y, y);
+  win.setBounds({ x: Math.round(x), y: Math.round(y), width: w, height: h });
+  if (!tileMenuShown) { tileMenuShown = true; win.show(); win.focus(); }
+});
+ipcMain.on("kakapo:menu-choose", (event, action: unknown) => {
+  const win = tileMenuWindow;
+  if (!win || event.sender !== win.webContents) return;
+  const target = tileMenuTarget;
+  closeTileMenu();
+  if (target && shellWindow && !shellWindow.isDestroyed() && typeof action === "string")
+    shellWindow.webContents.send("kakapo:tile-action", { id: target.id, action, name: target.name });
+});
+ipcMain.on("kakapo:menu-close", (event) => {
+  if (tileMenuWindow && event.sender === tileMenuWindow.webContents) closeTileMenu();
 });
 ipcMain.handle("kakapo:hub-preview", (_event, payload: { repo?: unknown; label?: unknown }) => {
   if (typeof payload?.repo !== "string" || typeof payload?.label !== "string" || !isGitRepository(payload.repo)) return { ok: false };
@@ -939,7 +972,7 @@ function ensureShellWindow(light: boolean): BrowserWindow {
     for (const state of states.values()) state.win.webContents.close();
     shellWindow = undefined;
   });
-  void shellWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(hubHtml(light)));
+  void shellWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(hubHtml(light, APP_VERSION)));
   shellWindow.webContents.on("did-finish-load", renderHub);
   shellWindow.once("ready-to-show", () => shellWindow?.show());
   return shellWindow;
@@ -1132,218 +1165,7 @@ function renderHub(): void {
   }
 }
 
-function hubHtml(light: boolean): string {
-  const bg = light ? "#f4f4f4" : "#252526", fg = light ? "#242424" : "#ddd", line = light ? "#d0d0d0" : "#454545";
-  return `<!doctype html><meta charset="utf-8"><style>
-*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:${bg};color:${fg};font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-body{display:flex;flex-direction:column}
-#titlebar{height:${TITLEBAR_H}px;flex:none;-webkit-app-region:drag;display:flex;align-items:center;gap:8px;padding:0 12px 0 84px;border-bottom:1px solid ${line};background:${light ? "#ececec" : "#1b1e25"}}
-#wsname{-webkit-app-region:no-drag;display:flex;align-items:center;gap:7px;max-width:72%;font-weight:600;color:${fg};font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#wsname .wsdot{width:6px;height:6px;border-radius:50%;background:#4d9a51;flex:none}#wsname .rp{color:${light ? "#888" : "#7d828c"};font-weight:400}
-.tb-spacer{flex:1;align-self:stretch}
-#tools{-webkit-app-region:no-drag;display:flex;align-items:center;gap:2px;flex:none}
-#tools .tb-sep{width:1px;height:16px;background:${line};margin:0 5px}
-#tools button.tb{width:28px;height:26px;border:0;border-radius:6px;color:${light ? "#5f6470" : "#9aa0ab"};display:grid;place-items:center;padding:0;background:transparent}
-#tools button.tb:hover{background:${light ? "#dfe7f5" : "#373d49"};color:${fg}}
-#tools button.tb.active{color:#4d86d9;background:${light ? "#dfe7f5" : "#2a3446"}}
-#tools button.tb.hidden{display:none!important}
-#tools button.tb svg{width:17px;height:17px}
-#hub{width:${HUB_WIDTH}px;flex:1;min-height:0;border-right:1px solid ${line};display:flex;flex-direction:column;align-items:center;gap:2px;overflow:hidden;transition:width 180ms cubic-bezier(.2,.8,.2,1)}
-body.rail-exp #hub{width:${HUB_EXPANDED}px;align-items:stretch}
-button{border:1px solid ${line};background:transparent;color:inherit;border-radius:6px;padding:4px 8px}
-#list{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 0;width:100%}
-body.rail-exp #list{align-items:stretch;padding:4px 6px}
-.repo-sep{width:24px;height:1px;background:${line};margin:3px 0;flex:none}
-body.rail-exp .repo-sep{display:none}
-.ws-group-head{display:none}
-body.rail-exp .ws-group-head{display:block;padding:11px 8px 4px;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:${light ? "#8a8f99" : "#71767f"};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-body.rail-exp #list > .ws-group-head:first-child{padding-top:4px}
-.ws{position:relative;flex:none;display:flex;align-items:center;justify-content:center;gap:9px;border:0;background:transparent;padding:0;width:36px;height:36px;border-radius:9px}
-body.rail-exp .ws{width:100%;height:40px;justify-content:flex-start;padding:0 5px}
-body.rail-exp .ws:hover{background:${light ? "#e4eaf6" : "#2b303a"}}
-body.rail-exp .ws.active{background:${light ? "#dfe7f5" : "#2a3446"}}
-/* Keyboard selection while the expanded rail has focus (↑/↓): a left accent bar + subtle fill, NOT a ring —
-   a ring nested inside the active badge's own ring and read as a doubled border. */
-body.rail-exp .ws.kbd-sel{background:${light ? "#e4eaf6" : "#2b303a"};padding-left:12px}
-body.rail-exp .ws.kbd-sel::before{content:"";position:absolute;left:3px;top:8px;bottom:8px;width:3px;border-radius:2px;background:#4d86d9}
-.ws-badge{position:relative;width:36px;height:36px;flex:none;border:1px solid ${line};background:${light ? "#e6e6e6" : "#2d2d30"};color:${light ? "#555" : "#b9bcc4"};border-radius:9px;display:grid;place-items:center;font-weight:700;font-size:12px;letter-spacing:.02em}
-/* GitHub owner avatar as the badge (falls back to colored initials when unavailable). */
-.ws-badge.has-av{background:transparent;border-color:transparent}
-.ws-av{width:100%;height:100%;border-radius:8px;object-fit:cover;display:block}
-.ws:hover .ws-badge{border-color:#4d86d9;color:${fg}}
-.ws.active .ws-badge{border-color:#4d86d9;color:#4d86d9;background:${light ? "#dfe7f5" : "#2a3446"};box-shadow:0 0 0 1px #4d86d9}
-.ws.disc{opacity:.5}
-.ws-badge .rundot{position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:#4d9a51;border:2px solid ${bg};display:none}
-.ws-badge.running:not(.busy) .rundot{display:block}
-.ws-badge .unread{position:absolute;top:-3px;left:-3px;width:9px;height:9px;border-radius:50%;background:#e5484d;border:2px solid ${bg};display:none}
-.ws-badge.attn .unread{display:block}
-/* Agent working: a breathing accent ring around the badge — it scales + fades in place rather than rotating,
-   so several working workspaces don't make the rail spin busily. Sits 2px outside the 9px-radius badge (own
-   radius 11px); pointer-events:none keeps the badge clickable through it. */
-.ws-badge.busy::after{content:"";position:absolute;inset:-2px;border-radius:11px;border:2px solid #4d86d9;animation:wsbreathe 1.3s ease-in-out infinite;pointer-events:none}
-@keyframes wsbreathe{0%,100%{opacity:.25;transform:scale(.97)}50%{opacity:.9;transform:scale(1.06)}}
-@media (prefers-reduced-motion:reduce){.ws-badge.busy::after{animation:none;opacity:.7}}
-.ws-label{display:none;flex-direction:column;min-width:0;text-align:left;line-height:1.25}
-body.rail-exp .ws-label{display:flex}
-.ws-label .n{font-size:12px;font-weight:600;color:${fg};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ws-label .s{font-size:10.5px;color:${light ? "#888" : "#7d828c"};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ws.active .ws-label .n{color:#4d86d9}
-#railfoot{display:flex;flex-direction:column;align-items:center;gap:5px;padding:7px 0;border-top:1px solid ${line};width:100%;flex:none}
-body.rail-exp #railfoot{flex-direction:row;justify-content:flex-end;padding:7px 6px;gap:4px}
-#railfoot button{width:34px;height:32px;border:0;border-radius:8px;font-size:17px;color:${light ? "#666" : "#999"};display:grid;place-items:center;padding:0}
-#railfoot button:hover{background:${light ? "#dfe7f5" : "#373d49"};color:${fg}}
-#pin svg{width:16px;height:16px;transition:transform 180ms cubic-bezier(.2,.8,.2,1)}
-body.rail-exp #pin svg{transform:rotate(180deg)}
-body.rail-exp #pin{color:#4d86d9}
-#railfoot #new{border:1px dashed ${line}}
-dialog#create{border:1px solid ${line};border-radius:14px;background:${light ? "#fbfbfc" : "#242529"};color:${fg};width:456px;max-width:calc(100vw - 40px);padding:0;box-shadow:0 30px 90px #000a}
-dialog#create::backdrop{background:#0009}
-#create .dh{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 2px}
-#create .dh b{font-size:15.5px;font-weight:650}
-#create .dx{width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:${light ? "#888" : "#8a8f99"};font-size:14px;display:grid;place-items:center;padding:0}
-#create .dx:hover{background:${light ? "#eaeaea" : "#33383f"};color:${fg}}
-#create .db{padding:6px 20px 20px}
-#create label{display:block;margin:15px 0 7px;color:${light ? "#6b7280" : "#8a8f99"};font-size:11.5px;font-weight:600;letter-spacing:.02em}
-#create .field{width:100%;display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid ${line};border-radius:10px;background:${light ? "#fff" : "#2c2d31"};color:inherit;text-align:left;font-size:13.5px}
-#create .field:hover{border-color:#4d86d9}
-#create .field .fi{flex:none;color:${light ? "#9aa0ab" : "#8a8f99"};display:grid;place-items:center}
-#create .field .fv{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#create .field .fv.ph{color:${light ? "#9aa0ab" : "#71767f"}}
-#create .field-wrap{position:relative}
-#create .field .fc{flex:none;margin-left:auto;color:${light ? "#9aa0ab" : "#8a8f99"};display:grid;place-items:center;transition:transform .15s}
-#create .field[aria-expanded="true"]{border-color:#4d86d9}
-#create .field[aria-expanded="true"] .fc{transform:rotate(180deg)}
-#create .pmenu{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:20;background:${light ? "#fff" : "#2c2d31"};border:1px solid ${line};border-radius:10px;box-shadow:0 16px 40px #0007;padding:5px;max-height:232px;overflow-y:auto}
-#create .pmenu.hidden{display:none}
-#create .pmenu button{width:100%;display:flex;align-items:center;gap:9px;padding:8px 9px;border:0;border-radius:7px;background:transparent;color:inherit;text-align:left;font-size:13px}
-#create .pmenu button:hover,#create .pmenu button.on{background:${light ? "#eef1f6" : "#33383f"}}
-#create .pmenu .pm-ic{flex:none;color:${light ? "#9aa0ab" : "#8a8f99"};display:grid;place-items:center}
-#create .pmenu .pm-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#create .pmenu .pm-path{flex:none;max-width:44%;color:${light ? "#9aa0ab" : "#71767f"};font-size:10.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:right}
-#create .pmenu .pm-sep{height:1px;background:${line};margin:5px 3px}
-#create .pmenu .pm-browse{color:#4d86d9;font-weight:550}
-/* Rename / memo prompt — Electron has no window.prompt(), so these actions need an in-page input dialog. */
-dialog#prompt{border:1px solid ${line};border-radius:14px;background:${light ? "#fbfbfc" : "#242529"};color:${fg};width:400px;max-width:calc(100vw - 40px);padding:0;box-shadow:0 30px 90px #000a}
-dialog#prompt::backdrop{background:#0009}
-#prompt .dh{padding:18px 20px 2px}#prompt .dh b{font-size:15px;font-weight:650}
-#prompt .db{padding:6px 20px 20px}
-#prompt input.tin{width:100%;margin-top:12px;padding:11px 12px;border:1px solid ${line};border-radius:10px;background:${light ? "#fff" : "#2c2d31"};color:inherit;font-size:13.5px}
-#prompt input.tin:focus{outline:none;border-color:#4d86d9}
-#prompt .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
-#prompt .dbtn{border:1px solid ${line};background:transparent;color:inherit;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:550}
-#prompt .dbtn:hover{background:${light ? "#eee" : "#33383f"}}
-#prompt .dbtn.pri{background:${light ? "#1a1a1a" : "#f0f0f2"};color:${light ? "#fff" : "#1a1a1a"};border-color:transparent}
-#prompt .dbtn.pri:hover{opacity:.9}
-#create input.tin{width:100%;padding:11px 12px;border:1px solid ${line};border-radius:10px;background:${light ? "#fff" : "#2c2d31"};color:inherit;font-size:13.5px}
-#create input.tin:focus{outline:none;border-color:#4d86d9}
-#create input.tin::placeholder{color:${light ? "#9aa0ab" : "#71767f"}}
-#create #preview{margin-top:11px;font-size:11px;color:${light ? "#6b7280" : "#8a8f99"};line-height:1.65;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-#create .error{color:#e0736b;min-height:15px;margin-top:11px;font-size:12px}
-#create .actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:20px}
-#create .dbtn{border:1px solid ${line};background:transparent;color:inherit;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:550}
-#create .dbtn:hover{background:${light ? "#eee" : "#33383f"}}
-#create .dbtn.pri{background:${light ? "#1a1a1a" : "#f0f0f2"};color:${light ? "#fff" : "#1a1a1a"};border-color:transparent;display:inline-flex;align-items:center;gap:8px}
-#create .dbtn.pri:hover{opacity:.9}#create .dbtn.pri:disabled{opacity:.5}
-#create .dbtn.pri kbd{font:11px ui-monospace,monospace;background:#00000022;border-radius:5px;padding:1px 5px;opacity:.8}
-.context-menu{position:fixed;z-index:20;width:172px;padding:5px;background:${bg};border:1px solid ${line};border-radius:8px;box-shadow:0 12px 30px #0008}
-.context-menu button{display:block;width:100%;border:0;text-align:left;padding:7px 9px}.context-menu button:hover{background:${light ? "#dfe7f5" : "#373d49"}}.context-menu .danger{color:#df6868}.hidden{display:none!important}</style>
-<div id="titlebar"><span id="wsname"></span><span class="tb-spacer"></span><div id="tools"><button class="tb" data-act="changes" title="Changes (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" title="Files (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" title="Terminal (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" title="History (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button><button class="tb" data-act="more" title="More review tools"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button></div></div><main id="hub"><section id="list"></section><div id="railfoot"><button id="pin" title="Expand workspace rail (⌘⇧E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button><button id="new" title="New workspace (⌘N)">＋</button><button id="settings" title="Settings — v${APP_VERSION}">⚙</button></div></main>
-<dialog id="create"><div class="dh"><b>New workspace</b><button class="dx" id="dlgClose" aria-label="Close">✕</button></div><div class="db"><label>Project</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">Select a project…</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label>Task name</label><input id="label" class="tin" placeholder="e.g. fix-login-crash" autocomplete="off" spellcheck="false"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">Cancel</button><button id="doCreate" class="dbtn pri"><span class="dcl">Fetch &amp; create</span><kbd>⌘↵</kbd></button></div></div></dialog>
-<dialog id="prompt"><div class="dh"><b id="promptTitle"></b></div><div class="db"><input id="promptInput" class="tin" autocomplete="off" spellcheck="false"><div class="actions"><button id="promptCancel" class="dbtn">Cancel</button><button id="promptOk" class="dbtn pri">OK</button></div></div></dialog><script>
-const list=document.querySelector("#list"),dlg=document.querySelector("#create"),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let creating=false;const openCreate=()=>{loadProjects();closeProjectMenu();dlg.showModal();window.kakapoHub.modal(true);setTimeout(()=>{(document.querySelector("#repo").value?document.querySelector("#label"):document.querySelector("#choose")).focus();},0)};dlg.addEventListener('close',()=>window.kakapoHub.modal(false));document.querySelector("#new").onclick=openCreate;document.querySelector("#cancelCreate").onclick=()=>{if(creating)window.kakapoHub.cancelCreate();else dlg.close()};
-document.querySelector("#settings").onclick=()=>window.kakapoHub.settings();
-const tools=document.getElementById('tools');
-tools.addEventListener('click',e=>{const b=e.target.closest('button.tb');if(!b)return;window.kakapoHub.railAction(b.dataset.act)});
-window.kakapoHub.onRailState(s=>{s=s||{};const active=s.active||[];for(const b of tools.querySelectorAll('button.tb')){const a=b.dataset.act;if(a==='terminal'){b.classList.toggle('hidden',!s.terminal);}b.classList.toggle('active',active.indexOf(a)>=0);}});
-window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(openCreate);
-// Rail expand: ⌘⇧E or the » button toggles it open; main then pushes the review views right (they render over
-// the shell page, so the rail can't overlay them) and collapses the active view's file tree to make room.
-let railExp=false;const pinBtn=document.getElementById('pin');
-// Visual state only. Main owns keyboard focus: it focuses the rail while expanded (so arrows/Enter navigate
-// workspaces) and returns focus to the review view when it collapses.
-function paintRail(){document.body.classList.toggle('rail-exp',railExp);}
-// User action (⌘⇧E / the » pin): flip and tell main, which animates the view push, collapses the file tree, and
-// moves focus onto the rail.
-function toggleRail(){railExp=!railExp;paintRail();window.kakapoHub.setHubExpanded(railExp);if(railExp)initRailSel();else railClearSel();}
-// While the expanded rail holds focus, ↑/↓ move a selection through the workspace tiles and Enter opens it.
-let railSel=-1;
-function railTiles(){return [...document.querySelectorAll('#list .ws:not(.disc)')];}
-function railSelect(i){const t=railTiles();if(!t.length){railSel=-1;return;}railSel=Math.max(0,Math.min(t.length-1,i));t.forEach((el,j)=>el.classList.toggle('kbd-sel',j===railSel));const el=t[railSel];if(el&&el.scrollIntoView)el.scrollIntoView({block:'nearest'});}
-function railClearSel(){railSel=-1;document.querySelectorAll('#list .ws.kbd-sel').forEach(el=>el.classList.remove('kbd-sel'));}
-function initRailSel(){const t=railTiles();const ai=t.findIndex(el=>el.classList.contains('active'));railSelect(ai>=0?ai:0);}
-document.addEventListener('keydown',e=>{
-  if(!railExp||document.querySelector('dialog[open]'))return; // only when the rail is expanded and no dialog owns keys
-  const a=document.activeElement;if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'))return;
-  if(e.key==='ArrowDown'){e.preventDefault();railSelect(railSel<0?0:railSel+1);}
-  else if(e.key==='ArrowUp'){e.preventDefault();railSelect(railSel<0?0:railSel-1);}
-  else if(e.key==='Enter'){const t=railTiles();if(railSel>=0&&t[railSel]){e.preventDefault();t[railSel].click();}}
-  else if((e.key==='e'||e.key==='E')&&!e.metaKey&&!e.ctrlKey&&!e.altKey){const t=railTiles();const el=railSel>=0?t[railSel]:null;if(el&&el.dataset.disconnected!=='true'){e.preventDefault();renameWorkspace(Number(el.dataset.id),el.dataset.name||'');}}
-});
-pinBtn.onclick=toggleRail;
-window.kakapoHub.onToggleExpand(toggleRail);
-// Main collapses the rail (visual only, no echo) when focus returns to the review view — clicking back into the
-// "main window" dismisses the peek.
-window.kakapoHub.onSetExpanded(open=>{railExp=!!open;paintRail();if(!railExp)railClearSel();});
-async function preview(){const r=await window.kakapoHub.preview(document.querySelector("#repo").value,document.querySelector("#label").value);document.querySelector("#preview").innerHTML=r.ok?'slug: '+esc(r.slug)+'<br>base: '+esc(r.base)+'<br>branch: '+esc(r.branch)+'<br>'+esc(r.path):''}
-// Project field is a dropdown of the Git projects Kakapo already knows (main.hub-projects) plus a "Browse for a
-// folder…" fallback, so making another worktree for an existing project is one click instead of a folder pick.
-const projectMenu=document.querySelector("#projectMenu"),chooseBtn=document.querySelector("#choose");
-function closeProjectMenu(){projectMenu.classList.add('hidden');chooseBtn.setAttribute('aria-expanded','false');}
-function pickProject(path,name){document.querySelector("#repo").value=path;const n=document.querySelector("#repoName");n.textContent=name||(path.split('/').filter(Boolean).pop()||path);n.classList.remove('ph');closeProjectMenu();preview();document.querySelector("#label").focus();}
-async function browseForRepo(){closeProjectMenu();const r=await window.kakapoHub.chooseRepo();if(r.ok)pickProject(r.repo);}
-const _pmFolder='<span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span>';
-async function loadProjects(){let ps=[];try{ps=await window.kakapoHub.listProjects();}catch(e){}if(!Array.isArray(ps))ps=[];let html='';for(const p of ps)html+='<button type="button" role="option" data-path="'+esc(p.path)+'" data-name="'+esc(p.name)+'">'+_pmFolder+'<span class="pm-name">'+esc(p.name)+'</span><span class="pm-path">'+esc(p.path)+'</span></button>';if(ps.length)html+='<div class="pm-sep"></div>';html+='<button type="button" id="pmBrowse" class="pm-browse"><span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span><span class="pm-name">Browse for a folder…</span></button>';projectMenu.innerHTML=html;}
-projectMenu.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='pmBrowse'){browseForRepo();return;}if(b.dataset.path)pickProject(b.dataset.path,b.dataset.name);});
-chooseBtn.onclick=()=>{const willOpen=projectMenu.classList.contains('hidden');projectMenu.classList.toggle('hidden',!willOpen);chooseBtn.setAttribute('aria-expanded',String(willOpen));};
-dlg.addEventListener('mousedown',e=>{if(!e.target.closest('.field-wrap'))closeProjectMenu();});
-document.querySelector("#label").oninput=preview;
-document.querySelector("#dlgClose").onclick=()=>{if(!creating)dlg.close()};
-dlg.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();document.querySelector("#doCreate").click();}});
-document.querySelector("#doCreate").onclick=async()=>{const btn=document.querySelector("#doCreate"),lbl=btn.querySelector('.dcl'),err=document.querySelector("#createError");if(creating)return;if(!document.querySelector("#repo").value){err.textContent="Choose a repository first.";return;}creating=true;btn.disabled=true;lbl.textContent="Fetching base…";err.textContent="";
-const r=await window.kakapoHub.create(document.querySelector("#repo").value,document.querySelector("#label").value);creating=false;btn.disabled=false;lbl.textContent="Fetch & create";if(r.ok)dlg.close();else err.textContent=r.error||"Could not create workspace"};
-const ago=value=>{const seconds=Math.max(0,Math.floor((Date.now()-Number(value||Date.now()))/1000));return seconds<60?'now':seconds<3600?Math.floor(seconds/60)+'m ago':seconds<86400?Math.floor(seconds/3600)+'h ago':Math.floor(seconds/86400)+'d ago'};
-window.kakapoHub.onState(items=>{const groups=new Map;for(const w of items){if(!groups.has(w.repoName))groups.set(w.repoName,[]);groups.get(w.repoName).push(w)}
-const _a=items.find(w=>w.active);const _wn=document.getElementById('wsname');if(_wn)_wn.innerHTML=_a?'<span class="wsdot"></span>'+esc(_a.alias||_a.branch)+' <span class="rp">· '+esc(_a.repoName)+'</span>':'';
-// Badge initials. Split on separators only (NOT on every non-Latin char) so Korean/CJK names keep their
-// letters instead of collapsing to "?". Latin → uppercased two-word/two-letter initials; CJK → the first one
-// or two characters as-is (Hangul has no case).
-const initials=w=>{var s=String(w.alias||w.branch||w.repoName||'?').replace(/^(feature|fix|chore|bugfix|hotfix|release)[\\/_-]/i,'').trim();if(!s)return'?';var parts=s.split(/[\\s._/-]+/).filter(Boolean);var a=parts[0]||s,ac=Array.from(a),latin=/^[A-Za-z0-9]/.test(a),r;if(parts.length>1){var bc=Array.from(parts[1]);r=(ac[0]||'')+(bc[0]||'');}else{r=ac.slice(0,2).join('');}return latin?r.toUpperCase():r;};
-const tip=w=>(w.alias||w.branch)+' · '+w.repoName+(w.dirtyCount?' · '+w.dirtyCount+' changed':'')+(w.running?' · ● running':w.resume?' · resumable':w.disconnected?' · disconnected':'');
-const badgeCls=w=>'ws-badge'+(w.busy?' busy':'')+(w.running?' running':'')+(w.unread?' attn':'');
-// Stable per-project hue (all worktrees of a project share it, differ by lightness) so the collapsed rail is
-// distinguishable at a glance instead of a column of look-alike gray 2-letter badges. Disconnected tiles stay gray.
-const projHue=n=>{let h=0;const s=String(n||'');for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h%360;};
-const badgeStyle=(repo,wi,w)=>w.disconnected?'':' style="background:hsl('+projHue(repo)+',40%,'+Math.min(70,52+wi*9)+'%);border-color:transparent;color:#14171e"';
-const badgeInner=(repo,wi,w)=>w.avatar?['<img class="ws-av" src="'+w.avatar+'" alt="">','',' has-av'] : [esc(initials(w)),badgeStyle(repo,wi,w),''];
-list.innerHTML=[...groups].map(([repo,ws],gi)=>(gi>0?'<div class="repo-sep"></div>':'')+'<div class="ws-group-head" title="'+esc(repo)+'">'+esc(repo)+'</div>'+ws.map((w,wi)=>{const bi=badgeInner(repo,wi,w);return '<button class="ws '+(w.active?'active':'')+(w.disconnected?' disc':'')+'" title="'+esc(tip(w))+'" data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-resume="'+(w.resume&&!w.running?'1':'')+'"><span class="'+badgeCls(w)+bi[2]+'"'+bi[1]+'>'+bi[0]+'<span class="rundot"></span><span class="unread"></span></span><span class="ws-label"><span class="n">'+esc(w.alias||w.branch)+'</span></span></button>';}).join('')).join('');
-for(const el of list.querySelectorAll('.ws')){el.onclick=async()=>{const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){const action=prompt('reconnect | remove','reconnect');if(action==='remove')window.kakapoHub.forget(path);else if(action==='reconnect'){const r=await window.kakapoHub.chooseRepo();if(r.ok)window.kakapoHub.reconnect(path,r.repo)}return}window.kakapoHub.activate(id)};}
-if(railExp)railSelect(railSel<0?0:railSel); // re-apply the keyboard selection after a re-render
-});
-// Lightweight agent-activity ticks (spinner / attention dot) that toggle classes on existing tiles without a
-// full re-render, so a streaming agent doesn't rebuild the rail DOM and drop hover/focus state.
-window.kakapoHub.onActivity(list=>{for(const a of list){const b=document.querySelector('.ws[data-id="'+a.id+'"] .ws-badge');if(!b)continue;b.classList.toggle('busy',!!a.busy);b.classList.toggle('running',!!a.running);b.classList.toggle('attn',!!a.unread);}});
-// Electron has no window.prompt(), so rename/memo use this in-page dialog instead (prompt() silently returned
-// null, which is why those menu items did nothing). Resolves to the entered string, or null if cancelled.
-const promptDlg=document.querySelector("#prompt"),promptInput=document.querySelector("#promptInput"),promptTitle=document.querySelector("#promptTitle");
-function showPrompt(title,initial){return new Promise(resolve=>{promptTitle.textContent=title;promptInput.value=initial||'';const onClose=()=>{promptDlg.removeEventListener('close',onClose);resolve(promptDlg.returnValue==='ok'?promptInput.value:null);};promptDlg.addEventListener('close',onClose);promptDlg.showModal();setTimeout(()=>{promptInput.focus();promptInput.select();},0);});}
-document.querySelector("#promptOk").onclick=()=>promptDlg.close('ok');
-document.querySelector("#promptCancel").onclick=()=>promptDlg.close('cancel');
-promptInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();promptDlg.close('ok');}else if(e.key==='Escape'){e.preventDefault();promptDlg.close('cancel');}});
-// The native tile menu (built in main) sends the chosen action back here. Rename/memo open the in-page prompt,
-// which DOES need the views hidden (it's a shell-page dialog) — but only for the brief text entry, not for the
-// whole menu as before.
-// Rename opens the in-page prompt (Electron has no window.prompt); shared by the native menu and the rail's 'e'
-// shortcut. modal(true) hides the review views so the shell-page dialog is visible, restored on close.
-function renameWorkspace(id,name){window.kakapoHub.modal(true);showPrompt('Rename workspace',name).then(alias=>{window.kakapoHub.modal(false);if(alias!==null)window.kakapoHub.rename(id,alias);});}
-window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){renameWorkspace(id,name);}else if(action==='memo'){window.kakapoHub.modal(true);showPrompt('One-line memo','').then(memo=>{window.kakapoHub.modal(false);if(memo!==null)window.kakapoHub.rename(id,undefined,memo);});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id);});
-async function removeWorkspace(id){const delBranch=confirm('Also delete the local branch?\\nOK deletes it; Cancel keeps it.');let r=await window.kakapoHub.remove(id,'delete',false,delBranch);if(r.needsConfirmation){const x=r.risk;if(confirm('Delete worktree?'+(x.dirty?'\\n• uncommitted changes':'')+(x.unpushed?'\\n• '+x.unpushed+' unpushed commits':'')+(x.runningProcesses?'\\n• running terminal/agent':'')+'\\n\\nThis cannot be undone.'))r=await window.kakapoHub.remove(id,'delete',true,delBranch)}if(!r.ok&&!r.needsConfirmation)alert(r.error||'Delete failed')}
-document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.ws');if(card){e.preventDefault();window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1'});}});
-document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.altKey&&/^[1-9]$/.test(e.key)){e.preventDefault();window.kakapoHub.activateIndex(Number(e.key)-1)}});
-document.addEventListener('click',e=>{if(!railExp&&!e.target.closest('button,input,textarea,dialog,#wsname'))window.kakapoHub.refocusReview()});
-window.kakapoHub.requestState();
-</script>`;
-}
+
 
 // Create a window for `root`, register its WinState, wire teardown, and boot it (animated mark ->
 // first build, or the welcome screen for a packaged launch with no repo).
