@@ -4,6 +4,7 @@ import { escapeAttr, escapeHtml, jsonForScript } from "./util.js";
 import { diff2HtmlCss, diffCss, diffScript, xtermCss, xtermScript } from "./assets.js";
 import { MESSAGES } from "./i18n.js";
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
+import { REVIEW_ISLAND } from "./viewer-contract.js";
 import {
   initialReviewSources,
   renderDiffTree,
@@ -626,15 +627,15 @@ export function renderDiffHtml(input: {
         + '</div>'
       : "",
     input.diffIslands || "",
-    `<script type="application/json" id="review-meta" data-watch="${input.watch ? "true" : "false"}" data-signature="${escapeAttr(input.signature ?? "")}" data-generated-at="${escapeAttr(input.generatedAt ?? "")}" data-lazy="${input.lazy ? "true" : "false"}" data-lazy-load="${input.lazyLoad ? "true" : "false"}">{}</script>`,
-    `<script type="application/json" id="i18n-data">${jsonForScript(MESSAGES)}</script>`,
-    `<script type="application/json" id="source-files-data">${jsonForScript(input.lazyLoad ? initialSourceFiles.map(sourceFileMetadata) : initialSourceFiles)}</script>`,
-    `<script type="application/json" id="file-state-data">${jsonForScript(initialFileStates)}</script>`,
-    `<script type="application/json" id="http-env-data">${jsonForScript(input.httpEnvironments)}</script>`,
+    `<script type="application/json" id="${REVIEW_ISLAND.meta}" data-watch="${input.watch ? "true" : "false"}" data-signature="${escapeAttr(input.signature ?? "")}" data-generated-at="${escapeAttr(input.generatedAt ?? "")}" data-lazy="${input.lazy ? "true" : "false"}" data-lazy-load="${input.lazyLoad ? "true" : "false"}">{}</script>`,
+    `<script type="application/json" id="${REVIEW_ISLAND.i18n}">${jsonForScript(MESSAGES)}</script>`,
+    `<script type="application/json" id="${REVIEW_ISLAND.sourceFiles}">${jsonForScript(input.lazyLoad ? initialSourceFiles.map(sourceFileMetadata) : initialSourceFiles)}</script>`,
+    `<script type="application/json" id="${REVIEW_ISLAND.fileStates}">${jsonForScript(initialFileStates)}</script>`,
+    `<script type="application/json" id="${REVIEW_ISLAND.httpEnv}">${jsonForScript(input.httpEnvironments)}</script>`,
     `<script>window.__KAKAPO_VERSION__=${JSON.stringify(packageVersion)};</script>`,
     // xterm ships as an inert island (type=text/html, not parsed at startup) and is injected into a real
     // <script> by the terminal client on first open, so the ~490 KB bundle never costs a cold launch.
-    input.app ? `<script type="text/html" id="xterm-code">${xtermScript()}</script>` : "",
+    input.app ? `<script type="text/html" id="${REVIEW_ISLAND.xterm}">${xtermScript()}</script>` : "",
     "<script>",
     diffScript(),
     "</script>",
