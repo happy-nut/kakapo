@@ -639,21 +639,33 @@ export class ProjectAnalysis {
     };
   }
 
+  // Drop server-reported locations that don't point at code (a comment/string/blank line). This needs the
+  // MASKED form of each result line — but only for the result files, so mask those directly instead of
+  // building (and, on every LSP-success nav, rebuilding) the whole-repo symbol index. Masking full file
+  // content keeps multi-line comment/string awareness; each result file is read once for text + mask.
   private async navigationLocations(locations: AnalysisLocation[], limit = MAX_LOCATIONS): Promise<AnalysisLocation[]> {
     if (!locations.length) return [];
-    const [enriched, index] = await Promise.all([
-      this.withText(uniqueLocations(locations, limit)),
-      this.getIndex(),
-    ]);
-    return enriched.filter((item) => {
-      if (documentPath(item.path)) return false;
-      const indexedLine = index.codeLines.get(item.path)?.[item.lineIndex];
-      const codeLine = indexedLine ?? maskNonCode(item.text ?? "", item.path)[0] ?? "";
-      const start = Math.max(0, Number(item.column) || 0);
-      // Some servers report the beginning of indentation rather than the identifier itself. Looking from
-      // that point to the end keeps those valid locations while a comment/string range remains all spaces.
-      return /\S/.test(codeLine.slice(start));
-    });
+    const unique = uniqueLocations(locations, limit);
+    const rawByPath = new Map<string, string[]>();
+    const maskedByPath = new Map<string, string[]>();
+    await Promise.all(Array.from(new Set(unique.map((item) => item.path))).map(async (path) => {
+      if (documentPath(path)) return; // non-code doc target — filtered out below without a read
+      try {
+        const content = await readFile(join(this.root, path), "utf8");
+        rawByPath.set(path, content.split(/\r?\n/));
+        maskedByPath.set(path, maskNonCode(content, path));
+      } catch { /* unreadable — fall back to per-line masking of item.text below */ }
+    }));
+    return unique
+      .map((item) => ({ ...item, text: item.text ?? rawByPath.get(item.path)?.[item.lineIndex] ?? "" }))
+      .filter((item) => {
+        if (documentPath(item.path)) return false;
+        const codeLine = maskedByPath.get(item.path)?.[item.lineIndex] ?? maskNonCode(item.text ?? "", item.path)[0] ?? "";
+        const start = Math.max(0, Number(item.column) || 0);
+        // Some servers report the beginning of indentation rather than the identifier itself. Looking from
+        // that point to the end keeps those valid locations while a comment/string range remains all spaces.
+        return /\S/.test(codeLine.slice(start));
+      });
   }
 
   private async withText(locations: AnalysisLocation[]): Promise<AnalysisLocation[]> {
