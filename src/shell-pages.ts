@@ -86,6 +86,13 @@ body.rail-exp .cv{display:none}
 .cv .wt.running:not(.busy) .rdot{display:block}
 .cv .wt .udot{position:absolute;top:-2px;left:-2px;width:8px;height:8px;border-radius:50%;background:#e5484d;border:2px solid ${light ? "#eaecef" : "#212327"};display:none}
 .cv .wt.attn .udot{display:block}
+/* The project's main checkout (kind:main) wears a small home badge so the root worktree reads apart from
+   its task worktrees at a glance. Rendered only for main, so no state class gates it. Bottom-right corner
+   keeps it clear of the running (top-right) and attention (top-left) status dots. */
+.cv .wt .mdot{position:absolute;bottom:-3px;right:-3px;width:12px;height:12px;border-radius:50%;background:${light ? "#c9862a" : "#d99a3a"};border:2px solid ${light ? "#eaecef" : "#212327"};display:grid;place-items:center;color:#fff}
+.cv .wt .mdot svg{width:7px;height:7px;display:block}
+.wt-home{width:13px;height:13px;flex:none;color:${light ? "#c9862a" : "#d99a3a"};display:grid;place-items:center}
+.wt-home svg{width:13px;height:13px;display:block}
 /* Agent working: a breathing ring around the badge — scales + fades in place rather than rotating, so several
    working worktrees don't make the rail spin. pointer-events:none keeps the badge clickable through it. */
 .cv .wt.busy::after{content:"";position:absolute;inset:-2px;border-radius:9px;border:2px solid #4d86d9;animation:wsbreathe 1.3s ease-in-out infinite;pointer-events:none}
@@ -266,8 +273,10 @@ const projMark=repo=>{const a=Array.from(String(repo||'?').trim());const c=a[0]|
 const avInner=(ws,repo)=>{const av=grpAvatar(ws);return av?'<img src="'+av+'" alt="">':esc(projMark(repo));};
 const avStyle=(ws,repo)=>grpAvatar(ws)?'':' style="background:hsl('+projHue(repo)+',44%,60%)"';
 const chev='<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>';
-const cv='<div class="cv">'+[...groups].map(([repo,ws])=>'<div class="grp"><div class="phav" data-repo="'+esc(repo)+'" title="'+esc(repo)+'"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</div><div class="wts">'+ws.map(w=>'<button class="wt'+wcls(w)+'"'+wattr(w)+'>'+esc(initials(w))+'<span class="rdot"></span><span class="udot"></span></button>').join('')+'</div></div>').join('')+'</div>';
-const ev='<div class="ev"><div class="phead"><span class="t">Workspaces</span></div><div class="plist">'+[...groups].map(([repo,ws])=>'<div class="proj"><div class="prow" data-repo="'+esc(repo)+'"><span class="pav"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</span><span class="pname">'+esc(repo)+'</span><span class="pcount">'+ws.length+'</span>'+chev+'</div><div class="ewts">'+ws.map(w=>{const nm=esc(w.alias||w.branch);const showBr=w.branch&&(!w.alias||w.branch!==w.alias);const brLine=showBr?'<div class="wt-branch">'+esc(w.branch)+'</div>':'';const tag=w.dirtyCount?'<span class="wt-tag">'+w.dirtyCount+'</span>':'';return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
+const homeIco='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3.1 3.3 10a.6.6 0 0 0 .38 1.06H5v8.4c0 .3.24.54.54.54H9.6v-5.2h4.8v5.2h4.06c.3 0 .54-.24.54-.54v-8.4h1.32A.6.6 0 0 0 20.7 10z"/></svg>';
+const isMain=w=>w.kind==='main';
+const cv='<div class="cv">'+[...groups].map(([repo,ws])=>'<div class="grp"><div class="phav" data-repo="'+esc(repo)+'" title="'+esc(repo)+'"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</div><div class="wts">'+ws.map(w=>'<button class="wt'+wcls(w)+'"'+wattr(w)+'>'+esc(initials(w))+'<span class="rdot"></span><span class="udot"></span>'+(isMain(w)?'<span class="mdot" title="Main worktree">'+homeIco+'</span>':'')+'</button>').join('')+'</div></div>').join('')+'</div>';
+const ev='<div class="ev"><div class="phead"><span class="t">Workspaces</span></div><div class="plist">'+[...groups].map(([repo,ws])=>'<div class="proj"><div class="prow" data-repo="'+esc(repo)+'"><span class="pav"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</span><span class="pname">'+esc(repo)+'</span><span class="pcount">'+ws.length+'</span>'+chev+'</div><div class="ewts">'+ws.map(w=>{const nm=esc(w.alias||w.branch);const showBr=w.branch&&(!w.alias||w.branch!==w.alias);const brLine=showBr?'<div class="wt-branch">'+esc(w.branch)+'</div>':'';const tag=w.dirtyCount?'<span class="wt-tag">'+w.dirtyCount+'</span>':'';const home=isMain(w)?'<span class="wt-home" title="Main worktree">'+homeIco+'</span>':'';return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
 list.innerHTML=cv+ev;
 // Worktree click → activate (or reconnect/forget a disconnected one). Collapsed badges and expanded cards are
 // both .wt with the same data-*, so one handler covers both views.
