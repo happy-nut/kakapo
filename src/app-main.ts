@@ -487,26 +487,58 @@ ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; la
   }
 });
 ipcMain.on("kakapo:hub-cancel-create", () => workspaceCreation?.abort());
-ipcMain.handle("kakapo:hub-forget", (_event, payload: { path?: unknown }) => {
-  if (typeof payload?.path !== "string") return { ok: false };
-  const next = savedWorkspaceMetadata().filter((item) => item.path !== payload.path);
-  const startupIndex = startupWorkspaceMetadata.findIndex((item) => item.path === payload.path);
+function forgetWorkspace(path: string): void {
+  const next = savedWorkspaceMetadata().filter((item) => item.path !== path);
+  const startupIndex = startupWorkspaceMetadata.findIndex((item) => item.path === path);
   if (startupIndex >= 0) startupWorkspaceMetadata.splice(startupIndex, 1);
   preferences.writeOpenWorkspaces(next, focusedState()?.options.root);
   renderHub();
-  return { ok: true };
-});
-ipcMain.handle("kakapo:hub-reconnect", (_event, payload: { oldPath?: unknown; newPath?: unknown }) => {
-  if (typeof payload?.oldPath !== "string" || typeof payload?.newPath !== "string" || !isGitRepository(payload.newPath)) return { ok: false };
-  const old = savedWorkspaceMetadata().find((item) => item.path === payload.oldPath);
-  const replacement = { ...workspaceRecord(payload.newPath), alias: old?.alias, memo: old?.memo, base: old?.base };
-  const next = savedWorkspaceMetadata().filter((item) => item.path !== payload.oldPath);
-  const startupIndex = startupWorkspaceMetadata.findIndex((item) => item.path === payload.oldPath);
+}
+function reconnectWorkspace(oldPath: string, newPath: string): boolean {
+  if (!isGitRepository(newPath)) return false;
+  const old = savedWorkspaceMetadata().find((item) => item.path === oldPath);
+  const replacement = { ...workspaceRecord(newPath), alias: old?.alias, memo: old?.memo, base: old?.base };
+  const next = savedWorkspaceMetadata().filter((item) => item.path !== oldPath);
+  const startupIndex = startupWorkspaceMetadata.findIndex((item) => item.path === oldPath);
   if (startupIndex >= 0) startupWorkspaceMetadata.splice(startupIndex, 1);
   next.push(replacement);
   preferences.writeOpenWorkspaces(next, replacement.path);
   openOrFocusWorkspace(replacement.path);
+  return true;
+}
+ipcMain.handle("kakapo:hub-forget", (_event, payload: { path?: unknown }) => {
+  if (typeof payload?.path !== "string") return { ok: false };
+  forgetWorkspace(payload.path);
   return { ok: true };
+});
+ipcMain.handle("kakapo:hub-reconnect", (_event, payload: { oldPath?: unknown; newPath?: unknown }) => {
+  if (typeof payload?.oldPath !== "string" || typeof payload?.newPath !== "string") return { ok: false };
+  return { ok: reconnectWorkspace(payload.oldPath, payload.newPath) };
+});
+// A disconnected tile (its folder is gone) was previously actioned with window.prompt(), which returns null
+// in Electron — so clicking one did nothing and it could be neither reconnected nor removed. Offer a reliable
+// native choice instead: point it at a new folder, or drop it from the list.
+ipcMain.handle("kakapo:hub-disconnected", async (_event, payload: { path?: unknown }) => {
+  if (typeof payload?.path !== "string") return { ok: false };
+  const path = payload.path;
+  const options = {
+    type: "warning" as const,
+    buttons: ["Reconnect…", "Remove from List", "Cancel"],
+    defaultId: 0,
+    cancelId: 2,
+    message: "This workspace's folder is no longer on disk.",
+    detail: path,
+  };
+  const choice = shellWindow && !shellWindow.isDestroyed()
+    ? dialog.showMessageBoxSync(shellWindow, options)
+    : dialog.showMessageBoxSync(options);
+  if (choice === 0) {
+    const repo = await pickRepo(shellWindow, focusedState()?.options.root);
+    if (repo) reconnectWorkspace(path, repo);
+    return { ok: true };
+  }
+  if (choice === 1) { forgetWorkspace(path); return { ok: true }; }
+  return { ok: false };
 });
 ipcMain.handle("kakapo:hub-rename", (_event, payload: { id?: unknown; alias?: unknown; memo?: unknown }) => {
   if (typeof payload?.id !== "number") return { ok: false };

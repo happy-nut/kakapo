@@ -36,6 +36,9 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   detach: (id: number) => ipcRenderer.send("kakapo:hub-detach", id),
   forget: (path: string) => ipcRenderer.invoke("kakapo:hub-forget", { path }),
   reconnect: (oldPath: string, newPath: string) => ipcRenderer.invoke("kakapo:hub-reconnect", { oldPath, newPath }),
+  // A disconnected tile (folder gone): main shows a native Reconnect…/Remove/Cancel dialog and acts on it —
+  // replaces the old window.prompt() path, which returned null in Electron and left the tile un-actionable.
+  resolveDisconnected: (path: string) => ipcRenderer.invoke("kakapo:hub-disconnected", { path }),
   requestState: () => ipcRenderer.send("kakapo:hub-ready"),
   // Title-bar review tools: the buttons live in this shell page but the actions run in the active review
   // view (a separate WebContentsView). Forward the click to main, which relays it to that view; the view
