@@ -41,10 +41,13 @@ test("desktop composition uses one shell BrowserWindow, isolated views, and expl
   assert.match(source, /kakapo:workspace-state/);
   assert.match(source, /setWorkspaceHubOpen/);
   assert.match(source, /isDetached: \(\)/);
-  // Three BrowserWindows total: the shell, the detached-host window, and the transient tile context-menu popup
-  // (a frameless child window so the custom design-system menu can float above the review views). Workspaces
-  // themselves are always WebContentsViews, never windows — that per-workspace invariant is what this guards.
-  assert.equal((source.match(/new BrowserWindow\(/g) || []).length, 3);
+  // Two BrowserWindows in app-main: the shell and the detached-host window. The third — the transient tile
+  // context-menu popup (a frameless child window so the custom design-system menu can float above the review
+  // views) — lives in its own adapter, app-tile-menu-ipc.ts. Workspaces themselves are always WebContentsViews,
+  // never windows — that per-workspace invariant is what this guards.
+  assert.equal((source.match(/new BrowserWindow\(/g) || []).length, 2);
+  const tileMenu = readFileSync(new URL("../src/app-tile-menu-ipc.ts", import.meta.url), "utf8");
+  assert.equal((tileMenu.match(/new BrowserWindow\(/g) || []).length, 1, "the tile-menu popup is the only window its adapter creates");
 });
 
 test("shutdown teardown does not erase the restore-on-launch workspace session", () => {

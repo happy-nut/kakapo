@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, screen, shell, WebContentsView } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell, WebContentsView } from "electron";
 import type { WebContents } from "electron";
 import { git, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
@@ -27,10 +27,11 @@ import { registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerTerminalIpc } from "./app-terminal-ipc.js";
 import { registerAnswersIpc, syncAnswersFile, answersFilePath } from "./answers-ipc.js";
 import { registerExplainIpc, refreshExplainIfChanged } from "./app-explain-ipc.js";
+import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
-import { hubHtml, modalOverlayHtml, tileMenuHtml } from "./shell-pages.js";
+import { hubHtml, modalOverlayHtml } from "./shell-pages.js";
 import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
 
 type AppOptions = {
@@ -272,6 +273,7 @@ registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerTerminalIpc(ipcMain, stateFromEvent);
 registerAnswersIpc(ipcMain, stateFromEvent);
 registerExplainIpc(ipcMain, stateFromEvent);
+registerTileMenuIpc(ipcMain, { getShellWindow: () => shellWindow, isLightTheme });
 registerSettingsIpc(ipcMain, preferences, stateFromEvent);
 registerMemoIpc(ipcMain, { read: readMemoWithLegacyImport, write: (root, body) => memoStore().write(root, body), remove: (root) => memoStore().remove(root) }, stateFromEvent);
 ipcMain.on("kakapo:hub-ready", renderHub);
@@ -412,62 +414,9 @@ ipcMain.handle("kakapo:hub-projects", () => {
   projects.sort((a, b) => a.name.localeCompare(b.name));
   return projects;
 });
-// The workspace-tile context menu is a custom design-system component, not the OS native menu. It renders in a
-// small frameless, transparent child window at the cursor, so it floats ABOVE the review views (which cover the
-// shell page) without blanking the panel — the reason the old in-shell HTML menu couldn't work. The window is
-// sized to its content (the page reports its measured size), positioned at the cursor, and dismissed on choose,
-// blur, Escape, or a click outside the menu box.
-let tileMenuWindow: BrowserWindow | undefined;
-let tileMenuTarget: { id: number; name: string } | undefined;
-let tileMenuAnchor: { x: number; y: number } | undefined;
-let tileMenuShown = false;
-function closeTileMenu(): void {
-  const win = tileMenuWindow;
-  tileMenuWindow = undefined; tileMenuTarget = undefined; tileMenuAnchor = undefined; tileMenuShown = false;
-  if (win && !win.isDestroyed()) win.close();
-}
-
-ipcMain.on("kakapo:tile-menu", (_event, info: { id?: unknown; name?: unknown; resume?: unknown; kind?: unknown }) => {
-  if (!shellWindow || shellWindow.isDestroyed()) return;
-  const id = Number(info?.id);
-  if (!Number.isFinite(id)) return;
-  closeTileMenu();
-  tileMenuTarget = { id, name: typeof info?.name === "string" ? info.name : "" };
-  tileMenuAnchor = screen.getCursorScreenPoint();
-  const win = new BrowserWindow({
-    width: 248, height: 220, show: false, frame: false, transparent: true, resizable: false, movable: false,
-    minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, hasShadow: false,
-    parent: shellWindow, webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false },
-  });
-  tileMenuWindow = win;
-  win.on("blur", () => { if (tileMenuWindow === win && tileMenuShown) closeTileMenu(); });
-  win.on("closed", () => { if (tileMenuWindow === win) { tileMenuWindow = undefined; tileMenuTarget = undefined; tileMenuAnchor = undefined; tileMenuShown = false; } });
-  void win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(tileMenuHtml(Boolean(info?.resume), info?.kind !== "main", isLightTheme())));
-});
-ipcMain.on("kakapo:menu-size", (event, size: { w?: unknown; h?: unknown }) => {
-  const win = tileMenuWindow;
-  if (!win || win.isDestroyed() || event.sender !== win.webContents || !tileMenuAnchor) return;
-  const w = Math.max(80, Math.min(640, Math.ceil(Number(size?.w) || 248)));
-  const h = Math.max(48, Math.min(900, Math.ceil(Number(size?.h) || 220)));
-  const wa = screen.getDisplayNearestPoint(tileMenuAnchor).workArea;
-  let x = tileMenuAnchor.x - 14, y = tileMenuAnchor.y - 14;
-  if (x + w > wa.x + wa.width) x = wa.x + wa.width - w;
-  if (y + h > wa.y + wa.height) y = wa.y + wa.height - h;
-  x = Math.max(wa.x, x); y = Math.max(wa.y, y);
-  win.setBounds({ x: Math.round(x), y: Math.round(y), width: w, height: h });
-  if (!tileMenuShown) { tileMenuShown = true; win.show(); win.focus(); }
-});
-ipcMain.on("kakapo:menu-choose", (event, action: unknown) => {
-  const win = tileMenuWindow;
-  if (!win || event.sender !== win.webContents) return;
-  const target = tileMenuTarget;
-  closeTileMenu();
-  if (target && shellWindow && !shellWindow.isDestroyed() && typeof action === "string")
-    shellWindow.webContents.send("kakapo:tile-action", { id: target.id, action, name: target.name });
-});
-ipcMain.on("kakapo:menu-close", (event) => {
-  if (tileMenuWindow && event.sender === tileMenuWindow.webContents) closeTileMenu();
-});
+// The workspace-tile context menu (kakapo:tile-menu / menu-size / menu-choose / menu-close) is a custom
+// frameless popup, not the OS native menu — it lives in registerTileMenuIpc (app-tile-menu-ipc.ts), wired with
+// the other IPC adapters above.
 ipcMain.handle("kakapo:hub-preview", (_event, payload: { repo?: unknown; label?: unknown }) => {
   if (typeof payload?.repo !== "string" || typeof payload?.label !== "string" || !isGitRepository(payload.repo)) return { ok: false };
   const repo = workspaceRecord(payload.repo), slug = workspaceSlug(payload.label);
