@@ -21,6 +21,7 @@ import { githubOwnerFromUrl } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
+import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerTerminalIpc } from "./app-terminal-ipc.js";
 import { registerAnswersIpc, syncAnswersFile, answersFilePath } from "./answers-ipc.js";
@@ -259,6 +260,7 @@ registerTerminalIpc(ipcMain, stateFromEvent);
 registerAnswersIpc(ipcMain, stateFromEvent);
 registerExplainIpc(ipcMain, stateFromEvent);
 registerSettingsIpc(ipcMain, preferences, stateFromEvent);
+registerMemoIpc(ipcMain, { read: readMemoWithLegacyImport, write: (root, body) => memoStore().write(root, body), remove: (root) => memoStore().remove(root) }, stateFromEvent);
 ipcMain.on("kakapo:hub-ready", renderHub);
 // Title-bar review tools live in the shell page but act on the active review view. Relay the click to that
 // view (which replays it through its own rail dispatcher). Guard on an active workspace existing.
@@ -540,22 +542,6 @@ ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unk
   return { ok: true };
 });
 
-// The single Markdown memo is application data, never a repository artifact. Main derives the scope from
-// the calling window's canonical worktree; the sandboxed renderer cannot choose a filesystem path.
-ipcMain.handle("kakapo:memo-read", (event) => {
-  const state = stateFromEvent(event);
-  return state ? readMemoWithLegacyImport(state.options.root) : { version: 1, worktreePath: "", body: "", updatedAt: null };
-});
-ipcMain.handle("kakapo:memo-write", (event, input?: { body?: unknown }) => {
-  const state = stateFromEvent(event);
-  return state ? memoStore().write(state.options.root, input?.body) : null;
-});
-ipcMain.handle("kakapo:memo-delete", (event) => {
-  const state = stateFromEvent(event);
-  if (!state) return { ok: false };
-  memoStore().remove(state.options.root);
-  return { ok: true };
-});
 // Patch-set compare bar: switch the diff base to a chosen patch set (or "auto" to restore the automatic
 // upstream merge-base). Mirrors the "Ignore whitespace" menu toggle — mutate this window's options,
 // rebuild, and push the diff in place (like refreshIfChanged) so comments/scroll survive. The right side
