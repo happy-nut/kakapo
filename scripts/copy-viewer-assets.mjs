@@ -2,7 +2,7 @@
 // authored as ordered slices in src/viewer/*.js (numbered to preserve order) and CONCATENATED here into the
 // single inlined script the renderer ships — concatenation only, so it stays one global scope, byte-for-byte
 // the same as the former single-file viewer bundle. cli.ts reads these at runtime via readViewerAsset().
-import { readdirSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -85,4 +85,10 @@ writeFileSync(join(distDir, "monaco", "markdown-editor.js"), editorBundle);
 // lazy kakapo-asset:// path as the Markdown editor: fetched only the first time an Explain doc actually
 // contains one of those diagram kinds, never part of the eagerly-parsed startup script.
 copyFileSync(join(root, "node_modules", "mermaid", "dist", "mermaid.min.js"), join(distDir, "monaco", "mermaid.js"));
+// The Electron review references the client as an external kakapo-asset:// script (render.ts diffClientAsset)
+// instead of inlining ~514KB into every window; the handler serves this dir, so mirror the client here too.
+for (const client of ["viewer.client.min.js", "viewer.client.js"]) {
+  const from = join(distDir, client);
+  if (existsSync(from)) copyFileSync(from, join(distDir, "monaco", client));
+}
 console.log(`bundled ${parts.length} viewer slices -> dist/viewer.client.js (${bundle.length} bytes); copied viewer.css + lazy Markdown editor + lazy Mermaid`);

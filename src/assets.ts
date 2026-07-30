@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
 
 const nodeRequire = createRequire(import.meta.url);
 const viewerAssetCache = new Map<string, string>();
@@ -58,4 +59,19 @@ export function diffScript(): string {
   } catch {
     return readViewerAsset("viewer.client.js");
   }
+}
+
+// The Electron app references the client as an EXTERNAL kakapo-asset:// script instead of inlining ~514KB
+// into every review window's HTML (render.ts) — the doc gets ~40% smaller and Chromium parses/caches the
+// client once across windows. The kakapo-asset handler serves immutable-cached assets, so the URL carries a
+// content hash to bust the cache when the client changes. Computed once (the client is fixed per process).
+let clientAssetCache: { file: string; version: string } | undefined;
+export function diffClientAsset(): { file: string; version: string } {
+  if (!clientAssetCache) {
+    const dir = dirname(fileURLToPath(import.meta.url));
+    const file = existsSync(join(dir, "viewer.client.min.js")) ? "viewer.client.min.js" : "viewer.client.js";
+    const version = createHash("sha1").update(readFileSync(join(dir, file))).digest("hex").slice(0, 12);
+    clientAssetCache = { file, version };
+  }
+  return clientAssetCache;
 }

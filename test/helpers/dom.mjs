@@ -12,8 +12,24 @@
 // DOM order — so a test that "types and saves" exercises the same wrong-textarea hazard the
 // regression came from, instead of papering over it.
 import { JSDOM } from "jsdom";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const DIST_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist");
+
+// The Electron review (app:true) references the client as an external kakapo-asset:// script — a scheme
+// only the app's protocol handler serves (from dist/monaco), which jsdom cannot fetch. Inline the same
+// bundle so the client boots identically under runScripts:"dangerously". Standalone/serve HTML already
+// inlines the client, so this is a no-op there.
+function inlineExternalClient(html) {
+  return html.replace(
+    /<script src="kakapo-asset:\/\/app\/(viewer\.client(?:\.min)?\.js)(?:\?[^"]*)?"><\/script>/,
+    (_match, file) => `<script>${readFileSync(join(DIST_DIR, file), "utf8")}</script>`,
+  );
+}
 
 /**
  * @param {string} html standalone review HTML
@@ -22,7 +38,7 @@ const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
  *   viewer boots — used to simulate "reopen the app" so persistence/restore can be asserted.
  */
 export async function loadViewer(html, opts = {}) {
-  const dom = new JSDOM(html, {
+  const dom = new JSDOM(inlineExternalClient(html), {
     url: "http://localhost/review.html",
     runScripts: "dangerously",
     pretendToBeVisual: true, // provides requestAnimationFrame/cancelAnimationFrame

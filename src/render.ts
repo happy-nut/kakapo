@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import type { DiffFile, ReviewFileState, SourceFile } from "./types.js";
 import { escapeAttr, escapeHtml, jsonForScript } from "./util.js";
-import { diff2HtmlCss, diffCss, diffScript, xtermCss, xtermScript } from "./assets.js";
+import { diff2HtmlCss, diffClientAsset, diffCss, diffScript, xtermCss, xtermScript } from "./assets.js";
 import { MESSAGES } from "./i18n.js";
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import { REVIEW_ISLAND } from "./viewer-contract.js";
@@ -636,9 +636,13 @@ export function renderDiffHtml(input: {
     // xterm ships as an inert island (type=text/html, not parsed at startup) and is injected into a real
     // <script> by the terminal client on first open, so the ~490 KB bundle never costs a cold launch.
     input.app ? `<script type="text/html" id="${REVIEW_ISLAND.xterm}">${xtermScript()}</script>` : "",
-    "<script>",
-    diffScript(),
-    "</script>",
+    // The Electron app serves the ~514KB client as an external, immutably-cached kakapo-asset:// script
+    // (loaded from the file:// review page, the same scheme the lazy Markdown editor already uses) so the
+    // review doc is ~40% smaller and the client is parsed/cached once across windows. serve/standalone have
+    // no such scheme, so they keep the inline copy.
+    input.app
+      ? `<script src="kakapo-asset://app/${diffClientAsset().file}?v=${diffClientAsset().version}"></script>`
+      : `<script>${diffScript()}</script>`,
     "</body>",
     "</html>",
   ].join("\n");

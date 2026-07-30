@@ -4,6 +4,7 @@
 // These assert the invariants a refactor MUST preserve, not incidental HTML (which embeds the temp path).
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { makeReviewHtml, renderLazyBodies, cleanupFixtures } from "./helpers/fixture.mjs";
 import { shouldLazyRender } from "../dist/render.js";
 
@@ -50,6 +51,33 @@ test("lazy build: deferred bodies render highlighted diffs on demand", async () 
   const bodies = await renderLazyBodies(build);
   assert.equal(bodies.length, CHANGED, "a body renders for each changed file");
   assert.ok(bodies.every((b) => b.includes("d2h")), "each rendered body is real diff2html markup");
+});
+
+test("V3: the app review references the client as an external kakapo-asset script; standalone inlines it", async () => {
+  const files = [{ path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" }];
+  const app = await makeReviewHtml(files, { app: true });
+  const standalone = await makeReviewHtml(files, { app: false });
+
+  // The app doc must NOT carry the ~514KB client inline — it references the immutably-cached, versioned asset
+  // that the kakapo-asset:// handler serves once across windows. A blank review is the failure mode if this
+  // tag is malformed, so pin its exact shape.
+  assert.match(
+    app.html,
+    /<script src="kakapo-asset:\/\/app\/viewer\.client(?:\.min)?\.js\?v=[a-f0-9]+"><\/script>/,
+    "app HTML references the external, cache-busted client",
+  );
+  // serve/standalone have no privileged scheme, so the client stays inline there.
+  assert.ok(
+    !standalone.html.includes("kakapo-asset://app/viewer.client"),
+    "standalone/serve HTML has no external client reference",
+  );
+  // The payoff, checked against the bundle's own bytes: standalone carries the client inline, the app doc
+  // does not. A distinctive slice from the bundle's middle avoids the markdown-it header it shares with no
+  // one and any collision with the terminal island the app HTML also inlines.
+  const client = readFileSync(new URL("../dist/viewer.client.min.js", import.meta.url), "utf8");
+  const marker = client.slice(Math.floor(client.length / 2), Math.floor(client.length / 2) + 200);
+  assert.ok(standalone.html.includes(marker), "standalone inlines the client bundle");
+  assert.ok(!app.html.includes(marker), "the app doc does not inline the ~514KB client bundle");
 });
 
 test("build signature is deterministic and path-independent (the watch fast-path depends on this)", async () => {
