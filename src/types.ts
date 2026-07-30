@@ -155,6 +155,9 @@ export type DiffReviewBuild = {
   // Native in-process form for Electron/benchmarks. Avoids stringify + parse of the entire source index;
   // lazySourceData remains the transport form used by the browser watch server.
   lazySourceFiles?: SourceFile[];
+  // Diff-first startup: true when this build indexed ONLY the changed files (deferFullIndex was honored),
+  // so the caller knows a second full-index pass is still owed to the renderer. False for a full build.
+  fullIndexDeferred?: boolean;
 };
 
 export type VerificationRun = {

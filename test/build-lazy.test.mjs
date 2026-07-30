@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { makeReviewHtml, renderLazyBodies, cleanupFixtures } from "./helpers/fixture.mjs";
 import { shouldLazyRender } from "../dist/render.js";
+import { collectReviewSourceIndex } from "../dist/review-workspace.js";
 
 after(cleanupFixtures);
 
@@ -78,6 +79,32 @@ test("V3: the app review references the client as an external kakapo-asset scrip
   const marker = client.slice(Math.floor(client.length / 2), Math.floor(client.length / 2) + 200);
   assert.ok(standalone.html.includes(marker), "standalone inlines the client bundle");
   assert.ok(!app.html.includes(marker), "the app doc does not inline the ~514KB client bundle");
+});
+
+test("diff-first: deferFullIndex indexes ONLY the changed files; the full index is a separate on-demand pass", async () => {
+  const files = bigFixture();
+  const { dir, build } = await makeReviewHtml(files, { lazyLoad: true, app: true, deferFullIndex: true });
+
+  assert.equal(build.fullIndexDeferred, true, "a diff with changes defers the full index");
+  assert.equal(build.lazySourceFiles.length, CHANGED, "the first paint carries only the changed files, not the whole tree");
+  assert.ok(build.lazySourceFiles.every((f) => f.changed), "every source in the deferred build is a changed file");
+
+  // The full index (what ensureFullProjectIndex materializes on the first project-index pull) spans the tree.
+  const full = collectReviewSourceIndex({ root: dir, staged: false, includeUntracked: true, context: 12, ignoreWhitespace: false });
+  assert.equal(full.length, FILE_COUNT, "the on-demand full index covers every tracked file");
+  assert.equal(full.filter((f) => f.changed).length, CHANGED, "changed flags survive the full pass");
+  assert.ok(full.some((f) => !f.changed), "the full index includes unchanged files the first paint omitted");
+});
+
+test("diff-first: a clean tree (no diff) builds the full index eagerly — nothing to defer", async () => {
+  // No change → the source tree IS the content (initialReviewSources opens a README), so deferFullIndex must
+  // fall back to a full build rather than paint an empty view first.
+  const { build } = await makeReviewHtml(
+    [{ path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 1;\n" }],
+    { lazyLoad: true, app: true, deferFullIndex: true },
+  );
+  assert.equal(build.fullIndexDeferred, false, "no diff → no deferral");
+  assert.ok(build.lazySourceFiles.some((f) => f.path === "src/a.ts"), "the unchanged file is indexed for the initial open");
 });
 
 test("build signature is deterministic and path-independent (the watch fast-path depends on this)", async () => {

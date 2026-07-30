@@ -35,6 +35,10 @@ export function buildDiffReview(input: {
   lazyLoad?: boolean; // serve/Electron set this — bodies + source fetched on demand, not embedded
   app?: boolean; // Electron app — enables app-only review features such as Git history
   root?: string; // repo to review; defaults to process.cwd() (serve/CLI). Electron passes it per-window.
+  // Diff-first startup: when there's a diff to show, index ONLY the changed files so the first paint isn't
+  // blocked on enumerating a large tree; the full project index is materialized on demand (app-main's
+  // ensureFullProjectIndex, pulled via kakapo:get-project-index). Honored only on the app's lazy path.
+  deferFullIndex?: boolean;
 }): DiffReviewBuild {
   const root = input.root ?? process.cwd();
   if (!isGitRepository(root)) {
@@ -66,10 +70,14 @@ export function buildDiffReview(input: {
   // The Electron app keeps source content behind per-file IPC. Standalone HTML retains the smaller limit
   // because every embedded source contributes to its initial payload.
   const appLazySource = Boolean(input.app && input.lazyLoad);
+  // Diff-first only makes sense when there's a diff to show first AND the renderer can pull the full index
+  // later (the app's lazy path). A clean tree's index IS the content, so build it fully.
+  const deferFullIndex = Boolean(input.deferFullIndex && appLazySource && files.length > 0);
   const sourceFiles = collectSourceFiles(files, root, {
     previewLargeText: appLazySource,
     deferSourceContent: appLazySource,
     target: reviewTarget,
+    changedPathsOnly: deferFullIndex,
   });
   const fileStates = collectReviewFileStates(files, sourceFiles);
   const httpEnvironments = collectHttpEnvironments(root);
@@ -176,6 +184,7 @@ export function buildDiffReview(input: {
     lazyBodyDiffs,
     lazySourceData: lazyLoad && !input.app ? JSON.stringify(sourceFiles) : undefined,
     lazySourceFiles: lazyLoad ? sourceFiles : undefined,
+    fullIndexDeferred: deferFullIndex,
     update,
   };
 }

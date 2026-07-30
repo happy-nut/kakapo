@@ -22,6 +22,9 @@ export type ReviewIpcState = {
   reviewBase?: string;
   reviewTarget?: string;
   compareScope?: { sha: string; shortSha: string; subject: string; date: string }[];
+  // Diff-first startup: the first paint indexed only the changed files. This materializes the full project
+  // index into sourceFiles on demand (idempotent, at most once) so the pull handlers below see every file.
+  ensureFullIndex?: () => void;
 };
 
 type ReviewIpcEvent = IpcMainEvent | IpcMainInvokeEvent;
@@ -59,7 +62,13 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     const state = stateFromEvent(event);
     const path = String(request?.path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
     if (!state || !path || path.startsWith("../")) return null;
-    const record = state.sourceFiles.get(path);
+    let record = state.sourceFiles.get(path);
+    if (!record) {
+      // Diff-first: the changed-only index doesn't hold this path (e.g. a restored tab for an unchanged file).
+      // Materialize the full index once, then retry before giving up.
+      state.ensureFullIndex?.();
+      record = state.sourceFiles.get(path);
+    }
     if (!record) return null;
     if (!record.deferred) return record;
     const materialized = materializeDeferredSourceFile(state.options.root, record, state.reviewTarget ?? state.options.target);
@@ -90,6 +99,9 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
   ipc.handle("kakapo:get-project-index", (event): ProjectIndexPayload | null => {
     const state = stateFromEvent(event);
     if (!state) return null;
+    // Diff-first: build the full index now if the first paint only carried the changed files. state.signature
+    // is left unchanged so it still matches what the renderer pulled against (installProjectIndex's guard).
+    state.ensureFullIndex?.();
     return {
       signature: state.signature,
       filesTree: "",

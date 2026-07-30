@@ -314,6 +314,10 @@ export function collectSourceFiles(
     // A→B compare: serve the source content of each changed file from this revision (commit B) instead of
     // the working tree, so comments (remap / anchor / Cmd+1) reconcile against B. app-only path.
     target?: string;
+    // Diff-first startup: index ONLY the changed files (skip the whole-tree `git ls-files` + per-file stat)
+    // so the first paint isn't blocked on enumerating a large repo. The full index is built in a second
+    // pass and pushed to the renderer (see buildDiffReview's deferFullIndex + app-main's phase 2).
+    changedPathsOnly?: boolean;
   } = {},
 ): SourceFile[] {
   const maxFileBytes = options.previewLargeText ? SOURCE_MAX_LAZY_FILE_BYTES : SOURCE_MAX_FILE_BYTES;
@@ -328,7 +332,11 @@ export function collectSourceFiles(
     const kind = vcsByPath.get(file.displayPath);
     if (kind) file.vcs = kind; // color the Changes list from the same status map
   }
-  const orderedPaths = enumerateProjectPaths(root, changed);
+  // changedPathsOnly restricts the index to the diff's own files (they bypass isSourceCandidate anyway, so
+  // no filtering is lost); the full-tree enumeration is deferred to the second pass.
+  const orderedPaths = options.changedPathsOnly
+    ? Array.from(changed).sort((a, b) => a.localeCompare(b))
+    : enumerateProjectPaths(root, changed);
   const sourceFiles: SourceFile[] = [];
   let embeddedFiles = 0;
   let embeddedBytes = 0;

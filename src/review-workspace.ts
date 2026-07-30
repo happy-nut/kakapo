@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { buildDiffReview } from "./cli.js";
-import { readUnifiedDiff } from "./diff.js";
+import { collectSourceFiles, parseUnifiedDiff, readUnifiedDiff } from "./diff.js";
 import { git } from "./git.js";
 import type { DiffReviewUpdate, SourceFile } from "./types.js";
 
@@ -27,12 +27,16 @@ export type ReviewWorkspaceSnapshot = {
   reviewUpstream?: string;
   bodyDiffs: string[];
   sourceFiles: SourceFile[];
+  // Diff-first: true when sourceFiles holds ONLY the changed files and the full project index is still owed
+  // (materialize it with collectReviewSourceIndex below, on demand). False for a full build.
+  fullIndexDeferred: boolean;
 };
 
 export function writeReviewWorkspace(
   target: string,
   options: ReviewWorkspaceOptions,
   title: string,
+  deferFullIndex = false,
 ): ReviewWorkspaceSnapshot {
   const build = buildDiffReview({
     base: options.base,
@@ -45,6 +49,7 @@ export function writeReviewWorkspace(
     lazyLoad: true,
     app: true,
     root: options.root,
+    deferFullIndex,
   });
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, build.html);
@@ -57,7 +62,33 @@ export function writeReviewWorkspace(
     reviewUpstream: build.reviewUpstream,
     bodyDiffs: build.lazyBodyDiffs ?? [],
     sourceFiles: build.lazySourceFiles ?? [],
+    fullIndexDeferred: Boolean(build.fullIndexDeferred),
   };
+}
+
+// Materialize the FULL project index (every tracked file) for a review whose first paint was built diff-first
+// (changed files only). Re-reads the unified diff to mark changed/vcs state — pinned to the same reviewBase/
+// reviewTarget the initial build resolved — then enumerates the whole tree. Called on demand the first time
+// the renderer asks for the project index (app-main's ensureFullProjectIndex), never on the first-paint path.
+export function collectReviewSourceIndex(
+  options: ReviewWorkspaceOptions,
+  reviewBase?: string,
+  reviewTarget?: string,
+): SourceFile[] {
+  const diffText = readUnifiedDiff({
+    base: reviewBase ?? options.base,
+    target: reviewTarget ?? options.target,
+    staged: options.staged,
+    context: options.context,
+    includeUntracked: options.includeUntracked,
+    ignoreWhitespace: options.ignoreWhitespace,
+    root: options.root,
+  });
+  return collectSourceFiles(parseUnifiedDiff(diffText), options.root, {
+    previewLargeText: true,
+    deferSourceContent: true,
+    target: reviewTarget ?? options.target,
+  });
 }
 
 // The watcher depends on the same review inputs as the full builder, but intentionally hashes only the

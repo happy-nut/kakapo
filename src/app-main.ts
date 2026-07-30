@@ -13,7 +13,7 @@ import { ProjectMarkdownMemo } from "./memos.js";
 import type { SourceFile } from "./types.js";
 import { workspaceReviewFile } from "./workspace-data.js";
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
-import { reviewDiffSignature, writeReviewWorkspace } from "./review-workspace.js";
+import { collectReviewSourceIndex, reviewDiffSignature, writeReviewWorkspace } from "./review-workspace.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { parseReviewArgs, readOption } from "./cli-args.js";
 import { easeRail } from "./rail-animation.js";
@@ -103,6 +103,11 @@ type WinState = {
   // dropdowns pick base/target from THIS list, so B..D within an opened A..F is selectable. Cleared on exit.
   compareScope?: { sha: string; shortSha: string; subject: string; date: string }[];
   reviewUpstream?: string; // tracking ref behind an automatic base; included in the watch signature
+  // Diff-first startup: the first paint indexed ONLY the changed files; the full project index is still owed
+  // and built on demand (ensureFullIndex) the first time the renderer pulls it. Cleared once the full index
+  // lands — here, or via any watch rebuild (which always builds full).
+  fullIndexPending?: boolean;
+  ensureFullIndex?: () => void; // materialize the deferred full project index into sourceFiles, at most once
   disposeWindowSurfaceRecovery: () => void;
   explainTimer?: NodeJS.Timeout; // Explain view: polls this workspace's content-spec file, independent of --watch
   explainSig: string; // last-seen spec file mtime+size, to skip re-parsing when unchanged
@@ -1336,6 +1341,7 @@ function createWindow(root: string, deferBoot = false): WinState {
     explainSpec: null,
     explainUpdatedAt: null,
   };
+  state.ensureFullIndex = () => ensureFullProjectIndex(state);
   const id = view.webContents.id;
   states.set(id, state);
   layoutWorkspaceViews();
@@ -1446,7 +1452,9 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
       // (an Open Folder button) instead of an empty diff. New windows always get a validated repo.
       if (app.isPackaged && !isGitRepository(state.options.root)) { void showWelcome(state); return; }
       state.answersFile = answersFilePath(state.options.root);
-      const firstBuild = writeReviewFile(state);
+      // Diff-first: paint the diff + changed-file sources now; the full project index is materialized on
+      // demand (ensureFullProjectIndex) so a large tree's enumeration never blocks first paint.
+      const firstBuild = writeReviewFile(state, true);
       state.signature = firstBuild.signature;
       preferences.recordRecentProject(state.options.root); // remember the launched/new-window repo for the welcome screen
       if (!state.win.isDestroyed()) {
@@ -1507,10 +1515,10 @@ async function refreshIfChanged(state: WinState): Promise<void> {
   }
 }
 
-function writeReviewFile(state: WinState): { signature: string; html: string; update?: import("./types.js").DiffReviewUpdate } {
+function writeReviewFile(state: WinState, deferFullIndex = false): { signature: string; html: string; update?: import("./types.js").DiffReviewUpdate } {
   const started = performance.now();
   state.perf.mark("review-build-start");
-  const build = writeReviewWorkspace(reviewPath(state.options.root), state.options, APP_TITLE);
+  const build = writeReviewWorkspace(reviewPath(state.options.root), state.options, APP_TITLE, deferFullIndex);
   state.reviewBase = build.reviewBase;
   state.reviewTarget = build.reviewTarget;
   state.reviewUpstream = build.reviewUpstream;
@@ -1521,6 +1529,9 @@ function writeReviewFile(state: WinState): { signature: string; html: string; up
   // Retain native records from the workspace snapshot instead of serializing and parsing the whole project
   // index (which can approach the source budget on large repositories).
   state.sourceFiles = new Map(build.sourceFiles.map((file) => [file.path, file]));
+  // Diff-first: this build carried only the changed files (fullIndexDeferred). Mark the full index owed so the
+  // first project-index pull materializes it. A full build (deferFullIndex=false) clears the flag outright.
+  state.fullIndexPending = build.fullIndexDeferred;
   state.analysis.invalidate();
   state.perf.mark("review-build-complete", {
     durationMs: Math.round((performance.now() - started) * 10) / 10,
@@ -1528,6 +1539,23 @@ function writeReviewFile(state: WinState): { signature: string; html: string; up
     diffBodies: state.bodyDiffs.length,
   });
   return { signature: build.signature, html: build.html, update: build.update };
+}
+
+// Diff-first startup: materialize the deferred full project index into state.sourceFiles the first time the
+// renderer needs it (project-index pull, or a get-source for a file outside the changed set). Idempotent —
+// any watch rebuild builds full and clears fullIndexPending, turning this into a no-op. state.signature is
+// intentionally left at the first-paint (changed-only) value: that is what the renderer pulled the index
+// against, and its installProjectIndex guard requires the pulled signature to match.
+function ensureFullProjectIndex(state: WinState): void {
+  if (!state.fullIndexPending) return;
+  const started = performance.now();
+  const full = collectReviewSourceIndex(state.options, state.reviewBase, state.reviewTarget);
+  state.sourceFiles = new Map(full.map((file) => [file.path, file]));
+  state.fullIndexPending = false;
+  state.perf.mark("full-index-materialized", {
+    durationMs: Math.round((performance.now() - started) * 10) / 10,
+    sourceFiles: state.sourceFiles.size,
+  });
 }
 
 function scheduleAnalysisPrewarm(state: WinState): void {
@@ -1593,7 +1621,9 @@ async function openReview(state: WinState, root: string): Promise<void> {
   state.explainSpec = null;
   state.explainUpdatedAt = null;
   if (state.explainTimer) { clearInterval(state.explainTimer); state.explainTimer = undefined; }
-  const build = writeReviewFile(state);
+  // Diff-first, same as the cold boot: reusing this window for another repo paints its diff without waiting
+  // on the new tree's full enumeration; the full index is pulled on demand (state.ensureFullIndex persists).
+  const build = writeReviewFile(state, true);
   state.signature = build.signature;
   if (!state.win.isDestroyed()) await state.win.loadFile(reviewPath(state.options.root));
   if (state.options.watch) state.refreshTimer = setInterval(() => void refreshIfChanged(state), WATCH_INTERVAL_MS);
