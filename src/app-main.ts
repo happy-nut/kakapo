@@ -561,10 +561,7 @@ ipcMain.handle("kakapo:set-review-base", (event, payload: { ref?: unknown }) => 
     }
     state.options.staged = false; // --staged takes precedence over --base in readUnifiedDiff; clear it
     state.lastDiffSig = ""; // re-baseline the watch fast-path against the new base
-    const build = writeReviewFile(state);
-    state.signature = build.signature;
-    if (build.update) state.win.webContents.send("kakapo:diff-update", build.update);
-    scheduleAnalysisPrewarm(state);
+    rebuildAndPushUpdate(state, true);
     return { ok: true, activeBase: state.options.base ?? "auto" };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -587,10 +584,7 @@ ipcMain.handle("kakapo:set-review-target", (event, payload: { ref?: unknown }) =
       state.options.staged = false; // an A→B compare has no index side
     }
     state.lastDiffSig = "";
-    const build = writeReviewFile(state);
-    state.signature = build.signature;
-    if (build.update) state.win.webContents.send("kakapo:diff-update", build.update);
-    scheduleAnalysisPrewarm(state);
+    rebuildAndPushUpdate(state, true);
     return { ok: true, activeTarget: state.options.target ?? "worktree" };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -637,10 +631,7 @@ ipcMain.handle("kakapo:set-review-compare", (event, payload: { base?: unknown; t
     if (rawBase === "auto" || rawTarget === "worktree") state.compareScope = undefined; // exiting compare clears the scope
     state.options.staged = false;
     state.lastDiffSig = "";
-    const build = writeReviewFile(state);
-    state.signature = build.signature;
-    if (build.update) state.win.webContents.send("kakapo:diff-update", build.update);
-    scheduleAnalysisPrewarm(state);
+    rebuildAndPushUpdate(state, true);
     return { ok: true, activeBase: state.options.base ?? "auto", activeTarget: state.options.target ?? "worktree" };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -1442,6 +1433,17 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
   }, 60);
 }
 
+// Rebuild the review and push the compact diff-update to the renderer in place (no window reload), then warm
+// analysis. Shared by the watch tick and the compare-bar handlers — the one place that owned this sequence in
+// four copies. `force` skips the signature guard for a base/target/compare change, which always warrants it.
+function rebuildAndPushUpdate(state: WinState, force = false): void {
+  const build = writeReviewFile(state);
+  if (!force && !shouldPushUpdate(state.signature, build.signature)) return;
+  state.signature = build.signature;
+  if (build.update) state.win.webContents.send("kakapo:diff-update", build.update);
+  scheduleAnalysisPrewarm(state);
+}
+
 async function refreshIfChanged(state: WinState): Promise<void> {
   if (state.refreshing || state.win.isDestroyed()) return;
   state.refreshing = true;
@@ -1455,15 +1457,9 @@ async function refreshIfChanged(state: WinState): Promise<void> {
     if (decision.action === "seed") { state.lastDiffSig = decision.diffSig; return; }
     if (decision.action === "skip") return;
     state.lastDiffSig = decision.diffSig;
-    const next = writeReviewFile(state);
-    if (shouldPushUpdate(state.signature, next.signature)) {
-      state.signature = next.signature;
-      // Refresh the diff in place instead of reloading the window so review context remains stable. Send
-      // only the compact update payload; the renderer transplants it and re-fetches per-file bodies/source
-      // over the existing IPC (state.bodyDiffs/state.sourceFiles were refreshed by writeReviewFile above).
-      if (next.update) state.win.webContents.send("kakapo:diff-update", next.update);
-      scheduleAnalysisPrewarm(state);
-    }
+    // Refresh the diff in place instead of reloading the window so review context remains stable; the update
+    // is only pushed when the review signature actually changed (rebuildAndPushUpdate's default guard).
+    rebuildAndPushUpdate(state);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
   } finally {
