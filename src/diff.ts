@@ -56,12 +56,12 @@ export function readUnifiedDiff(options: {
 
   const chunks = [result.stdout ?? ""];
   if (options.includeUntracked && !options.staged && !options.target) {
-    chunks.push(readUntrackedDiff(options.context, root));
+    chunks.push(readUntrackedDiff(root));
   }
   return chunks.filter(Boolean).join("\n");
 }
 
-function readUntrackedDiff(context: number, root: string): string {
+function readUntrackedDiff(root: string): string {
   const files = git(root, ["ls-files", "--others", "--exclude-standard", "--", "."])
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -93,14 +93,15 @@ function readUntrackedDiff(context: number, root: string): string {
     if (lines[lines.length - 1] === "") {
       lines.pop();
     }
-    const limited = context > 0 ? lines : lines;
+    // A wholly-new (untracked) file is all additions — there are no context lines to trim, so every line is
+    // emitted as a `+` hunk regardless of the context setting.
     chunks.push([
       `diff --git a/${file} b/${file}`,
       "new file mode 100644",
       "--- /dev/null",
       `+++ b/${file}`,
-      `@@ -0,0 +1,${limited.length} @@`,
-      ...limited.map((line) => `+${line}`),
+      `@@ -0,0 +1,${lines.length} @@`,
+      ...lines.map((line) => `+${line}`),
     ].join("\n"));
   }
 
