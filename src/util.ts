@@ -6,6 +6,11 @@ export function stripHtmlTags(value: string): string {
   return value.replace(/<[^>]*>/g, "");
 }
 
+// Normalize an unknown thrown value to a message string — the `catch (error)` idiom used throughout the app.
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function decodeEntities(value: string): string {
   return value
     .replace(/&#x([0-9a-fA-F]+);/g, (_match, hex: string) => String.fromCodePoint(parseInt(hex, 16)))

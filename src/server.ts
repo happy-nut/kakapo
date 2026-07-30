@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 import type { DiffReviewBuild, DiffReviewResult, HttpSendRequest, HttpSendResult } from "./types.js";
-import { parsePositiveInteger } from "./util.js";
+import { errorMessage, parsePositiveInteger } from "./util.js";
 import { buildDiffReview, renderLazyDiffBody } from "./build.js";
 import { readReviewDiffContext } from "./diff-context.js";
 
@@ -39,7 +39,7 @@ export async function performHttpRequest(request: HttpSendRequest): Promise<Http
   } catch (error) {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
       durationMs: Date.now() - startedAt,
     };
   }
@@ -57,7 +57,7 @@ async function handleHttpProxy(request: IncomingMessage, response: ServerRespons
   } catch (error) {
     writeHttpJson(response, {
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
       durationMs: 0,
     });
   }
@@ -213,13 +213,13 @@ export function serveDiffWatch(input: {
 
       writeHttp(response, 404, "text/plain; charset=utf-8", "Not found\n");
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       writeHttp(response, 500, "text/plain; charset=utf-8", `${message}\n`);
     }
   });
 
   server.on("error", (error) => {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     console.error(`kakapo: diff watch server failed: ${message}`);
     process.exit(1);
   });

@@ -18,7 +18,7 @@ import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { parseReviewArgs, readOption } from "./cli-args.js";
 import { easeRail } from "./rail-animation.js";
-import { githubOwnerFromUrl } from "./util.js";
+import { errorMessage, githubOwnerFromUrl } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
@@ -494,7 +494,7 @@ ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; la
     openTerminal();
     return { ok: true, warning: created.fetchWarning };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    return { ok: false, error: errorMessage(error) };
   } finally {
     workspaceCreation = undefined;
   }
@@ -609,7 +609,7 @@ ipcMain.handle("kakapo:set-review-base", async (event, payload: { ref?: unknown 
     await rebuildAndPushUpdate(state, true);
     return { ok: true, activeBase: state.options.base ?? "auto" };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    return { ok: false, error: errorMessage(error) };
   }
 });
 
@@ -632,7 +632,7 @@ ipcMain.handle("kakapo:set-review-target", async (event, payload: { ref?: unknow
     await rebuildAndPushUpdate(state, true);
     return { ok: true, activeTarget: state.options.target ?? "worktree" };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    return { ok: false, error: errorMessage(error) };
   }
 });
 
@@ -679,7 +679,7 @@ ipcMain.handle("kakapo:set-review-compare", async (event, payload: { base?: unkn
     await rebuildAndPushUpdate(state, true);
     return { ok: true, activeBase: state.options.base ?? "auto", activeTarget: state.options.target ?? "worktree" };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    return { ok: false, error: errorMessage(error) };
   }
 });
 
@@ -740,12 +740,12 @@ ipcMain.handle("kakapo:self-update", (event) => new Promise<{ ok: boolean; error
     try {
       child = spawn(attempt.command, attempt.args, { shell: attempt.shell, env: process.env });
     } catch (error) {
-      fail(error instanceof Error ? error.message : String(error));
+      fail(errorMessage(error));
       return;
     }
     child.stdout?.on("data", (d) => { attemptOut += String(d); if (attemptOut.length > 8000) attemptOut = attemptOut.slice(-8000); });
     child.stderr?.on("data", (d) => { attemptOut += String(d); if (attemptOut.length > 8000) attemptOut = attemptOut.slice(-8000); });
-    child.on("error", (error) => fail(error instanceof Error ? error.message : String(error)));
+    child.on("error", (error) => fail(errorMessage(error)));
     child.on("close", (code) => {
       if (code !== 0) { fail(`exit ${code ?? "unknown"}`); return; }
       if (done) return;
@@ -758,7 +758,7 @@ ipcMain.handle("kakapo:self-update", (event) => new Promise<{ ok: boolean; error
         try {
           relaunchUpdatedApp(app, process.argv, cwd);
         } catch (error) {
-          console.error("kakapo: update installed, but relaunch failed: " + (error instanceof Error ? error.message : String(error)));
+          console.error("kakapo: update installed, but relaunch failed: " + (errorMessage(error)));
         }
       }, 250);
     });
@@ -841,7 +841,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
     active.win.focus();
   }
 }).catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(errorMessage(error));
   app.quit();
 });
 else app.quit();
@@ -1071,7 +1071,9 @@ function activateWorkspace(id: number): void {
     activated.unread = false;
     if (activated.idleTimer) { clearTimeout(activated.idleTimer); activated.idleTimer = undefined; }
     if (activated.analysisSuspended) {
-      activated.analysis = new ProjectAnalysis(activated.options.root);
+      // Rebuild the analysis with the same status relay a fresh window gets, so the resumed workspace's
+      // analysis-status indicator updates again (previously this re-created it without the onStatus relay).
+      activated.analysis = makeAnalysis(activated.options.root, () => activated);
       activated.analysisSuspended = false;
       scheduleAnalysisPrewarm(activated);
       // Rebuilding the review on a switch to an idle workspace used to freeze the whole app for ~1-2s on a
@@ -1229,6 +1231,26 @@ function renderHub(): void {
 
 
 
+// A window's project analysis relays LSP status to that window's renderer (the analysis-status indicator) and
+// its perf trace. createWindow, the switch-resume rebuild, and openReview all need the identical relay, so
+// build it in one place. getState is a thunk because createWindow constructs the analysis before its WinState
+// exists — the onStatus closure must read the state lazily; the other callers already hold one.
+function makeAnalysis(root: string, getState: () => WinState | undefined): ProjectAnalysis {
+  return new ProjectAnalysis(root, {
+    onStatus: (status) => {
+      const state = getState();
+      if (!state || state.win.isDestroyed()) return;
+      state.win.webContents.send("kakapo:analysis-status", status);
+      state.perf.mark("analysis-status", {
+        generation: status.generation,
+        phase: status.phase,
+        server: status.server ?? "",
+        source: status.serverSource ?? "",
+      });
+    },
+  });
+}
+
 // Create a window for `root`, register its WinState, wire teardown, and boot it (animated mark ->
 // first build, or the welcome screen for a packaged launch with no repo).
 function createWindow(root: string, deferBoot = false): WinState {
@@ -1299,18 +1321,7 @@ function createWindow(root: string, deferBoot = false): WinState {
   const perf = new ReviewPerformanceTrace(resolvedRoot, app.getPath("userData"));
   perf.mark("window-created");
   let state!: WinState;
-  const analysis = new ProjectAnalysis(resolvedRoot, {
-    onStatus: (status) => {
-      if (!state || state.win.isDestroyed()) return;
-      state.win.webContents.send("kakapo:analysis-status", status);
-      state.perf.mark("analysis-status", {
-        generation: status.generation,
-        phase: status.phase,
-        server: status.server ?? "",
-        source: status.serverSource ?? "",
-      });
-    },
-  });
+  const analysis = makeAnalysis(resolvedRoot, () => state);
   state = {
     win,
     options: makeOptions(root),
@@ -1391,9 +1402,7 @@ function createWindow(root: string, deferBoot = false): WinState {
     for (const t of state.terms.values()) { try { t.kill(); } catch { /* already exited */ } }
     state.terms.clear();
     state.commandBuffers.clear();
-    if (state.refreshTimer) clearInterval(state.refreshTimer);
-    if (state.answersTimer) clearInterval(state.answersTimer);
-    if (state.explainTimer) clearInterval(state.explainTimer);
+    clearWatchTimers(state);
     if (state.analysisWarmTimer) clearTimeout(state.analysisWarmTimer);
     if (state.idleTimer) clearTimeout(state.idleTimer);
     state.analysis.dispose();
@@ -1449,6 +1458,26 @@ function savedWorkspaceMetadata() {
   return saved;
 }
 
+// Stop this window's pollers. Idempotent, and clears the handles so a re-arm on window reuse can't leak the
+// previous set.
+function clearWatchTimers(state: WinState): void {
+  if (state.refreshTimer) { clearInterval(state.refreshTimer); state.refreshTimer = undefined; }
+  if (state.answersTimer) { clearInterval(state.answersTimer); state.answersTimer = undefined; }
+  if (state.explainTimer) { clearInterval(state.explainTimer); state.explainTimer = undefined; }
+}
+
+// Arm this window's pollers (clearing any prior set first): the --watch diff refresh (opt-in), the
+// agent-answers sync, and the Explain content-spec poll — all independent of --watch, since an agent can write
+// answers/the Explain spec whether or not the diff itself is being polled. The one immediate answers sync
+// catches up on anything written before this window existed (the Explain spec has no such backlog concern).
+function armWatchTimers(state: WinState): void {
+  clearWatchTimers(state);
+  if (state.options.watch) state.refreshTimer = setInterval(() => void refreshIfChanged(state), WATCH_INTERVAL_MS);
+  state.answersTimer = setInterval(() => void syncAnswersFile(state), WATCH_INTERVAL_MS);
+  void syncAnswersFile(state);
+  state.explainTimer = setInterval(() => refreshExplainIfChanged(state), WATCH_INTERVAL_MS);
+}
+
 // Paint the animated mark immediately, then build the (potentially heavy) review off the first paint and swap it
 // in. Building before the window exists left the screen blank for the first few seconds of startup.
 async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
@@ -1482,18 +1511,11 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
         // for the first few seconds until the user clicks into it. Re-focus once the review is on screen.
         if (!state.win.isDestroyed() && state.win.webContents.id === activeStateId) focusActiveReviewView();
       }
-      if (state.options.watch) state.refreshTimer = setInterval(() => void refreshIfChanged(state), WATCH_INTERVAL_MS);
-      // Independent of --watch: an agent can write answers/the Explain content spec whether or not the
-      // diff itself is being polled. One immediate answers sync catches up on anything written before this
-      // window existed (the Explain spec has no such backlog concern — nothing could have targeted this
-      // window's spec file before it existed).
-      state.answersTimer = setInterval(() => void syncAnswersFile(state), WATCH_INTERVAL_MS);
-      void syncAnswersFile(state);
-      state.explainTimer = setInterval(() => refreshExplainIfChanged(state), WATCH_INTERVAL_MS);
+      armWatchTimers(state);
     } catch (error) {
       // One window's build failure shouldn't take down the whole app (other windows may be fine); log and
       // leave this window on the loading mark rather than quitting.
-      console.error(error instanceof Error ? error.message : String(error));
+      console.error(errorMessage(error));
     }
   }, 60);
 }
@@ -1529,7 +1551,7 @@ async function refreshIfChanged(state: WinState): Promise<void> {
     // build runs off-main (worker) and `state.refreshing` stays held across the await, serializing ticks.
     await rebuildAndPushUpdate(state);
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(errorMessage(error));
   } finally {
     state.refreshing = false;
   }
@@ -1568,7 +1590,7 @@ async function buildReview(state: WinState, deferFullIndex = false): Promise<Bui
   try {
     snapshot = await reviewBuilder.build(reviewPath(state.options.root), state.options, APP_TITLE, deferFullIndex);
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(errorMessage(error));
     return null;
   }
   if (state.win.isDestroyed() || seq !== state.buildSeq) return null; // window closed, or a newer build won
@@ -1607,7 +1629,7 @@ function ensureFullProjectIndex(state: WinState): Promise<void> {
         sourceFiles: state.sourceFiles.size,
       });
     })
-    .catch((error) => { console.error(error instanceof Error ? error.message : String(error)); })
+    .catch((error) => { console.error(errorMessage(error)); })
     .finally(() => { state.fullIndexInFlight = undefined; });
   return state.fullIndexInFlight;
 }
@@ -1652,39 +1674,23 @@ async function openReview(state: WinState, root: string): Promise<void> {
   state.options.root = resolve(root);
   state.perf = new ReviewPerformanceTrace(state.options.root, app.getPath("userData"));
   state.perf.mark("review-opened");
-  state.analysis = new ProjectAnalysis(state.options.root, {
-    onStatus: (status) => {
-      if (state.win.isDestroyed()) return;
-      state.win.webContents.send("kakapo:analysis-status", status);
-      state.perf.mark("analysis-status", {
-        generation: status.generation,
-        phase: status.phase,
-        server: status.server ?? "",
-        source: status.serverSource ?? "",
-      });
-    },
-  });
+  state.analysis = makeAnalysis(state.options.root, () => state);
   preferences.recordRecentProject(state.options.root); // remember it for the welcome screen's Recent Projects
   state.lastDiffSig = ""; // new repo -> force the next watch tick to rebuild
-  if (state.refreshTimer) { clearInterval(state.refreshTimer); state.refreshTimer = undefined; }
-  if (state.answersTimer) { clearInterval(state.answersTimer); state.answersTimer = undefined; }
+  clearWatchTimers(state); // stop the previous repo's pollers before switching this window to the new repo
   state.answersFile = answersFilePath(state.options.root);
   state.answersFileSig = undefined;
   state.lastAnswers = undefined;
   state.explainSig = ""; // new repo -> different workspace's spec file, force a fresh read
   state.explainSpec = null;
   state.explainUpdatedAt = null;
-  if (state.explainTimer) { clearInterval(state.explainTimer); state.explainTimer = undefined; }
   // Diff-first, same as the cold boot: reusing this window for another repo paints its diff without waiting
   // on the new tree's full enumeration; the full index is pulled on demand (state.ensureFullIndex persists).
   const build = await buildReview(state, true);
   if (!build) return; // window closed mid-build, or superseded by another switch
   state.signature = build.signature;
   if (!state.win.isDestroyed()) await state.win.loadFile(reviewPath(state.options.root));
-  if (state.options.watch) state.refreshTimer = setInterval(() => void refreshIfChanged(state), WATCH_INTERVAL_MS);
-  state.answersTimer = setInterval(() => void syncAnswersFile(state), WATCH_INTERVAL_MS);
-  void syncAnswersFile(state);
-  state.explainTimer = setInterval(() => refreshExplainIfChanged(state), WATCH_INTERVAL_MS);
+  armWatchTimers(state);
 }
 
 // File > Open Folder (Cmd/Ctrl+O): pick a repo and load it into the focused window.

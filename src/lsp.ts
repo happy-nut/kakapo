@@ -4,7 +4,7 @@ import { accessSync, constants, existsSync, readFileSync, realpathSync, statSync
 import { delimiter, extname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { languageForPath } from "./util.js";
+import { errorMessage, languageForPath } from "./util.js";
 
 export type AnalysisLocation = {
   path: string;
@@ -672,7 +672,7 @@ export class LspClient {
         return await this.request(method, params);
       } catch (error) {
         lastError = error;
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         // Native servers such as rust-analyzer acknowledge initialize before their workspace model is
         // loaded. Treat only their explicit transient responses as retryable; transport failures still
         // quarantine the process immediately in ProjectAnalysis.

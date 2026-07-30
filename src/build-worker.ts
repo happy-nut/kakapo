@@ -4,6 +4,7 @@
 // writes straight to the review file. See ReviewBuilder (review-builder.ts) for the main-side manager.
 import { parentPort } from "node:worker_threads";
 import { collectReviewSourceIndex, writeReviewWorkspace, type ReviewWorkspaceOptions } from "./review-workspace.js";
+import { errorMessage } from "./util.js";
 
 type BuildRequest = { id: number; kind: "build"; target: string; options: ReviewWorkspaceOptions; title: string; deferFullIndex: boolean };
 type IndexRequest = { id: number; kind: "index"; options: ReviewWorkspaceOptions; reviewBase?: string; reviewTarget?: string };
@@ -23,6 +24,6 @@ port.on("message", (msg: BuildRequest | IndexRequest) => {
       port.postMessage({ id: msg.id, ok: true, sourceFiles });
     }
   } catch (error) {
-    port.postMessage({ id: msg.id, ok: false, error: error instanceof Error ? error.message : String(error) });
+    port.postMessage({ id: msg.id, ok: false, error: errorMessage(error) });
   }
 });

@@ -9,6 +9,7 @@ import {
   type LspDiagnostic,
 } from "./lsp.js";
 import { searchProject } from "./search.js";
+import { errorMessage } from "./util.js";
 import {
   buildProjectIndex,
   buildRegexSymbolIndex,
@@ -188,7 +189,7 @@ export class ProjectAnalysis {
       return { ok: true, generation, available: true, engine: "lsp", diagnostics, server: client.server.name, serverSource: client.server.source };
     } catch (error) {
       if (this.transportFailure(error)) this.quarantine(client, error);
-      return { ok: false, generation, available: true, engine: "lsp", diagnostics: [], error: error instanceof Error ? error.message : String(error) };
+      return { ok: false, generation, available: true, engine: "lsp", diagnostics: [], error: errorMessage(error) };
     }
   }
 
@@ -232,7 +233,7 @@ export class ProjectAnalysis {
         fallbackReason: lsp.fallbackReason ?? "Language server returned no semantic locations",
       };
     } catch (error) {
-      return { ok: false, engine: "index", confidence: "heuristic", locations: [], error: error instanceof Error ? error.message : String(error) };
+      return { ok: false, engine: "index", confidence: "heuristic", locations: [], error: errorMessage(error) };
     }
   }
 
@@ -325,7 +326,7 @@ export class ProjectAnalysis {
   }
 
   private transportFailure(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return /exited|stopped|not running|input is closed|timed out|ENOENT|EACCES/i.test(message);
   }
 
@@ -404,10 +405,10 @@ export class ProjectAnalysis {
         // A server may legitimately omit one capability (commonly implementation). Keep it alive for
         // definition/references; only quarantine transport/process failures that cannot recover in-window.
         if (!this.transportFailure(error)) {
-          const fallbackReason = error instanceof Error ? error.message : String(error);
+          const fallbackReason = errorMessage(error);
           return { locations: [], fallbackReason };
         }
-        lastError = error instanceof Error ? error.message : String(error);
+        lastError = errorMessage(error);
         this.quarantine(client, error);
         // A failed explicit/project-local server is followed by the packaged sidecar in clientFor().
       }
@@ -444,7 +445,7 @@ export class ProjectAnalysis {
           }
           break;
         } catch (error) {
-          fallbackReason = error instanceof Error ? error.message : String(error);
+          fallbackReason = errorMessage(error);
           if (!this.transportFailure(error)) break;
           this.quarantine(client, error);
         }

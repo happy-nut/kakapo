@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { readOption } from "./util.js";
+import { errorMessage, readOption } from "./util.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -19,7 +19,7 @@ export function main(): void {
     }
     launchReviewApp(rawArgs);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     console.error(`kakapo: ${message}`);
     process.exit(1);
   }
