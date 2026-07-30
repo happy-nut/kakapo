@@ -20,6 +20,7 @@ import { easeRail } from "./rail-animation.js";
 import { githubOwnerFromUrl } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
+import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerTerminalIpc } from "./app-terminal-ipc.js";
 import { registerAnswersIpc, syncAnswersFile, answersFilePath } from "./answers-ipc.js";
@@ -257,6 +258,7 @@ registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerTerminalIpc(ipcMain, stateFromEvent);
 registerAnswersIpc(ipcMain, stateFromEvent);
 registerExplainIpc(ipcMain, stateFromEvent);
+registerSettingsIpc(ipcMain, preferences, stateFromEvent);
 ipcMain.on("kakapo:hub-ready", renderHub);
 // Title-bar review tools live in the shell page but act on the active review view. Relay the click to that
 // view (which replays it through its own rail dispatcher). Guard on an active workspace existing.
@@ -742,17 +744,6 @@ ipcMain.handle("kakapo:self-update", (event) => new Promise<{ ok: boolean; error
   runAttempt(0);
 }));
 
-// The renderer uses synchronous IPC for startup settings, while AppPreferences owns persistence and
-// global-vs-worktree scoping outside the Electron composition root.
-ipcMain.on("kakapo:get-settings", (event) => {
-  const state = stateFromEvent(event);
-  event.returnValue = state ? preferences.rendererSettings(state.options.root) : preferences.readGlobal();
-});
-ipcMain.on("kakapo:set-setting", (event, msg: { key?: string; value?: unknown }) => {
-  if (!msg || typeof msg.key !== "string") return;
-  const state = stateFromEvent(event);
-  preferences.setRendererSetting(state?.options.root, msg.key, msg.value);
-});
 // The merged-prompt dock implements its own whole-document Cmd+A/Cmd+C (select every card + prose region,
 // copy the assembled hand-off text — see openMergedView in 08-dock.js). The app menu's `role: "editMenu"`
 // (kept so real text fields get native Cut/Paste/Undo) binds the SAME accelerators, and on macOS the menu's

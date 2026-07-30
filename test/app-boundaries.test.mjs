@@ -79,5 +79,6 @@ test("main process is a composition root for extracted persistence and IPC adapt
   assert.match(main, /new AppPreferences\(app\.getPath\("userData"\), isGitRepository\)/);
   assert.match(main, /registerReviewIpc\(ipcMain, stateFromEvent\)/);
   assert.match(main, /registerProjectPathIpc\(ipcMain, shell, stateFromEvent\)/);
-  assert.doesNotMatch(main, /function readSettings|function resolveProjectRowPath|kakapo:get-file/);
+  assert.match(main, /registerSettingsIpc\(ipcMain, preferences, stateFromEvent\)/);
+  assert.doesNotMatch(main, /function readSettings|function resolveProjectRowPath|kakapo:get-file|"kakapo:get-settings"/);
 });
