@@ -325,3 +325,14 @@ test("Find in Files preview incrementally reveals surrounding code while scrolli
   );
   v.close();
 });
+
+test("Cmd+E opens the Recent panel and a second Cmd+E toggles it closed", async () => {
+  const v = await loadViewer(html);
+  v.key("e", { metaKey: true, code: "KeyE" });
+  await v.settle(10);
+  assert.ok(v.quickOpenVisible(), "Cmd+E opened Quick Open (Recent)");
+  v.key("e", { metaKey: true, code: "KeyE" }); // second press should toggle it closed, not re-open it
+  await v.settle(10);
+  assert.equal(v.quickOpenVisible(), false, "a second Cmd+E closed the Recent panel");
+  v.close();
+});
