@@ -16,6 +16,7 @@ import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import { reviewDiffSignature, writeReviewWorkspace } from "./review-workspace.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { parseReviewArgs, readOption } from "./cli-args.js";
+import { easeRail } from "./rail-animation.js";
 import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
@@ -276,20 +277,6 @@ ipcMain.on("kakapo:workspace-hub-toggle", () => { /* rail is persistent — no t
 // step with the shell's CSS width transition; the active view collapses its own sidebar while pushed.
 let railExpanded = false;
 let hubAnimTimer: ReturnType<typeof setInterval> | undefined;
-// cubic-bezier(.2,.8,.2,1) — the exact easing the review sidebar's grid-template-columns transition uses, so
-// the rail push and the file-tree collapse stay in lockstep for one continuous motion.
-function easeRail(p: number): number {
-  const cx = 3 * 0.2, bx = 3 * (0.2 - 0.2) - cx, ax = 1 - cx - bx;
-  const cy = 3 * 0.8, by = 3 * (1 - 0.8) - cy, ay = 1 - cy - by;
-  let t = p;
-  for (let i = 0; i < 6; i++) {
-    const x = ((ax * t + bx) * t + cx) * t - p;
-    const d = (3 * ax * t + 2 * bx) * t + cx;
-    if (Math.abs(d) < 1e-6) break;
-    t -= x / d;
-  }
-  return ((ay * t + by) * t + cy) * t;
-}
 function animateHubWidth(target: number): void {
   if (hubAnimTimer) { clearInterval(hubAnimTimer); hubAnimTimer = undefined; }
   const start = hubWidth;
