@@ -832,18 +832,3 @@ function highlightLine(text, language) {
   return output;
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function formatBytes(bytes) {
-  if (bytes < 1024) return bytes + ' B';
-  const kib = bytes / 1024;
-  if (kib < 1024) return kib.toFixed(1) + ' KiB';
-  return (kib / 1024).toFixed(1) + ' MiB';
-}
