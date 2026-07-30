@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, type Stats } from "node:fs";
 import { basename, join, relative } from "node:path";
 import type { DiffFile, DiffHunk, DiffLine, ReviewFileState, SourceFile } from "./types.js";
 import {
@@ -70,10 +70,15 @@ function readUntrackedDiff(context: number, root: string): string {
 
   for (const file of files) {
     const absolute = join(root, file);
-    if (!existsSync(absolute) || !statSync(absolute).isFile()) {
+    // One stat covers presence, file-ness, and size — was three syscalls (existsSync + two statSync) per file.
+    let stats: Stats;
+    try {
+      stats = statSync(absolute);
+    } catch {
       continue;
     }
-    const size = statSync(absolute).size;
+    if (!stats.isFile()) continue;
+    const size = stats.size;
     if (size > 500_000 || isLikelyBinary(absolute)) {
       chunks.push([
         `diff --git a/${file} b/${file}`,
@@ -351,13 +356,17 @@ export function collectSourceFiles(
       continue;
     }
 
-    if (!existsSync(absolute)) {
+    // One stat, not existsSync()+statSync() (two syscalls per file across the whole tree): statSync throws
+    // for an absent/unreadable path — the same "missing" outcome existsSync guarded — and this also closes
+    // the delete-between-the-two-calls race.
+    let stats: Stats;
+    try {
+      stats = statSync(absolute);
+    } catch {
       const skippedReason = "file is not present in the working tree";
       sourceFiles.push({ ...base, signature: hashText(`${path}\0missing\0${skippedReason}`), skippedReason });
       continue;
     }
-
-    const stats = statSync(absolute);
     if (!stats.isFile()) {
       continue;
     }
