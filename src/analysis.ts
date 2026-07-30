@@ -104,6 +104,12 @@ function uniqueLocations<T extends AnalysisLocation>(items: T[], limit = MAX_LOC
   return out;
 }
 
+// The server-identity fields every analysis status carries, projected once from a language-server command
+// (family/name/source -> family/server/serverSource) so a shape change touches one place, not five setStatus calls.
+function serverFields(server: LanguageServerCommand): { family: string; server: string; serverSource: LanguageServerCommand["source"] } {
+  return { family: server.family, server: server.name, serverSource: server.source };
+}
+
 export class ProjectAnalysis {
   private indexPromise?: Promise<RegexIndex>;
   private clients = new Map<string, LspClient>();
@@ -297,11 +303,7 @@ export class ProjectAnalysis {
       if (!client) {
         client = new LspClient(this.root, server);
         this.clients.set(key, client);
-        this.setStatus("starting", {
-          family: server.family,
-          server: server.name,
-          serverSource: server.source,
-        });
+        this.setStatus("starting", serverFields(server));
       }
       return client;
     }
@@ -318,9 +320,7 @@ export class ProjectAnalysis {
     this.clients.delete(key);
     client.dispose();
     this.setStatus("failed", {
-      family: client.server.family,
-      server: client.server.name,
-      serverSource: client.server.source,
+      ...serverFields(client.server),
       error: error instanceof Error ? error.message : error ? String(error) : "Language server stopped",
     });
   }
@@ -338,11 +338,7 @@ export class ProjectAnalysis {
       attempted.add(key);
       try {
         await client.warmup(path);
-        this.setStatus("ready", {
-          family: client.server.family,
-          server: client.server.name,
-          serverSource: client.server.source,
-        });
+        this.setStatus("ready", serverFields(client.server));
         return;
       } catch (error) {
         this.quarantine(client, error);
@@ -390,11 +386,7 @@ export class ProjectAnalysis {
             if (followed.length) locations = followed;
           }
         }
-        this.setStatus("ready", {
-          family: client.server.family,
-          server: client.server.name,
-          serverSource: client.server.source,
-        });
+        this.setStatus("ready", serverFields(client.server));
         return {
           server: client.server.name,
           serverSource: client.server.source,
@@ -428,11 +420,7 @@ export class ProjectAnalysis {
         try {
           const locations = uniqueLocations(await client.workspaceSymbols(query), Math.max(1, Math.min(Number(limit) || 200, 500)));
           const codeLocations = await this.navigationLocations(locations, Math.max(1, Math.min(Number(limit) || 200, 500)));
-          this.setStatus("ready", {
-            family: client.server.family,
-            server: client.server.name,
-            serverSource: client.server.source,
-          });
+          this.setStatus("ready", serverFields(client.server));
           if (codeLocations.length) {
             return {
               ok: true,

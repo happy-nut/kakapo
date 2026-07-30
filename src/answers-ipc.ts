@@ -1,8 +1,8 @@
 import type { WebContents } from "electron";
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { absoluteGitDir } from "./git.js";
+import { dirname } from "node:path";
+import { kakapoGitDataFile } from "./git.js";
 
 // One item in the answers checklist: kakapo pre-fills everything except `answer`/`answeredAt`, which the
 // agent fills in by editing the file in place. `seq` is the review comment's own id (07-comments.js), the
@@ -39,8 +39,7 @@ type AnswersStateResolver = (event: AnswersEvent) => AnswersIpcState | undefined
 // git never tracks its own `.git/` contents, so this never shows up in `git status`, but it's still
 // physically inside the worktree filesystem a cwd-sandboxed agent can reach. Undefined outside a git repo.
 export function answersFilePath(root: string): string | undefined {
-  const gitDir = absoluteGitDir(root);
-  return gitDir ? join(gitDir, "kakapo", "answers.json") : undefined;
+  return kakapoGitDataFile(root, "answers.json");
 }
 
 // Tolerant read: a missing file (nothing sent yet) and a half-written file (the agent is mid-save) both

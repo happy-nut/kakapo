@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent, WebContents } from "electron";
-import { absoluteGitDir } from "./git.js";
+import { kakapoGitDataFile } from "./git.js";
 
 // The window state the Explain spec watcher needs: the BrowserWindow to push updates to, the repo root
 // used to resolve this window's spec-file path, and the last-seen signature/spec/timestamp so repeat
@@ -24,8 +23,7 @@ type ExplainStateResolver = (event: ExplainEvent) => ExplainIpcState | undefined
 // directory, which sits entirely outside the repo and may be unwritable from inside such a sandbox.
 // Undefined outside a git repo.
 export function explainSpecFilePath(root: string): string | undefined {
-  const gitDir = absoluteGitDir(root);
-  return gitDir ? join(gitDir, "kakapo", "explain-spec.json") : undefined;
+  return kakapoGitDataFile(root, "explain-spec.json");
 }
 
 function isValidExplainSpec(value: unknown): value is { sections: unknown[] } {

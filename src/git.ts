@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { GitSnapshot } from "./types.js";
 
 export function isGitRepository(root: string): boolean {
@@ -95,6 +95,20 @@ export function repoRoot(cwd: string = process.cwd()): string {
 // 추적하지 않으므로, 에이전트가 `git status`를 더럽히지 않고 파일을 쓸 수 있는 장소이기 때문이다.
 export function absoluteGitDir(root: string): string {
   return git(root, ["rev-parse", "--absolute-git-dir"]);
+}
+
+// Absolute path to a kakapo data file inside the repo's git dir — `.git/kakapo/<name>`, or a linked
+// worktree's own `.git/worktrees/<id>/kakapo/<name>`. undefined when `root` isn't a git repo. This is where
+// kakapo stashes per-workspace agent-exchange files so they travel with the checkout but stay out of the tree.
+export function kakapoGitDataFile(root: string, name: string): string | undefined {
+  const gitDir = absoluteGitDir(root);
+  return gitDir ? join(gitDir, "kakapo", name) : undefined;
+}
+
+// A git object id (short or full). The compare bar and history send SHAs from the renderer, so every one is
+// validated with this before it reaches `git` as a revision argument.
+export function isCommitSha(value: string): boolean {
+  return /^[0-9a-fA-F]{4,64}$/.test(value);
 }
 
 export function canonicalWorkspaceRoot(cwd: string = process.cwd()): string {

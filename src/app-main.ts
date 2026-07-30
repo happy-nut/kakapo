@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, screen, shell, WebContentsView } from "electron";
 import type { WebContents } from "electron";
-import { git, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
+import { git, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
 import { ProjectAnalysis } from "./analysis.js";
@@ -645,7 +645,7 @@ function sanitizeCompareScope(raw: unknown[]): { sha: string; shortSha: string; 
     if (!item || typeof item !== "object") continue;
     const record = item as Record<string, unknown>;
     const sha = String(record.sha ?? "");
-    if (!/^[0-9a-fA-F]{4,64}$/.test(sha)) continue;
+    if (!isCommitSha(sha)) continue;
     out.push({
       sha,
       shortSha: String(record.shortSha ?? sha.slice(0, 7)).slice(0, 16),

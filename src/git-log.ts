@@ -1,6 +1,14 @@
-import { git } from "./git.js";
+import { git, isCommitSha } from "./git.js";
 import { renderDiff2Html } from "./highlight.js";
 import { parseUnifiedDiff } from "./diff.js";
+
+// Per-file status map (displayPath -> "added"/"modified"/…) parsed from a unified diff, for the history
+// view's changed-files list. Shared by the single-commit and range readers, which both build it identically.
+function fileStatusFromDiff(diffText: string): Record<string, string> {
+  const fileStatus: Record<string, string> = {};
+  for (const file of parseUnifiedDiff(diffText)) fileStatus[file.displayPath] = file.status;
+  return fileStatus;
+}
 
 // One commit row for the history view. parents drives the graph lanes (computed in the renderer).
 export type GitCommit = {
@@ -172,14 +180,13 @@ export function readCommitDiff(root: string, sha: string): {
   fileStatus: Record<string, string>;
   isMerge: boolean;
 } | null {
-  if (!sha || !/^[0-9a-fA-F]{4,64}$/.test(sha)) return null; // guard: only a hash reaches `git`
+  if (!sha || !isCommitSha(sha)) return null; // guard: only a hash reaches `git`
   const meta = git(root, ["show", "-s", "--decorate=full", `--pretty=format:%H${FS}%an${FS}%ae${FS}%ad${FS}%D${FS}%P${FS}%B`, "--date=iso-strict", sha]);
   if (!meta) return null;
   const f = meta.split(FS);
   const parents = (f[5] || "").trim() ? (f[5] as string).trim().split(/\s+/) : [];
   const diffText = git(root, ["show", "--relative", "--no-color", "--pretty=format:", sha, "--", "."]).replace(/^\n+/, "");
-  const fileStatus: Record<string, string> = {};
-  for (const file of parseUnifiedDiff(diffText)) fileStatus[file.displayPath] = file.status;
+  const fileStatus = fileStatusFromDiff(diffText);
   return {
     hash: f[0] || sha,
     author: f[1] || "",
@@ -212,7 +219,7 @@ export function readRangeDiff(root: string, oldSha: string, newSha: string): {
   fileStatus: Record<string, string>;
   isMerge: false;
 } | null {
-  if (!/^[0-9a-fA-F]{4,64}$/.test(oldSha) || !/^[0-9a-fA-F]{4,64}$/.test(newSha)) return null;
+  if (!isCommitSha(oldSha) || !isCommitSha(newSha)) return null;
   const oldMeta = git(root, ["show", "-s", `--pretty=format:%h${FS}%s`, oldSha]);
   const newMeta = git(root, ["show", "-s", `--pretty=format:%h${FS}%s`, newSha]);
   if (!oldMeta || !newMeta) return null;
@@ -221,8 +228,7 @@ export function readRangeDiff(root: string, oldSha: string, newSha: string): {
   // Commits introduced between the two endpoints (for the "N commits" header). Empty/0 for unrelated refs.
   const count = Number(git(root, ["rev-list", "--count", `${oldSha}..${newSha}`])) || 0;
   const diffText = git(root, ["diff", "--relative", "--no-color", "--find-renames", oldSha, newSha, "--", "."]).replace(/^\n+/, "");
-  const fileStatus: Record<string, string> = {};
-  for (const file of parseUnifiedDiff(diffText)) fileStatus[file.displayPath] = file.status;
+  const fileStatus = fileStatusFromDiff(diffText);
   return {
     range: true,
     oldHash: oldSha,
