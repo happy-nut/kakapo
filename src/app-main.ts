@@ -1223,6 +1223,14 @@ function createWindow(root: string, deferBoot = false): WinState {
   // Clicking into the active review view returns focus to the "main window" — collapse an expanded rail so its
   // peek dismisses. Only the active (visible) view can receive a user click, so this never fires for a background one.
   view.webContents.on("focus", () => { if (view.webContents.id === activeStateId) collapseRailFromReview(); });
+  // The review's keyboard shortcuts (Cmd+1 Files, etc.) attach only once its HTML has loaded. On the first
+  // switch to a workspace the view is still booting when activateWorkspace focuses it, so early key presses
+  // landed on nothing until it finished (the "press Cmd+1 three times" symptom). Refocus the active view the
+  // moment its content is ready — unless a modal or the expanded rail owns the keyboard — so shortcuts work
+  // on the first press.
+  view.webContents.on("did-finish-load", () => {
+    if (view.webContents.id === activeStateId && !railExpanded) focusActiveReviewView();
+  });
   layoutWorkspaceViews();
   let surfaceHost = host;
   let detachedHost: BrowserWindow | undefined;
