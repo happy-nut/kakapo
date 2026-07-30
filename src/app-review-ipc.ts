@@ -23,8 +23,9 @@ export type ReviewIpcState = {
   reviewTarget?: string;
   compareScope?: { sha: string; shortSha: string; subject: string; date: string }[];
   // Diff-first startup: the first paint indexed only the changed files. This materializes the full project
-  // index into sourceFiles on demand (idempotent, at most once) so the pull handlers below see every file.
-  ensureFullIndex?: () => void;
+  // index into sourceFiles on demand (idempotent, deduped) so the pull handlers below see every file. It runs
+  // the enumeration in the build worker, so it returns a promise the handlers await.
+  ensureFullIndex?: () => void | Promise<void>;
 };
 
 type ReviewIpcEvent = IpcMainEvent | IpcMainInvokeEvent;
@@ -58,15 +59,15 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     return body;
   });
 
-  ipc.handle("kakapo:get-source", (event, request: { path?: string }) => {
+  ipc.handle("kakapo:get-source", async (event, request: { path?: string }) => {
     const state = stateFromEvent(event);
     const path = String(request?.path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
     if (!state || !path || path.startsWith("../")) return null;
     let record = state.sourceFiles.get(path);
     if (!record) {
       // Diff-first: the changed-only index doesn't hold this path (e.g. a restored tab for an unchanged file).
-      // Materialize the full index once, then retry before giving up.
-      state.ensureFullIndex?.();
+      // Materialize the full index once (in the worker), then retry before giving up.
+      await state.ensureFullIndex?.();
       record = state.sourceFiles.get(path);
     }
     if (!record) return null;
@@ -96,12 +97,13 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     } catch { return null; }
   });
 
-  ipc.handle("kakapo:get-project-index", (event): ProjectIndexPayload | null => {
+  ipc.handle("kakapo:get-project-index", async (event): Promise<ProjectIndexPayload | null> => {
     const state = stateFromEvent(event);
     if (!state) return null;
-    // Diff-first: build the full index now if the first paint only carried the changed files. state.signature
-    // is left unchanged so it still matches what the renderer pulled against (installProjectIndex's guard).
-    state.ensureFullIndex?.();
+    // Diff-first: build the full index now (in the worker) if the first paint only carried the changed files.
+    // state.signature is left unchanged so it still matches what the renderer pulled against (the
+    // installProjectIndex guard).
+    await state.ensureFullIndex?.();
     return {
       signature: state.signature,
       filesTree: "",

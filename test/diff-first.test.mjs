@@ -30,21 +30,21 @@ function baseState(overrides) {
   };
 }
 
-test("get-project-index materializes the deferred full index before returning it", () => {
+test("get-project-index materializes the deferred full index before returning it", async () => {
   const ipc = fakeIpc();
   let ensured = 0;
   const state = baseState({
     sourceFiles: new Map([["src/a.ts", { path: "src/a.ts", changed: true, content: "", size: 1, signature: "a", embedded: true }]]),
   });
-  state.ensureFullIndex = () => {
+  state.ensureFullIndex = async () => {
     ensured += 1;
-    // Simulate the on-demand full build adding the unchanged sibling the first paint omitted.
+    // Simulate the on-demand full build (worker) adding the unchanged sibling the first paint omitted.
     state.sourceFiles.set("src/b.ts", { path: "src/b.ts", changed: false, content: "", size: 1, signature: "b", embedded: true });
     state.fullIndexPending = false;
   };
   registerReviewIpc(ipc, () => state);
 
-  const result = ipc.invoke("kakapo:get-project-index");
+  const result = await ipc.invoke("kakapo:get-project-index");
   assert.equal(ensured, 1, "the handler triggered the on-demand full-index build");
   assert.deepEqual(
     result.sourceFilesMeta.map((f) => f.path).sort(),
@@ -55,32 +55,32 @@ test("get-project-index materializes the deferred full index before returning it
   assert.equal(result.signature, "sig-first-paint", "the pull keeps the first-paint signature");
 });
 
-test("get-source falls back to the full index for a path outside the changed set", () => {
+test("get-source falls back to the full index for a path outside the changed set", async () => {
   const ipc = fakeIpc();
   let ensured = 0;
   const state = baseState({ sourceFiles: new Map() }); // changed-only index lacks the requested file
-  state.ensureFullIndex = () => {
+  state.ensureFullIndex = async () => {
     ensured += 1;
     state.sourceFiles.set("src/b.ts", { path: "src/b.ts", changed: false, deferred: false, content: "hi", size: 2, signature: "b", embedded: true });
     state.fullIndexPending = false;
   };
   registerReviewIpc(ipc, () => state);
 
-  const result = ipc.invoke("kakapo:get-source", { path: "src/b.ts" });
+  const result = await ipc.invoke("kakapo:get-source", { path: "src/b.ts" });
   assert.equal(ensured, 1, "the miss triggered the on-demand full-index build");
   assert.ok(result && result.path === "src/b.ts", "get-source resolved the file after materializing the full index");
 });
 
-test("get-source does not build the full index when the changed set already has the file", () => {
+test("get-source does not build the full index when the changed set already has the file", async () => {
   const ipc = fakeIpc();
   let ensured = 0;
   const state = baseState({
     sourceFiles: new Map([["src/a.ts", { path: "src/a.ts", changed: true, deferred: false, content: "x", size: 1, signature: "a", embedded: true }]]),
   });
-  state.ensureFullIndex = () => { ensured += 1; };
+  state.ensureFullIndex = async () => { ensured += 1; };
   registerReviewIpc(ipc, () => state);
 
-  const result = ipc.invoke("kakapo:get-source", { path: "src/a.ts" });
+  const result = await ipc.invoke("kakapo:get-source", { path: "src/a.ts" });
   assert.equal(ensured, 0, "a changed file resolves without the full-index pass");
   assert.equal(result.path, "src/a.ts");
 });

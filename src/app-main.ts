@@ -13,7 +13,8 @@ import { ProjectMarkdownMemo } from "./memos.js";
 import type { SourceFile } from "./types.js";
 import { workspaceReviewFile } from "./workspace-data.js";
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
-import { collectReviewSourceIndex, reviewDiffSignature, writeReviewWorkspace } from "./review-workspace.js";
+import { reviewDiffSignature } from "./review-workspace.js";
+import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { parseReviewArgs, readOption } from "./cli-args.js";
 import { easeRail } from "./rail-animation.js";
@@ -107,7 +108,11 @@ type WinState = {
   // and built on demand (ensureFullIndex) the first time the renderer pulls it. Cleared once the full index
   // lands — here, or via any watch rebuild (which always builds full).
   fullIndexPending?: boolean;
-  ensureFullIndex?: () => void; // materialize the deferred full project index into sourceFiles, at most once
+  ensureFullIndex?: () => Promise<void>; // materialize the deferred full project index into sourceFiles, once
+  fullIndexInFlight?: Promise<void>; // dedups concurrent project-index pulls onto one worker build
+  // Monotonic per-window build counter. Every build off the worker stamps its request; when the result
+  // returns, a stale stamp (a newer build was requested, or the window closed) means the result is dropped.
+  buildSeq: number;
   disposeWindowSurfaceRecovery: () => void;
   explainTimer?: NodeJS.Timeout; // Explain view: polls this workspace's content-spec file, independent of --watch
   explainSig: string; // last-seen spec file mtime+size, to skip re-parsing when unchanged
@@ -189,6 +194,9 @@ const options = parseArgs(runtimeArgs);
 // in additionalData avoids relying on platform-specific command-line/cwd behavior during handoff.
 const hasSingleInstanceLock = app.requestSingleInstanceLock({ workspaceRoot: options.root });
 const states = new Map<number, WinState>();
+// Every review build runs in this one worker thread, so a rebuild never blocks the main loop's IPC/terminal
+// handling — the main thread only pays the compact snapshot clone. Warmed up at startup (whenReady).
+const reviewBuilder = new ReviewBuilder();
 let shellWindow: BrowserWindow | undefined;
 let activeStateId: number | undefined;
 let quitConfirmed = false;
@@ -584,7 +592,7 @@ ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unk
 // rebuild, and push the diff in place (like refreshIfChanged) so comments/scroll survive. The right side
 // stays the working tree ("latest"); only the base moves, and base already threads through diff/context/
 // blame/source, so no other plumbing changes.
-ipcMain.handle("kakapo:set-review-base", (event, payload: { ref?: unknown }) => {
+ipcMain.handle("kakapo:set-review-base", async (event, payload: { ref?: unknown }) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false };
   const raw = typeof payload?.ref === "string" ? payload.ref.trim() : "";
@@ -598,7 +606,7 @@ ipcMain.handle("kakapo:set-review-base", (event, payload: { ref?: unknown }) => 
     }
     state.options.staged = false; // --staged takes precedence over --base in readUnifiedDiff; clear it
     state.lastDiffSig = ""; // re-baseline the watch fast-path against the new base
-    rebuildAndPushUpdate(state, true);
+    await rebuildAndPushUpdate(state, true);
     return { ok: true, activeBase: state.options.base ?? "auto" };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -608,7 +616,7 @@ ipcMain.handle("kakapo:set-review-base", (event, payload: { ref?: unknown }) => 
 // Right/new side of the compare bar: pick a patch set as target B (A→B compare) or the sentinel
 // "worktree" to return to base-vs-working-tree. Same rebuild+in-place-update shape as set-review-base;
 // the source model then serves commit B's content so comments reconcile against B.
-ipcMain.handle("kakapo:set-review-target", (event, payload: { ref?: unknown }) => {
+ipcMain.handle("kakapo:set-review-target", async (event, payload: { ref?: unknown }) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false };
   const raw = typeof payload?.ref === "string" ? payload.ref.trim() : "";
@@ -621,7 +629,7 @@ ipcMain.handle("kakapo:set-review-target", (event, payload: { ref?: unknown }) =
       state.options.staged = false; // an A→B compare has no index side
     }
     state.lastDiffSig = "";
-    rebuildAndPushUpdate(state, true);
+    await rebuildAndPushUpdate(state, true);
     return { ok: true, activeTarget: state.options.target ?? "worktree" };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -652,7 +660,7 @@ function sanitizeCompareScope(raw: unknown[]): { sha: string; shortSha: string; 
 // shift-selected commit range in the main review, where the full comment system applies. "auto"/"worktree"
 // sentinels reset a side to its default. `scope` (sent when opening a range) is the pickable commit list, so
 // the compare bar's dropdowns can then select any B..D within the opened A..F.
-ipcMain.handle("kakapo:set-review-compare", (event, payload: { base?: unknown; target?: unknown; scope?: unknown }) => {
+ipcMain.handle("kakapo:set-review-compare", async (event, payload: { base?: unknown; target?: unknown; scope?: unknown }) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false };
   const rawBase = typeof payload?.base === "string" ? payload.base.trim() : "";
@@ -668,7 +676,7 @@ ipcMain.handle("kakapo:set-review-compare", (event, payload: { base?: unknown; t
     if (rawBase === "auto" || rawTarget === "worktree") state.compareScope = undefined; // exiting compare clears the scope
     state.options.staged = false;
     state.lastDiffSig = "";
-    rebuildAndPushUpdate(state, true);
+    await rebuildAndPushUpdate(state, true);
     return { ok: true, activeBase: state.options.base ?? "auto", activeTarget: state.options.target ?? "worktree" };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -802,6 +810,9 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // disambiguates a local checkout from the installed package.
   console.error(`[kakapo] ${DEV_BUILD ? "DEV build" : "build"} — ${app.getAppPath()} (electron ${process.versions.electron})`);
 
+  // Spawn the build worker now so the first window's boot build doesn't pay worker startup on the hot path.
+  reviewBuilder.warmUp();
+
   buildApplicationMenu();
 
   const appIcon = nativeImage.createFromPath(iconPath);
@@ -923,11 +934,13 @@ function buildApplicationMenu(): void {
         type: "checkbox",
         checked: options.ignoreWhitespace,
         accelerator: "CommandOrControl+Shift+W",
-        click: (item) => {
+        click: async (item) => {
           const state = focusedState();
           if (!state) return;
           state.options.ignoreWhitespace = item.checked;
-          state.signature = writeReviewFile(state).signature;
+          const build = await buildReview(state);
+          if (!build || state.win.isDestroyed()) return;
+          state.signature = build.signature;
           state.win.webContents.reloadIgnoringCache();
         },
       },
@@ -1061,16 +1074,17 @@ function activateWorkspace(id: number): void {
       activated.analysis = new ProjectAnalysis(activated.options.root);
       activated.analysisSuspended = false;
       scheduleAnalysisPrewarm(activated);
-      // Rebuilding the review here (writeReviewFile) takes ~1s+ on large repos (6k+ source files), and it ran
-      // SYNCHRONOUSLY on the switch — freezing the whole app for ~2s on every switch to an idle workspace. Defer
-      // it off the switch path: the view keeps its last-rendered diff, and the refreshed diff/state is pushed a
-      // moment later. Skip if the user has already switched away again.
+      // Rebuilding the review on a switch to an idle workspace used to freeze the whole app for ~1-2s on a
+      // large repo (the build ran synchronously on the main process). buildReview now runs it in the worker,
+      // so main stays responsive; the view keeps its last-rendered diff and the refreshed diff/state is pushed
+      // when the build lands. Skip if the user has already switched away again.
       const target = activated;
-      setTimeout(() => {
+      setTimeout(async () => {
         if (target.win.isDestroyed() || target.win.webContents.id !== activeStateId) return;
-        const rebuilt = writeReviewFile(target);
+        const rebuilt = await buildReview(target);
+        if (!rebuilt || target.win.isDestroyed() || target.win.webContents.id !== activeStateId) return;
         target.signature = rebuilt.signature;
-        if (rebuilt.update && !target.win.isDestroyed()) target.win.webContents.send("kakapo:diff-update", rebuilt.update);
+        if (rebuilt.update) target.win.webContents.send("kakapo:diff-update", rebuilt.update);
       }, 0);
     }
     if (!activated.bootStarted) {
@@ -1332,6 +1346,7 @@ function createWindow(root: string, deferBoot = false): WinState {
     unread: false,
     busy: false,
     bootStarted: false,
+    buildSeq: 0,
     perf,
     lastDiffSig: "",
     reviewBase: undefined,
@@ -1453,8 +1468,10 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
       if (app.isPackaged && !isGitRepository(state.options.root)) { void showWelcome(state); return; }
       state.answersFile = answersFilePath(state.options.root);
       // Diff-first: paint the diff + changed-file sources now; the full project index is materialized on
-      // demand (ensureFullProjectIndex) so a large tree's enumeration never blocks first paint.
-      const firstBuild = writeReviewFile(state, true);
+      // demand (ensureFullProjectIndex) so a large tree's enumeration never blocks first paint. The build
+      // runs off-main in the worker, so the boot spinner keeps animating while it works.
+      const firstBuild = await buildReview(state, true);
+      if (!firstBuild) return; // window closed mid-build, or superseded
       state.signature = firstBuild.signature;
       preferences.recordRecentProject(state.options.root); // remember the launched/new-window repo for the welcome screen
       if (!state.win.isDestroyed()) {
@@ -1484,11 +1501,13 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
 // Rebuild the review and push the compact diff-update to the renderer in place (no window reload), then warm
 // analysis. Shared by the watch tick and the compare-bar handlers — the one place that owned this sequence in
 // four copies. `force` skips the signature guard for a base/target/compare change, which always warrants it.
-function rebuildAndPushUpdate(state: WinState, force = false): void {
-  const build = writeReviewFile(state);
-  if (!force && !shouldPushUpdate(state.signature, build.signature)) return;
-  state.signature = build.signature;
-  if (build.update) state.win.webContents.send("kakapo:diff-update", build.update);
+async function rebuildAndPushUpdate(state: WinState, force = false): Promise<void> {
+  const prevSignature = state.signature;
+  const snapshot = await buildReview(state, false);
+  if (!snapshot) return; // window closed or a newer build superseded this one — nothing to push
+  if (!force && !shouldPushUpdate(prevSignature, snapshot.signature)) return;
+  state.signature = snapshot.signature;
+  if (snapshot.update && !state.win.isDestroyed()) state.win.webContents.send("kakapo:diff-update", snapshot.update);
   scheduleAnalysisPrewarm(state);
 }
 
@@ -1506,8 +1525,9 @@ async function refreshIfChanged(state: WinState): Promise<void> {
     if (decision.action === "skip") return;
     state.lastDiffSig = decision.diffSig;
     // Refresh the diff in place instead of reloading the window so review context remains stable; the update
-    // is only pushed when the review signature actually changed (rebuildAndPushUpdate's default guard).
-    rebuildAndPushUpdate(state);
+    // is only pushed when the review signature actually changed (rebuildAndPushUpdate's default guard). The
+    // build runs off-main (worker) and `state.refreshing` stays held across the await, serializing ticks.
+    await rebuildAndPushUpdate(state);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
   } finally {
@@ -1515,47 +1535,75 @@ async function refreshIfChanged(state: WinState): Promise<void> {
   }
 }
 
-function writeReviewFile(state: WinState, deferFullIndex = false): { signature: string; html: string; update?: import("./types.js").DiffReviewUpdate } {
-  const started = performance.now();
-  state.perf.mark("review-build-start");
-  const build = writeReviewWorkspace(reviewPath(state.options.root), state.options, APP_TITLE, deferFullIndex);
-  state.reviewBase = build.reviewBase;
-  state.reviewTarget = build.reviewTarget;
-  state.reviewUpstream = build.reviewUpstream;
+// Apply a worker-built review snapshot to this window's state. Split from the build call so the (async,
+// off-main) build and the (sync, main-thread) state mutation are separable, and a superseded build's result
+// can be dropped without touching state. Mirrors the state updates the old sync writeReviewFile did.
+function applySnapshot(state: WinState, snapshot: BuildSnapshot): void {
+  state.reviewBase = snapshot.reviewBase;
+  state.reviewTarget = snapshot.reviewTarget;
+  state.reviewUpstream = snapshot.reviewUpstream;
   // The review artifact mirrors the workspace's absolute folder structure below userData. Different
   // repositories, nested monorepo packages, and worktrees therefore never share a file or touch source.
-  state.bodyDiffs = build.bodyDiffs;
+  state.bodyDiffs = snapshot.bodyDiffs;
   state.bodyCache.clear();
   // Retain native records from the workspace snapshot instead of serializing and parsing the whole project
   // index (which can approach the source budget on large repositories).
-  state.sourceFiles = new Map(build.sourceFiles.map((file) => [file.path, file]));
+  state.sourceFiles = new Map(snapshot.sourceFiles.map((file) => [file.path, file]));
   // Diff-first: this build carried only the changed files (fullIndexDeferred). Mark the full index owed so the
   // first project-index pull materializes it. A full build (deferFullIndex=false) clears the flag outright.
-  state.fullIndexPending = build.fullIndexDeferred;
+  state.fullIndexPending = snapshot.fullIndexDeferred;
   state.analysis.invalidate();
+}
+
+// Build (or rebuild) this window's review OFF the main process, via the shared worker, then apply the result.
+// The main thread only pays the compact snapshot clone (~7-14ms for a 6k-file index) instead of the full
+// ~90-180ms build, so a rebuild never freezes IPC/terminal handling. Returns null when the window closed or a
+// newer build superseded this one (buildSeq) — the caller then leaves state untouched. The worker writes the
+// review HTML file itself, so callers that reload/loadFile can do so once this resolves.
+async function buildReview(state: WinState, deferFullIndex = false): Promise<BuildSnapshot | null> {
+  const seq = ++state.buildSeq;
+  const started = performance.now();
+  state.perf.mark("review-build-start");
+  let snapshot: BuildSnapshot;
+  try {
+    snapshot = await reviewBuilder.build(reviewPath(state.options.root), state.options, APP_TITLE, deferFullIndex);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return null;
+  }
+  if (state.win.isDestroyed() || seq !== state.buildSeq) return null; // window closed, or a newer build won
+  applySnapshot(state, snapshot);
   state.perf.mark("review-build-complete", {
     durationMs: Math.round((performance.now() - started) * 10) / 10,
     sourceFiles: state.sourceFiles.size,
     diffBodies: state.bodyDiffs.length,
   });
-  return { signature: build.signature, html: build.html, update: build.update };
+  return snapshot;
 }
 
 // Diff-first startup: materialize the deferred full project index into state.sourceFiles the first time the
-// renderer needs it (project-index pull, or a get-source for a file outside the changed set). Idempotent —
-// any watch rebuild builds full and clears fullIndexPending, turning this into a no-op. state.signature is
-// intentionally left at the first-paint (changed-only) value: that is what the renderer pulled the index
-// against, and its installProjectIndex guard requires the pulled signature to match.
-function ensureFullProjectIndex(state: WinState): void {
-  if (!state.fullIndexPending) return;
+// renderer needs it (project-index pull, or a get-source for a file outside the changed set). Runs in the
+// worker too, so opening the tree on a large repo doesn't freeze main. Idempotent + deduped: concurrent pulls
+// share one in-flight build, and any watch rebuild that clears fullIndexPending first makes the result a
+// no-op. state.signature is intentionally left at the first-paint (changed-only) value — that is what the
+// renderer pulled the index against, and its installProjectIndex guard requires the pulled signature to match.
+function ensureFullProjectIndex(state: WinState): Promise<void> {
+  if (!state.fullIndexPending) return Promise.resolve();
+  if (state.fullIndexInFlight) return state.fullIndexInFlight;
   const started = performance.now();
-  const full = collectReviewSourceIndex(state.options, state.reviewBase, state.reviewTarget);
-  state.sourceFiles = new Map(full.map((file) => [file.path, file]));
-  state.fullIndexPending = false;
-  state.perf.mark("full-index-materialized", {
-    durationMs: Math.round((performance.now() - started) * 10) / 10,
-    sourceFiles: state.sourceFiles.size,
-  });
+  state.fullIndexInFlight = reviewBuilder.index(state.options, state.reviewBase, state.reviewTarget)
+    .then((full) => {
+      if (state.win.isDestroyed() || !state.fullIndexPending) return; // closed, or a full rebuild beat us to it
+      state.sourceFiles = new Map(full.map((file) => [file.path, file]));
+      state.fullIndexPending = false;
+      state.perf.mark("full-index-materialized", {
+        durationMs: Math.round((performance.now() - started) * 10) / 10,
+        sourceFiles: state.sourceFiles.size,
+      });
+    })
+    .catch((error) => { console.error(error instanceof Error ? error.message : String(error)); })
+    .finally(() => { state.fullIndexInFlight = undefined; });
+  return state.fullIndexInFlight;
 }
 
 function scheduleAnalysisPrewarm(state: WinState): void {
@@ -1591,7 +1639,7 @@ async function showWelcome(state: WinState): Promise<void> {
 
 // Load a chosen git repo into an existing window — the welcome screen's folder picker, or File > Open
 // Folder. Repoints the window's root, (re)writes the review, swaps the page, and re-arms its watch timer.
-// No process.chdir: root is threaded through writeReviewFile/refreshIfChanged per window.
+// No process.chdir: root is threaded through buildReview/refreshIfChanged per window.
 async function openReview(state: WinState, root: string): Promise<void> {
   if (state.analysisWarmTimer) { clearTimeout(state.analysisWarmTimer); state.analysisWarmTimer = undefined; }
   state.analysis.dispose();
@@ -1623,7 +1671,8 @@ async function openReview(state: WinState, root: string): Promise<void> {
   if (state.explainTimer) { clearInterval(state.explainTimer); state.explainTimer = undefined; }
   // Diff-first, same as the cold boot: reusing this window for another repo paints its diff without waiting
   // on the new tree's full enumeration; the full index is pulled on demand (state.ensureFullIndex persists).
-  const build = writeReviewFile(state, true);
+  const build = await buildReview(state, true);
+  if (!build) return; // window closed mid-build, or superseded by another switch
   state.signature = build.signature;
   if (!state.win.isDestroyed()) await state.win.loadFile(reviewPath(state.options.root));
   if (state.options.watch) state.refreshTimer = setInterval(() => void refreshIfChanged(state), WATCH_INTERVAL_MS);
