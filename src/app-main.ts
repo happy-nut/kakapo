@@ -15,6 +15,7 @@ import { workspaceReviewFile } from "./workspace-data.js";
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import { reviewDiffSignature, writeReviewWorkspace } from "./review-workspace.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
+import { parseReviewArgs, readOption } from "./cli-args.js";
 import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
@@ -1647,45 +1648,22 @@ function makeOptions(root: string): AppOptions {
 }
 
 function parseArgs(args: string[]): AppOptions {
-  const requestedRoot = resolve(readOption(args, "--cwd") ?? process.cwd());
+  const parsed = parseReviewArgs(args); // pure flag parsing; this function adds the git-dependent resolution
+  const requestedRoot = resolve(parsed.requestedCwd ?? process.cwd());
   const root = isGitRepository(requestedRoot) ? resolveWorkspaceRoot(requestedRoot) : requestedRoot;
-  const contextValue = readOption(args, "--context");
-  const staged = args.includes("--staged");
-  const baseValue = readOption(args, "--base");
-  if (staged && baseValue !== undefined) {
-    throw new Error("Use either --staged or --base, not both: --staged compares the index against HEAD.");
-  }
   // Default (neither flag): diff the working tree against an automatic base — the upstream merge-base when the
   // branch has unpushed commits, otherwise HEAD. --base <ref> reviews the working tree against any branch/tag/
   // commit (e.g. the whole AI feature branch: --base main). --staged reviews the index against HEAD.
-  const base = baseValue !== undefined && isGitRepository(root)
-    ? validateReviewBase(root, baseValue)
-    : baseValue;
+  const base = parsed.baseValue !== undefined && isGitRepository(root)
+    ? validateReviewBase(root, parsed.baseValue)
+    : parsed.baseValue;
   return {
     root,
     base,
-    staged,
-    includeUntracked: args.includes("--include-untracked"),
-    context: contextValue ? parsePositiveInteger(contextValue, "--context") : 12,
-    watch: !args.includes("--no-watch"),
-    ignoreWhitespace: args.includes("--ignore-whitespace"),
+    staged: parsed.staged,
+    includeUntracked: parsed.includeUntracked,
+    context: parsed.context,
+    watch: parsed.watch,
+    ignoreWhitespace: parsed.ignoreWhitespace,
   };
-}
-
-function readOption(args: string[], name: string): string | undefined {
-  const index = args.indexOf(name);
-  if (index < 0) return undefined;
-  const value = args[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`Missing value for ${name}`);
-  }
-  return value;
-}
-
-function parsePositiveInteger(value: string, optionName: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new Error(`${optionName} must be a non-negative integer`);
-  }
-  return parsed;
 }
