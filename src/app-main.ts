@@ -1572,9 +1572,15 @@ async function buildReview(state: WinState, deferFullIndex = false): Promise<Bui
     return null;
   }
   if (state.win.isDestroyed() || seq !== state.buildSeq) return null; // window closed, or a newer build won
+  // workerMs is wall-clock spent in the worker (the main loop was free the whole time); mainBlockMs is the
+  // only stretch the main loop was actually blocked — the snapshot handoff. The old sync build blocked main
+  // for the entire workerMs, so this split is what makes the off-main win legible in the trace.
+  const workerMs = Math.round((performance.now() - started) * 10) / 10;
+  const applyStarted = performance.now();
   applySnapshot(state, snapshot);
   state.perf.mark("review-build-complete", {
-    durationMs: Math.round((performance.now() - started) * 10) / 10,
+    workerMs,
+    mainBlockMs: Math.round((performance.now() - applyStarted) * 10) / 10,
     sourceFiles: state.sourceFiles.size,
     diffBodies: state.bodyDiffs.length,
   });
