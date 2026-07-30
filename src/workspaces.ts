@@ -57,30 +57,6 @@ export function workspaceSlug(input: string): string {
   return input.trim().toLowerCase().replace(/[^a-z0-9가-힣]+/g, "-").replace(/^-+|-+$/g, "") || "workspace";
 }
 
-export function createManagedWorkspace(
-  repo: string,
-  label: string,
-  options: { base?: string; prefix?: string; container?: string } = {},
-): WorkspaceRecord {
-  const main = workspaceRecord(repo);
-  const base = options.base || defaultBase(main.repoRoot);
-  const prefix = options.prefix ?? "kakapo";
-  const container = options.container ?? join(homedir(), "kakapo", "workspaces");
-  let slug = workspaceSlug(label);
-  let branch = `${prefix}/${slug}`;
-  let target = join(container, main.repoName, slug);
-  for (let suffix = 2; existsSync(target) || git(main.repoRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]); suffix += 1) {
-    slug = `${workspaceSlug(label)}-${suffix}`;
-    branch = `${prefix}/${slug}`;
-    target = join(container, main.repoName, slug);
-  }
-  mkdirSync(resolve(target, ".."), { recursive: true });
-  const fetch = run(main.repoRoot, ["fetch", "--prune"]);
-  const added = run(main.repoRoot, ["worktree", "add", "-b", branch, target, base]);
-  if (!added.ok) throw new Error(added.output || `Failed to create worktree ${target}`);
-  return { ...workspaceRecord(realpathSync(target)), alias: label.trim() || slug, base, fetchWarning: fetch.ok ? undefined : fetch.output };
-}
-
 function runAsync(root: string, args: string[], signal?: AbortSignal): Promise<{ ok: boolean; output: string }> {
   return new Promise((resolveResult) => {
     if (signal?.aborted) {

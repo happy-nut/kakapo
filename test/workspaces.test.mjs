@@ -4,17 +4,17 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createManagedWorkspace, createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord } from "../dist/workspaces.js";
+import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord } from "../dist/workspaces.js";
 
 const sh = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-test("managed worktree creation, risk detection, and safe removal", () => {
+test("managed worktree creation, risk detection, and safe removal", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "kakapo-workspaces-"));
   try {
     const repo = join(tmp, "repo"); mkdirSync(repo);
     sh(repo, "init", "-b", "main"); sh(repo, "config", "user.email", "a@b.c"); sh(repo, "config", "user.name", "T");
     writeFileSync(join(repo, "a.txt"), "a\n"); sh(repo, "add", "."); sh(repo, "commit", "-m", "init");
     assert.equal(defaultBase(repo), "main");
-    const ws = createManagedWorkspace(repo, "My Task", { container: join(tmp, "managed") });
+    const ws = await createManagedWorkspaceAsync(repo, "My Task", { container: join(tmp, "managed") });
     assert.equal(ws.kind, "worktree"); assert.equal(ws.branch, "kakapo/my-task");
     assert.equal(workspaceRecord(repo).kind, "main");
     writeFileSync(join(ws.path, "dirty.txt"), "x");
