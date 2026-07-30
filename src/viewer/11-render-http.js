@@ -702,6 +702,10 @@ function populateHttpEnvSelect() {
 function renderSourceTable(file, query) {
   const normalizedQuery = query.trim().toLowerCase();
   const lines = file.content.split(/\r?\n/);
+  // Past ~10k lines, skip syntax highlighting: tokenizing every line is ~half the render cost (measured
+  // ~4.5ms/1000 lines) and blocks the renderer, while plain escaped rows keep the exact same line structure
+  // comments/caret/search/find anchor on — only color is lost, the way editors drop highlighting past a size.
+  const renderLanguage = lines.length > 10000 ? 'text' : (file.language || 'text');
   const cursor = viewerCursor && viewerCursor.path === file.path ? viewerCursor : null;
   const changedSet = new Set(file.changedLines || []);
   const folds = normalizedQuery ? [] : sourceFoldRanges(file);
@@ -740,7 +744,7 @@ function renderSourceTable(file, query) {
     rows.push([
       '<tr class="' + classes + '" data-line-index="' + index + '">',
       '<td class="num">' + String(index + 1) + '</td>',
-      '<td class="source-code">' + highlightLine(line, file.language || 'text') + foldButton + '</td>',
+      '<td class="source-code">' + highlightLine(line, renderLanguage) + foldButton + '</td>',
       '</tr>',
     ].join(''));
     if (fold?.kind === 'block') index = fold.end;
