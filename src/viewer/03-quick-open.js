@@ -47,6 +47,14 @@ function closeQuickOpen() {
 }
 
 function handleQuickOpenKey(event) {
+  // Cmd/Ctrl+E toggles the Recent panel: it opened this dialog, so a second press closes it (parity with how
+  // Esc dismisses it). Only for 'recent' — the same key means "focus extensions" inside Find-in-Files.
+  if (quickMode === 'recent' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey
+    && (event.code === 'KeyE' || event.key.toLowerCase() === 'e')) {
+    event.preventDefault();
+    closeQuickOpen();
+    return true;
+  }
   if (event.key === 'Escape') {
     event.preventDefault();
     // Recent speed-search: first Esc clears the typed filter, a second Esc closes (IntelliJ behavior).
