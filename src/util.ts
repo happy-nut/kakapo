@@ -79,6 +79,14 @@ export function parsePositiveInteger(value: string, optionName: string): number 
   return parsed;
 }
 
+// The GitHub owner (user/org) in a git remote URL — handles https://github.com/<owner>/<repo>(.git),
+// git@github.com:<owner>/<repo>.git, and ssh://git@github.com/<owner>/<repo>. Returns undefined for a
+// non-GitHub or unparseable remote. Pure string parse (the caller reads the remote URL from git).
+export function githubOwnerFromUrl(url: string): string | undefined {
+  const match = url.match(/github\.com[:/]+([^/]+)\/[^/]+/i);
+  return match ? match[1] : undefined;
+}
+
 export function readStdin(): string {
   if (process.stdin.isTTY) {
     return "";

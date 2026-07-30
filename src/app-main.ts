@@ -17,6 +17,7 @@ import { reviewDiffSignature, writeReviewWorkspace } from "./review-workspace.js
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { parseReviewArgs, readOption } from "./cli-args.js";
 import { easeRail } from "./rail-animation.js";
+import { githubOwnerFromUrl } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
@@ -1143,8 +1144,7 @@ function githubOwnerFor(root: string): string | undefined {
   let owner: string | undefined;
   try {
     const url = git(root, ["config", "--get", "remote.origin.url"]).trim();
-    const match = url.match(/github\.com[:/]+([^/]+)\/[^/]+/i);
-    owner = match ? match[1] : undefined;
+    owner = githubOwnerFromUrl(url);
   } catch { /* not a git repo / no origin */ }
   rootOwner.set(root, owner ?? null);
   return owner;

@@ -2,6 +2,11 @@
 // orchestration). The flag semantics — option values, --staged/--base exclusivity, context validation — are
 // now unit-testable without git or Electron. The caller resolves the git-dependent bits (repo root, base
 // ref validation) from these parsed values; everything here is a pure function of argv.
+//
+// readOption/parsePositiveInteger already live in util.js (shared with the CLI entrypoint); re-export them
+// as the CLI-option helpers rather than keep a second copy.
+import { parsePositiveInteger, readOption } from "./util.js";
+export { parsePositiveInteger, readOption };
 
 export type ParsedReviewArgs = {
   requestedCwd: string | undefined; // raw --cwd (unresolved); caller resolves + checks it's a git repo
@@ -12,25 +17,6 @@ export type ParsedReviewArgs = {
   watch: boolean;
   ignoreWhitespace: boolean;
 };
-
-/** Value of `--name <value>`, or undefined if absent. Throws if the flag is present but its value is missing. */
-export function readOption(args: string[], name: string): string | undefined {
-  const index = args.indexOf(name);
-  if (index < 0) return undefined;
-  const value = args[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`Missing value for ${name}`);
-  }
-  return value;
-}
-
-export function parsePositiveInteger(value: string, optionName: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new Error(`${optionName} must be a non-negative integer`);
-  }
-  return parsed;
-}
 
 /** Parse the review flags from argv. Pure: no filesystem/git — the caller resolves root and validates base. */
 export function parseReviewArgs(args: string[]): ParsedReviewArgs {
