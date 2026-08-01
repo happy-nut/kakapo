@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { workspaceDataDirectory } from "./workspace-data.js";
 import type { WorkspaceRecord } from "./workspaces.js";
@@ -68,6 +68,23 @@ export class AppPreferences {
         && typeof project.name === "string"
         && typeof project.openedAt === "number";
     });
+  }
+
+  // One-shot startup cleanup: drop recent-project entries whose folder no longer exists, so deleted/moved
+  // worktrees stop accumulating in the settings and cluttering the rail. Kept out of readRecentProjects (which
+  // stays a pure shape validator) so it only touches the persisted file, once, at launch.
+  pruneRecentProjects(): void {
+    const settings = this.readGlobal();
+    const raw = settings[RECENT_KEY];
+    if (!Array.isArray(raw)) return;
+    const live = raw.filter((entry) => {
+      const path = (entry as Partial<RecentProject> | null)?.path;
+      return typeof path === "string" && existsSync(path);
+    });
+    if (live.length !== raw.length) {
+      settings[RECENT_KEY] = live;
+      this.writeGlobal(settings);
+    }
   }
 
   recordRecentProject(root: string): void {

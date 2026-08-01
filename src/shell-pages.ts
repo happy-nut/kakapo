@@ -100,7 +100,9 @@ body.rail-exp .cv{display:none}
 @media (prefers-reduced-motion:reduce){.cv .wt.busy::after{animation:none;opacity:.7}}
 /* ---------- expanded rail (⌘⇧E): Orca-style card panel — project header (avatar + name + count + chevron,
    click collapses the group) then a worktree card each (status dot + name + change tag + branch). ---------- */
-.ev{display:none;flex:1;min-height:0;flex-direction:column;width:100%}
+/* Fixed width (not 100%) so the expanded content is laid out at full width from frame one and the #hub width
+   animation just REVEALS it (overflow:hidden clips) instead of reflowing "Workspaces"/rows every frame. */
+.ev{display:none;flex:1;min-height:0;flex-direction:column;width:${HUB_EXPANDED}px}
 body.rail-exp .ev{display:flex}
 .phead{display:flex;align-items:center;padding:5px 12px 7px;flex:none}
 .phead .t{font-weight:650;font-size:12.5px;color:${fg};letter-spacing:.01em}

@@ -771,6 +771,9 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // Spawn the build worker now so the first window's boot build doesn't pay worker startup on the hot path.
   reviewBuilder.warmUp();
 
+  // Drop recent-project entries whose folder is gone, so deleted worktrees stop cluttering the settings + rail.
+  preferences.pruneRecentProjects();
+
   buildApplicationMenu();
 
   const appIcon = nativeImage.createFromPath(iconPath);
@@ -1205,7 +1208,9 @@ function renderHub(): void {
   // the main never double-lists (an open main is a live tile; only its closed state needs synthesizing here).
   const shownRoots = new Set([...live, ...disconnected].map((w) => resolveWorkspaceRoot(w.path)));
   const closedMains = projectMainTiles().filter((tile) => !shownRoots.has(resolveWorkspaceRoot(tile.path)));
-  const workspaces = [...live, ...disconnected, ...closedMains];
+  // Drop any tile whose repo identity couldn't be resolved: the rail groups by repoName, so an empty one renders
+  // as an unidentifiable "?" project. Valid workspaces always carry a repoName, so this only strips junk.
+  const workspaces = [...live, ...disconnected, ...closedMains].filter((w) => typeof w.repoName === "string" && w.repoName.trim());
   void shellWindow.webContents.send("kakapo:hub-state", workspaces);
   for (const state of states.values()) {
     if (state.win.isDestroyed()) continue;

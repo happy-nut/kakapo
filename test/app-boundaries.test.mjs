@@ -49,6 +49,25 @@ test("recent projects are validated, deduplicated, and bounded", () => {
   }
 });
 
+test("pruneRecentProjects drops recent entries whose folder is gone (deleted-worktree cleanup)", () => {
+  const base = mkdtempSync(join(tmpdir(), "kakapo-prune-"));
+  try {
+    const live = join(base, "live");
+    mkdirSync(live);
+    const preferences = new AppPreferences(join(base, "app-data"));
+    preferences.recordRecentProject(live);
+    preferences.recordRecentProject(join(base, "gone")); // recorded, but its folder is never created
+    // readRecentProjects stays a pure shape validator — both are kept until an explicit prune.
+    assert.equal(preferences.readRecentProjects().length, 2);
+    preferences.pruneRecentProjects();
+    const after = preferences.readRecentProjects();
+    assert.equal(after.length, 1);
+    assert.equal(after[0].path, resolve(live));
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("open workspace session and active path round-trip independently of recent projects", () => {
   const base = mkdtempSync(join(tmpdir(), "kakapo-session-"));
   try {
