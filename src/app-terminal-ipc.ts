@@ -63,12 +63,21 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     };
     // Relay pty output to the renderer immediately, one IPC per chunk. (A coalescing buffer was tried as an
     // optimization but it broke terminal I/O — the shell prompt and echo stopped appearing — so it's removed.)
-    t.onData((data) => { deliver("kakapo:pty-data", { id, data }); state.onAgentOutput?.(); });
+    // node-pty escalates ANY exception thrown out of an onData/onExit callback into a native SIGABRT that takes
+    // the whole process down — it is NOT a catchable JS error at the caller. A pty keeps firing these while its
+    // window is mid-teardown; deliver()'s isDestroyed guard usually skips, but the webContents can still be torn
+    // down between the guard and the .send() (which then throws "Object has been destroyed"). Wrap the whole
+    // callback body so nothing can reach node-pty's C++ boundary.
+    t.onData((data) => {
+      try { deliver("kakapo:pty-data", { id, data }); state.onAgentOutput?.(); } catch { /* window torn down mid-drain */ }
+    });
     t.onExit(() => {
-      state.terms.delete(id);
-      state.commandBuffers?.delete(id);
-      state.onAgentFinished?.();
-      deliver("kakapo:pty-exit", { id });
+      try {
+        state.terms.delete(id);
+        state.commandBuffers?.delete(id);
+        state.onAgentFinished?.();
+        deliver("kakapo:pty-exit", { id });
+      } catch { /* teardown race — ignore */ }
     });
     return { ok: true, id };
   });
