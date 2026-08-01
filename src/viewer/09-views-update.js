@@ -78,8 +78,36 @@ function syncReviewSidebarVisibility() {
   }
   syncRail();
 }
+// Pin the diff column against reflow while the shell animates the workspace rail (see body.rail-pinning in the
+// CSS). Measured just before the collapse/expand starts, so the pinned width is the settled diff width; the
+// sidebar column absorbs the shell's per-frame view resize instead, and the main panel stays rock-steady.
+var railPinTimer = 0;
+function setRailContentPin(on) {
+  if (railPinTimer) { clearTimeout(railPinTimer); railPinTimer = 0; }
+  if (on) {
+    var content = document.querySelector('.content');
+    var w = content ? Math.round(content.getBoundingClientRect().width) : 0;
+    if (w <= 0) return;
+    document.body.style.setProperty('--rail-pin-content', w + 'px');
+    document.body.classList.add('rail-pinning');
+    // Lift the pin once the shell's ~180ms rail animation has settled (plus slack), so later window resizes flow
+    // back into the diff. The settled width matches the pin, so this is a no-op reflow.
+    railPinTimer = setTimeout(function () {
+      railPinTimer = 0;
+      document.body.classList.remove('rail-pinning');
+      document.body.style.removeProperty('--rail-pin-content');
+    }, 240);
+  } else {
+    document.body.classList.remove('rail-pinning');
+    document.body.style.removeProperty('--rail-pin-content');
+  }
+}
 if (window.kakapoMenu && typeof window.kakapoMenu.onRailPushed === 'function') {
-  window.kakapoMenu.onRailPushed(function (pushed) { railPushedCollapse = !!pushed; syncReviewSidebarVisibility(); });
+  window.kakapoMenu.onRailPushed(function (pushed) {
+    setRailContentPin(true); // freeze the diff before the shell begins resizing the view this frame
+    railPushedCollapse = !!pushed;
+    syncReviewSidebarVisibility();
+  });
 }
 function focusDiffAfterSidebarCollapse() {
   clearTreeFocus();

@@ -162,7 +162,9 @@ function paintRail(){document.body.classList.toggle('rail-exp',railExp);}
 function toggleRail(){railExp=!railExp;paintRail();window.kakapoHub.setHubExpanded(railExp);if(railExp)initRailSel();else railClearSel();}
 // While the expanded rail holds focus, ↑/↓ move a selection through the workspace tiles and Enter opens it.
 let railSel=-1;
-function railTiles(){return [...document.querySelectorAll('.ev .proj:not(.collapsed) .wt:not(.disc)')];}
+// Disconnected tiles ARE keyboard-navigable — Enter/⌫ on one routes to the reconnect/forget dialog, same as a
+// click. (They used to be excluded here, so a dead workspace could be neither selected nor recovered by keyboard.)
+function railTiles(){return [...document.querySelectorAll('.ev .proj:not(.collapsed) .wt')];}
 function railSelect(i){const t=railTiles();if(!t.length){railSel=-1;return;}railSel=Math.max(0,Math.min(t.length-1,i));t.forEach((el,j)=>el.classList.toggle('kbd-sel',j===railSel));const el=t[railSel];if(el&&el.scrollIntoView)el.scrollIntoView({block:'nearest'});}
 function railClearSel(){railSel=-1;document.querySelectorAll('.ev .wt.kbd-sel').forEach(el=>el.classList.remove('kbd-sel'));}
 function initRailSel(){const t=railTiles();const ai=t.findIndex(el=>el.classList.contains('act'));railSelect(ai>=0?ai:0);}
@@ -180,7 +182,13 @@ document.addEventListener('keydown',e=>{
   if(e.key==='ArrowDown'){e.preventDefault();railSelect(railSel<0?0:railSel+1);}
   else if(e.key==='ArrowUp'){e.preventDefault();railSelect(railSel<0?0:railSel-1);}
   else if(e.key==='Enter'){const t=railTiles();if(railSel>=0&&t[railSel]){e.preventDefault();t[railSel].click();}}
-  else if((e.key==='e'||e.key==='E')&&!e.metaKey&&!e.ctrlKey&&!e.altKey){const t=railTiles();const el=railSel>=0?t[railSel]:null;if(el&&el.dataset.disconnected!=='true'){e.preventDefault();window.kakapoHub.openModal('rename',{id:Number(el.dataset.id),name:el.dataset.name||''});}}
+  // Rename (E) / delete (⌫). Match on e.code (the physical key) not e.key: under a Korean/other IME the 'e' key
+  // emits a composed jamo rather than 'e', so an e.key==='e' test never fired with Hangul input active.
+  else if(e.code==='KeyE'&&!e.metaKey&&!e.ctrlKey&&!e.altKey){const t=railTiles();const el=railSel>=0?t[railSel]:null;if(el&&el.dataset.disconnected!=='true'&&el.dataset.closed!=='true'){e.preventDefault();window.kakapoHub.openModal('rename',{id:Number(el.dataset.id),name:el.dataset.name||''});}}
+  // ⌫/Delete opens the same delete-confirm flow as the tile menu's "Delete worktree…". A disconnected tile has no
+  // worktree to remove, so it routes to the reconnect/forget dialog; the main checkout can't be deleted (the
+  // context menu hides Delete for it), so leave it alone.
+  else if(e.key==='Backspace'||e.key==='Delete'){const t=railTiles();const el=railSel>=0?t[railSel]:null;if(el){e.preventDefault();if(el.dataset.disconnected==='true')window.kakapoHub.resolveDisconnected(decodeURIComponent(el.dataset.path));else if(el.dataset.kind!=='main')removeWorkspace(Number(el.dataset.id));}}
 });
 pinBtn.onclick=toggleRail;
 window.kakapoHub.onToggleExpand(toggleRail);
@@ -200,7 +208,7 @@ const tip=w=>(w.alias||w.branch)+' · '+w.repoName+(w.dirtyCount?' · '+w.dirtyC
 const projHue=n=>{let h=0;const s=String(n||'');for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h%360;};
 // Shared per-worktree bits: state classes and the data-* every click/activate/context-menu handler reads.
 const wcls=w=>(w.active?' act':'')+(w.disconnected?' disc':'')+(w.busy?' busy':'')+(w.running?' running':'')+(w.unread?' attn':'');
-const wattr=w=>' data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-resume="'+(w.resume&&!w.running?'1':'')+'" data-kind="'+esc(w.kind||'')+'" title="'+esc(tip(w))+'"';
+const wattr=w=>' data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-closed="'+!!w.closed+'" data-resume="'+(w.resume&&!w.running?'1':'')+'" data-kind="'+esc(w.kind||'')+'" title="'+esc(tip(w))+'"';
 const grpAvatar=ws=>{for(const w of ws)if(w.avatar)return w.avatar;return null;};
 const projMark=repo=>{const a=Array.from(String(repo||'?').trim());const c=a[0]||'?';return /[A-Za-z0-9]/.test(c)?c.toUpperCase():c;};
 const avInner=(ws,repo)=>{const av=grpAvatar(ws);return av?'<img src="'+av+'" alt="">':esc(projMark(repo));};
@@ -213,9 +221,9 @@ const ev='<div class="ev"><div class="phead"><span class="t">Workspaces</span></
 list.innerHTML=cv+ev;
 // Worktree click → activate (or reconnect/forget a disconnected one). Collapsed badges and expanded cards are
 // both .wt with the same data-*, so one handler covers both views.
-for(const el of list.querySelectorAll('.wt')){el.onclick=()=>{const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){window.kakapoHub.resolveDisconnected(path);return}window.kakapoHub.activate(id)};}
+for(const el of list.querySelectorAll('.wt')){el.onclick=()=>{const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){window.kakapoHub.resolveDisconnected(path);return}if(el.dataset.closed==='true'){window.kakapoHub.openPath(path);return}window.kakapoHub.activate(id)};}
 // Collapsed project avatar → jump to that project's active (or first) worktree.
-for(const el of list.querySelectorAll('.phav')){el.onclick=()=>{const ws=groups.get(el.dataset.repo)||[];const t=ws.find(w=>w.active&&!w.disconnected)||ws.find(w=>!w.disconnected)||ws[0];if(t)window.kakapoHub.activate(t.id);};}
+for(const el of list.querySelectorAll('.phav')){el.onclick=()=>{const ws=groups.get(el.dataset.repo)||[];const t=ws.find(w=>w.active&&!w.disconnected)||ws.find(w=>!w.disconnected)||ws[0];if(!t)return;if(t.closed)window.kakapoHub.openPath(t.path);else if(t.disconnected)window.kakapoHub.resolveDisconnected(t.path);else window.kakapoHub.activate(t.id);};}
 // Expanded project header → collapse/expand its worktree list (chevron rotates).
 for(const el of list.querySelectorAll('.prow')){el.onclick=()=>el.parentElement.classList.toggle('collapsed');}
 if(railExp)railSelect(railSel<0?0:railSel); // re-apply the keyboard selection after a re-render
@@ -225,7 +233,7 @@ if(railExp)railSelect(railSel<0?0:railSel); // re-apply the keyboard selection a
 window.kakapoHub.onActivity(list=>{for(const a of list){for(const el of document.querySelectorAll('.wt[data-id="'+a.id+'"]')){el.classList.toggle('busy',!!a.busy);el.classList.toggle('running',!!a.running);el.classList.toggle('attn',!!a.unread);}}});
 window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){window.kakapoHub.openModal('rename',{id,name});}else if(action==='memo'){window.kakapoHub.openModal('memo',{id,name});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id);});
 async function removeWorkspace(id){const delBranch=confirm('Also delete the local branch?\\nOK deletes it; Cancel keeps it.');let r=await window.kakapoHub.remove(id,'delete',false,delBranch);if(r.needsConfirmation){const x=r.risk;if(confirm('Delete worktree?'+(x.dirty?'\\n• uncommitted changes':'')+(x.unpushed?'\\n• '+x.unpushed+' unpushed commits':'')+(x.runningProcesses?'\\n• running terminal/agent':'')+'\\n\\nThis cannot be undone.'))r=await window.kakapoHub.remove(id,'delete',true,delBranch)}if(!r.ok&&!r.needsConfirmation)alert(r.error||'Delete failed')}
-document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.wt');if(card){e.preventDefault();if(card.dataset.disconnected==='true'){window.kakapoHub.resolveDisconnected(decodeURIComponent(card.dataset.path));return}window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1',kind:card.dataset.kind||''});}});
+document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.wt');if(card){e.preventDefault();if(card.dataset.closed==='true')return;if(card.dataset.disconnected==='true'){window.kakapoHub.resolveDisconnected(decodeURIComponent(card.dataset.path));return}window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1',kind:card.dataset.kind||''});}});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.altKey&&/^[1-9]$/.test(e.key)){e.preventDefault();window.kakapoHub.activateIndex(Number(e.key)-1)}});
 document.addEventListener('click',e=>{if(!railExp&&!e.target.closest('button,input,textarea,dialog,#wsname'))window.kakapoHub.refocusReview()});
 window.kakapoHub.requestState();

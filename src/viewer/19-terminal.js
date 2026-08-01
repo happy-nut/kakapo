@@ -146,6 +146,11 @@
         // terminal still has focus — blurring here first made hasFocus() false, so the focused split pane
         // never closed. Release the key WITHOUT blurring so focus stays and onCloseTab can close it.
         if (e.code === 'KeyW') return false;
+        // Cmd+Enter isn't a global app shortcut (only the source viewer binds it, and that view sits behind
+        // this floating terminal) and has no shell meaning — but the blur fallback below kicked focus out of
+        // the terminal on every Cmd+Enter. Keep focus and swallow it: preventDefault + stopPropagation so it
+        // neither submits a line nor bubbles to the document handler (which would run an HTTP file behind us).
+        if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); e.stopPropagation(); return false; }
         try { term.blur(); } catch (x) {}
         return false;
       }

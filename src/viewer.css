@@ -2409,7 +2409,7 @@ body.dock-maximized .terminal-panel:not(.hidden) { inset: 0; border-radius: 0; }
    dimmed backdrop behind it. The active toggle marks it as the merged-prompt send target while open. --- */
 .terminal-panel {
   position: fixed;
-  inset: 5vh 5vw;
+  inset: 3vh 3vw;
   /* Same reasoning as .dock-panel above: Send to Terminal (enterSendMode) can open this from inside the
      Explain/History full-view overlays (z-index: 75) — it must render on top of them, not behind. */
   z-index: 78;
@@ -2423,7 +2423,14 @@ body.dock-maximized .terminal-panel:not(.hidden) { inset: 0; border-radius: 0; }
   overflow: hidden;
 }
 .terminal-panel.hidden { display: none; }
-.terminal-backdrop { position: fixed; inset: 0; z-index: 77; background: color-mix(in srgb, #000 40%, transparent); }
+/* Entrance animation: the panel rises + fades in when it un-hides (display:none -> flex restarts the
+   animation on every open), and the freshly-appended backdrop fades with it. transform/opacity only, so the
+   layout box is full-size immediately and the rAF fitAll() still measures correct terminal dimensions. */
+@keyframes terminalPanelIn { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes terminalBackdropIn { from { opacity: 0; } to { opacity: 1; } }
+.terminal-panel:not(.hidden) { animation: terminalPanelIn 170ms cubic-bezier(0.16, 0.84, 0.44, 1); }
+.terminal-backdrop { position: fixed; inset: 0; z-index: 77; background: color-mix(in srgb, #000 40%, transparent); animation: terminalBackdropIn 150ms ease; }
+@media (prefers-reduced-motion: reduce) { .terminal-panel:not(.hidden), .terminal-backdrop { animation: none; } }
 .terminal-resizer { display: none; } /* a centered ~90% floating panel has no edge to drag */
 .terminal-bar {
   flex: none; display: flex; align-items: center; justify-content: space-between;
@@ -3386,6 +3393,13 @@ body.native-app .source-tabs {
      row reflows through dozens of intermediate widths and the animation appears to stutter. */
   .sidebar-brand, .sidebar-scroll, .sidebar-footer { width: var(--sidebar-width, 264px); }
   body.sidebar-collapsed { grid-template-columns: var(--rail-width) 0 minmax(0, 1fr); }
+  /* While the workspace rail slides open/closed the shell resizes this whole view every frame. The sidebar's
+     children are already width-pinned above, but the diff (content) column is 1fr, so it re-wraps through dozens
+     of intermediate widths and the MAIN panel judders. For the duration, pin the content column to its settled
+     width and let the sidebar column (minmax) absorb the view's width change — the tree just clips, the diff
+     never reflows. The pinned width equals the settled width in both states, so lifting the pin is seamless.
+     Must follow body.sidebar-collapsed so it wins the grid-template-columns when both classes are set. */
+  body.rail-pinning { transition: none; grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--rail-pin-content, minmax(0, 1fr)); }
   body.native-app.sidebar-collapsed .diff-toolbar,
   body.native-app.sidebar-collapsed .source-tabs,
   body.native-app.sidebar-collapsed .source-toolbar {

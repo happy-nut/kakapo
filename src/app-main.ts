@@ -315,8 +315,10 @@ function sendRailPushed(): void {
 }
 ipcMain.on("kakapo:hub-expanded", (_event, expanded: unknown) => {
   railExpanded = !!expanded;
-  animateHubWidth(railExpanded ? HUB_EXPANDED : HUB_WIDTH);
+  // Tell the view to pin its diff column BEFORE the width animation starts resizing it, so the pin captures the
+  // settled diff width (not a mid-animation one) — that's what keeps the main panel from juddering.
   sendRailPushed();
+  animateHubWidth(railExpanded ? HUB_EXPANDED : HUB_WIDTH);
   // While expanded, keys belong to the rail so it can be navigated; the moment focus returns to the review view
   // (a click into the "main window"), collapseRailFromReview() pulls it back in.
   if (railExpanded) shellWindow?.webContents.focus();
@@ -327,8 +329,8 @@ ipcMain.on("kakapo:hub-expanded", (_event, expanded: unknown) => {
 function collapseRailFromReview(): void {
   if (!railExpanded) return;
   railExpanded = false;
+  sendRailPushed(); // pin the diff column before the collapse animation resizes the view (see hub-expanded)
   animateHubWidth(HUB_WIDTH);
-  sendRailPushed();
   if (shellWindow && !shellWindow.isDestroyed()) shellWindow.webContents.send("kakapo:hub-set-expanded", false);
 }
 
@@ -368,6 +370,11 @@ ipcMain.on("kakapo:hub-refocus", () => focusActiveReviewView());
 ipcMain.on("kakapo:hub-activate", (_event, id: unknown) => {
   if (typeof id === "number") activateWorkspace(id);
 });
+// A pinned-but-closed project tile (its main checkout has no open window yet) opens by path — activate() only
+// works for windows that already exist in `states`.
+ipcMain.on("kakapo:hub-open", (_event, path: unknown) => {
+  if (typeof path === "string" && existsSync(path) && isGitRepository(path)) openOrFocusWorkspace(path);
+});
 ipcMain.on("kakapo:hub-activate-index", (_event, index: unknown) => {
   if (typeof index !== "number") return;
   const state = Array.from(states.values())[index];
@@ -393,27 +400,29 @@ ipcMain.handle("kakapo:hub-choose-repo", async () => {
   const repo = await pickRepo(shellWindow, focusedState()?.options.root);
   return repo ? { ok: true, repo } : { ok: false };
 });
-// The distinct Git projects Kakapo already knows about (open workspaces + saved + recent), deduped by their
-// main repo root, so the New-workspace dialog can offer them in a dropdown instead of forcing a folder pick
-// every time. `path` is the main repo root — createManagedWorkspace resolves the worktree container from it.
-ipcMain.handle("kakapo:hub-projects", () => {
+// The distinct Git projects Kakapo already knows about (open workspaces + saved + recent), deduped by their main
+// repo root. The New-workspace dialog offers them in a dropdown (instead of forcing a folder pick every time),
+// and the rail pins each project's main checkout so a project's home is always reachable (see projectMainTiles).
+// `root` is the main repo root — createManagedWorkspace resolves the worktree container from it.
+function knownProjectRoots(): { name: string; root: string }[] {
   const seen = new Set<string>();
-  const projects: { name: string; path: string }[] = [];
+  const roots: { name: string; root: string }[] = [];
   const add = (candidate: string) => {
     try {
       if (!candidate || !existsSync(candidate) || !isGitRepository(candidate)) return;
       const record = workspaceRecord(candidate);
       if (seen.has(record.repoRoot)) return;
       seen.add(record.repoRoot);
-      projects.push({ name: record.repoName, path: record.repoRoot });
+      roots.push({ name: record.repoName, root: record.repoRoot });
     } catch { /* unreadable/removed repo — skip it rather than break the whole list */ }
   };
   for (const state of states.values()) add(state.options.root);
   for (const item of savedWorkspaceMetadata()) add(item.path);
   for (const recent of preferences.readRecentProjects()) add(recent.path);
-  projects.sort((a, b) => a.name.localeCompare(b.name));
-  return projects;
-});
+  return roots;
+}
+ipcMain.handle("kakapo:hub-projects", () =>
+  knownProjectRoots().map(({ name, root }) => ({ name, path: root })).sort((a, b) => a.name.localeCompare(b.name)));
 // The workspace-tile context menu (kakapo:tile-menu / menu-size / menu-choose / menu-close) is a custom
 // frameless popup, not the OS native menu — it lives in registerTileMenuIpc (app-tile-menu-ipc.ts), wired with
 // the other IPC adapters above.
@@ -1147,6 +1156,34 @@ function hubTileFor(state: WinState): { record: WorkspaceRecord; dirtyCount: num
   return state.hubTile;
 }
 
+// The main checkout is the rail's home base, so it stays pinned for every known project even when no window is
+// open for it — otherwise closing the main window (while task worktrees stay open) would make the project vanish
+// from the rail. These are lightweight synthesized tiles (kind:"main", no window); clicking one opens it via
+// kakapo:hub-open. renderHub drops any whose root is already an open/disconnected tile so the main never
+// double-lists. Git facts share the same 1s TTL as live tiles so a burst of renders doesn't re-status per project.
+function buildProjectMainTiles() {
+  const saved = savedWorkspaceMetadata();
+  return knownProjectRoots().filter(({ root }) => existsSync(root)).map(({ root }, index) => {
+    const record = workspaceRecord(root);
+    const metadata = saved.find((item) => resolveWorkspaceRoot(item.path) === record.path);
+    const owner = githubOwnerFor(root);
+    const avatar = owner ? ownerAvatar.get(owner) : undefined;
+    if (owner && !avatar) void ensureOwnerAvatar(owner);
+    const dirtyCount = git(record.path, ["status", "--porcelain"]).split("\n").filter(Boolean).length;
+    return { id: -(1000 + index), ...record, alias: metadata?.alias, memo: metadata?.memo, base: metadata?.base,
+      openedAt: metadata?.openedAt, dirtyCount, avatar,
+      active: false, running: false, unread: false, busy: false, closed: true };
+  });
+}
+let hubMainTilesCache: { tiles: ReturnType<typeof buildProjectMainTiles>; computedAt: number } | undefined;
+function projectMainTiles(): ReturnType<typeof buildProjectMainTiles> {
+  const now = Date.now();
+  if (hubMainTilesCache && now - hubMainTilesCache.computedAt < HUB_TILE_TTL_MS) return hubMainTilesCache.tiles;
+  const tiles = buildProjectMainTiles();
+  hubMainTilesCache = { tiles, computedAt: now };
+  return tiles;
+}
+
 function renderHub(): void {
   if (!shellWindow || shellWindow.isDestroyed()) return;
   const saved = savedWorkspaceMetadata();
@@ -1164,7 +1201,11 @@ function renderHub(): void {
   const disconnected = saved.filter((item) => !existsSync(item.path)).map((item, index) => ({
     ...item, id: -(index + 1), active: false, running: false, unread: false, busy: false, disconnected: true,
   }));
-  const workspaces = [...live, ...disconnected];
+  // Pin every known project's main checkout, dropping any whose root already has an open or disconnected tile so
+  // the main never double-lists (an open main is a live tile; only its closed state needs synthesizing here).
+  const shownRoots = new Set([...live, ...disconnected].map((w) => resolveWorkspaceRoot(w.path)));
+  const closedMains = projectMainTiles().filter((tile) => !shownRoots.has(resolveWorkspaceRoot(tile.path)));
+  const workspaces = [...live, ...disconnected, ...closedMains];
   void shellWindow.webContents.send("kakapo:hub-state", workspaces);
   for (const state of states.values()) {
     if (state.win.isDestroyed()) continue;
@@ -1226,7 +1267,10 @@ function createWindow(root: string, deferBoot = false): WinState {
   let detachedHost: BrowserWindow | undefined;
   const win: ReviewSurface = {
     webContents: view.webContents,
-    isDestroyed: () => view.webContents.isDestroyed(),
+    // Electron's WebContentsView.webContents getter returns undefined once the underlying webContents is
+    // destroyed, so guard the read: a pty can drain buffered onData/onExit after its window is gone and
+    // deliver() calls this — `undefined.isDestroyed()` would crash the main process.
+    isDestroyed: () => !view.webContents || view.webContents.isDestroyed(),
     isMinimized: () => surfaceHost.isMinimized(),
     restore: () => surfaceHost.restore(),
     show: () => detachedHost ? win.focus() : activateWorkspace(view.webContents.id),

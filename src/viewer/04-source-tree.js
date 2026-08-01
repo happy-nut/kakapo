@@ -494,11 +494,16 @@ function handleTreeKey(event) {
   if (treeFocusIndex >= rows.length) treeFocusIndex = rows.length - 1;
   const row = rows[treeFocusIndex];
   const isFolder = row && row.tagName === 'SUMMARY';
+  // Tree navigation ignores Cmd/Ctrl-modified arrows so they fall through to their owners — notably
+  // Cmd+Opt+Left/Right, which cycles terminal panes (Focus Previous/Next Pane). Without this the tree, once
+  // focused via Cmd+1, swallowed the arrow and toggled the focused folder open/closed instead. Shift is still
+  // honoured (multi-select), and bare Alt+Arrow keeps its folder collapse/expand.
+  const treeNav = !event.metaKey && !event.ctrlKey;
   // Shift+Arrow / Shift+PageUp/Down extend a contiguous multi-selection from the anchor.
-  if (event.key === 'ArrowDown') { event.preventDefault(); focusTree(treeFocusIndex + 1, event.shiftKey); return true; }
-  if (event.key === 'ArrowUp') { event.preventDefault(); focusTree(treeFocusIndex - 1, event.shiftKey); return true; }
-  if (event.key === 'PageDown') { event.preventDefault(); focusTree(treeFocusIndex + treePageSize(), event.shiftKey); return true; }
-  if (event.key === 'PageUp') { event.preventDefault(); focusTree(treeFocusIndex - treePageSize(), event.shiftKey); return true; }
+  if (treeNav && event.key === 'ArrowDown') { event.preventDefault(); focusTree(treeFocusIndex + 1, event.shiftKey); return true; }
+  if (treeNav && event.key === 'ArrowUp') { event.preventDefault(); focusTree(treeFocusIndex - 1, event.shiftKey); return true; }
+  if (treeNav && event.key === 'PageDown') { event.preventDefault(); focusTree(treeFocusIndex + treePageSize(), event.shiftKey); return true; }
+  if (treeNav && event.key === 'PageUp') { event.preventDefault(); focusTree(treeFocusIndex - treePageSize(), event.shiftKey); return true; }
   // Viewed is a review-queue property, so it may only be changed from the keyboard-selected Changes row.
   // Space in the code canvas keeps its existing editor/fold meaning and Files/source rows remain untouched.
   if (event.key === ' ' || event.code === 'Space') {
@@ -522,13 +527,13 @@ function handleTreeKey(event) {
     else if (isFolder && row.parentElement) row.parentElement.open = !row.parentElement.open;
     return true;
   }
-  if (event.key === 'ArrowRight') {
+  if (treeNav && event.key === 'ArrowRight') {
     event.preventDefault();
     if (isFolder && row.parentElement && !row.parentElement.open) row.parentElement.open = true;
     else focusTree(treeFocusIndex + 1);
     return true;
   }
-  if (event.key === 'ArrowLeft') {
+  if (treeNav && event.key === 'ArrowLeft') {
     event.preventDefault();
     if (isFolder && row.parentElement && row.parentElement.open) row.parentElement.open = false;
     else focusTree(treeFocusIndex - 1);

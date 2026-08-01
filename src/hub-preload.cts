@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   onToggle: (callback: (collapsed: boolean) => void) => ipcRenderer.on("kakapo:hub-toggle", (_event, collapsed) => callback(collapsed)),
   onNew: (callback: () => void) => ipcRenderer.on("kakapo:hub-new", callback),
   activate: (id: number) => ipcRenderer.send("kakapo:hub-activate", id),
+  // Open (or focus) a project's main checkout that is pinned in the rail but has no window yet.
+  openPath: (path: string) => ipcRenderer.send("kakapo:hub-open", path),
   activateIndex: (index: number) => ipcRenderer.send("kakapo:hub-activate-index", index),
   chooseRepo: () => ipcRenderer.invoke("kakapo:hub-choose-repo"),
   // Known Git projects (deduped by repo root) for the New-workspace dialog's project dropdown.
