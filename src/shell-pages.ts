@@ -76,7 +76,7 @@ button{border:1px solid ${line};background:transparent;color:inherit;border-radi
 .cv{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px 0;width:100%}
 body.rail-exp .cv{display:none}
 .grp{display:flex;flex-direction:column;align-items:center;gap:3px;width:44px;padding:5px 3px 6px;background:${light ? "#eaecef" : "#212327"};border-radius:12px}
-.phav{position:relative;width:32px;height:32px;border-radius:9px;overflow:hidden;flex:none;cursor:pointer;display:grid;place-items:center;font-weight:700;font-size:13px;color:#0e1116}
+.phav{position:relative;width:28px;height:28px;border-radius:8px;overflow:hidden;flex:none;cursor:pointer;display:grid;place-items:center;font-weight:700;font-size:12px;color:#0e1116}
 .phav img{width:100%;height:100%;object-fit:cover;display:block}
 .wts{display:flex;flex-direction:column;align-items:center;gap:3px;margin-top:1px}
 .cv .wt{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-weight:700;font-size:10.5px;color:${light ? "#3a3f47" : "#c9cdd4"};background:${light ? "#d7dbe1" : "#2c2f35"}}
@@ -109,7 +109,7 @@ body.rail-exp .ev{display:flex}
 .proj:first-child{margin-top:0}
 .prow{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:8px;cursor:pointer}
 .prow:hover{background:${light ? "#e4eaf6" : "#25272c"}}
-.pav{width:22px;height:22px;border-radius:6px;flex:none;display:grid;place-items:center;font-weight:700;font-size:11px;color:#0e1116;overflow:hidden}
+.pav{width:28px;height:28px;border-radius:8px;flex:none;display:grid;place-items:center;font-weight:700;font-size:12px;color:#0e1116;overflow:hidden}
 .pav img{width:100%;height:100%;object-fit:cover;display:block}
 .pname{font-weight:650;font-size:12.5px;color:${fg};flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pcount{font-size:11px;color:${light ? "#9aa0aa" : "#666b73"};font-variant-numeric:tabular-nums}
