@@ -190,7 +190,7 @@ document.addEventListener('keydown',e=>{
   // ⌫/Delete opens the same delete-confirm flow as the tile menu's "Delete worktree…". A disconnected tile has no
   // worktree to remove, so it routes to the reconnect/forget dialog; the main checkout can't be deleted (the
   // context menu hides Delete for it), so leave it alone.
-  else if(e.key==='Backspace'||e.key==='Delete'){const t=railTiles();const el=railSel>=0?t[railSel]:null;if(el){e.preventDefault();if(el.dataset.disconnected==='true')window.kakapoHub.resolveDisconnected(decodeURIComponent(el.dataset.path));else if(el.dataset.kind!=='main')removeWorkspace(Number(el.dataset.id));}}
+  else if(e.key==='Backspace'||e.key==='Delete'){const t=railTiles();const el=railSel>=0?t[railSel]:null;if(el){e.preventDefault();if(el.dataset.disconnected==='true')window.kakapoHub.openModal('disconnected',{path:decodeURIComponent(el.dataset.path)});else if(el.dataset.kind!=='main')removeWorkspace(Number(el.dataset.id));}}
 });
 pinBtn.onclick=toggleRail;
 window.kakapoHub.onToggleExpand(toggleRail);
@@ -223,9 +223,9 @@ const ev='<div class="ev"><div class="phead"><span class="t">Workspaces</span></
 list.innerHTML=cv+ev;
 // Worktree click → activate (or reconnect/forget a disconnected one). Collapsed badges and expanded cards are
 // both .wt with the same data-*, so one handler covers both views.
-for(const el of list.querySelectorAll('.wt')){el.onclick=()=>{const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){window.kakapoHub.resolveDisconnected(path);return}if(el.dataset.closed==='true'){window.kakapoHub.openPath(path);return}window.kakapoHub.activate(id)};}
+for(const el of list.querySelectorAll('.wt')){el.onclick=()=>{const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){window.kakapoHub.openModal('disconnected',{path});return}if(el.dataset.closed==='true'){window.kakapoHub.openPath(path);return}window.kakapoHub.activate(id)};}
 // Collapsed project avatar → jump to that project's active (or first) worktree.
-for(const el of list.querySelectorAll('.phav')){el.onclick=()=>{const ws=groups.get(el.dataset.repo)||[];const t=ws.find(w=>w.active&&!w.disconnected)||ws.find(w=>!w.disconnected)||ws[0];if(!t)return;if(t.closed)window.kakapoHub.openPath(t.path);else if(t.disconnected)window.kakapoHub.resolveDisconnected(t.path);else window.kakapoHub.activate(t.id);};}
+for(const el of list.querySelectorAll('.phav')){el.onclick=()=>{const ws=groups.get(el.dataset.repo)||[];const t=ws.find(w=>w.active&&!w.disconnected)||ws.find(w=>!w.disconnected)||ws[0];if(!t)return;if(t.closed)window.kakapoHub.openPath(t.path);else if(t.disconnected)window.kakapoHub.openModal('disconnected',{path:t.path});else window.kakapoHub.activate(t.id);};}
 // Expanded project header → collapse/expand its worktree list (chevron rotates).
 for(const el of list.querySelectorAll('.prow')){el.onclick=()=>el.parentElement.classList.toggle('collapsed');}
 if(railExp)railSelect(railSel<0?0:railSel); // re-apply the keyboard selection after a re-render
@@ -235,7 +235,7 @@ if(railExp)railSelect(railSel<0?0:railSel); // re-apply the keyboard selection a
 window.kakapoHub.onActivity(list=>{for(const a of list){for(const el of document.querySelectorAll('.wt[data-id="'+a.id+'"]')){el.classList.toggle('busy',!!a.busy);el.classList.toggle('running',!!a.running);el.classList.toggle('attn',!!a.unread);}}});
 window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){window.kakapoHub.openModal('rename',{id,name});}else if(action==='memo'){window.kakapoHub.openModal('memo',{id,name});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id);});
 async function removeWorkspace(id){const delBranch=confirm('Also delete the local branch?\\nOK deletes it; Cancel keeps it.');let r=await window.kakapoHub.remove(id,'delete',false,delBranch);if(r.needsConfirmation){const x=r.risk;if(confirm('Delete worktree?'+(x.dirty?'\\n• uncommitted changes':'')+(x.unpushed?'\\n• '+x.unpushed+' unpushed commits':'')+(x.runningProcesses?'\\n• running terminal/agent':'')+'\\n\\nThis cannot be undone.'))r=await window.kakapoHub.remove(id,'delete',true,delBranch)}if(!r.ok&&!r.needsConfirmation)alert(r.error||'Delete failed')}
-document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.wt');if(card){e.preventDefault();if(card.dataset.closed==='true')return;if(card.dataset.disconnected==='true'){window.kakapoHub.resolveDisconnected(decodeURIComponent(card.dataset.path));return}window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1',kind:card.dataset.kind||''});}});
+document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.wt');if(card){e.preventDefault();if(card.dataset.closed==='true')return;if(card.dataset.disconnected==='true'){window.kakapoHub.openModal('disconnected',{path:decodeURIComponent(card.dataset.path)});return}window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1',kind:card.dataset.kind||''});}});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.altKey&&/^[1-9]$/.test(e.key)){e.preventDefault();window.kakapoHub.activateIndex(Number(e.key)-1)}});
 document.addEventListener('click',e=>{if(!railExp&&!e.target.closest('button,input,textarea,dialog,#wsname'))window.kakapoHub.refocusReview()});
 window.kakapoHub.requestState();
@@ -301,9 +301,22 @@ dialog#prompt::backdrop{background:${dim}}
 #create .dbtn:hover{background:${light ? "#eee" : "#33383f"}}
 #create .dbtn.pri{background:${light ? "#1a1a1a" : "#f0f0f2"};color:${light ? "#fff" : "#1a1a1a"};border-color:transparent;display:inline-flex;align-items:center;gap:8px}
 #create .dbtn.pri:hover{opacity:.9}#create .dbtn.pri:disabled{opacity:.5}
-#create .dbtn.pri kbd{font:11px ui-monospace,monospace;background:#00000022;border-radius:5px;padding:1px 5px;opacity:.8}</style>
+#create .dbtn.pri kbd{font:11px ui-monospace,monospace;background:#00000022;border-radius:5px;padding:1px 5px;opacity:.8}
+/* Disconnected-workspace dialog (folder gone) — a custom design-system component replacing the OS message box. */
+dialog#disc{border:1px solid ${line};border-radius:16px;background:${light ? "#fbfbfc" : "#242529"};color:${fg};width:340px;max-width:calc(100vw - 40px);padding:26px 24px 18px;box-shadow:0 30px 90px #000a;text-align:center}
+dialog#disc::backdrop{background:${dim}}
+#disc .disc-ic{width:52px;height:52px;margin:0 auto 16px;color:${light ? "#d99a2b" : "#e0a53a"}}
+#disc .disc-ic svg{width:52px;height:52px;display:block}
+#disc .disc-msg{font-size:15px;font-weight:650;line-height:1.35;margin-bottom:9px}
+#disc .disc-path{font-size:12px;color:${light ? "#6b7280" : "#8a8f99"};font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all;line-height:1.5;margin-bottom:20px}
+#disc .disc-actions{display:flex;flex-direction:column;gap:8px}
+#disc .disc-btn{border:1px solid ${line};background:${light ? "#ececec" : "#33383f"};color:inherit;border-radius:10px;padding:11px 14px;font-size:13.5px;font-weight:600}
+#disc .disc-btn:hover{filter:brightness(1.06)}
+#disc .disc-btn.pri{background:#3b7ff0;color:#fff;border-color:transparent}
+#disc .disc-btn:focus-visible{outline:none;box-shadow:0 0 0 3px #4d86d955}</style>
 <dialog id="create"><div class="dh"><b>New workspace</b><button class="dx" id="dlgClose" aria-label="Close">✕</button></div><div class="db"><label>Project</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">Select a project…</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label>Task name</label><input id="label" class="tin" placeholder="e.g. fix-login-crash" autocomplete="off" spellcheck="false"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">Cancel</button><button id="doCreate" class="dbtn pri"><span class="dcl">Fetch &amp; create</span><kbd>⌘↵</kbd></button></div></div></dialog>
-<dialog id="prompt"><div class="dh"><b id="promptTitle"></b></div><div class="db"><input id="promptInput" class="tin" autocomplete="off" spellcheck="false"><div class="actions"><button id="promptCancel" class="dbtn">Cancel</button><button id="promptOk" class="dbtn pri">OK</button></div></div></dialog><script>
+<dialog id="prompt"><div class="dh"><b id="promptTitle"></b></div><div class="db"><input id="promptInput" class="tin" autocomplete="off" spellcheck="false"><div class="actions"><button id="promptCancel" class="dbtn">Cancel</button><button id="promptOk" class="dbtn pri">OK</button></div></div></dialog>
+<dialog id="disc"><div class="disc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div><div class="disc-msg">This workspace's folder is no longer on disk.</div><div id="discPath" class="disc-path"></div><div class="disc-actions"><button id="discReconnect" class="disc-btn pri">Reconnect…</button><button id="discRemove" class="disc-btn">Remove from List</button><button id="discCancel" class="disc-btn">Cancel</button></div></dialog><script>
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const dlg=document.querySelector("#create");let creating=false;
 // Each open starts clean (the overlay page persists across opens, so stale repo/label would otherwise linger).
@@ -331,10 +344,19 @@ function showPrompt(title,initial){return new Promise(resolve=>{promptTitle.text
 document.querySelector("#promptOk").onclick=()=>promptDlg.close('ok');
 document.querySelector("#promptCancel").onclick=()=>promptDlg.close('cancel');
 promptInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();promptDlg.close('ok');}else if(e.key==='Escape'){e.preventDefault();promptDlg.close('cancel');}});
+// Disconnected-workspace dialog (folder gone) — a custom component. Reconnect runs the native folder picker in
+// main (only it can); Remove forgets the saved entry; any close hides the overlay.
+const discDlg=document.querySelector("#disc");let discPath='';
+function showDisconnected(path){discPath=path||'';document.querySelector("#discPath").textContent=discPath;discDlg.showModal();setTimeout(()=>document.querySelector("#discReconnect").focus(),0);}
+discDlg.addEventListener('close',()=>window.kakapoHub.closeModal());
+document.querySelector("#discReconnect").onclick=async()=>{const p=discPath;discDlg.close();await window.kakapoHub.reconnectPick(p);};
+document.querySelector("#discRemove").onclick=()=>{window.kakapoHub.forget(discPath);discDlg.close();};
+document.querySelector("#discCancel").onclick=()=>discDlg.close();
 // Main tells this overlay which dialog to open. Rename/memo resolve to a value, apply it, then hide the overlay.
 window.kakapoHub.onModalOpen(d=>{d=d||{};
   if(d.type==='rename'){showPrompt('Rename workspace',d.name||'').then(alias=>{if(alias!==null)window.kakapoHub.rename(d.id,alias);window.kakapoHub.closeModal();});}
   else if(d.type==='memo'){showPrompt('One-line memo','').then(memo=>{if(memo!==null)window.kakapoHub.rename(d.id,undefined,memo);window.kakapoHub.closeModal();});}
+  else if(d.type==='disconnected'){showDisconnected(d.path);}
   else openCreate();});
 // Esc with no dialog open (e.g. the brief frame before showModal) still dismisses the overlay.
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.querySelector('dialog[open]'))window.kakapoHub.closeModal();});

@@ -489,27 +489,14 @@ ipcMain.handle("kakapo:hub-reconnect", (_event, payload: { oldPath?: unknown; ne
 // A disconnected tile (its folder is gone) was previously actioned with window.prompt(), which returns null
 // in Electron — so clicking one did nothing and it could be neither reconnected nor removed. Offer a reliable
 // native choice instead: point it at a new folder, or drop it from the list.
-ipcMain.handle("kakapo:hub-disconnected", async (_event, payload: { path?: unknown }) => {
+// The "folder is gone" dialog is now a custom overlay component (modalOverlayHtml #disc), not a native
+// message box. Its Reconnect button still needs the native folder picker, which only main can run — pick the
+// folder's new location, then repoint the saved entry. Remove-from-list reuses kakapo:hub-forget.
+ipcMain.handle("kakapo:hub-reconnect-pick", async (_event, payload: { path?: unknown }) => {
   if (typeof payload?.path !== "string") return { ok: false };
-  const path = payload.path;
-  const options = {
-    type: "warning" as const,
-    buttons: ["Reconnect…", "Remove from List", "Cancel"],
-    defaultId: 0,
-    cancelId: 2,
-    message: "This workspace's folder is no longer on disk.",
-    detail: path,
-  };
-  const choice = shellWindow && !shellWindow.isDestroyed()
-    ? dialog.showMessageBoxSync(shellWindow, options)
-    : dialog.showMessageBoxSync(options);
-  if (choice === 0) {
-    const repo = await pickRepo(shellWindow, focusedState()?.options.root);
-    if (repo) reconnectWorkspace(path, repo);
-    return { ok: true };
-  }
-  if (choice === 1) { forgetWorkspace(path); return { ok: true }; }
-  return { ok: false };
+  const repo = await pickRepo(shellWindow, focusedState()?.options.root);
+  if (!repo) return { ok: false };
+  return { ok: reconnectWorkspace(payload.path, repo) };
 });
 ipcMain.handle("kakapo:hub-rename", (_event, payload: { id?: unknown; alias?: unknown; memo?: unknown }) => {
   if (typeof payload?.id !== "number") return { ok: false };

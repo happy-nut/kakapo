@@ -27,10 +27,10 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   // review view, so the live content dims behind them (no snapshot). The rail calls openModal to ask main to
   // show the overlay and which dialog to open; the overlay page receives that via onModalOpen and asks main to
   // hide the overlay again via closeModal.
-  openModal: (type: string, data?: { id?: number; name?: string }) =>
+  openModal: (type: string, data?: { id?: number; name?: string; path?: string }) =>
     ipcRenderer.send("kakapo:hub-open-modal", { type, ...(data || {}) }),
   closeModal: () => ipcRenderer.send("kakapo:hub-close-modal"),
-  onModalOpen: (callback: (payload: { type: string; id?: number; name?: string }) => void) =>
+  onModalOpen: (callback: (payload: { type: string; id?: number; name?: string; path?: string }) => void) =>
     ipcRenderer.on("kakapo:modal-open", (_event, payload) => callback(payload)),
   // Ask main to return keyboard focus to the active review view (its shortcuts don't fire while the shell
   // rail holds focus). Called after clicking non-interactive rail/title-bar chrome.
@@ -38,9 +38,10 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   detach: (id: number) => ipcRenderer.send("kakapo:hub-detach", id),
   forget: (path: string) => ipcRenderer.invoke("kakapo:hub-forget", { path }),
   reconnect: (oldPath: string, newPath: string) => ipcRenderer.invoke("kakapo:hub-reconnect", { oldPath, newPath }),
-  // A disconnected tile (folder gone): main shows a native Reconnect…/Remove/Cancel dialog and acts on it —
-  // replaces the old window.prompt() path, which returned null in Electron and left the tile un-actionable.
-  resolveDisconnected: (path: string) => ipcRenderer.invoke("kakapo:hub-disconnected", { path }),
+  // The disconnected-tile dialog (folder gone) is a custom overlay component now (openModal 'disconnected').
+  // Its Reconnect button calls this so main can run the native folder picker + repoint the entry; Remove uses
+  // forget() above.
+  reconnectPick: (path: string) => ipcRenderer.invoke("kakapo:hub-reconnect-pick", { path }),
   requestState: () => ipcRenderer.send("kakapo:hub-ready"),
   // Title-bar review tools: the buttons live in this shell page but the actions run in the active review
   // view (a separate WebContentsView). Forward the click to main, which relays it to that view; the view
