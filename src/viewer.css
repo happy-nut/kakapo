@@ -3639,6 +3639,10 @@ body.workspace-view .activity-rail:has(.workspace-more-menu:not(.hidden)) { z-in
 body.native-app .activity-rail:has(.workspace-more-menu:not(.hidden)) { display: block; }
 body.native-app .activity-rail:has(.workspace-more-menu:not(.hidden)) > *:not(.workspace-more-menu) { display: none; }
 body.native-app .workspace-more-menu { top: 8px; right: 12px; left: auto; bottom: auto; }
+/* History + Settings live in the shell title bar / rail footer in the single-instance app, so hide those two
+   overflow-menu items here (the History button stays in the DOM — hidden — as the active-state anchor). */
+body.native-app .workspace-more-menu .rail-btn[data-view="history"],
+body.native-app .workspace-more-menu #app-info-btn { display: none; }
 body.workspace-view .activity-rail .workspace-more-menu .rail-btn {
   width: 100%;
   height: 31px;
