@@ -30,7 +30,8 @@ import { registerExplainIpc, refreshExplainIfChanged } from "./app-explain-ipc.j
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
-import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
+import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H, BOTTOMBAR_H } from "./constants.js";
+import { collectUsageStats } from "./usage-stats.js";
 import { hubHtml, modalOverlayHtml } from "./shell-pages.js";
 import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
 
@@ -387,6 +388,9 @@ ipcMain.on("kakapo:confirm-result", (_event, result: unknown) => {
 });
 ipcMain.handle("kakapo:hub-confirm", (_event, spec: unknown) =>
   showOverlayConfirm((spec && typeof spec === "object" ? spec : {}) as Record<string, unknown>));
+
+// Bottom usage bar: the shell page pulls a fresh local snapshot on load, on a timer, and on manual refresh.
+ipcMain.handle("kakapo:usage-stats", () => { try { return collectUsageStats(); } catch { return { updatedAt: Date.now() }; } });
 
 // Keyboard shortcuts live in the review viewer (a WebContentsView). Clicking the shell-page rail moves
 // keyboard focus to the shell, where those shortcuts do nothing — so hand focus back to the active review
@@ -994,7 +998,8 @@ function layoutWorkspaceViews(): void {
     const view = shellWindow.contentView.children.find(
       (child): child is WebContentsView => child instanceof WebContentsView && child.webContents.id === state.win.webContents.id,
     );
-    view?.setBounds({ x: hubWidth, y: TITLEBAR_H, width: Math.max(1, width - hubWidth), height: Math.max(1, height - TITLEBAR_H) });
+    // Leave the bottom usage bar (rendered by the shell page) uncovered beneath every review view.
+    view?.setBounds({ x: hubWidth, y: TITLEBAR_H, width: Math.max(1, width - hubWidth), height: Math.max(1, height - TITLEBAR_H - BOTTOMBAR_H) });
   }
   layoutModalView();
 }

@@ -16,3 +16,6 @@ export const IMAGE_MAX_BYTES = 10_000_000;
 export const HUB_WIDTH = 52;
 export const HUB_EXPANDED = HUB_WIDTH + 264;
 export const TITLEBAR_H = 38;
+// Full-width usage status bar pinned to the very bottom of the shell window (Claude + Codex usage). The review
+// and modal views are laid out to leave this much room beneath them.
+export const BOTTOMBAR_H = 26;

@@ -1,7 +1,7 @@
 // Browser-facing HTML for the main-process "chrome" windows: the workspace-rail shell page (hubHtml) and the
 // tile context-menu popup (tileMenuHtml). Extracted from app-main.ts to keep that file focused on main-process
 // orchestration. Pure string builders with no Electron imports, so they render/diff in isolation.
-import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
+import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H, BOTTOMBAR_H } from "./constants.js";
 
 export function tileMenuHtml(resume: boolean, canDelete: boolean, light: boolean): string {
   const bg = light ? "#ffffff" : "#242529", line = light ? "#e3e3e6" : "#3a3d44", fg = light ? "#242424" : "#e6e8ec";
@@ -72,6 +72,24 @@ body{display:flex;flex-direction:column}
 #tt{position:fixed;z-index:100;display:none;align-items:center;gap:8px;padding:4px 7px 4px 9px;background:${light ? "#ffffff" : "#2c2d31"};color:${fg};border:1px solid ${line};border-radius:7px;box-shadow:0 8px 24px #0006;font-size:11.5px;font-weight:500;white-space:nowrap;pointer-events:none}
 #tt kbd{font:10.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:${light ? "#eceff3" : "#3a4048"};color:${light ? "#55606e" : "#c2c7d0"};border-radius:4px;padding:1px 5px}
 #tt.show{display:flex}
+/* Bottom usage bar — a full-width status strip (Claude tokens today + Codex rate-limit), read from local logs. */
+#usagebar{height:${BOTTOMBAR_H}px;flex:none;-webkit-app-region:no-drag;display:flex;align-items:center;gap:10px;padding:0 8px 0 12px;border-top:1px solid ${line};background:${light ? "#ececec" : "#1b1e25"};font-size:11px;color:${light ? "#5f6470" : "#9aa0ab"};white-space:nowrap;overflow:hidden}
+#usagebar .ug-content{display:flex;align-items:center;gap:9px;min-width:0;overflow:hidden}
+#usagebar .ug{display:inline-flex;align-items:center;gap:5px;min-width:0}
+#usagebar .ug-dot{width:7px;height:7px;border-radius:50%;flex:none}
+#usagebar .ug-dot.cl{background:#d97757}
+#usagebar .ug-dot.cx{background:#10a37f}
+#usagebar .ug-name{font-weight:600;color:${light ? "#4b5563" : "#b7bcc6"}}
+#usagebar .ug-val{font-weight:700;color:${fg};font-variant-numeric:tabular-nums}
+#usagebar .ug-sub{color:${light ? "#8a8f99" : "#7d828c"}}
+#usagebar .ug-sep{width:1px;height:12px;background:${line};flex:none}
+#usagebar .ug-empty{color:${light ? "#9aa0aa" : "#6b7078"};font-style:italic}
+#usagebar .ug-spacer{flex:1}
+#usagebar #ugRefresh{-webkit-app-region:no-drag;width:20px;height:20px;border:0;border-radius:5px;background:transparent;color:inherit;display:grid;place-items:center;padding:0;flex:none;cursor:pointer}
+#usagebar #ugRefresh:hover{background:${light ? "#dfe7f5" : "#373d49"};color:${fg}}
+#usagebar #ugRefresh svg{width:13px;height:13px;display:block}
+#usagebar.spin #ugRefresh svg{animation:ugspin .7s linear infinite}
+@keyframes ugspin{to{transform:rotate(360deg)}}
 #hub{width:${HUB_WIDTH}px;flex:1;min-height:0;border-right:1px solid ${line};display:flex;flex-direction:column;align-items:center;gap:2px;overflow:hidden;transition:width 180ms cubic-bezier(.2,.8,.2,1)}
 body.rail-exp #hub{width:${HUB_EXPANDED}px;align-items:stretch}
 button{border:1px solid ${line};background:transparent;color:inherit;border-radius:6px;padding:4px 8px}
@@ -150,7 +168,7 @@ body.rail-exp #pin{color:#4d86d9}
 #railfoot #new{border:1px dashed ${line}}
 .context-menu{position:fixed;z-index:20;width:172px;padding:5px;background:${bg};border:1px solid ${line};border-radius:8px;box-shadow:0 12px 30px #0008}
 .context-menu button{display:block;width:100%;border:0;text-align:left;padding:7px 9px}.context-menu button:hover{background:${light ? "#dfe7f5" : "#373d49"}}.context-menu .danger{color:#df6868}.hidden{display:none!important}</style>
-<div id="titlebar"><span id="wsname"></span><span class="tb-spacer"></span><div id="tools"><button class="tb" data-act="changes" data-tip="Changes" data-key="⌘0" aria-label="Changes (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" data-tip="Files" data-key="⌘1" aria-label="Files (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" data-tip="Terminal" data-key="⌃\`" aria-label="Terminal (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" data-tip="History" data-key="⌘9" aria-label="History (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button><button class="tb" data-act="more" data-tip="More review tools" aria-label="More review tools"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button></div></div><main id="hub"><section id="list"></section><div id="railfoot"><button id="pin" title="Expand workspace rail (⌘⇧E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button><button id="new" title="New workspace (⌘N)">＋</button><button id="settings" title="Settings — v${appVersion}">⚙</button></div></main><div id="tt"></div>
+<div id="titlebar"><span id="wsname"></span><span class="tb-spacer"></span><div id="tools"><button class="tb" data-act="changes" data-tip="Changes" data-key="⌘0" aria-label="Changes (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" data-tip="Files" data-key="⌘1" aria-label="Files (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" data-tip="Terminal" data-key="⌃\`" aria-label="Terminal (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" data-tip="History" data-key="⌘9" aria-label="History (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button><button class="tb" data-act="more" data-tip="More review tools" aria-label="More review tools"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button></div></div><main id="hub"><section id="list"></section><div id="railfoot"><button id="pin" title="Expand workspace rail (⌘⇧E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button><button id="new" title="New workspace (⌘N)">＋</button><button id="settings" title="Settings — v${appVersion}">⚙</button></div></main><div id="usagebar"><div id="ugContent" class="ug-content"></div><span class="ug-spacer"></span><button id="ugRefresh" title="Refresh usage" aria-label="Refresh usage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-.6 3.7"/><path d="M20 4.5V11h-6.5"/></svg></button></div><div id="tt"></div>
 <script>
 const list=document.querySelector("#list"),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 document.querySelector("#new").onclick=()=>window.kakapoHub.openModal('new');
@@ -164,6 +182,19 @@ function showTip(b){const tip=b.dataset.tip;if(!tip){tt.classList.remove('show')
 tools.addEventListener('mouseover',e=>{const b=e.target.closest('button.tb');if(b)showTip(b);});
 tools.addEventListener('mouseout',e=>{const b=e.target.closest('button.tb');if(b&&(!e.relatedTarget||!b.contains(e.relatedTarget)))tt.classList.remove('show');});
 tools.addEventListener('click',()=>tt.classList.remove('show'));
+// Bottom usage bar: pull a local snapshot on load, on a 60s timer, and on manual refresh (↻). Claude shows
+// today's token total (its server rate-limit % isn't stored locally); Codex shows its recorded rate-limit %.
+const usagebar=document.getElementById('usagebar');
+function ugFmtTokens(n){n=n||0;if(n>=1e6)return (n/1e6).toFixed(n>=1e7?0:1)+'M';if(n>=1e3)return Math.round(n/1e3)+'k';return String(n);}
+function ugFmtReset(ms){const d=ms-Date.now();if(!ms||d<=0)return 'now';const h=Math.floor(d/3600000),days=Math.floor(h/24),remH=h%24,m=Math.floor((d%3600000)/60000);if(days>0)return days+'d '+remH+'h';if(h>0)return h+'h '+m+'m';return m+'m';}
+function ugSeg(dotCls,name,valText,subText,title){const s=document.createElement('span');s.className='ug';if(title)s.title=title;const d=document.createElement('span');d.className='ug-dot '+dotCls;s.appendChild(d);const nm=document.createElement('span');nm.className='ug-name';nm.textContent=name;s.appendChild(nm);const v=document.createElement('span');v.className='ug-val';v.textContent=valText;s.appendChild(v);if(subText){const sub=document.createElement('span');sub.className='ug-sub';sub.textContent=subText;s.appendChild(sub);}return s;}
+async function loadUsage(){if(!usagebar||!window.kakapoHub.usage)return;usagebar.classList.add('spin');let s=null;try{s=await window.kakapoHub.usage();}catch(e){}usagebar.classList.remove('spin');const c=document.getElementById('ugContent');if(!c)return;c.textContent='';const segs=[];
+  if(s&&s.claude)segs.push(ugSeg('cl','Claude',ugFmtTokens(s.claude.tokensToday)+' today',null,'Claude · '+s.claude.messagesToday+' messages today (from local logs)'));
+  if(s&&s.codex&&s.codex.primary)segs.push(ugSeg('cx','Codex',Math.round(s.codex.primary.usedPercent)+'%','· resets '+ugFmtReset(s.codex.primary.resetsAt),'Codex'+(s.codex.planType?' ('+s.codex.planType+')':'')+' · weekly rate limit'));
+  if(!segs.length){const e=document.createElement('span');e.className='ug-empty';e.textContent='No local usage data';c.appendChild(e);return;}
+  segs.forEach((seg,i)=>{if(i){const sep=document.createElement('span');sep.className='ug-sep';c.appendChild(sep);}c.appendChild(seg);});}
+document.getElementById('ugRefresh').onclick=()=>loadUsage();
+loadUsage();setInterval(loadUsage,60000);
 window.kakapoHub.onRailState(s=>{s=s||{};const active=s.active||[];for(const b of tools.querySelectorAll('button.tb')){const a=b.dataset.act;if(a==='terminal'){b.classList.toggle('hidden',!s.terminal);}b.classList.toggle('active',active.indexOf(a)>=0);}});
 window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(()=>window.kakapoHub.openModal('new'));
 // Rail expand: ⌘⇧E or the » button toggles it open; main then pushes the review views right (they render over
