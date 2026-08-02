@@ -43,8 +43,6 @@ contextBridge.exposeInMainWorld("kakapoHub", {
     title?: string; message?: string; detail?: string; buttons?: string[]; danger?: boolean; defaultId?: number; checkbox?: string;
   }): Promise<{ index: number; checked: boolean }> => ipcRenderer.invoke("kakapo:hub-confirm", spec),
   confirmResult: (result: { index: number; checked: boolean }) => ipcRenderer.send("kakapo:confirm-result", result),
-  // Bottom usage bar — a local snapshot of Claude (today's tokens) + Codex (rate-limit %) usage.
-  usage: (): Promise<unknown> => ipcRenderer.invoke("kakapo:usage-stats"),
   // Ask main to return keyboard focus to the active review view (its shortcuts don't fire while the shell
   // rail holds focus). Called after clicking non-interactive rail/title-bar chrome.
   refocusReview: () => ipcRenderer.send("kakapo:hub-refocus"),

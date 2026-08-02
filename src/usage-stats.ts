@@ -9,13 +9,40 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export interface CodexLimit { usedPercent: number; windowMinutes: number; resetsAt: number; }
+export interface ClaudeWindow { utilization: number; resetsAt: number; }
 export interface UsageStats {
-  claude?: { tokensToday: number; messagesToday: number };
+  claude?: { tokensToday: number; messagesToday: number; fiveHour?: ClaudeWindow; sevenDay?: ClaudeWindow };
   codex?: { primary: CodexLimit; secondary?: CodexLimit; planType?: string; capturedAt: number };
   updatedAt: number;
 }
 
 const HOME = homedir();
+
+// Claude's real rate-limit % isn't written to any local log (only token counts are), so — with the user's
+// consent — read it from the same OAuth-authenticated endpoint the `claude` CLI's /usage uses, reusing the
+// access token Claude Code already stores. Cached briefly so multiple review views / the 60s poll don't hammer
+// the API. The token is re-read from disk each call so we pick up Claude Code's refreshes; if it's expired or
+// the request fails, we just drop the quota (the token-count fallback still shows).
+let claudeQuotaCache: { at: number; value: { fiveHour?: ClaudeWindow; sevenDay?: ClaudeWindow } | undefined } | undefined;
+async function fetchClaudeQuota(): Promise<{ fiveHour?: ClaudeWindow; sevenDay?: ClaudeWindow } | undefined> {
+  try {
+    const credPath = join(HOME, ".claude", ".credentials.json");
+    if (!existsSync(credPath)) return undefined;
+    const oauth = (JSON.parse(readFileSync(credPath, "utf8")) as { claudeAiOauth?: { accessToken?: string; expiresAt?: number } }).claudeAiOauth;
+    const token = oauth?.accessToken;
+    if (!token) return undefined;
+    if (typeof oauth?.expiresAt === "number" && Date.now() > oauth.expiresAt) return undefined; // stale; refreshed on next CLI use
+    const res = await fetch("https://api.anthropic.com/api/oauth/usage", {
+      headers: { authorization: "Bearer " + token, "anthropic-beta": "oauth-2025-04-20", "content-type": "application/json", "user-agent": "kakapo (usage bar)" },
+      signal: AbortSignal.timeout(4500),
+    });
+    if (!res.ok) return undefined;
+    const body = await res.json() as { five_hour?: { utilization?: number; resets_at?: string }; seven_day?: { utilization?: number; resets_at?: string } };
+    const win = (w?: { utilization?: number; resets_at?: string }): ClaudeWindow | undefined =>
+      w && typeof w.utilization === "number" ? { utilization: w.utilization, resetsAt: w.resets_at ? Date.parse(w.resets_at) || 0 : 0 } : undefined;
+    return { fiveHour: win(body.five_hour), sevenDay: win(body.seven_day) };
+  } catch { return undefined; }
+}
 
 // Collect *.jsonl files under dir (recursively, bounded depth), newest-mtime first, capped.
 function recentJsonl(dir: string, cap: number): { path: string; mtime: number }[] {
@@ -98,8 +125,9 @@ function codexUsage(): UsageStats["codex"] | undefined {
   return best;
 }
 
-// Best-effort local usage snapshot; each side is independent so one missing CLI never breaks the other.
-export function collectUsageStats(): UsageStats {
+// Best-effort usage snapshot; each side is independent so one missing source never breaks the other. Async
+// because Claude's rate-limit % comes from an authenticated API call (token counts + Codex stay local + sync).
+export async function collectUsageStats(): Promise<UsageStats> {
   const now = Date.now();
   const sod = new Date(now);
   sod.setHours(0, 0, 0, 0);
@@ -108,5 +136,10 @@ export function collectUsageStats(): UsageStats {
   let codex: UsageStats["codex"];
   try { claude = claudeUsage(startOfDay); } catch { /* best-effort */ }
   try { codex = codexUsage(); } catch { /* best-effort */ }
+  // Claude quota %, cached ~15s so concurrent views / rapid refreshes reuse one API call.
+  let quota: { fiveHour?: ClaudeWindow; sevenDay?: ClaudeWindow } | undefined;
+  if (claudeQuotaCache && now - claudeQuotaCache.at < 15_000) quota = claudeQuotaCache.value;
+  else { quota = await fetchClaudeQuota(); claudeQuotaCache = { at: now, value: quota }; }
+  if (quota) claude = { tokensToday: 0, messagesToday: 0, ...(claude || {}), fiveHour: quota.fiveHour, sevenDay: quota.sevenDay };
   return { claude, codex, updatedAt: now };
 }

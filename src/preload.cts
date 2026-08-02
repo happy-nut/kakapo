@@ -123,6 +123,12 @@ contextBridge.exposeInMainWorld("kakapoPerf", {
   mark: (name: string, details?: unknown): void => ipcRenderer.send("kakapo:perf-mark", { name, details }),
 });
 
+// Local usage snapshot for the sidebar-footer quota widgets (Claude 5h/weekly % via the OAuth usage API,
+// Codex rate-limit % from its session logs). Best-effort; returns { updatedAt } with no sides if unavailable.
+contextBridge.exposeInMainWorld("kakapoUsage", {
+  get: (): Promise<unknown> => ipcRenderer.invoke("kakapo:usage-stats"),
+});
+
 // Project-wide occurrence search. The main process uses kakapo's bundled ripgrep binary; browser/static
 // reviews, where native processes cannot run, retain the renderer's local fallback.
 contextBridge.exposeInMainWorld("kakapoSearch", {
