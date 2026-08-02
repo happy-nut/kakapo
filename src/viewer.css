@@ -3610,6 +3610,14 @@ body.workspace-view .sidebar-resizer { left: calc(var(--rail-width) + var(--side
    context (z-index: 32) — so the popup was trapped BELOW full-view overlays like History/Explain
    (z-index: 75) that it pops out over. While the menu is open, lift the rail's context above them. */
 body.workspace-view .activity-rail:has(.workspace-more-menu:not(.hidden)) { z-index: 80; }
+/* The review tools moved to the shell title bar, but this overflow ("More") menu still lives in the activity
+   rail — which is display:none in the packaged app (body.native-app), so the shell's "…" button toggled a menu
+   that could never paint (its parent was display:none). When the menu is open, make the rail renderable again
+   but keep ONLY the menu visible, and anchor it top-right beneath the shell's "…" button instead of the old
+   bottom-left rail position. */
+body.native-app .activity-rail:has(.workspace-more-menu:not(.hidden)) { display: block; }
+body.native-app .activity-rail:has(.workspace-more-menu:not(.hidden)) > *:not(.workspace-more-menu) { display: none; }
+body.native-app .workspace-more-menu { top: 8px; right: 12px; left: auto; bottom: auto; }
 body.workspace-view .activity-rail .workspace-more-menu .rail-btn {
   width: 100%;
   height: 31px;
