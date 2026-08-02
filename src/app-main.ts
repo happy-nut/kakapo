@@ -1108,13 +1108,31 @@ function activateWorkspace(id: number): void {
   renderHub();
 }
 
+// Whether a workspace has a terminal actually running a foreground process (an agent/command) rather than just
+// sitting idle at the shell prompt. node-pty's `process` reports the pty's foreground process; when it's no
+// longer the shell, something is running. This drives the green "running" dot — an open-but-idle terminal must
+// not light it (a bare shell isn't an agent). Recomputed on every activity tick / renderHub, and each terminal's
+// output already fires an activity tick (plus a 1200ms busy-decay tick), so start/stop transitions converge.
+function hasRunningProcess(state: WinState): boolean {
+  if (state.terms.size === 0) return false;
+  const shell = process.env.SHELL || (process.platform === "win32" ? "powershell.exe" : "/bin/zsh");
+  const shellName = shell.split(/[\\/]/).pop() || shell;
+  for (const t of state.terms.values()) {
+    let fg = "";
+    try { fg = t.process || ""; } catch { /* pty may have exited mid-query */ }
+    const name = fg.replace(/^-/, ""); // login shells surface as "-zsh"
+    if (name && name !== shellName) return true;
+  }
+  return false;
+}
+
 // Push only the per-workspace agent-activity flags (busy spinner + attention dot) to the rail, so the tiles'
 // indicators update without a full renderHub — which re-runs `git status` for every workspace and rebuilds the
 // rail DOM (dropping hover/focus). The shell toggles CSS classes on the existing tiles from this.
 function sendAgentActivity(): void {
   if (!shellWindow || shellWindow.isDestroyed()) return;
   const activity = Array.from(states.values()).map((state) => ({
-    id: state.win.webContents.id, busy: state.busy, unread: state.unread, running: state.terms.size > 0,
+    id: state.win.webContents.id, busy: state.busy, unread: state.unread, running: hasRunningProcess(state),
   }));
   void shellWindow.webContents.send("kakapo:hub-activity", activity);
 }
@@ -1214,7 +1232,7 @@ function renderHub(): void {
     if (owner && !avatar) void ensureOwnerAvatar(owner);
     return { id: state.win.webContents.id, ...current, alias: metadata?.alias, memo: metadata?.memo,
       base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount, avatar,
-      active: state.win.webContents.id === activeStateId, running: state.terms.size > 0,
+      active: state.win.webContents.id === activeStateId, running: hasRunningProcess(state),
       resume: state.resumeCommand, unread: state.unread, busy: state.busy, detached: state.win.isDetached() };
   });
   const disconnected = saved.filter((item) => !existsSync(item.path)).map((item, index) => ({

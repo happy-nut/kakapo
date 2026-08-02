@@ -1996,6 +1996,11 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 /* ===== Git history view (Cmd+9): full commit graph with a floating changed-files + diff workspace. ===== */
 .history-view { position: fixed; inset: 0 0 0 var(--rail-width); z-index: 75; display: flex; flex-direction: column; background: var(--bg); }
 .history-view.hidden { display: none; }
+/* Entrance animation when the panel opens (⌘9 / history rail button) — a brief fade + rise, matching the dock
+   panel's arrival. Runs each time it goes from hidden to shown (display none→flex restarts the animation). */
+@keyframes history-in { from { opacity: 0; transform: translateY(9px) scale(0.992); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.history-view:not(.hidden) { animation: history-in 185ms cubic-bezier(.2, .8, .2, 1); will-change: transform, opacity; }
+@media (prefers-reduced-motion: reduce) { .history-view:not(.hidden) { animation: none; } }
 /* The dialog holds keyboard focus as a bare container (tabindex=-1, focused on open and whenever the detail
    closes). Because it opens off a keypress, Chromium paints its :focus-visible ring — which hugs the window's
    top-left edge, crosses the macOS traffic lights, and stays put for the whole session (it is focus, not the
