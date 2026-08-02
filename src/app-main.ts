@@ -338,9 +338,12 @@ function collapseRailFromReview(): void {
 // is layered above the review views, so the live review content dims behind them rather than blanking. The
 // rail asks to open one here; main brings the overlay to the front, shows it, focuses it, and tells its page
 // which dialog to open. Keyboard focus is handed to the overlay so Esc/typing reach the dialog.
-ipcMain.on("kakapo:hub-open-modal", (_event, payload: unknown) => {
+// Bring the overlay to the front, show + focus it, and tell its page which dialog to open (queued until the page
+// finishes loading). Returns false when there's no shell window to host it. Shared by the rail's openModal and by
+// showOverlayConfirm below.
+function presentModal(payload: unknown): boolean {
   const view = ensureModalView(isLightTheme());
-  if (!view || !shellWindow || shellWindow.isDestroyed()) return;
+  if (!view || !shellWindow || shellWindow.isDestroyed()) return false;
   modalOpen = true;
   // A review view opened after the overlay would sit on top of it; re-add the overlay to keep it frontmost.
   shellWindow.contentView.removeChildView(view);
@@ -350,13 +353,40 @@ ipcMain.on("kakapo:hub-open-modal", (_event, payload: unknown) => {
   view.webContents.focus();
   if (modalViewReady) view.webContents.send("kakapo:modal-open", payload);
   else pendingModalOpen = payload;
-});
-ipcMain.on("kakapo:hub-close-modal", () => {
+  return true;
+}
+function hideModal(): void {
   modalOpen = false;
   pendingModalOpen = null;
   modalView?.setVisible(false);
   focusActiveReviewView();
+}
+ipcMain.on("kakapo:hub-open-modal", (_event, payload: unknown) => { presentModal(payload); });
+ipcMain.on("kakapo:hub-close-modal", () => { hideModal(); });
+
+// Custom confirm/alert: show a design-system dialog in the overlay (instead of a native message box) and resolve
+// with the chosen button index + checkbox state. Only one is shown at a time; the overlay reports the click via
+// kakapo:confirm-result. `presented` is false when there was no window to host it, so critical callers (quit) can
+// fall back to a native box.
+type ConfirmResult = { index: number; checked: boolean; presented: boolean };
+let pendingConfirm: ((result: ConfirmResult) => void) | null = null;
+function showOverlayConfirm(spec: Record<string, unknown>): Promise<ConfirmResult> {
+  return new Promise((resolve) => {
+    if (pendingConfirm) { const prev = pendingConfirm; pendingConfirm = null; prev({ index: -1, checked: false, presented: true }); }
+    if (!presentModal({ type: "confirm", ...spec })) { resolve({ index: -1, checked: false, presented: false }); return; }
+    pendingConfirm = resolve;
+  });
+}
+ipcMain.on("kakapo:confirm-result", (_event, result: unknown) => {
+  const resolve = pendingConfirm;
+  pendingConfirm = null;
+  hideModal();
+  if (!resolve) return;
+  const r = (result ?? {}) as { index?: unknown; checked?: unknown };
+  resolve({ index: typeof r.index === "number" ? r.index : -1, checked: r.checked === true, presented: true });
 });
+ipcMain.handle("kakapo:hub-confirm", (_event, spec: unknown) =>
+  showOverlayConfirm((spec && typeof spec === "object" ? spec : {}) as Record<string, unknown>));
 
 // Keyboard shortcuts live in the review viewer (a WebContentsView). Clicking the shell-page rail moves
 // keyboard focus to the shell, where those shortcuts do nothing — so hand focus back to the active review
@@ -800,17 +830,16 @@ app.on("before-quit", (event) => {
   const running = Array.from(states.values()).filter((state) => state.terms.size > 0).length;
   if (!running) { quitConfirmed = true; return; }
   event.preventDefault();
-  const messageOptions: Electron.MessageBoxSyncOptions = {
-    type: "warning",
-    title: "Agents are still running",
-    message: `${running} workspace${running === 1 ? "" : "s"} still has a running terminal or agent.`,
-    detail: "Quitting stops these processes. Resume metadata will be kept when the agent can be identified.",
-    buttons: ["Keep Kakapo Open", "Quit and Stop Agents"],
-    defaultId: 0,
-    cancelId: 0,
-  };
-  const choice = shellWindow ? dialog.showMessageBoxSync(shellWindow, messageOptions) : dialog.showMessageBoxSync(messageOptions);
-  if (choice === 1) { quitConfirmed = true; app.quit(); }
+  const message = `${running} workspace${running === 1 ? "" : "s"} still has a running terminal or agent.`;
+  const detail = "Quitting stops these processes. Resume metadata will be kept when the agent can be identified.";
+  const buttons = ["Keep Kakapo Open", "Quit and Stop Agents"];
+  const quitIfChosen = (choice: number): void => { if (choice === 1) { quitConfirmed = true; app.quit(); } };
+  // Custom overlay dialog, with the native box as a fallback so quit is never blocked if the overlay can't show.
+  void showOverlayConfirm({ title: "Agents are still running", message, detail, buttons, danger: true, defaultId: 0 }).then((r) => {
+    if (r.presented) { quitIfChosen(r.index); return; }
+    const opts: Electron.MessageBoxSyncOptions = { type: "warning", title: "Agents are still running", message, detail, buttons, defaultId: 0, cancelId: 0 };
+    quitIfChosen(shellWindow ? dialog.showMessageBoxSync(shellWindow, opts) : dialog.showMessageBoxSync(opts));
+  });
 });
 app.on("window-all-closed", () => {
   app.quit();
@@ -1692,7 +1721,7 @@ async function openFolderInNewWindow(): Promise<void> {
   if (root) createWindow(root);
 }
 // Shared directory picker — just the dialog; returns the chosen path or undefined if canceled. Callers
-// validate (the welcome flow reports not-git in-page; the File menu shows a native box via pickRepo).
+// validate (the welcome flow reports not-git in-page; the File menu shows the custom overlay via pickRepo).
 async function pickDirectory(parent: BrowserWindow | undefined, defaultPath?: string): Promise<string | undefined> {
   const dialogOptions: Electron.OpenDialogOptions = {
     properties: ["openDirectory"],
@@ -1706,12 +1735,14 @@ async function pickDirectory(parent: BrowserWindow | undefined, defaultPath?: st
 }
 
 // File-menu picker: a directory that's a validated git repo, or undefined (canceled, or not-git with a
-// native error box). Used by Open Folder / Open in New Window, which have no in-page error surface.
+// custom overlay message). Used by Open Folder / Open in New Window, which have no in-page error surface.
 async function pickRepo(parent: BrowserWindow | undefined, defaultPath?: string): Promise<string | undefined> {
   const root = await pickDirectory(parent, defaultPath);
   if (!root) return undefined;
   if (!isGitRepository(root)) {
-    dialog.showErrorBox("Not a Git repository", `${root} is not a Git repository.`);
+    const message = `${root} is not a Git repository.`;
+    const r = await showOverlayConfirm({ title: "Not a Git repository", message, buttons: ["OK"] });
+    if (!r.presented) dialog.showErrorBox("Not a Git repository", message); // fallback if there's no window to host the overlay
     return undefined;
   }
   return resolveWorkspaceRoot(root);
