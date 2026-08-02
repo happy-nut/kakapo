@@ -489,6 +489,11 @@ function revealTreeFor(path, shouldScroll) {
   if (shouldScroll !== false && active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
 }
 function handleTreeKey(event) {
+  // Never act while the user is typing in a field (e.g. an open comment box): the dispatcher calls us whenever
+  // a tree row is keyboard-focused, but a focused .mc-input textarea still owns the keystroke — otherwise Space
+  // toggles the focused row's "viewed" state instead of inserting a space. Matches handleDiffCaretKey's guard.
+  const ae = document.activeElement;
+  if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable)) return false;
   const rows = treeRows();
   if (rows.length === 0) return false;
   if (treeFocusIndex >= rows.length) treeFocusIndex = rows.length - 1;
