@@ -42,6 +42,19 @@ test("preserves the user's real shell environment", () => {
   });
 });
 
+// Launching kakapo from inside a Claude Code session leaves CLAUDE_CODE_CHILD_SESSION=1 in our env; a
+// `claude` run in the integrated terminal would inherit it, decide it's a nested child, and stop saving its
+// transcript — so the session is invisible to --resume.
+test("strips the inherited CLAUDE_CODE_CHILD_SESSION marker", () => {
+  const out = sanitizeTerminalEnv({
+    PATH: "/usr/bin",
+    CLAUDE_CODE_CHILD_SESSION: "1",
+    CLAUDECODE: "1",
+  });
+  assert.equal("CLAUDE_CODE_CHILD_SESSION" in out, false, "the pty shell starts as a top-level session");
+  assert.equal(out.CLAUDECODE, "1", "other CLAUDE_* vars are left alone");
+});
+
 test("drops undefined holes and never mutates the input", () => {
   const input = { FOO: undefined, BAR: "1" };
   const out = sanitizeTerminalEnv(input);

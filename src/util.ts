@@ -174,11 +174,19 @@ export function listRecentFiles(dir: string, limit: number): string[] {
 //   "nvm is not compatible with the npm_config_prefix environment variable …"
 // Strip every npm_*-injected var (npm_config_prefix is the one nvm rejects) and drop undefined holes,
 // so the shell starts clean. Returns a fresh object; the input is not mutated.
+//
+// Same class of leak: if kakapo itself was launched from inside a Claude Code session (`npm run dev` from
+// its bash tool, `kakapo` from an agent shell), our env carries CLAUDE_CODE_CHILD_SESSION=1 — the marker
+// Claude Code sets on children so a nested run doesn't double-write transcripts. Inherited into the pty it
+// makes `claude` there disable transcript saving ("Transcript saving is off — inherited
+// CLAUDE_CODE_CHILD_SESSION marker"), so the session never shows up in --resume. Drop it: a shell the user
+// typed into is a top-level session, not our child.
 export function sanitizeTerminalEnv(env: NodeJS.ProcessEnv): { [key: string]: string } {
   const out: { [key: string]: string } = {};
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) continue;
     if (key.startsWith("npm_")) continue;
+    if (key === "CLAUDE_CODE_CHILD_SESSION") continue;
     out[key] = value;
   }
   return out;
