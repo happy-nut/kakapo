@@ -5,6 +5,7 @@
 //   • Codex:  the freshest rate-limit snapshot (primary/secondary used_percent + reset time) that the Codex CLI
 //     wrote into its session logs (event_msg → payload.rate_limits), which mirrors what its TUI shows.
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -24,11 +25,25 @@ const HOME = homedir();
 // the API. The token is re-read from disk each call so we pick up Claude Code's refreshes; if it's expired or
 // the request fails, we just drop the quota (the token-count fallback still shows).
 let claudeQuotaCache: { at: number; value: { fiveHour?: ClaudeWindow; sevenDay?: ClaudeWindow } | undefined } | undefined;
+
+// On macOS Claude Code keeps its OAuth token in the login Keychain and refreshes it there; the
+// ~/.claude/.credentials.json copy is only written on other platforms and goes stale (an expired token there is
+// why the % silently fell back to a raw token count). Keychain first, file as the cross-platform fallback.
+type ClaudeOauth = { accessToken?: string; expiresAt?: number };
+function claudeOauth(): ClaudeOauth | undefined {
+  const parse = (raw: string): ClaudeOauth | undefined => (JSON.parse(raw) as { claudeAiOauth?: ClaudeOauth }).claudeAiOauth;
+  if (process.platform === "darwin") {
+    try {
+      return parse(execFileSync("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"], { encoding: "utf8", timeout: 3000 }));
+    } catch { /* not in the Keychain (or access denied) — try the file */ }
+  }
+  const credPath = join(HOME, ".claude", ".credentials.json");
+  try { return existsSync(credPath) ? parse(readFileSync(credPath, "utf8")) : undefined; } catch { return undefined; }
+}
+
 async function fetchClaudeQuota(): Promise<{ fiveHour?: ClaudeWindow; sevenDay?: ClaudeWindow } | undefined> {
   try {
-    const credPath = join(HOME, ".claude", ".credentials.json");
-    if (!existsSync(credPath)) return undefined;
-    const oauth = (JSON.parse(readFileSync(credPath, "utf8")) as { claudeAiOauth?: { accessToken?: string; expiresAt?: number } }).claudeAiOauth;
+    const oauth = claudeOauth();
     const token = oauth?.accessToken;
     if (!token) return undefined;
     if (typeof oauth?.expiresAt === "number" && Date.now() > oauth.expiresAt) return undefined; // stale; refreshed on next CLI use
