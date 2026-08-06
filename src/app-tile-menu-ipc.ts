@@ -8,6 +8,8 @@ import { tileMenuHtml } from "./shell-pages.js";
 type TileMenuDeps = {
   getShellWindow: () => BrowserWindow | undefined;
   isLightTheme: () => boolean;
+  // Translator bound to the current locale; read at open time so the popup always renders in the active language.
+  getTranslate: () => (key: string, vars?: Record<string, string | number>) => string;
 };
 
 export function registerTileMenuIpc(ipc: IpcMain, deps: TileMenuDeps): void {
@@ -37,7 +39,7 @@ export function registerTileMenuIpc(ipc: IpcMain, deps: TileMenuDeps): void {
     tileMenuWindow = win;
     win.on("blur", () => { if (tileMenuWindow === win && tileMenuShown) close(); });
     win.on("closed", () => { if (tileMenuWindow === win) { tileMenuWindow = undefined; tileMenuTarget = undefined; tileMenuAnchor = undefined; tileMenuShown = false; } });
-    void win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(tileMenuHtml(Boolean(info?.resume), info?.kind !== "main", deps.isLightTheme())));
+    void win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(tileMenuHtml(Boolean(info?.resume), info?.kind !== "main", deps.isLightTheme(), deps.getTranslate())));
   });
 
   ipc.on("kakapo:menu-size", (event, size: { w?: unknown; h?: unknown }) => {

@@ -208,6 +208,15 @@ const persistedSettings: Record<string, unknown> = (() => {
     return {};
   }
 })();
+// Live theme/locale sync. Theme + locale are global settings; when one review window changes them (or the OS
+// switches while the theme follows "system"), the main process broadcasts the resolved preference here so every
+// open review re-applies it without a reload — keeping windows, the rail, and native chrome all in one theme.
+contextBridge.exposeInMainWorld("kakapoChrome", {
+  onChange: (cb: (payload: { theme?: string; resolved?: string; locale?: string }) => void): void => {
+    ipcRenderer.on("kakapo:chrome", (_event, payload) => cb(payload));
+  },
+});
+
 contextBridge.exposeInMainWorld("kakapoSettings", {
   all: persistedSettings,
   set: (key: string, value: unknown): void => {

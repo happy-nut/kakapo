@@ -575,10 +575,9 @@ body.native-app .source-tabs {
 }
 .settings-modal.hidden { display: none; }
 .settings-panel {
-  position: relative;
   position: relative; z-index: 1; contain: paint; transform: translateZ(0);
   display: flex;
-  width: 980px; max-width: 90vw; height: 700px; max-height: 88vh;
+  width: 900px; max-width: 92vw; height: 660px; max-height: 88vh;
   background: var(--panel); border: 1px solid var(--border); border-radius: 0;
   overflow: hidden; box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
 }
@@ -589,20 +588,37 @@ body.native-app .source-tabs {
 }
 .settings-close:hover { color: var(--text); background: var(--hover); }
 .settings-nav {
-  flex: 0 0 200px; padding: 16px 10px;
+  flex: 0 0 210px; padding: 18px 12px 16px;
   background: var(--sidebar); border-right: 1px solid var(--border);
-  display: flex; flex-direction: column; gap: 4px;
+  display: flex; flex-direction: column; gap: 3px;
 }
-.settings-nav-title { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); padding: 4px 10px 8px; }
-.settings-cat { text-align: left; border: 0; background: transparent; color: var(--text); padding: 7px 10px; border-radius: 0; font-size: 13px; cursor: pointer; }
+/* Brand identity moved out of the General page and into the nav header, so it reads as the panel's title once
+   rather than competing with the first setting. */
+.settings-nav-brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 16px; }
+.settings-nav-brand .kakapo-mark { width: 28px; height: 28px; flex: none; }
+.settings-nav-brand-meta { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.settings-nav-brand-name { font-size: 14px; font-weight: 650; color: var(--text); }
+.settings-nav-title { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); padding: 2px 10px 6px; }
+.settings-cat { text-align: left; border: 0; background: transparent; color: var(--text); padding: 8px 10px; font-size: 13px; cursor: pointer; }
 .settings-cat:hover { background: color-mix(in srgb, var(--active) 12%, transparent); }
-.settings-cat.active { background: color-mix(in srgb, var(--active) 20%, transparent); color: var(--active); font-weight: 600; }
-.settings-body { flex: 1 1 auto; min-width: 0; padding: 24px 28px; overflow: auto; }
-.settings-h { font-size: 16px; font-weight: 650; color: var(--text); margin-bottom: 6px; }
-.settings-brand { display: flex; align-items: center; gap: 8px; min-height: 42px; }
-.settings-brand .kakapo-mark { width: 40px; height: 40px; }
-.settings-ver { color: var(--muted); font-weight: 500; font-size: 0.62em; letter-spacing: 0.02em; }
+.settings-cat.active { background: color-mix(in srgb, var(--active) 18%, transparent); color: var(--active); font-weight: 600; }
+.settings-body { flex: 1 1 auto; min-width: 0; padding: 26px 30px; overflow: auto; }
+.settings-h { font-size: 15px; font-weight: 650; color: var(--text); margin-bottom: 6px; }
+.settings-ver { color: var(--muted); font-weight: 500; font-size: 11px; letter-spacing: 0.02em; }
 .settings-desc { font-size: 12px; color: var(--muted); line-height: 1.6; margin-bottom: 18px; }
+/* Grouped preference cards (Appearance, Terminal): one card per topic, each a stack of label/control rows so the
+   General page reads as organized groups instead of a flat run of label-over-control fields. */
+.settings-card { border: 1px solid var(--border); border-radius: var(--ui-radius-lg, 12px); background: color-mix(in srgb, var(--bg) 50%, transparent); padding: 2px 16px; margin: 0 0 18px; max-width: 600px; }
+.settings-card-title { font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); padding: 13px 2px 8px; }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 13px 2px; border-top: 1px solid var(--border); }
+.settings-card-title + .settings-row { border-top: 0; }
+.settings-row-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.settings-row-label { font-size: 13px; font-weight: 600; color: var(--text); }
+.settings-row-hint { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.settings-card .settings-check { margin: 0; padding: 13px 2px; }
+/* The shortcuts reference is now its own category, so drop the divider/offset it carried as a General sub-block. */
+.settings-section[data-cat="shortcuts"] .app-info-keys { margin-top: 0; border-top: 0; padding-top: 0; }
+.settings-section[data-cat="shortcuts"] .app-info-keys .keys-cat:first-of-type { margin-top: 0; }
 /* Groups two or more distinct prompt fields under one settings-cat tab (e.g. merge prompts + Explain
    prompt) — a divider + top margin so the second .settings-h reads as a new group, not a continuation. */
 .settings-subsection { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border); }
@@ -622,7 +638,7 @@ body.native-app .source-tabs {
 }
 .settings-select:focus { outline: none; border-color: var(--active); }
 /* The settings dropdowns are buttons (custom dropdown), not native <select> — style them to read like one. */
-.settings-select.mc-select { text-align: left; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; min-width: 130px; }
+.settings-select.mc-select { text-align: left; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; min-width: 150px; flex: none; }
 .settings-select.mc-select::after { content: '▾'; margin-left: auto; opacity: 0.55; }
 .settings-select.mc-select:hover { border-color: var(--active); }
 .settings-actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; }

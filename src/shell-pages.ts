@@ -3,7 +3,11 @@
 // orchestration. Pure string builders with no Electron imports, so they render/diff in isolation.
 import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
 
-export function tileMenuHtml(resume: boolean, canDelete: boolean, light: boolean): string {
+// Translator handed in by the main process (makeTranslator(locale)); shell pages stay pure string builders
+// with no Electron/i18n imports of their own, so the caller owns which locale renders.
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
+
+export function tileMenuHtml(resume: boolean, canDelete: boolean, light: boolean, t: Translate): string {
   const bg = light ? "#ffffff" : "#242529", line = light ? "#e3e3e6" : "#3a3d44", fg = light ? "#242424" : "#e6e8ec";
   const hl = "#4d86d9", danger = light ? "#cf3b38" : "#e5615e", dangerHl = "#d63d3d";
   const item = (action: string, label: string, cls = ""): string => `<div class="mi ${cls}" data-action="${action}">${label}</div>`;
@@ -20,15 +24,15 @@ body{padding:14px;-webkit-user-select:none;user-select:none;cursor:default;font:
 .sep{height:1px;background:${line};margin:5px 9px}
 </style>
 <div class="menu">
-${item("activate", "Switch", "hl")}
-${resume ? item("resume", "Resume session") : ""}
+${item("activate", t("tile.switch"), "hl")}
+${resume ? item("resume", t("tile.resume")) : ""}
 <div class="sep"></div>
-${item("rename", "Rename…")}
-${item("memo", "Edit memo…")}
-${item("detach", "Open in new window")}
+${item("rename", t("tile.rename"))}
+${item("memo", t("tile.editMemo"))}
+${item("detach", t("tile.openNewWindow"))}
 <div class="sep"></div>
-${item("close", "Close workspace")}
-${canDelete ? item("delete", "Delete worktree…", "danger") : ""}
+${item("close", t("tile.close"))}
+${canDelete ? item("delete", t("tile.delete"), "danger") : ""}
 </div>
 <script>
 const {ipcRenderer}=require('electron');
@@ -50,8 +54,21 @@ report();requestAnimationFrame(report);
 </script>`;
 }
 
-export function hubHtml(light: boolean, appVersion: string): string {
+export function hubHtml(light: boolean, appVersion: string, t: Translate): string {
   const bg = light ? "#f4f4f4" : "#252526", fg = light ? "#242424" : "#ddd", line = light ? "#d0d0d0" : "#454545";
+  // Strings the hub's client script builds at runtime from live workspace data (status tips, the delete-confirm
+  // flow, the "Workspaces" heading). Injected as one JSON object so they localize without a data-i18n pass.
+  const T = {
+    workspaces: t("hub.workspaces"), mainWorktree: t("hub.mainWorktree"),
+    running: t("hub.status.running"), resumable: t("hub.status.resumable"), disconnected: t("hub.status.disconnected"),
+    changed: t("hub.tip.changed"),
+    agoNow: t("hub.ago.now"), agoM: t("hub.ago.m"), agoH: t("hub.ago.h"), agoD: t("hub.ago.d"),
+    delTitle: t("hubdel.title"), delTitleNamed: t("hubdel.titleNamed"), delMessage: t("hubdel.message"),
+    delCheckbox: t("hubdel.checkbox"), cancel: t("hubdel.cancel"), del: t("hubdel.delete"),
+    anywayTitle: t("hubdel.anywayTitle"), hasWork: t("hubdel.hasWork"), dirty: t("hubdel.dirty"),
+    unpushed: t("hubdel.unpushed"), runningProc: t("hubdel.runningProc"), anyway: t("hubdel.anyway"),
+    failedTitle: t("hubdel.failedTitle"), failedMsg: t("hubdel.failedMsg"), ok: t("dialog.ok"),
+  };
   return `<!doctype html><meta charset="utf-8"><style>
 *{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:${bg};color:${fg};font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 body{display:flex;flex-direction:column}
@@ -150,8 +167,9 @@ body.rail-exp #pin{color:#4d86d9}
 #railfoot #new{border:1px dashed ${line}}
 .context-menu{position:fixed;z-index:20;width:172px;padding:5px;background:${bg};border:1px solid ${line};border-radius:8px;box-shadow:0 12px 30px #0008}
 .context-menu button{display:block;width:100%;border:0;text-align:left;padding:7px 9px}.context-menu button:hover{background:${light ? "#dfe7f5" : "#373d49"}}.context-menu .danger{color:#df6868}.hidden{display:none!important}</style>
-<div id="titlebar"><span id="wsname"></span><span class="tb-spacer"></span><div id="tools"><button class="tb" data-act="changes" data-tip="Changes" data-key="⌘0" aria-label="Changes (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" data-tip="Files" data-key="⌘1" aria-label="Files (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" data-tip="Terminal" data-key="⌃\`" aria-label="Terminal (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" data-tip="History" data-key="⌘9" aria-label="History (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button><button class="tb" data-act="more" data-tip="More review tools" aria-label="More review tools"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button></div></div><main id="hub"><section id="list"></section><div id="railfoot"><button id="pin" title="Expand workspace rail (⌘⇧E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button><button id="new" title="New workspace (⌘N)">＋</button><button id="settings" title="Settings — v${appVersion}">⚙</button></div></main><div id="tt"></div>
+<div id="titlebar"><span id="wsname"></span><span class="tb-spacer"></span><div id="tools"><button class="tb" data-act="changes" data-tip="${t("tab.changes")}" data-key="⌘0" aria-label="${t("tab.changes")} (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" data-tip="${t("tab.files")}" data-key="⌘1" aria-label="${t("tab.files")} (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" data-tip="${t("terminal.title")}" data-key="⌃\`" aria-label="${t("terminal.title")} (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" data-tip="${t("rail.history")}" data-key="⌘9" aria-label="${t("rail.history")} (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button><button class="tb" data-act="more" data-tip="${t("hub.moreTools")}" aria-label="${t("hub.moreTools")}"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button></div></div><main id="hub"><section id="list"></section><div id="railfoot"><button id="pin" title="${t("hub.expandRail.title")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button><button id="new" title="${t("hub.newWorkspace.title")}">＋</button><button id="settings" title="${t("hub.settings.title", { v: appVersion })}">⚙</button></div></main><div id="tt"></div>
 <script>
+const T=${JSON.stringify(T)};
 const list=document.querySelector("#list"),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 document.querySelector("#new").onclick=()=>window.kakapoHub.openModal('new');
 document.querySelector("#settings").onclick=()=>window.kakapoHub.settings();
@@ -210,14 +228,14 @@ window.kakapoHub.onToggleExpand(toggleRail);
 // Main collapses the rail (visual only, no echo) when focus returns to the review view — clicking back into the
 // "main window" dismisses the peek.
 window.kakapoHub.onSetExpanded(open=>{railExp=!!open;paintRail();if(!railExp)railClearSel();});
-const ago=value=>{const seconds=Math.max(0,Math.floor((Date.now()-Number(value||Date.now()))/1000));return seconds<60?'now':seconds<3600?Math.floor(seconds/60)+'m ago':seconds<86400?Math.floor(seconds/3600)+'h ago':Math.floor(seconds/86400)+'d ago'};
+const ago=value=>{const seconds=Math.max(0,Math.floor((Date.now()-Number(value||Date.now()))/1000));return seconds<60?T.agoNow:seconds<3600?T.agoM.replace('{n}',Math.floor(seconds/60)):seconds<86400?T.agoH.replace('{n}',Math.floor(seconds/3600)):T.agoD.replace('{n}',Math.floor(seconds/86400))};
 window.kakapoHub.onState(items=>{const groups=new Map;for(const w of items){if(!groups.has(w.repoName))groups.set(w.repoName,[]);groups.get(w.repoName).push(w)}
 const _a=items.find(w=>w.active);const _wn=document.getElementById('wsname');if(_wn)_wn.innerHTML=_a?'<span class="wsdot"></span>'+esc(_a.alias||_a.branch)+' <span class="rp">· '+esc(_a.repoName)+'</span>':'';
 // Badge initials. Split on separators only (NOT on every non-Latin char) so Korean/CJK names keep their
 // letters instead of collapsing to "?". Latin → uppercased two-word/two-letter initials; CJK → the first one
 // or two characters as-is (Hangul has no case).
 const initials=w=>{var s=String(w.alias||w.branch||w.repoName||'?').replace(/^(feature|fix|chore|bugfix|hotfix|release)[\\/_-]/i,'').trim();if(!s)return'?';var parts=s.split(/[\\s._/-]+/).filter(Boolean);var a=parts[0]||s,ac=Array.from(a),latin=/^[A-Za-z0-9]/.test(a),r;if(parts.length>1){var bc=Array.from(parts[1]);r=(ac[0]||'')+(bc[0]||'');}else{r=ac.slice(0,2).join('');}return latin?r.toUpperCase():r;};
-const tip=w=>(w.alias||w.branch)+' · '+w.repoName+(w.dirtyCount?' · '+w.dirtyCount+' changed':'')+(w.running?' · ● running':w.resume?' · resumable':w.disconnected?' · disconnected':'');
+const tip=w=>(w.alias||w.branch)+' · '+w.repoName+(w.dirtyCount?' · '+T.changed.replace('{n}',w.dirtyCount):'')+(w.running?' · ● '+T.running:w.resume?' · '+T.resumable:w.disconnected?' · '+T.disconnected:'');
 // Stable per-project hue (all worktrees share it) — tints the collapsed group's accent bar + avatar
 // placeholder and the expanded panel's project badge, so projects read apart at a glance.
 const projHue=n=>{let h=0;const s=String(n||'');for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h%360;};
@@ -231,8 +249,8 @@ const avStyle=(ws,repo)=>grpAvatar(ws)?'':' style="background:hsl('+projHue(repo
 const chev='<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>';
 const homeIco='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3.1 3.3 10a.6.6 0 0 0 .38 1.06H5v8.4c0 .3.24.54.54.54H9.6v-5.2h4.8v5.2h4.06c.3 0 .54-.24.54-.54v-8.4h1.32A.6.6 0 0 0 20.7 10z"/></svg>';
 const isMain=w=>w.kind==='main';
-const cv='<div class="cv">'+[...groups].map(([repo,ws])=>'<div class="grp"><div class="phav" data-repo="'+esc(repo)+'" title="'+esc(repo)+'"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</div><div class="wts">'+ws.map(w=>'<button class="wt'+wcls(w)+'"'+wattr(w)+'>'+esc(initials(w))+'<span class="rdot"></span><span class="udot"></span>'+(isMain(w)?'<span class="mdot" title="Main worktree">'+homeIco+'</span>':'')+'</button>').join('')+'</div></div>').join('')+'</div>';
-const ev='<div class="ev"><div class="phead"><span class="t">Workspaces</span></div><div class="plist">'+[...groups].map(([repo,ws])=>'<div class="proj"><div class="prow" data-repo="'+esc(repo)+'"><span class="pav"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</span><span class="pname">'+esc(repo)+'</span><span class="pcount">'+ws.length+'</span>'+chev+'</div><div class="ewts">'+ws.map(w=>{const nm=esc(w.alias||w.branch);const showBr=w.branch&&(!w.alias||w.branch!==w.alias);const brLine=showBr?'<div class="wt-branch">'+esc(w.branch)+'</div>':'';const tag=w.dirtyCount?'<span class="wt-tag">'+w.dirtyCount+'</span>':'';const home=isMain(w)?'<span class="wt-home" title="Main worktree">'+homeIco+'</span>':'';return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
+const cv='<div class="cv">'+[...groups].map(([repo,ws])=>'<div class="grp"><div class="phav" data-repo="'+esc(repo)+'" title="'+esc(repo)+'"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</div><div class="wts">'+ws.map(w=>'<button class="wt'+wcls(w)+'"'+wattr(w)+'>'+esc(initials(w))+'<span class="rdot"></span><span class="udot"></span>'+(isMain(w)?'<span class="mdot" title="'+esc(T.mainWorktree)+'">'+homeIco+'</span>':'')+'</button>').join('')+'</div></div>').join('')+'</div>';
+const ev='<div class="ev"><div class="phead"><span class="t">'+esc(T.workspaces)+'</span></div><div class="plist">'+[...groups].map(([repo,ws])=>'<div class="proj"><div class="prow" data-repo="'+esc(repo)+'"><span class="pav"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</span><span class="pname">'+esc(repo)+'</span><span class="pcount">'+ws.length+'</span>'+chev+'</div><div class="ewts">'+ws.map(w=>{const nm=esc(w.alias||w.branch);const showBr=w.branch&&(!w.alias||w.branch!==w.alias);const brLine=showBr?'<div class="wt-branch">'+esc(w.branch)+'</div>':'';const tag=w.dirtyCount?'<span class="wt-tag">'+w.dirtyCount+'</span>':'';const home=isMain(w)?'<span class="wt-home" title="'+esc(T.mainWorktree)+'">'+homeIco+'</span>':'';return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
 list.innerHTML=cv+ev;
 // Worktree click → activate (or reconnect/forget a disconnected one). Collapsed badges and expanded cards are
 // both .wt with the same data-*, so one handler covers both views.
@@ -247,7 +265,7 @@ if(railExp)railSelect(railSel<0?0:railSel); // re-apply the keyboard selection a
 // full re-render, so a streaming agent doesn't rebuild the rail DOM and drop hover/focus state.
 window.kakapoHub.onActivity(list=>{for(const a of list){for(const el of document.querySelectorAll('.wt[data-id="'+a.id+'"]')){el.classList.toggle('busy',!!a.busy);el.classList.toggle('running',!!a.running);el.classList.toggle('attn',!!a.unread);}}});
 window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){window.kakapoHub.openModal('rename',{id,name});}else if(action==='memo'){window.kakapoHub.openModal('memo',{id,name});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id,name);});
-async function removeWorkspace(id,name){const r0=await window.kakapoHub.confirm({title:'Delete worktree'+(name?' “'+name+'”':'')+'?',message:'This removes the worktree folder from disk.',checkbox:'Also delete the local branch',buttons:['Cancel','Delete'],danger:true,defaultId:0});if(r0.index!==1)return;const delBranch=r0.checked;let r=await window.kakapoHub.remove(id,'delete',false,delBranch);if(r.needsConfirmation){const x=r.risk;const detail=[x.dirty&&'• uncommitted changes',x.unpushed&&('• '+x.unpushed+' unpushed commit'+(x.unpushed===1?'':'s')),x.runningProcesses&&'• running terminal / agent'].filter(Boolean).join('\\n');const r2=await window.kakapoHub.confirm({title:'Delete anyway?',message:'This worktree has unsaved work:',detail,buttons:['Cancel','Delete anyway'],danger:true,defaultId:0});if(r2.index===1)r=await window.kakapoHub.remove(id,'delete',true,delBranch);}if(!r.ok&&!r.needsConfirmation)await window.kakapoHub.confirm({title:'Delete failed',message:r.error||'Could not delete the worktree.',buttons:['OK']});}
+async function removeWorkspace(id,name){const r0=await window.kakapoHub.confirm({title:name?T.delTitleNamed.replace('{name}',name):T.delTitle,message:T.delMessage,checkbox:T.delCheckbox,buttons:[T.cancel,T.del],danger:true,defaultId:0});if(r0.index!==1)return;const delBranch=r0.checked;let r=await window.kakapoHub.remove(id,'delete',false,delBranch);if(r.needsConfirmation){const x=r.risk;const detail=[x.dirty&&T.dirty,x.unpushed&&T.unpushed.replace('{n}',x.unpushed).replace('{s}',x.unpushed===1?'':'s'),x.runningProcesses&&T.runningProc].filter(Boolean).join('\\n');const r2=await window.kakapoHub.confirm({title:T.anywayTitle,message:T.hasWork,detail,buttons:[T.cancel,T.anyway],danger:true,defaultId:0});if(r2.index===1)r=await window.kakapoHub.remove(id,'delete',true,delBranch);}if(!r.ok&&!r.needsConfirmation)await window.kakapoHub.confirm({title:T.failedTitle,message:r.error||T.failedMsg,buttons:[T.ok]});}
 document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.wt');if(card){e.preventDefault();if(card.dataset.closed==='true')return;if(card.dataset.disconnected==='true'){window.kakapoHub.openModal('disconnected',{path:decodeURIComponent(card.dataset.path)});return}window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1',kind:card.dataset.kind||''});}});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.altKey&&/^[1-9]$/.test(e.key)){e.preventDefault();window.kakapoHub.activateIndex(Number(e.key)-1)}});
 document.addEventListener('click',e=>{if(!railExp&&!e.target.closest('button,input,textarea,dialog,#wsname'))window.kakapoHub.refocusReview()});
@@ -260,9 +278,16 @@ window.kakapoHub.requestState();
 // dim, the live review content shows through dimmed rather than blanking — no snapshot/capturePage needed.
 // The rail (hubHtml) asks main to show this via openModal(); main tells this page which dialog to open via
 // onModalOpen(); closing any dialog asks main to hide the overlay again via closeModal().
-export function modalOverlayHtml(light: boolean): string {
+export function modalOverlayHtml(light: boolean, t: Translate): string {
   const fg = light ? "#242424" : "#ddd", line = light ? "#d0d0d0" : "#454545";
   const dim = "rgba(0,0,0,.45)";
+  // Strings the overlay's client script sets at runtime (reset labels, the create-flow button states, the
+  // rename/memo prompt titles). Static dialog chrome below is localized inline with ${t(...)}.
+  const T = {
+    selectProject: t("newws.selectProject"), browse: t("newws.browse"), chooseFirst: t("newws.chooseFirst"),
+    creating: t("newws.creating"), create: t("newws.create"), createFailed: t("newws.createFailed"),
+    renameTitle: t("newws.renameTitle"), memoTitle: t("newws.memoTitle"),
+  };
   return `<!doctype html><meta charset="utf-8"><style>
 *{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:transparent;color:${fg};font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 button{border:1px solid ${line};background:transparent;color:inherit;border-radius:6px;padding:4px 8px}
@@ -287,7 +312,7 @@ dialog#create::backdrop{background:${dim}}
 #create .pmenu{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:20;background:${light ? "#fff" : "#2c2d31"};border:1px solid ${line};border-radius:10px;box-shadow:0 16px 40px #0007;padding:5px;max-height:232px;overflow-y:auto}
 #create .pmenu.hidden{display:none}
 #create .pmenu button{width:100%;display:flex;align-items:center;gap:9px;padding:8px 9px;border:0;border-radius:7px;background:transparent;color:inherit;text-align:left;font-size:13px}
-#create .pmenu button:hover,#create .pmenu button.on{background:${light ? "#eef1f6" : "#33383f"}}
+#create .pmenu button:hover,#create .pmenu button:focus{background:${light ? "#eef1f6" : "#33383f"};outline:none}
 #create .pmenu .pm-ic{flex:none;color:${light ? "#9aa0ab" : "#8a8f99"};display:grid;place-items:center}
 #create .pmenu .pm-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #create .pmenu .pm-path{flex:none;max-width:44%;color:${light ? "#9aa0ab" : "#71767f"};font-size:10.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:right}
@@ -346,14 +371,15 @@ dialog#confirm::backdrop{background:${dim}}
 #confirm .cf-btn.danger{background:#d9463e;color:#fff;border-color:transparent}
 #confirm .cf-btn.pri:hover,#confirm .cf-btn.danger:hover{filter:brightness(1.07)}
 #confirm .cf-btn:focus-visible{outline:none;box-shadow:0 0 0 3px #4d86d955}</style>
-<dialog id="create"><div class="dh"><b>New workspace</b><button class="dx" id="dlgClose" aria-label="Close">✕</button></div><div class="db"><label>Project</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">Select a project…</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label>Task name</label><input id="label" class="tin" placeholder="e.g. fix-login-crash" autocomplete="off" spellcheck="false"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">Cancel</button><button id="doCreate" class="dbtn pri"><span class="dcl">Fetch &amp; create</span><kbd>⌘↵</kbd></button></div></div></dialog>
-<dialog id="prompt"><div class="dh"><b id="promptTitle"></b></div><div class="db"><input id="promptInput" class="tin" autocomplete="off" spellcheck="false"><div class="actions"><button id="promptCancel" class="dbtn">Cancel</button><button id="promptOk" class="dbtn pri">OK</button></div></div></dialog>
-<dialog id="disc"><div class="disc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div><div class="disc-msg">This workspace's folder is no longer on disk.</div><div id="discPath" class="disc-path"></div><div class="disc-actions"><button id="discReconnect" class="disc-btn pri">Reconnect…</button><button id="discRemove" class="disc-btn">Remove from List</button><button id="discCancel" class="disc-btn">Cancel</button></div></dialog>
+<dialog id="create"><div class="dh"><b>${t("newws.title")}</b><button class="dx" id="dlgClose" aria-label="${t("newws.close")}">✕</button></div><div class="db"><label>${t("newws.project")}</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">${t("newws.selectProject")}</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label>${t("newws.taskName")}</label><input id="label" class="tin" placeholder="${t("newws.taskPlaceholder")}" autocomplete="off" spellcheck="false"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">${t("newws.cancel")}</button><button id="doCreate" class="dbtn pri"><span class="dcl">${t("newws.create")}</span><kbd>⌘↵</kbd></button></div></div></dialog>
+<dialog id="prompt"><div class="dh"><b id="promptTitle"></b></div><div class="db"><input id="promptInput" class="tin" autocomplete="off" spellcheck="false"><div class="actions"><button id="promptCancel" class="dbtn">${t("newws.cancel")}</button><button id="promptOk" class="dbtn pri">${t("newws.ok")}</button></div></div></dialog>
+<dialog id="disc"><div class="disc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div><div class="disc-msg">${t("disc.message")}</div><div id="discPath" class="disc-path"></div><div class="disc-actions"><button id="discReconnect" class="disc-btn pri">${t("disc.reconnect")}</button><button id="discRemove" class="disc-btn">${t("disc.remove")}</button><button id="discCancel" class="disc-btn">${t("disc.cancel")}</button></div></dialog>
 <dialog id="confirm"><div class="cf-ic hidden" id="cfIcon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div><div class="cf-title" id="cfTitle"></div><div class="cf-msg" id="cfMsg"></div><div class="cf-detail hidden" id="cfDetail"></div><label class="cf-check hidden" id="cfCheckWrap"><input type="checkbox" id="cfCheck"><span id="cfCheckLabel"></span></label><div class="cf-actions" id="cfActions"></div></dialog><script>
+const T=${JSON.stringify(T)};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const dlg=document.querySelector("#create");let creating=false;
 // Each open starts clean (the overlay page persists across opens, so stale repo/label would otherwise linger).
-function openCreate(){document.querySelector("#repo").value='';const n=document.querySelector("#repoName");n.textContent='Select a project…';n.classList.add('ph');document.querySelector("#label").value='';document.querySelector("#preview").innerHTML='';document.querySelector("#createError").textContent='';loadProjects();closeProjectMenu();dlg.showModal();setTimeout(()=>document.querySelector("#choose").focus(),0);}
+function openCreate(){document.querySelector("#repo").value='';const n=document.querySelector("#repoName");n.textContent=T.selectProject;n.classList.add('ph');document.querySelector("#label").value='';document.querySelector("#preview").innerHTML='';document.querySelector("#createError").textContent='';loadProjects();closeProjectMenu();dlg.showModal();setTimeout(()=>document.querySelector("#choose").focus(),0);}
 // Any close of the create dialog (cancel / ✕ / Esc / success) tells main to hide the overlay.
 dlg.addEventListener('close',()=>window.kakapoHub.closeModal());
 document.querySelector("#cancelCreate").onclick=()=>{if(creating)window.kakapoHub.cancelCreate();else dlg.close()};
@@ -363,15 +389,23 @@ function closeProjectMenu(){projectMenu.classList.add('hidden');chooseBtn.setAtt
 function pickProject(path,name){document.querySelector("#repo").value=path;const n=document.querySelector("#repoName");n.textContent=name||(path.split('/').filter(Boolean).pop()||path);n.classList.remove('ph');closeProjectMenu();preview();document.querySelector("#label").focus();}
 async function browseForRepo(){closeProjectMenu();const r=await window.kakapoHub.chooseRepo();if(r.ok)pickProject(r.repo);}
 const _pmFolder='<span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span>';
-async function loadProjects(){let ps=[];try{ps=await window.kakapoHub.listProjects();}catch(e){}if(!Array.isArray(ps))ps=[];let html='';for(const p of ps)html+='<button type="button" role="option" data-path="'+esc(p.path)+'" data-name="'+esc(p.name)+'">'+_pmFolder+'<span class="pm-name">'+esc(p.name)+'</span><span class="pm-path">'+esc(p.path)+'</span></button>';if(ps.length)html+='<div class="pm-sep"></div>';html+='<button type="button" id="pmBrowse" class="pm-browse"><span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span><span class="pm-name">Browse for a folder…</span></button>';projectMenu.innerHTML=html;}
+async function loadProjects(){let ps=[];try{ps=await window.kakapoHub.listProjects();}catch(e){}if(!Array.isArray(ps))ps=[];let html='';for(const p of ps)html+='<button type="button" role="option" data-path="'+esc(p.path)+'" data-name="'+esc(p.name)+'">'+_pmFolder+'<span class="pm-name">'+esc(p.name)+'</span><span class="pm-path">'+esc(p.path)+'</span></button>';if(ps.length)html+='<div class="pm-sep"></div>';html+='<button type="button" id="pmBrowse" class="pm-browse"><span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span><span class="pm-name">'+esc(T.browse)+'</span></button>';projectMenu.innerHTML=html;}
 projectMenu.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='pmBrowse'){browseForRepo();return;}if(b.dataset.path)pickProject(b.dataset.path,b.dataset.name);});
-chooseBtn.onclick=()=>{const willOpen=projectMenu.classList.contains('hidden');projectMenu.classList.toggle('hidden',!willOpen);chooseBtn.setAttribute('aria-expanded',String(willOpen));};
+function openProjectMenu(){projectMenu.classList.remove('hidden');chooseBtn.setAttribute('aria-expanded','true');}
+chooseBtn.onclick=()=>{if(projectMenu.classList.contains('hidden'))openProjectMenu();else closeProjectMenu();};
 dlg.addEventListener('mousedown',e=>{if(!e.target.closest('.field-wrap'))closeProjectMenu();});
+// Keyboard on the project picker: ↑/↓ walk the options (opening the menu first when it's closed), Enter is the
+// button's own default, Esc closes just the menu instead of the whole dialog. Focus IS the selection — the menu
+// buttons highlight on :focus, so no separate index to keep in sync.
+function moveProject(dir){const bs=[...projectMenu.querySelectorAll('button')];if(!bs.length)return;const i=bs.indexOf(document.activeElement);bs[i<0?(dir>0?0:bs.length-1):(i+dir+bs.length)%bs.length].focus();}
+function projectKeys(e){if(e.key!=='ArrowDown'&&e.key!=='ArrowUp')return;e.preventDefault();if(projectMenu.classList.contains('hidden'))openProjectMenu();moveProject(e.key==='ArrowDown'?1:-1);}
+chooseBtn.addEventListener('keydown',projectKeys);projectMenu.addEventListener('keydown',projectKeys);
+dlg.addEventListener('cancel',e=>{if(!projectMenu.classList.contains('hidden')){e.preventDefault();closeProjectMenu();chooseBtn.focus();}});
 document.querySelector("#label").oninput=preview;
 document.querySelector("#dlgClose").onclick=()=>{if(!creating)dlg.close()};
 dlg.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();document.querySelector("#doCreate").click();}});
-document.querySelector("#doCreate").onclick=async()=>{const btn=document.querySelector("#doCreate"),lbl=btn.querySelector('.dcl'),err=document.querySelector("#createError");if(creating)return;if(!document.querySelector("#repo").value){err.textContent="Choose a repository first.";return;}creating=true;btn.disabled=true;lbl.textContent="Fetching base…";err.textContent="";
-const r=await window.kakapoHub.create(document.querySelector("#repo").value,document.querySelector("#label").value);creating=false;btn.disabled=false;lbl.textContent="Fetch & create";if(r.ok)dlg.close();else err.textContent=r.error||"Could not create workspace"};
+document.querySelector("#doCreate").onclick=async()=>{const btn=document.querySelector("#doCreate"),lbl=btn.querySelector('.dcl'),err=document.querySelector("#createError");if(creating)return;if(!document.querySelector("#repo").value){err.textContent=T.chooseFirst;return;}creating=true;btn.disabled=true;lbl.textContent=T.creating;err.textContent="";
+const r=await window.kakapoHub.create(document.querySelector("#repo").value,document.querySelector("#label").value);creating=false;btn.disabled=false;lbl.textContent=T.create;if(r.ok)dlg.close();else err.textContent=r.error||T.createFailed};
 const promptDlg=document.querySelector("#prompt"),promptInput=document.querySelector("#promptInput"),promptTitle=document.querySelector("#promptTitle");
 function showPrompt(title,initial){return new Promise(resolve=>{promptTitle.textContent=title;promptInput.value=initial||'';const onClose=()=>{promptDlg.removeEventListener('close',onClose);resolve(promptDlg.returnValue==='ok'?promptInput.value:null);};promptDlg.addEventListener('close',onClose);promptDlg.showModal();setTimeout(()=>{promptInput.focus();promptInput.select();},0);});}
 document.querySelector("#promptOk").onclick=()=>promptDlg.close('ok');
@@ -403,8 +437,8 @@ function showConfirm(spec){spec=spec||{};cfSent=false;
 confirmDlg.addEventListener('close',()=>{if(!cfSent){cfSent=true;window.kakapoHub.confirmResult({index:0,checked:false});}});
 // Main tells this overlay which dialog to open. Rename/memo resolve to a value, apply it, then hide the overlay.
 window.kakapoHub.onModalOpen(d=>{d=d||{};
-  if(d.type==='rename'){showPrompt('Rename workspace',d.name||'').then(alias=>{if(alias!==null)window.kakapoHub.rename(d.id,alias);window.kakapoHub.closeModal();});}
-  else if(d.type==='memo'){showPrompt('One-line memo','').then(memo=>{if(memo!==null)window.kakapoHub.rename(d.id,undefined,memo);window.kakapoHub.closeModal();});}
+  if(d.type==='rename'){showPrompt(T.renameTitle,d.name||'').then(alias=>{if(alias!==null)window.kakapoHub.rename(d.id,alias);window.kakapoHub.closeModal();});}
+  else if(d.type==='memo'){showPrompt(T.memoTitle,'').then(memo=>{if(memo!==null)window.kakapoHub.rename(d.id,undefined,memo);window.kakapoHub.closeModal();});}
   else if(d.type==='disconnected'){showDisconnected(d.path);}
   else if(d.type==='confirm'){showConfirm(d);}
   else openCreate();});

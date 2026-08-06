@@ -7,7 +7,14 @@ export type SettingsStateResolver = (event: IpcMainEvent) => { options: { root: 
 // Renderer settings live in AppPreferences (global + per-worktree scoping, outside the Electron composition
 // root); the sandboxed renderer reads/writes them over synchronous IPC. Extracted from app-main so the wiring
 // is a one-line registration, matching the other register*Ipc adapters.
-export function registerSettingsIpc(ipc: IpcMain, preferences: AppPreferences, stateFromEvent: SettingsStateResolver): void {
+export function registerSettingsIpc(
+  ipc: IpcMain,
+  preferences: AppPreferences,
+  stateFromEvent: SettingsStateResolver,
+  // Fired after a setting is persisted, so the composition root can react to global changes (theme/locale) by
+  // re-theming the native chrome and broadcasting to the other windows. Kept optional so tests can omit it.
+  onChange?: (key: string, value: unknown) => void,
+): void {
   ipc.on("kakapo:get-settings", (event) => {
     const state = stateFromEvent(event);
     event.returnValue = state ? preferences.rendererSettings(state.options.root) : preferences.readGlobal();
@@ -16,5 +23,6 @@ export function registerSettingsIpc(ipc: IpcMain, preferences: AppPreferences, s
     if (!msg || typeof msg.key !== "string") return;
     const state = stateFromEvent(event);
     preferences.setRendererSetting(state?.options.root, msg.key, msg.value);
+    onChange?.(msg.key, msg.value);
   });
 }

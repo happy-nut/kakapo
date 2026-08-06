@@ -703,31 +703,36 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
     fill(); flash();
   });
   if (explainTa) explainTa.addEventListener('input', function () { if (typeof saveExplainPrompt === 'function') saveExplainPrompt(explainTa.value); flash(); });
-  // Language: live-switch the whole UI (no reload). Persist, re-apply the static chrome, then re-render
-  // any currently-shown dynamic text (open composer / merged modal / index status) so it follows too.
+  // Language: live-switch the whole UI (no reload). Factored out so the cross-window chrome broadcast (below)
+  // replays the exact same steps when another review window changes the shared locale.
+  function applyLocale(next) {
+    if (next !== 'en' && next !== 'ko') return;
+    if (next === locale) return;
+    locale = next;
+    persistSave(LOCALE_KEY, locale);
+    applyI18n();
+    fill(); // unsaved merge-prompt defaults follow the active locale
+    try { if (typeof refreshComments === 'function') refreshComments(); } catch (e) {}
+    // Reopening runs mountDock's own closeMergedMemoDocks() first, so the outgoing panel still gets its
+    // __kakapoBeforeClose flush instead of being yanked out from under the editor.
+    if (document.getElementById('mc-merged-panel')) openMergedView();
+  }
+  // Theme is a preference ('system'|'light'|'dark'); applyTheme() resolves it to the light/dark data-theme.
+  function applyThemePref(next) {
+    if (next !== 'system' && next !== 'light' && next !== 'dark') return;
+    if (next === theme) return;
+    theme = next;
+    persistSave(THEME_KEY, theme);
+    applyTheme();
+  }
   langSelectRef = setupCustomSelect('settings-language',
     function () { return [{ value: 'en', label: 'English' }, { value: 'ko', label: '한국어' }]; },
     function () { return locale; },
-    function (next) {
-      if (next === locale) return;
-      locale = next;
-      persistSave(LOCALE_KEY, locale);
-      applyI18n();
-      fill(); // unsaved merge-prompt defaults follow the active locale
-      try { if (typeof refreshComments === 'function') refreshComments(); } catch (e) {}
-      // Reopening runs mountDock's own closeMergedMemoDocks() first, so the outgoing panel still gets its
-      // __kakapoBeforeClose flush instead of being yanked out from under the editor.
-      if (document.getElementById('mc-merged-panel')) openMergedView();
-    });
+    function (next) { applyLocale(next); });
   themeSelectRef = setupCustomSelect('settings-theme',
-    function () { return [{ value: 'dark', label: t('theme.dark') }, { value: 'light', label: t('theme.light') }]; },
+    function () { return [{ value: 'system', label: t('theme.system') }, { value: 'light', label: t('theme.light') }, { value: 'dark', label: t('theme.dark') }]; },
     function () { return theme; },
-    function (next) {
-      if (next === theme) return;
-      theme = next;
-      persistSave(THEME_KEY, theme);
-      applyTheme();
-    });
+    function (next) { applyThemePref(next); });
   syntaxThemeSelectRef = setupCustomSelect('settings-syntax-theme',
     function () { return [{ value: 'default', label: t('syntaxTheme.default') }, { value: 'darcula', label: t('syntaxTheme.darcula') }]; },
     function () { return syntaxTheme; },
@@ -744,4 +749,15 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
     bellCb.checked = persistRead('kakapo-terminal-bell-notify') !== false;
     bellCb.addEventListener('change', function () { persistSave('kakapo-terminal-bell-notify', bellCb.checked); });
   }
+  // Cross-window sync: theme + locale are GLOBAL settings. When another review window (or the OS, relayed by the
+  // main process) changes one, main broadcasts it here so every open review follows live — no reload, no drift.
+  try {
+    if (window.kakapoChrome && typeof window.kakapoChrome.onChange === 'function') {
+      window.kakapoChrome.onChange(function (payload) {
+        if (!payload) return;
+        if (payload.theme) applyThemePref(payload.theme);
+        if (payload.locale) applyLocale(payload.locale);
+      });
+    }
+  } catch (e) {}
 })();

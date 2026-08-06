@@ -2,10 +2,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell, WebContentsView } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, protocol, shell, WebContentsView } from "electron";
 import type { WebContents } from "electron";
 import { git, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
+import { makeTranslator, normalizeLocale, type Locale } from "./i18n.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
 import { ProjectAnalysis } from "./analysis.js";
 import { ReviewPerformanceTrace } from "./perf.js";
@@ -159,14 +160,36 @@ function loadingHtml(light: boolean): string {
   @media(prefers-reduced-motion:reduce){.kakapo-mark{animation:kakapo-breathe 1.6s ease-in-out infinite}@keyframes kakapo-breathe{50%{opacity:.65}}}
 </style></head><body><span class="kakapo-loader" role="status" aria-label="Kakapo is loading">${mark}<span class="sr-only">Kakapo is loading</span></span></body></html>`;
 }
-// The persisted theme (set by the renderer via kakapoSettings). Read at startup so the native window
-// chrome + loading screen match before the renderer boots. Defaults to dark.
-function isLightTheme(): boolean {
+// The persisted theme PREFERENCE (set by the renderer via kakapoSettings): 'system' follows the OS, 'light'/'dark'
+// pin it. Defaults to 'system'. Mirrored into nativeTheme.themeSource (see syncNativeThemeSource) so the native
+// window chrome (traffic lights, menus) and prefers-color-scheme both track the choice.
+type ThemePreference = "system" | "light" | "dark";
+function themePreference(): ThemePreference {
   try {
-    return preferences.readGlobal()["kakapo-theme"] === "light";
+    const value = preferences.readGlobal()["kakapo-theme"];
+    // Default dark (as before System existed), so users who never set a theme keep the UI they had.
+    return value === "light" || value === "dark" || value === "system" ? value : "dark";
   } catch {
-    return false;
+    return "dark";
   }
+}
+// The resolved light/dark used by the loading screen, window backgrounds, hub, and welcome page. 'system' resolves
+// against nativeTheme.shouldUseDarkColors, which itself tracks themeSource + the OS.
+function isLightTheme(): boolean {
+  const preference = themePreference();
+  if (preference === "system") return !nativeTheme.shouldUseDarkColors;
+  return preference === "light";
+}
+function syncNativeThemeSource(): void {
+  try { nativeTheme.themeSource = themePreference(); } catch { /* best-effort */ }
+}
+// The active UI locale + a translator bound to it, for the native menu, native dialogs, the workspace rail, and
+// the welcome screen — every user-visible string the main process renders itself rather than the viewer's data-i18n.
+function currentLocale(): Locale {
+  try { return normalizeLocale(preferences.readGlobal()["kakapo-locale"]); } catch { return "en"; }
+}
+function tr(): (key: string, vars?: Record<string, string | number>) => string {
+  return makeTranslator(currentLocale());
 }
 
 app.setName(APP_NAME);
@@ -274,8 +297,11 @@ registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerTerminalIpc(ipcMain, stateFromEvent);
 registerAnswersIpc(ipcMain, stateFromEvent);
 registerExplainIpc(ipcMain, stateFromEvent);
-registerTileMenuIpc(ipcMain, { getShellWindow: () => shellWindow, isLightTheme });
-registerSettingsIpc(ipcMain, preferences, stateFromEvent);
+registerTileMenuIpc(ipcMain, { getShellWindow: () => shellWindow, isLightTheme, getTranslate: tr });
+// Theme + locale are global settings; re-theme the native chrome and broadcast to every window when either changes.
+registerSettingsIpc(ipcMain, preferences, stateFromEvent, (key) => {
+  if (key === "kakapo-theme" || key === "kakapo-locale") refreshChrome();
+});
 registerMemoIpc(ipcMain, { read: readMemoWithLegacyImport, write: (root, body) => memoStore().write(root, body), remove: (root) => memoStore().remove(root) }, stateFromEvent);
 ipcMain.on("kakapo:hub-ready", renderHub);
 // Title-bar review tools live in the shell page but act on the active review view. Relay the click to that
@@ -795,6 +821,12 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // Drop recent-project entries whose folder is gone, so deleted worktrees stop cluttering the settings + rail.
   preferences.pruneRecentProjects();
 
+  // Mirror the saved theme preference into nativeTheme so the OS chrome (traffic lights, menus) and every
+  // renderer's prefers-color-scheme track it from the first paint. When "system" is active and the OS theme
+  // flips, re-theme all the chrome live.
+  syncNativeThemeSource();
+  nativeTheme.on("updated", () => { if (themePreference() === "system") refreshChrome(); });
+
   buildApplicationMenu();
 
   const appIcon = nativeImage.createFromPath(iconPath);
@@ -834,14 +866,16 @@ app.on("before-quit", (event) => {
   const running = Array.from(states.values()).filter((state) => state.terms.size > 0).length;
   if (!running) { quitConfirmed = true; return; }
   event.preventDefault();
-  const message = `${running} workspace${running === 1 ? "" : "s"} still has a running terminal or agent.`;
-  const detail = "Quitting stops these processes. Resume metadata will be kept when the agent can be identified.";
-  const buttons = ["Keep Kakapo Open", "Quit and Stop Agents"];
+  const t = tr();
+  const message = t("dialog.agentsRunning.message", { n: running, s: running === 1 ? "" : "s" });
+  const detail = t("dialog.agentsRunning.detail");
+  const title = t("dialog.agentsRunning.title");
+  const buttons = [t("dialog.agentsRunning.keepOpen"), t("dialog.agentsRunning.quit")];
   const quitIfChosen = (choice: number): void => { if (choice === 1) { quitConfirmed = true; app.quit(); } };
   // Custom overlay dialog, with the native box as a fallback so quit is never blocked if the overlay can't show.
-  void showOverlayConfirm({ title: "Agents are still running", message, detail, buttons, danger: true, defaultId: 0 }).then((r) => {
+  void showOverlayConfirm({ title, message, detail, buttons, danger: true, defaultId: 0 }).then((r) => {
     if (r.presented) { quitIfChosen(r.index); return; }
-    const opts: Electron.MessageBoxSyncOptions = { type: "warning", title: "Agents are still running", message, detail, buttons, defaultId: 0, cancelId: 0 };
+    const opts: Electron.MessageBoxSyncOptions = { type: "warning", title, message, detail, buttons, defaultId: 0, cancelId: 0 };
     quitIfChosen(shellWindow ? dialog.showMessageBoxSync(shellWindow, opts) : dialog.showMessageBoxSync(opts));
   });
 });
@@ -859,23 +893,24 @@ app.on("browser-window-focus", (_event, win) => {
 // Build the application menu once. Items act on the focused window (BrowserWindow.getFocusedWindow()),
 // so a single global menu drives whichever window is in front.
 function buildApplicationMenu(): void {
+  const t = tr();
   const menuTemplate: Electron.MenuItemConstructorOptions[] = [];
   if (process.platform === "darwin") menuTemplate.push({ role: "appMenu" });
   // File menu: open a repo in the current window, or spawn a new window for it.
   menuTemplate.push({
-    label: "File",
+    label: t("menu.file"),
     submenu: [
-      { label: "Open Folder…", accelerator: "CommandOrControl+O", click: () => void openFolderInCurrent() },
-      { label: "Open in New Window…", accelerator: "CommandOrControl+Shift+O", click: () => void openFolderInNewWindow() },
+      { label: t("menu.openFolder"), accelerator: "CommandOrControl+O", click: () => void openFolderInCurrent() },
+      { label: t("menu.openNewWindow"), accelerator: "CommandOrControl+Shift+O", click: () => void openFolderInNewWindow() },
     ],
   });
   // Keep the standard Edit/Window roles so Cmd+C/V/X/A (copy comments into prompts) and Cmd+Q work.
   // The in-window menu bar stays hidden on Windows/Linux via autoHideMenuBar; macOS shows it in the top bar.
   menuTemplate.push({ role: "editMenu" });
   menuTemplate.push({
-    label: "Workspace",
+    label: t("menu.workspace"),
     submenu: [
-      { label: "Switch Workspace", accelerator: "CommandOrControl+K", click: () => {
+      { label: t("menu.switchWorkspace"), accelerator: "CommandOrControl+K", click: () => {
         // Open the floating quick-switcher inside the active review view (it renders over the diff, so the
         // review stays visible behind it). Focus the view first so its input receives keystrokes.
         const active = activeStateId != null ? states.get(activeStateId) : undefined;
@@ -884,15 +919,15 @@ function buildApplicationMenu(): void {
           active.win.webContents.send("kakapo:open-quick-switcher");
         }
       } },
-      { label: "New Workspace", accelerator: "CommandOrControl+N", click: () => {
+      { label: t("menu.newWorkspace"), accelerator: "CommandOrControl+N", click: () => {
         shellWindow?.webContents.send("kakapo:hub-new");
       } },
-      { label: "Expand Workspace Rail", accelerator: "CommandOrControl+Shift+E", click: () => {
+      { label: t("menu.expandRail"), accelerator: "CommandOrControl+Shift+E", click: () => {
         shellWindow?.webContents.send("kakapo:hub-toggle-expand");
       } },
       { type: "separator" },
       ...Array.from({ length: 9 }, (_, index): Electron.MenuItemConstructorOptions => ({
-        label: `Workspace ${index + 1}`, accelerator: `CommandOrControl+Alt+${index + 1}`, visible: false,
+        label: `${t("menu.workspaceNumbered")} ${index + 1}`, accelerator: `CommandOrControl+Alt+${index + 1}`, visible: false,
         click: () => { const state = Array.from(states.values())[index]; if (state) activateWorkspace(state.win.webContents.id); },
       })),
     ],
@@ -900,18 +935,18 @@ function buildApplicationMenu(): void {
   // Ctrl+Cmd+Shift+/ ("?") opens the merged review-comments view (questions, then change requests).
   // ? is Shift+/ so Shift is part of the combo; Ctrl+Cmd avoids macOS's Cmd+? Help grab.
   menuTemplate.push({
-    label: "Review",
+    label: t("menu.review"),
     submenu: [
-      { label: "All review comments", accelerator: "Control+Command+Shift+/", click: () => sendToFocused("kakapo:merged-view") },
+      { label: t("menu.allReviewComments"), accelerator: "Control+Command+Shift+/", click: () => sendToFocused("kakapo:merged-view") },
       // Cmd/Ctrl+Shift+N opens (and toggles) the single freeform prompt memo — a Markdown scratchpad.
-      { label: "Markdown memo", accelerator: "CommandOrControl+Shift+N", click: () => sendToFocused("kakapo:open-memo") },
+      { label: t("menu.markdownMemo"), accelerator: "CommandOrControl+Shift+N", click: () => sendToFocused("kakapo:open-memo") },
       { type: "separator" },
       // Whitespace-ignore re-runs git diff with --ignore-all-space and reloads (main-process action,
       // so a menu checkbox is simpler than a renderer IPC round-trip). Per-window: applies to the focused
       // window only, and browser-window-focus syncs this checkbox to the focused window's state.
       {
         id: "ignore-whitespace",
-        label: "Ignore whitespace",
+        label: t("menu.ignoreWhitespace"),
         type: "checkbox",
         checked: options.ignoreWhitespace,
         accelerator: "CommandOrControl+Shift+W",
@@ -930,27 +965,27 @@ function buildApplicationMenu(): void {
   // Terminal toggle/split/pane shortcuts as menu accelerators: Chromium swallows Cmd+D / Ctrl+` before they
   // reach the renderer's keydown, so route them through the app menu to the focused window's terminal client.
   menuTemplate.push({
-    label: "Terminal",
+    label: t("menu.terminal"),
     submenu: [
-      { label: "Toggle Terminal", accelerator: "Control+`", click: () => sendToFocused("kakapo:terminal-toggle") },
-      { label: "Toggle Terminal (F12)", accelerator: "Alt+F12", click: () => sendToFocused("kakapo:terminal-toggle") },
-      { label: "Split Terminal", accelerator: "CommandOrControl+D", click: () => sendToFocused("kakapo:terminal-split") },
+      { label: t("menu.toggleTerminal"), accelerator: "Control+`", click: () => sendToFocused("kakapo:terminal-toggle") },
+      { label: t("menu.toggleTerminalF12"), accelerator: "Alt+F12", click: () => sendToFocused("kakapo:terminal-toggle") },
+      { label: t("menu.splitTerminal"), accelerator: "CommandOrControl+D", click: () => sendToFocused("kakapo:terminal-split") },
       { type: "separator" },
-      { label: "Focus Previous Pane", accelerator: "CommandOrControl+Alt+Left", click: () => sendToFocused("kakapo:terminal-pane-focus", -1) },
-      { label: "Focus Next Pane", accelerator: "CommandOrControl+Alt+Right", click: () => sendToFocused("kakapo:terminal-pane-focus", 1) },
-      { label: "Rename Pane", accelerator: "CommandOrControl+Alt+R", click: () => sendToFocused("kakapo:terminal-pane-rename") },
+      { label: t("menu.focusPrevPane"), accelerator: "CommandOrControl+Alt+Left", click: () => sendToFocused("kakapo:terminal-pane-focus", -1) },
+      { label: t("menu.focusNextPane"), accelerator: "CommandOrControl+Alt+Right", click: () => sendToFocused("kakapo:terminal-pane-focus", 1) },
+      { label: t("menu.renamePane"), accelerator: "CommandOrControl+Alt+R", click: () => sendToFocused("kakapo:terminal-pane-rename") },
     ],
   });
   // Cmd/Ctrl+W closes the active Files-mode tab (routed to the renderer) instead of the window, matching
   // editor/browser tab behavior. Closing the window stays available via the menu item and Cmd/Ctrl+Q.
   menuTemplate.push({
-    label: "Window",
+    label: t("menu.window"),
     submenu: [
       { role: "minimize" },
       { role: "zoom" },
       { type: "separator" },
-      { label: "Close Tab", accelerator: "CommandOrControl+W", click: () => sendToFocused("kakapo:close-tab") },
-      { label: "Close Window", click: () => BrowserWindow.getFocusedWindow()?.close() },
+      { label: t("menu.closeTab"), accelerator: "CommandOrControl+W", click: () => sendToFocused("kakapo:close-tab") },
+      { label: t("menu.closeWindow"), click: () => BrowserWindow.getFocusedWindow()?.close() },
     ],
   });
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
@@ -983,7 +1018,7 @@ function ensureShellWindow(light: boolean): BrowserWindow {
     shellWindow = undefined;
     modalView = undefined; modalViewReady = false; pendingModalOpen = null; modalOpen = false;
   });
-  void shellWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(hubHtml(light, APP_VERSION)));
+  void shellWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(hubHtml(light, APP_VERSION, tr())));
   shellWindow.webContents.on("did-finish-load", renderHub);
   shellWindow.once("ready-to-show", () => shellWindow?.show());
   ensureModalView(light); // preload the (hidden) modal overlay so the first New/rename open has no load delay
@@ -1021,7 +1056,7 @@ function ensureModalView(light: boolean): WebContentsView | undefined {
     modalViewReady = true;
     if (pendingModalOpen != null) { view.webContents.send("kakapo:modal-open", pendingModalOpen); pendingModalOpen = null; }
   });
-  void view.webContents.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(modalOverlayHtml(light)));
+  void view.webContents.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(modalOverlayHtml(light, tr())));
   layoutModalView();
   return view;
 }
@@ -1259,6 +1294,41 @@ function renderHub(): void {
       // hub-open state that hides it. The rail's own visibility is owned entirely by the shell page.
       open: false,
     });
+  }
+}
+
+// Re-apply the current theme + locale everywhere after either changes (a settings pick in one window, or the OS
+// theme switching while "system" is active). The review views re-theme/re-localize live from the kakapo:chrome
+// broadcast; the shell chrome pages (hub, modal overlay, tile menu) bake their theme/locale at build time, so they
+// are regenerated instead. The hub reload is safe: review views are separate WebContentsViews layered on top, so
+// only the rail document reloads, and it re-requests its state on load.
+function refreshChrome(): void {
+  // Reloading the hub resets its client-side rail state to collapsed; collapse main's matching state + view layout
+  // first so the review views aren't left pushed-right against a now-collapsed rail. No-op if already collapsed.
+  collapseRailFromReview();
+  syncNativeThemeSource();
+  const light = isLightTheme();
+  const t = tr();
+  const payload = { theme: themePreference(), resolved: light ? "light" : "dark", locale: currentLocale() };
+  // Native menu labels follow the locale.
+  buildApplicationMenu();
+  // Reload the rail with the new theme/locale; it self-repopulates via requestState() on did-finish-load.
+  if (shellWindow && !shellWindow.isDestroyed()) {
+    shellWindow.setBackgroundColor(light ? "#f5f5f5" : "#202124");
+    void shellWindow.webContents.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(hubHtml(light, APP_VERSION, t)));
+  }
+  // Drop the persisted modal overlay so its next open is rebuilt in the new theme/locale (never mid-dialog: the
+  // settings modal can't be opened while the overlay is up, so modalOpen is false here).
+  if (modalView && !modalOpen) {
+    if (shellWindow && !shellWindow.isDestroyed() && !modalView.webContents.isDestroyed()) {
+      shellWindow.contentView.removeChildView(modalView);
+    }
+    modalView = undefined;
+    modalViewReady = false;
+  }
+  // Live re-theme / re-localize every open review (and any welcome view — harmlessly ignored there).
+  for (const state of states.values()) {
+    if (!state.win.isDestroyed()) state.win.webContents.send("kakapo:chrome", payload);
   }
 }
 
@@ -1697,7 +1767,7 @@ async function showWelcome(state: WinState): Promise<void> {
   const welcomePath = join(app.getPath("userData"), "welcome.html");
   mkdirSync(dirname(welcomePath), { recursive: true });
   const recent = preferences.readRecentProjects().filter((p) => existsSync(p.path)); // hide entries whose folder is gone
-  writeFileSync(welcomePath, renderWelcomeHtml(isLightTheme(), recent));
+  writeFileSync(welcomePath, renderWelcomeHtml(isLightTheme(), recent, tr(), currentLocale()));
   await state.win.loadFile(welcomePath);
 }
 
@@ -1747,7 +1817,7 @@ async function openFolderInNewWindow(): Promise<void> {
 async function pickDirectory(parent: BrowserWindow | undefined, defaultPath?: string): Promise<string | undefined> {
   const dialogOptions: Electron.OpenDialogOptions = {
     properties: ["openDirectory"],
-    title: "Open a Git repository",
+    title: tr()("dialog.openRepo.title"),
     ...(defaultPath ? { defaultPath } : {}),
   };
   const result = parent
@@ -1762,9 +1832,11 @@ async function pickRepo(parent: BrowserWindow | undefined, defaultPath?: string)
   const root = await pickDirectory(parent, defaultPath);
   if (!root) return undefined;
   if (!isGitRepository(root)) {
-    const message = `${root} is not a Git repository.`;
-    const r = await showOverlayConfirm({ title: "Not a Git repository", message, buttons: ["OK"] });
-    if (!r.presented) dialog.showErrorBox("Not a Git repository", message); // fallback if there's no window to host the overlay
+    const t = tr();
+    const title = t("dialog.notGit.title");
+    const message = t("dialog.notGit.message", { path: root });
+    const r = await showOverlayConfirm({ title, message, buttons: [t("dialog.ok")] });
+    if (!r.presented) dialog.showErrorBox(title, message); // fallback if there's no window to host the overlay
     return undefined;
   }
   return resolveWorkspaceRoot(root);

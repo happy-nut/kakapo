@@ -604,17 +604,32 @@ function applyI18n() {
 // :root[data-theme="light"] palette takes over. Dark is the default (matches the inline :root). Applied
 // immediately at script start to minimize a first-paint flash from the dark default to light.
 var THEME_KEY = 'kakapo-theme';
+// The persisted THEME choice is a preference, not the final palette: 'system' follows the OS (in Electron the
+// main process sets nativeTheme.themeSource so prefers-color-scheme flips with the OS), 'light'/'dark' pin it.
+// resolvedTheme() collapses the preference to the light|dark value that actually drives data-theme.
 var theme = (function () {
   var v = persistRead(THEME_KEY);
-  if (v !== 'light' && v !== 'dark') { try { v = localStorage.getItem(THEME_KEY); } catch (e) {} }
-  return (v === 'light' || v === 'dark') ? v : 'dark';
+  if (v !== 'light' && v !== 'dark' && v !== 'system') { try { v = localStorage.getItem(THEME_KEY); } catch (e) {} }
+  // Default to dark (unchanged from before System existed) rather than 'system', so an existing user who never
+  // touched the setting keeps the dark UI they had instead of silently flipping to their OS appearance.
+  return (v === 'light' || v === 'dark' || v === 'system') ? v : 'dark';
 })();
+function systemPrefersDark() {
+  try { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) { return true; }
+}
+function resolvedTheme() { return theme === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : theme; }
 function applyTheme() {
-  document.documentElement.setAttribute('data-theme', theme);
+  document.documentElement.setAttribute('data-theme', resolvedTheme());
   if (themeSelectRef) themeSelectRef.render();
   // Theme families own both app chrome and Review code colors.
 }
 applyTheme();
+// Follow the OS while the preference is 'system'. Electron flips prefers-color-scheme when the app theme source
+// is 'system' and the OS switches; the standalone browser review gets the same live behavior for free.
+try {
+  var _themeMq = window.matchMedia('(prefers-color-scheme: dark)');
+  if (_themeMq && _themeMq.addEventListener) _themeMq.addEventListener('change', function () { if (theme === 'system') applyTheme(); });
+} catch (e) {}
 // The persisted syntax choice is a complete theme family rather than a code-only palette. `theme` selects
 // the family's dark/light member, keeping navigation chrome, diff, raw source, and HTTP coherent.
 var SYNTAX_THEME_KEY = 'kakapo-syntax-theme';

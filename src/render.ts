@@ -2,7 +2,9 @@ import { createRequire } from "node:module";
 import type { DiffFile, ReviewFileState, SourceFile } from "./types.js";
 import { escapeAttr, escapeHtml, jsonForScript } from "./util.js";
 import { diff2HtmlCss, diffClientAsset, diffCss, diffScript, xtermCss, xtermScript } from "./assets.js";
-import { MESSAGES } from "./i18n.js";
+import { MESSAGES, makeTranslator } from "./i18n.js";
+
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import { REVIEW_ISLAND } from "./viewer-contract.js";
 import {
@@ -60,7 +62,12 @@ export function renderNotGitRepoHtml(root: string): string {
 
 // Welcome screen for the packaged .app (double-clicked, no cwd): an "Open Folder" button that asks the main
 // process (window.kakapoApp.openFolder, exposed via preload) to pick a git repo and load its review.
-export function renderWelcomeHtml(light = false, recent: { path: string; name: string }[] = []): string {
+export function renderWelcomeHtml(
+  light = false,
+  recent: { path: string; name: string }[] = [],
+  t: Translate = makeTranslator("en"),
+  locale = "en",
+): string {
   const bg = light ? "#ffffff" : "#2b2b2b";
   const fg = light ? "#1f2328" : "#a9b7c6";
   const brandMark = kakapoIconHtml("brand-mark", "Kakapo");
@@ -76,11 +83,11 @@ export function renderWelcomeHtml(light = false, recent: { path: string; name: s
     )
     .join("");
   const recentsBlock = recent.length
-    ? `<div class="recents" id="recents"><div class="recents-title">Recent projects</div>${recentItems}</div>`
+    ? `<div class="recents" id="recents"><div class="recents-title">${escapeHtml(t("welcome.recentProjects"))}</div>${recentItems}</div>`
     : "";
   return [
     "<!doctype html>",
-    '<html lang="en">',
+    `<html lang="${escapeAttr(locale)}">`,
     "<head>",
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
@@ -113,21 +120,21 @@ export function renderWelcomeHtml(light = false, recent: { path: string; name: s
     "<body>",
     '<div class="card">',
     brandMark,
-    "<h1>Review a Git repository</h1>",
-    "<p>Pick a folder under Git version control to review its changes.</p>",
-    '<button class="open-btn" id="open" type="button">Open Folder…</button>',
+    `<h1>${escapeHtml(t("welcome.heading"))}</h1>`,
+    `<p>${escapeHtml(t("welcome.subtitle"))}</p>`,
+    `<button class="open-btn" id="open" type="button">${escapeHtml(t("welcome.openFolder"))}</button>`,
     '<p class="hint" id="hint"></p>',
     recentsBlock,
     "</div>",
     "<script>",
     "var btn = document.getElementById('open'), hint = document.getElementById('hint');",
     "btn.addEventListener('click', function () {",
-    "  if (!(window.kakapoApp && window.kakapoApp.openFolder)) { hint.textContent = 'Open Folder is unavailable.'; return; }",
+    `  if (!(window.kakapoApp && window.kakapoApp.openFolder)) { hint.textContent = ${jsonForScript(t("welcome.unavailable"))}; return; }`,
     "  btn.disabled = true; hint.textContent = '';",
     "  window.kakapoApp.openFolder().then(function (r) {",
     "    btn.disabled = false;",
     "    if (r && r.ok) return;",
-    "    if (r && r.error === 'not-git') hint.textContent = 'That folder is not a Git repository.';",
+    `    if (r && r.error === 'not-git') hint.textContent = ${jsonForScript(t("welcome.notGit"))};`,
     "  }).catch(function () { btn.disabled = false; });",
     "});",
     // Recent Projects: click a row to reopen that repo in this window. A removed/non-git folder drops out.
@@ -141,7 +148,7 @@ export function renderWelcomeHtml(light = false, recent: { path: string; name: s
     "  window.kakapoApp.openRecent(path).then(function (r) {",
     "    if (r && r.ok) return;",
     "    item.disabled = false;",
-    "    if (r && r.error === 'missing') { item.remove(); hint.textContent = 'That project folder is no longer available.'; }",
+    `    if (r && r.error === 'missing') { item.remove(); hint.textContent = ${jsonForScript(t("welcome.projectMissing"))}; }`,
     "  }).catch(function () { item.disabled = false; });",
     "});",
     "</script>",
@@ -459,22 +466,33 @@ export function renderDiffHtml(input: {
     '<div id="settings-modal" class="settings-modal hidden" role="dialog" aria-modal="true" data-i18n-aria="settings.aria" aria-label="Settings">',
     '<div class="settings-panel">',
     '<button type="button" id="settings-close" class="settings-close" aria-label="Close settings" title="Close (Esc)">×</button>',
-    '<aside class="settings-nav"><div class="settings-nav-title" data-i18n="settings.title">Settings</div><button type="button" class="settings-cat active" data-cat="general" data-i18n="settings.cat.general">General</button><button type="button" class="settings-cat" data-cat="prompts" data-i18n="settings.cat.prompts">Prompts</button></aside>',
+    '<aside class="settings-nav">',
+    `<div class="settings-nav-brand" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}<div class="settings-nav-brand-meta"><span class="settings-nav-brand-name">Kakapo</span><span class="settings-ver">${packageVersion ? "v" + escapeHtml(packageVersion) : ""}</span></div></div>`,
+    '<div class="settings-nav-title" data-i18n="settings.title">Settings</div>',
+    '<button type="button" class="settings-cat active" data-cat="general" data-i18n="settings.cat.general">General</button>',
+    '<button type="button" class="settings-cat" data-cat="prompts" data-i18n="settings.cat.prompts">Prompts</button>',
+    '<button type="button" class="settings-cat" data-cat="shortcuts" data-i18n="settings.cat.shortcuts">Shortcuts</button>',
+    '</aside>',
     '<div class="settings-body">',
     '<section class="settings-section" data-cat="general">',
-    `<div class="settings-h settings-brand" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}<span class="settings-ver">${packageVersion ? "v" + escapeHtml(packageVersion) : ""}</span></div>`,
+    // Update status + one-click self-update (Electron); harmless no-ops in the browser build.
     `<div id="app-info-status" class="app-info-status is-loading"><span class="kakapo-loader kakapo-loader-inline" aria-hidden="true">${brandMark}</span><span data-i18n="settings.checkingUpdates">Checking for updates…</span></div>`,
     '<button type="button" id="app-info-update" class="plain-button app-info-update hidden" data-i18n="settings.updateRestart">Update &amp; Restart</button>',
-    '<label class="settings-label" for="settings-language" data-i18n="settings.language">Language</label>',
-    '<button type="button" id="settings-language" class="settings-select mc-select" data-i18n-aria="settings.language"></button>',
-    '<label class="settings-label" for="settings-theme" data-i18n="settings.theme">Appearance</label>',
-    '<button type="button" id="settings-theme" class="settings-select mc-select" data-i18n-aria="settings.theme"></button>',
-    '<label class="settings-label" for="settings-syntax-theme" data-i18n="settings.syntaxTheme">Theme family</label>',
-    '<button type="button" id="settings-syntax-theme" class="settings-select mc-select" data-i18n-aria="settings.syntaxTheme"></button>',
-    // Integrated-terminal bell → native notification opt-out (Electron only).
+    // Appearance card: language + light/dark/system theme + code theme family, each a label/hint on the left and
+    // the custom themable dropdown on the right (native <select> popups ignore the app theme).
+    '<div class="settings-card">',
+    '<div class="settings-card-title" data-i18n="settings.appearance">Appearance</div>',
+    '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.language">Language</span></div><button type="button" id="settings-language" class="settings-select mc-select" data-i18n-aria="settings.language"></button></div>',
+    '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.theme">Theme</span><span class="settings-row-hint" data-i18n="settings.theme.hint">System follows your OS light / dark setting.</span></div><button type="button" id="settings-theme" class="settings-select mc-select" data-i18n-aria="settings.theme"></button></div>',
+    '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.syntaxTheme">Theme family</span></div><button type="button" id="settings-syntax-theme" class="settings-select mc-select" data-i18n-aria="settings.syntaxTheme"></button></div>',
+    '</div>',
+    // Terminal card (Electron only): integrated-terminal bell → native notification opt-out.
     input.app
-      ? '<label class="settings-check"><input type="checkbox" id="set-bell-notify"><span data-i18n="settings.bellNotify">Notify when a terminal task finishes (bell)</span></label>'
+      ? '<div class="settings-card"><div class="settings-card-title" data-i18n="settings.terminal">Terminal</div><label class="settings-check"><input type="checkbox" id="set-bell-notify"><span data-i18n="settings.bellNotify">Notify when a terminal task finishes (bell)</span></label></div>'
       : "",
+    '</section>',
+    // Keyboard shortcuts moved to their own category so General stays a short, scannable preferences page.
+    '<section class="settings-section hidden" data-cat="shortcuts">',
     '<div class="app-info-keys">' +
     '<div class="app-info-keys-h" data-i18n="settings.kbd.title">Keyboard shortcuts</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.app">App</div>' +

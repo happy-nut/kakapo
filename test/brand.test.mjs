@@ -50,7 +50,7 @@ test("visible product labels and wait states reuse the real Kakapo icon", async 
   ], { app: true });
   assert.match(html, /id="boot-overlay"[^>]*>.*kakapo-loader-boot.*kakapo-mark/s, "review boot uses the animated parrot");
   assert.match(html, /class="app-version"[^>]*aria-label="Kakapo v[^\"]+"[^>]*>.*kakapo-mark/s, "footer wordmark is an icon plus version");
-  assert.match(html, /class="settings-h settings-brand"[^>]*>.*kakapo-mark/s, "settings header reuses the same icon");
+  assert.match(html, /class="settings-nav-brand"[^>]*>.*kakapo-mark/s, "settings nav header reuses the same icon");
   assert.doesNotMatch(html, /class="app-version"[^>]*>\s*kakapo/i, "footer no longer paints the product name as text");
   assert.doesNotMatch(html, /class="settings-h">\s*kakapo/i, "settings no longer paints the product name as text");
 
@@ -59,7 +59,7 @@ test("visible product labels and wait states reuse the real Kakapo icon", async 
   const main = readFileSync(join(root, "dist", "app-main.js"), "utf8");
   assert.match(css, /@keyframes kakapo-peck/, "the parrot has one shared activity animation");
   assert.match(css, /\.app-version \.kakapo-mark\s*\{\s*width:\s*28px;\s*height:\s*28px;/, "the compact footer still shows a legible parrot");
-  assert.match(css, /\.settings-brand \.kakapo-mark\s*\{\s*width:\s*40px;\s*height:\s*40px;/, "panel branding does not collapse to an indistinct glyph");
+  assert.match(css, /\.settings-nav-brand \.kakapo-mark\s*\{\s*width:\s*28px;\s*height:\s*28px;/, "panel branding does not collapse to an indistinct glyph");
   assert.match(css, /\.kakapo-loader-boot \.kakapo-mark\s*\{\s*width:\s*68px;\s*height:\s*68px;/, "the primary loading indicator remains visually prominent");
   assert.match(css, /prefers-reduced-motion:\s*reduce[\s\S]*kakapo-breathe/, "loading remains accessible with reduced motion");
   assert.doesNotMatch(css, /\.boot-spinner|\.mc-spinner|@keyframes boot-spin/, "generic ring spinners are fully retired");
