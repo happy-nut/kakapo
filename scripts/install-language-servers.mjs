@@ -38,7 +38,12 @@ export const SERVER_VERSIONS = Object.freeze({
   clangd: "22.1.6",
   jdtls: "1.60.0-202606262232",
   java: "21.0.11+10",
-  kotlin: "262.8190.0",
+  // JetBrains ships intellij-server as an EAP build with a hard expiry date baked in: once it passes, the
+  // binary refuses to start ("This build of intellij-server has expired", exit 7) and Kotlin navigation
+  // silently degrades to the regex index. Bump this pin (and KOTLIN_ARCHIVES below) whenever
+  // test/language-server-bundles.test.mjs stops resolving Kotlin definitions; releases and their published
+  // .sha256 files live at https://github.com/Kotlin/kotlin-lsp/releases.
+  kotlin: "262.9593.0",
   sorbet: "0.6.13342.20260716135343-aafce23c1",
   php: "8.4.23",
   phpactor: "2026.06.25.0",
@@ -74,10 +79,10 @@ const CLANG_ARCHIVES = Object.freeze({
 });
 
 const KOTLIN_ARCHIVES = Object.freeze({
-  "darwin-x64": ["kotlin-server-262.8190.0.sit", "f3845ae9ee38c22ef5e436390d86a3d908f77073e9667fa643a5ae0957c19728"],
-  "darwin-arm64": ["kotlin-server-262.8190.0-aarch64.sit", "e20183262784bb7e665ce1aea4855872a8b16f211ebb478d452773553732d9fb"],
-  "linux-x64": ["kotlin-server-262.8190.0.tar.gz", "8b4c70e95065420e7867c99aaf9f18e0b4e76311ec453e4c1a39e3f6ae774cbf"],
-  "linux-arm64": ["kotlin-server-262.8190.0-aarch64.tar.gz", "c3edd59ef34a7faa4d04f3517afb7a932b19c3f9cf17d1a14e9da17b0b5440ad"],
+  "darwin-x64": ["kotlin-server-262.9593.0.sit", "17369fda97c85418ac24ab38a9df56b21522a3468dfe193832fe455c13920745"],
+  "darwin-arm64": ["kotlin-server-262.9593.0-aarch64.sit", "6ba6021a706b21e64cef33f7e2b79f187c0910320722bb2d3ed05ad1115ec43f"],
+  "linux-x64": ["kotlin-server-262.9593.0.tar.gz", "2d99d8e198fbe4aa8f4481e37799724ce94803b4ea12a60b416040e3fcd7cc5e"],
+  "linux-arm64": ["kotlin-server-262.9593.0-aarch64.tar.gz", "2317831c6e5607d05b7ebc1da655330125ce0e3d66fbf24517dfce442debc14e"],
 });
 
 const JAVA_ARCHIVES = Object.freeze({
