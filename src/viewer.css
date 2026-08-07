@@ -616,6 +616,12 @@ body.native-app .source-tabs {
 .settings-row-label { font-size: 13px; font-weight: 600; color: var(--text); }
 .settings-row-hint { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
 .settings-card .settings-check { margin: 0; padding: 13px 2px; }
+.settings-card .settings-check + .settings-row-hint { padding: 0 2px 4px 24px; }
+/* Persistent-terminal setup: tmux status + install button, with brew's output streamed underneath so the
+   install stays inside Settings instead of sending you to a terminal pane. */
+.tmux-setup { padding: 4px 2px 12px 24px; }
+.tmux-setup-row { display: flex; align-items: center; gap: 10px; }
+.tmux-setup-log { margin: 8px 0 0; padding: 8px 10px; max-height: 160px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 /* The shortcuts reference is now its own category, so drop the divider/offset it carried as a General sub-block. */
 .settings-section[data-cat="shortcuts"] .app-info-keys { margin-top: 0; border-top: 0; padding-top: 0; }
 .settings-section[data-cat="shortcuts"] .app-info-keys .keys-cat:first-of-type { margin-top: 0; }

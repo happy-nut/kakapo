@@ -68,7 +68,16 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
 // sandboxed renderer can't spawn a pty). Only present in the Electron app; browser/serve mode lacks it,
 // so the renderer keeps the terminal panel hidden when window.kakapoPty is undefined.
 contextBridge.exposeInMainWorld("kakapoPty", {
-  spawn: (size: { cols: number; rows: number }): Promise<{ ok: boolean; id: number }> => ipcRenderer.invoke("kakapo:pty-spawn", size),
+  spawn: (size: { cols: number; rows: number; persist?: boolean }): Promise<{ ok: boolean; id: number }> => ipcRenderer.invoke("kakapo:pty-spawn", size),
+  // Persistent terminals (Settings > Terminal): is tmux available, and can we install it for them?
+  tmuxStatus: (): Promise<{ tmux: boolean; brew: boolean }> => ipcRenderer.invoke("kakapo:tmux-status"),
+  installTmux: (): void => ipcRenderer.send("kakapo:tmux-install"),
+  onTmuxInstallOutput: (cb: (chunk: string) => void): void => {
+    ipcRenderer.on("kakapo:tmux-install-output", (_event, chunk: string) => cb(chunk));
+  },
+  onTmuxInstallDone: (cb: (result: { ok: boolean; reason: string }) => void): void => {
+    ipcRenderer.on("kakapo:tmux-install-done", (_event, result: { ok: boolean; reason: string }) => cb(result));
+  },
   write: (msg: { id: number; data: string }): void => ipcRenderer.send("kakapo:pty-write", msg),
   resize: (msg: { id: number; cols: number; rows: number }): void => ipcRenderer.send("kakapo:pty-resize", msg),
   kill: (msg: { id: number }): void => ipcRenderer.send("kakapo:pty-kill", msg),

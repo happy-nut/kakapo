@@ -749,6 +749,47 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
     bellCb.checked = persistRead('kakapo-terminal-bell-notify') !== false;
     bellCb.addEventListener('change', function () { persistSave('kakapo-terminal-bell-notify', bellCb.checked); });
   }
+  // Persistent terminals ('kakapo-terminal-persist', default off): the pty runs inside tmux so agent sessions
+  // survive quitting kakapo. tmux isn't on macOS, so checking the box reveals its install state — and, with
+  // Homebrew present, installs it right here with brew's output streamed into the log below the button.
+  var persistCb = document.getElementById('set-terminal-persist');
+  var setup = document.getElementById('tmux-setup');
+  var setupStatus = document.getElementById('tmux-setup-status');
+  var installBtn = document.getElementById('tmux-install');
+  var setupLog = document.getElementById('tmux-setup-log');
+  if (persistCb && window.kakapoPty && typeof window.kakapoPty.tmuxStatus === 'function') {
+    persistCb.checked = persistRead('kakapo-terminal-persist') === true;
+    var showSetup = function () {
+      if (!persistCb.checked) { setup.classList.add('hidden'); return; }
+      setup.classList.remove('hidden');
+      window.kakapoPty.tmuxStatus().then(function (s) {
+        var ready = !!(s && s.tmux);
+        setupStatus.textContent = t(ready ? 'settings.tmuxReady' : (s && s.brew) ? 'settings.tmuxMissing' : 'settings.tmuxNoBrew');
+        installBtn.classList.toggle('hidden', ready || !(s && s.brew));
+      });
+    };
+    persistCb.addEventListener('change', function () {
+      persistSave('kakapo-terminal-persist', persistCb.checked);
+      showSetup();
+    });
+    showSetup();
+    installBtn.addEventListener('click', function () {
+      installBtn.disabled = true;
+      setupLog.textContent = '';
+      setupLog.classList.remove('hidden');
+      setupStatus.textContent = t('settings.tmuxInstalling');
+      window.kakapoPty.installTmux();
+    });
+    window.kakapoPty.onTmuxInstallOutput(function (chunk) {
+      setupLog.textContent += chunk;
+      setupLog.scrollTop = setupLog.scrollHeight;
+    });
+    window.kakapoPty.onTmuxInstallDone(function (r) {
+      installBtn.disabled = false;
+      setupStatus.textContent = t(r && r.ok ? 'settings.tmuxReady' : 'settings.tmuxInstallFailed');
+      installBtn.classList.toggle('hidden', !!(r && r.ok));
+    });
+  }
   // Cross-window sync: theme + locale are GLOBAL settings. When another review window (or the OS, relayed by the
   // main process) changes one, main broadcasts it here so every open review follows live — no reload, no drift.
   try {

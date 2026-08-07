@@ -210,3 +210,44 @@ export function ensureUtf8Locale(env: { [key: string]: string }): { [key: string
   env.LANG = base + ".UTF-8";
   return env;
 }
+
+// --- Persistent terminals (opt-in) -------------------------------------------------------------------
+// A pty lives in our main process, so quitting kakapo closes its master and SIGHUPs whatever ran inside —
+// an agent session (claude/codex) dies with the app. Running the shell inside a tmux session moves the
+// process under tmux's own server, which outlives us; a relaunched pane re-attaches to the live session
+// instead of starting over.
+
+// tmux treats "." and ":" in a target name as window/pane separators, and a bare workspace path would also
+// leak into `tmux ls`. Key sessions by a short digest of the root so two workspaces never collide.
+export function tmuxSessionName(root: string, ordinal: number): string {
+  return `kakapo-${createHash("sha1").update(root).digest("hex").slice(0, 8)}-${ordinal}`;
+}
+
+// Ordinals are per-workspace and reused lowest-first: after a restart the first pane you open takes ordinal
+// 1 again and therefore re-attaches to the session the previous pane 1 left running. Panes are not restored
+// automatically — reopening one is what reconnects it.
+// ponytail: no pane-layout restore; add one (list live sessions on window load) if reconnecting by hand chafes.
+export function nextTerminalOrdinal(used: Iterable<number>): number {
+  const taken = new Set(used);
+  let ordinal = 1;
+  while (taken.has(ordinal)) ordinal += 1;
+  return ordinal;
+}
+
+// Args for "attach to this workspace's session N, creating it if it doesn't exist yet".
+//   -A          attach when the session already exists instead of failing
+//   -c          the session's working directory; without it a session created on an already-running tmux
+//               server inherits THAT server's cwd, not this workspace's root
+//   -e          per-session env; a session attached to a pre-existing server would otherwise see the env of
+//               whichever kakapo window happened to start the server first
+//   set …       status bar off (the pane should look like a plain shell) and truecolor passed through, so
+//               Claude Code's coral logo keeps its exact hue instead of degrading to 256-color
+export function tmuxSpawnArgs(session: string, cwd: string, env: { [key: string]: string } = {}): string[] {
+  const args = ["new-session", "-A", "-s", session, "-c", cwd];
+  for (const [key, value] of Object.entries(env)) args.push("-e", `${key}=${value}`);
+  return args.concat([
+    ";", "set", "-g", "status", "off",
+    ";", "set", "-g", "default-terminal", "tmux-256color",
+    ";", "set", "-ga", "terminal-overrides", ",*256col*:Tc",
+  ]);
+}

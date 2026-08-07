@@ -169,7 +169,13 @@
     labelEl.addEventListener('dblclick', function () { renamePane(pane); });
     panes.push(pane);
     try { fit.fit(); } catch (e) {}
-    window.kakapoPty.spawn({ cols: term.cols || 80, rows: term.rows || 24 }).then(function (r) { pane.id = r && r.id; });
+    // persist: run this shell inside a tmux session so it outlives the app (Settings > Terminal, default off).
+    // Read per spawn, not once at load, so toggling the setting applies to the next pane you open.
+    window.kakapoPty.spawn({
+      cols: term.cols || 80,
+      rows: term.rows || 24,
+      persist: persistRead('kakapo-terminal-persist') === true,
+    }).then(function (r) { pane.id = r && r.id; });
     setActive(pane);
     return pane;
   }

@@ -488,7 +488,17 @@ export function renderDiffHtml(input: {
     '</div>',
     // Terminal card (Electron only): integrated-terminal bell → native notification opt-out.
     input.app
-      ? '<div class="settings-card"><div class="settings-card-title" data-i18n="settings.terminal">Terminal</div><label class="settings-check"><input type="checkbox" id="set-bell-notify"><span data-i18n="settings.bellNotify">Notify when a terminal task finishes (bell)</span></label></div>'
+      ? '<div class="settings-card"><div class="settings-card-title" data-i18n="settings.terminal">Terminal</div>'
+      + '<label class="settings-check"><input type="checkbox" id="set-bell-notify"><span data-i18n="settings.bellNotify">Notify when a terminal task finishes (bell)</span></label>'
+      // Persistent terminals: opt-in, needs tmux. The status line and the install log below only appear when
+      // the box is checked, so the card stays a single line for anyone who doesn't want the feature.
+      + '<label class="settings-check"><input type="checkbox" id="set-terminal-persist"><span data-i18n="settings.persistTerminal">Keep terminal sessions running when kakapo quits (tmux)</span></label>'
+      + '<div class="settings-row-hint" data-i18n="settings.persistTerminal.hint">Applies to terminals you open from now on. Closing a pane still ends its session.</div>'
+      + '<div id="tmux-setup" class="tmux-setup hidden">'
+      + '<div class="tmux-setup-row"><span id="tmux-setup-status" class="settings-row-hint"></span>'
+      + '<button type="button" id="tmux-install" class="plain-button hidden" data-i18n="settings.installTmux">Install tmux</button></div>'
+      + '<pre id="tmux-setup-log" class="tmux-setup-log hidden" aria-live="polite"></pre>'
+      + '</div></div>'
       : "",
     '</section>',
     // Keyboard shortcuts moved to their own category so General stays a short, scannable preferences page.

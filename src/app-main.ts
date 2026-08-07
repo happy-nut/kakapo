@@ -85,6 +85,7 @@ type WinState = {
   analysisSuspended: boolean;
   idleTimer?: NodeJS.Timeout;
   terms: Map<number, IPty>; // integrated-terminal ptys owned by this window (killed on close)
+  termSessions: Map<number, string>; // pty id -> tmux session, for panes opted into persistent terminals
   commandBuffers: Map<number, string>;
   resumeCommand?: string;
   onResumeCommand: (command: string | undefined) => void;
@@ -1439,6 +1440,7 @@ function createWindow(root: string, deferBoot = false): WinState {
     analysis,
     analysisSuspended: false,
     terms: new Map(),
+    termSessions: new Map(),
     commandBuffers: new Map(),
     resumeCommand: typeof preferences.readWorkspace(resolvedRoot)["kakapo-agent-resume"] === "string"
       ? preferences.readWorkspace(resolvedRoot)["kakapo-agent-resume"] as string : undefined,
@@ -1505,8 +1507,11 @@ function createWindow(root: string, deferBoot = false): WinState {
     if (DEV_BUILD) state.win.webContents.openDevTools({ mode: "detach" });
   });
   view.webContents.on("destroyed", () => {
+    // Killing a persistent pane's pty only detaches its tmux client — the session and the agent inside it
+    // keep running, which is the whole point. Sessions are killed on explicit pane close (pty-kill), not here.
     for (const t of state.terms.values()) { try { t.kill(); } catch { /* already exited */ } }
     state.terms.clear();
+    state.termSessions.clear();
     state.commandBuffers.clear();
     clearWatchTimers(state);
     if (state.analysisWarmTimer) clearTimeout(state.analysisWarmTimer);

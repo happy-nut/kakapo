@@ -6,7 +6,7 @@
 // iTerm. sanitizeTerminalEnv keeps the integrated terminal indistinguishable from the user's own.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sanitizeTerminalEnv, ensureUtf8Locale } from "../dist/util.js";
+import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, nextTerminalOrdinal, tmuxSpawnArgs } from "../dist/util.js";
 
 test("strips every npm_*-injected var (incl. the npm_config_prefix nvm rejects)", () => {
   const out = sanitizeTerminalEnv({
@@ -87,4 +87,31 @@ test("a non-UTF-8 LC_ALL/LC_CTYPE can't defeat the forced UTF-8 LANG", () => {
   const out2 = ensureUtf8Locale({ LC_CTYPE: "C", PATH: "/usr/bin" });
   assert.equal("LC_CTYPE" in out2, false, "a C LC_CTYPE (overrides LANG for ctype) is dropped");
   assert.equal(out2.LANG, "en_US.UTF-8");
+});
+
+// Persistent terminals: a pane reopened after a restart must land on the SAME tmux session the previous
+// pane 1 left running — that reconnection is the entire feature. Ordinals are therefore reused lowest-first,
+// and session names are per-workspace so two repos never share one.
+test("reopened panes re-attach to the session the last run left behind", () => {
+  const repo = "/Users/x/repos/kakapo";
+  const other = "/Users/x/repos/other";
+  assert.equal(tmuxSessionName(repo, 1), tmuxSessionName(repo, 1), "the name is stable across runs");
+  assert.notEqual(tmuxSessionName(repo, 1), tmuxSessionName(other, 1), "workspaces never collide");
+  assert.notEqual(tmuxSessionName(repo, 1), tmuxSessionName(repo, 2), "panes within a workspace differ");
+  assert.match(tmuxSessionName(repo, 1), /^kakapo-[0-9a-f]{8}-1$/, "no '.' or ':' — tmux parses those as targets");
+
+  // No live panes (fresh app start) -> ordinal 1 -> the pre-existing session 1.
+  assert.equal(nextTerminalOrdinal([]), 1);
+  assert.equal(nextTerminalOrdinal([1]), 2, "a second pane opens its own session");
+  assert.equal(nextTerminalOrdinal([1, 3]), 2, "a closed middle pane's ordinal is reused, not skipped");
+});
+
+test("the tmux session is created in the workspace, with per-session env", () => {
+  const args = tmuxSpawnArgs("kakapo-abc12345-1", "/repo", { KAKAPO_ANSWERS_FILE: "/tmp/a.json" });
+  const cwd = args.indexOf("-c");
+  assert.equal(args[cwd + 1], "/repo", "without -c the session inherits the tmux server's cwd, not ours");
+  const env = args.indexOf("-e");
+  assert.equal(args[env + 1], "KAKAPO_ANSWERS_FILE=/tmp/a.json", "a session on a pre-existing server would miss it otherwise");
+  assert.ok(args.includes("status") && args.includes("off"), "the pane should look like a plain shell");
+  assert.ok(args.join(" ").includes("Tc"), "truecolor stays on inside tmux (Claude Code's logo)");
 });
