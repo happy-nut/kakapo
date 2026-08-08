@@ -15,21 +15,21 @@ test("claude limits are worst-first across every window, labelled by scope", () 
       { kind: "weekly_scoped", percent: 86, resets_at: "2026-08-12T10:00:00.698006+00:00", scope: { model: { display_name: "Fable" } } },
     ],
   });
-  assert.deepEqual(limits.map((l) => [l.label, l.usedPercent]), [["Fable", 86], ["weekly", 53], ["5h", 10]]);
+  assert.deepEqual(limits.map((l) => [l.kind, l.label, l.usedPercent]), [["weekly", "Fable", 86], ["weekly", "", 53], ["session", "", 10]]);
   assert.ok(limits[0].resetsAt > 0);
 });
 
-test("a failed refresh keeps the last good quota until it goes properly stale", () => {
-  const good = { at: 1_000_000, value: [{ label: "Fable", usedPercent: 86, resetsAt: 0 }] };
+test("a failed refresh keeps the last good quota rather than dropping to a token count", () => {
+  const good = { at: 1_000_000, value: [{ kind: "weekly", label: "Fable", usedPercent: 86, resetsAt: 0 }] };
   // The endpoint rate-limits; a 429 must not downgrade a live % to a raw token count.
   assert.equal(nextQuotaCache(good.at + 90_000, good, undefined), good);
-  assert.equal(nextQuotaCache(good.at + 31 * 60_000, good, undefined), undefined, "half-hour-old numbers are fiction");
-  const fresher = [{ label: "Fable", usedPercent: 90, resetsAt: 0 }];
+  assert.equal(nextQuotaCache(good.at + 6 * 60 * 60_000, good, undefined), good, "a kept % beats no number at all");
+  const fresher = [{ kind: "weekly", label: "Fable", usedPercent: 90, resetsAt: 0 }];
   assert.deepEqual(nextQuotaCache(good.at + 90_000, good, fresher), { at: good.at + 90_000, value: fresher });
 });
 
 test("an older payload without `limits` still yields the five-hour and weekly windows", () => {
   const limits = claudeLimits({ five_hour: { utilization: 10 }, seven_day: { utilization: 53 } });
-  assert.deepEqual(limits.map((l) => [l.label, l.usedPercent, l.resetsAt]), [["weekly", 53, 0], ["5h", 10, 0]]);
+  assert.deepEqual(limits.map((l) => [l.kind, l.usedPercent, l.resetsAt]), [["weekly", 53, 0], ["session", 10, 0]]);
   assert.deepEqual(claudeLimits({}), []);
 });

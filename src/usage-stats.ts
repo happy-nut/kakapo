@@ -10,9 +10,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export interface CodexLimit { usedPercent: number; windowMinutes: number; resetsAt: number; }
-export interface ClaudeLimit { label: string; usedPercent: number; resetsAt: number; }
+// `label` is the model a scoped weekly cap applies to ("Fable"); empty for the plain session/weekly windows,
+// which the viewer names in the user's language from `kind`.
+export interface ClaudeLimit { kind: "session" | "weekly"; label: string; usedPercent: number; resetsAt: number; }
 export interface UsageStats {
-  claude?: { tokensToday: number; messagesToday: number; limits?: ClaudeLimit[] };
+  claude?: { tokensToday: number; messagesToday: number; limits?: ClaudeLimit[]; quotaAt?: number };
   codex?: { primary: CodexLimit; secondary?: CodexLimit; planType?: string; capturedAt: number };
   updatedAt: number;
 }
@@ -26,19 +28,17 @@ const HOME = homedir();
 //
 // The endpoint rate-limits, and every window polls once a minute: with the old 15s cache that was a request per
 // window per minute, and one 429 dropped the whole widget back to a raw token count. So cache for the length of
-// the poll, keep the last good numbers through a failure, and back off instead of retrying every minute. Quota
-// percentages age slowly (the weekly windows move over days), so a half-hour-old one still beats no number —
-// past that we'd be showing fiction, and the token-count fallback takes over.
+// the poll, back off instead of retrying every minute, and once a % has been read, keep showing it — a stale
+// percentage is still the answer to "how much is left", and the widget carries its age so it can say how old.
 const QUOTA_TTL_MS = 60_000;
 const QUOTA_BACKOFF_MS = 5 * 60_000;
-const QUOTA_STALE_MS = 30 * 60_000;
-let claudeQuotaCache: { at: number; value: ClaudeLimit[] } | undefined;
+export interface QuotaCache { at: number; value: ClaudeLimit[] }
+let claudeQuotaCache: QuotaCache | undefined;
 let claudeQuotaRetryAt = 0;
 
-// A failed refresh keeps the previous snapshot until it's properly stale — never downgrades a live % to nothing.
-export function nextQuotaCache(now: number, prev: { at: number; value: ClaudeLimit[] } | undefined, fresh: ClaudeLimit[] | undefined): { at: number; value: ClaudeLimit[] } | undefined {
-  if (fresh) return { at: now, value: fresh };
-  return prev && now - prev.at < QUOTA_STALE_MS ? prev : undefined;
+// A failed refresh keeps the previous snapshot — never downgrades a live % back to a raw token count.
+export function nextQuotaCache(now: number, prev: QuotaCache | undefined, fresh: ClaudeLimit[] | undefined): QuotaCache | undefined {
+  return fresh ? { at: now, value: fresh } : prev;
 }
 
 // On macOS Claude Code keeps its OAuth token in the login Keychain and refreshes it there; the
@@ -66,11 +66,11 @@ export function claudeLimits(body: ClaudeUsageBody): ClaudeLimit[] {
   const out: ClaudeLimit[] = [];
   for (const l of body.limits || []) {
     if (typeof l?.percent !== "number") continue;
-    out.push({ label: l.scope?.model?.display_name || (l.kind === "session" ? "5h" : "weekly"), usedPercent: l.percent, resetsAt: ms(l.resets_at) });
+    out.push({ kind: l.kind === "session" ? "session" : "weekly", label: l.scope?.model?.display_name || "", usedPercent: l.percent, resetsAt: ms(l.resets_at) });
   }
   if (!out.length) {
-    for (const [label, w] of [["5h", body.five_hour], ["weekly", body.seven_day]] as const) {
-      if (w && typeof w.utilization === "number") out.push({ label, usedPercent: w.utilization, resetsAt: ms(w.resets_at) });
+    for (const [kind, w] of [["session", body.five_hour], ["weekly", body.seven_day]] as const) {
+      if (w && typeof w.utilization === "number") out.push({ kind, label: "", usedPercent: w.utilization, resetsAt: ms(w.resets_at) });
     }
   }
   return out.sort((a, b) => b.usedPercent - a.usedPercent);
@@ -195,6 +195,6 @@ export async function collectUsageStats(): Promise<UsageStats> {
   const fresh = due ? await fetchClaudeQuota() : undefined;
   if (due && !fresh) claudeQuotaRetryAt = now + QUOTA_BACKOFF_MS;
   claudeQuotaCache = nextQuotaCache(now, claudeQuotaCache, fresh);
-  if (claudeQuotaCache) claude = { tokensToday: 0, messagesToday: 0, ...(claude || {}), limits: claudeQuotaCache.value };
+  if (claudeQuotaCache) claude = { tokensToday: 0, messagesToday: 0, ...(claude || {}), limits: claudeQuotaCache.value, quotaAt: claudeQuotaCache.at };
   return { claude, codex, updatedAt: now };
 }

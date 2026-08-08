@@ -245,6 +245,18 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "usages.aria": "Usages",
     "usages.title": "Usages",
 
+    // Agent quota footer
+    "usage.session": "5h",
+    "usage.weekly": "weekly",
+    "usage.left": "left",
+    "usage.resets": "resets in",
+    "usage.asOf": "as of {age} ago",
+    "usage.tokensToday": "tokens today",
+    "usage.now": "now",
+    "usage.unit.d": "d",
+    "usage.unit.h": "h",
+    "usage.unit.m": "m",
+
     // Settings — nav
     "settings.aria": "Settings",
     "settings.title": "Settings",
@@ -732,6 +744,18 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Usages
     "usages.aria": "사용처",
     "usages.title": "사용처",
+
+    // Agent quota footer
+    "usage.session": "5시간",
+    "usage.weekly": "주간",
+    "usage.left": "남음",
+    "usage.resets": "초기화까지",
+    "usage.asOf": "{age} 전 기준",
+    "usage.tokensToday": "오늘 토큰",
+    "usage.now": "지금",
+    "usage.unit.d": "일",
+    "usage.unit.h": "시간",
+    "usage.unit.m": "분",
 
     // Settings — nav
     "settings.aria": "설정",
