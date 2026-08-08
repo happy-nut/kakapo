@@ -21,10 +21,25 @@ const HOME = homedir();
 
 // Claude's real rate-limit % isn't written to any local log (only token counts are), so — with the user's
 // consent — read it from the same OAuth-authenticated endpoint the `claude` CLI's /usage uses, reusing the
-// access token Claude Code already stores. Cached briefly so multiple review views / the 60s poll don't hammer
-// the API. The token is re-read from disk each call so we pick up Claude Code's refreshes; if it's expired or
-// the request fails, we just drop the quota (the token-count fallback still shows).
-let claudeQuotaCache: { at: number; value: ClaudeLimit[] | undefined } | undefined;
+// access token Claude Code already stores. The token is re-read from disk each call so we pick up Claude Code's
+// refreshes.
+//
+// The endpoint rate-limits, and every window polls once a minute: with the old 15s cache that was a request per
+// window per minute, and one 429 dropped the whole widget back to a raw token count. So cache for the length of
+// the poll, keep the last good numbers through a failure, and back off instead of retrying every minute. Quota
+// percentages age slowly (the weekly windows move over days), so a half-hour-old one still beats no number —
+// past that we'd be showing fiction, and the token-count fallback takes over.
+const QUOTA_TTL_MS = 60_000;
+const QUOTA_BACKOFF_MS = 5 * 60_000;
+const QUOTA_STALE_MS = 30 * 60_000;
+let claudeQuotaCache: { at: number; value: ClaudeLimit[] } | undefined;
+let claudeQuotaRetryAt = 0;
+
+// A failed refresh keeps the previous snapshot until it's properly stale — never downgrades a live % to nothing.
+export function nextQuotaCache(now: number, prev: { at: number; value: ClaudeLimit[] } | undefined, fresh: ClaudeLimit[] | undefined): { at: number; value: ClaudeLimit[] } | undefined {
+  if (fresh) return { at: now, value: fresh };
+  return prev && now - prev.at < QUOTA_STALE_MS ? prev : undefined;
+}
 
 // On macOS Claude Code keeps its OAuth token in the login Keychain and refreshes it there; the
 // ~/.claude/.credentials.json copy is only written on other platforms and goes stale (an expired token there is
@@ -175,10 +190,11 @@ export async function collectUsageStats(): Promise<UsageStats> {
   let codex: UsageStats["codex"];
   try { claude = claudeUsage(startOfDay); } catch { /* best-effort */ }
   try { codex = codexUsage(); } catch { /* best-effort */ }
-  // Claude quota %, cached ~15s so concurrent views / rapid refreshes reuse one API call.
-  let quota: ClaudeLimit[] | undefined;
-  if (claudeQuotaCache && now - claudeQuotaCache.at < 15_000) quota = claudeQuotaCache.value;
-  else { quota = await fetchClaudeQuota(); claudeQuotaCache = { at: now, value: quota }; }
-  if (quota) claude = { tokensToday: 0, messagesToday: 0, ...(claude || {}), limits: quota };
+  // Claude quota %: one API call per poll interval at most, shared by every window.
+  const due = (!claudeQuotaCache || now - claudeQuotaCache.at >= QUOTA_TTL_MS) && now >= claudeQuotaRetryAt;
+  const fresh = due ? await fetchClaudeQuota() : undefined;
+  if (due && !fresh) claudeQuotaRetryAt = now + QUOTA_BACKOFF_MS;
+  claudeQuotaCache = nextQuotaCache(now, claudeQuotaCache, fresh);
+  if (claudeQuotaCache) claude = { tokensToday: 0, messagesToday: 0, ...(claude || {}), limits: claudeQuotaCache.value };
   return { claude, codex, updatedAt: now };
 }

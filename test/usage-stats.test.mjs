@@ -3,7 +3,7 @@
 // sat at 86% used — the window that actually stops work.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { claudeLimits } from "../dist/usage-stats.js";
+import { claudeLimits, nextQuotaCache } from "../dist/usage-stats.js";
 
 test("claude limits are worst-first across every window, labelled by scope", () => {
   const limits = claudeLimits({
@@ -17,6 +17,15 @@ test("claude limits are worst-first across every window, labelled by scope", () 
   });
   assert.deepEqual(limits.map((l) => [l.label, l.usedPercent]), [["Fable", 86], ["weekly", 53], ["5h", 10]]);
   assert.ok(limits[0].resetsAt > 0);
+});
+
+test("a failed refresh keeps the last good quota until it goes properly stale", () => {
+  const good = { at: 1_000_000, value: [{ label: "Fable", usedPercent: 86, resetsAt: 0 }] };
+  // The endpoint rate-limits; a 429 must not downgrade a live % to a raw token count.
+  assert.equal(nextQuotaCache(good.at + 90_000, good, undefined), good);
+  assert.equal(nextQuotaCache(good.at + 31 * 60_000, good, undefined), undefined, "half-hour-old numbers are fiction");
+  const fresher = [{ label: "Fable", usedPercent: 90, resetsAt: 0 }];
+  assert.deepEqual(nextQuotaCache(good.at + 90_000, good, fresher), { at: good.at + 90_000, value: fresher });
 });
 
 test("an older payload without `limits` still yields the five-hour and weekly windows", () => {
