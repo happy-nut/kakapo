@@ -11,8 +11,9 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   chooseRepo: () => ipcRenderer.invoke("kakapo:hub-choose-repo"),
   // Known Git projects (deduped by repo root) for the New-workspace dialog's project dropdown.
   listProjects: (): Promise<{ name: string; path: string }[]> => ipcRenderer.invoke("kakapo:hub-projects"),
-  preview: (repo: string, label: string) => ipcRenderer.invoke("kakapo:hub-preview", { repo, label }),
-  create: (repo: string, label: string) => ipcRenderer.invoke("kakapo:hub-create", { repo, label }),
+  // worktree=false means "open this project's existing checkout" — no new branch, no new folder.
+  preview: (repo: string, label: string, worktree: boolean) => ipcRenderer.invoke("kakapo:hub-preview", { repo, label, worktree }),
+  create: (repo: string, label: string, worktree: boolean) => ipcRenderer.invoke("kakapo:hub-create", { repo, label, worktree }),
   cancelCreate: () => ipcRenderer.send("kakapo:hub-cancel-create"),
   rename: (id: number, alias?: string, memo?: string) => ipcRenderer.invoke("kakapo:hub-rename", { id, alias, memo }),
   // Native workspace-tile context menu (drawn above the review views, so it doesn't blank the main panel).

@@ -171,7 +171,8 @@ body.rail-exp #pin{color:#4d86d9}
 <script>
 const T=${JSON.stringify(T)};
 const list=document.querySelector("#list"),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-document.querySelector("#new").onclick=()=>window.kakapoHub.openModal('new');
+const newModal=()=>window.kakapoHub.openModal('new',curRepo?{path:curRepo.path,name:curRepo.name}:undefined);
+document.querySelector("#new").onclick=newModal;
 document.querySelector("#settings").onclick=()=>window.kakapoHub.settings();
 const tools=document.getElementById('tools');
 tools.addEventListener('click',e=>{const b=e.target.closest('button.tb');if(!b)return;window.kakapoHub.railAction(b.dataset.act)});
@@ -183,7 +184,7 @@ tools.addEventListener('mouseover',e=>{const b=e.target.closest('button.tb');if(
 tools.addEventListener('mouseout',e=>{const b=e.target.closest('button.tb');if(b&&(!e.relatedTarget||!b.contains(e.relatedTarget)))tt.classList.remove('show');});
 tools.addEventListener('click',()=>tt.classList.remove('show'));
 window.kakapoHub.onRailState(s=>{s=s||{};const active=s.active||[];for(const b of tools.querySelectorAll('button.tb')){const a=b.dataset.act;if(a==='terminal'){b.classList.toggle('hidden',!s.terminal);}b.classList.toggle('active',active.indexOf(a)>=0);}});
-window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(()=>window.kakapoHub.openModal('new'));
+window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(newModal);
 // Rail expand: ⌘⇧E or the » button toggles it open; main then pushes the review views right (they render over
 // the shell page, so the rail can't overlay them) and collapses the active view's file tree to make room.
 let railExp=false;const pinBtn=document.getElementById('pin');
@@ -229,12 +230,16 @@ window.kakapoHub.onToggleExpand(toggleRail);
 // "main window" dismisses the peek.
 window.kakapoHub.onSetExpanded(open=>{railExp=!!open;paintRail();if(!railExp)railClearSel();});
 const ago=value=>{const seconds=Math.max(0,Math.floor((Date.now()-Number(value||Date.now()))/1000));return seconds<60?T.agoNow:seconds<3600?T.agoM.replace('{n}',Math.floor(seconds/60)):seconds<86400?T.agoH.replace('{n}',Math.floor(seconds/3600)):T.agoD.replace('{n}',Math.floor(seconds/86400))};
+let curRepo=null; // active workspace's project, used to prefill the New-workspace dialog
 window.kakapoHub.onState(items=>{const groups=new Map;for(const w of items){if(!groups.has(w.repoName))groups.set(w.repoName,[]);groups.get(w.repoName).push(w)}
 const _a=items.find(w=>w.active);const _wn=document.getElementById('wsname');if(_wn)_wn.innerHTML=_a?'<span class="wsdot"></span>'+esc(_a.alias||_a.branch)+' <span class="rp">· '+esc(_a.repoName)+'</span>':'';
+// Remember the active workspace's project so ⌘N can prefill it — a new task almost always belongs to the repo
+// you are looking at.
+curRepo=_a&&_a.repoRoot?{path:_a.repoRoot,name:_a.repoName}:curRepo;
 // Badge initials. Split on separators only (NOT on every non-Latin char) so Korean/CJK names keep their
 // letters instead of collapsing to "?". Latin → uppercased two-word/two-letter initials; CJK → the first one
 // or two characters as-is (Hangul has no case).
-const initials=w=>{var s=String(w.alias||w.branch||w.repoName||'?').replace(/^(feature|fix|chore|bugfix|hotfix|release)[\\/_-]/i,'').trim();if(!s)return'?';var parts=s.split(/[\\s._/-]+/).filter(Boolean);var a=parts[0]||s,ac=Array.from(a),latin=/^[A-Za-z0-9]/.test(a),r;if(parts.length>1){var bc=Array.from(parts[1]);r=(ac[0]||'')+(bc[0]||'');}else{r=ac.slice(0,2).join('');}return latin?r.toUpperCase():r;};
+const initials=w=>{var s=String(w.alias||(w.kind==='main'?w.repoName:0)||w.branch||w.repoName||'?').replace(/^(feature|fix|chore|bugfix|hotfix|release)[\\/_-]/i,'').trim();if(!s)return'?';var parts=s.split(/[\\s._/-]+/).filter(Boolean);var a=parts[0]||s,ac=Array.from(a),latin=/^[A-Za-z0-9]/.test(a),r;if(parts.length>1){var bc=Array.from(parts[1]);r=(ac[0]||'')+(bc[0]||'');}else{r=ac.slice(0,2).join('');}return latin?r.toUpperCase():r;};
 const tip=w=>(w.alias||w.branch)+' · '+w.repoName+(w.dirtyCount?' · '+T.changed.replace('{n}',w.dirtyCount):'')+(w.running?' · ● '+T.running:w.resume?' · '+T.resumable:w.disconnected?' · '+T.disconnected:'');
 // Stable per-project hue (all worktrees share it) — tints the collapsed group's accent bar + avatar
 // placeholder and the expanded panel's project badge, so projects read apart at a glance.
@@ -250,7 +255,11 @@ const chev='<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentCol
 const homeIco='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3.1 3.3 10a.6.6 0 0 0 .38 1.06H5v8.4c0 .3.24.54.54.54H9.6v-5.2h4.8v5.2h4.06c.3 0 .54-.24.54-.54v-8.4h1.32A.6.6 0 0 0 20.7 10z"/></svg>';
 const isMain=w=>w.kind==='main';
 const cv='<div class="cv">'+[...groups].map(([repo,ws])=>'<div class="grp"><div class="phav" data-repo="'+esc(repo)+'" title="'+esc(repo)+'"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</div><div class="wts">'+ws.map(w=>'<button class="wt'+wcls(w)+'"'+wattr(w)+'>'+esc(initials(w))+'<span class="rdot"></span><span class="udot"></span>'+(isMain(w)?'<span class="mdot" title="'+esc(T.mainWorktree)+'">'+homeIco+'</span>':'')+'</button>').join('')+'</div></div>').join('')+'</div>';
-const ev='<div class="ev"><div class="phead"><span class="t">'+esc(T.workspaces)+'</span></div><div class="plist">'+[...groups].map(([repo,ws])=>'<div class="proj"><div class="prow" data-repo="'+esc(repo)+'"><span class="pav"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</span><span class="pname">'+esc(repo)+'</span><span class="pcount">'+ws.length+'</span>'+chev+'</div><div class="ewts">'+ws.map(w=>{const nm=esc(w.alias||w.branch);const showBr=w.branch&&(!w.alias||w.branch!==w.alias);const brLine=showBr?'<div class="wt-branch">'+esc(w.branch)+'</div>':'';const tag=w.dirtyCount?'<span class="wt-tag">'+w.dirtyCount+'</span>':'';const home=isMain(w)?'<span class="wt-home" title="'+esc(T.mainWorktree)+'">'+homeIco+'</span>':'';return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
+const ev='<div class="ev"><div class="phead"><span class="t">'+esc(T.workspaces)+'</span></div><div class="plist">'+[...groups].map(([repo,ws])=>'<div class="proj"><div class="prow" data-repo="'+esc(repo)+'"><span class="pav"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</span><span class="pname">'+esc(repo)+'</span><span class="pcount">'+ws.length+'</span>'+chev+'</div><div class="ewts">'+ws.map(w=>{
+// The main checkout is named for what it IS, not for whatever branch it happens to sit on: labelling it by
+// branch made a project whose main was on a feature branch look like it had no main at all. The branch line
+// below still shows the real branch.
+const nm=esc(w.alias||(isMain(w)?T.mainWorktree:0)||w.branch);const showBr=w.branch&&w.branch!==(w.alias||(isMain(w)?T.mainWorktree:0));const brLine=showBr?'<div class="wt-branch">'+esc(w.branch)+'</div>':'';const tag=w.dirtyCount?'<span class="wt-tag">'+w.dirtyCount+'</span>':'';const home=isMain(w)?'<span class="wt-home" title="'+esc(T.mainWorktree)+'">'+homeIco+'</span>':'';return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
 list.innerHTML=cv+ev;
 // Worktree click → activate (or reconnect/forget a disconnected one). Collapsed badges and expanded cards are
 // both .wt with the same data-*, so one handler covers both views.
@@ -286,6 +295,7 @@ export function modalOverlayHtml(light: boolean, t: Translate): string {
   const T = {
     selectProject: t("newws.selectProject"), browse: t("newws.browse"), chooseFirst: t("newws.chooseFirst"),
     creating: t("newws.creating"), create: t("newws.create"), createFailed: t("newws.createFailed"),
+    opening: t("newws.opening"), open: t("newws.open"),
     renameTitle: t("newws.renameTitle"), memoTitle: t("newws.memoTitle"),
   };
   return `<!doctype html><meta charset="utf-8"><style>
@@ -333,6 +343,12 @@ dialog#prompt::backdrop{background:${dim}}
 #create input.tin:focus{outline:none;border-color:#4d86d9}
 #create input.tin::placeholder{color:${light ? "#9aa0ab" : "#71767f"}}
 #create #preview{margin-top:11px;font-size:11px;color:${light ? "#6b7280" : "#8a8f99"};line-height:1.65;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+/* "Create a new worktree" toggle: the dialog used to always add one with no way to tell, so the choice and its
+   consequence (new branch+folder vs. just opening the checkout) are both spelled out here. */
+#create .wt-opt{display:flex;align-items:center;gap:8px;margin-top:16px;font-size:13px;font-weight:550;cursor:pointer}
+#create .wt-opt input{accent-color:#4d86d9;width:14px;height:14px;margin:0}
+#create .wt-hint{margin:4px 0 2px 22px;font-size:11.5px;color:${light ? "#6b7280" : "#8a8f99"}}
+#create #labelRow.hidden{display:none}
 #create .error{color:#e0736b;min-height:15px;margin-top:11px;font-size:12px}
 #create .actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:20px}
 #create .dbtn{border:1px solid ${line};background:transparent;color:inherit;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:550}
@@ -371,7 +387,7 @@ dialog#confirm::backdrop{background:${dim}}
 #confirm .cf-btn.danger{background:#d9463e;color:#fff;border-color:transparent}
 #confirm .cf-btn.pri:hover,#confirm .cf-btn.danger:hover{filter:brightness(1.07)}
 #confirm .cf-btn:focus-visible{outline:none;box-shadow:0 0 0 3px #4d86d955}</style>
-<dialog id="create"><div class="dh"><b>${t("newws.title")}</b><button class="dx" id="dlgClose" aria-label="${t("newws.close")}">✕</button></div><div class="db"><label>${t("newws.project")}</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">${t("newws.selectProject")}</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label>${t("newws.taskName")}</label><input id="label" class="tin" placeholder="${t("newws.taskPlaceholder")}" autocomplete="off" spellcheck="false"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">${t("newws.cancel")}</button><button id="doCreate" class="dbtn pri"><span class="dcl">${t("newws.create")}</span><kbd>⌘↵</kbd></button></div></div></dialog>
+<dialog id="create"><div class="dh"><b>${t("newws.title")}</b><button class="dx" id="dlgClose" aria-label="${t("newws.close")}">✕</button></div><div class="db"><label>${t("newws.project")}</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">${t("newws.selectProject")}</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label class="wt-opt"><input type="checkbox" id="wtNew" checked><span>${t("newws.newWorktree")}</span></label><div class="wt-hint">${t("newws.newWorktree.hint")}</div><div id="labelRow"><label>${t("newws.taskName")}</label><input id="label" class="tin" placeholder="${t("newws.taskPlaceholder")}" autocomplete="off" spellcheck="false"></div><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">${t("newws.cancel")}</button><button id="doCreate" class="dbtn pri"><span class="dcl">${t("newws.create")}</span><kbd>⌘↵</kbd></button></div></div></dialog>
 <dialog id="prompt"><div class="dh"><b id="promptTitle"></b></div><div class="db"><input id="promptInput" class="tin" autocomplete="off" spellcheck="false"><div class="actions"><button id="promptCancel" class="dbtn">${t("newws.cancel")}</button><button id="promptOk" class="dbtn pri">${t("newws.ok")}</button></div></div></dialog>
 <dialog id="disc"><div class="disc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div><div class="disc-msg">${t("disc.message")}</div><div id="discPath" class="disc-path"></div><div class="disc-actions"><button id="discReconnect" class="disc-btn pri">${t("disc.reconnect")}</button><button id="discRemove" class="disc-btn">${t("disc.remove")}</button><button id="discCancel" class="disc-btn">${t("disc.cancel")}</button></div></dialog>
 <dialog id="confirm"><div class="cf-ic hidden" id="cfIcon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div><div class="cf-title" id="cfTitle"></div><div class="cf-msg" id="cfMsg"></div><div class="cf-detail hidden" id="cfDetail"></div><label class="cf-check hidden" id="cfCheckWrap"><input type="checkbox" id="cfCheck"><span id="cfCheckLabel"></span></label><div class="cf-actions" id="cfActions"></div></dialog><script>
@@ -379,11 +395,19 @@ const T=${JSON.stringify(T)};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const dlg=document.querySelector("#create");let creating=false;
 // Each open starts clean (the overlay page persists across opens, so stale repo/label would otherwise linger).
-function openCreate(){document.querySelector("#repo").value='';const n=document.querySelector("#repoName");n.textContent=T.selectProject;n.classList.add('ph');document.querySelector("#label").value='';document.querySelector("#preview").innerHTML='';document.querySelector("#createError").textContent='';loadProjects();closeProjectMenu();dlg.showModal();setTimeout(()=>document.querySelector("#choose").focus(),0);}
+// repo/name prefill the project from the rail's active workspace (see the openModal('new',…) call sites) —
+// a new task nearly always belongs to the project you are looking at.
+function openCreate(repo,name){document.querySelector("#repo").value='';const n=document.querySelector("#repoName");n.textContent=T.selectProject;n.classList.add('ph');document.querySelector("#label").value='';document.querySelector("#preview").innerHTML='';document.querySelector("#createError").textContent='';document.querySelector("#wtNew").checked=true;paintWorktreeMode();loadProjects();closeProjectMenu();dlg.showModal();
+if(repo)pickProject(repo,name);else setTimeout(()=>document.querySelector("#choose").focus(),0);}
 // Any close of the create dialog (cancel / ✕ / Esc / success) tells main to hide the overlay.
 dlg.addEventListener('close',()=>window.kakapoHub.closeModal());
 document.querySelector("#cancelCreate").onclick=()=>{if(creating)window.kakapoHub.cancelCreate();else dlg.close()};
-async function preview(){const r=await window.kakapoHub.preview(document.querySelector("#repo").value,document.querySelector("#label").value);document.querySelector("#preview").innerHTML=r.ok?'slug: '+esc(r.slug)+'<br>base: '+esc(r.base)+'<br>branch: '+esc(r.branch)+'<br>'+esc(r.path):''}
+const wtNew=document.querySelector("#wtNew");
+// Unchecked = open the project's existing checkout as-is: no new branch, no new folder, so the task-name field
+// (which only names a worktree) is irrelevant and hides.
+function paintWorktreeMode(){document.querySelector("#labelRow").classList.toggle('hidden',!wtNew.checked);document.querySelector("#doCreate").querySelector('.dcl').textContent=wtNew.checked?T.create:T.open;}
+wtNew.onchange=()=>{paintWorktreeMode();document.querySelector("#createError").textContent='';if(document.querySelector("#repo").value)preview();else document.querySelector("#preview").innerHTML='';};
+async function preview(){const r=await window.kakapoHub.preview(document.querySelector("#repo").value,document.querySelector("#label").value,wtNew.checked);document.querySelector("#preview").innerHTML=r.ok?(r.worktree?'slug: '+esc(r.slug)+'<br>base: '+esc(r.base)+'<br>branch: '+esc(r.branch)+'<br>':'branch: '+esc(r.branch)+'<br>')+esc(r.path):''}
 const projectMenu=document.querySelector("#projectMenu"),chooseBtn=document.querySelector("#choose");
 function closeProjectMenu(){projectMenu.classList.add('hidden');chooseBtn.setAttribute('aria-expanded','false');}
 function pickProject(path,name){document.querySelector("#repo").value=path;const n=document.querySelector("#repoName");n.textContent=name||(path.split('/').filter(Boolean).pop()||path);n.classList.remove('ph');closeProjectMenu();preview();document.querySelector("#label").focus();}
@@ -404,8 +428,8 @@ dlg.addEventListener('cancel',e=>{if(!projectMenu.classList.contains('hidden')){
 document.querySelector("#label").oninput=preview;
 document.querySelector("#dlgClose").onclick=()=>{if(!creating)dlg.close()};
 dlg.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();document.querySelector("#doCreate").click();}});
-document.querySelector("#doCreate").onclick=async()=>{const btn=document.querySelector("#doCreate"),lbl=btn.querySelector('.dcl'),err=document.querySelector("#createError");if(creating)return;if(!document.querySelector("#repo").value){err.textContent=T.chooseFirst;return;}creating=true;btn.disabled=true;lbl.textContent=T.creating;err.textContent="";
-const r=await window.kakapoHub.create(document.querySelector("#repo").value,document.querySelector("#label").value);creating=false;btn.disabled=false;lbl.textContent=T.create;if(r.ok)dlg.close();else err.textContent=r.error||T.createFailed};
+document.querySelector("#doCreate").onclick=async()=>{const btn=document.querySelector("#doCreate"),lbl=btn.querySelector('.dcl'),err=document.querySelector("#createError");if(creating)return;if(!document.querySelector("#repo").value){err.textContent=T.chooseFirst;return;}const wt=wtNew.checked;creating=true;btn.disabled=true;lbl.textContent=wt?T.creating:T.opening;err.textContent="";
+const r=await window.kakapoHub.create(document.querySelector("#repo").value,document.querySelector("#label").value,wt);creating=false;btn.disabled=false;lbl.textContent=wt?T.create:T.open;if(r.ok)dlg.close();else err.textContent=r.error||T.createFailed};
 const promptDlg=document.querySelector("#prompt"),promptInput=document.querySelector("#promptInput"),promptTitle=document.querySelector("#promptTitle");
 function showPrompt(title,initial){return new Promise(resolve=>{promptTitle.textContent=title;promptInput.value=initial||'';const onClose=()=>{promptDlg.removeEventListener('close',onClose);resolve(promptDlg.returnValue==='ok'?promptInput.value:null);};promptDlg.addEventListener('close',onClose);promptDlg.showModal();setTimeout(()=>{promptInput.focus();promptInput.select();},0);});}
 document.querySelector("#promptOk").onclick=()=>promptDlg.close('ok');
@@ -441,7 +465,7 @@ window.kakapoHub.onModalOpen(d=>{d=d||{};
   else if(d.type==='memo'){showPrompt(T.memoTitle,'').then(memo=>{if(memo!==null)window.kakapoHub.rename(d.id,undefined,memo);window.kakapoHub.closeModal();});}
   else if(d.type==='disconnected'){showDisconnected(d.path);}
   else if(d.type==='confirm'){showConfirm(d);}
-  else openCreate();});
+  else openCreate(d.path,d.name);});
 // Esc with no dialog open (e.g. the brief frame before showModal) still dismisses the overlay.
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.querySelector('dialog[open]'))window.kakapoHub.closeModal();});
 </script>`;

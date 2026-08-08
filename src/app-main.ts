@@ -487,14 +487,22 @@ ipcMain.handle("kakapo:hub-projects", () =>
 // The workspace-tile context menu (kakapo:tile-menu / menu-size / menu-choose / menu-close) is a custom
 // frameless popup, not the OS native menu — it lives in registerTileMenuIpc (app-tile-menu-ipc.ts), wired with
 // the other IPC adapters above.
-ipcMain.handle("kakapo:hub-preview", (_event, payload: { repo?: unknown; label?: unknown }) => {
+ipcMain.handle("kakapo:hub-preview", (_event, payload: { repo?: unknown; label?: unknown; worktree?: unknown }) => {
   if (typeof payload?.repo !== "string" || typeof payload?.label !== "string" || !isGitRepository(payload.repo)) return { ok: false };
   const repo = workspaceRecord(payload.repo), slug = workspaceSlug(payload.label);
-  return { ok: true, slug, base: defaultBase(repo.repoRoot), branch: `kakapo/${slug}`,
+  // worktree=false: nothing is created, the project's own checkout opens as-is — preview its real branch/path.
+  if (payload.worktree === false) return { ok: true, worktree: false, branch: repo.branch, path: repo.repoRoot };
+  return { ok: true, worktree: true, slug, base: defaultBase(repo.repoRoot), branch: `kakapo/${slug}`,
     path: join("~", "kakapo", "workspaces", repo.repoName, slug) };
 });
-ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; label?: unknown }) => {
+ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; label?: unknown; worktree?: unknown }) => {
   if (typeof payload?.repo !== "string" || typeof payload?.label !== "string") return { ok: false };
+  // "Create a new worktree" unchecked: open the project's existing checkout instead of adding a branch+folder.
+  if (payload.worktree === false) {
+    if (!existsSync(payload.repo) || !isGitRepository(payload.repo)) return { ok: false };
+    openOrFocusWorkspace(payload.repo);
+    return { ok: true };
+  }
   if (workspaceCreation) return { ok: false, error: "A workspace is already being created." };
   workspaceCreation = new AbortController();
   try {
