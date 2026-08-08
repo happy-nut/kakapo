@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { GitSnapshot } from "./types.js";
@@ -17,6 +17,24 @@ export function git(root: string, args: string[]): string {
     return "";
   }
   return (result.stdout ?? "").trim();
+}
+
+// Same contract as git() but WITHOUT blocking the caller's thread. spawnSync costs ~5ms per invocation and
+// `status --porcelain` reaches ~45ms on a real repo; on the Electron main process that time is frozen UI, so
+// anything that runs while the user is interacting (rail tile refreshes, see app-main.ts) uses this instead.
+// A failed command resolves to "" exactly like git(), so callers need no extra error branch.
+export function gitAsync(root: string, args: string[]): Promise<string> {
+  return new Promise((resolveOutput) => {
+    let stdout = "";
+    try {
+      const child = spawn("git", args, { cwd: root });
+      child.stdout.on("data", (chunk) => { stdout += chunk; });
+      child.on("error", () => resolveOutput(""));
+      child.on("close", (code) => resolveOutput(code === 0 ? stdout.trim() : ""));
+    } catch {
+      resolveOutput("");
+    }
+  });
 }
 
 export type AutomaticReviewBase = {

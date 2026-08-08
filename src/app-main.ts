@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, protocol, shell, WebContentsView } from "electron";
 import type { WebContents } from "electron";
-import { git, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
+import { git, gitAsync, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
 import { makeTranslator, normalizeLocale, type Locale } from "./i18n.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
@@ -1135,7 +1135,9 @@ function activateWorkspace(id: number): void {
       return;
     }
   }
-  const identity = activated && workspaceRecord(activated.options.root);
+  // Reuse the rail tile's cached record rather than re-deriving it: workspaceRecord is 3 more spawnSync git
+  // calls, and renderHub below needs the very same record anyway.
+  const identity = activated && hubTileFor(activated).record;
   if (identity) {
     const metadata = savedWorkspaceMetadata().find((item) => resolveWorkspaceRoot(item.path) === identity.path);
     shellWindow.setTitle(`${metadata?.alias || identity.branch} · ${identity.repoName} — ${APP_TITLE}`);
@@ -1242,13 +1244,47 @@ async function ensureOwnerAvatar(owner: string): Promise<void> {
 // of renderHub calls (agent activity across N workspaces) doesn't re-spawn ~5N git subprocesses. Branch/dirty
 // changes surface within the TTL — fine for a rail badge, and freshly-created workspaces have no cache yet.
 const HUB_TILE_TTL_MS = 1000;
+// Serving a STALE tile beats blocking for a fresh one. renderHub runs on the workspace-switch path, and the
+// only way to compute a tile synchronously is spawnSync git — ~5ms per call, ~45ms for `status --porcelain` on
+// a real repo, multiplied by every open workspace and pinned project. That is frozen UI at exactly the moment
+// the user is interacting, and it is what made switching workspaces hitch. So: hand back whatever is cached
+// (however old) and revalidate off-thread, re-rendering only if something actually changed. Only a tile that
+// has never been computed still pays the synchronous cost, once.
+const hubTileRefreshing = new Set<number>();
 function hubTileFor(state: WinState): { record: WorkspaceRecord; dirtyCount: number } {
-  const now = Date.now();
-  if (state.hubTile && now - state.hubTile.computedAt < HUB_TILE_TTL_MS) return state.hubTile;
+  if (state.hubTile) {
+    if (Date.now() - state.hubTile.computedAt >= HUB_TILE_TTL_MS) void refreshHubTile(state);
+    return state.hubTile;
+  }
   const record = workspaceRecord(state.options.root);
   const dirtyCount = git(record.path, ["status", "--porcelain"]).split("\n").filter(Boolean).length;
-  state.hubTile = { record, dirtyCount, computedAt: now };
+  state.hubTile = { record, dirtyCount, computedAt: Date.now() };
   return state.hubTile;
+}
+// Only branch and dirty count can change for a live workspace — repoRoot/repoName/kind are fixed for a given
+// checkout — so revalidation is two async git calls, not a whole workspaceRecord rebuild.
+async function refreshHubTile(state: WinState): Promise<void> {
+  const previous = state.hubTile;
+  if (!previous || state.win.isDestroyed()) return;
+  const id = state.win.webContents.id;
+  if (hubTileRefreshing.has(id)) return;
+  hubTileRefreshing.add(id);
+  // Bump the stamp up front so concurrent renderHub calls don't queue a second refresh behind this one.
+  previous.computedAt = Date.now();
+  try {
+    const [branch, status] = await Promise.all([
+      gitAsync(previous.record.path, ["branch", "--show-current"]),
+      gitAsync(previous.record.path, ["status", "--porcelain"]),
+    ]);
+    if (state.win.isDestroyed()) return;
+    const dirtyCount = status.split("\n").filter(Boolean).length;
+    const nextBranch = branch || "detached";
+    const changed = dirtyCount !== previous.dirtyCount || nextBranch !== previous.record.branch;
+    state.hubTile = { record: { ...previous.record, branch: nextBranch }, dirtyCount, computedAt: Date.now() };
+    if (changed) renderHub();
+  } finally {
+    hubTileRefreshing.delete(id);
+  }
 }
 
 // The main checkout is the rail's home base, so it stays pinned for every known project even when no window is
@@ -1271,12 +1307,40 @@ function buildProjectMainTiles() {
   });
 }
 let hubMainTilesCache: { tiles: ReturnType<typeof buildProjectMainTiles>; computedAt: number } | undefined;
+let hubMainTilesRefreshing = false;
+// Stale-while-revalidate, same reasoning as hubTileFor — and this is the heavier half: every pinned project
+// costs a workspaceRecord (3 git calls) plus a `status --porcelain`, whether or not it has a window open.
 function projectMainTiles(): ReturnType<typeof buildProjectMainTiles> {
-  const now = Date.now();
-  if (hubMainTilesCache && now - hubMainTilesCache.computedAt < HUB_TILE_TTL_MS) return hubMainTilesCache.tiles;
-  const tiles = buildProjectMainTiles();
-  hubMainTilesCache = { tiles, computedAt: now };
-  return tiles;
+  if (hubMainTilesCache) {
+    if (Date.now() - hubMainTilesCache.computedAt >= HUB_TILE_TTL_MS) void refreshProjectMainTiles();
+    return hubMainTilesCache.tiles;
+  }
+  hubMainTilesCache = { tiles: buildProjectMainTiles(), computedAt: Date.now() };
+  return hubMainTilesCache.tiles;
+}
+// The project set itself changes rarely, so revalidation re-reads only the per-project git facts that move
+// (branch, dirty count) off-thread, and keeps the cached identity/avatar/metadata for everything else. A
+// project appearing or disappearing arrives through the paths that already invalidate this cache.
+async function refreshProjectMainTiles(): Promise<void> {
+  const previous = hubMainTilesCache;
+  if (!previous || hubMainTilesRefreshing) return;
+  hubMainTilesRefreshing = true;
+  previous.computedAt = Date.now(); // claim the window so concurrent renders don't stack refreshes
+  try {
+    const tiles = await Promise.all(previous.tiles.map(async (tile) => {
+      const [branch, status] = await Promise.all([
+        gitAsync(tile.path, ["branch", "--show-current"]),
+        gitAsync(tile.path, ["status", "--porcelain"]),
+      ]);
+      return { ...tile, branch: branch || "detached", dirtyCount: status.split("\n").filter(Boolean).length };
+    }));
+    const changed = tiles.some((tile, index) =>
+      tile.branch !== previous.tiles[index].branch || tile.dirtyCount !== previous.tiles[index].dirtyCount);
+    hubMainTilesCache = { tiles, computedAt: Date.now() };
+    if (changed) renderHub();
+  } finally {
+    hubMainTilesRefreshing = false;
+  }
 }
 
 function renderHub(): void {
