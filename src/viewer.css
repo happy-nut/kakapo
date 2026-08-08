@@ -511,15 +511,16 @@ body.native-app .source-tabs {
 .brand-meta .analysis-status { gap: 0; }
 .brand-meta .analysis-status .analysis-status-label { display: none; }
 .brand-meta .analysis-status .analysis-status-dot { width: 8px; height: 8px; opacity: .9; }
-/* ── Footer usage quota widgets: a provider glyph + a donut pie of the used %, per agent (Claude, Codex). ── */
+/* ── Footer usage quota widgets: a provider glyph + a battery of the quota left, per agent (Claude, Codex). ── */
 .usage-foot { display: flex; align-items: center; gap: 14px; min-width: 0; margin-right: auto; }
 .usage-item { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); cursor: default; }
 .usage-ico { width: 14px; height: 14px; flex: none; display: block; }
 .usage-ico-claude { color: #d97757; }
 .usage-ico-codex { color: #10a37f; }
-.usage-pie { width: 16px; height: 16px; flex: none; }
-.usage-pie-track { fill: none; stroke: var(--border); stroke-width: 1.2; }
-.usage-pie-fill { fill: none; stroke-width: 8.2; transition: stroke-dashoffset .4s ease; }
+.usage-batt { width: 22px; height: 12px; flex: none; }
+.usage-batt-body { fill: none; stroke: var(--border); stroke-width: 1.1; }
+.usage-batt-cap { fill: var(--border); }
+.usage-batt-fill { transition: width .4s ease, fill .4s ease; }
 .usage-pct { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
 .usage-pct-tokens { font-weight: 600; color: var(--muted); }
 @keyframes analysis-pulse { 50% { opacity: .25; transform: scale(.78); } }

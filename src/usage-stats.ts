@@ -10,9 +10,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export interface CodexLimit { usedPercent: number; windowMinutes: number; resetsAt: number; }
-export interface ClaudeWindow { utilization: number; resetsAt: number; }
+export interface ClaudeLimit { label: string; usedPercent: number; resetsAt: number; }
 export interface UsageStats {
-  claude?: { tokensToday: number; messagesToday: number; fiveHour?: ClaudeWindow; sevenDay?: ClaudeWindow };
+  claude?: { tokensToday: number; messagesToday: number; limits?: ClaudeLimit[] };
   codex?: { primary: CodexLimit; secondary?: CodexLimit; planType?: string; capturedAt: number };
   updatedAt: number;
 }
@@ -24,7 +24,7 @@ const HOME = homedir();
 // access token Claude Code already stores. Cached briefly so multiple review views / the 60s poll don't hammer
 // the API. The token is re-read from disk each call so we pick up Claude Code's refreshes; if it's expired or
 // the request fails, we just drop the quota (the token-count fallback still shows).
-let claudeQuotaCache: { at: number; value: { fiveHour?: ClaudeWindow; sevenDay?: ClaudeWindow } | undefined } | undefined;
+let claudeQuotaCache: { at: number; value: ClaudeLimit[] | undefined } | undefined;
 
 // On macOS Claude Code keeps its OAuth token in the login Keychain and refreshes it there; the
 // ~/.claude/.credentials.json copy is only written on other platforms and goes stale (an expired token there is
@@ -41,7 +41,33 @@ function claudeOauth(): ClaudeOauth | undefined {
   try { return existsSync(credPath) ? parse(readFileSync(credPath, "utf8")) : undefined; } catch { return undefined; }
 }
 
-async function fetchClaudeQuota(): Promise<{ fiveHour?: ClaudeWindow; sevenDay?: ClaudeWindow } | undefined> {
+// The /usage payload lists EVERY limit that can actually block you under `limits` — the 5h session, the weekly
+// all-models cap, and per-model weekly caps (e.g. Fable) that bite long before either. Reading only five_hour,
+// as this did, reported "90% left" while the binding Fable window sat at 86% used. Worst-first, so the caller
+// can take [0] as the one that decides when work stops. `limits` is newer than five_hour/seven_day, so those
+// stay as the fallback for an older endpoint.
+export function claudeLimits(body: ClaudeUsageBody): ClaudeLimit[] {
+  const ms = (s?: string | null): number => (s ? Date.parse(s) || 0 : 0);
+  const out: ClaudeLimit[] = [];
+  for (const l of body.limits || []) {
+    if (typeof l?.percent !== "number") continue;
+    out.push({ label: l.scope?.model?.display_name || (l.kind === "session" ? "5h" : "weekly"), usedPercent: l.percent, resetsAt: ms(l.resets_at) });
+  }
+  if (!out.length) {
+    for (const [label, w] of [["5h", body.five_hour], ["weekly", body.seven_day]] as const) {
+      if (w && typeof w.utilization === "number") out.push({ label, usedPercent: w.utilization, resetsAt: ms(w.resets_at) });
+    }
+  }
+  return out.sort((a, b) => b.usedPercent - a.usedPercent);
+}
+
+interface ClaudeUsageBody {
+  limits?: ({ kind?: string; percent?: number; resets_at?: string | null; scope?: { model?: { display_name?: string } } | null } | null)[];
+  five_hour?: { utilization?: number; resets_at?: string } | null;
+  seven_day?: { utilization?: number; resets_at?: string } | null;
+}
+
+async function fetchClaudeQuota(): Promise<ClaudeLimit[] | undefined> {
   try {
     const oauth = claudeOauth();
     const token = oauth?.accessToken;
@@ -52,10 +78,8 @@ async function fetchClaudeQuota(): Promise<{ fiveHour?: ClaudeWindow; sevenDay?:
       signal: AbortSignal.timeout(4500),
     });
     if (!res.ok) return undefined;
-    const body = await res.json() as { five_hour?: { utilization?: number; resets_at?: string }; seven_day?: { utilization?: number; resets_at?: string } };
-    const win = (w?: { utilization?: number; resets_at?: string }): ClaudeWindow | undefined =>
-      w && typeof w.utilization === "number" ? { utilization: w.utilization, resetsAt: w.resets_at ? Date.parse(w.resets_at) || 0 : 0 } : undefined;
-    return { fiveHour: win(body.five_hour), sevenDay: win(body.seven_day) };
+    const limits = claudeLimits(await res.json() as ClaudeUsageBody);
+    return limits.length ? limits : undefined;
   } catch { return undefined; }
 }
 
@@ -152,9 +176,9 @@ export async function collectUsageStats(): Promise<UsageStats> {
   try { claude = claudeUsage(startOfDay); } catch { /* best-effort */ }
   try { codex = codexUsage(); } catch { /* best-effort */ }
   // Claude quota %, cached ~15s so concurrent views / rapid refreshes reuse one API call.
-  let quota: { fiveHour?: ClaudeWindow; sevenDay?: ClaudeWindow } | undefined;
+  let quota: ClaudeLimit[] | undefined;
   if (claudeQuotaCache && now - claudeQuotaCache.at < 15_000) quota = claudeQuotaCache.value;
   else { quota = await fetchClaudeQuota(); claudeQuotaCache = { at: now, value: quota }; }
-  if (quota) claude = { tokensToday: 0, messagesToday: 0, ...(claude || {}), fiveHour: quota.fiveHour, sevenDay: quota.sevenDay };
+  if (quota) claude = { tokensToday: 0, messagesToday: 0, ...(claude || {}), limits: quota };
   return { claude, codex, updatedAt: now };
 }
