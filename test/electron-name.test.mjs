@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const patchScript = join(repoRoot, "scripts", "patch-electron-name.mjs");
 const expectedElectronPath = "Kakapo.app/Contents/MacOS/kakapo";
+const kakapoIcon = readFileSync(join(repoRoot, "assets", "icon.icns"));
 
 function plist({
   name = "Electron",
@@ -41,10 +42,13 @@ function makeElectronRoot({
   bundleExecutable = executable,
   bundleIdentifier = "com.github.Electron",
   pathTxt = appBundle + "/Contents/MacOS/" + executable,
+  icon = "electron-stock-icon",
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "kakapo-electron-name-"));
   const appDir = join(root, "dist", appBundle);
   mkdirSync(join(appDir, "Contents", "MacOS"), { recursive: true });
+  mkdirSync(join(appDir, "Contents", "Resources"), { recursive: true });
+  writeFileSync(join(appDir, "Contents", "Resources", "electron.icns"), icon);
   writeFileSync(join(appDir, "Contents", "Info.plist"), plist({
     name: bundleName,
     displayName: bundleDisplayName,
@@ -77,6 +81,8 @@ function assertBranded(root) {
   assert.equal(distEntries.includes("Kakapo.app"), true, "Kakapo.app exists");
   assert.equal(existsSync(join(brandedApp, "Contents", "MacOS", "kakapo")), true, "executable is renamed");
   assert.equal(readFileSync(join(root, "path.txt"), "utf8"), expectedElectronPath);
+  // Without this the Dock and System Settings ▸ Accessibility keep drawing Electron's atom beside "Kakapo".
+  assert.ok(readFileSync(join(brandedApp, "Contents", "Resources", "electron.icns")).equals(kakapoIcon), "bundle carries the Kakapo icon");
   assert.match(patchedPlist, /<key>CFBundleName<\/key>\s*<string>Kakapo<\/string>/);
   assert.match(patchedPlist, /<key>CFBundleDisplayName<\/key>\s*<string>Kakapo<\/string>/);
   assert.match(patchedPlist, /<key>CFBundleExecutable<\/key>\s*<string>kakapo<\/string>/);
@@ -190,6 +196,7 @@ test("patch-electron-name is stable on an already branded install", () => {
     bundleExecutable: "kakapo",
     bundleIdentifier: "dev.happynut.kakapo",
     pathTxt: expectedElectronPath,
+    icon: kakapoIcon,
   });
 
   try {

@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const APP_DISPLAY_NAME = "Kakapo";
 const APP_EXECUTABLE_NAME = "kakapo";
@@ -104,7 +105,18 @@ function main() {
     const legacyExe = LEGACY_EXECUTABLE_NAMES.map((name) => join(macosDir, name)).find((path) => existsSync(path));
     if (legacyExe && !existsSync(newExe)) { renameSync(legacyExe, newExe); changed = true; }
 
-    // 4. Repoint electron's path.txt at the renamed binary so require("electron") resolves it.
+    // 4. The bundle still ships Electron's own artwork, so everything that reads the icon off disk — the Dock,
+    // Cmd+Tab, System Settings ▸ Privacy ▸ Accessibility — drew the atom next to the name we just patched.
+    // CFBundleIconFile stays "electron.icns"; only the bytes behind it change.
+    const iconSrc = join(dirname(dirname(fileURLToPath(import.meta.url))), "assets", "icon.icns");
+    const iconDst = join(appDir, "Contents", "Resources", "electron.icns");
+    if (existsSync(iconSrc) && !(existsSync(iconDst) && readFileSync(iconDst).equals(readFileSync(iconSrc)))) {
+      mkdirSync(dirname(iconDst), { recursive: true });
+      copyFileSync(iconSrc, iconDst);
+      changed = true;
+    }
+
+    // 5. Repoint electron's path.txt at the renamed binary so require("electron") resolves it.
     if (existsSync(pathTxt)) {
       const pt = readFileSync(pathTxt, "utf8");
       const fixed = APP_BUNDLE + "/Contents/MacOS/" + APP_EXECUTABLE_NAME;
