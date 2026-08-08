@@ -483,6 +483,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Merged comments modal
     "merged.title": "Review comments",
     "merged.copyAll": "Copy all",
+    "merged.allAddressed": "All {n} comments are flagged as possibly addressed, so nothing is left to hand off.",
+    "merged.reopenAll": "Reopen them",
     "merged.copied": "Copied",
     "merged.copyFailed": "Copy failed",
     "merged.close": "Close",
@@ -508,6 +510,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // an answers checklist for the items below — the absolute path is appended right after this line.
     "mergePrompt.answersFile": "Write your answers into the JSON checklist at the path below instead of replying here — fill in each item's answer and answeredAt for its matching seq, and leave everything else unchanged:",
     "comment.answer": "Answer",
+    "comment.answered": "answered",
+    "comment.answered.hint": "An agent answered this comment. Open the comment at its line to read the answer.",
 
     // Explain view default prompt — instructs an AI agent to explore the repo/diff and write a
     // structured content-spec JSON (not HTML) so kakapo's own renderer owns every bit of styling.
@@ -987,6 +991,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Merged comments modal
     "merged.title": "리뷰 코멘트",
     "merged.copyAll": "전체 복사",
+    "merged.allAddressed": "코멘트 {n}개가 모두 반영된 듯으로 표시되어 전달할 내용이 없습니다.",
+    "merged.reopenAll": "다시 열기",
     "merged.copied": "복사됨",
     "merged.copyFailed": "복사 실패",
     "merged.close": "닫기",
@@ -1012,6 +1018,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // 항목들에 대한 답변 체크리스트를 이미 써둔 경우에만 붙으며, 바로 다음 줄에 절대 경로가 이어진다.
     "mergePrompt.answersFile": "아래 답변은 여기에 직접 적지 말고, 다음 경로의 JSON 체크리스트에 기록하세요 — 각 항목의 seq에 맞춰 answer와 answeredAt만 채우고 나머지는 그대로 두세요:",
     "comment.answer": "답변",
+    "comment.answered": "답변 달림",
+    "comment.answered.hint": "에이전트가 이 코멘트에 답변했습니다. 해당 줄의 코멘트를 열면 답변을 볼 수 있습니다.",
 
     // Explain 뷰 기본 프롬프트 — 에이전트가 리포/diff를 탐색해 HTML이 아닌 구조화된 콘텐츠 스펙 JSON을
     // 작성하도록 지시한다. 스타일은 전부 kakapo 렌더러가 담당한다. {{SPEC_PATH}}는 표시 시점에 이

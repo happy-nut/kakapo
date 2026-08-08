@@ -29,6 +29,9 @@
 
   var panes = [];   // { id, term, fit, el }
   var active = null;
+  // Timestamp of the last keystroke into any pane. The watch refresh reads it (see applyDiffUpdate) so a
+  // diff rebuild — a long synchronous DOM swap on this same main thread — never lands mid-keystroke.
+  var lastInputAt = 0;
   var MAX_PANES = 4;
   var heightKey = 'kakapo-terminal-height';
   var openKey = 'kakapo-terminal-open:' + location.pathname;
@@ -156,7 +159,7 @@
       }
       return true;
     });
-    term.onData(function (d) { if (pane.id != null) window.kakapoPty.write({ id: pane.id, data: d }); });
+    term.onData(function (d) { lastInputAt = Date.now(); if (pane.id != null) window.kakapoPty.write({ id: pane.id, data: d }); });
     // Bell from the pane's TUI (e.g. Claude Code finished a turn / needs input): badge the pane when it isn't
     // the one you're looking at, and ask the main process to raise a native notification when the whole window
     // isn't focused. Toggle in Settings ("Notify when a terminal task finishes").
@@ -420,6 +423,9 @@
     // True when keyboard focus is inside the terminal panel (a pane owns it) — Cmd/Ctrl+W uses this to
     // decide between closing a pane and closing a source tab.
     hasFocus: function () { var ae = document.activeElement; return !!(ae && panel.contains(ae)); },
+    // When the reviewer last typed into a pane (0 = never). Read by the watch refresh to stay off the
+    // keystroke path; see applyDiffUpdate.
+    typingAt: function () { return lastInputAt; },
     open: function () { setOpen(true); },
     paneCount: function () { return panes.length; },
     closeActivePane: closeActivePane,

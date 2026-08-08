@@ -327,8 +327,29 @@ function restoreUiState() {
 // Live watch refreshes are HELD while a comment composer is open. applyDiffUpdate rebuilds the diff DOM, so
 // applying it mid-compose would destroy the composer textarea every watch tick — input stalls and characters
 // arrive in bursts — and flicker the page. Keep only the latest pending payload; flush it on close/save.
+// The terminal is held the same way, for the same reason: applyDiffUpdate is one long SYNCHRONOUS DOM swap
+// (measured in the hundreds of ms for a 20-file diff) and xterm shares this main thread, so a refresh landing
+// between keystrokes is exactly the "typing stutters, then arrives in a burst" the composer hold above fixes.
+// An agent editing files makes this fire every watch tick — precisely while you're typing at its prompt.
+// Unlike the composer this is time-based, not modal: the diff keeps refreshing live while you merely WATCH a
+// pane, and only defers around actual typing.
+var TERMINAL_TYPING_IDLE_MS = 450;
+function terminalTypingAgeMs() {
+  var api = window.__kakapoTerminal;
+  var at = api && typeof api.typingAt === 'function' ? api.typingAt() : 0;
+  return at ? Date.now() - at : Infinity;
+}
 var pendingDiffUpdate = null;
+var pendingDiffTimer = null;
+// Keep only the newest payload and retry once the typing pause is long enough. applyDiffUpdate re-checks and
+// re-holds if the reviewer started typing again, so a continuous burst of typing just keeps deferring.
+function holdDiffUpdateFor(u, delay) {
+  pendingDiffUpdate = u;
+  if (pendingDiffTimer) clearTimeout(pendingDiffTimer);
+  pendingDiffTimer = setTimeout(function () { pendingDiffTimer = null; flushPendingDiffUpdate(); }, delay);
+}
 function flushPendingDiffUpdate() {
+  if (pendingDiffTimer) { clearTimeout(pendingDiffTimer); pendingDiffTimer = null; }
   if (!pendingDiffUpdate) return;
   var u = pendingDiffUpdate;
   pendingDiffUpdate = null;
@@ -520,6 +541,8 @@ function requestDiffViewOnNextCompare() { forceDiffViewOnNextCompare = true; }
 function applyDiffUpdate(u) {
   if (!u || !u.signature || u.signature === currentSignature) return false; // unchanged — nothing to do
   if (composerState) { pendingDiffUpdate = u; return false; } // composing a comment — hold the refresh until close/save
+  var typingAge = terminalTypingAgeMs(); // mid-keystroke in a terminal pane — hold until the typing pauses
+  if (typingAge < TERMINAL_TYPING_IDLE_MS) { holdDiffUpdateFor(u, TERMINAL_TYPING_IDLE_MS - typingAge + 20); return false; }
 
   // Remember what to restore after the swap (comments/viewed persist on their own; these don't).
   var sv = document.getElementById('source-viewer');

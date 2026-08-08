@@ -362,6 +362,30 @@ function openMergedView() {
     if (window.kakapoApp && typeof window.kakapoApp.setIgnoreMenuShortcuts === 'function') window.kakapoApp.setIgnoreMenuShortcuts(false);
     editors.forEach(function (entry) { entry.editor.destroy(); });
   };
+  // A round where the agent both answers and edits can remove EVERY comment's anchor line at once, so
+  // remapComments flags them all "possibly addressed" and mergedBlocks filters them all out — the panel comes
+  // up blank while the reviewer can still see their comments sitting in the code. That guess must not silently
+  // eat the hand-off document: say what happened and offer the one action that undoes it.
+  function renderAllAddressedNote() {
+    if (host.querySelector('.mc-merged-card')) return;
+    var flagged = reviewComments.filter(function (c) { return c.addressed; });
+    if (!flagged.length) return;
+    var note = document.createElement('div');
+    note.className = 'mc-merged-empty-note';
+    var label = document.createElement('span');
+    label.textContent = t('merged.allAddressed').replace('{n}', String(flagged.length));
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mc-merged-reopen-all';
+    button.textContent = t('merged.reopenAll');
+    button.onclick = function () {
+      flagged.forEach(function (c) { reopenComment(c.seq); });
+      initializeMergedEditor();
+    };
+    note.appendChild(label);
+    note.appendChild(button);
+    host.appendChild(note);
+  }
   // options.reselectIndex, when given, means this rebuild followed a card deletion: reselect whatever card
   // now sits at that position (clamped — the deleted card's neighbors shift down by one) instead of the
   // normal open-time behavior of focusing the first prose region.
@@ -384,6 +408,7 @@ function openMergedView() {
         });
         block.items.forEach(function (comment) { host.insertAdjacentHTML('beforeend', mergedCardHtml(comment)); });
       });
+      renderAllAddressedNote();
       copyBtn.disabled = false;
       if (reselectIndex !== null) {
         var cards = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));

@@ -870,11 +870,16 @@ function buildMergedText() {
 // box" — just without the reopen/delete buttons (deletion happens by navigating to the source and using the
 // existing select-row-then-Backspace flow there, not from this panel). `.mc-merged-card` carries the
 // selection/keyboard behavior; `tabindex="-1"` makes it programmatically focusable without joining Tab order.
+// An answered comment shows only a tag here, never the answer body: this panel is the hand-off document you
+// scan and send, and a multi-paragraph agent answer inlined into it buries the requests you're actually
+// reviewing. The full answer stays one click away, in the thread at the comment's own line.
 function mergedCardHtml(comment) {
   return '<div class="mc-card mc-merged-card mc-' + comment.kind + '" data-comment-seq="' + comment.seq + '" tabindex="-1" role="button">'
     + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(comment.kind) + '</span>'
-    + '<span class="mc-target">' + escapeHtml(commentTargetLabel(comment)) + '</span></div>'
-    + '<div class="mc-card-body">' + escapeHtml(comment.text) + '</div>' + commentAnswerHtml(comment) + '</div>';
+    + '<span class="mc-target">' + escapeHtml(commentTargetLabel(comment)) + '</span>'
+    + (comment.answer ? '<span class="mc-answered-tag" title="' + escapeHtml(t('comment.answered.hint')) + '">' + escapeHtml(t('comment.answered')) + '</span>' : '')
+    + '</div>'
+    + '<div class="mc-card-body">' + escapeHtml(comment.text) + '</div></div>';
 }
 
 // Pushed from main (kakapo:answers-update, see answers-ipc.ts's syncAnswersFile) whenever the agent writes

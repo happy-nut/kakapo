@@ -538,3 +538,79 @@ test("unified merged prompt: closing/reopening never absorbs the plan/change-req
   assert.equal((merged.match(/Before changing any code, write a short implementation PLAN/g) || []).length, 1, "the plan contract appears exactly once, not duplicated into the question");
   v.close();
 });
+
+// An agent's answer belongs in the thread at the comment's own line, where you asked the question — not in
+// the merged hand-off panel, where a multi-paragraph reply buries the requests you're there to scan and send.
+// The merged card says only that an answer exists.
+test("an agent's answer renders in the thread but is only flagged in the merged panel", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("q");
+  await v.writeAndSave("why is this a CLI?");
+
+  const seq = v.storedComments()[0].seq;
+  v.window.applyAnswersUpdate([{ seq, answer: "Because it ships as one binary.", answeredAt: "2026-08-08T00:00:00Z" }]);
+  await v.settle(60);
+
+  const thread = v.$("#source-body .mc-card:not(.mc-composer) .mc-answer-body");
+  assert.equal(thread?.textContent, "Because it ships as one binary.", "the thread card carries the full answer");
+
+  await v.openMergedView();
+  const card = v.$(".mc-merged-card");
+  assert.ok(card, "merged card rendered");
+  assert.equal(card.querySelector(".mc-answer-body"), null, "the answer body is NOT repeated in the merged panel");
+  assert.ok(card.querySelector(".mc-answered-tag"), "merged card is flagged as answered instead");
+  assert.match(card.querySelector(".mc-card-body").textContent, /why is this a CLI\?/, "the request itself still shows");
+  v.close();
+});
+
+test("an unanswered comment carries no answered flag in the merged panel", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("q");
+  await v.writeAndSave("still open");
+
+  await v.openMergedView();
+  assert.equal(v.$(".mc-merged-card .mc-answered-tag"), null, "no flag until an answer actually arrives");
+  v.close();
+});
+
+// REGRESSION: an agent round that answers AND edits can remove every comment's anchor line at once, so
+// remapComments flags them ALL "possibly addressed" and mergedBlocks filters them all out — the merged panel
+// came up blank while the reviewer could still see their comments in the code, with nothing saying why.
+test("a merged panel emptied by the addressed heuristic explains itself and can be undone", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("c");
+  await v.writeAndSave("rename this");
+  await v.settle(60);
+
+  // What the heuristic does after the agent's edit removes the anchored line.
+  const seq = v.storedComments()[0].seq;
+  const comment = v.window.reviewComments.find((c) => c.seq === seq);
+  comment.anchorPresent = true;
+  comment.addressed = true;
+
+  await v.openMergedView();
+  assert.equal(v.$(".mc-merged-card"), null, "the flagged comment is filtered out of the hand-off, as designed");
+  const note = v.$(".mc-merged-empty-note");
+  assert.ok(note, "the blank panel says why it is blank instead of looking like lost work");
+  assert.match(note.textContent, /1/, "it names how many comments were flagged");
+
+  v.$(".mc-merged-reopen-all").click();
+  await v.settle(80);
+  assert.ok(v.$(".mc-merged-card"), "reopening puts the comment back into the hand-off");
+  assert.equal(v.$(".mc-merged-empty-note"), null, "and the notice is gone");
+  assert.match(v.window.buildMergedText(), /rename this/, "the reopened comment is in the outgoing prompt");
+  v.close();
+});
+
+test("a genuinely empty review shows no addressed-comments notice", async () => {
+  const v = await loadViewer(html);
+  await v.openMergedView();
+  assert.equal(v.$(".mc-merged-empty-note"), null, "nothing to explain when there are no comments at all");
+  v.close();
+});

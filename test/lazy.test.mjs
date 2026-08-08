@@ -349,3 +349,68 @@ test("lazy: changed active diff is hydrated off-DOM and swapped without a blank 
   assert.equal(v.diffCaretLine(), cursorLineBefore, "the caret is restored by working-tree line number");
   v.close();
 });
+
+// Same hazard as the composer hold above, on the terminal: applyDiffUpdate is one long SYNCHRONOUS DOM swap
+// and xterm shares the renderer's main thread, so a watch refresh landing between keystrokes stalls typing
+// (the reported "글자가 가끔 끊긴다"). An agent editing files fires a refresh every watch tick — exactly while
+// you type at its prompt. The refresh is deferred around active typing and applied once it pauses.
+test("lazy-LOAD: a watch refresh is deferred while typing in the terminal, then applied on pause", async () => {
+  const b1 = await makeReviewHtml(
+    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 111;\n" }],
+    { lazyLoad: true },
+  );
+  let bodies = await renderLazyBodies(b1.build);
+  const v = await loadViewer(b1.html, {
+    menuBridge: true,
+    lazySourceData: b1.build.lazySourceData,
+    getDiffBody: (idx) => bodies[idx] || "",
+  });
+  await v.openDiffFor("src/live.ts");
+  await v.settle(120);
+
+  // The terminal bundle doesn't boot in jsdom (no xterm), so stand in for its public surface — the refresh
+  // only ever asks it one question: when did the reviewer last type?
+  let typedAt = v.window.Date.now();
+  v.window.__kakapoTerminal = { typingAt: () => typedAt };
+
+  const b2 = await makeReviewHtml(
+    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 222;\n" }],
+    { lazyLoad: true },
+  );
+  bodies = await renderLazyBodies(b2.build);
+  await v.pushDiffUpdate(b2.build.update);
+  await v.settle(120);
+  assert.doesNotMatch(v.$("#diff2html-container").textContent, /222/, "diff is NOT rebuilt mid-keystroke");
+
+  await v.settle(600); // typing pauses past the idle window — the held refresh retries on its own
+  assert.match(v.$("#diff2html-container").textContent, /222/, "the held watch refresh lands once typing stops");
+  v.close();
+});
+
+// The hold must be time-based, not modal: watching an agent work in a pane (no typing) has to keep the diff
+// refreshing live. Only actual keystrokes defer it.
+test("lazy-LOAD: an idle terminal never defers the watch refresh", async () => {
+  const b1 = await makeReviewHtml(
+    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 111;\n" }],
+    { lazyLoad: true },
+  );
+  let bodies = await renderLazyBodies(b1.build);
+  const v = await loadViewer(b1.html, {
+    menuBridge: true,
+    lazySourceData: b1.build.lazySourceData,
+    getDiffBody: (idx) => bodies[idx] || "",
+  });
+  await v.openDiffFor("src/live.ts");
+  await v.settle(120);
+  v.window.__kakapoTerminal = { typingAt: () => v.window.Date.now() - 5000 }; // open, but idle for 5s
+
+  const b2 = await makeReviewHtml(
+    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 222;\n" }],
+    { lazyLoad: true },
+  );
+  bodies = await renderLazyBodies(b2.build);
+  await v.pushDiffUpdate(b2.build.update);
+  await v.settle(120);
+  assert.match(v.$("#diff2html-container").textContent, /222/, "refresh applied immediately while merely watching");
+  v.close();
+});
