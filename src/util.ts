@@ -251,3 +251,44 @@ export function tmuxSpawnArgs(session: string, cwd: string, env: { [key: string]
     ";", "set", "-ga", "terminal-overrides", ",*256col*:Tc",
   ]);
 }
+
+type Killable = { kill: (signal?: string) => void };
+
+/**
+ * Kill-and-wait bookkeeping for ptys, because quitting used to crash the app.
+ *
+ * node-pty reaps a pty on a native thread and delivers the exit back through N-API. If that delivery lands
+ * after Electron has started tearing the Node environment down (node::FreeEnvironment -> uv_run), the N-API
+ * call fails and the addon escalates the failure into a C++ throw with no JS frame to catch it: SIGABRT, i.e.
+ * macOS's "Kakapo quit unexpectedly" dialog on an ordinary Cmd+Q. Killing a pty as the window tears down puts
+ * the app squarely in that race. So every kill is registered here, and quit waits for the exits to be
+ * delivered while the environment is still alive.
+ */
+export function createPtyReaper(): {
+  kill: (pty: Killable) => void;
+  settle: (pty: Killable) => void;
+  drain: (timeoutMs?: number, pollMs?: number) => Promise<boolean>;
+} {
+  const pending = new Set<Killable>();
+  return {
+    kill(pty) {
+      pending.add(pty);
+      try { pty.kill(); } catch { pending.delete(pty); /* already exited — nothing will be delivered */ }
+    },
+    // Called from the pty's own exit handler: the native delivery has happened, this one can't bite anymore.
+    settle(pty) { pending.delete(pty); },
+    // ponytail: a shell that ignores SIGHUP past the timeout still races teardown. Escalate to SIGKILL here
+    // if that ever shows up in a crash report — the cap only exists so quit can't hang on a wedged pty.
+    drain(timeoutMs = 1500, pollMs = 20) {
+      return new Promise((resolve) => {
+        const deadline = Date.now() + timeoutMs;
+        const tick = (): void => {
+          if (!pending.size) { resolve(true); return; }
+          if (Date.now() >= deadline) { pending.clear(); resolve(false); return; }
+          setTimeout(tick, pollMs);
+        };
+        tick();
+      });
+    },
+  };
+}

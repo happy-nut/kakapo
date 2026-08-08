@@ -5,7 +5,7 @@ import { spawn as spawnPty, type IPty } from "node-pty";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, nextTerminalOrdinal, tmuxSpawnArgs } from "./util.js";
+import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper } from "./util.js";
 import { resumeCommandForInput } from "./agent-resume.js";
 
 // A GUI launch (Finder, Dock, Spotlight) inherits a minimal PATH with no Homebrew prefix, so `tmux` is
@@ -66,6 +66,10 @@ type TerminalStateResolver = (event: TerminalEvent) => TerminalIpcState | undefi
 
 let nextPtyId = 0; // global so pty ids never collide across windows; each window holds only its own in state.terms
 
+// Every pty kill in the app goes through this (window close, workspace removal, pane close, quit) so quit can
+// wait for the native exit deliveries instead of aborting on them — see createPtyReaper.
+export const ptyReaper = createPtyReaper();
+
 /**
  * Integrated terminal: own node-pty sessions in the main process (the sandboxed renderer can't spawn
  * them) and relay bytes to the renderer's xterm panes. Each pty is owned by the window that spawned it
@@ -117,6 +121,7 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     });
     t.onExit(() => {
       try {
+        ptyReaper.settle(t);
         state.terms.delete(id);
         state.commandBuffers?.delete(id);
         state.onAgentFinished?.();
@@ -152,7 +157,7 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
       if (tmux) try { spawnSync(tmux, ["kill-session", "-t", session]); } catch { /* already gone */ }
       state!.termSessions!.delete(msg.id);
     }
-    if (t) { try { t.kill(); } catch { /* already exited */ } state!.terms.delete(msg.id); }
+    if (t) { ptyReaper.kill(t); state!.terms.delete(msg.id); }
     state?.commandBuffers?.delete(msg.id);
   });
 

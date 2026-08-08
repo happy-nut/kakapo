@@ -25,7 +25,7 @@ import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
-import { registerTerminalIpc } from "./app-terminal-ipc.js";
+import { registerTerminalIpc, ptyReaper } from "./app-terminal-ipc.js";
 import { registerAnswersIpc, syncAnswersFile, answersFilePath } from "./answers-ipc.js";
 import { registerExplainIpc, refreshExplainIfChanged } from "./app-explain-ipc.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
@@ -582,7 +582,7 @@ ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unk
   if (payload.mode === "delete") {
     if (record.kind === "main") return { ok: false, error: "The main checkout can only be closed.", risk };
     if (!payload.force && (risk.dirty || risk.unpushed || risk.runningProcesses)) return { ok: false, needsConfirmation: true, risk };
-    for (const term of state.terms.values()) try { term.kill(); } catch {}
+    for (const term of state.terms.values()) ptyReaper.kill(term);
     removeManagedWorkspace(record, !!payload.force, !!payload.deleteBranch);
   }
   const metadataIndex = startupWorkspaceMetadata.findIndex((item) => resolveWorkspaceRoot(item.path) === record.path);
@@ -861,18 +861,28 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
 });
 else app.quit();
 
+// Quitting kills every pty, and node-pty delivers those exits from a native thread: one landing after Electron
+// has begun tearing the Node environment down aborts the process, so an ordinary Cmd+Q raises a macOS crash
+// dialog. Take the exits here, while the environment is still alive, and only then quit for real.
+async function finishQuit(): Promise<void> {
+  quitConfirmed = true;
+  for (const state of states.values()) for (const term of state.terms.values()) ptyReaper.kill(term);
+  await ptyReaper.drain();
+  app.quit();
+}
+
 // Each window's "closed" handler clears its timer and deletes its state, so quit once the last window is gone.
 app.on("before-quit", (event) => {
   if (quitConfirmed) return;
-  const running = Array.from(states.values()).filter((state) => state.terms.size > 0).length;
-  if (!running) { quitConfirmed = true; return; }
   event.preventDefault();
+  const running = Array.from(states.values()).filter((state) => state.terms.size > 0).length;
+  if (!running) { void finishQuit(); return; }
   const t = tr();
   const message = t("dialog.agentsRunning.message", { n: running, s: running === 1 ? "" : "s" });
   const detail = t("dialog.agentsRunning.detail");
   const title = t("dialog.agentsRunning.title");
   const buttons = [t("dialog.agentsRunning.keepOpen"), t("dialog.agentsRunning.quit")];
-  const quitIfChosen = (choice: number): void => { if (choice === 1) { quitConfirmed = true; app.quit(); } };
+  const quitIfChosen = (choice: number): void => { if (choice === 1) void finishQuit(); };
   // Custom overlay dialog, with the native box as a fallback so quit is never blocked if the overlay can't show.
   void showOverlayConfirm({ title, message, detail, buttons, danger: true, defaultId: 0 }).then((r) => {
     if (r.presented) { quitIfChosen(r.index); return; }
@@ -1509,7 +1519,7 @@ function createWindow(root: string, deferBoot = false): WinState {
   view.webContents.on("destroyed", () => {
     // Killing a persistent pane's pty only detaches its tmux client — the session and the agent inside it
     // keep running, which is the whole point. Sessions are killed on explicit pane close (pty-kill), not here.
-    for (const t of state.terms.values()) { try { t.kill(); } catch { /* already exited */ } }
+    for (const t of state.terms.values()) ptyReaper.kill(t);
     state.terms.clear();
     state.termSessions.clear();
     state.commandBuffers.clear();
