@@ -14,6 +14,10 @@ export type AnswersItem = {
   prompt: string;
   answer: string | null;
   answeredAt: string | null;
+  // Present only on a follow-up comment: the exchange it continues, oldest first. The checklist is rewritten
+  // wholesale every round, so without this an agent would read "why did you do it that way?" with no record
+  // of the question it answers. Read-only context — the agent still fills in `answer` for this item alone.
+  thread?: { prompt: string; answer: string | null }[];
 };
 
 export type AnswersDoc = {

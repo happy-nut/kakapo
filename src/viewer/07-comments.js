@@ -183,7 +183,7 @@ function relevantLines(path) {
   if (composerState && composerState.path === path) set[composerState.line] = true;
   return Object.keys(set).map(Number).sort(function (a, b) { return a - b; });
 }
-function addComment(kind, path, line, code, text, from, to, side, anchorCode) {
+function addComment(kind, path, line, code, text, from, to, side, anchorCode, replyTo) {
   var trimmed = String(text || '').trim();
   if (!trimmed) return;
   commentSeq += 1;
@@ -200,8 +200,24 @@ function addComment(kind, path, line, code, text, from, to, side, anchorCode) {
     anchorPresent: anchorLinePresent(path, anchorCode, code), addressed: false,
     // Filled in by applyAnswersUpdate() once an agent writes into answers.json (see 08-dock.js/answers-ipc.ts).
     answer: null, answeredAt: null,
+    // Set when this comment continues an existing exchange (the Reply button on an answered card). The
+    // follow-up is a full comment of its own — own seq, own answer — that carries its ancestors' Q&A to the
+    // agent as context, so "why did you do it that way?" isn't handed over with the question stripped off.
+    replyTo: replyTo == null ? null : Number(replyTo),
   });
   saveComments();
+}
+// Walk a comment's reply chain back to its root, oldest exchange first. Used to give an agent the
+// conversation a follow-up belongs to (see the answers payload in 08-dock.js) and to indent the thread.
+function commentAncestry(comment) {
+  var chain = [], guard = 0, node = comment;
+  while (node && node.replyTo != null && ++guard < 50) {
+    var parent = reviewComments.find(function (x) { return x.seq === node.replyTo; });
+    if (!parent) break;
+    chain.unshift(parent);
+    node = parent;
+  }
+  return chain;
 }
 // The reviewer disagrees with the "possibly addressed" heuristic: reopen the comment. Clear anchorPresent too
 // so it only becomes addressed again if its anchor first reappears and then disappears in a future round.
@@ -338,17 +354,19 @@ function threadHtml(path, line) {
     if (composerState && composerState.editSeq === c.seq) return; // being edited -> rendered as the composer below
     var target = commentTargetLabel(c);
     var addressed = !!c.addressed;
-    html += '<div class="mc-card mc-' + c.kind + (addressed ? ' mc-addressed' : '') + '">'
+    html += '<div class="mc-card mc-' + c.kind + (addressed ? ' mc-addressed' : '') + (c.replyTo != null ? ' mc-reply-card' : '') + '">'
       + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(c.kind) + '</span>'
       + '<span class="mc-target" title="' + escapeHtml(target) + '">' + escapeHtml(target) + '</span>'
       + (addressed ? '<span class="mc-addressed-tag" title="' + escapeHtml(t('comment.addressed.hint')) + '">' + escapeHtml(t('comment.addressed')) + '</span>' : '')
       + (addressed ? '<button type="button" class="mc-reopen" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reopen')) + '" title="' + escapeHtml(t('comment.reopen')) + '">↺</button>' : '')
+      + '<button type="button" class="mc-reply" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reply')) + '" title="' + escapeHtml(t('comment.reply')) + '">↩</button>'
       + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
       + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div>' + commentAnswerHtml(c) + '</div>';
   });
   if (composerState && composerState.path === path && composerState.line === line) {
-    var ph = composerState.kind === 'q' ? t('composer.question') : t('composer.changeRequest');
-    html += '<div class="mc-card mc-' + composerState.kind + ' mc-composer">'
+    var ph = composerState.replyTo != null ? t('composer.reply')
+      : composerState.kind === 'q' ? t('composer.question') : t('composer.changeRequest');
+    html += '<div class="mc-card mc-' + composerState.kind + ' mc-composer' + (composerState.replyTo != null ? ' mc-reply-card' : '') + '">'
       + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(composerState.kind) + '</span><span class="mc-target" title="' + escapeHtml(commentTargetLabel(composerState)) + '">' + escapeHtml(commentTargetLabel(composerState)) + '</span></div>'
       // spellcheck/autocorrect/autocapitalize off: a code-review comment carries identifiers and symbols that
       // macOS/Chromium text substitution mangles (foo_bar -> foo bar, capitalizing names) — and that OS-level
@@ -606,6 +624,19 @@ function openComposer(kind) {
   refreshComments(); // refreshComments syncs body.mc-composing from the on-screen composer
 
 }
+// Continue an exchange from the card itself (the Reply button), instead of hunting the code line down again
+// and writing what reads as an unrelated new comment. The reply inherits the parent's anchor, so it lives in
+// the same thread and travels with it; kind is inherited too (a follow-up to a question is still a question).
+function openReplyComposer(seq) {
+  var parent = reviewComments.find(function (x) { return x.seq === seq; });
+  if (!parent) return;
+  composerState = {
+    kind: parent.kind, path: parent.path, line: parent.line, code: parent.code, anchorCode: parent.anchorCode,
+    from: parent.from, to: parent.to, side: parent.side, replyTo: parent.seq,
+  };
+  try { var rsel = window.getSelection(); if (rsel) rsel.removeAllRanges(); } catch (e) {}
+  refreshComments();
+}
 function closeComposer() {
   if (!composerState) return;
   composerState = null;
@@ -643,7 +674,7 @@ function saveComposer(ta) {
   var box = ta || activeComposerInput();
   if (!box) return;
   if (composerState.editSeq != null) updateComment(composerState.editSeq, box.value);
-  else addComment(composerState.kind, composerState.path, composerState.line, composerState.code, box.value, composerState.from, composerState.to, composerState.side, composerState.anchorCode);
+  else addComment(composerState.kind, composerState.path, composerState.line, composerState.code, box.value, composerState.from, composerState.to, composerState.side, composerState.anchorCode, composerState.replyTo);
   composerState = null;
   refreshComments();
   flushPendingDiffUpdate(); // apply any live watch refresh that was held while composing
@@ -850,17 +881,27 @@ function mergedBlocks() {
 // One unified hand-off document as a single string (Copy all's default, "Send to terminal", and tests).
 // The live merged dock instead renders each block as its own small editable surface plus one non-editable
 // card per comment (see openMergedView/currentMergedText in 08-dock.js) — this stays the static/default view.
+// One comment's lines in the hand-off document — shared with the live panel's currentMergedText (08-dock.js)
+// so the two can't drift. A follow-up leads with the exchange it continues, quoted, because the checklist is
+// rewritten every round: without it the agent reads "why did you do it that way?" and has no "that way".
+function mergedItemLines(c) {
+  var lines = ['### ' + commentTargetLabel(c)];
+  commentAncestry(c).forEach(function (parent) {
+    lines.push('> ' + parent.text.split('\n').join('\n> '));
+    if (parent.answer) lines.push('>', '> ' + t('comment.answer') + ': ' + parent.answer.split('\n').join('\n> '));
+    lines.push('');
+  });
+  lines.push(c.text);
+  lines.push('');
+  return lines;
+}
 function buildMergedText() {
   var nl = String.fromCharCode(10);
   var lines = [];
   mergedBlocks().forEach(function (block) {
     if (!block.prose && !block.items.length) return; // the empty scratch-pad block prints nothing
     if (block.prose) { lines.push(block.prose); lines.push(''); }
-    block.items.forEach(function (c) {
-      lines.push('### ' + commentTargetLabel(c));
-      lines.push(c.text);
-      lines.push('');
-    });
+    block.items.forEach(function (c) { lines.push.apply(lines, mergedItemLines(c)); });
   });
   return lines.join(nl);
 }

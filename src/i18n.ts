@@ -179,6 +179,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.addressed": "possibly addressed",
     "comment.addressed.hint": "The line this comment was anchored to changed in the latest revision — the agent likely addressed it. Reopen if it isn't resolved.",
     "comment.reopen": "Reopen",
+    "comment.reply": "Reply",
     "comment.restored": "Comment restored",
     "comment.restoredMany": "Comments restored",
     "diff.previous": "Previous change (Shift+F7)",
@@ -470,6 +471,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Composer (per-line question / change-request)
     "composer.question": "Ask a question about this line",
+    "composer.reply": "Continue this thread",
     "composer.changeRequest": "Request a change for this line",
     "composer.save": "Comment",
     "composer.cancel": "Cancel",
@@ -687,6 +689,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.addressed": "반영된 듯",
     "comment.addressed.hint": "이 코멘트가 가리키던 줄이 최신 변경에서 바뀌었습니다 — 에이전트가 반영했을 가능성이 큽니다. 아직 안 됐으면 재열기하세요.",
     "comment.reopen": "재열기",
+    "comment.reply": "답글",
     "comment.restored": "코멘트를 복원했습니다",
     "comment.restoredMany": "코멘트들을 복원했습니다",
     "diff.previous": "이전 변경 (Shift+F7)",
@@ -978,6 +981,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Composer
     "composer.question": "이 줄에 대해 질문하기",
+    "composer.reply": "이 대화 이어가기",
     "composer.changeRequest": "이 줄에 대한 변경 요청하기",
     "composer.save": "코멘트",
     "composer.cancel": "취소",

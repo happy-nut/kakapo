@@ -614,3 +614,53 @@ test("a genuinely empty review shows no addressed-comments notice", async () => 
   assert.equal(v.$(".mc-merged-empty-note"), null, "nothing to explain when there are no comments at all");
   v.close();
 });
+
+// GitHub-style: an answer ends a turn, not the conversation. Reply from the card, and the follow-up travels
+// with the exchange it continues — the answers checklist is rewritten every round, so a bare "why that way?"
+// would otherwise reach the agent with the question it refers to stripped off.
+test("a reply continues the thread and carries the earlier exchange to the agent", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("q");
+  await v.writeAndSave("why is this a CLI?");
+  await v.settle(60);
+
+  const seq = v.storedComments()[0].seq;
+  v.window.applyAnswersUpdate([{ seq, answer: "It ships as one binary.", answeredAt: "2026-08-08T00:00:00Z" }]);
+  await v.settle(60);
+
+  const replyBtn = v.$("#source-body .mc-card:not(.mc-composer) .mc-reply");
+  assert.ok(replyBtn, "an answered card offers a reply, so the exchange isn't a dead end");
+  replyBtn.click();
+  await v.settle(60);
+  assert.ok(v.visibleComposerInput(), "reply composer opened without re-selecting the code line");
+  await v.writeAndSave("then why not a library too?");
+  await v.settle(60);
+
+  const stored = v.storedComments();
+  assert.equal(stored.length, 2, "the reply is its own comment");
+  const reply = stored[1];
+  assert.equal(reply.replyTo, seq, "linked to the comment it answers");
+  assert.equal(reply.kind, "q", "a follow-up to a question is still a question");
+  assert.equal(reply.line, stored[0].line, "and stays anchored to the same line, so it renders as one thread");
+
+  const merged = v.window.buildMergedText();
+  assert.match(merged, /> why is this a CLI\?/, "the hand-off quotes the original question");
+  assert.match(merged, /> .*It ships as one binary\./, "...and the answer it got");
+  assert.match(merged, /then why not a library too\?/, "...before the follow-up itself");
+  v.close();
+});
+
+test("a plain comment carries no thread context", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("q");
+  await v.writeAndSave("standalone question");
+  await v.settle(60);
+
+  assert.equal(v.storedComments()[0].replyTo, null, "no parent");
+  assert.doesNotMatch(v.window.buildMergedText(), /^> /m, "and nothing quoted ahead of it");
+  v.close();
+});

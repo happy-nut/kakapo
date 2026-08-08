@@ -206,11 +206,7 @@ function openMergedView() {
       var prose = entry ? entry.editor.getMarkdown() : block.prose;
       if (!prose && !block.items.length) return;
       if (prose) { lines.push(prose); lines.push(''); }
-      block.items.forEach(function (c) {
-        lines.push('### ' + commentTargetLabel(c));
-        lines.push(c.text);
-        lines.push('');
-      });
+      block.items.forEach(function (c) { lines.push.apply(lines, mergedItemLines(c)); });
     });
     return lines.join(nl);
   }
@@ -224,7 +220,12 @@ function openMergedView() {
   function sendWholeDocToTerminal() {
     var text = currentMergedText();
     var items = blocks.reduce(function (acc, block) { return acc.concat(block.items); }, []).map(function (c) {
-      return { seq: c.seq, kind: c.kind, target: commentTargetLabel(c), prompt: c.text, answer: null, answeredAt: null };
+      // A follow-up ("why that way?") is meaningless without what it follows, and this checklist is rewritten
+      // per round — so carry the exchange it continues, oldest first, rather than handing over a bare pronoun.
+      var thread = commentAncestry(c).map(function (p) { return { prompt: p.text, answer: p.answer || null }; });
+      var item = { seq: c.seq, kind: c.kind, target: commentTargetLabel(c), prompt: c.text, answer: null, answeredAt: null };
+      if (thread.length) item.thread = thread;
+      return item;
     });
     dock.close();
     function deliver(finalText) {
@@ -539,6 +540,8 @@ document.addEventListener('click', function (event) {
   if (!t || !t.closest) return;
   var reopen = t.closest('.mc-reopen');
   if (reopen) { event.preventDefault(); reopenComment(parseInt(reopen.dataset.seq, 10)); return; }
+  var reply = t.closest('.mc-reply');
+  if (reply) { event.preventDefault(); openReplyComposer(parseInt(reply.dataset.seq, 10)); return; }
   var del = t.closest('.mc-del');
   if (del) { event.preventDefault(); deleteComment(parseInt(del.dataset.seq, 10)); return; }
   if (t.closest('.mc-save')) { event.preventDefault(); saveComposer(); return; }
