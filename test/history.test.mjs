@@ -476,3 +476,35 @@ test("history changed-files list: a commitDiff response without fileStatus still
   assert.ok(badge.classList.contains("status-modified"), "a missing fileStatus map defaults every file to Modified");
   v.close();
 });
+
+// REGRESSION: History's key handler is wired as a CAPTURE listener on document, so it saw every key before
+// the element that actually had focus. With a terminal pane open underneath the overlay you could type into
+// the shell but Enter never arrived — History consumed it to open the selected commit instead.
+test("history: Enter typed into the terminal reaches the terminal, not the open overlay", async () => {
+  const v = await loadViewer(html);
+  const calls = installHistoryBridge(v);
+
+  v.key("9", { metaKey: true, code: "Digit9" });
+  await v.settle(80);
+  assert.equal(v.$("#history-view").classList.contains("hidden"), false, "history overlay opens");
+
+  // Stands in for xterm's hidden helper textarea, which is what holds focus in a real terminal pane.
+  const panel = v.$(".terminal-panel") || v.document.body;
+  const shellInput = v.document.createElement("textarea");
+  panel.appendChild(shellInput);
+  shellInput.focus();
+
+  const enter = new v.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+  shellInput.dispatchEvent(enter);
+  await v.settle(40);
+  assert.equal(enter.defaultPrevented, false, "the key belongs to the focused terminal");
+  assert.deepEqual(calls, [], "History did not open a commit diff from a keystroke meant for the shell");
+  assert.equal(v.$("#history-view").classList.contains("hidden"), false, "History stays open — only the key passes through");
+
+  // ...and History still owns Enter once its own surface has focus again.
+  v.$("#history-view").focus();
+  v.key("Enter");
+  await v.settle(80);
+  assert.deepEqual(calls, ["aaaaaaaa"], "Enter inside History still opens the selected commit");
+  v.close();
+});

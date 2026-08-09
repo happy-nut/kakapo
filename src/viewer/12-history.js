@@ -1048,6 +1048,14 @@ function handleHistoryKey(e) {
   if (!isHistoryOpen()) return false;
   var ae = document.activeElement;
   var inSearch = ae && ae.id === 'history-search';
+  // This also runs from a CAPTURE listener (see wireHistory), i.e. before the focused element sees the key at
+  // all. So it has to stand down for anything genuinely being typed into outside History's own chrome — above
+  // all the integrated terminal, whose xterm keeps a hidden textarea focused: with History open, its Enter
+  // never reached the shell. History's own search box is inside #history-view and keeps its keys.
+  if (ae && !inSearch
+    && ((ae.closest && ae.closest('.terminal-panel'))
+      || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable)
+    && !(ae.closest && ae.closest('#history-view'))) return false;
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.code === 'Digit9' || e.key === '9')) {
     e.preventDefault(); e.stopPropagation(); closeHistory(); return true;
   }
