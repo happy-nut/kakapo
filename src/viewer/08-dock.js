@@ -774,15 +774,19 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   // The two preferences stay separately persisted ('kakapo-theme' / 'kakapo-syntax-theme') and keep their
   // existing values — only the UI is flattened, so a stored setting, the cross-window broadcast below, and
   // applyTheme/applySyntaxTheme are all untouched.
+  // The families a stored preference may name. A palette is a CSS block plus a row here — nothing else.
+  var SYNTAX_FAMILIES = ['default', 'darcula', 'github'];
   var THEMES = [
     { id: 'system', mode: 'system' },
     { id: 'default-dark', family: 'default', mode: 'dark' },
     { id: 'default-light', family: 'default', mode: 'light' },
     { id: 'darcula-dark', family: 'darcula', mode: 'dark' },
     { id: 'darcula-light', family: 'darcula', mode: 'light' },
+    { id: 'github-dark', family: 'github', mode: 'dark' },
+    { id: 'github-light', family: 'github', mode: 'light' },
   ];
   function applySyntaxThemePref(next) {
-    if ((next !== 'default' && next !== 'darcula') || next === syntaxTheme) return;
+    if (SYNTAX_FAMILIES.indexOf(next) < 0 || next === syntaxTheme) return;
     syntaxTheme = next;
     persistSave(SYNTAX_THEME_KEY, syntaxTheme);
     applySyntaxTheme();

@@ -116,6 +116,99 @@
 /* JetBrains theme family. Appearance selects its matching member: Darcula Dark or IntelliJ Light.
    These palettes own both application chrome and code tokens so a light window never contains a
    surprising dark editor island (and vice versa). */
+/* GitHub (Primer). The default family is GitHub-flavoured in its accents only; this one is the real palette,
+   including the syntax tokens — red keywords, blue strings, purple functions — that make a diff here look
+   like the same diff on github.com. */
+:root[data-theme="dark"][data-syntax-theme="github"] {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --panel: #0d1117;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --border: #30363d;
+  --line: #161b22;
+  --add: #12261e;
+  --del: #25171c;
+  --add-strong: #1b4721;
+  --del-strong: #78191b;
+  --diff-modified: #0c2d6b;
+  --diff-modified-strong: #1158c7;
+  --diff-added: #12261e;
+  --diff-added-strong: #1b4721;
+  --diff-deleted: #25171c;
+  --diff-deleted-strong: #78191b;
+  --active: #58a6ff;
+  --active-strong: #79c0ff;
+  --sidebar: #0d1117;
+  --elevated: #161b22;
+  --shadow: rgba(1, 4, 9, 0.85);
+  --chrome-bg: #010409;
+  --chrome-panel: #0d1117;
+  --chrome-elevated: #161b22;
+  --chrome-text: #e6edf3;
+  --chrome-muted: #8b949e;
+  --chrome-border: #30363d;
+  --chrome-line: #21262d;
+  --chrome-selected: #21262d;
+  --chrome-selected-text: #ffffff;
+  --chrome-vcs-new: #7ee787;
+  --chrome-vcs-edited: #79c0ff;
+  --chrome-vcs-staged: #3fb950;
+  --token-comment: #8b949e;
+  --token-keyword: #ff7b72;
+  --token-string: #a5d6ff;
+  --token-number: #79c0ff;
+  --token-literal: #79c0ff;
+  --token-tag: #7ee787;
+  --token-function: #d2a8ff;
+  --token-type: #ffa657;
+  --token-decorator: #d2a8ff;
+}
+:root[data-theme="light"][data-syntax-theme="github"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --text: #1f2328;
+  --muted: #59636e;
+  --border: #d1d9e0;
+  --line: #f6f8fa;
+  --add: #dafbe1;
+  --del: #ffebe9;
+  --add-strong: #aceebb;
+  --del-strong: #ffcecb;
+  --diff-modified: #ddf4ff;
+  --diff-modified-strong: #b6e3ff;
+  --diff-added: #dafbe1;
+  --diff-added-strong: #aceebb;
+  --diff-deleted: #ffebe9;
+  --diff-deleted-strong: #ffcecb;
+  --active: #0969da;
+  --active-strong: #0550ae;
+  --sidebar: #f6f8fa;
+  --elevated: #ffffff;
+  --shadow: rgba(31, 35, 40, 0.15);
+  --chrome-bg: #f6f8fa;
+  --chrome-panel: #ffffff;
+  --chrome-elevated: #ffffff;
+  --chrome-text: #1f2328;
+  --chrome-muted: #59636e;
+  --chrome-border: #d1d9e0;
+  --chrome-line: #d1d9e0;
+  --chrome-selected: #dde3ea;
+  --chrome-selected-text: #1f2328;
+  --chrome-vcs-new: #1a7f37;
+  --chrome-vcs-edited: #0969da;
+  --chrome-vcs-staged: #1a7f37;
+  --token-comment: #6e7781;
+  --token-keyword: #cf222e;
+  --token-string: #0a3069;
+  --token-number: #0550ae;
+  --token-literal: #0550ae;
+  --token-tag: #116329;
+  --token-function: #8250df;
+  --token-type: #953800;
+  --token-decorator: #8250df;
+}
 :root[data-theme="dark"][data-syntax-theme="darcula"] {
   color-scheme: dark;
   --bg: #2b2b2b;
@@ -623,6 +716,9 @@ body.native-app .source-tabs {
 .theme-swatch[data-swatch="default-dark"] { background: linear-gradient(135deg, #101318 0 62%, #58a6ff 62%); }
 .theme-swatch[data-swatch="default-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0969da 62%); }
 .theme-swatch[data-swatch="default-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #101318 50%); }
+.theme-swatch[data-swatch="github-dark"] { background: linear-gradient(135deg, #0d1117 0 62%, #58a6ff 62%); }
+.theme-swatch[data-swatch="github-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0969da 62%); }
+.theme-swatch[data-swatch="github-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #0d1117 50%); }
 .theme-swatch[data-swatch="darcula-dark"] { background: linear-gradient(135deg, #2b2b2b 0 62%, #4a88c7 62%); }
 .theme-swatch[data-swatch="darcula-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #3574f0 62%); }
 .theme-swatch[data-swatch="darcula-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #2b2b2b 50%); }
@@ -1597,6 +1693,29 @@ h1 { margin: 0; font-size: 18px; }
      file still reaches the bottom instead of floating at the top — IntelliJ-style. */
   flex: 1 1 auto;
   min-height: 0;
+}
+/* GitHub's canvas under the code, so a diff reads like the same diff on github.com. */
+:root[data-theme="dark"][data-syntax-theme="github"] #diff2html-container,
+:root[data-theme="dark"][data-syntax-theme="github"] .history-diff,
+:root[data-theme="dark"][data-syntax-theme="github"] .source-body:not(.rendered-body):not(.image-body) {
+  --panel: #0d1117;
+  --text: #e6edf3;
+  --d2h-bg-color: #0d1117;
+  --d2h-code-line-bg-color: #0d1117;
+  --d2h-code-line-color: #e6edf3;
+  background-color: #0d1117;
+  color: #e6edf3;
+}
+:root[data-theme="light"][data-syntax-theme="github"] #diff2html-container,
+:root[data-theme="light"][data-syntax-theme="github"] .history-diff,
+:root[data-theme="light"][data-syntax-theme="github"] .source-body:not(.rendered-body):not(.image-body) {
+  --panel: #ffffff;
+  --text: #1f2328;
+  --d2h-bg-color: #ffffff;
+  --d2h-code-line-bg-color: #ffffff;
+  --d2h-code-line-color: #1f2328;
+  background-color: #ffffff;
+  color: #1f2328;
 }
 /* The dark member owns a Darcula canvas; rendered Markdown keeps the app surface because it is prose. */
 :root[data-theme="dark"][data-syntax-theme="darcula"] #diff2html-container,

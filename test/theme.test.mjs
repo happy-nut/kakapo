@@ -24,7 +24,7 @@ test("defaults to dark, with a theme selector in settings", async () => {
   // One flat grid, not two dropdowns: each card is a whole named theme that is already light or dark,
   // plus System — the only entry that has an appearance to resolve at all.
   const names = v.$all("#settings-theme-grid .theme-card-name").map((n) => n.textContent);
-  assert.deepEqual(names, ["System", "Kakapo Dark", "Kakapo Light", "Darcula", "IntelliJ Light"]);
+  assert.deepEqual(names, ["System", "Kakapo Dark", "Kakapo Light", "Darcula", "IntelliJ Light", "GitHub Dark", "GitHub Light"]);
   assert.equal(v.$("#settings-theme-grid .theme-card.is-active").dataset.themeId, "default-dark");
   assert.ok(
     v.$all("#settings-theme-grid .theme-swatch").every((s) => s.dataset.swatch),
@@ -142,4 +142,28 @@ test("switching theme repaints the live terminal panes, and light gets a readabl
   for (const slot of ["white", "brightWhite", "yellow"]) {
     assert.ok(new RegExp(`\\b${slot}: '#`).test(term), `the light palette defines ${slot}`);
   }
+});
+
+// The GitHub family is a real Primer palette, not the default family's GitHub-flavoured accents: the point
+// of choosing it is that a diff here reads like the same diff on github.com, which is the syntax tokens
+// (red keywords, blue strings, purple functions) and the canvas under the code.
+test("the GitHub family carries Primer's own palette on both sides", async () => {
+  const v = await loadViewer(html);
+  const css = Array.from(v.document.querySelectorAll("style"), (s) => s.textContent || "").join("\n");
+  for (const mode of ["dark", "light"]) {
+    const head = `:root[data-theme="${mode}"][data-syntax-theme="github"] {`;
+    const at = css.indexOf(head);
+    assert.ok(at >= 0, `the ${mode} member exists`);
+    const block = css.slice(at, css.indexOf("}", at));
+    for (const token of ["--token-keyword", "--token-string", "--token-function", "--chrome-bg", "--diff-added"]) {
+      assert.ok(block.includes(token + ":"), `${mode} defines ${token}`);
+    }
+  }
+  assert.ok(css.includes('data-syntax-theme="github"] #diff2html-container'), "and its own code canvas");
+  assert.ok(css.includes('.theme-swatch[data-swatch="github-dark"]'), "with swatches for the picker");
+
+  // Selecting it must survive: the picker only accepts families it knows, so a new one has to be listed.
+  const dock = readFileSync(new URL("../src/viewer/08-dock.js", import.meta.url), "utf8");
+  assert.match(dock, /SYNTAX_FAMILIES = \['default', 'darcula', 'github'\]/, "the family is selectable");
+  v.close();
 });
