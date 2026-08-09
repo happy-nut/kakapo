@@ -1,13 +1,32 @@
-function isFloatingModalOpen() {
-  var sm = document.getElementById('settings-modal');
-  if (sm && !sm.classList.contains('hidden')) return true;
-  var hv = document.getElementById('history-view');
-  if (hv && !hv.classList.contains('hidden')) return true; // history overlay owns the keys (Esc/filter/click)
-  if (document.getElementById('goto-line')) return true; // go-to-line prompt owns the keys until Enter/Esc
-  // The merged/memo panels are now docked (inline), not overlays — but while one OWNS focus we still stand
-  // down the global nav shortcuts so typing / ▲▼ inside it isn't hijacked. Focus elsewhere -> shortcuts run.
-  return isDockFocused();
+// ===== Who owns the keyboard right now =============================================================
+// One decision, asked by every shortcut below, instead of each branch re-deriving "is a modal up / is a
+// panel focused / am I in a text field". Ordered most-capturing first:
+//
+//   modal    a surface that owns the keyboard outright — settings, go-to-line. Nothing else fires.
+//   history  the History overlay: its own keys, and the window-level ones (it is a view, not a text box).
+//   panel    a focused dock or terminal pane. Every key is going INTO it; only window-level ones survive.
+//   field    a focused input/textarea/contenteditable anywhere else. Same rule as `panel`.
+//   content  the diff/source review itself. Everything is available.
+//
+// A shortcut is then described by the scopes it may fire in, not by where it happens to sit in this file —
+// "did I put this above or below the focus guard?" is what kept going wrong.
+function isTextEntry(el) {
+  return !!(el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable));
 }
+function inTextField() { return isTextEntry(document.activeElement); }
+function keyboardScope() {
+  var settings = document.getElementById('settings-modal');
+  if (settings && !settings.classList.contains('hidden')) return 'modal';
+  if (document.getElementById('goto-line')) return 'modal'; // owns the keys until Enter/Esc
+  var history = document.getElementById('history-view');
+  if (history && !history.classList.contains('hidden')) return 'history';
+  if (isDockFocused()) return 'panel'; // merged/memo dock, or a terminal pane (see 08-dock.js)
+  if (inTextField()) return 'field';
+  return 'content';
+}
+// Kept as the name the content-level handlers (here and in 11-render-http.js) already ask by: everything
+// below the stand-down point is review navigation, which belongs to the review only.
+function isFloatingModalOpen() { return keyboardScope() !== 'content'; }
 
 // Cmd+0/Cmd+1 mean "take me to the tree", and the floating terminal sits on top of exactly what they reveal.
 // Leaving it parked there made the shortcut look like it had done nothing, so opening either view puts the
@@ -70,6 +89,50 @@ function activateFilesView() {
   setTab('files');
   focusOpenFileInTree();
 }
+// The window-level shortcut table (see the dispatch loop inside the keydown listener). A handler returning
+// false means "not applicable right now" — the key falls through to the rest of the chain untouched.
+var WINDOW_SHORTCUTS = [
+  { code: 'Quote', shift: true, run: function () { toggleDockMaximized(); } },
+  { code: 'Slash', shift: true, key: '?', run: function () { openMergedView(); } },
+  // ⌘⇧P has no dialog of its own: it opens the ⌘E launcher on its Prompts section, so every
+  // "pick something and go" surface is one window. A second press closes it.
+  { code: 'KeyP', shift: true, key: 'p', run: function () {
+    if (quickMode === 'prompts' && quickOpen && !quickOpen.classList.contains('hidden')) closeQuickOpen();
+    else openQuickOpen('prompts');
+  } },
+  { code: 'KeyN', shift: true, key: 'n', run: function () { openMemoView(); } },
+  { code: 'Digit9', key: '9', run: function () { if (typeof toggleHistory !== 'function') return false; toggleHistory(); } },
+  { code: 'Digit8', key: '8', run: function () { if (typeof toggleImpact !== 'function') return false; toggleImpact(); } },
+  // Explain opens no view of its own: it stages the "annotate this diff" prompt in the terminal composer,
+  // and the agent's notes land on the diff lines they explain (23-annotations.js).
+  { code: 'Digit7', key: '7', run: function () { if (typeof runAnnotatePrompt !== 'function') return false; runAnnotatePrompt(); } },
+  // Cmd+0/Cmd+1 mean "take me to the tree", so they close the History overlay first — otherwise the view
+  // they activate would be switched invisibly underneath it.
+  { code: 'Digit0', key: '0', run: function () { closeHistoryIfOpen(); activateChangesView(false); } },
+  { code: 'Digit1', key: '1', run: function () { closeHistoryIfOpen(); activateFilesView(); } },
+  // Undo the last comment removal — a Backspace on a selected card in the merged dock deletes one, so the
+  // safety net has to reach into that dock. Text surfaces keep their own native undo, and the key is only
+  // swallowed when there was actually something to restore.
+  { code: 'KeyZ', key: 'z', run: function () {
+    if (inTextField() || typeof undoLastCommentRemoval !== 'function') return false;
+    return undoLastCommentRemoval() ? undefined : false; // nothing to restore -> let the key through
+  } },
+];
+function closeHistoryIfOpen() {
+  if (typeof isHistoryOpen === 'function' && isHistoryOpen() && typeof closeHistory === 'function') closeHistory();
+}
+// Cmd/Ctrl + the given code (or key, for layouts that report no code), with the modifiers spelled out: a
+// shortcut fires only on the exact combination it declares, so Cmd+Shift+P can never answer a plain Cmd+P.
+function matchesChord(event, sc) {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) return false;
+  if (event.code === sc.code) return !!sc.shift === event.shiftKey;
+  if (sc.key === undefined || typeof event.key !== 'string') return false;
+  if (event.key.toLowerCase() !== sc.key) return false;
+  // A letter/digit `key` still needs the Shift check (Cmd+P must not answer for Cmd+Shift+P). A punctuation
+  // one already IS the shifted character — "?" is Shift+/ — so demanding Shift on top of it would be asking
+  // for the same modifier twice.
+  return !/^[a-z0-9]$/.test(sc.key) || !!sc.shift === event.shiftKey;
+}
 document.addEventListener('keydown', (event) => {
   // Semantic navigation is a caret-local dropdown. It must own arrows/Enter before the persistent sidebar's
   // logical tree focus gets a chance to consume them; otherwise Enter opens the tree row instead of the
@@ -93,95 +156,20 @@ document.addEventListener('keydown', (event) => {
   // before the general focus guard so Enter/Shift+Enter/Esc continue to work while its input owns focus.
   if (typeof handleFileFindKey === 'function' && handleFileFindKey(event)) return;
 
-  // Dock controls fire regardless of focus (merged / memo) — they sit ABOVE the focus guard so
-  // they still work from inside a dock panel. Cmd/Ctrl+Shift+' maximizes the active dock; Cmd/Ctrl+Shift+/
-  // opens the merged view; Cmd/Ctrl+Shift+N toggles the memo. (Match event.code so IME/layout never
-  // swallows the combo.) Settings is a true overlay, so these stand down while it is up.
-  var settingsUp = (function () { var s = document.getElementById('settings-modal'); return !!(s && !s.classList.contains('hidden')); })();
-  if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.code === 'Quote') {
-    event.preventDefault();
-    toggleDockMaximized();
-    return;
-  }
-  if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.altKey
-    && ((event.shiftKey && event.code === 'Slash') || event.key === '?')) {
-    event.preventDefault();
-    openMergedView();
-    return;
-  }
-  // Cmd/Ctrl+Shift+P: the saved prompts. It has no dialog of its own — it opens the ⌘E launcher on its
-  // Prompts section, so every "pick something and go" surface is one window. A second press closes it.
-  if (!settingsUp && (event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey
-    && (event.code === 'KeyP' || event.key === 'p' || event.key === 'P')) {
-    event.preventDefault();
-    if (quickMode === 'prompts' && quickOpen && !quickOpen.classList.contains('hidden')) closeQuickOpen();
-    else openQuickOpen('prompts');
-    return;
-  }
-  if (!settingsUp && (event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && (event.code === 'KeyN' || event.key === 'n' || event.key === 'N')) {
-    event.preventDefault();
-    openMemoView();
-    return;
-  }
-  // Cmd/Ctrl+9 toggles the git history view (above the focus guard so a 2nd press closes it from inside).
-  if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'Digit9' || event.key === '9') && typeof toggleHistory === 'function') {
-    event.preventDefault();
-    toggleHistory();
-    return;
-  }
-  // Cmd/Ctrl+8 toggles the read-only Change Impact inspector. It remains available while the panel is
-  // focused because a second press is the quickest way to dismiss it.
-  if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'Digit8' || event.key === '8') && typeof toggleImpact === 'function') {
-    event.preventDefault();
-    toggleImpact();
-    return;
-  }
-  // Cmd/Ctrl+7 runs Explain: stage the "annotate this diff" prompt in the terminal composer. It opens no
-  // view of its own — the agent's notes land on the diff lines they explain (23-annotations.js), and F9
-  // steps through them. Same "above the focus guard" placement as History/Impact.
-  if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'Digit7' || event.key === '7') && typeof runAnnotatePrompt === 'function') {
-    event.preventDefault();
-    runAnnotatePrompt();
-    return;
-  }
-  if (event.key === 'Escape' && typeof isImpactOpen === 'function' && isImpactOpen()) {
-    event.preventDefault();
-    closeImpact();
-    return;
-  }
-  if (typeof isHistoryOpen === 'function' && isHistoryOpen() && typeof handleHistoryKey === 'function' && handleHistoryKey(event)) return;
-
-  // Cmd/Ctrl+Z: undo the last comment removal. Above the focus guard so it still fires right after a
-  // Backspace-delete on a selected card in the merged panel, which leaves focus on the reselected card —
-  // i.e. still "inside" the dock — where the guard below would otherwise swallow it. Deleting one is now
-  // just a Backspace away from the merged panel's Enter->navigate+edit flow, so an accidental delete needs
-  // a safety net right where it happens. Never intercepts inside a native input/textarea or a rich-text
-  // surface (memo/merged prose) — those keep their own native/library undo history; only swallow the key
-  // when there was actually something to restore.
-  if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && (event.key === 'z' || event.key === 'Z' || event.code === 'KeyZ')) {
-    var zae = document.activeElement;
-    var zInField = zae && (zae.tagName === 'INPUT' || zae.tagName === 'TEXTAREA' || zae.tagName === 'SELECT' || zae.isContentEditable);
-    if (!zInField && typeof undoLastCommentRemoval === 'function' && undoLastCommentRemoval()) {
-      event.preventDefault();
-      return;
+  // ---- window-level shortcuts -------------------------------------------------------------------
+  // These belong to the window, not to whatever has focus, so they fire from a focused dock, a terminal
+  // pane or the History overlay too. A true modal (settings, go-to-line) is the one thing that stands them
+  // down — it owns the keyboard while it is up. Adding one is a row in this table, not another branch with
+  // its own hand-written guard; the eight `!settingsUp &&` conditions this replaces were where the "above
+  // or below the focus guard?" mistakes kept happening.
+  // `code` is matched first so a non-US layout or an IME can never swallow the combo; `key` is the fallback.
+  var scope = keyboardScope();
+  if (scope !== 'modal') {
+    for (var wi = 0; wi < WINDOW_SHORTCUTS.length; wi += 1) {
+      var sc = WINDOW_SHORTCUTS[wi];
+      if (!matchesChord(event, sc)) continue;
+      if (sc.run(event) !== false) { event.preventDefault(); return; }
     }
-  }
-
-  // Cmd/Ctrl+0 / +1 (Changes / Files) stay live even behind the History overlay — above the guard below,
-  // closing it first so the view they just activated is actually visible, not activated invisibly
-  // underneath it. Settings/goto-line/a focused dock still swallow these (closeHistory is a no-op when
-  // history isn't open, so this is always safe to call).
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === '0') {
-    event.preventDefault();
-    if (typeof isHistoryOpen === 'function' && isHistoryOpen()) closeHistory();
-    activateChangesView(false);
-    return;
-  }
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === '1') {
-    event.preventDefault();
-    if (typeof isHistoryOpen === 'function' && isHistoryOpen()) closeHistory();
-    activateFilesView();
-    return;
   }
 
   // ⌥F1 reveals the open file in the tree from ANY view — it runs BEFORE the isFloatingModalOpen stand-down

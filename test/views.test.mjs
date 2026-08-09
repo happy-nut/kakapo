@@ -1433,3 +1433,30 @@ test("a sidebar click still keeps the sidebar's own focus", async () => {
   assert.equal(v.document.activeElement, change, "and its real DOM focus");
   v.close();
 });
+
+// The window-level shortcuts (merged view, memo, prompts, History, Impact, Explain, Changes/Files, undo)
+// belong to the WINDOW, not to whatever has focus — that is why they fire from a focused dock or terminal
+// too. Scope is decided once (keyboardScope) and each shortcut is a row in one table, so the rule is
+// readable in one place instead of being re-derived per branch: the old chain carried eight hand-written
+// `!settingsUp &&` guards, and whether a new shortcut landed above or below the focus guard was a coin toss.
+test("window-level shortcuts are one table with one scope rule, and a modal is what stands them down", () => {
+  const keymap = readFileSync(new URL("../src/viewer/05-keymap.js", import.meta.url), "utf8");
+
+  assert.match(keymap, /function keyboardScope\(\)/, "one place decides who owns the keyboard");
+  assert.doesNotMatch(keymap, /var settingsUp/, "no per-shortcut settings guard is re-derived in the chain");
+  assert.match(keymap, /if \(scope !== 'modal'\)[\s\S]{0,320}WINDOW_SHORTCUTS/,
+    "a modal (settings / go-to-line) is the single thing that stands the table down");
+
+  const table = keymap.match(/var WINDOW_SHORTCUTS = \[[\s\S]*?\n\];/)?.[0];
+  assert.ok(table, "the table exists");
+  for (const code of ["Quote", "Slash", "KeyP", "KeyN", "Digit9", "Digit8", "Digit7", "Digit0", "Digit1", "KeyZ"]) {
+    assert.ok(table.includes(`code: '${code}'`), `${code} is a row, not a branch`);
+  }
+  // Every row matches by code first, so a non-US layout or an IME can never swallow a combo.
+  assert.match(keymap, /function matchesChord[\s\S]{0,200}event\.code === sc\.code/, "code is the primary match");
+
+  // The scope names the keymap works in are the ones the dock helper feeds it: a focused terminal pane is a
+  // panel, exactly like the merged/memo dock, which is what keeps Cmd+E out of a shell being typed into.
+  const dock = readFileSync(new URL("../src/viewer/08-dock.js", import.meta.url), "utf8");
+  assert.match(dock, /function isDockFocused[\s\S]{0,200}terminal-panel/, "the terminal counts as a focused panel");
+});
