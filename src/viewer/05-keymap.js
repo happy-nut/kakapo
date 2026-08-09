@@ -513,10 +513,20 @@ document.addEventListener('keydown', (event) => {
     next(delta);
   }
 
-  // Cmd+F7 / Shift+Cmd+F7: step between review comments, mirroring plain F7/Shift+F7 for diff hunks. A
-  // modifier combo — unlike bare F7 it can land in a text field (e.g. an open comment composer, which
-  // isn't inside .dock-panel so isFloatingModalOpen() above wouldn't catch it) — guard that explicitly,
-  // same idiom as the other modifier-combo shortcuts in this handler.
+  // F8 / Shift+F8: step between review comments, the bare-key counterpart of F7/Shift+F7 for diff hunks —
+  // changes on one key, comments on the next one over. Cmd+F7 below does the same thing and stays for muscle
+  // memory. Bare key, so it needs no text-field guard for the same reason bare F7 doesn't.
+  if (event.key === 'F8' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    event.preventDefault();
+    clearTreeFocus(); // stepping to a comment moves the caret, so arrows follow it (see F7 above)
+    if (typeof gotoComment === 'function') gotoComment(event.shiftKey ? -1 : 1);
+    return;
+  }
+
+  // Cmd+F7 / Shift+Cmd+F7: the same comment stepping as F8, kept for muscle memory. A modifier combo — unlike
+  // bare F7/F8 it can land in a text field (e.g. an open comment composer, which isn't inside .dock-panel so
+  // isFloatingModalOpen() above wouldn't catch it) — guard that explicitly, same idiom as the other
+  // modifier-combo shortcuts in this handler.
   if (event.key === 'F7' && (event.metaKey || event.ctrlKey) && !event.altKey) {
     var cfAe = document.activeElement;
     if (cfAe && (cfAe.tagName === 'INPUT' || cfAe.tagName === 'TEXTAREA' || cfAe.tagName === 'SELECT' || cfAe.isContentEditable)) return;

@@ -532,6 +532,7 @@ export function renderDiffHtml(input: {
     '<div class="keys-grid">' +
     '<kbd>F7</kbd><span data-i18n="kbd.nextChange">Next change</span>' +
     '<kbd>⇧F7</kbd><span data-i18n="kbd.prevChange">Previous change</span>' +
+    '<kbd>F8 / ⇧F8</kbd><span data-i18n="kbd.nextComment">Next / previous comment</span>' +
     '<kbd>⌘1 / ⌘0</kbd><span data-i18n="kbd.filesChangesTab">Files / Changes tab</span>' +
     '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.sidebarNavigate">Navigate / open sidebar row</span>' +
     '<kbd>Tab / ⇧Tab</kbd><span data-i18n="kbd.sidebarContent">Sidebar &harr; content / diff pane</span>' +

@@ -149,3 +149,36 @@ test("source: e opens the editor prefilled (parity with diff)", async () => {
   assert.equal(v.visibleComposerInput().value, "src edit", "editor prefilled in source view");
   v.close();
 });
+
+// F8 / Shift+F8 step between review comments the way F7 steps between changes — changes on one key, comments
+// on the next one over. Cmd+F7 does the same and stays for muscle memory.
+test("F8 and Shift+F8 walk the comments, mirroring F7 for changes", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("q");
+  await v.writeAndSave("first comment");
+  await v.settle(60);
+  await v.clickSourceLine(2);
+  await v.openComposer("q");
+  await v.writeAndSave("second comment");
+  await v.settle(60);
+  assert.equal(v.storedComments().length, 2, "two comments to walk between");
+
+  const cursorLine = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1);
+  const [a, b] = v.storedComments().map((c) => c.line - 1).sort((x, y) => x - y);
+
+  v.key("F8");
+  await v.settle(80);
+  const first = cursorLine();
+  assert.ok(first === a || first === b, `F8 landed on a commented line (got ${first})`);
+
+  v.key("F8");
+  await v.settle(80);
+  assert.notEqual(cursorLine(), first, "a second F8 steps to the other comment");
+
+  v.key("F8", { shiftKey: true });
+  await v.settle(80);
+  assert.equal(cursorLine(), first, "Shift+F8 steps back");
+  v.close();
+});
