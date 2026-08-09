@@ -28,9 +28,14 @@ function toggleDockMaximized() {
   dockMaximized = !dockMaximized;
   applyDockMaximized();
 }
+// "The keys belong to a panel, not to the editor." The terminal counts: every keystroke there is going to a
+// running program, so the global shortcuts below the keymap's focus guard must stand down — Cmd+E used to
+// drop the Recent-files dialog over a shell mid-command, and that dialog is a modal keyboard scope, so it
+// then swallowed everything until dismissed. The shortcuts placed ABOVE that guard (Cmd+0/1/7/8/9, the dock
+// toggles) still work from the terminal, as does Ctrl+` — that one is the shell window's, not the page's.
 function isDockFocused() {
   var ae = document.activeElement;
-  return !!(ae && ae.closest && ae.closest('.dock-panel'));
+  return !!(ae && ae.closest && (ae.closest('.dock-panel') || ae.closest('.terminal-panel')));
 }
 // Close the merged/memo docks.
 function closeMergedMemoDocks() {

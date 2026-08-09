@@ -336,3 +336,32 @@ test("Cmd+E opens the Recent panel and a second Cmd+E toggles it closed", async 
   assert.equal(v.quickOpenVisible(), false, "a second Cmd+E closed the Recent panel");
   v.close();
 });
+
+// REGRESSION: typing in the terminal, Cmd+E dropped the Recent-files dialog over the shell — and quick-open
+// is a modal keyboard scope, so from then on it swallowed every key until dismissed. Panel-focused keys
+// belong to the panel; the shortcuts deliberately placed above the keymap's focus guard are unaffected.
+test("terminal focus: Cmd+E belongs to the shell, not to the Recent-files dialog", async () => {
+  // The terminal only exists in the Electron layout, so this case needs an app-mode fixture.
+  const { html: appHtml } = await makeReviewHtml([
+    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+  ], { app: true });
+  const v = await loadViewer(appHtml);
+  const panel = v.$("#terminal-panel");
+  assert.ok(panel, "the app layout has a terminal panel");
+  panel.classList.remove("hidden");
+  const shellInput = v.document.createElement("textarea"); // stands in for xterm's focused helper textarea
+  panel.appendChild(shellInput);
+  shellInput.focus();
+
+  v.key("e", { metaKey: true, code: "KeyE" });
+  await v.settle(20);
+  assert.equal(v.quickOpenVisible(), false, "no dialog opens over a shell that is being typed into");
+
+  // Focus back in the review content and the shortcut works exactly as before.
+  shellInput.blur();
+  v.document.body.focus();
+  v.key("e", { metaKey: true, code: "KeyE" });
+  await v.settle(20);
+  assert.equal(v.quickOpenVisible(), true, "Cmd+E still opens Recent files from the review");
+  v.close();
+});
