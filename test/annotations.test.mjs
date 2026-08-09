@@ -110,10 +110,13 @@ test("the prompt palette lists the saved prompts and sends the selected one to t
 
   v.key("P", { metaKey: true, shiftKey: true, code: "KeyP" });
   await v.settle(10);
-  assert.ok(!v.$("#prompt-palette").classList.contains("hidden"), "⌘⇧P opens the palette");
-  const items = v.$all(".prompt-palette-item");
+  // ⌘⇧P has no dialog of its own: it opens the ⌘E launcher on its Prompts section.
+  assert.equal(v.$("#quick-open").classList.contains("hidden"), false, "⌘⇧P opens the launcher");
+  assert.ok(v.$("#quick-open").classList.contains("quick-launcher"), "with its section rail");
+  assert.ok(v.$('#quick-open-side .quick-open-side-item[data-section="prompts"]').classList.contains("active"), "on the Prompts section");
+  const items = v.$all("#quick-open-results .quick-open-item");
   // Only the prompts a human sends deliberately — the merge prompts ride along with the merged hand-off.
-  assert.equal(items.length, 1, "the palette lists the one send-on-purpose prompt");
+  assert.equal(items.length, 1, "the section lists the one send-on-purpose prompt");
   assert.match(items[0].textContent, /diff/i, "it is the inline-diff explanation prompt");
 
   v.key("Enter");
@@ -121,7 +124,7 @@ test("the prompt palette lists the saved prompts and sends the selected one to t
   assert.equal(sent.length, 1, "Enter hands the prompt to the terminal send composer");
   assert.match(sent[0], /12-year-old/, "the annotate prompt is what was sent");
   assert.doesNotMatch(sent[0], /\{\{NOTES_PATH\}\}/, "the notes-path placeholder is substituted before sending");
-  assert.ok(v.$("#prompt-palette").classList.contains("hidden"), "sending closes the palette");
+  assert.ok(v.$("#quick-open").classList.contains("hidden"), "sending closes the launcher");
   v.close();
 });
 

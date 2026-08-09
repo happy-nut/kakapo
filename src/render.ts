@@ -449,6 +449,16 @@ export function renderDiffHtml(input: {
       : "",
     '<div id="quick-open" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="quickopen.aria" aria-label="Quick open">',
     '<div class="quick-open-panel">',
+    // ⌘E is the one launcher: its left rail switches between the sections that live in this dialog (recent
+    // files, prompts) and opens the ones that don't (the review-comments and memo docks). Only rendered for
+    // the launcher modes — the file search / Find in Files / symbol layouts keep the plain panel.
+    '<nav id="quick-open-side" class="quick-open-side" aria-label="Sections">',
+    '<button type="button" class="quick-open-side-item" data-section="recent" data-keyhint="⌘E"><span data-i18n="quickopen.recent">Recent files</span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="prompts" data-keyhint="⌘⇧P"><span data-i18n="promptPalette.title">Prompts</span></button>',
+    '<div class="quick-open-side-sep" aria-hidden="true"></div>',
+    '<button type="button" class="quick-open-side-item" data-section="merged" data-keyhint="⌘⇧/"><span data-i18n="rail.reviewComments">Review comments</span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="memo" data-keyhint="⌘⇧N"><span data-i18n="memo.title">Markdown memo</span></button>',
+    '</nav>',
     '<div class="quick-open-title"><span id="quick-open-mode" data-i18n="quickopen.searchFiles">Search files</span><span id="quick-open-filter" class="quick-open-filter"></span></div>',
     '<input id="quick-open-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.searchFiles" placeholder="Search files">',
     '<div id="quick-open-search-options" class="quick-open-search-options">',
@@ -459,14 +469,8 @@ export function renderDiffHtml(input: {
     '<div id="quick-open-preview" class="quick-open-preview"></div>',
     "</div>",
     "</div>",
-    // Prompt palette (⌘⇧P): pick a saved prompt and send it to the terminal. Borrows the quick-open shell;
-    // editing the prompts themselves stays in Settings ▸ Prompts (see 24-prompt-palette.js).
-    '<div id="prompt-palette" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="promptPalette.title" aria-label="Prompts">',
-    '<div class="quick-open-panel">',
-    '<div class="quick-open-title"><span data-i18n="promptPalette.title">Prompts</span><span class="quick-open-filter is-hint" data-i18n="promptPalette.hint">Enter to send to terminal · edit in Settings</span></div>',
-    '<div id="prompt-palette-results" class="quick-open-results"></div>',
-    "</div>",
-    "</div>",
+    // ⌘⇧P has no dialog of its own: it opens the launcher above on its Prompts section. Editing the prompts
+    // themselves stays in Settings ▸ Prompts (see 24-prompt-palette.js).
     '<div id="usages" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="usages.aria" aria-label="Usages">',
     '<div class="quick-open-panel">',
     '<div class="quick-open-title"><span id="usages-title" data-i18n="usages.title">Usages</span></div>',

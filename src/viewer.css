@@ -2480,6 +2480,54 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   overflow: hidden;
 }
 .quick-open.quick-content .quick-open-panel { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
+/* Launcher modes (⌘E recent, ⌘⇧P prompts): a left rail of sections beside the list. Grid placement keeps
+   this scoped — the search / Find-in-Files / symbol modes share this dialog and keep the plain stacked
+   layout, since #quick-open-side is only laid out under .quick-launcher. */
+.quick-open-side { display: none; }
+#quick-open.quick-launcher .quick-open-panel {
+  width: min(760px, calc(100vw - 48px));
+  grid-template-columns: 184px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+#quick-open.quick-launcher .quick-open-side {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  grid-column: 1;
+  grid-row: 1 / -1;
+  padding: 8px;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+}
+#quick-open.quick-launcher .quick-open-title,
+#quick-open.quick-launcher #quick-open-results,
+#quick-open.quick-launcher #quick-open-preview { grid-column: 2; }
+.quick-open-side-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.quick-open-side-item:hover { background: var(--elevated); }
+.quick-open-side-item.active { color: var(--chrome-selected-text); background: var(--chrome-selected); }
+.quick-open-side-item.active::after { color: var(--chrome-selected-text); opacity: 0.7; }
+/* The shortcut that reaches each section directly — the rail teaches them instead of hiding them. */
+.quick-open-side-item::after {
+  content: attr(data-keyhint);
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 1px;
+}
+.quick-open-side-sep { height: 1px; margin: 6px 4px; background: var(--border); }
 .quick-open-title {
   display: flex;
   justify-content: space-between;
@@ -2562,9 +2610,6 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .search-hit { padding: 0; color: inherit; background: color-mix(in srgb, var(--active) 42%, transparent); }
 .quick-open-item.search-result .quick-open-badge { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 /* Prompt palette rows (⌘⇧P): prompt name on top, its first line as a muted one-line gist below. */
-.quick-open-item.prompt-palette-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-.prompt-palette-name { color: var(--text); font-size: 12.5px; font-weight: 600; }
-.prompt-palette-summary { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11.5px; }
 .usage-loc { flex: none; color: var(--chrome-text); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
 .usage-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .quick-open-main { min-width: 0; display: flex; align-items: baseline; gap: 8px; }

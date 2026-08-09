@@ -89,10 +89,6 @@ document.addEventListener('keydown', (event) => {
   if (usagesBox && !usagesBox.classList.contains('hidden')) {
     if (handleUsagesKey(event)) return;
   }
-  // The prompt palette is a small modal list — it owns arrows/Enter/Esc while up.
-  if (typeof isPromptPaletteOpen === 'function' && isPromptPaletteOpen()) {
-    if (handlePromptPaletteKey(event)) return;
-  }
   // Cmd/Ctrl+F belongs to the active file surface, not the project-wide quick-open search. Keep this
   // before the general focus guard so Enter/Shift+Enter/Esc continue to work while its input owns focus.
   if (typeof handleFileFindKey === 'function' && handleFileFindKey(event)) return;
@@ -113,11 +109,13 @@ document.addEventListener('keydown', (event) => {
     openMergedView();
     return;
   }
-  // Cmd/Ctrl+Shift+P: the prompt palette (browse saved prompts -> send one to the terminal).
+  // Cmd/Ctrl+Shift+P: the saved prompts. It has no dialog of its own — it opens the ⌘E launcher on its
+  // Prompts section, so every "pick something and go" surface is one window. A second press closes it.
   if (!settingsUp && (event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey
-    && (event.code === 'KeyP' || event.key === 'p' || event.key === 'P') && typeof togglePromptPalette === 'function') {
+    && (event.code === 'KeyP' || event.key === 'p' || event.key === 'P')) {
     event.preventDefault();
-    togglePromptPalette();
+    if (quickMode === 'prompts' && quickOpen && !quickOpen.classList.contains('hidden')) closeQuickOpen();
+    else openQuickOpen('prompts');
     return;
   }
   if (!settingsUp && (event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && (event.code === 'KeyN' || event.key === 'n' || event.key === 'N')) {
