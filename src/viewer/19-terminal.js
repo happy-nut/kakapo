@@ -35,6 +35,9 @@
   // Panes with an IME composition in flight (Hangul/Kana/Pinyin mid-syllable). Interrupting one commits the
   // partial input, so a refresh must wait however long the composition takes — no timeout can bound it.
   var composingPanes = new Set();
+  // Double-Esc window for closing the panel out of a fullscreen TUI (see the key handler below).
+  var ESC_CLOSE_MS = 600;
+  var lastEscAt = 0;
   var MAX_PANES = 4;
   var heightKey = 'kakapo-terminal-height';
   var openKey = 'kakapo-terminal-open:' + location.pathname;
@@ -124,12 +127,19 @@
     // Exception: keep focus for clipboard/selection combos (Cmd+C/V/X/A) so the terminal's own copy &
     // paste keep working — blurring on Cmd+V drops the textarea focus the paste event needs.
     term.attachCustomKeyEventHandler(function (e) {
-      // Escape dismisses the floating terminal — but only at a normal shell prompt. A fullscreen TUI
-      // (vim, less, claude/codex) runs in xterm's ALTERNATE buffer and needs Esc itself, so there we
-      // pass it through to the shell instead of closing.
+      // Escape dismisses the floating terminal. At a normal shell prompt one press is enough. A fullscreen TUI
+      // (vim, less, claude/codex) runs in xterm's ALTERNATE buffer and needs Esc itself — in Claude Code it is
+      // the interrupt — so a single press still goes through to the shell there. A SECOND Esc within
+      // ESC_CLOSE_MS closes the panel instead: the app got its interrupt on the first press, and "Esc again to
+      // put this away" costs the TUI nothing.
       if (e.type === 'keydown' && e.key === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-        try { if (term.buffer && term.buffer.active && term.buffer.active.type === 'normal') { setOpen(false); return false; } } catch (x) {}
-        return true;
+        var normalBuffer = true;
+        try { normalBuffer = !!(term.buffer && term.buffer.active && term.buffer.active.type === 'normal'); } catch (x) {}
+        if (normalBuffer) { lastEscAt = 0; setOpen(false); return false; }
+        var now = Date.now();
+        if (now - lastEscAt < ESC_CLOSE_MS) { lastEscAt = 0; setOpen(false); return false; }
+        lastEscAt = now;
+        return true; // first press belongs to the TUI
       }
       // F7 / Shift+F7 (diff prev/next-change) and Cmd+F7 / Shift+Cmd+F7 (comment prev/next) are nav keys.
       // Don't let the terminal eat them (it would send an escape sequence to the shell); return false so

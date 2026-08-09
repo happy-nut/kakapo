@@ -2532,10 +2532,11 @@ body.native-app .terminal-panel { top: var(--native-titlebar-height); }
 /* Entrance animation: the panel rises + fades in when it un-hides (display:none -> flex restarts the
    animation on every open), and the freshly-appended backdrop fades with it. transform/opacity only, so the
    layout box is full-size immediately and the rAF fitAll() still measures correct terminal dimensions. */
-@keyframes terminalPanelIn { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
-@keyframes terminalBackdropIn { from { opacity: 0; } to { opacity: 1; } }
+/* Opacity only. The rise-and-scale read as a floating card entering; now that the panel fills the window that
+   same 14px/1.5% move is the WHOLE screen jumping, which looks like a flicker rather than a transition. */
+@keyframes terminalPanelIn { from { opacity: 0; } to { opacity: 1; } }
 .terminal-panel:not(.hidden) { animation: terminalPanelIn 170ms cubic-bezier(0.16, 0.84, 0.44, 1); }
-.terminal-backdrop { position: fixed; inset: 0; z-index: 77; background: color-mix(in srgb, #000 40%, transparent); animation: terminalBackdropIn 150ms ease; }
+.terminal-backdrop { position: fixed; inset: 0; z-index: 77; background: color-mix(in srgb, #000 40%, transparent); }
 @media (prefers-reduced-motion: reduce) { .terminal-panel:not(.hidden), .terminal-backdrop { animation: none; } }
 .terminal-resizer { display: none; } /* a centered ~90% floating panel has no edge to drag */
 .terminal-bar {

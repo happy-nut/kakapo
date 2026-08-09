@@ -70,3 +70,27 @@ test("the close never toggles a closed terminal back on", () => {
     "guarded on isOpen — close() is a plain close, but the guard keeps this honest if it ever becomes a toggle");
   assert.match(helper, /typeof api\.isOpen !== 'function'/, "no-ops when the terminal bundle never booted");
 });
+
+// Esc closes the terminal panel. At a shell prompt one press does it; in a fullscreen TUI (vim, less, and
+// crucially Claude Code, where Esc is the interrupt) the first press has to reach the app, so a second press
+// within the window closes instead. Getting this wrong takes away the interrupt key.
+const terminal = read("src/viewer/19-terminal.js");
+
+test("Esc closes at a shell prompt but never steals the TUI's first press", () => {
+  const handler = terminal.match(/if \(e\.type === 'keydown' && e\.key === 'Escape'[\s\S]*?\n      \}/)?.[0];
+  assert.ok(handler, "the Escape branch exists");
+  assert.match(handler, /if \(normalBuffer\) \{[^}]*setOpen\(false\)/,
+    "a normal shell prompt closes on the first press");
+  assert.match(handler, /return true; \/\/ first press belongs to the TUI/,
+    "in the alternate buffer the first Esc is passed through, not swallowed");
+  assert.match(handler, /now - lastEscAt < ESC_CLOSE_MS[\s\S]{0,60}setOpen\(false\)/,
+    "a second Esc inside the window closes the panel");
+});
+
+test("the double-Esc window is armed only by an Esc, and cleared when it fires", () => {
+  assert.match(terminal, /var ESC_CLOSE_MS = \d+;\s*\n\s*var lastEscAt = 0;/, "state is declared once per panel");
+  const handler = terminal.match(/if \(e\.type === 'keydown' && e\.key === 'Escape'[\s\S]*?\n      \}/)?.[0];
+  // Without the reset, one Esc long ago plus one now would close instead of interrupting twice.
+  assert.equal((handler.match(/lastEscAt = 0/g) || []).length, 2, "both close paths reset the window");
+  assert.match(handler, /lastEscAt = now;/, "and a passed-through press arms it");
+});
