@@ -379,3 +379,16 @@ test("merged panel: the editor host itself never inherits the memo's full-panel 
   assert.match(host, /min-height:\s*0\b/, "the fix: the merged panel's host must reset min-height to 0, not inherit 100% from .mc-inline-editor-host");
 });
 
+// The shell window owns the title bar and traffic lights ABOVE this view (workspace views are inset at
+// TITLEBAR_H, app-main.ts), so a title-strip reservation here reserved nothing — it only left the review's
+// own brand + breadcrumb row peeking over the open terminal.
+test("the integrated terminal covers this view edge to edge", () => {
+  const panel = ruleBodyContaining(".terminal-panel");
+  assert.ok(panel, ".terminal-panel rule must exist");
+  assert.match(panel, /inset:\s*0\b/, "the panel fills the viewport");
+  assert.doesNotMatch(
+    css,
+    /body\.native-app\s+\.terminal-panel/,
+    "no native-app override may push the terminal below a title strip this view does not own",
+  );
+});
