@@ -2524,11 +2524,13 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
 /* Maximized: the floating terminal fills the whole viewport. */
 body.dock-maximized .terminal-panel:not(.hidden) { inset: 0; border-radius: 0; }
 
-/* --- Integrated terminal panel (Electron only): a floating overlay covering ~90% of the viewport,
-   dimmed backdrop behind it. The active toggle marks it as the merged-prompt send target while open. --- */
+/* --- Integrated terminal panel (Electron only): fills the window, dimmed backdrop behind it. The active
+   toggle marks it as the merged-prompt send target while open. On the packaged macOS app the title-bar strip
+   stays clear, so the traffic lights and the workspace title remain reachable while the terminal is up
+   (⌘⇧' still covers even that, via the dock-maximized rule above). --- */
 .terminal-panel {
   position: fixed;
-  inset: 3vh 3vw;
+  inset: 0;
   /* Same reasoning as .dock-panel above: Send to Terminal (enterSendMode) can open this from inside the
      Explain/History full-view overlays (z-index: 75) — it must render on top of them, not behind. */
   z-index: 78;
@@ -2537,10 +2539,12 @@ body.dock-maximized .terminal-panel:not(.hidden) { inset: 0; border-radius: 0; }
   flex-direction: column;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--ui-radius-lg, 12px);
+  border-radius: 0;
+  border-width: 1px 0 0;
   box-shadow: var(--ui-shadow-float, 0 24px 72px rgba(0, 0, 0, 0.42));
   overflow: hidden;
 }
+body.native-app .terminal-panel { top: var(--native-titlebar-height); }
 .terminal-panel.hidden { display: none; }
 /* Entrance animation: the panel rises + fades in when it un-hides (display:none -> flex restarts the
    animation on every open), and the freshly-appended backdrop fades with it. transform/opacity only, so the

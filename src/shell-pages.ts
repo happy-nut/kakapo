@@ -96,12 +96,12 @@ button{border:1px solid ${line};background:transparent;color:inherit;border-radi
 .wt{position:relative;cursor:pointer;border:0;background:transparent;padding:0;font:inherit;color:inherit;text-align:left}
 /* ---------- collapsed rail: one rounded block per project — a prominent avatar header (identity, shown once)
    over small 24px worktree initial badges, so the grouping reads and the avatar isn't repeated per worktree. --- */
-.cv{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px 0;width:100%}
+.cv{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;align-items:center;gap:12px;padding:10px 0;width:100%}
 body.rail-exp .cv{display:none}
-.grp{display:flex;flex-direction:column;align-items:center;gap:3px;width:44px;padding:5px 3px 6px;background:${light ? "#eaecef" : "#212327"};border-radius:12px}
+.grp{display:flex;flex-direction:column;align-items:center;gap:6px;width:44px;padding:6px 3px 8px;background:${light ? "#eaecef" : "#212327"};border-radius:12px}
 .phav{position:relative;width:28px;height:28px;border-radius:8px;overflow:hidden;flex:none;cursor:pointer;display:grid;place-items:center;font-weight:700;font-size:12px;color:#0e1116}
 .phav img{width:100%;height:100%;object-fit:cover;display:block}
-.wts{display:flex;flex-direction:column;align-items:center;gap:3px;margin-top:1px}
+.wts{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:2px}
 .cv .wt{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-weight:700;font-size:10.5px;color:${light ? "#3a3f47" : "#c9cdd4"};background:${light ? "#d7dbe1" : "#2c2f35"}}
 .cv .wt.act{color:#dfe8fb;background:${light ? "#c5d4ee" : "#33456a"};box-shadow:0 0 0 2px #4d86d9}
 .cv .wt.disc{opacity:.45}
