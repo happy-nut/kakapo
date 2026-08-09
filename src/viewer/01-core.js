@@ -632,6 +632,30 @@ try {
 } catch (e) {}
 // The persisted syntax choice is a complete theme family rather than a code-only palette. `theme` selects
 // the family's dark/light member, keeping navigation chrome, diff, raw source, and HTTP coherent.
+// Whole-interface scale. Persisted here; the Electron main process reads it and applies a Chromium zoom
+// factor to every surface (rail, review views, modal overlay) — see applyUiScale in app-main.ts. Outside
+// Electron there is no main process, so the page scales itself with CSS zoom instead.
+var UI_SCALE_KEY = 'kakapo-ui-scale';
+var UI_SCALES = [0.9, 1, 1.1, 1.25, 1.5];
+var uiScaleSelectRef = null;
+var uiScale = (function () {
+  var v = Number(persistRead(UI_SCALE_KEY));
+  if (!isFinite(v) || v <= 0) { try { v = Number(localStorage.getItem(UI_SCALE_KEY)); } catch (e) {} }
+  return UI_SCALES.indexOf(v) >= 0 ? v : 1;
+})();
+function paintUiScale() {
+  // In the packaged app main owns the zoom, so the page must NOT also scale itself — that would compound.
+  if (window.kakapoSettings) return;
+  try { document.documentElement.style.zoom = uiScale === 1 ? '' : String(uiScale); } catch (e) {}
+}
+function applyUiScale(next) {
+  if (UI_SCALES.indexOf(next) < 0) return;
+  uiScale = next;
+  persistSave(UI_SCALE_KEY, next);
+  paintUiScale();
+  if (uiScaleSelectRef) uiScaleSelectRef.render();
+}
+paintUiScale();
 var SYNTAX_THEME_KEY = 'kakapo-syntax-theme';
 var syntaxTheme = (function () {
   var v = persistRead(SYNTAX_THEME_KEY);

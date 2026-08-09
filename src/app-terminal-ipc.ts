@@ -75,6 +75,20 @@ export const ptyReaper = createPtyReaper();
  * them) and relay bytes to the renderer's xterm panes. Each pty is owned by the window that spawned it
  * (state.terms), so closing one window kills only its terminals and pty data routes back to it alone.
  */
+// Tear down every pane of a workspace, tmux sessions included. Killing only the ptys would DETACH a
+// persistent pane instead of ending it, leaving the session — and whatever agent is running in it — alive
+// forever, invisible, with its worktree deleted out from under it. Shared by the pane close path and by
+// deleting a workspace (app-main.ts's hub-remove).
+export function killWorkspaceTerminals(state: TerminalIpcState): void {
+  const tmux = state.termSessions?.size ? resolveTmux(process.env) : undefined;
+  for (const [id, session] of state.termSessions ?? []) {
+    if (tmux) try { spawnSync(tmux, ["kill-session", "-t", session]); } catch { /* already gone */ }
+    state.termSessions?.delete(id);
+  }
+  for (const [id, term] of state.terms) { ptyReaper.kill(term); state.terms.delete(id); }
+  state.commandBuffers?.clear();
+}
+
 export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateResolver): void {
   ipc.handle("kakapo:pty-spawn", (event, size: { cols?: number; rows?: number; persist?: boolean }) => {
     const state = stateFromEvent(event);

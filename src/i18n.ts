@@ -267,6 +267,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Settings — General
     "settings.language": "Language",
     "settings.theme": "Theme",
+    "settings.uiScale": "Font size",
+    "settings.uiScale.hint": "Scales the whole interface, including the terminal.",
     "theme.dark": "Dark",
     "theme.light": "Light",
     "settings.syntaxTheme": "Theme family",
@@ -799,6 +801,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Settings — General
     "settings.language": "언어",
     "settings.theme": "테마",
+    "settings.uiScale": "글자 크기",
+    "settings.uiScale.hint": "터미널을 포함한 인터페이스 전체 크기를 조절합니다.",
     "theme.dark": "다크",
     "theme.light": "라이트",
     "settings.syntaxTheme": "테마 계열",

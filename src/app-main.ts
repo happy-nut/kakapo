@@ -25,7 +25,7 @@ import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
-import { registerTerminalIpc, ptyReaper } from "./app-terminal-ipc.js";
+import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals } from "./app-terminal-ipc.js";
 import { registerAnswersIpc, syncAnswersFile, answersFilePath } from "./answers-ipc.js";
 import { registerExplainIpc, refreshExplainIfChanged, refreshAnnotationsIfChanged } from "./app-explain-ipc.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
@@ -306,8 +306,25 @@ registerAnswersIpc(ipcMain, stateFromEvent);
 registerExplainIpc(ipcMain, stateFromEvent);
 registerTileMenuIpc(ipcMain, { getShellWindow: () => shellWindow, isLightTheme, getTranslate: tr });
 // Theme + locale are global settings; re-theme the native chrome and broadcast to every window when either changes.
+// One UI scale for the whole app. Each surface is its own WebContents (the rail, every review view, the modal
+// overlay), so a CSS-only setting would have to be replicated into three documents — and would still miss the
+// px-based layout the diff caret and gutters measure. Chromium's zoom factor scales all of it uniformly.
+const UI_SCALE_KEY = "kakapo-ui-scale";
+function uiScale(): number {
+  const raw = Number(preferences.readGlobal()[UI_SCALE_KEY]);
+  return Number.isFinite(raw) && raw >= 0.8 && raw <= 1.6 ? raw : 1;
+}
+function applyUiScale(target?: WebContents): void {
+  const factor = uiScale();
+  const set = (wc: WebContents | undefined): void => { if (wc && !wc.isDestroyed()) wc.setZoomFactor(factor); };
+  if (target) { set(target); return; }
+  set(shellWindow?.webContents);
+  set(modalView?.webContents);
+  for (const state of states.values()) set(state.win.webContents);
+}
 registerSettingsIpc(ipcMain, preferences, stateFromEvent, (key) => {
   if (key === "kakapo-theme" || key === "kakapo-locale") refreshChrome();
+  if (key === UI_SCALE_KEY) applyUiScale();
 });
 registerMemoIpc(ipcMain, { read: readMemoWithLegacyImport, write: (root, body) => memoStore().write(root, body), remove: (root) => memoStore().remove(root) }, stateFromEvent);
 ipcMain.on("kakapo:hub-ready", renderHub);
@@ -601,11 +618,22 @@ ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unk
   if (payload.mode === "delete") {
     if (record.kind === "main") return { ok: false, error: "The main checkout can only be closed.", risk };
     if (!payload.force && (risk.dirty || risk.unpushed || risk.runningProcesses)) return { ok: false, needsConfirmation: true, risk };
-    for (const term of state.terms.values()) ptyReaper.kill(term);
+    // tmux sessions die with the workspace too: killing only the ptys DETACHES a persistent pane, leaving
+    // its session (and whatever agent is in it) running forever, invisible, with its worktree deleted.
+    killWorkspaceTerminals(state);
     removeManagedWorkspace(record, !!payload.force, !!payload.deleteBranch);
   }
   const metadataIndex = startupWorkspaceMetadata.findIndex((item) => resolveWorkspaceRoot(item.path) === record.path);
   if (metadataIndex >= 0) startupWorkspaceMetadata.splice(metadataIndex, 1);
+  if (payload.mode === "delete") {
+    // Deleting is not closing: nothing may keep pointing at a worktree that no longer exists. A saved entry
+    // whose path is gone is exactly what renderHub turns into a "disconnected" tile, so leaving it behind
+    // made a deleted workspace linger in the rail instead of disappearing.
+    const gone = (path: string) => path === record.path || resolveWorkspaceRoot(path) === record.path;
+    preferences.writeOpenWorkspaces(preferences.readOpenWorkspaces().filter((item) => !gone(item.path)));
+    preferences.forgetRecentProject(record.path);
+    hubMainTilesCache = undefined; // the pinned-project set may have changed
+  }
   state.win.webContents.close();
   const next = Array.from(states.values()).find((item) => item !== state);
   if (next) activateWorkspace(next.win.webContents.id);
@@ -1050,7 +1078,7 @@ function ensureShellWindow(light: boolean): BrowserWindow {
     modalView = undefined; modalViewReady = false; pendingModalOpen = null; modalOpen = false;
   });
   void shellWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(hubHtml(light, APP_VERSION, tr())));
-  shellWindow.webContents.on("did-finish-load", renderHub);
+  shellWindow.webContents.on("did-finish-load", () => { applyUiScale(shellWindow?.webContents); renderHub(); });
   shellWindow.once("ready-to-show", () => shellWindow?.show());
   ensureModalView(light); // preload the (hidden) modal overlay so the first New/rename open has no load delay
   return shellWindow;
@@ -1084,6 +1112,7 @@ function ensureModalView(light: boolean): WebContentsView | undefined {
   modalView = view;
   modalViewReady = false;
   view.webContents.on("did-finish-load", () => {
+    applyUiScale(view.webContents);
     modalViewReady = true;
     if (pendingModalOpen != null) { view.webContents.send("kakapo:modal-open", pendingModalOpen); pendingModalOpen = null; }
   });
@@ -1469,6 +1498,8 @@ function createWindow(root: string, deferBoot = false): WinState {
     if (suppressNextRailCollapse) { suppressNextRailCollapse = false; return; }
     if (view.webContents.id === activeStateId) collapseRailFromReview();
   });
+  // Zoom is per-WebContents and resets on navigation, so re-apply the UI scale on every load.
+  view.webContents.on("did-finish-load", () => applyUiScale(view.webContents));
   // The review's keyboard shortcuts (Cmd+1 Files, etc.) attach only once its HTML has loaded. On the first
   // switch to a workspace the view is still booting when activateWorkspace focuses it, so early key presses
   // landed on nothing until it finished (the "press Cmd+1 three times" symptom). Refocus the active view the

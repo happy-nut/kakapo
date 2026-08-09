@@ -362,9 +362,9 @@ export function renderDiffHtml(input: {
         : `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
       : `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
     "</div>",
-    // Footer now hosts the compact usage quota widgets (Claude + Codex), filled by the viewer from kakapoUsage
+    // Usage quota now lives in the workspace rail (shell-pages.ts) — it is per-account, not per-workspace.
     // (see 15-analysis-status.js). Brand mark, version, and the analysis indicator moved up to the header above.
-    `<div class="sidebar-footer">${input.app ? '<div id="usage-foot" class="usage-foot" aria-label="Agent usage"></div>' : ""}<span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span></div>`,
+    `<div class="sidebar-footer">${input.app ? '' : ""}<span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span></div>`,
     "</aside>",
     '<div class="sidebar-resizer" aria-hidden="true"></div>',
     '<main class="content">',
@@ -496,6 +496,9 @@ export function renderDiffHtml(input: {
     // themes at once, each previewing its own canvas and accent — the choice is visible, not described.
     '<div class="settings-row settings-row-stacked"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.theme">Theme</span><span class="settings-row-hint" data-i18n="settings.theme.hint">System follows your OS light / dark setting.</span></div>',
     '<div id="settings-theme-grid" class="theme-grid" role="radiogroup" data-i18n-aria="settings.theme"></div></div>',
+    // One scale for the whole app rather than a code-font size: the review is chrome + tree + diff + terminal,
+    // and sizing only the code leaves the rest mismatched. Applied by main as a Chromium zoom factor.
+    '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.uiScale">Font size</span><span class="settings-row-hint" data-i18n="settings.uiScale.hint">Scales the whole interface, including the terminal.</span></div><button type="button" id="settings-ui-scale" class="settings-select mc-select" data-i18n-aria="settings.uiScale"></button></div>',
     '</div>',
     // Terminal card (Electron only): integrated-terminal bell → native notification opt-out.
     input.app

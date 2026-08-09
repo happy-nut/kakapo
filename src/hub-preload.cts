@@ -55,6 +55,9 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   // forget() above.
   reconnectPick: (path: string) => ipcRenderer.invoke("kakapo:hub-reconnect-pick", { path }),
   requestState: () => ipcRenderer.send("kakapo:hub-ready"),
+  // Agent quota (Claude via its usage API, Codex from its session logs). Shown in the rail rather than the
+  // review's sidebar footer: it is per-account, not per-workspace, so one place for the whole app is right.
+  usage: (): Promise<unknown> => ipcRenderer.invoke("kakapo:usage-stats"),
   // Title-bar review tools: the buttons live in this shell page but the actions run in the active review
   // view (a separate WebContentsView). Forward the click to main, which relays it to that view; the view
   // reports its active-view/terminal state back so the title-bar buttons can mirror the highlight.

@@ -761,6 +761,10 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
     function () { return [{ value: 'en', label: 'English' }, { value: 'ko', label: '한국어' }]; },
     function () { return locale; },
     function (next) { applyLocale(next); });
+  uiScaleSelectRef = setupCustomSelect('settings-ui-scale',
+    function () { return UI_SCALES.map(function (v) { return { value: String(v), label: Math.round(v * 100) + '%' }; }); },
+    function () { return String(uiScale); },
+    function (next) { applyUiScale(Number(next)); });
   // ----- theme grid. A theme is one named thing that is ALREADY light or dark — Darcula is a dark theme,
   // IntelliJ Light is a light one; neither has an "appearance" to pick separately. So the grid is a flat
   // list of the four real palettes, plus System, which is the one genuinely automatic choice (it follows

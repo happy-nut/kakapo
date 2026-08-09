@@ -5,7 +5,7 @@
 //     the branch, so a project whose main wasn't on `main` looked like it had no main at all),
 //   - ⌘N prefills the project of the active workspace,
 //   - the "create a new worktree" toggle reaches the create/preview IPC and hides the now-meaningless task name.
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { hubHtml, modalOverlayHtml } from "../dist/shell-pages.js";
@@ -36,6 +36,11 @@ function stubHub(results = {}) {
   return { api, handlers, calls, lastCall };
 }
 
+// Both pages arm long-lived timers (the rail polls agent usage every 60s), and jsdom keeps a window alive
+// while a timer is pending — so an unclosed window stops the test process from ever exiting. Close them all.
+const openWindows = [];
+after(() => { for (const w of openWindows) { try { w.close(); } catch { /* already gone */ } } });
+
 function loadPage(html, hub) {
   const dom = new JSDOM(html, { runScripts: "dangerously", pretendToBeVisual: true,
     beforeParse: (window) => {
@@ -47,6 +52,7 @@ function loadPage(html, hub) {
         this.dispatchEvent(new window.Event("close"));
       };
     } });
+  openWindows.push(dom.window);
   return dom.window.document;
 }
 
