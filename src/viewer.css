@@ -1,19 +1,3 @@
-/* Hangul/CJK on the monospace grid.
-   None of Monaco/SF Mono/Menlo/Consolas carry Hangul, so CJK silently fell back to a face whose advance is
-   10.38px against the Latin 7.2px — neither one column nor two. The grid broke on any line with Korean in it:
-   indentation stopped lining up, and the caret took a big step over each syllable and a visibly small one over
-   each space, which read as "the cursor barely moves at a space".
-   AppleGothic ships with macOS and its Hangul advance is 12px, so size-adjust pins it to exactly 14.402px —
-   two columns — and the glyph is drawn at that same em, which is what a properly duospaced font does.
-   unicode-range keeps this face away from Latin entirely; systems without AppleGothic simply fall through to
-   today's behavior. */
-@font-face {
-  font-family: "KakapoMonoCJK";
-  src: local("AppleGothic");
-  size-adjust: 120.02%;
-  unicode-range: U+1100-11FF, U+2E80-303F, U+3040-30FF, U+3130-318F, U+31F0-31FF, U+3400-4DBF,
-                 U+4E00-9FFF, U+A960-A97F, U+AC00-D7FF, U+F900-FAFF, U+FF00-FFEF;
-}
 
 :root {
   color-scheme: dark;
@@ -496,7 +480,7 @@ body.native-app .source-tabs {
 .analysis-status {
   min-width: 0; display: inline-flex; align-items: center; gap: 5px;
   overflow: hidden; color: var(--muted); white-space: nowrap;
-  font: 10.5px/1.3 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 10.5px/1.3 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .analysis-status-label { overflow: hidden; text-overflow: ellipsis; }
 .analysis-status-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); opacity: .7; }
@@ -665,7 +649,7 @@ body.native-app .source-tabs {
    install stays inside Settings instead of sending you to a terminal pane. */
 .tmux-setup { padding: 4px 2px 12px 24px; }
 .tmux-setup-row { display: flex; align-items: center; gap: 10px; }
-.tmux-setup-log { margin: 8px 0 0; padding: 8px 10px; max-height: 160px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-family: Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.tmux-setup-log { margin: 8px 0 0; padding: 8px 10px; max-height: 160px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 /* The shortcuts reference is now its own category, so drop the divider/offset it carried as a General sub-block. */
 .settings-section[data-cat="shortcuts"] .app-info-keys { margin-top: 0; border-top: 0; padding-top: 0; }
 .settings-section[data-cat="shortcuts"] .app-info-keys .keys-cat:first-of-type { margin-top: 0; }
@@ -758,7 +742,7 @@ body.native-app .source-tabs {
 .diff-pane { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; color: var(--muted); }
 .diff-pane:first-child { border-right: 1px solid color-mix(in srgb, var(--active) 24%, var(--border)); }
 .diff-pane-kind { flex: none; color: var(--text); font-size: 10.5px; font-weight: 650; }
-.diff-pane-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 10.5px/1.2 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.diff-pane-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 10.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 
 /* Patch-set compare bar (issue #11): base selector on the left, static "working tree · latest" on the
    right. Sits above the per-file .diff-pane-header. */
@@ -792,7 +776,7 @@ body.native-app .source-tabs {
 }
 .patchset-base-btn:hover { border-color: var(--active); }
 .patchset-base-btn[aria-expanded="true"] { border-color: var(--active); box-shadow: 0 0 0 2px color-mix(in srgb, var(--active) 28%, transparent); }
-.patchset-current { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px/1.2 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.patchset-current { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .patchset-chev { flex: none; opacity: 0.7; }
 .patchset-arrow { flex: none; display: inline-flex; color: var(--muted); }
 .patchset-latest { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
@@ -824,7 +808,7 @@ body.native-app .source-tabs {
 .patchset-option-check { flex: none; width: 12px; color: var(--active); font-size: 11px; line-height: 1.4; }
 .patchset-option-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .patchset-option-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
-.patchset-option-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 10.5px/1.2 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.patchset-option-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 10.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .source-line-wrap-toggle {
   display: inline-flex;
   align-items: center;
@@ -916,7 +900,7 @@ body.native-app .source-tabs {
   pointer-events: none;
   background: var(--panel);
   color: var(--muted);
-  font: 12px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-variant-numeric: tabular-nums;
   -webkit-user-select: none;
   user-select: none;
@@ -995,7 +979,7 @@ body.native-app .source-tabs {
   overflow: hidden;
   background: transparent;
   color: var(--muted);
-  font: 10px/1.55 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 10px/1.55 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   text-align: left;
   cursor: pointer;
 }
@@ -1017,7 +1001,7 @@ body.native-app .source-tabs {
   min-width: 100%;
   table-layout: auto;
   border-spacing: 0;
-  font: 12px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 /* Pin one tight line-height for diff code rows so it is identical whether or not line-wrap is on (wrap mode
    turns the code line into a block, which otherwise rendered a slightly looser line box). */
@@ -1161,7 +1145,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   box-shadow: inset 0 0 0 2px var(--active);
 }
 .mc-context-fold:disabled { cursor: wait; opacity: .7; }
-.mc-context-fold-icon { flex: none; font: 700 15px/1 Monaco, KakapoMonoCJK, ui-monospace, monospace; letter-spacing: 2px; }
+.mc-context-fold-icon { flex: none; font: 700 15px/1 Monaco, ui-monospace, monospace; letter-spacing: 2px; }
 .mc-context-fold-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d2h-diff-table tr.mc-context-expanded-marker { display: none !important; }
 /* Unchanged dependency headers are review noise until requested. A changed import never receives these
@@ -1271,7 +1255,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-file-side-diff:last-of-type tr.diff-active-row td.d2h-code-side-linenumber { box-shadow: none; color: var(--text); }
 .review-status .ws-ignored { color: var(--token-tag); border: 1px solid color-mix(in srgb, var(--token-tag) 45%, transparent); border-radius: 0; padding: 0 7px; }
 .d2h-file-collapse { display: none !important; }
-.tree { display: grid; gap: 1px; font-size: 11.5px; font-family: Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.tree { display: grid; gap: 1px; font-size: 11.5px; font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .tree-dir { display: grid; gap: 1px; }
 .tree-dir summary {
   display: grid;
@@ -1390,7 +1374,7 @@ summary.tree-focus { background: color-mix(in srgb, var(--active) 20%, transpare
   min-width: 44px;
   color: var(--muted);
   text-align: center;
-  font: 10.5px/1.2 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 10.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .file-find-count.is-empty { color: var(--warning, #c69026); }
 .file-find-button {
@@ -1507,7 +1491,7 @@ h1 { margin: 0; font-size: 18px; }
   flex: 1 1 auto;
   overflow: hidden;
   white-space: nowrap;
-  font: 13px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 13px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .crumb { color: var(--muted); }
 .crumb-leaf { color: var(--text); font-weight: 500; }
@@ -1541,7 +1525,7 @@ h1 { margin: 0; font-size: 18px; }
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text);
-  font: 13px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 13px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .source-file-meta #source-meta {
   overflow: hidden;
@@ -1598,7 +1582,7 @@ h1 { margin: 0; font-size: 18px; }
   border-radius: var(--ui-radius-md) var(--ui-radius-md) 0 0;
   background: var(--chrome-panel);
   color: var(--chrome-text);
-  font: 600 12px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 600 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   cursor: pointer;
 }
 .source-tab-overflow:hover,
@@ -1715,7 +1699,7 @@ h1 { margin: 0; font-size: 18px; }
 .source-table {
   width: 100%;
   border-collapse: collapse;
-  font: 12px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .source-table td {
   vertical-align: top;
@@ -1764,7 +1748,7 @@ h1 { margin: 0; font-size: 18px; }
 .mc-code-fold-button:hover { color: var(--text); background: color-mix(in srgb, var(--active) 15%, var(--line)); }
 .mc-code-fold-button:focus-visible { color: var(--text); outline: 1px solid var(--active); outline-offset: -1px; }
 .mc-code-fold-button.mc-import-fold { display: flex; width: 100%; min-height: 24px; margin: 0; padding: 2px 10px; border-radius: 0; }
-.mc-code-fold-icon { flex: none; font: 700 14px/1 Monaco, KakapoMonoCJK, ui-monospace, monospace; transform: rotate(0deg); }
+.mc-code-fold-icon { flex: none; font: 700 14px/1 Monaco, ui-monospace, monospace; transform: rotate(0deg); }
 .mc-code-fold-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-fold-row > td { background: color-mix(in srgb, var(--line) 70%, var(--panel)); }
 .source-fold-row .source-code { padding-top: 1px; padding-bottom: 1px; cursor: default; }
@@ -1845,7 +1829,7 @@ h1 { margin: 0; font-size: 18px; }
   border-radius: 0;
   background: transparent;
   color: var(--muted);
-  font: 10.5px/1.45 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 10.5px/1.45 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   text-align: left;
   cursor: pointer;
   overflow: hidden;
@@ -1917,14 +1901,14 @@ h1 { margin: 0; font-size: 18px; }
 .mc-card {
   border: 1px solid var(--border);
   border-radius: 0; background: var(--panel); margin: 8px 0; max-width: 760px;
-  font: 12px/1.5 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 12px/1.5 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
   overflow: hidden;
 }
 /* Question vs change-request is a small monochrome pill: an icon (help-circle / pencil) carries the
    distinction — no color, no heavy left bar. */
 .mc-card-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 6px; color: var(--muted); }
-.mc-target { margin-left: auto; font: 11px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62%; }
+.mc-target { margin-left: auto; font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62%; }
 /* While composing a comment, the textarea owns the only caret — hide the file's inline caret and the
    cursor-row highlights (diff box-shadow + markdown/csv row tint) so attention stays on the composer. */
 body.mc-composing .code-cursor { display: none; }
@@ -1951,11 +1935,11 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    addressed", with a reopen (↺) control. It is held out of the merged prompt until reopened. */
 .mc-card.mc-addressed { opacity: 0.6; }
 .mc-card.mc-addressed .mc-card-body { text-decoration: line-through; text-decoration-color: var(--muted); }
-.mc-addressed-tag { font: 10px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0 5px; line-height: 15px; white-space: nowrap; }
+.mc-addressed-tag { font: 10px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0 5px; line-height: 15px; white-space: nowrap; }
 /* The merged panel's stand-in for an answer body: same chip as .mc-addressed-tag, tinted with the answer's
    own accent so "answered" reads at a glance without the panel carrying the whole reply. */
 .mc-answered-tag {
-  font: 10px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap;
+  font: 10px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap;
   color: var(--active); border: 1px solid color-mix(in srgb, var(--active) 45%, transparent);
   background: color-mix(in srgb, var(--active) 10%, transparent);
   border-radius: 6px; padding: 0 5px; line-height: 15px;
@@ -2005,7 +1989,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
      its real caret. The single-caret rule hides the FILE caret while composing, not the textarea's own. */
   caret-color: var(--text);
   border: 1px solid var(--border); border-radius: 0; padding: 9px 11px;
-  font: 12px/1.55 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 12px/1.55 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .mc-input:focus { outline: none; border-color: var(--active); box-shadow: 0 0 0 3px color-mix(in srgb, var(--active) 22%, transparent); }
@@ -2030,9 +2014,9 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .impact-engine { min-height: 16px; margin-top: 5px; color: var(--muted); font-size: 10.5px; line-height: 1.45; }
 .impact-target-row, .impact-analyzer-row { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .impact-target-label { flex: none; color: var(--muted); font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.impact-target-symbol { flex: none; max-width: 34%; overflow: hidden; color: var(--text); font: 600 11.5px/1.4 Monaco, KakapoMonoCJK, ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
-.impact-target-path { min-width: 0; overflow: hidden; color: var(--muted); font: 10.5px/1.4 Monaco, KakapoMonoCJK, ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
-.impact-analyzer-row { margin-top: 2px; font: 10px/1.4 Monaco, KakapoMonoCJK, ui-monospace, monospace; }
+.impact-target-symbol { flex: none; max-width: 34%; overflow: hidden; color: var(--text); font: 600 11.5px/1.4 Monaco, ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.impact-target-path { min-width: 0; overflow: hidden; color: var(--muted); font: 10.5px/1.4 Monaco, ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.impact-analyzer-row { margin-top: 2px; font: 10px/1.4 Monaco, ui-monospace, monospace; }
 .impact-keyboard-help { margin-left: auto; color: var(--muted); white-space: nowrap; }
 .impact-header .dock-btn { font-size: 18px; }
 .impact-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 10px 20px; }
@@ -2062,10 +2046,10 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .impact-item-confirmed::before { position: absolute; top: 9px; bottom: 9px; left: 3px; width: 2px; border-radius: 2px; background: #4faa70; content: ''; }
 .impact-item-candidate { opacity: .88; }
 .impact-item-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.impact-item-name { overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; font: 600 11.5px/1.4 Monaco, KakapoMonoCJK, ui-monospace, monospace; }
+.impact-item-name { overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; font: 600 11.5px/1.4 Monaco, ui-monospace, monospace; }
 .impact-relation { flex: none; padding: 1px 5px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: 9.5px; }
 .impact-item-path { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
-.impact-item-code { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: 11px/1.4 Monaco, KakapoMonoCJK, ui-monospace, monospace; opacity: .84; }
+.impact-item-code { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: 11px/1.4 Monaco, ui-monospace, monospace; opacity: .84; }
 .impact-candidate-toggle { display: flex; align-items: center; justify-content: center; gap: 8px; width: calc(100% - 16px); margin: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; background: transparent; color: var(--muted); font-size: 10.5px; cursor: pointer; }
 .impact-candidate-toggle:hover, .impact-candidate-toggle:focus-visible { color: var(--text); background: var(--line); outline: none; border-color: var(--active); }
 .impact-candidate-toggle span { min-width: 20px; padding: 1px 5px; border-radius: 999px; background: var(--line); font-size: 9.5px; }
@@ -2087,7 +2071,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .semantic-peek-header { flex: none; display: flex; align-items: center; min-height: 36px; padding: 5px 9px 5px 10px; background: var(--sidebar); border-bottom: 1px solid var(--border); }
 .semantic-peek-heading { min-width: 0; flex: 1; }
 .semantic-peek-title { display: inline; color: var(--text); font-size: 11.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.semantic-peek-meta { display: inline; margin-left: 8px; color: var(--muted); font: 10px/1.35 Monaco, KakapoMonoCJK, ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.semantic-peek-meta { display: inline; margin-left: 8px; color: var(--muted); font: 10px/1.35 Monaco, ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .semantic-peek-results {
   flex: 1 1 auto;
   min-height: 0;
@@ -2104,15 +2088,15 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .semantic-peek-item:hover { background: color-mix(in srgb, var(--active) 13%, transparent); }
 .semantic-peek-item.active { background: var(--active); color: #fff; }
 .semantic-peek-item-path, .semantic-peek-item-code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.semantic-peek-item-path { color: var(--chrome-text); font: 11px/1.4 Monaco, KakapoMonoCJK, ui-monospace, monospace; }
-.semantic-peek-item-line { color: var(--muted); text-align: right; font: 11px/1.4 Monaco, KakapoMonoCJK, ui-monospace, monospace; font-variant-numeric: tabular-nums; }
-.semantic-peek-item-code { color: var(--muted); font: 10.5px/1.4 Monaco, KakapoMonoCJK, ui-monospace, monospace; }
+.semantic-peek-item-path { color: var(--chrome-text); font: 11px/1.4 Monaco, ui-monospace, monospace; }
+.semantic-peek-item-line { color: var(--muted); text-align: right; font: 11px/1.4 Monaco, ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.semantic-peek-item-code { color: var(--muted); font: 10.5px/1.4 Monaco, ui-monospace, monospace; }
 .semantic-peek-item.active .semantic-peek-item-path,
 .semantic-peek-item.active .semantic-peek-item-line,
 .semantic-peek-item.active .semantic-peek-item-code { color: #fff; }
 .semantic-peek-list-hint {
   position: sticky; bottom: 0; padding: 5px 9px; color: var(--muted); background: var(--elevated);
-  border-top: 1px solid var(--border); font: 10px/1.35 Monaco, KakapoMonoCJK, ui-monospace, monospace;
+  border-top: 1px solid var(--border); font: 10px/1.35 Monaco, ui-monospace, monospace;
 }
 
 /* ===== Git history view (Cmd+9): full commit graph with a floating changed-files + diff workspace. ===== */
@@ -2130,7 +2114,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .history-view:focus { outline: none; }
 .history-bar { flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--sidebar); border-bottom: 1px solid var(--border); }
 .history-title { font-weight: 650; font-size: 13px; letter-spacing: 0.02em; }
-.history-scope { min-width: 0; max-width: min(42vw, 620px); overflow: hidden; color: var(--muted); font: 11px/1.2 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.history-scope { min-width: 0; max-width: min(42vw, 620px); overflow: hidden; color: var(--muted); font: 11px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .history-search { flex: 1 1 auto; max-width: 440px; height: 28px; border: 1px solid var(--border); border-radius: 0; background: var(--bg); color: var(--text); padding: 0 10px; font-size: 13px; outline: none; }
 .history-search:focus { border-color: var(--active); }
 .history-bar .dock-btn { margin-left: auto; font-size: 16px; }
@@ -2145,7 +2129,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .hsel-hint { color: var(--muted); }
 .hsel-info { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .hsel-kind { color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; font-size: 10px; }
-.hsel-sha { font: 11.5px/1.2 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); }
+.hsel-sha { font: 11.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); }
 .hsel-arrow { color: var(--muted); }
 .hsel-count { color: var(--muted); }
 .hsel-actions { display: inline-flex; align-items: center; gap: 6px; flex: none; }
@@ -2210,7 +2194,7 @@ body.native-app .explain-bar button { -webkit-app-region: no-drag; }
 /* Range compare detail header (two-commit span). */
 .hd-subject.hd-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .hd-range-kind { color: var(--muted); font-weight: 600; }
-.hd-range .hd-hash { font: 12px/1.2 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); }
+.hd-range .hd-hash { font: 12px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); }
 .hd-range-arrow { color: var(--muted); }
 .hd-range-count { color: var(--muted); font-size: 11px; }
 .hgraph-cell { height: 26px; line-height: 0; }
@@ -2253,7 +2237,7 @@ body.native-app .explain-bar button { -webkit-app-region: no-drag; }
 .hd-body { display: none; max-height: min(24vh, 240px); margin: 8px 2px 6px 0; padding: 8px 10px; overflow: auto; border-left: 2px solid var(--chrome-border); color: var(--chrome-text-muted); font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .history-detail-head.message-expanded .hd-body { display: block; }
 .hd-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 3px; font-size: 11.5px; line-height: 1.35; color: var(--muted); }
-.hd-hash { font-family: Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.hd-hash { font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .history-workspace { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(190px, 260px) minmax(0, 1fr); transition: grid-template-columns .18s ease; }
 .history-files { min-width: 0; overflow: auto; padding: 6px; border-right: 1px solid var(--border); background: var(--sidebar); opacity: 1; transition: opacity .12s ease, padding .18s ease, border-color .12s ease; }
 .history-workspace.history-files-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
@@ -2280,7 +2264,7 @@ body.native-app .explain-bar button { -webkit-app-region: no-drag; }
 .mc-modal-panel { width: min(900px, calc(100vw - 40px)); height: 80vh; max-height: 80vh; display: grid; grid-template-rows: auto minmax(0, 1fr); border: 1px solid var(--border); border-radius: 0; background: var(--panel); overflow: hidden; }
 .mc-modal-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text); font-weight: 650; }
 .mc-modal-head span { margin-right: auto; }
-.mc-modal-text { width: 100%; height: 100%; box-sizing: border-box; resize: none; border: 0; padding: 12px; background: var(--bg); color: var(--text); caret-color: var(--text); font: 12px/1.55 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.mc-modal-text { width: 100%; height: 100%; box-sizing: border-box; resize: none; border: 0; padding: 12px; background: var(--bg); color: var(--text); caret-color: var(--text); font: 12px/1.55 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .mc-modal-text:focus { outline: none; }
 /* Above EVERY overlay, including Settings (z-index 80, and an `isolation: isolate` stacking context). The
    dropdown is appended to <body>, so anything that outranks it renders on top of it — which read as "the
@@ -2373,7 +2357,7 @@ body.native-app .explain-bar button { -webkit-app-region: no-drag; }
 .explain-prompt-textarea {
   width: 100%; min-height: 360px; resize: vertical;
   border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text);
-  padding: 12px 14px; font: 12px/1.6 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding: 12px 14px; font: 12px/1.6 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: pre-wrap; outline: none;
 }
 .explain-prompt-textarea:focus { border-color: var(--active); }
@@ -2441,7 +2425,7 @@ body.native-app .explain-bar button { -webkit-app-region: no-drag; }
   margin: 0 10px 10px; width: calc(100% - 20px); min-height: 60px;
   background: var(--bg); color: var(--text); caret-color: var(--text);
   border: 1px solid var(--border); border-radius: 0; padding: 9px 11px;
-  font: 12px/1.55 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 12px/1.55 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .explain-mc-input:focus { outline: none; border-color: var(--active); box-shadow: 0 0 0 3px color-mix(in srgb, var(--active) 22%, transparent); }
@@ -2666,12 +2650,12 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   color: var(--muted);
   font-size: 12px;
 }
-.quick-open-hint { font-family: Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.quick-open-hint { font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 /* Recent files: no search box — typed letters filter the list (speed search). */
 .quick-open.quick-recent #quick-open-input { display: none; }
 .quick-open-filter { font-size: 12px; }
 .quick-open-filter.is-hint { color: var(--muted); opacity: 0.7; font-style: italic; }
-.quick-open-filter.has-filter { color: var(--active); font-family: Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.quick-open-filter.has-filter { color: var(--active); font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .quick-open-filter.has-filter::after { content: "\258F"; opacity: 0.7; animation: mc-caret-blink 1.1s steps(1) infinite; }
 @keyframes mc-caret-blink { 50% { opacity: 0; } }
 #quick-open-input {
@@ -2682,7 +2666,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   padding: 13px 14px;
   background: var(--bg);
   color: var(--text);
-  font: 15px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 15px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .quick-open-search-options {
   display: none;
@@ -2706,7 +2690,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   padding: 5px 8px;
   color: var(--text);
   background: var(--bg);
-  font: 11px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 #quick-open-extensions:focus { border-color: var(--active); box-shadow: 0 0 0 2px color-mix(in srgb, var(--active) 14%, transparent); }
 .quick-open-option-toggle {
@@ -2735,7 +2719,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .quick-open-item.usage-item { display: flex; align-items: baseline; gap: 10px; }
 .quick-open-item.search-result { grid-template-columns: minmax(0, 1fr) minmax(100px, 34%); }
 .quick-open-item.search-result .quick-open-main { overflow: hidden; }
-.search-snippet { font: 12px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.search-snippet { font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .search-hit { padding: 0; color: inherit; background: color-mix(in srgb, var(--active) 42%, transparent); }
 .quick-open-item.search-result .quick-open-badge { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 /* Prompt palette rows (⌘⇧P): prompt name on top, its first line as a muted one-line gist below. */
@@ -2743,7 +2727,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .prompt-palette-name { color: var(--text); font-size: 12.5px; font-weight: 600; }
 .prompt-palette-summary { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11.5px; }
 .usage-loc { flex: none; color: var(--chrome-text); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
-.usage-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: 12px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.usage-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .quick-open-main { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
 .quick-open-path { flex: 1 1 auto; }
 .quick-open-preview {
@@ -2761,9 +2745,9 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   color: var(--muted);
-  font: 11px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-.qp-body { padding: 4px 0; font: 12px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, monospace; }
+.qp-body { padding: 4px 0; font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, monospace; }
 .qp-line { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 6px; padding: 0 8px; white-space: pre; line-height: 1.5; }
 .qp-num { color: var(--muted); text-align: right; user-select: none; }
 .qp-hit { background: color-mix(in srgb, var(--active) 20%, transparent); }
@@ -2790,7 +2774,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 13px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 13px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .quick-open-path {
   display: block;
@@ -2944,7 +2928,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   background: repeating-conic-gradient(#3a3a3a 0% 25%, #2f2f2f 0% 50%) 50% / 20px 20px;
   cursor: zoom-in;
 }
-.image-cap { color: var(--muted); font: 11px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.image-cap { color: var(--muted); font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 
 /* --- Lightbox (click an image to zoom) --- */
 .mc-lightbox {
@@ -2982,11 +2966,11 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .markdown-body strong { color: var(--text); }
 .markdown-body del { color: var(--muted); }
 .markdown-body code {
-  font: .86em Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: .86em Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: var(--line); border: 1px solid var(--border); border-radius: 4px; padding: .1em .38em;
 }
 .markdown-body pre { max-width: 100%; overflow: auto; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
-.markdown-body pre code { display: block; padding: 0; border: 0; background: none; white-space: pre; font: 12px/1.6 Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.markdown-body pre code { display: block; padding: 0; border: 0; background: none; white-space: pre; font: 12px/1.6 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 /* YAML frontmatter: document metadata, not document content — set it apart from the prose it precedes. */
 .markdown-body pre.md-frontmatter { background: var(--sidebar); border-style: dashed; }
 .markdown-body blockquote { padding: 2px 0 2px 16px; color: var(--muted); border-left: 3px solid var(--border); }
@@ -3028,7 +3012,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 
 /* --- CSV/TSV: an aligned table that is still a .source-table (gutter + per-row comments). --- */
 .csv-doc { width: auto; }
-.csv-cell { border: 1px solid var(--border); padding: 3px 10px; text-align: left; white-space: pre; vertical-align: top; font: 12px Monaco, KakapoMonoCJK, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.csv-cell { border: 1px solid var(--border); padding: 3px 10px; text-align: left; white-space: pre; vertical-align: top; font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .csv-head .csv-cell { background: var(--line); color: #d7e0ea; font-weight: 650; }
 .csv-row:nth-child(even) .csv-cell { background: rgba(255, 255, 255, 0.018); }
 

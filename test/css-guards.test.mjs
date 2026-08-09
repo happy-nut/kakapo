@@ -379,26 +379,3 @@ test("merged panel: the editor host itself never inherits the memo's full-panel 
   assert.match(host, /min-height:\s*0\b/, "the fix: the merged panel's host must reset min-height to 0, not inherit 100% from .mc-inline-editor-host");
 });
 
-// Hangul on the monospace grid. Monaco/SF Mono/Menlo/Consolas carry no Hangul, so CJK fell back to a face
-// whose advance (10.38px) was neither one column nor two against the Latin 7.2px. Measured in the app's own
-// Chromium, that made the caret take a big step over each syllable and a small one over each space — the
-// "cursor barely moves at a space" report — and broke indentation on any line containing Korean.
-test("CJK is pinned to exactly two columns on the code grid", () => {
-  const face = css.match(/@font-face \{[^}]*KakapoMonoCJK[^}]*\}/)?.[0];
-  assert.ok(face, "a dedicated CJK face is declared");
-  assert.match(face, /src: local\("AppleGothic"\)/, "calibrated against the face that ships with macOS");
-  assert.match(face, /size-adjust: 120\.02%/,
-    "AppleGothic's 12px Hangul advance x 120.02% = 14.402px = 2 x the 7.201px Latin column");
-  // Without unicode-range the face would also claim Latin, where it is NOT metric-compatible with Monaco.
-  assert.match(face, /unicode-range:[^;]*U\+AC00-D7FF/, "scoped to CJK codepoints, Hangul syllables included");
-  assert.doesNotMatch(face, /unicode-range:[^;]*U\+00(20|41)/, "never claims Latin");
-});
-
-test("every monospace stack reaches the CJK face, and Monaco still wins for Latin", () => {
-  const stacks = css.match(/Monaco,[^;}]*monospace/g) || [];
-  assert.ok(stacks.length > 10, `found ${stacks.length} monospace stacks`);
-  for (const stack of stacks) {
-    assert.match(stack, /^Monaco, KakapoMonoCJK,/,
-      `CJK face sits right after Monaco so Latin metrics are unchanged: ${stack}`);
-  }
-});
