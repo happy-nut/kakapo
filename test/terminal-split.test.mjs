@@ -30,24 +30,35 @@ test("the preload forwards the direction and defaults anything unexpected to a s
     "an unknown/missing direction falls back to the old behavior rather than silently stacking");
 });
 
-test("the client turns the direction into the layout class and re-fits xterm afterwards", () => {
+// A stacked split must act on the pane you are IN. The panel used to carry a single axis for every pane, so
+// Cmd+Shift+D flipped the whole panel — two side-by-side panes suddenly became two stacked ones. Panes now
+// live in cells (the panel is a row of cells, a cell is a column of panes), so a stacked split adds to the
+// focused pane's own cell and leaves every other pane where it was.
+test("a stacked split nests inside the focused pane's cell instead of re-orienting the panel", () => {
   const split = client.match(/function split\(direction\)[\s\S]*?\n  \}/)?.[0];
   assert.ok(split, "split takes a direction");
-  assert.match(split, /classList\.toggle\('is-column', direction === 'column'\)/,
-    "column splits set the class AND row splits clear it, so the axis can be switched back");
+  assert.match(split, /direction === 'column' && active[\s\S]{0,80}active\.el\.parentNode : makeCell\(\)/,
+    "column splits reuse the active pane's cell; row splits open a new one");
+  assert.doesNotMatch(split, /is-column/, "no panel-wide axis flag survives");
   assert.match(split, /requestAnimationFrame\(fitAll\)/,
-    "xterm is re-fitted after the new axis is laid out, not only against the pre-split geometry");
+    "xterm is re-fitted after the new layout, not only against the pre-split geometry");
   assert.match(client, /onTerminalSplit\(split\)/, "the bridge is wired to it");
+  // An emptied cell would keep its share of the row and read as a gap where the pane used to be.
+  assert.match(client, /!cell\.children\.length[\s\S]{0,60}removeChild\(cell\)/,
+    "closing the last pane of a cell removes the cell");
 });
 
-test("a stacked split has a layout that can actually show two panes", () => {
-  assert.match(css, /\.terminal-host\.is-column \{[^}]*flex-direction: column/,
-    "the class the client sets is the one that flips the axis");
+test("cells and panes can both actually shrink, so a stacked split shows two panes", () => {
+  const cell = css.match(/^\.terminal-cell \{[^}]*\}/m)?.[0];
+  assert.ok(cell, ".terminal-cell rule exists");
+  assert.match(cell, /flex-direction: column/, "a cell stacks its panes");
+  assert.match(cell, /min-height: 0/, "and can shrink inside the row");
+  assert.match(cell, /flex: 1 1 0/, "cells share the row evenly");
   const pane = css.match(/^\.terminal-pane \{[^}]*\}/m)?.[0];
   assert.ok(pane, ".terminal-pane rule exists");
   assert.match(pane, /min-height: 0/,
     "without min-height a flex-column child cannot shrink and the stacked panes collapse to nothing");
-  assert.match(pane, /flex: 1 1 0/, "panes still share the axis evenly");
+  assert.match(pane, /flex: 1 1 0/, "panes still share their cell evenly");
 });
 
 // Cmd+0 / Cmd+1 reveal the Changes / Files tree, and the floating terminal covers exactly that — leaving it

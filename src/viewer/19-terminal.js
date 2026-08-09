@@ -112,7 +112,16 @@
       }));
     } catch (e) {}
   }
-  function makePane() {
+  // Every pane lives in a CELL: the panel is a row of cells, and a cell is a column of panes. One level of
+  // nesting is what makes "split the pane I am in" expressible — a single flex axis for the whole panel meant
+  // a stacked split re-oriented every pane at once (the old is-column class).
+  function makeCell() {
+    var cell = document.createElement('div');
+    cell.className = 'terminal-cell';
+    host.appendChild(cell);
+    return cell;
+  }
+  function makePane(cell) {
     if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw
     var el = document.createElement('div');
     el.className = 'terminal-pane';
@@ -122,7 +131,7 @@
     paneHost.className = 'terminal-pane-host';
     el.appendChild(labelEl);
     el.appendChild(paneHost);
-    host.appendChild(el);
+    (cell || makeCell()).appendChild(el);
     var term = new window.Terminal({
       fontSize: 12,
       fontFamily: 'Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
@@ -262,7 +271,12 @@
     var i = panes.indexOf(p);
     if (i < 0) return;
     try { p.term.dispose(); } catch (e) {}
-    if (p.el.parentNode) p.el.parentNode.removeChild(p.el);
+    var cell = p.el.parentNode;
+    if (cell) {
+      cell.removeChild(p.el);
+      // An emptied cell would keep its share of the row and show as a gap where the pane used to be.
+      if (cell.classList.contains('terminal-cell') && !cell.children.length && cell.parentNode) cell.parentNode.removeChild(cell);
+    }
     panes.splice(i, 1);
     if (active === p) setActive(panes[panes.length - 1] || null);
     if (panes.length === 0) setOpen(false);
@@ -290,13 +304,16 @@
     killPane(p);
   }
 
-  // Cmd+D splits side by side, Cmd+Shift+D stacks top/bottom. The direction applies to the whole panel rather
-  // than to the focused pane alone, so the last split re-orients an existing row/column instead of nesting.
-  // ponytail: one axis per panel; a split TREE (mixed row+column, like tmux/VS Code) if 3+ panes need it.
+  // Cmd+D splits side by side, Cmd+Shift+D stacks the FOCUSED pane top/bottom: a new cell beside the others,
+  // or a second pane inside the focused pane's own cell. Both act on the pane you are in and leave every other
+  // pane's geometry alone — the panel used to carry one axis for all of them, so a stacked split silently
+  // re-oriented the whole panel.
+  // ponytail: one nesting level (a row of stacked cells), which covers MAX_PANES 2x2. A full split tree
+  // (columns inside rows inside columns) only if someone wants more than that.
   function split(direction) {
     if (panes.length >= MAX_PANES) return;
-    host.classList.toggle('is-column', direction === 'column');
-    makePane();
+    var cell = direction === 'column' && active && active.el.parentNode ? active.el.parentNode : makeCell();
+    makePane(cell);
     // Re-fit after the browser has laid the new axis out — fitting against the pre-split geometry leaves
     // xterm sized for the old direction, which shows up as a pane whose rows/cols don't match its box.
     fitAll();

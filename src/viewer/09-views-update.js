@@ -343,6 +343,27 @@ function terminalTypingAgeMs() {
   var at = api && typeof api.typingAt === 'function' ? api.typingAt() : 0;
   return at ? Date.now() - at : Infinity;
 }
+// The same rule, for the other thing an agent's own output triggers: refreshComments() re-renders every
+// thread in the diff, synchronously, on this shared thread. Answers and annotations are pushed from the
+// one-second poll while the agent writes them — precisely while you are typing at its prompt — and unlike
+// applyDiffUpdate they were never held, so that render could land between keystrokes (and, mid-Hangul, on a
+// half-formed syllable). The store update itself stays immediate; only the render waits for a typing pause,
+// and one queued render covers every change that arrived while waiting.
+var refreshCommentsTimer = null;
+function refreshCommentsWhenNotTyping() {
+  if (typeof refreshComments !== 'function') return;
+  var age = terminalTypingAgeMs();
+  if (age >= TERMINAL_TYPING_IDLE_MS) {
+    if (refreshCommentsTimer) { clearTimeout(refreshCommentsTimer); refreshCommentsTimer = null; }
+    refreshComments();
+    return;
+  }
+  if (refreshCommentsTimer) return;
+  refreshCommentsTimer = setTimeout(function () {
+    refreshCommentsTimer = null;
+    refreshCommentsWhenNotTyping();
+  }, TERMINAL_TYPING_IDLE_MS - age + 20);
+}
 var pendingDiffUpdate = null;
 var pendingDiffTimer = null;
 // Keep only the newest payload and retry once the typing pause is long enough. applyDiffUpdate re-checks and

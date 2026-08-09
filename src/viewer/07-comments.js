@@ -961,5 +961,6 @@ function applyAnswersUpdate(items) {
     c.answeredAt = item.answeredAt;
     changed = true;
   });
-  if (changed) { saveComments(); refreshComments(); }
+  // Agent-driven, so the re-render yields to a terminal being typed into (see refreshCommentsWhenNotTyping).
+  if (changed) { saveComments(); refreshCommentsWhenNotTyping(); }
 }

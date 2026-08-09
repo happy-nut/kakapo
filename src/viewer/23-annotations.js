@@ -79,7 +79,8 @@ function setAnnotations(notes) {
       text: String((n && n.text) || ''),
     };
   }).filter(function (n) { return n.path && n.text; });
-  if (typeof refreshComments === 'function') { try { refreshComments(); } catch (e) {} }
+  // Agent-driven, so the re-render yields to a terminal being typed into (see refreshCommentsWhenNotTyping).
+  if (typeof refreshCommentsWhenNotTyping === 'function') { try { refreshCommentsWhenNotTyping(); } catch (e) {} }
   if (typeof syncRail === 'function') { try { syncRail(); } catch (e) {} } // the Explain rail icon lights up once notes exist
 }
 function requestAnnotations() {
