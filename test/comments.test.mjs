@@ -550,11 +550,20 @@ test("an agent's answer renders in the thread but is only flagged in the merged 
   await v.writeAndSave("why is this a CLI?");
 
   const seq = v.storedComments()[0].seq;
-  v.window.applyAnswersUpdate([{ seq, answer: "Because it ships as one binary.", answeredAt: "2026-08-08T00:00:00Z" }]);
+  // An agent writes markdown; escaping it put "**one binary**" and the list markers on screen literally.
+  v.window.applyAnswersUpdate([{
+    seq,
+    answer: "Because it ships as **one binary**.\n\n1. warm start\n2. comparison\n",
+    answeredAt: "2026-08-08T00:00:00Z",
+  }]);
   await v.settle(60);
 
   const thread = v.$("#source-body .mc-card:not(.mc-composer) .mc-answer-body");
-  assert.equal(thread?.textContent, "Because it ships as one binary.", "the thread card carries the full answer");
+  assert.ok(thread, "the thread card carries the answer");
+  assert.match(thread.textContent, /Because it ships as one binary\./, "the answer text is there");
+  assert.equal(thread.querySelector("strong")?.textContent, "one binary", "…with its markdown rendered, not escaped");
+  assert.equal(thread.querySelectorAll("ol > li").length, 2, "…including lists");
+  assert.doesNotMatch(thread.textContent, /\*\*/, "no raw markdown syntax leaks through");
 
   await v.openMergedView();
   const card = v.$(".mc-merged-card");

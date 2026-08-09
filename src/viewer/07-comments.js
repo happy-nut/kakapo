@@ -342,12 +342,21 @@ function commentTargetLabel(s) {
   if (from > to) { var swap = from; from = to; to = swap; }
   return '@' + String(s && s.path || '') + '#L' + from + (to !== from ? '-' + to : '');
 }
+// An agent writes markdown — bold, lists, fenced code, mermaid — so render it, the same way agent
+// annotations already do. Escaping it left "**워밍스타트 씨앗**" and "1." literally on screen. Falls back to
+// escaped text if the markdown runtime is unavailable (browser/static builds without it).
+function agentBodyHtml(text) {
+  if (typeof annotationBodyHtml === 'function') {
+    try { return annotationBodyHtml(text); } catch (e) { /* fall through to plain text */ }
+  }
+  return '<div class="mc-answer-plain">' + escapeHtml(text) + '</div>';
+}
 // Rendered inside a comment's .mc-card, right after .mc-card-body, once an agent has written an answer
 // into answers.json (see applyAnswersUpdate below). Empty string — nothing rendered — until then.
 function commentAnswerHtml(c) {
   if (!c || !c.answer) return '';
   return '<div class="mc-card-answer"><span class="mc-answer-label">' + escapeHtml(t('comment.answer')) + '</span>'
-    + '<div class="mc-answer-body">' + escapeHtml(c.answer) + '</div></div>';
+    + '<div class="mc-answer-body markdown-body mc-ai-body">' + agentBodyHtml(c.answer) + '</div></div>';
 }
 function threadHtml(path, line) {
   // Agent notes first: they explain the code the reviewer is about to comment on.

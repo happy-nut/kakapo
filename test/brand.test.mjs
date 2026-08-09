@@ -60,7 +60,10 @@ test("visible product labels and wait states reuse the real Kakapo icon", async 
   assert.match(css, /@keyframes kakapo-peck/, "the parrot has one shared activity animation");
   assert.match(css, /\.app-version \.kakapo-mark\s*\{\s*width:\s*28px;\s*height:\s*28px;/, "the compact footer still shows a legible parrot");
   assert.match(css, /\.settings-nav-brand \.kakapo-mark\s*\{\s*width:\s*28px;\s*height:\s*28px;/, "panel branding does not collapse to an indistinct glyph");
-  assert.match(css, /\.kakapo-loader-boot \.kakapo-mark\s*\{\s*width:\s*68px;\s*height:\s*68px;/, "the primary loading indicator remains visually prominent");
+  // The review's boot overlay paints on EVERY workspace window, so it is the compact mark; the full-size
+  // parrot belongs to opening the app, and lives in the native first-paint screen (asserted below).
+  assert.match(css, /\.kakapo-loader-boot \.kakapo-mark\s*\{\s*width:\s*34px;\s*height:\s*34px;/, "the per-window boot mark is the compact one");
+  assert.match(main, /width:\$\{glyph\}px/, "the native first-paint mark is sized per window (full for the first, half after)");
   assert.match(css, /prefers-reduced-motion:\s*reduce[\s\S]*kakapo-breathe/, "loading remains accessible with reduced motion");
   assert.doesNotMatch(css, /\.boot-spinner|\.mc-spinner|@keyframes boot-spin/, "generic ring spinners are fully retired");
   assert.match(viewer, /function loadingStateHtml[\s\S]*kakapoLoaderHtml/, "dynamic loading surfaces share the parrot helper");

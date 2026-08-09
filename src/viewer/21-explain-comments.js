@@ -78,7 +78,7 @@ function explainBlockElementById(blockId) {
 function explainCommentAnswerHtml(c) {
   if (!c || !c.answer) return '';
   return '<div class="mc-card-answer"><span class="mc-answer-label">' + escapeHtml(t('comment.answer')) + '</span>'
-    + '<div class="mc-answer-body">' + escapeHtml(c.answer) + '</div></div>';
+    + '<div class="mc-answer-body markdown-body mc-ai-body">' + agentBodyHtml(c.answer) + '</div></div>';
 }
 function explainThreadHtml(sectionId, blockId) {
   var html = '';

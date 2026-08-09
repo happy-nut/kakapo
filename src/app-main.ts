@@ -146,17 +146,21 @@ const ANALYSIS_PREWARM_DELAY_MS = 350;
 // Painted immediately while the first review build + HTML render run, so startup shows the Kakapo mark
 // of a blank window. Inlined as a data: URL so it needs no file on disk and appears before any review
 // work. Theme-aware so a light-theme user doesn't get a dark flash before the renderer applies the theme.
-function loadingHtml(light: boolean): string {
+// `compact` halves the mark for every window after the first. Opening the app is a moment worth branding;
+// opening the fifth workspace of the session is not, and a 72px bird flashing on each one reads as noise.
+function loadingHtml(light: boolean, compact = false): string {
   const bg = light ? "#ffffff" : "#2b2b2b";
   const fg = light ? "#6e7781" : "#9aa4af";
   const mark = kakapoIconHtml("kakapo-mark");
+  const box = compact ? 36 : 72;
+  const glyph = compact ? 32 : 64;
   return `<!doctype html><html><head><meta charset="utf-8"><style>
   :root{${kakapoIconCssVariable()}}
   html,body{margin:0;height:100vh;background:${bg};color:${fg};display:flex;flex-direction:column;
     align-items:center;justify-content:center;
     font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-  .kakapo-loader{display:grid;place-items:center;width:72px;height:72px;filter:drop-shadow(0 9px 15px rgba(0,0,0,.2))}
-  .kakapo-mark{display:block;width:64px;height:64px;background:var(--kakapo-ui-icon) center/contain no-repeat;
+  .kakapo-loader{display:grid;place-items:center;width:${box}px;height:${box}px;filter:drop-shadow(0 9px 15px rgba(0,0,0,.2))}
+  .kakapo-mark{display:block;width:${glyph}px;height:${glyph}px;background:var(--kakapo-ui-icon) center/contain no-repeat;
     animation:kakapo-peck 1.05s cubic-bezier(.45,0,.25,1) infinite;transform-origin:52% 72%}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   @keyframes kakapo-peck{0%,100%{transform:translateY(0) rotate(0);opacity:.9}38%{transform:translateY(-3px) rotate(-3deg);opacity:1}62%{transform:translateY(1px) rotate(2deg)}}
@@ -1693,10 +1697,14 @@ function armWatchTimers(state: WinState): void {
   }, WATCH_INTERVAL_MS);
 }
 
+// Only the session's FIRST window gets the full-size startup mark; see loadingHtml.
+let firstWindowBooted = false;
 // Paint the animated mark immediately, then build the (potentially heavy) review off the first paint and swap it
 // in. Building before the window exists left the screen blank for the first few seconds of startup.
 async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
-  await state.win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(loadingHtml(themeLight)));
+  const compact = firstWindowBooted;
+  firstWindowBooted = true;
+  await state.win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(loadingHtml(themeLight, compact)));
   state.perf.mark("spinner-loaded"); // stable trace key retained for existing performance histories
   // Give the mark a few frames to paint before the (synchronous) first build blocks the main process —
   // otherwise the animation looks frozen until the build finishes. The boot overlay in the review HTML then

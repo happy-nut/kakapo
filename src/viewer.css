@@ -1684,8 +1684,10 @@ h1 { margin: 0; font-size: 18px; }
 .kakapo-loader-inline .kakapo-mark { width: 32px; height: 32px; }
 .kakapo-loader-micro { width: 24px; height: 24px; }
 .kakapo-loader-micro .kakapo-mark { width: 22px; height: 22px; }
-.kakapo-loader-boot { width: 76px; height: 76px; filter: drop-shadow(0 9px 15px rgba(0, 0, 0, .2)); }
-.kakapo-loader-boot .kakapo-mark { width: 68px; height: 68px; }
+/* The review's own boot overlay is a brief hand-off from the native startup mark, and it paints on EVERY
+   workspace window — so it stays at the compact size. The full-size bird belongs to opening the app. */
+.kakapo-loader-boot { width: 38px; height: 38px; filter: drop-shadow(0 5px 9px rgba(0, 0, 0, .2)); }
+.kakapo-loader-boot .kakapo-mark { width: 34px; height: 34px; }
 @keyframes kakapo-peck {
   0%, 100% { transform: translateY(0) rotate(0); opacity: .9; }
   38% { transform: translateY(-3px) rotate(-3deg); opacity: 1; }
@@ -1990,7 +1992,10 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
   display: block; font-weight: 700; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
   color: var(--muted); margin-bottom: 3px;
 }
-.mc-answer-body { color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Rendered markdown, so no pre-wrap here — that would double every blank line. The plain-text fallback keeps
+   it (see agentBodyHtml), since unrendered markdown still needs its own line breaks. */
+.mc-answer-body { color: var(--text); overflow-wrap: anywhere; }
+.mc-answer-plain { white-space: pre-wrap; }
 .mc-input {
   display: block; box-sizing: border-box; resize: vertical;
   margin: 0 10px 10px; width: calc(100% - 20px); min-height: 60px;
