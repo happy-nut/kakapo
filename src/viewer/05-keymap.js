@@ -11,9 +11,19 @@ function isFloatingModalOpen() {
   return isDockFocused();
 }
 
+// Cmd+0/Cmd+1 mean "take me to the tree", and the floating terminal sits on top of exactly what they reveal.
+// Leaving it parked there made the shortcut look like it had done nothing, so opening either view puts the
+// terminal away. Only when it is actually open — this must never toggle it back on.
+function closeTerminalForViewSwitch() {
+  var api = window.__kakapoTerminal;
+  if (!api || typeof api.isOpen !== 'function' || typeof api.close !== 'function') return;
+  if (api.isOpen()) api.close();
+}
+
 // Cmd+0/1 and their rail icons are focus-aware. From content they reveal/focus the matching tree; only a
 // repeated activation while that tree owns the logical focus collapses it. A collapsed tree expands first.
 function activateChangesView(navigateToDiff) {
+  closeTerminalForViewSwitch();
   if (isDiffViewVisible()) {
     if (reviewSidebarCollapsed) { setReviewSidebarCollapsed(false, { focusSidebar: true }); return; }
     if (treeFocusIndex >= 0) { toggleReviewSidebar(); return; }
@@ -31,6 +41,7 @@ function activateChangesView(navigateToDiff) {
 }
 
 function activateFilesView() {
+  closeTerminalForViewSwitch();
   if (isSourceViewerVisible()) {
     if (sourceSidebarCollapsed) { setSourceSidebarCollapsed(false, { focusSidebar: true }); return; }
     if (treeFocusIndex >= 0) { toggleSourceSidebar(); return; }

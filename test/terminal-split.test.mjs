@@ -49,3 +49,24 @@ test("a stacked split has a layout that can actually show two panes", () => {
     "without min-height a flex-column child cannot shrink and the stacked panes collapse to nothing");
   assert.match(pane, /flex: 1 1 0/, "panes still share the axis evenly");
 });
+
+// Cmd+0 / Cmd+1 reveal the Changes / Files tree, and the floating terminal covers exactly that — leaving it
+// open made the shortcut look like it had done nothing. Both funnels (keyboard and the activity-rail icons)
+// go through these two functions, so the close belongs there rather than in the key handler.
+const keymap = read("src/viewer/05-keymap.js");
+
+test("switching to Changes or Files puts an open terminal away", () => {
+  for (const fn of ["activateChangesView", "activateFilesView"]) {
+    const body = keymap.match(new RegExp(`function ${fn}\\([^)]*\\) \\{\\n([^\\n]*\\n){0,2}`))?.[0];
+    assert.ok(body, `${fn} exists`);
+    assert.match(body, /closeTerminalForViewSwitch\(\)/, `${fn} closes the terminal first`);
+  }
+});
+
+test("the close never toggles a closed terminal back on", () => {
+  const helper = keymap.match(/function closeTerminalForViewSwitch\(\)[\s\S]*?\n\}/)?.[0];
+  assert.ok(helper, "helper exists");
+  assert.match(helper, /if \(api\.isOpen\(\)\) api\.close\(\)/,
+    "guarded on isOpen — close() is a plain close, but the guard keeps this honest if it ever becomes a toggle");
+  assert.match(helper, /typeof api\.isOpen !== 'function'/, "no-ops when the terminal bundle never booted");
+});
