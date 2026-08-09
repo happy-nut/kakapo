@@ -20,10 +20,11 @@ test("defaults to dark, with a theme selector in settings", async () => {
   const v = await loadViewer(html);
   assert.equal(v.document.documentElement.getAttribute("data-theme"), "dark");
   assert.equal(v.document.documentElement.getAttribute("data-syntax-theme"), "default");
-  // One grid, not two dropdowns: every family × appearance combination is a visible, pickable card.
-  assert.equal(v.$all("#settings-theme-grid .theme-card").length, 6, "both families offer system/light/dark");
-  assert.equal(v.$("#settings-theme-grid .theme-card.is-active").dataset.family, "default");
-  assert.equal(v.$("#settings-theme-grid .theme-card.is-active").dataset.mode, "dark");
+  // One flat grid, not two dropdowns: each card is a whole named theme that is already light or dark,
+  // plus System — the only entry that has an appearance to resolve at all.
+  const names = v.$all("#settings-theme-grid .theme-card-name").map((n) => n.textContent);
+  assert.deepEqual(names, ["System", "Kakapo Dark", "Kakapo Light", "Darcula", "IntelliJ Light"]);
+  assert.equal(v.$("#settings-theme-grid .theme-card.is-active").dataset.themeId, "default-dark");
   assert.ok(
     v.$all("#settings-theme-grid .theme-swatch").every((s) => s.dataset.swatch),
     "each card previews its own theme with a swatch",
@@ -47,19 +48,15 @@ test("application chrome uses a neutral high-contrast palette without replacing 
 
 // Theme is one grid of cards keyed by (family, appearance); language is still a custom dropdown (a button
 // that opens .mc-dropdown), so a language pick is: click the trigger, then click the matching item.
-function pickTheme(v, family, mode) {
-  const card = v.$(`#settings-theme-grid .theme-card[data-family="${family}"][data-mode="${mode}"]`);
-  assert.ok(card, `the grid offers ${family}/${mode}`);
+function pickTheme(v, id) {
+  const card = v.$(`#settings-theme-grid .theme-card[data-theme-id="${id}"]`);
+  assert.ok(card, `the grid offers ${id}`);
   card.click();
-}
-// Whatever family is selected right now, with a different appearance — the axis this helper is changing.
-function pickAppearance(v, mode) {
-  pickTheme(v, v.$("#settings-theme-grid .theme-card.is-active").dataset.family, mode);
 }
 
 test("switching to light flips data-theme on <html> and persists", async () => {
   const v = await loadViewer(html);
-  pickAppearance(v, "light");
+  pickTheme(v, "default-light");
   await v.settle(20);
 
   assert.equal(v.document.documentElement.getAttribute("data-theme"), "light");
@@ -69,7 +66,7 @@ test("switching to light flips data-theme on <html> and persists", async () => {
 
 test("the light theme is restored on reopen", async () => {
   const v1 = await loadViewer(html);
-  pickAppearance(v1, "light");
+  pickTheme(v1, "default-light");
   await v1.settle(20);
   const snapshot = v1.exportStorage();
   v1.close();
@@ -80,13 +77,13 @@ test("the light theme is restored on reopen", async () => {
     "light",
     "data-theme is light on first paint after reopen",
   );
-  assert.equal(v2.$("#settings-theme-grid .theme-card.is-active").dataset.mode, "light", "the grid reflects the restored theme");
+  assert.equal(v2.$("#settings-theme-grid .theme-card.is-active").dataset.themeId, "default-light", "the grid reflects the restored theme");
   v2.close();
 });
 
 test("the Darcula family follows interface appearance across chrome and Review tokens", async () => {
   const v = await loadViewer(html);
-  pickTheme(v, "darcula", "dark");
+  pickTheme(v, "darcula-dark");
   await v.settle(20);
 
   assert.equal(v.document.documentElement.getAttribute("data-theme"), "dark");
@@ -98,7 +95,7 @@ test("the Darcula family follows interface appearance across chrome and Review t
     "raw source and diff token classes receive the Darcula keyword color",
   );
 
-  pickAppearance(v, "light");
+  pickTheme(v, "darcula-light");
   await v.settle(20);
   assert.equal(
     v.window.getComputedStyle(v.document.documentElement).getPropertyValue("--token-keyword").trim().toLowerCase(),
@@ -116,6 +113,6 @@ test("the Darcula family follows interface appearance across chrome and Review t
   const reopened = await loadViewer(html, { seedStorage: snapshot });
   assert.equal(reopened.document.documentElement.getAttribute("data-theme"), "light");
   assert.equal(reopened.document.documentElement.getAttribute("data-syntax-theme"), "darcula");
-  assert.equal(reopened.$("#settings-theme-grid .theme-card.is-active").dataset.family, "darcula");
+  assert.equal(reopened.$("#settings-theme-grid .theme-card.is-active").dataset.themeId, "darcula-light");
   reopened.close();
 });

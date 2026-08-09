@@ -356,6 +356,11 @@ ipcMain.on("kakapo:hub-expanded", (_event, expanded: unknown) => {
 });
 // The expanded rail is a transient peek. When the user clicks back into the active review view, collapse it —
 // visual-only on the shell side (no echo back to main), matching the width animation main runs here.
+// Set by the code paths that focus a review view themselves (activating a workspace). The view's focus handler
+// consumes it once, so only a genuine click into the review dismisses an expanded rail. Consume-once rather
+// than a timer, plus a same-tick reset below in case focus never actually moves (the view was already focused)
+// — otherwise the flag would leak and swallow the next real click's collapse.
+let suppressNextRailCollapse = false;
 function collapseRailFromReview(): void {
   if (!railExpanded) return;
   railExpanded = false;
@@ -1164,8 +1169,12 @@ function activateWorkspace(id: number): void {
   }
   shellWindow.show();
   shellWindow.focus();
-  focusActiveReviewView(); // keyboard belongs to the review viewer, not the rail — this also collapses an
-  // expanded rail (the view's focus handler calls collapseRailFromReview), so picking a workspace dismisses the peek.
+  // Keyboard belongs to the review viewer, not the rail. But this focus is OURS, not a click into the review,
+  // so it must not dismiss the rail: collapsing it on every switch made the panel flap open/shut and read as a
+  // glitch. The rail closes when the user actually clicks into the review, or toggles it themselves.
+  suppressNextRailCollapse = true;
+  focusActiveReviewView();
+  setTimeout(() => { suppressNextRailCollapse = false; }, 0);
   persistWorkspaceSession(states.get(id)?.options.root);
   sendRailPushed(); // the newly active view collapses its sidebar too while the rail is expanded
   renderHub();
@@ -1452,7 +1461,10 @@ function createWindow(root: string, deferBoot = false): WinState {
   view.setVisible(false);
   // Clicking into the active review view returns focus to the "main window" — collapse an expanded rail so its
   // peek dismisses. Only the active (visible) view can receive a user click, so this never fires for a background one.
-  view.webContents.on("focus", () => { if (view.webContents.id === activeStateId) collapseRailFromReview(); });
+  view.webContents.on("focus", () => {
+    if (suppressNextRailCollapse) { suppressNextRailCollapse = false; return; }
+    if (view.webContents.id === activeStateId) collapseRailFromReview();
+  });
   // The review's keyboard shortcuts (Cmd+1 Files, etc.) attach only once its HTML has loaded. On the first
   // switch to a workspace the view is still booting when activateWorkspace focuses it, so early key presses
   // landed on nothing until it finished (the "press Cmd+1 three times" symptom). Refocus the active view the

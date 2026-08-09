@@ -272,6 +272,13 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.syntaxTheme": "Theme family",
     "syntaxTheme.default": "Kakapo",
     "syntaxTheme.darcula": "Darcula",
+    // Theme grid: a theme is one named palette that is already light or dark (see renderThemeGrid).
+    // "System" is the only automatic entry — it follows the OS with whichever family is currently chosen.
+    "theme.name.system": "System",
+    "theme.name.default-dark": "Kakapo Dark",
+    "theme.name.default-light": "Kakapo Light",
+    "theme.name.darcula-dark": "Darcula",
+    "theme.name.darcula-light": "IntelliJ Light",
     "settings.checkingUpdates": "Checking for updates…",
     "settings.updateRestart": "Update & Restart",
     "settings.upToDate": "Up to date",
@@ -796,6 +803,12 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.syntaxTheme": "테마 계열",
     "syntaxTheme.default": "Kakapo",
     "syntaxTheme.darcula": "Darcula",
+    // 테마 그리드 — 테마 이름은 고유명사라 번역하지 않고, 밝기 수식어만 한국어로 둡니다.
+    "theme.name.system": "시스템",
+    "theme.name.default-dark": "Kakapo 다크",
+    "theme.name.default-light": "Kakapo 라이트",
+    "theme.name.darcula-dark": "Darcula",
+    "theme.name.darcula-light": "IntelliJ Light",
     "settings.checkingUpdates": "업데이트 확인 중…",
     "settings.updateRestart": "업데이트 후 재시작",
     "settings.upToDate": "최신 버전입니다",

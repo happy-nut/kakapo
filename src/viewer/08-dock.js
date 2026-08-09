@@ -761,13 +761,23 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
     function () { return [{ value: 'en', label: 'English' }, { value: 'ko', label: '한국어' }]; },
     function () { return locale; },
     function (next) { applyLocale(next); });
-  // ----- theme grid: family × appearance as one visible choice (see the markup note in render.ts). The two
-  // preferences stay separately persisted ('kakapo-theme' / 'kakapo-syntax-theme') — only the UI is merged,
-  // so an existing setting, the cross-window broadcast below, and applyTheme/applySyntaxTheme are untouched.
-  var THEME_FAMILIES = ['default', 'darcula'];
-  var THEME_MODES = ['system', 'light', 'dark'];
+  // ----- theme grid. A theme is one named thing that is ALREADY light or dark — Darcula is a dark theme,
+  // IntelliJ Light is a light one; neither has an "appearance" to pick separately. So the grid is a flat
+  // list of the four real palettes, plus System, which is the one genuinely automatic choice (it follows
+  // the OS and keeps whichever family you last chose).
+  //
+  // The two preferences stay separately persisted ('kakapo-theme' / 'kakapo-syntax-theme') and keep their
+  // existing values — only the UI is flattened, so a stored setting, the cross-window broadcast below, and
+  // applyTheme/applySyntaxTheme are all untouched.
+  var THEMES = [
+    { id: 'system', mode: 'system' },
+    { id: 'default-dark', family: 'default', mode: 'dark' },
+    { id: 'default-light', family: 'default', mode: 'light' },
+    { id: 'darcula-dark', family: 'darcula', mode: 'dark' },
+    { id: 'darcula-light', family: 'darcula', mode: 'light' },
+  ];
   function applySyntaxThemePref(next) {
-    if (THEME_FAMILIES.indexOf(next) < 0 || next === syntaxTheme) return;
+    if ((next !== 'default' && next !== 'darcula') || next === syntaxTheme) return;
     syntaxTheme = next;
     persistSave(SYNTAX_THEME_KEY, syntaxTheme);
     applySyntaxTheme();
@@ -775,16 +785,15 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   function renderThemeGrid() {
     var grid = document.getElementById('settings-theme-grid');
     if (!grid) return;
-    grid.innerHTML = THEME_FAMILIES.map(function (family) {
-      var cards = THEME_MODES.map(function (mode) {
-        var on = family === syntaxTheme && mode === theme;
-        return '<button type="button" class="theme-card' + (on ? ' is-active' : '') + '" role="radio"'
-          + ' aria-checked="' + (on ? 'true' : 'false') + '" data-family="' + family + '" data-mode="' + mode + '">'
-          + '<span class="theme-swatch" data-swatch="' + family + '-' + mode + '" aria-hidden="true"></span>'
-          + '<span class="theme-card-name">' + escapeHtml(t('theme.' + mode)) + '</span></button>';
-      }).join('');
-      return '<div class="theme-group"><div class="theme-group-h">' + escapeHtml(t('syntaxTheme.' + family)) + '</div>'
-        + '<div class="theme-cards">' + cards + '</div></div>';
+    grid.innerHTML = THEMES.map(function (entry) {
+      // System wins whenever the appearance is automatic, whatever family is underneath it.
+      var on = theme === 'system' ? entry.id === 'system' : (entry.family === syntaxTheme && entry.mode === theme);
+      // The System swatch previews the current family's own light and dark halves — the two it flips between.
+      var swatch = entry.id === 'system' ? syntaxTheme + '-system' : entry.id;
+      return '<button type="button" class="theme-card' + (on ? ' is-active' : '') + '" role="radio"'
+        + ' aria-checked="' + (on ? 'true' : 'false') + '" data-theme-id="' + entry.id + '">'
+        + '<span class="theme-swatch" data-swatch="' + swatch + '" aria-hidden="true"></span>'
+        + '<span class="theme-card-name">' + escapeHtml(t('theme.name.' + entry.id)) + '</span></button>';
     }).join('');
   }
   // Both refs point at the one renderer: applyI18n(), applyTheme() and applySyntaxTheme() each re-render
@@ -795,8 +804,10 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   if (themeGrid) themeGrid.addEventListener('click', function (event) {
     var card = event.target.closest && event.target.closest('.theme-card');
     if (!card) return;
-    applySyntaxThemePref(card.dataset.family);
-    applyThemePref(card.dataset.mode);
+    var entry = THEMES.filter(function (x) { return x.id === card.dataset.themeId; })[0];
+    if (!entry) return;
+    if (entry.family) applySyntaxThemePref(entry.family); // System keeps the family it is already using
+    applyThemePref(entry.mode);
     renderThemeGrid(); // applyTheme/applySyntaxTheme skip their re-render when only the OTHER axis moved
   });
   // Integrated-terminal bell → native notification opt-out. Default on; the terminal client reads the same

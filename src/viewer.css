@@ -623,9 +623,7 @@ body.native-app .source-tabs {
 .settings-row-hint { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
 /* The theme row stacks: label/hint on top, the swatch grid below at full width. */
 .settings-row-stacked { flex-direction: column; align-items: stretch; gap: 12px; }
-.theme-grid { display: flex; flex-direction: column; gap: 14px; }
-.theme-group-h { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
-.theme-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.theme-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .theme-card {
   display: flex; align-items: center; gap: 10px; min-width: 0;
   padding: 9px 11px; cursor: pointer; text-align: left;
