@@ -629,6 +629,14 @@ function applyTheme() {
   document.documentElement.setAttribute('data-theme', resolvedTheme());
   if (themeSelectRef) themeSelectRef.render();
   // Theme families own both app chrome and Review code colors.
+  retheme();
+}
+// Everything styled by CSS follows data-theme on its own. The terminal does not: each xterm pane is
+// constructed with a colour object read from the variables at that moment, so switching to a light family
+// left the panes dark until they were re-created. Push the new colours into the live panes instead.
+function retheme() {
+  var api = window.__kakapoTerminal;
+  if (api && typeof api.retheme === 'function') { try { api.retheme(); } catch (e) {} }
 }
 applyTheme();
 // Follow the OS while the preference is 'system'. Electron flips prefers-color-scheme when the app theme source
@@ -672,6 +680,7 @@ var syntaxTheme = (function () {
 function applySyntaxTheme() {
   document.documentElement.setAttribute('data-syntax-theme', syntaxTheme);
   if (syntaxThemeSelectRef) syntaxThemeSelectRef.render();
+  retheme(); // a syntax family carries its own --panel/--text, which the panes are painted from
 }
 applySyntaxTheme();
 let fileStates = JSON.parse(document.getElementById('file-state-data')?.textContent || '[]');

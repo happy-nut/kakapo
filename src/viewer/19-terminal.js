@@ -94,11 +94,29 @@
   }
   // Pull the terminal colors from the app's own theme variables so the panel matches the editor
   // (a flat #161616 read as "too black" next to the tinted --panel chrome) and follows light/dark + darcula.
+  // xterm's default ANSI palette is built for a dark background: its white and bright-white are all but
+  // invisible on a light one, and a TUI prints in exactly those. So a light theme brings its own palette;
+  // dark keeps xterm's, which already suits it.
+  var LIGHT_ANSI = {
+    black: '#24292e', red: '#cd3131', green: '#00825d', yellow: '#8a6a00',
+    blue: '#0451a5', magenta: '#bc05bc', cyan: '#0598bc', white: '#4f5b66',
+    brightBlack: '#6b737c', brightRed: '#cd3131', brightGreen: '#00a06a', brightYellow: '#a67a00',
+    brightBlue: '#0451a5', brightMagenta: '#bc05bc', brightCyan: '#0598bc', brightWhite: '#2f3640',
+  };
   function themeColors() {
     var cs = getComputedStyle(document.documentElement);
-    var bg = (cs.getPropertyValue('--panel') || '').trim() || '#1e2229';
-    var fg = (cs.getPropertyValue('--text') || '').trim() || '#a9b7c6';
-    return { background: bg, foreground: fg, cursor: fg, selectionBackground: '#214283' };
+    var light = document.documentElement.getAttribute('data-theme') === 'light';
+    var bg = (cs.getPropertyValue('--panel') || '').trim() || (light ? '#ffffff' : '#1e2229');
+    var fg = (cs.getPropertyValue('--text') || '').trim() || (light ? '#1f2328' : '#a9b7c6');
+    var colors = { background: bg, foreground: fg, cursor: fg, selectionBackground: light ? '#b9d3f7' : '#214283' };
+    if (light) for (var name in LIGHT_ANSI) colors[name] = LIGHT_ANSI[name];
+    return colors;
+  }
+  // The panes read those colors once, when they are constructed, so a theme switch has to be pushed into the
+  // live xterm instances — otherwise the app repaints around a terminal still wearing the old palette.
+  function applyTerminalTheme() {
+    var colors = themeColors();
+    panes.forEach(function (p) { try { p.term.options.theme = colors; } catch (e) {} });
   }
   // Underline URLs in the scrollback and hand a clicked one to the default browser. The click goes through
   // main (kakapo:open-external), which re-checks the scheme — a command can print any string it likes, so
@@ -487,6 +505,8 @@
     // True while an IME syllable is still being assembled in some pane.
     isComposing: function () { return composingPanes.size > 0; },
     open: function () { setOpen(true); },
+    // Called when the app's theme family changes (see applyTheme in 01-core.js).
+    retheme: applyTerminalTheme,
     paneCount: function () { return panes.length; },
     closeActivePane: closeActivePane,
     enterSendMode: enterSendMode,

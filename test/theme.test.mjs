@@ -5,6 +5,7 @@
 // language toggle (live switch, persisted), and the choice must survive a reopen.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
 
@@ -115,4 +116,30 @@ test("the Darcula family follows interface appearance across chrome and Review t
   assert.equal(reopened.document.documentElement.getAttribute("data-syntax-theme"), "darcula");
   assert.equal(reopened.$("#settings-theme-grid .theme-card.is-active").dataset.themeId, "darcula-light");
   reopened.close();
+});
+
+// Everything styled by CSS follows html[data-theme] on its own. The terminal does not: each xterm pane is
+// constructed with a colour OBJECT read from the variables at that moment, so switching to a light family
+// repainted the whole app around panes still wearing the dark palette. And a light background needs its own
+// ANSI palette — xterm's default white/bright-white is what a TUI prints in, and it is invisible on white.
+test("switching theme repaints the live terminal panes, and light gets a readable ANSI palette", () => {
+  const core = readFileSync(new URL("../src/viewer/01-core.js", import.meta.url), "utf8");
+  const term = readFileSync(new URL("../src/viewer/19-terminal.js", import.meta.url), "utf8");
+
+  assert.match(core, /function applyTheme\(\)[\s\S]{0,320}retheme\(\);/, "a theme change pushes into the panes");
+  assert.match(core, /function applySyntaxTheme\(\)[\s\S]{0,260}retheme\(\)/,
+    "so does a syntax family — it carries its own --panel/--text");
+  assert.match(core, /function retheme\(\)[\s\S]{0,220}__kakapoTerminal[\s\S]{0,80}\.retheme\(\)/,
+    "through the terminal's own entry point");
+  assert.match(term, /retheme: applyTerminalTheme/, "which the terminal exposes");
+  assert.match(term, /function applyTerminalTheme\(\)[\s\S]{0,200}p\.term\.options\.theme = colors/,
+    "and which re-themes every live pane, not just the next one created");
+
+  const colors = term.match(/function themeColors\(\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(colors, "themeColors exists");
+  assert.match(colors, /data-theme'\) === 'light'/, "it reads the resolved theme");
+  assert.match(colors, /if \(light\) for \(var name in LIGHT_ANSI\)/, "and only a light theme overrides ANSI");
+  for (const slot of ["white", "brightWhite", "yellow"]) {
+    assert.ok(new RegExp(`\\b${slot}: '#`).test(term), `the light palette defines ${slot}`);
+  }
 });
