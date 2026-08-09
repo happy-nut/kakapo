@@ -142,6 +142,11 @@ const APP_VERSION = app.isPackaged ? app.getVersion() : (() => {
 const REVIEW_FILE = "app-review.html";
 const WATCH_INTERVAL_MS = 1000;
 const ANALYSIS_PREWARM_DELAY_MS = 350;
+// How long a workspace must stay hidden before its language servers are shut down. Resuming pays the full
+// cold start again (the bundled Kotlin server alone allocates well over a gigabyte on every restart), so a
+// short timer turns ordinary back-and-forth switching into pure churn: it costs more than the RSS it frees.
+// Long enough that only a genuinely parked workspace is reclaimed. See issue #24.
+const ANALYSIS_IDLE_SUSPEND_MS = 30 * 60_000;
 
 // Painted immediately while the first review build + HTML render run, so startup shows the Kakapo mark
 // of a blank window. Inlined as a data: URL so it needs no file on disk and appears before any review
@@ -1167,6 +1172,13 @@ function activateWorkspace(id: number): void {
         target.signature = rebuilt.signature;
         if (rebuilt.update) target.win.webContents.send("kakapo:diff-update", rebuilt.update);
       }, 0);
+    } else if (activated.bootStarted) {
+      // This workspace's pollers were paused while it was hidden (isVisibleWorkspace). Catch up now rather
+      // than up to a tick later, so a switch still lands on the current diff/answers/annotations. The
+      // suspended branch above already rebuilds everything, hence the else.
+      if (activated.options.watch) void refreshIfChanged(activated);
+      void syncAnswersFile(activated);
+      refreshAnnotationsIfChanged(activated);
     }
     if (!activated.bootStarted) {
       activated.bootStarted = true;
@@ -1192,14 +1204,17 @@ function activateWorkspace(id: number): void {
       (child): child is WebContentsView => child instanceof WebContentsView && child.webContents.id === state.win.webContents.id,
     );
     view?.setVisible(state.win.webContents.id === id);
-    if (state.win.webContents.id !== id) {
-      if (state.idleTimer) clearTimeout(state.idleTimer);
+    // Start the countdown when this workspace goes off screen, and let it run. Re-arming it on every switch
+    // measured "nobody switched for a while" instead of "this workspace has been hidden for a while", so with
+    // a handful of workspaces in rotation nothing was ever reclaimed. Activating one clears its timer above.
+    if (state.win.webContents.id !== id && !state.idleTimer && !state.analysisSuspended) {
       state.idleTimer = setTimeout(() => {
+        state.idleTimer = undefined;
         state.analysis.dispose();
         state.analysisSuspended = true;
         state.sourceFiles.clear();
         state.bodyCache.clear();
-      }, 5 * 60_000);
+      }, ANALYSIS_IDLE_SUSPEND_MS);
       state.idleTimer.unref?.();
     }
   }
@@ -1723,10 +1738,20 @@ function clearWatchTimers(state: WinState): void {
 // anything written before this window existed (annotations have no such backlog concern).
 function armWatchTimers(state: WinState): void {
   clearWatchTimers(state);
-  if (state.options.watch) state.refreshTimer = setInterval(() => void refreshIfChanged(state), WATCH_INTERVAL_MS);
-  state.answersTimer = setInterval(() => void syncAnswersFile(state), WATCH_INTERVAL_MS);
+  if (state.options.watch) state.refreshTimer = setInterval(() => { if (isVisibleWorkspace(state)) void refreshIfChanged(state); }, WATCH_INTERVAL_MS);
+  state.answersTimer = setInterval(() => { if (isVisibleWorkspace(state)) void syncAnswersFile(state); }, WATCH_INTERVAL_MS);
   void syncAnswersFile(state);
-  state.annotationsTimer = setInterval(() => refreshAnnotationsIfChanged(state), WATCH_INTERVAL_MS);
+  state.annotationsTimer = setInterval(() => { if (isVisibleWorkspace(state)) refreshAnnotationsIfChanged(state); }, WATCH_INTERVAL_MS);
+}
+
+// Only the workspace on screen is worth polling. A hidden one produced nothing a user could see while its
+// --watch tick shelled out to `git diff` over the whole worktree every second — N open workspaces meant N
+// permanent per-second walks of N trees, forever (issue #24). Every poller compares a signature, so a hidden
+// workspace simply catches up on its first tick after it becomes visible; activateWorkspace kicks one
+// immediately so the switch itself stays instant.
+function isVisibleWorkspace(state: WinState): boolean {
+  if (state.win.isDestroyed()) return false;
+  return state.win.isDetached() || state.win.webContents.id === activeStateId;
 }
 
 // Only the session's FIRST window gets the full-size startup mark; see loadingHtml.

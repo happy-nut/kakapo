@@ -152,6 +152,8 @@ const REQUEST_TIMEOUT_MS = 8_000;
 // loading their runtime before replying to initialize. Give startup its own budget while keeping normal
 // definition/reference requests fail-fast so a broken server cannot freeze navigation for twenty seconds.
 const INITIALIZE_TIMEOUT_MS = 20_000;
+// How long a stopped server may take to exit on its own before it is killed outright.
+const STOP_GRACE_MS = 2_000;
 const APP_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DEFAULT_BUNDLED_SERVER_ROOT = join(APP_ROOT, "vendor", "language-servers");
 
@@ -438,6 +440,19 @@ export function lspLanguageId(path: string): string {
   return languageForPath(path);
 }
 
+// Process-group leaders of every running server. Quitting tears the app down without visiting each window's
+// dispose path, and on POSIX a child outlives its parent — that is how weeks of use accumulate orphaned
+// JVMs. An 'exit' handler must be synchronous, so kill the groups outright: the app is already leaving.
+const liveServerGroups = new Set<number>();
+process.once("exit", () => {
+  for (const pid of liveServerGroups) {
+    try {
+      if (process.platform === "win32") process.kill(pid);
+      else process.kill(-pid, "SIGKILL");
+    } catch { /* already gone */ }
+  }
+});
+
 export class LspClient {
   private child?: ChildProcessWithoutNullStreams;
   private nextId = 0;
@@ -550,8 +565,31 @@ export class LspClient {
     if (this.stopped) return;
     this.stopped = true;
     try { this.notify("exit", null); } catch { /* best effort */ }
-    try { this.child?.kill(); } catch { /* best effort */ }
+    this.killTree();
     this.failPending(new Error(`${this.server.name} stopped`));
+  }
+
+  // Several servers are launchers that fork the real engine as their own child (the bundled Kotlin server
+  // runs a JBR JVM; typescript-language-server runs tsserver and typingsInstaller). A well-behaved one
+  // tears its children down on SIGTERM — measured: tsserver's two children always went with it. One that
+  // does not left the engine running on PPID 1, which is how issue #24 caught a 253 MB Kotlin process
+  // outliving by hours the app session that started it. Signalling the group covers both kinds, so a
+  // server's cleanup manners stop being load-bearing.
+  private killTree(): void {
+    const child = this.child;
+    if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
+    const pid = child.pid;
+    const signalGroup = (signal: NodeJS.Signals) => {
+      try {
+        // Windows has no process groups to signal; kill() there already terminates the whole tree.
+        if (process.platform === "win32") child.kill(signal);
+        else process.kill(-pid, signal);
+      } catch { /* already gone */ }
+    };
+    signalGroup("SIGTERM");
+    const timer = setTimeout(() => signalGroup("SIGKILL"), STOP_GRACE_MS);
+    timer.unref?.();
+    child.once("close", () => clearTimeout(timer));
   }
 
   private async ensureDocument(path: string): Promise<void> {
@@ -592,8 +630,16 @@ export class LspClient {
         env: { ...process.env, ...this.server.env },
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
+        // Own process group, so killTree() can reap the server's own children (tsserver, the Kotlin JVM)
+        // instead of orphaning them. stdio stays piped, so this is not a true detach.
+        detached: process.platform !== "win32",
       });
       this.child = child;
+      const pid = child.pid;
+      if (pid) {
+        liveServerGroups.add(pid);
+        child.once("close", () => liveServerGroups.delete(pid));
+      }
       child.stdout.on("data", (chunk: Buffer) => this.consume(chunk));
       child.stderr.on("data", (chunk: Buffer) => {
         // Opt-in diagnostics are useful for validating a newly bundled server without polluting the app UI.
