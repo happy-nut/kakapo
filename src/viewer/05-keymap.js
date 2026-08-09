@@ -474,6 +474,7 @@ document.addEventListener('keydown', (event) => {
     var navInField = navEl && (navEl.tagName === 'INPUT' || navEl.tagName === 'TEXTAREA' || navEl.tagName === 'SELECT');
     if (!navInField) {
       event.preventDefault();
+      clearTreeFocus(); // jumping the cursor history moves the caret, so arrows follow it (see F7 below)
       if (event.key === '[') navBack(); else navForward();
       return;
     }
@@ -488,6 +489,11 @@ document.addEventListener('keydown', (event) => {
 
   if (event.key === 'F7' && !event.metaKey && !event.ctrlKey && !event.altKey) {
     event.preventDefault();
+    // Navigating changes moves the CODE caret, so arrows have to follow it. The sidebar owns arrows while
+    // treeFocusIndex >= 0, and nothing here focuses a DOM node inside the diff, so that index survived: after
+    // clicking a file in the tree and then pressing F7, the caret moved but arrows still drove the tree.
+    // (Not in setDiffCursor — a sidebar CLICK legitimately keeps its row focused while opening the diff.)
+    clearTreeFocus();
     const delta = event.shiftKey ? -1 : 1;
     const sourceViewer = document.getElementById('source-viewer');
     // Forward F7 from the source view enters the diff at the open file's own hunk, so the reviewer lands
@@ -515,6 +521,7 @@ document.addEventListener('keydown', (event) => {
     var cfAe = document.activeElement;
     if (cfAe && (cfAe.tagName === 'INPUT' || cfAe.tagName === 'TEXTAREA' || cfAe.tagName === 'SELECT' || cfAe.isContentEditable)) return;
     event.preventDefault();
+    clearTreeFocus(); // same as F7: stepping between comments moves the caret, so arrows follow it
     if (typeof gotoComment === 'function') gotoComment(event.shiftKey ? -1 : 1);
   }
 });

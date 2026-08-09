@@ -621,6 +621,30 @@ body.native-app .source-tabs {
 .settings-row-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .settings-row-label { font-size: 13px; font-weight: 600; color: var(--text); }
 .settings-row-hint { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+/* The theme row stacks: label/hint on top, the swatch grid below at full width. */
+.settings-row-stacked { flex-direction: column; align-items: stretch; gap: 12px; }
+.theme-grid { display: flex; flex-direction: column; gap: 14px; }
+.theme-group-h { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+.theme-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.theme-card {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 9px 11px; cursor: pointer; text-align: left;
+  background: transparent; color: var(--text); font-size: 12.5px;
+  border: 1px solid var(--border); border-radius: var(--ui-radius-sm, 0);
+}
+.theme-card:hover { border-color: color-mix(in srgb, var(--active) 55%, var(--border)); }
+.theme-card.is-active { border-color: var(--active); box-shadow: 0 0 0 1px var(--active); }
+.theme-card-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Each swatch previews the theme it selects: the canvas it paints, with a wedge of that theme's accent.
+   Hardcoded because a theme's variables only exist under its own :root selector — there is no way to read
+   another theme's palette without applying it to the live document. Keep in sync with the :root blocks. */
+.theme-swatch { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); }
+.theme-swatch[data-swatch="default-dark"] { background: linear-gradient(135deg, #101318 0 62%, #58a6ff 62%); }
+.theme-swatch[data-swatch="default-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0969da 62%); }
+.theme-swatch[data-swatch="default-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #101318 50%); }
+.theme-swatch[data-swatch="darcula-dark"] { background: linear-gradient(135deg, #2b2b2b 0 62%, #4a88c7 62%); }
+.theme-swatch[data-swatch="darcula-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #3574f0 62%); }
+.theme-swatch[data-swatch="darcula-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #2b2b2b 50%); }
 .settings-card .settings-check { margin: 0; padding: 13px 2px; }
 .settings-card .settings-check + .settings-row-hint { padding: 0 2px 4px 24px; }
 /* Persistent-terminal setup: tmux status + install button, with brew's output streamed underneath so the
@@ -2239,7 +2263,11 @@ body.native-app .explain-bar button { -webkit-app-region: no-drag; }
 .mc-modal-head span { margin-right: auto; }
 .mc-modal-text { width: 100%; height: 100%; box-sizing: border-box; resize: none; border: 0; padding: 12px; background: var(--bg); color: var(--text); caret-color: var(--text); font: 12px/1.55 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .mc-modal-text:focus { outline: none; }
-.mc-dropdown { position: fixed; z-index: 70; min-width: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 0; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); padding: 3px; }
+/* Above EVERY overlay, including Settings (z-index 80, and an `isolation: isolate` stacking context). The
+   dropdown is appended to <body>, so anything that outranks it renders on top of it — which read as "the
+   Language / Theme selects do nothing": the menu opened behind the modal, and the click that should have
+   picked an option landed on the backdrop instead. Same for menus opened from History/Explain (z-index 75). */
+.mc-dropdown { position: fixed; z-index: 90; min-width: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 0; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); padding: 3px; }
 .mc-dropdown-item { display: block; width: 100%; text-align: left; padding: 4px 10px; border: 0; background: transparent; color: var(--text); border-radius: 0; font-size: 12px; line-height: 1.5; cursor: pointer; white-space: nowrap; }
 .mc-dropdown-item.active, .mc-dropdown-item:hover { background: var(--active); color: #fff; }
 #mc-toasts { position: fixed; left: 16px; bottom: 16px; z-index: 80; display: flex; flex-direction: column; gap: 8px; max-width: 360px; pointer-events: none; }
@@ -2940,6 +2968,8 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 }
 .markdown-body pre { max-width: 100%; overflow: auto; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
 .markdown-body pre code { display: block; padding: 0; border: 0; background: none; white-space: pre; font: 12px/1.6 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+/* YAML frontmatter: document metadata, not document content — set it apart from the prose it precedes. */
+.markdown-body pre.md-frontmatter { background: var(--sidebar); border-style: dashed; }
 .markdown-body blockquote { padding: 2px 0 2px 16px; color: var(--muted); border-left: 3px solid var(--border); }
 .markdown-body blockquote > :last-child { margin-bottom: 0; }
 .mc-merged-preview > :first-child { margin-top: 0; }

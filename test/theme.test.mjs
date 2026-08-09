@@ -20,9 +20,15 @@ test("defaults to dark, with a theme selector in settings", async () => {
   const v = await loadViewer(html);
   assert.equal(v.document.documentElement.getAttribute("data-theme"), "dark");
   assert.equal(v.document.documentElement.getAttribute("data-syntax-theme"), "default");
-  assert.ok(v.$("#settings-theme"), "a theme selector is rendered in settings");
-  assert.ok(v.$("#settings-syntax-theme"), "syntax highlighting has its own selector");
-  v.$("#settings-syntax-theme").dispatchEvent(new v.window.MouseEvent("mouseover", { bubbles: true }));
+  // One grid, not two dropdowns: every family × appearance combination is a visible, pickable card.
+  assert.equal(v.$all("#settings-theme-grid .theme-card").length, 6, "both families offer system/light/dark");
+  assert.equal(v.$("#settings-theme-grid .theme-card.is-active").dataset.family, "default");
+  assert.equal(v.$("#settings-theme-grid .theme-card.is-active").dataset.mode, "dark");
+  assert.ok(
+    v.$all("#settings-theme-grid .theme-swatch").every((s) => s.dataset.swatch),
+    "each card previews its own theme with a swatch",
+  );
+  v.$("#settings-language").dispatchEvent(new v.window.MouseEvent("mouseover", { bubbles: true }));
   await v.settle(20);
   assert.ok(v.$("#mc-button-hint").classList.contains("hidden"), "custom dropdowns do not advertise a non-focused Enter action on hover");
   v.close();
@@ -39,18 +45,21 @@ test("application chrome uses a neutral high-contrast palette without replacing 
   v.close();
 });
 
-// The theme/language pickers are now custom dropdowns (a button that opens .mc-dropdown), not native
-// <select>s, so a pick is: click the trigger, then click the matching .mc-dropdown-item.
-function pickOption(v, triggerId, match) {
-  v.$(triggerId).click();
-  const item = [...v.document.querySelectorAll(".mc-dropdown-item")].find((b) => match.test(b.textContent));
-  assert.ok(item, `dropdown offers an option matching ${match}`);
-  item.click();
+// Theme is one grid of cards keyed by (family, appearance); language is still a custom dropdown (a button
+// that opens .mc-dropdown), so a language pick is: click the trigger, then click the matching item.
+function pickTheme(v, family, mode) {
+  const card = v.$(`#settings-theme-grid .theme-card[data-family="${family}"][data-mode="${mode}"]`);
+  assert.ok(card, `the grid offers ${family}/${mode}`);
+  card.click();
+}
+// Whatever family is selected right now, with a different appearance — the axis this helper is changing.
+function pickAppearance(v, mode) {
+  pickTheme(v, v.$("#settings-theme-grid .theme-card.is-active").dataset.family, mode);
 }
 
 test("switching to light flips data-theme on <html> and persists", async () => {
   const v = await loadViewer(html);
-  pickOption(v, "#settings-theme", /light/i);
+  pickAppearance(v, "light");
   await v.settle(20);
 
   assert.equal(v.document.documentElement.getAttribute("data-theme"), "light");
@@ -60,7 +69,7 @@ test("switching to light flips data-theme on <html> and persists", async () => {
 
 test("the light theme is restored on reopen", async () => {
   const v1 = await loadViewer(html);
-  pickOption(v1, "#settings-theme", /light/i);
+  pickAppearance(v1, "light");
   await v1.settle(20);
   const snapshot = v1.exportStorage();
   v1.close();
@@ -71,13 +80,13 @@ test("the light theme is restored on reopen", async () => {
     "light",
     "data-theme is light on first paint after reopen",
   );
-  assert.match(v2.$("#settings-theme").textContent, /light/i, "the trigger reflects the restored theme");
+  assert.equal(v2.$("#settings-theme-grid .theme-card.is-active").dataset.mode, "light", "the grid reflects the restored theme");
   v2.close();
 });
 
 test("the Darcula family follows interface appearance across chrome and Review tokens", async () => {
   const v = await loadViewer(html);
-  pickOption(v, "#settings-syntax-theme", /darcula/i);
+  pickTheme(v, "darcula", "dark");
   await v.settle(20);
 
   assert.equal(v.document.documentElement.getAttribute("data-theme"), "dark");
@@ -89,7 +98,7 @@ test("the Darcula family follows interface appearance across chrome and Review t
     "raw source and diff token classes receive the Darcula keyword color",
   );
 
-  pickOption(v, "#settings-theme", /light/i);
+  pickAppearance(v, "light");
   await v.settle(20);
   assert.equal(
     v.window.getComputedStyle(v.document.documentElement).getPropertyValue("--token-keyword").trim().toLowerCase(),
@@ -107,6 +116,6 @@ test("the Darcula family follows interface appearance across chrome and Review t
   const reopened = await loadViewer(html, { seedStorage: snapshot });
   assert.equal(reopened.document.documentElement.getAttribute("data-theme"), "light");
   assert.equal(reopened.document.documentElement.getAttribute("data-syntax-theme"), "darcula");
-  assert.match(reopened.$("#settings-syntax-theme").textContent, /darcula/i);
+  assert.equal(reopened.$("#settings-theme-grid .theme-card.is-active").dataset.family, "darcula");
   reopened.close();
 });

@@ -491,8 +491,11 @@ export function renderDiffHtml(input: {
     '<div class="settings-card">',
     '<div class="settings-card-title" data-i18n="settings.appearance">Appearance</div>',
     '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.language">Language</span></div><button type="button" id="settings-language" class="settings-select mc-select" data-i18n-aria="settings.language"></button></div>',
-    '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.theme">Theme</span><span class="settings-row-hint" data-i18n="settings.theme.hint">System follows your OS light / dark setting.</span></div><button type="button" id="settings-theme" class="settings-select mc-select" data-i18n-aria="settings.theme"></button></div>',
-    '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.syntaxTheme">Theme family</span></div><button type="button" id="settings-syntax-theme" class="settings-select mc-select" data-i18n-aria="settings.syntaxTheme"></button></div>',
+    // Theme is one pick, not two: the family (Kakapo / Darcula) and the light-dark-system appearance were
+    // separate dropdowns whose product you had to assemble in your head. A swatch grid shows all six real
+    // themes at once, each previewing its own canvas and accent — the choice is visible, not described.
+    '<div class="settings-row settings-row-stacked"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.theme">Theme</span><span class="settings-row-hint" data-i18n="settings.theme.hint">System follows your OS light / dark setting.</span></div>',
+    '<div id="settings-theme-grid" class="theme-grid" role="radiogroup" data-i18n-aria="settings.theme"></div></div>',
     '</div>',
     // Terminal card (Electron only): integrated-terminal bell → native notification opt-out.
     input.app

@@ -320,12 +320,30 @@ function renderMarkdownHtml(content) {
   return sanitizeMarkdown(getMarkdownEngine().render(String(content || '')));
 }
 
+// YAML frontmatter is not markdown, and handing it to a CommonMark parser is actively wrong: a `---` line
+// UNDER text is a setext H2, so `---\nname: x\ndescription: y\n---` renders as one giant bold heading between
+// two rules, with every line in between collapsed out of the gutter. Split it off and render it as what it is.
+// Only a fence at the very top counts; a `---` anywhere else is a legitimate thematic break.
+function splitFrontmatter(content) {
+  var text = String(content || '');
+  var match = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(\r?\n|$)/.exec(text);
+  if (!match) return { yaml: null, body: text, offset: 0 };
+  return { yaml: match[1], body: text.slice(match[0].length), offset: (match[0].match(/\n/g) || []).length };
+}
+function frontmatterHtml(yaml) {
+  var lines = String(yaml).split('\n').map(function (line) { return highlightLine(line, 'yaml'); }).join('\n');
+  return '<pre class="md-frontmatter"><code class="language-yaml">' + lines + '</code></pre>';
+}
+
 // Group markdown-it's top-level tokens into source-addressable blocks. A block retains the first source
 // line for the gutter/comment anchor, while its HTML comes from the exact same renderer as merged prompts.
 function renderMarkdownBlocks(content) {
   var md = getMarkdownEngine();
+  var split = splitFrontmatter(content);
   var env = {};
-  var tokens = md.parse(String(content || ''), env);
+  // Token maps are relative to what we parsed, so every line is shifted back by the frontmatter we removed —
+  // otherwise the gutter numbers and comment anchors would all be off by its height.
+  var tokens = md.parse(split.body, env);
   var groups = [];
   var group = null;
   tokens.forEach(function (token) {
@@ -337,13 +355,17 @@ function renderMarkdownBlocks(content) {
     group.tokens.push(token);
   });
   if (group) groups.push(group);
-  return groups.map(function (item) {
+  var blocks = groups.map(function (item) {
     return {
-      line: item.line,
-      endLine: item.endLine,
+      line: item.line + split.offset,
+      endLine: item.endLine + split.offset,
       html: sanitizeMarkdown(md.renderer.render(item.tokens, md.options, env)),
     };
   });
+  if (split.yaml !== null) {
+    blocks.unshift({ line: 0, endLine: split.offset, html: sanitizeMarkdown(frontmatterHtml(split.yaml)) });
+  }
+  return blocks;
 }
 
 function renderMarkdownRows(content) {

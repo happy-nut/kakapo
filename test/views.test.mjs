@@ -1343,3 +1343,93 @@ test("scrollbars become visible during scrolling and hide again after idle", asy
   assert.equal(scroller.classList.contains("mc-scroll-active"), false, "the thumb fades after the idle timeout");
   v.close();
 });
+
+// REGRESSION: YAML frontmatter was handed straight to the CommonMark parser, where a `---` line UNDER text is
+// a setext H2 — so `---\nname: x\ndescription: y\n---` rendered as one giant bold heading between two rules,
+// with every line it spanned missing from the gutter. It is document metadata, not prose.
+test("YAML frontmatter renders as metadata, not as a giant setext heading", async () => {
+  const { html: fm } = await makeReviewHtml([{
+    path: "agent.md",
+    before: "---\nname: old-name\n---\n\n# Doc\n\nBody.\n",
+    after: "---\nname: turtle-edge-autopilot\ndescription: Operate the campaigns.\n---\n\n# Doc\n\nBody.\n",
+  }]);
+  const v = await loadViewer(fm);
+  await v.openSourceFile("agent.md");
+
+  const block = v.$("#source-body pre.md-frontmatter");
+  assert.ok(block, "frontmatter is its own block");
+  assert.match(block.textContent, /name: turtle-edge-autopilot/);
+  assert.match(block.textContent, /description: Operate the campaigns\./);
+  assert.equal(v.$("#source-body h2"), null, "the fence is no longer read as a setext heading");
+  assert.equal(v.$("#source-body hr"), null, "nor as a pair of thematic breaks");
+
+  // The heading that really is a heading still is one, and the gutter still counts real source lines: the
+  // frontmatter occupies lines 0-3, so `# Doc` sits at index 5 and `Body.` at 7 — not 1 and 3.
+  assert.equal(v.$("#source-body h1")?.textContent, "Doc", "real markdown after the fence is unaffected");
+  assert.deepEqual(v.sourceRowLineIndices(), [0, 5, 7], "block line indices are shifted past the frontmatter");
+  v.close();
+});
+
+test("a --- thematic break in the body is still a thematic break", async () => {
+  const { html: hr } = await makeReviewHtml([{
+    path: "notes.md",
+    before: "# A\n\nbefore\n\n---\n\nafter\n",
+    after: "# A\n\nbefore text\n\n---\n\nafter\n",
+  }]);
+  const v = await loadViewer(hr);
+  await v.openSourceFile("notes.md");
+  assert.ok(v.$("#source-body hr"), "a fence that isn't at the top is untouched");
+  assert.equal(v.$("#source-body pre.md-frontmatter"), null, "and is not mistaken for frontmatter");
+  v.close();
+});
+
+// REGRESSION: the sidebar owns arrow keys while treeFocusIndex >= 0, and nothing in the F7 path focuses a DOM
+// node inside the diff — so after clicking a file in the tree, F7 moved the code caret but arrows kept driving
+// the sidebar. Two symptoms, one cause: "arrows jump to the side panel", and F7 navigating from a stale anchor
+// because the caret never actually moved.
+test("F7 hands arrow keys back to the code caret after the sidebar had focus", async () => {
+  // A file with room to move: two separate edits, with untouched lines between and after them.
+  const line = (n, v) => `export const v${n} = ${v};`;
+  const body = (a, b) => [line(0, 0), line(1, a), line(2, 2), line(3, 3), line(4, 4),
+    line(5, 5), line(6, b), line(7, 7), line(8, 8)].join("\n") + "\n";
+  const { html: wide } = await makeReviewHtml([{ path: "src/wide.ts", before: body(1, 6), after: body(111, 666) }]);
+  const v = await loadViewer(wide);
+
+  const change = v.$('.change-row[data-file="src/wide.ts"]');
+  v.click(change);
+  await v.settle(80);
+  assert.ok(change.classList.contains("tree-focus"), "the click leaves the sidebar owning arrows (by design)");
+
+  v.key("F7");
+  await v.settle(140);
+  assert.equal(v.$(".tree-focus"), null, "F7 takes arrow ownership back — the sidebar's focus ring is gone");
+
+  // The click opened the diff at the first edit, so F7 advanced to the second one.
+  const caretRow = () => v.$(".mc-diff-cursor-row")?.textContent ?? null;
+  const atSecondChange = caretRow();
+  assert.match(String(atSecondChange), /666/, "F7 stepped to the next change");
+
+  v.key("ArrowDown");
+  await v.settle(80);
+  assert.notEqual(caretRow(), atSecondChange, "arrows move the diff caret, not the tree cursor");
+
+  // Now the discriminator for the second report: the caret sits just BELOW the 666 edit. Stepping backward
+  // from there lands back on 666. Had F7 kept using a stale anchor (the caret never having moved), backward
+  // would have skipped past it to 111 instead.
+  v.key("F7", { shiftKey: true });
+  await v.settle(140);
+  assert.match(String(caretRow()), /666/, "F7 steps from where the caret actually is, not a stale anchor");
+  v.close();
+});
+
+test("a sidebar click still keeps the sidebar's own focus", async () => {
+  const v = await loadViewer(html);
+  const change = v.$('.change-row[data-file="src/app.ts"]');
+  v.click(change);
+  await v.settle(80);
+  // Opening a diff by click routes through setDiffCursor too — clearing tree focus there would have broken
+  // this, which is why the fix lives in the navigation keys instead.
+  assert.ok(change.classList.contains("tree-focus"), "clicking a change keeps its row focused");
+  assert.equal(v.document.activeElement, change, "and its real DOM focus");
+  v.close();
+});

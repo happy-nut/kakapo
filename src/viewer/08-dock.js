@@ -761,19 +761,44 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
     function () { return [{ value: 'en', label: 'English' }, { value: 'ko', label: '한국어' }]; },
     function () { return locale; },
     function (next) { applyLocale(next); });
-  themeSelectRef = setupCustomSelect('settings-theme',
-    function () { return [{ value: 'system', label: t('theme.system') }, { value: 'light', label: t('theme.light') }, { value: 'dark', label: t('theme.dark') }]; },
-    function () { return theme; },
-    function (next) { applyThemePref(next); });
-  syntaxThemeSelectRef = setupCustomSelect('settings-syntax-theme',
-    function () { return [{ value: 'default', label: t('syntaxTheme.default') }, { value: 'darcula', label: t('syntaxTheme.darcula') }]; },
-    function () { return syntaxTheme; },
-    function (next) {
-      if (next === syntaxTheme) return;
-      syntaxTheme = next;
-      persistSave(SYNTAX_THEME_KEY, syntaxTheme);
-      applySyntaxTheme();
-    });
+  // ----- theme grid: family × appearance as one visible choice (see the markup note in render.ts). The two
+  // preferences stay separately persisted ('kakapo-theme' / 'kakapo-syntax-theme') — only the UI is merged,
+  // so an existing setting, the cross-window broadcast below, and applyTheme/applySyntaxTheme are untouched.
+  var THEME_FAMILIES = ['default', 'darcula'];
+  var THEME_MODES = ['system', 'light', 'dark'];
+  function applySyntaxThemePref(next) {
+    if (THEME_FAMILIES.indexOf(next) < 0 || next === syntaxTheme) return;
+    syntaxTheme = next;
+    persistSave(SYNTAX_THEME_KEY, syntaxTheme);
+    applySyntaxTheme();
+  }
+  function renderThemeGrid() {
+    var grid = document.getElementById('settings-theme-grid');
+    if (!grid) return;
+    grid.innerHTML = THEME_FAMILIES.map(function (family) {
+      var cards = THEME_MODES.map(function (mode) {
+        var on = family === syntaxTheme && mode === theme;
+        return '<button type="button" class="theme-card' + (on ? ' is-active' : '') + '" role="radio"'
+          + ' aria-checked="' + (on ? 'true' : 'false') + '" data-family="' + family + '" data-mode="' + mode + '">'
+          + '<span class="theme-swatch" data-swatch="' + family + '-' + mode + '" aria-hidden="true"></span>'
+          + '<span class="theme-card-name">' + escapeHtml(t('theme.' + mode)) + '</span></button>';
+      }).join('');
+      return '<div class="theme-group"><div class="theme-group-h">' + escapeHtml(t('syntaxTheme.' + family)) + '</div>'
+        + '<div class="theme-cards">' + cards + '</div></div>';
+    }).join('');
+  }
+  // Both refs point at the one renderer: applyI18n(), applyTheme() and applySyntaxTheme() each re-render
+  // through them (01-core.js), and the grid is the single surface all three used to update separately.
+  themeSelectRef = syntaxThemeSelectRef = { render: renderThemeGrid };
+  renderThemeGrid();
+  var themeGrid = document.getElementById('settings-theme-grid');
+  if (themeGrid) themeGrid.addEventListener('click', function (event) {
+    var card = event.target.closest && event.target.closest('.theme-card');
+    if (!card) return;
+    applySyntaxThemePref(card.dataset.family);
+    applyThemePref(card.dataset.mode);
+    renderThemeGrid(); // applyTheme/applySyntaxTheme skip their re-render when only the OTHER axis moved
+  });
   // Integrated-terminal bell → native notification opt-out. Default on; the terminal client reads the same
   // key ('kakapo-terminal-bell-notify') before raising a notification.
   var bellCb = document.getElementById('set-bell-notify');
