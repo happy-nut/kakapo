@@ -990,7 +990,8 @@ function buildApplicationMenu(): void {
     submenu: [
       { label: t("menu.toggleTerminal"), accelerator: "Control+`", click: () => sendToFocused("kakapo:terminal-toggle") },
       { label: t("menu.toggleTerminalF12"), accelerator: "Alt+F12", click: () => sendToFocused("kakapo:terminal-toggle") },
-      { label: t("menu.splitTerminal"), accelerator: "CommandOrControl+D", click: () => sendToFocused("kakapo:terminal-split") },
+      { label: t("menu.splitTerminal"), accelerator: "CommandOrControl+D", click: () => sendToFocused("kakapo:terminal-split", "row") },
+      { label: t("menu.splitTerminalDown"), accelerator: "CommandOrControl+Shift+D", click: () => sendToFocused("kakapo:terminal-split", "column") },
       { type: "separator" },
       { label: t("menu.focusPrevPane"), accelerator: "CommandOrControl+Alt+Left", click: () => sendToFocused("kakapo:terminal-pane-focus", -1) },
       { label: t("menu.focusNextPane"), accelerator: "CommandOrControl+Alt+Right", click: () => sendToFocused("kakapo:terminal-pane-focus", 1) },

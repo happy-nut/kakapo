@@ -30,8 +30,9 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
   onTerminalToggle: (cb: () => void): void => {
     ipcRenderer.on("kakapo:terminal-toggle", () => cb());
   },
-  onTerminalSplit: (cb: () => void): void => {
-    ipcRenderer.on("kakapo:terminal-split", () => cb());
+  // "row" splits side by side (Cmd+D), "column" stacks top/bottom (Cmd+Shift+D).
+  onTerminalSplit: (cb: (direction: "row" | "column") => void): void => {
+    ipcRenderer.on("kakapo:terminal-split", (_event, direction) => cb(direction === "column" ? "column" : "row"));
   },
   onTerminalPaneFocus: (cb: (delta: number) => void): void => {
     ipcRenderer.on("kakapo:terminal-pane-focus", (_event, delta: number) => cb(delta));

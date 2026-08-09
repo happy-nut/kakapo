@@ -2530,7 +2530,9 @@ body.dock-maximized .terminal-panel:not(.hidden) { inset: 0; border-radius: 0; }
 .terminal-x:hover { color: var(--text); }
 /* Split panes sit side by side (no tabs); the 1px gap shows the --border underneath as a divider. */
 .terminal-host { flex: 1 1 auto; min-height: 0; display: flex; gap: 1px; overflow: hidden; background: var(--border); }
-.terminal-pane { flex: 1 1 0; min-width: 0; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
+/* Cmd+Shift+D stacks the panes instead (top/bottom); the same 1px gap becomes the horizontal divider. */
+.terminal-host.is-column { flex-direction: column; }
+.terminal-pane { flex: 1 1 0; min-width: 0; min-height: 0; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
 /* Per-pane name strip at the top; double-click or Cmd/Ctrl+Alt+R to rename inline. */
 .terminal-pane-label {
   flex: none; padding: 2px 10px; font-size: 10px; letter-spacing: 0.04em;

@@ -271,10 +271,17 @@
     killPane(p);
   }
 
-  function split() {
+  // Cmd+D splits side by side, Cmd+Shift+D stacks top/bottom. The direction applies to the whole panel rather
+  // than to the focused pane alone, so the last split re-orients an existing row/column instead of nesting.
+  // ponytail: one axis per panel; a split TREE (mixed row+column, like tmux/VS Code) if 3+ panes need it.
+  function split(direction) {
     if (panes.length >= MAX_PANES) return;
+    host.classList.toggle('is-column', direction === 'column');
     makePane();
+    // Re-fit after the browser has laid the new axis out — fitting against the pre-split geometry leaves
+    // xterm sized for the old direction, which shows up as a pane whose rows/cols don't match its box.
     fitAll();
+    requestAnimationFrame(fitAll);
   }
   // Move active focus between split panes (menu accelerators Cmd/Ctrl+Alt+[ and ]).
   function focusPaneByDelta(delta) {
