@@ -299,6 +299,13 @@ document.addEventListener('keydown',e=>{
   else if(e.metaKey&&!e.ctrlKey&&!e.shiftKey&&!e.altKey&&e.key==='9')fwd='history';
   else if(e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&e.code==='Backquote')fwd='terminal';
   if(fwd){e.preventDefault();toggleRail();window.kakapoHub.railAction(fwd+':open');return;}
+  // F7/⇧F7 step through changes, which is a review action, not a rail one — collapse and forward it too so
+  // the panel gets out of the way instead of swallowing the key.
+  if(e.key==='F7'&&!e.metaKey&&!e.ctrlKey&&!e.altKey){
+    e.preventDefault();toggleRail();
+    window.kakapoHub.railAction(e.shiftKey?'prevChange':'nextChange');
+    return;
+  }
   if(e.key==='ArrowDown'){e.preventDefault();railSelect(railSel<0?0:railSel+1);}
   else if(e.key==='ArrowUp'){e.preventDefault();railSelect(railSel<0?0:railSel-1);}
   else if(e.key==='Enter'){const t=railTiles();if(railSel>=0&&t[railSel]){e.preventDefault();t[railSel].click();}}

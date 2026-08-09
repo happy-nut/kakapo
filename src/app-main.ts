@@ -100,6 +100,9 @@ type WinState = {
   // an N-workspace hub render spawns ~5N git processes on the main thread each time an agent turn finishes.
   hubTile?: { record: WorkspaceRecord; dirtyCount: number; computedAt: number };
   bootStarted: boolean;
+  // Set when activateWorkspace focuses this view while it is still loading, so the "content is ready" hook
+  // can hand it the keyboard. Consumed once.
+  wantsFocusOnReady?: boolean;
   perf: ReviewPerformanceTrace; // local startup/analysis evidence under this workspace's app-data mirror
   lastDiffSig: string; // watch fast-path: hash of the last git diff, to skip rebuilds when unchanged
   reviewBase?: string; // exact base used by the latest build (may be an automatic upstream merge-base)
@@ -1206,6 +1209,8 @@ function activateWorkspace(id: number): void {
   // so it must not dismiss the rail: collapsing it on every switch made the panel flap open/shut and read as a
   // glitch. The rail closes when the user actually clicks into the review, or toggles it themselves.
   suppressNextRailCollapse = true;
+  const activating = states.get(id);
+  if (activating) activating.wantsFocusOnReady = true; // the view may still be loading; see did-finish-load
   focusActiveReviewView();
   setTimeout(() => { suppressNextRailCollapse = false; }, 0);
   persistWorkspaceSession(states.get(id)?.options.root);
@@ -1500,13 +1505,17 @@ function createWindow(root: string, deferBoot = false): WinState {
   });
   // Zoom is per-WebContents and resets on navigation, so re-apply the UI scale on every load.
   view.webContents.on("did-finish-load", () => applyUiScale(view.webContents));
-  // The review's keyboard shortcuts (Cmd+1 Files, etc.) attach only once its HTML has loaded. On the first
-  // switch to a workspace the view is still booting when activateWorkspace focuses it, so early key presses
-  // landed on nothing until it finished (the "press Cmd+1 three times" symptom). Refocus the active view the
-  // moment its content is ready — unless a modal or the expanded rail owns the keyboard — so shortcuts work
-  // on the first press.
+  // The review's keyboard shortcuts (Cmd+1 Files, etc.) attach only once its HTML has loaded. On a switch the
+  // view is often still booting when activateWorkspace focuses it, so early key presses land on nothing (the
+  // "press Cmd+1 three times" symptom). Hand it the keyboard the moment its content is ready.
+  // This used to be skipped while the rail was expanded, back when expanding meant the rail owned the keyboard.
+  // Activating a workspace now focuses the view regardless of the rail, so gate on the activation's own intent
+  // instead — otherwise a view still loading at switch time never got focus and ⌘0/⌘1/F7 went nowhere.
   view.webContents.on("did-finish-load", () => {
-    if (view.webContents.id === activeStateId && !railExpanded) focusActiveReviewView();
+    const state = states.get(view.webContents.id);
+    if (!state?.wantsFocusOnReady) return;
+    state.wantsFocusOnReady = false;
+    if (view.webContents.id === activeStateId) focusActiveReviewView();
   });
   layoutWorkspaceViews();
   let surfaceHost = host;

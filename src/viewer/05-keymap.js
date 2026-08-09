@@ -666,6 +666,13 @@ function openRailView(view) {
 if (window.kakapoMenu && window.kakapoMenu.onRailAction) {
   window.kakapoMenu.onRailAction((action) => {
     if (typeof action === 'string' && action.slice(-5) === ':open') { openRailView(action.slice(0, -5)); return; }
+    // F7 forwarded from the expanded rail. Replay the key rather than re-implement the handler: F7 is not a
+    // rail button, and its logic (enter the diff at the open file's own hunk, skip viewed files, announce the
+    // last change) lives in the keydown branch above and must not be duplicated here.
+    if (action === 'nextChange' || action === 'prevChange') {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F7', shiftKey: action === 'prevChange', bubbles: true }));
+      return;
+    }
     if (action === 'terminal') { document.getElementById('terminal-toggle')?.click(); return; }
     if (action === 'more') { document.getElementById('workspace-more-toggle')?.click(); return; }
     document.querySelector('.rail-btn[data-view="' + action + '"]')?.click();
