@@ -211,16 +211,30 @@ export function ensureUtf8Locale(env: { [key: string]: string }): { [key: string
   return env;
 }
 
-// --- Persistent terminals (opt-in) -------------------------------------------------------------------
+// --- Persistent terminals ----------------------------------------------------------------------------
 // A pty lives in our main process, so quitting kakapo closes its master and SIGHUPs whatever ran inside —
 // an agent session (claude/codex) dies with the app. Running the shell inside a tmux session moves the
 // process under tmux's own server, which outlives us; a relaunched pane re-attaches to the live session
-// instead of starting over.
+// instead of starting over. Every pane gets one whenever tmux is installed: a workspace's terminals belong
+// to the workspace, and only deleting the workspace ends them.
 
 // tmux treats "." and ":" in a target name as window/pane separators, and a bare workspace path would also
 // leak into `tmux ls`. Key sessions by a short digest of the root so two workspaces never collide.
+export function tmuxSessionPrefix(root: string): string {
+  return `kakapo-${createHash("sha1").update(root).digest("hex").slice(0, 8)}-`;
+}
+
 export function tmuxSessionName(root: string, ordinal: number): string {
-  return `kakapo-${createHash("sha1").update(root).digest("hex").slice(0, 8)}-${ordinal}`;
+  return `${tmuxSessionPrefix(root)}${ordinal}`;
+}
+
+// Every live session belonging to `root`, picked out of `tmux list-sessions` output. Deleting a workspace
+// has to end sessions this app run never attached to — panes are not restored on launch, so the in-memory
+// pty -> session map only ever knows about the panes reopened by hand since the last start. Matching on the
+// workspace's own prefix is what makes the cleanup complete instead of "whatever we happen to remember".
+export function tmuxSessionsForRoot(root: string, listOutput: string): string[] {
+  const prefix = tmuxSessionPrefix(root);
+  return listOutput.split("\n").map((line) => line.trim()).filter((name) => name.startsWith(prefix));
 }
 
 // Ordinals are per-workspace and reused lowest-first: after a restart the first pane you open takes ordinal

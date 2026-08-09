@@ -506,11 +506,10 @@ export function renderDiffHtml(input: {
     input.app
       ? '<div class="settings-card"><div class="settings-card-title" data-i18n="settings.terminal">Terminal</div>'
       + '<label class="settings-check"><input type="checkbox" id="set-bell-notify"><span data-i18n="settings.bellNotify">Notify when a terminal task finishes (bell)</span></label>'
-      // Persistent terminals: opt-in, needs tmux. The status line and the install log below only appear when
-      // the box is checked, so the card stays a single line for anyone who doesn't want the feature.
-      + '<label class="settings-check"><input type="checkbox" id="set-terminal-persist"><span data-i18n="settings.persistTerminal">Keep terminal sessions running when kakapo quits (tmux)</span></label>'
-      + '<div class="settings-row-hint" data-i18n="settings.persistTerminal.hint">Applies to terminals you open from now on. Closing a pane still ends its session.</div>'
-      + '<div id="tmux-setup" class="tmux-setup hidden">'
+      // Terminal sessions are always tmux-backed when tmux is installed, so this is a status row rather than a
+      // switch: it says whether persistence is actually in effect, and offers the install when it isn't.
+      + '<div class="settings-row-hint" data-i18n="settings.persistTerminal.hint">Terminals belong to their workspace: quitting kakapo leaves them running, and only deleting the workspace ends them.</div>'
+      + '<div id="tmux-setup" class="tmux-setup">'
       + '<div class="tmux-setup-row"><span id="tmux-setup-status" class="settings-row-hint"></span>'
       + '<button type="button" id="tmux-install" class="plain-button hidden" data-i18n="settings.installTmux">Install tmux</button></div>'
       + '<pre id="tmux-setup-log" class="tmux-setup-log hidden" aria-live="polite"></pre>'

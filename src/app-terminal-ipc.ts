@@ -5,7 +5,7 @@ import { spawn as spawnPty, type IPty } from "node-pty";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper } from "./util.js";
+import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper } from "./util.js";
 import { resumeCommandForInput } from "./agent-resume.js";
 
 // A GUI launch (Finder, Dock, Spotlight) inherits a minimal PATH with no Homebrew prefix, so `tmux` is
@@ -48,8 +48,8 @@ export type TerminalIpcState = {
   // Absolute path to this window's answers-exchange file (see answers-ipc.ts), passed into every pty
   // spawned in this window so an agent can find it without depending on the prompt text being intact.
   answersFile?: string;
-  // Persistent terminals: pty id -> the tmux session it is attached to. Closing a pane kills that session;
-  // quitting the app just drops the client, leaving the session (and the agent in it) running.
+  // Persistent terminals: pty id -> the tmux session it is attached to. Closing a pane or quitting the app
+  // only drops the client; the session (and the agent in it) runs until the workspace is deleted.
   termSessions?: Map<number, string>;
   commandBuffers?: Map<number, string>;
   onResumeCommand?: (command: string | undefined) => void;
@@ -75,31 +75,40 @@ export const ptyReaper = createPtyReaper();
  * them) and relay bytes to the renderer's xterm panes. Each pty is owned by the window that spawned it
  * (state.terms), so closing one window kills only its terminals and pty data routes back to it alone.
  */
-// Tear down every pane of a workspace, tmux sessions included. Killing only the ptys would DETACH a
-// persistent pane instead of ending it, leaving the session — and whatever agent is running in it — alive
-// forever, invisible, with its worktree deleted out from under it. Shared by the pane close path and by
-// deleting a workspace (app-main.ts's hub-remove).
+// Deleting a workspace is the ONLY thing that ends its terminals: closing a pane or quitting the app just
+// drops the tmux client. So this cannot work off the in-memory pty -> session map — panes aren't restored on
+// launch, so that map only knows the panes reopened by hand since the last start, and everything else would
+// be left running forever, invisible, with its worktree deleted out from under it. Ask tmux which sessions
+// belong to this workspace instead. Called from app-main.ts's hub-remove (delete), and nowhere else.
 export function killWorkspaceTerminals(state: TerminalIpcState): void {
-  const tmux = state.termSessions?.size ? resolveTmux(process.env) : undefined;
-  for (const [id, session] of state.termSessions ?? []) {
-    if (tmux) try { spawnSync(tmux, ["kill-session", "-t", session]); } catch { /* already gone */ }
-    state.termSessions?.delete(id);
+  const tmux = resolveTmux(process.env);
+  if (tmux) {
+    let listed = "";
+    try {
+      const list = spawnSync(tmux, ["list-sessions", "-F", "#{session_name}"], { encoding: "utf8" });
+      listed = String(list.stdout ?? ""); // no server running -> non-zero exit, empty stdout, nothing to kill
+    } catch { /* tmux unusable — the ptys below still go */ }
+    for (const session of tmuxSessionsForRoot(state.options.root, listed)) {
+      try { spawnSync(tmux, ["kill-session", "-t", session]); } catch { /* already gone */ }
+    }
   }
+  state.termSessions?.clear();
   for (const [id, term] of state.terms) { ptyReaper.kill(term); state.terms.delete(id); }
   state.commandBuffers?.clear();
 }
 
 export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateResolver): void {
-  ipc.handle("kakapo:pty-spawn", (event, size: { cols?: number; rows?: number; persist?: boolean }) => {
+  ipc.handle("kakapo:pty-spawn", (event, size: { cols?: number; rows?: number }) => {
     const state = stateFromEvent(event);
     if (!state) return { ok: false, id: -1 };
     const id = ++nextPtyId;
     const shell = process.env.SHELL || (process.platform === "win32" ? "powershell.exe" : "/bin/zsh");
     const answersEnv: { [key: string]: string } = state.answersFile ? { KAKAPO_ANSWERS_FILE: state.answersFile } : {};
-    // Persistent terminals (Settings > Terminal, off by default): run the shell inside a per-workspace tmux
-    // session so it survives the app quitting. The renderer passes the preference it already holds; tmux
-    // being absent silently falls back to a plain shell, which is the pre-existing behaviour.
-    const tmux = size?.persist ? resolveTmux(process.env) : undefined;
+    // Every pane runs inside a per-workspace tmux session, so a terminal belongs to its workspace rather than
+    // to this app run: quitting drops the client and the agent keeps working. This used to be an opt-in
+    // preference stored PER WORKSPACE while reading as an app-wide setting, so ticking it in one workspace
+    // left every other one dying on quit. tmux being absent falls back to a plain shell, as before.
+    const tmux = resolveTmux(process.env);
     const session = tmux ? tmuxSessionName(state.options.root, nextTerminalOrdinal(sessionOrdinals(state))) : undefined;
     const t = spawnPty(tmux ?? shell, session ? tmuxSpawnArgs(session, state.options.root, answersEnv) : [], {
       // 256-color terminfo + COLORTERM=truecolor so TUIs (e.g. Claude Code's coral logo) emit 24-bit color and
@@ -161,16 +170,11 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
   ipc.on("kakapo:pty-kill", (event, msg: { id: number }) => {
     const state = stateFromEvent(event);
     const t = state?.terms.get(msg?.id);
-    // Closing a pane means "I'm done with this shell", so a persistent pane's tmux session has to go with it.
-    // Killing only the pty would detach instead — the session (and whatever agent is in it) would linger
-    // forever, invisible, and the next pane would silently re-attach to it. Quitting the app is the opposite
-    // case and needs no handling: the pty dies, the client detaches, the session keeps running.
-    const session = state?.termSessions?.get(msg?.id);
-    if (session) {
-      const tmux = resolveTmux(process.env);
-      if (tmux) try { spawnSync(tmux, ["kill-session", "-t", session]); } catch { /* already gone */ }
-      state!.termSessions!.delete(msg.id);
-    }
+    // Closing a pane detaches it; the session (and the agent in it) keeps running until the workspace itself
+    // is deleted. Reopening a pane takes the lowest free ordinal, which is the same session name, so the
+    // agent comes back where you left it. This used to kill the session instead, which meant a stray ⌘W
+    // ended a running agent for good.
+    state?.termSessions?.delete(msg?.id);
     if (t) { ptyReaper.kill(t); state!.terms.delete(msg.id); }
     state?.commandBuffers?.delete(msg.id);
   });
@@ -182,21 +186,13 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     const state = stateFromEvent(event);
     const t = typeof msg?.id === "number" ? state?.terms.get(msg.id) : undefined;
     if (!t) return { running: false, name: "" };
+    // A pane backed by tmux only detaches when it closes, so there is nothing to confirm — warning that an
+    // agent "will be stopped" would be a lie. Only a plain pty (no tmux installed) really ends what it runs.
+    if (typeof msg?.id === "number" && state?.termSessions?.has(msg.id)) return { running: false, name: "" };
     const shell = process.env.SHELL || (process.platform === "win32" ? "powershell.exe" : "/bin/zsh");
     const shellName = shell.split(/[\\/]/).pop() || shell;
     let fg = "";
-    // In a persistent pane the pty's own foreground process is always tmux, which would make every ⌘W warn
-    // that "tmux is running". Ask tmux for the command in the session's active pane instead.
-    const session = typeof msg?.id === "number" ? state?.termSessions?.get(msg.id) : undefined;
-    const tmux = session ? resolveTmux(process.env) : undefined;
-    if (session && tmux) {
-      try {
-        const probe = spawnSync(tmux, ["display-message", "-p", "-t", session, "#{pane_current_command}"], { encoding: "utf8" });
-        fg = probe.status === 0 ? String(probe.stdout ?? "").trim() : "";
-      } catch { /* server gone — fall through to the empty name below */ }
-    } else {
-      try { fg = t.process || ""; } catch { /* pty may have exited mid-query */ }
-    }
+    try { fg = t.process || ""; } catch { /* pty may have exited mid-query */ }
     const name = fg.replace(/^-/, ""); // login shells surface as "-zsh"
     return { running: !!name && name !== shellName, name };
   });

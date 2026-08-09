@@ -6,7 +6,7 @@
 // iTerm. sanitizeTerminalEnv keeps the integrated terminal indistinguishable from the user's own.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, nextTerminalOrdinal, tmuxSpawnArgs } from "../dist/util.js";
+import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, nextTerminalOrdinal, tmuxSpawnArgs } from "../dist/util.js";
 
 test("strips every npm_*-injected var (incl. the npm_config_prefix nvm rejects)", () => {
   const out = sanitizeTerminalEnv({
@@ -114,4 +114,25 @@ test("the tmux session is created in the workspace, with per-session env", () =>
   assert.equal(args[env + 1], "KAKAPO_ANSWERS_FILE=/tmp/a.json", "a session on a pre-existing server would miss it otherwise");
   assert.ok(args.includes("status") && args.includes("off"), "the pane should look like a plain shell");
   assert.ok(args.join(" ").includes("Tc"), "truecolor stays on inside tmux (Claude Code's logo)");
+});
+
+// Deleting a workspace is the only thing that ends its terminals, and it has to end ALL of them — including
+// sessions this app run never attached to (panes are not restored on launch, so the in-memory pty -> session
+// map is nearly always incomplete after a restart). Selecting by the workspace's own prefix is what makes the
+// cleanup complete without ever touching another workspace's agents.
+test("deleting a workspace selects every session of that workspace, and only those", () => {
+  const repo = "/Users/x/repos/kakapo";
+  const other = "/Users/x/repos/other";
+  const listed = [
+    tmuxSessionName(repo, 1),
+    tmuxSessionName(other, 1),
+    tmuxSessionName(repo, 3), // opened in an earlier run: never in this run's session map
+    "unrelated-user-session",
+    "",
+  ].join("\n");
+
+  const doomed = tmuxSessionsForRoot(repo, listed);
+  assert.deepEqual(doomed.sort(), [tmuxSessionName(repo, 1), tmuxSessionName(repo, 3)].sort());
+  assert.equal(tmuxSessionsForRoot(other, listed).length, 1, "a sibling workspace keeps its own sessions");
+  assert.deepEqual(tmuxSessionsForRoot(repo, ""), [], "no tmux server running is not an error");
 });

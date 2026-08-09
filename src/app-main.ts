@@ -922,7 +922,10 @@ async function finishQuit(): Promise<void> {
 app.on("before-quit", (event) => {
   if (quitConfirmed) return;
   event.preventDefault();
-  const running = Array.from(states.values()).filter((state) => state.terms.size > 0).length;
+  // Only panes that quitting would actually stop are worth a confirmation. A tmux-backed pane just loses its
+  // client — the agent keeps running and comes back when the pane is reopened — so warning about it made the
+  // dialog cry wolf on every quit (and, with nothing else to click, blocked scripted shutdowns entirely).
+  const running = Array.from(states.values()).filter((state) => state.terms.size > (state.termSessions?.size ?? 0)).length;
   if (!running) { void finishQuit(); return; }
   const t = tr();
   const message = t("dialog.agentsRunning.message", { n: running, s: running === 1 ? "" : "s" });
