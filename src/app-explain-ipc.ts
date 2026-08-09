@@ -11,6 +11,8 @@ export type ExplainIpcState = {
   explainSig: string;
   explainSpec: unknown;
   explainUpdatedAt: number | null;
+  annotationsSig: string;
+  annotationNotes: unknown[];
 };
 
 type ExplainEvent = IpcMainEvent | IpcMainInvokeEvent;
@@ -26,8 +28,39 @@ export function explainSpecFilePath(root: string): string | undefined {
   return kakapoGitDataFile(root, "explain-spec.json");
 }
 
+// Agent-written inline diff annotations (the "explain this change like I'm 12" prompt writes these). Same
+// watched-JSON-file-inside-.git mechanism and rationale as the Explain spec above — different payload:
+// note cards anchored to {path, line} rather than one standalone document.
+export function annotationsFilePath(root: string): string | undefined {
+  return kakapoGitDataFile(root, "annotations.json");
+}
+
 function isValidExplainSpec(value: unknown): value is { sections: unknown[] } {
   return !!value && typeof value === "object" && Array.isArray((value as { sections?: unknown }).sections);
+}
+
+// mtime+size of `file`, or undefined when it can't be stat'ed. A bare stat gates the (expensive) read+parse
+// below — the inverse of refreshIfChanged()'s cheap-hash-then-rebuild shape, where the read is the cheap part.
+function fileSignature(file: string | undefined): string | undefined {
+  if (!file || !existsSync(file)) return undefined;
+  try {
+    const stat = statSync(file);
+    return `${stat.mtimeMs}:${stat.size}`;
+  } catch {
+    return undefined;
+  }
+}
+
+// Parse `file` only if its signature moved off `sig`. A parse failure returns undefined WITHOUT advancing the
+// caller's signature, so a half-written file (the agent is mid-save) simply retries on the next tick.
+function readChangedJson(file: string | undefined, sig: string): { sig: string; value: unknown } | undefined {
+  const next = fileSignature(file);
+  if (!next || next === sig) return undefined;
+  try {
+    return { sig: next, value: JSON.parse(readFileSync(file as string, "utf8")) };
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -44,32 +77,32 @@ export function registerExplainIpc(ipc: IpcMain, stateFromEvent: ExplainStateRes
       updatedAt: state.explainUpdatedAt,
     };
   });
+  ipc.handle("kakapo:annotations-read", (event) => {
+    const state = stateFromEvent(event);
+    if (!state) return { path: "", notes: [] };
+    return { path: annotationsFilePath(state.options.root) ?? "", notes: state.annotationNotes };
+  });
 }
 
-// Mirrors refreshIfChanged()'s cheap-check-before-expensive-work shape, but inverted: there the git diff
-// hash is cheap and the rebuild is expensive; here reading+parsing the spec file is the expensive step,
-// so a bare stat (mtime+size) gates it rather than a content hash.
 export function refreshExplainIfChanged(state: ExplainIpcState): void {
   if (state.win.isDestroyed()) return;
-  const file = explainSpecFilePath(state.options.root);
-  if (!file || !existsSync(file)) return;
-  let sig: string;
-  try {
-    const stat = statSync(file);
-    sig = `${stat.mtimeMs}:${stat.size}`;
-  } catch {
-    return;
-  }
-  if (sig === state.explainSig) return;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(file, "utf8"));
-  } catch {
-    return; // the agent may still be mid-write — retry next tick, don't advance explainSig
-  }
-  if (!isValidExplainSpec(parsed)) return;
-  state.explainSig = sig;
-  state.explainSpec = parsed;
+  const changed = readChangedJson(explainSpecFilePath(state.options.root), state.explainSig);
+  if (!changed || !isValidExplainSpec(changed.value)) return;
+  state.explainSig = changed.sig;
+  state.explainSpec = changed.value;
   state.explainUpdatedAt = Date.now();
-  state.win.webContents.send("kakapo:explain-update", { spec: parsed, updatedAt: state.explainUpdatedAt });
+  state.win.webContents.send("kakapo:explain-update", { spec: changed.value, updatedAt: state.explainUpdatedAt });
+}
+
+// Same poll for annotations.json. The whole note list is replaced on every write — the agent rewrites the
+// file wholesale each round, and the renderer's annotation store is likewise not merged but swapped.
+export function refreshAnnotationsIfChanged(state: ExplainIpcState): void {
+  if (state.win.isDestroyed()) return;
+  const changed = readChangedJson(annotationsFilePath(state.options.root), state.annotationsSig);
+  if (!changed) return;
+  const notes = (changed.value as { notes?: unknown } | null)?.notes;
+  if (!Array.isArray(notes)) return;
+  state.annotationsSig = changed.sig;
+  state.annotationNotes = notes;
+  state.win.webContents.send("kakapo:annotations-update", { notes });
 }

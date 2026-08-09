@@ -181,6 +181,7 @@ function relevantLines(path) {
   var set = {};
   reviewComments.forEach(function (c) { if (c.path === path) set[c.line] = true; });
   if (composerState && composerState.path === path) set[composerState.line] = true;
+  annotationLines(path, set); // agent-written notes share the same thread rows (23-annotations.js)
   return Object.keys(set).map(Number).sort(function (a, b) { return a - b; });
 }
 function addComment(kind, path, line, code, text, from, to, side, anchorCode, replyTo) {
@@ -349,7 +350,8 @@ function commentAnswerHtml(c) {
     + '<div class="mc-answer-body">' + escapeHtml(c.answer) + '</div></div>';
 }
 function threadHtml(path, line) {
-  var html = '';
+  // Agent notes first: they explain the code the reviewer is about to comment on.
+  var html = annotationsThreadHtml(path, line);
   commentsAt(path, line).forEach(function (c) {
     if (composerState && composerState.editSeq === c.seq) return; // being edited -> rendered as the composer below
     var target = commentTargetLabel(c);
@@ -460,6 +462,7 @@ function renderDiffComments() {
       composer: activeComposer
         ? [activeComposer.kind, activeComposer.line, activeComposer.from, activeComposer.to, activeComposer.editSeq, activeComposer.editText || '']
         : null,
+      annotations: annotationRenderKey(path),
     });
     var lines = relevantLines(path);
     var existingRows = w.querySelectorAll('.mc-comment-row');
@@ -581,6 +584,9 @@ function refreshComments() {
   if (isSourceViewerVisible()) renderSourceComments();
   renderCommentBadges();
   applyCommentSelectionHighlight();
+  // Agent notes can carry Mermaid diagrams. Already-rendered placeholders are skipped, so this is a no-op
+  // scan on every ordinary comment refresh (see renderMermaidDiagrams in 20-explain.js).
+  if (annotationList().length) { try { renderMermaidDiagrams(document); } catch (e) {} }
   // Keep body.mc-composing (which hides the file caret) tied to the ACTUAL on-screen composer, not just
   // composerState. Leaving the composer by any path other than save/cancel (opening another file, switching
   // views) would otherwise leave the class stuck and hide EVERY caret — making arrow navigation and

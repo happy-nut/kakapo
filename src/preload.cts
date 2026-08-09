@@ -206,6 +206,15 @@ contextBridge.exposeInMainWorld("kakapoExplain", {
   },
 });
 
+// Inline diff annotations: the same watch-a-file handshake as kakapoExplain, for the agent-written note
+// cards that hang off individual diff lines. `read` also returns the path the agent must write to.
+contextBridge.exposeInMainWorld("kakapoAnnotations", {
+  read: (): Promise<{ path: string; notes: unknown[] }> => ipcRenderer.invoke("kakapo:annotations-read"),
+  onUpdate: (cb: (payload: { notes: unknown[] }) => void): void => {
+    ipcRenderer.on("kakapo:annotations-update", (_event, payload: { notes: unknown[] }) => cb(payload));
+  },
+});
+
 // Global settings (locale, …) persisted by the main process under userData so they survive app
 // restarts — the renderer's file:// localStorage is not reliably persisted across reopens. `all` is
 // read synchronously at preload so the renderer can pick the locale before first paint; `set` writes

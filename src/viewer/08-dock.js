@@ -655,6 +655,7 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   var resetBtn = document.getElementById('settings-reset');
   var savedMsg = document.getElementById('settings-saved');
   var explainTa = document.getElementById('settings-prompt-explain');
+  var annotateTa = document.getElementById('settings-prompt-annotate');
   var cats = Array.prototype.slice.call(modal.querySelectorAll('.settings-cat'));
   var secs = Array.prototype.slice.call(modal.querySelectorAll('.settings-section'));
   function showCat(cat) {
@@ -669,6 +670,7 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
     if (qta) { qta.value = (typeof s.q === 'string' && s.q.trim()) ? s.q : defaultMergePrompt('q'); qta.placeholder = ''; }
     if (cta) { cta.value = (typeof s.c === 'string' && s.c.trim()) ? s.c : defaultMergePrompt('c'); cta.placeholder = ''; }
     if (explainTa && typeof loadExplainPrompt === 'function') { explainTa.value = loadExplainPrompt(); explainTa.placeholder = ''; }
+    if (annotateTa && typeof loadAnnotatePrompt === 'function') { annotateTa.value = loadAnnotatePrompt(); annotateTa.placeholder = ''; }
   }
   function open(cat) { fill(); if (cat) showCat(cat); modal.classList.remove('hidden'); }
   function close() { modal.classList.add('hidden'); }
@@ -728,9 +730,11 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   if (resetBtn) resetBtn.addEventListener('click', function () {
     saveMergePrompt('plan', ''); saveMergePrompt('q', ''); saveMergePrompt('c', '');
     if (typeof saveExplainPrompt === 'function') saveExplainPrompt('');
+    if (typeof saveAnnotatePrompt === 'function') saveAnnotatePrompt('');
     fill(); flash();
   });
   if (explainTa) explainTa.addEventListener('input', function () { if (typeof saveExplainPrompt === 'function') saveExplainPrompt(explainTa.value); flash(); });
+  if (annotateTa) annotateTa.addEventListener('input', function () { if (typeof saveAnnotatePrompt === 'function') saveAnnotatePrompt(annotateTa.value); flash(); });
   // Language: live-switch the whole UI (no reload). Factored out so the cross-window chrome broadcast (below)
   // replays the exact same steps when another review window changes the shared locale.
   function applyLocale(next) {

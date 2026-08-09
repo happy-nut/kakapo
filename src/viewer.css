@@ -1927,6 +1927,24 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-reply:hover { color: var(--active); background: color-mix(in srgb, var(--active) 16%, transparent); }
 .mc-card.mc-reply-card { margin-left: 18px; border-left: 2px solid color-mix(in srgb, var(--active) 35%, transparent); }
 .mc-card-body { padding: 2px 12px 11px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* An agent-written explanation of the diff (23-annotations.js): the same card shell as a review comment so
+   the two read as one timeline, tinted with the active accent and given a left bar so it is obvious at a
+   glance which cards are the AI talking to you and which are your own review notes. Wider than a comment —
+   these carry prose and Mermaid diagrams, not one-line requests. */
+.mc-card.mc-ai {
+  max-width: 900px;
+  border-left: 2px solid color-mix(in srgb, var(--active) 45%, transparent);
+  background: color-mix(in srgb, var(--active) 4%, var(--panel));
+}
+.mc-kind.mc-kind-ai { color: var(--active); background: color-mix(in srgb, var(--active) 14%, transparent); }
+.mc-ai-title { font-size: 11px; color: var(--text); font-weight: 600; }
+/* Prose, not a code snippet: undo .mc-card-body's pre-wrap (markdown supplies its own block structure) and
+   let .markdown-body typography take over. */
+.mc-ai-body { white-space: normal; font: 12.5px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+.mc-ai-body > :first-child { margin-top: 0; }
+.mc-ai-body > :last-child { margin-bottom: 0; }
+.mc-ai-body .explain-mermaid { margin: 10px 0; overflow-x: auto; }
+.mc-ai-body .explain-mermaid svg { max-width: 100%; height: auto; }
 /* An agent's answer (issue #10), written into answers.json and synced back — sits below .mc-card-body,
    set off by a top border and a faint active-color tint so an answered card reads as such at a glance. */
 .mc-card-answer { border-top: 1px solid var(--border); padding: 8px 12px 11px; background: color-mix(in srgb, var(--active) 6%, transparent); }
@@ -2671,6 +2689,10 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .search-snippet { font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .search-hit { padding: 0; color: inherit; background: color-mix(in srgb, var(--active) 42%, transparent); }
 .quick-open-item.search-result .quick-open-badge { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+/* Prompt palette rows (⌘⇧P): prompt name on top, its first line as a muted one-line gist below. */
+.quick-open-item.prompt-palette-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.prompt-palette-name { color: var(--text); font-size: 12.5px; font-weight: 600; }
+.prompt-palette-summary { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11.5px; }
 .usage-loc { flex: none; color: var(--chrome-text); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
 .usage-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .quick-open-main { min-width: 0; display: flex; align-items: baseline; gap: 8px; }

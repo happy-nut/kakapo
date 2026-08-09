@@ -15,6 +15,7 @@ const GLOBAL_SETTING_KEYS = new Set([
   "kakapo-syntax-theme",
   "kakapo-merge-prompts",
   "kakapo-explain-prompt",
+  "kakapo-annotate-prompt",
   RECENT_KEY,
   OPEN_WORKSPACES_KEY,
   ACTIVE_WORKSPACE_KEY,

@@ -67,15 +67,18 @@ function sendExplainPromptToTerminal() {
 }
 
 // ----- spec fetch/watch (main polls the workspace's spec file; see app-explain-ipc.ts) -----
-function requestExplainSpec() {
+// pathOnly: resolve just the spec path, skipping the (Mermaid-loading) render — used at startup so the
+// prompt palette can substitute {{SPEC_PATH}} before the Explain view has ever been opened.
+function requestExplainSpec(pathOnly) {
   if (!window.kakapoExplain || typeof window.kakapoExplain.read !== 'function') return;
   window.kakapoExplain.read().then(function (result) {
     if (!result) return;
     explainSpecPath = result.path || '';
     updateExplainPromptTextarea();
-    if (result.spec) renderExplainSpec(result.spec);
+    if (!pathOnly && result.spec) renderExplainSpec(result.spec);
   }).catch(function () {});
 }
+requestExplainSpec(true);
 if (window.kakapoExplain && typeof window.kakapoExplain.onUpdate === 'function') {
   window.kakapoExplain.onUpdate(function (payload) {
     if (payload && payload.spec) renderExplainSpec(payload.spec);
@@ -220,10 +223,7 @@ function explainDiagramHtml(block) {
   if (kind === 'context' || kind === 'swimlane' || kind === 'flowchart') {
     var src = String((data && data.mermaid) || '').trim();
     if (!src) return '<div class="explain-diagram"><div class="explain-diagram-caption">' + escapeHtml(t('explain.diagramInvalid')) + '</div></div>';
-    explainMermaidSeq += 1;
-    var id = 'explain-mermaid-' + explainMermaidSeq;
-    explainMermaidSources[id] = src;
-    return '<div class="explain-diagram"><div class="explain-mermaid" id="' + id + '">' + escapeHtml(t('explain.diagramLoading')) + '</div>' + caption + '</div>';
+    return '<div class="explain-diagram">' + mermaidPlaceholderHtml(src) + caption + '</div>';
   }
   return '<div class="explain-diagram"><pre>' + escapeHtml(JSON.stringify(block, null, 2)) + '</pre></div>'; // unrecognized kind — defensive placeholder
 }
@@ -268,8 +268,20 @@ function explainMermaidThemeVariables() {
 // escaping entirely for multi-line Mermaid syntax (vs. stuffing it into a data-* attribute).
 var explainMermaidSources = {};
 var explainMermaidSeq = 0;
+// Emit a placeholder for one Mermaid source string; renderMermaidDiagrams() swaps in the SVG afterwards.
+// Shared with the agent-written diff annotations (23-annotations.js), which embed ```mermaid fences.
+function mermaidPlaceholderHtml(src) {
+  explainMermaidSeq += 1;
+  var id = 'explain-mermaid-' + explainMermaidSeq;
+  explainMermaidSources[id] = String(src);
+  return '<div class="explain-mermaid" id="' + id + '">' + escapeHtml(t('explain.diagramLoading')) + '</div>';
+}
+// `doc` is any container (the Explain document, or the whole document for annotation cards scattered through
+// the diff). Already-rendered nodes are skipped, so calling this after every comment refresh is near-free.
 function renderMermaidDiagrams(doc) {
-  var nodes = Array.prototype.slice.call(doc.querySelectorAll('.explain-mermaid'));
+  var nodes = Array.prototype.slice.call(doc.querySelectorAll('.explain-mermaid')).filter(function (node) {
+    return !node.dataset.mermaidDone;
+  });
   if (!nodes.length) return;
   loadMermaid().then(function (mermaid) {
     // Re-initialize on every render pass (cheap) so theme variables stay current across a light/dark toggle
@@ -278,6 +290,7 @@ function renderMermaidDiagrams(doc) {
     nodes.forEach(function (node) {
       var src = explainMermaidSources[node.id];
       if (!src) return;
+      node.dataset.mermaidDone = '1';
       mermaid.render(node.id + '-svg', src).then(function (result) {
         node.innerHTML = result.svg;
       }).catch(function () {

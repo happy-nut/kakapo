@@ -27,7 +27,7 @@ import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerTerminalIpc, ptyReaper } from "./app-terminal-ipc.js";
 import { registerAnswersIpc, syncAnswersFile, answersFilePath } from "./answers-ipc.js";
-import { registerExplainIpc, refreshExplainIfChanged } from "./app-explain-ipc.js";
+import { registerExplainIpc, refreshExplainIfChanged, refreshAnnotationsIfChanged } from "./app-explain-ipc.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
@@ -122,6 +122,8 @@ type WinState = {
   explainSig: string; // last-seen spec file mtime+size, to skip re-parsing when unchanged
   explainSpec: unknown; // last-parsed content spec, served immediately to a newly-opened Explain view
   explainUpdatedAt: number | null;
+  annotationsSig: string; // last-seen annotations.json mtime+size (agent-written inline diff notes)
+  annotationNotes: unknown[]; // last-parsed note list, served immediately to a reloading renderer
 };
 
 // `npm run dev` sets KAKAPO_DEV=1 so a locally-built app announces itself — a window-title suffix
@@ -1556,6 +1558,8 @@ function createWindow(root: string, deferBoot = false): WinState {
     explainSig: "",
     explainSpec: null,
     explainUpdatedAt: null,
+    annotationsSig: "",
+    annotationNotes: [],
   };
   state.ensureFullIndex = () => ensureFullProjectIndex(state);
   const id = view.webContents.id;
@@ -1668,7 +1672,12 @@ function armWatchTimers(state: WinState): void {
   if (state.options.watch) state.refreshTimer = setInterval(() => void refreshIfChanged(state), WATCH_INTERVAL_MS);
   state.answersTimer = setInterval(() => void syncAnswersFile(state), WATCH_INTERVAL_MS);
   void syncAnswersFile(state);
-  state.explainTimer = setInterval(() => refreshExplainIfChanged(state), WATCH_INTERVAL_MS);
+  // One timer covers both agent-written docs (the Explain spec and the inline diff annotations) — each poll
+  // is a bare stat when nothing changed, so splitting them into two intervals would buy nothing.
+  state.explainTimer = setInterval(() => {
+    refreshExplainIfChanged(state);
+    refreshAnnotationsIfChanged(state);
+  }, WATCH_INTERVAL_MS);
 }
 
 // Paint the animated mark immediately, then build the (potentially heavy) review off the first paint and swap it
@@ -1877,6 +1886,8 @@ async function openReview(state: WinState, root: string): Promise<void> {
   state.explainSig = ""; // new repo -> different workspace's spec file, force a fresh read
   state.explainSpec = null;
   state.explainUpdatedAt = null;
+  state.annotationsSig = "";
+  state.annotationNotes = [];
   // Diff-first, same as the cold boot: reusing this window for another repo paints its diff without waiting
   // on the new tree's full enumeration; the full index is pulled on demand (state.ensureFullIndex persists).
   const build = await buildReview(state, true);

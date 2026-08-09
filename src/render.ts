@@ -457,6 +457,14 @@ export function renderDiffHtml(input: {
     '<div id="quick-open-preview" class="quick-open-preview"></div>',
     "</div>",
     "</div>",
+    // Prompt palette (⌘⇧P): pick a saved prompt and send it to the terminal. Borrows the quick-open shell;
+    // editing the prompts themselves stays in Settings ▸ Prompts (see 24-prompt-palette.js).
+    '<div id="prompt-palette" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="promptPalette.title" aria-label="Prompts">',
+    '<div class="quick-open-panel">',
+    '<div class="quick-open-title"><span data-i18n="promptPalette.title">Prompts</span><span class="quick-open-filter is-hint" data-i18n="promptPalette.hint">Enter to send to terminal · edit in Settings</span></div>',
+    '<div id="prompt-palette-results" class="quick-open-results"></div>',
+    "</div>",
+    "</div>",
     '<div id="usages" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="usages.aria" aria-label="Usages">',
     '<div class="quick-open-panel">',
     '<div class="quick-open-title"><span id="usages-title" data-i18n="usages.title">Usages</span></div>',
@@ -567,6 +575,7 @@ export function renderDiffHtml(input: {
     '<kbd>⌥&uarr;/&darr;</kbd><span data-i18n="kbd.stepComments">Step between comments (merged)</span>' +
     '<kbd>⌥Enter</kbd><span data-i18n="kbd.mergedSend">Comment actions (merged)</span>' +
     '<kbd>⌘⇧N</kbd><span data-i18n="kbd.promptMemo">Prompt memo</span>' +
+    '<kbd>⌘⇧P</kbd><span data-i18n="kbd.promptPalette">Prompt palette (send a prompt to the terminal)</span>' +
     '<kbd>⌘⇧&#39;</kbd><span data-i18n="kbd.maximizePanel">Maximize panel</span>' +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.history">History</div>' +
@@ -601,6 +610,11 @@ export function renderDiffHtml(input: {
     '<textarea id="settings-prompt-q" class="settings-textarea" rows="4" spellcheck="false"></textarea>',
     '<label class="settings-label" for="settings-prompt-c" data-i18n="mergePrompts.cHeading">Change-request instructions</label>',
     '<textarea id="settings-prompt-c" class="settings-textarea" rows="4" spellcheck="false"></textarea>',
+    '<div class="settings-subsection">',
+    '<div class="settings-h" data-i18n="annotatePrompt.title">Explain the diff inline</div>',
+    '<div class="settings-desc" data-i18n="annotatePrompt.desc">Sent to an AI agent (⌘⇧P) to walk this diff and drop plain-language note cards on the lines that matter. Saved automatically. {{NOTES_PATH}} is replaced with this workspace\'s annotations file when sent.</div>',
+    '<textarea id="settings-prompt-annotate" class="settings-textarea" rows="10" spellcheck="false"></textarea>',
+    '</div>',
     '<div class="settings-subsection">',
     '<div class="settings-h" data-i18n="explainPrompt.title">Explain prompt</div>',
     '<div class="settings-desc" data-i18n="explainPrompt.desc">This editable default is shown in the Explain view (⌘7) for whichever AI agent writes the content spec. Saved automatically. {{SPEC_PATH}} is replaced with this workspace\'s spec file path when shown.</div>',
