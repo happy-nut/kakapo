@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
-import { annotationsFilePath, refreshAnnotationsIfChanged } from "../dist/app-explain-ipc.js";
+import { annotationsFilePath, refreshAnnotationsIfChanged } from "../dist/app-annotations-ipc.js";
 
 after(cleanupFixtures);
 
@@ -30,9 +30,6 @@ function fakeWindowState(root) {
     sent,
     win: { isDestroyed: () => false, webContents: { send: (channel, payload) => sent.push({ channel, payload }) } },
     options: { root },
-    explainSig: "",
-    explainSpec: null,
-    explainUpdatedAt: null,
     annotationsSig: "",
     annotationNotes: [],
   };
@@ -116,8 +113,8 @@ test("the prompt palette lists the saved prompts and sends the selected one to t
   assert.ok(!v.$("#prompt-palette").classList.contains("hidden"), "⌘⇧P opens the palette");
   const items = v.$all(".prompt-palette-item");
   // Only the prompts a human sends deliberately — the merge prompts ride along with the merged hand-off.
-  assert.equal(items.length, 2, "the palette lists the two send-on-purpose prompts");
-  assert.match(items[0].textContent, /diff/i, "the inline-diff explanation prompt leads the list");
+  assert.equal(items.length, 1, "the palette lists the one send-on-purpose prompt");
+  assert.match(items[0].textContent, /diff/i, "it is the inline-diff explanation prompt");
 
   v.key("Enter");
   await v.settle(10);
@@ -125,5 +122,56 @@ test("the prompt palette lists the saved prompts and sends the selected one to t
   assert.match(sent[0], /12-year-old/, "the annotate prompt is what was sent");
   assert.doesNotMatch(sent[0], /\{\{NOTES_PATH\}\}/, "the notes-path placeholder is substituted before sending");
   assert.ok(v.$("#prompt-palette").classList.contains("hidden"), "sending closes the palette");
+  v.close();
+});
+
+// Explain is the annotations, not a panel: ⌘7 asks for them and F9 walks them. Guards the regression where
+// ⌘7 opened a second reading surface the reviewer had to hold beside the diff.
+test("⌘7 runs Explain in place and opens no view of its own", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  const sent = [];
+  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text) };
+
+  v.key("7", { metaKey: true, code: "Digit7" });
+  await v.settle(10);
+  assert.equal(sent.length, 1, "⌘7 stages the annotate prompt in the terminal composer");
+  assert.match(sent[0], /12-year-old/, "it is the inline-notes prompt, not a content-spec prompt");
+  assert.equal(v.$("#explain-view"), null, "no Explain overlay exists to open");
+  v.close();
+});
+
+test("F9 and Shift+F9 walk the agent's notes", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\nconst c = 3;\n", after: "const a = 9;\nconst b = 8;\nconst c = 7;\n" },
+  ]);
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+
+  v.key("F9");
+  await v.settle(30);
+  const cursorLine = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1);
+
+  // Written out of order on purpose: stepping follows the diff, not the order the agent emitted them.
+  v.window.setAnnotations([
+    { path: "src/app.ts", line: 3, text: "why c changed" },
+    { path: "src/app.ts", line: 2, text: "why b changed" },
+  ]);
+  await v.settle(30);
+
+  // The caret starts on line 1, so "next" is the first note below it.
+  v.key("F9");
+  await v.settle(80);
+  assert.equal(cursorLine(), 1, "F9 steps to the nearest note below the caret");
+
+  v.key("F9");
+  await v.settle(80);
+  assert.equal(cursorLine(), 2, "a second F9 steps to the next note");
+
+  v.key("F9", { shiftKey: true });
+  await v.settle(80);
+  assert.equal(cursorLine(), 1, "Shift+F9 steps back");
   v.close();
 });

@@ -1950,6 +1950,12 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-ai-body { white-space: normal; font: 12.5px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 .mc-ai-body > :first-child { margin-top: 0; }
 .mc-ai-body > :last-child { margin-bottom: 0; }
+/* Mermaid's own <svg> carries its own sizing/viewBox — just center it and let the note card's own
+   overflow-x:auto handle anything wider than the card rather than squeezing it down to fit. No text/fill
+   rules here: themeVariables (20-mermaid.js's mermaidThemeVariables) already themes Mermaid's own
+   generated <style>, and an external rule of equal-or-lower specificity would just lose that cascade. */
+.explain-mermaid { display: block; min-height: 24px; color: var(--muted); font-size: 12.5px; }
+.explain-mermaid svg { display: block; margin: 0 auto; }
 .mc-ai-body .explain-mermaid { margin: 10px 0; overflow-x: auto; }
 .mc-ai-body .explain-mermaid svg { max-width: 100%; height: auto; }
 /* An agent's answer (issue #10), written into answers.json and synced back — sits below .mc-card-body,
@@ -2155,17 +2161,6 @@ body.native-app .history-bar {
 }
 body.native-app .history-bar input,
 body.native-app .history-bar button { -webkit-app-region: no-drag; }
-/* Same traffic-light-safe treatment as .history-bar — Explain is the same full-viewport-overlay-after-the-
-   rail shape, so it needs the identical fixed title-bar height + left inset, not a smaller one-off value. */
-body.native-app .explain-bar {
-  height: var(--native-titlebar-height);
-  min-height: var(--native-titlebar-height);
-  padding-top: 0;
-  padding-bottom: 0;
-  padding-left: var(--native-title-safe-after-rail);
-  -webkit-app-region: drag;
-}
-body.native-app .explain-bar button { -webkit-app-region: no-drag; }
 /* Fixed-height rows let the per-row SVGs tile as one continuous graph without a scroll-time overlay. */
 .hrow { display: grid; grid-template-columns: var(--hgraph-w, 62px) minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; height: 26px; padding: 0 12px 0 0; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; font-size: 12.5px; }
 .hrow:hover { background: color-mix(in srgb, var(--active) 8%, transparent); }
@@ -2315,149 +2310,6 @@ body.native-app .explain-bar button { -webkit-app-region: no-drag; }
 .mc-merged-reopen-all { background: transparent; color: var(--active); border: 1px solid color-mix(in srgb, var(--active) 45%, transparent); border-radius: 7px; padding: 3px 9px; font-size: 12px; cursor: pointer; }
 .mc-merged-reopen-all:hover { background: color-mix(in srgb, var(--active) 12%, transparent); }
 
-/* ===== Explain view (⌘7): a full-page overlay rendering an AI-agent-authored content spec (background /
-   intuition / code walkthrough / diagrams / quiz) into kakapo's own components, with inline comment
-   threads. Layout mirrors .history-view; content styling mirrors .markdown-body / .mc-card. ===== */
-.explain-view { position: fixed; inset: 0 0 0 var(--rail-width); z-index: 75; display: flex; flex-direction: column; background: var(--bg); }
-.explain-view.hidden { display: none; }
-/* Title-bar-height row — mirrors .sidebar-brand's "project name first" convention (the space the traffic
-   lights sit over shouldn't lose that context to a generic view label) instead of .history-bar's own
-   title-first layout. Only the close button lives here; actions moved to .explain-toolbar below. */
-.explain-bar { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--sidebar); border-bottom: 1px solid var(--border); }
-.explain-project { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.explain-title { color: var(--muted); font-size: 12px; }
-.explain-bar .dock-btn:last-child { margin-left: auto; font-size: 16px; }
-/* Ordinary action row (not part of the native drag region) — Copy prompt / Send to terminal / Send
-   comments live here, inside the panel, instead of crowding the title strip next to the traffic lights. */
-.explain-toolbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--sidebar); border-bottom: 1px solid var(--border); }
-/* A visibly distinct backdrop (not --bg) so the reading card below reads as an intentional, elevated
-   surface instead of text floating in empty space — the same "card on a backdrop" idiom .dock-panel and
-   .impact-panel already use elsewhere, just full-bleed instead of floating/docked. */
-.explain-body { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; background: var(--sidebar); }
-
-.explain-empty { max-width: 720px; margin: 40px auto 96px; padding: 40px 48px; display: flex; flex-direction: column; gap: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--ui-radius-lg, 12px); box-shadow: 0 16px 46px rgba(0, 0, 0, 0.28); }
-.explain-empty-hint { color: var(--muted); font-size: 13.5px; line-height: 1.7; }
-.explain-prompt-textarea {
-  width: 100%; min-height: 360px; resize: vertical;
-  border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text);
-  padding: 12px 14px; font: 12px/1.6 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  white-space: pre-wrap; outline: none;
-}
-.explain-prompt-textarea:focus { border-color: var(--active); }
-
-/* The reading card itself. A wide card, bounded with border/shadow so it reads as a deliberate document
-   rather than a strip of text lost in the window — but the card's own width is NOT the reading width.
-   Text elements below each cap themselves at --explain-text-w and center within this wide card; diagram
-   blocks (.explain-block-diagram, set in 20-explain.js) skip that cap and use the full card width, since
-   a swimlane/flowchart/context diagram benefits from horizontal room a prose column would waste. */
-.explain-doc {
-  --explain-text-w: 720px;
-  max-width: 1320px; margin: 32px auto 96px; padding: 56px 68px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: var(--ui-radius-lg, 12px);
-  box-shadow: 0 16px 46px rgba(0, 0, 0, 0.28);
-  font-size: 16px; line-height: 1.85;
-}
-.explain-doc.hidden { display: none; }
-.explain-doc-title { max-width: var(--explain-text-w); margin: 0 auto 10px; font-size: 32px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.3; }
-.explain-doc-subtitle { max-width: var(--explain-text-w); margin: 0 auto 36px; color: var(--muted); font-size: 13px; }
-.explain-toc { max-width: var(--explain-text-w); margin: 0 auto 40px; border: 1px solid var(--border); border-radius: 8px; background: var(--sidebar); padding: 14px 20px; }
-.explain-toc-h { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 8px; }
-.explain-toc ul { margin: 0; padding-left: 18px; }
-.explain-toc li { margin: 3px 0; }
-.explain-toc a { color: var(--active); text-decoration: none; font-size: 13.5px; }
-.explain-toc a:hover { text-decoration: underline; }
-
-.explain-section { margin-bottom: 56px; }
-.explain-section:last-of-type { margin-bottom: 0; }
-/* Scoped under .explain-doc so this reliably wins over .markdown-body h2's own size/margin/border rules
-   (two classes beats one class + one element at equal specificity otherwise) — an accent-colored
-   underline sized to a real article heading, not the muted default the shared markdown styles would give it. */
-.explain-doc .explain-section-h {
-  max-width: var(--explain-text-w); margin: 0 auto 20px;
-  font-size: 24px; font-weight: 750; color: var(--text);
-  padding-bottom: 10px; border-bottom: 2px solid var(--active);
-}
-.explain-block { max-width: var(--explain-text-w); margin: 0 auto 22px; position: relative; padding: 2px 0 2px 10px; border-radius: 4px; }
-.explain-block-diagram { max-width: none; }
-.explain-block:hover > .explain-comment-affordance { opacity: 1; }
-/* Keyboard/click selection (Up/Down + "?" in 05-keymap.js, click in 21-explain-comments.js) — same focus-
-   ring idiom as .mc-merged-card.selected, plus a left accent bar so the selection reads even with the
-   affordance button hidden (no hover). */
-.explain-block.is-selected { box-shadow: 0 0 0 2px var(--active); background: color-mix(in srgb, var(--active) 6%, transparent); }
-.explain-block.is-selected > .explain-comment-affordance { opacity: 1; }
-.explain-comment-affordance {
-  position: absolute; top: 2px; right: 2px; width: 22px; height: 22px;
-  display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--muted);
-  cursor: pointer; opacity: 0; transition: opacity 120ms ease;
-}
-.explain-comment-affordance:hover { color: var(--text); border-color: var(--active); }
-.explain-comment-badge {
-  position: absolute; top: -6px; right: 20px;
-  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
-  background: var(--active); color: #fff; font: 700 10px/16px -apple-system, sans-serif; text-align: center;
-}
-.explain-thread { margin: 6px 0 0; }
-/* Own hook classes for the comment composer's delete/save/cancel/textarea controls (not .mc-del/.mc-save/
-   .mc-cancel/.mc-input) — those exact class names are matched by document-level delegated listeners wired
-   to the diff/source comment store (08-dock.js); reusing them would route Explain comments into the wrong
-   store. .mc-card/.mc-card-head/.mc-kind/.mc-target/.mc-card-body/.mc-btn/.mc-ghost/.mc-hint/.mc-actions
-   carry no such delegation and are reused as-is. */
-.explain-mc-input {
-  display: block; box-sizing: border-box; resize: vertical;
-  margin: 0 10px 10px; width: calc(100% - 20px); min-height: 60px;
-  background: var(--bg); color: var(--text); caret-color: var(--text);
-  border: 1px solid var(--border); border-radius: 0; padding: 9px 11px;
-  font: 12px/1.55 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
-}
-.explain-mc-input:focus { outline: none; border-color: var(--active); box-shadow: 0 0 0 3px color-mix(in srgb, var(--active) 22%, transparent); }
-.explain-mc-del { margin-left: 0; background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 1px 5px; border-radius: 0; }
-.explain-mc-del:hover { color: var(--del-strong); background: color-mix(in srgb, var(--del-strong) 16%, transparent); }
-
-.explain-callout { border-left: 4px solid var(--active); border-radius: 0 6px 6px 0; background: var(--elevated); padding: 12px 16px; }
-.explain-callout-title { font-weight: 650; font-size: 12px; margin-bottom: 4px; }
-.explain-callout-warning { border-left-color: var(--diag-warning); }
-.explain-callout-danger { border-left-color: var(--diag-error); }
-.explain-callout-success { border-left-color: var(--add-strong); }
-
-.explain-code-caption { color: var(--muted); font-size: 11px; margin: -8px 0 8px; }
-
-.explain-table-row[data-sub-id]:hover { background: color-mix(in srgb, var(--active) 8%, transparent); }
-
-.explain-diagram { border: 1px solid var(--border); border-radius: 10px; background: var(--elevated); padding: 18px; overflow-x: auto; }
-.explain-diagram-caption { color: var(--muted); font-size: 11px; margin-top: 8px; }
-/* Mermaid's own <svg> carries its own sizing/viewBox — just center it and let the .explain-diagram card's
-   overflow-x:auto handle anything wider than the card rather than squeezing it down to fit. No text/fill
-   rules here: themeVariables (20-explain.js's explainMermaidThemeVariables) already themes Mermaid's own
-   generated <style>, and an external rule of equal-or-lower specificity would just lose that cascade. */
-.explain-mermaid { display: block; min-height: 24px; color: var(--muted); font-size: 12.5px; }
-.explain-mermaid svg { display: block; margin: 0 auto; }
-
-/* "flow" family: linear box -> arrow -> box chain (kept as HTML/CSS, not SVG — a straight sequence needs no layout algorithm). */
-.explain-flow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
-.explain-flow-box { border: 2px solid var(--active); border-radius: 8px; padding: 8px 14px; background: var(--elevated); text-align: center; min-width: 110px; font-size: 12.5px; }
-.explain-flow-box-fail { border-color: var(--diag-error); }
-.explain-flow-box-success { border-color: var(--add-strong); }
-.explain-flow-arrow { flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--muted); font-size: 10.5px; max-width: 140px; text-align: center; }
-.explain-flow-arrow::after { content: "→"; font-size: 16px; line-height: 1; }
-
-/* "ui-mockup" family: a simplified sketch of the UI the reader sees, positioned in an abstract unit box. */
-.explain-ui-mockup { position: relative; margin: 0 auto; border: 1px solid var(--border); border-radius: 8px; background: var(--elevated); overflow: hidden; }
-.explain-ui-region { position: absolute; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); display: flex; align-items: flex-start; padding: 4px 6px; font-size: 10.5px; color: var(--muted); box-sizing: border-box; overflow: hidden; }
-.explain-ui-region-highlight { border-color: var(--active); box-shadow: 0 0 0 1px var(--active) inset; color: var(--text); }
-.explain-ui-badge-new { position: absolute; top: -8px; right: -6px; background: var(--active); color: #fff; font: 700 8px/14px -apple-system, sans-serif; padding: 0 5px; border-radius: 7px; }
-
-/* Quiz — click an option for inline correct/incorrect feedback (option order is shuffled client-side). */
-.explain-quiz-q { border: 1px solid var(--border); border-radius: 8px; background: var(--elevated); padding: 16px 18px; margin: 0 0 16px; }
-.explain-quiz-question { font-weight: 650; margin-bottom: 10px; }
-.explain-quiz-opt { display: block; width: 100%; text-align: left; padding: 8px 12px; margin: 6px 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); cursor: pointer; font: inherit; font-size: 12.5px; }
-.explain-quiz-opt:hover { border-color: var(--active); }
-.explain-quiz-opt:disabled { cursor: default; }
-.explain-quiz-feedback { display: none; margin-top: 4px; padding: 8px 12px; border-radius: 6px; font-size: 12px; }
-.explain-quiz-feedback.correct { display: block; background: color-mix(in srgb, var(--add-strong) 22%, transparent); color: var(--text); }
-.explain-quiz-feedback.incorrect { display: block; background: color-mix(in srgb, var(--diag-error) 18%, transparent); color: var(--text); }
-
 /* ===== Merged-prompt & memo: a focused FLOATING writing surface.
    Cmd/Ctrl+Shift+' maximizes the active panel to full screen. =====
    (These used to dock below the editor; they now float so a big writing surface doesn't shrink the diff.) */
@@ -2583,7 +2435,6 @@ body.native-app .terminal-panel { top: var(--native-titlebar-height); }
 body.terminal-send-mode .sidebar,
 body.terminal-send-mode .content,
 body.terminal-send-mode .sidebar-resizer,
-body.terminal-send-mode .explain-view,
 body.terminal-send-mode .history-view { opacity: 0.25; pointer-events: none; }
 .terminal-toggle.is-active { color: var(--active); }
 /* A maximized writing panel becomes the window's topmost full-viewport surface. Its title therefore needs
@@ -2789,9 +2640,6 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   .activity-rail .rail-group { flex-direction: row; }
   .activity-rail .rail-bottom { margin-left: auto; margin-top: 0; }
   .history-view { inset: var(--rail-width) 0 0 0; }
-  .explain-view { inset: var(--rail-width) 0 0 0; }
-  .explain-doc, .explain-empty { padding-left: 14px; padding-right: 14px; }
-  .explain-comment-affordance, .explain-comment-badge { display: none; }
   .rail-tip { left: 50%; top: calc(100% + 8px); transform: translateX(-50%); }
   .rail-btn.is-active::before { left: 5px; right: 5px; top: auto; bottom: -4px; width: auto; height: 2px; }
   .sidebar { grid-row: 2; grid-column: 1; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
@@ -3184,7 +3032,6 @@ summary.tree-focus,
 .settings-body,
 .impact-panel,
 .history-view,
-.explain-view,
 .dock-panel,
 .mc-modal-panel,
 .goto-line,

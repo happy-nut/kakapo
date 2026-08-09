@@ -23,7 +23,7 @@ const VIEWER_SLICES = [
   "03-quick-open.js", "04-source-tree.js", "05-keymap.js", "06-diff-caret.js", "07-comments.js",
   "08-dock.js", "09-views-update.js", "10-source-view.js", "11-render-http.js", "12-history.js",
   "13-goto.js", "14-impact.js", "15-analysis-status.js", "15-semantic-navigation.js", "16-semantic-peek.js",
-  "17-file-find.js", "18-diagnostics.js", "19-terminal.js", "20-explain.js", "21-explain-comments.js",
+  "17-file-find.js", "18-diagnostics.js", "19-terminal.js", "20-mermaid.js",
   "22-patchset.js", "23-annotations.js", "24-prompt-palette.js",
 ];
 const onDisk = readdirSync(viewerDir).filter((f) => f.endsWith(".js")).sort();

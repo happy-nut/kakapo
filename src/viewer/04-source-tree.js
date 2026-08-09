@@ -339,11 +339,10 @@ function focusOpenFileInTree() {
 // Reveal the currently-open file in the sidebar tree, scrolled to the CENTER of the panel (the header button
 // and ⌥F1). Expands the sidebar and ancestor folders first, then centers and flashes the row.
 function revealOpenFileInTree() {
-  // Reveal must work from ANY panel. History/Explain/Impact/merged/memo render OVER the diff/source view, so
-  // close whichever is open to uncover the tree, then bring the Files tree forward (never toggling it closed)
+  // Reveal must work from ANY panel. History/Impact/merged/memo render OVER the diff/source view, so close
+  // whichever is open to uncover the tree, then bring the Files tree forward (never toggling it closed)
   // and center + flash the open file. Previously this bailed unless the diff or source view already owned the
   // screen, so it silently did nothing while another panel was up.
-  if (typeof isExplainViewVisible === 'function' && isExplainViewVisible() && typeof closeExplainView === 'function') closeExplainView();
   if (typeof isHistoryOpen === 'function' && isHistoryOpen() && typeof closeHistory === 'function') closeHistory();
   if (typeof isImpactOpen === 'function' && isImpactOpen() && typeof closeImpact === 'function') closeImpact(false);
   if (typeof closeMergedMemoDocks === 'function') closeMergedMemoDocks();

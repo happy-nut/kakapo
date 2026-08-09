@@ -191,18 +191,9 @@ contextBridge.exposeInMainWorld("kakapoMemo", {
   remove: (): Promise<unknown> => ipcRenderer.invoke("kakapo:memo-delete"),
 });
 
-// Explain view: an external AI agent writes a content-spec JSON file to this workspace's support
-// directory; main polls it and pushes updates here. `read` also returns the destination path so the
-// renderer can show the agent where to write the spec.
-contextBridge.exposeInMainWorld("kakapoExplain", {
-  read: (): Promise<{ path: string; spec: unknown; updatedAt: number | null }> => ipcRenderer.invoke("kakapo:explain-read"),
-  onUpdate: (cb: (payload: { spec: unknown; updatedAt: number }) => void): void => {
-    ipcRenderer.on("kakapo:explain-update", (_event, payload: { spec: unknown; updatedAt: number }) => cb(payload));
-  },
-});
-
-// Inline diff annotations: the same watch-a-file handshake as kakapoExplain, for the agent-written note
-// cards that hang off individual diff lines. `read` also returns the path the agent must write to.
+// Explain: an external AI agent writes annotations.json to this workspace's support directory; main polls it
+// and pushes the note cards here, and they render on the diff lines they explain. `read` also returns the
+// path the agent must write to, so the ⌘7 prompt can name it.
 contextBridge.exposeInMainWorld("kakapoAnnotations", {
   read: (): Promise<{ path: string; notes: unknown[] }> => ipcRenderer.invoke("kakapo:annotations-read"),
   onUpdate: (cb: (payload: { notes: unknown[] }) => void): void => {

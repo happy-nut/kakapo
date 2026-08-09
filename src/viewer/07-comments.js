@@ -594,7 +594,7 @@ function refreshComments() {
   renderCommentBadges();
   applyCommentSelectionHighlight();
   // Agent notes can carry Mermaid diagrams. Already-rendered placeholders are skipped, so this is a no-op
-  // scan on every ordinary comment refresh (see renderMermaidDiagrams in 20-explain.js).
+  // scan on every ordinary comment refresh (see renderMermaidDiagrams in 20-mermaid.js).
   if (annotationList().length) { try { renderMermaidDiagrams(document); } catch (e) {} }
   // Keep body.mc-composing (which hides the file caret) tied to the ACTUAL on-screen composer, not just
   // composerState. Leaving the composer by any path other than save/cancel (opening another file, switching
@@ -755,6 +755,12 @@ function showCustomDropdown(x, y, options, flipTop, className) {
   document.addEventListener('keydown', onKey, true);
   document.addEventListener('mousedown', onOutside, true);
 }
+// Open `path` in the source view and land the caret on `line` (1-based). The shared tail of every
+// "jump to an anchor" path — review comments below, agent notes in 23-annotations.js.
+function navigateToLine(path, line) {
+  openSourceFile(path);
+  requestAnimationFrame(function () { setSourceCursor(path, Math.max(0, (Number(line) || 1) - 1), 0, true, -1); });
+}
 function navigateToComment(seq) {
   var c = reviewComments.find(function (x) { return x.seq === seq; });
   if (!c) return;
@@ -763,8 +769,7 @@ function navigateToComment(seq) {
     refreshComments();
     return;
   }
-  openSourceFile(c.path);
-  requestAnimationFrame(function () { setSourceCursor(c.path, Math.max(0, (Number(c.from) || c.line || 1) - 1), 0, true, -1); });
+  navigateToLine(c.path, Number(c.from) || c.line || 1);
 }
 // Merged-panel Enter on a selected comment card: navigate to the comment's source location AND land
 // straight in its edit composer, combining what "Navigate" + a manual "E" press would do separately.
@@ -821,25 +826,29 @@ function sortedNavComments() {
 // currentCommentTarget), so try the NEW side first, same "track the new file" convention hunk-nav uses
 // (02-diff-nav.js), then fall back to the other side. Returns false when there's no matching row (e.g. the
 // file's diff body isn't materialized yet) so the caller can fall back to the source-view jump.
+function navigateToLineInDiff(path, line, side) {
+  var wrapper = typeof diffWrapperByPath === 'function' ? diffWrapperByPath(path) : null;
+  if (!wrapper) return false;
+  var sides = side === 'old' ? ['old', 'new'] : ['new', 'old'];
+  for (var i = 0; i < sides.length; i++) {
+    var rowIndex = diffRowIndexForLine(wrapper, sides[i], line);
+    if (rowIndex >= 0) { setDiffCursor(path, sides[i], rowIndex, 0, true); return true; }
+  }
+  return false;
+}
 function navigateToCommentInDiff(seq) {
   var c = reviewComments.find(function (x) { return x.seq === seq; });
   if (!c) return false;
-  var wrapper = typeof diffWrapperByPath === 'function' ? diffWrapperByPath(c.path) : null;
-  if (!wrapper) return false;
-  var line = Number(c.from) || c.line;
-  var sides = c.side === 'old' ? ['old', 'new'] : ['new', 'old'];
-  for (var i = 0; i < sides.length; i++) {
-    var rowIndex = diffRowIndexForLine(wrapper, sides[i], line);
-    if (rowIndex >= 0) { setDiffCursor(c.path, sides[i], rowIndex, 0, true); return true; }
-  }
-  return false;
+  return navigateToLineInDiff(c.path, Number(c.from) || c.line, c.side);
 }
 // The Cmd+F7 entry point (05-keymap.js). delta: +1 next, -1 previous, wrapping at both ends — a short
 // browsing aid, not F7's "press again to cross a file" boundary gate (that exists to protect against
 // skipping an unviewed file, which doesn't apply to a deliberately-browsed comment list).
-function gotoComment(delta) {
-  if (!reviewComments.length) { showCaretHint(t('comment.nav.none')); return true; }
-  var list = sortedNavComments();
+// Pick the next (delta > 0) or previous anchor relative to wherever the caret currently is, wrapping at
+// both ends. `list` is already in diff order (sortedNavComments / sortedAnnotations); each item needs a
+// .path and a line (.from or .line). Shared by F8 (review comments) and F9 (agent notes, 23-annotations.js)
+// so the two step through the review identically. Assumes a non-empty list — callers hint and bail first.
+function stepAnchor(delta, list) {
   var order = commentNavOrder();
   var curPath = null, curLine = -1;
   if (isDiffViewVisible() && diffCursor) {
@@ -850,23 +859,23 @@ function gotoComment(delta) {
     curPath = viewerCursor.path; curLine = viewerCursor.lineIndex + 1;
   }
   var curOrder = curPath != null && curPath in order ? order[curPath] : null;
-  var target = null;
+  function rank(c) { return c.path in order ? order[c.path] : Infinity; }
+  function lineOf(c) { return Number(c.from) || c.line || 0; }
   if (delta > 0) {
-    target = list.find(function (c) {
-      var co = c.path in order ? order[c.path] : Infinity;
-      var cl = Number(c.from) || c.line || 0;
+    return list.find(function (c) {
       if (curOrder == null) return true;
-      return co > curOrder || (co === curOrder && cl > curLine);
+      return rank(c) > curOrder || (rank(c) === curOrder && lineOf(c) > curLine);
     }) || list[0];
-  } else {
-    for (var i = list.length - 1; i >= 0; i--) {
-      var c = list[i];
-      var co2 = c.path in order ? order[c.path] : Infinity;
-      var cl2 = Number(c.from) || c.line || 0;
-      if (curOrder == null || co2 < curOrder || (co2 === curOrder && cl2 < curLine)) { target = c; break; }
-    }
-    if (!target) target = list[list.length - 1];
   }
+  for (var i = list.length - 1; i >= 0; i--) {
+    var c = list[i];
+    if (curOrder == null || rank(c) < curOrder || (rank(c) === curOrder && lineOf(c) < curLine)) return c;
+  }
+  return list[list.length - 1];
+}
+function gotoComment(delta) {
+  if (!reviewComments.length) { showCaretHint(t('comment.nav.none')); return true; }
+  var target = stepAnchor(delta, sortedNavComments());
   if (!isDiffViewVisible() || !navigateToCommentInDiff(target.seq)) navigateToComment(target.seq);
   return true;
 }

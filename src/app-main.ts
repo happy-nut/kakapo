@@ -27,7 +27,7 @@ import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals } from "./app-terminal-ipc.js";
 import { registerAnswersIpc, syncAnswersFile, answersFilePath } from "./answers-ipc.js";
-import { registerExplainIpc, refreshExplainIfChanged, refreshAnnotationsIfChanged } from "./app-explain-ipc.js";
+import { registerAnnotationsIpc, refreshAnnotationsIfChanged } from "./app-annotations-ipc.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
@@ -121,10 +121,7 @@ type WinState = {
   // returns, a stale stamp (a newer build was requested, or the window closed) means the result is dropped.
   buildSeq: number;
   disposeWindowSurfaceRecovery: () => void;
-  explainTimer?: NodeJS.Timeout; // Explain view: polls this workspace's content-spec file, independent of --watch
-  explainSig: string; // last-seen spec file mtime+size, to skip re-parsing when unchanged
-  explainSpec: unknown; // last-parsed content spec, served immediately to a newly-opened Explain view
-  explainUpdatedAt: number | null;
+  annotationsTimer?: NodeJS.Timeout; // Explain: polls this workspace's annotations.json, independent of --watch
   annotationsSig: string; // last-seen annotations.json mtime+size (agent-written inline diff notes)
   annotationNotes: unknown[]; // last-parsed note list, served immediately to a reloading renderer
 };
@@ -306,7 +303,7 @@ registerReviewIpc(ipcMain, stateFromEvent);
 registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerTerminalIpc(ipcMain, stateFromEvent);
 registerAnswersIpc(ipcMain, stateFromEvent);
-registerExplainIpc(ipcMain, stateFromEvent);
+registerAnnotationsIpc(ipcMain, stateFromEvent);
 registerTileMenuIpc(ipcMain, { getShellWindow: () => shellWindow, isLightTheme, getTranslate: tr });
 // Theme + locale are global settings; re-theme the native chrome and broadcast to every window when either changes.
 // One UI scale for the whole app. Each surface is its own WebContents (the rail, every review view, the modal
@@ -1612,9 +1609,6 @@ function createWindow(root: string, deferBoot = false): WinState {
     reviewBase: undefined,
     reviewUpstream: undefined,
     disposeWindowSurfaceRecovery: () => {},
-    explainSig: "",
-    explainSpec: null,
-    explainUpdatedAt: null,
     annotationsSig: "",
     annotationNotes: [],
   };
@@ -1717,24 +1711,19 @@ function savedWorkspaceMetadata() {
 function clearWatchTimers(state: WinState): void {
   if (state.refreshTimer) { clearInterval(state.refreshTimer); state.refreshTimer = undefined; }
   if (state.answersTimer) { clearInterval(state.answersTimer); state.answersTimer = undefined; }
-  if (state.explainTimer) { clearInterval(state.explainTimer); state.explainTimer = undefined; }
+  if (state.annotationsTimer) { clearInterval(state.annotationsTimer); state.annotationsTimer = undefined; }
 }
 
 // Arm this window's pollers (clearing any prior set first): the --watch diff refresh (opt-in), the
-// agent-answers sync, and the Explain content-spec poll — all independent of --watch, since an agent can write
-// answers/the Explain spec whether or not the diff itself is being polled. The one immediate answers sync
-// catches up on anything written before this window existed (the Explain spec has no such backlog concern).
+// agent-answers sync, and the Explain annotations poll — all independent of --watch, since an agent can write
+// answers/notes whether or not the diff itself is being polled. The one immediate answers sync catches up on
+// anything written before this window existed (annotations have no such backlog concern).
 function armWatchTimers(state: WinState): void {
   clearWatchTimers(state);
   if (state.options.watch) state.refreshTimer = setInterval(() => void refreshIfChanged(state), WATCH_INTERVAL_MS);
   state.answersTimer = setInterval(() => void syncAnswersFile(state), WATCH_INTERVAL_MS);
   void syncAnswersFile(state);
-  // One timer covers both agent-written docs (the Explain spec and the inline diff annotations) — each poll
-  // is a bare stat when nothing changed, so splitting them into two intervals would buy nothing.
-  state.explainTimer = setInterval(() => {
-    refreshExplainIfChanged(state);
-    refreshAnnotationsIfChanged(state);
-  }, WATCH_INTERVAL_MS);
+  state.annotationsTimer = setInterval(() => refreshAnnotationsIfChanged(state), WATCH_INTERVAL_MS);
 }
 
 // Only the session's FIRST window gets the full-size startup mark; see loadingHtml.
@@ -1944,10 +1933,7 @@ async function openReview(state: WinState, root: string): Promise<void> {
   state.answersFile = answersFilePath(state.options.root);
   state.answersFileSig = undefined;
   state.lastAnswers = undefined;
-  state.explainSig = ""; // new repo -> different workspace's spec file, force a fresh read
-  state.explainSpec = null;
-  state.explainUpdatedAt = null;
-  state.annotationsSig = "";
+  state.annotationsSig = ""; // new repo -> different workspace's notes file, force a fresh read
   state.annotationNotes = [];
   // Diff-first, same as the cold boot: reusing this window for another repo paints its diff without waiting
   // on the new tree's full enumeration; the full index is pulled on demand (state.ensureFullIndex persists).

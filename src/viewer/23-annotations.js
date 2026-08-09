@@ -1,13 +1,16 @@
-// ===== Agent-written diff annotations: an AI walks the diff and drops explanatory note cards on the lines
-// that matter ("why is this here?", explained for a beginner), which render inline exactly where a human
-// review comment would. The agent writes annotations.json (see app-explain-ipc.ts); main watches it. =====
+// ===== Explain (⌘7): an AI walks the diff and drops explanatory note cards on the lines that matter
+// ("why is this here?", explained for a beginner), which render inline exactly where a human review comment
+// would. The agent writes annotations.json (see app-annotations-ipc.ts); main watches it. =====
 //
-// A SEPARATE store from reviewComments (07-comments.js), for the same reason 21-explain-comments.js is
-// separate: these are the agent talking TO the reviewer, not review feedback going back to the agent. Mixing
-// them into reviewComments would leak them into the merged prompt, the answers.json checklist, the per-file
-// comment badges, and localStorage — every one of which would need an exclusion. Rendering hooks into
-// threadHtml()/relevantLines() instead, so annotations ride the existing thread-row placement for free in
-// both the diff and the source view.
+// This IS the Explain feature — there is no separate document view. An earlier version rendered an
+// agent-written content spec into its own full-page panel; explaining a change is worth more attached to the
+// code it explains than parked in a second surface the reader has to hold beside the diff.
+//
+// A SEPARATE store from reviewComments (07-comments.js): these are the agent talking TO the reviewer, not
+// review feedback going back to the agent. Mixing them into reviewComments would leak them into the merged
+// prompt, the answers.json checklist, the per-file comment badges, and localStorage — every one of which
+// would need an exclusion. Rendering hooks into threadHtml()/relevantLines() instead, so annotations ride
+// the existing thread-row placement for free in both the diff and the source view.
 //
 // The note list is replaced wholesale on every file write (never merged) and is NOT persisted here — it
 // lives in annotations.json, and main serves it back on reload. Notes are read-only: no editing, no delete;
@@ -77,6 +80,7 @@ function setAnnotations(notes) {
     };
   }).filter(function (n) { return n.path && n.text; });
   if (typeof refreshComments === 'function') { try { refreshComments(); } catch (e) {} }
+  if (typeof syncRail === 'function') { try { syncRail(); } catch (e) {} } // the Explain rail icon lights up once notes exist
 }
 function requestAnnotations() {
   if (!window.kakapoAnnotations || typeof window.kakapoAnnotations.read !== 'function') return;
@@ -91,7 +95,7 @@ if (window.kakapoAnnotations && typeof window.kakapoAnnotations.onUpdate === 'fu
 }
 requestAnnotations();
 
-// ----- the prompt itself: a settings-editable default, same shape as loadExplainPrompt() -----
+// ----- the prompt itself: a settings-editable default, same shape as loadMergePrompts() (08-dock.js) -----
 var annotatePromptKey = 'kakapo-annotate-prompt';
 function defaultAnnotatePrompt() { return t('annotate.prompt.default'); }
 function loadAnnotatePrompt() {
@@ -103,4 +107,26 @@ function loadAnnotatePrompt() {
 function saveAnnotatePrompt(text) { persistSave(annotatePromptKey, text || ''); }
 function currentAnnotatePromptText() {
   return loadAnnotatePrompt().split('{{NOTES_PATH}}').join(annotationsPath || '');
+}
+
+// ----- running it (⌘7 / the Explain rail button): stage the prompt in the terminal composer, the same
+// review-before-it-runs step every other prompt hand-off uses (sendPromptToTerminal, 24-prompt-palette.js).
+function runAnnotatePrompt() {
+  if (typeof sendPromptToTerminal === 'function') sendPromptToTerminal(currentAnnotatePromptText());
+}
+
+// ----- stepping through the notes (F9 / ⇧F9), the same gesture F7 uses for hunks and F8 for comments.
+// Sorted in the order the reviewer walks the diff, not the order the agent happened to write them.
+function sortedAnnotations() {
+  var order = typeof commentNavOrder === 'function' ? commentNavOrder() : {};
+  function rank(n) { return n.path in order ? order[n.path] : Infinity; }
+  return annotationList().slice().sort(function (a, b) { return rank(a) - rank(b) || a.line - b.line; });
+}
+function gotoAnnotation(delta) {
+  var list = sortedAnnotations();
+  if (!list.length) { showCaretHint(t('annotate.nav.none')); return true; }
+  var target = stepAnchor(delta, list);
+  // Notes anchor to the NEW side by construction (the prompt asks for right-hand-side line numbers).
+  if (!isDiffViewVisible() || !navigateToLineInDiff(target.path, target.line, 'new')) navigateToLine(target.path, target.line);
+  return true;
 }

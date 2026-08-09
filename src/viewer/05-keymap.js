@@ -3,8 +3,6 @@ function isFloatingModalOpen() {
   if (sm && !sm.classList.contains('hidden')) return true;
   var hv = document.getElementById('history-view');
   if (hv && !hv.classList.contains('hidden')) return true; // history overlay owns the keys (Esc/filter/click)
-  var xv = document.getElementById('explain-view');
-  if (xv && !xv.classList.contains('hidden')) return true; // Explain overlay owns the keys (Esc/Option+Enter/click)
   if (document.getElementById('goto-line')) return true; // go-to-line prompt owns the keys until Enter/Esc
   // The merged/memo panels are now docked (inline), not overlays — but while one OWNS focus we still stand
   // down the global nav shortcuts so typing / ▲▼ inside it isn't hijacked. Focus elsewhere -> shortcuts run.
@@ -140,11 +138,12 @@ document.addEventListener('keydown', (event) => {
     toggleImpact();
     return;
   }
-  // Cmd/Ctrl+7 toggles the Explain view (an AI-agent-authored content spec, rendered in place). Same
-  // "above the focus guard" placement as History/Impact so a 2nd press closes it from inside.
-  if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'Digit7' || event.key === '7') && typeof toggleExplainView === 'function') {
+  // Cmd/Ctrl+7 runs Explain: stage the "annotate this diff" prompt in the terminal composer. It opens no
+  // view of its own — the agent's notes land on the diff lines they explain (23-annotations.js), and F9
+  // steps through them. Same "above the focus guard" placement as History/Impact.
+  if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'Digit7' || event.key === '7') && typeof runAnnotatePrompt === 'function') {
     event.preventDefault();
-    toggleExplainView();
+    runAnnotatePrompt();
     return;
   }
   if (event.key === 'Escape' && typeof isImpactOpen === 'function' && isImpactOpen()) {
@@ -152,34 +151,7 @@ document.addEventListener('keydown', (event) => {
     closeImpact();
     return;
   }
-  if (event.key === 'Escape' && typeof isExplainViewVisible === 'function' && isExplainViewVisible()) {
-    event.preventDefault();
-    // First Escape drops the block selection (if any), same as clearing a selection before leaving a
-    // list; only close the view once nothing is selected.
-    if (typeof explainClearSelection === 'function' && explainClearSelection()) return;
-    closeExplainView();
-    return;
-  }
   if (typeof isHistoryOpen === 'function' && isHistoryOpen() && typeof handleHistoryKey === 'function' && handleHistoryKey(event)) return;
-
-  // Explain view: Up/Down move the selected block (no modifier, not while typing); "?" opens a comment
-  // composer on the selected block — the keyboard equivalent of the diff/source "?" -> currentCommentTarget()
-  // flow, just against explainOpenComposerForSelection() instead (21-explain-comments.js). All three must
-  // sit above the isFloatingModalOpen() guard below for the same reason Option+Enter does.
-  if (typeof isExplainViewVisible === 'function' && isExplainViewVisible()) {
-    var exAe = document.activeElement;
-    var exInField = exAe && (exAe.tagName === 'INPUT' || exAe.tagName === 'TEXTAREA' || exAe.tagName === 'SELECT' || exAe.isContentEditable);
-    if (!exInField && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-      event.preventDefault();
-      if (typeof explainMoveSelection === 'function') explainMoveSelection(event.key === 'ArrowDown' ? 1 : -1);
-      return;
-    }
-    if (!exInField && !event.metaKey && !event.ctrlKey && !event.altKey && event.key === '?') {
-      event.preventDefault();
-      if (typeof explainOpenComposerForSelection === 'function') explainOpenComposerForSelection();
-      return;
-    }
-  }
 
   // Cmd/Ctrl+Z: undo the last comment removal. Above the focus guard so it still fires right after a
   // Backspace-delete on a selected card in the merged panel, which leaves focus on the reselected card —
@@ -191,48 +163,31 @@ document.addEventListener('keydown', (event) => {
   if (!settingsUp && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && (event.key === 'z' || event.key === 'Z' || event.code === 'KeyZ')) {
     var zae = document.activeElement;
     var zInField = zae && (zae.tagName === 'INPUT' || zae.tagName === 'TEXTAREA' || zae.tagName === 'SELECT' || zae.isContentEditable);
-    // The Explain view has its own comment store (21-explain-comments.js) — route undo to whichever store
-    // the visible view owns, so Cmd+Z in Explain never resurrects a diff/source comment (or vice versa).
-    var zUndoFn = (typeof isExplainViewVisible === 'function' && isExplainViewVisible() && typeof undoLastExplainCommentRemoval === 'function')
-      ? undoLastExplainCommentRemoval
-      : undoLastCommentRemoval;
-    if (!zInField && typeof zUndoFn === 'function' && zUndoFn()) {
+    if (!zInField && typeof undoLastCommentRemoval === 'function' && undoLastCommentRemoval()) {
       event.preventDefault();
       return;
     }
   }
 
-  // Option+Enter in the Explain view sends its prompt to the integrated terminal. Must be above the
-  // isFloatingModalOpen() guard below — isFloatingModalOpen() now treats the Explain overlay as a floating
-  // modal (so unrelated shortcuts stand down beneath it) and returns early, which would make this
-  // unreachable if it sat below that guard like the plain source-view Option+Enter handler does.
-  if (event.altKey && event.key === 'Enter' && typeof isExplainViewVisible === 'function' && isExplainViewVisible()) {
-    event.preventDefault();
-    if (typeof sendExplainPromptToTerminal === 'function') sendExplainPromptToTerminal();
-    return;
-  }
-
-  // Cmd/Ctrl+0 / +1 (Changes / Files) stay live even behind a full-view overlay (History/Explain) — above
-  // the guard below, closing whichever overlay is open first so the view they just activated is actually
-  // visible, not activated invisibly underneath it. Settings/goto-line/a focused dock still swallow these
-  // (closeExplainView/closeHistory are no-ops when neither is open, so this is always safe to call).
+  // Cmd/Ctrl+0 / +1 (Changes / Files) stay live even behind the History overlay — above the guard below,
+  // closing it first so the view they just activated is actually visible, not activated invisibly
+  // underneath it. Settings/goto-line/a focused dock still swallow these (closeHistory is a no-op when
+  // history isn't open, so this is always safe to call).
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === '0') {
     event.preventDefault();
-    if (typeof isExplainViewVisible === 'function' && isExplainViewVisible()) closeExplainView();
     if (typeof isHistoryOpen === 'function' && isHistoryOpen()) closeHistory();
     activateChangesView(false);
     return;
   }
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === '1') {
     event.preventDefault();
-    if (typeof isExplainViewVisible === 'function' && isExplainViewVisible()) closeExplainView();
     if (typeof isHistoryOpen === 'function' && isHistoryOpen()) closeHistory();
     activateFilesView();
     return;
   }
 
   // ⌥F1 reveals the open file in the tree from ANY view — it runs BEFORE the isFloatingModalOpen stand-down
-  // below so History/Explain (and merged/memo docks), which otherwise own the keys, don't swallow it. Only a
+  // below so History (and merged/memo docks), which otherwise own the keys, don't swallow it. Only a
   // genuine text-input modal (settings, go-to-line) still keeps it; there the "main panel" isn't focused.
   if (event.key === 'F1' && event.altKey && !event.metaKey && !event.ctrlKey) {
     var revealSm = document.getElementById('settings-modal');
@@ -534,6 +489,15 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
+  // F9 / ⇧F9: the third member of the same family — F7 steps changes, F8 the reviewer's own comments, F9
+  // the agent's Explain notes (23-annotations.js). Bare key, same no-text-guard reasoning as F7/F8.
+  if (event.key === 'F9' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    event.preventDefault();
+    clearTreeFocus();
+    if (typeof gotoAnnotation === 'function') gotoAnnotation(event.shiftKey ? -1 : 1);
+    return;
+  }
+
   // Cmd+F7 / Shift+Cmd+F7: the same comment stepping as F8, kept for muscle memory. A modifier combo — unlike
   // bare F7/F8 it can land in a text field (e.g. an open comment composer, which isn't inside .dock-panel so
   // isFloatingModalOpen() above wouldn't catch it) — guard that explicitly, same idiom as the other
@@ -627,7 +591,7 @@ document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
   else if (view === 'merged') { toggleMergedRail(); }
   else if (view === 'memo') { openMemoView(); } // openMemoView already toggles
   else if (view === 'impact') { toggleImpact(); }
-  else if (view === 'explain') { toggleExplainView(); }
+  else if (view === 'explain') { runAnnotatePrompt(); }
   else if (view === 'history') { toggleHistory(); }
   document.getElementById('workspace-more-menu')?.classList.add('hidden');
   document.getElementById('workspace-more-toggle')?.setAttribute('aria-expanded', 'false');

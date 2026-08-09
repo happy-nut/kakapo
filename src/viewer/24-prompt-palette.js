@@ -14,8 +14,19 @@
 function promptPaletteEntries() {
   return [
     { id: 'annotate', title: t('annotatePrompt.title'), text: currentAnnotatePromptText },
-    { id: 'explain', title: t('explainPrompt.title'), text: currentExplainPromptText },
   ];
+}
+
+// Hand `text` to the terminal's send mode (the same staging step ⌥⏎ uses everywhere else), so it lands in
+// the composer for review rather than executing behind the user's back. Falls back to the clipboard where
+// there is no integrated terminal (the CLI's browser viewer). Also the ⌘7 Explain entry point — see
+// runAnnotatePrompt (23-annotations.js).
+function sendPromptToTerminal(text) {
+  if (window.__kakapoTerminal && typeof window.__kakapoTerminal.enterSendMode === 'function') {
+    window.__kakapoTerminal.enterSendMode(text);
+    return;
+  }
+  if (copyTextToClipboard(text) && typeof showToast === 'function') showToast(t('explain.copied'));
 }
 
 var promptPaletteItems = [];
@@ -67,17 +78,10 @@ function updatePromptPaletteActive() {
     if (on && items[i].scrollIntoView) items[i].scrollIntoView({ block: 'nearest' });
   }
 }
-// Enter hands the prompt to the terminal's send mode (the same staging step ⌥⏎ uses everywhere else), so it
-// lands in the composer for review rather than executing behind the user's back.
 function sendPromptPaletteSelection() {
   var item = promptPaletteItems[promptPaletteActive];
   closePromptPalette();
-  if (!item) return;
-  if (!window.__kakapoTerminal || typeof window.__kakapoTerminal.enterSendMode !== 'function') {
-    if (copyTextToClipboard(item.text()) && typeof showToast === 'function') showToast(t('explain.copied'));
-    return;
-  }
-  window.__kakapoTerminal.enterSendMode(item.text());
+  if (item) sendPromptToTerminal(item.text());
 }
 function handlePromptPaletteKey(event) {
   if (event.key === 'Escape') { event.preventDefault(); closePromptPalette(); return true; }

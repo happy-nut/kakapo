@@ -63,18 +63,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "impact.server.override": "override",
     "impact.server.path": "PATH",
 
-    // Explain view (⌘7): an AI agent writes a content-spec JSON file; kakapo renders it in place.
-    "explain.title": "Explain",
-    "explain.waiting": "No content spec yet. Copy the prompt below to an AI coding agent, or send it straight to the integrated terminal — once the agent explores this diff and saves a spec here, it renders automatically.",
-    "explain.copyPrompt": "Copy prompt",
-    "explain.sendPrompt": "Send to terminal",
-    "explain.sendComments": "Send comments",
-    "explain.close": "Close",
+    // Explain (⌘7): the agent's notes land on the diff itself (23-annotations.js) — these cover the prompt
+    // hand-off and the Mermaid diagrams a note can embed.
     "explain.copied": "Copied",
-    "explain.copyFailed": "Copy failed",
-    "explain.toc": "Contents",
-    "explain.quizHeading": "Quiz",
-    "explain.addComment": "Add comment",
     "explain.diagramLoading": "Loading diagram…",
     "explain.diagramInvalid": "This diagram could not be rendered.",
     "explain.diagramLoadFailed": "Could not load the diagram renderer.",
@@ -322,6 +313,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.nextChange": "Next change",
     "kbd.prevChange": "Previous change",
     "kbd.nextComment": "Next / previous comment",
+    "kbd.nextNote": "Next / previous Explain note",
     "kbd.closeTab": "Close tab",
     "kbd.prevNextTab": "Prev / next tab",
     "kbd.cursorBackForward": "Cursor back / forward",
@@ -366,14 +358,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "mergePrompts.cHeading": "Change-request instructions",
     "mergePrompts.reset": "Reset to defaults",
 
-    // Settings — Explain prompt (grouped under the same "Prompts" tab as merge prompts, see settings.cat.prompts)
-    "explainPrompt.title": "Explain prompt",
-    "explainPrompt.desc": "This editable default is shown in the Explain view (⌘7) for whichever AI agent writes the content spec. Saved automatically. {{SPEC_PATH}} is replaced with this workspace's spec file path when shown.",
-
-    // Settings — inline diff annotations (the ⌘⇧P palette sends this one; the agent writes annotations.json)
+    // Settings — the Explain prompt (⌘7 / the ⌘⇧P palette sends it; the agent writes annotations.json)
     "annotatePrompt.title": "Explain the diff inline",
-    "annotatePrompt.desc": "Send this to an AI agent (⌘⇧P) to walk the diff and drop plain-language note cards on the lines that matter. Saved automatically. {{NOTES_PATH}} is replaced with this workspace's annotations file when sent.",
+    "annotatePrompt.desc": "Sent to an AI agent by ⌘7 (or the ⌘⇧P palette) to walk the diff and drop plain-language note cards on the lines that matter. F9 steps through them. Saved automatically. {{NOTES_PATH}} is replaced with this workspace's annotations file when sent.",
     "annotate.kind": "Why",
+    "annotate.nav.none": "No Explain notes yet — press ⌘7 to have an agent write them.",
 
     // Prompt palette (⌘⇧P)
     "promptPalette.title": "Prompts",
@@ -536,12 +525,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.answered": "answered",
     "comment.answered.hint": "An agent answered this comment. Open the comment at its line to read the answer.",
 
-    // Explain view default prompt — instructs an AI agent to explore the repo/diff and write a
-    // structured content-spec JSON (not HTML) so kakapo's own renderer owns every bit of styling.
-    // {{SPEC_PATH}} is substituted client-side with this workspace's spec file path before display.
-    "explain.prompt.default": 'Explore this repository and the current diff, then write a rich explanation of the change as a JSON content spec — not HTML. Kakapo renders the spec itself, so just follow the schema below and let it handle every bit of styling.\n\nSave the JSON to exactly this path (create parent directories if they do not exist):\n{{SPEC_PATH}}\n\nCover four sections, in this order:\n1. Background — explain the existing system this change touches. Explore the surrounding code broadly for this. Include a deeper background for readers unfamiliar with the area (note that it can be skipped), then a narrower background directly relevant to the change.\n2. Intuition — explain the essence of the change with a concrete toy example. Use diagrams liberally.\n3. Code — a high-level, well-ordered walkthrough of the actual changes.\n4. A "quiz" array of 5 medium-difficulty multiple-choice questions that require real understanding of the change to answer (not gotchas), each option carrying its own feedback.\n\nWrite with the clarity and flow of Martin Kleppmann — engaging, with smooth transitions between sections, no filler.\n\nSchema:\n{\n  "version": 1,\n  "title": string, "subtitle": string (optional),\n  "sections": [{ "id": "kebab-case-slug", "heading": string, "blocks": [Block] }],\n  "quiz": [{ "question": markdown, "options": [{ "text": markdown, "correct": boolean, "feedback": markdown (optional) }] }]\n}\nDo not invent block or question ids — kakapo assigns them automatically.\n\nBlock is one of:\n  { "type": "p", "text": markdown }\n  { "type": "callout", "tone": "info"|"warning"|"danger"|"success", "title": string (optional), "text": markdown }\n  { "type": "code", "lang": string, "code": raw source (not markdown — no fencing), "caption": string (optional) }\n  { "type": "table", "headers": [string], "rows": [[markdown]], "caption": string (optional) }\n  { "type": "diagram", "kind": ..., "title": string (optional), "data": ... } — see diagram kinds below\n\nDiagram kinds — pick whichever fits each idea best, and reuse the same family across the document where that helps. "context", "swimlane", and "flowchart" are rendered by Mermaid — write real Mermaid syntax for these, the same syntax you already know:\n  "flow" — a linear box-arrow-box chain, rendered as simple HTML (not Mermaid — a straight sequence needs no layout engine). data: { "nodes": [{ "label", "state": "normal"|"fail"|"success" }], "edges": [{ "label" }] }. edges.length must equal nodes.length minus 1; put example data on the edge labels.\n  "ui-mockup" — a simplified sketch of what the user sees, rendered as simple HTML. data: { "canvas": {"w","h"}, "regions": [{ "x","y","w","h","label","kind": "bar"|"panel"|"control"|"text", "highlight": boolean (optional), "children": [...] }] }. children nest one level deep only.\n  "context" — one central system plus surrounding actors. data: { "mermaid": "flowchart TD\\n  ..." } — write a small flowchart with the central system as a hub node and each actor as a satellite connected to it; label each edge with what flows across it.\n  "swimlane" — parallel actors exchanging messages over time. data: { "mermaid": "sequenceDiagram\\n  ..." } — one participant per actor, one message arrow per step, with the payload as the arrow\'s own label.\n  "flowchart" — any other flowchart (decision branches, process steps). data: { "mermaid": "flowchart TD\\n  ..." }. Keep it small enough to read at a glance (a handful of nodes) — split a large flow into two blocks rather than one sprawling diagram.\n\nEvery markdown field renders through the sanitized markdown pipeline. Diagram label, note, and title fields are plain text, not markdown.\n\nAfter writing the file, stop — kakapo detects and renders it automatically.',
-
-    // Inline diff annotations — the agent-written note cards (Korean default for Korean users below).
+    // The Explain prompt (⌘7) — the agent-written note cards. {{NOTES_PATH}} is substituted client-side
+    // with this workspace's annotations file before sending (Korean default for Korean users below).
     "annotate.prompt.default": 'Walk the current diff and explain it in place: attach a short note to every part that matters, so a reader seeing this change for the first time understands not just what changed but WHY.\n\nWrite the notes as JSON to exactly this path (create parent directories if they do not exist):\n{{NOTES_PATH}}\n\nSchema:\n{\n  "version": 1,\n  "notes": [\n    { "path": "repo/relative/path.ts", "line": 42, "title": "short label (optional)", "text": "markdown" }\n  ]\n}\n- "path" is repo-relative, exactly as the diff shows it.\n- "line" is the line number in the NEW version of the file (the right-hand side of the diff). Anchor each note to the single most important line of the passage it explains.\n- "title" is an optional 2-5 word label.\n- "text" is markdown.\n\nHow to write each note:\n- Explain it to a smart 12-year-old. Short sentences, plain words. Never drop a term like "debounce" or "race condition" without unpacking it in the same breath.\n- Lead with WHY, never what. The code already says what it does. "Adds a null check" is worthless. "Without this, closing the window while the file is still loading crashes the app, because the callback fires after the state it needs is already gone" is the whole point. For every note, answer: what breaks without this? What was the author trying to avoid? Why this way instead of the obvious simpler way?\n- An everyday-life analogy is welcome whenever it carries the why faster than the code does.\n- Cover the whole change, not just the biggest hunk: 6-15 notes for an ordinary diff. Skip the trivia (renames, formatting, mechanical churn) and annotate the decisions.\n- Never restate the diff line by line. Every note has to earn its place.\n\nUse diagrams, actively. Any note can embed one or more Mermaid diagrams as fenced blocks, and kakapo renders them inline inside the note card:\n\n```mermaid\nsequenceDiagram\n  participant Reviewer\n  participant Kakapo\n  participant Agent\n  Reviewer->>Kakapo: opens the diff\n  Kakapo->>Agent: sends this prompt\n  Agent-->>Kakapo: writes annotations.json\n```\n\nReach for a diagram whenever prose is struggling:\n- sequenceDiagram (swimlanes) — anything where two or more actors exchange messages over time: renderer and main, client and server, user and app and agent. Most "why" stories are really "who talks to whom, in what order", so use this one liberally.\n- flowchart TD — decision branches, state changes, before-and-after shapes. Two small flowcharts labelled before and after, inside one note, is often the clearest way to show what a change really did.\n- Keep every diagram down to a handful of nodes. Split a big one in two rather than letting it sprawl.\nAt least a third of your notes should carry a diagram.\n\nAfter writing the file, stop — kakapo detects it and renders the notes on the diff automatically.'
   },
   ko: {
@@ -595,18 +580,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "impact.server.override": "지정",
     "impact.server.path": "PATH",
 
-    // Explain 뷰 (⌘7): AI 에이전트가 콘텐츠 스펙 JSON 파일을 작성하면 kakapo가 그 자리에서 렌더링합니다.
-    "explain.title": "설명",
-    "explain.waiting": "아직 콘텐츠 스펙이 없습니다. 아래 프롬프트를 AI 코딩 에이전트에게 복사해 전달하거나 통합 터미널로 바로 보내세요 — 에이전트가 이 diff를 탐색해 스펙을 저장하면 자동으로 렌더링됩니다.",
-    "explain.copyPrompt": "프롬프트 복사",
-    "explain.sendPrompt": "터미널로 보내기",
-    "explain.sendComments": "코멘트 보내기",
-    "explain.close": "닫기",
+    // Explain (⌘7): 에이전트의 노트가 diff 위에 직접 붙습니다(23-annotations.js). 아래는 프롬프트 전달과
+    // 노트가 품을 수 있는 Mermaid 다이어그램용 문자열입니다.
     "explain.copied": "복사됨",
-    "explain.copyFailed": "복사 실패",
-    "explain.toc": "목차",
-    "explain.quizHeading": "퀴즈",
-    "explain.addComment": "코멘트 추가",
     "explain.diagramLoading": "다이어그램을 불러오는 중…",
     "explain.diagramInvalid": "이 다이어그램을 그릴 수 없습니다.",
     "explain.diagramLoadFailed": "다이어그램 렌더러를 불러오지 못했습니다.",
@@ -855,6 +831,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.nextChange": "다음 변경",
     "kbd.prevChange": "이전 변경",
     "kbd.nextComment": "다음 / 이전 코멘트",
+    "kbd.nextNote": "다음 / 이전 Explain 노트",
     "kbd.closeTab": "탭 닫기",
     "kbd.prevNextTab": "이전 / 다음 탭",
     "kbd.cursorBackForward": "커서 뒤로 / 앞으로",
@@ -899,14 +876,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "mergePrompts.cHeading": "변경요청 작업 지침",
     "mergePrompts.reset": "기본값으로 초기화",
 
-    // Settings — Explain prompt ("Merge prompts"와 같은 "Prompts" 탭 안에 묶여 표시됨, settings.cat.prompts 참고)
-    "explainPrompt.title": "설명 프롬프트",
-    "explainPrompt.desc": "Explain 뷰(⌘7)에 표시되어 콘텐츠 스펙을 작성할 AI 에이전트에게 전달되는, 편집 가능한 기본 프롬프트입니다. 자동 저장됩니다. {{SPEC_PATH}}는 표시될 때 이 워크스페이스의 스펙 파일 경로로 치환됩니다.",
-
-    // Settings — 인라인 diff 주석 (⌘⇧P 팔레트로 보내면 에이전트가 annotations.json을 작성)
+    // Settings — Explain 프롬프트 (⌘7 또는 ⌘⇧P 팔레트로 보내면 에이전트가 annotations.json을 작성)
     "annotatePrompt.title": "diff에 직접 설명 달기",
-    "annotatePrompt.desc": "AI 에이전트에게 보내(⌘⇧P) diff를 훑으며 중요한 줄마다 쉬운 말로 설명 카드를 달게 하는 프롬프트입니다. 자동 저장됩니다. {{NOTES_PATH}}는 보낼 때 이 워크스페이스의 주석 파일 경로로 치환됩니다.",
+    "annotatePrompt.desc": "⌘7(또는 ⌘⇧P 팔레트)로 AI 에이전트에게 보내, diff를 훑으며 중요한 줄마다 쉬운 말로 설명 카드를 달게 하는 프롬프트입니다. F9로 노트 사이를 이동합니다. 자동 저장됩니다. {{NOTES_PATH}}는 보낼 때 이 워크스페이스의 주석 파일 경로로 치환됩니다.",
     "annotate.kind": "왜",
+    "annotate.nav.none": "아직 Explain 노트가 없습니다 — ⌘7을 눌러 에이전트에게 작성을 맡기세요.",
 
     // 프롬프트 팔레트 (⌘⇧P)
     "promptPalette.title": "프롬프트",
@@ -1069,12 +1043,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.answered": "답변 달림",
     "comment.answered.hint": "에이전트가 이 코멘트에 답변했습니다. 해당 줄의 코멘트를 열면 답변을 볼 수 있습니다.",
 
-    // Explain 뷰 기본 프롬프트 — 에이전트가 리포/diff를 탐색해 HTML이 아닌 구조화된 콘텐츠 스펙 JSON을
-    // 작성하도록 지시한다. 스타일은 전부 kakapo 렌더러가 담당한다. {{SPEC_PATH}}는 표시 시점에 이
-    // 워크스페이스의 스펙 파일 경로로 클라이언트에서 치환된다.
-    "explain.prompt.default": '이 저장소와 현재 diff를 탐색한 다음, 이 변경 사항에 대한 풍부한 설명을 JSON 콘텐츠 스펙으로 작성하세요 — HTML이 아닙니다. 스타일은 kakapo가 전담하니 아래 스키마만 따르면 됩니다.\n\n다음 경로에 정확히 JSON을 저장하세요(상위 디렉터리가 없으면 만드세요):\n{{SPEC_PATH}}\n\n아래 순서로 네 섹션을 다루세요:\n1. Background — 이 변경이 다루는 기존 시스템을 설명합니다. 이를 위해 주변 코드를 폭넓게 탐색하세요. 이 영역이 낯선 독자를 위한 더 깊은 배경(건너뛸 수 있다고 안내)과, 변경과 직접 관련된 좁은 배경을 함께 포함하세요.\n2. Intuition — 구체적인 toy example로 변경의 핵심을 설명합니다. 다이어그램을 적극적으로 사용하세요.\n3. Code — 실제 변경 사항을 이해하기 쉬운 순서로 하이레벨로 훑어봅니다.\n4. 이 변경을 실제로 이해해야 풀 수 있는(단순 트릭 문제가 아닌) medium 난이도 객관식 5문항을 "quiz" 배열로 작성합니다. 각 선택지마다 피드백을 답니다.\n\nMartin Kleppmann의 명료함과 흐름으로 — 매력적으로, 섹션 간 전환이 매끄럽게, 군더더기 없이 작성하세요.\n\n본문 산문(설명 텍스트)은 모두 한국어로 작성하세요. 코드, 식별자, 파일 경로, 커밋 해시는 원문 그대로 둡니다.\n\n스키마:\n{\n  "version": 1,\n  "title": string, "subtitle": string(선택),\n  "sections": [{ "id": "kebab-case-슬러그", "heading": string, "blocks": [Block] }],\n  "quiz": [{ "question": markdown, "options": [{ "text": markdown, "correct": boolean, "feedback": markdown(선택) }] }]\n}\nblock/question id는 직접 만들지 마세요 — kakapo가 자동으로 부여합니다.\n\nBlock은 다음 중 하나입니다:\n  { "type": "p", "text": markdown }\n  { "type": "callout", "tone": "info"|"warning"|"danger"|"success", "title": string(선택), "text": markdown }\n  { "type": "code", "lang": string, "code": 원본 소스(markdown 아님 — 코드펜스 없이), "caption": string(선택) }\n  { "type": "table", "headers": [string], "rows": [[markdown]], "caption": string(선택) }\n  { "type": "diagram", "kind": ..., "title": string(선택), "data": ... } — 아래 다이어그램 종류 참고\n\n다이어그램 종류 — 내용에 가장 잘 맞는 것을 고르고, 문서 전체에서 같은 종류를 재사용할 수 있으면 재사용하세요. "context", "swimlane", "flowchart"는 Mermaid로 렌더링됩니다 — 이미 알고 있는 그 Mermaid 문법을 그대로 쓰세요:\n  "flow" — 박스-화살표-박스로 이어지는 선형 체인, 단순 HTML로 렌더링됩니다(Mermaid 아님 — 일직선 흐름은 레이아웃 엔진이 필요 없음). data: { "nodes": [{ "label", "state": "normal"|"fail"|"success" }], "edges": [{ "label" }] }. edges.length는 반드시 nodes.length - 1이어야 하며, 예시 데이터는 edge label에 담으세요.\n  "ui-mockup" — 사용자가 보는 화면을 단순화한 스케치, 단순 HTML로 렌더링됩니다. data: { "canvas": {"w","h"}, "regions": [{ "x","y","w","h","label","kind": "bar"|"panel"|"control"|"text", "highlight": boolean(선택), "children": [...] }] }. children은 1단계까지만 중첩하세요.\n  "context" — 중심 시스템 하나와 주변 액터들. data: { "mermaid": "flowchart TD\\n  ..." } — 중심 시스템을 허브 노드로, 각 액터를 그 허브에 연결된 위성 노드로 하는 작은 flowchart를 쓰세요. 각 엣지에는 무엇이 오가는지 라벨을 붙이세요.\n  "swimlane" — 시간 순서대로 메시지를 주고받는 액터들. data: { "mermaid": "sequenceDiagram\\n  ..." } — 액터마다 participant 하나, 각 단계마다 메시지 화살표 하나, 페이로드는 화살표 자체의 라벨로 표현하세요.\n  "flowchart" — 그 외의 흐름도(분기, 처리 단계 등). data: { "mermaid": "flowchart TD\\n  ..." }. 한눈에 읽힐 정도로 작게 유지하세요(노드 몇 개 수준) — 흐름이 크면 하나의 복잡한 다이어그램 대신 여러 개의 작은 flowchart 블록으로 나누세요.\n\n모든 markdown 필드는 정제된 markdown 파이프라인을 거쳐 렌더링됩니다. 다이어그램의 label, note, title 필드는 markdown이 아닌 일반 텍스트입니다.\n\n파일을 저장한 뒤에는 멈추세요 — kakapo가 자동으로 감지해 렌더링합니다.',
-
-    // 인라인 diff 주석 기본 프롬프트 (한국어 사용자용)
+    // Explain 기본 프롬프트 (⌘7) — 에이전트가 diff 위에 붙일 노트 카드를 작성한다. {{NOTES_PATH}}는
+    // 보내는 시점에 이 워크스페이스의 주석 파일 경로로 클라이언트에서 치환된다.
     "annotate.prompt.default": '현재 diff를 훑으면서 그 자리에 바로 설명을 다세요. 중요한 부분마다 짧은 노트를 붙여서, 이 변경을 처음 보는 사람이 무엇이 바뀌었는지가 아니라 왜 바뀌었는지를 이해하게 만드는 것이 목표입니다.\n\n노트는 JSON으로, 정확히 다음 경로에 저장하세요(상위 디렉터리가 없으면 만드세요):\n{{NOTES_PATH}}\n\n스키마:\n{\n  "version": 1,\n  "notes": [\n    { "path": "repo/기준/상대경로.ts", "line": 42, "title": "짧은 라벨(선택)", "text": "markdown" }\n  ]\n}\n- "path"는 저장소 루트 기준 상대 경로이며, diff에 나오는 그대로 씁니다.\n- "line"은 파일의 새 버전(diff 오른쪽) 기준 줄 번호입니다. 각 노트는 그 설명이 가리키는 부분에서 가장 핵심적인 한 줄에 붙이세요.\n- "title"은 2~5단어짜리 선택 라벨입니다.\n- "text"는 markdown입니다.\n\n각 노트를 쓰는 방법:\n- 똑똑한 12살 아이에게 설명하듯 쓰세요. 짧은 문장, 쉬운 단어. "디바운스", "레이스 컨디션" 같은 용어는 같은 문장 안에서 바로 풀어주지 않을 거면 아예 쓰지 마세요.\n- 무엇이 아니라 왜부터 쓰세요. 무엇을 하는지는 코드에 이미 적혀 있습니다. "null 체크를 추가함"은 쓸모없는 노트입니다. "이게 없으면 파일이 아직 로딩 중일 때 창을 닫는 순간 앱이 죽는다. 콜백이 필요한 상태가 이미 사라진 뒤에 실행되기 때문이다"가 진짜 노트입니다. 노트마다 답하세요 — 이게 없으면 무엇이 깨지는가? 작성자는 무엇을 피하려 했는가? 더 단순해 보이는 방법 대신 왜 이 방법인가?\n- 코드보다 일상적인 비유가 왜를 더 빨리 전달할 수 있다면 비유를 적극적으로 쓰세요.\n- 가장 큰 hunk만이 아니라 변경 전체를 다루세요. 보통 크기의 diff라면 6~15개 노트가 적당합니다. 이름 변경, 포매팅, 기계적인 반복은 건너뛰고 결정이 담긴 곳에 노트를 다세요.\n- diff를 한 줄씩 다시 읊지 마세요. 모든 노트는 자기 자리값을 해야 합니다.\n\n다이어그램을 적극적으로 쓰세요. 모든 노트는 Mermaid 다이어그램을 코드펜스로 넣을 수 있고, kakapo가 노트 카드 안에 그대로 렌더링합니다:\n\n```mermaid\nsequenceDiagram\n  participant 리뷰어\n  participant Kakapo\n  participant Agent\n  리뷰어->>Kakapo: diff를 연다\n  Kakapo->>Agent: 이 프롬프트를 보낸다\n  Agent-->>Kakapo: annotations.json을 쓴다\n```\n\n산문으로 설명이 버거워지는 순간마다 다이어그램을 꺼내세요:\n- sequenceDiagram (스윔레인) — 둘 이상의 주체가 시간 순서대로 메시지를 주고받는 모든 상황: 렌더러와 메인, 클라이언트와 서버, 사용자와 앱과 에이전트. 대부분의 "왜"는 사실 "누가 누구에게, 어떤 순서로 말하는가"입니다. 이것을 가장 자주 쓰세요.\n- flowchart TD — 분기, 상태 변화, 변경 전후 구조. 한 노트 안에 before와 after 라벨을 단 작은 flowchart 두 개를 나란히 두는 것이, 이 변경이 실제로 무엇을 바꿨는지 보여주는 가장 명확한 방법인 경우가 많습니다.\n- 다이어그램 하나는 노드 몇 개 수준으로 유지하세요. 커지면 늘어놓지 말고 둘로 쪼개세요.\n노트의 최소 3분의 1에는 다이어그램이 들어가야 합니다.\n\n본문은 모두 한국어로 쓰세요. 코드, 식별자, 파일 경로는 원문 그대로 둡니다.\n\n파일을 저장한 뒤에는 멈추세요 — kakapo가 자동으로 감지해 diff 위에 노트를 렌더링합니다.'
   },
 };

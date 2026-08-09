@@ -175,8 +175,9 @@ function syncRail() {
   setOn('history', !!(hv && !hv.classList.contains('hidden')));
   var impact = document.getElementById('impact-panel');
   setOn('impact', !!(impact && !impact.classList.contains('hidden')));
-  var explainView = document.getElementById('explain-view');
-  setOn('explain', !!(explainView && !explainView.classList.contains('hidden')));
+  // Explain opens no view of its own — light its rail icon while the agent's notes are on the diff, so the
+  // button doubles as "there are notes to read" (23-annotations.js).
+  setOn('explain', typeof annotationList === 'function' && annotationList().length > 0);
   // Mirror the same state onto the shell title-bar tools (single-instance app only).
   var term = document.getElementById('terminal-toggle');
   if (window.kakapoMenu && window.kakapoMenu.sendRailState) {

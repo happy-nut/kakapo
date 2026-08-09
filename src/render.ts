@@ -538,6 +538,7 @@ export function renderDiffHtml(input: {
     '<kbd>F7</kbd><span data-i18n="kbd.nextChange">Next change</span>' +
     '<kbd>⇧F7</kbd><span data-i18n="kbd.prevChange">Previous change</span>' +
     '<kbd>F8 / ⇧F8</kbd><span data-i18n="kbd.nextComment">Next / previous comment</span>' +
+    '<kbd>F9 / ⇧F9</kbd><span data-i18n="kbd.nextNote">Next / previous Explain note</span>' +
     '<kbd>⌘1 / ⌘0</kbd><span data-i18n="kbd.filesChangesTab">Files / Changes tab</span>' +
     '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.sidebarNavigate">Navigate / open sidebar row</span>' +
     '<kbd>Tab / ⇧Tab</kbd><span data-i18n="kbd.sidebarContent">Sidebar &harr; content / diff pane</span>' +
@@ -624,11 +625,6 @@ export function renderDiffHtml(input: {
     '<div class="settings-desc" data-i18n="annotatePrompt.desc">Sent to an AI agent (⌘⇧P) to walk this diff and drop plain-language note cards on the lines that matter. Saved automatically. {{NOTES_PATH}} is replaced with this workspace\'s annotations file when sent.</div>',
     '<textarea id="settings-prompt-annotate" class="settings-textarea" rows="10" spellcheck="false"></textarea>',
     '</div>',
-    '<div class="settings-subsection">',
-    '<div class="settings-h" data-i18n="explainPrompt.title">Explain prompt</div>',
-    '<div class="settings-desc" data-i18n="explainPrompt.desc">This editable default is shown in the Explain view (⌘7) for whichever AI agent writes the content spec. Saved automatically. {{SPEC_PATH}} is replaced with this workspace\'s spec file path when shown.</div>',
-    '<textarea id="settings-prompt-explain" class="settings-textarea" rows="10" spellcheck="false"></textarea>',
-    '</div>',
     '<div class="settings-actions"><button type="button" id="settings-reset" class="plain-button" data-i18n="mergePrompts.reset">Reset to defaults</button><span id="settings-saved" class="settings-saved"></span></div>',
     "</section>",
     "</div>",
@@ -653,34 +649,6 @@ export function renderDiffHtml(input: {
     '<div id="history-detail" class="history-detail hidden" role="document" aria-hidden="true"></div>',
     "</div>",
     "</div>",
-    // Explain (⌘7, Electron only): a full-page overlay, same shape as history-view. An AI agent writes a
-    // content-spec JSON to this workspace's spec file (see the prompt in #explain-prompt-text); kakapo
-    // watches that path and swaps #explain-empty for #explain-doc once a valid spec appears.
-    input.app
-      ? '<div id="explain-view" class="explain-view hidden" role="dialog" aria-modal="true" data-i18n-aria="explain.title" aria-label="Explain">'
-        // Title-bar-height row (native drag region, traffic-light-safe): matches .sidebar-brand's own
-        // "project name first" convention instead of hiding it behind a generic view label — only the
-        // close button lives here, same as .history-bar.
-        + '<div class="explain-bar">'
-        + `<span class="explain-project" title="${escapeAttr(input.projectPath)}">${escapeHtml(input.projectName)}</span>`
-        + '<span class="explain-title" data-i18n="explain.title">Explain</span>'
-        + '<button type="button" id="explain-close" class="dock-btn" data-keyhint="Esc" data-i18n-title="explain.close" title="Close" aria-label="Close">&times;</button>'
-        + '</div>'
-        // Ordinary (non-drag) action row, inside the panel proper — not squeezed into the title strip.
-        + '<div class="explain-toolbar">'
-        + '<button type="button" id="explain-copy-prompt" class="dock-btn" data-i18n="explain.copyPrompt">Copy prompt</button>'
-        + '<button type="button" id="explain-send-prompt" class="dock-btn" data-keyhint="⌥⏎" data-i18n="explain.sendPrompt">Send to terminal</button>'
-        + '<button type="button" id="explain-send-comments" class="dock-btn hidden" data-i18n="explain.sendComments">Send comments</button>'
-        + '</div>'
-        + '<div class="explain-body">'
-        + '<div id="explain-empty" class="explain-empty">'
-        + '<p class="explain-empty-hint" data-i18n="explain.waiting">No content spec yet. Copy the prompt below to an AI coding agent, or send it straight to the integrated terminal — once the agent explores this diff and saves a spec here, it renders automatically.</p>'
-        + '<textarea id="explain-prompt-text" class="explain-prompt-textarea" readonly spellcheck="false"></textarea>'
-        + '</div>'
-        + '<div id="explain-doc" class="explain-doc markdown-body hidden"></div>'
-        + '</div>'
-        + '</div>'
-      : "",
     input.diffIslands || "",
     `<script type="application/json" id="${REVIEW_ISLAND.meta}" data-watch="${input.watch ? "true" : "false"}" data-signature="${escapeAttr(input.signature ?? "")}" data-generated-at="${escapeAttr(input.generatedAt ?? "")}" data-lazy="${input.lazy ? "true" : "false"}" data-lazy-load="${input.lazyLoad ? "true" : "false"}">{}</script>`,
     `<script type="application/json" id="${REVIEW_ISLAND.i18n}">${jsonForScript(MESSAGES)}</script>`,
