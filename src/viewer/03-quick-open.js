@@ -4,8 +4,18 @@ var quickPreviewScrollFrame = 0;
 var QUICK_PREVIEW_RADIUS = 60;
 var QUICK_PREVIEW_CHUNK = 120;
 
+// Cmd/Ctrl+A is the app menu's `selectAll` role, and that acts on the whole webContents — so inside this
+// dialog it highlighted the entire review page behind it instead of the text in the search box. Claim the
+// accelerator for as long as the dialog is up (same mechanism the merged dock uses, see 08-dock.js); the
+// focused <input> then handles Cmd+A itself, natively, and selects only its own text.
+function setQuickOpenOwnsEditKeys(owns) {
+  if (window.kakapoApp && typeof window.kakapoApp.setIgnoreMenuShortcuts === 'function') {
+    window.kakapoApp.setIgnoreMenuShortcuts(!!owns);
+  }
+}
 function openQuickOpen(mode) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
+  setQuickOpenOwnsEditKeys(true);
   quickMode = mode;
   quickModeLabel.textContent = mode === 'recent'
     ? t('quickopen.recent')
@@ -40,6 +50,7 @@ function updateRecentFilterDisplay() {
 }
 
 function closeQuickOpen() {
+  setQuickOpenOwnsEditKeys(false);
   quickOpen?.classList.add('hidden');
   quickPreviewState = null;
   if (quickPreviewScrollFrame) cancelAnimationFrame(quickPreviewScrollFrame);
