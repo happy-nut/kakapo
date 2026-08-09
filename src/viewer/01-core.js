@@ -73,9 +73,16 @@ function setPanelClassNamePreservingFocus(panel, className) {
   if (flashing) panel.classList.add('mc-panel-focus-flash');
 }
 document.addEventListener('keydown', function () { reviewFocusInputModality = 'keyboard'; }, true);
-document.addEventListener('mousedown', function () {
+document.addEventListener('mousedown', function (event) {
   reviewFocusInputModality = 'pointer';
   clearReviewPanelFocusFlash();
+  // Tell main a click landed in the review CONTENT, which dismisses an expanded workspace rail. The terminal
+  // panel is exempt: it lives inside this same view, so main's "the view took focus" signal could not tell
+  // the two apart and clicking into a shell closed the rail the user had just opened.
+  var inTerminal = event.target && event.target.closest && event.target.closest('.terminal-panel');
+  if (!inTerminal && window.kakapoApp && typeof window.kakapoApp.reviewClicked === 'function') {
+    window.kakapoApp.reviewClicked();
+  }
 }, true);
 document.addEventListener('focusin', function (event) { flashReviewPanelFocus(event.target); }, true);
 

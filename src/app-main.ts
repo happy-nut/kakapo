@@ -382,11 +382,6 @@ ipcMain.on("kakapo:hub-expanded", (_event, expanded: unknown) => {
 });
 // The expanded rail is a transient peek. When the user clicks back into the active review view, collapse it —
 // visual-only on the shell side (no echo back to main), matching the width animation main runs here.
-// Set by the code paths that focus a review view themselves (activating a workspace). The view's focus handler
-// consumes it once, so only a genuine click into the review dismisses an expanded rail. Consume-once rather
-// than a timer, plus a same-tick reset below in case focus never actually moves (the view was already focused)
-// — otherwise the flag would leak and swallow the next real click's collapse.
-let suppressNextRailCollapse = false;
 function collapseRailFromReview(): void {
   if (!railExpanded) return;
   railExpanded = false;
@@ -461,6 +456,13 @@ function focusActiveReviewView(): void {
   if (active && !active.win.isDetached() && !active.win.isDestroyed()) active.win.webContents.focus();
 }
 ipcMain.on("kakapo:hub-refocus", () => focusActiveReviewView());
+// A click landed in the review CONTENT — not in its terminal panel, which the renderer filters out. The
+// expanded rail is a transient peek, so a genuine click back into the review dismisses it; main cannot judge
+// this from the view's focus event alone, because the terminal lives inside the same view and taking focus
+// there is not "I am done with the rail".
+ipcMain.on("kakapo:review-clicked", (event) => {
+  if (event.sender.id === activeStateId) collapseRailFromReview();
+});
 ipcMain.on("kakapo:hub-activate", (_event, id: unknown) => {
   if (typeof id === "number") activateWorkspace(id);
 });
@@ -1220,14 +1222,11 @@ function activateWorkspace(id: number): void {
   }
   shellWindow.show();
   shellWindow.focus();
-  // Keyboard belongs to the review viewer, not the rail. But this focus is OURS, not a click into the review,
-  // so it must not dismiss the rail: collapsing it on every switch made the panel flap open/shut and read as a
-  // glitch. The rail closes when the user actually clicks into the review, or toggles it themselves.
-  suppressNextRailCollapse = true;
+  // Keyboard belongs to the review viewer, not the rail — but this focus is OURS, not a click into the
+  // review, so the rail stays open. Only a click in the review content collapses it (kakapo:review-clicked).
   const activating = states.get(id);
   if (activating) activating.wantsFocusOnReady = true; // the view may still be loading; see did-finish-load
   focusActiveReviewView();
-  setTimeout(() => { suppressNextRailCollapse = false; }, 0);
   persistWorkspaceSession(states.get(id)?.options.root);
   sendRailPushed(); // the newly active view collapses its sidebar too while the rail is expanded
   renderHub();
@@ -1514,10 +1513,6 @@ function createWindow(root: string, deferBoot = false): WinState {
   view.setVisible(false);
   // Clicking into the active review view returns focus to the "main window" — collapse an expanded rail so its
   // peek dismisses. Only the active (visible) view can receive a user click, so this never fires for a background one.
-  view.webContents.on("focus", () => {
-    if (suppressNextRailCollapse) { suppressNextRailCollapse = false; return; }
-    if (view.webContents.id === activeStateId) collapseRailFromReview();
-  });
   // Zoom is per-WebContents and resets on navigation, so re-apply the UI scale on every load.
   view.webContents.on("did-finish-load", () => applyUiScale(view.webContents));
   // The review's keyboard shortcuts (Cmd+1 Files, etc.) attach only once its HTML has loaded. On a switch the
