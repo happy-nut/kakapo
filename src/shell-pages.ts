@@ -98,7 +98,7 @@ button{border:1px solid ${line};background:transparent;color:inherit;border-radi
    over small 24px worktree initial badges, so the grouping reads and the avatar isn't repeated per worktree. --- */
 .cv{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;align-items:center;gap:12px;padding:10px 0;width:100%}
 body.rail-exp .cv{display:none}
-.grp{display:flex;flex-direction:column;align-items:center;gap:6px;width:44px;padding:6px 3px 8px;background:${light ? "#eaecef" : "#212327"};border-radius:12px}
+.grp{display:flex;flex-direction:column;align-items:center;gap:6px;width:40px;padding:6px 2px 8px;background:${light ? "#eaecef" : "#212327"};border-radius:12px}
 .phav{position:relative;width:28px;height:28px;border-radius:8px;overflow:hidden;flex:none;cursor:pointer;display:grid;place-items:center;font-weight:700;font-size:12px;color:#0e1116}
 .phav img{width:100%;height:100%;object-fit:cover;display:block}
 .wts{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:2px}
