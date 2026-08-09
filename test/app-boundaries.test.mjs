@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AppPreferences } from "../dist/app-preferences.js";
-import { resolveProjectPath } from "../dist/app-path-ipc.js";
+import { externalUrl, resolveProjectPath } from "../dist/app-path-ipc.js";
 
 test("application preferences separate global and per-worktree state", () => {
   const base = mkdtempSync(join(tmpdir(), "kakapo-preferences-"));
@@ -91,6 +91,21 @@ test("project path boundary accepts only relative paths contained by the opened 
   assert.equal(resolveProjectPath(root, "../sibling/secret.ts"), undefined);
   assert.equal(resolveProjectPath(root, "/tmp/outside.ts"), undefined);
   assert.equal(resolveProjectPath(root, ""), undefined);
+});
+
+// Anything a command prints in the integrated terminal becomes a clickable link, so the URL a click hands
+// to the OS is an untrusted input. Only plain http(s) may reach shell.openExternal — a file:// or custom
+// scheme would be dispatched by the OS to whatever app claims it.
+test("external-link boundary opens only http(s) URLs from terminal output", () => {
+  assert.equal(externalUrl("https://github.com/happy-nut/kakapo"), "https://github.com/happy-nut/kakapo");
+  assert.equal(externalUrl("http://localhost:3000/health"), "http://localhost:3000/health");
+  assert.equal(externalUrl("file:///Users/me/.ssh/id_rsa"), undefined);
+  assert.equal(externalUrl("javascript:alert(1)"), undefined);
+  assert.equal(externalUrl("vscode://install?x=1"), undefined);
+  assert.equal(externalUrl("not a url"), undefined);
+  assert.equal(externalUrl(""), undefined);
+  assert.equal(externalUrl(null), undefined);
+  assert.equal(externalUrl("https://x.test/" + "a".repeat(2048)), undefined, "an absurdly long URL is refused outright");
 });
 
 test("main process is a composition root for extracted persistence and IPC adapters", () => {

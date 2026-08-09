@@ -94,3 +94,35 @@ test("the double-Esc window is armed only by an Esc, and cleared when it fires",
   assert.equal((handler.match(/lastEscAt = 0/g) || []).length, 2, "both close paths reset the window");
   assert.match(handler, /lastEscAt = now;/, "and a passed-through press arms it");
 });
+
+// The terminal's whole runtime is inlined as one island (assets.ts -> render.ts), so what that island
+// exposes IS the terminal's feature set: xterm itself, the fit addon that keeps it sized to the pane, and
+// the link addon 19-terminal.js hands clicked URLs from. A missing addon must not be able to take the
+// terminal with it — the renderer already skips the link addon when its global is absent.
+test("the xterm island carries the terminal runtime, and links stay optional", async () => {
+  const { xtermScript } = await import("../dist/assets.js");
+  const island = xtermScript();
+  assert.ok(island.length > 100_000, "the island is the real xterm bundle, not an empty fallback");
+  for (const global of ["Terminal", "FitAddon", "WebLinksAddon"]) {
+    assert.ok(island.includes(global), `the island exposes window.${global}`);
+  }
+});
+
+// Terminal output is untrusted: any command can print a string that becomes a clickable link. The click has
+// to leave the renderer (which cannot reach the OS) and be re-checked in main before the browser opens.
+test("a clicked link in the terminal leaves for the default browser through the checked main-process path", () => {
+  assert.match(client, /new window\.WebLinksAddon\.WebLinksAddon\(/, "link detection is the xterm addon's job");
+  assert.match(client, /kakapoApp\.openExternal\(uri\)/, "a click hands the URI to main, not to window.open");
+  assert.match(client, /event\.button !== 0/, "only a primary click follows the link");
+
+  const preload = read("src/preload.cts");
+  assert.match(preload, /openExternal:.*invoke\("kakapo:open-external", \{ url \}\)/, "the bridge forwards only the url");
+
+  const pathIpc = read("src/app-path-ipc.ts");
+  assert.match(pathIpc, /ipc\.handle\("kakapo:open-external"/, "main owns the handler");
+  assert.match(pathIpc, /const url = externalUrl\(request\?\.url\)/, "every URL goes through the scheme check");
+
+  const xtermBundle = read("src/assets.ts");
+  assert.match(xtermBundle, /addon-web-links\/lib\/addon-web-links\.js/, "the addon ships with the inlined xterm bundle");
+});
+

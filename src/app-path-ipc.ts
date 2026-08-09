@@ -17,6 +17,21 @@ export function resolveProjectPath(rootPath: string, requestedPath: unknown): st
   return target;
 }
 
+/**
+ * A URL is safe to hand to the OS only if it is plain http(s). Terminal output is untrusted — anything a
+ * command prints becomes a clickable link — so a `file://`, `javascript:`, or custom-scheme URL must never
+ * reach shell.openExternal, where the OS would hand it to whatever app claims that scheme.
+ */
+export function externalUrl(requested: unknown): string | undefined {
+  if (typeof requested !== "string" || requested.length > 2048) return;
+  try {
+    const url = new URL(requested);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Registers filesystem-adjacent actions behind one confined workspace-path policy. */
 export function registerProjectPathIpc(
   ipc: IpcMain,
@@ -43,6 +58,15 @@ export function registerProjectPathIpc(
       catch { existing[requestedPath] = false; }
     }
     return existing;
+  });
+
+  // Clicking a link in the integrated terminal (19-terminal.js). Not path-confined like the handlers
+  // around it — it takes a URL, not a workspace path — but held to the stricter scheme check above.
+  ipc.handle("kakapo:open-external", (_event, request: { url?: string }) => {
+    const url = externalUrl(request?.url);
+    if (!url) return { ok: false };
+    try { void shell.openExternal(url); return { ok: true }; }
+    catch (error) { return { ok: false, error: String(error) }; }
   });
 
   ipc.handle("kakapo:reveal-in-finder", (event, request: { path?: string }) => {

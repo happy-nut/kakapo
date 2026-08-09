@@ -100,6 +100,18 @@
     var fg = (cs.getPropertyValue('--text') || '').trim() || '#a9b7c6';
     return { background: bg, foreground: fg, cursor: fg, selectionBackground: '#214283' };
   }
+  // Underline URLs in the scrollback and hand a clicked one to the default browser. The click goes through
+  // main (kakapo:open-external), which re-checks the scheme — a command can print any string it likes, so
+  // "the terminal said so" is not grounds to hand a URL to the OS.
+  function loadWebLinks(term) {
+    if (!window.WebLinksAddon || typeof window.WebLinksAddon.WebLinksAddon !== 'function') return;
+    try {
+      term.loadAddon(new window.WebLinksAddon.WebLinksAddon(function (event, uri) {
+        if (event && event.button !== 0) return; // let a middle/right click keep its native meaning
+        if (window.kakapoApp && typeof window.kakapoApp.openExternal === 'function') window.kakapoApp.openExternal(uri);
+      }));
+    } catch (e) {}
+  }
   function makePane() {
     if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw
     var el = document.createElement('div');
@@ -119,6 +131,7 @@
     });
     var fit = new window.FitAddon.FitAddon();
     term.loadAddon(fit);
+    loadWebLinks(term);
     term.open(paneHost);
     var pane = { id: null, term: term, fit: fit, el: el, labelEl: labelEl, name: 'Terminal ' + (panes.length + 1) };
     labelEl.textContent = pane.name;

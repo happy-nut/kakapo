@@ -19,8 +19,8 @@ export function readViewerAsset(name: string): string {
 }
 
 // xterm.js (terminal renderer) for the integrated terminal panel. UMD bundles that expose
-// window.Terminal + window.FitAddon when inlined. Resolved from node_modules like diff2HtmlCss();
-// pure JS, no native binding — the pty itself lives in the main process via node-pty.
+// window.Terminal + window.FitAddon + window.WebLinksAddon when inlined. Resolved from node_modules like
+// diff2HtmlCss(); pure JS, no native binding — the pty itself lives in the main process via node-pty.
 export function xtermCss(): string {
   try {
     return readFileSync(nodeRequire.resolve("@xterm/xterm/css/xterm.css"), "utf8");
@@ -33,7 +33,15 @@ export function xtermScript(): string {
   try {
     const core = readFileSync(nodeRequire.resolve("@xterm/xterm/lib/xterm.js"), "utf8");
     const fit = readFileSync(nodeRequire.resolve("@xterm/addon-fit/lib/addon-fit.js"), "utf8");
-    return core + "\n" + fit;
+    // Link detection is the addon's job, not a regex of ours: it has to survive xterm's wrapped lines and
+    // reflow, which is exactly where a hand-rolled scan gets a URL wrong. Read separately: without a shell
+    // there is no terminal at all, but without clickable links there is still a terminal — and the renderer
+    // already skips the addon when the global is missing (loadWebLinks), so match that here.
+    let webLinks = "";
+    try {
+      webLinks = readFileSync(nodeRequire.resolve("@xterm/addon-web-links/lib/addon-web-links.js"), "utf8");
+    } catch { /* links are a nicety; the terminal is not */ }
+    return core + "\n" + fit + (webLinks ? "\n" + webLinks : "");
   } catch {
     return "";
   }
