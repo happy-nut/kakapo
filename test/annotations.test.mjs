@@ -115,7 +115,8 @@ test("the prompt palette lists the saved prompts and sends the selected one to t
   await v.settle(10);
   assert.ok(!v.$("#prompt-palette").classList.contains("hidden"), "⌘⇧P opens the palette");
   const items = v.$all(".prompt-palette-item");
-  assert.equal(items.length, 5, "every editable prompt is listed");
+  // Only the prompts a human sends deliberately — the merge prompts ride along with the merged hand-off.
+  assert.equal(items.length, 2, "the palette lists the two send-on-purpose prompts");
   assert.match(items[0].textContent, /diff/i, "the inline-diff explanation prompt leads the list");
 
   v.key("Enter");

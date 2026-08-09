@@ -5,15 +5,16 @@
 // Reuses the .quick-open / .quick-open-panel / .quick-open-item CSS wholesale (the same way the Usages
 // popup does), so the palette needs no chrome of its own — only the small list + key handling below.
 
+// Only the prompts a human actually SENDS on purpose. The questions heading, the change-request
+// instructions, and the plan contract are all prepended automatically to the merged hand-off (07-comments.js)
+// — listing them here would offer a second, redundant way to deliver text the agent already receives.
+//
 // Each entry resolves its text lazily: a prompt edited in Settings must be current when the palette opens,
 // and the {{...}} placeholders (spec/notes paths) are only known once a workspace is loaded.
 function promptPaletteEntries() {
   return [
     { id: 'annotate', title: t('annotatePrompt.title'), text: currentAnnotatePromptText },
     { id: 'explain', title: t('explainPrompt.title'), text: currentExplainPromptText },
-    { id: 'plan', title: t('mergePrompts.planHeading'), text: function () { return mergePromptFor('plan'); } },
-    { id: 'q', title: t('mergePrompts.qHeading'), text: function () { return mergePromptFor('q'); } },
-    { id: 'c', title: t('mergePrompts.cHeading'), text: function () { return mergePromptFor('c'); } },
   ];
 }
 
