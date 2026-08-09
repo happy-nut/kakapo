@@ -163,26 +163,35 @@ body.rail-exp .ev{display:flex}
 /* Agent quota (Claude + Codex), moved here from the review's sidebar footer: it is per-account, not
    per-workspace, so the rail is the one place that is always on screen and never duplicated per window.
    Collapsed the rail is 46px, so only the battery survives; the expanded rail shows the full row. */
-.usage-foot{display:flex;flex-direction:column;align-items:center;gap:4px;width:100%;padding:6px 4px;border-top:1px solid ${line};flex:none}
+.usage-foot{display:flex;flex-direction:column;align-items:stretch;gap:10px;width:100%;padding:8px 10px;border-top:1px solid ${line};flex:none}
 .usage-foot:empty{display:none}
-.usage-row{display:grid;grid-template-columns:14px minmax(0,1fr) 22px auto auto;align-items:center;gap:6px;width:100%;font-size:11px;color:${light ? "#6b7280" : "#8a8f99"};cursor:default}
-.usage-row-ico{width:14px;height:14px}
 .usage-ico{width:14px;height:14px;flex:none;display:block}
 .usage-ico-claude{color:#d97757}.usage-ico-codex{color:#10a37f}
+/* Expanded: one block per provider — a header naming it and summarizing its tightest window, then a row per
+   window whose meter is the row's own background, so the bar never competes with the number for a column. */
+.usage-head{display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:11.5px;color:${fg}}
+.usage-head-name{font-weight:600}
+.usage-head-sum{margin-left:auto;font-size:10.5px;font-variant-numeric:tabular-nums;color:${light ? "#6b7280" : "#8a8f99"}}
+.usage-row{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;
+  padding:3px 6px;border-radius:4px;overflow:hidden;font-size:11px;cursor:default;
+  background:${light ? "#f0f0f2" : "#2b2d33"};color:${light ? "#6b7280" : "#8a8f99"}}
+.usage-row+.usage-row{margin-top:3px}
+.usage-fill{position:absolute;left:0;top:0;bottom:0;opacity:${light ? ".26" : ".16"};border-right:1.5px solid currentColor;transition:width .4s ease,background .4s ease}
+.usage-label,.usage-pct,.usage-reset{position:relative}
 .usage-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.usage-batt{width:22px;height:12px;flex:none}
-.usage-batt-body{fill:none;stroke:${line};stroke-width:1.1}
-.usage-batt-cap{fill:${line}}
-.usage-batt-fill{transition:width .4s ease,fill .4s ease}
-.usage-pct{font-weight:700;color:${fg};font-variant-numeric:tabular-nums;text-align:right}
+.usage-pct{font-weight:650;color:${fg};font-variant-numeric:tabular-nums}
 .usage-pct-tokens{font-weight:600;color:${light ? "#6b7280" : "#8a8f99"}}
-.usage-reset{font-variant-numeric:tabular-nums;opacity:.8}
-/* Collapsed: batteries only, stacked. Everything else would not fit in the 46px column. */
-body:not(.rail-exp) .usage-row{grid-template-columns:22px;justify-items:center;gap:0}
-body:not(.rail-exp) .usage-row-ico,
-body:not(.rail-exp) .usage-label,
-body:not(.rail-exp) .usage-pct,
-body:not(.rail-exp) .usage-reset{display:none}
+.usage-reset{min-width:40px;text-align:right;font-size:10px;font-variant-numeric:tabular-nums;color:${light ? "#9aa0aa" : "#6c717a"}}
+/* Collapsed (46px): one ring per provider — its tightest window — with the mark inside and the number under
+   it. The old stack of bare batteries fitted, but said nothing about WHICH agent or window was running out. */
+.usage-cell{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:default}
+.usage-ring-wrap{position:relative;display:grid;place-items:center}
+.usage-ring-ico{position:absolute;display:flex}
+.usage-ring-ico .usage-ico{width:11px;height:11px}
+.usage-ring-track{fill:none;stroke:${line};stroke-width:2.4}
+.usage-ring-fill{fill:none;stroke-width:2.4;stroke-linecap:round;transition:stroke-dasharray .4s ease,stroke .4s ease}
+.usage-cell-num{font-size:9.5px;font-variant-numeric:tabular-nums;color:${light ? "#6b7280" : "#8a8f99"}}
+body:not(.rail-exp) .usage-foot{align-items:center;gap:10px;padding:9px 4px}
 #railfoot{display:flex;flex-direction:column;align-items:center;gap:5px;padding:7px 0;border-top:1px solid ${line};width:100%;flex:none}
 body.rail-exp #railfoot{flex-direction:row;justify-content:flex-end;padding:7px 6px;gap:4px}
 #railfoot button{width:34px;height:32px;border:0;border-radius:8px;font-size:17px;color:${light ? "#666" : "#999"};display:grid;place-items:center;padding:0}
@@ -220,54 +229,82 @@ const uTokens=n=>{n=n||0;if(n>=1e6)return (n/1e6).toFixed(n>=1e7?0:1)+'M';if(n>=
 const uSpan=d=>{const h=Math.floor(d/3600000),days=Math.floor(h/24),rh=h%24,m=Math.floor((d%3600000)/60000);
   if(days>0)return days+T.uD+' '+rh+T.uH; if(h>0)return h+T.uH+' '+m+T.uM; return m+T.uM;};
 const uReset=ms=>{const d=ms-Date.now();return (!ms||d<=0)?T.uNow:uSpan(d)};
-// Battery of the quota still LEFT — a pie of "remaining" reads like a pie of "used"; a battery doesn't.
-// Amber under a quarter, red under a tenth, so a nearly-flat window is obvious without reading the number.
-const uBatt=(pct,color)=>{const p=Math.max(0,Math.min(100,pct));
-  const fill=p<=10?'#e5484d':p<=25?'#f5a524':color;
-  return '<svg class="usage-batt" viewBox="0 0 22 12" aria-hidden="true">'
-    +'<rect class="usage-batt-body" x="0.7" y="1.6" width="16.6" height="8.8" rx="2.4"/>'
-    +'<rect class="usage-batt-cap" x="18.4" y="4.3" width="2.4" height="3.4" rx="1.1"/>'
-    +(p>0?'<rect class="usage-batt-fill" x="2.2" y="3.1" width="'+(13.6*p/100).toFixed(2)+'" height="5.8" rx="1.2" fill="'+fill+'"/>':'')+'</svg>';};
-const uRow=(kind,ico,color,label,pct,resetsAt,tip)=>{const el=document.createElement('span');
-  el.className='usage-row usage-row-'+kind; el.title=tip;
-  el.innerHTML='<span class="usage-row-ico">'+(ico||'')+'</span><span class="usage-label">'+esc(label)+'</span>'
-    +uBatt(pct,color)+'<span class="usage-pct">'+Math.round(pct)+'%</span>'
-    +'<span class="usage-reset">'+esc(uReset(resetsAt))+'</span>';
+// Everything is the quota still LEFT, never the amount used. Amber under a quarter, red under a tenth, so a
+// nearly-flat window is obvious without reading the number.
+const uTone=(p,color)=>p<=10?'#e5484d':p<=25?'#f5a524':color;
+// A window's row: label, % left, reset — with the meter as the row's background rather than a column of its own.
+const uRow=(w,color)=>{const p=Math.max(0,Math.min(100,w.left));
+  const el=document.createElement('span');
+  el.className='usage-row'; el.title=w.tip;
+  el.innerHTML='<i class="usage-fill" style="width:'+p.toFixed(1)+'%;background:'+uTone(p,color)+'"></i>'
+    +'<span class="usage-label">'+esc(w.name)+'</span>'
+    +'<span class="usage-pct">'+Math.round(p)+'%</span>'
+    +'<span class="usage-reset">'+esc(uReset(w.resetsAt))+'</span>';
+  return el;};
+// Collapsed: the provider's mark inside a ring of its tightest window. 26px is the largest circle that keeps
+// its 2.4px stroke crisp inside the 46px rail.
+const uRing=(p,color)=>{const r=11,c=2*Math.PI*r,v=Math.max(0,Math.min(100,p));
+  return '<svg viewBox="0 0 26 26" width="26" height="26" aria-hidden="true">'
+    +'<circle class="usage-ring-track" cx="13" cy="13" r="'+r+'"/>'
+    +'<circle class="usage-ring-fill" cx="13" cy="13" r="'+r+'" stroke="'+uTone(v,color)+'"'
+    +' stroke-dasharray="'+(c*v/100).toFixed(2)+' '+c.toFixed(2)+'" transform="rotate(-90 13 13)"/></svg>';};
+// One provider = one block expanded, one ring collapsed. Its windows are worst-first; the note replaces
+// the summary when there is no percentage to show at all (Claude's token-count fallback).
+const uGroup=(g)=>{const exp=document.body.classList.contains('rail-exp');
+  const worst=g.windows.length?g.windows.reduce((a,b)=>a.left<=b.left?a:b):null;
+  const el=document.createElement('div');
+  if(!exp){
+    el.className='usage-cell'; el.title=g.tip;
+    el.innerHTML='<span class="usage-ring-wrap">'+(worst?uRing(worst.left,g.color):'')
+      +'<span class="usage-ring-ico">'+g.ico+'</span></span>'
+      +'<span class="usage-cell-num">'+esc(worst?Math.round(worst.left):g.note||'')+'</span>';
+    return el;
+  }
+  el.className='usage-group';
+  const head=document.createElement('div');
+  head.className='usage-head'; head.title=g.tip;
+  const warn=worst&&worst.left<=25?uTone(worst.left,''):'';
+  head.innerHTML=g.ico+'<span class="usage-head-name">'+esc(g.name)+'</span>'
+    +'<span class="usage-head-sum"'+(warn?' style="color:'+warn+'"':'')+'>'
+    +esc(worst?Math.round(worst.left)+'% '+T.uLeft:g.note||'')+'</span>';
+  el.appendChild(head);
+  g.windows.forEach(w=>el.appendChild(uRow(w,g.color)));
   return el;};
 const uName=l=>l.label||(l.kind==='session'?T.uSession:T.uWeekly);
 const uTip=(provider,name,pct,resetsAt)=>provider+' · '+name+'\\n'+Math.round(pct)+'% '+T.uLeft+' · '+T.uResets+' '+uReset(resetsAt);
-function renderUsage(){
+// The rail's two states need different markup (blocks vs rings), so keep the last snapshot and repaint from
+// it when the rail toggles — re-reading the agent logs just to change layout would be wasteful.
+let uSnap=null;
+function paintUsage(){
   const el=document.getElementById('usage-foot');
-  if(!el||!window.kakapoHub||typeof window.kakapoHub.usage!=='function')return;
-  Promise.resolve(window.kakapoHub.usage()).then(s=>{
-    if(!el.isConnected)return;
-    el.textContent='';
-    if(!s)return;
-    if(s.claude){
-      // Worst-first from main: the window closest to its cap decides when work stops.
-      const c=s.claude, lims=c.limits||[]; let first=true;
-      // A quota kept through a rate-limited refresh still answers "how much is left" — say how old it is.
-      const age=c.quotaAt&&Date.now()-c.quotaAt>120000?'\\n'+T.uAsOf.replace('{age}',uSpan(Date.now()-c.quotaAt)):'';
-      lims.forEach(l=>{const name=uName(l);
-        el.appendChild(uRow('claude',first?CLAUDE_ICO:'','#d97757',name,100-l.usedPercent,l.resetsAt,uTip('Claude',name,100-l.usedPercent,l.resetsAt)+age));
-        first=false;});
-      if(!lims.length&&c.tokensToday){
-        const tk=document.createElement('span');
-        tk.className='usage-row usage-row-claude';
-        tk.title='Claude\\n'+uTokens(c.tokensToday)+' '+T.uTokensToday;
-        tk.innerHTML='<span class="usage-row-ico">'+CLAUDE_ICO+'</span><span class="usage-label">'+esc(T.uTokensToday)+'</span>'
-          +'<span class="usage-batt"></span><span class="usage-pct usage-pct-tokens">'+uTokens(c.tokensToday)+'</span><span class="usage-reset"></span>';
-        el.appendChild(tk);
-      }
-    }
-    if(s.codex&&s.codex.primary){
-      const plan='Codex'+(s.codex.planType?' ('+s.codex.planType+')':'');
-      // Codex reports its own window lengths, so name each from windowMinutes rather than assuming an order.
-      [s.codex.primary,s.codex.secondary].forEach((w,i)=>{if(!w)return;
-        const name=w.windowMinutes>=1440?T.uWeekly:T.uSession;
-        el.appendChild(uRow('codex',i===0?CODEX_ICO:'','#10a37f',name,100-w.usedPercent,w.resetsAt,uTip(plan,name,100-w.usedPercent,w.resetsAt)));});
-    }
-  }).catch(()=>{});
+  if(!el)return;
+  el.textContent='';
+  const s=uSnap; if(!s)return;
+  const groups=[];
+  if(s.claude){
+    const c=s.claude, lims=c.limits||[];
+    // A quota kept through a rate-limited refresh still answers "how much is left" — say how old it is.
+    const age=c.quotaAt&&Date.now()-c.quotaAt>120000?'\\n'+T.uAsOf.replace('{age}',uSpan(Date.now()-c.quotaAt)):'';
+    // Worst-first from main: the window closest to its cap decides when work stops.
+    const windows=lims.map(l=>{const name=uName(l),left=100-l.usedPercent;
+      return {name:name,left:left,resetsAt:l.resetsAt,tip:uTip('Claude',name,left,l.resetsAt)+age};});
+    if(windows.length)groups.push({name:'Claude',ico:CLAUDE_ICO,color:'#d97757',windows:windows,tip:'Claude'+age});
+    else if(c.tokensToday)groups.push({name:'Claude',ico:CLAUDE_ICO,color:'#d97757',windows:[],
+      note:uTokens(c.tokensToday),tip:'Claude\\n'+uTokens(c.tokensToday)+' '+T.uTokensToday});
+  }
+  if(s.codex&&s.codex.primary){
+    const plan='Codex'+(s.codex.planType?' ('+s.codex.planType+')':'');
+    // Codex reports its own window lengths, so name each from windowMinutes rather than assuming an order.
+    const windows=[s.codex.primary,s.codex.secondary].filter(Boolean).map(w=>{
+      const name=w.windowMinutes>=1440?T.uWeekly:T.uSession,left=100-w.usedPercent;
+      return {name:name,left:left,resetsAt:w.resetsAt,tip:uTip(plan,name,left,w.resetsAt)};});
+    groups.push({name:'Codex',ico:CODEX_ICO,color:'#10a37f',windows:windows,tip:plan});
+  }
+  groups.forEach(g=>el.appendChild(uGroup(g)));
+}
+function renderUsage(){
+  if(!window.kakapoHub||typeof window.kakapoHub.usage!=='function')return;
+  Promise.resolve(window.kakapoHub.usage()).then(s=>{uSnap=s;paintUsage();}).catch(()=>{});
 }
 renderUsage();
 setInterval(renderUsage,60000);
@@ -276,7 +313,7 @@ setInterval(renderUsage,60000);
 let railExp=false;const pinBtn=document.getElementById('pin');
 // Visual state only. Main owns keyboard focus: it focuses the rail while expanded (so arrows/Enter navigate
 // workspaces) and returns focus to the review view when it collapses.
-function paintRail(){document.body.classList.toggle('rail-exp',railExp);}
+function paintRail(){document.body.classList.toggle('rail-exp',railExp);paintUsage();}
 // User action (⌘⇧E / the » pin): flip and tell main, which animates the view push, collapses the file tree, and
 // moves focus onto the rail.
 function toggleRail(){railExp=!railExp;paintRail();window.kakapoHub.setHubExpanded(railExp);if(railExp)initRailSel();else railClearSel();}
