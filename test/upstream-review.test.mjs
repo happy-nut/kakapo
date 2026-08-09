@@ -101,3 +101,44 @@ test("review workspace service persists a lazy snapshot and detects later Git ch
   const afterChange = reviewDiffSignature(options, snapshot.reviewBase, snapshot.reviewUpstream);
   assert.notEqual(afterChange, before, "the cheap watcher signature changes without rebuilding the review");
 });
+
+// Nothing of your own to review — clean worktree, nothing unpushed — but the tracking branch has moved on.
+// An empty review is the least useful answer there: what is left to read is what the remote has and this
+// checkout does not, so the review pins its right side to the tracking branch and shows the incoming change.
+// (Explain annotates whatever the review shows, so this is also what makes "explain this diff" work there.)
+test("a clean branch BEHIND upstream reviews the incoming change instead of nothing", () => {
+  const behindRepo = join(fixture, "behind");
+  // The bare fixture's HEAD still points at its default branch, so name the one we actually pushed.
+  git(fixture, ["clone", "-q", "-b", "main", join(fixture, "remote.git"), behindRepo]);
+  git(behindRepo, ["config", "user.email", "review@test.invalid"]);
+  git(behindRepo, ["config", "user.name", "Review Fixture"]);
+  const atClone = git(behindRepo, ["rev-parse", "HEAD"]);
+
+  // Someone else pushes; this checkout fetches but has not merged. Nothing local, nothing unpushed.
+  git(repo, ["push", "-q", "origin", "main"]);
+  git(behindRepo, ["fetch", "-q"]);
+  assert.equal(git(behindRepo, ["status", "--porcelain"]), "", "the worktree is clean");
+
+  const selected = resolveAutomaticReviewBase(behindRepo, true);
+  assert.deepEqual(
+    { revision: selected?.revision, upstream: selected?.upstream, ahead: selected?.ahead, target: selected?.target },
+    { revision: atClone, upstream: "origin/main", ahead: 0, target: "origin/main" },
+    "the right side is the tracking branch, anchored at the merge-base",
+  );
+  assert.equal(selected?.behind, 1, "and it reports how much is incoming");
+
+  const build = buildDiffReview({
+    root: behindRepo,
+    staged: false,
+    includeUntracked: true,
+    context: 12,
+    title: "incoming review",
+    lazyLoad: true,
+    app: true,
+  });
+  assert.ok(build.html.includes("src/app.ts"), "the incoming file is in the review");
+  assert.equal(build.reviewTarget, "origin/main", "the build reports the pinned right side");
+  // lazyLoad keeps file bodies out of the shell, so the incoming line lives in the deferred diffs.
+  assert.match((build.lazyBodyDiffs || []).join("\n"), /value = 2/,
+    "and shows what the remote has, not the local baseline");
+});

@@ -56,7 +56,7 @@ export function buildDiffReview(input: {
     ? resolveAutomaticReviewBase(root, input.includeUntracked)
     : undefined;
   const reviewBase = input.base ?? automaticBase?.revision;
-  const reviewTarget = input.target;
+  const reviewTarget = input.target ?? automaticBase?.target;
   const diffText = readUnifiedDiff({
     base: reviewBase,
     target: reviewTarget,

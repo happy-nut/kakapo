@@ -42,6 +42,10 @@ export type AutomaticReviewBase = {
   upstream: string;
   label: string;
   ahead: number;
+  // Set only for the incoming case below: the review's RIGHT side is the tracking branch, not the working
+  // tree, because what needs reading is what the remote has and this checkout does not.
+  target?: string;
+  behind?: number;
 };
 
 // A clean worktree can still contain the exact changes that need review when its branch has local,
@@ -69,11 +73,17 @@ export function resolveAutomaticReviewBase(root: string, includeUntracked = true
     .split(/\s+/)
     .map(Number);
   const ahead = Number.isFinite(counts[1]) ? counts[1] : 0;
-  if (ahead <= 0) return undefined;
-
+  const behind = Number.isFinite(counts[0]) ? counts[0] : 0;
   const revision = git(canonicalRoot, ["merge-base", upstream, "HEAD"]);
   if (!revision) return undefined;
-  return { revision, upstream, label: `${upstream}...HEAD`, ahead };
+  if (ahead > 0) return { revision, upstream, label: `${upstream}...HEAD`, ahead };
+  // Nothing of your own to review: the worktree is clean and nothing is unpushed. The only difference left
+  // between this checkout and the remote is what the remote has and you do not, so review THAT — right side
+  // pinned to the tracking branch instead of the working tree. Reviewing an incoming change before you merge
+  // it is the same reading task, and it is what "explain this diff" should reach for rather than an empty
+  // review. Still the merge-base, so a diverged branch shows only the commits that arrived on the remote.
+  if (behind > 0) return { revision, upstream, label: `HEAD...${upstream}`, ahead: 0, target: upstream, behind };
+  return undefined;
 }
 
 // Validate a user-supplied review base (the CLI --base value) before it reaches `git diff <base>`. spawnSync
