@@ -3709,7 +3709,7 @@ body.workspace-view .sidebar-resizer { left: calc(var(--rail-width) + var(--side
   bottom: 8px;
   top: auto;
   z-index: 190;
-  width: 190px;
+  width: 224px; /* fits the longest label beside its shortcut hint ("Review comments" + ⌘⇧/) */
   padding: 5px;
   background: var(--elevated);
   border: 1px solid var(--border);
@@ -3741,8 +3741,16 @@ body.workspace-view .activity-rail .workspace-more-menu .rail-btn {
   padding: 0 9px;
   color: var(--text);
 }
-body.workspace-view .activity-rail .workspace-more-menu .rail-label { display: inline; font-size: 12px; }
-body.workspace-view .activity-rail .workspace-more-menu .rail-tip { display: none; }
+body.workspace-view .activity-rail .workspace-more-menu .rail-label { display: inline; font-size: 12px; white-space: nowrap; }
+/* On the rail the shortcut rides in the hover bubble, but a menu row has no bubble — hiding the whole tip
+   hid the shortcut with it. Let the tip's children flow into the row instead (display: contents drops the
+   bubble box, and with it the absolute positioning and opacity: 0) and keep only the kbd: the tip's label
+   would just duplicate .rail-label. */
+body.workspace-view .activity-rail .workspace-more-menu .rail-tip { display: contents; }
+body.workspace-view .activity-rail .workspace-more-menu .rail-tip > span { display: none; }
+body.workspace-view .activity-rail .workspace-more-menu .rail-tip kbd {
+  margin-left: auto; font-size: 10.5px; padding: 1px 5px; color: var(--muted); background: transparent;
+}
 body.workspace-view.workspace-hub-open {
   grid-template-columns: 0 0 minmax(0, 1fr);
 }

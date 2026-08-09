@@ -291,7 +291,9 @@ export function renderDiffHtml(input: {
   const railButton = (view: string, labelKey: string, defaultLabel: string, kbd: string, svg: string): string =>
     `<button type="button" class="rail-btn" data-view="${view}" data-i18n-aria="${labelKey}" aria-label="${escapeAttr(defaultLabel)}">` +
     `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${svg}</svg>` +
-    `<span class="rail-label">${escapeHtml(defaultLabel)}</span>` +
+    // The label is the visible text of an overflow-menu row (it is hidden on the rail itself), so it needs
+    // the same data-i18n the tooltip has — without it a Korean menu listed every tool in English.
+    `<span class="rail-label" data-i18n="${labelKey}">${escapeHtml(defaultLabel)}</span>` +
     `<span class="rail-tip"><span data-i18n="${labelKey}">${escapeHtml(defaultLabel)}</span><kbd>${escapeHtml(kbd)}</kbd></span>` +
     "</button>";
   const impactButton = input.app
