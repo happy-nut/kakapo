@@ -32,6 +32,9 @@
   // Timestamp of the last keystroke into any pane. The watch refresh reads it (see applyDiffUpdate) so a
   // diff rebuild — a long synchronous DOM swap on this same main thread — never lands mid-keystroke.
   var lastInputAt = 0;
+  // Panes with an IME composition in flight (Hangul/Kana/Pinyin mid-syllable). Interrupting one commits the
+  // partial input, so a refresh must wait however long the composition takes — no timeout can bound it.
+  var composingPanes = new Set();
   var MAX_PANES = 4;
   var heightKey = 'kakapo-terminal-height';
   var openKey = 'kakapo-terminal-open:' + location.pathname;
@@ -160,6 +163,18 @@
       return true;
     });
     term.onData(function (d) { lastInputAt = Date.now(); if (pane.id != null) window.kakapoPty.write({ id: pane.id, data: d }); });
+    // onData fires only on COMMITTED input, so under an IME it stays silent for the whole time a syllable is
+    // being assembled — several keystrokes during which nothing marked the terminal busy. Watch the helper
+    // textarea directly: keydown covers composing keystrokes, and composing/composed brackets the window in
+    // which a DOM rebuild or focus change would make macOS commit the half-built syllable, splitting 가 into
+    // ㄱ ㅏ. This is why the breakage was intermittent — it needed a refresh to land mid-syllable.
+    if (term.textarea) {
+      term.textarea.addEventListener('keydown', function () { lastInputAt = Date.now(); }, true);
+      term.textarea.addEventListener('compositionstart', function () { composingPanes.add(pane); lastInputAt = Date.now(); });
+      term.textarea.addEventListener('compositionupdate', function () { lastInputAt = Date.now(); });
+      term.textarea.addEventListener('compositionend', function () { composingPanes.delete(pane); lastInputAt = Date.now(); });
+      term.textarea.addEventListener('blur', function () { composingPanes.delete(pane); });
+    }
     // Bell from the pane's TUI (e.g. Claude Code finished a turn / needs input): badge the pane when it isn't
     // the one you're looking at, and ask the main process to raise a native notification when the whole window
     // isn't focused. Toggle in Settings ("Notify when a terminal task finishes").
@@ -426,6 +441,8 @@
     // When the reviewer last typed into a pane (0 = never). Read by the watch refresh to stay off the
     // keystroke path; see applyDiffUpdate.
     typingAt: function () { return lastInputAt; },
+    // True while an IME syllable is still being assembled in some pane.
+    isComposing: function () { return composingPanes.size > 0; },
     open: function () { setOpen(true); },
     paneCount: function () { return panes.length; },
     closeActivePane: closeActivePane,

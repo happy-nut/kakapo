@@ -414,3 +414,41 @@ test("lazy-LOAD: an idle terminal never defers the watch refresh", async () => {
   assert.match(v.$("#diff2html-container").textContent, /222/, "refresh applied immediately while merely watching");
   v.close();
 });
+
+// An IME composition is the one case a timeout cannot cover: onData fires only on COMMITTED input, so while a
+// Hangul syllable is being assembled nothing marks the terminal busy, and a refresh landing mid-syllable makes
+// macOS commit the half-built input — 가 arrives as ㄱ ㅏ. Composition has no bounded duration either, so the
+// refresh must wait for compositionend, not for a timer.
+test("lazy-LOAD: a watch refresh waits out an IME composition, however long it takes", async () => {
+  const b1 = await makeReviewHtml(
+    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 111;\n" }],
+    { lazyLoad: true },
+  );
+  let bodies = await renderLazyBodies(b1.build);
+  const v = await loadViewer(b1.html, {
+    menuBridge: true,
+    lazySourceData: b1.build.lazySourceData,
+    getDiffBody: (idx) => bodies[idx] || "",
+  });
+  await v.openDiffFor("src/live.ts");
+  await v.settle(120);
+
+  // Mid-syllable: the last COMMITTED keystroke is already ancient, which is exactly the gap — only the
+  // composition flag says the terminal is busy.
+  let composing = true;
+  v.window.__kakapoTerminal = { typingAt: () => v.window.Date.now() - 60000, isComposing: () => composing };
+
+  const b2 = await makeReviewHtml(
+    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 222;\n" }],
+    { lazyLoad: true },
+  );
+  bodies = await renderLazyBodies(b2.build);
+  await v.pushDiffUpdate(b2.build.update);
+  await v.settle(700); // well past the typing-idle window — a timer-only hold would have fired by now
+  assert.doesNotMatch(v.$("#diff2html-container").textContent, /222/, "no rebuild while a syllable is unfinished");
+
+  composing = false; // compositionend
+  await v.settle(700);
+  assert.match(v.$("#diff2html-container").textContent, /222/, "the held refresh lands once the syllable commits");
+  v.close();
+});

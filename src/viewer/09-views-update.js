@@ -336,6 +336,9 @@ function restoreUiState() {
 var TERMINAL_TYPING_IDLE_MS = 450;
 function terminalTypingAgeMs() {
   var api = window.__kakapoTerminal;
+  // An IME composition has no bounded duration — the user may sit mid-syllable indefinitely — and breaking one
+  // corrupts the input rather than merely delaying it (가 arrives as ㄱ ㅏ). Treat it as always "just typed".
+  if (api && typeof api.isComposing === 'function' && api.isComposing()) return 0;
   var at = api && typeof api.typingAt === 'function' ? api.typingAt() : 0;
   return at ? Date.now() - at : Infinity;
 }
