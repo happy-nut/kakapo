@@ -2428,7 +2428,21 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
   content: attr(data-placeholder); position: absolute; top: 24px; left: 0; color: var(--muted);
   font: 15px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; pointer-events: none;
 }
+/* A memo is a page you WRITE on, not an article you publish. .markdown-body's article rhythm — 1.75 line
+   height, a full blank line of margin under every paragraph — turns a page of short notes into a page of
+   islands, with more gap than text. Tighten both here: still comfortable prose, but consecutive lines read
+   as one thought. The rendered-markdown surfaces (source preview, note cards) keep the article rhythm. */
 .mc-inline-editor { min-height: calc(90vh - 150px); outline: none; caret-color: var(--text); }
+/* Scoped to the memo and written with a class more than .markdown-body's own rules carry: at equal
+   specificity the later rule wins, and .markdown-body's paragraph margins are declared further down. */
+.mc-memo-body .mc-inline-editor { line-height: 1.55; }
+.mc-memo-body .mc-inline-editor p, .mc-memo-body .mc-inline-editor ul, .mc-memo-body .mc-inline-editor ol,
+.mc-memo-body .mc-inline-editor blockquote, .mc-memo-body .mc-inline-editor pre,
+.mc-memo-body .mc-inline-editor table { margin-bottom: .5em; }
+.mc-memo-body .mc-inline-editor h1, .mc-memo-body .mc-inline-editor h2, .mc-memo-body .mc-inline-editor h3,
+.mc-memo-body .mc-inline-editor h4, .mc-memo-body .mc-inline-editor h5,
+.mc-memo-body .mc-inline-editor h6 { margin: 1.05em 0 .4em; }
+.mc-memo-body .mc-inline-editor li + li { margin-top: .12em; }
 .mc-inline-editor > :first-child { margin-top: 0; }
 .mc-memo-save-state { flex: none; min-width: 48px; color: var(--muted); font-size: 10px; text-align: right; font-weight: 500; }
 .mc-memo-delete { flex: none; }

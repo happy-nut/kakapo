@@ -404,3 +404,23 @@ test("the integrated terminal covers this view edge to edge", () => {
     "no native-app override may push the terminal below a title strip this view does not own",
   );
 });
+
+// A memo is a page you write on, not an article you publish. .markdown-body's article rhythm (1.75 line
+// height, a blank line under every paragraph) turned a page of short notes into islands with more gap than
+// text. The memo tightens both — and has to do it with enough specificity to win: at equal specificity the
+// later rule wins, and .markdown-body's own paragraph margins are declared further down the file.
+test("the memo writes tighter than an article, and its rules actually win", () => {
+  // Introduced by a comment rather than a preceding brace, so read it directly.
+  const at = css.indexOf("\n.mc-memo-body .mc-inline-editor {");
+  assert.ok(at >= 0, "the memo scopes its own typography");
+  const editor = css.slice(at, css.indexOf("}", at));
+  assert.match(editor, /line-height:\s*1\.5/, "consecutive lines read as one thought");
+
+  const paragraphRule = css.slice(css.indexOf(".mc-memo-body .mc-inline-editor p"));
+  const margin = /margin-bottom:\s*\.?(\d*\.?\d+)em/.exec(paragraphRule.slice(0, 400));
+  assert.ok(margin, "paragraphs declare their own bottom margin");
+  assert.ok(Number("0" + margin[0].replace(/[^\d.]/g, "")) < 1.1,
+    "and it is tighter than the article rhythm it overrides");
+  // The override only works because it carries a second class; .markdown-body p would otherwise win on order.
+  assert.ok(css.includes(".mc-memo-body .mc-inline-editor p"), "scoped by the memo, not by .mc-inline-editor alone");
+});
