@@ -211,6 +211,44 @@ export function ensureUtf8Locale(env: { [key: string]: string }): { [key: string
   return env;
 }
 
+// A Map that forgets. Long-lived caches in the main process are keyed by path and hold whole file bodies, so
+// without a ceiling they retain everything the process ever touched — heap that only ever grows as the
+// reviewer moves between worktrees. Insertion order makes the Map its own LRU queue: a hit re-inserts at the
+// back, and an overflowing insert drops from the front until the budget is met.
+export class ByteBudgetCache<V> {
+  private readonly entries = new Map<string, { value: V; bytes: number }>();
+  private total = 0;
+
+  constructor(private readonly limitBytes: number, private readonly sizeOf: (value: V) => number) {}
+
+  get(key: string): V | undefined {
+    const hit = this.entries.get(key);
+    if (!hit) return undefined;
+    this.entries.delete(key);
+    this.entries.set(key, hit); // most recently used is evicted last
+    return hit.value;
+  }
+
+  set(key: string, value: V): void {
+    const previous = this.entries.get(key);
+    if (previous) this.total -= previous.bytes;
+    const bytes = this.sizeOf(value);
+    this.entries.delete(key);
+    this.entries.set(key, { value, bytes });
+    this.total += bytes;
+    for (const [oldest, held] of this.entries) {
+      if (this.total <= this.limitBytes || oldest === key) break; // never evict what was just stored
+      this.entries.delete(oldest);
+      this.total -= held.bytes;
+    }
+  }
+
+  // What it is holding right now. The budget is only meaningful if something can see it.
+  stats(): { entries: number; bytes: number; limit: number } {
+    return { entries: this.entries.size, bytes: this.total, limit: this.limitBytes };
+  }
+}
+
 // --- Persistent terminals ----------------------------------------------------------------------------
 // A pty lives in our main process, so quitting kakapo closes its master and SIGHUPs whatever ran inside —
 // an agent session (claude/codex) dies with the app. Running the shell inside a tmux session moves the

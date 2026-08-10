@@ -9,14 +9,29 @@ import {
   SOURCE_MAX_LAZY_FILE_BYTES,
   SOURCE_MAX_TOTAL_BYTES,
 } from "./constants.js";
-import { formatBytes, hashText, isLikelyBinary, languageForPath, stripDiffPath } from "./util.js";
+import { ByteBudgetCache, formatBytes, hashText, isLikelyBinary, languageForPath, stripDiffPath } from "./util.js";
 import { canonicalWorkspaceRoot, git, repoRoot } from "./git.js";
 
 // File content + signature cache, keyed by path and validated on (mtime, size). Under `watch` the app
 // rebuilds every second; without this, collectSourceFiles re-reads + re-hashes EVERY tracked source
 // file each tick (~1.3s for ~6k files on a large repo), pinning the Electron main process and starving
 // IPC. With it an unchanged file costs a single statSync — the per-tick cost collapses to stat-only.
-const sourceContentCache = new Map<string, { mtimeMs: number; size: number; content: string; signature: string }>();
+// Bounded, because the key is an absolute path and the value is the whole file: without a cap it retained the
+// text of every file the process ever indexed, across every workspace, for as long as the app ran — heap that
+// only ever grew as the reviewer moved between worktrees. Insertion order makes the Map its own LRU queue: a
+// hit re-inserts, and an overflowing insert drops from the front.
+// ponytail: one global byte budget, evicting oldest-first. Enough to hold the workspace you are actually in
+// (the watch path is what this cache exists for); per-root budgets only if alternating two huge repos ever
+// shows up as re-read cost.
+type SourceContentEntry = { mtimeMs: number; size: number; content: string; signature: string };
+// ponytail: one global budget, evicting oldest-first. Enough to hold the workspace you are actually in, which
+// is what the watch path needs; per-root budgets only if alternating two huge repos shows up as re-read cost.
+const sourceContentCache = new ByteBudgetCache<SourceContentEntry>(64_000_000, (entry) => entry.content.length);
+
+// Diagnostics for the cache above, so the budget is observable rather than a claim in a comment.
+export function sourceContentCacheStats(): { entries: number; bytes: number; limit: number } {
+  return sourceContentCache.stats();
+}
 
 export function readUnifiedDiff(options: {
   base?: string;
