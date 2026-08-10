@@ -8,6 +8,7 @@ import { git, gitAsync, isCommitSha, isGitRepository, resolveWorkspaceRoot, vali
 import { renderWelcomeHtml } from "./render.js";
 import { makeTranslator, normalizeLocale, type Locale } from "./i18n.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
+import { bundlePathFor, installPackagedUpdate, isNewerVersion, macDmgAsset } from "./app-update.js";
 import { ProjectAnalysis } from "./analysis.js";
 import { ReviewPerformanceTrace } from "./perf.js";
 import { ProjectMarkdownMemo } from "./memos.js";
@@ -773,7 +774,36 @@ ipcMain.handle("kakapo:open-recent", async (event, payload: { path?: string }) =
 // Self-update: install the latest published package globally, then relaunch so the updated code loads.
 // Runs in the main process because the sandboxed renderer can't spawn npm. Returns {ok:true} (and
 // relaunches shortly after) or {ok:false,error} so the renderer can fall back to the manual command.
-ipcMain.handle("kakapo:self-update", (event) => new Promise<{ ok: boolean; error?: string }>((resolve) => {
+// The packaged bundle and the global CLI are two different installs with two different update channels, and
+// answering with the wrong one is why "Update" could report success and change nothing: `npm i -g` replaces
+// the command, never /Applications/Kakapo.app. Ask the release for the DMG when we ARE the bundle.
+async function updatePackagedApp(): Promise<{ ok: boolean; error?: string }> {
+  const installed = bundlePathFor(app.getPath("exe"));
+  if (!installed) return { ok: false, error: "not running from an application bundle" };
+  try {
+    const response = await fetch("https://api.github.com/repos/happy-nut/kakapo/releases/latest", {
+      headers: { accept: "application/vnd.github+json" },
+    });
+    if (!response.ok) return { ok: false, error: `GitHub returned ${response.status}` };
+    const release = await response.json() as { tag_name?: string; assets?: { name?: string; browser_download_url?: string }[] };
+    const tag = String(release.tag_name ?? "");
+    if (!isNewerVersion(tag, APP_VERSION)) return { ok: false, error: `already on ${APP_VERSION}` };
+    const asset = macDmgAsset((release.assets ?? [])
+      .filter((item) => item.name && item.browser_download_url)
+      .map((item) => ({ name: String(item.name), url: String(item.browser_download_url) })));
+    if (!asset) return { ok: false, error: `${tag} has no build for this machine` };
+    return installPackagedUpdate({ assetUrl: asset.url, installed, quit: () => { quitConfirmed = true; app.quit(); } });
+  } catch (error) {
+    return { ok: false, error: errorMessage(error) };
+  }
+}
+
+ipcMain.handle("kakapo:self-update", (event) => {
+  if (app.isPackaged && process.platform === "darwin") return updatePackagedApp();
+  return updateGlobalCli(event);
+});
+
+const updateGlobalCli = (event: Electron.IpcMainInvokeEvent) => new Promise<{ ok: boolean; error?: string }>((resolve) => {
   // Relaunch the freshly-installed `kakapo` in the calling window's repo so the user lands back where they were.
   const cwd = stateFromEvent(event)?.options.root ?? options.root;
   // Async, NOT spawnSync: spawnSync froze the ENTIRE main process for the whole npm install (up to
@@ -824,7 +854,7 @@ ipcMain.handle("kakapo:self-update", (event) => new Promise<{ ok: boolean; error
     });
   };
   runAttempt(0);
-}));
+});
 
 // The merged-prompt dock implements its own whole-document Cmd+A/Cmd+C (select every card + prose region,
 // copy the assembled hand-off text — see openMergedView in 08-dock.js). The app menu's `role: "editMenu"`

@@ -158,3 +158,41 @@ test("self-update falls back to npm exec if the global kakapo bin fails to spawn
     ["exit", 0],
   ]);
 });
+
+// The packaged bundle and the global CLI are different installs with different update channels. `npm i -g`
+// is right for the command; it never touches /Applications/Kakapo.app, so pressing Update in the bundle
+// used to report success and leave the reviewer on the old version. The bundle's channel is the release DMG.
+test("the packaged updater picks the build for this machine, and only when it is newer", async () => {
+  const { isNewerVersion, macDmgAsset, bundlePathFor, swapScript } = await import("../dist/app-update.js");
+
+  assert.equal(isNewerVersion("v0.5.0", "0.4.9"), true, "a leading v is tolerated");
+  assert.equal(isNewerVersion("0.4.10", "0.4.9"), true, "components compare numerically, not as text");
+  assert.equal(isNewerVersion("0.4.9", "0.4.9"), false, "the same version is not an update");
+  assert.equal(isNewerVersion("0.4.8", "0.4.9"), false, "and neither is an older one");
+
+  const assets = [
+    { name: "Kakapo-0.5.0-arm64.dmg", url: "https://example.test/mac.dmg" },
+    { name: "Kakapo-0.5.0-linux-x64.tar.gz", url: "https://example.test/linux.tgz" },
+  ];
+  assert.equal(macDmgAsset(assets, "arm64")?.url, "https://example.test/mac.dmg");
+  assert.equal(macDmgAsset(assets, "x64"), undefined, "an Intel Mac is not handed an arm64 bundle");
+  assert.equal(macDmgAsset([{ name: "notes.txt", url: "u" }], "arm64"), undefined, "a release without a dmg is no update");
+
+  assert.equal(bundlePathFor("/Applications/Kakapo.app/Contents/MacOS/Kakapo"), "/Applications/Kakapo.app");
+  assert.equal(bundlePathFor("/usr/local/bin/node"), undefined, "a plain binary is not a bundle");
+});
+
+// A bundle cannot replace itself while it is running, so the swap is a detached script. What matters is that
+// a failed copy leaves the machine with an app: the old bundle is moved aside, not deleted, and restored if
+// the copy fails.
+test("the swap script waits for the app to exit and puts the old bundle back if the copy fails", async () => {
+  const { swapScript } = await import("../dist/app-update.js");
+  const script = swapScript({ pid: 4242, staged: "/tmp/new/Kakapo.app", installed: "/Applications/Kakapo.app", backup: "/Applications/Kakapo.app.old" });
+
+  assert.match(script, /kill -0 4242/, "it waits for the running app to be gone");
+  assert.ok(script.indexOf('mv "/Applications/Kakapo.app" "/Applications/Kakapo.app.old"') <
+    script.indexOf("/usr/bin/ditto"), "the old bundle is moved aside BEFORE the new one is copied in");
+  assert.match(script, /else[\s\S]*mv "\/Applications\/Kakapo\.app\.old" "\/Applications\/Kakapo\.app"/,
+    "a failed copy restores it rather than leaving no app at all");
+  assert.match(script, /\/usr\/bin\/open -a "\/Applications\/Kakapo\.app"/, "and the app comes back up");
+});
