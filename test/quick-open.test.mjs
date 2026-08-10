@@ -465,6 +465,10 @@ test("prompts are pickable cards that say when to use them", async () => {
   await v.settle(10);
   assert.ok(v.$all("#quick-open-results .quick-open-prompt")[1].classList.contains("active"),
     "the arrows move the selection through the cards");
+  // A prompt has no file behind it, so the preview pane must stay out of the way — it was rendering the
+  // prompt's id as though it were a path, which read as a stray filename under the cards.
+  assert.equal(v.$("#quick-open-preview").innerHTML, "", "no file preview for a prompt");
+
   v.key("Enter");
   await v.settle(20);
   assert.equal(sent.length, 1, "Enter sends the selected prompt to the terminal");

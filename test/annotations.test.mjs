@@ -289,3 +289,34 @@ test("the codebase prompt is a second editable prompt writing the same notes con
   assert.match(mermaid, /openLightbox/, "and any diagram opens full-size on click");
   assert.match(mermaid, /securityLevel: 'strict'/, "without loosening mermaid's script policy");
 });
+
+// A diagram that never finishes loading is worse than one that fails: "loading…" reads as "wait a moment"
+// forever. The source is carried IN the placeholder as well as in the module registry, because a card
+// re-rendered from cached HTML — or the same note after a reload — arrives with an id the registry no longer
+// knows, and the renderer used to return silently and leave the placeholder as it was.
+test("a diagram carries its own source, and a stuck load becomes a visible failure", () => {
+  const mermaid = readFileSync(new URL("../src/viewer/20-mermaid.js", import.meta.url), "utf8");
+  assert.match(mermaid, /explain-mermaid-src[\s\S]{0,200}escapeHtml\(String\(src\)\)/,
+    "the placeholder carries its own source");
+  assert.match(mermaid, /mermaidSources\[node\.id\] \|\| \(carried \? carried\.textContent : ''\)/,
+    "and the renderer falls back to it");
+  assert.match(mermaid, /if \(!src\)[\s\S]{0,120}diagramInvalid/, "no source is a failure, not a forever-loading state");
+  assert.match(mermaid, /setTimeout\([\s\S]{0,80}load timed out/, "and a load that never settles times out");
+  assert.match(mermaid, /closest\('\.explain-mermaid'\)/, "the zoom/link handler matches the class actually used");
+});
+
+// The controls on a note have to be visible: hover-only meant the answer to "how do I comment on this?" was
+// "you cannot". Backspace on a selected row deletes a note too — it has no seq, so it goes through its own
+// path instead of being parsed as NaN and quietly deleting nothing.
+test("a note can be answered and dismissed without hunting for the controls", () => {
+  const css = readFileSync(new URL("../src/viewer.css", import.meta.url), "utf8");
+  const at = css.indexOf(".mc-card.mc-ai .mc-ai-reply,");
+  assert.ok(at >= 0, "the note's controls are styled");
+  assert.match(css.slice(at, css.indexOf("}", at)), /opacity: \.55/, "they are visible before you hover");
+
+  const sourceView = readFileSync(new URL("../src/viewer/10-source-view.js", import.meta.url), "utf8");
+  assert.match(sourceView, /mc-ai-del[\s\S]{0,400}deleteAnnotation\(b\.dataset\.path/,
+    "Backspace on a selected row dismisses a note through the path that reaches the file");
+  assert.match(sourceView, /filter\(function \(seq\) \{ return isFinite\(seq\); \}\)/,
+    "and a note's missing seq never reaches removeComments as NaN");
+});

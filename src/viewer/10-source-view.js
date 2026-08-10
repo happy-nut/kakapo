@@ -605,9 +605,19 @@ function selectCommentRow(row) {
 }
 function deleteCommentsInRow(row) {
   if (!row) return;
-  var seqs = Array.prototype.slice.call(row.querySelectorAll('.mc-del')).map(function (b) { return parseInt(b.dataset.seq, 10); });
+  var buttons = Array.prototype.slice.call(row.querySelectorAll('.mc-del'));
+  // An agent note sits in this row too and is deleted like anything else here — but it has no seq to remove
+  // by, so it goes through its own path (the file is rewritten). Selecting the row and pressing Backspace
+  // used to parse its missing seq as NaN and quietly delete nothing.
+  var notes = buttons.filter(function (b) { return b.classList.contains('mc-ai-del'); });
+  var seqs = buttons.filter(function (b) { return !b.classList.contains('mc-ai-del'); })
+    .map(function (b) { return parseInt(b.dataset.seq, 10); })
+    .filter(function (seq) { return isFinite(seq); });
   selectedCommentRow = null;
   if (seqs.length) removeComments(seqs);
+  notes.forEach(function (b) {
+    if (typeof deleteAnnotation === 'function') deleteAnnotation(b.dataset.path, parseInt(b.dataset.line, 10));
+  });
   refreshComments(); // remaining comment rows re-injected; the caret stays hidden until the next arrow press
 }
 // Open the composer in EDIT mode for the first comment in `row`, pre-filled with its text. threadHtml renders

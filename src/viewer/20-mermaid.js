@@ -9,13 +9,17 @@ function loadMermaid() {
   if (window.mermaid) return Promise.resolve(window.mermaid);
   if (mermaidLoad) return mermaidLoad;
   mermaidLoad = new Promise(function (resolve, reject) {
+    // A custom-scheme script that neither loads nor errors would leave every diagram on "loading…" forever.
+    // Bound the wait so the failure is visible and retryable instead of silent.
+    var timer = setTimeout(function () { reject(new Error('mermaid load timed out')); }, 15000);
+    var settle = function (fn, value) { clearTimeout(timer); fn(value); };
     var script = document.createElement('script');
     script.src = 'kakapo-asset://app/mermaid.js';
     script.async = true;
     script.addEventListener('load', function () {
-      if (window.mermaid) resolve(window.mermaid); else reject(new Error('mermaid did not register'));
+      if (window.mermaid) settle(resolve, window.mermaid); else settle(reject, new Error('mermaid did not register'));
     });
-    script.addEventListener('error', function () { reject(new Error('mermaid failed to load')); });
+    script.addEventListener('error', function () { settle(reject, new Error('mermaid failed to load')); });
     document.head.appendChild(script);
   }).catch(function (error) { mermaidLoad = null; throw error; });
   return mermaidLoad;
@@ -46,7 +50,12 @@ function mermaidPlaceholderHtml(src) {
   mermaidSeq += 1;
   var id = 'explain-mermaid-' + mermaidSeq;
   mermaidSources[id] = String(src);
-  return '<div class="explain-mermaid" id="' + id + '">' + escapeHtml(t('explain.diagramLoading')) + '</div>';
+  // The source also rides along IN the placeholder. The registry above is a module variable: a card
+  // re-rendered from cached HTML, or the same note after a reload, arrives with an id whose entry no longer
+  // exists — and the renderer then returned silently, leaving "loading…" on screen for good.
+  return '<div class="explain-mermaid" id="' + id + '">'
+    + '<pre class="explain-mermaid-src" hidden>' + escapeHtml(String(src)) + '</pre>'
+    + '<span class="explain-mermaid-status">' + escapeHtml(t('explain.diagramLoading')) + '</span></div>';
 }
 // `root` is any container (usually the whole document, for note cards scattered through the diff).
 // Already-rendered nodes are skipped, so calling this after every comment refresh is near-free.
@@ -60,8 +69,10 @@ function renderMermaidDiagrams(root) {
     // rather than freezing whatever theme was active on the first render.
     mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', themeVariables: mermaidThemeVariables() });
     nodes.forEach(function (node) {
-      var src = mermaidSources[node.id];
-      if (!src) return;
+      var carried = node.querySelector('.explain-mermaid-src');
+      var src = mermaidSources[node.id] || (carried ? carried.textContent : '');
+      // No source at all is a broken diagram, not a permanent "loading…".
+      if (!src) { node.dataset.mermaidDone = '1'; node.textContent = t('explain.diagramInvalid'); return; }
       node.dataset.mermaidDone = '1';
       mermaid.render(node.id + '-svg', src).then(function (result) {
         node.innerHTML = result.svg;
@@ -90,7 +101,7 @@ function mermaidSvgDataUrl(svg) {
 document.addEventListener('click', function (event) {
   var target = event.target;
   if (!target || !target.closest) return;
-  var host = target.closest('.mermaid');
+  var host = target.closest('.explain-mermaid');
   if (!host) return;
   var link = target.closest('a[href]');
   var href = link ? (link.getAttribute('href') || '') : '';

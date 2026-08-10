@@ -553,7 +553,9 @@ function renderQuickPreview(item) {
   if (!preview) return;
   const previewSeq = ++quickPreviewSeq;
   quickPreviewState = null;
-  if (!item) { preview.innerHTML = ''; return; }
+  // A prompt is not a file: it has no path to preview, and the pane was rendering its id ("codebase") as
+  // though it were one. The card already says everything there is to say about a prompt.
+  if (!item || item.kind === 'prompt') { preview.innerHTML = ''; return; }
   const file = sourceByPath.get(item.path);
   if (!file || !file.embedded) {
     preview.innerHTML = item.kind === 'search'
