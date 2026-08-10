@@ -355,7 +355,12 @@ function agentBodyHtml(text) {
 // into answers.json (see applyAnswersUpdate below). Empty string — nothing rendered — until then.
 function commentAnswerHtml(c) {
   if (!c || !c.answer) return '';
+  // The answer is where the exchange usually continues — "so why not X?", "then do Y instead". Put Reply on
+  // the answer itself so the follow-up is one click from what it answers, rather than making the reviewer
+  // scroll back up to the question's own header to find the same button.
   return '<div class="mc-card-answer"><span class="mc-answer-label">' + escapeHtml(t('comment.answer')) + '</span>'
+    + '<button type="button" class="mc-reply mc-answer-reply" data-seq="' + c.seq + '"'
+    + ' aria-label="' + escapeHtml(t('comment.reply')) + '" title="' + escapeHtml(t('comment.reply')) + '">↩</button>'
     + '<div class="mc-answer-body markdown-body mc-ai-body">' + agentBodyHtml(c.answer) + '</div></div>';
 }
 function threadHtml(path, line) {
@@ -652,6 +657,16 @@ function openReplyComposer(seq) {
   try { var rsel = window.getSelection(); if (rsel) rsel.removeAllRanges(); } catch (e) {}
   refreshComments();
 }
+// Replying to an agent note. There is no parent comment to inherit an anchor from — the note is not a
+// comment — so the composer anchors to the note's own line, which is what puts the reply directly under it
+// in the same thread (threadHtml renders notes first, then the comments for that line). A question is the
+// register a follow-up to an explanation is almost always in.
+function openAnnotationReplyComposer(path, line) {
+  if (!path || !(line > 0)) return;
+  composerState = { kind: 'q', path: path, line: line };
+  try { var asel = window.getSelection(); if (asel) asel.removeAllRanges(); } catch (e) {}
+  refreshComments();
+}
 function closeComposer() {
   if (!composerState) return;
   composerState = null;
@@ -873,10 +888,34 @@ function stepAnchor(delta, list) {
   }
   return list[list.length - 1];
 }
+// F8 steps every note on the diff, whoever wrote it: an agent's explanation and a reviewer's question are
+// the same object to a reader walking the file, and having them on two different keys meant stepping through
+// one while silently skipping the other. Sorted together by anchor, so the walk follows the file.
+function sortedNavThread() {
+  var notes = typeof sortedAnnotations === 'function' ? sortedAnnotations() : [];
+  return sortedNavComments().concat(notes).sort(function (a, b) {
+    var order = commentNavOrder();
+    var oa = a.path in order ? order[a.path] : Infinity;
+    var ob = b.path in order ? order[b.path] : Infinity;
+    if (oa !== ob) return oa - ob;
+    var la = Number(a.from) || a.line || 0, lb = Number(b.from) || b.line || 0;
+    if (la !== lb) return la - lb;
+    // A note explains the code the comment is about, so it comes first on a shared line — the same order
+    // threadHtml renders them in.
+    var sa = a.seq == null ? -1 : a.seq, sb = b.seq == null ? -1 : b.seq;
+    return sa - sb;
+  });
+}
 function gotoComment(delta) {
-  if (!reviewComments.length) { showCaretHint(t('comment.nav.none')); return true; }
-  var target = stepAnchor(delta, sortedNavComments());
-  if (!isDiffViewVisible() || !navigateToCommentInDiff(target.seq)) navigateToComment(target.seq);
+  var list = sortedNavThread();
+  if (!list.length) { showCaretHint(t('comment.nav.none')); return true; }
+  var target = stepAnchor(delta, list);
+  // A comment knows its own seq and can be navigated to precisely; a note is anchored by line.
+  if (target.seq != null) {
+    if (!isDiffViewVisible() || !navigateToCommentInDiff(target.seq)) navigateToComment(target.seq);
+  } else if (!isDiffViewVisible() || !navigateToLineInDiff(target.path, target.line, 'new')) {
+    navigateToLine(target.path, target.line);
+  }
   return true;
 }
 

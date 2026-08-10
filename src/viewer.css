@@ -2053,16 +2053,17 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-reply:hover { color: var(--active); background: color-mix(in srgb, var(--active) 16%, transparent); }
 .mc-card.mc-reply-card { margin-left: 18px; border-left: 2px solid color-mix(in srgb, var(--active) 35%, transparent); }
 .mc-card-body { padding: 2px 12px 11px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
-/* An agent-written explanation of the diff (23-annotations.js): the same card shell as a review comment so
-   the two read as one timeline, tinted with the active accent and given a left bar so it is obvious at a
-   glance which cards are the AI talking to you and which are your own review notes. Wider than a comment —
-   these carry prose and Mermaid diagrams, not one-line requests. */
-.mc-card.mc-ai {
-  max-width: 900px;
-  border-left: 2px solid color-mix(in srgb, var(--active) 45%, transparent);
-  background: color-mix(in srgb, var(--active) 4%, var(--panel));
-}
-.mc-kind.mc-kind-ai { color: var(--active); background: color-mix(in srgb, var(--active) 14%, transparent); }
+/* An agent-written explanation of the diff (23-annotations.js) is a comment the agent left, so it wears the
+   comment card exactly — same shell, same background, no accent tint and no left bar. The kind pill carries
+   the authorship, the way it already does for a question vs a change request; a second visual language for
+   "this one came from the agent" only made one timeline read as two. Still wider: these carry prose and
+   Mermaid diagrams rather than one-line requests. */
+.mc-card.mc-ai { max-width: 900px; }
+/* The note keeps its quiet chrome until you go near it: the reply arrow only appears on hover/focus, so
+   a page of explanations does not read as a page of buttons. */
+.mc-card.mc-ai .mc-ai-reply { opacity: 0; transition: opacity 120ms ease; }
+.mc-card.mc-ai:hover .mc-ai-reply,
+.mc-card.mc-ai .mc-ai-reply:focus-visible { opacity: 1; }
 .mc-ai-title { font-size: 11px; color: var(--text); font-weight: 600; }
 /* Prose, not a code snippet: undo .mc-card-body's pre-wrap (markdown supplies its own block structure) and
    let .markdown-body typography take over. */
@@ -2080,6 +2081,11 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 /* An agent's answer (issue #10), written into answers.json and synced back — sits below .mc-card-body,
    set off by a top border and a faint active-color tint so an answered card reads as such at a glance. */
 .mc-card-answer { border-top: 1px solid var(--border); padding: 8px 12px 11px; background: color-mix(in srgb, var(--active) 6%, transparent); }
+/* Reply sits at the end of the answer header row, and stays quiet until the card is hovered — same
+   treatment as the agent note above it. */
+.mc-card-answer { position: relative; }
+.mc-answer-reply { position: absolute; top: 4px; right: 6px; opacity: 0; transition: opacity 120ms ease; }
+.mc-card:hover .mc-answer-reply, .mc-answer-reply:focus-visible { opacity: 1; }
 .mc-answer-label {
   display: block; font-weight: 700; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
   color: var(--muted); margin-bottom: 3px;

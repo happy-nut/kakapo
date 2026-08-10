@@ -178,3 +178,52 @@ test("F9 and Shift+F9 walk the agent's notes", async () => {
   assert.equal(cursorLine(), 1, "Shift+F9 steps back");
   v.close();
 });
+
+// An explanation is as often the start of a conversation as the end of one — "why this way?", "then what
+// about X?". Reply on a note opens the composer anchored to the note's own line, so the answer lands
+// directly under it in the same thread instead of becoming an unrelated comment somewhere else.
+test("an agent note can be replied to, and the reply lands in its thread", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  v.window.setAnnotations([{ path: "src/app.ts", line: 1, title: "why it is spawned this way", text: "a spawned child is its own process." }]);
+  await v.settle(30);
+
+  const note = v.$(".mc-card.mc-ai");
+  assert.ok(note, "the note renders");
+  const reply = note.querySelector(".mc-ai-reply");
+  assert.ok(reply, "with a reply affordance");
+  assert.equal(reply.dataset.path, "src/app.ts", "carrying its own anchor");
+  assert.equal(reply.dataset.line, "1");
+
+  v.click(reply);
+  await v.settle(40);
+  const composer = v.$(".mc-composer .mc-input");
+  assert.ok(composer, "clicking it opens a composer");
+  // threadHtml renders notes first, then that line's comments, then the composer — so a composer existing
+  // after the click means the reply is anchored to the note's line, in its thread.
+  assert.ok(v.$(".mc-composer .mc-input"), "the composer is open on that line");
+  v.close();
+});
+
+// F8 walks the review timeline, and an agent's note is part of it: the two used to be on separate keys, so
+// stepping with F8 through a file the agent had explained reported "no comments" and moved nothing.
+test("F8 steps to an agent note, not only to the reviewer's own comments", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\nconst c = 3;\n", after: "const a = 9;\nconst b = 8;\nconst c = 7;\n" },
+  ]);
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  const line = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1);
+  // Establish the caret the same way the F9 walk test does, then hand the note to the store.
+  v.key("F8");
+  await v.settle(30);
+  v.window.setAnnotations([{ path: "src/app.ts", line: 3, title: "why", text: "because." }]);
+  await v.settle(30);
+
+  v.key("F8");
+  await v.settle(80);
+  assert.equal(line(), 2, "F8 lands on the note's line, with no comments in the file at all");
+  v.close();
+});

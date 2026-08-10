@@ -57,7 +57,13 @@ function annotationCardHtml(note) {
     + '<div class="mc-card-head"><span class="mc-kind mc-kind-ai">' + annotationKindIcon()
     + '<span class="mc-kind-text">' + escapeHtml(t('annotate.kind')) + '</span></span>'
     + (note.title ? '<span class="mc-ai-title">' + escapeHtml(note.title) + '</span>' : '')
-    + '<span class="mc-target" title="' + escapeHtml(target) + '">' + escapeHtml(target) + '</span></div>'
+    + '<span class="mc-target" title="' + escapeHtml(target) + '">' + escapeHtml(target) + '</span>'
+    // An explanation is the start of a conversation as often as it is the end of one: "why this way?",
+    // "then what about X?". Reply continues it in the same thread, on the same line, instead of making the
+    // reviewer find the line again and write what reads as an unrelated new comment.
+    + '<button type="button" class="mc-reply mc-ai-reply" data-path="' + escapeHtml(note.path) + '" data-line="' + note.line + '"'
+    + ' aria-label="' + escapeHtml(t('comment.reply')) + '" title="' + escapeHtml(t('comment.reply')) + '">↩</button>'
+    + '</div>'
     + '<div class="mc-card-body markdown-body mc-ai-body">' + annotationBodyHtml(note.text) + '</div></div>';
 }
 // A lightbulb, in the same monochrome stroke style as commentKindIcon()'s question/pencil glyphs.

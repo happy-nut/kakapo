@@ -546,7 +546,13 @@ document.addEventListener('click', function (event) {
   var reopen = t.closest('.mc-reopen');
   if (reopen) { event.preventDefault(); reopenComment(parseInt(reopen.dataset.seq, 10)); return; }
   var reply = t.closest('.mc-reply');
-  if (reply) { event.preventDefault(); openReplyComposer(parseInt(reply.dataset.seq, 10)); return; }
+  if (reply) {
+    event.preventDefault();
+    // An agent note has no seq to reply to — it anchors the composer by its own path/line instead.
+    if (reply.classList.contains('mc-ai-reply')) openAnnotationReplyComposer(reply.dataset.path, parseInt(reply.dataset.line, 10));
+    else openReplyComposer(parseInt(reply.dataset.seq, 10));
+    return;
+  }
   var del = t.closest('.mc-del');
   if (del) { event.preventDefault(); deleteComment(parseInt(del.dataset.seq, 10)); return; }
   if (t.closest('.mc-save')) { event.preventDefault(); saveComposer(); return; }

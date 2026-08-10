@@ -7,6 +7,7 @@
 // or by a single-line caret — was unreachable by keyboard (and therefore un-editable via `e`).
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { makeReviewHtml, cleanupFixtures, renderLazyBodies } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
 
@@ -181,4 +182,16 @@ test("F8 and Shift+F8 walk the comments, mirroring F7 for changes", async () => 
   await v.settle(80);
   assert.equal(cursorLine(), first, "Shift+F8 steps back");
   v.close();
+});
+
+// An agent's explanation and a reviewer's question are the same thing to someone walking a file: a note on
+// a line. They used to live on separate keys — F8 for comments, F9 for notes — so stepping with F8 silently
+// skipped every explanation the agent had left. The two lists are merged, sorted together, with a note ahead
+// of a comment on a line they share (the order the thread itself renders them in).
+test("the comment navigation list contains both kinds", () => {
+  const comments = readFileSync(new URL("../src/viewer/07-comments.js", import.meta.url), "utf8");
+  assert.match(comments, /function sortedNavThread\(\)[\s\S]{0,400}sortedAnnotations\(\)/,
+    "notes are merged into the navigation list");
+  assert.match(comments, /function gotoComment[\s\S]{0,500}target\.seq != null/,
+    "a comment navigates by seq, a note by its line");
 });

@@ -172,6 +172,57 @@ document.addEventListener('keydown', (event) => {
     }
   }
 
+  // The bare navigation F-keys sit just above the content stand-down: they move a cursor and never insert
+  // text, so a focused text field — a comment composer, which is exactly where you are when the note you
+  // want to step to is the reason you are typing — must not swallow them. A focused PANEL still does: the
+  // dock and the terminal own their keys outright, and F7 inside the merged dock has always meant nothing.
+  if (scope === 'content' || scope === 'field') {
+  if (event.key === 'F7' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    event.preventDefault();
+    // Navigating changes moves the CODE caret, so arrows have to follow it. The sidebar owns arrows while
+    // treeFocusIndex >= 0, and nothing here focuses a DOM node inside the diff, so that index survived: after
+    // clicking a file in the tree and then pressing F7, the caret moved but arrows still drove the tree.
+    // (Not in setDiffCursor — a sidebar CLICK legitimately keeps its row focused while opening the diff.)
+    clearTreeFocus();
+    const delta = event.shiftKey ? -1 : 1;
+    const sourceViewer = document.getElementById('source-viewer');
+    // Forward F7 from the source view enters the diff at the open file's own hunk, so the reviewer lands
+    // where they were reading. Shift+F7 — and any file with no hunk of its own — falls through to plain
+    // prev/next-change navigation across the whole diff.
+    if (delta > 0 && sourceViewer && !sourceViewer.classList.contains('hidden')) {
+      const sp = sourceViewer.dataset.openPath || '';
+      const sourceHunk = firstHunkForPath(sp);
+      // Enter the diff at the open file's own hunk — UNLESS it's already viewed. A viewed file's diff body
+      // is hidden (display:none), so landing on it blanks the content and F7 appears stuck; fall through to
+      // next() instead so we skip to an unviewed change.
+      if (sourceHunk >= 0 && !isFileViewed(sp)) {
+        setActive(sourceHunk);
+        return;
+      }
+    }
+    next(delta);
+  }
+
+  // F8 / Shift+F8: step between review comments, the bare-key counterpart of F7/Shift+F7 for diff hunks —
+  // changes on one key, comments on the next one over. Cmd+F7 below does the same thing and stays for muscle
+  // memory. Bare key, so it needs no text-field guard for the same reason bare F7 doesn't.
+  if (event.key === 'F8' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    event.preventDefault();
+    clearTreeFocus(); // stepping to a comment moves the caret, so arrows follow it (see F7 above)
+    if (typeof gotoComment === 'function') gotoComment(event.shiftKey ? -1 : 1);
+    return;
+  }
+
+  // F9 / ⇧F9: the third member of the same family — F7 steps changes, F8 the reviewer's own comments, F9
+  // the agent's Explain notes (23-annotations.js). Bare key, same no-text-guard reasoning as F7/F8.
+  if (event.key === 'F9' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    event.preventDefault();
+    clearTreeFocus();
+    if (typeof gotoAnnotation === 'function') gotoAnnotation(event.shiftKey ? -1 : 1);
+    return;
+  }
+  }
+
   // ⌥F1 reveals the open file in the tree from ANY view — it runs BEFORE the isFloatingModalOpen stand-down
   // below so History (and merged/memo docks), which otherwise own the keys, don't swallow it. Only a
   // genuine text-input modal (settings, go-to-line) still keeps it; there the "main panel" isn't focused.
@@ -436,51 +487,6 @@ document.addEventListener('keydown', (event) => {
     // F2 / Shift+F2 steps between language-server problems inside the open source file. It only consumes the
     // key when the source view owns it (a code file is on screen); otherwise the event falls through.
     if (typeof gotoDiagnostic === 'function' && gotoDiagnostic(event.shiftKey ? -1 : 1)) event.preventDefault();
-    return;
-  }
-
-  if (event.key === 'F7' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-    event.preventDefault();
-    // Navigating changes moves the CODE caret, so arrows have to follow it. The sidebar owns arrows while
-    // treeFocusIndex >= 0, and nothing here focuses a DOM node inside the diff, so that index survived: after
-    // clicking a file in the tree and then pressing F7, the caret moved but arrows still drove the tree.
-    // (Not in setDiffCursor — a sidebar CLICK legitimately keeps its row focused while opening the diff.)
-    clearTreeFocus();
-    const delta = event.shiftKey ? -1 : 1;
-    const sourceViewer = document.getElementById('source-viewer');
-    // Forward F7 from the source view enters the diff at the open file's own hunk, so the reviewer lands
-    // where they were reading. Shift+F7 — and any file with no hunk of its own — falls through to plain
-    // prev/next-change navigation across the whole diff.
-    if (delta > 0 && sourceViewer && !sourceViewer.classList.contains('hidden')) {
-      const sp = sourceViewer.dataset.openPath || '';
-      const sourceHunk = firstHunkForPath(sp);
-      // Enter the diff at the open file's own hunk — UNLESS it's already viewed. A viewed file's diff body
-      // is hidden (display:none), so landing on it blanks the content and F7 appears stuck; fall through to
-      // next() instead so we skip to an unviewed change.
-      if (sourceHunk >= 0 && !isFileViewed(sp)) {
-        setActive(sourceHunk);
-        return;
-      }
-    }
-    next(delta);
-  }
-
-  // F8 / Shift+F8: step between review comments, the bare-key counterpart of F7/Shift+F7 for diff hunks —
-  // changes on one key, comments on the next one over. Cmd+F7 below does the same thing and stays for muscle
-  // memory. Bare key, so it needs no text-field guard for the same reason bare F7 doesn't.
-  if (event.key === 'F8' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-    event.preventDefault();
-    clearTreeFocus(); // stepping to a comment moves the caret, so arrows follow it (see F7 above)
-    if (typeof gotoComment === 'function') gotoComment(event.shiftKey ? -1 : 1);
-    return;
-  }
-
-  // F9 / ⇧F9: the third member of the same family — F7 steps changes, F8 the reviewer's own comments, F9
-  // the agent's Explain notes (23-annotations.js). Bare key, same no-text-guard reasoning as F7/F8.
-  if (event.key === 'F9' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-    event.preventDefault();
-    clearTreeFocus();
-    if (typeof gotoAnnotation === 'function') gotoAnnotation(event.shiftKey ? -1 : 1);
     return;
   }
 
