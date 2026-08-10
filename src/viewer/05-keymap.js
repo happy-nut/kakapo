@@ -668,8 +668,11 @@ document.addEventListener('copy', handleSourceCopy);
   var owner = null;
   function buttonFor(target) {
     var button = target && target.closest ? target.closest('button') : null;
+    // The launcher's rail rows print their own shortcut on the row, so a bubble repeating it under the
+    // cursor says nothing and covers the row below — same reason .rail-btn is excluded.
     return button && button.hasAttribute('data-keyhint')
       && !button.classList.contains('rail-btn') && !button.classList.contains('mc-select')
+      && !button.classList.contains('quick-open-side-item')
       && !button.classList.contains('file-link') ? button : null;
   }
   function buttonLabel(button) {

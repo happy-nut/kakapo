@@ -825,6 +825,23 @@ function commentNavOrder() {
   }
   return order;
 }
+// commentNavOrder ranks only files the DIFF contains, which is all F8 needed while every comment was
+// anchored to a change. An agent's codebase map is not: its notes sit in files that are not part of this
+// diff at all, and those all collapsed to rank Infinity — so the walk had no order among them, and
+// stepAnchor, finding the current file unranked, answered every press with the first item. Extend the order
+// with the files the list itself names, in path order, so every anchor has a place.
+function navOrderFor(list) {
+  var order = commentNavOrder();
+  var next = 0;
+  for (var key in order) if (order[key] >= next) next = order[key] + 1;
+  var extra = [];
+  for (var i = 0; i < list.length; i++) {
+    var path = list[i] && list[i].path;
+    if (path && !(path in order) && extra.indexOf(path) < 0) extra.push(path);
+  }
+  extra.sort().forEach(function (path) { order[path] = next++; });
+  return order;
+}
 function sortedNavComments() {
   var order = commentNavOrder();
   return reviewComments.slice().sort(function (a, b) {
@@ -864,7 +881,7 @@ function navigateToCommentInDiff(seq) {
 // .path and a line (.from or .line). Used by F8, which walks review comments and agent notes as one list.
 // so the two step through the review identically. Assumes a non-empty list — callers hint and bail first.
 function stepAnchor(delta, list) {
-  var order = commentNavOrder();
+  var order = navOrderFor(list);
   var curPath = null, curLine = -1;
   if (isDiffViewVisible() && diffCursor) {
     var curWrapper = diffWrapperByPath(diffCursor.path);
@@ -893,8 +910,9 @@ function stepAnchor(delta, list) {
 // one while silently skipping the other. Sorted together by anchor, so the walk follows the file.
 function sortedNavThread() {
   var notes = typeof sortedAnnotations === 'function' ? sortedAnnotations() : [];
-  return sortedNavComments().concat(notes).sort(function (a, b) {
-    var order = commentNavOrder();
+  var all = sortedNavComments().concat(notes);
+  var order = navOrderFor(all);
+  return all.sort(function (a, b) {
     var oa = a.path in order ? order[a.path] : Infinity;
     var ob = b.path in order ? order[b.path] : Infinity;
     if (oa !== ob) return oa - ob;

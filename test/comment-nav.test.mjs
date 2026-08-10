@@ -195,3 +195,16 @@ test("the comment navigation list contains both kinds", () => {
   assert.match(comments, /function gotoComment[\s\S]{0,500}target\.seq != null/,
     "a comment navigates by seq, a note by its line");
 });
+
+// F8 stepped to the first note and then stopped dead. commentNavOrder ranks only files the DIFF contains —
+// fine while every comment was anchored to a change, but an agent's codebase map anchors notes in files that
+// are not part of the diff at all. Those all collapsed to rank Infinity, the current file came back unranked,
+// and stepAnchor answered every press with list[0]. Every anchor needs a place in the order.
+test("stepping keeps working through notes in files the diff does not contain", () => {
+  const comments = readFileSync(new URL("../src/viewer/07-comments.js", import.meta.url), "utf8");
+  assert.match(comments, /function navOrderFor\(list\)/, "the order is built from the list, not only from the diff");
+  assert.match(comments, /extra\.sort\(\)\.forEach\(function \(path\) \{ order\[path\] = next\+\+; \}\)/,
+    "files outside the diff get ranks of their own, in a stable order");
+  assert.match(comments, /function stepAnchor\(delta, list\) \{\s*\n\s*var order = navOrderFor\(list\);/,
+    "and stepping uses it, so the current file is rankable too");
+});
