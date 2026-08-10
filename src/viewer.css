@@ -2677,6 +2677,22 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   font-size: 10.5px;
   letter-spacing: 1px;
 }
+/* A prompt is picked, not read: the card leads with its name and says WHEN to reach for it. The prompt text
+   is long, editable in Settings, and identical in shape between prompts — showing its first line made the
+   list impossible to choose from. Enter sends the selected one to the terminal composer. */
+.quick-open-item.quick-open-prompt {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  align-items: baseline;
+  padding: 10px 12px;
+}
+.quick-open-prompt-name { grid-column: 1; font-size: 13px; font-weight: 600; color: var(--text); }
+.quick-open-prompt-when { grid-column: 1; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.quick-open-prompt-go { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: 10.5px; color: var(--muted); opacity: 0; transition: opacity 120ms ease; }
+.quick-open-item.quick-open-prompt.active .quick-open-prompt-go { opacity: 1; }
+.quick-open-item.quick-open-prompt.active .quick-open-prompt-when,
+.quick-open-item.quick-open-prompt:hover .quick-open-prompt-when { color: inherit; opacity: .85; }
 .quick-open-side-sep { height: 1px; margin: 6px 4px; background: var(--border); }
 .quick-open-title {
   display: flex;

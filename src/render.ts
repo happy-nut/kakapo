@@ -316,9 +316,11 @@ export function renderDiffHtml(input: {
     input.app
       ? '<button type="button" id="terminal-toggle" class="rail-btn terminal-toggle hidden" data-i18n-aria="terminal.title" aria-label="Terminal"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg><span class="rail-label">Terminal</span><span class="rail-tip"><span data-i18n="terminal.title">Terminal</span><kbd>⌃`</kbd></span></button>'
       : "",
-    '<button type="button" id="workspace-more-toggle" class="rail-btn workspace-more-toggle" aria-haspopup="menu" aria-expanded="false" aria-label="More review tools"><svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span class="rail-label">More</span></button>',
     "</div>",
-    '<div id="workspace-more-menu" class="workspace-more-menu hidden" role="menu">',
+    // Not a menu any more — the Cmd+E launcher lists these tools now. The buttons stay in the DOM because
+    // they ARE the dispatch: openRailView and the shell title bar activate a view by clicking its
+    // .rail-btn[data-view], and syncRail marks the active one. Permanently hidden, never opened.
+    '<div id="workspace-more-menu" class="workspace-more-menu hidden" role="presentation">',
     impactButton,
     explainButton,
     railButton("merged", "rail.reviewComments", "Review comments", "⌘⇧/", '<path d="M5.5 5.5h13c.8 0 1.5.7 1.5 1.5v6.4c0 .8-.7 1.5-1.5 1.5H12l-4.5 3.6V16.4H5.5c-.8 0-1.5-.7-1.5-1.5V7c0-.8.7-1.5 1.5-1.5z"/>'),
@@ -458,6 +460,9 @@ export function renderDiffHtml(input: {
     '<div class="quick-open-side-sep" aria-hidden="true"></div>',
     '<button type="button" class="quick-open-side-item" data-section="merged" data-keyhint="⌘⇧/"><span data-i18n="rail.reviewComments">Review comments</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="memo" data-keyhint="⌘⇧N"><span data-i18n="memo.title">Markdown memo</span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="impact" data-keyhint="⌘8"><span data-i18n="rail.impact">Change Impact</span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="explain" data-keyhint="⌘7"><span data-i18n="rail.explain">Explain</span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="history" data-keyhint="⌘9"><span data-i18n="rail.history">History</span></button>',
     '</nav>',
     '<div class="quick-open-title"><span id="quick-open-mode" data-i18n="quickopen.searchFiles">Search files</span><span id="quick-open-filter" class="quick-open-filter"></span></div>',
     '<input id="quick-open-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.searchFiles" placeholder="Search files">',

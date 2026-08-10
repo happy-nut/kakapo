@@ -77,6 +77,9 @@ document.getElementById('quick-open-side')?.addEventListener('click', function (
   closeQuickOpen();
   if (section === 'merged' && typeof openMergedView === 'function') openMergedView();
   else if (section === 'memo' && typeof openMemoView === 'function') openMemoView();
+  // Everything else is a view with a rail button behind it: click that, so the launcher opens it by exactly
+  // the path the shortcut and the title bar already use rather than by a second copy of the same logic.
+  else document.querySelector('.rail-btn[data-view="' + section + '"]')?.click();
 });
 // Title-row indicator for the Recent speed-search: the typed letters, or a muted "type to filter" hint.
 function updateRecentFilterDisplay() {
@@ -134,7 +137,7 @@ function handleQuickOpenKey(event) {
       return true;
     }
     if (event.key === 'Enter') { event.preventDefault(); sideItem.click(); return true; }
-    if (event.key === 'ArrowRight') { event.preventDefault(); sideItem.blur(); return true; }
+    if (event.key === 'ArrowRight' || event.key === 'Tab') { event.preventDefault(); sideItem.blur(); return true; }
     if (event.key === 'Escape') { event.preventDefault(); closeQuickOpen(); return true; }
   } else if (event.key === 'ArrowLeft' && QUICK_LAUNCHER_MODES.indexOf(quickMode) >= 0 && !event.metaKey && !event.ctrlKey && !event.altKey) {
     event.preventDefault();
@@ -669,10 +672,11 @@ document.getElementById('quick-open-preview')?.addEventListener('scroll', handle
 // Prompts section: the saved agent prompts, sent to the terminal composer on Enter. The list itself comes
 // from promptPaletteEntries() (24-prompt-palette.js), which stays the one definition of what a prompt is.
 function renderPromptSection() {
+  // The card says WHEN to reach for a prompt, not what it says. You are picking between two or three of
+  // them; the first line of the prompt text is the least useful thing to compare — they all open the same
+  // way. The text itself is editable in Settings, which is where reading it belongs.
   quickItems = (typeof promptPaletteEntries === 'function' ? promptPaletteEntries() : []).map(function (entry) {
-    var text = typeof entry.text === 'function' ? entry.text() : entry.text;
-    var summary = typeof promptPaletteSummary === 'function' ? promptPaletteSummary(text) : '';
-    return { kind: 'prompt', path: entry.id, name: entry.title, detail: summary, prompt: entry };
+    return { kind: 'prompt', path: entry.id, name: entry.title, detail: entry.when || '', prompt: entry };
   });
   quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
   if (!quickItems.length) {
@@ -681,9 +685,10 @@ function renderPromptSection() {
     return;
   }
   quickResults.innerHTML = quickItems.map(function (item, index) {
-    return '<button type="button" class="quick-open-item' + (index === quickActive ? ' active' : '') + '" data-index="' + index + '">'
-      + '<span class="quick-open-main"><span class="quick-open-name">' + escapeHtml(item.name) + '</span>'
-      + '<span class="quick-open-path">' + escapeHtml(item.detail) + '</span></span></button>';
+    return '<button type="button" class="quick-open-item quick-open-prompt' + (index === quickActive ? ' active' : '') + '" data-index="' + index + '">'
+      + '<span class="quick-open-prompt-name">' + escapeHtml(item.name) + '</span>'
+      + '<span class="quick-open-prompt-when">' + escapeHtml(item.detail) + '</span>'
+      + '<span class="quick-open-prompt-go">' + escapeHtml(t('promptPalette.hint')) + '</span></button>';
   }).join('');
   renderQuickPreview(null);
 }

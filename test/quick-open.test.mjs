@@ -431,3 +431,43 @@ test("the launcher cannot keep the keyboard once it is not the thing on screen",
     "opening the terminal dismisses a launcher it would cover");
   v.close();
 });
+
+// Picking a prompt is a choice between two or three of them, so the card has to answer "which one do I
+// want", not "what does it say". The text is long, editable in Settings, and shaped the same in every
+// prompt — leading with its first line made the list impossible to choose from. Tab crosses from the
+// section rail to the cards, where the arrows select and Enter sends the one you picked to the terminal.
+test("prompts are pickable cards that say when to use them", async () => {
+  const { html: appHtml } = await makeReviewHtml([
+    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+  ], { app: true });
+  const v = await loadViewer(appHtml);
+  const sent = [];
+  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text) };
+
+  v.key("P", { metaKey: true, shiftKey: true, code: "KeyP" });
+  await v.settle(30);
+  const cards = v.$all("#quick-open-results .quick-open-prompt");
+  assert.equal(cards.length, 2, "both prompts render as cards");
+  const when = cards[0].querySelector(".quick-open-prompt-when");
+  assert.ok(when && when.textContent.trim(), "the card says when to reach for it");
+  assert.doesNotMatch(cards[0].textContent, /NOTES_PATH|JSON/,
+    "and not what the prompt says — that is Settings' job");
+
+  // Tab from the rail hands the keyboard to the cards; arrows pick; Enter sends.
+  v.key("ArrowLeft");
+  await v.settle(10);
+  assert.ok(v.document.activeElement?.dataset?.section, "the rail has the keyboard");
+  v.key("Tab");
+  await v.settle(10);
+  assert.ok(!v.document.activeElement?.dataset?.section, "Tab hands it to the cards");
+
+  v.key("ArrowDown");
+  await v.settle(10);
+  assert.ok(v.$all("#quick-open-results .quick-open-prompt")[1].classList.contains("active"),
+    "the arrows move the selection through the cards");
+  v.key("Enter");
+  await v.settle(20);
+  assert.equal(sent.length, 1, "Enter sends the selected prompt to the terminal");
+  assert.match(sent[0], /codebase|저장소|repository/i, "the one that was selected, not the first");
+  v.close();
+});

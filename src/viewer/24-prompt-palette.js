@@ -12,8 +12,8 @@
 // and the {{...}} placeholders (spec/notes paths) are only known once a workspace is loaded.
 function promptPaletteEntries() {
   return [
-    { id: 'annotate', title: t('annotatePrompt.title'), text: currentAnnotatePromptText },
-    { id: 'codebase', title: t('codebasePrompt.title'), text: currentCodebasePromptText },
+    { id: 'annotate', title: t('annotatePrompt.title'), when: t('annotatePrompt.when'), text: currentAnnotatePromptText },
+    { id: 'codebase', title: t('codebasePrompt.title'), when: t('codebasePrompt.when'), text: currentCodebasePromptText },
   ];
 }
 
