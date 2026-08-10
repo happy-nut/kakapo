@@ -17,6 +17,7 @@ function setQuickOpenOwnsEditKeys(owns) {
 // with their own panels — the user asked for them to be reachable here, not embedded — so they just open and
 // dismiss the launcher.
 var QUICK_LAUNCHER_MODES = ['recent', 'prompts'];
+var quickSideKeepsFocus = false;
 
 function openQuickOpen(mode) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
@@ -48,7 +49,10 @@ function openQuickOpen(mode) {
   // File search intentionally stays empty until the user types. Loading the whole project index on open
   // made an untouched dialog look like an arbitrary file browser and spent work before there was a query.
   // The first real file-name query requests the deferred index in renderQuickOpenResults().
-  if (mode === 'recent' || mode === 'prompts') { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
+  // Switching from the rail must not throw the keyboard back to the list, or one ArrowDown after picking a
+  // section would land somewhere else entirely.
+  if (quickSideKeepsFocus) { quickSideKeepsFocus = false; focusQuickSide(); }
+  else if (mode === 'recent' || mode === 'prompts') { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
   else setTimeout(() => quickInput.focus(), 0);
 }
 
@@ -65,7 +69,11 @@ document.getElementById('quick-open-side')?.addEventListener('click', function (
   var button = event.target.closest && event.target.closest('.quick-open-side-item');
   if (!button) return;
   var section = button.dataset.section;
-  if (QUICK_LAUNCHER_MODES.indexOf(section) >= 0) { openQuickOpen(section); return; }
+  if (QUICK_LAUNCHER_MODES.indexOf(section) >= 0) {
+    quickSideKeepsFocus = !!focusedQuickSideItem(); // arrived by keyboard -> stay on the rail
+    openQuickOpen(section);
+    return;
+  }
   closeQuickOpen();
   if (section === 'merged' && typeof openMergedView === 'function') openMergedView();
   else if (section === 'memo' && typeof openMemoView === 'function') openMemoView();
@@ -86,7 +94,53 @@ function closeQuickOpen() {
   quickPreviewScrollFrame = 0;
 }
 
+// The section rail is keyboard-reachable, not mouse-only: ArrowLeft steps into it from the list, arrows move
+// within it, Enter picks, and ArrowRight steps back to the results. Rail focus is real DOM focus (they are
+// buttons), so the browser draws it and Enter can simply click.
+function quickSideItems() {
+  return Array.prototype.slice.call(document.querySelectorAll('#quick-open-side .quick-open-side-item'));
+}
+function focusQuickSide() {
+  var items = quickSideItems();
+  var target = items.filter(function (item) { return item.classList.contains('active'); })[0] || items[0];
+  if (target) target.focus();
+}
+function focusedQuickSideItem() {
+  var el = document.activeElement;
+  return el && el.closest ? el.closest('#quick-open-side .quick-open-side-item') : null;
+}
+
+// This dialog is a modal keyboard scope — while it is up, every key goes to it and menu accelerators are
+// suspended (setQuickOpenOwnsEditKeys). So it must never outlive being looked at: it had no outside-click
+// dismissal, and the terminal panel renders above it, so opening a terminal over an open launcher left an
+// INVISIBLE dialog eating every keystroke (spaces included) and killing Cmd+Shift+E along with every other
+// accelerator. A click anywhere outside its panel closes it.
+document.addEventListener('mousedown', function (event) {
+  if (!quickOpen || quickOpen.classList.contains('hidden')) return;
+  if (event.target && event.target.closest && event.target.closest('.quick-open-panel')) return;
+  closeQuickOpen();
+}, true);
+
 function handleQuickOpenKey(event) {
+  var sideItem = focusedQuickSideItem();
+  if (sideItem) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      var items = quickSideItems();
+      var index = items.indexOf(sideItem);
+      var step = event.key === 'ArrowDown' ? 1 : items.length - 1;
+      var next = items[(index + step) % items.length];
+      if (next) next.focus();
+      return true;
+    }
+    if (event.key === 'Enter') { event.preventDefault(); sideItem.click(); return true; }
+    if (event.key === 'ArrowRight') { event.preventDefault(); sideItem.blur(); return true; }
+    if (event.key === 'Escape') { event.preventDefault(); closeQuickOpen(); return true; }
+  } else if (event.key === 'ArrowLeft' && QUICK_LAUNCHER_MODES.indexOf(quickMode) >= 0 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    event.preventDefault();
+    focusQuickSide();
+    return true;
+  }
   // Cmd/Ctrl+E toggles the Recent panel: it opened this dialog, so a second press closes it (parity with how
   // Esc dismisses it). Only for 'recent' — the same key means "focus extensions" inside Find-in-Files.
   if (quickMode === 'recent' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey

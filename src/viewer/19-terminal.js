@@ -239,7 +239,10 @@
     try { fit.fit(); } catch (e) {}
     // Main runs every pane inside this workspace's tmux session when tmux is installed, so the shell outlives
     // the app; there is nothing for the renderer to opt into.
-    window.kakapoPty.spawn({ cols: term.cols || 80, rows: term.rows || 24 }).then(function (r) { pane.id = r && r.id; });
+    // pane.restoreOrdinal is set by restorePanes() when this pane stands for a session that is already
+    // running; without it main hands out the lowest free ordinal, which is what a genuinely new pane wants.
+    window.kakapoPty.spawn({ cols: term.cols || 80, rows: term.rows || 24, ordinal: pane.restoreOrdinal })
+      .then(function (r) { pane.id = r && r.id; });
     setActive(pane);
     return pane;
   }
@@ -351,6 +354,28 @@
   });
   window.kakapoPty.onExit(function (msg) { removePane(msg.id); });
 
+  // Panes are the app's view of tmux sessions, and the sessions outlive the app — so opening the panel after
+  // a restart must bring back the panes that are still running, not one. Otherwise two agents came back as
+  // one pane, and opening "a new pane" silently landed on the second agent, which reads as the app losing
+  // track of its own terminals. Each pane re-attaches to a specific ordinal so a gap (session 1 and 3, with
+  // 2 closed) restores as those two rather than renumbering them.
+  var restored = false;
+  function restorePanes() {
+    if (restored || panes.length) return Promise.resolve();
+    restored = true;
+    if (!window.kakapoPty || typeof window.kakapoPty.sessions !== 'function') return Promise.resolve();
+    return Promise.resolve(window.kakapoPty.sessions()).then(function (result) {
+      var ordinals = (result && result.ordinals) || [];
+      if (ordinals.length < 2) return; // one (or none) is what a plain open already does
+      ordinals.slice(0, MAX_PANES).forEach(function (ordinal) {
+        var pane = makePane(); // one cell each: side by side, the layout a fresh split would give
+        if (pane) pane.restoreOrdinal = ordinal;
+      });
+      fitAll();
+      requestAnimationFrame(fitAll);
+    }, function () { /* no tmux, no sessions — a plain pane is right */ });
+  }
+
   function isOpen() { return !panel.classList.contains('hidden'); }
   // The floating panel dims the app behind it; clicking the backdrop closes the terminal (dock-style).
   function setBackdrop(show) {
@@ -375,8 +400,18 @@
     try { sessionStorage.setItem(openKey, open ? '1' : '0'); } catch (e) {}
     if (typeof applyDockMaximized === 'function') applyDockMaximized(); // keep Cmd+Shift+' maximize in sync
     if (open) {
-      if (panes.length === 0) makePane();
-      requestAnimationFrame(function () { fitAll(); focusPane(active); });
+      // The terminal renders above the quick-open launcher, so leaving one open underneath hides a dialog
+      // that still owns every keystroke. Close it as the terminal comes up.
+      if (typeof closeQuickOpen === 'function' && typeof quickOpen !== 'undefined'
+        && quickOpen && !quickOpen.classList.contains('hidden')) closeQuickOpen();
+      if (panes.length === 0) {
+        restorePanes().then(function () {
+          if (panes.length === 0) makePane();
+          requestAnimationFrame(function () { fitAll(); focusPane(active); });
+        });
+      } else {
+        requestAnimationFrame(function () { fitAll(); focusPane(active); });
+      }
     }
   }
   function toggle() { setOpen(!isOpen()); }

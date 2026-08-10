@@ -464,18 +464,26 @@ ipcMain.on("kakapo:hub-refocus", () => focusActiveReviewView());
 ipcMain.on("kakapo:review-clicked", (event) => {
   if (event.sender.id === activeStateId) collapseRailFromReview();
 });
+// Picking a workspace from the rail — a click or Enter on a tile — is the user saying "this one", so the
+// expanded rail has done its job and gets out of the way. This is the deliberate SELECTION, which is a
+// different thing from the view merely taking focus: the rail must survive a click into a terminal pane
+// (see kakapo:review-clicked), but not survive the choice it exists to offer.
 ipcMain.on("kakapo:hub-activate", (_event, id: unknown) => {
-  if (typeof id === "number") activateWorkspace(id);
+  if (typeof id !== "number") return;
+  activateWorkspace(id);
+  collapseRailFromReview();
 });
 // A pinned-but-closed project tile (its main checkout has no open window yet) opens by path — activate() only
 // works for windows that already exist in `states`.
 ipcMain.on("kakapo:hub-open", (_event, path: unknown) => {
-  if (typeof path === "string" && existsSync(path) && isGitRepository(path)) openOrFocusWorkspace(path);
+  if (typeof path === "string" && existsSync(path) && isGitRepository(path)) { openOrFocusWorkspace(path); collapseRailFromReview(); }
 });
 ipcMain.on("kakapo:hub-activate-index", (_event, index: unknown) => {
   if (typeof index !== "number") return;
   const state = Array.from(states.values())[index];
-  if (state) activateWorkspace(state.win.webContents.id);
+  if (!state) return;
+  activateWorkspace(state.win.webContents.id);
+  collapseRailFromReview();
 });
 ipcMain.on("kakapo:hub-resume", (_event, id: unknown) => {
   if (typeof id !== "number") return;

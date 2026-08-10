@@ -72,7 +72,8 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
 // sandboxed renderer can't spawn a pty). Only present in the Electron app; browser/serve mode lacks it,
 // so the renderer keeps the terminal panel hidden when window.kakapoPty is undefined.
 contextBridge.exposeInMainWorld("kakapoPty", {
-  spawn: (size: { cols: number; rows: number }): Promise<{ ok: boolean; id: number }> => ipcRenderer.invoke("kakapo:pty-spawn", size),
+  // `ordinal` re-attaches to a specific tmux session — see sessions() below, used to restore the panes.
+  spawn: (size: { cols: number; rows: number; ordinal?: number }): Promise<{ ok: boolean; id: number }> => ipcRenderer.invoke("kakapo:pty-spawn", size),
   // Persistent terminals (Settings > Terminal): is tmux available, and can we install it for them?
   tmuxStatus: (): Promise<{ tmux: boolean; brew: boolean }> => ipcRenderer.invoke("kakapo:tmux-status"),
   installTmux: (): void => ipcRenderer.send("kakapo:tmux-install"),
@@ -87,6 +88,8 @@ contextBridge.exposeInMainWorld("kakapoPty", {
   kill: (msg: { id: number }): void => ipcRenderer.send("kakapo:pty-kill", msg),
   // Is a foreground process (agent/command) running in this pane? Used to confirm before ⌘W closes it.
   foreground: (msg: { id: number }): Promise<{ running: boolean; name: string }> => ipcRenderer.invoke("kakapo:pty-foreground", msg),
+  // Live tmux sessions for this workspace, so reopening the panel restores the panes it had.
+  sessions: (): Promise<{ ordinals: number[] }> => ipcRenderer.invoke("kakapo:pty-sessions"),
   // A TUI in the pane rang the terminal bell (e.g. Claude Code finished a turn / needs input). The renderer
   // passes a pre-localized title+body; the main process decides whether to raise a native notification.
   bell: (msg: { title: string; body: string }): void => ipcRenderer.send("kakapo:bell", msg),

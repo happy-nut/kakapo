@@ -135,9 +135,7 @@ body.rail-exp .cv{display:none}
    animation just REVEALS it (overflow:hidden clips) instead of reflowing "Workspaces"/rows every frame. */
 .ev{display:none;flex:1;min-height:0;flex-direction:column;width:${HUB_EXPANDED}px}
 body.rail-exp .ev{display:flex}
-.phead{display:flex;align-items:center;padding:5px 12px 7px;flex:none}
-.phead .t{font-weight:650;font-size:12.5px;color:${fg};letter-spacing:.01em}
-.plist{flex:1;overflow-y:auto;overflow-x:hidden;padding:0 6px 8px}
+.plist{flex:1;overflow-y:auto;overflow-x:hidden;padding:6px 6px 8px}
 .proj{margin-top:5px}
 .proj:first-child{margin-top:0}
 .prow{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:8px;cursor:pointer}
@@ -410,7 +408,9 @@ const chev='<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentCol
 const homeIco='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3.1 3.3 10a.6.6 0 0 0 .38 1.06H5v8.4c0 .3.24.54.54.54H9.6v-5.2h4.8v5.2h4.06c.3 0 .54-.24.54-.54v-8.4h1.32A.6.6 0 0 0 20.7 10z"/></svg>';
 const isMain=w=>w.kind==='main';
 const cv='<div class="cv">'+[...groups].map(([repo,ws])=>'<div class="grp"><div class="phav" data-repo="'+esc(repo)+'" title="'+esc(repo)+'"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</div><div class="wts">'+ws.map(w=>'<button class="wt'+wcls(w)+'"'+wattr(w)+'>'+esc(initials(w))+'<span class="rdot"></span><span class="udot"></span>'+(isMain(w)?'<span class="mdot" title="'+esc(T.mainWorktree)+'">'+homeIco+'</span>':'')+'</button>').join('')+'</div></div>').join('')+'</div>';
-const ev='<div class="ev"><div class="phead"><span class="t">'+esc(T.workspaces)+'</span></div><div class="plist">'+[...groups].map(([repo,ws])=>'<div class="proj"><div class="prow" data-repo="'+esc(repo)+'"><span class="pav"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</span><span class="pname">'+esc(repo)+'</span><span class="pcount">'+ws.length+'</span>'+chev+'</div><div class="ewts">'+ws.map(w=>{
+// No heading here: the rail header above the list already names this (#railtitle), and two "Workspaces"
+// stacked on top of each other was just the same word twice.
+const ev='<div class="ev"><div class="plist">'+[...groups].map(([repo,ws])=>'<div class="proj"><div class="prow" data-repo="'+esc(repo)+'"><span class="pav"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</span><span class="pname">'+esc(repo)+'</span><span class="pcount">'+ws.length+'</span>'+chev+'</div><div class="ewts">'+ws.map(w=>{
 // The main checkout is named for what it IS, not for whatever branch it happens to sit on: labelling it by
 // branch made a project whose main was on a feature branch look like it had no main at all. The branch line
 // below still shows the real branch.

@@ -137,3 +137,21 @@ test("a clicked link in the terminal leaves for the default browser through the 
   assert.match(xtermBundle, /addon-web-links\/lib\/addon-web-links\.js/, "the addon ships with the inlined xterm bundle");
 });
 
+
+// Panes are the app's view of tmux sessions, and those outlive the app. Reopening the panel after a restart
+// therefore has to come back with the panes that are still running: two agents used to return as ONE pane,
+// and opening "a new pane" then landed on the second agent — the app losing track of its own terminals.
+test("reopening after a restart restores one pane per live session, by ordinal", () => {
+  const main = readFileSync(new URL("../src/app-terminal-ipc.ts", import.meta.url), "utf8");
+  assert.match(main, /kakapo:pty-sessions[\s\S]{0,700}tmuxSessionsForRoot\(state\.options\.root/,
+    "main reports this workspace's live sessions");
+  assert.match(main, /ordinals[\s\S]{0,200}sort\(\(a, b\) => a - b\)/, "lowest ordinal first, so the panes come back in order");
+  assert.match(main, /Number\.isInteger\(size\?\.ordinal\)[\s\S]{0,160}nextTerminalOrdinal/,
+    "a spawn may name the ordinal it re-attaches to; anything else takes the lowest free one");
+
+  assert.match(client, /function restorePanes\(\)/, "the client restores rather than assuming one pane");
+  assert.match(client, /ordinals\.slice\(0, MAX_PANES\)/, "and never exceeds the pane cap");
+  assert.match(client, /ordinal: pane\.restoreOrdinal/, "each restored pane asks for its own session");
+  assert.match(client, /if \(ordinals\.length < 2\) return;/,
+    "one session (or none) is left to the plain open path, which already makes exactly one pane");
+});

@@ -98,7 +98,26 @@ export function killWorkspaceTerminals(state: TerminalIpcState): void {
 }
 
 export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateResolver): void {
-  ipc.handle("kakapo:pty-spawn", (event, size: { cols?: number; rows?: number }) => {
+  // The ordinals of this workspace's live tmux sessions, lowest first. A pane reopened after a restart
+  // re-attaches by ordinal, so this is what lets the panel come back with the panes it had rather than one:
+  // two agents left running are two sessions, and the renderer restores one pane each.
+  ipc.handle("kakapo:pty-sessions", (event) => {
+    const state = stateFromEvent(event);
+    const tmux = state ? resolveTmux(process.env) : undefined;
+    if (!state || !tmux) return { ordinals: [] };
+    let listed = "";
+    try {
+      const list = spawnSync(tmux, ["list-sessions", "-F", "#{session_name}"], { encoding: "utf8" });
+      listed = String(list.stdout ?? "");
+    } catch { /* no server running -> no sessions */ }
+    const ordinals = tmuxSessionsForRoot(state.options.root, listed)
+      .map((name) => Number(/-(\d+)$/.exec(name)?.[1] ?? 0))
+      .filter((ordinal) => ordinal > 0)
+      .sort((a, b) => a - b);
+    return { ordinals };
+  });
+
+  ipc.handle("kakapo:pty-spawn", (event, size: { cols?: number; rows?: number; ordinal?: number }) => {
     const state = stateFromEvent(event);
     if (!state) return { ok: false, id: -1 };
     const id = ++nextPtyId;
@@ -109,7 +128,11 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     // preference stored PER WORKSPACE while reading as an app-wide setting, so ticking it in one workspace
     // left every other one dying on quit. tmux being absent falls back to a plain shell, as before.
     const tmux = resolveTmux(process.env);
-    const session = tmux ? tmuxSessionName(state.options.root, nextTerminalOrdinal(sessionOrdinals(state))) : undefined;
+    // A restore asks for the ordinal it is re-attaching to; everything else takes the lowest free one.
+    const ordinal = Number.isInteger(size?.ordinal) && (size?.ordinal ?? 0) > 0
+      ? Number(size?.ordinal)
+      : nextTerminalOrdinal(sessionOrdinals(state));
+    const session = tmux ? tmuxSessionName(state.options.root, ordinal) : undefined;
     const t = spawnPty(tmux ?? shell, session ? tmuxSpawnArgs(session, state.options.root, answersEnv) : [], {
       // 256-color terminfo + COLORTERM=truecolor so TUIs (e.g. Claude Code's coral logo) emit 24-bit color and
       // xterm.js renders the exact hue. "xterm-color" is 8-color, which downgraded the orange logo to ANSI red.

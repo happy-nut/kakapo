@@ -45,3 +45,14 @@ test("only a click in the review content dismisses the expanded rail — not one
   assert.match(core, /closest\('\.terminal-panel'\)[\s\S]{0,260}reviewClicked\(\)/,
     "the renderer reports content clicks only — a click in the terminal is exempt");
 });
+
+// Choosing a workspace from the expanded rail — a click or Enter on a tile — is the rail's whole purpose, so
+// it collapses once the choice is made. This is deliberately NOT the same trigger as the review view taking
+// focus: that one has to leave the rail alone, or clicking into a terminal pane would dismiss it.
+test("picking a workspace from the rail collapses it", () => {
+  const main = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
+  for (const channel of ["kakapo:hub-activate", "kakapo:hub-activate-index", "kakapo:hub-open"]) {
+    const handler = main.slice(main.indexOf(`ipcMain.on("${channel}"`));
+    assert.match(handler.slice(0, 420), /collapseRailFromReview\(\)/, `${channel} collapses the rail`);
+  }
+});

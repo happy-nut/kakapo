@@ -5,6 +5,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
+import { readFileSync } from "node:fs";
 
 let html;
 before(async () => {
@@ -363,5 +364,70 @@ test("terminal focus: Cmd+E belongs to the shell, not to the Recent-files dialog
   v.key("e", { metaKey: true, code: "KeyE" });
   await v.settle(20);
   assert.equal(v.quickOpenVisible(), true, "Cmd+E still opens Recent files from the review");
+  v.close();
+});
+
+// The launcher's section rail is part of the keyboard flow, not a mouse-only strip: ArrowLeft steps into it,
+// the arrows move within it, Enter picks, and ArrowRight hands the keyboard back to the results.
+test("the launcher rail is reachable and navigable by keyboard", async () => {
+  const { html: appHtml } = await makeReviewHtml([
+    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+  ], { app: true });
+  const v = await loadViewer(appHtml);
+
+  v.key("e", { metaKey: true, code: "KeyE" });
+  await v.settle(20);
+  assert.equal(v.quickOpenVisible(), true, "the launcher opens");
+
+  v.key("ArrowLeft");
+  await v.settle(10);
+  const focused = () => v.document.activeElement?.dataset?.section;
+  assert.equal(focused(), "recent", "ArrowLeft lands on the section that is showing");
+
+  v.key("ArrowDown");
+  await v.settle(10);
+  assert.equal(focused(), "prompts", "ArrowDown steps down the rail");
+
+  v.key("ArrowUp");
+  await v.settle(10);
+  assert.equal(focused(), "recent", "and ArrowUp steps back");
+
+  v.key("ArrowRight");
+  await v.settle(10);
+  assert.notEqual(focused(), "recent", "ArrowRight gives the keyboard back to the results");
+
+  // Enter on a rail section switches to it AND keeps the keyboard there, so the next arrow still applies.
+  v.key("ArrowLeft"); await v.settle(10);
+  v.key("ArrowDown"); await v.settle(10);
+  v.key("Enter"); await v.settle(40);
+  assert.equal(v.$("#quick-open-mode").textContent, "Prompts", "Enter switches to the focused section");
+  assert.equal(focused(), "prompts", "and the rail keeps the keyboard");
+  v.close();
+});
+
+// REGRESSION, and the reason Cmd+Shift+E and even the space bar stopped working: quick-open is a modal
+// keyboard scope (every key goes to it, menu accelerators are suspended while it is up) with no
+// outside-click dismissal — and the terminal panel renders ABOVE it. Opening a terminal over an open
+// launcher therefore left an invisible dialog owning the keyboard: letters and spaces went into its
+// speed-search instead of the shell, and every accelerator stayed dead until it was dismissed.
+test("the launcher cannot keep the keyboard once it is not the thing on screen", async () => {
+  const { html: appHtml } = await makeReviewHtml([
+    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+  ], { app: true });
+  const v = await loadViewer(appHtml);
+
+  v.key("e", { metaKey: true, code: "KeyE" });
+  await v.settle(20);
+  assert.equal(v.quickOpenVisible(), true, "the launcher is up");
+
+  // A click anywhere outside its own panel dismisses it.
+  v.document.body.dispatchEvent(new v.window.MouseEvent("mousedown", { bubbles: true }));
+  await v.settle(20);
+  assert.equal(v.quickOpenVisible(), false, "an outside click closes it");
+
+  // And the terminal, which paints over it, closes it as it opens.
+  const client = readFileSync(new URL("../src/viewer/19-terminal.js", import.meta.url), "utf8");
+  assert.match(client, /closeQuickOpen === 'function'[\s\S]{0,200}closeQuickOpen\(\)/,
+    "opening the terminal dismisses a launcher it would cover");
   v.close();
 });
