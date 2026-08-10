@@ -3,13 +3,13 @@
 // renderer's store -> thread-row rendering (including the Mermaid fence lift-out).
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
-import { annotationsFilePath, refreshAnnotationsIfChanged } from "../dist/app-annotations-ipc.js";
+import { annotationsFilePath, refreshAnnotationsIfChanged, registerAnnotationsIpc } from "../dist/app-annotations-ipc.js";
 
 after(cleanupFixtures);
 
@@ -128,7 +128,7 @@ test("the prompt palette lists the saved prompts and sends the selected one to t
   v.close();
 });
 
-// Explain is the annotations, not a panel: ⌘7 asks for them and F9 walks them. Guards the regression where
+// Explain is the annotations, not a panel: ⌘7 asks for them and F8 walks them with everything else. Guards the regression where
 // ⌘7 opened a second reading surface the reviewer had to hold beside the diff.
 test("⌘7 runs Explain in place and opens no view of its own", async () => {
   const { html } = await makeReviewHtml([
@@ -146,14 +146,14 @@ test("⌘7 runs Explain in place and opens no view of its own", async () => {
   v.close();
 });
 
-test("F9 and Shift+F9 walk the agent's notes", async () => {
+test("F8 and Shift+F8 walk the agent's notes", async () => {
   const { html } = await makeReviewHtml([
     { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\nconst c = 3;\n", after: "const a = 9;\nconst b = 8;\nconst c = 7;\n" },
   ]);
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
 
-  v.key("F9");
+  v.key("F8");
   await v.settle(30);
   const cursorLine = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1);
 
@@ -165,17 +165,17 @@ test("F9 and Shift+F9 walk the agent's notes", async () => {
   await v.settle(30);
 
   // The caret starts on line 1, so "next" is the first note below it.
-  v.key("F9");
+  v.key("F8");
   await v.settle(80);
-  assert.equal(cursorLine(), 1, "F9 steps to the nearest note below the caret");
+  assert.equal(cursorLine(), 1, "F8 steps to the nearest note below the caret");
 
-  v.key("F9");
+  v.key("F8");
   await v.settle(80);
-  assert.equal(cursorLine(), 2, "a second F9 steps to the next note");
+  assert.equal(cursorLine(), 2, "a second F8 steps to the next note");
 
-  v.key("F9", { shiftKey: true });
+  v.key("F8", { shiftKey: true });
   await v.settle(80);
-  assert.equal(cursorLine(), 1, "Shift+F9 steps back");
+  assert.equal(cursorLine(), 1, "Shift+F8 steps back");
   v.close();
 });
 
@@ -216,7 +216,7 @@ test("F8 steps to an agent note, not only to the reviewer's own comments", async
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   const line = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1);
-  // Establish the caret the same way the F9 walk test does, then hand the note to the store.
+  // Establish the caret the same way the F8 walk test does, then hand the note to the store.
   v.key("F8");
   await v.settle(30);
   v.window.setAnnotations([{ path: "src/app.ts", line: 3, title: "why", text: "because." }]);
@@ -226,4 +226,39 @@ test("F8 steps to an agent note, not only to the reviewer's own comments", async
   await v.settle(80);
   assert.equal(line(), 2, "F8 lands on the note's line, with no comments in the file at all");
   v.close();
+});
+
+// A note in the timeline is deletable like anything else in it — and the delete has to reach the FILE. The
+// list is re-read from annotations.json on every poll tick, so a renderer-only delete reappears a second
+// later; rewriting the file is also what makes it survive a restart.
+test("dismissing a note rewrites annotations.json, so it does not come back on the next tick", () => {
+  const root = mkdtempSync(join(tmpdir(), "kakapo-annot-del-"));
+  execFileSync("git", ["init", "-q", root]);
+  const file = annotationsFilePath(root);
+  const keep = { path: "src/a.ts", line: 7, text: "keep me" };
+  const drop = { path: "src/a.ts", line: 3, text: "drop me" };
+  mkdirSync(join(root, ".git", "kakapo"), { recursive: true });
+  writeFileSync(file, JSON.stringify({ version: 1, notes: [keep, drop] }));
+
+  const state = fakeWindowState(root);
+  const handlers = new Map();
+  registerAnnotationsIpc({ handle: (channel, fn) => handlers.set(channel, fn), on: () => {} }, () => state);
+
+  refreshAnnotationsIfChanged(state); // seed: both notes are known
+  assert.equal(state.annotationNotes.length, 2);
+
+  const result = handlers.get("kakapo:annotations-delete")({}, drop);
+  assert.equal(result.ok, true, "the note was found and removed");
+
+  const onDisk = JSON.parse(readFileSync(file, "utf8")).notes;
+  assert.deepEqual(onDisk, [keep], "the file no longer carries it");
+  assert.deepEqual(state.annotationNotes, [keep], "and the renderer was pushed the new list immediately");
+
+  // The poller must agree: nothing changed since the write, and the note stays gone.
+  refreshAnnotationsIfChanged(state);
+  assert.deepEqual(state.annotationNotes, [keep], "a later tick does not resurrect it");
+
+  assert.equal(handlers.get("kakapo:annotations-delete")({}, { path: "src/a.ts", line: 99, text: "nope" }).ok, false,
+    "a note that is not there is not a write");
+  rmSync(root, { recursive: true, force: true });
 });

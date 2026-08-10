@@ -203,9 +203,11 @@ document.addEventListener('keydown', (event) => {
     next(delta);
   }
 
-  // F8 / Shift+F8: step between review comments, the bare-key counterpart of F7/Shift+F7 for diff hunks —
-  // changes on one key, comments on the next one over. Cmd+F7 below does the same thing and stays for muscle
-  // memory. Bare key, so it needs no text-field guard for the same reason bare F7 doesn't.
+  // F8 / Shift+F8: step between everything written on the diff — the reviewer's comments AND the agent's
+  // notes, one list (see sortedNavThread). The bare-key counterpart of F7/Shift+F7 for hunks: changes on one
+  // key, the conversation about them on the next one over. Cmd+F7 below does the same and stays for muscle
+  // memory. There used to be a third key, F9, for the agent's notes alone; the two are one timeline now, and
+  // a second key for half of it only meant F8 silently skipped the other half.
   if (event.key === 'F8' && !event.metaKey && !event.ctrlKey && !event.altKey) {
     event.preventDefault();
     clearTreeFocus(); // stepping to a comment moves the caret, so arrows follow it (see F7 above)
@@ -213,14 +215,6 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
-  // F9 / ⇧F9: the third member of the same family — F7 steps changes, F8 the reviewer's own comments, F9
-  // the agent's Explain notes (23-annotations.js). Bare key, same no-text-guard reasoning as F7/F8.
-  if (event.key === 'F9' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-    event.preventDefault();
-    clearTreeFocus();
-    if (typeof gotoAnnotation === 'function') gotoAnnotation(event.shiftKey ? -1 : 1);
-    return;
-  }
   }
 
   // ⌥F1 reveals the open file in the tree from ANY view — it runs BEFORE the isFloatingModalOpen stand-down

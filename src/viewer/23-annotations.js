@@ -63,6 +63,10 @@ function annotationCardHtml(note) {
     // reviewer find the line again and write what reads as an unrelated new comment.
     + '<button type="button" class="mc-reply mc-ai-reply" data-path="' + escapeHtml(note.path) + '" data-line="' + note.line + '"'
     + ' aria-label="' + escapeHtml(t('comment.reply')) + '" title="' + escapeHtml(t('comment.reply')) + '">↩</button>'
+    // Deletable like any other card in this timeline. It reaches the FILE (see kakapo:annotations-delete):
+    // the list is re-read from annotations.json every tick, so a renderer-only delete would come back.
+    + '<button type="button" class="mc-del mc-ai-del" data-path="' + escapeHtml(note.path) + '" data-line="' + note.line + '"'
+    + ' aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button>'
     + '</div>'
     + '<div class="mc-card-body markdown-body mc-ai-body">' + annotationBodyHtml(note.text) + '</div></div>';
 }
@@ -122,18 +126,24 @@ function runAnnotatePrompt() {
   if (typeof sendPromptToTerminal === 'function') sendPromptToTerminal(currentAnnotatePromptText());
 }
 
-// ----- stepping through the notes (F9 / ⇧F9), the same gesture F7 uses for hunks and F8 for comments.
-// Sorted in the order the reviewer walks the diff, not the order the agent happened to write them.
+
+// Notes in file order, merged into the review timeline by sortedNavThread (07-comments.js) so F8 walks them
+// alongside the reviewer's own comments. File order comes from the diff, not from the order the agent
+// happened to emit them in.
 function sortedAnnotations() {
   var order = typeof commentNavOrder === 'function' ? commentNavOrder() : {};
   function rank(n) { return n.path in order ? order[n.path] : Infinity; }
   return annotationList().slice().sort(function (a, b) { return rank(a) - rank(b) || a.line - b.line; });
 }
-function gotoAnnotation(delta) {
-  var list = sortedAnnotations();
-  if (!list.length) { showCaretHint(t('annotate.nav.none')); return true; }
-  var target = stepAnchor(delta, list);
-  // Notes anchor to the NEW side by construction (the prompt asks for right-hand-side line numbers).
-  if (!isDiffViewVisible() || !navigateToLineInDiff(target.path, target.line, 'new')) navigateToLine(target.path, target.line);
-  return true;
+
+// Dismiss a note: main rewrites annotations.json without it and pushes the new list straight back, so the
+// card goes as the click lands rather than a poll tick later. The text is part of the match so two notes on
+// one line stay distinguishable.
+function deleteAnnotation(path, line) {
+  var note = aiNotes.filter(function (n) { return n.path === path && n.line === line; })[0];
+  if (!note || !window.kakapoAnnotations || typeof window.kakapoAnnotations.remove !== 'function') return;
+  aiNotes = aiNotes.filter(function (n) { return n !== note; }); // optimistic: the card leaves now
+  if (typeof refreshComments === 'function') { try { refreshComments(); } catch (e) {} }
+  Promise.resolve(window.kakapoAnnotations.remove({ path: note.path, line: note.line, text: note.text }))
+    .catch(function () { requestAnnotations(); }); // put it back if the file could not be written
 }

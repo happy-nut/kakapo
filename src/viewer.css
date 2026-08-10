@@ -2061,9 +2061,12 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-card.mc-ai { max-width: 900px; }
 /* The note keeps its quiet chrome until you go near it: the reply arrow only appears on hover/focus, so
    a page of explanations does not read as a page of buttons. */
-.mc-card.mc-ai .mc-ai-reply { opacity: 0; transition: opacity 120ms ease; }
+.mc-card.mc-ai .mc-ai-reply,
+.mc-card.mc-ai .mc-ai-del { opacity: 0; transition: opacity 120ms ease; }
 .mc-card.mc-ai:hover .mc-ai-reply,
-.mc-card.mc-ai .mc-ai-reply:focus-visible { opacity: 1; }
+.mc-card.mc-ai:hover .mc-ai-del,
+.mc-card.mc-ai .mc-ai-reply:focus-visible,
+.mc-card.mc-ai .mc-ai-del:focus-visible { opacity: 1; }
 .mc-ai-title { font-size: 11px; color: var(--text); font-weight: 600; }
 /* Prose, not a code snippet: undo .mc-card-body's pre-wrap (markdown supplies its own block structure) and
    let .markdown-body typography take over. */

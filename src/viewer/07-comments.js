@@ -861,7 +861,7 @@ function navigateToCommentInDiff(seq) {
 // skipping an unviewed file, which doesn't apply to a deliberately-browsed comment list).
 // Pick the next (delta > 0) or previous anchor relative to wherever the caret currently is, wrapping at
 // both ends. `list` is already in diff order (sortedNavComments / sortedAnnotations); each item needs a
-// .path and a line (.from or .line). Shared by F8 (review comments) and F9 (agent notes, 23-annotations.js)
+// .path and a line (.from or .line). Used by F8, which walks review comments and agent notes as one list.
 // so the two step through the review identically. Assumes a non-empty list — callers hint and bail first.
 function stepAnchor(delta, list) {
   var order = commentNavOrder();

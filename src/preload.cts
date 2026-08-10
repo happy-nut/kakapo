@@ -204,6 +204,9 @@ contextBridge.exposeInMainWorld("kakapoMemo", {
 // path the agent must write to, so the ⌘7 prompt can name it.
 contextBridge.exposeInMainWorld("kakapoAnnotations", {
   read: (): Promise<{ path: string; notes: unknown[] }> => ipcRenderer.invoke("kakapo:annotations-read"),
+  // Dismissing a note rewrites annotations.json, so it survives the next poll tick and a restart alike.
+  remove: (note: { path: string; line: number; text: string }): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("kakapo:annotations-delete", note),
   onUpdate: (cb: (payload: { notes: unknown[] }) => void): void => {
     ipcRenderer.on("kakapo:annotations-update", (_event, payload: { notes: unknown[] }) => cb(payload));
   },

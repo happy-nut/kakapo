@@ -554,7 +554,13 @@ document.addEventListener('click', function (event) {
     return;
   }
   var del = t.closest('.mc-del');
-  if (del) { event.preventDefault(); deleteComment(parseInt(del.dataset.seq, 10)); return; }
+  if (del) {
+    event.preventDefault();
+    // An agent note has no seq — it is identified by where it is anchored.
+    if (del.classList.contains('mc-ai-del')) deleteAnnotation(del.dataset.path, parseInt(del.dataset.line, 10));
+    else deleteComment(parseInt(del.dataset.seq, 10));
+    return;
+  }
   if (t.closest('.mc-save')) { event.preventDefault(); saveComposer(); return; }
   if (t.closest('.mc-cancel')) { event.preventDefault(); closeComposer(); return; }
 });

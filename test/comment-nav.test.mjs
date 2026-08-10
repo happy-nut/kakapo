@@ -185,9 +185,9 @@ test("F8 and Shift+F8 walk the comments, mirroring F7 for changes", async () => 
 });
 
 // An agent's explanation and a reviewer's question are the same thing to someone walking a file: a note on
-// a line. They used to live on separate keys — F8 for comments, F9 for notes — so stepping with F8 silently
-// skipped every explanation the agent had left. The two lists are merged, sorted together, with a note ahead
-// of a comment on a line they share (the order the thread itself renders them in).
+// a line. They used to be two keys — F8 for comments, a second one for notes — so F8 silently skipped every
+// explanation the agent had left. One list now, sorted together, a note ahead of a comment on a line they
+// share (the order the thread itself renders them in), and one key that walks all of it.
 test("the comment navigation list contains both kinds", () => {
   const comments = readFileSync(new URL("../src/viewer/07-comments.js", import.meta.url), "utf8");
   assert.match(comments, /function sortedNavThread\(\)[\s\S]{0,400}sortedAnnotations\(\)/,

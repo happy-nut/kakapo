@@ -362,7 +362,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Settings — the Explain prompt (⌘7 / the ⌘⇧P palette sends it; the agent writes annotations.json)
     "annotatePrompt.title": "Explain the diff inline",
-    "annotatePrompt.desc": "Sent to an AI agent by ⌘7 (or the ⌘⇧P palette) to walk the diff and drop plain-language note cards on the lines that matter. F9 steps through them. Saved automatically. {{NOTES_PATH}} is replaced with this workspace's annotations file when sent.",
+    "annotatePrompt.desc": "Sent to an AI agent by ⌘7 (or the ⌘⇧P palette) to walk the diff and drop plain-language note cards on the lines that matter. F8 steps through them alongside your own comments. Saved automatically. {{NOTES_PATH}} is replaced with this workspace's annotations file when sent.",
     "annotate.kind": "Why",
     "annotate.nav.none": "No Explain notes yet — press ⌘7 to have an agent write them.",
 
@@ -882,7 +882,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Settings — Explain 프롬프트 (⌘7 또는 ⌘⇧P 팔레트로 보내면 에이전트가 annotations.json을 작성)
     "annotatePrompt.title": "diff에 직접 설명 달기",
-    "annotatePrompt.desc": "⌘7(또는 ⌘⇧P 팔레트)로 AI 에이전트에게 보내, diff를 훑으며 중요한 줄마다 쉬운 말로 설명 카드를 달게 하는 프롬프트입니다. F9로 노트 사이를 이동합니다. 자동 저장됩니다. {{NOTES_PATH}}는 보낼 때 이 워크스페이스의 주석 파일 경로로 치환됩니다.",
+    "annotatePrompt.desc": "⌘7(또는 ⌘⇧P 팔레트)로 AI 에이전트에게 보내, diff를 훑으며 중요한 줄마다 쉬운 말로 설명 카드를 달게 하는 프롬프트입니다. F8로 내 코멘트와 함께 노트 사이를 이동합니다. 자동 저장됩니다. {{NOTES_PATH}}는 보낼 때 이 워크스페이스의 주석 파일 경로로 치환됩니다.",
     "annotate.kind": "왜",
     "annotate.nav.none": "아직 Explain 노트가 없습니다 — ⌘7을 눌러 에이전트에게 작성을 맡기세요.",
 

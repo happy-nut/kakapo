@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent, WebContents } from "electron";
 import { kakapoGitDataFile } from "./git.js";
 
@@ -61,6 +61,35 @@ export function registerAnnotationsIpc(ipc: IpcMain, stateFromEvent: Annotations
     const state = stateFromEvent(event);
     if (!state) return { path: "", notes: [] };
     return { path: annotationsFilePath(state.options.root) ?? "", notes: state.annotationNotes };
+  });
+
+  // Dismissing a note has to reach the FILE, not just the renderer's copy: the list is re-read from
+  // annotations.json on every poll tick, so a delete that lived only in memory would reappear a second
+  // later. Rewriting the file is also what makes it stick across a restart — the same durability a deleted
+  // comment has. A later Explain run rewrites the file wholesale and may bring the note back, which is the
+  // honest behaviour: you asked for a fresh set of explanations.
+  ipc.handle("kakapo:annotations-delete", (event, request: { path?: string; line?: number; text?: string }) => {
+    const state = stateFromEvent(event);
+    const file = state ? annotationsFilePath(state.options.root) : undefined;
+    if (!state || !file || !existsSync(file)) return { ok: false };
+    try {
+      const doc = JSON.parse(readFileSync(file, "utf8")) as { notes?: unknown[] };
+      const notes = Array.isArray(doc.notes) ? doc.notes : [];
+      const kept = notes.filter((note) => {
+        const item = note as { path?: unknown; line?: unknown; text?: unknown };
+        return !(String(item.path ?? "") === String(request?.path ?? "")
+          && Number(item.line ?? 0) === Number(request?.line ?? -1)
+          && String(item.text ?? "") === String(request?.text ?? ""));
+      });
+      if (kept.length === notes.length) return { ok: false };
+      writeFileSync(file, JSON.stringify({ ...doc, notes: kept }, null, 2));
+      // Push the new list now rather than waiting for the next poll tick, so the card disappears on click.
+      state.annotationsSig = ""; // force the next read to treat the file as changed
+      refreshAnnotationsIfChanged(state);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String(error) };
+    }
   });
 }
 
