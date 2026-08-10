@@ -6,10 +6,11 @@
 // session that started it. dispose() now signals the server's whole process group.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, writeFileSync, symlinkSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LspClient } from "../dist/lsp.js";
+import { LspClient, reapEscapedGradleDaemons } from "../dist/lsp.js";
 
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
@@ -47,4 +48,26 @@ setInterval(() => {}, 1000);
 
   client.dispose();
   await waitFor(() => !alive(grandchild), 5_000, "grandchild outlived dispose() — it was orphaned");
+});
+
+// A Gradle daemon puts itself in a new session on purpose, so signalling the server's process group cannot
+// reach it — issue #24's machine had 15 of them from our bundled JVM, one holding 500 MB. Reaping matches on
+// the bundle path, and must stay narrow: a daemon is a restartable cache, a language server is not.
+test("escaped Gradle daemons are reaped, other bundled processes are not", { skip: process.platform === "win32" }, async () => {
+  const bundle = join(mkdtempSync(join(tmpdir(), "kakapo-reap-")), "kotlin");
+  mkdirSync(join(bundle, "jbr", "bin"), { recursive: true });
+  const java = join(bundle, "jbr", "bin", "java");
+  symlinkSync(process.execPath, java);
+  // detached: its own process group, exactly like the daemon that escaped dispose().
+  const idle = ["-e", "setInterval(() => {}, 1000)"];
+  const daemon = spawn(java, [...idle, "GradleDaemon"], { detached: true, stdio: "ignore" });
+  const server = spawn(java, [...idle, "kotlin-lsp"], { detached: true, stdio: "ignore" });
+  daemon.unref(); server.unref();
+  await waitFor(() => alive(daemon.pid) && alive(server.pid), 5_000, "test processes never started");
+
+  reapEscapedGradleDaemons(bundle);
+
+  await waitFor(() => !alive(daemon.pid), 5_000, "the escaped Gradle daemon survived the reap");
+  assert.ok(alive(server.pid), "the reap killed a language server, not just the daemon");
+  server.kill("SIGKILL");
 });

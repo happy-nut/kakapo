@@ -1116,6 +1116,9 @@ function ensureShellWindow(light: boolean): BrowserWindow {
   // the rail. Without this guard, focusing the shell to hold rail focus (in the hub-expanded handler) would loop
   // back through here to the review view and instantly collapse the rail via its focus listener.
   shellWindow.on("focus", () => { if (!railExpanded) focusActiveReviewView(); });
+  // Minimizing the shell takes every workspace it hosts off screen at once, and no activation follows.
+  shellWindow.on("minimize", reconcileAllIdleSuspend);
+  shellWindow.on("restore", reconcileAllIdleSuspend);
   if (DEV_BUILD) shellWindow.webContents.on("console-message", (...args: unknown[]) => {
     const first = args[0] as { message?: string } | undefined;
     console.error(`[hub] ${String(first && typeof first === "object" ? first.message : args[2])}`);
@@ -1242,24 +1245,13 @@ function activateWorkspace(id: number): void {
     shellWindow.setTitle(`${metadata?.alias || identity.branch} · ${identity.repoName} — ${APP_TITLE}`);
   }
   for (const state of states.values()) {
-    if (state.win.isDetached()) continue;
-    const view = shellWindow.contentView.children.find(
-      (child): child is WebContentsView => child instanceof WebContentsView && child.webContents.id === state.win.webContents.id,
-    );
-    view?.setVisible(state.win.webContents.id === id);
-    // Start the countdown when this workspace goes off screen, and let it run. Re-arming it on every switch
-    // measured "nobody switched for a while" instead of "this workspace has been hidden for a while", so with
-    // a handful of workspaces in rotation nothing was ever reclaimed. Activating one clears its timer above.
-    if (state.win.webContents.id !== id && !state.idleTimer && !state.analysisSuspended) {
-      state.idleTimer = setTimeout(() => {
-        state.idleTimer = undefined;
-        state.analysis.dispose();
-        state.analysisSuspended = true;
-        state.sourceFiles.clear();
-        state.bodyCache.clear();
-      }, ANALYSIS_IDLE_SUSPEND_MS);
-      state.idleTimer.unref?.();
+    if (!state.win.isDetached()) {
+      const view = shellWindow.contentView.children.find(
+        (child): child is WebContentsView => child instanceof WebContentsView && child.webContents.id === state.win.webContents.id,
+      );
+      view?.setVisible(state.win.webContents.id === id);
     }
+    reconcileIdleSuspend(state);
   }
   shellWindow.show();
   shellWindow.focus();
@@ -1605,6 +1597,16 @@ function createWindow(root: string, deferBoot = false): WinState {
         view.setBounds({ x: 0, y: 0, width, height });
       };
       detachedHost.on("resize", fitDetachedView);
+      // A detached workspace never passes through activateWorkspace again, so its own window is the only
+      // place that knows it left the screen.
+      const reconcileDetached = () => {
+        const detachedState = states.get(view.webContents.id);
+        if (detachedState) reconcileIdleSuspend(detachedState);
+      };
+      detachedHost.on("minimize", reconcileDetached);
+      detachedHost.on("restore", reconcileDetached);
+      detachedHost.on("show", reconcileDetached);
+      detachedHost.on("hide", reconcileDetached);
       detachedHost.on("closed", () => {
         detachedHost = undefined;
         if (!view.webContents.isDestroyed()) view.webContents.close();
@@ -1787,7 +1789,36 @@ function armWatchTimers(state: WinState): void {
 // immediately so the switch itself stays instant.
 function isVisibleWorkspace(state: WinState): boolean {
   if (state.win.isDestroyed()) return false;
+  // A minimized host shows nothing, whether it is the shell or a detached window. Without this a minimized
+  // app kept every visible workspace's per-second `git diff` running, and a detached workspace counted as
+  // on screen forever — the two paths that slipped past the first pass at issue #24.
+  if (state.win.isMinimized()) return false;
   return state.win.isDetached() || state.win.webContents.id === activeStateId;
+}
+
+// Reclaim a workspace's language servers once it has been off screen for a while. Arm the countdown when it
+// goes off screen and let it run — re-arming on every switch measured "nobody switched recently" rather than
+// "this workspace has been hidden a while", so with a few workspaces in rotation nothing was ever reclaimed.
+// Every way a workspace can leave the screen routes here, so a detached or minimized one is reclaimed too.
+function reconcileIdleSuspend(state: WinState): void {
+  if (state.win.isDestroyed()) return;
+  if (isVisibleWorkspace(state)) {
+    if (state.idleTimer) { clearTimeout(state.idleTimer); state.idleTimer = undefined; }
+    return;
+  }
+  if (state.idleTimer || state.analysisSuspended) return;
+  state.idleTimer = setTimeout(() => {
+    state.idleTimer = undefined;
+    state.analysis.dispose();
+    state.analysisSuspended = true;
+    state.sourceFiles.clear();
+    state.bodyCache.clear();
+  }, ANALYSIS_IDLE_SUSPEND_MS);
+  state.idleTimer.unref?.();
+}
+
+function reconcileAllIdleSuspend(): void {
+  for (const state of states.values()) reconcileIdleSuspend(state);
 }
 
 // Only the session's FIRST window gets the full-size startup mark; see loadingHtml.

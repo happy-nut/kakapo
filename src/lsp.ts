@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
 import { accessSync, constants, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { delimiter, extname, join, relative, resolve } from "node:path";
@@ -451,7 +451,28 @@ process.once("exit", () => {
       else process.kill(-pid, "SIGKILL");
     } catch { /* already gone */ }
   }
+  reapEscapedGradleDaemons();
 });
+
+// The bundled Kotlin server's project import runs Gradle, and a Gradle daemon puts itself in a new session
+// (observed PPID 1, PGID = its own pid) precisely so it outlives the build that started it. Signalling the
+// server's process group therefore cannot reach it: issue #24 left one holding 500 MB for hours, and this
+// machine had accumulated 15 daemon logs from our JVM. Nothing but Kakapo runs the JVM we bundle, so match on
+// that path — and only on daemons, since a daemon is a restartable cache while a language server is not.
+export function reapEscapedGradleDaemons(bundleDir = bundledKotlinDir()): void {
+  if (process.platform === "win32") return; // no bundled JBR there, and pgrep does not exist
+  // Synchronous by necessity: this also runs from an 'exit' handler, where nothing async can still land.
+  const found = spawnSync("pgrep", ["-f", `^${bundleDir}/.*GradleDaemon`], { encoding: "utf8" });
+  for (const line of found.stdout?.split("\n") ?? []) {
+    const pid = Number(line.trim());
+    if (!pid) continue;
+    try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
+  }
+}
+
+function bundledKotlinDir(): string {
+  return join(bundledRoot(process.env), `${bundlePlatform(process.platform)}-${bundleArch(process.arch)}`, "kotlin");
+}
 
 export class LspClient {
   private child?: ChildProcessWithoutNullStreams;
