@@ -800,6 +800,9 @@ async function updatePackagedApp(): Promise<{ ok: boolean; error?: string }> {
 
 ipcMain.handle("kakapo:self-update", (event) => {
   if (app.isPackaged && process.platform === "darwin") return updatePackagedApp();
+  // kakapo ships from GitHub Releases only — there is no npm publish (see release.yml), so the global-CLI
+  // path below cannot resolve the package. A run from source updates the way source does.
+  if (!app.isPackaged) return Promise.resolve({ ok: false, error: "running from source — update with git pull" });
   return updateGlobalCli(event);
 });
 

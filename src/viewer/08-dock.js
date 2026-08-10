@@ -616,7 +616,7 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
         ub.classList.remove('hidden');
         if (status) { status.textContent = t('settings.updateAvailable') + ': v' + latest; status.classList.add('has-update'); }
       } else if (status) {
-        status.textContent = t('settings.updateAvailable') + ': v' + latest + ' — npm i -g @happy-nut/kakapo';
+        status.textContent = t('settings.updateAvailable') + ': v' + latest + ' — github.com/happy-nut/kakapo/releases';
         status.classList.add('has-update');
       }
     } else if (status) {
@@ -628,9 +628,13 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   try { cached = sessionStorage.getItem('kakapo-update-latest') || ''; } catch (e) {}
   if (cached) { apply(cached); return; }
   if (typeof fetch !== 'function') return;
-  fetch('https://registry.npmjs.org/@happy-nut/kakapo/latest', { cache: 'no-store' })
+  // GitHub Releases is where kakapo actually ships (release.yml attaches the dmg and the Linux tarballs;
+  // there is no npm publish). This used to ask the npm registry, which answers 404 for this package — so the
+  // check silently failed forever and no update was ever offered.
+  fetch('https://api.github.com/repos/happy-nut/kakapo/releases/latest', { cache: 'no-store', headers: { accept: 'application/vnd.github+json' } })
     .then(function (res) { return res && res.ok ? res.json() : null; })
     .then(function (data) {
+      data = data && data.tag_name ? { version: String(data.tag_name).replace(/^v/, '') } : null;
       if (!data || !data.version) {
         var status = document.getElementById('app-info-status');
         if (status) { status.classList.remove('is-loading'); status.textContent = 'v' + current; }

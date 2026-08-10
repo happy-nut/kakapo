@@ -222,16 +222,17 @@ const list=document.querySelector("#list"),esc=s=>String(s).replace(/[&<>"']/g,c
 const newModal=()=>window.kakapoHub.openModal('new',curRepo?{path:curRepo.path,name:curRepo.name}:undefined);
 document.querySelector("#new").onclick=newModal;
 document.querySelector("#settings").onclick=()=>window.kakapoHub.settings();
-// One version check per launch, against the same npm record the review's settings panel reads. The chip is
+// One version check per launch, against the same GitHub release the review's settings panel reads. The chip is
 // only ever a pointer: the install itself lives behind the Update button in Settings, which knows whether
 // this is the packaged bundle (release DMG) or the global CLI (npm).
 (()=>{const chip=document.querySelector("#update-chip");if(!chip||typeof fetch!=="function")return;
 chip.onclick=()=>window.kakapoHub.settings();
 const newer=(a,b)=>{const p=v=>String(v).replace(/^v/,"").split(".").map(n=>parseInt(n,10)||0),x=p(a),y=p(b);
   for(let i=0;i<Math.max(x.length,y.length);i++){const l=x[i]||0,r=y[i]||0;if(l!==r)return l>r;}return false;};
-fetch("https://registry.npmjs.org/@happy-nut/kakapo/latest",{cache:"no-store"})
+fetch("https://api.github.com/repos/happy-nut/kakapo/releases/latest",{cache:"no-store",headers:{accept:"application/vnd.github+json"}})
   .then(r=>r&&r.ok?r.json():null)
-  .then(d=>{if(d&&d.version&&newer(d.version,APP_VERSION)){chip.textContent=chip.textContent+" v"+d.version;chip.classList.remove("hidden");}})
+  .then(d=>{const v=d&&d.tag_name?String(d.tag_name).replace(/^v/,""):"";
+    if(v&&newer(v,APP_VERSION)){chip.textContent=chip.textContent+" v"+v;chip.classList.remove("hidden");}})
   .catch(()=>{});})();
 const tools=document.getElementById('tools');
 tools.addEventListener('click',e=>{const b=e.target.closest('button.tb');if(!b)return;window.kakapoHub.railAction(b.dataset.act)});
