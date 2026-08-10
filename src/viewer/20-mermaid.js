@@ -65,6 +65,8 @@ function renderMermaidDiagrams(root) {
       node.dataset.mermaidDone = '1';
       mermaid.render(node.id + '-svg', src).then(function (result) {
         node.innerHTML = result.svg;
+        node.classList.add('mermaid-zoomable');
+        node.title = t('diagram.zoom');
       }).catch(function () {
         node.textContent = t('explain.diagramInvalid');
       });
@@ -73,3 +75,36 @@ function renderMermaidDiagrams(root) {
     nodes.forEach(function (node) { node.textContent = t('explain.diagramLoadFailed'); });
   });
 }
+
+// A diagram is a picture, and a picture in a 700px card is often too small to read — so any of them, whatever
+// kind, opens full-size on click. The rendered SVG is turned into a data URL and handed to the same lightbox
+// the image preview uses, rather than growing a second overlay that would need its own Escape and backdrop.
+//
+// A node can also be a LINK into the code: the codebase prompt asks for `click A "#kakapo:path:line"`, which
+// mermaid renders as an ordinary anchor. Following it here (rather than through mermaid's `call` callback,
+// which securityLevel 'strict' rightly refuses for agent-written content) keeps the diagram source as data
+// we parse, never as script we run.
+function mermaidSvgDataUrl(svg) {
+  try { return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.outerHTML || ''); } catch (e) { return ''; }
+}
+document.addEventListener('click', function (event) {
+  var target = event.target;
+  if (!target || !target.closest) return;
+  var host = target.closest('.mermaid');
+  if (!host) return;
+  var link = target.closest('a[href]');
+  var href = link ? (link.getAttribute('href') || '') : '';
+  var at = href.indexOf('#kakapo:');
+  if (at >= 0) {
+    event.preventDefault();
+    var parts = href.slice(at + '#kakapo:'.length).split(':');
+    var line = parseInt(parts.pop(), 10);
+    var path = decodeURIComponent(parts.join(':'));
+    if (path && typeof navigateToLine === 'function') navigateToLine(path, line > 0 ? line : 1);
+    return;
+  }
+  if (link) return; // an ordinary link in a diagram keeps its own meaning
+  var svg = host.querySelector('svg');
+  var url = svg ? mermaidSvgDataUrl(svg) : '';
+  if (url && typeof openLightbox === 'function') { event.preventDefault(); openLightbox(url, t('diagram.zoom')); }
+});

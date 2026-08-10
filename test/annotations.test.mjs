@@ -116,8 +116,9 @@ test("the prompt palette lists the saved prompts and sends the selected one to t
   assert.ok(v.$('#quick-open-side .quick-open-side-item[data-section="prompts"]').classList.contains("active"), "on the Prompts section");
   const items = v.$all("#quick-open-results .quick-open-item");
   // Only the prompts a human sends deliberately — the merge prompts ride along with the merged hand-off.
-  assert.equal(items.length, 1, "the section lists the one send-on-purpose prompt");
-  assert.match(items[0].textContent, /diff/i, "it is the inline-diff explanation prompt");
+  assert.equal(items.length, 2, "the section lists the send-on-purpose prompts");
+  assert.match(items[0].textContent, /diff/i, "the inline-diff explanation prompt is first");
+  assert.match(items[1].textContent, /codebase/i, "then the codebase map");
 
   v.key("Enter");
   await v.settle(10);
@@ -261,4 +262,30 @@ test("dismissing a note rewrites annotations.json, so it does not come back on t
   assert.equal(handlers.get("kakapo:annotations-delete")({}, { path: "src/a.ts", line: 99, text: "nope" }).ok, false,
     "a note that is not there is not a write");
   rmSync(root, { recursive: true, force: true });
+});
+
+// The codebase prompt writes the SAME notes file the diff prompt does — its map and its per-component notes
+// are ordinary notes on the code, navigable with F8 and answerable like any other card. What differs is what
+// the agent is asked to look at. Its diagram nodes carry `#kakapo:path:line` links, which the viewer turns
+// into navigation rather than handing to mermaid's script callback (securityLevel is strict for a reason:
+// the diagram source is agent-written).
+test("the codebase prompt is a second editable prompt writing the same notes contract", async () => {
+  const { MESSAGES } = await import("../dist/i18n.js");
+  for (const locale of ["en", "ko"]) {
+    const prompt = MESSAGES[locale]["codebase.prompt.default"];
+    assert.ok(prompt, `${locale} has the prompt`);
+    assert.ok(prompt.includes("{{NOTES_PATH}}"), "it writes to this workspace's notes file");
+    assert.ok(prompt.includes("#kakapo:"), "its diagram nodes link into the code");
+    assert.match(prompt, /3-5|3~5/, "it asks for a handful of components, not every directory");
+  }
+
+  const palette = readFileSync(new URL("../src/viewer/24-prompt-palette.js", import.meta.url), "utf8");
+  assert.match(palette, /id: 'codebase'[\s\S]{0,120}currentCodebasePromptText/, "the launcher offers it");
+  const render = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
+  assert.match(render, /settings-prompt-codebase/, "and settings can edit it");
+
+  const mermaid = readFileSync(new URL("../src/viewer/20-mermaid.js", import.meta.url), "utf8");
+  assert.match(mermaid, /#kakapo:[\s\S]{0,400}navigateToLine/, "a node link navigates to the component");
+  assert.match(mermaid, /openLightbox/, "and any diagram opens full-size on click");
+  assert.match(mermaid, /securityLevel: 'strict'/, "without loosening mermaid's script policy");
 });

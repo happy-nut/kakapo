@@ -60,11 +60,23 @@ test("merged prompts and memo keep compact 24px content insets and clickable hea
   assert.match(activeDockButtons || "", /cursor:\s*pointer/, "clear, copy, and maximize controls advertise clickability");
 });
 
-test("current-file find stays beneath modal dim layers", () => {
-  const fileFind = ruleBodyForExactSelector(".file-find");
-  const quickOpen = ruleBodyForExactSelector(".quick-open");
-  assert.match(fileFind || "", /z-index:\s*45\b/, "the current-file search remains editor chrome, not a modal");
-  assert.match(quickOpen || "", /z-index:\s*50\b/, "Quick Open's dim backdrop paints above current-file search");
+// The launcher is a modal keyboard scope: while it is up every key goes to it and menu accelerators are
+// suspended. So it has to be ABOVE everything it can be opened over — it sat below the terminal panel, and
+// Cmd+E with a terminal open produced an invisible modal that ate every keystroke (spaces included) and
+// killed every accelerator, with nothing on screen to explain why. Pin the ordering, not the numbers.
+test("the modal launcher paints above the surfaces it can be opened over", () => {
+  // Not ruleBodyForExactSelector: it anchors on the previous rule's brace, and these rules are introduced by
+  // a comment rather than by one.
+  const zIndexOf = (selector) => {
+    const at = css.indexOf("\n" + selector + " {");
+    assert.ok(at >= 0, `${selector} has a rule of its own`);
+    const match = /z-index:\s*(\d+)/.exec(css.slice(at, css.indexOf("}", at)));
+    assert.ok(match, `${selector} declares a z-index`);
+    return Number(match[1]);
+  };
+  const quickOpen = zIndexOf(".quick-open");
+  assert.ok(zIndexOf(".file-find") < quickOpen, "the current-file search is editor chrome, not a modal");
+  assert.ok(zIndexOf(".terminal-panel") < quickOpen, "a terminal never covers the dialog that owns the keyboard");
 });
 
 test("scrollbar thumbs remain layout-stable but only paint while scrolling", () => {

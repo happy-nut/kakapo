@@ -120,6 +120,23 @@ function currentAnnotatePromptText() {
   return loadAnnotatePrompt().split('{{NOTES_PATH}}').join(annotationsPath || '');
 }
 
+// The other editable prompt: map the WHOLE repository rather than explain one diff. Same storage shape as
+// the annotate prompt above, and the same output contract — it writes the same annotations.json, so its map
+// and its component notes land on the code as ordinary notes, navigable with F8 and answerable like any
+// other card. The difference is what it is asked to look at, not what it produces.
+var codebasePromptKey = 'kakapo-codebase-prompt';
+function defaultCodebasePrompt() { return t('codebase.prompt.default'); }
+function loadCodebasePrompt() {
+  var b = persistRead(codebasePromptKey);
+  if (typeof b === 'string' && b.trim()) return b;
+  try { var ls = localStorage.getItem(codebasePromptKey); if (ls && ls.trim()) return ls; } catch (e) {}
+  return defaultCodebasePrompt();
+}
+function saveCodebasePrompt(text) { persistSave(codebasePromptKey, text || ''); }
+function currentCodebasePromptText() {
+  return loadCodebasePrompt().split('{{NOTES_PATH}}').join(annotationsPath || '');
+}
+
 // ----- running it (⌘7 / the Explain rail button): stage the prompt in the terminal composer, the same
 // review-before-it-runs step every other prompt hand-off uses (sendPromptToTerminal, 24-prompt-palette.js).
 function runAnnotatePrompt() {
