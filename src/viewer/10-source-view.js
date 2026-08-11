@@ -895,7 +895,19 @@ function showSourceTabOverflowMenu(button) {
   }), rect.top - 4, 'source-tab-overflow-menu');
 }
 
+// The tree's "active" row means one thing: this file is open in the source viewer. It is set from several
+// places (open, reveal, tree rebuild, restored UI state), and any of them going stale leaves a highlighted
+// row for a file that is not open — which reads as the app claiming something it is not doing. Re-derive it
+// from the one authority, here, on every tab render: no open path means no active row anywhere.
+function syncSourceTreeActive() {
+  var viewer = document.getElementById('source-viewer');
+  var openPath = (viewer && viewer.dataset.openPath) || '';
+  document.querySelectorAll('.source-link').forEach(function (link) {
+    link.classList.toggle('active', !!openPath && link.dataset.sourceFile === openPath);
+  });
+}
 function renderSourceTabs(activePath) {
+  syncSourceTreeActive();
   var bar = document.getElementById('source-tabs');
   if (!bar) return;
   // A single open file needs no tab strip: the source toolbar's breadcrumb already names it, so the extra

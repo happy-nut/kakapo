@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync, type Stats } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readlinkSync, statSync, type Stats } from "node:fs";
 import { basename, join, relative } from "node:path";
 import type { DiffFile, DiffHunk, DiffLine, ReviewFileState, SourceFile } from "./types.js";
 import {
@@ -85,11 +85,27 @@ function readUntrackedDiff(root: string): string {
 
   for (const file of files) {
     const absolute = join(root, file);
-    // One stat covers presence, file-ness, and size — was three syscalls (existsSync + two statSync) per file.
+    // lstat, not stat: a symlink is a change in its own right, and statSync FOLLOWS it — so a link whose
+    // target is missing (or lives outside this worktree) threw here and the file was dropped without a
+    // trace. Git listed it as untracked, kakapo showed "no changed files", and the two disagreed with no
+    // way to tell why. Git stores a symlink as a blob holding its target, so that is what the diff shows.
     let stats: Stats;
     try {
-      stats = statSync(absolute);
+      stats = lstatSync(absolute);
     } catch {
+      continue;
+    }
+    if (stats.isSymbolicLink()) {
+      let target = "";
+      try { target = readlinkSync(absolute); } catch { /* unreadable link — still worth showing the path */ }
+      chunks.push([
+        `diff --git a/${file} b/${file}`,
+        "new file mode 120000",
+        "--- /dev/null",
+        `+++ b/${file}`,
+        "@@ -0,0 +1 @@",
+        `+${target}`,
+      ].join("\n"));
       continue;
     }
     if (!stats.isFile()) continue;
