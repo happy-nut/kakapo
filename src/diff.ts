@@ -455,7 +455,12 @@ export function collectSourceFiles(
       continue;
     }
 
-    if (embeddedFiles >= maxFiles || embeddedBytes + stats.size > maxTotalBytes) {
+    // The budget is spent walking the tree in lexicographic order, so on a large repo it was exhausted by
+    // whatever sorted first and the changed files — the entire point of the review — were starved of it: 196
+    // of 280 on a 30-commit range here. A changed file is bounded by the diff and capped per-file by
+    // maxFileBytes above, so it is read and kept regardless of what the walk has already spent.
+    const changedFile = options.deferSourceContent && base.changed;
+    if (!changedFile && (embeddedFiles >= maxFiles || embeddedBytes + stats.size > maxTotalBytes)) {
       // Electron already has a per-file IPC bridge. Once the eager cache budget is exhausted, retain an
       // openable metadata record instead of permanently disabling every later file in lexical order.
       // The main process reads only the explicitly opened file via materializeDeferredSourceFile().
