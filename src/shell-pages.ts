@@ -157,6 +157,11 @@ body.rail-exp .ev{display:flex}
 .dot{width:8px;height:8px;border-radius:50%;flex:none;background:${light ? "#b7bcc4" : "#5b616b"}}
 .ev .wt.running .dot,.ev .wt.busy .dot{background:#4cc38a;box-shadow:0 0 0 3px #4cc38a22}
 .ev .wt.busy .dot{animation:dotpulse 1.3s ease-in-out infinite}
+/* Something is waiting for you there — an agent finished a turn, or answered a review comment — so the dot
+   goes red, the same #e5484d the collapsed strip's .udot uses. Last, and deliberately: green means "running,
+   nothing to do", and a workspace that has both is the one you should be looking at. Reading it as merely
+   alive was the whole problem. Cleared when you open that workspace (activateWorkspace). */
+.ev .wt.attn .dot{background:#e5484d;box-shadow:0 0 0 3px #e5484d33;animation:none}
 @keyframes dotpulse{0%,100%{opacity:1}50%{opacity:.35}}
 @media (prefers-reduced-motion:reduce){.ev .wt.busy .dot{animation:none}}
 .wt-name{font-weight:600;font-size:12.5px;color:${fg};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}

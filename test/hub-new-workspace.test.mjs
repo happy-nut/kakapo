@@ -111,6 +111,26 @@ test("an expanded tile badges the agent its worktree is running", () => {
   assert.ok(cardFor(document, "topic").querySelector("svg.usage-ico-codex"), "codex keeps its own mark");
 });
 
+// A workspace with something waiting in it — an agent finished a turn, or answered a review comment — has to
+// read differently from one that is merely alive. Both wore the same green dot in the expanded rail, so the
+// one you needed to open looked exactly like the three you did not.
+test("a workspace with something waiting wears a red dot, not the running green", () => {
+  const { document } = railWithState([
+    { ...ZOOBOX_WORKTREE, running: true, unread: true },
+    { ...KAKAPO_MAIN, branch: "topic", kind: "worktree", running: true },
+  ]);
+  const css = document.querySelector("style").textContent;
+
+  assert.ok(cardFor(document, "kakapo/fix-login").classList.contains("attn"), "the waiting one is flagged");
+  assert.ok(!cardFor(document, "topic").classList.contains("attn"), "the busy-but-read one is not");
+  assert.ok(document.querySelector(".cv .wt.attn .udot"), "the collapsed strip keeps its own red dot");
+
+  const attn = css.slice(css.indexOf(".ev .wt.attn .dot"));
+  assert.match(attn.slice(0, attn.indexOf("}")), /background:#e5484d/, "the expanded dot goes red");
+  assert.ok(css.indexOf(".ev .wt.attn .dot") > css.indexOf(".ev .wt.running .dot"),
+    "and wins over the green, which is only source order away");
+});
+
 test("a worktree with no agent gets no badge, and the collapsed rail never does", () => {
   // No agent is a real state — a worktree you have only run shell commands in — and must read as absent
   // rather than as an unnamed agent.
