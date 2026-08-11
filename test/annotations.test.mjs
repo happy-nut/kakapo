@@ -235,6 +235,27 @@ test("a reply to a note hands the note itself to the agent as the turn before it
   v.close();
 });
 
+// Clicking a diagram opens it full-size in an <img>, which parses its source as standalone XML — and
+// .outerHTML is an HTML serialization: no xmlns, and label markup inside <foreignObject> left as HTML, where
+// a single unclosed <br> is fatal. The lightbox showed a broken-image icon.
+test("a zoomed diagram serializes to XML an <img> can actually parse", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  const host = v.document.createElement("div");
+  host.innerHTML = '<svg viewBox="0 0 10 10"><foreignObject><div>a<br>b</div></foreignObject></svg>';
+  v.document.body.appendChild(host);
+
+  const url = v.window.mermaidSvgDataUrl(host.querySelector("svg"));
+  assert.ok(url.startsWith("data:image/svg+xml"), "still a data URL the lightbox can use as an src");
+  const xml = decodeURIComponent(url.slice(url.indexOf(",") + 1));
+  assert.match(xml, /xmlns="http:\/\/www\.w3\.org\/2000\/svg"/, "carries the namespace it can no longer inherit");
+  const parsed = new v.window.DOMParser().parseFromString(xml, "image/svg+xml");
+  assert.equal(parsed.querySelector("parsererror"), null, "and parses as XML — the <br> is closed, not dangling");
+  v.close();
+});
+
 // F8 walks the review timeline, and an agent's note is part of it: the two used to be on separate keys, so
 // stepping with F8 through a file the agent had explained reported "no comments" and moved nothing.
 test("F8 steps to an agent note, not only to the reviewer's own comments", async () => {
@@ -342,8 +363,8 @@ test("a note can be answered and dismissed without hunting for the controls", ()
   assert.match(css.slice(at, css.indexOf("}", at)), /opacity: \.55/, "they are visible before you hover");
 
   const sourceView = readFileSync(new URL("../src/viewer/10-source-view.js", import.meta.url), "utf8");
-  assert.match(sourceView, /mc-ai-del[\s\S]{0,400}deleteAnnotation\(b\.dataset\.path/,
-    "Backspace on a selected row dismisses a note through the path that reaches the file");
-  assert.match(sourceView, /filter\(function \(seq\) \{ return isFinite\(seq\); \}\)/,
+  assert.match(sourceView, /mc-ai-del[\s\S]{0,300}deleteAnnotation\(del\.dataset\.path/,
+    "Backspace on a selected note dismisses it through the path that reaches the file");
+  assert.match(sourceView, /if \(isFinite\(seq\)\) removeComments\(\[seq\]\)/,
     "and a note's missing seq never reaches removeComments as NaN");
 });

@@ -39,12 +39,24 @@ function annotationRenderKey(path) {
 // Markdown body with ```mermaid fences lifted out into real diagrams. Splitting before the markdown pass
 // (rather than post-processing markdown-it's <pre><code class="language-mermaid">) keeps the diagram source
 // away from the syntax highlighter, which would otherwise mangle it into spans.
+// A path an agent names in prose — `app/optimization/domain/campaign_control.py` — is a place the reader wants
+// to go, so make it one (openPathReference in 07-comments.js resolves and jumps on click). Only inline code
+// that actually looks like a file path is marked: a symbol (`get_context`), a route template
+// (`/campaigns/{id}/lessons`) and a number (`0.5`) all fail the extension test and stay plain text. Fenced
+// blocks are untouched — their <code> carries a class and highlight spans, so `[^<]+` never matches one.
+function linkifyPathCode(html) {
+  return String(html).replace(/<code>([^<]+)<\/code>/g, function (whole, text) {
+    return text.length < 200 && /^[A-Za-z0-9_@.\-/]+\.[A-Za-z][A-Za-z0-9]{0,7}(?::\d+)?$/.test(text)
+      ? '<code class="mc-path-code" title="' + escapeHtml(t('comment.openPath')) + '">' + text + '</code>'
+      : whole;
+  });
+}
 function annotationBodyHtml(text) {
   var parts = String(text || '').split(/^```mermaid\s*$([\s\S]*?)^```\s*$/m);
   var html = '';
   for (var i = 0; i < parts.length; i++) {
     if (i % 2 === 1) html += mermaidPlaceholderHtml(parts[i].trim());
-    else if (parts[i].trim()) html += renderMarkdownHtml(parts[i]);
+    else if (parts[i].trim()) html += linkifyPathCode(renderMarkdownHtml(parts[i]));
   }
   return html;
 }

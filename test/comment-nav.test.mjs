@@ -184,6 +184,44 @@ test("F8 and Shift+F8 walk the comments, mirroring F7 for changes", async () => 
   v.close();
 });
 
+// The diff shows one file at a time, everything else display:none. Stepping to a comment in ANOTHER file
+// placed the caret inside that hidden wrapper: the chrome updated — the base-version label named the target —
+// while the reader kept looking at the previous file and nothing appeared to happen.
+test("F8 to a comment in another file switches the diff to that file", async () => {
+  const { html: twoFiles } = await makeReviewHtml([
+    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+    { path: "src/b.ts", before: "export const b = 1;\n", after: "export const b = 2;\n" },
+  ]);
+  const v = await loadViewer(twoFiles);
+  const shownFile = () => {
+    const wrapper = v.$("#diff2html-container .d2h-file-wrapper:not(.df-inactive)");
+    return wrapper ? (wrapper.querySelector(".d2h-file-name")?.textContent || "").trim() : null;
+  };
+  // clickFirstDiffLine() always takes the first wrapper in the DOM; this comment has to land in the file the
+  // jump comes FROM being a different one, so click inside the file that is actually on screen.
+  await v.openDiffFor("src/b.ts");
+  assert.equal(shownFile(), "src/b.ts");
+  const shown = v.$("#diff2html-container .d2h-file-wrapper:not(.df-inactive)");
+  const numbered = Array.from(shown.querySelectorAll(".d2h-file-side-diff")).pop()
+    .querySelectorAll(".d2h-code-side-linenumber");
+  const cell = Array.from(numbered).find((n) => (n.textContent || "").trim() !== "").closest("tr");
+  v.click(cell.querySelector(".d2h-code-line, .d2h-code-side-line"));
+  await v.settle(30);
+  await v.openComposer("q");
+  await v.writeAndSave("why b?");
+  await v.settle(60);
+  assert.equal(v.storedComments()[0]?.path, "src/b.ts", "the comment is in the file we will jump back to");
+
+  await v.openDiffFor("src/a.ts");
+  await v.settle(60);
+  assert.equal(shownFile(), "src/a.ts", "another file is what's on screen before the jump");
+
+  v.key("F8");
+  await v.settle(120);
+  assert.equal(shownFile(), "src/b.ts", "F8 reveals the commented file, not just its name in the chrome");
+  v.close();
+});
+
 // An agent's explanation and a reviewer's question are the same thing to someone walking a file: a note on
 // a line. They used to be two keys — F8 for comments, a second one for notes — so F8 silently skipped every
 // explanation the agent had left. One list now, sorted together, a note ahead of a comment on a line they

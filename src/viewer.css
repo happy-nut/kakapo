@@ -2051,7 +2051,31 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 /* Continue an exchange from the card itself. Indent replies so a thread reads as one conversation. */
 .mc-reply { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 1px 5px; border-radius: 0; }
 .mc-reply:hover { color: var(--active); background: color-mix(in srgb, var(--active) 16%, transparent); }
-.mc-card.mc-reply-card { margin-left: 18px; border-left: 2px solid color-mix(in srgb, var(--active) 35%, transparent); }
+/* One conversation, one box. A reply — already written, being written, or the empty box waiting for the next
+   turn — joins the card above it (borders overlapped, no gap) instead of floating off as a separate card. The
+   left accent bar is what still says "this is a reply". */
+.mc-card.mc-reply-card { margin: -1px 0 8px; border-left: 2px solid color-mix(in srgb, var(--active) 35%, transparent); }
+.mc-card.mc-reply-card + .mc-card, .mc-reply-stub + .mc-card { margin-top: -1px; }
+/* The composer opened on a reply repeats the parent's kind and target verbatim; hiding that head is what makes
+   the input read as the continuation of the box above rather than a new form. */
+.mc-composer.mc-reply-card .mc-card-head { display: none; }
+.mc-composer.mc-reply-card { padding-top: 10px; }
+/* The waiting box at the end of an ongoing thread: a card-shaped, empty input the next turn can be typed
+   into, rather than a button you must first find. Dashed and muted so it reads as "not yet written". */
+.mc-reply-stub {
+  display: block; width: 100%; max-width: 760px; text-align: left; cursor: text;
+  margin: -1px 0 8px; padding: 9px 12px;
+  border: 1px dashed var(--border); background: var(--bg); color: var(--muted);
+  box-shadow: none;
+}
+.mc-reply-stub:hover, .mc-reply-stub:focus-visible { color: var(--text); border-color: color-mix(in srgb, var(--active) 55%, transparent); }
+/* Arrow-key selection addresses ONE turn inside a thread, so the outline has to be on the card, not the row —
+   otherwise a three-turn thread lights up whole while `e` and Backspace act on a single card in it. */
+.mc-comment-row.mc-row-selected .mc-card { box-shadow: none; }
+.mc-comment-row.mc-row-selected .mc-card.mc-card-selected { box-shadow: 0 0 0 2px var(--active); position: relative; z-index: 1; }
+/* A file path an agent named in prose is a link: same inline-code chrome, plus the affordance. */
+.mc-path-code { cursor: pointer; text-decoration: underline dotted currentColor; text-underline-offset: 2px; }
+.mc-path-code:hover { color: var(--active); text-decoration-style: solid; }
 .mc-card-body { padding: 2px 12px 11px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* An agent-written explanation of the diff (23-annotations.js) is a comment the agent left, so it wears the
    comment card exactly — same shell, same background, no accent tint and no left bar. The kind pill carries

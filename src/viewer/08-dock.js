@@ -224,14 +224,9 @@ function openMergedView() {
   // BEFORE dock.close() — closing destroys the live editors currentMergedText() reads from.
   function sendWholeDocToTerminal() {
     var text = currentMergedText();
-    var items = blocks.reduce(function (acc, block) { return acc.concat(block.items); }, []).map(function (c) {
-      // A follow-up ("why that way?") is meaningless without what it follows, and this checklist is rewritten
-      // per round — so carry the exchange it continues, oldest first, rather than handing over a bare pronoun.
-      var thread = commentThreadContext(c);
-      var item = { seq: c.seq, kind: c.kind, target: commentTargetLabel(c), prompt: c.text, answer: null, answeredAt: null };
-      if (thread.length) item.thread = thread;
-      return item;
-    });
+    // Same builder the per-change sync uses (07-comments.js), so the file the agent reads and the document it
+    // is handed can never describe different conversations.
+    var items = answersChecklistItems();
     dock.close();
     function deliver(finalText) {
       window.__kakapoTerminal.enterSendMode(finalText);
@@ -545,6 +540,18 @@ document.addEventListener('click', function (event) {
   if (!t || !t.closest) return;
   var reopen = t.closest('.mc-reopen');
   if (reopen) { event.preventDefault(); reopenComment(parseInt(reopen.dataset.seq, 10)); return; }
+  // A file path inside an agent's prose (linkifyPathCode in 23-annotations.js) navigates to that file.
+  var pathCode = t.closest('.mc-path-code');
+  if (pathCode) { event.preventDefault(); openPathReference(pathCode.textContent || ''); return; }
+  // The waiting box at the end of an ongoing thread (replyStubHtml) opens the same composer the ↩ button does:
+  // on the thread's last comment when there is one, on the note's own line when the thread is only an agent note.
+  var stub = t.closest('.mc-reply-stub');
+  if (stub) {
+    event.preventDefault();
+    if (stub.dataset.seq) openReplyComposer(parseInt(stub.dataset.seq, 10));
+    else openAnnotationReplyComposer(stub.dataset.path, parseInt(stub.dataset.line, 10));
+    return;
+  }
   var reply = t.closest('.mc-reply');
   if (reply) {
     event.preventDefault();

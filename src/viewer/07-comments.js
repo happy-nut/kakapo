@@ -114,6 +114,22 @@ function remapComments() {
 }
 function saveComments() {
   persistSave(COMMENTS_KEY, reviewComments);
+  syncAnswersChecklist();
+}
+// answers.json is the agent's copy of this conversation, so it tracks the comments instead of being written
+// once per hand-off: a follow-up typed after the prompt was sent used to exist only inside the app, and an
+// agent re-reading the file found the round it was handed and nothing past it — the reply was unanswerable.
+// Main merges by seq (answers-ipc.ts), so answers already written survive every one of these writes.
+// Debounced because a rebuild can remap many comments at once.
+var answersSyncTimer = 0;
+function syncAnswersChecklist() {
+  if (!(window.kakapoAnswers && typeof window.kakapoAnswers.write === 'function')) return;
+  if (answersSyncTimer) clearTimeout(answersSyncTimer);
+  answersSyncTimer = setTimeout(function () {
+    answersSyncTimer = 0;
+    var items = answersChecklistItems();
+    if (items.length) { try { window.kakapoAnswers.write(items); } catch (e) {} }
+  }, 300);
 }
 function hasProjectExistenceBridge() {
   return !!(window.kakapoFile && typeof window.kakapoFile.existingPaths === 'function');
@@ -376,6 +392,21 @@ function commentAnswerHtml(c) {
     + ' aria-label="' + escapeHtml(t('comment.reply')) + '" title="' + escapeHtml(t('comment.reply')) + '">↩</button>'
     + '<div class="mc-answer-body markdown-body mc-ai-body">' + agentBodyHtml(c.answer) + '</div></div>';
 }
+// Once a thread is a conversation — the agent answered, the agent left a note, or someone already followed up
+// — the next turn is expected, so the box for it stands open at the end of the thread instead of hiding behind
+// the ↩ button. A lone unanswered comment gets nothing: there is no exchange to continue yet, and one waiting
+// box per comment would litter the diff. Clicking it opens the real composer (one shared composerState), on
+// the last comment in the thread so the conversation keeps going in a line rather than branching.
+function replyStubHtml(path, line) {
+  if (composerState && composerState.path === path && composerState.line === line) return ''; // already open here
+  var cards = commentsAt(path, line);
+  var notes = typeof annotationsAt === 'function' ? annotationsAt(path, line) : [];
+  var exchange = notes.length || cards.some(function (c) { return c.answer || c.replyTo != null; });
+  if (!exchange) return '';
+  var last = cards.length ? cards[cards.length - 1] : null;
+  return '<button type="button" class="mc-card mc-reply-stub" data-path="' + escapeHtml(path) + '" data-line="' + line + '"'
+    + (last ? ' data-seq="' + last.seq + '"' : '') + '>' + escapeHtml(t('composer.reply')) + '</button>';
+}
 function threadHtml(path, line) {
   // Agent notes first: they explain the code the reviewer is about to comment on.
   var html = annotationsThreadHtml(path, line);
@@ -392,6 +423,7 @@ function threadHtml(path, line) {
       + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
       + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div>' + commentAnswerHtml(c) + '</div>';
   });
+  html += replyStubHtml(path, line);
   if (composerState && composerState.path === path && composerState.line === line) {
     var ph = composerState.replyTo != null ? t('composer.reply')
       : composerState.kind === 'q' ? t('composer.question') : t('composer.changeRequest');
@@ -791,6 +823,28 @@ function navigateToLine(path, line) {
   openSourceFile(path);
   requestAnimationFrame(function () { setSourceCursor(path, Math.max(0, (Number(line) || 1) - 1), 0, true, -1); });
 }
+// A path an agent names in prose is a place to go: `campaign_control.py`, `tests/foo/test_bar.py:42`. The
+// agent writes it relative to wherever it works, so an exact hit is tried first, then the SHORTEST project
+// path ending in it — the least surprising of several matches. The index is fetched lazily, so a path in no
+// open file is retried once it arrives instead of silently doing nothing.
+function openPathReference(ref) {
+  var text = String(ref || '').trim();
+  if (!text) return;
+  var line = 1;
+  var at = text.match(/^(.+?):(\d+)$/);
+  if (at) { text = at[1]; line = Number(at[2]) || 1; }
+  var resolve = function () {
+    if (sourceByPath.has(text)) return text;
+    var suffix = '/' + text, best = null;
+    sourceByPath.forEach(function (_file, path) {
+      if (path.length > suffix.length && path.slice(-suffix.length) === suffix && (!best || path.length < best.length)) best = path;
+    });
+    return best;
+  };
+  var hit = resolve();
+  if (hit) { navigateToLine(hit, line); return; }
+  ensureProjectIndex().then(function () { var late = resolve(); if (late) navigateToLine(late, line); }, function () {});
+}
 function navigateToComment(seq) {
   var c = reviewComments.find(function (x) { return x.seq === seq; });
   if (!c) return;
@@ -876,6 +930,10 @@ function sortedNavComments() {
 function navigateToLineInDiff(path, line, side) {
   var wrapper = typeof diffWrapperByPath === 'function' ? diffWrapperByPath(path) : null;
   if (!wrapper) return false;
+  // A hidden file's body may not be materialized yet (REVIEW_LAZY), and its rows are unfindable until it is —
+  // so reveal it before looking for the line, not after. setDiffCursor reveals too, but by then this lookup
+  // would already have failed and sent the jump to the source view instead.
+  if (wrapper.classList.contains('df-inactive') && typeof revealDiffFile === 'function') revealDiffFile(path);
   var sides = side === 'old' ? ['old', 'new'] : ['new', 'old'];
   for (var i = 0; i < sides.length; i++) {
     var rowIndex = diffRowIndexForLine(wrapper, sides[i], line);
@@ -939,6 +997,25 @@ function sortedNavThread() {
     return sa - sb;
   });
 }
+// The card hangs BELOW the line it is anchored to, so revealing only the anchor row leaves the card — the
+// thing the reader is actually going to — hanging off the bottom edge, clipped. Center the whole thread row
+// instead. Scheduled after the caret's own reveal (registered first, so this frame's later scroll wins), and
+// retried a few frames because a freshly opened source file renders its rows asynchronously.
+function centerThreadRow(path, line, tries) {
+  requestAnimationFrame(function () {
+    var row = null;
+    if (typeof isSourceViewerVisible === 'function' && isSourceViewerVisible()) {
+      var anchor = document.querySelector('#source-body .source-row[data-line-index="' + (line - 1) + '"]');
+      var next = anchor ? anchor.nextElementSibling : null;
+      row = next && next.classList.contains('mc-comment-row') ? next : anchor;
+    } else {
+      var wrapper = typeof diffWrapperByPath === 'function' ? diffWrapperByPath(path) : null;
+      row = wrapper ? wrapper.querySelector('.mc-comment-row[data-comment-slot="' + line + '"]') : null;
+    }
+    if (row && row.scrollIntoView) { try { row.scrollIntoView({ block: 'center' }); } catch (e) {} return; }
+    if ((tries || 0) < 3) centerThreadRow(path, line, (tries || 0) + 1);
+  });
+}
 function gotoComment(delta) {
   var list = sortedNavThread();
   if (!list.length) { showCaretHint(t('comment.nav.none')); return true; }
@@ -949,6 +1026,7 @@ function gotoComment(delta) {
   } else if (!isDiffViewVisible() || !navigateToLineInDiff(target.path, target.line, 'new')) {
     navigateToLine(target.path, target.line);
   }
+  centerThreadRow(target.path, Number(target.line) || 1, 0);
   return true;
 }
 
@@ -993,6 +1071,17 @@ function mergedItemLines(c) {
   lines.push(c.text);
   lines.push('');
   return lines;
+}
+// The checklist the agent fills in: one item per open comment, in the same order the hand-off document lists
+// them, each carrying the exchange it continues. Written on every comment change (syncAnswersChecklist) and
+// again when the prompt is sent (08-dock.js), so the two can never describe different conversations.
+function answersChecklistItems() {
+  return mergedBlocks().reduce(function (all, block) { return all.concat(block.items); }, []).map(function (c) {
+    var item = { seq: c.seq, kind: c.kind, target: commentTargetLabel(c), prompt: c.text, answer: null, answeredAt: null };
+    var thread = commentThreadContext(c);
+    if (thread.length) item.thread = thread;
+    return item;
+  });
 }
 function buildMergedText() {
   var nl = String.fromCharCode(10);

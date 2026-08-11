@@ -413,7 +413,10 @@ test("Cmd+Z restores a comment removed via the delete (×) button", async () => 
   v.close();
 });
 
-test("Cmd+Z restores every comment removed together by one Backspace on a shared row", async () => {
+// Backspace acts on the SELECTED turn, not on everything sharing the line: a thread's question, its
+// follow-ups and the agent's notes all live in one row, and taking the whole conversation out on one keypress
+// is not what "delete this comment" means. Cmd+Z still restores whatever that press removed.
+test("Backspace removes the selected turn only, and Cmd+Z restores it", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(1);
@@ -427,11 +430,43 @@ test("Cmd+Z restores every comment removed together by one Backspace on a shared
   v.window.selectCommentRow(row);
   v.key("Backspace");
   await v.settle(20);
-  assert.equal(v.storedComments().length, 0, "Backspace on the selected row removes both comments on it");
+  assert.deepEqual(v.storedComments().map((c) => c.text), ["second on this line"], "only the selected card is gone");
 
   v.key("z", { metaKey: true, code: "KeyZ" });
   await v.settle(20);
-  assert.deepEqual(v.storedComments().map((c) => c.text).sort(), ["first on this line", "second on this line"], "one undo restores the whole batch");
+  assert.deepEqual(v.storedComments().map((c) => c.text).sort(), ["first on this line", "second on this line"], "undo brings it back");
+  v.close();
+});
+
+// Arrow keys used to step off the whole row, so the second turn of a thread could be neither selected nor
+// edited: `e` always reopened the first comment on the line.
+test("arrows walk the turns inside a thread, and `e` edits the one selected", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("q");
+  await v.writeAndSave("the question");
+  await v.settle(40);
+
+  const seq = v.storedComments()[0].seq;
+  v.window.applyAnswersUpdate([{ seq, answer: "the answer", answeredAt: "2026-08-11T00:00:00Z" }]);
+  await v.settle(60);
+  v.click(v.$("#source-body .mc-reply-stub"));
+  await v.settle(40);
+  await v.writeAndSave("the follow-up");
+  await v.settle(60);
+
+  v.window.selectCommentRow(v.$("#source-body .mc-comment-row"));
+  await v.settle(20);
+  assert.match(v.$("#source-body .mc-card-selected .mc-card-body")?.textContent || "", /the question/, "selection starts on the first turn");
+
+  v.key("ArrowDown");
+  await v.settle(20);
+  assert.match(v.$("#source-body .mc-card-selected .mc-card-body")?.textContent || "", /the follow-up/, "ArrowDown steps to the next turn instead of off the row");
+
+  v.key("e", { code: "KeyE" });
+  await v.settle(60);
+  assert.equal(v.visibleComposerInput()?.value, "the follow-up", "`e` edits the selected turn, not the first comment on the line");
   v.close();
 });
 
@@ -536,6 +571,63 @@ test("unified merged prompt: closing/reopening never absorbs the plan/change-req
 
   const merged = v.window.buildMergedText();
   assert.equal((merged.match(/Before changing any code, write a short implementation PLAN/g) || []).length, 1, "the plan contract appears exactly once, not duplicated into the question");
+  v.close();
+});
+
+// The checklist an agent reads is written on every comment change, not only when the hand-off panel sends a
+// prompt. A follow-up typed afterwards used to live only inside the app: the agent re-read answers.json, found
+// the round it was handed and nothing past it, and the reply was unanswerable.
+test("a follow-up reaches the agent's checklist without reopening the hand-off panel", async () => {
+  const v = await loadViewer(html);
+  const writes = [];
+  v.window.kakapoAnswers = {
+    write: (items) => { writes.push(items); return Promise.resolve({ ok: true, path: "/x/answers.json" }); },
+  };
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("q");
+  await v.writeAndSave("why is this a CLI?");
+  await v.settle(400); // the sync is debounced
+  assert.deepEqual(Array.from(writes.at(-1) ?? [], (i) => i.prompt), ["why is this a CLI?"], "the question is on the checklist already");
+
+  v.window.applyAnswersUpdate([{ seq: v.storedComments()[0].seq, answer: "It ships as one binary.", answeredAt: "2026-08-11T00:00:00Z" }]);
+  await v.settle(60);
+  v.click(v.$("#source-body .mc-reply-stub"));
+  await v.settle(40);
+  await v.writeAndSave("then why not a library too?");
+  await v.settle(400);
+
+  const last = writes.at(-1);
+  assert.deepEqual(Array.from(last, (i) => i.prompt), ["why is this a CLI?", "then why not a library too?"], "and so is the follow-up");
+  assert.equal(last[1].thread?.[0]?.answer, "It ships as one binary.", "…carrying the answer it follows");
+  v.close();
+});
+
+// Once an exchange exists, the next turn is expected — so its box stands open at the end of the thread rather
+// than hiding behind the ↩ button. A lone unanswered comment gets none: nothing to continue yet, and one
+// waiting box under every comment would litter the diff.
+test("an answered thread keeps a box open for the next turn", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("q");
+  await v.writeAndSave("why is this a CLI?");
+  await v.settle(60);
+  assert.equal(v.$("#source-body .mc-reply-stub"), null, "no waiting box under a comment nobody has answered");
+
+  v.window.applyAnswersUpdate([{ seq: v.storedComments()[0].seq, answer: "It ships as one binary.", answeredAt: "2026-08-11T00:00:00Z" }]);
+  await v.settle(60);
+  const stub = v.$("#source-body .mc-reply-stub");
+  assert.ok(stub, "the agent answered, so the box for the reply is already there");
+
+  v.click(stub);
+  await v.settle(60);
+  assert.ok(v.visibleComposerInput(), "clicking it opens the composer, without hunting for the ↩ button");
+  await v.writeAndSave("then why not a library too?");
+  await v.settle(60);
+  const stored = v.storedComments();
+  assert.equal(stored.length, 2, "what you type there is a comment of its own");
+  assert.equal(stored[1].replyTo, stored[0].seq, "…continuing the thread rather than starting a new one");
   v.close();
 });
 

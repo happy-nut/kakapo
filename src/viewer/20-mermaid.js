@@ -95,8 +95,23 @@ function renderMermaidDiagrams(root) {
 // mermaid renders as an ordinary anchor. Following it here (rather than through mermaid's `call` callback,
 // which securityLevel 'strict' rightly refuses for agent-written content) keeps the diagram source as data
 // we parse, never as script we run.
+// An <img> parses its SVG as standalone XML, which .outerHTML does not produce: that HTML serialization
+// carries no namespace declaration and leaves the label markup inside <foreignObject> as HTML, where a single
+// unclosed <br> is fatal to an XML parser — hence the broken-image icon in the lightbox. XMLSerializer emits
+// well-formed XML and declares the namespaces itself (so setting xmlns by hand only duplicates the attribute,
+// which is its own parse error). The size has to be pinned, because Mermaid sizes its root against a
+// container the <img> does not have.
 function mermaidSvgDataUrl(svg) {
-  try { return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.outerHTML || ''); } catch (e) { return ''; }
+  try {
+    var clone = svg.cloneNode(true);
+    var box = svg.getBoundingClientRect();
+    if (box.width && box.height) {
+      clone.setAttribute('width', Math.ceil(box.width));
+      clone.setAttribute('height', Math.ceil(box.height));
+      clone.style.maxWidth = 'none';
+    }
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(clone));
+  } catch (e) { return ''; }
 }
 document.addEventListener('click', function (event) {
   var target = event.target;

@@ -593,48 +593,87 @@ function commentRowSiblingOf(lineIndex, dir) {
   var sib = dir < 0 ? cur.previousElementSibling : cur.nextElementSibling;
   return (sib && sib.classList && sib.classList.contains('mc-comment-row')) ? sib : null;
 }
-function selectCommentRow(row) {
+// A thread row is not one box: it holds the question, each follow-up, and the agent's notes. Selection
+// addresses ONE card inside it, so `e` edits the reply you are actually looking at (it used to always edit
+// the first comment in the row — a follow-up could not be edited at all) and Backspace removes only that turn.
+function commentCardsIn(row) {
+  if (!row) return [];
+  return Array.prototype.slice.call(row.querySelectorAll('.mc-card')).filter(function (card) {
+    return !card.classList.contains('mc-composer') && !card.classList.contains('mc-reply-stub');
+  });
+}
+function markSelectedCard(card) {
+  document.querySelectorAll('.mc-card-selected').forEach(function (el) { el.classList.remove('mc-card-selected'); });
+  if (card) card.classList.add('mc-card-selected');
+}
+function selectedCommentCard() {
+  return selectedCommentRow ? selectedCommentRow.querySelector('.mc-card-selected') : null;
+}
+// Arrows move within the thread first: down from the question lands on the follow-up under it, not past the
+// whole row. Returns false at either end so the caller steps off the row the way it always did.
+function stepSelectedCommentCard(dir) {
+  var cards = commentCardsIn(selectedCommentRow);
+  if (cards.length < 2) return false;
+  var at = cards.indexOf(selectedCommentCard());
+  var next = at + (dir < 0 ? -1 : 1);
+  if (at < 0 || next < 0 || next >= cards.length) return false;
+  markSelectedCard(cards[next]);
+  if (cards[next].scrollIntoView) { try { cards[next].scrollIntoView({ block: 'nearest' }); } catch (e) {} }
+  return true;
+}
+function selectCommentRow(row, fromBelow) {
   clearSelectedDiffFold();
   if (selectedCommentRow && selectedCommentRow !== row) selectedCommentRow.classList.remove('mc-row-selected');
   selectedCommentRow = row || null;
-  if (!selectedCommentRow) return;
+  if (!selectedCommentRow) { markSelectedCard(null); return; }
   selectedCommentRow.classList.add('mc-row-selected');
+  // Entering from below (ArrowUp off the line under the thread) lands on the last turn, so the walk through a
+  // thread reads in the same direction the caret is travelling.
+  var cards = commentCardsIn(selectedCommentRow);
+  markSelectedCard(fromBelow ? cards[cards.length - 1] : cards[0]);
   // Keep the caret visible: the box's active outline (.mc-row-selected) already shows the selection, and the
   // caret must never be hidden ("어떤 경우에도 커서는 가려지면 안 됨"). Previously this removed cursor-line +
   // code-cursor, so Go-to-comment → ArrowDown (which selects the comment box on that line) made the caret vanish.
 }
+function clearCommentRowSelection() {
+  if (selectedCommentRow) selectedCommentRow.classList.remove('mc-row-selected');
+  selectedCommentRow = null;
+  markSelectedCard(null);
+}
+// Backspace deletes the SELECTED turn, not the whole conversation on that line — an accidental press on a
+// thread used to take the question, every follow-up, and the agent's notes with it in one batch.
 function deleteCommentsInRow(row) {
   if (!row) return;
-  var buttons = Array.prototype.slice.call(row.querySelectorAll('.mc-del'));
-  // An agent note sits in this row too and is deleted like anything else here — but it has no seq to remove
-  // by, so it goes through its own path (the file is rewritten). Selecting the row and pressing Backspace
-  // used to parse its missing seq as NaN and quietly delete nothing.
-  var notes = buttons.filter(function (b) { return b.classList.contains('mc-ai-del'); });
-  var seqs = buttons.filter(function (b) { return !b.classList.contains('mc-ai-del'); })
-    .map(function (b) { return parseInt(b.dataset.seq, 10); })
-    .filter(function (seq) { return isFinite(seq); });
-  selectedCommentRow = null;
-  if (seqs.length) removeComments(seqs);
-  notes.forEach(function (b) {
-    if (typeof deleteAnnotation === 'function') deleteAnnotation(b.dataset.path, parseInt(b.dataset.line, 10));
-  });
+  var card = selectedCommentCard() || commentCardsIn(row)[0];
+  var del = card ? card.querySelector('.mc-del') : null;
+  if (!del) return;
+  clearCommentRowSelection();
+  // An agent note has no seq to remove by, so it goes through its own path (the file is rewritten). Parsing
+  // its missing seq as NaN used to delete nothing at all.
+  if (del.classList.contains('mc-ai-del')) {
+    if (typeof deleteAnnotation === 'function') deleteAnnotation(del.dataset.path, parseInt(del.dataset.line, 10));
+    refreshComments();
+    return;
+  }
+  var seq = parseInt(del.dataset.seq, 10);
+  if (isFinite(seq)) removeComments([seq]);
   refreshComments(); // remaining comment rows re-injected; the caret stays hidden until the next arrow press
 }
-// Open the composer in EDIT mode for the first comment in `row`, pre-filled with its text. threadHtml renders
-// the composer in place of that card (via composerState.editSeq), and saveComposer routes editSeq through
-// updateComment instead of addComment. Triggered by `e` while a comment box is selected.
+// Open the composer in EDIT mode for the SELECTED comment in `row`, pre-filled with its text. threadHtml
+// renders the composer in place of that card (via composerState.editSeq), and saveComposer routes editSeq
+// through updateComment instead of addComment. Triggered by `e` while a comment box is selected.
 function editCommentInRow(row) {
   if (!row) return;
-  var del = row.querySelector('.mc-del');
-  if (!del) return;
+  var card = selectedCommentCard() || commentCardsIn(row)[0];
+  var del = card ? card.querySelector('.mc-del:not(.mc-ai-del)') : null;
+  if (!del) return; // an agent note is regenerated, not edited
   var seq = parseInt(del.dataset.seq, 10);
   var c = reviewComments.find(function (x) { return x.seq === seq; });
   if (!c) return;
-  row.classList.remove('mc-row-selected');
-  selectedCommentRow = null;
+  clearCommentRowSelection();
   composerState = {
     kind: c.kind, path: c.path, line: c.line, code: c.code, anchorCode: c.anchorCode,
-    from: c.from, to: c.to, side: c.side,
+    from: c.from, to: c.to, side: c.side, replyTo: c.replyTo == null ? null : c.replyTo,
     editSeq: seq, editText: c.text,
   };
   refreshComments();
@@ -650,9 +689,10 @@ function handleSourceCaretKey(event) {
     if (event.code === 'KeyE' || event.key === 'e' || event.key === 'E') { event.preventDefault(); editCommentInRow(selectedCommentRow); return true; }
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Escape') {
       var dir = event.key === 'ArrowUp' ? -1 : (event.key === 'ArrowDown' ? 1 : 0);
+      // Walk the thread's own turns first; only step off the row once there is no further card that way.
+      if (dir && stepSelectedCommentCard(dir)) { event.preventDefault(); return true; }
       var sib = dir < 0 ? selectedCommentRow.previousElementSibling : (dir > 0 ? selectedCommentRow.nextElementSibling : null);
-      selectedCommentRow.classList.remove('mc-row-selected');
-      selectedCommentRow = null;
+      clearCommentRowSelection();
       event.preventDefault();
       if (sib && sib.classList && sib.classList.contains('source-row')) {
         var li = parseInt(sib.dataset.lineIndex, 10);
@@ -666,7 +706,7 @@ function handleSourceCaretKey(event) {
   // Plain Up/Down: a comment box between the caret line and the next line becomes a selectable stop.
   if (!extend && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
     var box = commentRowSiblingOf(viewerCursor.lineIndex, event.key === 'ArrowUp' ? -1 : 1);
-    if (box) { event.preventDefault(); selectCommentRow(box); return true; }
+    if (box) { event.preventDefault(); selectCommentRow(box, event.key === 'ArrowUp'); return true; }
   }
   if (event.key === 'ArrowDown') { event.preventDefault(); moveSourceCursor(1, 0, extend); return true; }
   if (event.key === 'ArrowUp') { event.preventDefault(); moveSourceCursor(-1, 0, extend); return true; }

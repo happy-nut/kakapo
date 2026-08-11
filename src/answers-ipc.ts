@@ -68,14 +68,32 @@ function snapshotItems(items: AnswersItem[]): Map<number, { answer: string | nul
   return new Map(items.map((item) => [item.seq, { answer: item.answer, answeredAt: item.answeredAt }]));
 }
 
+// An answer already on disk is the agent's work, not kakapo's to throw away: carry it onto the incoming item
+// with the same seq. An edited question is the exception — the text it answered is gone, so the answer goes
+// with it and the item reads as pending again.
+function mergeAnswers(previous: AnswersDoc | undefined, items: AnswersItem[]): AnswersItem[] {
+  const bySeq = new Map((previous?.items ?? []).map((item) => [item.seq, item]));
+  return items.map((item) => {
+    const old = bySeq.get(item.seq);
+    if (!old || old.prompt !== item.prompt || !old.answer) return item;
+    return { ...item, answer: old.answer, answeredAt: old.answeredAt };
+  });
+}
+
 export function registerAnswersIpc(ipc: IpcMain, stateFromEvent: AnswersStateResolver): void {
-  // The merged panel calls this once, right when it sends a prompt to the terminal (Alt+Enter): write a
-  // fresh checklist for whatever's currently open. A resend overwrites wholesale with a new reviewId —
-  // each send is a new round, not a merge with whatever the agent already answered from a prior round.
+  // Called on every comment change, not only when the merged panel sends a prompt (Alt+Enter) — a follow-up
+  // written after the hand-off used to live only inside the app, so an agent re-reading answers.json found the
+  // round it was sent and nothing since ("no item past seq 3"), and the reply was unanswerable. The file is
+  // the conversation's disk copy, so it tracks the open comments; merging keeps every answer already written.
   ipc.handle("kakapo:answers-write", (event, items: unknown): { ok: boolean; path?: string } => {
     const state = stateFromEvent(event);
     if (!state || !state.answersFile || !Array.isArray(items)) return { ok: false };
-    const doc: AnswersDoc = { version: 1, reviewId: Date.now(), items: items as AnswersItem[] };
+    const previous = readAnswersDoc(state.answersFile);
+    const doc: AnswersDoc = {
+      version: 1,
+      reviewId: previous?.reviewId ?? Date.now(),
+      items: mergeAnswers(previous, items as AnswersItem[]),
+    };
     writeAnswersDoc(state.answersFile, doc);
     // Seed the poll cache from what was JUST written so the next tick sees "unchanged" instead of
     // re-reporting kakapo's own checklist (all answer: null) back to the renderer as if it were new.

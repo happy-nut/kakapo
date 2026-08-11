@@ -195,6 +195,12 @@ function setDiffCursor(path, side, rowIndex, column, reveal) {
   clearSelectedDiffFold();
   var wrapper = diffWrapperByPath(path);
   if (!wrapper) return;
+  // The diff shows one file at a time (showOnlyFile), so a caret placed in a file that is NOT the visible one
+  // landed in a display:none wrapper: the chrome updated — the base-version label named the target file — while
+  // the reader kept looking at the previous file, and the scroll had nothing on screen to reveal. Reveal it
+  // first (which also materializes a lazy body, so the row lookup below can find its rows at all). An ordinary
+  // caret move inside the active file finds it already active and skips this entirely.
+  if (wrapper.classList && wrapper.classList.contains('df-inactive')) revealDiffFile(path);
   var rows = diffRowsOf(diffSideTable(wrapper, side));
   if (!rows.length) return;
   flashReviewPanelFocus(document.getElementById('diff2html-container'));
@@ -469,9 +475,10 @@ function handleDiffCaretKey(event) {
     if (event.code === 'KeyE' || event.key === 'e' || event.key === 'E') { event.preventDefault(); editCommentInRow(selectedCommentRow); return true; }
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Escape') {
       var dir = event.key === 'ArrowUp' ? -1 : (event.key === 'ArrowDown' ? 1 : 0);
+      // Walk the thread's own turns first; only step off the row once there is no further card that way.
+      if (dir && stepSelectedCommentCard(dir)) { event.preventDefault(); return true; }
       var sib = dir < 0 ? selectedCommentRow.previousElementSibling : (dir > 0 ? selectedCommentRow.nextElementSibling : null);
-      selectedCommentRow.classList.remove('mc-row-selected');
-      selectedCommentRow = null;
+      clearCommentRowSelection();
       event.preventDefault();
       var wrapper = diffWrapperByPath(diffCursor.path);
       if (sib && wrapper && isDiffCodeRow(sib)) {
@@ -487,7 +494,7 @@ function handleDiffCaretKey(event) {
   // Plain Up/Down: a comment box attached to the caret line is a selectable stop (caret stays visible).
   if (!extend && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
     var box = diffCommentBoxSiblingOf(event.key === 'ArrowUp' ? -1 : 1);
-    if (box) { event.preventDefault(); selectCommentRow(box); return true; }
+    if (box) { event.preventDefault(); selectCommentRow(box, event.key === 'ArrowUp'); return true; }
     var foldRow = diffFoldBetween(event.key === 'ArrowUp' ? -1 : 1);
     if (foldRow) { event.preventDefault(); selectDiffFold(foldRow); return true; }
   }
