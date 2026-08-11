@@ -630,6 +630,15 @@ test("an agent's answer raises a notification, but re-reading the thread does no
   await v.settle(60);
   assert.equal(bells.length, 1, "the answer is");
   assert.match(bells[0].body, /It ships as one binary\./, "with enough of it to know what landed");
+  // Clicking the notification has to land ON that exchange; "an answer arrived" is little use in a review of
+  // fifty comments without "here". Main sends the seq straight back (kakapo:comments-reveal).
+  const answered = v.storedComments().find((c) => c.by === "agent");
+  assert.equal(bells[0].seq, answered.seq, "the notification names the turn it is about");
+  await v.openSourceFile("src/app.ts"); // look away, the way you would have while it worked
+  await v.settle(40);
+  assert.equal(v.window.revealComment(answered.seq), true, "and that id is enough to go back to it");
+  await v.settle(80);
+  assert.equal(v.$("#source-viewer").dataset.openPath, "AGENTS.md", "the file the exchange is in is open again");
 
   // The same list arriving again (a poll tick, a workspace switch, a reload) is not a second answer.
   v.window.applyThreadRecords(v.window.reviewComments.map(v.window.commentToRecord));

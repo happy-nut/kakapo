@@ -90,9 +90,11 @@ contextBridge.exposeInMainWorld("kakapoPty", {
   foreground: (msg: { id: number }): Promise<{ running: boolean; name: string }> => ipcRenderer.invoke("kakapo:pty-foreground", msg),
   // Live tmux sessions for this workspace, so reopening the panel restores the panes it had.
   sessions: (): Promise<{ ordinals: number[] }> => ipcRenderer.invoke("kakapo:pty-sessions"),
-  // A TUI in the pane rang the terminal bell (e.g. Claude Code finished a turn / needs input). The renderer
-  // passes a pre-localized title+body; the main process decides whether to raise a native notification.
-  bell: (msg: { title: string; body: string }): void => ipcRenderer.send("kakapo:bell", msg),
+  // A TUI in the pane rang the terminal bell (e.g. Claude Code finished a turn / needs input), or an agent
+  // answered a review comment (07-comments.js). The renderer passes a pre-localized title+body; the main
+  // process decides whether to raise a native notification. `seq` names the comment the notification is
+  // about, so clicking it lands on that thread instead of merely raising the window.
+  bell: (msg: { title: string; body: string; seq?: number }): void => ipcRenderer.send("kakapo:bell", msg),
   onData: (cb: (msg: { id: number; data: string }) => void): void => {
     ipcRenderer.on("kakapo:pty-data", (_event, msg: { id: number; data: string }) => cb(msg));
   },
@@ -111,6 +113,10 @@ contextBridge.exposeInMainWorld("kakapoComments", {
     ipcRenderer.invoke("kakapo:comments-write", payload),
   onUpdate: (cb: (payload: { records: unknown[] }) => void): void => {
     ipcRenderer.on("kakapo:comments-update", (_event, payload) => cb(payload));
+  },
+  // The notification about an answer was clicked: go to the comment it was about.
+  onReveal: (cb: (payload: { seq: number }) => void): void => {
+    ipcRenderer.on("kakapo:comments-reveal", (_event, payload) => cb(payload));
   },
 });
 

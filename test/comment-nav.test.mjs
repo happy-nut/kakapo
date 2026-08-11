@@ -230,8 +230,8 @@ test("the comment navigation list contains both kinds", () => {
   const comments = readFileSync(new URL("../src/viewer/07-comments.js", import.meta.url), "utf8");
   assert.match(comments, /function sortedNavThread\(\)\s*\{\s*\n\s*return sortedNavComments\(\);/,
     "notes and comments are one list, so the walk is just that list in file order");
-  assert.match(comments, /function gotoComment[\s\S]{0,400}navigateToCommentInDiff\(target\.seq\)/,
-    "and every card on it navigates by its own id");
+  assert.match(comments, /function revealComment\(seq\)[\s\S]{0,300}navigateToCommentInDiff\(target\.seq\)/,
+    "and every card on it is reached by its own id — the same tail a notification click uses");
 });
 
 // F8 stepped to the first note and then stopped dead. commentNavOrder ranks only files the DIFF contains —

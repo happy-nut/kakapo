@@ -214,7 +214,9 @@ function notifyAgentTurns() {
   if (!(window.kakapoPty && typeof window.kakapoPty.bell === 'function')) return;
   var first = String(fresh[0].text || '').split('\n').filter(function (line) { return line.trim(); })[0] || '';
   var body = t(fresh.length > 1 ? 'notify.agentReplies' : 'notify.agentReplied');
-  try { window.kakapoPty.bell({ title: 'kakapo', body: first ? body + ' — ' + first.slice(0, 140) : body }); } catch (e) {}
+  // The seq rides along so clicking the notification lands on this exchange rather than merely raising the
+  // window — in a review with fifty comments, "an answer arrived" is not much use without "here".
+  try { window.kakapoPty.bell({ title: 'kakapo', body: first ? body + ' — ' + first.slice(0, 140) : body, seq: fresh[0].seq }); } catch (e) {}
 }
 // Startup. The file wins when it exists; when it does not, this workspace's existing comments (app settings)
 // and Explain notes (annotations.json) are folded into it once, so unifying the stores loses nothing.
@@ -250,6 +252,19 @@ function loadThread() {
 if (window.kakapoComments && typeof window.kakapoComments.onUpdate === 'function') {
   window.kakapoComments.onUpdate(function (payload) {
     try { applyThreadRecords(payload && payload.records); } catch (e) {}
+  });
+}
+if (window.kakapoComments && typeof window.kakapoComments.onReveal === 'function') {
+  // The notification about an answer was clicked. The record may not have arrived in this renderer yet (the
+  // click can beat the poll tick), so retry briefly rather than dropping the jump on the floor.
+  window.kakapoComments.onReveal(function (payload) {
+    var seq = payload && Number(payload.seq), tries = 0;
+    if (!seq) return;
+    var attempt = function () {
+      try { if (revealComment(seq) || ++tries > 10) return; } catch (e) { return; }
+      setTimeout(attempt, 150);
+    };
+    attempt();
   });
 }
 loadThread();
@@ -1098,12 +1113,19 @@ function centerThreadRow(path, line, tries) {
     if ((tries || 0) < 3) centerThreadRow(path, line, (tries || 0) + 1);
   });
 }
+// Land on one specific card: the tail every "go to a comment" path shares — F8's step, and the click on a
+// notification about an answer (kakapo:comments-reveal, below).
+function revealComment(seq) {
+  var target = reviewComments.find(function (c) { return c.seq === seq; });
+  if (!target) return false;
+  if (!isDiffViewVisible() || !navigateToCommentInDiff(target.seq)) navigateToComment(target.seq);
+  centerThreadRow(target.path, Number(target.line) || 1, 0);
+  return true;
+}
 function gotoComment(delta) {
   var list = sortedNavThread();
   if (!list.length) { showCaretHint(t('comment.nav.none')); return true; }
-  var target = stepAnchor(delta, list);
-  if (!isDiffViewVisible() || !navigateToCommentInDiff(target.seq)) navigateToComment(target.seq);
-  centerThreadRow(target.path, Number(target.line) || 1, 0);
+  revealComment(stepAnchor(delta, list).seq);
   return true;
 }
 

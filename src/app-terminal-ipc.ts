@@ -259,7 +259,7 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
   // A TUI in the integrated terminal rang the bell (e.g. Claude Code finished a turn / needs input). Raise a
   // native notification when the window ISN'T focused — while you're watching, the bell itself is enough — plus
   // a dock bounce / taskbar flash. Clicking the notification brings the window forward.
-  ipc.on("kakapo:bell", (event, msg: { title?: string; body?: string }) => {
+  ipc.on("kakapo:bell", (event, msg: { title?: string; body?: string; seq?: number }) => {
     const state = stateFromEvent(event);
     if (!state || state.win.isDestroyed()) return;
     // Light the tile's attention dot whenever a background turn finishes — even if the app is focused on a
@@ -270,7 +270,14 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     try {
       if (Notification.isSupported()) {
         const note = new Notification({ title: msg?.title || "kakapo", body: msg?.body || "Terminal task finished" });
-        note.on("click", () => { if (!state.win.isDestroyed()) { state.win.show(); state.win.focus(); } });
+        note.on("click", () => {
+          if (state.win.isDestroyed()) return;
+          state.win.show();
+          state.win.focus();
+          // Raising the window drops you wherever you left off, which for a notification about one answer in
+          // a long review is not where you meant to go. When the bell named a comment, land on it.
+          if (Number.isFinite(msg?.seq)) state.win.webContents.send("kakapo:comments-reveal", { seq: msg?.seq });
+        });
         note.show();
       }
     } catch { /* notifications are best-effort */ }
