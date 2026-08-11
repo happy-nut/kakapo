@@ -275,6 +275,19 @@ function stateFromEvent(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEve
 function focusedState(): WinState | undefined {
   return activeStateId === undefined ? undefined : states.get(activeStateId);
 }
+// Which workspace the user is actually looking at. A detached workspace owns its own OS window, so the hub's
+// notion of "active" can name a different one entirely — and ⌘N pressed in a detached B offered A's project.
+// Falls back to the hub's active workspace, which is the right answer for every non-detached window (they
+// share the shell's window, so the OS only ever reports the shell as focused).
+function focusedWorkspace(): WinState | undefined {
+  const focusedId = BrowserWindow.getFocusedWindow()?.webContents.id;
+  if (focusedId !== undefined) {
+    for (const state of states.values()) {
+      if (!state.win.isDestroyed() && state.win.webContents.id === focusedId) return state;
+    }
+  }
+  return focusedState();
+}
 // Menu accelerators are application-global, so they act on whichever window is focused.
 function sendToFocused(channel: string, payload?: unknown): void {
   const state = focusedState();
@@ -1035,7 +1048,12 @@ function buildApplicationMenu(): void {
         }
       } },
       { label: t("menu.newWorkspace"), accelerator: "CommandOrControl+N", click: () => {
-        shellWindow?.webContents.send("kakapo:hub-new");
+        // A new task nearly always belongs to the project you are in, so main names it rather than leaving the
+        // rail to guess from whichever workspace the hub last activated — which is a different one whenever
+        // you pressed this in a detached window.
+        const state = focusedWorkspace();
+        const record = state && !state.win.isDestroyed() ? hubTileFor(state).record : undefined;
+        shellWindow?.webContents.send("kakapo:hub-new", record ? { path: record.repoRoot, name: record.repoName } : undefined);
       } },
       { label: t("menu.expandRail"), accelerator: "CommandOrControl+Shift+E", click: () => {
         shellWindow?.webContents.send("kakapo:hub-toggle-expand");

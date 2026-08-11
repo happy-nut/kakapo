@@ -226,8 +226,8 @@ body.rail-exp #pin svg{transform:rotate(180deg)}
 const T=${JSON.stringify(T)};
 const APP_VERSION=${JSON.stringify(appVersion)};
 const list=document.querySelector("#list"),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const newModal=()=>window.kakapoHub.openModal('new',curRepo?{path:curRepo.path,name:curRepo.name}:undefined);
-document.querySelector("#new").onclick=newModal;
+const newModal=prefill=>window.kakapoHub.openModal('new',prefill&&prefill.path?{path:prefill.path,name:prefill.name}:curRepo?{path:curRepo.path,name:curRepo.name}:undefined);
+document.querySelector("#new").onclick=()=>newModal();
 document.querySelector("#settings").onclick=()=>window.kakapoHub.settings();
 // One version check per launch, against the same GitHub release the review's settings panel reads. The chip is
 // only ever a pointer: the install itself lives behind the Update button in Settings, which knows whether
@@ -251,7 +251,7 @@ tools.addEventListener('mouseover',e=>{const b=e.target.closest('button.tb');if(
 tools.addEventListener('mouseout',e=>{const b=e.target.closest('button.tb');if(b&&(!e.relatedTarget||!b.contains(e.relatedTarget)))tt.classList.remove('show');});
 tools.addEventListener('click',()=>tt.classList.remove('show'));
 window.kakapoHub.onRailState(s=>{s=s||{};const active=s.active||[];for(const b of tools.querySelectorAll('button.tb')){const a=b.dataset.act;if(a==='terminal'){b.classList.toggle('hidden',!s.terminal);}b.classList.toggle('active',active.indexOf(a)>=0);}});
-window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(newModal);
+window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(prefill=>newModal(prefill));
 // ---- Agent quota, moved here from the review's sidebar footer. One row per limit window that can actually
 // stop work — Claude's 5h session, its weekly caps, then Codex's — each a battery of the quota still LEFT
 // plus how long until that window resets. Marks are the official Claude / OpenAI logos (simple-icons, CC0).

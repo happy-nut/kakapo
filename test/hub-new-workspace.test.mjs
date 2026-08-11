@@ -148,6 +148,23 @@ test("the + button and ⌘N both prefill the active workspace's project", () => 
   assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/zoobox", name: "zoobox" }]);
 });
 
+// A detached workspace has its own OS window, so the hub's "active" can name a different one entirely —
+// ⌘N pressed in B offered A. Main now names the project of the window the key was pressed in, and that wins
+// over whatever the rail last saw activated.
+test("⌘N takes the project main names, over the rail's own active workspace", () => {
+  const { hub, document } = railWithState([KAKAPO_MAIN, ZOOBOX_MAIN]); // zoobox is the active one
+  hub.handlers.onNew({ path: "/repos/kakapo", name: "kakapo" });
+  assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/kakapo", name: "kakapo" }]);
+
+  // With nothing named (no workspace open anywhere), the rail's own answer still stands.
+  hub.handlers.onNew(undefined);
+  assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/zoobox", name: "zoobox" }]);
+
+  // The + button hands its click event to the same function; a MouseEvent must not read as a project.
+  document.querySelector("#new").click();
+  assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/zoobox", name: "zoobox" }]);
+});
+
 test("an active worktree prefills its PROJECT root, not the worktree path", () => {
   const { hub, document } = railWithState([{ ...ZOOBOX_WORKTREE, active: true }]);
   document.querySelector("#new").click();

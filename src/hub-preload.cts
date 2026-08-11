@@ -3,7 +3,10 @@ import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("kakapoHub", {
   onState: (callback: (items: unknown[]) => void) => ipcRenderer.on("kakapo:hub-state", (_event, items) => callback(items)),
   onToggle: (callback: (collapsed: boolean) => void) => ipcRenderer.on("kakapo:hub-toggle", (_event, collapsed) => callback(collapsed)),
-  onNew: (callback: () => void) => ipcRenderer.on("kakapo:hub-new", callback),
+  // ⌘N / the New Workspace menu item. Main names the project of the window it was pressed in; the rail
+  // falls back to its own idea of the active one when that is absent (no workspace open at all).
+  onNew: (callback: (prefill?: { path: string; name: string }) => void) =>
+    ipcRenderer.on("kakapo:hub-new", (_event, prefill) => callback(prefill)),
   activate: (id: number) => ipcRenderer.send("kakapo:hub-activate", id),
   // Open (or focus) a project's main checkout that is pinned in the rail but has no window yet.
   openPath: (path: string) => ipcRenderer.send("kakapo:hub-open", path),
