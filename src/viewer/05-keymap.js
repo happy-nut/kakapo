@@ -258,9 +258,10 @@ document.addEventListener('keydown', (event) => {
   // below so History (and merged/memo docks), which otherwise own the keys, don't swallow it. Only a
   // genuine text-input modal (settings, go-to-line) still keeps it; there the "main panel" isn't focused.
   if (event.key === 'F1' && event.altKey && !event.metaKey && !event.ctrlKey) {
-    var revealSm = document.getElementById('settings-modal');
-    var revealBlocked = (revealSm && !revealSm.classList.contains('hidden')) || !!document.getElementById('goto-line');
-    if (!revealBlocked && typeof revealOpenFileInTree === 'function') { event.preventDefault(); revealOpenFileInTree(); return; }
+    // "Anything but a true modal" is `scope !== 'modal'` — which is already in hand. This used to re-read the
+    // settings overlay and the go-to-line prompt itself, the one branch left doing by hand what keyboardScope
+    // exists to answer, and so the one branch that would have gone on disagreeing with it as surfaces changed.
+    if (scope !== 'modal' && typeof revealOpenFileInTree === 'function') { event.preventDefault(); revealOpenFileInTree(); return; }
   }
 
   // Settings overlay (or a focused merged/memo dock) captures keys: stand down the rest of the global
