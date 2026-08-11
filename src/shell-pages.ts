@@ -351,6 +351,10 @@ function initRailSel(){const t=railTiles();const ai=t.findIndex(el=>el.classList
 document.addEventListener('keydown',e=>{
   if(!railExp||document.querySelector('dialog[open]'))return; // only when the rail is expanded and no dialog owns keys
   const a=document.activeElement;if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'))return;
+  // The expanded rail is a peek, so Esc backs out of it the way it backs out of everything else. toggleRail
+  // routes through main's hub-expanded handler, which animates the collapse and hands focus back to the review
+  // view — the same path as clicking into the view or pressing ⌘⇧E again.
+  if(e.key==='Escape'){e.preventDefault();toggleRail();return;}
   // While expanded the shell holds keyboard focus, so review shortcuts (Changes/Files/History/Terminal) never reach the review view.
   // Collapse the rail (which returns focus to the review) and forward the tool action, so e.g. ⌘1 still opens Files.
   let fwd=null;
