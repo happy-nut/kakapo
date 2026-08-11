@@ -612,6 +612,38 @@ test("a follow-up reaches the thread file without reopening the hand-off panel",
   v.close();
 });
 
+// An agent answering a comment is the most precise "it finished" signal kakapo has, so it rides the same
+// notification path the terminal bell already uses. What it must not do is announce old answers: reopening a
+// review re-reads the whole file, and every one of those would otherwise arrive as news.
+test("an agent's answer raises a notification, but re-reading the thread does not", async () => {
+  const v = await loadViewer(html);
+  const bells = [];
+  v.window.kakapoPty = { bell: (msg) => bells.push(msg) };
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("q");
+  await v.writeAndSave("why is this a CLI?");
+  await v.settle(60);
+  assert.equal(bells.length, 0, "the reviewer's own comment is not an event");
+
+  v.agentSays({ re: v.storedComments()[0].seq, text: "It ships as one binary.\nMore below." });
+  await v.settle(60);
+  assert.equal(bells.length, 1, "the answer is");
+  assert.match(bells[0].body, /It ships as one binary\./, "with enough of it to know what landed");
+
+  // The same list arriving again (a poll tick, a workspace switch, a reload) is not a second answer.
+  v.window.applyThreadRecords(v.window.reviewComments.map(v.window.commentToRecord));
+  await v.settle(60);
+  assert.equal(bells.length, 1, "an unchanged thread stays quiet");
+
+  // The setting lives in the Electron settings bridge, the same one the terminal bell reads.
+  v.window.kakapoSettings = { all: { "kakapo-terminal-bell-notify": false } };
+  v.agentSays({ re: v.storedComments()[0].seq, text: "one more thing" });
+  await v.settle(60);
+  assert.equal(bells.length, 1, "and the setting turns it off");
+  v.close();
+});
+
 // Once an exchange exists, the next turn is expected — so its box stands open at the end of the thread rather
 // than hiding behind the ↩ button. A lone unanswered comment gets none: nothing to continue yet, and one
 // waiting box under every comment would litter the diff.

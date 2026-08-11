@@ -515,7 +515,7 @@ export function renderDiffHtml(input: {
     // Terminal card (Electron only): integrated-terminal bell → native notification opt-out.
     input.app
       ? '<div class="settings-card"><div class="settings-card-title" data-i18n="settings.terminal">Terminal</div>'
-      + '<label class="settings-check"><input type="checkbox" id="set-bell-notify"><span data-i18n="settings.bellNotify">Notify when a terminal task finishes (bell)</span></label>'
+      + '<label class="settings-check"><input type="checkbox" id="set-bell-notify"><span data-i18n="settings.bellNotify">Notify when an agent finishes</span></label>'
       // Terminal sessions are always tmux-backed when tmux is installed, so this is a status row rather than a
       // switch: it says whether persistence is actually in effect, and offers the install when it isn't.
       + '<div class="settings-row-hint" data-i18n="settings.persistTerminal.hint">Terminals belong to their workspace: quitting kakapo leaves them running, and only deleting the workspace ends them.</div>'

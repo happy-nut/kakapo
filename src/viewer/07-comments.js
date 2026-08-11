@@ -180,7 +180,7 @@ function saveThread() {
 }
 // The file is the source of truth: whatever it says replaces what is in memory (a full swap cannot drift the
 // way a delta can). `extra` appends records main kept from a concurrent agent write.
-function applyThreadRecords(records, extra) {
+function applyThreadRecords(records, extra, silent) {
   var next = records ? threadFromRecords(records) : reviewComments.slice();
   if (extra && extra.length) {
     var byId = {};
@@ -190,9 +190,31 @@ function applyThreadRecords(records, extra) {
   reviewComments = next;
   commentSeq = reviewComments.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
   persistSave(COMMENTS_KEY, reviewComments);
+  if (silent) seenAgentSeq = maxAgentSeq(); else notifyAgentTurns();
   // Agent-driven, so the re-render yields to a terminal being typed into (see refreshCommentsWhenNotTyping).
   if (typeof refreshCommentsWhenNotTyping === 'function') refreshCommentsWhenNotTyping(); else refreshComments();
   if (typeof syncRail === 'function') { try { syncRail(); } catch (e) {} } // the Explain rail lights up on notes
+}
+// An agent finishing its work is worth knowing about when you are not watching, and answering a review
+// comment is the most precise form of that signal kakapo has — far better than guessing from terminal output.
+// It rides the same path the terminal bell already uses (kakapo:bell in app-terminal-ipc.ts): the tile's
+// attention dot always, a native notification only while the window is unfocused, and one shared setting.
+// `seenAgentSeq` is the high-water mark of turns already accounted for, so a reload or a workspace switch
+// re-reads the whole file without announcing answers you have long since read.
+var seenAgentSeq = maxAgentSeq();
+function maxAgentSeq() {
+  return reviewComments.reduce(function (max, c) { return c.by === 'agent' ? Math.max(max, c.seq || 0) : max; }, 0);
+}
+function notifyAgentTurns() {
+  var high = maxAgentSeq();
+  if (high <= seenAgentSeq) { seenAgentSeq = high; return; } // nothing new (a deletion can lower the mark)
+  var fresh = reviewComments.filter(function (c) { return c.by === 'agent' && c.seq > seenAgentSeq; });
+  seenAgentSeq = high;
+  if (!fresh.length || persistRead('kakapo-terminal-bell-notify') === false) return;
+  if (!(window.kakapoPty && typeof window.kakapoPty.bell === 'function')) return;
+  var first = String(fresh[0].text || '').split('\n').filter(function (line) { return line.trim(); })[0] || '';
+  var body = t(fresh.length > 1 ? 'notify.agentReplies' : 'notify.agentReplied');
+  try { window.kakapoPty.bell({ title: 'kakapo', body: first ? body + ' — ' + first.slice(0, 140) : body }); } catch (e) {}
 }
 // Startup. The file wins when it exists; when it does not, this workspace's existing comments (app settings)
 // and Explain notes (annotations.json) are folded into it once, so unifying the stores loses nothing.
@@ -201,7 +223,7 @@ function loadThread() {
   window.kakapoComments.read().then(function (result) {
     if (!result) return;
     annotationsPath = result.path || '';
-    if (result.exists) { applyThreadRecords(result.records); return; }
+    if (result.exists) { applyThreadRecords(result.records, null, true); return; } // a load is not news
     var migrated = reviewComments.slice();
     var nextSeq = migrated.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
     // A pre-unification answer was a field ON the question; it becomes what it always was — a reply.
