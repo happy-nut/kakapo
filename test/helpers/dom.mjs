@@ -15,6 +15,7 @@ import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { materializeDeferredSourceFile } from "../../dist/diff.js";
 
 const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -189,7 +190,13 @@ export async function loadViewer(html, opts = {}) {
           },
           getSource: (path) => {
             window.__sourceRequests.push(path);
-            return Promise.resolve(opts.sourceBridge ? opts.sourceBridge(path) : sourceRecords.find((record) => record.path === path) || null);
+            if (opts.sourceBridge) return Promise.resolve(opts.sourceBridge(path));
+            const record = sourceRecords.find((item) => item.path === path) || null;
+            // Mirror the app: main serves a deferred record by reading it off disk (see the get-source
+            // handler in app-review-ipc). Returning the metadata verbatim made the harness hand the viewer
+            // an empty body for any file the build chose not to embed, which is most of them.
+            if (record?.deferred && opts.root) return Promise.resolve(materializeDeferredSourceFile(opts.root, record));
+            return Promise.resolve(record);
           },
           existingPaths: opts.existingPathsBridge
             ? (paths) => Promise.resolve(opts.existingPathsBridge(paths))

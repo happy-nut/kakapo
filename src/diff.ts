@@ -484,6 +484,21 @@ export function collectSourceFiles(
       signature = hashText(`${path}\0${content}`);
       sourceContentCache.set(cacheKey, { mtimeMs: stats.mtimeMs, size: stats.size, content, signature });
     }
+    embeddedFiles += 1;
+    embeddedBytes += stats.size;
+    // In Electron `content` is only ever a read cache for the get-source IPC — nothing else in the main
+    // process reads it (get-project-index strips it, and the symbol index walks the tree from disk itself).
+    // Since the budget above is spent in lexicographic order, that cache was 47MB per window of whichever
+    // files happened to sort first, rather than the ones a review opens. Keep the changed files and hand the
+    // rest over as deferred: identical to a budget-exhausted record, except it carries the content-derived
+    // signature computed just above. That distinction is load-bearing — the deferred records above are files
+    // this build never read, so they can only be signed by mtime+size, while the review signature (and the
+    // watch fast-path built on it) must stay a function of content alone, or an untouched checkout in a
+    // different directory would look like a change.
+    if (options.deferSourceContent && !base.changed) {
+      sourceFiles.push({ ...base, size: stats.size, embedded: true, deferred: true, signature });
+      continue;
+    }
     sourceFiles.push({
       ...base,
       content,
@@ -491,8 +506,6 @@ export function collectSourceFiles(
       embedded: true,
       signature,
     });
-    embeddedFiles += 1;
-    embeddedBytes += stats.size;
   }
 
   return sourceFiles;
