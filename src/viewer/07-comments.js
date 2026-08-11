@@ -208,6 +208,19 @@ function addComment(kind, path, line, code, text, from, to, side, anchorCode, re
   });
   saveComments();
 }
+// The whole exchange a comment continues, oldest turn first: any agent note on its line, then each ancestor
+// comment with the answer it got. Both ends of the hand-off use it (the quoted lines in mergedItemLines and
+// the `thread` field of the answers checklist in 08-dock.js), so the agent writes the next reply knowing
+// every earlier turn. A note has no question of its own, so its turn carries a null prompt — without it a
+// reply opened from an explain card reached the agent as a bare "why that way?" with no "that way".
+function commentThreadContext(comment) {
+  var turns = [];
+  if (typeof annotationsAt === 'function') {
+    annotationsAt(comment.path, comment.line).forEach(function (note) { turns.push({ prompt: null, answer: note.text }); });
+  }
+  commentAncestry(comment).forEach(function (parent) { turns.push({ prompt: parent.text, answer: parent.answer || null }); });
+  return turns;
+}
 // Walk a comment's reply chain back to its root, oldest exchange first. Used to give an agent the
 // conversation a follow-up belongs to (see the answers payload in 08-dock.js) and to indent the thread.
 function commentAncestry(comment) {
@@ -598,9 +611,11 @@ function refreshComments() {
   if (isSourceViewerVisible()) renderSourceComments();
   renderCommentBadges();
   applyCommentSelectionHighlight();
-  // Agent notes can carry Mermaid diagrams. Already-rendered placeholders are skipped, so this is a no-op
-  // scan on every ordinary comment refresh (see renderMermaidDiagrams in 20-mermaid.js).
-  if (annotationList().length) { try { renderMermaidDiagrams(document); } catch (e) {} }
+  // Every agent-written body can carry Mermaid diagrams — a note AND an answer (commentAnswerHtml renders the
+  // same markdown). Gating this on a note existing left a diagram inside an answer stuck on "loading…" forever
+  // in any review the agent had not also annotated. Already-rendered placeholders are skipped inside, so this
+  // stays a no-op scan on an ordinary refresh (see renderMermaidDiagrams in 20-mermaid.js).
+  try { renderMermaidDiagrams(document); } catch (e) {}
   // Keep body.mc-composing (which hides the file caret) tied to the ACTUAL on-screen composer, not just
   // composerState. Leaving the composer by any path other than save/cancel (opening another file, switching
   // views) would otherwise leave the class stuck and hide EVERY caret — making arrow navigation and
@@ -967,9 +982,12 @@ function mergedBlocks() {
 // rewritten every round: without it the agent reads "why did you do it that way?" and has no "that way".
 function mergedItemLines(c) {
   var lines = ['### ' + commentTargetLabel(c)];
-  commentAncestry(c).forEach(function (parent) {
-    lines.push('> ' + parent.text.split('\n').join('\n> '));
-    if (parent.answer) lines.push('>', '> ' + t('comment.answer') + ': ' + parent.answer.split('\n').join('\n> '));
+  commentThreadContext(c).forEach(function (turn) {
+    if (turn.prompt) lines.push('> ' + turn.prompt.split('\n').join('\n> '));
+    if (turn.answer) {
+      if (turn.prompt) lines.push('>', '> ' + t('comment.answer') + ': ' + turn.answer.split('\n').join('\n> '));
+      else lines.push('> ' + turn.answer.split('\n').join('\n> ')); // an agent note: its own statement, no question above it
+    }
     lines.push('');
   });
   lines.push(c.text);

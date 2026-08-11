@@ -208,6 +208,33 @@ test("an agent note can be replied to, and the reply lands in its thread", async
   v.close();
 });
 
+// The agent writes the next turn of a thread from the checklist alone, so every earlier turn has to travel
+// with it — including the note that STARTED the thread. A reply opened from an explain card has no parent
+// comment to inherit, so it used to reach the agent as a bare "then why not…?" with the "why" nowhere in it.
+test("a reply to a note hands the note itself to the agent as the turn before it", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  v.window.setAnnotations([{ path: "src/app.ts", line: 1, text: "a spawned child is its own process." }]);
+  await v.settle(30);
+
+  v.click(v.$(".mc-card.mc-ai .mc-ai-reply"));
+  await v.settle(40);
+  await v.writeAndSave("then why not fork it instead?");
+  await v.settle(60);
+
+  const [comment] = v.storedComments();
+  const thread = v.window.commentThreadContext(comment);
+  assert.equal(thread.length, 1, "the answers checklist carries one earlier turn");
+  assert.equal(thread[0].prompt, null, "…with no question above it, because the agent started this one itself");
+  assert.equal(thread[0].answer, "a spawned child is its own process.", "…and it is the note's own text");
+  const merged = v.window.buildMergedText();
+  assert.match(merged, /> a spawned child is its own process\./, "and the hand-off document quotes it");
+  assert.match(merged, /then why not fork it instead\?/, "…ahead of the follow-up itself");
+  v.close();
+});
+
 // F8 walks the review timeline, and an agent's note is part of it: the two used to be on separate keys, so
 // stepping with F8 through a file the agent had explained reported "no comments" and moved nothing.
 test("F8 steps to an agent note, not only to the reviewer's own comments", async () => {

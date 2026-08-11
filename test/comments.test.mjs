@@ -539,6 +539,32 @@ test("unified merged prompt: closing/reopening never absorbs the plan/change-req
   v.close();
 });
 
+// A diagram in an ANSWER is an agent-written markdown body exactly like a note is. The Mermaid render pass
+// used to run only when the review also had notes, so in a review with none the diagram sat on "loading…"
+// forever.
+test("a diagram in an agent's answer is rendered, in a review with no notes at all", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("q");
+  await v.writeAndSave("how does the hand-off flow?");
+  await v.settle(60);
+
+  const passes = [];
+  v.window.renderMermaidDiagrams = function (root) { passes.push(root); }; // the real one needs the lazy-loaded lib
+  v.window.applyAnswersUpdate([{
+    seq: v.storedComments()[0].seq,
+    answer: "Like this:\n\n```mermaid\ngraph TD\n  A-->B\n```\n",
+    answeredAt: "2026-08-11T00:00:00Z",
+  }]);
+  await v.settle(60);
+
+  assert.equal(v.window.annotationList().length, 0, "no agent notes in this review");
+  assert.ok(v.$("#source-body .mc-card-answer .explain-mermaid"), "the fence became a diagram placeholder in the answer");
+  assert.ok(passes.length, "…and a render pass ran over it instead of leaving it on 'loading…'");
+  v.close();
+});
+
 // An agent's answer belongs in the thread at the comment's own line, where you asked the question — not in
 // the merged hand-off panel, where a multi-paragraph reply buries the requests you're there to scan and send.
 // The merged card says only that an answer exists.

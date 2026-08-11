@@ -227,7 +227,7 @@ function openMergedView() {
     var items = blocks.reduce(function (acc, block) { return acc.concat(block.items); }, []).map(function (c) {
       // A follow-up ("why that way?") is meaningless without what it follows, and this checklist is rewritten
       // per round — so carry the exchange it continues, oldest first, rather than handing over a bare pronoun.
-      var thread = commentAncestry(c).map(function (p) { return { prompt: p.text, answer: p.answer || null }; });
+      var thread = commentThreadContext(c);
       var item = { seq: c.seq, kind: c.kind, target: commentTargetLabel(c), prompt: c.text, answer: null, answeredAt: null };
       if (thread.length) item.thread = thread;
       return item;
