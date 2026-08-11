@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { makeReviewHtml, renderLazyBodies, cleanupFixtures } from "./helpers/fixture.mjs";
 import { shouldLazyRender } from "../dist/render.js";
 import { collectReviewSourceIndex } from "../dist/review-workspace.js";
+import { materializeDeferredSourceFile } from "../dist/diff.js";
 
 after(cleanupFixtures);
 
@@ -105,6 +106,52 @@ test("diff-first: a clean tree (no diff) builds the full index eagerly — nothi
   );
   assert.equal(build.fullIndexDeferred, false, "no diff → no deferral");
   assert.ok(build.lazySourceFiles.some((f) => f.path === "src/a.ts"), "the unchanged file is indexed for the initial open");
+});
+
+// A 1x1 transparent PNG. Real bytes, so the data URI a materialized record hands the viewer is a real one.
+const PNG_1PX = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+test("lazy build: images are deferred, not base64'd into the index", async () => {
+  // Eagerly embedding every image in the tree escaped the source byte budget entirely (the image branch
+  // returned before the budget check), so a repo's PNGs sat in the main process at 4/3 their file size, once
+  // per open window — measured at 81MB on a 44MB repo, more than its whole text index. Nothing reads `image`
+  // before the reviewer opens the file, so it goes through the same lazy path as deferred text.
+  const files = [
+    ...bigFixture(),
+    { path: "assets/logo.png", before: PNG_1PX, after: PNG_1PX },
+    { path: "assets/shot.jpg", before: PNG_1PX, after: PNG_1PX },
+  ];
+  const { dir, build } = await makeReviewHtml(files, { lazyLoad: true, app: true });
+
+  const images = build.lazySourceFiles.filter((f) => f.path.startsWith("assets/"));
+  assert.equal(images.length, 2, "both images are indexed");
+  for (const file of images) {
+    assert.equal(file.image, undefined, `${file.path} must not carry its bytes in the index`);
+    assert.ok(file.deferred, `${file.path} must be marked deferred`);
+    // The viewer's lazy guard is `embedded && !__loaded`; without embedded it never issues the get-source.
+    assert.ok(file.embedded, `${file.path} must be embedded so the viewer fetches it on open`);
+  }
+
+  // Opening one yields a data URI the image view can paint — this path used to reject PNGs as "binary file",
+  // because materializeDeferredSourceFile ran the binary sniff before it knew the file was an image.
+  const opened = materializeDeferredSourceFile(dir, images.find((f) => f.path.endsWith(".png")));
+  assert.equal(opened.skippedReason, undefined, "a deferred image must not come back skipped");
+  assert.equal(opened.deferred, false, "materializing clears the deferred flag");
+  assert.equal(opened.image, `data:image/png;base64,${PNG_1PX.toString("base64")}`, "exact bytes round-trip");
+});
+
+test("standalone build still inlines images — it has no IPC to fetch them through", async () => {
+  const { build } = await makeReviewHtml(
+    [{ path: "assets/logo.png", before: PNG_1PX, after: PNG_1PX }, { path: "src/a.ts", before: "a\n", after: "b\n" }],
+    { lazyLoad: false, app: false },
+  );
+  assert.ok(
+    build.html.includes(`data:image/png;base64,${PNG_1PX.toString("base64")}`),
+    "a standalone review must carry its images inline — there is no get-source to fetch them later",
+  );
 });
 
 test("build signature is deterministic and path-independent (the watch fast-path depends on this)", async () => {

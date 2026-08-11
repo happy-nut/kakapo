@@ -413,12 +413,27 @@ export function collectSourceFiles(
 
     const imageMime = imageMimeForPath(path);
     if (imageMime) {
-      if (stats.size <= IMAGE_MAX_BYTES) {
-        const dataUri = `data:${imageMime};base64,${readFileSync(absolute).toString("base64")}`;
-        sourceFiles.push({ ...base, size: stats.size, image: dataUri, signature: hashText(`${path}\0image\0${stats.size}`) });
-      } else {
+      if (stats.size > IMAGE_MAX_BYTES) {
         const skippedReason = `image larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
         sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0image-large\0${stats.size}`), skippedReason });
+      } else if (options.deferSourceContent) {
+        // Read the bytes only when the reviewer opens the image. Nothing needs the data URI before then:
+        // get-project-index strips `image` and sourceFileMetadata blanks it, so the renderer sees it for the
+        // first time in a get-source reply. Embedding it eagerly also escaped the byte budget below outright
+        // — this branch `continue`s past that check — so every image in the tree, changed or not, sat in the
+        // main process once per open window at 4/3 its file size. On a 44MB repo that measured 81MB of
+        // base64 per window, more than the entire text index (47MB). Same lazy path as deferred text.
+        sourceFiles.push({
+          ...base,
+          size: stats.size,
+          embedded: true,
+          deferred: true,
+          signature: hashText(`${path}\0image-deferred\0${stats.size}\0${stats.mtimeMs}`),
+        });
+      } else {
+        // Standalone HTML has no per-file IPC to fetch through: its images must ship inside the document.
+        const dataUri = `data:${imageMime};base64,${readFileSync(absolute).toString("base64")}`;
+        sourceFiles.push({ ...base, size: stats.size, image: dataUri, signature: hashText(`${path}\0image\0${stats.size}`) });
       }
       continue;
     }
@@ -554,6 +569,25 @@ export function materializeDeferredSourceFile(rootArg: string, file: SourceFile,
   if (!stats.isFile()) {
     const skippedReason = "not a regular file";
     return { ...file, content: "", embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0not-file`) };
+  }
+  // Images are deferred like everything else now, so this is where their data URI is built — before the
+  // binary sniff below, which would otherwise reject every PNG as "binary file". Mirrors the A→B blob path
+  // in readTargetBlobSource; the size guard is re-checked here in case the file grew since it was indexed.
+  const imageMime = imageMimeForPath(file.path);
+  if (imageMime) {
+    if (stats.size > IMAGE_MAX_BYTES) {
+      const skippedReason = `image larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
+      return { ...file, content: "", size: stats.size, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0image-large\0${stats.size}`) };
+    }
+    return {
+      ...file,
+      content: "",
+      size: stats.size,
+      deferred: false,
+      skippedReason: undefined,
+      image: `data:${imageMime};base64,${readFileSync(absolute).toString("base64")}`,
+      signature: hashText(`${file.path}\0image\0${stats.size}`),
+    };
   }
   if (stats.size > SOURCE_MAX_LAZY_FILE_BYTES) {
     const skippedReason = `larger than ${formatBytes(SOURCE_MAX_LAZY_FILE_BYTES)}`;
