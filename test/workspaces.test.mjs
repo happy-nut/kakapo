@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord } from "../dist/workspaces.js";
@@ -20,7 +20,16 @@ test("managed worktree creation, risk detection, and safe removal", async () => 
     writeFileSync(join(ws.path, "dirty.txt"), "x");
     assert.equal(removalRisk(ws).dirty, true);
     assert.throws(() => removeManagedWorkspace(ws), /uncommitted/);
+    // A refused removal must leave the workspace whole. app-main now runs this BEFORE killing the
+    // workspace's terminals precisely because it can fail, so "nothing happened" has to mean nothing.
+    assert.ok(existsSync(ws.path), "a refused removal leaves the worktree on disk");
+    assert.match(sh(repo, "worktree", "list"), /my-task/, "and leaves git still tracking it");
+
     removeManagedWorkspace(ws, true, true);
+    // Deleting a workspace deletes the code. The tile disappearing is not the point of the action.
+    assert.equal(existsSync(ws.path), false, "the worktree directory is gone from disk");
+    assert.doesNotMatch(sh(repo, "worktree", "list"), /my-task/, "and git no longer tracks the worktree");
+    assert.doesNotMatch(sh(repo, "branch", "--list"), /my-task/, "deleteBranch removed the branch too");
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 

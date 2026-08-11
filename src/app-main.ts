@@ -628,10 +628,22 @@ ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unk
   if (payload.mode === "delete") {
     if (record.kind === "main") return { ok: false, error: "The main checkout can only be closed.", risk };
     if (!payload.force && (risk.dirty || risk.unpushed || risk.runningProcesses)) return { ok: false, needsConfirmation: true, risk };
+    // git first, terminals second. Removing the worktree is the step that can fail (a submodule, a lock, a
+    // path git no longer recognizes), and it used to run AFTER the kill — so a failed delete left the
+    // workspace intact but every one of its agent sessions dead. Unlinking a directory that a tmux pane has
+    // as its cwd is fine on the platforms we ship, so nothing is lost by proving the removal first.
+    try {
+      removeManagedWorkspace(record, !!payload.force, !!payload.deleteBranch);
+    } catch (error) {
+      // This used to propagate, and an ipcMain.handle that throws rejects the renderer's invoke — so the
+      // rail's `await` threw before reaching its own failure dialog. git's reason was swallowed whole and a
+      // delete that removed nothing was indistinguishable from one that worked, which is how a worktree
+      // could still be on disk after the app said nothing at all.
+      return { ok: false, error: errorMessage(error) };
+    }
     // tmux sessions die with the workspace too: killing only the ptys DETACHES a persistent pane, leaving
     // its session (and whatever agent is in it) running forever, invisible, with its worktree deleted.
     killWorkspaceTerminals(state);
-    removeManagedWorkspace(record, !!payload.force, !!payload.deleteBranch);
   }
   const metadataIndex = startupWorkspaceMetadata.findIndex((item) => resolveWorkspaceRoot(item.path) === record.path);
   if (metadataIndex >= 0) startupWorkspaceMetadata.splice(metadataIndex, 1);
@@ -1831,7 +1843,22 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
     try {
       // A packaged .app (double-clicked) can launch with no useful cwd repo. Show the welcome screen
       // (an Open Folder button) instead of an empty diff. New windows always get a validated repo.
-      if (app.isPackaged && !isGitRepository(state.options.root)) { void showWelcome(state); return; }
+      if (app.isPackaged && !isGitRepository(state.options.root)) {
+        // ...but ONLY when there is nothing else to show. This check predates the workspace rail, when a
+        // window with no repo meant the app had nothing to do. It now also catches a workspace whose folder
+        // has gone — the one you just deleted, or a worktree removed outside the app — and answering that
+        // with "choose a folder to review" hid every workspace still open behind a screen offering the one
+        // action the user had not asked for. A missing folder is a disconnected workspace, which the rail
+        // already knows how to draw; drop the window and let it.
+        const alive = Array.from(states.values()).filter((other) => other !== state && !other.win.isDestroyed());
+        if (alive.length) {
+          state.win.webContents.close();
+          if (state.win.webContents.id === activeStateId) activateWorkspace(alive[0].win.webContents.id);
+          return;
+        }
+        void showWelcome(state);
+        return;
+      }
       state.commentsFile = commentsFilePath(state.options.root);
       // Diff-first: paint the diff + changed-file sources now; the full project index is materialized on
       // demand (ensureFullProjectIndex) so a large tree's enumeration never blocks first paint. The build
