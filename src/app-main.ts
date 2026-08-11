@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, protocol, shell, WebContentsView } from "electron";
@@ -20,20 +20,20 @@ import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { parseReviewArgs, readOption } from "./cli-args.js";
 import { easeRail } from "./rail-animation.js";
-import { errorMessage, githubOwnerFromUrl } from "./util.js";
+import { errorMessage, githubOwnerFromUrl, tmuxSessionsForRoot } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
-import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals } from "./app-terminal-ipc.js";
+import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, resolveTmux } from "./app-terminal-ipc.js";
 import { registerCommentsIpc, syncCommentsFile, commentsFilePath } from "./comments-file.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
 import { collectUsageStats } from "./usage-stats.js";
-import { agentForResumeCommand } from "./agent-resume.js";
+import { agentForCommand, type AgentKind } from "./agent-resume.js";
 import { hubHtml, modalOverlayHtml } from "./shell-pages.js";
 import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
 
@@ -1205,6 +1205,7 @@ function activateWorkspace(id: number): void {
   const activated = states.get(id);
   if (activated) {
     activated.unread = false;
+    preferences.writeUnread(activated.options.root, false);
     if (activated.idleTimer) { clearTimeout(activated.idleTimer); activated.idleTimer = undefined; }
     if (activated.analysisSuspended) {
       // Rebuild the analysis with the same status relay a fresh window gets, so the resumed workspace's
@@ -1275,17 +1276,82 @@ function activateWorkspace(id: number): void {
 // longer the shell, something is running. This drives the green "running" dot — an open-but-idle terminal must
 // not light it (a bare shell isn't an agent). Recomputed on every activity tick / renderHub, and each terminal's
 // output already fires an activity tick (plus a 1200ms busy-decay tick), so start/stop transitions converge.
-function hasRunningProcess(state: WinState): boolean {
-  if (state.terms.size === 0) return false;
+function shellBasename(): string {
   const shell = process.env.SHELL || (process.platform === "win32" ? "powershell.exe" : "/bin/zsh");
-  const shellName = shell.split(/[\\/]/).pop() || shell;
+  return shell.split(/[\\/]/).pop() || shell;
+}
+// Ask TMUX what is running, not our own ptys. Panes are not restored on launch, so after a quit the pty map
+// is empty while the agent itself is very much still working inside its session — and the tile went grey,
+// saying the opposite of the truth. One `list-panes -a` maps session -> the command its pane runs, and both
+// questions the rail asks are answered from it: "is anything but a shell running here" (the green dot) and
+// "which agent is it" (the tile badge). Running the scan twice would be two subprocesses giving one answer,
+// and it is cached for a beat besides, because the rail asks on every activity tick.
+let tmuxPaneCache: { panes: Map<string, string>; at: number } | undefined;
+const TMUX_SCAN_TTL_MS = 2000;
+function tmuxPaneCommands(): Map<string, string> {
+  if (tmuxPaneCache && Date.now() - tmuxPaneCache.at < TMUX_SCAN_TTL_MS) return tmuxPaneCache.panes;
+  const panes = new Map<string, string>();
+  const tmux = resolveTmux(process.env);
+  if (tmux) {
+    try {
+      const listed = spawnSync(tmux, ["list-panes", "-a", "-F", "#{session_name}\t#{pane_current_command}"], { encoding: "utf8" });
+      for (const line of String(listed.stdout ?? "").split("\n")) {
+        const [session, command] = line.split("\t");
+        // First non-shell pane wins, so a session whose second pane sits at a prompt still reports its agent.
+        const name = (command ?? "").trim();
+        if (!session || !name) continue;
+        if (!panes.has(session) || panes.get(session)!.replace(/^-/, "") === shellBasename()) panes.set(session.trim(), name);
+      }
+    } catch { /* no tmux server -> nothing running that outlived us */ }
+  }
+  tmuxPaneCache = { panes, at: Date.now() };
+  return panes;
+}
+function runningTmuxSessions(): string {
+  const shellName = shellBasename();
+  return Array.from(tmuxPaneCommands())
+    .filter(([, command]) => command.replace(/^-/, "") !== shellName)
+    .map(([session]) => session)
+    .join("\n");
+}
+function rootHasRunningAgent(root: string): boolean {
+  return tmuxSessionsForRoot(root, runningTmuxSessions()).length > 0;
+}
+function hasRunningProcess(state: WinState): boolean {
+  const shellName = shellBasename();
   for (const t of state.terms.values()) {
     let fg = "";
     try { fg = t.process || ""; } catch { /* pty may have exited mid-query */ }
     const name = fg.replace(/^-/, ""); // login shells surface as "-zsh"
     if (name && name !== shellName) return true;
   }
-  return false;
+  // No pane of ours is busy — but one may be running detached in tmux, from before this app run.
+  return rootHasRunningAgent(state.options.root);
+}
+
+// Which agent this workspace is running, most authoritative source first.
+//
+// The recorded resume command (what the user was seen TYPING) is only a proxy, and it was the sole source
+// until now: a workspace whose agent was started any other way — recalled with the up arrow, launched from a
+// script or an alias, or simply still running inside a tmux session kakapo re-attached to on a later launch —
+// never recorded anything and so never got a badge. That is not an edge case; re-attaching is the normal
+// path, because running the shell inside tmux is what keeps an agent alive across restarts.
+//
+// It also means node-pty's own `t.process` reports "tmux" for a persistent pane, never the agent, so tmux has
+// to be asked directly. Non-persistent panes still answer through the pty. The typed command remains the last
+// resort, which is what keeps the badge on a workspace whose agent has since exited.
+function agentForWorkspace(state: WinState, panes: Map<string, string>): AgentKind | undefined {
+  for (const session of state.termSessions.values()) {
+    const agent = agentForCommand(panes.get(session));
+    if (agent) return agent;
+  }
+  for (const t of state.terms.values()) {
+    try {
+      const agent = agentForCommand(t.process);
+      if (agent) return agent;
+    } catch { /* pty may have exited mid-query */ }
+  }
+  return agentForCommand(state.resumeCommand);
 }
 
 // Push only the per-workspace agent-activity flags (busy spinner + attention dot) to the rail, so the tiles'
@@ -1405,7 +1471,10 @@ function buildProjectMainTiles() {
     const dirtyCount = git(record.path, ["status", "--porcelain"]).split("\n").filter(Boolean).length;
     return { id: -(1000 + index), ...record, alias: metadata?.alias, memo: metadata?.memo, base: metadata?.base,
       openedAt: metadata?.openedAt, dirtyCount, avatar,
-      active: false, running: false, unread: false, busy: false, closed: true };
+      // A closed workspace still shows what is true of it: an agent left running in its tmux session, and an
+      // answer nobody has read. Both outlive the window, so neither waits for you to open it to be visible.
+      active: false, running: rootHasRunningAgent(record.path), unread: preferences.readUnread(record.path),
+      busy: false, closed: true };
   });
 }
 let hubMainTilesCache: { tiles: ReturnType<typeof buildProjectMainTiles>; computedAt: number } | undefined;
@@ -1448,6 +1517,7 @@ async function refreshProjectMainTiles(): Promise<void> {
 function renderHub(): void {
   if (!shellWindow || shellWindow.isDestroyed()) return;
   const saved = savedWorkspaceMetadata();
+  const panes = tmuxPaneCommands(); // shared 2s-cached tmux scan; also backs the green running dot
   const live = Array.from(states.values()).map((state) => {
     const { record: current, dirtyCount } = hubTileFor(state);
     const metadata = saved.find((item) => resolveWorkspaceRoot(item.path) === current.path);
@@ -1457,7 +1527,7 @@ function renderHub(): void {
     return { id: state.win.webContents.id, ...current, alias: metadata?.alias, memo: metadata?.memo,
       base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount, avatar,
       active: state.win.webContents.id === activeStateId, running: hasRunningProcess(state),
-      resume: state.resumeCommand, agent: agentForResumeCommand(state.resumeCommand),
+      resume: state.resumeCommand, agent: agentForWorkspace(state, panes),
       unread: state.unread, busy: state.busy, detached: state.win.isDetached() };
   });
   const disconnected = saved.filter((item) => !existsSync(item.path)).map((item, index) => ({
@@ -1653,16 +1723,20 @@ function createWindow(root: string, deferBoot = false): WinState {
       if (state.busyTimer) { clearTimeout(state.busyTimer); state.busyTimer = undefined; }
       state.busy = false;
       state.unread = state.win.webContents.id !== activeStateId;
+      preferences.writeUnread(state.options.root, state.unread);
       renderHub();
     },
     onAgentOutput: () => markAgentBusy(state),
     onAgentBell: () => {
       if (state.busyTimer) { clearTimeout(state.busyTimer); state.busyTimer = undefined; }
       state.busy = false;
-      if (state.win.webContents.id !== activeStateId) state.unread = true;
+      if (state.win.webContents.id !== activeStateId) {
+        state.unread = true;
+        preferences.writeUnread(state.options.root, true);
+      }
       sendAgentActivity();
     },
-    unread: false,
+    unread: preferences.readUnread(options.root), // an answer you never read is still unread tomorrow
     busy: false,
     bootStarted: false,
     buildSeq: 0,

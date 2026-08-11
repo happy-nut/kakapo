@@ -7,10 +7,10 @@ export function resumeCommandForInput(input: string): string | undefined {
   return undefined;
 }
 
-// Which agent a workspace is running, read back off the resume command the terminal recorded for it. The
-// rail badges each expanded tile with this, so the two halves of the mapping — the input we recognize, and
-// the agent it belongs to — stay in the one file that already knows which agents exist.
-export function agentForResumeCommand(command: string | undefined): AgentKind | undefined {
-  const name = (command ?? "").trim().split(/\s+/)[0];
+// Which agent a command belongs to, for the rail's tile badge. Takes anything shaped like a command line: a
+// recorded resume command ("codex resume --last"), or a live foreground process name from a pty or a tmux
+// pane, where a login shell surfaces as "-zsh". Kept here so the agents we recognize are named in one file.
+export function agentForCommand(command: string | undefined): AgentKind | undefined {
+  const name = (command ?? "").trim().replace(/^-/, "").split(/\s+/)[0];
   return name === "claude" || name === "codex" ? name : undefined;
 }

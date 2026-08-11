@@ -11,7 +11,7 @@ import { resumeCommandForInput } from "./agent-resume.js";
 // A GUI launch (Finder, Dock, Spotlight) inherits a minimal PATH with no Homebrew prefix, so `tmux` is
 // usually invisible to us even when the user's own shell finds it. Check PATH first, then the standard
 // prefixes. Never cached: `brew install tmux` from the settings panel has to take effect without a restart.
-function resolveTmux(env: NodeJS.ProcessEnv): string | undefined {
+export function resolveTmux(env: NodeJS.ProcessEnv): string | undefined {
   const fromPath = (env.PATH ?? "").split(":").filter(Boolean).map((dir) => join(dir, "tmux"));
   for (const candidate of [...fromPath, "/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]) {
     if (existsSync(candidate)) return candidate;
