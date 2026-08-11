@@ -91,6 +91,35 @@ test("worktrees keep their branch as the label, and an alias still wins everywhe
   assert.equal(cardName(document, "main"), "trunk");
 });
 
+// The expanded card for a given branch, whichever project it sits under.
+const cardFor = (document, branch) => [...document.querySelectorAll(".ev .wt")]
+  .find((el) => el.querySelector(".wt-branch")?.textContent === branch);
+
+test("an expanded tile badges the agent its worktree is running", () => {
+  const { document } = railWithState([
+    { ...ZOOBOX_WORKTREE, agent: "claude" },
+    { ...KAKAPO_MAIN, branch: "topic", kind: "worktree", agent: "codex" },
+  ]);
+
+  const claude = cardFor(document, "kakapo/fix-login").querySelector(".wt-agent");
+  assert.ok(claude, "a claude worktree carries a badge");
+  assert.equal(claude.getAttribute("aria-label"), "Claude", "the badge names the agent for a screen reader");
+  // The brand colour comes from the icon's own class, which is what makes claude and codex tell apart at
+  // 12px — a shared monochrome glyph would defeat the whole point of the badge.
+  assert.ok(claude.querySelector("svg.usage-ico-claude"), "claude keeps its own mark");
+
+  assert.ok(cardFor(document, "topic").querySelector("svg.usage-ico-codex"), "codex keeps its own mark");
+});
+
+test("a worktree with no agent gets no badge, and the collapsed rail never does", () => {
+  // No agent is a real state — a worktree you have only run shell commands in — and must read as absent
+  // rather than as an unnamed agent.
+  const { document } = railWithState([ZOOBOX_WORKTREE, { ...KAKAPO_MAIN, agent: "claude" }]);
+  assert.equal(cardFor(document, "kakapo/fix-login").querySelector(".wt-agent"), null);
+  // The collapsed strip is 46px of initials and a status dot; the badge belongs to the expanded rail only.
+  assert.equal(document.querySelector(".cv .wt-agent"), null, "no badge in the collapsed rail");
+});
+
 test("the + button and ⌘N both prefill the active workspace's project", () => {
   const { hub, document } = railWithState([KAKAPO_MAIN, ZOOBOX_MAIN]);
   document.querySelector("#new").click();

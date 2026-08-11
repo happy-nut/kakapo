@@ -33,6 +33,7 @@ import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
 import { collectUsageStats } from "./usage-stats.js";
+import { agentForResumeCommand } from "./agent-resume.js";
 import { hubHtml, modalOverlayHtml } from "./shell-pages.js";
 import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
 
@@ -1444,7 +1445,8 @@ function renderHub(): void {
     return { id: state.win.webContents.id, ...current, alias: metadata?.alias, memo: metadata?.memo,
       base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount, avatar,
       active: state.win.webContents.id === activeStateId, running: hasRunningProcess(state),
-      resume: state.resumeCommand, unread: state.unread, busy: state.busy, detached: state.win.isDetached() };
+      resume: state.resumeCommand, agent: agentForResumeCommand(state.resumeCommand),
+      unread: state.unread, busy: state.busy, detached: state.win.isDetached() };
   });
   const disconnected = saved.filter((item) => !existsSync(item.path)).map((item, index) => ({
     ...item, id: -(index + 1), active: false, running: false, unread: false, busy: false, disconnected: true,

@@ -161,6 +161,10 @@ body.rail-exp .ev{display:flex}
 @media (prefers-reduced-motion:reduce){.ev .wt.busy .dot{animation:none}}
 .wt-name{font-weight:600;font-size:12.5px;color:${fg};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
 .ev .wt.act .wt-name{color:#79a6ea}
+/* Agent badge on an expanded tile. Sized to sit with .wt-home rather than with the 14px usage-footer icons
+   it borrows its markup from, and it keeps its brand colour (.usage-ico-claude/-codex) at every tile state. */
+.wt-agent{flex:none;display:grid;place-items:center;opacity:.9}
+.wt-agent .usage-ico{width:12px;height:12px}
 .wt-tag{font-size:9.5px;font-weight:700;color:${light ? "#9aa0aa" : "#8b909a"};border:1px solid ${line};border-radius:5px;padding:1px 5px;flex:none;font-variant-numeric:tabular-nums}
 .wt-branch{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:${light ? "#9aa0aa" : "#666b73"};margin:3px 0 0 16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Agent quota (Claude + Codex), moved here from the review's sidebar footer: it is per-account, not
@@ -397,7 +401,13 @@ curRepo=_a&&_a.repoRoot?{path:_a.repoRoot,name:_a.repoName}:curRepo;
 // letters instead of collapsing to "?". Latin → uppercased two-word/two-letter initials; CJK → the first one
 // or two characters as-is (Hangul has no case).
 const initials=w=>{var s=String(w.alias||(w.kind==='main'?w.repoName:0)||w.branch||w.repoName||'?').replace(/^(feature|fix|chore|bugfix|hotfix|release)[\\/_-]/i,'').trim();if(!s)return'?';var parts=s.split(/[\\s._/-]+/).filter(Boolean);var a=parts[0]||s,ac=Array.from(a),latin=/^[A-Za-z0-9]/.test(a),r;if(parts.length>1){var bc=Array.from(parts[1]);r=(ac[0]||'')+(bc[0]||'');}else{r=ac.slice(0,2).join('');}return latin?r.toUpperCase():r;};
-const tip=w=>(w.alias||w.branch)+' · '+w.repoName+(w.dirtyCount?' · '+T.changed.replace('{n}',w.dirtyCount):'')+(w.running?' · ● '+T.running:w.resume?' · '+T.resumable:w.disconnected?' · '+T.disconnected:'');
+// Proper nouns, so the same two labels in every locale — they name the agent, they don't describe it.
+const AGENT_NAME={claude:'Claude',codex:'Codex'};
+const AGENT_ICO={claude:CLAUDE_ICO,codex:CODEX_ICO};
+// The badge is omitted, not blanked, for a workspace whose agent is unknown: a worktree you have only ever
+// run plain shell commands in has no agent, which is different from having one we failed to name.
+const agentIco=w=>AGENT_ICO[w.agent]?'<span class="wt-agent" role="img" aria-label="'+esc(AGENT_NAME[w.agent])+'">'+AGENT_ICO[w.agent]+'</span>':'';
+const tip=w=>(w.alias||w.branch)+' · '+w.repoName+(AGENT_NAME[w.agent]?' · '+AGENT_NAME[w.agent]:'')+(w.dirtyCount?' · '+T.changed.replace('{n}',w.dirtyCount):'')+(w.running?' · ● '+T.running:w.resume?' · '+T.resumable:w.disconnected?' · '+T.disconnected:'');
 // Stable per-project hue (all worktrees share it) — tints the collapsed group's accent bar + avatar
 // placeholder and the expanded panel's project badge, so projects read apart at a glance.
 const projHue=n=>{let h=0;const s=String(n||'');for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h%360;};
@@ -418,7 +428,13 @@ const ev='<div class="ev"><div class="plist">'+[...groups].map(([repo,ws])=>'<di
 // The main checkout is named for what it IS, not for whatever branch it happens to sit on: labelling it by
 // branch made a project whose main was on a feature branch look like it had no main at all. The branch line
 // below still shows the real branch.
-const nm=esc(w.alias||(isMain(w)?T.mainWorktree:0)||w.branch);const showBr=w.branch&&w.branch!==(w.alias||(isMain(w)?T.mainWorktree:0));const brLine=showBr?'<div class="wt-branch">'+esc(w.branch)+'</div>':'';const tag=w.dirtyCount?'<span class="wt-tag">'+w.dirtyCount+'</span>':'';const home=isMain(w)?'<span class="wt-home" title="'+esc(T.mainWorktree)+'">'+homeIco+'</span>':'';return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
+const nm=esc(w.alias||(isMain(w)?T.mainWorktree:0)||w.branch);const showBr=w.branch&&w.branch!==(w.alias||(isMain(w)?T.mainWorktree:0));const brLine=showBr?'<div class="wt-branch">'+esc(w.branch)+'</div>':'';const tag=w.dirtyCount?'<span class="wt-tag">'+w.dirtyCount+'</span>':'';const home=isMain(w)?'<span class="wt-home" title="'+esc(T.mainWorktree)+'">'+homeIco+'</span>':'';
+// Which agent this worktree is running, in its own brand colour. The terminal records it the moment you
+// type claude/codex (agent-resume.ts), so a workspace shows its badge while the agent is live and keeps it
+// afterwards — the same fact the resume action is offered from. Only the expanded rail: the collapsed strip
+// is 46px of initials and a status dot, with no room for a second glyph.
+const agent=agentIco(w);
+return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+agent+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
 list.innerHTML=cv+ev;
 // Worktree click → activate (or reconnect/forget a disconnected one). Collapsed badges and expanded cards are
 // both .wt with the same data-*, so one handler covers both views.
