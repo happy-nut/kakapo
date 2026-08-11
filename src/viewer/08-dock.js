@@ -218,26 +218,16 @@ function openMergedView() {
   // Send the WHOLE merged prompt into a terminal pane (v0.2.7): arrows choose the pane, Enter sends. Available
   // whenever the integrated terminal exists; if no pane is open yet, one is created first.
   //
-  // Issue #10: before typing the prompt in, kakapo writes an answers.json checklist for the comments being
-  // sent (window.kakapoAnswers.write) and prepends an instruction + the file's absolute path, so the agent
-  // can write structured answers back instead of only replying in the terminal. text/items are captured
+  // Issue #10: the prompt leads with the path of the thread file (comments-file.ts) and how to answer into
+  // it — the agent appends one line per reply, which lands back in the thread beside the code it is about,
+  // instead of an answer that only ever existed as terminal output. The file itself is already up to date
+  // (saveThread runs on every comment change), so nothing has to be written here. The text is captured
   // BEFORE dock.close() — closing destroys the live editors currentMergedText() reads from.
   function sendWholeDocToTerminal() {
     var text = currentMergedText();
-    // Same builder the per-change sync uses (07-comments.js), so the file the agent reads and the document it
-    // is handed can never describe different conversations.
-    var items = answersChecklistItems();
     dock.close();
-    function deliver(finalText) {
-      window.__kakapoTerminal.enterSendMode(finalText);
-    }
-    if (items.length && window.kakapoAnswers && typeof window.kakapoAnswers.write === 'function') {
-      window.kakapoAnswers.write(items).then(function (result) {
-        deliver(result && result.ok && result.path ? t('mergePrompt.answersFile') + '\n' + result.path + '\n\n' + text : text);
-      }, function () { deliver(text); });
-    } else {
-      deliver(text);
-    }
+    var path = typeof annotationsPath === 'string' ? annotationsPath : '';
+    window.__kakapoTerminal.enterSendMode(path ? t('mergePrompt.answersFile') + '\n' + path + '\n\n' + text : text);
   }
   // Shared by the Copy-all button and Cmd+C-after-Cmd+A (see handleMergedKeydown) so both paths copy the
   // exact same assembled text.
@@ -543,31 +533,14 @@ document.addEventListener('click', function (event) {
   // A file path inside an agent's prose (linkifyPathCode in 23-annotations.js) navigates to that file.
   var pathCode = t.closest('.mc-path-code');
   if (pathCode) { event.preventDefault(); openPathReference(pathCode.textContent || ''); return; }
-  // The waiting box at the end of an ongoing thread (replyStubHtml) opens the same composer the ↩ button does:
-  // on the thread's last comment when there is one, on the note's own line when the thread is only an agent note.
+  // The waiting box at the end of an ongoing thread (replyStubHtml) opens the same composer the ↩ button
+  // does: on the thread's last card, whoever wrote it.
   var stub = t.closest('.mc-reply-stub');
-  if (stub) {
-    event.preventDefault();
-    if (stub.dataset.seq) openReplyComposer(parseInt(stub.dataset.seq, 10));
-    else openAnnotationReplyComposer(stub.dataset.path, parseInt(stub.dataset.line, 10));
-    return;
-  }
+  if (stub) { event.preventDefault(); openReplyComposer(parseInt(stub.dataset.seq, 10)); return; }
   var reply = t.closest('.mc-reply');
-  if (reply) {
-    event.preventDefault();
-    // An agent note has no seq to reply to — it anchors the composer by its own path/line instead.
-    if (reply.classList.contains('mc-ai-reply')) openAnnotationReplyComposer(reply.dataset.path, parseInt(reply.dataset.line, 10));
-    else openReplyComposer(parseInt(reply.dataset.seq, 10));
-    return;
-  }
+  if (reply) { event.preventDefault(); openReplyComposer(parseInt(reply.dataset.seq, 10)); return; }
   var del = t.closest('.mc-del');
-  if (del) {
-    event.preventDefault();
-    // An agent note has no seq — it is identified by where it is anchored.
-    if (del.classList.contains('mc-ai-del')) deleteAnnotation(del.dataset.path, parseInt(del.dataset.line, 10));
-    else deleteComment(parseInt(del.dataset.seq, 10));
-    return;
-  }
+  if (del) { event.preventDefault(); deleteComment(parseInt(del.dataset.seq, 10)); return; }
   if (t.closest('.mc-save')) { event.preventDefault(); saveComposer(); return; }
   if (t.closest('.mc-cancel')) { event.preventDefault(); closeComposer(); return; }
 });
@@ -590,9 +563,6 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onMergedView === 'function') {
 if (window.kakapoMenu && typeof window.kakapoMenu.onOpenMemo === 'function') {
   // Cmd/Ctrl+Shift+N from the Review menu -> open/close the prompt memo.
   window.kakapoMenu.onOpenMemo(function () { openMemoView(); });
-}
-if (window.kakapoAnswers && typeof window.kakapoAnswers.onUpdate === 'function') {
-  window.kakapoAnswers.onUpdate(function (items) { try { applyAnswersUpdate(items); } catch (e) {} });
 }
 if (window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function') {
   // Electron watch: refresh review data in place so comments and navigation context stay stable.

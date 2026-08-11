@@ -101,13 +101,16 @@ contextBridge.exposeInMainWorld("kakapoPty", {
   },
 });
 
-// Agent-answers exchange (issue #10): `write` seeds answers.json with the checklist for whatever's in the
-// merged prompt right now; `onUpdate` pushes only the items whose answer changed since the last poll tick
-// (see answers-ipc.ts's syncAnswersFile), matched back to reviewComments by seq in 07-comments.js.
-contextBridge.exposeInMainWorld("kakapoAnswers", {
-  write: (items: unknown): Promise<{ ok: boolean; path?: string }> => ipcRenderer.invoke("kakapo:answers-write", items),
-  onUpdate: (cb: (items: Array<{ seq: number; answer: string | null; answeredAt: string | null }>) => void): void => {
-    ipcRenderer.on("kakapo:answers-update", (_event, items) => cb(items));
+// The review conversation (comments-file.ts): comments, agent answers and agent notes are one list in one
+// file. `read` returns it (plus the path the agent is told to append to), `write` saves the renderer's whole
+// list, and `onUpdate` pushes the file back whenever an agent appends to it.
+contextBridge.exposeInMainWorld("kakapoComments", {
+  read: (): Promise<{ path: string; exists: boolean; records: unknown[]; legacyNotes: unknown[] }> =>
+    ipcRenderer.invoke("kakapo:comments-read"),
+  write: (payload: { records: unknown[]; knownMaxId: number }): Promise<{ ok: boolean; path?: string; arrived?: unknown[] }> =>
+    ipcRenderer.invoke("kakapo:comments-write", payload),
+  onUpdate: (cb: (payload: { records: unknown[] }) => void): void => {
+    ipcRenderer.on("kakapo:comments-update", (_event, payload) => cb(payload));
   },
 });
 
@@ -197,19 +200,6 @@ contextBridge.exposeInMainWorld("kakapoMemo", {
   read: (): Promise<unknown> => ipcRenderer.invoke("kakapo:memo-read"),
   write: (body: string): Promise<unknown> => ipcRenderer.invoke("kakapo:memo-write", { body }),
   remove: (): Promise<unknown> => ipcRenderer.invoke("kakapo:memo-delete"),
-});
-
-// Explain: an external AI agent writes annotations.json to this workspace's support directory; main polls it
-// and pushes the note cards here, and they render on the diff lines they explain. `read` also returns the
-// path the agent must write to, so the ⌘7 prompt can name it.
-contextBridge.exposeInMainWorld("kakapoAnnotations", {
-  read: (): Promise<{ path: string; notes: unknown[] }> => ipcRenderer.invoke("kakapo:annotations-read"),
-  // Dismissing a note rewrites annotations.json, so it survives the next poll tick and a restart alike.
-  remove: (note: { path: string; line: number; text: string }): Promise<{ ok: boolean }> =>
-    ipcRenderer.invoke("kakapo:annotations-delete", note),
-  onUpdate: (cb: (payload: { notes: unknown[] }) => void): void => {
-    ipcRenderer.on("kakapo:annotations-update", (_event, payload: { notes: unknown[] }) => cb(payload));
-  },
 });
 
 // Global settings (locale, …) persisted by the main process under userData so they survive app

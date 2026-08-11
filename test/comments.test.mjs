@@ -449,7 +449,7 @@ test("arrows walk the turns inside a thread, and `e` edits the one selected", as
   await v.settle(40);
 
   const seq = v.storedComments()[0].seq;
-  v.window.applyAnswersUpdate([{ seq, answer: "the answer", answeredAt: "2026-08-11T00:00:00Z" }]);
+  v.agentSays({ re: seq, text: "the answer" });
   await v.settle(60);
   v.click(v.$("#source-body .mc-reply-stub"));
   await v.settle(40);
@@ -462,7 +462,11 @@ test("arrows walk the turns inside a thread, and `e` edits the one selected", as
 
   v.key("ArrowDown");
   await v.settle(20);
-  assert.match(v.$("#source-body .mc-card-selected .mc-card-body")?.textContent || "", /the follow-up/, "ArrowDown steps to the next turn instead of off the row");
+  assert.match(v.$("#source-body .mc-card-selected .mc-card-body")?.textContent || "", /the answer/, "ArrowDown steps to the next turn instead of off the row");
+
+  v.key("ArrowDown");
+  await v.settle(20);
+  assert.match(v.$("#source-body .mc-card-selected .mc-card-body")?.textContent || "", /the follow-up/, "…and on to the one after it");
 
   v.key("e", { code: "KeyE" });
   await v.settle(60);
@@ -574,32 +578,37 @@ test("unified merged prompt: closing/reopening never absorbs the plan/change-req
   v.close();
 });
 
-// The checklist an agent reads is written on every comment change, not only when the hand-off panel sends a
-// prompt. A follow-up typed afterwards used to live only inside the app: the agent re-read answers.json, found
-// the round it was handed and nothing past it, and the reply was unanswerable.
-test("a follow-up reaches the agent's checklist without reopening the hand-off panel", async () => {
+// The thread file is written on every comment change, not only when the hand-off panel sends a prompt. A
+// follow-up typed afterwards used to live only inside the app: an agent re-reading the file found the round
+// it was handed and nothing past it, so the reply was unanswerable.
+test("a follow-up reaches the thread file without reopening the hand-off panel", async () => {
   const v = await loadViewer(html);
   const writes = [];
-  v.window.kakapoAnswers = {
-    write: (items) => { writes.push(items); return Promise.resolve({ ok: true, path: "/x/answers.json" }); },
+  v.window.kakapoComments = {
+    write: (payload) => { writes.push(payload); return Promise.resolve({ ok: true, path: "/x/comments.jsonl" }); },
   };
   await v.openSourceFile("AGENTS.md");
   await v.clickSourceLine(4);
   await v.openComposer("q");
   await v.writeAndSave("why is this a CLI?");
-  await v.settle(400); // the sync is debounced
-  assert.deepEqual(Array.from(writes.at(-1) ?? [], (i) => i.prompt), ["why is this a CLI?"], "the question is on the checklist already");
+  await v.settle(400); // the write is debounced
+  assert.deepEqual(Array.from(writes.at(-1)?.records ?? [], (r) => r.text), ["why is this a CLI?"],
+    "the question is in the file already");
 
-  v.window.applyAnswersUpdate([{ seq: v.storedComments()[0].seq, answer: "It ships as one binary.", answeredAt: "2026-08-11T00:00:00Z" }]);
+  v.agentSays({ re: v.storedComments()[0].seq, text: "It ships as one binary." });
   await v.settle(60);
   v.click(v.$("#source-body .mc-reply-stub"));
   await v.settle(40);
   await v.writeAndSave("then why not a library too?");
   await v.settle(400);
 
-  const last = writes.at(-1);
-  assert.deepEqual(Array.from(last, (i) => i.prompt), ["why is this a CLI?", "then why not a library too?"], "and so is the follow-up");
-  assert.equal(last[1].thread?.[0]?.answer, "It ships as one binary.", "…carrying the answer it follows");
+  const records = Array.from(writes.at(-1).records);
+  assert.deepEqual(records.map((r) => r.text),
+    ["why is this a CLI?", "It ships as one binary.", "then why not a library too?"],
+    "…and so is every turn after it, in order");
+  assert.equal(records[1].by, "agent", "each line says who wrote it");
+  assert.equal(records[2].re, records[1].id, "and what it continues — the last turn, not the first");
+  assert.equal(records[2].path, undefined, "a reply inherits its parent's anchor instead of repeating it");
   v.close();
 });
 
@@ -615,7 +624,7 @@ test("an answered thread keeps a box open for the next turn", async () => {
   await v.settle(60);
   assert.equal(v.$("#source-body .mc-reply-stub"), null, "no waiting box under a comment nobody has answered");
 
-  v.window.applyAnswersUpdate([{ seq: v.storedComments()[0].seq, answer: "It ships as one binary.", answeredAt: "2026-08-11T00:00:00Z" }]);
+  v.agentSays({ re: v.storedComments()[0].seq, text: "It ships as one binary." });
   await v.settle(60);
   const stub = v.$("#source-body .mc-reply-stub");
   assert.ok(stub, "the agent answered, so the box for the reply is already there");
@@ -626,8 +635,8 @@ test("an answered thread keeps a box open for the next turn", async () => {
   await v.writeAndSave("then why not a library too?");
   await v.settle(60);
   const stored = v.storedComments();
-  assert.equal(stored.length, 2, "what you type there is a comment of its own");
-  assert.equal(stored[1].replyTo, stored[0].seq, "…continuing the thread rather than starting a new one");
+  assert.equal(stored.length, 3, "the question, the agent's answer, and what you typed");
+  assert.equal(stored[2].replyTo, stored[1].seq, "…continuing the thread rather than starting a new one");
   v.close();
 });
 
@@ -644,15 +653,11 @@ test("a diagram in an agent's answer is rendered, in a review with no notes at a
 
   const passes = [];
   v.window.renderMermaidDiagrams = function (root) { passes.push(root); }; // the real one needs the lazy-loaded lib
-  v.window.applyAnswersUpdate([{
-    seq: v.storedComments()[0].seq,
-    answer: "Like this:\n\n```mermaid\ngraph TD\n  A-->B\n```\n",
-    answeredAt: "2026-08-11T00:00:00Z",
-  }]);
+  v.agentSays({ re: v.storedComments()[0].seq, text: "Like this:\n\n```mermaid\ngraph TD\n  A-->B\n```\n" });
   await v.settle(60);
 
-  assert.equal(v.window.annotationList().length, 0, "no agent notes in this review");
-  assert.ok(v.$("#source-body .mc-card-answer .explain-mermaid"), "the fence became a diagram placeholder in the answer");
+  assert.equal(v.window.annotationList().length, 0, "no agent notes in this review — only a reply");
+  assert.ok(v.$("#source-body .mc-card.mc-ai .explain-mermaid"), "the fence became a diagram placeholder in the reply");
   assert.ok(passes.length, "…and a render pass ran over it instead of leaving it on 'loading…'");
   v.close();
 });
@@ -669,15 +674,11 @@ test("an agent's answer renders in the thread but is only flagged in the merged 
 
   const seq = v.storedComments()[0].seq;
   // An agent writes markdown; escaping it put "**one binary**" and the list markers on screen literally.
-  v.window.applyAnswersUpdate([{
-    seq,
-    answer: "Because it ships as **one binary**.\n\n1. warm start\n2. comparison\n",
-    answeredAt: "2026-08-08T00:00:00Z",
-  }]);
+  v.agentSays({ re: seq, text: "Because it ships as **one binary**.\n\n1. warm start\n2. comparison\n" });
   await v.settle(60);
 
-  const thread = v.$("#source-body .mc-card:not(.mc-composer) .mc-answer-body");
-  assert.ok(thread, "the thread card carries the answer");
+  const thread = v.$("#source-body .mc-card.mc-ai .mc-ai-body");
+  assert.ok(thread, "the answer is its own card in the thread");
   assert.match(thread.textContent, /Because it ships as one binary\./, "the answer text is there");
   assert.equal(thread.querySelector("strong")?.textContent, "one binary", "…with its markdown rendered, not escaped");
   assert.equal(thread.querySelectorAll("ol > li").length, 2, "…including lists");
@@ -686,7 +687,7 @@ test("an agent's answer renders in the thread but is only flagged in the merged 
   await v.openMergedView();
   const card = v.$(".mc-merged-card");
   assert.ok(card, "merged card rendered");
-  assert.equal(card.querySelector(".mc-answer-body"), null, "the answer body is NOT repeated in the merged panel");
+  assert.equal(v.$all('.mc-merged-card').length, 1, 'the agent own reply is not an item in the hand-off');
   assert.ok(card.querySelector(".mc-answered-tag"), "merged card is flagged as answered instead");
   assert.match(card.querySelector(".mc-card-body").textContent, /why is this a CLI\?/, "the request itself still shows");
   v.close();
@@ -754,10 +755,10 @@ test("a reply continues the thread and carries the earlier exchange to the agent
   await v.settle(60);
 
   const seq = v.storedComments()[0].seq;
-  v.window.applyAnswersUpdate([{ seq, answer: "It ships as one binary.", answeredAt: "2026-08-08T00:00:00Z" }]);
+  v.agentSays({ re: seq, text: "It ships as one binary." });
   await v.settle(60);
 
-  const replyBtn = v.$("#source-body .mc-card:not(.mc-composer) .mc-reply");
+  const replyBtn = v.$("#source-body .mc-card.mc-ai .mc-reply");
   assert.ok(replyBtn, "an answered card offers a reply, so the exchange isn't a dead end");
   replyBtn.click();
   await v.settle(60);
@@ -766,9 +767,9 @@ test("a reply continues the thread and carries the earlier exchange to the agent
   await v.settle(60);
 
   const stored = v.storedComments();
-  assert.equal(stored.length, 2, "the reply is its own comment");
-  const reply = stored[1];
-  assert.equal(reply.replyTo, seq, "linked to the comment it answers");
+  assert.equal(stored.length, 3, "the question, the agent's answer, and the follow-up");
+  const reply = stored[2];
+  assert.equal(reply.replyTo, stored[1].seq, "linked to the answer it follows");
   assert.equal(reply.kind, "q", "a follow-up to a question is still a question");
   assert.equal(reply.line, stored[0].line, "and stays anchored to the same line, so it renders as one thread");
 

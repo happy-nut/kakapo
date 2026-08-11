@@ -1,15 +1,11 @@
-// Agent-written inline diff annotations (annotations.json -> note cards on the diff) and the ⌘⇧P prompt
-// palette that sends the prompt producing them. Covers both ends: the main-process file watcher, and the
-// renderer's store -> thread-row rendering (including the Mermaid fence lift-out).
+// An agent's Explain notes and the ⌘⇧P prompt palette that produces them. A note is a comment whose author
+// is the agent, so it arrives on the same channel as everything else in the thread (comments-file.ts, covered
+// in comments-file.test.mjs) and renders in the same thread row — the difference is who wrote it.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
-import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
-import { annotationsFilePath, refreshAnnotationsIfChanged, registerAnnotationsIpc } from "../dist/app-annotations-ipc.js";
 
 after(cleanupFixtures);
 
@@ -24,49 +20,7 @@ const NOTE_TEXT = [
   "```",
 ].join("\n");
 
-function fakeWindowState(root) {
-  const sent = [];
-  return {
-    sent,
-    win: { isDestroyed: () => false, webContents: { send: (channel, payload) => sent.push({ channel, payload }) } },
-    options: { root },
-    annotationsSig: "",
-    annotationNotes: [],
-  };
-}
 
-test("main pushes annotations.json to the renderer only when it actually changes", () => {
-  const root = mkdtempSync(join(tmpdir(), "kakapo-annotations-"));
-  try {
-    execFileSync("git", ["init", "-q"], { cwd: root });
-    const file = annotationsFilePath(root);
-    assert.ok(file, "a git repository yields an annotations path");
-
-    const state = fakeWindowState(root);
-    refreshAnnotationsIfChanged(state);
-    assert.equal(state.sent.length, 0, "no file yet -> nothing pushed");
-
-    mkdirSync(join(root, ".git", "kakapo"), { recursive: true });
-    writeFileSync(file, JSON.stringify({ version: 1, notes: [{ path: "src/app.ts", line: 1, text: "why" }] }));
-    refreshAnnotationsIfChanged(state);
-    assert.equal(state.sent.length, 1, "a fresh file is pushed once");
-    assert.equal(state.sent[0].channel, "kakapo:annotations-update");
-    assert.equal(state.sent[0].payload.notes[0].text, "why");
-
-    refreshAnnotationsIfChanged(state);
-    assert.equal(state.sent.length, 1, "an unchanged file is not re-pushed");
-
-    // A half-written file (the agent is mid-save) must not advance the signature, so the next tick retries.
-    writeFileSync(file, '{"version": 1, "notes": [');
-    refreshAnnotationsIfChanged(state);
-    assert.equal(state.sent.length, 1, "unparseable content is skipped, not pushed");
-    writeFileSync(file, JSON.stringify({ version: 1, notes: [{ path: "src/app.ts", line: 1, text: "later" }] }));
-    refreshAnnotationsIfChanged(state);
-    assert.equal(state.sent.length, 2, "the completed write is picked up on the following tick");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
 
 test("agent notes render as cards on their diff line, with Mermaid lifted out of the markdown", async () => {
   const { html } = await makeReviewHtml([
@@ -74,7 +28,7 @@ test("agent notes render as cards on their diff line, with Mermaid lifted out of
   ]);
   const v = await loadViewer(html);
 
-  v.window.setAnnotations([{ path: "src/app.ts", line: 1, title: "closing mid-load", text: NOTE_TEXT }]);
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, title: "closing mid-load", text: NOTE_TEXT });
   await v.settle(30);
 
   const card = v.$(".mc-card.mc-ai");
@@ -85,18 +39,18 @@ test("agent notes render as cards on their diff line, with Mermaid lifted out of
   assert.ok(diagram, "a ```mermaid fence becomes a diagram placeholder, not a code block");
   assert.equal(card.querySelector("code"), null, "the diagram source never reaches the syntax highlighter");
 
-  // The agent is talking TO the reviewer: these must not leak into the reviewer's own comment channels.
+  // The agent is talking TO the reviewer: a note is never a request going back to it.
   v.window.addComment("c", "src/app.ts", 1, "export const n = 2;", "please rename this");
   await v.settle(30);
   const merged = v.window.buildMergedText();
   assert.match(merged, /please rename this/);
   assert.doesNotMatch(merged, /closing mid-load/, "notes stay out of the merged agent prompt");
-  assert.equal(v.storedComments().length, 1, "notes are not persisted into the review comment store");
+  assert.equal(v.storedComments().filter((c) => c.by === "agent").length, 1, "but it IS in the one store, as the agent's");
 
-  v.window.setAnnotations([]);
+  v.$(".mc-card.mc-ai .mc-del").click();
   await v.settle(30);
-  assert.equal(v.$(".mc-card.mc-ai"), null, "a regenerated (empty) note list clears the cards");
-  assert.ok(v.$(".mc-card.mc-c"), "the reviewer's own comment survives the swap");
+  assert.equal(v.$(".mc-card.mc-ai"), null, "and it is dismissed like any other card");
+  assert.ok(v.$(".mc-card.mc-c"), "the reviewer's own comment is untouched");
   v.close();
 });
 
@@ -159,10 +113,8 @@ test("F8 and Shift+F8 walk the agent's notes", async () => {
   const cursorLine = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1);
 
   // Written out of order on purpose: stepping follows the diff, not the order the agent emitted them.
-  v.window.setAnnotations([
-    { path: "src/app.ts", line: 3, text: "why c changed" },
-    { path: "src/app.ts", line: 2, text: "why b changed" },
-  ]);
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 3, text: "why c changed" });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 2, text: "why b changed" });
   await v.settle(30);
 
   // The caret starts on line 1, so "next" is the first note below it.
@@ -188,15 +140,14 @@ test("an agent note can be replied to, and the reply lands in its thread", async
     { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
   ]);
   const v = await loadViewer(html);
-  v.window.setAnnotations([{ path: "src/app.ts", line: 1, title: "why it is spawned this way", text: "a spawned child is its own process." }]);
+  const noteId = v.agentSays({ kind: "note", path: "src/app.ts", line: 1, title: "why it is spawned this way", text: "a spawned child is its own process." });
   await v.settle(30);
 
   const note = v.$(".mc-card.mc-ai");
   assert.ok(note, "the note renders");
-  const reply = note.querySelector(".mc-ai-reply");
+  const reply = note.querySelector(".mc-reply");
   assert.ok(reply, "with a reply affordance");
-  assert.equal(reply.dataset.path, "src/app.ts", "carrying its own anchor");
-  assert.equal(reply.dataset.line, "1");
+  assert.equal(Number(reply.dataset.seq), noteId, "pointing at the note itself");
 
   v.click(reply);
   await v.settle(40);
@@ -216,21 +167,22 @@ test("a reply to a note hands the note itself to the agent as the turn before it
     { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
   ]);
   const v = await loadViewer(html);
-  v.window.setAnnotations([{ path: "src/app.ts", line: 1, text: "a spawned child is its own process." }]);
+  const noteId = v.agentSays({ kind: "note", path: "src/app.ts", line: 1, text: "a spawned child is its own process." });
   await v.settle(30);
 
-  v.click(v.$(".mc-card.mc-ai .mc-ai-reply"));
+  v.click(v.$(".mc-card.mc-ai .mc-reply"));
   await v.settle(40);
   await v.writeAndSave("then why not fork it instead?");
   await v.settle(60);
 
-  const [comment] = v.storedComments();
-  const thread = v.window.commentThreadContext(comment);
-  assert.equal(thread.length, 1, "the answers checklist carries one earlier turn");
-  assert.equal(thread[0].prompt, null, "…with no question above it, because the agent started this one itself");
-  assert.equal(thread[0].answer, "a spawned child is its own process.", "…and it is the note's own text");
+  const followUp = v.storedComments().find((c) => c.replyTo === noteId);
+  assert.ok(followUp, "the follow-up hangs off the note itself");
+  const thread = v.window.commentThreadContext(followUp);
+  assert.equal(thread.length, 1, "so it carries exactly one earlier turn");
+  assert.equal(thread[0].by, "agent", "…the agent's");
+  assert.equal(thread[0].text, "a spawned child is its own process.", "…and it is the note's own text");
   const merged = v.window.buildMergedText();
-  assert.match(merged, /> a spawned child is its own process\./, "and the hand-off document quotes it");
+  assert.match(merged, /> \S+: a spawned child is its own process\./, "the hand-off quotes it, marked as the agent's own words");
   assert.match(merged, /then why not fork it instead\?/, "…ahead of the follow-up itself");
   v.close();
 });
@@ -268,7 +220,7 @@ test("F8 steps to an agent note, not only to the reviewer's own comments", async
   // Establish the caret the same way the F8 walk test does, then hand the note to the store.
   v.key("F8");
   await v.settle(30);
-  v.window.setAnnotations([{ path: "src/app.ts", line: 3, title: "why", text: "because." }]);
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 3, title: "why", text: "because." });
   await v.settle(30);
 
   v.key("F8");
@@ -277,40 +229,6 @@ test("F8 steps to an agent note, not only to the reviewer's own comments", async
   v.close();
 });
 
-// A note in the timeline is deletable like anything else in it — and the delete has to reach the FILE. The
-// list is re-read from annotations.json on every poll tick, so a renderer-only delete reappears a second
-// later; rewriting the file is also what makes it survive a restart.
-test("dismissing a note rewrites annotations.json, so it does not come back on the next tick", () => {
-  const root = mkdtempSync(join(tmpdir(), "kakapo-annot-del-"));
-  execFileSync("git", ["init", "-q", root]);
-  const file = annotationsFilePath(root);
-  const keep = { path: "src/a.ts", line: 7, text: "keep me" };
-  const drop = { path: "src/a.ts", line: 3, text: "drop me" };
-  mkdirSync(join(root, ".git", "kakapo"), { recursive: true });
-  writeFileSync(file, JSON.stringify({ version: 1, notes: [keep, drop] }));
-
-  const state = fakeWindowState(root);
-  const handlers = new Map();
-  registerAnnotationsIpc({ handle: (channel, fn) => handlers.set(channel, fn), on: () => {} }, () => state);
-
-  refreshAnnotationsIfChanged(state); // seed: both notes are known
-  assert.equal(state.annotationNotes.length, 2);
-
-  const result = handlers.get("kakapo:annotations-delete")({}, drop);
-  assert.equal(result.ok, true, "the note was found and removed");
-
-  const onDisk = JSON.parse(readFileSync(file, "utf8")).notes;
-  assert.deepEqual(onDisk, [keep], "the file no longer carries it");
-  assert.deepEqual(state.annotationNotes, [keep], "and the renderer was pushed the new list immediately");
-
-  // The poller must agree: nothing changed since the write, and the note stays gone.
-  refreshAnnotationsIfChanged(state);
-  assert.deepEqual(state.annotationNotes, [keep], "a later tick does not resurrect it");
-
-  assert.equal(handlers.get("kakapo:annotations-delete")({}, { path: "src/a.ts", line: 99, text: "nope" }).ok, false,
-    "a note that is not there is not a write");
-  rmSync(root, { recursive: true, force: true });
-});
 
 // The codebase prompt writes the SAME notes file the diff prompt does — its map and its per-component notes
 // are ordinary notes on the code, navigable with F8 and answerable like any other card. What differs is what
@@ -354,17 +272,17 @@ test("a diagram carries its own source, and a stuck load becomes a visible failu
 });
 
 // The controls on a note have to be visible: hover-only meant the answer to "how do I comment on this?" was
-// "you cannot". Backspace on a selected row deletes a note too — it has no seq, so it goes through its own
-// path instead of being parsed as NaN and quietly deleting nothing.
+// "you cannot". Deleting one is the ordinary comment delete now that a note is a comment; what it must NOT
+// offer is editing — the agent's own words are not the reviewer's to rewrite.
 test("a note can be answered and dismissed without hunting for the controls", () => {
   const css = readFileSync(new URL("../src/viewer.css", import.meta.url), "utf8");
-  const at = css.indexOf(".mc-card.mc-ai .mc-ai-reply,");
+  const at = css.indexOf(".mc-card.mc-ai .mc-reply,");
   assert.ok(at >= 0, "the note's controls are styled");
   assert.match(css.slice(at, css.indexOf("}", at)), /opacity: \.55/, "they are visible before you hover");
 
   const sourceView = readFileSync(new URL("../src/viewer/10-source-view.js", import.meta.url), "utf8");
-  assert.match(sourceView, /mc-ai-del[\s\S]{0,300}deleteAnnotation\(del\.dataset\.path/,
-    "Backspace on a selected note dismisses it through the path that reaches the file");
   assert.match(sourceView, /if \(isFinite\(seq\)\) removeComments\(\[seq\]\)/,
-    "and a note's missing seq never reaches removeComments as NaN");
+    "Backspace on a selected card removes exactly that one");
+  assert.match(sourceView, /classList\.contains\('mc-ai'\)\) return;/,
+    "and `e` refuses to rewrite the agent's own words");
 });

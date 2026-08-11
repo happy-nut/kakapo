@@ -2083,17 +2083,15 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    "this one came from the agent" only made one timeline read as two. Still wider: these carry prose and
    Mermaid diagrams rather than one-line requests. */
 .mc-card.mc-ai { max-width: 900px; }
-/* The note keeps its quiet chrome until you go near it: the reply arrow only appears on hover/focus, so
-   a page of explanations does not read as a page of buttons. */
 /* Visible, not hover-only. A control nobody can see is a control nobody has: the reply and dismiss arrows
    were revealed on hover, and the answer to "how do I comment on this?" was "you cannot". Quiet by default,
    full strength on hover or focus. */
-.mc-card.mc-ai .mc-ai-reply,
-.mc-card.mc-ai .mc-ai-del { opacity: .55; transition: opacity 120ms ease; }
-.mc-card.mc-ai:hover .mc-ai-reply,
-.mc-card.mc-ai:hover .mc-ai-del,
-.mc-card.mc-ai .mc-ai-reply:focus-visible,
-.mc-card.mc-ai .mc-ai-del:focus-visible { opacity: 1; }
+.mc-card.mc-ai .mc-reply,
+.mc-card.mc-ai .mc-del { opacity: .55; transition: opacity 120ms ease; }
+.mc-card.mc-ai:hover .mc-reply,
+.mc-card.mc-ai:hover .mc-del,
+.mc-card.mc-ai .mc-reply:focus-visible,
+.mc-card.mc-ai .mc-del:focus-visible { opacity: 1; }
 .mc-ai-title { font-size: 11px; color: var(--text); font-weight: 600; }
 /* Prose, not a code snippet: undo .mc-card-body's pre-wrap (markdown supplies its own block structure) and
    let .markdown-body typography take over. */
@@ -2108,22 +2106,6 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .explain-mermaid svg { display: block; margin: 0 auto; }
 .mc-ai-body .explain-mermaid { margin: 10px 0; overflow-x: auto; }
 .mc-ai-body .explain-mermaid svg { max-width: 100%; height: auto; }
-/* An agent's answer (issue #10), written into answers.json and synced back — sits below .mc-card-body,
-   set off by a top border and a faint active-color tint so an answered card reads as such at a glance. */
-.mc-card-answer { border-top: 1px solid var(--border); padding: 8px 12px 11px; background: color-mix(in srgb, var(--active) 6%, transparent); }
-/* Reply sits at the end of the answer header row, and stays quiet until the card is hovered — same
-   treatment as the agent note above it. */
-.mc-card-answer { position: relative; }
-.mc-answer-reply { position: absolute; top: 4px; right: 6px; opacity: .55; transition: opacity 120ms ease; }
-.mc-card:hover .mc-answer-reply, .mc-answer-reply:focus-visible { opacity: 1; }
-.mc-answer-label {
-  display: block; font-weight: 700; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
-  color: var(--muted); margin-bottom: 3px;
-}
-/* Rendered markdown, so no pre-wrap here — that would double every blank line. The plain-text fallback keeps
-   it (see agentBodyHtml), since unrendered markdown still needs its own line breaks. */
-.mc-answer-body { color: var(--text); overflow-wrap: anywhere; }
-.mc-answer-plain { white-space: pre-wrap; }
 .mc-input {
   display: block; box-sizing: border-box; resize: vertical;
   margin: 0 10px 10px; width: calc(100% - 20px); min-height: 60px;

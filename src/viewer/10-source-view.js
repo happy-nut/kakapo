@@ -648,13 +648,6 @@ function deleteCommentsInRow(row) {
   var del = card ? card.querySelector('.mc-del') : null;
   if (!del) return;
   clearCommentRowSelection();
-  // An agent note has no seq to remove by, so it goes through its own path (the file is rewritten). Parsing
-  // its missing seq as NaN used to delete nothing at all.
-  if (del.classList.contains('mc-ai-del')) {
-    if (typeof deleteAnnotation === 'function') deleteAnnotation(del.dataset.path, parseInt(del.dataset.line, 10));
-    refreshComments();
-    return;
-  }
   var seq = parseInt(del.dataset.seq, 10);
   if (isFinite(seq)) removeComments([seq]);
   refreshComments(); // remaining comment rows re-injected; the caret stays hidden until the next arrow press
@@ -665,8 +658,9 @@ function deleteCommentsInRow(row) {
 function editCommentInRow(row) {
   if (!row) return;
   var card = selectedCommentCard() || commentCardsIn(row)[0];
-  var del = card ? card.querySelector('.mc-del:not(.mc-ai-del)') : null;
-  if (!del) return; // an agent note is regenerated, not edited
+  if (card && card.classList.contains('mc-ai')) return; // the agent's own words are not the reviewer's to rewrite
+  var del = card ? card.querySelector('.mc-del') : null;
+  if (!del) return;
   var seq = parseInt(del.dataset.seq, 10);
   var c = reviewComments.find(function (x) { return x.seq === seq; });
   if (!c) return;

@@ -345,6 +345,18 @@ class Viewer {
       }) || null
     );
   }
+  /**
+   * Deliver one agent-written record the way the thread file does (comments-file.ts pushes the whole list
+   * back through kakapo:comments-update). `re` makes it a reply, its absence a note of the agent's own.
+   * Returns the new record's id.
+   */
+  agentSays(record) {
+    const w = this.window;
+    const records = w.reviewComments.map(w.commentToRecord);
+    const id = records.reduce((max, r) => Math.max(max, r.id), 0) + 1;
+    w.applyThreadRecords(records.concat([{ id, by: "agent", text: "", ...record }]));
+    return id;
+  }
   /** Text bodies of saved comment cards rendered in whichever view is on screen. */
   visibleCardTexts() {
     const root = this.visibleView() === "diff" ? "#diff2html-container" : "#source-body";

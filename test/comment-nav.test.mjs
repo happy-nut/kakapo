@@ -228,10 +228,10 @@ test("F8 to a comment in another file switches the diff to that file", async () 
 // share (the order the thread itself renders them in), and one key that walks all of it.
 test("the comment navigation list contains both kinds", () => {
   const comments = readFileSync(new URL("../src/viewer/07-comments.js", import.meta.url), "utf8");
-  assert.match(comments, /function sortedNavThread\(\)[\s\S]{0,400}sortedAnnotations\(\)/,
-    "notes are merged into the navigation list");
-  assert.match(comments, /function gotoComment[\s\S]{0,500}target\.seq != null/,
-    "a comment navigates by seq, a note by its line");
+  assert.match(comments, /function sortedNavThread\(\)\s*\{\s*\n\s*return sortedNavComments\(\);/,
+    "notes and comments are one list, so the walk is just that list in file order");
+  assert.match(comments, /function gotoComment[\s\S]{0,400}navigateToCommentInDiff\(target\.seq\)/,
+    "and every card on it navigates by its own id");
 });
 
 // F8 stepped to the first note and then stopped dead. commentNavOrder ranks only files the DIFF contains —

@@ -27,8 +27,7 @@ import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals } from "./app-terminal-ipc.js";
-import { registerAnswersIpc, syncAnswersFile, answersFilePath } from "./answers-ipc.js";
-import { registerAnnotationsIpc, refreshAnnotationsIfChanged } from "./app-annotations-ipc.js";
+import { registerCommentsIpc, syncCommentsFile, commentsFilePath } from "./comments-file.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
@@ -72,13 +71,11 @@ type WinState = {
   refreshing: boolean;
   refreshTimer?: NodeJS.Timeout;
   analysisWarmTimer?: NodeJS.Timeout;
-  // Agent-answers exchange (see answers-ipc.ts): this window's answers.json path, its poll timer (runs
-  // independent of --watch), the last raw file content seen (change short-circuit), and the last known
-  // answer/answeredAt per comment seq (delta computation).
-  answersFile?: string;
-  answersFileSig?: string;
-  answersTimer?: NodeJS.Timeout;
-  lastAnswers?: Map<number, { answer: string | null; answeredAt: string | null }>;
+  // The review conversation (see comments-file.ts): this window's comments.jsonl path, the last-seen
+  // mtime+size, and the poll timer that picks up whatever an agent appended — all independent of --watch.
+  commentsFile?: string;
+  commentsSig?: string;
+  commentsTimer?: NodeJS.Timeout;
   bodyDiffs: string[]; // Phase 2 lazy-LOAD: raw per-file diffs rendered for THIS window's renderer on demand
   bodyCache: Map<number, string>; // rendered per-file diff bodies, scoped to the current build
   sourceFiles: Map<string, SourceFile>; // source content stays in main; renderer requests one open file at a time
@@ -122,9 +119,6 @@ type WinState = {
   // returns, a stale stamp (a newer build was requested, or the window closed) means the result is dropped.
   buildSeq: number;
   disposeWindowSurfaceRecovery: () => void;
-  annotationsTimer?: NodeJS.Timeout; // Explain: polls this workspace's annotations.json, independent of --watch
-  annotationsSig: string; // last-seen annotations.json mtime+size (agent-written inline diff notes)
-  annotationNotes: unknown[]; // last-parsed note list, served immediately to a reloading renderer
 };
 
 // `npm run dev` sets KAKAPO_DEV=1 so a locally-built app announces itself — a window-title suffix
@@ -308,8 +302,7 @@ function readMemoWithLegacyImport(root: string) {
 registerReviewIpc(ipcMain, stateFromEvent);
 registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerTerminalIpc(ipcMain, stateFromEvent);
-registerAnswersIpc(ipcMain, stateFromEvent);
-registerAnnotationsIpc(ipcMain, stateFromEvent);
+registerCommentsIpc(ipcMain, stateFromEvent);
 registerTileMenuIpc(ipcMain, { getShellWindow: () => shellWindow, isLightTheme, getTranslate: tr });
 // Theme + locale are global settings; re-theme the native chrome and broadcast to every window when either changes.
 // One UI scale for the whole app. Each surface is its own WebContents (the rail, every review view, the modal
@@ -1223,8 +1216,7 @@ function activateWorkspace(id: number): void {
       // than up to a tick later, so a switch still lands on the current diff/answers/annotations. The
       // suspended branch above already rebuilds everything, hence the else.
       if (activated.options.watch) void refreshIfChanged(activated);
-      void syncAnswersFile(activated);
-      refreshAnnotationsIfChanged(activated);
+      syncCommentsFile(activated);
     }
     if (!activated.bootStarted) {
       activated.bootStarted = true;
@@ -1665,8 +1657,6 @@ function createWindow(root: string, deferBoot = false): WinState {
     reviewBase: undefined,
     reviewUpstream: undefined,
     disposeWindowSurfaceRecovery: () => {},
-    annotationsSig: "",
-    annotationNotes: [],
   };
   state.ensureFullIndex = () => ensureFullProjectIndex(state);
   const id = view.webContents.id;
@@ -1766,8 +1756,7 @@ function savedWorkspaceMetadata() {
 // previous set.
 function clearWatchTimers(state: WinState): void {
   if (state.refreshTimer) { clearInterval(state.refreshTimer); state.refreshTimer = undefined; }
-  if (state.answersTimer) { clearInterval(state.answersTimer); state.answersTimer = undefined; }
-  if (state.annotationsTimer) { clearInterval(state.annotationsTimer); state.annotationsTimer = undefined; }
+  if (state.commentsTimer) { clearInterval(state.commentsTimer); state.commentsTimer = undefined; }
 }
 
 // Arm this window's pollers (clearing any prior set first): the --watch diff refresh (opt-in), the
@@ -1777,9 +1766,8 @@ function clearWatchTimers(state: WinState): void {
 function armWatchTimers(state: WinState): void {
   clearWatchTimers(state);
   if (state.options.watch) state.refreshTimer = setInterval(() => { if (isVisibleWorkspace(state)) void refreshIfChanged(state); }, WATCH_INTERVAL_MS);
-  state.answersTimer = setInterval(() => { if (isVisibleWorkspace(state)) void syncAnswersFile(state); }, WATCH_INTERVAL_MS);
-  void syncAnswersFile(state);
-  state.annotationsTimer = setInterval(() => { if (isVisibleWorkspace(state)) refreshAnnotationsIfChanged(state); }, WATCH_INTERVAL_MS);
+  state.commentsTimer = setInterval(() => { if (isVisibleWorkspace(state)) syncCommentsFile(state); }, WATCH_INTERVAL_MS);
+  syncCommentsFile(state);
 }
 
 // Only the workspace on screen is worth polling. A hidden one produced nothing a user could see while its
@@ -1842,7 +1830,7 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
       // A packaged .app (double-clicked) can launch with no useful cwd repo. Show the welcome screen
       // (an Open Folder button) instead of an empty diff. New windows always get a validated repo.
       if (app.isPackaged && !isGitRepository(state.options.root)) { void showWelcome(state); return; }
-      state.answersFile = answersFilePath(state.options.root);
+      state.commentsFile = commentsFilePath(state.options.root);
       // Diff-first: paint the diff + changed-file sources now; the full project index is materialized on
       // demand (ensureFullProjectIndex) so a large tree's enumeration never blocks first paint. The build
       // runs off-main in the worker, so the boot spinner keeps animating while it works.
@@ -2025,11 +2013,8 @@ async function openReview(state: WinState, root: string): Promise<void> {
   preferences.recordRecentProject(state.options.root); // remember it for the welcome screen's Recent Projects
   state.lastDiffSig = ""; // new repo -> force the next watch tick to rebuild
   clearWatchTimers(state); // stop the previous repo's pollers before switching this window to the new repo
-  state.answersFile = answersFilePath(state.options.root);
-  state.answersFileSig = undefined;
-  state.lastAnswers = undefined;
-  state.annotationsSig = ""; // new repo -> different workspace's notes file, force a fresh read
-  state.annotationNotes = [];
+  state.commentsFile = commentsFilePath(state.options.root); // new repo -> that worktree's own thread
+  state.commentsSig = undefined;
   // Diff-first, same as the cold boot: reusing this window for another repo paints its diff without waiting
   // on the new tree's full enumeration; the full index is pulled on demand (state.ensureFullIndex persists).
   const build = await buildReview(state, true);

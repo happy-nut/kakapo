@@ -47,7 +47,7 @@ export type TerminalIpcState = {
   terms: Map<number, IPty>;
   // Absolute path to this window's answers-exchange file (see answers-ipc.ts), passed into every pty
   // spawned in this window so an agent can find it without depending on the prompt text being intact.
-  answersFile?: string;
+  commentsFile?: string;
   // Persistent terminals: pty id -> the tmux session it is attached to. Closing a pane or quitting the app
   // only drops the client; the session (and the agent in it) runs until the workspace is deleted.
   termSessions?: Map<number, string>;
@@ -122,7 +122,7 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     if (!state) return { ok: false, id: -1 };
     const id = ++nextPtyId;
     const shell = process.env.SHELL || (process.platform === "win32" ? "powershell.exe" : "/bin/zsh");
-    const answersEnv: { [key: string]: string } = state.answersFile ? { KAKAPO_ANSWERS_FILE: state.answersFile } : {};
+    const answersEnv: { [key: string]: string } = state.commentsFile ? { KAKAPO_COMMENTS_FILE: state.commentsFile } : {};
     // Every pane runs inside a per-workspace tmux session, so a terminal belongs to its workspace rather than
     // to this app run: quitting drops the client and the agent keeps working. This used to be an opt-in
     // preference stored PER WORKSPACE while reading as an app-wide setting, so ticking it in one workspace

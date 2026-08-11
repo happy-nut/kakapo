@@ -113,24 +113,124 @@ function remapComments() {
   refreshComments();
 }
 function saveComments() {
+  persistSave(COMMENTS_KEY, reviewComments); // browser/static builds, and a non-git folder, have only this
+  saveThread();
+}
+
+// ===== The thread file: comments, agent answers and agent notes as one list (comments-file.ts) =====
+// One record per comment. Everything at its default is omitted, and a reply inherits its parent's anchor, so
+// the line an agent appends to answer a question is just {"id","re","by","text"} — both cheap to read into an
+// agent's context and hard to get wrong when writing.
+function commentToRecord(c) {
+  var record = { id: c.seq };
+  if (c.replyTo != null) record.re = c.replyTo;
+  if (c.by === 'agent') record.by = 'agent';
+  if (c.kind && c.kind !== 'q') record.kind = c.kind;
+  var parent = c.replyTo != null ? reviewComments.find(function (x) { return x.seq === c.replyTo; }) : null;
+  if (!parent || parent.path !== c.path) record.path = c.path;
+  if (!parent || parent.line !== c.line) record.line = c.line;
+  if (Number(c.from) && Number(c.from) !== c.line) record.from = Number(c.from);
+  if (Number(c.to) && Number(c.to) !== c.line) record.to = Number(c.to);
+  if (c.side) record.side = c.side;
+  if (c.anchorCode) record.anchor = c.anchorCode;
+  if (c.title) record.title = c.title;
+  if (c.addressed) record.addressed = true;
+  record.text = c.text;
+  return record;
+}
+function recordToComment(record, byId) {
+  var parent = record.re != null ? byId[record.re] : null;
+  var path = record.path != null ? String(record.path) : (parent ? parent.path : '');
+  var line = Math.max(1, Number(record.line) || (parent ? parent.line : 1));
+  var anchor = record.anchor != null ? String(record.anchor) : '';
+  return {
+    seq: Number(record.id), kind: String(record.kind || (parent ? parent.kind : (record.by === 'agent' ? 'note' : 'q'))),
+    by: record.by === 'agent' ? 'agent' : 'me', replyTo: record.re == null ? null : Number(record.re),
+    path: path, line: line, code: anchor, anchorCode: anchor,
+    from: Number(record.from) || line, to: Number(record.to) || line, side: record.side || null,
+    title: record.title ? String(record.title) : '',
+    addressed: !!record.addressed, anchorPresent: anchorLinePresent(path, anchor, anchor),
+    text: String(record.text == null ? '' : record.text),
+  };
+}
+function threadFromRecords(records) {
+  var byId = {}, out = [];
+  (Array.isArray(records) ? records : []).forEach(function (record) {
+    if (!record || !Number.isFinite(Number(record.id))) return;
+    var comment = recordToComment(record, byId);
+    byId[comment.seq] = comment;
+    out.push(comment);
+  });
+  return out;
+}
+// Debounced because one rebuild can remap many comments at once. Main keeps anything an agent appended since
+// this renderer last read the file (knownMaxId), so saving a comment never swallows an answer that landed a
+// moment earlier.
+var threadSaveTimer = 0;
+function saveThread() {
+  if (!(window.kakapoComments && typeof window.kakapoComments.write === 'function')) return;
+  if (threadSaveTimer) clearTimeout(threadSaveTimer);
+  threadSaveTimer = setTimeout(function () {
+    threadSaveTimer = 0;
+    try {
+      window.kakapoComments.write({ records: reviewComments.map(commentToRecord), knownMaxId: commentSeq })
+        .then(function (result) { if (result && result.arrived && result.arrived.length) applyThreadRecords(null, result.arrived); }, function () {});
+    } catch (e) {}
+  }, 250);
+}
+// The file is the source of truth: whatever it says replaces what is in memory (a full swap cannot drift the
+// way a delta can). `extra` appends records main kept from a concurrent agent write.
+function applyThreadRecords(records, extra) {
+  var next = records ? threadFromRecords(records) : reviewComments.slice();
+  if (extra && extra.length) {
+    var byId = {};
+    next.forEach(function (c) { byId[c.seq] = c; });
+    threadFromRecords(extra).forEach(function (c) { if (!byId[c.seq]) next.push(c); });
+  }
+  reviewComments = next;
+  commentSeq = reviewComments.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
   persistSave(COMMENTS_KEY, reviewComments);
-  syncAnswersChecklist();
+  // Agent-driven, so the re-render yields to a terminal being typed into (see refreshCommentsWhenNotTyping).
+  if (typeof refreshCommentsWhenNotTyping === 'function') refreshCommentsWhenNotTyping(); else refreshComments();
+  if (typeof syncRail === 'function') { try { syncRail(); } catch (e) {} } // the Explain rail lights up on notes
 }
-// answers.json is the agent's copy of this conversation, so it tracks the comments instead of being written
-// once per hand-off: a follow-up typed after the prompt was sent used to exist only inside the app, and an
-// agent re-reading the file found the round it was handed and nothing past it — the reply was unanswerable.
-// Main merges by seq (answers-ipc.ts), so answers already written survive every one of these writes.
-// Debounced because a rebuild can remap many comments at once.
-var answersSyncTimer = 0;
-function syncAnswersChecklist() {
-  if (!(window.kakapoAnswers && typeof window.kakapoAnswers.write === 'function')) return;
-  if (answersSyncTimer) clearTimeout(answersSyncTimer);
-  answersSyncTimer = setTimeout(function () {
-    answersSyncTimer = 0;
-    var items = answersChecklistItems();
-    if (items.length) { try { window.kakapoAnswers.write(items); } catch (e) {} }
-  }, 300);
+// Startup. The file wins when it exists; when it does not, this workspace's existing comments (app settings)
+// and Explain notes (annotations.json) are folded into it once, so unifying the stores loses nothing.
+function loadThread() {
+  if (!(window.kakapoComments && typeof window.kakapoComments.read === 'function')) return;
+  window.kakapoComments.read().then(function (result) {
+    if (!result) return;
+    annotationsPath = result.path || '';
+    if (result.exists) { applyThreadRecords(result.records); return; }
+    var migrated = reviewComments.slice();
+    var nextSeq = migrated.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
+    // A pre-unification answer was a field ON the question; it becomes what it always was — a reply.
+    migrated.slice().forEach(function (c) {
+      if (!c.answer) return;
+      migrated.push({ seq: ++nextSeq, kind: c.kind, by: 'agent', replyTo: c.seq, path: c.path, line: c.line,
+        code: '', anchorCode: '', from: c.line, to: c.line, side: null, title: '', addressed: false,
+        anchorPresent: false, text: String(c.answer) });
+      delete c.answer; delete c.answeredAt;
+    });
+    (result.legacyNotes || []).forEach(function (note) {
+      if (!note || !note.path || !note.text) return;
+      migrated.push({ seq: ++nextSeq, kind: 'note', by: 'agent', replyTo: null, path: String(note.path),
+        line: Math.max(1, Number(note.line) || 1), code: '', anchorCode: '', from: Number(note.line) || 1,
+        to: Number(note.line) || 1, side: null, title: note.title ? String(note.title) : '', addressed: false,
+        anchorPresent: false, text: String(note.text) });
+    });
+    reviewComments = migrated;
+    commentSeq = nextSeq;
+    saveThread();
+    refreshComments();
+  }, function () {});
 }
+if (window.kakapoComments && typeof window.kakapoComments.onUpdate === 'function') {
+  window.kakapoComments.onUpdate(function (payload) {
+    try { applyThreadRecords(payload && payload.records); } catch (e) {}
+  });
+}
+loadThread();
 function hasProjectExistenceBridge() {
   return !!(window.kakapoFile && typeof window.kakapoFile.existingPaths === 'function');
 }
@@ -197,7 +297,6 @@ function relevantLines(path) {
   var set = {};
   reviewComments.forEach(function (c) { if (c.path === path) set[c.line] = true; });
   if (composerState && composerState.path === path) set[composerState.line] = true;
-  annotationLines(path, set); // agent-written notes share the same thread rows (23-annotations.js)
   return Object.keys(set).map(Number).sort(function (a, b) { return a - b; });
 }
 function addComment(kind, path, line, code, text, from, to, side, anchorCode, replyTo) {
@@ -210,32 +309,31 @@ function addComment(kind, path, line, code, text, from, to, side, anchorCode, re
   var end = hasTo ? Number(to) : Number(line);
   if (start > end) { var swap = start; start = end; end = swap; }
   reviewComments.push({
-    seq: commentSeq, kind: kind, path: path, line: line, code: String(code || ''), text: trimmed,
+    seq: commentSeq, kind: kind, by: 'me', path: path, line: line, code: String(code || ''), text: trimmed,
     from: start, to: end, side: side || null, anchorCode: String(anchorCode == null ? code || '' : anchorCode),
+    title: '',
     // Record whether the anchor line exists now so a later rebuild can tell "the line I commented on changed"
     // from "this old-side anchor was never in the working tree". addressed starts false.
     anchorPresent: anchorLinePresent(path, anchorCode, code), addressed: false,
-    // Filled in by applyAnswersUpdate() once an agent writes into answers.json (see 08-dock.js/answers-ipc.ts).
-    answer: null, answeredAt: null,
-    // Set when this comment continues an existing exchange (the Reply button on an answered card). The
-    // follow-up is a full comment of its own — own seq, own answer — that carries its ancestors' Q&A to the
-    // agent as context, so "why did you do it that way?" isn't handed over with the question stripped off.
+    // Set when this comment continues an existing exchange (a Reply on any card in it). The follow-up is a
+    // full comment of its own — own seq, own replies — anchored where its parent is, so it renders and
+    // travels as part of the same thread.
     replyTo: replyTo == null ? null : Number(replyTo),
   });
   saveComments();
 }
-// The whole exchange a comment continues, oldest turn first: any agent note on its line, then each ancestor
-// comment with the answer it got. Both ends of the hand-off use it (the quoted lines in mergedItemLines and
-// the `thread` field of the answers checklist in 08-dock.js), so the agent writes the next reply knowing
-// every earlier turn. A note has no question of its own, so its turn carries a null prompt — without it a
-// reply opened from an explain card reached the agent as a bare "why that way?" with no "that way".
+// Every earlier turn of the exchange a comment continues, oldest first — whoever wrote each one. The
+// hand-off document quotes these above the follow-up itself (mergedItemLines), so a bare "why that way?"
+// never reaches an agent with the "that way" stripped off.
 function commentThreadContext(comment) {
-  var turns = [];
-  if (typeof annotationsAt === 'function') {
-    annotationsAt(comment.path, comment.line).forEach(function (note) { turns.push({ prompt: null, answer: note.text }); });
-  }
-  commentAncestry(comment).forEach(function (parent) { turns.push({ prompt: parent.text, answer: parent.answer || null }); });
-  return turns;
+  return commentAncestry(comment).map(function (parent) {
+    return { by: parent.by === 'agent' ? 'agent' : 'me', kind: parent.kind, text: parent.text };
+  });
+}
+// Has the agent replied to this comment (directly, or further down its chain)? What "answered" means now
+// that an answer is a reply rather than a field on the question.
+function hasAgentReply(comment) {
+  return reviewComments.some(function (c) { return c.by === 'agent' && c.replyTo === comment.seq; });
 }
 // Walk a comment's reply chain back to its root, oldest exchange first. Used to give an agent the
 // conversation a follow-up belongs to (see the answers payload in 08-dock.js) and to indent the thread.
@@ -371,57 +469,39 @@ function commentTargetLabel(s) {
   if (from > to) { var swap = from; from = to; to = swap; }
   return '@' + String(s && s.path || '') + '#L' + from + (to !== from ? '-' + to : '');
 }
-// An agent writes markdown — bold, lists, fenced code, mermaid — so render it, the same way agent
-// annotations already do. Escaping it left "**워밍스타트 씨앗**" and "1." literally on screen. Falls back to
-// escaped text if the markdown runtime is unavailable (browser/static builds without it).
-function agentBodyHtml(text) {
-  if (typeof annotationBodyHtml === 'function') {
-    try { return annotationBodyHtml(text); } catch (e) { /* fall through to plain text */ }
-  }
-  return '<div class="mc-answer-plain">' + escapeHtml(text) + '</div>';
-}
-// Rendered inside a comment's .mc-card, right after .mc-card-body, once an agent has written an answer
-// into answers.json (see applyAnswersUpdate below). Empty string — nothing rendered — until then.
-function commentAnswerHtml(c) {
-  if (!c || !c.answer) return '';
-  // The answer is where the exchange usually continues — "so why not X?", "then do Y instead". Put Reply on
-  // the answer itself so the follow-up is one click from what it answers, rather than making the reviewer
-  // scroll back up to the question's own header to find the same button.
-  return '<div class="mc-card-answer"><span class="mc-answer-label">' + escapeHtml(t('comment.answer')) + '</span>'
-    + '<button type="button" class="mc-reply mc-answer-reply" data-seq="' + c.seq + '"'
-    + ' aria-label="' + escapeHtml(t('comment.reply')) + '" title="' + escapeHtml(t('comment.reply')) + '">↩</button>'
-    + '<div class="mc-answer-body markdown-body mc-ai-body">' + agentBodyHtml(c.answer) + '</div></div>';
-}
 // Once a thread is a conversation — the agent answered, the agent left a note, or someone already followed up
 // — the next turn is expected, so the box for it stands open at the end of the thread instead of hiding behind
 // the ↩ button. A lone unanswered comment gets nothing: there is no exchange to continue yet, and one waiting
 // box per comment would litter the diff. Clicking it opens the real composer (one shared composerState), on
-// the last comment in the thread so the conversation keeps going in a line rather than branching.
+// the last card in the thread so the conversation keeps going in a line rather than branching.
 function replyStubHtml(path, line) {
   if (composerState && composerState.path === path && composerState.line === line) return ''; // already open here
   var cards = commentsAt(path, line);
-  var notes = typeof annotationsAt === 'function' ? annotationsAt(path, line) : [];
-  var exchange = notes.length || cards.some(function (c) { return c.answer || c.replyTo != null; });
+  var exchange = cards.some(function (c) { return c.by === 'agent' || c.replyTo != null; });
   if (!exchange) return '';
-  var last = cards.length ? cards[cards.length - 1] : null;
+  var last = cards[cards.length - 1];
   return '<button type="button" class="mc-card mc-reply-stub" data-path="' + escapeHtml(path) + '" data-line="' + line + '"'
-    + (last ? ' data-seq="' + last.seq + '"' : '') + '>' + escapeHtml(t('composer.reply')) + '</button>';
+    + ' data-seq="' + last.seq + '">' + escapeHtml(t('composer.reply')) + '</button>';
+}
+// One card per turn, in the order they were written — the reviewer's own (below) and the agent's
+// (agentCardHtml, 23-annotations.js), which is the only difference between them now.
+function reviewerCardHtml(c) {
+  var target = commentTargetLabel(c);
+  var addressed = !!c.addressed;
+  return '<div class="mc-card mc-' + c.kind + (addressed ? ' mc-addressed' : '') + (c.replyTo != null ? ' mc-reply-card' : '') + '">'
+    + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(c.kind) + '</span>'
+    + '<span class="mc-target" title="' + escapeHtml(target) + '">' + escapeHtml(target) + '</span>'
+    + (addressed ? '<span class="mc-addressed-tag" title="' + escapeHtml(t('comment.addressed.hint')) + '">' + escapeHtml(t('comment.addressed')) + '</span>' : '')
+    + (addressed ? '<button type="button" class="mc-reopen" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reopen')) + '" title="' + escapeHtml(t('comment.reopen')) + '">↺</button>' : '')
+    + '<button type="button" class="mc-reply" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reply')) + '" title="' + escapeHtml(t('comment.reply')) + '">↩</button>'
+    + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
+    + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div></div>';
 }
 function threadHtml(path, line) {
-  // Agent notes first: they explain the code the reviewer is about to comment on.
-  var html = annotationsThreadHtml(path, line);
+  var html = '';
   commentsAt(path, line).forEach(function (c) {
     if (composerState && composerState.editSeq === c.seq) return; // being edited -> rendered as the composer below
-    var target = commentTargetLabel(c);
-    var addressed = !!c.addressed;
-    html += '<div class="mc-card mc-' + c.kind + (addressed ? ' mc-addressed' : '') + (c.replyTo != null ? ' mc-reply-card' : '') + '">'
-      + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(c.kind) + '</span>'
-      + '<span class="mc-target" title="' + escapeHtml(target) + '">' + escapeHtml(target) + '</span>'
-      + (addressed ? '<span class="mc-addressed-tag" title="' + escapeHtml(t('comment.addressed.hint')) + '">' + escapeHtml(t('comment.addressed')) + '</span>' : '')
-      + (addressed ? '<button type="button" class="mc-reopen" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reopen')) + '" title="' + escapeHtml(t('comment.reopen')) + '">↺</button>' : '')
-      + '<button type="button" class="mc-reply" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reply')) + '" title="' + escapeHtml(t('comment.reply')) + '">↩</button>'
-      + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
-      + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div>' + commentAnswerHtml(c) + '</div>';
+    html += c.by === 'agent' ? agentCardHtml(c) : reviewerCardHtml(c);
   });
   html += replyStubHtml(path, line);
   if (composerState && composerState.path === path && composerState.line === line) {
@@ -516,12 +596,11 @@ function renderDiffComments() {
     var activeComposer = composerState && composerState.path === path ? composerState : null;
     var renderKey = JSON.stringify({
       comments: pathComments.map(function (comment) {
-        return [comment.seq, comment.kind, comment.line, comment.from, comment.to, comment.text, comment.answer, comment.answeredAt];
+        return [comment.seq, comment.kind, comment.by, comment.replyTo, comment.line, comment.from, comment.to, comment.text];
       }),
       composer: activeComposer
         ? [activeComposer.kind, activeComposer.line, activeComposer.from, activeComposer.to, activeComposer.editSeq, activeComposer.editText || '']
         : null,
-      annotations: annotationRenderKey(path),
     });
     var lines = relevantLines(path);
     var existingRows = w.querySelectorAll('.mc-comment-row');
@@ -698,20 +777,14 @@ function openReplyComposer(seq) {
   var parent = reviewComments.find(function (x) { return x.seq === seq; });
   if (!parent) return;
   composerState = {
-    kind: parent.kind, path: parent.path, line: parent.line, code: parent.code, anchorCode: parent.anchorCode,
+    // A follow-up to an explanation is a question — inheriting `note` would make the reviewer's own words
+    // read as the agent's and keep them out of the hand-off entirely. Every other kind carries over, so a
+    // follow-up inside a change-request thread stays a change request.
+    kind: parent.kind === 'note' ? 'q' : parent.kind,
+    path: parent.path, line: parent.line, code: parent.code, anchorCode: parent.anchorCode,
     from: parent.from, to: parent.to, side: parent.side, replyTo: parent.seq,
   };
   try { var rsel = window.getSelection(); if (rsel) rsel.removeAllRanges(); } catch (e) {}
-  refreshComments();
-}
-// Replying to an agent note. There is no parent comment to inherit an anchor from — the note is not a
-// comment — so the composer anchors to the note's own line, which is what puts the reply directly under it
-// in the same thread (threadHtml renders notes first, then the comments for that line). A question is the
-// register a follow-up to an explanation is almost always in.
-function openAnnotationReplyComposer(path, line) {
-  if (!path || !(line > 0)) return;
-  composerState = { kind: 'q', path: path, line: line };
-  try { var asel = window.getSelection(); if (asel) asel.removeAllRanges(); } catch (e) {}
   refreshComments();
 }
 function closeComposer() {
@@ -950,7 +1023,7 @@ function navigateToCommentInDiff(seq) {
 // browsing aid, not F7's "press again to cross a file" boundary gate (that exists to protect against
 // skipping an unviewed file, which doesn't apply to a deliberately-browsed comment list).
 // Pick the next (delta > 0) or previous anchor relative to wherever the caret currently is, wrapping at
-// both ends. `list` is already in diff order (sortedNavComments / sortedAnnotations); each item needs a
+// both ends. `list` is already in diff order (sortedNavComments); each item needs a
 // .path and a line (.from or .line). Used by F8, which walks review comments and agent notes as one list.
 // so the two step through the review identically. Assumes a non-empty list — callers hint and bail first.
 function stepAnchor(delta, list) {
@@ -978,24 +1051,11 @@ function stepAnchor(delta, list) {
   }
   return list[list.length - 1];
 }
-// F8 steps every note on the diff, whoever wrote it: an agent's explanation and a reviewer's question are
-// the same object to a reader walking the file, and having them on two different keys meant stepping through
-// one while silently skipping the other. Sorted together by anchor, so the walk follows the file.
+// F8 steps every card on the diff, whoever wrote it — an agent's explanation and a reviewer's question are
+// the same object to a reader walking the file. They are one list now, so this is just that list in file
+// order; the name stays because the whole viewer calls it.
 function sortedNavThread() {
-  var notes = typeof sortedAnnotations === 'function' ? sortedAnnotations() : [];
-  var all = sortedNavComments().concat(notes);
-  var order = navOrderFor(all);
-  return all.sort(function (a, b) {
-    var oa = a.path in order ? order[a.path] : Infinity;
-    var ob = b.path in order ? order[b.path] : Infinity;
-    if (oa !== ob) return oa - ob;
-    var la = Number(a.from) || a.line || 0, lb = Number(b.from) || b.line || 0;
-    if (la !== lb) return la - lb;
-    // A note explains the code the comment is about, so it comes first on a shared line — the same order
-    // threadHtml renders them in.
-    var sa = a.seq == null ? -1 : a.seq, sb = b.seq == null ? -1 : b.seq;
-    return sa - sb;
-  });
+  return sortedNavComments();
 }
 // The card hangs BELOW the line it is anchored to, so revealing only the anchor row leaves the card — the
 // thing the reader is actually going to — hanging off the bottom edge, clipped. Center the whole thread row
@@ -1020,12 +1080,7 @@ function gotoComment(delta) {
   var list = sortedNavThread();
   if (!list.length) { showCaretHint(t('comment.nav.none')); return true; }
   var target = stepAnchor(delta, list);
-  // A comment knows its own seq and can be navigated to precisely; a note is anchored by line.
-  if (target.seq != null) {
-    if (!isDiffViewVisible() || !navigateToCommentInDiff(target.seq)) navigateToComment(target.seq);
-  } else if (!isDiffViewVisible() || !navigateToLineInDiff(target.path, target.line, 'new')) {
-    navigateToLine(target.path, target.line);
-  }
+  if (!isDiffViewVisible() || !navigateToCommentInDiff(target.seq)) navigateToComment(target.seq);
   centerThreadRow(target.path, Number(target.line) || 1, 0);
   return true;
 }
@@ -1039,8 +1094,11 @@ function gotoComment(delta) {
 // render `comment.text` verbatim and read/write straight through `reviewComments`, so there is no markdown
 // round-trip of comment text to get wrong, and no reconcile step needed at all.
 function mergedBlocks() {
-  var qItems = reviewComments.filter(function (c) { return c.kind === 'q' && !c.addressed; });
-  var cItems = reviewComments.filter(function (c) { return c.kind === 'c' && !c.addressed; });
+  // An agent's own cards (its answers and its notes) are not requests going back to it, so they are never
+  // items here — they reach it as the quoted context of the follow-up that continues them.
+  var open = reviewComments.filter(function (c) { return c.by !== 'agent' && !c.addressed; });
+  var qItems = open.filter(function (c) { return c.kind === 'q'; });
+  var cItems = open.filter(function (c) { return c.kind === 'c'; });
   var blocks = [];
   if (qItems.length) blocks.push({ prose: mergePromptFor('q'), items: qItems });
   if (cItems.length) {
@@ -1056,32 +1114,21 @@ function mergedBlocks() {
 // The live merged dock instead renders each block as its own small editable surface plus one non-editable
 // card per comment (see openMergedView/currentMergedText in 08-dock.js) — this stays the static/default view.
 // One comment's lines in the hand-off document — shared with the live panel's currentMergedText (08-dock.js)
-// so the two can't drift. A follow-up leads with the exchange it continues, quoted, because the checklist is
-// rewritten every round: without it the agent reads "why did you do it that way?" and has no "that way".
+// so the two can't drift. The id leads the heading because that is what an agent replies to: it appends a
+// line with `"re": <id>` to the thread file. A follow-up quotes the exchange it continues, so the request
+// reads on its own even before the agent opens that file.
 function mergedItemLines(c) {
-  var lines = ['### ' + commentTargetLabel(c)];
+  var lines = ['### #' + c.seq + ' ' + commentTargetLabel(c)];
   commentThreadContext(c).forEach(function (turn) {
-    if (turn.prompt) lines.push('> ' + turn.prompt.split('\n').join('\n> '));
-    if (turn.answer) {
-      if (turn.prompt) lines.push('>', '> ' + t('comment.answer') + ': ' + turn.answer.split('\n').join('\n> '));
-      else lines.push('> ' + turn.answer.split('\n').join('\n> ')); // an agent note: its own statement, no question above it
-    }
+    // Whose words these are matters to the agent reading them back: its own explanation, its own answer, or
+    // the reviewer's earlier question (unlabelled — the document is addressed to the agent).
+    var label = turn.by !== 'agent' ? '' : (turn.kind === 'note' ? t('annotate.kind') : t('comment.answer')) + ': ';
+    lines.push('> ' + (label + turn.text).split('\n').join('\n> '));
     lines.push('');
   });
   lines.push(c.text);
   lines.push('');
   return lines;
-}
-// The checklist the agent fills in: one item per open comment, in the same order the hand-off document lists
-// them, each carrying the exchange it continues. Written on every comment change (syncAnswersChecklist) and
-// again when the prompt is sent (08-dock.js), so the two can never describe different conversations.
-function answersChecklistItems() {
-  return mergedBlocks().reduce(function (all, block) { return all.concat(block.items); }, []).map(function (c) {
-    var item = { seq: c.seq, kind: c.kind, target: commentTargetLabel(c), prompt: c.text, answer: null, answeredAt: null };
-    var thread = commentThreadContext(c);
-    if (thread.length) item.thread = thread;
-    return item;
-  });
 }
 function buildMergedText() {
   var nl = String.fromCharCode(10);
@@ -1106,25 +1153,7 @@ function mergedCardHtml(comment) {
   return '<div class="mc-card mc-merged-card mc-' + comment.kind + '" data-comment-seq="' + comment.seq + '" tabindex="-1" role="button">'
     + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(comment.kind) + '</span>'
     + '<span class="mc-target">' + escapeHtml(commentTargetLabel(comment)) + '</span>'
-    + (comment.answer ? '<span class="mc-answered-tag" title="' + escapeHtml(t('comment.answered.hint')) + '">' + escapeHtml(t('comment.answered')) + '</span>' : '')
+    + (hasAgentReply(comment) ? '<span class="mc-answered-tag" title="' + escapeHtml(t('comment.answered.hint')) + '">' + escapeHtml(t('comment.answered')) + '</span>' : '')
     + '</div>'
     + '<div class="mc-card-body">' + escapeHtml(comment.text) + '</div></div>';
-}
-
-// Pushed from main (kakapo:answers-update, see answers-ipc.ts's syncAnswersFile) whenever the agent writes
-// new answers into answers.json. Matches each item back to reviewComments by seq — the only id stable
-// across a comment's text being edited later; an item whose seq no longer exists (comment deleted in the
-// meantime) is dropped silently rather than resurrecting it.
-function applyAnswersUpdate(items) {
-  if (!Array.isArray(items) || !items.length) return;
-  var changed = false;
-  items.forEach(function (item) {
-    var c = reviewComments.find(function (x) { return x.seq === item.seq; });
-    if (!c) return;
-    c.answer = item.answer;
-    c.answeredAt = item.answeredAt;
-    changed = true;
-  });
-  // Agent-driven, so the re-render yields to a terminal being typed into (see refreshCommentsWhenNotTyping).
-  if (changed) { saveComments(); refreshCommentsWhenNotTyping(); }
 }
