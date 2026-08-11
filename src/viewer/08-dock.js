@@ -2,6 +2,9 @@
 // Only one is visible at a time. Cmd/Ctrl+Shift+' maximizes the active dock over the editor area.
 var dockHeightKey = 'kakapo-dock-height';
 var dockMaximized = false;
+// Assigned once the settings panel is built (see below); read by the KEY_OWNERS table in 05-keymap.js,
+// which loads first and so tests it with `typeof`.
+var handleSettingsKey;
 function applyDockHeight(px) {
   var h = Math.max(140, Math.min(px, window.innerHeight - 120));
   document.documentElement.style.setProperty('--dock-height', h + 'px');
@@ -679,17 +682,21 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   if (flag) flag.addEventListener('click', function (e) { e.stopPropagation(); open('general'); });
   cats.forEach(function (c) { c.addEventListener('click', function () { showCat(c.dataset.cat); }); });
   modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
-  // Capture so closing settings wins over other Escape handlers (lightbox / composer).
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && !modal.classList.contains('hidden')) { e.stopPropagation(); e.preventDefault(); close(); return; }
+  // Settings is the first row of KEY_OWNERS (05-keymap.js), which is what makes its Esc beat the lightbox
+  // and the composer. That used to be a capture-phase listener whose only statement of precedence was a
+  // comment here; the ordering now lives in the one table that ranks every such surface.
+  handleSettingsKey = function (e) {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) { e.stopPropagation(); e.preventDefault(); close(); return true; }
     // Cmd/Ctrl+, (the standard "Preferences" accelerator) toggles the settings panel from anywhere — but not
     // while another floating overlay (merged / memo) owns focus; that one must be Esc'd first.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === ',' || e.code === 'Comma')) {
-      if (modal.classList.contains('hidden') && (document.getElementById('mc-modal') || document.getElementById('mc-memo'))) return;
+      if (modal.classList.contains('hidden') && (document.getElementById('mc-modal') || document.getElementById('mc-memo'))) return false;
       e.preventDefault(); e.stopPropagation();
       if (modal.classList.contains('hidden')) open('general'); else close();
+      return true;
     }
-  }, true);
+    return false;
+  };
   // One-click self-update (Electron only): install latest globally via the main process, then relaunch.
   if (updateBtn && window.kakapoUpdate && typeof window.kakapoUpdate.run === 'function') {
     updateBtn.addEventListener('click', function () {

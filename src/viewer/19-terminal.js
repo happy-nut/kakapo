@@ -2,6 +2,8 @@
 // Toggle with Ctrl+` / Opt+F12 / the footer ⌗ button; Cmd/Ctrl+D splits the active pane (side by side,
 // no tabs); drag the top edge to resize. window.__kakapoTerminal pipes the merged prompt into the
 // active pane. Cmd combos are released back to the app so shortcuts like Cmd+1 don't get stuck typing.
+// Assigned by setupTerminal; read by the KEY_OWNERS table in 05-keymap.js, which loads first.
+var handleTerminalSendModeKey;
 (function setupTerminal() {
   if (!window.kakapoPty) return; // xterm (window.Terminal) is loaded lazily on first open
   var panel = document.getElementById('terminal-panel');
@@ -513,9 +515,10 @@
     document.body.classList.add('terminal-send-mode'); // dim sidebar + file/diff view; only the terminal pops
     paintSendMode();
   }
-  // Capture phase so the pick keys win over the focused xterm; while picking, every key is swallowed.
-  document.addEventListener('keydown', function (e) {
-    if (sendModeText == null) return;
+  // A KEY_OWNERS row (05-keymap.js) rather than a capture listener: while a pick is up every key belongs to
+  // it, including over the focused xterm, and that rank is now stated in the table with every other surface.
+  handleTerminalSendModeKey = function (e) {
+    if (sendModeText == null) return false;
     e.preventDefault(); e.stopPropagation();
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       var d = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
@@ -528,7 +531,8 @@
     } else if (e.key === 'Escape') {
       exitSendMode();
     }
-  }, true);
+    return true; // every key while picking belongs to the picker
+  };
   window.__kakapoTerminal = {
     isOpen: isOpen,
     // True when keyboard focus is inside the terminal panel (a pane owns it) — Cmd/Ctrl+W uses this to
