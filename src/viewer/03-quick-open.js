@@ -40,6 +40,11 @@ function openQuickOpen(mode) {
   quickOpen.classList.toggle('quick-recent', mode === 'recent' || mode === 'prompts');
   quickOpen.classList.toggle('quick-content', mode === 'content');
   quickOpen.classList.toggle('quick-launcher', QUICK_LAUNCHER_MODES.indexOf(mode) >= 0);
+  // One surface at a time: the launcher covers the whole view, and a terminal left open underneath it is a
+  // shell you are still typing into but cannot see. Put it away — the rail's Terminal row brings it back,
+  // as does Ctrl+`, and the panes are untouched either way.
+  var terminalApi = window.__kakapoTerminal;
+  if (terminalApi && typeof terminalApi.isOpen === 'function' && terminalApi.isOpen()) terminalApi.close();
   syncQuickLauncherRail();
   syncContentSearchControls();
   recentFilter = '';
@@ -77,6 +82,8 @@ document.getElementById('quick-open-side')?.addEventListener('click', function (
   closeQuickOpen();
   if (section === 'merged' && typeof openMergedView === 'function') openMergedView();
   else if (section === 'memo' && typeof openMemoView === 'function') openMemoView();
+  // The terminal is toggled by id, not by a data-view button like the rest.
+  else if (section === 'terminal') document.getElementById('terminal-toggle')?.click();
   // Everything else is a view with a rail button behind it: click that, so the launcher opens it by exactly
   // the path the shortcut and the title bar already use rather than by a second copy of the same logic.
   else document.querySelector('.rail-btn[data-view="' + section + '"]')?.click();

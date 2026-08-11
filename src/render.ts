@@ -463,6 +463,7 @@ export function renderDiffHtml(input: {
     '<button type="button" class="quick-open-side-item" data-section="impact" data-keyhint="⌘8"><span data-i18n="rail.impact">Change Impact</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="explain" data-keyhint="⌘7"><span data-i18n="rail.explain">Explain</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="history" data-keyhint="⌘9"><span data-i18n="rail.history">History</span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="terminal" data-keyhint="⌃`"><span data-i18n="terminal.title">Terminal</span></button>',
     '</nav>',
     '<div class="quick-open-title"><span id="quick-open-mode" data-i18n="quickopen.searchFiles">Search files</span><span id="quick-open-filter" class="quick-open-filter"></span></div>',
     '<input id="quick-open-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.searchFiles" placeholder="Search files">',
