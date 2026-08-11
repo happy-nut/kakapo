@@ -476,7 +476,15 @@ var handleTerminalSendModeKey;
   function writeToPane(p, text) {
     if (!p) return;
     setOpen(true);
-    if (p.id != null) window.kakapoPty.write({ id: p.id, data: text });
+    // Send it as a PASTE, not as typing, whenever the app in the pane asked for bracketed paste (DECSET 2004
+    // — Codex, Claude Code, vim, a modern shell). Raw text makes every newline an Enter: Codex submitted the
+    // first line and typed the rest into a busy composer, so a multi-line prompt never arrived intact.
+    // Claude Code survived it only by guessing from input speed. Plain apps that never enabled the mode still
+    // get the bytes unwrapped, or they would see the markers as literal "[200~" garbage.
+    if (p.id != null) {
+      var bracketed = p.term && p.term.modes && p.term.modes.bracketedPasteMode;
+      window.kakapoPty.write({ id: p.id, data: bracketed ? '\x1b[200~' + text + '\x1b[201~' : text });
+    }
     setActive(p);
     requestAnimationFrame(function () { try { p.term.focus(); } catch (e) {} });
   }

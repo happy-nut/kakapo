@@ -396,12 +396,14 @@ test("the launcher rail is reachable and navigable by keyboard", async () => {
   await v.settle(10);
   assert.notEqual(focused(), "recent", "ArrowRight gives the keyboard back to the results");
 
-  // Enter on a rail section switches to it AND keeps the keyboard there, so the next arrow still applies.
+  // Enter on a rail section picks it and HANDS THE KEYBOARD to that section's panel — the rail keeps focus
+  // only while you are still choosing (the arrows). It used to stay on the rail after Enter, which left the
+  // pick looking unfinished: the section on the right was showing but the keyboard was still on the left.
   v.key("ArrowLeft"); await v.settle(10);
   v.key("ArrowDown"); await v.settle(10);
   v.key("Enter"); await v.settle(40);
   assert.equal(v.$("#quick-open-mode").textContent, "Prompts", "Enter switches to the focused section");
-  assert.equal(focused(), "prompts", "and the rail keeps the keyboard");
+  assert.equal(focused(), undefined, "and the rail gives the keyboard up, exactly as a mouse pick does");
   v.close();
 });
 

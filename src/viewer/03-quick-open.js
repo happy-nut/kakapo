@@ -17,7 +17,6 @@ function setQuickOpenOwnsEditKeys(owns) {
 // with their own panels — the user asked for them to be reachable here, not embedded — so they just open and
 // dismiss the launcher.
 var QUICK_LAUNCHER_MODES = ['recent', 'prompts'];
-var quickSideKeepsFocus = false;
 
 function openQuickOpen(mode) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
@@ -54,10 +53,9 @@ function openQuickOpen(mode) {
   // File search intentionally stays empty until the user types. Loading the whole project index on open
   // made an untouched dialog look like an arbitrary file browser and spent work before there was a query.
   // The first real file-name query requests the deferred index in renderQuickOpenResults().
-  // Switching from the rail must not throw the keyboard back to the list, or one ArrowDown after picking a
-  // section would land somewhere else entirely.
-  if (quickSideKeepsFocus) { quickSideKeepsFocus = false; focusQuickSide(); }
-  else if (mode === 'recent' || mode === 'prompts') { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
+  // Picking a section is done with the rail: focus goes to the section's own panel, whether the pick came from
+  // a click or from Enter on the rail. Arrows then move in the list, ArrowLeft steps back to the rail.
+  if (mode === 'recent' || mode === 'prompts') { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
   else setTimeout(() => quickInput.focus(), 0);
 }
 
@@ -75,7 +73,6 @@ document.getElementById('quick-open-side')?.addEventListener('click', function (
   if (!button) return;
   var section = button.dataset.section;
   if (QUICK_LAUNCHER_MODES.indexOf(section) >= 0) {
-    quickSideKeepsFocus = !!focusedQuickSideItem(); // arrived by keyboard -> stay on the rail
     openQuickOpen(section);
     return;
   }

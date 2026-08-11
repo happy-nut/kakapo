@@ -155,3 +155,16 @@ test("reopening after a restart restores one pane per live session, by ordinal",
   assert.match(client, /if \(ordinals\.length < 2\) return;/,
     "one session (or none) is left to the plain open path, which already makes exactly one pane");
 });
+
+
+// A prompt sent to a pane is a PASTE, not typing. Codex enables bracketed paste (DECSET 2004) and reads a
+// bare newline as Enter, so a raw multi-line write submitted the first line and typed the rest into a busy
+// composer — "선택해서 붙여넣기가 안 된다". Wrap it when the pane's app asked for the mode, and only then:
+// a plain shell without it would show the markers as literal "[200~" text.
+test("text sent to a pane is wrapped as a bracketed paste when the app enabled that mode", () => {
+  const write = client.match(/function writeToPane\(p, text\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(write, "writeToPane is still the single path prompts reach a pane by");
+  assert.match(write, /p\.term\.modes\.bracketedPasteMode/, "the pane's own mode decides, not a guess about the agent");
+  assert.match(write, /'\\x1b\[200~' \+ text \+ '\\x1b\[201~'/, "the text goes out framed as a paste");
+  assert.match(write, /bracketed \? [^:]+ : text/, "an app that never asked for it still gets the bytes unwrapped");
+});
