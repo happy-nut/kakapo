@@ -15,10 +15,37 @@ export type IndexedFile = { path: string; content: string };
 
 export type RegexIndex = {
   files: Map<string, string>;
-  codeLines: Map<string, string[]>;
+  codeLines: CodeLines;
   definitions: Map<string, SymbolRecord[]>;
   symbols: SymbolRecord[];
 };
+
+// Comment/string-masked source, one file at a time — which is the only way its four call sites ever read it
+// (a path, then a line). Retaining the masked copy of every indexed file was a second full copy of the
+// project's source held as ~930k individual line strings: 77MB on a 6k-file repo, per window, for lookups
+// that touch the file under the cursor. `files` already holds the content, and masking one file is a single
+// pass over it, so recompute on demand behind a small LRU instead.
+// ponytail: fixed 32-file window, no byte accounting. Navigation works a file at a time; if a caller ever
+// sweeps the whole project through here, give it a byte budget like ByteBudgetCache.
+const CODE_LINES_CACHE = 32;
+export class CodeLines {
+  private readonly cache = new Map<string, string[]>();
+  constructor(private readonly files: Map<string, string>) {}
+  get(path: string): string[] | undefined {
+    const hit = this.cache.get(path);
+    if (hit) {
+      this.cache.delete(path); // re-insert: insertion order is the LRU queue
+      this.cache.set(path, hit);
+      return hit;
+    }
+    const content = this.files.get(path);
+    if (content === undefined) return undefined; // not indexed (or a document path the build skipped)
+    const masked = maskNonCode(content, path);
+    this.cache.set(path, masked);
+    if (this.cache.size > CODE_LINES_CACHE) this.cache.delete(this.cache.keys().next().value as string);
+    return masked;
+  }
+}
 
 const CODE_EXTENSIONS = new Set([
   ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".rb", ".go", ".rs", ".java", ".kt", ".kts",
@@ -127,7 +154,6 @@ function declarationFromLine(path: string, line: string, lineIndex: number, sour
 
 export function buildRegexSymbolIndex(files: IndexedFile[]): RegexIndex {
   const fileMap = new Map<string, string>();
-  const codeLines = new Map<string, string[]>();
   const definitions = new Map<string, SymbolRecord[]>();
   const symbols: SymbolRecord[] = [];
   for (const file of files) {
@@ -138,7 +164,7 @@ export function buildRegexSymbolIndex(files: IndexedFile[]): RegexIndex {
     const masked = maskNonCode(file.content, path);
     const python = extname(path).toLowerCase() === ".py";
     const pythonClasses: Array<{ name: string; indent: number }> = [];
-    codeLines.set(path, masked);
+    // `masked` is scanned for declarations below and then dropped — CodeLines re-derives it per file on demand.
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
       const code = masked[lineIndex];
       const trimmed = code.trim();
@@ -159,7 +185,7 @@ export function buildRegexSymbolIndex(files: IndexedFile[]): RegexIndex {
       if (python && record.symbolKind === "class") pythonClasses.push({ name: record.name, indent });
     }
   }
-  return { files: fileMap, codeLines, definitions, symbols };
+  return { files: fileMap, codeLines: new CodeLines(fileMap), definitions, symbols };
 }
 
 async function listProjectFiles(root: string): Promise<string[]> {
