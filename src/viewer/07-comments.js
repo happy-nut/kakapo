@@ -506,16 +506,15 @@ function commentTargetLabel(s) {
   if (from > to) { var swap = from; from = to; to = swap; }
   return '@' + String(s && s.path || '') + '#L' + from + (to !== from ? '-' + to : '');
 }
-// Once a thread is a conversation — the agent answered, the agent left a note, or someone already followed up
-// — the next turn is expected, so the box for it stands open at the end of the thread instead of hiding behind
-// the ↩ button. A lone unanswered comment gets nothing: there is no exchange to continue yet, and one waiting
-// box per comment would litter the diff. Clicking it opens the real composer (one shared composerState), on
-// the last card in the thread so the conversation keeps going in a line rather than branching.
+// Every thread ends in the box for its next turn, attached under the last card — GitHub's "Write a reply".
+// It used to appear only once a thread was already an exchange (the agent answered, or someone followed up),
+// so a comment you had just written offered no way onward except finding the ↩ button in its header. Clicking
+// it opens the real composer (one shared composerState), on the last card in the thread so the conversation
+// keeps going in a line rather than branching.
 function replyStubHtml(path, line) {
   if (composerState && composerState.path === path && composerState.line === line) return ''; // already open here
   var cards = commentsAt(path, line);
-  var exchange = cards.some(function (c) { return c.by === 'agent' || c.replyTo != null; });
-  if (!exchange) return '';
+  if (!cards.length) return '';
   var last = cards[cards.length - 1];
   return '<button type="button" class="mc-card mc-reply-stub" data-path="' + escapeHtml(path) + '" data-line="' + line + '"'
     + ' data-seq="' + last.seq + '">' + escapeHtml(t('composer.reply')) + '</button>';

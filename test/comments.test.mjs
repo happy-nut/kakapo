@@ -653,22 +653,22 @@ test("an agent's answer raises a notification, but re-reading the thread does no
   v.close();
 });
 
-// Once an exchange exists, the next turn is expected — so its box stands open at the end of the thread rather
-// than hiding behind the ↩ button. A lone unanswered comment gets none: nothing to continue yet, and one
-// waiting box under every comment would litter the diff.
-test("an answered thread keeps a box open for the next turn", async () => {
+// Every thread ends in the box for its next turn, attached under the last card the way GitHub puts "Write a
+// reply" under a comment. It used to appear only once the thread was already an exchange, so a comment you
+// had just written offered no way onward except finding the ↩ button in its header.
+test("a thread keeps a box open for the next turn, from the very first comment", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("AGENTS.md");
   await v.clickSourceLine(4);
   await v.openComposer("q");
   await v.writeAndSave("why is this a CLI?");
   await v.settle(60);
-  assert.equal(v.$("#source-body .mc-reply-stub"), null, "no waiting box under a comment nobody has answered");
+  assert.ok(v.$("#source-body .mc-reply-stub"), "the box for the next turn is there as soon as the comment is");
 
   v.agentSays({ re: v.storedComments()[0].seq, text: "It ships as one binary." });
   await v.settle(60);
   const stub = v.$("#source-body .mc-reply-stub");
-  assert.ok(stub, "the agent answered, so the box for the reply is already there");
+  assert.ok(stub, "…and it is still there after the agent answers, at the end of the thread");
 
   v.click(stub);
   await v.settle(60);
