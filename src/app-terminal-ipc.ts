@@ -5,7 +5,7 @@ import { spawn as spawnPty, type IPty } from "node-pty";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper, endTmuxSession } from "./util.js";
+import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper, endTmuxSession, tmuxPaneCommand } from "./util.js";
 import { resumeCommandForInput } from "./agent-resume.js";
 
 // A GUI launch (Finder, Dock, Spotlight) inherits a minimal PATH with no Homebrew prefix, so `tmux` is
@@ -215,11 +215,17 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     const state = stateFromEvent(event);
     const t = typeof msg?.id === "number" ? state?.terms.get(msg.id) : undefined;
     if (!t) return { running: false, name: "" };
-    // A pane backed by tmux only detaches when it closes, so there is nothing to confirm — warning that an
-    // agent "will be stopped" would be a lie. Only a plain pty (no tmux installed) really ends what it runs.
-    if (typeof msg?.id === "number" && state?.termSessions?.has(msg.id)) return { running: false, name: "" };
     const shell = process.env.SHELL || (process.platform === "win32" ? "powershell.exe" : "/bin/zsh");
     const shellName = shell.split(/[\\/]/).pop() || shell;
+    // A tmux-backed pane used to answer "nothing is running" here, because closing it only detached and the
+    // warning would have been a lie. ⌘W ends the session now, so the question is real again — and it has to
+    // be put to tmux, which knows what is in the pane, rather than to the pty (that is the tmux client).
+    const session = typeof msg?.id === "number" ? state?.termSessions?.get(msg.id) : undefined;
+    const tmux = session ? resolveTmux(process.env) : undefined;
+    if (session && tmux) {
+      const inPane = tmuxPaneCommand(tmux, session).replace(/^-/, "");
+      return { running: !!inPane && inPane !== shellName, name: inPane };
+    }
     let fg = "";
     try { fg = t.process || ""; } catch { /* pty may have exited mid-query */ }
     const name = fg.replace(/^-/, ""); // login shells surface as "-zsh"

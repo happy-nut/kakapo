@@ -158,3 +158,21 @@ test("closing a pane ends its session, and the process running inside it", async
     try { execFileSync(tmux, ["kill-session", "-t", session], { stdio: "pipe" }); } catch { /* already gone */ }
   }
 });
+
+// The confirmation shown before that has to name what is really in the pane, and only tmux knows: the pty's
+// own foreground process is the tmux CLIENT, so node-pty calls an idle pane busy and a working agent "tmux".
+test("the close confirmation names the process the pane is actually running", async () => {
+  const { tmuxPaneCommand } = await import("../dist/util.js");
+  const tmux = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"].find((p) => existsSync(p));
+  if (!tmux) return;
+  const { execFileSync } = await import("node:child_process");
+  const session = `kakapo-selftest-fg-${process.pid}`;
+
+  execFileSync(tmux, ["new-session", "-d", "-s", session, "sleep", "60"], { stdio: "pipe" });
+  try {
+    assert.equal(tmuxPaneCommand(tmux, session), "sleep", "the pane's own process, not the tmux client");
+  } finally {
+    try { execFileSync(tmux, ["kill-session", "-t", session], { stdio: "pipe" }); } catch { /* already gone */ }
+  }
+  assert.equal(tmuxPaneCommand(tmux, session), "", "a session that is gone reports nothing running");
+});

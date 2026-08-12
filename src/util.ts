@@ -312,6 +312,17 @@ export function endTmuxSession(tmux: string, session: string): void {
   try { spawnSync(tmux, ["kill-session", "-t", session], { timeout: 3000 }); } catch { /* already gone */ }
 }
 
+// What a pane is actually running, for the "X is still running, close anyway?" confirmation. It has to be
+// tmux that answers: the pty's own foreground process is the tmux CLIENT, so node-pty reports "busy" for an
+// idle pane and "tmux" for a working agent. Empty when the session is gone.
+export function tmuxPaneCommand(tmux: string, session: string): string {
+  try {
+    const out = spawnSync(tmux, ["display-message", "-p", "-t", session, "#{pane_current_command}"],
+      { encoding: "utf8", timeout: 3000 });
+    return String(out.stdout ?? "").trim();
+  } catch { return ""; }
+}
+
 type Killable = { kill: (signal?: string) => void };
 
 /**
