@@ -2063,8 +2063,20 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 /* One conversation, one box. A reply — already written, being written, or the empty box waiting for the next
    turn — joins the card above it (borders overlapped, no gap) instead of floating off as a separate card. The
    left accent bar is what still says "this is a reply". */
-.mc-card.mc-reply-card { margin: -1px 0 8px; border-left: 2px solid color-mix(in srgb, var(--active) 35%, transparent); }
-.mc-card.mc-reply-card + .mc-card, .mc-reply-stub + .mc-card { margin-top: -1px; }
+.mc-card.mc-reply-card { margin: 0 0 8px; border-left: 2px solid color-mix(in srgb, var(--active) 35%, transparent); }
+/* A thread is ONE box, not a stack of them: every turn in it — a follow-up, the agent's answer, the composer,
+   the box waiting for the next reply — meets the one above it, borders overlapped and the seam between them
+   straight, so only the outer edges of the whole conversation are rounded.
+   Both sides have to give up their margin. Adjacent margins collapse to (largest positive + smallest
+   negative), so -1px above a reply against 8px below the question still left a 7px gap; and two full-radius
+   boxes touching still read as two things rather than one thread. Scoped to the thread cell — the merged
+   dock's cards are separate comments from all over the review and stay separate. */
+.mc-thread-cell .mc-card + .mc-card {
+  margin-top: -1px; border-top-left-radius: 0; border-top-right-radius: 0;
+}
+.mc-thread-cell .mc-card:has(+ .mc-card) {
+  margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+}
 /* The composer opened on a reply repeats the parent's kind and target verbatim; hiding that head is what makes
    the input read as the continuation of the box above rather than a new form. */
 .mc-composer.mc-reply-card .mc-card-head { display: none; }
@@ -2073,7 +2085,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    into, rather than a button you must first find. Dashed and muted so it reads as "not yet written". */
 .mc-reply-stub {
   display: block; width: 100%; max-width: 760px; text-align: left; cursor: text;
-  margin: -1px 0 8px; padding: 9px 12px;
+  margin: 0 0 8px; padding: 9px 12px;
   border: 1px dashed var(--border); background: var(--bg); color: var(--muted);
   box-shadow: none;
 }
@@ -2092,6 +2104,10 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    "this one came from the agent" only made one timeline read as two. Still wider: these carry prose and
    Mermaid diagrams rather than one-line requests. */
 .mc-card.mc-ai { max-width: 900px; }
+/* …but a thread is one box, so its turns cannot be different widths — the agent's wider card jutting out past
+   the reviewer's is a ragged edge down the side of one conversation. A thread the agent is in takes the wider
+   measure throughout (never the narrower one: its prose and Mermaid diagrams need the room). */
+.mc-thread-cell:has(.mc-card.mc-ai) .mc-card { max-width: 900px; }
 /* Visible, not hover-only. A control nobody can see is a control nobody has: the reply and dismiss arrows
    were revealed on hover, and the answer to "how do I comment on this?" was "you cannot". Quiet by default,
    full strength on hover or focus. */
