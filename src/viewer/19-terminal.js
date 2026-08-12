@@ -141,7 +141,7 @@ var handleTerminalSendModeKey;
     host.appendChild(cell);
     return cell;
   }
-  function makePane(cell) {
+  function makePane(cell, restoreOrdinal) {
     if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw
     var el = document.createElement('div');
     el.className = 'terminal-pane';
@@ -162,7 +162,13 @@ var handleTerminalSendModeKey;
     term.loadAddon(fit);
     loadWebLinks(term);
     term.open(paneHost);
-    var pane = { id: null, term: term, fit: fit, el: el, labelEl: labelEl, name: 'Terminal ' + (panes.length + 1) };
+    // restoreOrdinal has to be on the pane BEFORE the spawn below: this used to be assigned by restorePanes()
+    // after makePane() returned, so every restored pane spawned with `ordinal: undefined` and main handed out
+    // the lowest FREE one instead. With sessions 1 and 3 alive (any pane but the last closed), the restore
+    // attached to 1, then created a brand-new session 2 — leaving 3 orphaned and running. The next launch saw
+    // three sessions and restored three panes, one of them empty, and the count grew again every time.
+    var pane = { id: null, term: term, fit: fit, el: el, labelEl: labelEl, restoreOrdinal: restoreOrdinal,
+      name: 'Terminal ' + (panes.length + 1) };
     labelEl.textContent = pane.name;
     // Cmd combos are app shortcuts (Cmd+1/0 tab switch, Cmd+B go-to-def, …). Release the terminal and let
     // them bubble to the document handler instead of typing into the shell (fixes "Cmd+1 stuck in term").
@@ -248,8 +254,8 @@ var handleTerminalSendModeKey;
     try { fit.fit(); } catch (e) {}
     // Main runs every pane inside this workspace's tmux session when tmux is installed, so the shell outlives
     // the app; there is nothing for the renderer to opt into.
-    // pane.restoreOrdinal is set by restorePanes() when this pane stands for a session that is already
-    // running; without it main hands out the lowest free ordinal, which is what a genuinely new pane wants.
+    // pane.restoreOrdinal names the already-running session this pane stands for (restorePanes); without it
+    // main hands out the lowest free ordinal, which is what a genuinely new pane wants.
     window.kakapoPty.spawn({ cols: term.cols || 80, rows: term.rows || 24, ordinal: pane.restoreOrdinal })
       .then(function (r) { pane.id = r && r.id; });
     setActive(pane);
@@ -379,8 +385,7 @@ var handleTerminalSendModeKey;
       var ordinals = (result && result.ordinals) || [];
       if (ordinals.length < 2) return; // one (or none) is what a plain open already does
       ordinals.slice(0, MAX_PANES).forEach(function (ordinal) {
-        var pane = makePane(); // one cell each: side by side, the layout a fresh split would give
-        if (pane) pane.restoreOrdinal = ordinal;
+        makePane(null, ordinal); // one cell each: side by side, the layout a fresh split would give
       });
       fitAll();
       requestAnimationFrame(fitAll);

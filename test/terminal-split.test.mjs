@@ -154,6 +154,15 @@ test("reopening after a restart restores one pane per live session, by ordinal",
   assert.match(client, /ordinal: pane\.restoreOrdinal/, "each restored pane asks for its own session");
   assert.match(client, /if \(ordinals\.length < 2\) return;/,
     "one session (or none) is left to the plain open path, which already makes exactly one pane");
+  // The ordinal has to reach the pane BEFORE it spawns. Assigning it afterwards (makePane(); pane.x = n) meant
+  // every restored pane asked for `undefined` and got the lowest FREE ordinal instead: with sessions 1 and 3
+  // alive, the restore attached to 1 and then CREATED a new session 2, orphaning 3. The next launch found
+  // three sessions and opened three panes — one of them empty — and it grew by one every restart after that.
+  assert.match(client, /function makePane\(cell, restoreOrdinal\)/, "makePane takes the ordinal as an argument");
+  assert.ok(client.includes("restoreOrdinal: restoreOrdinal")
+    && client.indexOf("restoreOrdinal: restoreOrdinal") < client.indexOf("ordinal: pane.restoreOrdinal"),
+    "…and sets it on the pane before spawning, not after");
+  assert.match(client, /makePane\(null, ordinal\)/, "restorePanes passes the session it is re-attaching to");
 });
 
 
