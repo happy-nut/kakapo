@@ -596,11 +596,23 @@ function commentRowSiblingOf(lineIndex, dir) {
 // A thread row is not one box: it holds the question, each follow-up, and the agent's notes. Selection
 // addresses ONE card inside it, so `e` edits the reply you are actually looking at (it used to always edit
 // the first comment in the row — a follow-up could not be edited at all) and Backspace removes only that turn.
+// The waiting reply box at the end IS one of the stops: arrowing down through a thread has to reach the box
+// for the next turn, the way it reaches every card above it. Only the open composer is skipped — it owns a
+// live textarea, and the keys belong to what you are typing.
 function commentCardsIn(row) {
   if (!row) return [];
   return Array.prototype.slice.call(row.querySelectorAll('.mc-card')).filter(function (card) {
-    return !card.classList.contains('mc-composer') && !card.classList.contains('mc-reply-stub');
+    return !card.classList.contains('mc-composer');
   });
+}
+// Enter on the waiting box opens it — the same composer its click opens, so the keyboard reaches the reply
+// without hunting for the ↩ button. Anything else the arrows land on is a written card: Enter does nothing.
+function enterSelectedCommentCard() {
+  var card = selectedCommentCard();
+  if (!card || !card.classList.contains('mc-reply-stub')) return false;
+  clearCommentRowSelection();
+  card.click();
+  return true;
 }
 function markSelectedCard(card) {
   document.querySelectorAll('.mc-card-selected').forEach(function (el) { el.classList.remove('mc-card-selected'); });
@@ -681,6 +693,7 @@ function handleSourceCaretKey(event) {
   if (selectedCommentRow) {
     if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); deleteCommentsInRow(selectedCommentRow); return true; }
     if (event.code === 'KeyE' || event.key === 'e' || event.key === 'E') { event.preventDefault(); editCommentInRow(selectedCommentRow); return true; }
+    if (event.key === 'Enter' && enterSelectedCommentCard()) { event.preventDefault(); return true; }
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Escape') {
       var dir = event.key === 'ArrowUp' ? -1 : (event.key === 'ArrowDown' ? 1 : 0);
       // Walk the thread's own turns first; only step off the row once there is no further card that way.

@@ -473,6 +473,7 @@ function handleDiffCaretKey(event) {
   if (selectedCommentRow) {
     if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); deleteCommentsInRow(selectedCommentRow); return true; }
     if (event.code === 'KeyE' || event.key === 'e' || event.key === 'E') { event.preventDefault(); editCommentInRow(selectedCommentRow); return true; }
+    if (event.key === 'Enter' && enterSelectedCommentCard()) { event.preventDefault(); return true; }
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Escape') {
       var dir = event.key === 'ArrowUp' ? -1 : (event.key === 'ArrowDown' ? 1 : 0);
       // Walk the thread's own turns first; only step off the row once there is no further card that way.

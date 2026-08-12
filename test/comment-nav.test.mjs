@@ -49,6 +49,7 @@ test("diff: ArrowUp from the line below the comment re-selects the box", async (
   const v = await loadViewer(html);
   await diffCommentOnFirstLine(v, "q1");
   v.key("ArrowDown"); await v.settle(20); // onto the box
+  v.key("ArrowDown"); await v.settle(20); // onto the waiting reply box under it — still inside the thread
   v.key("ArrowDown"); await v.settle(20); // step off, caret on the next code line
   assert.equal(v.selectedCommentBox(), null, "stepped off the box");
   v.key("ArrowUp"); await v.settle(20); // back up onto the box from below
@@ -61,6 +62,7 @@ test("diff: stepping off the box re-shows the caret and deselects", async () => 
   await diffCommentOnFirstLine(v, "q1");
   v.key("ArrowDown"); await v.settle(20);
   assert.ok(v.selectedCommentBox());
+  v.key("ArrowDown"); await v.settle(20); // the thread's own reply box is a stop too
   v.key("ArrowDown"); await v.settle(20);
   assert.equal(v.selectedCommentBox(), null, "deselected after stepping off");
   assert.ok(v.diffCaretRow(), "caret is visible again on a code line");
@@ -245,4 +247,20 @@ test("stepping keeps working through notes in files the diff does not contain", 
     "files outside the diff get ranks of their own, in a stable order");
   assert.match(comments, /function stepAnchor\(delta, list\) \{\s*\n\s*var order = navOrderFor\(list\);/,
     "and stepping uses it, so the current file is rankable too");
+});
+
+// The box for the next turn is part of the thread, so the keyboard has to reach it: arrow down past the last
+// card and Enter opens it. Before this it was mouse-only — the arrows skipped straight off the row, and the
+// only keyboard route to a reply was the ↩ button in a card header.
+test("diff: ArrowDown reaches the waiting reply box and Enter opens it", async () => {
+  const v = await loadViewer(html);
+  await diffCommentOnFirstLine(v, "q1");
+  v.key("ArrowDown"); await v.settle(20); // the comment
+  v.key("ArrowDown"); await v.settle(20); // the box waiting for the reply
+  const selected = v.selectedCommentBox()?.querySelector(".mc-card-selected");
+  assert.ok(selected?.classList.contains("mc-reply-stub"), "the arrows land on the waiting box, not past it");
+
+  v.key("Enter"); await v.settle(60);
+  assert.ok(v.visibleComposerInput(), "Enter opens the composer there, without reaching for the ↩ button");
+  v.close();
 });
