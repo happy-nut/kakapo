@@ -40,8 +40,8 @@ test("a stacked split nests inside the focused pane's cell instead of re-orienti
   assert.match(split, /direction === 'column' && active[\s\S]{0,80}active\.el\.parentNode : makeCell\(\)/,
     "column splits reuse the active pane's cell; row splits open a new one");
   assert.doesNotMatch(split, /is-column/, "no panel-wide axis flag survives");
-  assert.match(split, /requestAnimationFrame\(fitAll\)/,
-    "xterm is re-fitted after the new layout, not only against the pre-split geometry");
+  assert.match(split, /scheduleFitAll\(\)/,
+    "xterm is re-fitted after the new layout (one frame later), not against the pre-split geometry");
   assert.match(client, /onTerminalSplit\(split\)/, "the bridge is wired to it");
   // An emptied cell would keep its share of the row and read as a gap where the pane used to be.
   assert.match(client, /!cell\.children\.length[\s\S]{0,60}removeChild\(cell\)/,
@@ -165,6 +165,21 @@ test("reopening after a restart restores one pane per live session, by ordinal",
   assert.match(client, /makePane\(null, ordinal\)/, "restorePanes passes the session it is re-attaching to");
 });
 
+
+// One action, one re-flow. A split, a restore and an open each fitted twice — immediately, then again on the
+// next frame — so the terminal laid out against the geometry it was LEAVING and then against the one it
+// arrived at: two visible jolts for one action ("리사이즈가 딱 딱 두 번 끊긴다"). A live window drag went
+// through the same path once per ResizeObserver callback.
+test("the terminal re-flows once per frame, not twice per action", () => {
+  assert.match(client, /function scheduleFitAll\(\)[\s\S]{0,160}requestAnimationFrame/,
+    "fits are coalesced into one animation frame");
+  assert.doesNotMatch(client, /fitAll\(\);\s*\n\s*requestAnimationFrame\(fitAll\)/,
+    "no path fits immediately and again on the next frame");
+  for (const path of ["ResizeObserver(function () { if (isOpen()) scheduleFitAll(); })",
+    "window.addEventListener('resize', function () { if (isOpen()) scheduleFitAll(); })"]) {
+    assert.ok(client.includes(path), `resize path goes through the scheduler: ${path}`);
+  }
+});
 
 // A prompt sent to a pane is a PASTE, not typing. Codex enables bracketed paste (DECSET 2004) and reads a
 // bare newline as Enter, so a raw multi-line write submitted the first line and typed the rest into a busy

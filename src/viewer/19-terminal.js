@@ -56,6 +56,16 @@ var handleTerminalSendModeKey;
     try { p.fit.fit(); if (p.id != null) window.kakapoPty.resize({ id: p.id, cols: p.term.cols, rows: p.term.rows }); } catch (e) {}
   }
   function fitAll() { panes.forEach(fitPane); }
+  // One fit per frame, after the browser has laid out whatever just changed. A split, a restore and an open
+  // each used to fit twice — once immediately, once on the next frame — so the terminal re-flowed against the
+  // geometry it was LEAVING and then against the one it arrived at: two visible jolts for one action, which
+  // is the "it resizes in two clacks" this coalescing removes. A live window drag lands here too, and now
+  // costs one reflow (and one pty resize) per frame instead of one per ResizeObserver callback.
+  var fitRaf = 0;
+  function scheduleFitAll() {
+    if (fitRaf) return;
+    fitRaf = requestAnimationFrame(function () { fitRaf = 0; fitAll(); });
+  }
   // Reliably move keyboard focus into a pane's xterm. Opening the panel from a menu accelerator races with
   // Electron restoring focus to <body>, so a single focus() call can lose it — retry until the pane's helper
   // textarea is actually the active element (or we run out of tries), like the dock's focusDockField.
@@ -316,7 +326,7 @@ var handleTerminalSendModeKey;
     panes.splice(i, 1);
     if (active === p) setActive(panes[panes.length - 1] || null);
     if (panes.length === 0) setOpen(false);
-    else fitAll();
+    else scheduleFitAll();
   }
   // Cmd/Ctrl+W inside the terminal: close just the FOCUSED pane (kill its pty), not the whole panel. The
   // last pane closing collapses the panel via removePaneRef -> setOpen(false). Remove the pane immediately
@@ -354,8 +364,7 @@ var handleTerminalSendModeKey;
     makePane(cell);
     // Re-fit after the browser has laid the new axis out — fitting against the pre-split geometry leaves
     // xterm sized for the old direction, which shows up as a pane whose rows/cols don't match its box.
-    fitAll();
-    requestAnimationFrame(fitAll);
+    scheduleFitAll();
   }
   // Move active focus between split panes (menu accelerators Cmd/Ctrl+Alt+[ and ]).
   function focusPaneByDelta(delta) {
@@ -387,8 +396,7 @@ var handleTerminalSendModeKey;
       ordinals.slice(0, MAX_PANES).forEach(function (ordinal) {
         makePane(null, ordinal); // one cell each: side by side, the layout a fresh split would give
       });
-      fitAll();
-      requestAnimationFrame(fitAll);
+      scheduleFitAll();
     }, function () { /* no tmux, no sessions — a plain pane is right */ });
   }
 
@@ -423,10 +431,12 @@ var handleTerminalSendModeKey;
       if (panes.length === 0) {
         restorePanes().then(function () {
           if (panes.length === 0) makePane();
-          requestAnimationFrame(function () { fitAll(); focusPane(active); });
+          scheduleFitAll();
+          requestAnimationFrame(function () { focusPane(active); });
         });
       } else {
-        requestAnimationFrame(function () { fitAll(); focusPane(active); });
+        scheduleFitAll();
+        requestAnimationFrame(function () { focusPane(active); });
       }
     }
   }
@@ -458,22 +468,22 @@ var handleTerminalSendModeKey;
     if (!send()) { var iv = setInterval(function () { if (send() || ++tries > 40) clearInterval(iv); }, 50); }
   });
 
-  var ro = (typeof ResizeObserver === 'function') ? new ResizeObserver(function () { if (isOpen()) fitAll(); }) : null;
+  var ro = (typeof ResizeObserver === 'function') ? new ResizeObserver(function () { if (isOpen()) scheduleFitAll(); }) : null;
   if (ro) ro.observe(host);
-  window.addEventListener('resize', function () { if (isOpen()) fitAll(); });
+  window.addEventListener('resize', function () { if (isOpen()) scheduleFitAll(); });
 
   if (resizer) {
     resizer.addEventListener('mousedown', function (e) {
       e.preventDefault();
       resizer.classList.add('resizing');
-      function move(ev) { applyHeight(window.innerHeight - ev.clientY); }
+      function move(ev) { applyHeight(window.innerHeight - ev.clientY); scheduleFitAll(); }
       function up() {
         resizer.classList.remove('resizing');
         document.removeEventListener('mousemove', move);
         document.removeEventListener('mouseup', up);
         var cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--terminal-height'), 10);
         if (cur) { try { localStorage.setItem(heightKey, String(cur)); } catch (e) {} }
-        fitAll();
+        scheduleFitAll();
       }
       document.addEventListener('mousemove', move);
       document.addEventListener('mouseup', up);
