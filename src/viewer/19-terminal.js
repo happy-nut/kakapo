@@ -169,6 +169,13 @@ var handleTerminalSendModeKey;
     // Exception: keep focus for clipboard/selection combos (Cmd+C/V/X/A) so the terminal's own copy &
     // paste keep working — blurring on Cmd+V drops the textarea focus the paste event needs.
     term.attachCustomKeyEventHandler(function (e) {
+      // A pane pick is up: every key belongs to the picker, which is what KEY_OWNERS says — but that table is
+      // read by a keydown listener on `document`, in the BUBBLE phase, and xterm cancels the keys it handles
+      // (preventDefault + stopPropagation) from the textarea below it. Enter never got there. So "send this
+      // prompt to a pane" opened the picker, focused a pane, and then the confirming Enter went to the agent
+      // running in it as a bare newline instead: the pick never resolved and the prompt was never written.
+      // Returning false makes xterm ignore the key so it reaches the picker.
+      if (sendModeText != null) return false;
       // Escape dismisses the floating terminal. At a normal shell prompt one press is enough. A fullscreen TUI
       // (vim, less, claude/codex) runs in xterm's ALTERNATE buffer and needs Esc itself — in Claude Code it is
       // the interrupt — so a single press still goes through to the shell there. A SECOND Esc within

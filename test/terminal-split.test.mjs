@@ -168,3 +168,17 @@ test("text sent to a pane is wrapped as a bracketed paste when the app enabled t
   assert.match(write, /'\\x1b\[200~' \+ text \+ '\\x1b\[201~'/, "the text goes out framed as a paste");
   assert.match(write, /bracketed \? [^:]+ : text/, "an app that never asked for it still gets the bytes unwrapped");
 });
+
+
+// Sending a prompt opens the pane picker AND focuses a pane — and xterm cancels the keys it handles from a
+// textarea below the document-level KEY_OWNERS listener, which runs in the bubble phase. So the confirming
+// Enter never reached the picker: it went to the agent in that pane as a bare newline, and the prompt was
+// never written. The picker has to outrank the terminal's own key handling while it is up.
+test("the pane picker outranks xterm's key handling, so Enter confirms instead of hitting the agent", () => {
+  const handler = client.match(/attachCustomKeyEventHandler\(function \(e\) \{[\s\S]*?\n      \/\/ Escape/)?.[0];
+  assert.ok(handler, "the terminal still filters keys through a custom handler");
+  assert.match(handler, /if \(sendModeText != null\) return false;/,
+    "a live pick releases every key to the document handler that owns it");
+  assert.ok(/attachCustomKeyEventHandler\(function \(e\) \{\s*\/\/[\s\S]{0,700}?if \(sendModeText != null\) return false;/.test(client),
+    "and it releases them FIRST — a later branch would already have consumed Enter or Escape");
+});
