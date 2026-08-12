@@ -155,14 +155,22 @@ body.rail-exp .ev{display:flex}
 .ev .wt.disc{opacity:.5}
 .wt-top{display:flex;align-items:center;gap:8px}
 .dot{width:8px;height:8px;border-radius:50%;flex:none;background:${light ? "#b7bcc4" : "#5b616b"}}
-.ev .wt.running .dot,.ev .wt.busy .dot{background:#4cc38a;box-shadow:0 0 0 3px #4cc38a22}
-.ev .wt.busy .dot{animation:dotpulse 1.3s ease-in-out infinite}
+.ev .wt.running .dot{background:#4cc38a;box-shadow:0 0 0 3px #4cc38a22}
+/* Working right now: the dot becomes a spinner in place. A pulsing dot said "alive", which is what the steady
+   green already says — it never read as WORK being done. A ring that turns does, and it costs the same 8px
+   slot: border-box keeps the disc's footprint, so nothing beside it moves when a turn starts or ends. */
+.ev .wt.busy .dot{
+  background:transparent;box-sizing:border-box;
+  border:1.5px solid #4cc38a44;border-top-color:#4cc38a;box-shadow:none;
+  animation:wtspin .8s linear infinite;
+}
+@keyframes wtspin{to{transform:rotate(360deg)}}
 /* Something is waiting for you there — an agent finished a turn, or answered a review comment — so the dot
    goes red, the same #e5484d the collapsed strip's .udot uses. Last, and deliberately: green means "running,
    nothing to do", and a workspace that has both is the one you should be looking at. Reading it as merely
    alive was the whole problem. Cleared when you open that workspace (activateWorkspace). */
-.ev .wt.attn .dot{background:#e5484d;box-shadow:0 0 0 3px #e5484d33;animation:none}
-@keyframes dotpulse{0%,100%{opacity:1}50%{opacity:.35}}
+.ev .wt.attn .dot{background:#e5484d;box-shadow:0 0 0 3px #e5484d33;border:0;animation:none}
+/* Reduced motion: keep the ring (it still reads as "in progress" beside a solid disc), just stop it turning. */
 @media (prefers-reduced-motion:reduce){.ev .wt.busy .dot{animation:none}}
 .wt-name{font-weight:600;font-size:12.5px;color:${fg};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
 .ev .wt.act .wt-name{color:#79a6ea}

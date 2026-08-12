@@ -129,6 +129,15 @@ test("a workspace with something waiting wears a red dot, not the running green"
   assert.match(attn.slice(0, attn.indexOf("}")), /background:#e5484d/, "the expanded dot goes red");
   assert.ok(css.indexOf(".ev .wt.attn .dot") > css.indexOf(".ev .wt.running .dot"),
     "and wins over the green, which is only source order away");
+
+  // Working right now is a third state, and it has to look like work: a steady disc already says "alive", so
+  // a pulsing one said nothing new. The ring turns.
+  const busy = css.slice(css.indexOf(".ev .wt.busy .dot"));
+  const busyRule = busy.slice(0, busy.indexOf("}"));
+  assert.match(busyRule, /animation:wtspin/, "a working workspace spins");
+  assert.match(busyRule, /box-sizing:border-box/, "…inside the same 8px slot, so nothing beside it moves");
+  assert.ok(css.indexOf(".ev .wt.attn .dot") > css.indexOf(".ev .wt.busy .dot"),
+    "and something waiting still outranks something working");
 });
 
 test("a worktree with no agent gets no badge, and the collapsed rail never does", () => {
