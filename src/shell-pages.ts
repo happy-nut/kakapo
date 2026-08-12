@@ -188,7 +188,11 @@ body.rail-exp .ev{display:flex}
 /* Collapsed (46px): one ring per provider — its tightest window — with the mark inside and the number under
    it. The old stack of bare batteries fitted, but said nothing about WHICH agent or window was running out. */
 .usage-cell{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:default}
-.usage-ring-wrap{position:relative;display:grid;place-items:center}
+/* Fixed 26x26 (the ring SVG's own size) so the wrap still reserves its footprint when there is no ring to
+   size it — the token-count fallback (no percentage window, so uGroup skips the ring) leaves only the
+   absolutely-positioned icon in flow, which doesn't establish a size and let the icon collapse onto the
+   number below it. */
+.usage-ring-wrap{position:relative;display:grid;place-items:center;width:26px;height:26px;flex:none}
 .usage-ring-ico{position:absolute;display:flex}
 .usage-ring-ico .usage-ico{width:11px;height:11px}
 .usage-ring-track{fill:none;stroke:${line};stroke-width:2.4}
