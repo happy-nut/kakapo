@@ -39,7 +39,12 @@ export function workspaceRecord(path: string, openedAt = Date.now()): WorkspaceR
     repoRoot: mainRoot,
     repoName: basename(mainRoot),
     branch: git(root, ["branch", "--show-current"]) || "detached",
-    kind: common && gitDir && common !== gitDir ? "worktree" : "main",
+    // "main" is a claim — this is the project's own checkout — and every `git rev-parse` here returning empty
+    // is not evidence for it. That happens to a workspace whose folder has been deleted out from under us, and
+    // the empty answers used to read as main: the rail labelled a dead path "main worktree", filed it under a
+    // project named after its own folder, and the delete guard ("the main checkout can only be closed")
+    // refused to let you clean it up. Unreadable is not main.
+    kind: !common && !gitDir ? "worktree" : common && gitDir && common !== gitDir ? "worktree" : "main",
     openedAt,
   };
 }
