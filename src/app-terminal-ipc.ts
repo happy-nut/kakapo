@@ -5,7 +5,7 @@ import { spawn as spawnPty, type IPty } from "node-pty";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper } from "./util.js";
+import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper, endTmuxSession } from "./util.js";
 import { resumeCommandForInput } from "./agent-resume.js";
 
 // A GUI launch (Finder, Dock, Spotlight) inherits a minimal PATH with no Homebrew prefix, so `tmux` is
@@ -48,8 +48,8 @@ export type TerminalIpcState = {
   // Absolute path to this window's answers-exchange file (see answers-ipc.ts), passed into every pty
   // spawned in this window so an agent can find it without depending on the prompt text being intact.
   commentsFile?: string;
-  // Persistent terminals: pty id -> the tmux session it is attached to. Closing a pane or quitting the app
-  // only drops the client; the session (and the agent in it) runs until the workspace is deleted.
+  // Persistent terminals: pty id -> the tmux session it is attached to. Quitting the app only drops the
+  // client and the session (with the agent in it) runs on; closing the pane with ⌘W ends it.
   termSessions?: Map<number, string>;
   commandBuffers?: Map<number, string>;
   onResumeCommand?: (command: string | undefined) => void;
@@ -75,8 +75,9 @@ export const ptyReaper = createPtyReaper();
  * them) and relay bytes to the renderer's xterm panes. Each pty is owned by the window that spawned it
  * (state.terms), so closing one window kills only its terminals and pty data routes back to it alone.
  */
-// Deleting a workspace is the ONLY thing that ends its terminals: closing a pane or quitting the app just
-// drops the tmux client. So this cannot work off the in-memory pty -> session map — panes aren't restored on
+// Deleting a workspace ends ALL of its terminals, including the ones this run never opened — ⌘W ends a single
+// pane's session, and quitting drops the client without ending anything. So this cannot work off the
+// in-memory pty -> session map: panes aren't restored on
 // launch, so that map only knows the panes reopened by hand since the last start, and everything else would
 // be left running forever, invisible, with its worktree deleted out from under it. Ask tmux which sessions
 // belong to this workspace instead. Called from app-main.ts's hub-remove (delete), and nowhere else.
@@ -190,13 +191,18 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
   ipc.on("kakapo:pty-resize", (event, msg: { id: number; cols: number; rows: number }) => {
     try { stateFromEvent(event)?.terms.get(msg?.id)?.resize(msg.cols, msg.rows); } catch { /* resize can race the pty teardown — ignore */ }
   });
-  ipc.on("kakapo:pty-kill", (event, msg: { id: number }) => {
+  ipc.on("kakapo:pty-kill", (event, msg: { id: number; endSession?: boolean }) => {
     const state = stateFromEvent(event);
     const t = state?.terms.get(msg?.id);
-    // Closing a pane detaches it; the session (and the agent in it) keeps running until the workspace itself
-    // is deleted. Reopening a pane takes the lowest free ordinal, which is the same session name, so the
-    // agent comes back where you left it. This used to kill the session instead, which meant a stray ⌘W
-    // ended a running agent for good.
+    const session = state?.termSessions?.get(msg?.id);
+    // Two ways a pane goes away, and they mean different things. Quitting the app (or closing a window) only
+    // DETACHES: the session and the agent in it keep working, and a reopened pane re-attaches by ordinal.
+    // Closing the pane yourself with ⌘W is a decision about that terminal, so it ends the session too —
+    // otherwise the agent runs on invisibly, holding its tokens, in a pane nobody can see. The renderer asks
+    // first when something is running there (pty-foreground below), so a stray ⌘W still can't take an agent
+    // out silently.
+    const tmux = msg?.endSession && session ? resolveTmux(process.env) : undefined;
+    if (tmux && session) endTmuxSession(tmux, session);
     state?.termSessions?.delete(msg?.id);
     if (t) { ptyReaper.kill(t); state!.terms.delete(msg.id); }
     state?.commandBuffers?.delete(msg.id);

@@ -315,8 +315,10 @@ var handleTerminalSendModeKey;
   // Cmd/Ctrl+W inside the terminal: close just the FOCUSED pane (kill its pty), not the whole panel. The
   // last pane closing collapses the panel via removePaneRef -> setOpen(false). Remove the pane immediately
   // (don't wait for the pty's onExit) so the UI responds at once; the later onExit -> removePane no-ops.
+  // endSession: closing a pane on purpose ends what it was running (the tmux session goes with it). Only this
+  // path sets it — the unload handler below detaches instead, so quitting the app leaves agents working.
   function killPane(p) {
-    if (p.id != null) { try { window.kakapoPty.kill({ id: p.id }); } catch (e) {} }
+    if (p.id != null) { try { window.kakapoPty.kill({ id: p.id, endSession: true }); } catch (e) {} }
     removePaneRef(p);
   }
   function closeActivePane() {

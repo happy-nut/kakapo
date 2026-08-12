@@ -6,6 +6,7 @@
 // iTerm. sanitizeTerminalEnv keeps the integrated terminal indistinguishable from the user's own.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, nextTerminalOrdinal, tmuxSpawnArgs } from "../dist/util.js";
 
 test("strips every npm_*-injected var (incl. the npm_config_prefix nvm rejects)", () => {
@@ -135,4 +136,25 @@ test("deleting a workspace selects every session of that workspace, and only tho
   assert.deepEqual(doomed.sort(), [tmuxSessionName(repo, 1), tmuxSessionName(repo, 3)].sort());
   assert.equal(tmuxSessionsForRoot(other, listed).length, 1, "a sibling workspace keeps its own sessions");
   assert.deepEqual(tmuxSessionsForRoot(repo, ""), [], "no tmux server running is not an error");
+});
+
+// ⌘W on a pane ends what was running in it. The pane is a tmux session, so "ends it" means the session goes,
+// and with it everything inside. Against a real tmux, on a session named so it can never collide with a
+// workspace's.
+test("closing a pane ends its session, and the process running inside it", async () => {
+  const { endTmuxSession } = await import("../dist/util.js");
+  const tmux = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"].find((p) => existsSync(p));
+  if (!tmux) return; // no tmux -> plain ptys, nothing to end
+  const { execFileSync } = await import("node:child_process");
+  const session = `kakapo-selftest-${process.pid}`;
+  const live = () => { try { execFileSync(tmux, ["has-session", "-t", session], { stdio: "pipe" }); return true; } catch { return false; } };
+
+  execFileSync(tmux, ["new-session", "-d", "-s", session, "sleep", "60"], { stdio: "pipe" });
+  try {
+    assert.equal(live(), true, "the session is up");
+    endTmuxSession(tmux, session);
+    assert.equal(live(), false, "the session \u2014 and the process inside it \u2014 is gone");
+  } finally {
+    try { execFileSync(tmux, ["kill-session", "-t", session], { stdio: "pipe" }); } catch { /* already gone */ }
+  }
 });
