@@ -1586,8 +1586,15 @@ h1 { margin: 0; font-size: 18px; }
 .review-status:empty { display: none; }
 .toolbar p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
 /* "No diff to review" is the whole pane's state, so it sits in the middle of it — margin:auto centers a lone
-   item on both axes inside the container's column flexbox, no extra wrapper needed. */
-.empty { padding: 24px; color: var(--muted); margin: auto; text-align: center; }
+   item on both axes inside the container's column flexbox, no extra wrapper needed.
+   Scoped to the diff container's own lone child, and deliberately not to the source view's empty state —
+   there the message IS the pane, carrying its panel background and border, and auto margins let a flex item
+   shrink to its content: "select a file" came out as a lit stripe down the middle of the window with the rest
+   of the pane dark either side. That one is a flexbox of its own (further down) and centers text at full
+   width. (Selectors are spelled out nowhere in this comment on purpose — the CSS guards in css-guards.test
+   find a rule by scanning for its selector text, and a comment naming one is indistinguishable from it.) */
+.empty { padding: 24px; color: var(--muted); }
+#diff2html-container > .empty { margin: auto; text-align: center; }
 .source-viewer { min-height: 0; } /* grid sizes this; a 100vh min would overflow the content row */
 .source-toolbar { flex: none; margin-bottom: 0; padding: 4px 12px; } /* flex:none (don't shrink, same crush as the tabs); compact: the file-meta row needs far less height than the diff toolbar */
 .source-file-meta {

@@ -124,6 +124,19 @@ test("folded-context labels stay centred in the visible diff pane", () => {
   assert.match(label || "", /white-space:\s*nowrap/, "the compact fold bar remains one line tall");
 });
 
+// The empty pane's message centers, but .source-body.empty IS the pane — panel background, border, the lot.
+// Auto margins let a flex item shrink to its content, so centering it that way turned "select a file" into a
+// lit stripe down the middle of the window. It has its own flexbox for the text; only the diff container's
+// bare .empty div needs the margins.
+test("the empty-pane message centers without shrinking the pane into a stripe", () => {
+  const scoped = ruleBodyForExactSelector("#diff2html-container > .empty");
+  assert.match(scoped || "", /margin:\s*auto/, "the diff container's lone empty div still centers on both axes");
+  assert.doesNotMatch(ruleBodyContaining(".empty") || "", /margin:\s*auto/,
+    "…while the shared .empty rule leaves .source-body.empty at full width");
+  assert.match(ruleBodyContaining(".source-body.empty") || "", /justify-content:\s*center/,
+    "which centers its own text instead");
+});
+
 test("the comment composer textarea restores its own caret (not transparent-inherited from the diff)", () => {
   // .mc-input is injected INSIDE #diff2html-container, which sets caret-color: transparent (the file view
   // uses a fake .code-cursor). caret-color inherits, so .mc-input must restore it — a focused textarea must
