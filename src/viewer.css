@@ -2057,9 +2057,6 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 }
 .mc-reopen { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 1px 5px; border-radius: 0; }
 .mc-reopen:hover { color: var(--active); background: color-mix(in srgb, var(--active) 16%, transparent); }
-/* Continue an exchange from the card itself. Indent replies so a thread reads as one conversation. */
-.mc-reply { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 1px 5px; border-radius: 0; }
-.mc-reply:hover { color: var(--active); background: color-mix(in srgb, var(--active) 16%, transparent); }
 /* One conversation, one box. A reply — already written, being written, or the empty box waiting for the next
    turn — joins the card above it (borders overlapped, no gap) instead of floating off as a separate card. The
    left accent bar is what still says "this is a reply". */
@@ -2098,24 +2095,22 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-path-code { cursor: pointer; text-decoration: underline dotted currentColor; text-underline-offset: 2px; }
 .mc-path-code:hover { color: var(--active); text-decoration-style: solid; }
 .mc-card-body { padding: 2px 12px 11px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
-/* An agent-written explanation of the diff (23-annotations.js) is a comment the agent left, so it wears the
-   comment card exactly — same shell, same background, no accent tint and no left bar. The kind pill carries
-   the authorship, the way it already does for a question vs a change request; a second visual language for
-   "this one came from the agent" only made one timeline read as two. Still wider: these carry prose and
-   Mermaid diagrams rather than one-line requests. */
-.mc-card.mc-ai { max-width: 900px; }
+/* An agent-written explanation or answer (23-annotations.js) is a comment the agent left, so it wears the
+   same card shell. What it does NOT share is the background: in a thread that alternates reviewer → agent →
+   reviewer, identical boxes made you read the kind pill on every one just to tell whose turn you were
+   looking at. A tint carries authorship at a glance the way a chat does. Kept faint and mixed into --panel
+   rather than given its own colour, so it still reads as one timeline in both themes.
+   Still wider, too: these carry prose and Mermaid diagrams rather than one-line requests. */
+.mc-card.mc-ai { max-width: 900px; background: color-mix(in srgb, var(--active) 7%, var(--panel)); }
 /* …but a thread is one box, so its turns cannot be different widths — the agent's wider card jutting out past
    the reviewer's is a ragged edge down the side of one conversation. A thread the agent is in takes the wider
    measure throughout (never the narrower one: its prose and Mermaid diagrams need the room). */
 .mc-thread-cell:has(.mc-card.mc-ai) .mc-card { max-width: 900px; }
-/* Visible, not hover-only. A control nobody can see is a control nobody has: the reply and dismiss arrows
-   were revealed on hover, and the answer to "how do I comment on this?" was "you cannot". Quiet by default,
-   full strength on hover or focus. */
-.mc-card.mc-ai .mc-reply,
+/* Visible, not hover-only. A control nobody can see is a control nobody has: the dismiss arrow was revealed
+   on hover, and the answer to "how do I get rid of this?" was "you cannot". Quiet by default, full strength
+   on hover or focus. */
 .mc-card.mc-ai .mc-del { opacity: .55; transition: opacity 120ms ease; }
-.mc-card.mc-ai:hover .mc-reply,
 .mc-card.mc-ai:hover .mc-del,
-.mc-card.mc-ai .mc-reply:focus-visible,
 .mc-card.mc-ai .mc-del:focus-visible { opacity: 1; }
 .mc-ai-title { font-size: 11px; color: var(--text); font-weight: 600; }
 /* Prose, not a code snippet: undo .mc-card-body's pre-wrap (markdown supplies its own block structure) and
@@ -2564,13 +2559,15 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
 .terminal-backdrop { position: fixed; inset: 0; z-index: 77; background: color-mix(in srgb, #000 40%, transparent); }
 @media (prefers-reduced-motion: reduce) { .terminal-panel:not(.hidden), .terminal-backdrop { animation: none; } }
 .terminal-resizer { display: none; } /* a centered ~90% floating panel has no edge to drag */
-.terminal-bar {
-  flex: none; display: flex; align-items: center; justify-content: space-between;
-  padding: 4px 10px; background: var(--sidebar); border-bottom: 1px solid var(--border);
-  font-size: 11px; color: var(--muted);
+/* Close sits ON the pane-label row rather than in a strip of its own. The panel used to stack two: a bar
+   reading "TERMINAL" above a row of panes each labelled "Terminal 1", "Terminal 2" — the same word twice,
+   for one button. Transparent, so the label strip's own background carries straight through it; its padding
+   and line box are the label's (below), which is what keeps the merged row exactly one row tall. */
+.terminal-x {
+  position: absolute; top: 0; right: 0; z-index: 2;
+  border: 0; background: transparent; color: var(--muted);
+  font-size: 12px; line-height: 12px; padding: 2px 10px; cursor: pointer;
 }
-.terminal-title { letter-spacing: 0.08em; text-transform: uppercase; }
-.terminal-x { border: 0; background: transparent; color: var(--muted); font-size: 16px; line-height: 1; padding: 0 4px; cursor: pointer; }
 .terminal-x:hover { color: var(--text); }
 /* Split panes sit side by side (no tabs); the 1px gap shows the --border underneath as a divider. */
 .terminal-host { flex: 1 1 auto; min-height: 0; display: flex; gap: 1px; overflow: hidden; background: var(--border); }
@@ -2586,6 +2583,8 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text;
 }
 .terminal-pane-label:hover { color: var(--text); }
+/* Only the label the close button overlaps has to keep clear of it — the top pane of the rightmost cell. */
+.terminal-cell:last-child .terminal-pane:first-child .terminal-pane-label { padding-right: 34px; }
 .terminal-pane-label[contenteditable="true"] { color: var(--text); background: var(--bg); outline: none; }
 .terminal-pane.is-active .terminal-pane-label { color: var(--text); }
 .terminal-pane-host { flex: 1 1 auto; min-width: 0; min-height: 0; padding: 4px 8px; } /* right padding too, so xterm's last column isn't clipped against the pane edge */
@@ -3864,3 +3863,40 @@ body.workspace-view.sidebar-collapsed {
 body.workspace-view.sidebar-collapsed .sidebar,
 body.workspace-view.sidebar-collapsed .sidebar-resizer { display: none; }
 body.workspace-view.sidebar-collapsed .content { grid-column: 3; grid-row: 1; }
+
+/* ===== Note walkthrough (23-annotations.js): a note whose explanation is a path through the code ===== */
+/* The ▶ inside a note card. Sits at the end of the note's prose, because that is where the reader has just
+   finished the setup and is ready to be walked through it. */
+.mc-tour-start {
+  display: inline-flex; align-items: center; gap: 7px; margin-top: 10px;
+  padding: 5px 11px 5px 9px; border: 1px solid color-mix(in srgb, var(--active) 45%, transparent);
+  border-radius: 999px; background: color-mix(in srgb, var(--active) 12%, transparent);
+  color: var(--active-strong); font-size: 11.5px; font-weight: 600; cursor: pointer;
+}
+.mc-tour-start:hover { background: color-mix(in srgb, var(--active) 22%, transparent); }
+.mc-tour-start-ic { font-size: 9px; }
+/* The player floats over the code rather than living in the card: a step can open another file, which
+   unmounts the card it was started from. Bottom-right, clear of the caret hint and the terminal panel. */
+.mc-tour {
+  position: fixed; right: 18px; bottom: 18px; z-index: 14; width: 380px; max-width: calc(100vw - 36px);
+  background: var(--panel); border: 1px solid color-mix(in srgb, var(--active) 35%, var(--line));
+  border-radius: 12px; box-shadow: 0 18px 44px #0009; overflow: hidden;
+}
+.mc-tour-head { display: flex; align-items: center; gap: 7px; padding: 9px 8px 9px 11px; border-bottom: 1px solid var(--line); }
+.mc-tour-title { font-size: 12px; font-weight: 600; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-tour-count { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mc-tour-close { border: 0; background: none; color: var(--muted); font-size: 15px; cursor: pointer; padding: 0 4px; }
+.mc-tour-close:hover { color: var(--text); }
+.mc-tour-body { padding: 11px 13px; max-height: 40vh; overflow-y: auto; }
+.mc-tour-foot { display: flex; align-items: center; gap: 6px; padding: 8px 11px 10px; }
+.mc-tour-foot button {
+  border: 1px solid var(--line); background: none; color: var(--text); border-radius: 7px;
+  width: 28px; height: 24px; font-size: 12px; cursor: pointer; display: grid; place-items: center; padding: 0;
+}
+.mc-tour-foot button:hover:not(:disabled) { background: color-mix(in srgb, var(--active) 16%, transparent); }
+.mc-tour-foot button:disabled { opacity: .35; cursor: default; }
+.mc-tour-track { flex: 1; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; margin-left: 4px; }
+.mc-tour-bar { display: block; height: 100%; background: var(--active); transition: width 220ms ease; }
+/* The step's lines, in whichever view is showing them. A left bar carries the "you are here" — a background
+   tint alone is lost against a diff row that already has one (added/removed green and red). */
+.mc-tour-line { background: color-mix(in srgb, var(--active) 14%, transparent) !important; box-shadow: inset 3px 0 0 var(--active); }

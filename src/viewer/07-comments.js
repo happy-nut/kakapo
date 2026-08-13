@@ -135,8 +135,29 @@ function commentToRecord(c) {
   if (c.anchorCode) record.anchor = c.anchorCode;
   if (c.title) record.title = c.title;
   if (c.addressed) record.addressed = true;
+  // Written by the agent, never by this app — but it has to be carried back out. The renderer sends the WHOLE
+  // list on every save (saveThread), so a field it forgets here is a field the next unrelated comment deletes
+  // from the agent's note.
+  if (c.steps && c.steps.length) record.steps = c.steps;
   record.text = c.text;
   return record;
+}
+// A note's walkthrough stops, as written by an agent — so every field is treated as hostile input: a step
+// without a usable line is dropped rather than played as line 1, and a note whose "steps" is not an array
+// simply has none. `to` is normalized to at least `line`, so painting a range never has to test the order.
+function recordSteps(record, notePath) {
+  if (!Array.isArray(record.steps)) return null;
+  var steps = [];
+  record.steps.forEach(function (raw) {
+    if (!raw || typeof raw !== 'object') return;
+    var line = Math.floor(Number(raw.line));
+    if (!Number.isFinite(line) || line < 1) return;
+    var to = Math.floor(Number(raw.to));
+    var step = { path: raw.path ? String(raw.path) : notePath, line: line, text: String(raw.text == null ? '' : raw.text) };
+    if (Number.isFinite(to) && to > line) step.to = to;
+    steps.push(step);
+  });
+  return steps.length ? steps : null;
 }
 function recordToComment(record, byId) {
   var parent = record.re != null ? byId[record.re] : null;
@@ -150,6 +171,7 @@ function recordToComment(record, byId) {
     from: Number(record.from) || line, to: Number(record.to) || line, side: record.side || null,
     title: record.title ? String(record.title) : '',
     addressed: !!record.addressed, anchorPresent: anchorLinePresent(path, anchor, anchor),
+    steps: recordSteps(record, path),
     text: String(record.text == null ? '' : record.text),
   };
 }
@@ -359,9 +381,9 @@ function addComment(kind, path, line, code, text, from, to, side, anchorCode, re
   });
   saveComments();
 }
-// Every earlier turn of the exchange a comment continues, oldest first — whoever wrote each one. The
-// hand-off document quotes these above the follow-up itself (mergedItemLines), so a bare "why that way?"
-// never reaches an agent with the "that way" stripped off.
+// Every earlier turn of the exchange a comment continues, oldest first — whoever wrote each one. Used to
+// indent a thread on screen. The hand-off document no longer inlines these: it names their ids and lets the
+// agent read them out of the thread file (mergedItemLines).
 function commentThreadContext(comment) {
   return commentAncestry(comment).map(function (parent) {
     return { by: parent.by === 'agent' ? 'agent' : 'me', kind: parent.kind, text: parent.text };
@@ -529,7 +551,6 @@ function reviewerCardHtml(c) {
     + '<span class="mc-target" title="' + escapeHtml(target) + '">' + escapeHtml(target) + '</span>'
     + (addressed ? '<span class="mc-addressed-tag" title="' + escapeHtml(t('comment.addressed.hint')) + '">' + escapeHtml(t('comment.addressed')) + '</span>' : '')
     + (addressed ? '<button type="button" class="mc-reopen" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reopen')) + '" title="' + escapeHtml(t('comment.reopen')) + '">↺</button>' : '')
-    + '<button type="button" class="mc-reply" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reply')) + '" title="' + escapeHtml(t('comment.reply')) + '">↩</button>'
     + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
     + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div></div>';
 }
@@ -952,7 +973,14 @@ function openPathReference(ref) {
   };
   var hit = resolve();
   if (hit) { navigateToLine(hit, line); return; }
-  ensureProjectIndex().then(function () { var late = resolve(); if (late) navigateToLine(late, line); }, function () {});
+  // Nothing matched, and the project index may simply not be loaded yet — fetch it and try once more. If it
+  // still misses, SAY so: a link that swallows the click looks like a broken app rather than what it is, a
+  // file the agent named that this workspace does not have.
+  ensureProjectIndex().then(function () {
+    var late = resolve();
+    if (late) { navigateToLine(late, line); return; }
+    if (typeof showCaretHint === 'function') showCaretHint(t('comment.pathMissing'));
+  }, function () {});
 }
 function navigateToComment(seq) {
   var c = reviewComments.find(function (x) { return x.seq === seq; });
@@ -1158,17 +1186,20 @@ function mergedBlocks() {
 // card per comment (see openMergedView/currentMergedText in 08-dock.js) — this stays the static/default view.
 // One comment's lines in the hand-off document — shared with the live panel's currentMergedText (08-dock.js)
 // so the two can't drift. The id leads the heading because that is what an agent replies to: it appends a
-// line with `"re": <id>` to the thread file. A follow-up quotes the exchange it continues, so the request
-// reads on its own even before the agent opens that file.
+// line with `"re": <id>` to the thread file.
+//
+// A follow-up names the ids it continues instead of quoting them. Quoting made the document grow with the
+// conversation — a third round re-sent the question AND the agent's own multi-paragraph answer, every time,
+// for every comment in the review — and all of it was already in the thread file this document points at,
+// under exactly these ids. So the reviewer's own words (the request) stay inline, and the history is a
+// lookup. `id` here is the record's `id` in the file: commentToRecord writes `seq` as `id`.
 function mergedItemLines(c) {
   var lines = ['### #' + c.seq + ' ' + commentTargetLabel(c)];
-  commentThreadContext(c).forEach(function (turn) {
-    // Whose words these are matters to the agent reading them back: its own explanation, its own answer, or
-    // the reviewer's earlier question (unlabelled — the document is addressed to the agent).
-    var label = turn.by !== 'agent' ? '' : (turn.kind === 'note' ? t('annotate.kind') : t('comment.answer')) + ': ';
-    lines.push('> ' + (label + turn.text).split('\n').join('\n> '));
+  var ancestry = commentAncestry(c);
+  if (ancestry.length) {
+    lines.push(t('mergePrompt.continues') + ' ' + ancestry.map(function (p) { return '#' + p.seq; }).join(', '));
     lines.push('');
-  });
+  }
   lines.push(c.text);
   lines.push('');
   return lines;

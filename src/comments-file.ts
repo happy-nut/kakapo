@@ -1,6 +1,6 @@
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent, WebContents } from "electron";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { kakapoGitDataFile } from "./git.js";
 
 // ONE store for the whole review conversation. A reviewer's question, an agent's answer, an agent's Explain
@@ -12,6 +12,16 @@ import { kakapoGitDataFile } from "./git.js";
 // wrong (no in-place field edit inside a nested array, no chance of truncating someone else's turn), and a
 // half-written trailing line costs one record instead of the whole file. It is also far cheaper to read into
 // an agent's context than an indented document that repeats every key.
+// One stop on a note's walkthrough: a place in the code and what to say while the reader is looking at it.
+// `path` defaults to the note's own, `to` makes it a range instead of a single line — so the common step
+// (another line in the same file) is just {"line":52,"text":"…"}.
+export type NoteStep = {
+  path?: string;
+  line: number;
+  to?: number;
+  text: string;
+};
+
 export type ThreadRecord = {
   id: number;
   re?: number; // the record this replies to; absent on a root comment
@@ -25,6 +35,9 @@ export type ThreadRecord = {
   anchor?: string; // the commented line's text, so the comment can follow it when the file changes
   title?: string;
   addressed?: boolean;
+  // An agent's note can be a walkthrough rather than a single card: kakapo plays these stops in order,
+  // moving and highlighting the code view at each one. Absent on everything else.
+  steps?: NoteStep[];
   text: string;
 };
 
@@ -42,6 +55,7 @@ const HEADER = [
   "# kakapo review thread — one JSON object per line, oldest first. Lines starting with # are ignored.",
   '# Reply to a comment:  {"id":<highest id + 1>,"re":<id you are answering>,"by":"agent","text":"markdown"}',
   '# Leave a note of your own:  {"id":<highest id + 1>,"by":"agent","kind":"note","path":"repo/relative.ts","line":42,"text":"markdown"}',
+  '# Walk the reader through code, in order:  add "steps":[{"line":42,"to":48,"text":"markdown"},{"path":"other.ts","line":9,"text":"…"}] to a note',
   "# APPEND only. Never rewrite, reorder or renumber the lines already here.",
 ];
 
@@ -133,6 +147,23 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
     writeThread(state.commentsFile, payload.records.concat(arrived));
     state.commentsSig = fileSignature(state.commentsFile); // our own write must not come back as a change
     return { ok: true, path: state.commentsFile, arrived };
+  });
+
+  // The hand-off document goes to disk beside the thread file, so the terminal only has to carry the line that
+  // names it (sendWholeDocToTerminal, 08-dock.js). Every byte of that document was already on disk anyway —
+  // pasting it back was a copy of the review, and a thread with a few turns quoted per comment made the copy
+  // kilobytes long. Overwritten on every send: it is the CURRENT request, not a log.
+  ipc.handle("kakapo:comments-request-write", (event, payload: { text?: string }) => {
+    const state = stateFromEvent(event);
+    if (!state || !state.commentsFile || typeof payload?.text !== "string") return { ok: false };
+    const file = join(dirname(state.commentsFile), "request.md");
+    try {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, payload.text.endsWith("\n") ? payload.text : payload.text + "\n");
+    } catch {
+      return { ok: false }; // the renderer pastes the document itself instead
+    }
+    return { ok: true, path: file };
   });
 }
 

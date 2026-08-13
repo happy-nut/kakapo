@@ -109,6 +109,10 @@ var KEY_OWNERS = [
   { name: 'settings', handle: function (event) { return typeof handleSettingsKey === 'function' && handleSettingsKey(event); } },
   // While a terminal send-mode pick is on screen every key belongs to it, handled or not.
   { name: 'terminal-send-mode', handle: function (event) { return typeof handleTerminalSendModeKey === 'function' && handleTerminalSendModeKey(event); } },
+  // A playing note walkthrough (23-annotations.js) owns the arrows — they are how you step it, and the caret
+  // they would otherwise move is being driven by the tour anyway. It claims nothing else, so every other key
+  // reaches the surfaces below exactly as before.
+  { name: 'note-tour', handle: function (event) { return typeof handleTourKey === 'function' && handleTourKey(event); } },
   // Semantic navigation is a caret-local dropdown. It must own arrows/Enter before the persistent sidebar's
   // logical tree focus gets a chance to consume them; otherwise Enter opens the tree row instead of the
   // selected definition when Cmd+B was invoked after Cmd+0/Cmd+1.
@@ -477,26 +481,39 @@ document.addEventListener('keydown', (event) => {
 
   // Diff view: Cmd/Ctrl + Left/Right goes to the line start / end; pressing it again AT the
   // edge crosses to the adjacent pane (Left -> old, Right -> new). Plain arrows never cross.
+  //
+  // With Shift it SELECTS to that edge instead, the same as Cmd+Shift+Left/Right in any editor. setDiffCursor
+  // drops diffSelectionAnchor on every caret placement (it cannot tell a jump from an extend), so the anchor
+  // is captured before the move and put back after — exactly what moveDiffCursor already does for plain
+  // Shift+Arrow (06-diff-caret.js). Without it this branch moved the caret to the line edge and cleared the
+  // selection on the way, so Cmd+Shift+Arrow was the one selection gesture that could not be made here.
+  // Shift also suppresses the pane crossing: a selection that spans the old and new panes is not a thing
+  // (applyDiffSelection drops any anchor from the other side anyway), so at the edge it simply stops.
   if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight') && isDiffViewVisible() && diffCursor) {
     event.preventDefault();
     const edgeWrap = diffWrapperByPath(diffCursor.path);
     const edgeRow = edgeWrap ? diffRowAt(edgeWrap, diffCursor.side, diffCursor.rowIndex) : null;
     const edgeLen = edgeRow ? diffLineText(edgeRow).length : 0;
+    const edgeExtend = event.shiftKey;
+    const edgeAnchor = edgeExtend
+      ? (diffSelectionAnchor || { side: diffCursor.side, rowIndex: diffCursor.rowIndex, column: diffCursor.column })
+      : null;
     if (event.key === 'ArrowLeft') {
       if (diffCursor.column > 0) {
         setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, 0, true); // -> line start
-      } else if (diffCursor.side === 'new') { // already at start -> cross to old (left)
+      } else if (!edgeExtend && diffCursor.side === 'new') { // already at start -> cross to old (left)
         const oldRow = edgeWrap ? diffRowAt(edgeWrap, 'old', diffCursor.rowIndex) : null;
         if (isDiffCodeRow(oldRow)) setDiffCursor(diffCursor.path, 'old', diffCursor.rowIndex, diffLineText(oldRow).length, true);
       }
     } else { // ArrowRight
       if (diffCursor.column < edgeLen) {
         setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, edgeLen, true); // -> line end
-      } else if (diffCursor.side === 'old') { // already at end -> cross to new (right)
+      } else if (!edgeExtend && diffCursor.side === 'old') { // already at end -> cross to new (right)
         const newRow = edgeWrap ? diffRowAt(edgeWrap, 'new', diffCursor.rowIndex) : null;
         if (isDiffCodeRow(newRow)) setDiffCursor(diffCursor.path, 'new', diffCursor.rowIndex, 0, true);
       }
     }
+    if (edgeAnchor) { diffSelectionAnchor = edgeAnchor; applyDiffSelection(); }
     return;
   }
 

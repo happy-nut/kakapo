@@ -562,15 +562,18 @@ document.addEventListener('click', function (event) {
   if (!t || !t.closest) return;
   var reopen = t.closest('.mc-reopen');
   if (reopen) { event.preventDefault(); reopenComment(parseInt(reopen.dataset.seq, 10)); return; }
+  // ▶ on a note that carries steps: play its walkthrough (23-annotations.js).
+  var tourStart = t.closest('.mc-tour-start');
+  if (tourStart) { event.preventDefault(); startNoteTour(parseInt(tourStart.dataset.seq, 10)); return; }
   // A file path inside an agent's prose (linkifyPathCode in 23-annotations.js) navigates to that file.
   var pathCode = t.closest('.mc-path-code');
   if (pathCode) { event.preventDefault(); openPathReference(pathCode.textContent || ''); return; }
-  // The waiting box at the end of an ongoing thread (replyStubHtml) opens the same composer the ↩ button
-  // does: on the thread's last card, whoever wrote it.
+  // The waiting box at the end of every thread (replyStubHtml) is now the ONLY way in to a reply: it sits
+  // where the next turn goes, it is always visible, and it is a keyboard stop. The per-card ↩ in each header
+  // opened the same composer on the same card — a second control for one action, in the row where the only
+  // other button deletes things.
   var stub = t.closest('.mc-reply-stub');
   if (stub) { event.preventDefault(); openReplyComposer(parseInt(stub.dataset.seq, 10)); return; }
-  var reply = t.closest('.mc-reply');
-  if (reply) { event.preventDefault(); openReplyComposer(parseInt(reply.dataset.seq, 10)); return; }
   var del = t.closest('.mc-del');
   if (del) { event.preventDefault(); deleteComment(parseInt(del.dataset.seq, 10)); return; }
   if (t.closest('.mc-save')) { event.preventDefault(); saveComposer(); return; }
