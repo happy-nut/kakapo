@@ -199,6 +199,21 @@ test("a pane's own resize echo does not count as agent activity", () => {
     "and the map does not outlive the pty it belongs to");
 });
 
+// Typing 가 is several keystrokes with a live composition in between, and re-flowing xterm's rows during one
+// makes macOS commit the half-built syllable as ㄱ ㅏ. Becoming visible again fires the ResizeObserver, so a
+// workspace you switch INTO fits at the exact moment you arrive at its already-open terminal and start
+// typing — and Korean came out ㄱㅏㄴㅏㄷㅏ. The watch refresh already stands down for this; the fit did not.
+test("a re-flow waits for an in-flight IME composition instead of splitting the syllable", () => {
+  const scheduler = client.match(/function scheduleFitAll\(\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(scheduler, "scheduleFitAll is still the single path every fit runs through");
+  assert.match(scheduler, /composingPanes\.size/, "it stands down while a syllable is being assembled");
+  assert.match(scheduler, /fitDeferred = true/, "and remembers the fit it owes");
+  assert.match(client, /compositionend'[\s\S]{0,160}flushDeferredFit\(\)/,
+    "the syllable committing runs the fit that was held back");
+  assert.match(client, /'blur'[\s\S]{0,120}flushDeferredFit\(\)/,
+    "and so does losing focus mid-syllable, so a deferred fit is never dropped for good");
+});
+
 // A prompt sent to a pane is a PASTE, not typing. Codex enables bracketed paste (DECSET 2004) and reads a
 // bare newline as Enter, so a raw multi-line write submitted the first line and typed the rest into a busy
 // composer — "선택해서 붙여넣기가 안 된다". Wrap it when the pane's app asked for the mode, and only then:

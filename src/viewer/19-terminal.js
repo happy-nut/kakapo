@@ -61,10 +61,26 @@ var handleTerminalSendModeKey;
   // geometry it was LEAVING and then against the one it arrived at: two visible jolts for one action, which
   // is the "it resizes in two clacks" this coalescing removes. A live window drag lands here too, and now
   // costs one reflow (and one pty resize) per frame instead of one per ResizeObserver callback.
-  var fitRaf = 0;
+  var fitRaf = 0, fitDeferred = false;
   function scheduleFitAll() {
     if (fitRaf) return;
-    fitRaf = requestAnimationFrame(function () { fitRaf = 0; fitAll(); });
+    fitRaf = requestAnimationFrame(function () {
+      fitRaf = 0;
+      // Never re-flow while a syllable is still being assembled. A fit rebuilds xterm's rows underneath the
+      // IME, and macOS answers that by committing the half-built 가 as ㄱ ㅏ — the same failure the watch
+      // refresh already stands down for (isComposing / applyDiffUpdate). The fit did not, and a workspace you
+      // switch INTO fires its ResizeObserver as it becomes visible again: exactly when you arrive at an
+      // already-open terminal and start typing, which is how Korean came out as ㄱㅏㄴㅏㄷㅏ there. Held until
+      // the syllable commits (compositionend/blur below), never dropped.
+      if (composingPanes.size) { fitDeferred = true; return; }
+      fitAll();
+    });
+  }
+  // The composition finished (or the pane lost focus mid-syllable): run the fit that was waiting on it.
+  function flushDeferredFit() {
+    if (!fitDeferred || composingPanes.size) return;
+    fitDeferred = false;
+    scheduleFitAll();
   }
   // Reliably move keyboard focus into a pane's xterm. Opening the panel from a menu accelerator races with
   // Electron restoring focus to <body>, so a single focus() call can lose it — retry until the pane's helper
@@ -247,8 +263,8 @@ var handleTerminalSendModeKey;
       term.textarea.addEventListener('keydown', function () { lastInputAt = Date.now(); }, true);
       term.textarea.addEventListener('compositionstart', function () { composingPanes.add(pane); lastInputAt = Date.now(); });
       term.textarea.addEventListener('compositionupdate', function () { lastInputAt = Date.now(); });
-      term.textarea.addEventListener('compositionend', function () { composingPanes.delete(pane); lastInputAt = Date.now(); });
-      term.textarea.addEventListener('blur', function () { composingPanes.delete(pane); });
+      term.textarea.addEventListener('compositionend', function () { composingPanes.delete(pane); lastInputAt = Date.now(); flushDeferredFit(); });
+      term.textarea.addEventListener('blur', function () { composingPanes.delete(pane); flushDeferredFit(); });
     }
     // Bell from the pane's TUI (e.g. Claude Code finished a turn / needs input): badge the pane when it isn't
     // the one you're looking at, and ask the main process to raise a native notification when the whole window
