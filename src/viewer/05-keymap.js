@@ -89,6 +89,63 @@ function activateFilesView() {
   setTab('files');
   focusOpenFileInTree();
 }
+// ===== Who gets the key FIRST ======================================================================
+// The surfaces that own the keyboard outright while they are up, most-capturing first. A row's handle()
+// returns true when it consumed the key and dispatch stops there.
+//
+// This order used to live in two invisible places at once: which slice registered its listener first (the
+// build script's VIEWER_SLICES order) and whether that listener passed `true` for capture. "Capture so
+// closing settings wins over other Escape handlers (lightbox / composer)" was a comment in 08-dock.js
+// asserting a precedence no reader of 11-render-http.js could see, and the only way to change it was to
+// move a file in a build script. It is a row order now — the same treatment WINDOW_SHORTCUTS gave the
+// chords, for the same reason: adding a surface should be a row, not a fourth thing to get right.
+//
+// Owners are looked up through `typeof` because every slice that owns one loads after this file.
+// NOT here, and correctly so: the go-to-line prompt (13-goto.js) and the comment composer (08-dock.js)
+// both scope their listener to their own lifetime or target, so they never race anything.
+var KEY_OWNERS = [
+  // Settings is the top-most overlay: its Esc beats the lightbox and the composer, and its Cmd+, toggle
+  // has to work while it is itself up (keyboardScope reports 'modal' then, standing down everything below).
+  { name: 'settings', handle: function (event) { return typeof handleSettingsKey === 'function' && handleSettingsKey(event); } },
+  // While a terminal send-mode pick is on screen every key belongs to it, handled or not.
+  { name: 'terminal-send-mode', handle: function (event) { return typeof handleTerminalSendModeKey === 'function' && handleTerminalSendModeKey(event); } },
+  // A playing note walkthrough (23-annotations.js) owns the arrows — they are how you step it, and the caret
+  // they would otherwise move is being driven by the tour anyway. It claims nothing else, so every other key
+  // reaches the surfaces below exactly as before.
+  { name: 'note-tour', handle: function (event) { return typeof handleTourKey === 'function' && handleTourKey(event); } },
+  // Semantic navigation is a caret-local dropdown. It must own arrows/Enter before the persistent sidebar's
+  // logical tree focus gets a chance to consume them; otherwise Enter opens the tree row instead of the
+  // selected definition when Cmd+B was invoked after Cmd+0/Cmd+1.
+  { name: 'semantic-peek', handle: function (event) { return typeof handleSemanticPeekKey === 'function' && handleSemanticPeekKey(event); } },
+  // Quick Open / Find in Files is a true modal keyboard scope. Its own handler consumes navigation and
+  // dismissal keys, then every other key is stopped from reaching the shortcut router (or later document
+  // listeners). Do NOT prevent an unhandled key's default: native input editing such as Cmd/Ctrl+Left/Right,
+  // Cmd/Ctrl+A, clipboard shortcuts, and text composition must keep working inside the focused search field
+  // without moving the dimmed source/diff caret behind the dialog.
+  { name: 'quick-open', handle: function (event) {
+    if (quickOpen?.classList.contains('hidden')) return false;
+    handleQuickOpenKey(event);
+    event.stopImmediatePropagation();
+    return true;
+  } },
+  { name: 'usages', handle: function (event) {
+    var box = document.getElementById('usages');
+    if (!box || box.classList.contains('hidden')) return false;
+    return handleUsagesKey(event);
+  } },
+  // Cmd/Ctrl+F belongs to the active file surface, not the project-wide quick-open search. It sits above the
+  // general focus guard so Enter/Shift+Enter/Esc keep working while its input owns focus.
+  { name: 'file-find', handle: function (event) { return typeof handleFileFindKey === 'function' && handleFileFindKey(event); } },
+  { name: 'lightbox', handle: function (event) {
+    if (event.key !== 'Escape' || !lightboxOpen()) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    closeLightbox();
+    return true;
+  } },
+  { name: 'workspace-hub', handle: function (event) { return typeof handleWorkspaceHubKey === 'function' && handleWorkspaceHubKey(event); } },
+];
+
 // The window-level shortcut table (see the dispatch loop inside the keydown listener). A handler returning
 // false means "not applicable right now" — the key falls through to the rest of the chain untouched.
 var WINDOW_SHORTCUTS = [
@@ -134,27 +191,11 @@ function matchesChord(event, sc) {
   return !/^[a-z0-9]$/.test(sc.key) || !!sc.shift === event.shiftKey;
 }
 document.addEventListener('keydown', (event) => {
-  // Semantic navigation is a caret-local dropdown. It must own arrows/Enter before the persistent sidebar's
-  // logical tree focus gets a chance to consume them; otherwise Enter opens the tree row instead of the
-  // selected definition when Cmd+B was invoked after Cmd+0/Cmd+1.
-  if (typeof handleSemanticPeekKey === 'function' && handleSemanticPeekKey(event)) return;
-  if (!quickOpen?.classList.contains('hidden')) {
-    // Quick Open / Find in Files is a true modal keyboard scope. Let its own handler consume navigation
-    // and dismissal keys, then stop every other key from reaching the editor-level shortcut router (or
-    // later document listeners). Do NOT prevent an unhandled key's default: native input editing such as
-    // Cmd/Ctrl+Left/Right, Cmd/Ctrl+A, clipboard shortcuts, and text composition must keep working inside
-    // the focused search field without moving the dimmed source/diff caret behind the dialog.
-    handleQuickOpenKey(event);
-    event.stopImmediatePropagation();
-    return;
+  for (var oi = 0; oi < KEY_OWNERS.length; oi += 1) {
+    // Each owner does its own preventDefault/stopPropagation — Quick Open in particular must NOT prevent an
+    // unhandled key's default, so the loop cannot do it on their behalf.
+    if (KEY_OWNERS[oi].handle(event)) return;
   }
-  var usagesBox = document.getElementById('usages');
-  if (usagesBox && !usagesBox.classList.contains('hidden')) {
-    if (handleUsagesKey(event)) return;
-  }
-  // Cmd/Ctrl+F belongs to the active file surface, not the project-wide quick-open search. Keep this
-  // before the general focus guard so Enter/Shift+Enter/Esc continue to work while its input owns focus.
-  if (typeof handleFileFindKey === 'function' && handleFileFindKey(event)) return;
 
   // ---- window-level shortcuts -------------------------------------------------------------------
   // These belong to the window, not to whatever has focus, so they fire from a focused dock, a terminal
@@ -221,9 +262,10 @@ document.addEventListener('keydown', (event) => {
   // below so History (and merged/memo docks), which otherwise own the keys, don't swallow it. Only a
   // genuine text-input modal (settings, go-to-line) still keeps it; there the "main panel" isn't focused.
   if (event.key === 'F1' && event.altKey && !event.metaKey && !event.ctrlKey) {
-    var revealSm = document.getElementById('settings-modal');
-    var revealBlocked = (revealSm && !revealSm.classList.contains('hidden')) || !!document.getElementById('goto-line');
-    if (!revealBlocked && typeof revealOpenFileInTree === 'function') { event.preventDefault(); revealOpenFileInTree(); return; }
+    // "Anything but a true modal" is `scope !== 'modal'` — which is already in hand. This used to re-read the
+    // settings overlay and the go-to-line prompt itself, the one branch left doing by hand what keyboardScope
+    // exists to answer, and so the one branch that would have gone on disagreeing with it as surfaces changed.
+    if (scope !== 'modal' && typeof revealOpenFileInTree === 'function') { event.preventDefault(); revealOpenFileInTree(); return; }
   }
 
   // Settings overlay (or a focused merged/memo dock) captures keys: stand down the rest of the global
@@ -439,26 +481,39 @@ document.addEventListener('keydown', (event) => {
 
   // Diff view: Cmd/Ctrl + Left/Right goes to the line start / end; pressing it again AT the
   // edge crosses to the adjacent pane (Left -> old, Right -> new). Plain arrows never cross.
+  //
+  // With Shift it SELECTS to that edge instead, the same as Cmd+Shift+Left/Right in any editor. setDiffCursor
+  // drops diffSelectionAnchor on every caret placement (it cannot tell a jump from an extend), so the anchor
+  // is captured before the move and put back after — exactly what moveDiffCursor already does for plain
+  // Shift+Arrow (06-diff-caret.js). Without it this branch moved the caret to the line edge and cleared the
+  // selection on the way, so Cmd+Shift+Arrow was the one selection gesture that could not be made here.
+  // Shift also suppresses the pane crossing: a selection that spans the old and new panes is not a thing
+  // (applyDiffSelection drops any anchor from the other side anyway), so at the edge it simply stops.
   if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight') && isDiffViewVisible() && diffCursor) {
     event.preventDefault();
     const edgeWrap = diffWrapperByPath(diffCursor.path);
     const edgeRow = edgeWrap ? diffRowAt(edgeWrap, diffCursor.side, diffCursor.rowIndex) : null;
     const edgeLen = edgeRow ? diffLineText(edgeRow).length : 0;
+    const edgeExtend = event.shiftKey;
+    const edgeAnchor = edgeExtend
+      ? (diffSelectionAnchor || { side: diffCursor.side, rowIndex: diffCursor.rowIndex, column: diffCursor.column })
+      : null;
     if (event.key === 'ArrowLeft') {
       if (diffCursor.column > 0) {
         setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, 0, true); // -> line start
-      } else if (diffCursor.side === 'new') { // already at start -> cross to old (left)
+      } else if (!edgeExtend && diffCursor.side === 'new') { // already at start -> cross to old (left)
         const oldRow = edgeWrap ? diffRowAt(edgeWrap, 'old', diffCursor.rowIndex) : null;
         if (isDiffCodeRow(oldRow)) setDiffCursor(diffCursor.path, 'old', diffCursor.rowIndex, diffLineText(oldRow).length, true);
       }
     } else { // ArrowRight
       if (diffCursor.column < edgeLen) {
         setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, edgeLen, true); // -> line end
-      } else if (diffCursor.side === 'old') { // already at end -> cross to new (right)
+      } else if (!edgeExtend && diffCursor.side === 'old') { // already at end -> cross to new (right)
         const newRow = edgeWrap ? diffRowAt(edgeWrap, 'new', diffCursor.rowIndex) : null;
         if (isDiffCodeRow(newRow)) setDiffCursor(diffCursor.path, 'new', diffCursor.rowIndex, 0, true);
       }
     }
+    if (edgeAnchor) { diffSelectionAnchor = edgeAnchor; applyDiffSelection(); }
     return;
   }
 
@@ -649,9 +704,6 @@ document.getElementById('source-body')?.addEventListener('click', function (even
   var img = event.target && event.target.closest && event.target.closest('.image-preview');
   if (img) openLightbox(img.getAttribute('src'), img.getAttribute('alt'));
 });
-document.addEventListener('keydown', function (event) {
-  if (event.key === 'Escape' && lightboxOpen()) { event.preventDefault(); event.stopPropagation(); closeLightbox(); }
-}, true);
 document.addEventListener('copy', handleSourceCopy);
 
 // One consistent tooltip for controls that have an explicit application shortcut, including controls

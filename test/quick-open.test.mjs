@@ -396,12 +396,14 @@ test("the launcher rail is reachable and navigable by keyboard", async () => {
   await v.settle(10);
   assert.notEqual(focused(), "recent", "ArrowRight gives the keyboard back to the results");
 
-  // Enter on a rail section switches to it AND keeps the keyboard there, so the next arrow still applies.
+  // Enter on a rail section picks it and HANDS THE KEYBOARD to that section's panel — the rail keeps focus
+  // only while you are still choosing (the arrows). It used to stay on the rail after Enter, which left the
+  // pick looking unfinished: the section on the right was showing but the keyboard was still on the left.
   v.key("ArrowLeft"); await v.settle(10);
   v.key("ArrowDown"); await v.settle(10);
   v.key("Enter"); await v.settle(40);
   assert.equal(v.$("#quick-open-mode").textContent, "Prompts", "Enter switches to the focused section");
-  assert.equal(focused(), "prompts", "and the rail keeps the keyboard");
+  assert.equal(focused(), undefined, "and the rail gives the keyboard up, exactly as a mouse pick does");
   v.close();
 });
 
@@ -473,5 +475,33 @@ test("prompts are pickable cards that say when to use them", async () => {
   await v.settle(20);
   assert.equal(sent.length, 1, "Enter sends the selected prompt to the terminal");
   assert.match(sent[0], /codebase|저장소|repository/i, "the one that was selected, not the first");
+  v.close();
+});
+
+// One surface at a time. The launcher covers the whole view, so a terminal left open underneath it is a
+// shell you are still typing into but cannot see — it gets put away when the launcher opens, and the rail
+// carries a Terminal row that brings it straight back.
+test("opening the launcher puts the terminal away, and the rail can bring it back", async () => {
+  const { html: appHtml } = await makeReviewHtml([
+    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+  ], { app: true });
+  const v = await loadViewer(appHtml);
+
+  let closed = 0;
+  let toggled = 0;
+  v.window.__kakapoTerminal = { isOpen: () => true, close: () => { closed += 1; } };
+  v.$("#terminal-toggle")?.addEventListener("click", () => { toggled += 1; });
+
+  v.key("e", { metaKey: true, code: "KeyE" });
+  await v.settle(20);
+  assert.equal(closed, 1, "the terminal is put away as the launcher comes up");
+
+  const terminalRow = v.$('#quick-open-side .quick-open-side-item[data-section="terminal"]');
+  assert.ok(terminalRow, "the rail lists the terminal");
+  assert.equal(terminalRow.dataset.keyhint, "⌃`", "with the shortcut that also opens it");
+  v.click(terminalRow);
+  await v.settle(20);
+  assert.equal(v.quickOpenVisible(), false, "picking it closes the launcher");
+  assert.equal(toggled, 1, "and brings the terminal back through its own toggle");
   v.close();
 });

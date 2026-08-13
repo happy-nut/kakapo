@@ -1,11 +1,13 @@
 name: Test
 
-# 모든 main push와 PR에서 핵심 유저 플로우 회귀 테스트(test/*.test.mjs)를 돌린다. 머지 전에
-# 회귀를 잡는 1차 방어선이며, 배포 경로(publish.yml / auto-release.yml)는 같은 `npm test`를
-# 배포 직전 게이트로 한 번 더 실행한다. 테스트가 무엇을 보장하는지는 test/USER_FLOWS.md 참고.
+# main/develop push와 모든 PR에서 핵심 유저 플로우 회귀 테스트(test/*.test.mjs)를 돌린다. 개발이
+# develop에서 이뤄지므로 그 브랜치도 대상이다 — PR을 열 때까지 아무 신호도 없으면, 하루치 커밋을
+# 쌓아두고 나서야 무엇이 깨졌는지 알게 된다. 머지 전에 회귀를 잡는 1차 방어선이며, 배포 경로
+# (release.yml / auto-release.yml)는 같은 `npm test`를 배포 직전 게이트로 한 번 더 실행한다.
+# 테스트가 무엇을 보장하는지는 test/USER_FLOWS.md 참고.
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request: {}
   workflow_dispatch: {}
 

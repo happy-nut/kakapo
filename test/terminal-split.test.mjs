@@ -40,8 +40,8 @@ test("a stacked split nests inside the focused pane's cell instead of re-orienti
   assert.match(split, /direction === 'column' && active[\s\S]{0,80}active\.el\.parentNode : makeCell\(\)/,
     "column splits reuse the active pane's cell; row splits open a new one");
   assert.doesNotMatch(split, /is-column/, "no panel-wide axis flag survives");
-  assert.match(split, /requestAnimationFrame\(fitAll\)/,
-    "xterm is re-fitted after the new layout, not only against the pre-split geometry");
+  assert.match(split, /scheduleFitAll\(\)/,
+    "xterm is re-fitted after the new layout (one frame later), not against the pre-split geometry");
   assert.match(client, /onTerminalSplit\(split\)/, "the bridge is wired to it");
   // An emptied cell would keep its share of the row and read as a gap where the pane used to be.
   assert.match(client, /!cell\.children\.length[\s\S]{0,60}removeChild\(cell\)/,
@@ -154,4 +154,88 @@ test("reopening after a restart restores one pane per live session, by ordinal",
   assert.match(client, /ordinal: pane\.restoreOrdinal/, "each restored pane asks for its own session");
   assert.match(client, /if \(ordinals\.length < 2\) return;/,
     "one session (or none) is left to the plain open path, which already makes exactly one pane");
+  // The ordinal has to reach the pane BEFORE it spawns. Assigning it afterwards (makePane(); pane.x = n) meant
+  // every restored pane asked for `undefined` and got the lowest FREE ordinal instead: with sessions 1 and 3
+  // alive, the restore attached to 1 and then CREATED a new session 2, orphaning 3. The next launch found
+  // three sessions and opened three panes — one of them empty — and it grew by one every restart after that.
+  assert.match(client, /function makePane\(cell, restoreOrdinal\)/, "makePane takes the ordinal as an argument");
+  assert.ok(client.includes("restoreOrdinal: restoreOrdinal")
+    && client.indexOf("restoreOrdinal: restoreOrdinal") < client.indexOf("ordinal: pane.restoreOrdinal"),
+    "…and sets it on the pane before spawning, not after");
+  assert.match(client, /makePane\(null, ordinal\)/, "restorePanes passes the session it is re-attaching to");
+});
+
+
+// One action, one re-flow. A split, a restore and an open each fitted twice — immediately, then again on the
+// next frame — so the terminal laid out against the geometry it was LEAVING and then against the one it
+// arrived at: two visible jolts for one action ("리사이즈가 딱 딱 두 번 끊긴다"). A live window drag went
+// through the same path once per ResizeObserver callback.
+test("the terminal re-flows once per frame, not twice per action", () => {
+  assert.match(client, /function scheduleFitAll\(\)[\s\S]{0,160}requestAnimationFrame/,
+    "fits are coalesced into one animation frame");
+  assert.doesNotMatch(client, /fitAll\(\);\s*\n\s*requestAnimationFrame\(fitAll\)/,
+    "no path fits immediately and again on the next frame");
+  for (const path of ["ResizeObserver(function () { if (isOpen()) scheduleFitAll(); })",
+    "window.addEventListener('resize', function () { if (isOpen()) scheduleFitAll(); })"]) {
+    assert.ok(client.includes(path), `resize path goes through the scheduler: ${path}`);
+  }
+});
+
+// The rail's "working" spinner means an agent is producing output. A resize is SIGWINCH, and a shell answers
+// SIGWINCH by reprinting its prompt — output on the same channel, from a workspace doing nothing. Switching
+// workspaces fires a fit as the view becomes visible, so every idle pane answered at once and every idle tile
+// spun: "에이전트가 실행 중이지 않는데 스피너가 도는 경우가 있네".
+test("a pane's own resize echo does not count as agent activity", () => {
+  const ipc = readFileSync(new URL("../src/app-terminal-ipc.ts", import.meta.url), "utf8");
+  assert.match(ipc, /kakapo:pty-resize[\s\S]{0,1400}resizeEchoUntil\.set\(msg\.id[\s\S]{0,80}t\.resize\(/,
+    "the quiet window is stamped before the resize that causes the echo, not after");
+  const onData = ipc.match(/t\.onData\(\(data\) => \{[\s\S]*?\n {4}\}\);/)?.[0];
+  assert.ok(onData, "output still flows through one place");
+  assert.match(onData, /deliver\("kakapo:pty-data"[\s\S]{0,200}resizeEchoUntil\.get\(id\)/,
+    "the bytes are delivered either way — only the activity signal is gated");
+  assert.match(onData, /if \(!\(quiet && Date\.now\(\) < quiet\)\) state\.onAgentOutput/,
+    "an echo inside the window raises no spinner; anything after it does");
+  assert.match(ipc, /t\.onExit[\s\S]{0,400}resizeEchoUntil\.delete\(id\)/,
+    "and the map does not outlive the pty it belongs to");
+});
+
+// Typing 가 is several keystrokes with a live composition in between, and re-flowing xterm's rows during one
+// makes macOS commit the half-built syllable as ㄱ ㅏ. Becoming visible again fires the ResizeObserver, so a
+// workspace you switch INTO fits at the exact moment you arrive at its already-open terminal and start
+// typing — and Korean came out ㄱㅏㄴㅏㄷㅏ. The watch refresh already stands down for this; the fit did not.
+test("a re-flow waits for an in-flight IME composition instead of splitting the syllable", () => {
+  const scheduler = client.match(/function scheduleFitAll\(\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(scheduler, "scheduleFitAll is still the single path every fit runs through");
+  assert.match(scheduler, /composingPanes\.size/, "it stands down while a syllable is being assembled");
+  assert.match(scheduler, /fitDeferred = true/, "and remembers the fit it owes");
+  assert.match(client, /compositionend'[\s\S]{0,160}flushDeferredFit\(\)/,
+    "the syllable committing runs the fit that was held back");
+  assert.match(client, /'blur'[\s\S]{0,120}flushDeferredFit\(\)/,
+    "and so does losing focus mid-syllable, so a deferred fit is never dropped for good");
+});
+
+// A prompt sent to a pane is a PASTE, not typing. Codex enables bracketed paste (DECSET 2004) and reads a
+// bare newline as Enter, so a raw multi-line write submitted the first line and typed the rest into a busy
+// composer — "선택해서 붙여넣기가 안 된다". Wrap it when the pane's app asked for the mode, and only then:
+// a plain shell without it would show the markers as literal "[200~" text.
+test("text sent to a pane is wrapped as a bracketed paste when the app enabled that mode", () => {
+  const write = client.match(/function writeToPane\(p, text\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(write, "writeToPane is still the single path prompts reach a pane by");
+  assert.match(write, /p\.term\.modes\.bracketedPasteMode/, "the pane's own mode decides, not a guess about the agent");
+  assert.match(write, /'\\x1b\[200~' \+ text \+ '\\x1b\[201~'/, "the text goes out framed as a paste");
+  assert.match(write, /bracketed \? [^:]+ : text/, "an app that never asked for it still gets the bytes unwrapped");
+});
+
+
+// Sending a prompt opens the pane picker AND focuses a pane — and xterm cancels the keys it handles from a
+// textarea below the document-level KEY_OWNERS listener, which runs in the bubble phase. So the confirming
+// Enter never reached the picker: it went to the agent in that pane as a bare newline, and the prompt was
+// never written. The picker has to outrank the terminal's own key handling while it is up.
+test("the pane picker outranks xterm's key handling, so Enter confirms instead of hitting the agent", () => {
+  const handler = client.match(/attachCustomKeyEventHandler\(function \(e\) \{[\s\S]*?\n      \/\/ Escape/)?.[0];
+  assert.ok(handler, "the terminal still filters keys through a custom handler");
+  assert.match(handler, /if \(sendModeText != null\) return false;/,
+    "a live pick releases every key to the document handler that owns it");
+  assert.ok(/attachCustomKeyEventHandler\(function \(e\) \{\s*\/\/[\s\S]{0,700}?if \(sendModeText != null\) return false;/.test(client),
+    "and it releases them FIRST — a later branch would already have consumed Enter or Escape");
 });

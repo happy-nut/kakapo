@@ -49,6 +49,7 @@ test("diff: ArrowUp from the line below the comment re-selects the box", async (
   const v = await loadViewer(html);
   await diffCommentOnFirstLine(v, "q1");
   v.key("ArrowDown"); await v.settle(20); // onto the box
+  v.key("ArrowDown"); await v.settle(20); // onto the waiting reply box under it — still inside the thread
   v.key("ArrowDown"); await v.settle(20); // step off, caret on the next code line
   assert.equal(v.selectedCommentBox(), null, "stepped off the box");
   v.key("ArrowUp"); await v.settle(20); // back up onto the box from below
@@ -61,6 +62,7 @@ test("diff: stepping off the box re-shows the caret and deselects", async () => 
   await diffCommentOnFirstLine(v, "q1");
   v.key("ArrowDown"); await v.settle(20);
   assert.ok(v.selectedCommentBox());
+  v.key("ArrowDown"); await v.settle(20); // the thread's own reply box is a stop too
   v.key("ArrowDown"); await v.settle(20);
   assert.equal(v.selectedCommentBox(), null, "deselected after stepping off");
   assert.ok(v.diffCaretRow(), "caret is visible again on a code line");
@@ -184,16 +186,54 @@ test("F8 and Shift+F8 walk the comments, mirroring F7 for changes", async () => 
   v.close();
 });
 
+// The diff shows one file at a time, everything else display:none. Stepping to a comment in ANOTHER file
+// placed the caret inside that hidden wrapper: the chrome updated — the base-version label named the target —
+// while the reader kept looking at the previous file and nothing appeared to happen.
+test("F8 to a comment in another file switches the diff to that file", async () => {
+  const { html: twoFiles } = await makeReviewHtml([
+    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+    { path: "src/b.ts", before: "export const b = 1;\n", after: "export const b = 2;\n" },
+  ]);
+  const v = await loadViewer(twoFiles);
+  const shownFile = () => {
+    const wrapper = v.$("#diff2html-container .d2h-file-wrapper:not(.df-inactive)");
+    return wrapper ? (wrapper.querySelector(".d2h-file-name")?.textContent || "").trim() : null;
+  };
+  // clickFirstDiffLine() always takes the first wrapper in the DOM; this comment has to land in the file the
+  // jump comes FROM being a different one, so click inside the file that is actually on screen.
+  await v.openDiffFor("src/b.ts");
+  assert.equal(shownFile(), "src/b.ts");
+  const shown = v.$("#diff2html-container .d2h-file-wrapper:not(.df-inactive)");
+  const numbered = Array.from(shown.querySelectorAll(".d2h-file-side-diff")).pop()
+    .querySelectorAll(".d2h-code-side-linenumber");
+  const cell = Array.from(numbered).find((n) => (n.textContent || "").trim() !== "").closest("tr");
+  v.click(cell.querySelector(".d2h-code-line, .d2h-code-side-line"));
+  await v.settle(30);
+  await v.openComposer("q");
+  await v.writeAndSave("why b?");
+  await v.settle(60);
+  assert.equal(v.storedComments()[0]?.path, "src/b.ts", "the comment is in the file we will jump back to");
+
+  await v.openDiffFor("src/a.ts");
+  await v.settle(60);
+  assert.equal(shownFile(), "src/a.ts", "another file is what's on screen before the jump");
+
+  v.key("F8");
+  await v.settle(120);
+  assert.equal(shownFile(), "src/b.ts", "F8 reveals the commented file, not just its name in the chrome");
+  v.close();
+});
+
 // An agent's explanation and a reviewer's question are the same thing to someone walking a file: a note on
 // a line. They used to be two keys — F8 for comments, a second one for notes — so F8 silently skipped every
 // explanation the agent had left. One list now, sorted together, a note ahead of a comment on a line they
 // share (the order the thread itself renders them in), and one key that walks all of it.
 test("the comment navigation list contains both kinds", () => {
   const comments = readFileSync(new URL("../src/viewer/07-comments.js", import.meta.url), "utf8");
-  assert.match(comments, /function sortedNavThread\(\)[\s\S]{0,400}sortedAnnotations\(\)/,
-    "notes are merged into the navigation list");
-  assert.match(comments, /function gotoComment[\s\S]{0,500}target\.seq != null/,
-    "a comment navigates by seq, a note by its line");
+  assert.match(comments, /function sortedNavThread\(\)\s*\{\s*\n\s*return sortedNavComments\(\);/,
+    "notes and comments are one list, so the walk is just that list in file order");
+  assert.match(comments, /function revealComment\(seq\)[\s\S]{0,300}navigateToCommentInDiff\(target\.seq\)/,
+    "and every card on it is reached by its own id — the same tail a notification click uses");
 });
 
 // F8 stepped to the first note and then stopped dead. commentNavOrder ranks only files the DIFF contains —
@@ -207,4 +247,20 @@ test("stepping keeps working through notes in files the diff does not contain", 
     "files outside the diff get ranks of their own, in a stable order");
   assert.match(comments, /function stepAnchor\(delta, list\) \{\s*\n\s*var order = navOrderFor\(list\);/,
     "and stepping uses it, so the current file is rankable too");
+});
+
+// The box for the next turn is part of the thread, so the keyboard has to reach it: arrow down past the last
+// card and Enter opens it. Before this it was mouse-only — the arrows skipped straight off the row, and the
+// only keyboard route to a reply was the ↩ button in a card header.
+test("diff: ArrowDown reaches the waiting reply box and Enter opens it", async () => {
+  const v = await loadViewer(html);
+  await diffCommentOnFirstLine(v, "q1");
+  v.key("ArrowDown"); await v.settle(20); // the comment
+  v.key("ArrowDown"); await v.settle(20); // the box waiting for the reply
+  const selected = v.selectedCommentBox()?.querySelector(".mc-card-selected");
+  assert.ok(selected?.classList.contains("mc-reply-stub"), "the arrows land on the waiting box, not past it");
+
+  v.key("Enter"); await v.settle(60);
+  assert.ok(v.visibleComposerInput(), "Enter opens the composer there, without reaching for the ↩ button");
+  v.close();
 });

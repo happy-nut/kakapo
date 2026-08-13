@@ -28,6 +28,31 @@ test("application preferences separate global and per-worktree state", () => {
   }
 });
 
+// The dot says "something is waiting here and you have not seen it". Quitting for the night is not reading
+// it, so the flag has to outlive the app run — in memory, every morning started by telling you the opposite.
+test("an unread workspace is still unread after a restart", () => {
+  const base = mkdtempSync(join(tmpdir(), "kakapo-unread-"));
+  try {
+    const userData = join(base, "app-data");
+    const work = join(base, "repos", "feature");
+    mkdirSync(work, { recursive: true });
+
+    const before = new AppPreferences(userData);
+    assert.equal(before.readUnread(work), false, "nothing waiting to begin with");
+    before.writeUnread(work, true);
+
+    // A fresh instance is what the next launch actually gets.
+    assert.equal(new AppPreferences(userData).readUnread(work), true, "the flag survives the process");
+    // …and it is per workspace, not per app.
+    assert.equal(new AppPreferences(userData).readUnread(join(base, "repos", "other")), false);
+
+    before.writeUnread(work, false); // opening the workspace clears it
+    assert.equal(new AppPreferences(userData).readUnread(work), false, "and clearing it sticks too");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("recent projects are validated, deduplicated, and bounded", () => {
   const base = mkdtempSync(join(tmpdir(), "kakapo-recents-"));
   try {

@@ -73,6 +73,7 @@ test("large app sources load on demand into the same Review renderer", async () 
 
   const v = await loadViewer(built.html, {
     lazySourceData: JSON.stringify(built.build.lazySourceFiles),
+    root: built.dir, // unchanged files ship as deferred metadata; main reads them back off disk on open
     monacoBridge: true,
     analysisBridge: (request) => responseFor(request),
   });

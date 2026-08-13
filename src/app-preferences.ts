@@ -128,6 +128,23 @@ export class AppPreferences {
     return typeof value === "string" ? value : undefined;
   }
 
+  /**
+   * Something is waiting in this workspace and nobody has looked yet. Persisted, because the whole point of
+   * the dot is that you have NOT seen it: quitting for the night was not you reading the answer, and a flag
+   * that lives only in memory quietly told you the opposite every morning.
+   */
+  readUnread(root: string): boolean {
+    return this.readWorkspace(root)["kakapo-unread"] === true;
+  }
+
+  writeUnread(root: string, unread: boolean): void {
+    const settings = this.readWorkspace(root);
+    if (unread === (settings["kakapo-unread"] === true)) return; // a bell per turn must not be a write per turn
+    if (unread) settings["kakapo-unread"] = true;
+    else delete settings["kakapo-unread"];
+    this.writeJson(this.workspaceFile(root), settings, true);
+  }
+
   private workspaceFile(root: string): string {
     return join(workspaceDataDirectory(this.userData, root), "state.json");
   }

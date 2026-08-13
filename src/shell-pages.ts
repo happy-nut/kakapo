@@ -129,6 +129,14 @@ body.rail-exp .cv{display:none}
 .cv .wt.busy::after{content:"";position:absolute;inset:-2px;border-radius:9px;border:2px solid #4d86d9;animation:wsbreathe 1.3s ease-in-out infinite;pointer-events:none}
 @keyframes wsbreathe{0%,100%{opacity:.25;transform:scale(.94)}50%{opacity:.9;transform:scale(1.09)}}
 @media (prefers-reduced-motion:reduce){.cv .wt.busy::after{animation:none;opacity:.7}}
+/* Being deleted (markDeleting): dimmed, inert, and SAYING so. \`git worktree remove\` is not instant, and a
+   tile that stays fully lit and clickable until it abruptly disappears reads as "the click did nothing" —
+   then as "something vanished". Declared after .busy so a worktree whose agent was mid-run gets the danger
+   ring rather than the working one. Same breathing keyframes, so this is one visual language, not two. */
+.wt.deleting{opacity:.42;pointer-events:none}
+.ev .wt.deleting .wt-name::after{content:" · ${t("hubdel.deleting")}";font-weight:400;font-size:11px}
+.cv .wt.deleting::after{content:"";position:absolute;inset:-2px;border-radius:9px;border:2px solid #e5484d;animation:wsbreathe 1.3s ease-in-out infinite;pointer-events:none}
+@media (prefers-reduced-motion:reduce){.cv .wt.deleting::after{animation:none;opacity:.8}}
 /* ---------- expanded rail (⌘⇧E): Orca-style card panel — project header (avatar + name + count + chevron,
    click collapses the group) then a worktree card each (status dot + name + change tag + branch). ---------- */
 /* Fixed width (not 100%) so the expanded content is laid out at full width from frame one and the #hub width
@@ -155,12 +163,29 @@ body.rail-exp .ev{display:flex}
 .ev .wt.disc{opacity:.5}
 .wt-top{display:flex;align-items:center;gap:8px}
 .dot{width:8px;height:8px;border-radius:50%;flex:none;background:${light ? "#b7bcc4" : "#5b616b"}}
-.ev .wt.running .dot,.ev .wt.busy .dot{background:#4cc38a;box-shadow:0 0 0 3px #4cc38a22}
-.ev .wt.busy .dot{animation:dotpulse 1.3s ease-in-out infinite}
-@keyframes dotpulse{0%,100%{opacity:1}50%{opacity:.35}}
+.ev .wt.running .dot{background:#4cc38a;box-shadow:0 0 0 3px #4cc38a22}
+/* Working right now: the dot becomes a spinner in place. A pulsing dot said "alive", which is what the steady
+   green already says — it never read as WORK being done. A ring that turns does, and it costs the same 8px
+   slot: border-box keeps the disc's footprint, so nothing beside it moves when a turn starts or ends. */
+.ev .wt.busy .dot{
+  background:transparent;box-sizing:border-box;
+  border:1.5px solid #4cc38a44;border-top-color:#4cc38a;box-shadow:none;
+  animation:wtspin .8s linear infinite;
+}
+@keyframes wtspin{to{transform:rotate(360deg)}}
+/* Something is waiting for you there — an agent finished a turn, or answered a review comment — so the dot
+   goes red, the same #e5484d the collapsed strip's .udot uses. Last, and deliberately: green means "running,
+   nothing to do", and a workspace that has both is the one you should be looking at. Reading it as merely
+   alive was the whole problem. Cleared when you open that workspace (activateWorkspace). */
+.ev .wt.attn .dot{background:#e5484d;box-shadow:0 0 0 3px #e5484d33;border:0;animation:none}
+/* Reduced motion: keep the ring (it still reads as "in progress" beside a solid disc), just stop it turning. */
 @media (prefers-reduced-motion:reduce){.ev .wt.busy .dot{animation:none}}
 .wt-name{font-weight:600;font-size:12.5px;color:${fg};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
 .ev .wt.act .wt-name{color:#79a6ea}
+/* Agent badge on an expanded tile. Sized to sit with .wt-home rather than with the 14px usage-footer icons
+   it borrows its markup from, and it keeps its brand colour (.usage-ico-claude/-codex) at every tile state. */
+.wt-agent{flex:none;display:grid;place-items:center;opacity:.9}
+.wt-agent .usage-ico{width:12px;height:12px}
 .wt-tag{font-size:9.5px;font-weight:700;color:${light ? "#9aa0aa" : "#8b909a"};border:1px solid ${line};border-radius:5px;padding:1px 5px;flex:none;font-variant-numeric:tabular-nums}
 .wt-branch{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:${light ? "#9aa0aa" : "#666b73"};margin:3px 0 0 16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Agent quota (Claude + Codex), moved here from the review's sidebar footer: it is per-account, not
@@ -200,11 +225,13 @@ body.rail-exp .ev{display:flex}
 .usage-cell-num{font-size:9.5px;font-variant-numeric:tabular-nums;color:${light ? "#6b7280" : "#8a8f99"}}
 body:not(.rail-exp) .usage-foot{align-items:center;gap:10px;padding:9px 4px}
 /* The rail opens and closes from its TOP: the control belongs next to what it names, and expanded it sits
-   on the same line as the Workspaces title rather than at the far end of the list. */
-#railhead{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:6px 4px;border-bottom:1px solid ${line};flex:none}
-body.rail-exp #railhead{justify-content:space-between;padding:6px 6px 6px 12px}
+   on the same line as the Workspaces title rather than at the far end of the list. "New workspace" joins it
+   there — it makes a workspace, so it belongs with the workspaces, not parked next to Settings at the far
+   bottom of the rail. Collapsed the head is a column (46px fits one 34px button per row). */
+#railhead{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;width:100%;padding:6px 4px;border-bottom:1px solid ${line};flex:none}
+body.rail-exp #railhead{flex-direction:row;gap:8px;justify-content:space-between;padding:6px 6px 6px 12px}
 #railtitle{display:none;font-size:12px;font-weight:600;color:${fg}}
-body.rail-exp #railtitle{display:block}
+body.rail-exp #railtitle{display:block;flex:1}
 #railfoot{display:flex;flex-direction:column;align-items:center;gap:5px;padding:7px 0;border-top:1px solid ${line};width:100%;flex:none}
 body.rail-exp #railfoot{flex-direction:row;justify-content:flex-end;padding:7px 6px;gap:4px}
 #railfoot button,#railhead button{width:34px;height:32px;border:0;border-radius:8px;font-size:17px;color:${light ? "#666" : "#999"};display:grid;place-items:center;padding:0}
@@ -213,16 +240,22 @@ body.rail-exp #railfoot{flex-direction:row;justify-content:flex-end;padding:7px 
    points is already the whole message and a second, colour-coded one just reads as a stray highlight. */
 #pin svg{width:16px;height:16px;transition:transform 180ms cubic-bezier(.2,.8,.2,1)}
 body.rail-exp #pin svg{transform:rotate(180deg)}
-#railfoot #new{border:1px dashed ${line}}
+#railhead #new{border:1px dashed ${line}}
 .context-menu{position:fixed;z-index:20;width:172px;padding:5px;background:${bg};border:1px solid ${line};border-radius:8px;box-shadow:0 12px 30px #0008}
 .context-menu button{display:block;width:100%;border:0;text-align:left;padding:7px 9px}.context-menu button:hover{background:${light ? "#dfe7f5" : "#373d49"}}.context-menu .danger{color:#df6868}.hidden{display:none!important}</style>
-<div id="titlebar"><span id="wsname"></span><span class="tb-spacer"></span><button id="update-chip" class="hidden" title="${t("settings.updateAvailable")}">${t("sidebar.updateAvailable")}</button><div id="tools"><button class="tb" data-act="changes" data-tip="${t("tab.changes")}" data-key="⌘0" aria-label="${t("tab.changes")} (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" data-tip="${t("tab.files")}" data-key="⌘1" aria-label="${t("tab.files")} (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" data-tip="${t("terminal.title")}" data-key="⌃\`" aria-label="${t("terminal.title")} (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" data-tip="${t("rail.history")}" data-key="⌘9" aria-label="${t("rail.history")} (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button></div></div><main id="hub"><div id="railhead"><span id="railtitle">${t("hub.workspaces")}</span><button id="pin" title="${t("hub.expandRail.title")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button></div><section id="list"></section><div id="usage-foot" class="usage-foot" aria-label="Agent usage"></div><div id="railfoot"><button id="new" title="${t("hub.newWorkspace.title")}">＋</button><button id="settings" title="${t("hub.settings.title", { v: appVersion })}">⚙</button></div></main><div id="tt"></div>
+<div id="titlebar"><span id="wsname"></span><span class="tb-spacer"></span><button id="update-chip" class="hidden" title="${t("settings.updateAvailable")}">${t("sidebar.updateAvailable")}</button><div id="tools"><button class="tb" data-act="changes" data-tip="${t("tab.changes")}" data-key="⌘0" aria-label="${t("tab.changes")} (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" data-tip="${t("tab.files")}" data-key="⌘1" aria-label="${t("tab.files")} (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" data-tip="${t("terminal.title")}" data-key="⌃\`" aria-label="${t("terminal.title")} (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" data-tip="${t("rail.history")}" data-key="⌘9" aria-label="${t("rail.history")} (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button></div></div><main id="hub"><div id="railhead"><span id="railtitle">${t("hub.workspaces")}</span><button id="new" title="${t("hub.newWorkspace.title")}">＋</button><button id="pin" title="${t("hub.expandRail.title")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button></div><section id="list"></section><div id="usage-foot" class="usage-foot" aria-label="Agent usage"></div><div id="railfoot"><button id="settings" title="${t("hub.settings.title", { v: appVersion })}">⚙</button></div></main><div id="tt"></div>
 <script>
 const T=${JSON.stringify(T)};
 const APP_VERSION=${JSON.stringify(appVersion)};
 const list=document.querySelector("#list"),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const newModal=()=>window.kakapoHub.openModal('new',curRepo?{path:curRepo.path,name:curRepo.name}:undefined);
-document.querySelector("#new").onclick=newModal;
+// Workspaces whose removal is in flight. \`git worktree remove\` takes as long as it takes, and until this
+// existed the tile sat there looking clickable and then simply vanished — no sign that the click had landed,
+// and a second click in the meantime would try to activate a workspace being destroyed. Held as ids rather
+// than as a class on the node so a rail re-render mid-delete (wcls) paints the state back on.
+const deletingIds=new Set();
+function markDeleting(id,on){on?deletingIds.add(id):deletingIds.delete(id);for(const el of document.querySelectorAll('.wt[data-id="'+id+'"]'))el.classList.toggle('deleting',on);}
+const newModal=prefill=>window.kakapoHub.openModal('new',prefill&&prefill.path?{path:prefill.path,name:prefill.name}:curRepo?{path:curRepo.path,name:curRepo.name}:undefined);
+document.querySelector("#new").onclick=()=>newModal();
 document.querySelector("#settings").onclick=()=>window.kakapoHub.settings();
 // One version check per launch, against the same GitHub release the review's settings panel reads. The chip is
 // only ever a pointer: the install itself lives behind the Update button in Settings, which knows whether
@@ -246,7 +279,7 @@ tools.addEventListener('mouseover',e=>{const b=e.target.closest('button.tb');if(
 tools.addEventListener('mouseout',e=>{const b=e.target.closest('button.tb');if(b&&(!e.relatedTarget||!b.contains(e.relatedTarget)))tt.classList.remove('show');});
 tools.addEventListener('click',()=>tt.classList.remove('show'));
 window.kakapoHub.onRailState(s=>{s=s||{};const active=s.active||[];for(const b of tools.querySelectorAll('button.tb')){const a=b.dataset.act;if(a==='terminal'){b.classList.toggle('hidden',!s.terminal);}b.classList.toggle('active',active.indexOf(a)>=0);}});
-window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(newModal);
+window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(prefill=>newModal(prefill));
 // ---- Agent quota, moved here from the review's sidebar footer. One row per limit window that can actually
 // stop work — Claude's 5h session, its weekly caps, then Codex's — each a battery of the quota still LEFT
 // plus how long until that window resets. Marks are the official Claude / OpenAI logos (simple-icons, CC0).
@@ -355,6 +388,10 @@ function initRailSel(){const t=railTiles();const ai=t.findIndex(el=>el.classList
 document.addEventListener('keydown',e=>{
   if(!railExp||document.querySelector('dialog[open]'))return; // only when the rail is expanded and no dialog owns keys
   const a=document.activeElement;if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'))return;
+  // The expanded rail is a peek, so Esc backs out of it the way it backs out of everything else. toggleRail
+  // routes through main's hub-expanded handler, which animates the collapse and hands focus back to the review
+  // view — the same path as clicking into the view or pressing ⌘⇧E again.
+  if(e.key==='Escape'){e.preventDefault();toggleRail();return;}
   // While expanded the shell holds keyboard focus, so review shortcuts (Changes/Files/History/Terminal) never reach the review view.
   // Collapse the rail (which returns focus to the review) and forward the tool action, so e.g. ⌘1 still opens Files.
   let fwd=null;
@@ -397,12 +434,18 @@ curRepo=_a&&_a.repoRoot?{path:_a.repoRoot,name:_a.repoName}:curRepo;
 // letters instead of collapsing to "?". Latin → uppercased two-word/two-letter initials; CJK → the first one
 // or two characters as-is (Hangul has no case).
 const initials=w=>{var s=String(w.alias||(w.kind==='main'?w.repoName:0)||w.branch||w.repoName||'?').replace(/^(feature|fix|chore|bugfix|hotfix|release)[\\/_-]/i,'').trim();if(!s)return'?';var parts=s.split(/[\\s._/-]+/).filter(Boolean);var a=parts[0]||s,ac=Array.from(a),latin=/^[A-Za-z0-9]/.test(a),r;if(parts.length>1){var bc=Array.from(parts[1]);r=(ac[0]||'')+(bc[0]||'');}else{r=ac.slice(0,2).join('');}return latin?r.toUpperCase():r;};
-const tip=w=>(w.alias||w.branch)+' · '+w.repoName+(w.dirtyCount?' · '+T.changed.replace('{n}',w.dirtyCount):'')+(w.running?' · ● '+T.running:w.resume?' · '+T.resumable:w.disconnected?' · '+T.disconnected:'');
+// Proper nouns, so the same two labels in every locale — they name the agent, they don't describe it.
+const AGENT_NAME={claude:'Claude',codex:'Codex'};
+const AGENT_ICO={claude:CLAUDE_ICO,codex:CODEX_ICO};
+// The badge is omitted, not blanked, for a workspace whose agent is unknown: a worktree you have only ever
+// run plain shell commands in has no agent, which is different from having one we failed to name.
+const agentIco=w=>AGENT_ICO[w.agent]?'<span class="wt-agent" role="img" aria-label="'+esc(AGENT_NAME[w.agent])+'">'+AGENT_ICO[w.agent]+'</span>':'';
+const tip=w=>(w.alias||w.branch)+' · '+w.repoName+' · '+w.path+(AGENT_NAME[w.agent]?' · '+AGENT_NAME[w.agent]:'')+(w.dirtyCount?' · '+T.changed.replace('{n}',w.dirtyCount):'')+(w.running?' · ● '+T.running:w.resume?' · '+T.resumable:w.disconnected?' · '+T.disconnected:'');
 // Stable per-project hue (all worktrees share it) — tints the collapsed group's accent bar + avatar
 // placeholder and the expanded panel's project badge, so projects read apart at a glance.
 const projHue=n=>{let h=0;const s=String(n||'');for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h%360;};
 // Shared per-worktree bits: state classes and the data-* every click/activate/context-menu handler reads.
-const wcls=w=>(w.active?' act':'')+(w.disconnected?' disc':'')+(w.busy?' busy':'')+(w.running?' running':'')+(w.unread?' attn':'');
+const wcls=w=>(w.active?' act':'')+(w.disconnected?' disc':'')+(w.busy?' busy':'')+(w.running?' running':'')+(w.unread?' attn':'')+(deletingIds.has(w.id)?' deleting':'');
 const wattr=w=>' data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-closed="'+!!w.closed+'" data-resume="'+(w.resume&&!w.running?'1':'')+'" data-kind="'+esc(w.kind||'')+'" title="'+esc(tip(w))+'"';
 const grpAvatar=ws=>{for(const w of ws)if(w.avatar)return w.avatar;return null;};
 const projMark=repo=>{const a=Array.from(String(repo||'?').trim());const c=a[0]||'?';return /[A-Za-z0-9]/.test(c)?c.toUpperCase():c;};
@@ -418,7 +461,13 @@ const ev='<div class="ev"><div class="plist">'+[...groups].map(([repo,ws])=>'<di
 // The main checkout is named for what it IS, not for whatever branch it happens to sit on: labelling it by
 // branch made a project whose main was on a feature branch look like it had no main at all. The branch line
 // below still shows the real branch.
-const nm=esc(w.alias||(isMain(w)?T.mainWorktree:0)||w.branch);const showBr=w.branch&&w.branch!==(w.alias||(isMain(w)?T.mainWorktree:0));const brLine=showBr?'<div class="wt-branch">'+esc(w.branch)+'</div>':'';const tag=w.dirtyCount?'<span class="wt-tag">'+w.dirtyCount+'</span>':'';const home=isMain(w)?'<span class="wt-home" title="'+esc(T.mainWorktree)+'">'+homeIco+'</span>':'';return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
+const nm=esc(w.alias||(isMain(w)?T.mainWorktree:0)||w.branch);const showBr=w.branch&&w.branch!==(w.alias||(isMain(w)?T.mainWorktree:0));const brLine=showBr?'<div class="wt-branch">'+esc(w.branch)+'</div>':'';const tag=w.dirtyCount?'<span class="wt-tag">'+w.dirtyCount+'</span>':'';const home=isMain(w)?'<span class="wt-home" title="'+esc(T.mainWorktree)+'">'+homeIco+'</span>':'';
+// Which agent this worktree is running, in its own brand colour. The terminal records it the moment you
+// type claude/codex (agent-resume.ts), so a workspace shows its badge while the agent is live and keeps it
+// afterwards — the same fact the resume action is offered from. Only the expanded rail: the collapsed strip
+// is 46px of initials and a status dot, with no room for a second glyph.
+const agent=agentIco(w);
+return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+agent+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
 list.innerHTML=cv+ev;
 // Worktree click → activate (or reconnect/forget a disconnected one). Collapsed badges and expanded cards are
 // both .wt with the same data-*, so one handler covers both views.
@@ -433,7 +482,16 @@ if(railExp)railSelect(railSel<0?0:railSel); // re-apply the keyboard selection a
 // full re-render, so a streaming agent doesn't rebuild the rail DOM and drop hover/focus state.
 window.kakapoHub.onActivity(list=>{for(const a of list){for(const el of document.querySelectorAll('.wt[data-id="'+a.id+'"]')){el.classList.toggle('busy',!!a.busy);el.classList.toggle('running',!!a.running);el.classList.toggle('attn',!!a.unread);}}});
 window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){window.kakapoHub.openModal('rename',{id,name});}else if(action==='memo'){window.kakapoHub.openModal('memo',{id,name});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id,name);});
-async function removeWorkspace(id,name){const r0=await window.kakapoHub.confirm({title:name?T.delTitleNamed.replace('{name}',name):T.delTitle,message:T.delMessage,checkbox:T.delCheckbox,buttons:[T.cancel,T.del],danger:true,defaultId:0});if(r0.index!==1)return;const delBranch=r0.checked;let r=await window.kakapoHub.remove(id,'delete',false,delBranch);if(r.needsConfirmation){const x=r.risk;const detail=[x.dirty&&T.dirty,x.unpushed&&T.unpushed.replace('{n}',x.unpushed).replace('{s}',x.unpushed===1?'':'s'),x.runningProcesses&&T.runningProc].filter(Boolean).join('\\n');const r2=await window.kakapoHub.confirm({title:T.anywayTitle,message:T.hasWork,detail,buttons:[T.cancel,T.anyway],danger:true,defaultId:0});if(r2.index===1)r=await window.kakapoHub.remove(id,'delete',true,delBranch);}if(!r.ok&&!r.needsConfirmation)await window.kakapoHub.confirm({title:T.failedTitle,message:r.error||T.failedMsg,buttons:[T.ok]});}
+async function removeWorkspace(id,name){const r0=await window.kakapoHub.confirm({title:name?T.delTitleNamed.replace('{name}',name):T.delTitle,message:T.delMessage,checkbox:T.delCheckbox,checked:true,buttons:[T.cancel,T.del],danger:true,defaultId:0});if(r0.index!==1)return;const delBranch=r0.checked;let r;
+// Main answers a failed removal with {ok:false,error}, but an invoke can still reject outright (a thrown
+// handler crosses the bridge as a rejection). Unguarded, that rejection skipped the failure dialog below and
+// the delete reported nothing at all — the loudest possible silence for the one action that destroys work.
+// Dimmed + "deleting…" for exactly as long as main is actually working, and NOT while a confirm dialog is
+// up in between — the tile marks itself before each call and clears in finally, so the risk-check round trip
+// and the real removal both show, and a cancelled second dialog leaves the tile untouched.
+const rm=async(...a)=>{markDeleting(id,true);try{return await window.kakapoHub.remove(id,'delete',...a)}finally{markDeleting(id,false)}};
+try{r=await rm(false,delBranch);if(r.needsConfirmation){const x=r.risk;const detail=[x.dirty&&T.dirty,x.unpushed&&T.unpushed.replace('{n}',x.unpushed).replace('{s}',x.unpushed===1?'':'s'),x.runningProcesses&&T.runningProc].filter(Boolean).join('\\n');const r2=await window.kakapoHub.confirm({title:T.anywayTitle,message:T.hasWork,detail,buttons:[T.cancel,T.anyway],danger:true,defaultId:0});if(r2.index!==1)return;r=await rm(true,delBranch);}}catch(err){r={ok:false,error:(err&&err.message)||String(err)};}
+if(!r.ok)await window.kakapoHub.confirm({title:T.failedTitle,message:r.error||T.failedMsg,buttons:[T.ok]});}
 document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.wt');if(card){e.preventDefault();if(card.dataset.closed==='true')return;if(card.dataset.disconnected==='true'){window.kakapoHub.openModal('disconnected',{path:decodeURIComponent(card.dataset.path)});return}window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1',kind:card.dataset.kind||''});}});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.altKey&&/^[1-9]$/.test(e.key)){e.preventDefault();window.kakapoHub.activateIndex(Number(e.key)-1)}});
 document.addEventListener('click',e=>{if(!railExp&&!e.target.closest('button,input,textarea,dialog,#wsname'))window.kakapoHub.refocusReview()});
@@ -613,7 +671,7 @@ function showConfirm(spec){spec=spec||{};cfSent=false;
   const msg=document.querySelector("#cfMsg");msg.textContent=spec.message||'';msg.classList.toggle('hidden',!spec.message);
   const det=document.querySelector("#cfDetail");det.textContent=spec.detail||'';det.classList.toggle('hidden',!spec.detail);
   document.querySelector("#cfIcon").classList.toggle('hidden',!danger);
-  const ci=document.querySelector("#cfCheck");document.querySelector("#cfCheckWrap").classList.toggle('hidden',!spec.checkbox);ci.checked=false;document.querySelector("#cfCheckLabel").textContent=spec.checkbox||'';
+  const ci=document.querySelector("#cfCheck");document.querySelector("#cfCheckWrap").classList.toggle('hidden',!spec.checkbox);ci.checked=spec.checked===true;document.querySelector("#cfCheckLabel").textContent=spec.checkbox||'';
   const acts=document.querySelector("#cfActions");acts.innerHTML='';
   buttons.forEach((label,i)=>{const b=document.createElement('button');b.className='cf-btn'+(i===buttons.length-1?(danger?' danger':' pri'):'');b.textContent=label;b.onclick=()=>{cfSent=true;window.kakapoHub.confirmResult({index:i,checked:ci.checked});confirmDlg.close();};acts.appendChild(b);});
   confirmDlg.showModal();setTimeout(()=>{const bs=acts.querySelectorAll('button');(bs[defaultId]||bs[0]).focus();},0);}

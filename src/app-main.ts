@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, protocol, shell, WebContentsView } from "electron";
@@ -20,20 +20,20 @@ import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { parseReviewArgs, readOption } from "./cli-args.js";
 import { easeRail } from "./rail-animation.js";
-import { errorMessage, githubOwnerFromUrl } from "./util.js";
+import { errorMessage, githubOwnerFromUrl, tmuxSessionsForRoot } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
-import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals } from "./app-terminal-ipc.js";
-import { registerAnswersIpc, syncAnswersFile, answersFilePath } from "./answers-ipc.js";
-import { registerAnnotationsIpc, refreshAnnotationsIfChanged } from "./app-annotations-ipc.js";
+import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, resolveTmux } from "./app-terminal-ipc.js";
+import { registerCommentsIpc, syncCommentsFile, commentsFilePath } from "./comments-file.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
 import { collectUsageStats } from "./usage-stats.js";
+import { agentForCommand, type AgentKind } from "./agent-resume.js";
 import { hubHtml, modalOverlayHtml } from "./shell-pages.js";
 import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
 
@@ -72,13 +72,11 @@ type WinState = {
   refreshing: boolean;
   refreshTimer?: NodeJS.Timeout;
   analysisWarmTimer?: NodeJS.Timeout;
-  // Agent-answers exchange (see answers-ipc.ts): this window's answers.json path, its poll timer (runs
-  // independent of --watch), the last raw file content seen (change short-circuit), and the last known
-  // answer/answeredAt per comment seq (delta computation).
-  answersFile?: string;
-  answersFileSig?: string;
-  answersTimer?: NodeJS.Timeout;
-  lastAnswers?: Map<number, { answer: string | null; answeredAt: string | null }>;
+  // The review conversation (see comments-file.ts): this window's comments.jsonl path, the last-seen
+  // mtime+size, and the poll timer that picks up whatever an agent appended — all independent of --watch.
+  commentsFile?: string;
+  commentsSig?: string;
+  commentsTimer?: NodeJS.Timeout;
   bodyDiffs: string[]; // Phase 2 lazy-LOAD: raw per-file diffs rendered for THIS window's renderer on demand
   bodyCache: Map<number, string>; // rendered per-file diff bodies, scoped to the current build
   sourceFiles: Map<string, SourceFile>; // source content stays in main; renderer requests one open file at a time
@@ -122,9 +120,6 @@ type WinState = {
   // returns, a stale stamp (a newer build was requested, or the window closed) means the result is dropped.
   buildSeq: number;
   disposeWindowSurfaceRecovery: () => void;
-  annotationsTimer?: NodeJS.Timeout; // Explain: polls this workspace's annotations.json, independent of --watch
-  annotationsSig: string; // last-seen annotations.json mtime+size (agent-written inline diff notes)
-  annotationNotes: unknown[]; // last-parsed note list, served immediately to a reloading renderer
 };
 
 // `npm run dev` sets KAKAPO_DEV=1 so a locally-built app announces itself — a window-title suffix
@@ -280,6 +275,19 @@ function stateFromEvent(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEve
 function focusedState(): WinState | undefined {
   return activeStateId === undefined ? undefined : states.get(activeStateId);
 }
+// Which workspace the user is actually looking at. A detached workspace owns its own OS window, so the hub's
+// notion of "active" can name a different one entirely — and ⌘N pressed in a detached B offered A's project.
+// Falls back to the hub's active workspace, which is the right answer for every non-detached window (they
+// share the shell's window, so the OS only ever reports the shell as focused).
+function focusedWorkspace(): WinState | undefined {
+  const focusedId = BrowserWindow.getFocusedWindow()?.webContents.id;
+  if (focusedId !== undefined) {
+    for (const state of states.values()) {
+      if (!state.win.isDestroyed() && state.win.webContents.id === focusedId) return state;
+    }
+  }
+  return focusedState();
+}
 // Menu accelerators are application-global, so they act on whichever window is focused.
 function sendToFocused(channel: string, payload?: unknown): void {
   const state = focusedState();
@@ -308,8 +316,7 @@ function readMemoWithLegacyImport(root: string) {
 registerReviewIpc(ipcMain, stateFromEvent);
 registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerTerminalIpc(ipcMain, stateFromEvent);
-registerAnswersIpc(ipcMain, stateFromEvent);
-registerAnnotationsIpc(ipcMain, stateFromEvent);
+registerCommentsIpc(ipcMain, stateFromEvent);
 registerTileMenuIpc(ipcMain, { getShellWindow: () => shellWindow, isLightTheme, getTranslate: tr });
 // Theme + locale are global settings; re-theme the native chrome and broadcast to every window when either changes.
 // One UI scale for the whole app. Each surface is its own WebContents (the rail, every review view, the modal
@@ -634,10 +641,22 @@ ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unk
   if (payload.mode === "delete") {
     if (record.kind === "main") return { ok: false, error: "The main checkout can only be closed.", risk };
     if (!payload.force && (risk.dirty || risk.unpushed || risk.runningProcesses)) return { ok: false, needsConfirmation: true, risk };
+    // git first, terminals second. Removing the worktree is the step that can fail (a submodule, a lock, a
+    // path git no longer recognizes), and it used to run AFTER the kill — so a failed delete left the
+    // workspace intact but every one of its agent sessions dead. Unlinking a directory that a tmux pane has
+    // as its cwd is fine on the platforms we ship, so nothing is lost by proving the removal first.
+    try {
+      removeManagedWorkspace(record, !!payload.force, !!payload.deleteBranch);
+    } catch (error) {
+      // This used to propagate, and an ipcMain.handle that throws rejects the renderer's invoke — so the
+      // rail's `await` threw before reaching its own failure dialog. git's reason was swallowed whole and a
+      // delete that removed nothing was indistinguishable from one that worked, which is how a worktree
+      // could still be on disk after the app said nothing at all.
+      return { ok: false, error: errorMessage(error) };
+    }
     // tmux sessions die with the workspace too: killing only the ptys DETACHES a persistent pane, leaving
     // its session (and whatever agent is in it) running forever, invisible, with its worktree deleted.
     killWorkspaceTerminals(state);
-    removeManagedWorkspace(record, !!payload.force, !!payload.deleteBranch);
   }
   const metadataIndex = startupWorkspaceMetadata.findIndex((item) => resolveWorkspaceRoot(item.path) === record.path);
   if (metadataIndex >= 0) startupWorkspaceMetadata.splice(metadataIndex, 1);
@@ -1029,7 +1048,12 @@ function buildApplicationMenu(): void {
         }
       } },
       { label: t("menu.newWorkspace"), accelerator: "CommandOrControl+N", click: () => {
-        shellWindow?.webContents.send("kakapo:hub-new");
+        // A new task nearly always belongs to the project you are in, so main names it rather than leaving the
+        // rail to guess from whichever workspace the hub last activated — which is a different one whenever
+        // you pressed this in a detached window.
+        const state = focusedWorkspace();
+        const record = state && !state.win.isDestroyed() ? hubTileFor(state).record : undefined;
+        shellWindow?.webContents.send("kakapo:hub-new", record ? { path: record.repoRoot, name: record.repoName } : undefined);
       } },
       { label: t("menu.expandRail"), accelerator: "CommandOrControl+Shift+E", click: () => {
         shellWindow?.webContents.send("kakapo:hub-toggle-expand");
@@ -1199,6 +1223,7 @@ function activateWorkspace(id: number): void {
   const activated = states.get(id);
   if (activated) {
     activated.unread = false;
+    preferences.writeUnread(activated.options.root, false);
     if (activated.idleTimer) { clearTimeout(activated.idleTimer); activated.idleTimer = undefined; }
     if (activated.analysisSuspended) {
       // Rebuild the analysis with the same status relay a fresh window gets, so the resumed workspace's
@@ -1223,8 +1248,7 @@ function activateWorkspace(id: number): void {
       // than up to a tick later, so a switch still lands on the current diff/answers/annotations. The
       // suspended branch above already rebuilds everything, hence the else.
       if (activated.options.watch) void refreshIfChanged(activated);
-      void syncAnswersFile(activated);
-      refreshAnnotationsIfChanged(activated);
+      syncCommentsFile(activated);
     }
     if (!activated.bootStarted) {
       activated.bootStarted = true;
@@ -1270,17 +1294,82 @@ function activateWorkspace(id: number): void {
 // longer the shell, something is running. This drives the green "running" dot — an open-but-idle terminal must
 // not light it (a bare shell isn't an agent). Recomputed on every activity tick / renderHub, and each terminal's
 // output already fires an activity tick (plus a 1200ms busy-decay tick), so start/stop transitions converge.
-function hasRunningProcess(state: WinState): boolean {
-  if (state.terms.size === 0) return false;
+function shellBasename(): string {
   const shell = process.env.SHELL || (process.platform === "win32" ? "powershell.exe" : "/bin/zsh");
-  const shellName = shell.split(/[\\/]/).pop() || shell;
+  return shell.split(/[\\/]/).pop() || shell;
+}
+// Ask TMUX what is running, not our own ptys. Panes are not restored on launch, so after a quit the pty map
+// is empty while the agent itself is very much still working inside its session — and the tile went grey,
+// saying the opposite of the truth. One `list-panes -a` maps session -> the command its pane runs, and both
+// questions the rail asks are answered from it: "is anything but a shell running here" (the green dot) and
+// "which agent is it" (the tile badge). Running the scan twice would be two subprocesses giving one answer,
+// and it is cached for a beat besides, because the rail asks on every activity tick.
+let tmuxPaneCache: { panes: Map<string, string>; at: number } | undefined;
+const TMUX_SCAN_TTL_MS = 2000;
+function tmuxPaneCommands(): Map<string, string> {
+  if (tmuxPaneCache && Date.now() - tmuxPaneCache.at < TMUX_SCAN_TTL_MS) return tmuxPaneCache.panes;
+  const panes = new Map<string, string>();
+  const tmux = resolveTmux(process.env);
+  if (tmux) {
+    try {
+      const listed = spawnSync(tmux, ["list-panes", "-a", "-F", "#{session_name}\t#{pane_current_command}"], { encoding: "utf8" });
+      for (const line of String(listed.stdout ?? "").split("\n")) {
+        const [session, command] = line.split("\t");
+        // First non-shell pane wins, so a session whose second pane sits at a prompt still reports its agent.
+        const name = (command ?? "").trim();
+        if (!session || !name) continue;
+        if (!panes.has(session) || panes.get(session)!.replace(/^-/, "") === shellBasename()) panes.set(session.trim(), name);
+      }
+    } catch { /* no tmux server -> nothing running that outlived us */ }
+  }
+  tmuxPaneCache = { panes, at: Date.now() };
+  return panes;
+}
+function runningTmuxSessions(): string {
+  const shellName = shellBasename();
+  return Array.from(tmuxPaneCommands())
+    .filter(([, command]) => command.replace(/^-/, "") !== shellName)
+    .map(([session]) => session)
+    .join("\n");
+}
+function rootHasRunningAgent(root: string): boolean {
+  return tmuxSessionsForRoot(root, runningTmuxSessions()).length > 0;
+}
+function hasRunningProcess(state: WinState): boolean {
+  const shellName = shellBasename();
   for (const t of state.terms.values()) {
     let fg = "";
     try { fg = t.process || ""; } catch { /* pty may have exited mid-query */ }
     const name = fg.replace(/^-/, ""); // login shells surface as "-zsh"
     if (name && name !== shellName) return true;
   }
-  return false;
+  // No pane of ours is busy — but one may be running detached in tmux, from before this app run.
+  return rootHasRunningAgent(state.options.root);
+}
+
+// Which agent this workspace is running, most authoritative source first.
+//
+// The recorded resume command (what the user was seen TYPING) is only a proxy, and it was the sole source
+// until now: a workspace whose agent was started any other way — recalled with the up arrow, launched from a
+// script or an alias, or simply still running inside a tmux session kakapo re-attached to on a later launch —
+// never recorded anything and so never got a badge. That is not an edge case; re-attaching is the normal
+// path, because running the shell inside tmux is what keeps an agent alive across restarts.
+//
+// It also means node-pty's own `t.process` reports "tmux" for a persistent pane, never the agent, so tmux has
+// to be asked directly. Non-persistent panes still answer through the pty. The typed command remains the last
+// resort, which is what keeps the badge on a workspace whose agent has since exited.
+function agentForWorkspace(state: WinState, panes: Map<string, string>): AgentKind | undefined {
+  for (const session of state.termSessions.values()) {
+    const agent = agentForCommand(panes.get(session));
+    if (agent) return agent;
+  }
+  for (const t of state.terms.values()) {
+    try {
+      const agent = agentForCommand(t.process);
+      if (agent) return agent;
+    } catch { /* pty may have exited mid-query */ }
+  }
+  return agentForCommand(state.resumeCommand);
 }
 
 // Push only the per-workspace agent-activity flags (busy spinner + attention dot) to the rail, so the tiles'
@@ -1400,7 +1489,10 @@ function buildProjectMainTiles() {
     const dirtyCount = git(record.path, ["status", "--porcelain"]).split("\n").filter(Boolean).length;
     return { id: -(1000 + index), ...record, alias: metadata?.alias, memo: metadata?.memo, base: metadata?.base,
       openedAt: metadata?.openedAt, dirtyCount, avatar,
-      active: false, running: false, unread: false, busy: false, closed: true };
+      // A closed workspace still shows what is true of it: an agent left running in its tmux session, and an
+      // answer nobody has read. Both outlive the window, so neither waits for you to open it to be visible.
+      active: false, running: rootHasRunningAgent(record.path), unread: preferences.readUnread(record.path),
+      busy: false, closed: true };
   });
 }
 let hubMainTilesCache: { tiles: ReturnType<typeof buildProjectMainTiles>; computedAt: number } | undefined;
@@ -1443,6 +1535,7 @@ async function refreshProjectMainTiles(): Promise<void> {
 function renderHub(): void {
   if (!shellWindow || shellWindow.isDestroyed()) return;
   const saved = savedWorkspaceMetadata();
+  const panes = tmuxPaneCommands(); // shared 2s-cached tmux scan; also backs the green running dot
   const live = Array.from(states.values()).map((state) => {
     const { record: current, dirtyCount } = hubTileFor(state);
     const metadata = saved.find((item) => resolveWorkspaceRoot(item.path) === current.path);
@@ -1452,7 +1545,8 @@ function renderHub(): void {
     return { id: state.win.webContents.id, ...current, alias: metadata?.alias, memo: metadata?.memo,
       base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount, avatar,
       active: state.win.webContents.id === activeStateId, running: hasRunningProcess(state),
-      resume: state.resumeCommand, unread: state.unread, busy: state.busy, detached: state.win.isDetached() };
+      resume: state.resumeCommand, agent: agentForWorkspace(state, panes),
+      unread: state.unread, busy: state.busy, detached: state.win.isDetached() };
   });
   const disconnected = saved.filter((item) => !existsSync(item.path)).map((item, index) => ({
     ...item, id: -(index + 1), active: false, running: false, unread: false, busy: false, disconnected: true,
@@ -1541,6 +1635,10 @@ function createWindow(root: string, deferBoot = false): WinState {
   const host = ensureShellWindow(themeLight);
   const view = new WebContentsView({ webPreferences: {
     preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false,
+    // Chromium's built-in PDF viewer is a "plugin", and Electron ships with plugins off — without this an
+    // <embed type="application/pdf"> renders as an empty box. It enables PDFium and nothing else: NPAPI/Flash
+    // are long gone from Chromium, so this is not a general extension surface. See renderPdfView.
+    plugins: true,
   } });
   host.contentView.addChildView(view);
   view.setVisible(false);
@@ -1647,16 +1745,20 @@ function createWindow(root: string, deferBoot = false): WinState {
       if (state.busyTimer) { clearTimeout(state.busyTimer); state.busyTimer = undefined; }
       state.busy = false;
       state.unread = state.win.webContents.id !== activeStateId;
+      preferences.writeUnread(state.options.root, state.unread);
       renderHub();
     },
     onAgentOutput: () => markAgentBusy(state),
     onAgentBell: () => {
       if (state.busyTimer) { clearTimeout(state.busyTimer); state.busyTimer = undefined; }
       state.busy = false;
-      if (state.win.webContents.id !== activeStateId) state.unread = true;
+      if (state.win.webContents.id !== activeStateId) {
+        state.unread = true;
+        preferences.writeUnread(state.options.root, true);
+      }
       sendAgentActivity();
     },
-    unread: false,
+    unread: preferences.readUnread(options.root), // an answer you never read is still unread tomorrow
     busy: false,
     bootStarted: false,
     buildSeq: 0,
@@ -1665,8 +1767,6 @@ function createWindow(root: string, deferBoot = false): WinState {
     reviewBase: undefined,
     reviewUpstream: undefined,
     disposeWindowSurfaceRecovery: () => {},
-    annotationsSig: "",
-    annotationNotes: [],
   };
   state.ensureFullIndex = () => ensureFullProjectIndex(state);
   const id = view.webContents.id;
@@ -1766,8 +1866,7 @@ function savedWorkspaceMetadata() {
 // previous set.
 function clearWatchTimers(state: WinState): void {
   if (state.refreshTimer) { clearInterval(state.refreshTimer); state.refreshTimer = undefined; }
-  if (state.answersTimer) { clearInterval(state.answersTimer); state.answersTimer = undefined; }
-  if (state.annotationsTimer) { clearInterval(state.annotationsTimer); state.annotationsTimer = undefined; }
+  if (state.commentsTimer) { clearInterval(state.commentsTimer); state.commentsTimer = undefined; }
 }
 
 // Arm this window's pollers (clearing any prior set first): the --watch diff refresh (opt-in), the
@@ -1777,9 +1876,8 @@ function clearWatchTimers(state: WinState): void {
 function armWatchTimers(state: WinState): void {
   clearWatchTimers(state);
   if (state.options.watch) state.refreshTimer = setInterval(() => { if (isVisibleWorkspace(state)) void refreshIfChanged(state); }, WATCH_INTERVAL_MS);
-  state.answersTimer = setInterval(() => { if (isVisibleWorkspace(state)) void syncAnswersFile(state); }, WATCH_INTERVAL_MS);
-  void syncAnswersFile(state);
-  state.annotationsTimer = setInterval(() => { if (isVisibleWorkspace(state)) refreshAnnotationsIfChanged(state); }, WATCH_INTERVAL_MS);
+  state.commentsTimer = setInterval(() => { if (isVisibleWorkspace(state)) syncCommentsFile(state); }, WATCH_INTERVAL_MS);
+  syncCommentsFile(state);
 }
 
 // Only the workspace on screen is worth polling. A hidden one produced nothing a user could see while its
@@ -1841,8 +1939,23 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
     try {
       // A packaged .app (double-clicked) can launch with no useful cwd repo. Show the welcome screen
       // (an Open Folder button) instead of an empty diff. New windows always get a validated repo.
-      if (app.isPackaged && !isGitRepository(state.options.root)) { void showWelcome(state); return; }
-      state.answersFile = answersFilePath(state.options.root);
+      if (app.isPackaged && !isGitRepository(state.options.root)) {
+        // ...but ONLY when there is nothing else to show. This check predates the workspace rail, when a
+        // window with no repo meant the app had nothing to do. It now also catches a workspace whose folder
+        // has gone — the one you just deleted, or a worktree removed outside the app — and answering that
+        // with "choose a folder to review" hid every workspace still open behind a screen offering the one
+        // action the user had not asked for. A missing folder is a disconnected workspace, which the rail
+        // already knows how to draw; drop the window and let it.
+        const alive = Array.from(states.values()).filter((other) => other !== state && !other.win.isDestroyed());
+        if (alive.length) {
+          state.win.webContents.close();
+          if (state.win.webContents.id === activeStateId) activateWorkspace(alive[0].win.webContents.id);
+          return;
+        }
+        void showWelcome(state);
+        return;
+      }
+      state.commentsFile = commentsFilePath(state.options.root);
       // Diff-first: paint the diff + changed-file sources now; the full project index is materialized on
       // demand (ensureFullProjectIndex) so a large tree's enumeration never blocks first paint. The build
       // runs off-main in the worker, so the boot spinner keeps animating while it works.
@@ -2025,11 +2138,8 @@ async function openReview(state: WinState, root: string): Promise<void> {
   preferences.recordRecentProject(state.options.root); // remember it for the welcome screen's Recent Projects
   state.lastDiffSig = ""; // new repo -> force the next watch tick to rebuild
   clearWatchTimers(state); // stop the previous repo's pollers before switching this window to the new repo
-  state.answersFile = answersFilePath(state.options.root);
-  state.answersFileSig = undefined;
-  state.lastAnswers = undefined;
-  state.annotationsSig = ""; // new repo -> different workspace's notes file, force a fresh read
-  state.annotationNotes = [];
+  state.commentsFile = commentsFilePath(state.options.root); // new repo -> that worktree's own thread
+  state.commentsSig = undefined;
   // Diff-first, same as the cold boot: reusing this window for another repo paints its diff without waiting
   // on the new tree's full enumeration; the full index is pulled on demand (state.ensureFullIndex persists).
   const build = await buildReview(state, true);

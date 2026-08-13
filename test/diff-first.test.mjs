@@ -5,6 +5,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { registerReviewIpc } from "../dist/app-review-ipc.js";
+import { readUnifiedDiff, parseUnifiedDiff } from "../dist/diff.js";
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // Minimal stand-in for Electron's ipcMain: capture each handler so a test can invoke it directly.
 function fakeIpc() {
@@ -83,4 +88,33 @@ test("get-source does not build the full index when the changed set already has 
   const result = await ipc.invoke("kakapo:get-source", { path: "src/a.ts" });
   assert.equal(ensured, 0, "a changed file resolves without the full-index pass");
   assert.equal(result.path, "src/a.ts");
+});
+
+// A symlink is a change in its own right, and statSync FOLLOWS it — so an untracked link whose target is
+// missing (or lives outside the worktree) threw and the entry was dropped without a trace: git listed it as
+// untracked while kakapo said "no changed files", with nothing to explain the disagreement. Git stores a
+// symlink as a blob holding its target, so that is what the diff shows.
+test("an untracked symlink shows up, even when its target is gone", () => {
+  const root = mkdtempSync(join(tmpdir(), "kakapo-symlink-"));
+  try {
+    execFileSync("git", ["init", "-q", root]);
+    writeFileSync(join(root, "tracked.txt"), "hello\n");
+    execFileSync("git", ["-C", root, "add", "-A"]);
+    execFileSync("git", ["-C", root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]);
+
+    mkdirSync(join(root, "links"), { recursive: true });
+    symlinkSync("../does/not/exist.md", join(root, "links", "broken.md"));
+    symlinkSync("../tracked.txt", join(root, "links", "good.md"));
+
+    const files = parseUnifiedDiff(readUnifiedDiff({ staged: false, context: 12, includeUntracked: true, root }));
+    const paths = files.map((f) => f.displayPath).sort();
+    assert.deepEqual(paths, ["links/broken.md", "links/good.md"], "both links are reported, broken or not");
+
+    const broken = files.find((f) => f.displayPath === "links/broken.md");
+    assert.equal(broken.status, "added");
+    const line = broken.hunks[0].lines.map((l) => l.text).join("");
+    assert.match(line, /does\/not\/exist\.md/, "the diff shows what the link points at, the way git stores it");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

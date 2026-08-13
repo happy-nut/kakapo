@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -302,6 +303,24 @@ export function tmuxSpawnArgs(session: string, cwd: string, env: { [key: string]
     ";", "set", "-g", "default-terminal", "tmux-256color",
     ";", "set", "-ga", "terminal-overrides", ",*256col*:Tc",
   ]);
+}
+
+// Closing a pane on purpose (⌘W) ends the session with it, and one tmux command takes down everything
+// running inside — the pane's processes get the SIGHUP a closed terminal always sends. Best-effort: a
+// session that is already gone is not an error worth surfacing, and pane teardown must not wait on it.
+export function endTmuxSession(tmux: string, session: string): void {
+  try { spawnSync(tmux, ["kill-session", "-t", session], { timeout: 3000 }); } catch { /* already gone */ }
+}
+
+// What a pane is actually running, for the "X is still running, close anyway?" confirmation. It has to be
+// tmux that answers: the pty's own foreground process is the tmux CLIENT, so node-pty reports "busy" for an
+// idle pane and "tmux" for a working agent. Empty when the session is gone.
+export function tmuxPaneCommand(tmux: string, session: string): string {
+  try {
+    const out = spawnSync(tmux, ["display-message", "-p", "-t", session, "#{pane_current_command}"],
+      { encoding: "utf8", timeout: 3000 });
+    return String(out.stdout ?? "").trim();
+  } catch { return ""; }
 }
 
 type Killable = { kill: (signal?: string) => void };

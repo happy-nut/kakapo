@@ -1,15 +1,11 @@
-// Agent-written inline diff annotations (annotations.json -> note cards on the diff) and the ⌘⇧P prompt
-// palette that sends the prompt producing them. Covers both ends: the main-process file watcher, and the
-// renderer's store -> thread-row rendering (including the Mermaid fence lift-out).
+// An agent's Explain notes and the ⌘⇧P prompt palette that produces them. A note is a comment whose author
+// is the agent, so it arrives on the same channel as everything else in the thread (comments-file.ts, covered
+// in comments-file.test.mjs) and renders in the same thread row — the difference is who wrote it.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
-import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
-import { annotationsFilePath, refreshAnnotationsIfChanged, registerAnnotationsIpc } from "../dist/app-annotations-ipc.js";
 
 after(cleanupFixtures);
 
@@ -24,49 +20,7 @@ const NOTE_TEXT = [
   "```",
 ].join("\n");
 
-function fakeWindowState(root) {
-  const sent = [];
-  return {
-    sent,
-    win: { isDestroyed: () => false, webContents: { send: (channel, payload) => sent.push({ channel, payload }) } },
-    options: { root },
-    annotationsSig: "",
-    annotationNotes: [],
-  };
-}
 
-test("main pushes annotations.json to the renderer only when it actually changes", () => {
-  const root = mkdtempSync(join(tmpdir(), "kakapo-annotations-"));
-  try {
-    execFileSync("git", ["init", "-q"], { cwd: root });
-    const file = annotationsFilePath(root);
-    assert.ok(file, "a git repository yields an annotations path");
-
-    const state = fakeWindowState(root);
-    refreshAnnotationsIfChanged(state);
-    assert.equal(state.sent.length, 0, "no file yet -> nothing pushed");
-
-    mkdirSync(join(root, ".git", "kakapo"), { recursive: true });
-    writeFileSync(file, JSON.stringify({ version: 1, notes: [{ path: "src/app.ts", line: 1, text: "why" }] }));
-    refreshAnnotationsIfChanged(state);
-    assert.equal(state.sent.length, 1, "a fresh file is pushed once");
-    assert.equal(state.sent[0].channel, "kakapo:annotations-update");
-    assert.equal(state.sent[0].payload.notes[0].text, "why");
-
-    refreshAnnotationsIfChanged(state);
-    assert.equal(state.sent.length, 1, "an unchanged file is not re-pushed");
-
-    // A half-written file (the agent is mid-save) must not advance the signature, so the next tick retries.
-    writeFileSync(file, '{"version": 1, "notes": [');
-    refreshAnnotationsIfChanged(state);
-    assert.equal(state.sent.length, 1, "unparseable content is skipped, not pushed");
-    writeFileSync(file, JSON.stringify({ version: 1, notes: [{ path: "src/app.ts", line: 1, text: "later" }] }));
-    refreshAnnotationsIfChanged(state);
-    assert.equal(state.sent.length, 2, "the completed write is picked up on the following tick");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
 
 test("agent notes render as cards on their diff line, with Mermaid lifted out of the markdown", async () => {
   const { html } = await makeReviewHtml([
@@ -74,7 +28,7 @@ test("agent notes render as cards on their diff line, with Mermaid lifted out of
   ]);
   const v = await loadViewer(html);
 
-  v.window.setAnnotations([{ path: "src/app.ts", line: 1, title: "closing mid-load", text: NOTE_TEXT }]);
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, title: "closing mid-load", text: NOTE_TEXT });
   await v.settle(30);
 
   const card = v.$(".mc-card.mc-ai");
@@ -85,18 +39,18 @@ test("agent notes render as cards on their diff line, with Mermaid lifted out of
   assert.ok(diagram, "a ```mermaid fence becomes a diagram placeholder, not a code block");
   assert.equal(card.querySelector("code"), null, "the diagram source never reaches the syntax highlighter");
 
-  // The agent is talking TO the reviewer: these must not leak into the reviewer's own comment channels.
+  // The agent is talking TO the reviewer: a note is never a request going back to it.
   v.window.addComment("c", "src/app.ts", 1, "export const n = 2;", "please rename this");
   await v.settle(30);
   const merged = v.window.buildMergedText();
   assert.match(merged, /please rename this/);
   assert.doesNotMatch(merged, /closing mid-load/, "notes stay out of the merged agent prompt");
-  assert.equal(v.storedComments().length, 1, "notes are not persisted into the review comment store");
+  assert.equal(v.storedComments().filter((c) => c.by === "agent").length, 1, "but it IS in the one store, as the agent's");
 
-  v.window.setAnnotations([]);
+  v.$(".mc-card.mc-ai .mc-del").click();
   await v.settle(30);
-  assert.equal(v.$(".mc-card.mc-ai"), null, "a regenerated (empty) note list clears the cards");
-  assert.ok(v.$(".mc-card.mc-c"), "the reviewer's own comment survives the swap");
+  assert.equal(v.$(".mc-card.mc-ai"), null, "and it is dismissed like any other card");
+  assert.ok(v.$(".mc-card.mc-c"), "the reviewer's own comment is untouched");
   v.close();
 });
 
@@ -159,10 +113,8 @@ test("F8 and Shift+F8 walk the agent's notes", async () => {
   const cursorLine = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1);
 
   // Written out of order on purpose: stepping follows the diff, not the order the agent emitted them.
-  v.window.setAnnotations([
-    { path: "src/app.ts", line: 3, text: "why c changed" },
-    { path: "src/app.ts", line: 2, text: "why b changed" },
-  ]);
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 3, text: "why c changed" });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 2, text: "why b changed" });
   await v.settle(30);
 
   // The caret starts on line 1, so "next" is the first note below it.
@@ -181,22 +133,20 @@ test("F8 and Shift+F8 walk the agent's notes", async () => {
 });
 
 // An explanation is as often the start of a conversation as the end of one — "why this way?", "then what
-// about X?". Reply on a note opens the composer anchored to the note's own line, so the answer lands
-// directly under it in the same thread instead of becoming an unrelated comment somewhere else.
+// about X?". The box waiting under the note opens the composer anchored to the note's own line, so the answer
+// lands directly under it in the same thread instead of becoming an unrelated comment somewhere else.
 test("an agent note can be replied to, and the reply lands in its thread", async () => {
   const { html } = await makeReviewHtml([
     { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
   ]);
   const v = await loadViewer(html);
-  v.window.setAnnotations([{ path: "src/app.ts", line: 1, title: "why it is spawned this way", text: "a spawned child is its own process." }]);
+  const noteId = v.agentSays({ kind: "note", path: "src/app.ts", line: 1, title: "why it is spawned this way", text: "a spawned child is its own process." });
   await v.settle(30);
 
-  const note = v.$(".mc-card.mc-ai");
-  assert.ok(note, "the note renders");
-  const reply = note.querySelector(".mc-ai-reply");
-  assert.ok(reply, "with a reply affordance");
-  assert.equal(reply.dataset.path, "src/app.ts", "carrying its own anchor");
-  assert.equal(reply.dataset.line, "1");
+  assert.ok(v.$(".mc-card.mc-ai"), "the note renders");
+  const reply = v.$(".mc-reply-stub");
+  assert.ok(reply, "and the thread ends in the box for its next turn");
+  assert.equal(Number(reply.dataset.seq), noteId, "pointing at the note itself");
 
   v.click(reply);
   await v.settle(40);
@@ -205,6 +155,85 @@ test("an agent note can be replied to, and the reply lands in its thread", async
   // threadHtml renders notes first, then that line's comments, then the composer — so a composer existing
   // after the click means the reply is anchored to the note's line, in its thread.
   assert.ok(v.$(".mc-composer .mc-input"), "the composer is open on that line");
+  v.close();
+});
+
+// Only inline code that is really a FILE becomes a link. The shape test that preceded this one accepted
+// anything built from path characters with a short suffix, so a dotted accessor an agent quotes in prose —
+// `advisor.study_summary.search_space.params` — was underlined like a file and swallowed the click.
+test("inline code is linked only when it names a file, not an attribute chain", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  v.agentSays({
+    kind: "note",
+    path: "src/app.ts",
+    line: 1,
+    text: "`get_context` returns `advisor.study_summary.search_space.params`; see `src/app.ts` and `config.yaml:12`.",
+  });
+  await v.settle(40);
+
+  // Scoped to one rendering of the note — the same thread renders in both the diff and the source view.
+  const body = v.$(".mc-ai-body");
+  const linked = Array.from(body.querySelectorAll("code.mc-path-code"), (el) => el.textContent);
+  assert.deepEqual(linked, ["src/app.ts", "config.yaml:12"], "paths link, with a line number allowed on the end");
+
+  const plain = Array.from(body.querySelectorAll("code:not(.mc-path-code)"), (el) => el.textContent);
+  assert.ok(plain.includes("advisor.study_summary.search_space.params"),
+    "a dotted accessor stays plain text — .params is not a file extension");
+  assert.ok(plain.includes("get_context"), "and so does a bare symbol");
+  v.close();
+});
+
+// A follow-up must reach the agent with a way back to what it follows — including a note that STARTED the
+// thread. A reply opened from an explain card has no parent comment to inherit, so it used to arrive as a
+// bare "then why not…?" with the "why" nowhere in it. It travels as the note's id now, not its text: the
+// note is already a line in the thread file the hand-off names.
+test("a reply to a note hands the note itself to the agent as the turn before it", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  const noteId = v.agentSays({ kind: "note", path: "src/app.ts", line: 1, text: "a spawned child is its own process." });
+  await v.settle(30);
+
+  v.click(v.$(".mc-reply-stub"));
+  await v.settle(40);
+  await v.writeAndSave("then why not fork it instead?");
+  await v.settle(60);
+
+  const followUp = v.storedComments().find((c) => c.replyTo === noteId);
+  assert.ok(followUp, "the follow-up hangs off the note itself");
+  const thread = v.window.commentThreadContext(followUp);
+  assert.equal(thread.length, 1, "so it carries exactly one earlier turn");
+  assert.equal(thread[0].by, "agent", "…the agent's");
+  assert.equal(thread[0].text, "a spawned child is its own process.", "…and it is the note's own text");
+  const merged = v.window.buildMergedText();
+  assert.match(merged, new RegExp(`Continues.*#${noteId}`), "the hand-off points at the note by id");
+  assert.doesNotMatch(merged, /a spawned child is its own process\./, "…instead of re-sending the note's text");
+  assert.match(merged, /then why not fork it instead\?/, "…ahead of the follow-up itself");
+  v.close();
+});
+
+// Clicking a diagram opens it full-size in an <img>, which parses its source as standalone XML — and
+// .outerHTML is an HTML serialization: no xmlns, and label markup inside <foreignObject> left as HTML, where
+// a single unclosed <br> is fatal. The lightbox showed a broken-image icon.
+test("a zoomed diagram serializes to XML an <img> can actually parse", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  const host = v.document.createElement("div");
+  host.innerHTML = '<svg viewBox="0 0 10 10"><foreignObject><div>a<br>b</div></foreignObject></svg>';
+  v.document.body.appendChild(host);
+
+  const url = v.window.mermaidSvgDataUrl(host.querySelector("svg"));
+  assert.ok(url.startsWith("data:image/svg+xml"), "still a data URL the lightbox can use as an src");
+  const xml = decodeURIComponent(url.slice(url.indexOf(",") + 1));
+  assert.match(xml, /xmlns="http:\/\/www\.w3\.org\/2000\/svg"/, "carries the namespace it can no longer inherit");
+  const parsed = new v.window.DOMParser().parseFromString(xml, "image/svg+xml");
+  assert.equal(parsed.querySelector("parsererror"), null, "and parses as XML — the <br> is closed, not dangling");
   v.close();
 });
 
@@ -220,7 +249,7 @@ test("F8 steps to an agent note, not only to the reviewer's own comments", async
   // Establish the caret the same way the F8 walk test does, then hand the note to the store.
   v.key("F8");
   await v.settle(30);
-  v.window.setAnnotations([{ path: "src/app.ts", line: 3, title: "why", text: "because." }]);
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 3, title: "why", text: "because." });
   await v.settle(30);
 
   v.key("F8");
@@ -229,40 +258,6 @@ test("F8 steps to an agent note, not only to the reviewer's own comments", async
   v.close();
 });
 
-// A note in the timeline is deletable like anything else in it — and the delete has to reach the FILE. The
-// list is re-read from annotations.json on every poll tick, so a renderer-only delete reappears a second
-// later; rewriting the file is also what makes it survive a restart.
-test("dismissing a note rewrites annotations.json, so it does not come back on the next tick", () => {
-  const root = mkdtempSync(join(tmpdir(), "kakapo-annot-del-"));
-  execFileSync("git", ["init", "-q", root]);
-  const file = annotationsFilePath(root);
-  const keep = { path: "src/a.ts", line: 7, text: "keep me" };
-  const drop = { path: "src/a.ts", line: 3, text: "drop me" };
-  mkdirSync(join(root, ".git", "kakapo"), { recursive: true });
-  writeFileSync(file, JSON.stringify({ version: 1, notes: [keep, drop] }));
-
-  const state = fakeWindowState(root);
-  const handlers = new Map();
-  registerAnnotationsIpc({ handle: (channel, fn) => handlers.set(channel, fn), on: () => {} }, () => state);
-
-  refreshAnnotationsIfChanged(state); // seed: both notes are known
-  assert.equal(state.annotationNotes.length, 2);
-
-  const result = handlers.get("kakapo:annotations-delete")({}, drop);
-  assert.equal(result.ok, true, "the note was found and removed");
-
-  const onDisk = JSON.parse(readFileSync(file, "utf8")).notes;
-  assert.deepEqual(onDisk, [keep], "the file no longer carries it");
-  assert.deepEqual(state.annotationNotes, [keep], "and the renderer was pushed the new list immediately");
-
-  // The poller must agree: nothing changed since the write, and the note stays gone.
-  refreshAnnotationsIfChanged(state);
-  assert.deepEqual(state.annotationNotes, [keep], "a later tick does not resurrect it");
-
-  assert.equal(handlers.get("kakapo:annotations-delete")({}, { path: "src/a.ts", line: 99, text: "nope" }).ok, false,
-    "a note that is not there is not a write");
-  rmSync(root, { recursive: true, force: true });
-});
 
 // The codebase prompt writes the SAME notes file the diff prompt does — its map and its per-component notes
 // are ordinary notes on the code, navigable with F8 and answerable like any other card. What differs is what
@@ -305,18 +300,124 @@ test("a diagram carries its own source, and a stuck load becomes a visible failu
   assert.match(mermaid, /closest\('\.explain-mermaid'\)/, "the zoom/link handler matches the class actually used");
 });
 
-// The controls on a note have to be visible: hover-only meant the answer to "how do I comment on this?" was
-// "you cannot". Backspace on a selected row deletes a note too — it has no seq, so it goes through its own
-// path instead of being parsed as NaN and quietly deleting nothing.
+// The controls on a note have to be visible: hover-only meant the answer to "how do I get rid of this?" was
+// "you cannot". Deleting one is the ordinary comment delete now that a note is a comment; what it must NOT
+// offer is editing — the agent's own words are not the reviewer's to rewrite.
 test("a note can be answered and dismissed without hunting for the controls", () => {
   const css = readFileSync(new URL("../src/viewer.css", import.meta.url), "utf8");
-  const at = css.indexOf(".mc-card.mc-ai .mc-ai-reply,");
+  const at = css.indexOf(".mc-card.mc-ai .mc-del {");
   assert.ok(at >= 0, "the note's controls are styled");
   assert.match(css.slice(at, css.indexOf("}", at)), /opacity: \.55/, "they are visible before you hover");
 
   const sourceView = readFileSync(new URL("../src/viewer/10-source-view.js", import.meta.url), "utf8");
-  assert.match(sourceView, /mc-ai-del[\s\S]{0,400}deleteAnnotation\(b\.dataset\.path/,
-    "Backspace on a selected row dismisses a note through the path that reaches the file");
-  assert.match(sourceView, /filter\(function \(seq\) \{ return isFinite\(seq\); \}\)/,
-    "and a note's missing seq never reaches removeComments as NaN");
+  assert.match(sourceView, /if \(isFinite\(seq\)\) removeComments\(\[seq\]\)/,
+    "Backspace on a selected card removes exactly that one");
+  assert.match(sourceView, /classList\.contains\('mc-ai'\)\) return;/,
+    "and `e` refuses to rewrite the agent's own words");
+});
+
+// A note whose explanation is a PATH through the code carries `steps`, and kakapo plays them back: the code
+// view moves to each stop and highlights its lines while that step's text is up. The player deliberately does
+// NOT live in the note card — a step can open another file, which unmounts the card it was started from.
+test("a note with steps plays as a walkthrough that outlives the card it started from", async () => {
+  const { html } = await makeReviewHtml([
+    {
+      path: "src/server.ts",
+      before: Array.from({ length: 12 }, (_, i) => `const a${i} = ${i};`).join("\n") + "\n",
+      after: Array.from({ length: 12 }, (_, i) => `const a${i} = ${i === 3 ? 99 : i};`).join("\n") + "\n",
+    },
+    { path: "src/router.ts", before: "export const route = 1;\n", after: "export const route = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+
+  v.agentSays({
+    kind: "note", path: "src/server.ts", line: 4, title: "How a request becomes a response",
+    text: "Three places, and only in this order.",
+    steps: [
+      { line: 4, to: 6, text: "The request lands here, still raw." },
+      { path: "src/router.ts", line: 1, text: "The route is picked by method AND host.\n\n```mermaid\nflowchart TD\n  A[request] --> B[route]\n```" },
+    ],
+  });
+  await v.settle(30);
+
+  const start = v.$(".mc-card.mc-ai .mc-tour-start");
+  assert.ok(start, "the card offers the walkthrough where the note is read");
+  assert.match(start.textContent, /2/, "and says how many stops it has");
+
+  start.click();
+  await v.settle(60);
+  const tour = v.$("#mc-tour");
+  assert.ok(tour, "the player opens as its own overlay, not inside the card");
+  assert.match(tour.textContent, /still raw/, "the first step's text is on screen");
+  assert.match(tour.querySelector(".mc-tour-count").textContent, /1 \/ 2/);
+  assert.ok(v.$(".mc-tour-line"), "the step's lines are highlighted in the code");
+
+  // Step two lives in ANOTHER file: the card is gone from the view, the player is not.
+  v.key("ArrowRight");
+  await v.settle(80);
+  assert.match(v.$("#mc-tour .mc-tour-count").textContent, /2 \/ 2/);
+  assert.match(v.$("#mc-tour").textContent, /method AND host/);
+  // A step is markdown like any note body, so a diagram in one plays as part of the walkthrough — which is
+  // how a sequence of diagrams becomes a sequence, with no separate mechanism for it.
+  assert.ok(v.$("#mc-tour .explain-mermaid"), "a diagram inside a step renders in the player");
+  assert.ok(v.$("#mc-tour"), "the player survives the file change");
+
+  // Stepping past the end is not a wrap-around, same as F7: the last stop is the last stop.
+  v.key("ArrowRight");
+  await v.settle(30);
+  assert.match(v.$("#mc-tour .mc-tour-count").textContent, /2 \/ 2/, "the walkthrough ends rather than restarting");
+
+  v.key("Escape");
+  await v.settle(30);
+  assert.equal(v.$("#mc-tour"), null, "Esc ends it");
+  assert.equal(v.$(".mc-tour-line"), null, "and takes the highlight with it");
+  v.close();
+});
+
+// The renderer sends the WHOLE thread back on every save, so a field it fails to carry is a field the next
+// unrelated comment silently deletes from the agent's note.
+test("a note's steps survive a round trip through the renderer's own save", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  v.agentSays({
+    kind: "note", path: "src/app.ts", line: 1, text: "intro",
+    steps: [{ line: 1, to: 2, text: "first" }, { path: "src/other.ts", line: 9, text: "second" }],
+  });
+  await v.settle(30);
+
+  // Objects built inside the jsdom realm are not deepEqual to plain ones here — compare the JSON shape.
+  const record = v.window.reviewComments.map(v.window.commentToRecord).find((r) => r.by === "agent");
+  assert.deepEqual(JSON.parse(JSON.stringify(record.steps)), [
+    { path: "src/app.ts", line: 1, text: "first", to: 2 },
+    { path: "src/other.ts", line: 9, text: "second" },
+  ], "every step goes back out as it came in");
+  v.close();
+});
+
+// Steps are written by an agent, so they are hostile input: a stop with no usable line must be dropped rather
+// than played as line 1, which would send the reader to the top of the file for no reason.
+test("unusable steps are dropped instead of played", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  v.agentSays({
+    kind: "note", path: "src/app.ts", line: 1, text: "intro",
+    steps: [{ text: "no line at all" }, { line: "nonsense", text: "bad line" }, { line: 2, text: "the only real stop" }],
+  });
+  await v.settle(30);
+  const note = v.window.reviewComments.find((c) => c.by === "agent");
+  assert.equal(note.steps.length, 1);
+  assert.equal(note.steps[0].text, "the only real stop");
+
+  const plainId = v.agentSays({ kind: "note", path: "src/app.ts", line: 1, text: "plain note", steps: "not an array" });
+  await v.settle(30);
+  const plain = v.window.reviewComments.find((c) => c.seq === plainId);
+  assert.equal(plain.steps, null, "a malformed steps field leaves an ordinary note");
+  // A card renders once per diff pane, so count the notes that offer one rather than the buttons on screen.
+  const offered = new Set(v.$all(".mc-tour-start").map((b) => b.dataset.seq));
+  assert.ok(!offered.has(String(plainId)), "and offers no walkthrough button");
+  v.close();
 });

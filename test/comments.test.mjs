@@ -257,6 +257,72 @@ test("saved comments roll up into the merged agent prompt", async () => {
   v.close();
 });
 
+// The hand-off to a terminal pane needs a visible way in: the "Send to terminal" button was dropped when the
+// question/change-request panels were unified, leaving only an ⌥⏎ that was scoped to a focused card, so the
+// pane picker looked like a feature that had been removed.
+test("the merged panel hands the prompt to the terminal by button and by Opt+Enter", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("c");
+  await v.writeAndSave("send me to a pane");
+
+  const sent = [];
+  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text), paneCount: () => 1 };
+
+  await v.openMergedView();
+  const button = v.$("#mc-merged-panel .mc-send-terminal");
+  assert.ok(button && !button.disabled, "the merged panel offers Send to terminal");
+  button.click();
+  await v.settle(20);
+  assert.equal(sent.length, 1, "clicking it stages the prompt in the pane picker");
+  assert.match(sent[0], /send me to a pane/);
+
+  await v.openMergedView();
+  const panel = v.$("#mc-merged-panel");
+  panel.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
+  await v.settle(20);
+  assert.equal(sent.length, 2, "Opt+Enter works from the panel, not only from a selected card");
+  v.close();
+});
+
+// The document is already on disk in the workspace the agent is standing in, so sending a copy of it through
+// the composer was sending the review twice. Once a comment carried a few quoted turns that copy ran to
+// kilobytes — the exact pain that made this a path instead of a paste.
+test("the terminal hand-off carries the request file's path, not the request", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("c");
+  await v.writeAndSave("rename this to something honest");
+
+  const sent = [];
+  const written = [];
+  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text), paneCount: () => 1 };
+  v.window.annotationsPath = "/w/.git/kakapo/comments.jsonl"; // normally set by kakapoComments.read()
+  v.window.kakapoComments = {
+    writeRequest: (text) => { written.push(text); return Promise.resolve({ ok: true, path: "/w/.git/kakapo/request.md" }); },
+  };
+
+  await v.openMergedView();
+  v.$("#mc-merged-panel .mc-send-terminal").click();
+  await v.settle(20);
+
+  assert.equal(sent.length, 1, "one hand-off staged in the pane picker");
+  assert.match(sent[0], /\/w\/\.git\/kakapo\/request\.md$/, "what reaches the pane names the file");
+  assert.doesNotMatch(sent[0], /rename this to something honest/, "…and does not repeat the review into it");
+  assert.match(written[0], /rename this to something honest/, "the request itself went to the file");
+  assert.match(written[0], /append ONE line per answer/, "answers-file instructions travel inside it, not in the pane");
+
+  // No file to write to (a non-git root, or the CLI's browser viewer): the document still has to arrive.
+  v.window.kakapoComments = { writeRequest: () => Promise.resolve({ ok: false }) };
+  await v.openMergedView();
+  v.$("#mc-merged-panel .mc-send-terminal").click();
+  await v.settle(20);
+  assert.match(sent[1], /rename this to something honest/, "with nowhere to park it, the document goes over as text");
+  v.close();
+});
+
 test("multi-line comments persist and render one canonical range without quoted source", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("docs/runtime-arrow-wfa-plan.md.ts");
@@ -413,7 +479,10 @@ test("Cmd+Z restores a comment removed via the delete (×) button", async () => 
   v.close();
 });
 
-test("Cmd+Z restores every comment removed together by one Backspace on a shared row", async () => {
+// Backspace acts on the SELECTED turn, not on everything sharing the line: a thread's question, its
+// follow-ups and the agent's notes all live in one row, and taking the whole conversation out on one keypress
+// is not what "delete this comment" means. Cmd+Z still restores whatever that press removed.
+test("Backspace removes the selected turn only, and Cmd+Z restores it", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(1);
@@ -427,11 +496,47 @@ test("Cmd+Z restores every comment removed together by one Backspace on a shared
   v.window.selectCommentRow(row);
   v.key("Backspace");
   await v.settle(20);
-  assert.equal(v.storedComments().length, 0, "Backspace on the selected row removes both comments on it");
+  assert.deepEqual(v.storedComments().map((c) => c.text), ["second on this line"], "only the selected card is gone");
 
   v.key("z", { metaKey: true, code: "KeyZ" });
   await v.settle(20);
-  assert.deepEqual(v.storedComments().map((c) => c.text).sort(), ["first on this line", "second on this line"], "one undo restores the whole batch");
+  assert.deepEqual(v.storedComments().map((c) => c.text).sort(), ["first on this line", "second on this line"], "undo brings it back");
+  v.close();
+});
+
+// Arrow keys used to step off the whole row, so the second turn of a thread could be neither selected nor
+// edited: `e` always reopened the first comment on the line.
+test("arrows walk the turns inside a thread, and `e` edits the one selected", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("q");
+  await v.writeAndSave("the question");
+  await v.settle(40);
+
+  const seq = v.storedComments()[0].seq;
+  v.agentSays({ re: seq, text: "the answer" });
+  await v.settle(60);
+  v.click(v.$("#source-body .mc-reply-stub"));
+  await v.settle(40);
+  await v.writeAndSave("the follow-up");
+  await v.settle(60);
+
+  v.window.selectCommentRow(v.$("#source-body .mc-comment-row"));
+  await v.settle(20);
+  assert.match(v.$("#source-body .mc-card-selected .mc-card-body")?.textContent || "", /the question/, "selection starts on the first turn");
+
+  v.key("ArrowDown");
+  await v.settle(20);
+  assert.match(v.$("#source-body .mc-card-selected .mc-card-body")?.textContent || "", /the answer/, "ArrowDown steps to the next turn instead of off the row");
+
+  v.key("ArrowDown");
+  await v.settle(20);
+  assert.match(v.$("#source-body .mc-card-selected .mc-card-body")?.textContent || "", /the follow-up/, "…and on to the one after it");
+
+  v.key("e", { code: "KeyE" });
+  await v.settle(60);
+  assert.equal(v.visibleComposerInput()?.value, "the follow-up", "`e` edits the selected turn, not the first comment on the line");
   v.close();
 });
 
@@ -539,6 +644,131 @@ test("unified merged prompt: closing/reopening never absorbs the plan/change-req
   v.close();
 });
 
+// The thread file is written on every comment change, not only when the hand-off panel sends a prompt. A
+// follow-up typed afterwards used to live only inside the app: an agent re-reading the file found the round
+// it was handed and nothing past it, so the reply was unanswerable.
+test("a follow-up reaches the thread file without reopening the hand-off panel", async () => {
+  const v = await loadViewer(html);
+  const writes = [];
+  v.window.kakapoComments = {
+    write: (payload) => { writes.push(payload); return Promise.resolve({ ok: true, path: "/x/comments.jsonl" }); },
+  };
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("q");
+  await v.writeAndSave("why is this a CLI?");
+  await v.settle(400); // the write is debounced
+  assert.deepEqual(Array.from(writes.at(-1)?.records ?? [], (r) => r.text), ["why is this a CLI?"],
+    "the question is in the file already");
+
+  v.agentSays({ re: v.storedComments()[0].seq, text: "It ships as one binary." });
+  await v.settle(60);
+  v.click(v.$("#source-body .mc-reply-stub"));
+  await v.settle(40);
+  await v.writeAndSave("then why not a library too?");
+  await v.settle(400);
+
+  const records = Array.from(writes.at(-1).records);
+  assert.deepEqual(records.map((r) => r.text),
+    ["why is this a CLI?", "It ships as one binary.", "then why not a library too?"],
+    "…and so is every turn after it, in order");
+  assert.equal(records[1].by, "agent", "each line says who wrote it");
+  assert.equal(records[2].re, records[1].id, "and what it continues — the last turn, not the first");
+  assert.equal(records[2].path, undefined, "a reply inherits its parent's anchor instead of repeating it");
+  v.close();
+});
+
+// An agent answering a comment is the most precise "it finished" signal kakapo has, so it rides the same
+// notification path the terminal bell already uses. What it must not do is announce old answers: reopening a
+// review re-reads the whole file, and every one of those would otherwise arrive as news.
+test("an agent's answer raises a notification, but re-reading the thread does not", async () => {
+  const v = await loadViewer(html);
+  const bells = [];
+  v.window.kakapoPty = { bell: (msg) => bells.push(msg) };
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("q");
+  await v.writeAndSave("why is this a CLI?");
+  await v.settle(60);
+  assert.equal(bells.length, 0, "the reviewer's own comment is not an event");
+
+  v.agentSays({ re: v.storedComments()[0].seq, text: "It ships as one binary.\nMore below." });
+  await v.settle(60);
+  assert.equal(bells.length, 1, "the answer is");
+  assert.match(bells[0].body, /It ships as one binary\./, "with enough of it to know what landed");
+  // Clicking the notification has to land ON that exchange; "an answer arrived" is little use in a review of
+  // fifty comments without "here". Main sends the seq straight back (kakapo:comments-reveal).
+  const answered = v.storedComments().find((c) => c.by === "agent");
+  assert.equal(bells[0].seq, answered.seq, "the notification names the turn it is about");
+  await v.openSourceFile("src/app.ts"); // look away, the way you would have while it worked
+  await v.settle(40);
+  assert.equal(v.window.revealComment(answered.seq), true, "and that id is enough to go back to it");
+  await v.settle(80);
+  assert.equal(v.$("#source-viewer").dataset.openPath, "AGENTS.md", "the file the exchange is in is open again");
+
+  // The same list arriving again (a poll tick, a workspace switch, a reload) is not a second answer.
+  v.window.applyThreadRecords(v.window.reviewComments.map(v.window.commentToRecord));
+  await v.settle(60);
+  assert.equal(bells.length, 1, "an unchanged thread stays quiet");
+
+  // The setting lives in the Electron settings bridge, the same one the terminal bell reads.
+  v.window.kakapoSettings = { all: { "kakapo-terminal-bell-notify": false } };
+  v.agentSays({ re: v.storedComments()[0].seq, text: "one more thing" });
+  await v.settle(60);
+  assert.equal(bells.length, 1, "and the setting turns it off");
+  v.close();
+});
+
+// Every thread ends in the box for its next turn, attached under the last card the way GitHub puts "Write a
+// reply" under a comment. It used to appear only once the thread was already an exchange, so a comment you
+// had just written offered no way onward except finding the ↩ button in its header.
+test("a thread keeps a box open for the next turn, from the very first comment", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("q");
+  await v.writeAndSave("why is this a CLI?");
+  await v.settle(60);
+  assert.ok(v.$("#source-body .mc-reply-stub"), "the box for the next turn is there as soon as the comment is");
+
+  v.agentSays({ re: v.storedComments()[0].seq, text: "It ships as one binary." });
+  await v.settle(60);
+  const stub = v.$("#source-body .mc-reply-stub");
+  assert.ok(stub, "…and it is still there after the agent answers, at the end of the thread");
+
+  v.click(stub);
+  await v.settle(60);
+  assert.ok(v.visibleComposerInput(), "clicking it opens the composer, without hunting for the ↩ button");
+  await v.writeAndSave("then why not a library too?");
+  await v.settle(60);
+  const stored = v.storedComments();
+  assert.equal(stored.length, 3, "the question, the agent's answer, and what you typed");
+  assert.equal(stored[2].replyTo, stored[1].seq, "…continuing the thread rather than starting a new one");
+  v.close();
+});
+
+// A diagram in an ANSWER is an agent-written markdown body exactly like a note is. The Mermaid render pass
+// used to run only when the review also had notes, so in a review with none the diagram sat on "loading…"
+// forever.
+test("a diagram in an agent's answer is rendered, in a review with no notes at all", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("q");
+  await v.writeAndSave("how does the hand-off flow?");
+  await v.settle(60);
+
+  const passes = [];
+  v.window.renderMermaidDiagrams = function (root) { passes.push(root); }; // the real one needs the lazy-loaded lib
+  v.agentSays({ re: v.storedComments()[0].seq, text: "Like this:\n\n```mermaid\ngraph TD\n  A-->B\n```\n" });
+  await v.settle(60);
+
+  assert.equal(v.window.annotationList().length, 0, "no agent notes in this review — only a reply");
+  assert.ok(v.$("#source-body .mc-card.mc-ai .explain-mermaid"), "the fence became a diagram placeholder in the reply");
+  assert.ok(passes.length, "…and a render pass ran over it instead of leaving it on 'loading…'");
+  v.close();
+});
+
 // An agent's answer belongs in the thread at the comment's own line, where you asked the question — not in
 // the merged hand-off panel, where a multi-paragraph reply buries the requests you're there to scan and send.
 // The merged card says only that an answer exists.
@@ -551,15 +781,11 @@ test("an agent's answer renders in the thread but is only flagged in the merged 
 
   const seq = v.storedComments()[0].seq;
   // An agent writes markdown; escaping it put "**one binary**" and the list markers on screen literally.
-  v.window.applyAnswersUpdate([{
-    seq,
-    answer: "Because it ships as **one binary**.\n\n1. warm start\n2. comparison\n",
-    answeredAt: "2026-08-08T00:00:00Z",
-  }]);
+  v.agentSays({ re: seq, text: "Because it ships as **one binary**.\n\n1. warm start\n2. comparison\n" });
   await v.settle(60);
 
-  const thread = v.$("#source-body .mc-card:not(.mc-composer) .mc-answer-body");
-  assert.ok(thread, "the thread card carries the answer");
+  const thread = v.$("#source-body .mc-card.mc-ai .mc-ai-body");
+  assert.ok(thread, "the answer is its own card in the thread");
   assert.match(thread.textContent, /Because it ships as one binary\./, "the answer text is there");
   assert.equal(thread.querySelector("strong")?.textContent, "one binary", "…with its markdown rendered, not escaped");
   assert.equal(thread.querySelectorAll("ol > li").length, 2, "…including lists");
@@ -568,7 +794,7 @@ test("an agent's answer renders in the thread but is only flagged in the merged 
   await v.openMergedView();
   const card = v.$(".mc-merged-card");
   assert.ok(card, "merged card rendered");
-  assert.equal(card.querySelector(".mc-answer-body"), null, "the answer body is NOT repeated in the merged panel");
+  assert.equal(v.$all('.mc-merged-card').length, 1, 'the agent own reply is not an item in the hand-off');
   assert.ok(card.querySelector(".mc-answered-tag"), "merged card is flagged as answered instead");
   assert.match(card.querySelector(".mc-card-body").textContent, /why is this a CLI\?/, "the request itself still shows");
   v.close();
@@ -636,11 +862,11 @@ test("a reply continues the thread and carries the earlier exchange to the agent
   await v.settle(60);
 
   const seq = v.storedComments()[0].seq;
-  v.window.applyAnswersUpdate([{ seq, answer: "It ships as one binary.", answeredAt: "2026-08-08T00:00:00Z" }]);
+  v.agentSays({ re: seq, text: "It ships as one binary." });
   await v.settle(60);
 
-  const replyBtn = v.$("#source-body .mc-card:not(.mc-composer) .mc-reply");
-  assert.ok(replyBtn, "an answered card offers a reply, so the exchange isn't a dead end");
+  const replyBtn = v.$("#source-body .mc-reply-stub");
+  assert.ok(replyBtn, "an answered thread ends in the box for its next turn, so the exchange isn't a dead end");
   replyBtn.click();
   await v.settle(60);
   assert.ok(v.visibleComposerInput(), "reply composer opened without re-selecting the code line");
@@ -648,16 +874,20 @@ test("a reply continues the thread and carries the earlier exchange to the agent
   await v.settle(60);
 
   const stored = v.storedComments();
-  assert.equal(stored.length, 2, "the reply is its own comment");
-  const reply = stored[1];
-  assert.equal(reply.replyTo, seq, "linked to the comment it answers");
+  assert.equal(stored.length, 3, "the question, the agent's answer, and the follow-up");
+  const reply = stored[2];
+  assert.equal(reply.replyTo, stored[1].seq, "linked to the answer it follows");
   assert.equal(reply.kind, "q", "a follow-up to a question is still a question");
   assert.equal(reply.line, stored[0].line, "and stays anchored to the same line, so it renders as one thread");
 
+  // The exchange reaches the agent as ids into the thread file, not as quoted text: a third round would
+  // otherwise re-send the question and the agent's own answer alongside every other comment in the review.
   const merged = v.window.buildMergedText();
-  assert.match(merged, /> why is this a CLI\?/, "the hand-off quotes the original question");
-  assert.match(merged, /> .*It ships as one binary\./, "...and the answer it got");
-  assert.match(merged, /then why not a library too\?/, "...before the follow-up itself");
+  assert.match(merged, new RegExp(`#${stored[0].seq}, #${stored[1].seq}`), "the hand-off names the turns it continues");
+  assert.doesNotMatch(merged, /It ships as one binary\./, "…without re-sending the agent its own answer");
+  assert.equal((merged.match(/why is this a CLI\?/g) || []).length, 1,
+    "the question appears once, as its own open item — not a second time quoted under the follow-up");
+  assert.match(merged, /then why not a library too\?/, "and the follow-up itself is inline");
   v.close();
 });
 
@@ -670,6 +900,6 @@ test("a plain comment carries no thread context", async () => {
   await v.settle(60);
 
   assert.equal(v.storedComments()[0].replyTo, null, "no parent");
-  assert.doesNotMatch(v.window.buildMergedText(), /^> /m, "and nothing quoted ahead of it");
+  assert.doesNotMatch(v.window.buildMergedText(), /Continues/, "and no history line ahead of it");
   v.close();
 });

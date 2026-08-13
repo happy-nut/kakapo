@@ -2,6 +2,8 @@
 // Toggle with Ctrl+` / Opt+F12 / the footer ⌗ button; Cmd/Ctrl+D splits the active pane (side by side,
 // no tabs); drag the top edge to resize. window.__kakapoTerminal pipes the merged prompt into the
 // active pane. Cmd combos are released back to the app so shortcuts like Cmd+1 don't get stuck typing.
+// Assigned by setupTerminal; read by the KEY_OWNERS table in 05-keymap.js, which loads first.
+var handleTerminalSendModeKey;
 (function setupTerminal() {
   if (!window.kakapoPty) return; // xterm (window.Terminal) is loaded lazily on first open
   var panel = document.getElementById('terminal-panel');
@@ -54,6 +56,32 @@
     try { p.fit.fit(); if (p.id != null) window.kakapoPty.resize({ id: p.id, cols: p.term.cols, rows: p.term.rows }); } catch (e) {}
   }
   function fitAll() { panes.forEach(fitPane); }
+  // One fit per frame, after the browser has laid out whatever just changed. A split, a restore and an open
+  // each used to fit twice — once immediately, once on the next frame — so the terminal re-flowed against the
+  // geometry it was LEAVING and then against the one it arrived at: two visible jolts for one action, which
+  // is the "it resizes in two clacks" this coalescing removes. A live window drag lands here too, and now
+  // costs one reflow (and one pty resize) per frame instead of one per ResizeObserver callback.
+  var fitRaf = 0, fitDeferred = false;
+  function scheduleFitAll() {
+    if (fitRaf) return;
+    fitRaf = requestAnimationFrame(function () {
+      fitRaf = 0;
+      // Never re-flow while a syllable is still being assembled. A fit rebuilds xterm's rows underneath the
+      // IME, and macOS answers that by committing the half-built 가 as ㄱ ㅏ — the same failure the watch
+      // refresh already stands down for (isComposing / applyDiffUpdate). The fit did not, and a workspace you
+      // switch INTO fires its ResizeObserver as it becomes visible again: exactly when you arrive at an
+      // already-open terminal and start typing, which is how Korean came out as ㄱㅏㄴㅏㄷㅏ there. Held until
+      // the syllable commits (compositionend/blur below), never dropped.
+      if (composingPanes.size) { fitDeferred = true; return; }
+      fitAll();
+    });
+  }
+  // The composition finished (or the pane lost focus mid-syllable): run the fit that was waiting on it.
+  function flushDeferredFit() {
+    if (!fitDeferred || composingPanes.size) return;
+    fitDeferred = false;
+    scheduleFitAll();
+  }
   // Reliably move keyboard focus into a pane's xterm. Opening the panel from a menu accelerator races with
   // Electron restoring focus to <body>, so a single focus() call can lose it — retry until the pane's helper
   // textarea is actually the active element (or we run out of tries), like the dock's focusDockField.
@@ -139,7 +167,7 @@
     host.appendChild(cell);
     return cell;
   }
-  function makePane(cell) {
+  function makePane(cell, restoreOrdinal) {
     if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw
     var el = document.createElement('div');
     el.className = 'terminal-pane';
@@ -160,13 +188,26 @@
     term.loadAddon(fit);
     loadWebLinks(term);
     term.open(paneHost);
-    var pane = { id: null, term: term, fit: fit, el: el, labelEl: labelEl, name: 'Terminal ' + (panes.length + 1) };
+    // restoreOrdinal has to be on the pane BEFORE the spawn below: this used to be assigned by restorePanes()
+    // after makePane() returned, so every restored pane spawned with `ordinal: undefined` and main handed out
+    // the lowest FREE one instead. With sessions 1 and 3 alive (any pane but the last closed), the restore
+    // attached to 1, then created a brand-new session 2 — leaving 3 orphaned and running. The next launch saw
+    // three sessions and restored three panes, one of them empty, and the count grew again every time.
+    var pane = { id: null, term: term, fit: fit, el: el, labelEl: labelEl, restoreOrdinal: restoreOrdinal,
+      name: 'Terminal ' + (panes.length + 1) };
     labelEl.textContent = pane.name;
     // Cmd combos are app shortcuts (Cmd+1/0 tab switch, Cmd+B go-to-def, …). Release the terminal and let
     // them bubble to the document handler instead of typing into the shell (fixes "Cmd+1 stuck in term").
     // Exception: keep focus for clipboard/selection combos (Cmd+C/V/X/A) so the terminal's own copy &
     // paste keep working — blurring on Cmd+V drops the textarea focus the paste event needs.
     term.attachCustomKeyEventHandler(function (e) {
+      // A pane pick is up: every key belongs to the picker, which is what KEY_OWNERS says — but that table is
+      // read by a keydown listener on `document`, in the BUBBLE phase, and xterm cancels the keys it handles
+      // (preventDefault + stopPropagation) from the textarea below it. Enter never got there. So "send this
+      // prompt to a pane" opened the picker, focused a pane, and then the confirming Enter went to the agent
+      // running in it as a bare newline instead: the pick never resolved and the prompt was never written.
+      // Returning false makes xterm ignore the key so it reaches the picker.
+      if (sendModeText != null) return false;
       // Escape dismisses the floating terminal. At a normal shell prompt one press is enough. A fullscreen TUI
       // (vim, less, claude/codex) runs in xterm's ALTERNATE buffer and needs Esc itself — in Claude Code it is
       // the interrupt — so a single press still goes through to the shell there. A SECOND Esc within
@@ -222,8 +263,8 @@
       term.textarea.addEventListener('keydown', function () { lastInputAt = Date.now(); }, true);
       term.textarea.addEventListener('compositionstart', function () { composingPanes.add(pane); lastInputAt = Date.now(); });
       term.textarea.addEventListener('compositionupdate', function () { lastInputAt = Date.now(); });
-      term.textarea.addEventListener('compositionend', function () { composingPanes.delete(pane); lastInputAt = Date.now(); });
-      term.textarea.addEventListener('blur', function () { composingPanes.delete(pane); });
+      term.textarea.addEventListener('compositionend', function () { composingPanes.delete(pane); lastInputAt = Date.now(); flushDeferredFit(); });
+      term.textarea.addEventListener('blur', function () { composingPanes.delete(pane); flushDeferredFit(); });
     }
     // Bell from the pane's TUI (e.g. Claude Code finished a turn / needs input): badge the pane when it isn't
     // the one you're looking at, and ask the main process to raise a native notification when the whole window
@@ -239,8 +280,8 @@
     try { fit.fit(); } catch (e) {}
     // Main runs every pane inside this workspace's tmux session when tmux is installed, so the shell outlives
     // the app; there is nothing for the renderer to opt into.
-    // pane.restoreOrdinal is set by restorePanes() when this pane stands for a session that is already
-    // running; without it main hands out the lowest free ordinal, which is what a genuinely new pane wants.
+    // pane.restoreOrdinal names the already-running session this pane stands for (restorePanes); without it
+    // main hands out the lowest free ordinal, which is what a genuinely new pane wants.
     window.kakapoPty.spawn({ cols: term.cols || 80, rows: term.rows || 24, ordinal: pane.restoreOrdinal })
       .then(function (r) { pane.id = r && r.id; });
     setActive(pane);
@@ -301,13 +342,15 @@
     panes.splice(i, 1);
     if (active === p) setActive(panes[panes.length - 1] || null);
     if (panes.length === 0) setOpen(false);
-    else fitAll();
+    else scheduleFitAll();
   }
   // Cmd/Ctrl+W inside the terminal: close just the FOCUSED pane (kill its pty), not the whole panel. The
   // last pane closing collapses the panel via removePaneRef -> setOpen(false). Remove the pane immediately
   // (don't wait for the pty's onExit) so the UI responds at once; the later onExit -> removePane no-ops.
+  // endSession: closing a pane on purpose ends what it was running (the tmux session goes with it). Only this
+  // path sets it — the unload handler below detaches instead, so quitting the app leaves agents working.
   function killPane(p) {
-    if (p.id != null) { try { window.kakapoPty.kill({ id: p.id }); } catch (e) {} }
+    if (p.id != null) { try { window.kakapoPty.kill({ id: p.id, endSession: true }); } catch (e) {} }
     removePaneRef(p);
   }
   function closeActivePane() {
@@ -337,8 +380,7 @@
     makePane(cell);
     // Re-fit after the browser has laid the new axis out — fitting against the pre-split geometry leaves
     // xterm sized for the old direction, which shows up as a pane whose rows/cols don't match its box.
-    fitAll();
-    requestAnimationFrame(fitAll);
+    scheduleFitAll();
   }
   // Move active focus between split panes (menu accelerators Cmd/Ctrl+Alt+[ and ]).
   function focusPaneByDelta(delta) {
@@ -368,11 +410,9 @@
       var ordinals = (result && result.ordinals) || [];
       if (ordinals.length < 2) return; // one (or none) is what a plain open already does
       ordinals.slice(0, MAX_PANES).forEach(function (ordinal) {
-        var pane = makePane(); // one cell each: side by side, the layout a fresh split would give
-        if (pane) pane.restoreOrdinal = ordinal;
+        makePane(null, ordinal); // one cell each: side by side, the layout a fresh split would give
       });
-      fitAll();
-      requestAnimationFrame(fitAll);
+      scheduleFitAll();
     }, function () { /* no tmux, no sessions — a plain pane is right */ });
   }
 
@@ -407,10 +447,12 @@
       if (panes.length === 0) {
         restorePanes().then(function () {
           if (panes.length === 0) makePane();
-          requestAnimationFrame(function () { fitAll(); focusPane(active); });
+          scheduleFitAll();
+          requestAnimationFrame(function () { focusPane(active); });
         });
       } else {
-        requestAnimationFrame(function () { fitAll(); focusPane(active); });
+        scheduleFitAll();
+        requestAnimationFrame(function () { focusPane(active); });
       }
     }
   }
@@ -442,22 +484,22 @@
     if (!send()) { var iv = setInterval(function () { if (send() || ++tries > 40) clearInterval(iv); }, 50); }
   });
 
-  var ro = (typeof ResizeObserver === 'function') ? new ResizeObserver(function () { if (isOpen()) fitAll(); }) : null;
+  var ro = (typeof ResizeObserver === 'function') ? new ResizeObserver(function () { if (isOpen()) scheduleFitAll(); }) : null;
   if (ro) ro.observe(host);
-  window.addEventListener('resize', function () { if (isOpen()) fitAll(); });
+  window.addEventListener('resize', function () { if (isOpen()) scheduleFitAll(); });
 
   if (resizer) {
     resizer.addEventListener('mousedown', function (e) {
       e.preventDefault();
       resizer.classList.add('resizing');
-      function move(ev) { applyHeight(window.innerHeight - ev.clientY); }
+      function move(ev) { applyHeight(window.innerHeight - ev.clientY); scheduleFitAll(); }
       function up() {
         resizer.classList.remove('resizing');
         document.removeEventListener('mousemove', move);
         document.removeEventListener('mouseup', up);
         var cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--terminal-height'), 10);
         if (cur) { try { localStorage.setItem(heightKey, String(cur)); } catch (e) {} }
-        fitAll();
+        scheduleFitAll();
       }
       document.addEventListener('mousemove', move);
       document.addEventListener('mouseup', up);
@@ -474,7 +516,15 @@
   function writeToPane(p, text) {
     if (!p) return;
     setOpen(true);
-    if (p.id != null) window.kakapoPty.write({ id: p.id, data: text });
+    // Send it as a PASTE, not as typing, whenever the app in the pane asked for bracketed paste (DECSET 2004
+    // — Codex, Claude Code, vim, a modern shell). Raw text makes every newline an Enter: Codex submitted the
+    // first line and typed the rest into a busy composer, so a multi-line prompt never arrived intact.
+    // Claude Code survived it only by guessing from input speed. Plain apps that never enabled the mode still
+    // get the bytes unwrapped, or they would see the markers as literal "[200~" garbage.
+    if (p.id != null) {
+      var bracketed = p.term && p.term.modes && p.term.modes.bracketedPasteMode;
+      window.kakapoPty.write({ id: p.id, data: bracketed ? '\x1b[200~' + text + '\x1b[201~' : text });
+    }
     setActive(p);
     requestAnimationFrame(function () { try { p.term.focus(); } catch (e) {} });
   }
@@ -513,9 +563,10 @@
     document.body.classList.add('terminal-send-mode'); // dim sidebar + file/diff view; only the terminal pops
     paintSendMode();
   }
-  // Capture phase so the pick keys win over the focused xterm; while picking, every key is swallowed.
-  document.addEventListener('keydown', function (e) {
-    if (sendModeText == null) return;
+  // A KEY_OWNERS row (05-keymap.js) rather than a capture listener: while a pick is up every key belongs to
+  // it, including over the focused xterm, and that rank is now stated in the table with every other surface.
+  handleTerminalSendModeKey = function (e) {
+    if (sendModeText == null) return false;
     e.preventDefault(); e.stopPropagation();
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       var d = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
@@ -528,7 +579,8 @@
     } else if (e.key === 'Escape') {
       exitSendMode();
     }
-  }, true);
+    return true; // every key while picking belongs to the picker
+  };
   window.__kakapoTerminal = {
     isOpen: isOpen,
     // True when keyboard focus is inside the terminal panel (a pane owns it) — Cmd/Ctrl+W uses this to

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync, type Stats } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readlinkSync, statSync, type Stats } from "node:fs";
 import { basename, join, relative } from "node:path";
 import type { DiffFile, DiffHunk, DiffLine, ReviewFileState, SourceFile } from "./types.js";
 import {
@@ -85,11 +85,27 @@ function readUntrackedDiff(root: string): string {
 
   for (const file of files) {
     const absolute = join(root, file);
-    // One stat covers presence, file-ness, and size — was three syscalls (existsSync + two statSync) per file.
+    // lstat, not stat: a symlink is a change in its own right, and statSync FOLLOWS it — so a link whose
+    // target is missing (or lives outside this worktree) threw here and the file was dropped without a
+    // trace. Git listed it as untracked, kakapo showed "no changed files", and the two disagreed with no
+    // way to tell why. Git stores a symlink as a blob holding its target, so that is what the diff shows.
     let stats: Stats;
     try {
-      stats = statSync(absolute);
+      stats = lstatSync(absolute);
     } catch {
+      continue;
+    }
+    if (stats.isSymbolicLink()) {
+      let target = "";
+      try { target = readlinkSync(absolute); } catch { /* unreadable link — still worth showing the path */ }
+      chunks.push([
+        `diff --git a/${file} b/${file}`,
+        "new file mode 120000",
+        "--- /dev/null",
+        `+++ b/${file}`,
+        "@@ -0,0 +1 @@",
+        `+${target}`,
+      ].join("\n"));
       continue;
     }
     if (!stats.isFile()) continue;
@@ -219,9 +235,12 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
   return files.filter((file) => file.binary || file.hunks.length > 0);
 }
 
-// Raster image extensions that get an inline base64 preview. SVG is intentionally excluded:
-// it is text/markup, so it stays embedded as source (and can be syntax-highlighted / commented).
-function imageMimeForPath(path: string): string | null {
+// Files that get an inline base64 preview instead of source text: raster images, and PDFs — Chromium renders
+// those itself, so "view the PDF" costs a mime type here and an <embed> in the renderer rather than a PDF
+// library. SVG is intentionally excluded: it is text/markup, so it stays embedded as source (and can be
+// syntax-highlighted / commented). Everything this returns a mime for is carried on SourceFile.image, which
+// is also what tells find-in-files and diagnostics to leave the file alone — true for a PDF as much as a PNG.
+function previewMimeForPath(path: string): string | null {
   const dot = path.lastIndexOf(".");
   const ext = dot >= 0 ? path.slice(dot + 1).toLowerCase() : "";
   switch (ext) {
@@ -234,6 +253,7 @@ function imageMimeForPath(path: string): string | null {
     case "ico": return "image/x-icon";
     case "avif": return "image/avif";
     case "apng": return "image/apng";
+    case "pdf": return "application/pdf";
     default: return null;
   }
 }
@@ -395,14 +415,29 @@ export function collectSourceFiles(
       continue;
     }
 
-    const imageMime = imageMimeForPath(path);
-    if (imageMime) {
-      if (stats.size <= IMAGE_MAX_BYTES) {
-        const dataUri = `data:${imageMime};base64,${readFileSync(absolute).toString("base64")}`;
-        sourceFiles.push({ ...base, size: stats.size, image: dataUri, signature: hashText(`${path}\0image\0${stats.size}`) });
-      } else {
-        const skippedReason = `image larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
+    const previewMime = previewMimeForPath(path);
+    if (previewMime) {
+      if (stats.size > IMAGE_MAX_BYTES) {
+        const skippedReason = `file larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
         sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0image-large\0${stats.size}`), skippedReason });
+      } else if (options.deferSourceContent) {
+        // Read the bytes only when the reviewer opens the image. Nothing needs the data URI before then:
+        // get-project-index strips `image` and sourceFileMetadata blanks it, so the renderer sees it for the
+        // first time in a get-source reply. Embedding it eagerly also escaped the byte budget below outright
+        // — this branch `continue`s past that check — so every image in the tree, changed or not, sat in the
+        // main process once per open window at 4/3 its file size. On a 44MB repo that measured 81MB of
+        // base64 per window, more than the entire text index (47MB). Same lazy path as deferred text.
+        sourceFiles.push({
+          ...base,
+          size: stats.size,
+          embedded: true,
+          deferred: true,
+          signature: hashText(`${path}\0image-deferred\0${stats.size}\0${stats.mtimeMs}`),
+        });
+      } else {
+        // Standalone HTML has no per-file IPC to fetch through: its images must ship inside the document.
+        const dataUri = `data:${previewMime};base64,${readFileSync(absolute).toString("base64")}`;
+        sourceFiles.push({ ...base, size: stats.size, image: dataUri, signature: hashText(`${path}\0image\0${stats.size}`) });
       }
       continue;
     }
@@ -424,7 +459,12 @@ export function collectSourceFiles(
       continue;
     }
 
-    if (embeddedFiles >= maxFiles || embeddedBytes + stats.size > maxTotalBytes) {
+    // The budget is spent walking the tree in lexicographic order, so on a large repo it was exhausted by
+    // whatever sorted first and the changed files — the entire point of the review — were starved of it: 196
+    // of 280 on a 30-commit range here. A changed file is bounded by the diff and capped per-file by
+    // maxFileBytes above, so it is read and kept regardless of what the walk has already spent.
+    const changedFile = options.deferSourceContent && base.changed;
+    if (!changedFile && (embeddedFiles >= maxFiles || embeddedBytes + stats.size > maxTotalBytes)) {
       // Electron already has a per-file IPC bridge. Once the eager cache budget is exhausted, retain an
       // openable metadata record instead of permanently disabling every later file in lexical order.
       // The main process reads only the explicitly opened file via materializeDeferredSourceFile().
@@ -453,6 +493,21 @@ export function collectSourceFiles(
       signature = hashText(`${path}\0${content}`);
       sourceContentCache.set(cacheKey, { mtimeMs: stats.mtimeMs, size: stats.size, content, signature });
     }
+    embeddedFiles += 1;
+    embeddedBytes += stats.size;
+    // In Electron `content` is only ever a read cache for the get-source IPC — nothing else in the main
+    // process reads it (get-project-index strips it, and the symbol index walks the tree from disk itself).
+    // Since the budget above is spent in lexicographic order, that cache was 47MB per window of whichever
+    // files happened to sort first, rather than the ones a review opens. Keep the changed files and hand the
+    // rest over as deferred: identical to a budget-exhausted record, except it carries the content-derived
+    // signature computed just above. That distinction is load-bearing — the deferred records above are files
+    // this build never read, so they can only be signed by mtime+size, while the review signature (and the
+    // watch fast-path built on it) must stay a function of content alone, or an untouched checkout in a
+    // different directory would look like a change.
+    if (options.deferSourceContent && !base.changed) {
+      sourceFiles.push({ ...base, size: stats.size, embedded: true, deferred: true, signature });
+      continue;
+    }
     sourceFiles.push({
       ...base,
       content,
@@ -460,8 +515,6 @@ export function collectSourceFiles(
       embedded: true,
       signature,
     });
-    embeddedFiles += 1;
-    embeddedBytes += stats.size;
   }
 
   return sourceFiles;
@@ -489,8 +542,8 @@ function workspaceGitPrefix(root: string): string {
 function readTargetBlobSource(root: string, file: SourceFile, target: string): SourceFile {
   const prefix = workspaceGitPrefix(root);
   const spec = `${target}:${prefix ? prefix + "/" : ""}${file.path}`;
-  const imageMime = imageMimeForPath(file.path);
-  if (imageMime) {
+  const previewMime = previewMimeForPath(file.path);
+  if (previewMime) {
     const out = spawnSync("git", ["show", spec], { cwd: root, encoding: "buffer", maxBuffer: 1024 * 1024 * 50 });
     if (out.status !== 0) {
       const skippedReason = "file is not present in this revision";
@@ -498,10 +551,10 @@ function readTargetBlobSource(root: string, file: SourceFile, target: string): S
     }
     const data = out.stdout as Buffer;
     if (data.length > IMAGE_MAX_BYTES) {
-      const skippedReason = `image larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
+      const skippedReason = `file larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
       return { ...file, content: "", size: data.length, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0image-large\0${data.length}`) };
     }
-    return { ...file, content: "", size: data.length, deferred: false, image: `data:${imageMime};base64,${data.toString("base64")}`, signature: hashText(`${file.path}\0image-target\0${data.length}`) };
+    return { ...file, content: "", size: data.length, deferred: false, image: `data:${previewMime};base64,${data.toString("base64")}`, signature: hashText(`${file.path}\0image-target\0${data.length}`) };
   }
   const out = spawnSync("git", ["show", spec], { cwd: root, encoding: "utf8", maxBuffer: 1024 * 1024 * 50 });
   if (out.status !== 0) {
@@ -538,6 +591,25 @@ export function materializeDeferredSourceFile(rootArg: string, file: SourceFile,
   if (!stats.isFile()) {
     const skippedReason = "not a regular file";
     return { ...file, content: "", embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0not-file`) };
+  }
+  // Images are deferred like everything else now, so this is where their data URI is built — before the
+  // binary sniff below, which would otherwise reject every PNG as "binary file". Mirrors the A→B blob path
+  // in readTargetBlobSource; the size guard is re-checked here in case the file grew since it was indexed.
+  const previewMime = previewMimeForPath(file.path);
+  if (previewMime) {
+    if (stats.size > IMAGE_MAX_BYTES) {
+      const skippedReason = `file larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
+      return { ...file, content: "", size: stats.size, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0image-large\0${stats.size}`) };
+    }
+    return {
+      ...file,
+      content: "",
+      size: stats.size,
+      deferred: false,
+      skippedReason: undefined,
+      image: `data:${previewMime};base64,${readFileSync(absolute).toString("base64")}`,
+      signature: hashText(`${file.path}\0image\0${stats.size}`),
+    };
   }
   if (stats.size > SOURCE_MAX_LAZY_FILE_BYTES) {
     const skippedReason = `larger than ${formatBytes(SOURCE_MAX_LAZY_FILE_BYTES)}`;

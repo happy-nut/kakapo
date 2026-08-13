@@ -40,6 +40,32 @@ test("regex symbol index recognizes cross-language declarations without a render
   assert.equal(index.definitions.get("execute")?.[0].symbolKind, "method");
 });
 
+test("codeLines masks on demand and survives eviction — it no longer retains a masked copy of the project", () => {
+  // codeLines used to be a Map holding every indexed file's masked source as per-line strings — a second
+  // full copy of the project (77MB on a 6k-file repo) behind an accessor that reads one path at a time.
+  // It is now recomputed per file behind a 32-entry LRU, so the risk moved from memory to cache behavior:
+  // a wrong or stale answer after eviction would silently misplace every symbol lookup.
+  const files = Array.from({ length: 40 }, (_, i) => ({
+    path: `src/f${String(i).padStart(2, "0")}.ts`,
+    content: `// export function decoy${i}() {}\nexport function real${i}() {}\n`,
+  }));
+  const index = buildRegexSymbolIndex(files);
+
+  const first = index.codeLines.get("src/f00.ts");
+  assert.equal(first[0].trim(), "", "the comment line is masked out");
+  assert.match(first[1], /export function real0\(\)/, "the code line survives masking verbatim");
+
+  // Walk past the cache size so the first entry is evicted, then read it again.
+  for (const file of files) index.codeLines.get(file.path);
+  assert.deepEqual(index.codeLines.get("src/f00.ts"), first, "a re-derived entry matches the original");
+  assert.deepEqual(index.codeLines.get("src/f39.ts"), index.codeLines.get("src/f39.ts"), "repeat reads agree");
+
+  // Masking is what keeps commented-out code from becoming a symbol; prove it still holds after the change.
+  assert.equal(index.definitions.has("decoy0"), false, "commented declarations stay out of the index");
+  assert.equal(index.definitions.get("real0")?.[0].path, "src/f00.ts");
+  assert.equal(index.codeLines.get("src/nope.ts"), undefined, "an unindexed path has no lines");
+});
+
 test("Python heuristic navigation resolves class methods conservatively instead of matching every same-named method", async () => {
   const root = tempProject();
   const files = [

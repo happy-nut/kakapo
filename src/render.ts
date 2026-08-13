@@ -433,8 +433,13 @@ export function renderDiffHtml(input: {
     // Integrated terminal (Electron only): a floating xterm overlay with split panes, revealed by the rail
     // toggle / Ctrl+`. A direct body child (NOT inside .content) so send-mode dimming of .content can't make
     // this fixed panel see-through. Hidden until first opened; the client mounts xterm into #terminal-host.
+    //
+    // No title strip of its own. It carried the word "Terminal" over a row of panes each already labelled
+    // "Terminal 1", "Terminal 2" — the same word twice, in two strips, costing two rows of chrome on a panel
+    // whose whole point is the rows below them. The close button moved onto the pane-label row (viewer.css),
+    // which is now the panel's only chrome.
     input.app
-      ? '<div id="terminal-panel" class="terminal-panel hidden"><div class="terminal-resizer" aria-hidden="true"></div><div class="terminal-bar"><span class="terminal-title" data-i18n="terminal.title">Terminal</span><button type="button" id="terminal-close" class="terminal-x" data-i18n-title="terminal.close" title="Close terminal" aria-label="Close terminal">&times;</button></div><div id="terminal-host" class="terminal-host"></div></div>'
+      ? '<div id="terminal-panel" class="terminal-panel hidden"><div class="terminal-resizer" aria-hidden="true"></div><button type="button" id="terminal-close" class="terminal-x" data-i18n-title="terminal.close" title="Close terminal" aria-label="Close terminal">&times;</button><div id="terminal-host" class="terminal-host"></div></div>'
       : "",
     input.app
       ? '<aside id="impact-panel" class="impact-panel hidden" aria-label="Change Impact">'
@@ -463,6 +468,7 @@ export function renderDiffHtml(input: {
     '<button type="button" class="quick-open-side-item" data-section="impact" data-keyhint="⌘8"><span data-i18n="rail.impact">Change Impact</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="explain" data-keyhint="⌘7"><span data-i18n="rail.explain">Explain</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="history" data-keyhint="⌘9"><span data-i18n="rail.history">History</span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="terminal" data-keyhint="⌃`"><span data-i18n="terminal.title">Terminal</span></button>',
     '</nav>',
     '<div class="quick-open-title"><span id="quick-open-mode" data-i18n="quickopen.searchFiles">Search files</span><span id="quick-open-filter" class="quick-open-filter"></span></div>',
     '<input id="quick-open-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.searchFiles" placeholder="Search files">',
@@ -514,7 +520,7 @@ export function renderDiffHtml(input: {
     // Terminal card (Electron only): integrated-terminal bell → native notification opt-out.
     input.app
       ? '<div class="settings-card"><div class="settings-card-title" data-i18n="settings.terminal">Terminal</div>'
-      + '<label class="settings-check"><input type="checkbox" id="set-bell-notify"><span data-i18n="settings.bellNotify">Notify when a terminal task finishes (bell)</span></label>'
+      + '<label class="settings-check"><input type="checkbox" id="set-bell-notify"><span data-i18n="settings.bellNotify">Notify when an agent finishes</span></label>'
       // Terminal sessions are always tmux-backed when tmux is installed, so this is a status row rather than a
       // switch: it says whether persistence is actually in effect, and offers the install when it isn't.
       + '<div class="settings-row-hint" data-i18n="settings.persistTerminal.hint">Terminals belong to their workspace: quitting kakapo leaves them running, and only deleting the workspace ends them.</div>'

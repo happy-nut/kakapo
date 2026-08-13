@@ -17,7 +17,6 @@ function setQuickOpenOwnsEditKeys(owns) {
 // with their own panels — the user asked for them to be reachable here, not embedded — so they just open and
 // dismiss the launcher.
 var QUICK_LAUNCHER_MODES = ['recent', 'prompts'];
-var quickSideKeepsFocus = false;
 
 function openQuickOpen(mode) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
@@ -40,6 +39,11 @@ function openQuickOpen(mode) {
   quickOpen.classList.toggle('quick-recent', mode === 'recent' || mode === 'prompts');
   quickOpen.classList.toggle('quick-content', mode === 'content');
   quickOpen.classList.toggle('quick-launcher', QUICK_LAUNCHER_MODES.indexOf(mode) >= 0);
+  // One surface at a time: the launcher covers the whole view, and a terminal left open underneath it is a
+  // shell you are still typing into but cannot see. Put it away — the rail's Terminal row brings it back,
+  // as does Ctrl+`, and the panes are untouched either way.
+  var terminalApi = window.__kakapoTerminal;
+  if (terminalApi && typeof terminalApi.isOpen === 'function' && terminalApi.isOpen()) terminalApi.close();
   syncQuickLauncherRail();
   syncContentSearchControls();
   recentFilter = '';
@@ -49,10 +53,9 @@ function openQuickOpen(mode) {
   // File search intentionally stays empty until the user types. Loading the whole project index on open
   // made an untouched dialog look like an arbitrary file browser and spent work before there was a query.
   // The first real file-name query requests the deferred index in renderQuickOpenResults().
-  // Switching from the rail must not throw the keyboard back to the list, or one ArrowDown after picking a
-  // section would land somewhere else entirely.
-  if (quickSideKeepsFocus) { quickSideKeepsFocus = false; focusQuickSide(); }
-  else if (mode === 'recent' || mode === 'prompts') { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
+  // Picking a section is done with the rail: focus goes to the section's own panel, whether the pick came from
+  // a click or from Enter on the rail. Arrows then move in the list, ArrowLeft steps back to the rail.
+  if (mode === 'recent' || mode === 'prompts') { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
   else setTimeout(() => quickInput.focus(), 0);
 }
 
@@ -70,13 +73,14 @@ document.getElementById('quick-open-side')?.addEventListener('click', function (
   if (!button) return;
   var section = button.dataset.section;
   if (QUICK_LAUNCHER_MODES.indexOf(section) >= 0) {
-    quickSideKeepsFocus = !!focusedQuickSideItem(); // arrived by keyboard -> stay on the rail
     openQuickOpen(section);
     return;
   }
   closeQuickOpen();
   if (section === 'merged' && typeof openMergedView === 'function') openMergedView();
   else if (section === 'memo' && typeof openMemoView === 'function') openMemoView();
+  // The terminal is toggled by id, not by a data-view button like the rest.
+  else if (section === 'terminal') document.getElementById('terminal-toggle')?.click();
   // Everything else is a view with a rail button behind it: click that, so the launcher opens it by exactly
   // the path the shortcut and the title bar already use rather than by a second copy of the same logic.
   else document.querySelector('.rail-btn[data-view="' + section + '"]')?.click();

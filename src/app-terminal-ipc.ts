@@ -5,13 +5,13 @@ import { spawn as spawnPty, type IPty } from "node-pty";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper } from "./util.js";
+import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper, endTmuxSession, tmuxPaneCommand } from "./util.js";
 import { resumeCommandForInput } from "./agent-resume.js";
 
 // A GUI launch (Finder, Dock, Spotlight) inherits a minimal PATH with no Homebrew prefix, so `tmux` is
 // usually invisible to us even when the user's own shell finds it. Check PATH first, then the standard
 // prefixes. Never cached: `brew install tmux` from the settings panel has to take effect without a restart.
-function resolveTmux(env: NodeJS.ProcessEnv): string | undefined {
+export function resolveTmux(env: NodeJS.ProcessEnv): string | undefined {
   const fromPath = (env.PATH ?? "").split(":").filter(Boolean).map((dir) => join(dir, "tmux"));
   for (const candidate of [...fromPath, "/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]) {
     if (existsSync(candidate)) return candidate;
@@ -47,9 +47,9 @@ export type TerminalIpcState = {
   terms: Map<number, IPty>;
   // Absolute path to this window's answers-exchange file (see answers-ipc.ts), passed into every pty
   // spawned in this window so an agent can find it without depending on the prompt text being intact.
-  answersFile?: string;
-  // Persistent terminals: pty id -> the tmux session it is attached to. Closing a pane or quitting the app
-  // only drops the client; the session (and the agent in it) runs until the workspace is deleted.
+  commentsFile?: string;
+  // Persistent terminals: pty id -> the tmux session it is attached to. Quitting the app only drops the
+  // client and the session (with the agent in it) runs on; closing the pane with ⌘W ends it.
   termSessions?: Map<number, string>;
   commandBuffers?: Map<number, string>;
   onResumeCommand?: (command: string | undefined) => void;
@@ -66,6 +66,11 @@ type TerminalStateResolver = (event: TerminalEvent) => TerminalIpcState | undefi
 
 let nextPtyId = 0; // global so pty ids never collide across windows; each window holds only its own in state.terms
 
+// pty id -> the moment its post-resize echo stops counting as agent activity (see kakapo:pty-resize). Keyed by
+// the globally unique pty id, so one map serves every window; entries are dropped when the pty exits.
+const resizeEchoUntil = new Map<number, number>();
+const RESIZE_ECHO_MS = 250;
+
 // Every pty kill in the app goes through this (window close, workspace removal, pane close, quit) so quit can
 // wait for the native exit deliveries instead of aborting on them — see createPtyReaper.
 export const ptyReaper = createPtyReaper();
@@ -75,8 +80,9 @@ export const ptyReaper = createPtyReaper();
  * them) and relay bytes to the renderer's xterm panes. Each pty is owned by the window that spawned it
  * (state.terms), so closing one window kills only its terminals and pty data routes back to it alone.
  */
-// Deleting a workspace is the ONLY thing that ends its terminals: closing a pane or quitting the app just
-// drops the tmux client. So this cannot work off the in-memory pty -> session map — panes aren't restored on
+// Deleting a workspace ends ALL of its terminals, including the ones this run never opened — ⌘W ends a single
+// pane's session, and quitting drops the client without ending anything. So this cannot work off the
+// in-memory pty -> session map: panes aren't restored on
 // launch, so that map only knows the panes reopened by hand since the last start, and everything else would
 // be left running forever, invisible, with its worktree deleted out from under it. Ask tmux which sessions
 // belong to this workspace instead. Called from app-main.ts's hub-remove (delete), and nowhere else.
@@ -122,7 +128,7 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     if (!state) return { ok: false, id: -1 };
     const id = ++nextPtyId;
     const shell = process.env.SHELL || (process.platform === "win32" ? "powershell.exe" : "/bin/zsh");
-    const answersEnv: { [key: string]: string } = state.answersFile ? { KAKAPO_ANSWERS_FILE: state.answersFile } : {};
+    const answersEnv: { [key: string]: string } = state.commentsFile ? { KAKAPO_COMMENTS_FILE: state.commentsFile } : {};
     // Every pane runs inside a per-workspace tmux session, so a terminal belongs to its workspace rather than
     // to this app run: quitting drops the client and the agent keeps working. This used to be an opt-in
     // preference stored PER WORKSPACE while reading as an app-wide setting, so ticking it in one workspace
@@ -163,13 +169,20 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     // down between the guard and the .send() (which then throws "Object has been destroyed"). Wrap the whole
     // callback body so nothing can reach node-pty's C++ boundary.
     t.onData((data) => {
-      try { deliver("kakapo:pty-data", { id, data }); state.onAgentOutput?.(); } catch { /* window torn down mid-drain */ }
+      // The bytes always reach the pane — only the ACTIVITY signal is filtered, so a prompt redrawn after our
+      // own resize still paints, it just doesn't claim an agent is working here.
+      try {
+        deliver("kakapo:pty-data", { id, data });
+        const quiet = resizeEchoUntil.get(id);
+        if (!(quiet && Date.now() < quiet)) state.onAgentOutput?.();
+      } catch { /* window torn down mid-drain */ }
     });
     t.onExit(() => {
       try {
         ptyReaper.settle(t);
         state.terms.delete(id);
         state.commandBuffers?.delete(id);
+        resizeEchoUntil.delete(id);
         state.onAgentFinished?.();
         deliver("kakapo:pty-exit", { id });
       } catch { /* teardown race — ignore */ }
@@ -188,15 +201,31 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     if (resume) state.onResumeCommand?.(resume);
   });
   ipc.on("kakapo:pty-resize", (event, msg: { id: number; cols: number; rows: number }) => {
-    try { stateFromEvent(event)?.terms.get(msg?.id)?.resize(msg.cols, msg.rows); } catch { /* resize can race the pty teardown — ignore */ }
+    try {
+      const t = stateFromEvent(event)?.terms.get(msg?.id);
+      if (!t) return;
+      // A resize is SIGWINCH, and a shell answers SIGWINCH by reprinting its prompt. That output is ours, not
+      // an agent's — but it arrives on the same onData channel, so it lit the rail's "working" spinner for a
+      // workspace sitting idle at a bare prompt. Switching workspaces is exactly this: the view becomes
+      // visible, the ResizeObserver fires a fit, every pane resizes, and every one of them answers. Ignore the
+      // echo for a beat. A real agent that happens to be streaming through the window just re-arms the spinner
+      // with its next chunk, ~16ms later.
+      resizeEchoUntil.set(msg.id, Date.now() + RESIZE_ECHO_MS);
+      t.resize(msg.cols, msg.rows);
+    } catch { /* resize can race the pty teardown — ignore */ }
   });
-  ipc.on("kakapo:pty-kill", (event, msg: { id: number }) => {
+  ipc.on("kakapo:pty-kill", (event, msg: { id: number; endSession?: boolean }) => {
     const state = stateFromEvent(event);
     const t = state?.terms.get(msg?.id);
-    // Closing a pane detaches it; the session (and the agent in it) keeps running until the workspace itself
-    // is deleted. Reopening a pane takes the lowest free ordinal, which is the same session name, so the
-    // agent comes back where you left it. This used to kill the session instead, which meant a stray ⌘W
-    // ended a running agent for good.
+    const session = state?.termSessions?.get(msg?.id);
+    // Two ways a pane goes away, and they mean different things. Quitting the app (or closing a window) only
+    // DETACHES: the session and the agent in it keep working, and a reopened pane re-attaches by ordinal.
+    // Closing the pane yourself with ⌘W is a decision about that terminal, so it ends the session too —
+    // otherwise the agent runs on invisibly, holding its tokens, in a pane nobody can see. The renderer asks
+    // first when something is running there (pty-foreground below), so a stray ⌘W still can't take an agent
+    // out silently.
+    const tmux = msg?.endSession && session ? resolveTmux(process.env) : undefined;
+    if (tmux && session) endTmuxSession(tmux, session);
     state?.termSessions?.delete(msg?.id);
     if (t) { ptyReaper.kill(t); state!.terms.delete(msg.id); }
     state?.commandBuffers?.delete(msg.id);
@@ -209,11 +238,17 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     const state = stateFromEvent(event);
     const t = typeof msg?.id === "number" ? state?.terms.get(msg.id) : undefined;
     if (!t) return { running: false, name: "" };
-    // A pane backed by tmux only detaches when it closes, so there is nothing to confirm — warning that an
-    // agent "will be stopped" would be a lie. Only a plain pty (no tmux installed) really ends what it runs.
-    if (typeof msg?.id === "number" && state?.termSessions?.has(msg.id)) return { running: false, name: "" };
     const shell = process.env.SHELL || (process.platform === "win32" ? "powershell.exe" : "/bin/zsh");
     const shellName = shell.split(/[\\/]/).pop() || shell;
+    // A tmux-backed pane used to answer "nothing is running" here, because closing it only detached and the
+    // warning would have been a lie. ⌘W ends the session now, so the question is real again — and it has to
+    // be put to tmux, which knows what is in the pane, rather than to the pty (that is the tmux client).
+    const session = typeof msg?.id === "number" ? state?.termSessions?.get(msg.id) : undefined;
+    const tmux = session ? resolveTmux(process.env) : undefined;
+    if (session && tmux) {
+      const inPane = tmuxPaneCommand(tmux, session).replace(/^-/, "");
+      return { running: !!inPane && inPane !== shellName, name: inPane };
+    }
     let fg = "";
     try { fg = t.process || ""; } catch { /* pty may have exited mid-query */ }
     const name = fg.replace(/^-/, ""); // login shells surface as "-zsh"
@@ -259,7 +294,7 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
   // A TUI in the integrated terminal rang the bell (e.g. Claude Code finished a turn / needs input). Raise a
   // native notification when the window ISN'T focused — while you're watching, the bell itself is enough — plus
   // a dock bounce / taskbar flash. Clicking the notification brings the window forward.
-  ipc.on("kakapo:bell", (event, msg: { title?: string; body?: string }) => {
+  ipc.on("kakapo:bell", (event, msg: { title?: string; body?: string; seq?: number }) => {
     const state = stateFromEvent(event);
     if (!state || state.win.isDestroyed()) return;
     // Light the tile's attention dot whenever a background turn finishes — even if the app is focused on a
@@ -270,7 +305,14 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     try {
       if (Notification.isSupported()) {
         const note = new Notification({ title: msg?.title || "kakapo", body: msg?.body || "Terminal task finished" });
-        note.on("click", () => { if (!state.win.isDestroyed()) { state.win.show(); state.win.focus(); } });
+        note.on("click", () => {
+          if (state.win.isDestroyed()) return;
+          state.win.show();
+          state.win.focus();
+          // Raising the window drops you wherever you left off, which for a notification about one answer in
+          // a long review is not where you meant to go. When the bell named a comment, land on it.
+          if (Number.isFinite(msg?.seq)) state.win.webContents.send("kakapo:comments-reveal", { seq: msg?.seq });
+        });
         note.show();
       }
     } catch { /* notifications are best-effort */ }

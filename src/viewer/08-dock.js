@@ -2,6 +2,9 @@
 // Only one is visible at a time. Cmd/Ctrl+Shift+' maximizes the active dock over the editor area.
 var dockHeightKey = 'kakapo-dock-height';
 var dockMaximized = false;
+// Assigned once the settings panel is built (see below); read by the KEY_OWNERS table in 05-keymap.js,
+// which loads first and so tests it with `typeof`.
+var handleSettingsKey;
 function applyDockHeight(px) {
   var h = Math.max(140, Math.min(px, window.innerHeight - 120));
   document.documentElement.style.setProperty('--dock-height', h + 'px');
@@ -215,34 +218,33 @@ function openMergedView() {
     });
     return lines.join(nl);
   }
-  // Send the WHOLE merged prompt into a terminal pane (v0.2.7): arrows choose the pane, Enter sends. Available
+  // Send the merged prompt into a terminal pane (v0.2.7): arrows choose the pane, Enter sends. Available
   // whenever the integrated terminal exists; if no pane is open yet, one is created first.
   //
-  // Issue #10: before typing the prompt in, kakapo writes an answers.json checklist for the comments being
-  // sent (window.kakapoAnswers.write) and prepends an instruction + the file's absolute path, so the agent
-  // can write structured answers back instead of only replying in the terminal. text/items are captured
+  // Issue #10: the document leads with the path of the thread file (comments-file.ts) and how to answer into
+  // it — the agent appends one line per reply, which lands back in the thread beside the code it is about,
+  // instead of an answer that only ever existed as terminal output. The file itself is already up to date
+  // (saveThread runs on every comment change), so nothing has to be written here. The text is captured
   // BEFORE dock.close() — closing destroys the live editors currentMergedText() reads from.
+  //
+  // What crosses into the pane is the PATH of that document, not the document. Every byte of it was already on
+  // disk, so pasting the whole thing sent the review a second time — and once a comment had a few turns quoted
+  // under it, that paste was kilobytes of composer input for a request the agent can open in one read. Writing
+  // it out first also means the agent reads the state at the moment it looks, not at the moment you pressed
+  // send. Where there is no file to write to (a non-git root, or the CLI's browser viewer), the document goes
+  // over as text exactly as it always did.
   function sendWholeDocToTerminal() {
     var text = currentMergedText();
-    var items = blocks.reduce(function (acc, block) { return acc.concat(block.items); }, []).map(function (c) {
-      // A follow-up ("why that way?") is meaningless without what it follows, and this checklist is rewritten
-      // per round — so carry the exchange it continues, oldest first, rather than handing over a bare pronoun.
-      var thread = commentAncestry(c).map(function (p) { return { prompt: p.text, answer: p.answer || null }; });
-      var item = { seq: c.seq, kind: c.kind, target: commentTargetLabel(c), prompt: c.text, answer: null, answeredAt: null };
-      if (thread.length) item.thread = thread;
-      return item;
-    });
     dock.close();
-    function deliver(finalText) {
-      window.__kakapoTerminal.enterSendMode(finalText);
-    }
-    if (items.length && window.kakapoAnswers && typeof window.kakapoAnswers.write === 'function') {
-      window.kakapoAnswers.write(items).then(function (result) {
-        deliver(result && result.ok && result.path ? t('mergePrompt.answersFile') + '\n' + result.path + '\n\n' + text : text);
-      }, function () { deliver(text); });
-    } else {
-      deliver(text);
-    }
+    var path = typeof annotationsPath === 'string' ? annotationsPath : '';
+    var doc = path ? t('mergePrompt.answersFile') + '\n' + path + '\n\n' + text : text;
+    var writeRequest = window.kakapoComments && typeof window.kakapoComments.writeRequest === 'function'
+      ? window.kakapoComments.writeRequest(doc)
+      : Promise.resolve(null);
+    writeRequest.catch(function () { return null; }).then(function (result) {
+      var ok = result && result.ok && result.path;
+      window.__kakapoTerminal.enterSendMode(ok ? t('mergePrompt.requestFile') + ' ' + result.path : doc);
+    });
   }
   // Shared by the Copy-all button and Cmd+C-after-Cmd+A (see handleMergedKeydown) so both paths copy the
   // exact same assembled text.
@@ -293,6 +295,14 @@ function openMergedView() {
       }
       clearSelectAll();
     }
+    // ⌥⏎ hands the whole document over wherever the focus sits inside the panel — the bar's own button, a
+    // card, an editor. Scoping it to the card/editor branches below made it dead everywhere else, which is
+    // half of why the hand-off looked gone.
+    if (event.altKey && (event.key === 'Enter' || event.code === 'Enter') && terminalAvailable()) {
+      event.preventDefault();
+      sendWholeDocToTerminal();
+      return;
+    }
     var target = event.target;
     var card = target && target.closest ? target.closest('.mc-merged-card') : null;
     if (card) {
@@ -313,10 +323,6 @@ function openMergedView() {
         deleteSelectedCard(card);
         return;
       }
-      if (event.altKey && (event.key === 'Enter' || event.code === 'Enter') && terminalAvailable()) {
-        event.preventDefault();
-        sendWholeDocToTerminal();
-      }
       return;
     }
     var region = target && target.closest ? target.closest('.mc-merged-editor-region') : null;
@@ -329,10 +335,6 @@ function openMergedView() {
           if (sib) { event.preventDefault(); focusRegion(sib, dir === 'down' ? 'start' : 'end'); }
         }
         return;
-      }
-      if (event.altKey && (event.key === 'Enter' || event.code === 'Enter') && terminalAvailable()) {
-        event.preventDefault();
-        sendWholeDocToTerminal();
       }
     }
   }
@@ -350,6 +352,20 @@ function openMergedView() {
   copyBtn.disabled = true;
   copyBtn.addEventListener('click', copyMergedText);
   dock.bar.insertBefore(copyBtn, dock.bar.querySelector('.dock-max'));
+  // The visible half of the hand-off. Without it the only route into the pane picker was ⌥⏎ with the right
+  // thing focused, so "send the merged prompt to a terminal" read as a feature that had been removed.
+  var sendBtn = null;
+  if (terminalAvailable()) {
+    sendBtn = document.createElement('button');
+    sendBtn.type = 'button';
+    sendBtn.className = 'dock-btn mc-send-terminal';
+    sendBtn.dataset.keyhint = '⌥⏎';
+    sendBtn.setAttribute('data-i18n', 'merged.sendToTerminal');
+    sendBtn.textContent = t('merged.sendToTerminal');
+    sendBtn.disabled = true;
+    sendBtn.addEventListener('click', sendWholeDocToTerminal);
+    dock.bar.insertBefore(sendBtn, copyBtn);
+  }
   // Registered once (not per-rebuild inside initializeMergedEditor) so a Backspace-delete rebuild never
   // stacks a second copy of either listener.
   host.addEventListener('click', handleMergedClick);
@@ -416,6 +432,7 @@ function openMergedView() {
       });
       renderAllAddressedNote();
       copyBtn.disabled = false;
+      if (sendBtn) sendBtn.disabled = false;
       if (reselectIndex !== null) {
         var cards = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
         if (cards.length) { selectCard(cards[Math.min(reselectIndex, cards.length - 1)], true); return; }
@@ -545,22 +562,20 @@ document.addEventListener('click', function (event) {
   if (!t || !t.closest) return;
   var reopen = t.closest('.mc-reopen');
   if (reopen) { event.preventDefault(); reopenComment(parseInt(reopen.dataset.seq, 10)); return; }
-  var reply = t.closest('.mc-reply');
-  if (reply) {
-    event.preventDefault();
-    // An agent note has no seq to reply to — it anchors the composer by its own path/line instead.
-    if (reply.classList.contains('mc-ai-reply')) openAnnotationReplyComposer(reply.dataset.path, parseInt(reply.dataset.line, 10));
-    else openReplyComposer(parseInt(reply.dataset.seq, 10));
-    return;
-  }
+  // ▶ on a note that carries steps: play its walkthrough (23-annotations.js).
+  var tourStart = t.closest('.mc-tour-start');
+  if (tourStart) { event.preventDefault(); startNoteTour(parseInt(tourStart.dataset.seq, 10)); return; }
+  // A file path inside an agent's prose (linkifyPathCode in 23-annotations.js) navigates to that file.
+  var pathCode = t.closest('.mc-path-code');
+  if (pathCode) { event.preventDefault(); openPathReference(pathCode.textContent || ''); return; }
+  // The waiting box at the end of every thread (replyStubHtml) is now the ONLY way in to a reply: it sits
+  // where the next turn goes, it is always visible, and it is a keyboard stop. The per-card ↩ in each header
+  // opened the same composer on the same card — a second control for one action, in the row where the only
+  // other button deletes things.
+  var stub = t.closest('.mc-reply-stub');
+  if (stub) { event.preventDefault(); openReplyComposer(parseInt(stub.dataset.seq, 10)); return; }
   var del = t.closest('.mc-del');
-  if (del) {
-    event.preventDefault();
-    // An agent note has no seq — it is identified by where it is anchored.
-    if (del.classList.contains('mc-ai-del')) deleteAnnotation(del.dataset.path, parseInt(del.dataset.line, 10));
-    else deleteComment(parseInt(del.dataset.seq, 10));
-    return;
-  }
+  if (del) { event.preventDefault(); deleteComment(parseInt(del.dataset.seq, 10)); return; }
   if (t.closest('.mc-save')) { event.preventDefault(); saveComposer(); return; }
   if (t.closest('.mc-cancel')) { event.preventDefault(); closeComposer(); return; }
 });
@@ -583,9 +598,6 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onMergedView === 'function') {
 if (window.kakapoMenu && typeof window.kakapoMenu.onOpenMemo === 'function') {
   // Cmd/Ctrl+Shift+N from the Review menu -> open/close the prompt memo.
   window.kakapoMenu.onOpenMemo(function () { openMemoView(); });
-}
-if (window.kakapoAnswers && typeof window.kakapoAnswers.onUpdate === 'function') {
-  window.kakapoAnswers.onUpdate(function (items) { try { applyAnswersUpdate(items); } catch (e) {} });
 }
 if (window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function') {
   // Electron watch: refresh review data in place so comments and navigation context stay stable.
@@ -702,17 +714,21 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   if (flag) flag.addEventListener('click', function (e) { e.stopPropagation(); open('general'); });
   cats.forEach(function (c) { c.addEventListener('click', function () { showCat(c.dataset.cat); }); });
   modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
-  // Capture so closing settings wins over other Escape handlers (lightbox / composer).
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && !modal.classList.contains('hidden')) { e.stopPropagation(); e.preventDefault(); close(); return; }
+  // Settings is the first row of KEY_OWNERS (05-keymap.js), which is what makes its Esc beat the lightbox
+  // and the composer. That used to be a capture-phase listener whose only statement of precedence was a
+  // comment here; the ordering now lives in the one table that ranks every such surface.
+  handleSettingsKey = function (e) {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) { e.stopPropagation(); e.preventDefault(); close(); return true; }
     // Cmd/Ctrl+, (the standard "Preferences" accelerator) toggles the settings panel from anywhere — but not
     // while another floating overlay (merged / memo) owns focus; that one must be Esc'd first.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === ',' || e.code === 'Comma')) {
-      if (modal.classList.contains('hidden') && (document.getElementById('mc-modal') || document.getElementById('mc-memo'))) return;
+      if (modal.classList.contains('hidden') && (document.getElementById('mc-modal') || document.getElementById('mc-memo'))) return false;
       e.preventDefault(); e.stopPropagation();
       if (modal.classList.contains('hidden')) open('general'); else close();
+      return true;
     }
-  }, true);
+    return false;
+  };
   // One-click self-update (Electron only): install latest globally via the main process, then relaunch.
   if (updateBtn && window.kakapoUpdate && typeof window.kakapoUpdate.run === 'function') {
     updateBtn.addEventListener('click', function () {

@@ -113,6 +113,39 @@ test("double-click selects a complete word in both file and diff views", async (
   v.close();
 });
 
+// Cmd+Left/Right jumps to the line edge; with Shift it has to SELECT to that edge, the way it does in any
+// editor. In the diff it did not: setDiffCursor drops the selection anchor on every caret placement, and this
+// was the one caret mover that never put it back, so Cmd+Shift+Arrow moved and then cleared.
+test("Cmd+Shift+Left/Right selects to the line edge in both file and diff views", async () => {
+  const v = await loadViewer(html);
+  const selection = () => v.window.getSelection().toString();
+
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(0);
+  v.key("ArrowRight", { metaKey: true });
+  await v.settle(80);
+  assert.equal(selection(), "", "a bare Cmd+Right only moves the caret");
+  v.key("ArrowLeft", { metaKey: true, shiftKey: true });
+  await v.settle(80);
+  assert.equal(selection(), "export const x = 1;", "file view: Cmd+Shift+Left takes the line back to its start");
+  v.key("ArrowRight", { metaKey: true });
+  await v.settle(80);
+  assert.equal(selection(), "", "…and a Cmd+Arrow without Shift drops it again");
+
+  await v.openDiffFor("src/app.ts");
+  await v.clickFirstDiffLine();
+  v.key("ArrowRight", { metaKey: true });
+  await v.settle(80);
+  assert.equal(selection(), "", "same in the diff: no Shift, no selection");
+  v.key("ArrowLeft", { metaKey: true, shiftKey: true });
+  await v.settle(80);
+  assert.ok(selection().length > 0, "diff view: Cmd+Shift+Left selects back to the line start");
+  v.key("ArrowLeft", { metaKey: true });
+  await v.settle(80);
+  assert.equal(selection(), "", "and Cmd+Left alone clears it");
+  v.close();
+});
+
 test("file view folds imports by default and Cmd+. toggles the caret's brace block", async () => {
   const { html: foldHtml } = await makeReviewHtml([
     {
@@ -1148,10 +1181,11 @@ test("e on a selected comment box opens the composer prefilled and edits in plac
 
 test("F7 across a file boundary sets the diff caret once (no first-line → change double jump)", async () => {
   const v = await loadViewer(html);
-  await v.openDiffFor("src/app.ts");
-  // src/app.ts has one change block, so the caret already sits at the file's last change. The FIRST F7 now
+  // README.md has one change block, so the caret already sits at the file's last change. The FIRST F7 now
   // announces ("last change — press F7 again") instead of crossing, giving a beat to mark-viewed: the caret
-  // must NOT move.
+  // must NOT move. It is deliberately not the LAST file of the review — there the press has nowhere to cross
+  // to, and announcing a next file would promise one that doesn't exist (see the no-wrap test below).
+  await v.openDiffFor("README.md");
   let calls = 0;
   let orig = v.window.setDiffCursor;
   v.window.setDiffCursor = function () { calls += 1; return orig.apply(this, arguments); };
@@ -1173,6 +1207,29 @@ test("F7 across a file boundary sets the diff caret once (no first-line → chan
   v.window.setDiffCursor = orig;
   assert.equal(calls, 1, "caret set once via focusDiffRow; ensureDiffCursor skipped");
   assert.ok(hint && !hint.classList.contains("show"), "the last-change hint clears once the caret crosses to the next file (never covers it)");
+  v.close();
+});
+
+// Stepping off either end used to land on the other one, so a reviewer walking the changes had no way to
+// tell "that was the last one" from "here is the first one again" — the review looked like it had restarted.
+test("F7 stops at the last change instead of wrapping back to the first", async () => {
+  const v = await loadViewer(html);
+  const last = v.window.hunkPathAt(v.window.hunkTotal() - 1);
+  await v.openDiffFor(last);
+  v.key("F7"); // the last change in the file: the announcement is skipped, there is nothing to cross to
+  await new Promise((r) => setTimeout(r, 30));
+  v.key("F7");
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(v.window.hunkPathAt(v.window.hunkIndexAtCaret()), last, "the caret stays in the last file rather than jumping to the first");
+  const hint = v.window.document.querySelector(".mc-caret-hint");
+  assert.ok(hint && !/F7/.test(hint.textContent), "no promise of a next file that doesn't exist");
+
+  // ...and the same at the other end: Shift+F7 from the first change stays put.
+  const first = v.window.hunkPathAt(0);
+  await v.openDiffFor(first);
+  v.key("F7", { shiftKey: true });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(v.window.hunkPathAt(v.window.hunkIndexAtCaret()), first, "backward navigation stops at the first change");
   v.close();
 });
 

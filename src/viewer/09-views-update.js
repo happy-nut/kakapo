@@ -1,3 +1,7 @@
+// Assigned when the workspace selector is wired; read by the KEY_OWNERS table in 05-keymap.js, which loads
+// first and so tests it with `typeof`.
+var handleWorkspaceHubKey;
+
 function setTab(name) {
   if (name === 'files') ensureTreeRendered();
   document.querySelectorAll('.tab').forEach((button) => {
@@ -776,12 +780,14 @@ async function checkForLiveUpdate() {
   selector.addEventListener('click', function () {
     if (typeof bridge.toggleWorkspaceHub === 'function') bridge.toggleWorkspaceHub();
   });
-  document.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape' && document.body.classList.contains('workspace-hub-open')) {
-      event.preventDefault();
-      if (typeof bridge.toggleWorkspaceHub === 'function') bridge.toggleWorkspaceHub();
-    }
-  });
+  // The last KEY_OWNERS row (05-keymap.js): the hub overlay is dismissible, but every other surface above it
+  // in that table is layered on top of it, so it takes Esc only once they have all declined.
+  handleWorkspaceHubKey = function (event) {
+    if (event.key !== 'Escape' || !document.body.classList.contains('workspace-hub-open')) return false;
+    event.preventDefault();
+    if (typeof bridge.toggleWorkspaceHub === 'function') bridge.toggleWorkspaceHub();
+    return true;
+  };
   bridge.onWorkspaceState(function (payload) {
     var items = payload && Array.isArray(payload.items) ? payload.items : [];
     qsItems = items; qsCurrentId = payload && payload.currentId;

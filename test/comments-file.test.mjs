@@ -1,0 +1,125 @@
+// comments.jsonl — the whole review conversation in one file (issue #10). A reviewer's question, an agent's
+// answer and an agent's Explain note are the same kind of thing, so they are one list of records here rather
+// than three stores with three shapes. kakapo writes what it knows; an agent replies by APPENDING a line.
+//
+// What this has to get right: the app saving a comment must never swallow a line the agent appended a moment
+// earlier, and a half-written trailing line must cost one record rather than the conversation.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { commentsFilePath, registerCommentsIpc, syncCommentsFile, readThread, writeThread } from "../dist/comments-file.js";
+
+function harness() {
+  const root = mkdtempSync(join(tmpdir(), "kakapo-thread-"));
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  const sent = [];
+  const state = {
+    win: { isDestroyed: () => false, webContents: { send: (channel, payload) => sent.push({ channel, payload }) } },
+    options: { root },
+    commentsFile: commentsFilePath(root),
+  };
+  let write, read;
+  registerCommentsIpc({
+    handle: (channel, fn) => {
+      if (channel === "kakapo:comments-write") write = fn;
+      if (channel === "kakapo:comments-read") read = fn;
+    },
+  }, () => state);
+  return {
+    root, state, sent,
+    write: (records, knownMaxId) => write({}, { records, knownMaxId: knownMaxId ?? records.reduce((m, r) => Math.max(m, r.id), 0) }),
+    read: () => read({}),
+    file: () => readFileSync(state.commentsFile, "utf8"),
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+  };
+}
+
+const ask = (id, text, extra = {}) => ({ id, path: "src/a.ts", line: id, text, ...extra });
+
+test("an agent's appended reply survives the app saving the comments around it", () => {
+  const h = harness();
+  try {
+    assert.ok(h.state.commentsFile, "a git repository yields a thread path");
+    h.write([ask(1, "why a CLI?"), ask(2, "why not a library?")]);
+    assert.deepEqual(readThread(h.state.commentsFile).map((r) => r.id), [1, 2]);
+
+    // The agent answers the way the file's own header tells it to: one appended line.
+    appendFileSync(h.state.commentsFile, JSON.stringify({ id: 3, re: 1, by: "agent", text: "It ships as one binary." }) + "\n");
+
+    // …and the reviewer edits an unrelated comment before that line has been read back.
+    const result = h.write([ask(1, "why a CLI?"), ask(2, "why not a library, really?")], 2);
+    assert.deepEqual(result.arrived.map((r) => r.id), [3], "main reports what it found and kept");
+
+    const after = readThread(h.state.commentsFile);
+    assert.deepEqual(after.map((r) => r.id), [1, 2, 3], "the answer is still there");
+    assert.equal(after[2].text, "It ships as one binary.");
+    assert.equal(after[1].text, "why not a library, really?", "and the edit landed");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("a half-written trailing line costs one record, not the conversation", () => {
+  const h = harness();
+  try {
+    h.write([ask(1, "why a CLI?")]);
+    appendFileSync(h.state.commentsFile, '{"id":2,"re":1,"by":"agent","te');
+    const records = readThread(h.state.commentsFile);
+    assert.deepEqual(records.map((r) => r.id), [1], "the complete line is still readable");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("the file teaches its own format, and only the agent's edits come back to the renderer", () => {
+  const h = harness();
+  try {
+    h.write([ask(1, "why a CLI?")]);
+    const raw = h.file();
+    assert.match(raw, /^# kakapo review thread/, "a header explains the format to whoever opens it");
+    assert.match(raw, /"re":<id you are answering>/, "including how to reply");
+    assert.match(raw, /APPEND only/, "and what not to do");
+    assert.equal(raw.split("\n").filter((line) => line && !line.startsWith("#")).length, 1, "one line per record");
+
+    syncCommentsFile(h.state);
+    assert.equal(h.sent.length, 0, "kakapo's own write is not reported back as if the agent made it");
+
+    appendFileSync(h.state.commentsFile, JSON.stringify({ id: 2, re: 1, by: "agent", text: "because." }) + "\n");
+    syncCommentsFile(h.state);
+    assert.equal(h.sent.length, 1, "the agent's line is pushed");
+    assert.equal(h.sent[0].channel, "kakapo:comments-update");
+    assert.deepEqual(h.sent[0].payload.records.map((r) => r.id), [1, 2], "as the whole list, which cannot drift");
+
+    syncCommentsFile(h.state);
+    assert.equal(h.sent.length, 1, "an unchanged file is not re-pushed");
+  } finally {
+    h.cleanup();
+  }
+});
+
+// Nothing is lost by unifying the stores: a workspace that was annotated before this existed still has its
+// notes in annotations.json, and the renderer folds them in the first time it reads a thread file that is
+// not there yet.
+test("a pre-unification annotations.json is handed over once, then never again", () => {
+  const h = harness();
+  try {
+    mkdirSync(join(h.root, ".git", "kakapo"), { recursive: true });
+    writeFileSync(join(h.root, ".git", "kakapo", "annotations.json"),
+      JSON.stringify({ version: 1, notes: [{ path: "src/a.ts", line: 3, title: "why", text: "because." }] }));
+
+    const first = h.read();
+    assert.equal(first.exists, false, "no thread file yet");
+    assert.deepEqual(first.legacyNotes.map((n) => n.text), ["because."], "so the old notes come along");
+
+    h.write([{ id: 1, by: "agent", kind: "note", path: "src/a.ts", line: 3, title: "why", text: "because." }]);
+    const second = h.read();
+    assert.equal(second.exists, true);
+    assert.deepEqual(second.legacyNotes, [], "once the thread file exists it is the only source");
+    assert.deepEqual(second.records.map((r) => r.text), ["because."]);
+  } finally {
+    h.cleanup();
+  }
+});
