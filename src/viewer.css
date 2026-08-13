@@ -569,6 +569,21 @@ body.native-app .source-tabs {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .app-version .kakapo-mark { width: 28px; height: 28px; }
+/* Downloading an update: the mark itself becomes the gauge. A conic-gradient ring sweeps around it as the
+   bytes arrive, and the logo greys out underneath so "something is happening here" reads before the ring
+   does. Costs no layout — nothing moves, nothing appears beside it — which is the point: the reviewer is
+   mid-review and the update is not the thing they are doing. Everything keys off one --update-progress
+   percentage set by applyUpdateProgress; with the class off, none of this applies and it is just the logo. */
+.app-version.is-updating { position: relative; }
+.app-version.is-updating .kakapo-mark { opacity: 0.35; }
+.app-version.is-updating::before {
+  content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 28px; height: 28px; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(var(--active) var(--update-progress, 0%), transparent 0);
+  /* Ring, not pie: the logo has to stay recognisable under it. */
+  -webkit-mask: radial-gradient(circle, transparent 0 9px, #000 10px);
+  mask: radial-gradient(circle, transparent 0 9px, #000 10px);
+}
 .app-version-text { overflow: hidden; text-overflow: ellipsis; }
 .analysis-status {
   min-width: 0; display: inline-flex; align-items: center; gap: 5px;
@@ -2113,6 +2128,19 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-card.mc-ai:hover .mc-del,
 .mc-card.mc-ai .mc-del:focus-visible { opacity: 1; }
 .mc-ai-title { font-size: 11px; color: var(--text); font-weight: 600; }
+/* The problem and the fix (comments-file.ts `role`). A reviewer who reads two notes out of twelve should read
+   these two, so they get a pill and a coloured edge while every other note keeps the quiet default. The edge
+   is a left border rather than a tint or a glow: it survives being read at a glance down a long thread, and
+   it costs no layout, so a marked note is not a differently-sized note. Deliberately only two colours — the
+   red is where it hurts, the green is where it stops hurting, and a third would make the pair a palette. */
+.mc-role {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 4px; border: 1px solid currentColor; white-space: nowrap;
+}
+.mc-card.mc-role-problem { border-left: 3px solid var(--diag-error); }
+.mc-card.mc-role-problem .mc-role { color: var(--diag-error); }
+.mc-card.mc-role-fix { border-left: 3px solid var(--add-strong); }
+.mc-card.mc-role-fix .mc-role { color: var(--token-string); }
 /* Prose, not a code snippet: undo .mc-card-body's pre-wrap (markdown supplies its own block structure) and
    let .markdown-body typography take over. */
 .mc-ai-body { white-space: normal; font: 12.5px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }

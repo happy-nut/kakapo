@@ -113,8 +113,33 @@ function openTreeRowMenu(row) {
   if (window.kakapoApp && typeof window.kakapoApp.revealInFinder === 'function') {
     items.push({ label: t('menu.revealFinder'), onSelect: function () { try { window.kakapoApp.revealInFinder(path); } catch (e) {} } });
   }
-  if (window.kakapoApp && typeof window.kakapoApp.openTerminal === 'function') {
+  // "Open terminal here" belongs to the terminal this app already has, not to Terminal.app: the point of the
+  // integrated panel is that the shell sits beside the diff you are reading, and a second window somewhere
+  // else on the desktop is the thing it replaced. Falls back to the OS terminal only where there is no
+  // integrated one (the CLI's browser viewer).
+  if (window.__kakapoTerminal && typeof window.__kakapoTerminal.openAt === 'function') {
+    items.push({ label: t('menu.openTerminal'), onSelect: function () {
+      try {
+        Promise.resolve(window.kakapoApp.absolutePath(path)).then(function (result) {
+          var absolute = result && result.ok && typeof result.path === 'string' ? result.path : '';
+          var cut = absolute.lastIndexOf('/'); // the row names a FILE; the shell wants the folder holding it
+          if (cut > 0) window.__kakapoTerminal.openAt(absolute.slice(0, cut));
+        });
+      } catch (e) {}
+    } });
+  } else if (window.kakapoApp && typeof window.kakapoApp.openTerminal === 'function') {
     items.push({ label: t('menu.openTerminal'), onSelect: function () { try { window.kakapoApp.openTerminal(path); } catch (e) {} } });
+  }
+  // Clear this file's review comments in one action. It rides removeComments, so the whole batch comes back
+  // with one Cmd/Ctrl+Z — which is why it asks for no confirmation. Only offered when there is something to
+  // remove, so the menu never carries a dead row.
+  var owned = typeof commentSeqsForPath === 'function' ? commentSeqsForPath(path) : [];
+  if (owned.length) {
+    items.push({ label: t('menu.clearComments').replace('{n}', String(owned.length)), onSelect: function () {
+      removeComments(owned);
+      refreshComments();
+      if (typeof showToast === 'function') showToast(t('comment.clearedMany').replace('{n}', String(owned.length)));
+    } });
   }
   showCustomDropdown(Math.round(r.left + 14), Math.round(r.bottom + 2), items, Math.round(r.top));
 }

@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, protocol, shell, WebContentsView } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, shell, WebContentsView } from "electron";
 import type { WebContents } from "electron";
 import { git, gitAsync, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
@@ -804,6 +805,47 @@ ipcMain.handle("kakapo:open-recent", async (event, payload: { path?: string }) =
 // The packaged bundle and the global CLI are two different installs with two different update channels, and
 // answering with the wrong one is why "Update" could report success and change nothing: `npm i -g` replaces
 // the command, never /Applications/Kakapo.app. Ask the release for the DMG when we ARE the bundle.
+// Tell every open workspace how far the download has got, so the brand mark can fill (15-analysis-status.js).
+// Percent only — a byte count in a 28px mark is unreadable, and the one thing the reviewer wants to know is
+// whether it is moving. `done` releases the mark whether the update succeeded or failed.
+function sendUpdateProgress(payload: { percent: number; done?: boolean }): void {
+  for (const state of states.values()) {
+    if (!state.win.isDestroyed()) state.win.webContents.send("kakapo:update-progress", payload);
+  }
+}
+
+// Stream the release DMG to disk, reporting bytes as they land. Electron's net.request rather than fetch or
+// curl: it follows GitHub's redirect to the CDN by default, it goes through the app's own proxy/TLS settings,
+// and it hands us the chunks — which is what makes a percentage possible at all. The whole point is that the
+// main process keeps painting while ~200MB moves, so nothing here may be synchronous.
+function downloadUpdateDmg(assetUrl: string): Promise<{ ok: boolean; path?: string; error?: string }> {
+  return new Promise((resolve) => {
+    const work = mkdtempSync(join(tmpdir(), "kakapo-dmg-"));
+    const target = join(work, "kakapo.dmg");
+    const file = createWriteStream(target);
+    const request = net.request({ url: assetUrl, redirect: "follow" });
+    const fail = (error: string) => { try { file.destroy(); } catch { /* already gone */ } sendUpdateProgress({ percent: 0, done: true }); resolve({ ok: false, error }); };
+    request.on("response", (response) => {
+      if (response.statusCode >= 400) { fail(`download returned ${response.statusCode}`); return; }
+      const total = Number(response.headers["content-length"]) || 0;
+      let received = 0;
+      let lastSent = -1;
+      response.on("data", (chunk: Buffer) => {
+        file.write(chunk);
+        received += chunk.length;
+        // One IPC per whole percent, not per chunk: a 200MB download is thousands of chunks and the mark
+        // cannot show more than 100 states anyway.
+        const percent = total ? Math.min(99, Math.floor((received / total) * 100)) : 0;
+        if (percent !== lastSent) { lastSent = percent; sendUpdateProgress({ percent }); }
+      });
+      response.on("end", () => { file.end(() => resolve({ ok: true, path: target })); });
+      response.on("error", (error: Error) => fail(errorMessage(error)));
+    });
+    request.on("error", (error) => fail(errorMessage(error)));
+    request.end();
+  });
+}
+
 async function updatePackagedApp(): Promise<{ ok: boolean; error?: string }> {
   const installed = bundlePathFor(app.getPath("exe"));
   if (!installed) return { ok: false, error: "not running from an application bundle" };
@@ -819,7 +861,9 @@ async function updatePackagedApp(): Promise<{ ok: boolean; error?: string }> {
       .filter((item) => item.name && item.browser_download_url)
       .map((item) => ({ name: String(item.name), url: String(item.browser_download_url) })));
     if (!asset) return { ok: false, error: `${tag} has no build for this machine` };
-    return installPackagedUpdate({ assetUrl: asset.url, installed, quit: () => { quitConfirmed = true; app.quit(); } });
+    const downloaded = await downloadUpdateDmg(asset.url);
+    if (!downloaded.ok || !downloaded.path) return { ok: false, error: downloaded.error ?? "download failed" };
+    return installPackagedUpdate({ dmgPath: downloaded.path, installed, quit: () => { quitConfirmed = true; app.quit(); } });
   } catch (error) {
     return { ok: false, error: errorMessage(error) };
   }

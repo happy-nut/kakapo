@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   cliArgsForCwd,
   globalKakapoBinCandidates,
@@ -195,4 +196,42 @@ test("the swap script waits for the app to exit and puts the old bundle back if 
   assert.match(script, /else[\s\S]*mv "\/Applications\/Kakapo\.app\.old" "\/Applications\/Kakapo\.app"/,
     "a failed copy restores it rather than leaving no app at all");
   assert.match(script, /\/usr\/bin\/open -a "\/Applications\/Kakapo\.app"/, "and the app comes back up");
+});
+
+// A ~200MB image used to come down inside installPackagedUpdate as a synchronous curl, which froze the main
+// process for the whole transfer with nothing on screen moving — indistinguishable from a hang. The download
+// moved out to a streaming caller that reports bytes; what stays here is local disk work measured in seconds.
+test("the update installs from a DMG already on disk, and the download reports progress", () => {
+  const update = readFileSync(new URL("../src/app-update.ts", import.meta.url), "utf8");
+  assert.match(update, /installPackagedUpdate\(options: \{[\s\S]{0,400}dmgPath: string/,
+    "installPackagedUpdate takes a downloaded image, not a URL");
+  assert.doesNotMatch(update, /"\/usr\/bin\/curl"/, "and no longer shells out to curl");
+  assert.doesNotMatch(update, /assetUrl/, "so nothing in the install path touches the network");
+
+  const main = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
+  assert.match(main, /net\.request\(\{ url: assetUrl, redirect: "follow" \}\)/,
+    "the download follows GitHub's redirect to the CDN itself");
+  assert.match(main, /content-length[\s\S]{0,900}sendUpdateProgress\(\{ percent \}\)/,
+    "and turns bytes received into a percentage");
+  assert.match(main, /if \(percent !== lastSent\)/, "one message per whole percent, not per chunk");
+  assert.match(main, /downloadUpdateDmg\(asset\.url\)[\s\S]{0,200}installPackagedUpdate\(\{ dmgPath/,
+    "download first, then install what it produced");
+
+  // The report has to cost no layout: the reviewer is mid-review, and the update is not what they are doing.
+  const status = readFileSync(new URL("../src/viewer/15-analysis-status.js", import.meta.url), "utf8");
+  assert.match(status, /classList\.toggle\('is-updating', active\)/, "the brand mark carries the progress");
+  assert.match(status, /setProperty\('--update-progress', percent \+ '%'\)/, "as one percentage custom property");
+  const css = readFileSync(new URL("../src/viewer.css", import.meta.url), "utf8");
+  assert.match(css, /\.app-version\.is-updating::before[\s\S]{0,400}conic-gradient\(var\(--active\) var\(--update-progress/,
+    "drawn as a ring that sweeps around the mark");
+  assert.match(css, /mask: radial-gradient\(circle, transparent 0 9px/, "a ring, so the logo stays readable under it");
+});
+
+// A tooltip that repeats the label it is attached to is a rectangle over the content behind it and nothing else.
+test("the update flag has no tooltip repeating its own label", () => {
+  const render = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
+  const flag = render.match(/<span id="app-update-flag"[^>]*>/)?.[0];
+  assert.ok(flag, "the flag is still rendered");
+  assert.doesNotMatch(flag, /title=/, "with no native tooltip");
+  assert.doesNotMatch(flag, /data-i18n-title/, "and nothing to re-add one on locale change");
 });

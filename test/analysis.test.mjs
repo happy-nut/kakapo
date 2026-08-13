@@ -531,3 +531,30 @@ test("project diagnostics report available:false when no language server covers 
     analysis.dispose();
   }
 });
+
+// Go-to-definition asks the language server about a POSITION, and the position it asked about used to be
+// recomputed as `line.indexOf(name)` — the first place that name appears in the line, not the place the
+// caret is. Any identifier that also sits inside an earlier one on the same line therefore answered about
+// the wrong symbol: `Locale` in `normalizeLocale(...): Locale` resolved to normalizeLocale, and so did
+// `Path` in `filePath`. Found by comparing kakapo's answers against a SCIP index of its own source.
+test("the identifier under the caret keeps its own column, even when its name hides inside an earlier one", async () => {
+  const root = tempProject();
+  const files = [
+    { path: "src/kind.ts", content: "export type Locale = 'en';\nexport function normalizeLocale(value: unknown): Locale {\n  return 'en';\n}\n" },
+  ];
+  for (const file of files) write(root, file.path, file.content);
+  const analysis = new ProjectAnalysis(root, { files, resolveServer: () => undefined });
+  try {
+    const line = "export function normalizeLocale(value: unknown): Locale {";
+    assert.equal(line.indexOf("Locale"), 25, "precondition: the name really does hide inside the earlier identifier");
+
+    const returnType = await analysis.query({ kind: "definition", path: "src/kind.ts", line: 1, column: 49 });
+    assert.equal(returnType.symbol, "Locale", "the caret is on the return type");
+    assert.deepEqual(returnType.locations.map((item) => item.lineIndex), [0], "…so it resolves to the type, not to the function it is spelled inside");
+
+    const functionName = await analysis.query({ kind: "definition", path: "src/kind.ts", line: 1, column: 16 });
+    assert.equal(functionName.symbol, "normalizeLocale", "and the function name still resolves to itself");
+  } finally {
+    analysis.dispose();
+  }
+});

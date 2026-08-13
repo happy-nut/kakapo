@@ -352,7 +352,7 @@ export function renderDiffHtml(input: {
     `<div id="boot-overlay">${brandLoader}</div>`,
     activityRail,
     '<aside class="sidebar" aria-label="Review navigation">',
-    `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name">${escapeHtml(input.branch || "")}</span></span><span class="brand-meta">${input.app ? `<span id="analysis-status" class="analysis-status is-idle" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-label">Analysis idle</span></span>` : ""}<span class="app-version" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}${packageVersion ? '<span class="app-version-text">v' + escapeHtml(packageVersion) + "</span>" : ""}</span></span><button type="button" class="brand-reveal" id="brand-reveal" data-keyhint="⌥F1" data-i18n-title="brand.revealFile" title="Reveal open file in the sidebar" aria-label="Reveal open file in the sidebar"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3.2"/><path d="M12 17.8V21"/><path d="M3 12h3.2"/><path d="M17.8 12H21"/></svg></button></div>`,
+    `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name">${escapeHtml(input.branch || "")}</span></span><span class="brand-meta">${input.app ? `<span id="analysis-status" class="analysis-status is-idle" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-label">Analysis idle</span></span>` : ""}<span class="app-version" id="app-version" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}${packageVersion ? '<span class="app-version-text">v' + escapeHtml(packageVersion) + "</span>" : ""}</span></span><button type="button" class="brand-reveal" id="brand-reveal" data-keyhint="⌥F1" data-i18n-title="brand.revealFile" title="Reveal open file in the sidebar" aria-label="Reveal open file in the sidebar"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3.2"/><path d="M12 17.8V21"/><path d="M3 12h3.2"/><path d="M17.8 12H21"/></svg></button></div>`,
     '<div class="sidebar-scroll">',
     input.lazy
       ? '<div class="tabs"><button type="button" class="tab active" data-tab="changes" data-i18n="tab.changes" data-i18n-title="tab.changes.title" title="Changes (⌘0)">Changes</button><button type="button" class="tab" data-tab="files" data-i18n="tab.files" data-i18n-title="tab.files.title" title="Files (⌘1)">Files</button></div>'
@@ -368,7 +368,10 @@ export function renderDiffHtml(input: {
     "</div>",
     // Usage quota now lives in the workspace rail (shell-pages.ts) — it is per-account, not per-workspace.
     // (see 15-analysis-status.js). Brand mark, version, and the analysis indicator moved up to the header above.
-    `<div class="sidebar-footer">${input.app ? '' : ""}<span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable" data-i18n-title="settings.updateAvailable" title="Update available">update available</span></div>`,
+    // No `title` on the flag: its tooltip was the same words as the label it sits under ("업데이트 있음" for
+    // both), so hovering it produced a native bubble that said nothing new and covered the file row above it.
+    // A tooltip repeating the visible label is never worth the rectangle it takes.
+    `<div class="sidebar-footer">${input.app ? '' : ""}<span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable">update available</span></div>`,
     "</aside>",
     '<div class="sidebar-resizer" aria-hidden="true"></div>',
     '<main class="content">',
@@ -634,12 +637,12 @@ export function renderDiffHtml(input: {
     '<label class="settings-label" for="settings-prompt-c" data-i18n="mergePrompts.cHeading">Change-request instructions</label>',
     '<textarea id="settings-prompt-c" class="settings-textarea" rows="4" spellcheck="false"></textarea>',
     '<div class="settings-subsection">',
-    '<div class="settings-h" data-i18n="annotatePrompt.title">Explain the diff inline</div>',
+    '<div class="settings-h" data-i18n="annotatePrompt.title">Explain the diff</div>',
     '<div class="settings-desc" data-i18n="annotatePrompt.desc">Sent to an AI agent (⌘⇧P) to walk this diff and drop plain-language note cards on the lines that matter. Saved automatically. {{NOTES_PATH}} is replaced with this workspace\'s annotations file when sent.</div>',
     '<textarea id="settings-prompt-annotate" class="settings-textarea" rows="10" spellcheck="false"></textarea>',
     '</div>',
     '<div class="settings-subsection">',
-    '<div class="settings-h" data-i18n="codebasePrompt.title">Map the codebase</div>',
+    '<div class="settings-h" data-i18n="codebasePrompt.title">Explain the codebase</div>',
     '<div class="settings-desc" data-i18n="codebasePrompt.desc">Sent from the Cmd+E launcher\'s Prompts section: read this repository and leave a map on the code itself. Saved automatically.</div>',
     '<textarea id="settings-prompt-codebase" class="settings-textarea" rows="10" spellcheck="false"></textarea>',
     '</div>',

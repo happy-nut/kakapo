@@ -14,7 +14,7 @@ import {
   buildProjectIndex,
   buildRegexSymbolIndex,
   documentPath,
-  identifierAt,
+  identifierSpanAt,
   maskNonCode,
   safeRelativePath,
   type IndexedFile,
@@ -278,8 +278,8 @@ export class ProjectAnalysis {
     let content = "";
     try { content = await readFile(join(this.root, path), "utf8"); } catch { /* fall through to index */ }
     const lines = content.split(/\r?\n/);
-    const direct = identifierAt(lines[lineIndex] ?? "", col);
-    if (direct) return { symbol: direct, lineIndex, column: Math.max(0, (lines[lineIndex] ?? "").indexOf(direct)) };
+    const direct = identifierSpanAt(lines[lineIndex] ?? "", col);
+    if (direct) return { symbol: direct.name, lineIndex, column: direct.start };
     const index = await this.getIndex();
     const enclosing = index.symbols
       .filter((item) => item.path === path && item.lineIndex <= lineIndex)

@@ -179,6 +179,11 @@ contextBridge.exposeInMainWorld("kakapoGit", {
 // in the Electron app (not browser/watch mode), so the renderer hides the in-app update button there.
 contextBridge.exposeInMainWorld("kakapoUpdate", {
   run: (): Promise<unknown> => ipcRenderer.invoke("kakapo:self-update"),
+  // How far the release image has downloaded. The reviewer keeps working while it streams, so the only
+  // reporting surface is the brand mark in the sidebar header — see applyUpdateProgress.
+  onProgress: (cb: (payload: { percent: number; done?: boolean }) => void): void => {
+    ipcRenderer.on("kakapo:update-progress", (_event, payload) => cb(payload));
+  },
 });
 
 // Packaged .app (double-clicked, no cwd repo): the welcome screen's "Open Folder" button asks the main

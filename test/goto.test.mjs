@@ -69,6 +69,50 @@ test("file rows have no hover path bubble and Opt+Enter menu exposes grounded pa
   Array.from(v.$("#mc-dropdown").querySelectorAll("button")).find((button) => /File Manager/.test(button.textContent)).click();
   v.window.openTreeRowMenu(row);
   Array.from(v.$("#mc-dropdown").querySelectorAll("button")).find((button) => /Terminal/.test(button.textContent)).click();
-  assert.deepEqual(calls, [["finder", path], ["terminal", path]]);
+  assert.deepEqual(calls, [["finder", path], ["terminal", path]],
+    "with no integrated terminal (the CLI's browser viewer) it still falls back to the OS one");
+  v.close();
+});
+
+// "Open Terminal here" means the terminal this app already has. Handing the folder to Terminal.app put the
+// reviewer in a second shell somewhere else on the desktop — the thing the integrated panel exists to replace.
+test("the tree's terminal row cds the integrated terminal, and clears a file's comments", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(0);
+  await v.openComposer("q");
+  await v.writeAndSave("why this way?");
+  await v.settle(40);
+
+  const opened = [];
+  v.window.__kakapoTerminal = { openAt: (dir) => opened.push(dir) };
+  v.window.kakapoApp = { absolutePath: async (p) => ({ ok: true, path: `/repo/${p}` }) };
+
+  const row = v.$('.file-link[data-source-file="src/app.ts"]') || v.$(".file-link[data-source-file]");
+  v.window.openTreeRowMenu(row);
+  await v.settle(10);
+  const terminalItem = Array.from(v.$("#mc-dropdown").querySelectorAll("button")).find((b) => /Terminal/.test(b.textContent));
+  terminalItem.click();
+  await v.settle(30);
+  assert.deepEqual(opened, ["/repo/src"], "it cds to the folder holding the file, not to the file");
+
+  // Clearing rides removeComments, so one Cmd/Ctrl+Z brings the whole batch back — which is why it asks
+  // nothing first. The row is offered only when the file actually has comments.
+  const target = v.$('.file-link[data-source-file="src/app.ts"]');
+  v.window.openTreeRowMenu(target);
+  await v.settle(10);
+  const clearItem = Array.from(v.$("#mc-dropdown").querySelectorAll("button")).find((b) => /Clear 1 comment/.test(b.textContent));
+  assert.ok(clearItem, "the menu counts what it would remove");
+  clearItem.click();
+  await v.settle(40);
+  assert.equal(v.storedComments().length, 0, "and removes them");
+
+  assert.ok(v.window.undoLastCommentRemoval(), "one undo restores the batch");
+  await v.settle(40);
+  assert.equal(v.storedComments().length, 1, "…all of it");
+
+  v.window.openTreeRowMenu(v.$('.file-link[data-source-file="src/app.ts"]'));
+  await v.settle(10);
+  v.$("#mc-dropdown").dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   v.close();
 });

@@ -34,6 +34,10 @@ export type ThreadRecord = {
   side?: "old" | "new";
   anchor?: string; // the commented line's text, so the comment can follow it when the file changes
   title?: string;
+  // The two notes that carry a change's story: where it goes wrong ("problem") and where that is beaten
+  // ("fix"). Absent on everything else, which is most notes — the point of marking them is that a reviewer
+  // with two minutes reads these and stops. The viewer draws them louder (agentCardHtml, 23-annotations.js).
+  role?: "problem" | "fix";
   addressed?: boolean;
   // An agent's note can be a walkthrough rather than a single card: kakapo plays these stops in order,
   // moving and highlighting the code view at each one. Absent on everything else.
