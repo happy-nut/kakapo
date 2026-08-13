@@ -71,16 +71,22 @@ export function swapScript(options: { pid: number; staged: string; installed: st
 export type PackagedUpdateResult = { ok: boolean; error?: string };
 
 /**
- * Download the release DMG, mount it, copy the app out, and hand the swap to the detached script above.
+ * Mount an already-downloaded release DMG, copy the app out, and hand the swap to the detached script above.
  * Returns only on failure — on success the caller quits so the script can take over.
+ *
+ * The download used to happen here, as a synchronous curl. That froze the main process for the whole transfer
+ * of a ~200MB image with nothing on screen moving, which is indistinguishable from a hang. It now belongs to
+ * the caller, which streams it and reports bytes as they arrive; what is left here runs in seconds.
  */
 export function installPackagedUpdate(options: {
-  assetUrl: string;
+  /** A DMG already on disk. The download is the slow part and belongs to the caller, which can report its
+   * progress (app-main.ts); everything from here on is seconds of local disk work with nothing to report. */
+  dmgPath: string;
   installed: string;
   pid?: number;
   quit: () => void;
 }): PackagedUpdateResult {
-  const { assetUrl, installed } = options;
+  const { dmgPath, installed } = options;
   // An app the user cannot write to (a managed /Applications, a read-only volume) has to be updated by
   // hand; failing here is honest, and the settings panel names the download instead.
   try {
@@ -90,7 +96,7 @@ export function installPackagedUpdate(options: {
   }
 
   const work = mkdtempSync(join(tmpdir(), "kakapo-update-"));
-  const dmg = join(work, "kakapo.dmg");
+  const dmg = dmgPath;
   const mount = join(work, "mnt");
   const staged = join(work, "Kakapo.app");
 
@@ -99,9 +105,6 @@ export function installPackagedUpdate(options: {
     if (result.status === 0) return { ok: true };
     return { ok: false, error: (result.stderr || result.stdout || `${command} failed`).trim().slice(0, 400) };
   };
-
-  const download = run("/usr/bin/curl", ["-fsSL", "--retry", "2", "-o", dmg, assetUrl]);
-  if (!download.ok) return download;
 
   const attach = run("/usr/bin/hdiutil", ["attach", dmg, "-nobrowse", "-quiet", "-mountpoint", mount]);
   if (!attach.ok) return attach;

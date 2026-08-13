@@ -36,3 +36,22 @@ function renderAnalysisStatus(status) {
 
 if (typeof window !== 'undefined') window.__kakapoAnalysisStatus = { render: renderAnalysisStatus };
 
+
+// ===== Update download progress, drawn ON the brand mark =====
+// The reviewer keeps working while ~200MB streams down, so the report has to be somewhere that costs no
+// layout and interrupts nothing. The kakapo mark in the sidebar header is already sitting there saying only
+// "this is kakapo" — it becomes the progress indicator for as long as there is progress, and goes back to
+// being the logo the moment there is not. No bar, no dialog, no percentage text competing with the version
+// number beside it: the ring fills, and the number lives in the title for anyone who wants it.
+function applyUpdateProgress(payload) {
+  var host = document.getElementById('app-version');
+  if (!host) return;
+  var percent = Math.max(0, Math.min(100, Math.round(Number(payload && payload.percent) || 0)));
+  var active = !!payload && !payload.done;
+  host.classList.toggle('is-updating', active);
+  host.style.setProperty('--update-progress', percent + '%');
+  host.title = active ? t('update.downloading').replace('{n}', String(percent)) : '';
+}
+if (window.kakapoUpdate && typeof window.kakapoUpdate.onProgress === 'function') {
+  window.kakapoUpdate.onProgress(applyUpdateProgress);
+}
