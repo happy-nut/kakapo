@@ -129,6 +129,14 @@ body.rail-exp .cv{display:none}
 .cv .wt.busy::after{content:"";position:absolute;inset:-2px;border-radius:9px;border:2px solid #4d86d9;animation:wsbreathe 1.3s ease-in-out infinite;pointer-events:none}
 @keyframes wsbreathe{0%,100%{opacity:.25;transform:scale(.94)}50%{opacity:.9;transform:scale(1.09)}}
 @media (prefers-reduced-motion:reduce){.cv .wt.busy::after{animation:none;opacity:.7}}
+/* Being deleted (markDeleting): dimmed, inert, and SAYING so. \`git worktree remove\` is not instant, and a
+   tile that stays fully lit and clickable until it abruptly disappears reads as "the click did nothing" —
+   then as "something vanished". Declared after .busy so a worktree whose agent was mid-run gets the danger
+   ring rather than the working one. Same breathing keyframes, so this is one visual language, not two. */
+.wt.deleting{opacity:.42;pointer-events:none}
+.ev .wt.deleting .wt-name::after{content:" · ${t("hubdel.deleting")}";font-weight:400;font-size:11px}
+.cv .wt.deleting::after{content:"";position:absolute;inset:-2px;border-radius:9px;border:2px solid #e5484d;animation:wsbreathe 1.3s ease-in-out infinite;pointer-events:none}
+@media (prefers-reduced-motion:reduce){.cv .wt.deleting::after{animation:none;opacity:.8}}
 /* ---------- expanded rail (⌘⇧E): Orca-style card panel — project header (avatar + name + count + chevron,
    click collapses the group) then a worktree card each (status dot + name + change tag + branch). ---------- */
 /* Fixed width (not 100%) so the expanded content is laid out at full width from frame one and the #hub width
@@ -236,6 +244,12 @@ body.rail-exp #pin svg{transform:rotate(180deg)}
 const T=${JSON.stringify(T)};
 const APP_VERSION=${JSON.stringify(appVersion)};
 const list=document.querySelector("#list"),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// Workspaces whose removal is in flight. \`git worktree remove\` takes as long as it takes, and until this
+// existed the tile sat there looking clickable and then simply vanished — no sign that the click had landed,
+// and a second click in the meantime would try to activate a workspace being destroyed. Held as ids rather
+// than as a class on the node so a rail re-render mid-delete (wcls) paints the state back on.
+const deletingIds=new Set();
+function markDeleting(id,on){on?deletingIds.add(id):deletingIds.delete(id);for(const el of document.querySelectorAll('.wt[data-id="'+id+'"]'))el.classList.toggle('deleting',on);}
 const newModal=prefill=>window.kakapoHub.openModal('new',prefill&&prefill.path?{path:prefill.path,name:prefill.name}:curRepo?{path:curRepo.path,name:curRepo.name}:undefined);
 document.querySelector("#new").onclick=()=>newModal();
 document.querySelector("#settings").onclick=()=>window.kakapoHub.settings();
@@ -427,7 +441,7 @@ const tip=w=>(w.alias||w.branch)+' · '+w.repoName+' · '+w.path+(AGENT_NAME[w.a
 // placeholder and the expanded panel's project badge, so projects read apart at a glance.
 const projHue=n=>{let h=0;const s=String(n||'');for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h%360;};
 // Shared per-worktree bits: state classes and the data-* every click/activate/context-menu handler reads.
-const wcls=w=>(w.active?' act':'')+(w.disconnected?' disc':'')+(w.busy?' busy':'')+(w.running?' running':'')+(w.unread?' attn':'');
+const wcls=w=>(w.active?' act':'')+(w.disconnected?' disc':'')+(w.busy?' busy':'')+(w.running?' running':'')+(w.unread?' attn':'')+(deletingIds.has(w.id)?' deleting':'');
 const wattr=w=>' data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-closed="'+!!w.closed+'" data-resume="'+(w.resume&&!w.running?'1':'')+'" data-kind="'+esc(w.kind||'')+'" title="'+esc(tip(w))+'"';
 const grpAvatar=ws=>{for(const w of ws)if(w.avatar)return w.avatar;return null;};
 const projMark=repo=>{const a=Array.from(String(repo||'?').trim());const c=a[0]||'?';return /[A-Za-z0-9]/.test(c)?c.toUpperCase():c;};
@@ -468,7 +482,11 @@ async function removeWorkspace(id,name){const r0=await window.kakapoHub.confirm(
 // Main answers a failed removal with {ok:false,error}, but an invoke can still reject outright (a thrown
 // handler crosses the bridge as a rejection). Unguarded, that rejection skipped the failure dialog below and
 // the delete reported nothing at all — the loudest possible silence for the one action that destroys work.
-try{r=await window.kakapoHub.remove(id,'delete',false,delBranch);if(r.needsConfirmation){const x=r.risk;const detail=[x.dirty&&T.dirty,x.unpushed&&T.unpushed.replace('{n}',x.unpushed).replace('{s}',x.unpushed===1?'':'s'),x.runningProcesses&&T.runningProc].filter(Boolean).join('\\n');const r2=await window.kakapoHub.confirm({title:T.anywayTitle,message:T.hasWork,detail,buttons:[T.cancel,T.anyway],danger:true,defaultId:0});if(r2.index!==1)return;r=await window.kakapoHub.remove(id,'delete',true,delBranch);}}catch(err){r={ok:false,error:(err&&err.message)||String(err)};}
+// Dimmed + "deleting…" for exactly as long as main is actually working, and NOT while a confirm dialog is
+// up in between — the tile marks itself before each call and clears in finally, so the risk-check round trip
+// and the real removal both show, and a cancelled second dialog leaves the tile untouched.
+const rm=async(...a)=>{markDeleting(id,true);try{return await window.kakapoHub.remove(id,'delete',...a)}finally{markDeleting(id,false)}};
+try{r=await rm(false,delBranch);if(r.needsConfirmation){const x=r.risk;const detail=[x.dirty&&T.dirty,x.unpushed&&T.unpushed.replace('{n}',x.unpushed).replace('{s}',x.unpushed===1?'':'s'),x.runningProcesses&&T.runningProc].filter(Boolean).join('\\n');const r2=await window.kakapoHub.confirm({title:T.anywayTitle,message:T.hasWork,detail,buttons:[T.cancel,T.anyway],danger:true,defaultId:0});if(r2.index!==1)return;r=await rm(true,delBranch);}}catch(err){r={ok:false,error:(err&&err.message)||String(err)};}
 if(!r.ok)await window.kakapoHub.confirm({title:T.failedTitle,message:r.error||T.failedMsg,buttons:[T.ok]});}
 document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.wt');if(card){e.preventDefault();if(card.dataset.closed==='true')return;if(card.dataset.disconnected==='true'){window.kakapoHub.openModal('disconnected',{path:decodeURIComponent(card.dataset.path)});return}window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1',kind:card.dataset.kind||''});}});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.altKey&&/^[1-9]$/.test(e.key)){e.preventDefault();window.kakapoHub.activateIndex(Number(e.key)-1)}});
