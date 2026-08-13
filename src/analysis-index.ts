@@ -243,14 +243,22 @@ export function safeRelativePath(root: string, path: string | undefined): string
   return rel;
 }
 
-export function identifierAt(text: string, column: number): string | undefined {
+// The identifier under `column`, WITH where it starts. The start is not a nicety: a caller that only gets the
+// name has to find it again, and `line.indexOf(name)` finds the wrong one whenever the name also appears
+// inside an earlier identifier on that line — `Locale` sits inside `normalizeLocale`, `Path` inside
+// `filePath`. Asking a language server about that relocated column answers about the wrong symbol.
+export function identifierSpanAt(text: string, column: number): { name: string; start: number } | undefined {
   const position = Math.max(0, Math.min(column, text.length));
   const re = /[A-Za-z_$][A-Za-z0-9_$]*/g;
   let match: RegExpExecArray | null;
   while ((match = re.exec(text))) {
-    if (position >= match.index && position <= match.index + match[0].length) return match[0];
+    if (position >= match.index && position <= match.index + match[0].length) return { name: match[0], start: match.index };
   }
   return undefined;
+}
+
+export function identifierAt(text: string, column: number): string | undefined {
+  return identifierSpanAt(text, column)?.name;
 }
 
 export function documentPath(path: string): boolean {
