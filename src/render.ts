@@ -433,8 +433,13 @@ export function renderDiffHtml(input: {
     // Integrated terminal (Electron only): a floating xterm overlay with split panes, revealed by the rail
     // toggle / Ctrl+`. A direct body child (NOT inside .content) so send-mode dimming of .content can't make
     // this fixed panel see-through. Hidden until first opened; the client mounts xterm into #terminal-host.
+    //
+    // No title strip of its own. It carried the word "Terminal" over a row of panes each already labelled
+    // "Terminal 1", "Terminal 2" — the same word twice, in two strips, costing two rows of chrome on a panel
+    // whose whole point is the rows below them. The close button moved onto the pane-label row (viewer.css),
+    // which is now the panel's only chrome.
     input.app
-      ? '<div id="terminal-panel" class="terminal-panel hidden"><div class="terminal-resizer" aria-hidden="true"></div><div class="terminal-bar"><span class="terminal-title" data-i18n="terminal.title">Terminal</span><button type="button" id="terminal-close" class="terminal-x" data-i18n-title="terminal.close" title="Close terminal" aria-label="Close terminal">&times;</button></div><div id="terminal-host" class="terminal-host"></div></div>'
+      ? '<div id="terminal-panel" class="terminal-panel hidden"><div class="terminal-resizer" aria-hidden="true"></div><button type="button" id="terminal-close" class="terminal-x" data-i18n-title="terminal.close" title="Close terminal" aria-label="Close terminal">&times;</button><div id="terminal-host" class="terminal-host"></div></div>'
       : "",
     input.app
       ? '<aside id="impact-panel" class="impact-panel hidden" aria-label="Change Impact">'
