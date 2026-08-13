@@ -247,3 +247,21 @@ test("re-opening the dialog resets the toggle back on", async () => {
   assert.equal(box.checked, true, "a stale toggle would silently skip worktree creation next time");
   assert.ok(!document.querySelector("#labelRow").classList.contains("hidden"));
 });
+
+// Deleting a workspace almost always means the branch it was made for is finished too; leaving the box empty
+// made "delete" routinely leave a dead branch behind, and the reviewer had to remember to tick it every time.
+test("the delete confirmation offers to remove the local branch, pre-checked", async () => {
+  const { hub } = railWithState([ZOOBOX_WORKTREE]);
+  hub.handlers.onTileAction({ id: 3, name: "fix-login", action: "delete" });
+  await tick();
+  const [spec] = hub.lastCall("confirm");
+  assert.equal(spec.checkbox, "hubdel.checkbox");
+  assert.equal(spec.checked, true, "the local branch goes with the workspace unless the reviewer says otherwise");
+
+  // ...and the overlay honours that default instead of always coming up empty.
+  const overlay = stubHub();
+  const document = loadPage(modalOverlayHtml(false, t), overlay);
+  overlay.handlers.onModalOpen({ type: "confirm", ...spec });
+  await tick();
+  assert.equal(document.querySelector("#cfCheck").checked, true);
+});

@@ -462,7 +462,7 @@ if(railExp)railSelect(railSel<0?0:railSel); // re-apply the keyboard selection a
 // full re-render, so a streaming agent doesn't rebuild the rail DOM and drop hover/focus state.
 window.kakapoHub.onActivity(list=>{for(const a of list){for(const el of document.querySelectorAll('.wt[data-id="'+a.id+'"]')){el.classList.toggle('busy',!!a.busy);el.classList.toggle('running',!!a.running);el.classList.toggle('attn',!!a.unread);}}});
 window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){window.kakapoHub.openModal('rename',{id,name});}else if(action==='memo'){window.kakapoHub.openModal('memo',{id,name});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id,name);});
-async function removeWorkspace(id,name){const r0=await window.kakapoHub.confirm({title:name?T.delTitleNamed.replace('{name}',name):T.delTitle,message:T.delMessage,checkbox:T.delCheckbox,buttons:[T.cancel,T.del],danger:true,defaultId:0});if(r0.index!==1)return;const delBranch=r0.checked;let r;
+async function removeWorkspace(id,name){const r0=await window.kakapoHub.confirm({title:name?T.delTitleNamed.replace('{name}',name):T.delTitle,message:T.delMessage,checkbox:T.delCheckbox,checked:true,buttons:[T.cancel,T.del],danger:true,defaultId:0});if(r0.index!==1)return;const delBranch=r0.checked;let r;
 // Main answers a failed removal with {ok:false,error}, but an invoke can still reject outright (a thrown
 // handler crosses the bridge as a rejection). Unguarded, that rejection skipped the failure dialog below and
 // the delete reported nothing at all — the loudest possible silence for the one action that destroys work.
@@ -647,7 +647,7 @@ function showConfirm(spec){spec=spec||{};cfSent=false;
   const msg=document.querySelector("#cfMsg");msg.textContent=spec.message||'';msg.classList.toggle('hidden',!spec.message);
   const det=document.querySelector("#cfDetail");det.textContent=spec.detail||'';det.classList.toggle('hidden',!spec.detail);
   document.querySelector("#cfIcon").classList.toggle('hidden',!danger);
-  const ci=document.querySelector("#cfCheck");document.querySelector("#cfCheckWrap").classList.toggle('hidden',!spec.checkbox);ci.checked=false;document.querySelector("#cfCheckLabel").textContent=spec.checkbox||'';
+  const ci=document.querySelector("#cfCheck");document.querySelector("#cfCheckWrap").classList.toggle('hidden',!spec.checkbox);ci.checked=spec.checked===true;document.querySelector("#cfCheckLabel").textContent=spec.checkbox||'';
   const acts=document.querySelector("#cfActions");acts.innerHTML='';
   buttons.forEach((label,i)=>{const b=document.createElement('button');b.className='cf-btn'+(i===buttons.length-1?(danger?' danger':' pri'):'');b.textContent=label;b.onclick=()=>{cfSent=true;window.kakapoHub.confirmResult({index:i,checked:ci.checked});confirmDlg.close();};acts.appendChild(b);});
   confirmDlg.showModal();setTimeout(()=>{const bs=acts.querySelectorAll('button');(bs[defaultId]||bs[0]).focus();},0);}

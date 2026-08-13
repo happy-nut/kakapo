@@ -37,14 +37,14 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   onModalOpen: (
     callback: (payload: {
       type: string; id?: number; name?: string; path?: string;
-      title?: string; message?: string; detail?: string; buttons?: string[]; danger?: boolean; defaultId?: number; checkbox?: string;
+      title?: string; message?: string; detail?: string; buttons?: string[]; danger?: boolean; defaultId?: number; checkbox?: string; checked?: boolean;
     }) => void,
   ) => ipcRenderer.on("kakapo:modal-open", (_event, payload) => callback(payload)),
   // Custom confirm/alert component: the rail (or any renderer) calls confirm() to show a design-system dialog in
   // the overlay instead of a native message box; main relays the spec to the overlay and resolves with the
   // chosen button index (+ optional checkbox state). The overlay reports the click back via confirmResult().
   confirm: (spec: {
-    title?: string; message?: string; detail?: string; buttons?: string[]; danger?: boolean; defaultId?: number; checkbox?: string;
+    title?: string; message?: string; detail?: string; buttons?: string[]; danger?: boolean; defaultId?: number; checkbox?: string; checked?: boolean;
   }): Promise<{ index: number; checked: boolean }> => ipcRenderer.invoke("kakapo:hub-confirm", spec),
   confirmResult: (result: { index: number; checked: boolean }) => ipcRenderer.send("kakapo:confirm-result", result),
   // Ask main to return keyboard focus to the active review view (its shortcuts don't fire while the shell
