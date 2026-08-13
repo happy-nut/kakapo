@@ -171,7 +171,7 @@ test("main-process fallback answers definition, references, implementation, symb
   analysis.dispose();
 });
 
-test("a TypeScript server is told to skip automatic type acquisition and to cap tsserver", async () => {
+test("a TypeScript server is told to skip automatic type acquisition", async () => {
   const root = tempProject();
   write(root, "src/app.ts", "export const app = 1;\n");
   const seen = join(root, "initialize.json");
@@ -202,9 +202,8 @@ process.stdin.on('data', (chunk) => {
     await client.workspaceSymbols("app");
     const options = JSON.parse(readFileSync(seen, "utf8"));
     // The typings installer is a third process that npm-installs @types and watches node_modules — for a
-    // read-only review. maxTsServerMemory is the only way to reach tsserver, which tsls spawns itself.
+    // read-only review.
     assert.equal(options?.disableAutomaticTypingAcquisition, true, "automatic type acquisition stays off");
-    assert.ok(Number(options?.maxTsServerMemory) > 0, "tsserver gets a heap ceiling");
   } finally {
     client.dispose();
   }
@@ -341,9 +340,8 @@ test("TypeScript resolution uses the packaged sidecar before PATH", () => {
   const resolved = resolveLanguageServer(root, "src/app.ts", { PATH: dirname(pathServer) }, process.platform);
   assert.equal(resolved?.source, "bundled");
   assert.equal(resolved?.command, process.execPath);
-  assert.match(resolved?.args[0] ?? "", /^--max-old-space-size=\d+$/, "a node-hosted server runs under a heap ceiling");
-  assert.match(resolved?.args[1] ?? "", /typescript-language-server[/\\]lib[/\\]cli\.mjs$/);
-  assert.deepEqual(resolved?.args.slice(2), ["--stdio"]);
+  assert.match(resolved?.args[0] ?? "", /typescript-language-server[/\\]lib[/\\]cli\.mjs$/);
+  assert.deepEqual(resolved?.args.slice(1), ["--stdio"]);
   assert.equal(resolved?.env?.ELECTRON_RUN_AS_NODE, "1");
 });
 
@@ -353,8 +351,7 @@ test("Python and PHP resolve packaged sidecars without consulting PATH", () => {
   assert.equal(python?.source, "bundled");
   assert.equal(python?.name, "pyright-langserver");
   assert.equal(python?.command, process.execPath);
-  assert.match(python?.args[0] ?? "", /^--max-old-space-size=\d+$/, "a node-hosted server runs under a heap ceiling");
-  assert.match(python?.args[1] ?? "", /pyright[/\\]langserver\.index\.js$/);
+  assert.match(python?.args[0] ?? "", /pyright[/\\]langserver\.index\.js$/);
 
   const bundle = join(root, "bundle");
   const phpRuntime = join(bundle, `${process.platform}-${process.arch}`, "php", "php");

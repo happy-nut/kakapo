@@ -200,27 +200,19 @@ const SERVER_SPECS: Record<string, ServerSpec[]> = {
   php: [{ binary: "phpactor", args: ["language-server"] }],
 };
 
-// Electron-as-node hands a language server the same 4 GB old-space limit the app itself gets, so a server
-// with nothing forcing its hand simply grows into it: measured on a 3200-file Python repo, pyright settled at
-// 956 MB RSS. The limit is a GC pressure knob, not just a crash ceiling — the same workload lands at 859 MB
-// under 2048 and 797 MB under 1024, with identical diagnostics. 512 dies of heap exhaustion, and a server
-// that dies stays dead for the session (failedServers), which costs more than the memory it saves.
-// ponytail: one number for every node-hosted server. Per-family limits only if a real repo needs more.
-const NODE_SERVER_HEAP_MB = 2048;
+// No --max-old-space-size here, deliberately. Capping a node-hosted server's heap looks like an easy win and
+// is not one: over repeat runs on a 3200-file Python repo, pyright's footprint spread 675-956 MB uncapped and
+// 722-859 MB under 2048 — the run-to-run spread is wider than the gap between the settings, so the cap buys
+// nothing measurable. What it does buy is an abort: 512 dies of heap exhaustion, and a server that dies stays
+// dead for the session (failedServers). V8's own default already ceilings the heap.
 
 // Per-family LSP initializationOptions, applied whether the server came from the bundle or from PATH.
 // typescript-language-server's automatic type acquisition spawns a third process (typingsInstaller, 34 MB)
 // that npm-installs @types packages and watches node_modules for changes — a background download and a pile
-// of fs watchers in aid of a read-only review. maxTsServerMemory reaches tsserver, which tsls spawns itself
-// and which the flag above therefore cannot cap.
+// of fs watchers in aid of a read-only review. A whole process gone is a real saving, unlike a heap flag.
 const INIT_OPTIONS: Record<string, Record<string, unknown>> = {
-  typescript: { disableAutomaticTypingAcquisition: true, maxTsServerMemory: NODE_SERVER_HEAP_MB },
+  typescript: { disableAutomaticTypingAcquisition: true },
 };
-
-// Every node-hosted server runs through Electron's node mode; both spawn paths build their argv here.
-function nodeHostArgs(entry: string, args: string[]): string[] {
-  return [`--max-old-space-size=${NODE_SERVER_HEAP_MB}`, entry, ...args];
-}
 
 const NODE_SERVER_ENTRIES: Record<string, { name: string; entry: string; args: string[] }> = {
   typescript: {
@@ -388,7 +380,7 @@ function nodeHostedCommand(server: LanguageServerCommand): LanguageServerCommand
   return {
     ...server,
     command: process.execPath,
-    args: nodeHostArgs(entry, server.args),
+    args: [entry, ...server.args],
     env: { ...server.env, ELECTRON_RUN_AS_NODE: "1" },
   };
 }
@@ -408,7 +400,7 @@ export function resolveBundledLanguageServer(
       family,
       name: nodeServer.name,
       command: process.execPath,
-      args: nodeHostArgs(nodeServer.entry, nodeServer.args),
+      args: [nodeServer.entry, ...nodeServer.args],
       source: "bundled",
       // Electron's executable becomes a Node-compatible sidecar host without relying on a GUI app's PATH.
       env: { ELECTRON_RUN_AS_NODE: "1" },
