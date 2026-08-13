@@ -54,10 +54,13 @@ function openSourceFile(path, shouldSwitch = true, options) {
   // Code files have one Review surface. Keeping a second renderer made the same file appear to
   // have two subtly different modes, split search/comment behavior, and forced a full DOM/editor swap.
   // The line-addressable Review renderer now owns every source file, including large lazy-loaded files.
-  // Image files carry a data: URI preview instead of text — render inline (click to zoom).
+  // Image and PDF files carry a data: URI preview instead of text — render inline (an image zooms on click;
+  // a PDF gets Chromium's own viewer, which brings its scroll/zoom/search along for free).
   if (file.image) {
     setPanelClassNamePreservingFocus(body, 'source-body image-body');
-    body.innerHTML = renderImageView(file);
+    var isPdfPreview = file.image.slice(0, 20) === 'data:application/pdf';
+    body.innerHTML = isPdfPreview ? renderPdfView(file) : renderImageView(file);
+    if (isPdfPreview) mountPdfPreview(body, file);
     document.getElementById('http-env-select')?.classList.add('hidden');
     updateRenderToggle(path);
     if (shouldSwitch) showSourceView();
@@ -241,6 +244,36 @@ function toggleRenderMode() {
     }
   });
 })();
+
+// A PDF is handed to Chromium's built-in viewer rather than drawn by us: no PDF library ships in the bundle,
+// and the reader gets page navigation, zoom, text selection and find for nothing. The <embed> starts with no
+// src — mountPdfPreview fills it in, because the bytes have to become a blob: URL first.
+function renderPdfView(file) {
+  return '<div class="pdf-view">'
+    + '<embed class="pdf-frame" type="application/pdf" title="' + escapeHtml(file.name) + '">'
+    + '<div class="image-cap">' + escapeHtml(file.name) + ' &middot; ' + formatBytes(file.size || 0) + '</div>'
+    + '</div>';
+}
+// One object URL at a time, revoked when the next PDF opens: a data: URI in an <embed> is refused by
+// Chromium's plugin loader, and stuffing a 4/3-inflated base64 string into an attribute is not free either.
+// The blob is the same bytes with a real content type, which is exactly what the viewer wants.
+var pdfObjectUrl = null;
+function mountPdfPreview(body, file) {
+  var frame = body.querySelector('.pdf-frame');
+  if (!frame) return;
+  if (pdfObjectUrl) { try { URL.revokeObjectURL(pdfObjectUrl); } catch (e) {} }
+  var base64 = String(file.image).slice(String(file.image).indexOf(',') + 1);
+  try {
+    var binary = atob(base64);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    pdfObjectUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    frame.src = pdfObjectUrl;
+  } catch (e) {
+    pdfObjectUrl = null;
+    body.textContent = t('source.previewUnavailable');
+  }
+}
 
 function renderImageView(file) {
   return '<div class="image-view">'

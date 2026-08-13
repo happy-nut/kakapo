@@ -113,6 +113,9 @@ const PNG_1PX = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64",
 );
+// Smallest thing that is recognisably a PDF: the magic header and a trailer. Nothing here renders it — the
+// pipeline keys off the extension — but bytes that lie about what they are make a confusing fixture.
+const PDF_MIN = Buffer.from("%PDF-1.4\n1 0 obj\n<</Type/Catalog>>\nendobj\ntrailer\n<</Root 1 0 R>>\n%%EOF\n", "utf8");
 
 test("lazy build: images are deferred, not base64'd into the index", async () => {
   // Eagerly embedding every image in the tree escaped the source byte budget entirely (the image branch
@@ -141,6 +144,36 @@ test("lazy build: images are deferred, not base64'd into the index", async () =>
   assert.equal(opened.skippedReason, undefined, "a deferred image must not come back skipped");
   assert.equal(opened.deferred, false, "materializing clears the deferred flag");
   assert.equal(opened.image, `data:image/png;base64,${PNG_1PX.toString("base64")}`, "exact bytes round-trip");
+});
+
+// A PDF rides the image pipeline rather than getting one of its own: it is the same question ("this file is
+// bytes, not source — hand the renderer something it can display"), and answering it once means the deferral,
+// the size cap, and the find-in-files/diagnostics opt-outs all already apply. Without it a PDF was sniffed as
+// "binary file" and the Files view had nothing to show.
+test("a PDF is a previewable file, not a binary dead end", async () => {
+  const { dir, build } = await makeReviewHtml(
+    [...bigFixture(), { path: "docs/spec.pdf", before: PDF_MIN, after: PDF_MIN }],
+    { lazyLoad: true, app: true },
+  );
+  const pdf = build.lazySourceFiles.find((f) => f.path === "docs/spec.pdf");
+  assert.ok(pdf, "the PDF is indexed");
+  assert.equal(pdf.skippedReason, undefined, "and not written off as a binary file");
+  assert.ok(pdf.deferred && pdf.embedded, "it defers its bytes like an image, and is fetched on open");
+  assert.equal(pdf.image, undefined, "so the index carries no base64");
+
+  const opened = materializeDeferredSourceFile(dir, pdf);
+  assert.equal(opened.skippedReason, undefined, "opening it does not re-run the binary sniff");
+  assert.equal(opened.image, `data:application/pdf;base64,${PDF_MIN.toString("base64")}`, "exact bytes round-trip");
+
+  // jsdom has no PDFium, so what is pinned here is the wiring: the renderer must hand those bytes to
+  // Chromium's viewer rather than draw them, and Electron must have the plugin enabled for it to appear.
+  const renderer = readFileSync(new URL("../src/viewer/11-render-http.js", import.meta.url), "utf8");
+  assert.match(renderer, /data:application\/pdf'[\s\S]{0,120}renderPdfView/, "the preview branches on the mime it was given");
+  assert.match(renderer, /<embed class="pdf-frame" type="application\/pdf"/, "into Chromium's own viewer");
+  assert.match(renderer, /createObjectURL\(new Blob\(\[bytes\], \{ type: 'application\/pdf' \}\)\)/,
+    "as a blob: URL — an <embed> with a data: URI is refused by the plugin loader");
+  assert.match(readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8"),
+    /spellcheck: false,[\s\S]{0,400}plugins: true/, "and the review view enables PDFium, or the embed is an empty box");
 });
 
 test("standalone build still inlines images — it has no IPC to fetch them through", async () => {

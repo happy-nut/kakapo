@@ -1635,6 +1635,10 @@ function createWindow(root: string, deferBoot = false): WinState {
   const host = ensureShellWindow(themeLight);
   const view = new WebContentsView({ webPreferences: {
     preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false,
+    // Chromium's built-in PDF viewer is a "plugin", and Electron ships with plugins off — without this an
+    // <embed type="application/pdf"> renders as an empty box. It enables PDFium and nothing else: NPAPI/Flash
+    // are long gone from Chromium, so this is not a general extension surface. See renderPdfView.
+    plugins: true,
   } });
   host.contentView.addChildView(view);
   view.setVisible(false);

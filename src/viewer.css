@@ -3009,6 +3009,13 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   cursor: zoom-in;
 }
 .image-cap { color: var(--muted); font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+/* A PDF fills the pane instead of sitting centered at its intrinsic size like an image: Chromium's viewer
+   brings its own scrolling and toolbar, and a document is read at full height, not looked at. The parent
+   .image-body centers with padding, so this claims the row and lets the embed take all of it. */
+.source-body.image-body:has(.pdf-view) { align-items: stretch; padding: 0; }
+.pdf-view { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; width: 100%; gap: 6px; }
+.pdf-frame { flex: 1 1 auto; min-height: 0; width: 100%; border: 0; background: var(--bg); }
+.pdf-view .image-cap { flex: none; padding: 0 12px 8px; }
 
 /* --- Lightbox (click an image to zoom) --- */
 /* Any rendered diagram opens full-size on click (20-mermaid.js), so it says so on hover. Nodes that

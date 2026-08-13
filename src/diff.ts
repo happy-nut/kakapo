@@ -235,9 +235,12 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
   return files.filter((file) => file.binary || file.hunks.length > 0);
 }
 
-// Raster image extensions that get an inline base64 preview. SVG is intentionally excluded:
-// it is text/markup, so it stays embedded as source (and can be syntax-highlighted / commented).
-function imageMimeForPath(path: string): string | null {
+// Files that get an inline base64 preview instead of source text: raster images, and PDFs — Chromium renders
+// those itself, so "view the PDF" costs a mime type here and an <embed> in the renderer rather than a PDF
+// library. SVG is intentionally excluded: it is text/markup, so it stays embedded as source (and can be
+// syntax-highlighted / commented). Everything this returns a mime for is carried on SourceFile.image, which
+// is also what tells find-in-files and diagnostics to leave the file alone — true for a PDF as much as a PNG.
+function previewMimeForPath(path: string): string | null {
   const dot = path.lastIndexOf(".");
   const ext = dot >= 0 ? path.slice(dot + 1).toLowerCase() : "";
   switch (ext) {
@@ -250,6 +253,7 @@ function imageMimeForPath(path: string): string | null {
     case "ico": return "image/x-icon";
     case "avif": return "image/avif";
     case "apng": return "image/apng";
+    case "pdf": return "application/pdf";
     default: return null;
   }
 }
@@ -411,10 +415,10 @@ export function collectSourceFiles(
       continue;
     }
 
-    const imageMime = imageMimeForPath(path);
-    if (imageMime) {
+    const previewMime = previewMimeForPath(path);
+    if (previewMime) {
       if (stats.size > IMAGE_MAX_BYTES) {
-        const skippedReason = `image larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
+        const skippedReason = `file larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
         sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0image-large\0${stats.size}`), skippedReason });
       } else if (options.deferSourceContent) {
         // Read the bytes only when the reviewer opens the image. Nothing needs the data URI before then:
@@ -432,7 +436,7 @@ export function collectSourceFiles(
         });
       } else {
         // Standalone HTML has no per-file IPC to fetch through: its images must ship inside the document.
-        const dataUri = `data:${imageMime};base64,${readFileSync(absolute).toString("base64")}`;
+        const dataUri = `data:${previewMime};base64,${readFileSync(absolute).toString("base64")}`;
         sourceFiles.push({ ...base, size: stats.size, image: dataUri, signature: hashText(`${path}\0image\0${stats.size}`) });
       }
       continue;
@@ -538,8 +542,8 @@ function workspaceGitPrefix(root: string): string {
 function readTargetBlobSource(root: string, file: SourceFile, target: string): SourceFile {
   const prefix = workspaceGitPrefix(root);
   const spec = `${target}:${prefix ? prefix + "/" : ""}${file.path}`;
-  const imageMime = imageMimeForPath(file.path);
-  if (imageMime) {
+  const previewMime = previewMimeForPath(file.path);
+  if (previewMime) {
     const out = spawnSync("git", ["show", spec], { cwd: root, encoding: "buffer", maxBuffer: 1024 * 1024 * 50 });
     if (out.status !== 0) {
       const skippedReason = "file is not present in this revision";
@@ -547,10 +551,10 @@ function readTargetBlobSource(root: string, file: SourceFile, target: string): S
     }
     const data = out.stdout as Buffer;
     if (data.length > IMAGE_MAX_BYTES) {
-      const skippedReason = `image larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
+      const skippedReason = `file larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
       return { ...file, content: "", size: data.length, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0image-large\0${data.length}`) };
     }
-    return { ...file, content: "", size: data.length, deferred: false, image: `data:${imageMime};base64,${data.toString("base64")}`, signature: hashText(`${file.path}\0image-target\0${data.length}`) };
+    return { ...file, content: "", size: data.length, deferred: false, image: `data:${previewMime};base64,${data.toString("base64")}`, signature: hashText(`${file.path}\0image-target\0${data.length}`) };
   }
   const out = spawnSync("git", ["show", spec], { cwd: root, encoding: "utf8", maxBuffer: 1024 * 1024 * 50 });
   if (out.status !== 0) {
@@ -591,10 +595,10 @@ export function materializeDeferredSourceFile(rootArg: string, file: SourceFile,
   // Images are deferred like everything else now, so this is where their data URI is built — before the
   // binary sniff below, which would otherwise reject every PNG as "binary file". Mirrors the A→B blob path
   // in readTargetBlobSource; the size guard is re-checked here in case the file grew since it was indexed.
-  const imageMime = imageMimeForPath(file.path);
-  if (imageMime) {
+  const previewMime = previewMimeForPath(file.path);
+  if (previewMime) {
     if (stats.size > IMAGE_MAX_BYTES) {
-      const skippedReason = `image larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
+      const skippedReason = `file larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
       return { ...file, content: "", size: stats.size, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0image-large\0${stats.size}`) };
     }
     return {
@@ -603,7 +607,7 @@ export function materializeDeferredSourceFile(rootArg: string, file: SourceFile,
       size: stats.size,
       deferred: false,
       skippedReason: undefined,
-      image: `data:${imageMime};base64,${readFileSync(absolute).toString("base64")}`,
+      image: `data:${previewMime};base64,${readFileSync(absolute).toString("base64")}`,
       signature: hashText(`${file.path}\0image\0${stats.size}`),
     };
   }
