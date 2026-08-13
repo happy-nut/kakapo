@@ -141,8 +141,12 @@ function changeStatusBadge(status: string): string {
     case "renamed":
       icon = '<path d="M3 5h8m-2.5-2.5L11 5 8.5 7.5M13 11H5m2.5-2.5L5 11l2.5 2.5"/>';
       break;
+    // No glyph: in a tree of changed files, "modified" is what every row is until it says otherwise, so a
+    // pencil on most of them marks nothing — and the filename colour (vcs-edited) already says it twice. The
+    // chip itself stays: it is the slot the viewed ✓ lands in (viewer.css), and keeping it holds every
+    // filename on the same left edge whether or not its status draws something.
     case "modified":
-      icon = '<path d="m3.2 11.8.6-2.7 6.6-6.6a1.2 1.2 0 0 1 1.7 0l1.4 1.4a1.2 1.2 0 0 1 0 1.7L6.9 12.2l-2.7.6zM9.5 3.4l3.1 3.1"/>';
+      icon = "";
       break;
     default:
       icon = '<circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/>';

@@ -1429,7 +1429,9 @@ summary.tree-focus { background: color-mix(in srgb, var(--active) 20%, transpare
 .file-link.viewed .status { font-size: 0; background: color-mix(in srgb, #6ab04c 24%, transparent); color: #6ab04c; }
 .file-link.viewed .status svg { display: none; }
 .file-link.viewed .status::after { content: '✓'; font-size: 10px; font-weight: 700; line-height: 1; }
-.status-modified { background: color-mix(in srgb, var(--active) 18%, transparent); color: var(--active); }
+/* Empty until the row is marked viewed, and then it is the green check — an untinted, unglyphed slot rather
+   than a blue chip saying "changed" on a list of changes. */
+.status-modified { background: transparent; color: var(--active); }
 .status-added { background: var(--add); color: #1a7f37; }
 .status-deleted { background: var(--del); color: #cf222e; }
 .status-renamed { background: #fff8c5; color: #9a6700; }
@@ -3271,7 +3273,9 @@ summary.tree-focus,
 .vcs-staged.source-link .path, .vcs-staged.change-row .change-name { color: var(--chrome-vcs-staged); }
 .status,
 .status-source { color: var(--chrome-muted); background: var(--chrome-line); }
-.status-modified { color: var(--chrome-vcs-edited); background: color-mix(in srgb, var(--chrome-vcs-edited) 18%, var(--chrome-panel)); }
+/* Same as the web theme: the modified chip is an empty slot, not a badge. `.status` above sets a background
+   on every chip, so this has to switch it back off — the viewed ✓ rule is more specific and still wins. */
+.status-modified { color: var(--chrome-vcs-edited); background: transparent; }
 
 .diff-toolbar,
 .source-tabs,
