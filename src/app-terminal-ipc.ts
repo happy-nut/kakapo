@@ -66,6 +66,11 @@ type TerminalStateResolver = (event: TerminalEvent) => TerminalIpcState | undefi
 
 let nextPtyId = 0; // global so pty ids never collide across windows; each window holds only its own in state.terms
 
+// pty id -> the moment its post-resize echo stops counting as agent activity (see kakapo:pty-resize). Keyed by
+// the globally unique pty id, so one map serves every window; entries are dropped when the pty exits.
+const resizeEchoUntil = new Map<number, number>();
+const RESIZE_ECHO_MS = 250;
+
 // Every pty kill in the app goes through this (window close, workspace removal, pane close, quit) so quit can
 // wait for the native exit deliveries instead of aborting on them — see createPtyReaper.
 export const ptyReaper = createPtyReaper();
@@ -164,13 +169,20 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     // down between the guard and the .send() (which then throws "Object has been destroyed"). Wrap the whole
     // callback body so nothing can reach node-pty's C++ boundary.
     t.onData((data) => {
-      try { deliver("kakapo:pty-data", { id, data }); state.onAgentOutput?.(); } catch { /* window torn down mid-drain */ }
+      // The bytes always reach the pane — only the ACTIVITY signal is filtered, so a prompt redrawn after our
+      // own resize still paints, it just doesn't claim an agent is working here.
+      try {
+        deliver("kakapo:pty-data", { id, data });
+        const quiet = resizeEchoUntil.get(id);
+        if (!(quiet && Date.now() < quiet)) state.onAgentOutput?.();
+      } catch { /* window torn down mid-drain */ }
     });
     t.onExit(() => {
       try {
         ptyReaper.settle(t);
         state.terms.delete(id);
         state.commandBuffers?.delete(id);
+        resizeEchoUntil.delete(id);
         state.onAgentFinished?.();
         deliver("kakapo:pty-exit", { id });
       } catch { /* teardown race — ignore */ }
@@ -189,7 +201,18 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     if (resume) state.onResumeCommand?.(resume);
   });
   ipc.on("kakapo:pty-resize", (event, msg: { id: number; cols: number; rows: number }) => {
-    try { stateFromEvent(event)?.terms.get(msg?.id)?.resize(msg.cols, msg.rows); } catch { /* resize can race the pty teardown — ignore */ }
+    try {
+      const t = stateFromEvent(event)?.terms.get(msg?.id);
+      if (!t) return;
+      // A resize is SIGWINCH, and a shell answers SIGWINCH by reprinting its prompt. That output is ours, not
+      // an agent's — but it arrives on the same onData channel, so it lit the rail's "working" spinner for a
+      // workspace sitting idle at a bare prompt. Switching workspaces is exactly this: the view becomes
+      // visible, the ResizeObserver fires a fit, every pane resizes, and every one of them answers. Ignore the
+      // echo for a beat. A real agent that happens to be streaming through the window just re-arms the spinner
+      // with its next chunk, ~16ms later.
+      resizeEchoUntil.set(msg.id, Date.now() + RESIZE_ECHO_MS);
+      t.resize(msg.cols, msg.rows);
+    } catch { /* resize can race the pty teardown — ignore */ }
   });
   ipc.on("kakapo:pty-kill", (event, msg: { id: number; endSession?: boolean }) => {
     const state = stateFromEvent(event);

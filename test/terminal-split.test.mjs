@@ -181,6 +181,24 @@ test("the terminal re-flows once per frame, not twice per action", () => {
   }
 });
 
+// The rail's "working" spinner means an agent is producing output. A resize is SIGWINCH, and a shell answers
+// SIGWINCH by reprinting its prompt — output on the same channel, from a workspace doing nothing. Switching
+// workspaces fires a fit as the view becomes visible, so every idle pane answered at once and every idle tile
+// spun: "에이전트가 실행 중이지 않는데 스피너가 도는 경우가 있네".
+test("a pane's own resize echo does not count as agent activity", () => {
+  const ipc = readFileSync(new URL("../src/app-terminal-ipc.ts", import.meta.url), "utf8");
+  assert.match(ipc, /kakapo:pty-resize[\s\S]{0,1400}resizeEchoUntil\.set\(msg\.id[\s\S]{0,80}t\.resize\(/,
+    "the quiet window is stamped before the resize that causes the echo, not after");
+  const onData = ipc.match(/t\.onData\(\(data\) => \{[\s\S]*?\n {4}\}\);/)?.[0];
+  assert.ok(onData, "output still flows through one place");
+  assert.match(onData, /deliver\("kakapo:pty-data"[\s\S]{0,200}resizeEchoUntil\.get\(id\)/,
+    "the bytes are delivered either way — only the activity signal is gated");
+  assert.match(onData, /if \(!\(quiet && Date\.now\(\) < quiet\)\) state\.onAgentOutput/,
+    "an echo inside the window raises no spinner; anything after it does");
+  assert.match(ipc, /t\.onExit[\s\S]{0,400}resizeEchoUntil\.delete\(id\)/,
+    "and the map does not outlive the pty it belongs to");
+});
+
 // A prompt sent to a pane is a PASTE, not typing. Codex enables bracketed paste (DECSET 2004) and reads a
 // bare newline as Enter, so a raw multi-line write submitted the first line and typed the rest into a busy
 // composer — "선택해서 붙여넣기가 안 된다". Wrap it when the pane's app asked for the mode, and only then:
