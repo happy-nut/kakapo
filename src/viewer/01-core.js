@@ -484,6 +484,11 @@ function materializeBody(wrapper, html) {
   body.innerHTML = html || '';
   body.removeAttribute('data-lazy');
   body.removeAttribute('data-loading');
+  // The body now lives in the DOM, so the string behind it is a second copy of the same bytes — and it is
+  // the expensive copy: walking a 130-file review costs 169 MB, of which 51 MB is these strings. Nothing
+  // reads them once the body is materialized (the rebuild path re-snapshots bodies off the DOM itself), and
+  // the paths that do need one again — a fast-path swap, a body dropped by a rebuild — refetch it from main.
+  delete bodyCache[(wrapper.id || '').replace('file-', '')];
   invalidateDiffRows(wrapper);
   markWrapperHunks(wrapper);
   if (diffBootDone && typeof reviewComments !== 'undefined' && reviewComments.length) { try { refreshComments(); } catch (e) {} }

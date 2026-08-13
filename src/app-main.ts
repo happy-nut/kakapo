@@ -83,6 +83,9 @@ type WinState = {
   sourceFiles: Map<string, SourceFile>; // source content stays in main; renderer requests one open file at a time
   analysis: ProjectAnalysis; // LSP-first project analysis + main-process regex fallback
   analysisSuspended: boolean;
+  // The idle timer dropped this workspace's caches (main) and its diff DOM (renderer). Cleared once the
+  // rebuild on the way back in has repainted the view; until then every activation retries.
+  viewReleased: boolean;
   idleTimer?: NodeJS.Timeout;
   terms: Map<number, IPty>; // integrated-terminal ptys owned by this window (killed on close)
   termSessions: Map<number, string>; // pty id -> tmux session, for panes opted into persistent terminals
@@ -217,7 +220,7 @@ protocol.registerSchemesAsPrivileged([{
 
 const iconPath = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "icon.png");
 // macOS has no window icons, and it reads the app icon off the bundle — the packaged one from Info.plist, the
-// dev one from the electron.icns that patch-electron-name.mjs overwrites with ours. Handing Electron the
+// dev one from the electron.icns that the postinstall branding step overwrites with ours. Handing Electron the
 // 1024² PNG on top of that only decoded bitmaps into the main process and left them there: measured +33.5 MB
 // for dock.setIcon, +14.3 MB for the first window's `icon:`, +5.2 MB per window after that, which is most of
 // the 64 MB of CG image this process was holding. Everywhere else it IS the window/taskbar icon, so it stays.
@@ -1276,17 +1279,24 @@ function activateWorkspace(id: number): void {
       activated.analysis = makeAnalysis(activated.options.root, () => activated);
       activated.analysisSuspended = false;
       scheduleAnalysisPrewarm(activated);
-      // Rebuilding the review on a switch to an idle workspace used to freeze the whole app for ~1-2s on a
-      // large repo (the build ran synchronously on the main process). buildReview now runs it in the worker,
-      // so main stays responsive; the view keeps its last-rendered diff and the refreshed diff/state is pushed
-      // when the build lands. Skip if the user has already switched away again.
+    }
+    // Rebuilding the review on a switch to an idle workspace used to freeze the whole app for ~1-2s on a
+    // large repo (the build ran synchronously on the main process). buildReview now runs it in the worker,
+    // so main stays responsive, and the refreshed diff/state is pushed when the build lands. Skip if the user
+    // has already switched away again — viewReleased stays set, so the next activation tries again. Keyed on
+    // the released view rather than on the suspend flag: a view whose diff DOM was dropped MUST be repainted,
+    // and the two are armed by the same timer.
+    if (activated.viewReleased) {
       const target = activated;
       setTimeout(async () => {
         if (target.win.isDestroyed() || target.win.webContents.id !== activeStateId) return;
         const rebuilt = await buildReview(target);
         if (!rebuilt || target.win.isDestroyed() || target.win.webContents.id !== activeStateId) return;
         target.signature = rebuilt.signature;
-        if (rebuilt.update) target.win.webContents.send("kakapo:diff-update", rebuilt.update);
+        if (rebuilt.update) {
+          target.win.webContents.send("kakapo:diff-update", rebuilt.update);
+          target.viewReleased = false;
+        }
       }, 0);
     } else if (activated.bootStarted) {
       // This workspace's pollers were paused while it was hidden (isVisibleWorkspace). Catch up now rather
@@ -1776,6 +1786,7 @@ function createWindow(root: string, deferBoot = false): WinState {
     sourceFiles: new Map(),
     analysis,
     analysisSuspended: false,
+    viewReleased: false,
     terms: new Map(),
     termSessions: new Map(),
     commandBuffers: new Map(),
@@ -1956,6 +1967,12 @@ function reconcileIdleSuspend(state: WinState): void {
     state.analysisSuspended = true;
     state.sourceFiles.clear();
     state.bodyCache.clear();
+    // Main just dropped this workspace's caches, so a rebuild is owed on the way back in either way. The
+    // renderer holds the same review a second time, as DOM — 169 MB for a 130-file diff, and Chromium cannot
+    // purge live DOM behind a hidden view — so ask for that back too, and let the same rebuild repaint it.
+    // Only a workspace that got as far as painting a review has one to give.
+    state.viewReleased = true;
+    if (state.bootStarted && !state.win.isDestroyed()) state.win.webContents.send("kakapo:release-view");
   }, ANALYSIS_IDLE_SUSPEND_MS);
   state.idleTimer.unref?.();
 }

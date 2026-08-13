@@ -765,12 +765,19 @@ function applyDiffUpdate(u) {
 function releaseDiffView() {
   var container = document.getElementById('diff2html-container');
   if (!container || !container.querySelector('.d2h-file-wrapper')) return false;
+  // A half-written comment lives in the diff DOM, and its composer would be dropped with it. Leave the
+  // review alone; main re-arms on the next time this workspace goes off screen.
+  if (typeof composerState !== 'undefined' && composerState) return false;
   container.innerHTML = '';
   bodyCache = {};
   bodyPromise = {};
   wrapperPathMap = null;
   diffCursor = null;
   diffBootDone = false;
+  // No build is painted any more, so no build is current. Without this the rebuild on the way back in is
+  // discarded as "unchanged" whenever nothing in the repo moved while the workspace was parked — which is
+  // the common case — and the review would stay empty until something edited the tree.
+  currentSignature = '';
   refreshHunkIndex(); // hunk metadata is derived from the DOM that just went away
   return true;
 }

@@ -603,6 +603,11 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function') {
   // Electron watch: refresh review data in place so comments and navigation context stay stable.
   window.kakapoMenu.onDiffUpdate(function (html) { try { applyDiffUpdate(html); } catch (e) {} });
 }
+if (window.kakapoMenu && typeof window.kakapoMenu.onReleaseView === 'function') {
+  // This workspace has been off screen long enough that its diff DOM is worth more as free memory; the
+  // rebuild on the way back in repaints it. See releaseDiffView.
+  window.kakapoMenu.onReleaseView(function () { try { releaseDiffView(); } catch (e) {} });
+}
 if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   // Cmd/Ctrl+W: close whatever the focus is on. A focused terminal pane closes just that pane (the last
   // pane collapses the panel); otherwise close the active Files-mode tab (no-op outside the source viewer).

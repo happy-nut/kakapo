@@ -164,7 +164,10 @@ export async function loadViewer(html, opts = {}) {
       }
       // Electron's diff-update bridge: capture the listener so a test can push a watch-refresh payload.
       if (opts.menuBridge) {
-        window.kakapoMenu = { onDiffUpdate: (cb) => { window.__diffUpdateCb = cb; } };
+        window.kakapoMenu = {
+          onDiffUpdate: (cb) => { window.__diffUpdateCb = cb; },
+          onReleaseView: (cb) => { window.__releaseViewCb = cb; },
+        };
       }
       // lazy-LOAD source/diff bridge: serve source content + per-index diff bodies on demand, as
       // Electron/serve do. opts.getDiffBody(index, kind) lets a test swap the served body between builds
@@ -287,6 +290,13 @@ class Viewer {
     if (!cb) throw new Error("pushDiffUpdate: no diff-update listener (pass { menuBridge: true })");
     cb(payload);
     await this.settle(80);
+  }
+  /** Simulate main reclaiming a long-parked workspace's diff DOM. Needs { menuBridge: true }. */
+  async releaseView() {
+    const cb = this.window.__releaseViewCb;
+    if (!cb) throw new Error("releaseView: no release listener (pass { menuBridge: true })");
+    cb();
+    await this.settle(20);
   }
   /** Read the persisted comments exactly as the viewer wrote them to localStorage. */
   storedComments() {
