@@ -3,7 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, shell, WebContentsView } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell, WebContentsView } from "electron";
 import type { WebContents } from "electron";
 import { git, gitAsync, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
@@ -216,6 +216,12 @@ protocol.registerSchemesAsPrivileged([{
 // Mutating the live bundle during macOS didFinishLaunching can terminate Chromium with SIGTRAP.
 
 const iconPath = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "icon.png");
+// macOS has no window icons, and it reads the app icon off the bundle — the packaged one from Info.plist, the
+// dev one from the electron.icns that patch-electron-name.mjs overwrites with ours. Handing Electron the
+// 1024² PNG on top of that only decoded bitmaps into the main process and left them there: measured +33.5 MB
+// for dock.setIcon, +14.3 MB for the first window's `icon:`, +5.2 MB per window after that, which is most of
+// the 64 MB of CG image this process was holding. Everywhere else it IS the window/taskbar icon, so it stays.
+const windowIcon = process.platform === "darwin" ? undefined : iconPath;
 const preloadPath = join(dirname(fileURLToPath(import.meta.url)), "preload.cjs");
 const hubPreloadPath = join(dirname(fileURLToPath(import.meta.url)), "hub-preload.cjs");
 
@@ -988,11 +994,6 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
 
   buildApplicationMenu();
 
-  const appIcon = nativeImage.createFromPath(iconPath);
-  if (process.platform === "darwin" && app.dock && !appIcon.isEmpty()) {
-    app.dock.setIcon(appIcon);
-  }
-
   // First window uses the CLI-resolved root + flags. The repository stays read-only: each window writes
   // generated review state into its mirrored directory below Electron userData.
   const restored = preferences.readOpenWorkspaces()
@@ -1174,7 +1175,7 @@ function ensureShellWindow(light: boolean): BrowserWindow {
   appQuitting = false; // a fresh shell means we're up-and-running again, not tearing down
   shellWindow = new BrowserWindow({
     width: 1440, height: 960, minWidth: 960, minHeight: 640, show: false, title: APP_TITLE,
-    icon: iconPath, backgroundColor: light ? "#f5f5f5" : "#202124", autoHideMenuBar: true,
+    icon: windowIcon, backgroundColor: light ? "#f5f5f5" : "#202124", autoHideMenuBar: true,
     ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 14, y: 12 } } : {}),
     webPreferences: { preload: hubPreloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
@@ -1729,7 +1730,7 @@ function createWindow(root: string, deferBoot = false): WinState {
       detachedHost = new BrowserWindow({
         width: 1180, height: 820, minWidth: 720, minHeight: 480, show: false,
         title: `${workspaceRecord(root).branch} — ${APP_TITLE}`,
-        icon: iconPath, backgroundColor: themeLight ? "#f5f5f5" : "#202124", autoHideMenuBar: true,
+        icon: windowIcon, backgroundColor: themeLight ? "#f5f5f5" : "#202124", autoHideMenuBar: true,
       });
       surfaceHost = detachedHost;
       detachedHost.contentView.addChildView(view);
