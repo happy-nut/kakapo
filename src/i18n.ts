@@ -165,6 +165,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diff.noDiff": "No diff to review.",
     "changes.empty": "No changed files",
     "diff.lastHunk": "Last change in this file — press F7 again to go to the next file.",
+    "diff.navEnd": "No more changes this way.",
     "diag.none": "No language-server problems in this file.",
     "diag.fixComment": "Fix this problem: {message}",
     "diag.fixAdded": "Added a change request to fix this problem.",
@@ -172,8 +173,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.addressed": "possibly addressed",
     "comment.addressed.hint": "The line this comment was anchored to changed in the latest revision — the agent likely addressed it. Reopen if it isn't resolved.",
     "comment.reopen": "Reopen",
-    "comment.reply": "Reply",
     "comment.openPath": "Open this file",
+    // The agent named a file this workspace does not have — said out loud, because a link that does nothing
+    // reads as a broken app (openPathReference).
+    "comment.pathMissing": "No such file in this workspace",
     "comment.restored": "Comment restored",
     "comment.restoredMany": "Comments restored",
     "diff.previous": "Previous change (Shift+F7)",
@@ -532,6 +535,12 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Sent once at the top of a terminal hand-off (sendWholeDocToTerminal, 08-dock.js) whenever kakapo wrote
     // an answers checklist for the items below — the absolute path is appended right after this line.
     "mergePrompt.answersFile": "Answer in the review thread file below instead of replying here — append ONE line per answer, {\"id\":<highest id in the file + 1>,\"re\":<the #id of the request you are answering>,\"by\":\"agent\",\"text\":\"markdown\"}, and never rewrite a line already there. Each request below is headed with its #id, and your answer lands in the review beside the code it is about:",
+    // The ENTIRE terminal hand-off when kakapo could park the document on disk: this line plus its absolute
+    // path. The document (answers-file instructions included) waits in the file — see sendWholeDocToTerminal.
+    "mergePrompt.requestFile": "Read this review request file and do everything it asks:",
+    // Stands in for the earlier turns a follow-up continues (mergedItemLines) — the ids, not the text, since
+    // the thread file named at the top of the document holds all of them.
+    "mergePrompt.continues": "Continues; read these ids in the thread file first:",
     "comment.answer": "Answer",
     "comment.answered": "answered",
     "comment.answered.hint": "An agent answered this comment. Open the comment at its line to read the answer.",
@@ -695,6 +704,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diff.noDiff": "검토할 변경사항이 없습니다.",
     "changes.empty": "변경된 파일 없음",
     "diff.lastHunk": "이 파일의 마지막 변경입니다 — F7을 한 번 더 누르면 다음 파일로 이동합니다.",
+    "diff.navEnd": "이 방향으로는 더 이상 변경사항이 없습니다.",
     "diag.none": "이 파일에는 언어 서버 문제가 없습니다.",
     "diag.fixComment": "이 문제를 고쳐줘: {message}",
     "diag.fixAdded": "이 문제를 고치는 변경 요청을 추가했습니다.",
@@ -702,8 +712,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.addressed": "반영된 듯",
     "comment.addressed.hint": "이 코멘트가 가리키던 줄이 최신 변경에서 바뀌었습니다 — 에이전트가 반영했을 가능성이 큽니다. 아직 안 됐으면 재열기하세요.",
     "comment.reopen": "재열기",
-    "comment.reply": "답글",
     "comment.openPath": "이 파일 열기",
+    // 에이전트가 이 워크스페이스에 없는 파일을 지목했다 — 아무 반응 없는 링크는 앱이 고장 난 것처럼
+    // 보이므로 이유를 말해준다 (openPathReference).
+    "comment.pathMissing": "이 워크스페이스에 없는 파일입니다",
     "comment.restored": "코멘트를 복원했습니다",
     "comment.restoredMany": "코멘트들을 복원했습니다",
     "diff.previous": "이전 변경 (Shift+F7)",
@@ -1061,6 +1073,12 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // 터미널로 보내는 합본 프롬프트(sendWholeDocToTerminal, 08-dock.js) 맨 앞에 한 번 붙는다 — kakapo가 아래
     // 항목들에 대한 답변 체크리스트를 이미 써둔 경우에만 붙으며, 바로 다음 줄에 절대 경로가 이어진다.
     "mergePrompt.answersFile": "답변은 여기에 적지 말고 아래 리뷰 스레드 파일에 기록하세요 — 답변 하나당 한 줄씩 append 합니다: {\"id\":<파일에서 가장 큰 id + 1>,\"re\":<답할 요청의 #id>,\"by\":\"agent\",\"text\":\"markdown\"}. 이미 있는 줄은 절대 고치지 마세요. 아래 각 요청 제목에 #id가 붙어 있고, 답변은 그 코드 옆 리뷰에 그대로 표시됩니다:",
+    // kakapo가 문서를 디스크에 저장할 수 있었을 때 터미널로 가는 내용 전부 — 이 한 줄과 절대 경로.
+    // 문서(답변 파일 안내 포함)는 그 파일 안에서 기다린다. sendWholeDocToTerminal 참고.
+    "mergePrompt.requestFile": "이 리뷰 요청 파일을 읽고 시키는 대로 전부 처리하세요:",
+    // 후속 코멘트가 이어받는 이전 대화를 대신한다 (mergedItemLines) — 본문이 아니라 id만. 문서 맨 앞에
+    // 적힌 스레드 파일에 전부 들어 있기 때문이다.
+    "mergePrompt.continues": "이어지는 대화입니다. 스레드 파일에서 다음 id를 먼저 읽으세요:",
     "comment.answer": "답변",
     "comment.answered": "답변 달림",
     "comment.answered.hint": "에이전트가 이 코멘트에 답변했습니다. 해당 줄의 코멘트를 열면 답변을 볼 수 있습니다.",

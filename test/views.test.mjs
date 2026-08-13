@@ -1148,10 +1148,11 @@ test("e on a selected comment box opens the composer prefilled and edits in plac
 
 test("F7 across a file boundary sets the diff caret once (no first-line → change double jump)", async () => {
   const v = await loadViewer(html);
-  await v.openDiffFor("src/app.ts");
-  // src/app.ts has one change block, so the caret already sits at the file's last change. The FIRST F7 now
+  // README.md has one change block, so the caret already sits at the file's last change. The FIRST F7 now
   // announces ("last change — press F7 again") instead of crossing, giving a beat to mark-viewed: the caret
-  // must NOT move.
+  // must NOT move. It is deliberately not the LAST file of the review — there the press has nowhere to cross
+  // to, and announcing a next file would promise one that doesn't exist (see the no-wrap test below).
+  await v.openDiffFor("README.md");
   let calls = 0;
   let orig = v.window.setDiffCursor;
   v.window.setDiffCursor = function () { calls += 1; return orig.apply(this, arguments); };
@@ -1173,6 +1174,29 @@ test("F7 across a file boundary sets the diff caret once (no first-line → chan
   v.window.setDiffCursor = orig;
   assert.equal(calls, 1, "caret set once via focusDiffRow; ensureDiffCursor skipped");
   assert.ok(hint && !hint.classList.contains("show"), "the last-change hint clears once the caret crosses to the next file (never covers it)");
+  v.close();
+});
+
+// Stepping off either end used to land on the other one, so a reviewer walking the changes had no way to
+// tell "that was the last one" from "here is the first one again" — the review looked like it had restarted.
+test("F7 stops at the last change instead of wrapping back to the first", async () => {
+  const v = await loadViewer(html);
+  const last = v.window.hunkPathAt(v.window.hunkTotal() - 1);
+  await v.openDiffFor(last);
+  v.key("F7"); // the last change in the file: the announcement is skipped, there is nothing to cross to
+  await new Promise((r) => setTimeout(r, 30));
+  v.key("F7");
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(v.window.hunkPathAt(v.window.hunkIndexAtCaret()), last, "the caret stays in the last file rather than jumping to the first");
+  const hint = v.window.document.querySelector(".mc-caret-hint");
+  assert.ok(hint && !/F7/.test(hint.textContent), "no promise of a next file that doesn't exist");
+
+  // ...and the same at the other end: Shift+F7 from the first change stays put.
+  const first = v.window.hunkPathAt(0);
+  await v.openDiffFor(first);
+  v.key("F7", { shiftKey: true });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(v.window.hunkPathAt(v.window.hunkIndexAtCaret()), first, "backward navigation stops at the first change");
   v.close();
 });
 

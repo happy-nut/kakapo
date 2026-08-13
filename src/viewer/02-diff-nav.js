@@ -331,14 +331,20 @@ function next(delta) {
       }
     }
   }
+  // hunk-level nav to the next/prev unviewed file.
+  const caretHunk = hunkIndexAtCaret();
+  const base = caretHunk >= 0 ? caretHunk : current;
+  const target = nextUnviewedHunk(base, delta);
   // File boundary: no more change blocks in this file. Forward F7 announces "last change — press F7 again
   // to go to the next file" on the FIRST press (a beat to mark-viewed) and only crosses on the SECOND
-  // consecutive press. Already-viewed files (and backward nav) cross immediately — no announcement.
+  // consecutive press. Already-viewed files (and backward nav) cross immediately — no announcement. There is
+  // nothing to announce either when this is the LAST file: the walk has no target, so the promise of a next
+  // file would be a lie.
   // The `hunkPathAt(current) === diffCursor.path` guard skips the announcement while a cross is still in
   // flight: after setActive moves `current` to the next file but BEFORE its (async, lazy-loaded) caret lands,
   // diffCursor still points at the OLD file — without the guard a quick second F7 re-announced that old
   // boundary instead of letting the cross finish (the "press F7 twice more, no caret" bug).
-  if (delta > 0 && diffCursor && isDiffViewVisible() && !isFileViewed(diffCursor.path) && hunkPathAt(current) === diffCursor.path) {
+  if (delta > 0 && target >= 0 && diffCursor && isDiffViewVisible() && !isFileViewed(diffCursor.path) && hunkPathAt(current) === diffCursor.path) {
     if (pendingFileBoundary !== diffCursor.path) {
       pendingFileBoundary = diffCursor.path;
       showCaretHint(t('diff.lastHunk'));
@@ -347,26 +353,33 @@ function next(delta) {
     pendingFileBoundary = null; // second consecutive press on the same file → fall through and cross
   }
   hideCaretHint(); // about to cross files — drop the hint NOW (before the async body load) so it can't cover the next file
-  // hunk-level nav to the next/prev unviewed file.
-  const caretHunk = hunkIndexAtCaret();
-  const base = caretHunk >= 0 ? caretHunk : current;
-  let idx = base < 0 ? initialHunkForNavigation(delta) : base + delta;
-  for (let step = 0; step < hunkTotal(); step++) {
-    const norm = ((idx % hunkTotal()) + hunkTotal()) % hunkTotal();
-    if (!isFileViewed(hunkPathAt(norm) || '')) { setActive(norm); return; }
-    idx += delta;
-  }
+  if (target >= 0) { setActive(target); return; }
+  // The walk ran off the end of the review. It used to wrap around to the other end, which reads as "the
+  // review restarted" — a reviewer stepping through changes had no way to tell the last one from the first.
+  // Stop at the edge instead and say why nothing moved.
+  if (isDiffViewVisible()) { showCaretHint(t('diff.navEnd')); return; }
   // Every changed file is marked viewed. Inside the diff, staying put is the correct completed-review
   // behavior. From Files/source view, however, a no-op leaves the entire diff unreachable and makes F7
   // look broken. Re-enter the reviewed diff at the open file's own hunk when possible (otherwise the last
   // active hunk); preferredReviewHunk deliberately permits a viewed target when the whole queue is viewed.
-  if (!isDiffViewVisible()) {
+  {
     var sourceViewer = document.getElementById('source-viewer');
     var sourcePath = sourceViewer ? (sourceViewer.dataset.openPath || '') : '';
     var sourceHunk = sourcePath ? firstHunkForPath(sourcePath) : -1;
     var fallbackHunk = sourceHunk >= 0 ? sourceHunk : (base >= 0 ? base : (current >= 0 ? current : 0));
     setActive(fallbackHunk);
   }
+}
+
+// The unviewed file this press lands on, or -1 when there is none left in that direction. Deliberately a
+// bounded walk rather than a modulo one: the review has a first and a last change, and F7 has to be able to
+// reach the end of it.
+function nextUnviewedHunk(base, delta) {
+  var total = hunkTotal();
+  for (var idx = base < 0 ? initialHunkForNavigation(delta) : base + delta; idx >= 0 && idx < total; idx += delta) {
+    if (!isFileViewed(hunkPathAt(idx) || '')) return idx;
+  }
+  return -1;
 }
 
 function initialHunkForNavigation(delta) {
