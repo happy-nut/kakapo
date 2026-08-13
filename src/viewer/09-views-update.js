@@ -339,7 +339,19 @@ function restoreUiState() {
 // Unlike the composer this is time-based, not modal: the diff keeps refreshing live while you merely WATCH a
 // pane, and only defers around actual typing.
 var TERMINAL_TYPING_IDLE_MS = 450;
+// The terminal guards its own composition (composingPanes, 19-terminal.js), but it is not the only place a
+// syllable gets assembled: a comment composer is a textarea too, and refreshComments() RE-CREATES it. So the
+// poll that pulls in an agent's answers would land mid-syllable and macOS would commit the half-built 가 as
+// ㄱ ㅏ — in the comment box, while the terminal check said "nobody is typing", because nobody was typing
+// THERE. One pair of document-level listeners covers every field in the page instead of one guard per
+// textarea, and keeps covering the next one somebody adds.
+var pageComposing = false;
+if (typeof document !== 'undefined') {
+  document.addEventListener('compositionstart', function () { pageComposing = true; }, true);
+  document.addEventListener('compositionend', function () { pageComposing = false; }, true);
+}
 function terminalTypingAgeMs() {
+  if (pageComposing) return 0;
   var api = window.__kakapoTerminal;
   // An IME composition has no bounded duration — the user may sit mid-syllable indefinitely — and breaking one
   // corrupts the input rather than merely delaying it (가 arrives as ㄱ ㅏ). Treat it as always "just typed".
@@ -711,8 +723,7 @@ function applyDiffUpdate(u) {
       if (!shell) return;
       var idx = (w.id || '').replace('file-', '');
       materializeBody(w, prev.html);           // fills the body + markWrapperHunks (uses the new data-first-hunk)
-      bodyCache[idx] = prev.html;              // keep the index cache consistent so it never refetches
-      bodyPromise[idx] = Promise.resolve(w);
+      bodyPromise[idx] = Promise.resolve(w);   // already materialized, so the observer never refetches it
     });
   }
   refreshHunkIndex(); // rebuild hunks/hunkMeta from the swapped-in DOM so hunkTotal()/hunkPathAt() aren't stale
@@ -741,6 +752,26 @@ function applyDiffUpdate(u) {
   }
   hydrateVisibleDiffSwaps(deferredVisibleSwaps, diffCursorSnapshot, refreshGeneration);
   if (typeof isImpactOpen === 'function' && isImpactOpen()) openImpact();
+  return true;
+}
+
+// A workspace parked off screen holds its whole diff in the DOM for as long as the app runs: measured at
+// 169 MB for a 130-file review, 77 MB of it still resident after the body strings are dropped. Chromium
+// purges what it can behind a hidden view, but live DOM is not purgeable — only we know it is disposable.
+// Main asks for it back once the workspace has been idle long enough (see reconcileIdleSuspend), and pays
+// for it with the rebuild it already runs on the way back in, which repaints through applyDiffUpdate's
+// full-swap path (an empty container fails reconcileDiffWrappers' first guard). The page itself stays: the
+// terminals, their ptys and scrollback, the comment drafts and the source tabs are all untouched.
+function releaseDiffView() {
+  var container = document.getElementById('diff2html-container');
+  if (!container || !container.querySelector('.d2h-file-wrapper')) return false;
+  container.innerHTML = '';
+  bodyCache = {};
+  bodyPromise = {};
+  wrapperPathMap = null;
+  diffCursor = null;
+  diffBootDone = false;
+  refreshHunkIndex(); // hunk metadata is derived from the DOM that just went away
   return true;
 }
 
