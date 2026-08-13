@@ -275,7 +275,13 @@ test("paired hunk rows use center gutters and IntelliJ semantic colors", async (
   const changeRow = v.$('.change-row[data-file="src/colors.ts"]');
   assert.equal(changeRow.querySelector(".diffstat"), null, "Changes rows omit added/deleted line totals");
   assert.equal(changeRow.querySelector(".status").textContent.trim(), "", "status uses no wide text label");
-  assert.ok(changeRow.querySelector(".status-modified svg"), "modified state is a compact icon badge");
+  // "Modified" is what every row in a tree of CHANGED files is, so the chip draws nothing and says nothing.
+  // It stays as the slot the viewed ✓ lands in, and as the thing that keeps every filename on one left edge.
+  const chip = changeRow.querySelector(".status-modified");
+  assert.ok(chip, "the chip stays, so a viewed file still has somewhere to show its check");
+  assert.equal(chip.querySelector("svg"), null, "but draws no pencil on a list where everything is modified");
+  assert.equal(chip.getAttribute("title"), null, "and an invisible chip answers no hover with the word Modified");
+  assert.equal(chip.getAttribute("aria-hidden"), "true", "nor repeats the status the row's own aria-label ends in");
   v.close();
 });
 

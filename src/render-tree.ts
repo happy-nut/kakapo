@@ -151,6 +151,11 @@ function changeStatusBadge(status: string): string {
     default:
       icon = '<circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/>';
   }
+  // With no glyph there is nothing to caption: a chip that draws nothing must not answer a hover with the
+  // word "Modified", and must not be announced at all — the row's own aria-label already ends in its status,
+  // so labelling the chip too made every changed file read its state twice. It stays purely as the slot the
+  // viewed ✓ lands in.
+  if (!icon) return '<span class="status status-modified" aria-hidden="true"></span>';
   return `<span class="status status-${escapeAttr(status)}" role="img" aria-label="${escapeAttr(label)}" title="${escapeAttr(label)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg></span>`;
 }
 
