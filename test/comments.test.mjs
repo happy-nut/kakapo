@@ -865,8 +865,8 @@ test("a reply continues the thread and carries the earlier exchange to the agent
   v.agentSays({ re: seq, text: "It ships as one binary." });
   await v.settle(60);
 
-  const replyBtn = v.$("#source-body .mc-card.mc-ai .mc-reply");
-  assert.ok(replyBtn, "an answered card offers a reply, so the exchange isn't a dead end");
+  const replyBtn = v.$("#source-body .mc-reply-stub");
+  assert.ok(replyBtn, "an answered thread ends in the box for its next turn, so the exchange isn't a dead end");
   replyBtn.click();
   await v.settle(60);
   assert.ok(v.visibleComposerInput(), "reply composer opened without re-selecting the code line");
@@ -880,10 +880,14 @@ test("a reply continues the thread and carries the earlier exchange to the agent
   assert.equal(reply.kind, "q", "a follow-up to a question is still a question");
   assert.equal(reply.line, stored[0].line, "and stays anchored to the same line, so it renders as one thread");
 
+  // The exchange reaches the agent as ids into the thread file, not as quoted text: a third round would
+  // otherwise re-send the question and the agent's own answer alongside every other comment in the review.
   const merged = v.window.buildMergedText();
-  assert.match(merged, /> why is this a CLI\?/, "the hand-off quotes the original question");
-  assert.match(merged, /> .*It ships as one binary\./, "...and the answer it got");
-  assert.match(merged, /then why not a library too\?/, "...before the follow-up itself");
+  assert.match(merged, new RegExp(`#${stored[0].seq}, #${stored[1].seq}`), "the hand-off names the turns it continues");
+  assert.doesNotMatch(merged, /It ships as one binary\./, "…without re-sending the agent its own answer");
+  assert.equal((merged.match(/why is this a CLI\?/g) || []).length, 1,
+    "the question appears once, as its own open item — not a second time quoted under the follow-up");
+  assert.match(merged, /then why not a library too\?/, "and the follow-up itself is inline");
   v.close();
 });
 
@@ -896,6 +900,6 @@ test("a plain comment carries no thread context", async () => {
   await v.settle(60);
 
   assert.equal(v.storedComments()[0].replyTo, null, "no parent");
-  assert.doesNotMatch(v.window.buildMergedText(), /^> /m, "and nothing quoted ahead of it");
+  assert.doesNotMatch(v.window.buildMergedText(), /Continues/, "and no history line ahead of it");
   v.close();
 });
