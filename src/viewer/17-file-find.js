@@ -10,6 +10,10 @@ var fileFindResults = [];
 var fileFindActive = -1;
 var fileFindRevision = 0;
 var fileFindRestoreFocus = null;
+// The file the open bar belongs to. A search is ABOUT one file: carrying "value" onto the next file and
+// silently re-running it there hands the reviewer a match count for something they did not ask about, and a
+// bar whose contents no longer describe what is on screen.
+var fileFindPath = '';
 var fileFindRefreshTimer = 0;
 var fileFindHighlightFrame = 0;
 var fileFindHighlightedRows = [];
@@ -187,12 +191,6 @@ function collectSourceFindResults(query) {
 function collectDiffFindResults(wrapper, query) {
   var results = [];
   var path = wrapper ? diffWrapperPathKey(wrapper) : '';
-  // Imports are initially folded when unchanged. Searching the current file must still include them;
-  // opening the paired marker restores the original rows on both panes before collecting occurrences.
-  // A one-character query can match nearly every import and should not mutate the diff while the user is
-  // still typing. Once the query is meaningful, restore imports so their contents remain searchable.
-  var importFold = query.length >= 2 && wrapper && wrapper.querySelector('.mc-import-fold-row');
-  if (importFold) openDiffImportFold(importFold);
   ['old', 'new'].some(function (side) {
     var rows = diffRowsOf(diffSideTable(wrapper, side));
     return rows.some(function (row, rowIndex) {
@@ -310,7 +308,18 @@ function stepFileFind(direction) {
 function openFileFind() {
   if (!fileFindPanel || !fileFindInput || !fileFindSurface() || !fileFindSurfacePath()) return false;
   if (!isFileFindOpen()) fileFindRestoreFocus = document.activeElement;
+  fileFindPath = fileFindSurfacePath();
   fileFindPanel.classList.remove('hidden');
+  // Unchanged imports are folded away, so their text is not in the DOM and cannot be matched. Restore them
+  // now, while opening, rather than part-way through the query: this used to run at exactly two characters,
+  // which meant the diff rebuilt its rows, invalidated its geometry and re-ran its scroll BETWEEN a
+  // reviewer's first and second keystroke — a stall landing on the one action that must never stutter, and
+  // on a boundary nobody could predict. The work is the same; it just belongs to the deliberate ⌘F now.
+  if (isDiffViewVisible()) {
+    var openWrapper = diffActiveWrapper();
+    var importFold = openWrapper && openWrapper.querySelector('.mc-import-fold-row');
+    if (importFold) openDiffImportFold(importFold);
+  }
   positionFileFind();
   if (fileFindInput.value) scheduleFileFindRefresh({ preserveActive: true });
   else refreshFileFindResults({ preserveActive: true });
@@ -334,10 +343,15 @@ function closeFileFind(restoreFocus) {
     fileFindRestoreFocus.focus({ preventScroll: true });
   }
   fileFindRestoreFocus = null;
+  fileFindPath = '';
 }
 
 function refreshFileFindForActiveView() {
   if (!isFileFindOpen()) return;
+  // Moved to another file: the search ends with the file it was about. Closing without restoring focus is
+  // deliberate — navigation already decided where the reviewer is, and pulling focus back to whatever held it
+  // when ⌘F opened would undo that.
+  if (fileFindSurfacePath() !== fileFindPath) { closeFileFind(false); return; }
   positionFileFind();
   scheduleFileFindRefresh({ preserveActive: true });
 }
