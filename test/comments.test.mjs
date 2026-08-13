@@ -257,6 +257,72 @@ test("saved comments roll up into the merged agent prompt", async () => {
   v.close();
 });
 
+// The hand-off to a terminal pane needs a visible way in: the "Send to terminal" button was dropped when the
+// question/change-request panels were unified, leaving only an ⌥⏎ that was scoped to a focused card, so the
+// pane picker looked like a feature that had been removed.
+test("the merged panel hands the prompt to the terminal by button and by Opt+Enter", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("c");
+  await v.writeAndSave("send me to a pane");
+
+  const sent = [];
+  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text), paneCount: () => 1 };
+
+  await v.openMergedView();
+  const button = v.$("#mc-merged-panel .mc-send-terminal");
+  assert.ok(button && !button.disabled, "the merged panel offers Send to terminal");
+  button.click();
+  await v.settle(20);
+  assert.equal(sent.length, 1, "clicking it stages the prompt in the pane picker");
+  assert.match(sent[0], /send me to a pane/);
+
+  await v.openMergedView();
+  const panel = v.$("#mc-merged-panel");
+  panel.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
+  await v.settle(20);
+  assert.equal(sent.length, 2, "Opt+Enter works from the panel, not only from a selected card");
+  v.close();
+});
+
+// The document is already on disk in the workspace the agent is standing in, so sending a copy of it through
+// the composer was sending the review twice. Once a comment carried a few quoted turns that copy ran to
+// kilobytes — the exact pain that made this a path instead of a paste.
+test("the terminal hand-off carries the request file's path, not the request", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("c");
+  await v.writeAndSave("rename this to something honest");
+
+  const sent = [];
+  const written = [];
+  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text), paneCount: () => 1 };
+  v.window.annotationsPath = "/w/.git/kakapo/comments.jsonl"; // normally set by kakapoComments.read()
+  v.window.kakapoComments = {
+    writeRequest: (text) => { written.push(text); return Promise.resolve({ ok: true, path: "/w/.git/kakapo/request.md" }); },
+  };
+
+  await v.openMergedView();
+  v.$("#mc-merged-panel .mc-send-terminal").click();
+  await v.settle(20);
+
+  assert.equal(sent.length, 1, "one hand-off staged in the pane picker");
+  assert.match(sent[0], /\/w\/\.git\/kakapo\/request\.md$/, "what reaches the pane names the file");
+  assert.doesNotMatch(sent[0], /rename this to something honest/, "…and does not repeat the review into it");
+  assert.match(written[0], /rename this to something honest/, "the request itself went to the file");
+  assert.match(written[0], /append ONE line per answer/, "answers-file instructions travel inside it, not in the pane");
+
+  // No file to write to (a non-git root, or the CLI's browser viewer): the document still has to arrive.
+  v.window.kakapoComments = { writeRequest: () => Promise.resolve({ ok: false }) };
+  await v.openMergedView();
+  v.$("#mc-merged-panel .mc-send-terminal").click();
+  await v.settle(20);
+  assert.match(sent[1], /rename this to something honest/, "with nowhere to park it, the document goes over as text");
+  v.close();
+});
+
 test("multi-line comments persist and render one canonical range without quoted source", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("docs/runtime-arrow-wfa-plan.md.ts");

@@ -218,19 +218,33 @@ function openMergedView() {
     });
     return lines.join(nl);
   }
-  // Send the WHOLE merged prompt into a terminal pane (v0.2.7): arrows choose the pane, Enter sends. Available
+  // Send the merged prompt into a terminal pane (v0.2.7): arrows choose the pane, Enter sends. Available
   // whenever the integrated terminal exists; if no pane is open yet, one is created first.
   //
-  // Issue #10: the prompt leads with the path of the thread file (comments-file.ts) and how to answer into
+  // Issue #10: the document leads with the path of the thread file (comments-file.ts) and how to answer into
   // it — the agent appends one line per reply, which lands back in the thread beside the code it is about,
   // instead of an answer that only ever existed as terminal output. The file itself is already up to date
   // (saveThread runs on every comment change), so nothing has to be written here. The text is captured
   // BEFORE dock.close() — closing destroys the live editors currentMergedText() reads from.
+  //
+  // What crosses into the pane is the PATH of that document, not the document. Every byte of it was already on
+  // disk, so pasting the whole thing sent the review a second time — and once a comment had a few turns quoted
+  // under it, that paste was kilobytes of composer input for a request the agent can open in one read. Writing
+  // it out first also means the agent reads the state at the moment it looks, not at the moment you pressed
+  // send. Where there is no file to write to (a non-git root, or the CLI's browser viewer), the document goes
+  // over as text exactly as it always did.
   function sendWholeDocToTerminal() {
     var text = currentMergedText();
     dock.close();
     var path = typeof annotationsPath === 'string' ? annotationsPath : '';
-    window.__kakapoTerminal.enterSendMode(path ? t('mergePrompt.answersFile') + '\n' + path + '\n\n' + text : text);
+    var doc = path ? t('mergePrompt.answersFile') + '\n' + path + '\n\n' + text : text;
+    var writeRequest = window.kakapoComments && typeof window.kakapoComments.writeRequest === 'function'
+      ? window.kakapoComments.writeRequest(doc)
+      : Promise.resolve(null);
+    writeRequest.catch(function () { return null; }).then(function (result) {
+      var ok = result && result.ok && result.path;
+      window.__kakapoTerminal.enterSendMode(ok ? t('mergePrompt.requestFile') + ' ' + result.path : doc);
+    });
   }
   // Shared by the Copy-all button and Cmd+C-after-Cmd+A (see handleMergedKeydown) so both paths copy the
   // exact same assembled text.
@@ -281,6 +295,14 @@ function openMergedView() {
       }
       clearSelectAll();
     }
+    // ⌥⏎ hands the whole document over wherever the focus sits inside the panel — the bar's own button, a
+    // card, an editor. Scoping it to the card/editor branches below made it dead everywhere else, which is
+    // half of why the hand-off looked gone.
+    if (event.altKey && (event.key === 'Enter' || event.code === 'Enter') && terminalAvailable()) {
+      event.preventDefault();
+      sendWholeDocToTerminal();
+      return;
+    }
     var target = event.target;
     var card = target && target.closest ? target.closest('.mc-merged-card') : null;
     if (card) {
@@ -301,10 +323,6 @@ function openMergedView() {
         deleteSelectedCard(card);
         return;
       }
-      if (event.altKey && (event.key === 'Enter' || event.code === 'Enter') && terminalAvailable()) {
-        event.preventDefault();
-        sendWholeDocToTerminal();
-      }
       return;
     }
     var region = target && target.closest ? target.closest('.mc-merged-editor-region') : null;
@@ -317,10 +335,6 @@ function openMergedView() {
           if (sib) { event.preventDefault(); focusRegion(sib, dir === 'down' ? 'start' : 'end'); }
         }
         return;
-      }
-      if (event.altKey && (event.key === 'Enter' || event.code === 'Enter') && terminalAvailable()) {
-        event.preventDefault();
-        sendWholeDocToTerminal();
       }
     }
   }
@@ -338,6 +352,20 @@ function openMergedView() {
   copyBtn.disabled = true;
   copyBtn.addEventListener('click', copyMergedText);
   dock.bar.insertBefore(copyBtn, dock.bar.querySelector('.dock-max'));
+  // The visible half of the hand-off. Without it the only route into the pane picker was ⌥⏎ with the right
+  // thing focused, so "send the merged prompt to a terminal" read as a feature that had been removed.
+  var sendBtn = null;
+  if (terminalAvailable()) {
+    sendBtn = document.createElement('button');
+    sendBtn.type = 'button';
+    sendBtn.className = 'dock-btn mc-send-terminal';
+    sendBtn.dataset.keyhint = '⌥⏎';
+    sendBtn.setAttribute('data-i18n', 'merged.sendToTerminal');
+    sendBtn.textContent = t('merged.sendToTerminal');
+    sendBtn.disabled = true;
+    sendBtn.addEventListener('click', sendWholeDocToTerminal);
+    dock.bar.insertBefore(sendBtn, copyBtn);
+  }
   // Registered once (not per-rebuild inside initializeMergedEditor) so a Backspace-delete rebuild never
   // stacks a second copy of either listener.
   host.addEventListener('click', handleMergedClick);
@@ -404,6 +432,7 @@ function openMergedView() {
       });
       renderAllAddressedNote();
       copyBtn.disabled = false;
+      if (sendBtn) sendBtn.disabled = false;
       if (reselectIndex !== null) {
         var cards = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
         if (cards.length) { selectCard(cards[Math.min(reselectIndex, cards.length - 1)], true); return; }
