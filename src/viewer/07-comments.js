@@ -132,6 +132,7 @@ function commentToRecord(c) {
   if (Number(c.from) && Number(c.from) !== c.line) record.from = Number(c.from);
   if (Number(c.to) && Number(c.to) !== c.line) record.to = Number(c.to);
   if (c.side) record.side = c.side;
+  if (c.role) record.role = c.role; // written back, or the agent's problem/fix marks vanish on the next save
   if (c.anchorCode) record.anchor = c.anchorCode;
   if (c.title) record.title = c.title;
   if (c.addressed) record.addressed = true;
@@ -170,6 +171,9 @@ function recordToComment(record, byId) {
     path: path, line: line, code: anchor, anchorCode: anchor,
     from: Number(record.from) || line, to: Number(record.to) || line, side: record.side || null,
     title: record.title ? String(record.title) : '',
+    // Only the two roles the card knows how to draw survive the trip: anything else an agent invents would
+    // otherwise reach agentCardHtml as a class name and a missing translation.
+    role: record.role === 'problem' || record.role === 'fix' ? record.role : null,
     addressed: !!record.addressed, anchorPresent: anchorLinePresent(path, anchor, anchor),
     steps: recordSteps(record, path),
     text: String(record.text == null ? '' : record.text),
@@ -440,6 +444,11 @@ function removeComments(seqs) {
 function deleteComment(seq) {
   removeComments([seq]);
   refreshComments();
+}
+// Every comment anchored in one file, whichever line and whoever wrote it — the file tree's "clear comments"
+// row (13-goto.js) both counts and removes by this, so the number it offers is the number it takes.
+function commentSeqsForPath(path) {
+  return reviewComments.filter(function (c) { return c.path === path; }).map(function (c) { return c.seq; });
 }
 // Cmd/Ctrl+Z outside any native text-editing surface: restore the last removed comment(s). Returns false
 // (a no-op) when the stack is empty, so the caller can decide not to swallow the key in that case.

@@ -597,6 +597,39 @@ var handleTerminalSendModeKey;
     paneCount: function () { return panes.length; },
     closeActivePane: closeActivePane,
     enterSendMode: enterSendMode,
+    // "Open terminal here" from the file tree (13-goto.js): cd the integrated terminal into a directory,
+    // instead of handing the folder to Terminal.app and leaving the reviewer in a second, unrelated shell.
+    //
+    // The one thing it must never do is type into a pane that is busy: `cd …` sent to a running agent lands
+    // in its composer as a prompt. So it asks the pane what it is running first, and splits a fresh one when
+    // the answer is not a bare shell. At the pane cap there is nowhere safe to put it, so it says so rather
+    // than interrupting. The retry loop is the same one agent-resume uses — a freshly split pane has no pty
+    // id until its spawn returns.
+    openAt: function (dir) {
+      if (!dir) return;
+      setOpen(true);
+      var line = 'cd ' + "'" + String(dir).split("'").join("'\\''") + "'\r";
+      var writeWhenReady = function () {
+        var tries = 0, go = function () {
+          if (!(active && active.id != null)) return false;
+          window.kakapoPty.write({ id: active.id, data: line });
+          focusPane(active);
+          return true;
+        };
+        if (!go()) { var iv = setInterval(function () { if (go() || ++tries > 40) clearInterval(iv); }, 50); }
+      };
+      var target = active || panes[0];
+      if (!target || target.id == null) { writeWhenReady(); return; }
+      Promise.resolve(window.kakapoPty.foreground({ id: target.id })).then(function (result) {
+        if (!(result && result.running)) { writeWhenReady(); return; }
+        if (panes.length >= MAX_PANES) {
+          if (typeof showToast === 'function') showToast(t('terminal.openHere.busy'));
+          return;
+        }
+        split();
+        writeWhenReady();
+      }, function () { writeWhenReady(); });
+    },
     send: function (text) { writeToPane(active || panes[0], text); },
     sendToPane: function (i, text) { writeToPane(panes[i] || active || panes[0], text); },
     close: function () { setOpen(false); },
