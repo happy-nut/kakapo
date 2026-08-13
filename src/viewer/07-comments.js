@@ -530,6 +530,22 @@ function currentCommentTarget() {
 
 // One location syntax everywhere: @project/relative/path#L53 or @project/relative/path#L50-60.
 // Older persisted comments have only `line`; treating it as both ends keeps them display-compatible.
+// A card rendered INLINE is already sitting on the line it is about, in the file it is about, so repeating
+// "@src/foo.ts#L42" in its header restates the only two things the reader can see for certain — and takes up
+// to 62% of the head doing it, pushing the title out. A RANGE is the exception worth keeping: a card anchored
+// at one line cannot show you that it covers ten. The composer still labels itself unconditionally (you are
+// deciding where this attaches, before you write it), and the merged dock still labels everything, because
+// there the cards have been lifted away from the code they belong to.
+function inlineCommentTargetLabel(s) {
+  var line = Math.max(1, Number(s && s.line) || 1);
+  var from = Math.max(1, Number(s && s.from) || line);
+  var to = Math.max(1, Number(s && s.to) || line);
+  return from === to ? '' : commentTargetLabel(s);
+}
+function commentTargetHeadHtml(s) {
+  var label = inlineCommentTargetLabel(s);
+  return label ? '<span class="mc-target" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</span>' : '';
+}
 function commentTargetLabel(s) {
   var line = Math.max(1, Number(s && s.line) || 1);
   var from = Math.max(1, Number(s && s.from) || line);
@@ -553,11 +569,10 @@ function replyStubHtml(path, line) {
 // One card per turn, in the order they were written — the reviewer's own (below) and the agent's
 // (agentCardHtml, 23-annotations.js), which is the only difference between them now.
 function reviewerCardHtml(c) {
-  var target = commentTargetLabel(c);
   var addressed = !!c.addressed;
   return '<div class="mc-card mc-' + c.kind + (addressed ? ' mc-addressed' : '') + (c.replyTo != null ? ' mc-reply-card' : '') + '">'
     + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(c.kind) + '</span>'
-    + '<span class="mc-target" title="' + escapeHtml(target) + '">' + escapeHtml(target) + '</span>'
+    + commentTargetHeadHtml(c)
     + (addressed ? '<span class="mc-addressed-tag" title="' + escapeHtml(t('comment.addressed.hint')) + '">' + escapeHtml(t('comment.addressed')) + '</span>' : '')
     + (addressed ? '<button type="button" class="mc-reopen" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reopen')) + '" title="' + escapeHtml(t('comment.reopen')) + '">↺</button>' : '')
     + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'

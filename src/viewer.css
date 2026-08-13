@@ -1435,7 +1435,6 @@ summary.tree-focus { background: color-mix(in srgb, var(--active) 20%, transpare
 .status-added { background: var(--add); color: #1a7f37; }
 .status-deleted { background: var(--del); color: #cf222e; }
 .status-renamed { background: #fff8c5; color: #9a6700; }
-.status-source { background: var(--line); color: var(--muted); }
 .content { position: relative; min-width: 0; padding: 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; grid-column: 3; grid-row: 1; }
 .file-find {
   position: fixed;
@@ -3271,8 +3270,7 @@ summary.tree-focus,
 .vcs-new.source-link .path, .vcs-new.change-row .change-name { color: var(--chrome-vcs-new); }
 .vcs-edited.source-link .path, .vcs-edited.change-row .change-name { color: var(--chrome-vcs-edited); }
 .vcs-staged.source-link .path, .vcs-staged.change-row .change-name { color: var(--chrome-vcs-staged); }
-.status,
-.status-source { color: var(--chrome-muted); background: var(--chrome-line); }
+.status { color: var(--chrome-muted); background: var(--chrome-line); }
 /* Same as the web theme: the modified chip is an empty slot, not a badge. `.status` above sets a background
    on every chip, so this has to switch it back off — the viewed ✓ rule is more specific and still wins. */
 .status-modified { color: var(--chrome-vcs-edited); background: transparent; }

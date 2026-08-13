@@ -69,7 +69,6 @@ function annotationBodyHtml(text) {
 // quiet default. An unknown role degrades to no role rather than an empty pill.
 var NOTE_ROLES = { problem: 'annotate.role.problem', fix: 'annotate.role.fix' };
 function agentCardHtml(c) {
-  var target = commentTargetLabel(c);
   var isReply = c.replyTo != null;
   var role = !isReply && NOTE_ROLES[c.role] ? c.role : '';
   return '<div class="mc-card mc-ai' + (isReply ? ' mc-reply-card' : '') + (role ? ' mc-role-' + role : '') + '">'
@@ -77,7 +76,7 @@ function agentCardHtml(c) {
     + '<span class="mc-kind-text">' + escapeHtml(t(isReply ? 'comment.answer' : 'annotate.kind')) + '</span></span>'
     + (role ? '<span class="mc-role">' + escapeHtml(t(NOTE_ROLES[role])) + '</span>' : '')
     + (c.title ? '<span class="mc-ai-title">' + escapeHtml(c.title) + '</span>' : '')
-    + '<span class="mc-target" title="' + escapeHtml(target) + '">' + escapeHtml(target) + '</span>'
+    + commentTargetHeadHtml(c)
     + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '"'
     + ' aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">\u00d7</button>'
     + '</div>'
