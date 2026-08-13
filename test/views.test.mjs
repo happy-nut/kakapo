@@ -113,6 +113,39 @@ test("double-click selects a complete word in both file and diff views", async (
   v.close();
 });
 
+// Cmd+Left/Right jumps to the line edge; with Shift it has to SELECT to that edge, the way it does in any
+// editor. In the diff it did not: setDiffCursor drops the selection anchor on every caret placement, and this
+// was the one caret mover that never put it back, so Cmd+Shift+Arrow moved and then cleared.
+test("Cmd+Shift+Left/Right selects to the line edge in both file and diff views", async () => {
+  const v = await loadViewer(html);
+  const selection = () => v.window.getSelection().toString();
+
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(0);
+  v.key("ArrowRight", { metaKey: true });
+  await v.settle(80);
+  assert.equal(selection(), "", "a bare Cmd+Right only moves the caret");
+  v.key("ArrowLeft", { metaKey: true, shiftKey: true });
+  await v.settle(80);
+  assert.equal(selection(), "export const x = 1;", "file view: Cmd+Shift+Left takes the line back to its start");
+  v.key("ArrowRight", { metaKey: true });
+  await v.settle(80);
+  assert.equal(selection(), "", "…and a Cmd+Arrow without Shift drops it again");
+
+  await v.openDiffFor("src/app.ts");
+  await v.clickFirstDiffLine();
+  v.key("ArrowRight", { metaKey: true });
+  await v.settle(80);
+  assert.equal(selection(), "", "same in the diff: no Shift, no selection");
+  v.key("ArrowLeft", { metaKey: true, shiftKey: true });
+  await v.settle(80);
+  assert.ok(selection().length > 0, "diff view: Cmd+Shift+Left selects back to the line start");
+  v.key("ArrowLeft", { metaKey: true });
+  await v.settle(80);
+  assert.equal(selection(), "", "and Cmd+Left alone clears it");
+  v.close();
+});
+
 test("file view folds imports by default and Cmd+. toggles the caret's brace block", async () => {
   const { html: foldHtml } = await makeReviewHtml([
     {
