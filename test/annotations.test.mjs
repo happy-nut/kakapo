@@ -158,6 +158,30 @@ test("an agent note can be replied to, and the reply lands in its thread", async
   v.close();
 });
 
+// The commonest way an agent's note arrives malformed is a mermaid fence it never closed. Demanding both
+// fences answered that by matching nothing, so markdown-it rendered `flowchart TD` as a literal code block —
+// and the agent, seeing its own diagram come out as text, posted a SECOND note re-drawing it. The thread then
+// held a broken diagram, an apology and the real one, where one note belonged.
+test("a mermaid fence the agent never closed still becomes a diagram", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  v.agentSays({
+    kind: "note",
+    path: "src/app.ts",
+    line: 1,
+    text: "publishing unions the partitions now:\n\n```mermaid\nflowchart TD\n  A[local scan] --> B[pin to publish]\n",
+  });
+  await v.settle(40);
+
+  const card = v.$(".mc-card.mc-ai");
+  assert.ok(card.querySelector(".explain-mermaid"), "the unterminated fence still becomes a diagram");
+  assert.equal(card.querySelector("code"), null, "and its source never reaches the reader as a code block");
+  assert.match(card.textContent, /publishing unions the partitions now/, "the prose above it is untouched");
+  v.close();
+});
+
 // Only inline code that is really a FILE becomes a link. The shape test that preceded this one accepted
 // anything built from path characters with a short suffix, so a dotted accessor an agent quotes in prose —
 // `advisor.study_summary.search_space.params` — was underlined like a file and swallowed the click.

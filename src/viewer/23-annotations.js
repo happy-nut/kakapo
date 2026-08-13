@@ -44,8 +44,15 @@ function linkifyPathCode(html) {
       : whole;
   });
 }
+// The closing fence is OPTIONAL: a diagram runs to the end of the note when nothing closes it. An agent
+// dropping the final ``` is the commonest way this text arrives malformed, and the old pattern — which
+// demanded both fences — answered it by matching nothing, so markdown-it rendered the mermaid SOURCE as a
+// code block. The reviewer got `flowchart TD` as literal text, the agent then noticed and posted a second
+// note re-drawing it, and the thread kept all three: a broken diagram, an apology, and the real one. A
+// diagram is the last thing in a note far more often than not, so treating end-of-note as a close costs
+// nothing and removes the whole failure.
 function annotationBodyHtml(text) {
-  var parts = String(text || '').split(/^```mermaid\s*$([\s\S]*?)^```\s*$/m);
+  var parts = String(text || '').split(/^```mermaid\s*$([\s\S]*?)(?:^```\s*$|$(?![\s\S]))/m);
   var html = '';
   for (var i = 0; i < parts.length; i++) {
     if (i % 2 === 1) html += mermaidPlaceholderHtml(parts[i].trim());
@@ -57,12 +64,18 @@ function annotationBodyHtml(text) {
 // Same .mc-card shell as a review comment, because it IS one — written by the agent instead of by the
 // reviewer. The kind pill says who wrote it; a tinted background (viewer.css) says the same thing at a
 // glance, so a long thread reads as an alternating conversation without having to parse every pill.
+// A note may declare itself the problem or the fix (comments-file.ts). Those two are the ones a reviewer
+// with two minutes should read, so they get their own pill and a tinted edge — everything else stays the
+// quiet default. An unknown role degrades to no role rather than an empty pill.
+var NOTE_ROLES = { problem: 'annotate.role.problem', fix: 'annotate.role.fix' };
 function agentCardHtml(c) {
   var target = commentTargetLabel(c);
   var isReply = c.replyTo != null;
-  return '<div class="mc-card mc-ai' + (isReply ? ' mc-reply-card' : '') + '">'
+  var role = !isReply && NOTE_ROLES[c.role] ? c.role : '';
+  return '<div class="mc-card mc-ai' + (isReply ? ' mc-reply-card' : '') + (role ? ' mc-role-' + role : '') + '">'
     + '<div class="mc-card-head"><span class="mc-kind mc-kind-ai">' + annotationKindIcon()
     + '<span class="mc-kind-text">' + escapeHtml(t(isReply ? 'comment.answer' : 'annotate.kind')) + '</span></span>'
+    + (role ? '<span class="mc-role">' + escapeHtml(t(NOTE_ROLES[role])) + '</span>' : '')
     + (c.title ? '<span class="mc-ai-title">' + escapeHtml(c.title) + '</span>' : '')
     + '<span class="mc-target" title="' + escapeHtml(target) + '">' + escapeHtml(target) + '</span>'
     + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '"'
