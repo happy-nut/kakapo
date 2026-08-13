@@ -200,6 +200,28 @@ const SERVER_SPECS: Record<string, ServerSpec[]> = {
   php: [{ binary: "phpactor", args: ["language-server"] }],
 };
 
+// Electron-as-node hands a language server the same 4 GB old-space limit the app itself gets, so a server
+// with nothing forcing its hand simply grows into it: measured on a 3200-file Python repo, pyright settled at
+// 956 MB RSS. The limit is a GC pressure knob, not just a crash ceiling — the same workload lands at 859 MB
+// under 2048 and 797 MB under 1024, with identical diagnostics. 512 dies of heap exhaustion, and a server
+// that dies stays dead for the session (failedServers), which costs more than the memory it saves.
+// ponytail: one number for every node-hosted server. Per-family limits only if a real repo needs more.
+const NODE_SERVER_HEAP_MB = 2048;
+
+// Per-family LSP initializationOptions, applied whether the server came from the bundle or from PATH.
+// typescript-language-server's automatic type acquisition spawns a third process (typingsInstaller, 34 MB)
+// that npm-installs @types packages and watches node_modules for changes — a background download and a pile
+// of fs watchers in aid of a read-only review. maxTsServerMemory reaches tsserver, which tsls spawns itself
+// and which the flag above therefore cannot cap.
+const INIT_OPTIONS: Record<string, Record<string, unknown>> = {
+  typescript: { disableAutomaticTypingAcquisition: true, maxTsServerMemory: NODE_SERVER_HEAP_MB },
+};
+
+// Every node-hosted server runs through Electron's node mode; both spawn paths build their argv here.
+function nodeHostArgs(entry: string, args: string[]): string[] {
+  return [`--max-old-space-size=${NODE_SERVER_HEAP_MB}`, entry, ...args];
+}
+
 const NODE_SERVER_ENTRIES: Record<string, { name: string; entry: string; args: string[] }> = {
   typescript: {
     name: "typescript-language-server",
@@ -366,7 +388,7 @@ function nodeHostedCommand(server: LanguageServerCommand): LanguageServerCommand
   return {
     ...server,
     command: process.execPath,
-    args: [entry, ...server.args],
+    args: nodeHostArgs(entry, server.args),
     env: { ...server.env, ELECTRON_RUN_AS_NODE: "1" },
   };
 }
@@ -386,7 +408,7 @@ export function resolveBundledLanguageServer(
       family,
       name: nodeServer.name,
       command: process.execPath,
-      args: [nodeServer.entry, ...nodeServer.args],
+      args: nodeHostArgs(nodeServer.entry, nodeServer.args),
       source: "bundled",
       // Electron's executable becomes a Node-compatible sidecar host without relying on a GUI app's PATH.
       env: { ELECTRON_RUN_AS_NODE: "1" },
@@ -686,6 +708,7 @@ export class LspClient {
         processId: process.pid,
         clientInfo: { name: "kakapo" },
         rootUri,
+        ...(INIT_OPTIONS[this.server.family] ? { initializationOptions: INIT_OPTIONS[this.server.family] } : {}),
         workspaceFolders: [{ uri: rootUri, name: this.root.split(/[\\/]/).pop() || "workspace" }],
         capabilities: {
           workspace: { configuration: true, workspaceFolders: true, symbol: {} },

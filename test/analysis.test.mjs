@@ -1,6 +1,6 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -171,6 +171,45 @@ test("main-process fallback answers definition, references, implementation, symb
   analysis.dispose();
 });
 
+test("a TypeScript server is told to skip automatic type acquisition and to cap tsserver", async () => {
+  const root = tempProject();
+  write(root, "src/app.ts", "export const app = 1;\n");
+  const seen = join(root, "initialize.json");
+  const fake = join(root, "fake-lsp.mjs");
+  writeFileSync(fake, `
+import { writeFileSync } from 'node:fs';
+let buffer = Buffer.alloc(0);
+process.stdin.on('data', (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+  while (true) {
+    const end = buffer.indexOf('\\r\\n\\r\\n');
+    if (end < 0) return;
+    const length = Number(/Content-Length:\\s*(\\d+)/i.exec(buffer.subarray(0, end).toString())?.[1]);
+    if (buffer.length < end + 4 + length) return;
+    const message = JSON.parse(buffer.subarray(end + 4, end + 4 + length));
+    buffer = buffer.subarray(end + 4 + length);
+    if (typeof message.id !== 'number') continue;
+    if (message.method === 'initialize') writeFileSync(${JSON.stringify(seen)}, JSON.stringify(message.params.initializationOptions ?? null));
+    const result = message.method === 'initialize' ? { capabilities: {} } : [];
+    const body = Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }));
+    process.stdout.write('Content-Length: ' + body.length + '\\r\\n\\r\\n');
+    process.stdout.write(body);
+  }
+});
+`);
+  const client = new LspClient(root, { family: "typescript", name: "fake-lsp", command: process.execPath, args: [fake] });
+  try {
+    await client.workspaceSymbols("app");
+    const options = JSON.parse(readFileSync(seen, "utf8"));
+    // The typings installer is a third process that npm-installs @types and watches node_modules — for a
+    // read-only review. maxTsServerMemory is the only way to reach tsserver, which tsls spawns itself.
+    assert.equal(options?.disableAutomaticTypingAcquisition, true, "automatic type acquisition stays off");
+    assert.ok(Number(options?.maxTsServerMemory) > 0, "tsserver gets a heap ceiling");
+  } finally {
+    client.dispose();
+  }
+});
+
 test("LSP adapter speaks stdio JSON-RPC and normalizes project-relative locations", async () => {
   const root = tempProject();
   write(root, "src/app.ts", "export const app = target();\n");
@@ -302,8 +341,9 @@ test("TypeScript resolution uses the packaged sidecar before PATH", () => {
   const resolved = resolveLanguageServer(root, "src/app.ts", { PATH: dirname(pathServer) }, process.platform);
   assert.equal(resolved?.source, "bundled");
   assert.equal(resolved?.command, process.execPath);
-  assert.match(resolved?.args[0] ?? "", /typescript-language-server[/\\]lib[/\\]cli\.mjs$/);
-  assert.deepEqual(resolved?.args.slice(1), ["--stdio"]);
+  assert.match(resolved?.args[0] ?? "", /^--max-old-space-size=\d+$/, "a node-hosted server runs under a heap ceiling");
+  assert.match(resolved?.args[1] ?? "", /typescript-language-server[/\\]lib[/\\]cli\.mjs$/);
+  assert.deepEqual(resolved?.args.slice(2), ["--stdio"]);
   assert.equal(resolved?.env?.ELECTRON_RUN_AS_NODE, "1");
 });
 
@@ -313,7 +353,8 @@ test("Python and PHP resolve packaged sidecars without consulting PATH", () => {
   assert.equal(python?.source, "bundled");
   assert.equal(python?.name, "pyright-langserver");
   assert.equal(python?.command, process.execPath);
-  assert.match(python?.args[0] ?? "", /pyright[/\\]langserver\.index\.js$/);
+  assert.match(python?.args[0] ?? "", /^--max-old-space-size=\d+$/, "a node-hosted server runs under a heap ceiling");
+  assert.match(python?.args[1] ?? "", /pyright[/\\]langserver\.index\.js$/);
 
   const bundle = join(root, "bundle");
   const phpRuntime = join(bundle, `${process.platform}-${process.arch}`, "php", "php");
