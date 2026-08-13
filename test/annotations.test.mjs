@@ -445,3 +445,36 @@ test("unusable steps are dropped instead of played", async () => {
   assert.ok(!offered.has(String(plainId)), "and offers no walkthrough button");
   v.close();
 });
+
+// The two notes that carry a change's story. A reviewer skimming twelve notes should be able to find the one
+// that says where it hurts and the one that says where it stops hurting, so those two — and only those two —
+// get a pill and a coloured edge.
+test("a note can declare itself the problem or the fix, and an invented role degrades to neither", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+
+  const problem = v.agentSays({ kind: "note", path: "src/app.ts", line: 1, role: "problem", text: "Where it goes wrong." });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, role: "fix", text: "Where that is beaten." });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, role: "editorialising", text: "Not a role kakapo draws." });
+  await v.settle(30);
+
+  const problemCard = v.$(".mc-card.mc-role-problem");
+  assert.ok(problemCard, "the problem note is marked");
+  assert.match(problemCard.textContent, /The problem/, "and says so in a pill");
+  assert.ok(v.$(".mc-card.mc-role-fix"), "so is the fix");
+  // A card renders once per diff pane, so compare the SET of pill labels rather than counting them.
+  const pills = new Set(v.$all(".mc-role").map((p) => p.textContent));
+  assert.deepEqual([...pills].sort(), ["The fix", "The problem"], "the invented role gets no pill rather than an untranslated one");
+  assert.ok(v.visibleCardTexts().some((t) => /Not a role kakapo draws/.test(t)), "and its note still renders");
+
+  // Every later write re-serialises the notes already in the thread (commentToRecord), so a role that is not
+  // written back would silently disappear the next time anyone comments.
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, text: "A later, unmarked note." });
+  await v.settle(30);
+  assert.ok(v.$(".mc-card.mc-role-problem"), "the mark survives the round trip through the thread file");
+  assert.match(v.$(".mc-card.mc-role-problem").textContent, /Where it goes wrong/, "on the same note");
+  assert.ok(problem > 0, "the note kept its id");
+  v.close();
+});
