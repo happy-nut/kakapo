@@ -50,9 +50,21 @@ var handleTerminalSendModeKey;
   var savedH = parseInt(localStorage.getItem(heightKey) || '', 10);
   if (savedH) applyHeight(savedH);
 
+  // A pty is told about a resize only when the CHARACTER GRID actually changed. Dragging crosses a row
+  // boundary every ~17px, but every frame in between measured the same cols/rows and sent a resize anyway —
+  // SIGWINCH at 60Hz, and a full-screen TUI (an agent's own interface is one) repaints itself on every single
+  // one. That storm is the judder; the xterm reflow beside it was already coalesced to one per frame, so the
+  // expensive half was never the one being counted. Sent per pane, since a split moves only some of them.
   function fitPane(p) {
     if (!p) return;
-    try { p.fit.fit(); if (p.id != null) window.kakapoPty.resize({ id: p.id, cols: p.term.cols, rows: p.term.rows }); } catch (e) {}
+    try {
+      p.fit.fit();
+      if (p.id == null) return;
+      if (p.sentCols === p.term.cols && p.sentRows === p.term.rows) return;
+      p.sentCols = p.term.cols;
+      p.sentRows = p.term.rows;
+      window.kakapoPty.resize({ id: p.id, cols: p.sentCols, rows: p.sentRows });
+    } catch (e) {}
   }
   function fitAll() { panes.forEach(fitPane); }
   // One fit per frame, after the browser has laid out whatever just changed. A split, a restore and an open
@@ -282,7 +294,13 @@ var handleTerminalSendModeKey;
     // pane.restoreOrdinal names the already-running session this pane stands for (restorePanes); without it
     // main hands out the lowest free ordinal, which is what a genuinely new pane wants.
     window.kakapoPty.spawn({ cols: term.cols || 80, rows: term.rows || 24, ordinal: pane.restoreOrdinal })
-      .then(function (r) { pane.id = r && r.id; });
+      .then(function (r) {
+        pane.id = r && r.id;
+        // A fresh pty has never been sized, whatever the pane was showing before it: clear what we believe we
+        // sent, so the next fit tells it even when the grid happens to be unchanged.
+        pane.sentCols = pane.sentRows = 0;
+        fitPane(pane);
+      });
     setActive(pane);
     return pane;
   }
