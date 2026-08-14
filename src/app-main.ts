@@ -36,7 +36,7 @@ import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
 import { collectUsageStats } from "./usage-stats.js";
 import { agentForCommand, type AgentKind } from "./agent-resume.js";
 import { hubHtml, modalOverlayHtml } from "./shell-pages.js";
-import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
+import { aheadArgs, aheadCount, createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
 
 type AppOptions = {
   root: string;
@@ -101,7 +101,7 @@ type WinState = {
   // Rail tile data (repo record + working-tree dirty count) is git-derived — ~5 subprocesses/workspace.
   // renderHub fires on every agent-activity event, so cache it per workspace with a short TTL: without this
   // an N-workspace hub render spawns ~5N git processes on the main thread each time an agent turn finishes.
-  hubTile?: { record: WorkspaceRecord; dirtyCount: number; computedAt: number };
+  hubTile?: { record: WorkspaceRecord; dirtyCount: number; ahead: number; base?: string; computedAt: number };
   bootStarted: boolean;
   // Set when activateWorkspace focuses this view while it is still loading, so the "content is ready" hook
   // can hand it the keyboard. Consumed once.
@@ -1496,14 +1496,17 @@ const HUB_TILE_TTL_MS = 1000;
 // (however old) and revalidate off-thread, re-rendering only if something actually changed. Only a tile that
 // has never been computed still pays the synchronous cost, once.
 const hubTileRefreshing = new Set<number>();
-function hubTileFor(state: WinState): { record: WorkspaceRecord; dirtyCount: number } {
+function hubTileFor(state: WinState): { record: WorkspaceRecord; dirtyCount: number; ahead: number } {
   if (state.hubTile) {
     if (Date.now() - state.hubTile.computedAt >= HUB_TILE_TTL_MS) void refreshHubTile(state);
     return state.hubTile;
   }
   const record = workspaceRecord(state.options.root);
   const dirtyCount = git(record.path, ["status", "--porcelain"]).split("\n").filter(Boolean).length;
-  state.hubTile = { record, dirtyCount, computedAt: Date.now() };
+  // The base is read once, here, and then rides on the tile: a workspace cannot change what it was branched
+  // from, and the refresh below runs far more often than this seed does.
+  const base = savedWorkspaceMetadata().find((item) => resolveWorkspaceRoot(item.path) === record.path)?.base;
+  state.hubTile = { record, dirtyCount, ahead: aheadCount(record.path, base), base, computedAt: Date.now() };
   return state.hubTile;
 }
 // Only branch and dirty count can change for a live workspace — repoRoot/repoName/kind are fixed for a given
@@ -1517,15 +1520,19 @@ async function refreshHubTile(state: WinState): Promise<void> {
   // Bump the stamp up front so concurrent renderHub calls don't queue a second refresh behind this one.
   previous.computedAt = Date.now();
   try {
-    const [branch, status] = await Promise.all([
+    const [branch, status, upstream] = await Promise.all([
       gitAsync(previous.record.path, ["branch", "--show-current"]),
       gitAsync(previous.record.path, ["status", "--porcelain"]),
+      gitAsync(previous.record.path, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]),
     ]);
+    if (state.win.isDestroyed()) return;
+    const countArgs = aheadArgs(upstream, previous.base);
+    const ahead = countArgs ? Number(await gitAsync(previous.record.path, countArgs)) || 0 : 0;
     if (state.win.isDestroyed()) return;
     const dirtyCount = status.split("\n").filter(Boolean).length;
     const nextBranch = branch || "detached";
-    const changed = dirtyCount !== previous.dirtyCount || nextBranch !== previous.record.branch;
-    state.hubTile = { record: { ...previous.record, branch: nextBranch }, dirtyCount, computedAt: Date.now() };
+    const changed = dirtyCount !== previous.dirtyCount || nextBranch !== previous.record.branch || ahead !== previous.ahead;
+    state.hubTile = { record: { ...previous.record, branch: nextBranch }, dirtyCount, ahead, base: previous.base, computedAt: Date.now() };
     if (changed) renderHub();
   } finally {
     hubTileRefreshing.delete(id);
@@ -1596,13 +1603,13 @@ function renderHub(): void {
   const saved = savedWorkspaceMetadata();
   const panes = tmuxPaneCommands(); // shared 2s-cached tmux scan; also backs the green running dot
   const live = Array.from(states.values()).map((state) => {
-    const { record: current, dirtyCount } = hubTileFor(state);
+    const { record: current, dirtyCount, ahead } = hubTileFor(state);
     const metadata = saved.find((item) => resolveWorkspaceRoot(item.path) === current.path);
     const owner = githubOwnerFor(state.options.root);
     const avatar = owner ? ownerAvatar.get(owner) : undefined;
     if (owner && !avatar) void ensureOwnerAvatar(owner);
     return { id: state.win.webContents.id, ...current, alias: metadata?.alias, memo: metadata?.memo,
-      base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount, avatar,
+      base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount, ahead, avatar,
       active: state.win.webContents.id === activeStateId, running: hasRunningProcess(state),
       resume: state.resumeCommand, agent: agentForWorkspace(state, panes),
       unread: state.unread, busy: state.busy, detached: state.win.isDetached() };

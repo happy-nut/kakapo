@@ -65,6 +65,7 @@ export function hubHtml(light: boolean, appVersion: string, t: Translate): strin
     workspaces: t("hub.workspaces"), mainWorktree: t("hub.mainWorktree"),
     running: t("hub.status.running"), resumable: t("hub.status.resumable"), disconnected: t("hub.status.disconnected"),
     changed: t("hub.tip.changed"),
+    ahead: t("hub.tip.ahead"),
     agoNow: t("hub.ago.now"), agoM: t("hub.ago.m"), agoH: t("hub.ago.h"), agoD: t("hub.ago.d"),
     delTitle: t("hubdel.title"), delTitleNamed: t("hubdel.titleNamed"), delMessage: t("hubdel.message"),
     delCheckbox: t("hubdel.checkbox"), cancel: t("hubdel.cancel"), del: t("hubdel.delete"),
@@ -186,6 +187,7 @@ body.rail-exp .ev{display:flex}
    it borrows its markup from, and it keeps its brand colour (.usage-ico-claude/-codex) at every tile state. */
 .wt-agent{flex:none;display:grid;place-items:center;opacity:.9}
 .wt-agent .usage-ico{width:12px;height:12px}
+.wt-ahead{color:${light ? "#2f7d32" : "#98cb80"};border-color:${light ? "#bcd9bd" : "#3d6045"}}
 .wt-tag{font-size:9.5px;font-weight:700;color:${light ? "#9aa0aa" : "#8b909a"};border:1px solid ${line};border-radius:5px;padding:1px 5px;flex:none;font-variant-numeric:tabular-nums}
 .wt-branch{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:${light ? "#9aa0aa" : "#666b73"};margin:3px 0 0 16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Agent quota (Claude + Codex), moved here from the review's sidebar footer: it is per-account, not
@@ -440,7 +442,7 @@ const AGENT_ICO={claude:CLAUDE_ICO,codex:CODEX_ICO};
 // The badge is omitted, not blanked, for a workspace whose agent is unknown: a worktree you have only ever
 // run plain shell commands in has no agent, which is different from having one we failed to name.
 const agentIco=w=>AGENT_ICO[w.agent]?'<span class="wt-agent" role="img" aria-label="'+esc(AGENT_NAME[w.agent])+'">'+AGENT_ICO[w.agent]+'</span>':'';
-const tip=w=>(w.alias||w.branch)+' · '+w.repoName+' · '+w.path+(AGENT_NAME[w.agent]?' · '+AGENT_NAME[w.agent]:'')+(w.dirtyCount?' · '+T.changed.replace('{n}',w.dirtyCount):'')+(w.running?' · ● '+T.running:w.resume?' · '+T.resumable:w.disconnected?' · '+T.disconnected:'');
+const tip=w=>(w.alias||w.branch)+' · '+w.repoName+' · '+w.path+(AGENT_NAME[w.agent]?' · '+AGENT_NAME[w.agent]:'')+(w.dirtyCount?' · '+T.changed.replace('{n}',w.dirtyCount):'')+(w.ahead?' · '+T.ahead.replace('{n}',w.ahead):'')+(w.running?' · ● '+T.running:w.resume?' · '+T.resumable:w.disconnected?' · '+T.disconnected:'');
 // Stable per-project hue (all worktrees share it) — tints the collapsed group's accent bar + avatar
 // placeholder and the expanded panel's project badge, so projects read apart at a glance.
 const projHue=n=>{let h=0;const s=String(n||'');for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h%360;};
@@ -461,13 +463,17 @@ const ev='<div class="ev"><div class="plist">'+[...groups].map(([repo,ws])=>'<di
 // The main checkout is named for what it IS, not for whatever branch it happens to sit on: labelling it by
 // branch made a project whose main was on a feature branch look like it had no main at all. The branch line
 // below still shows the real branch.
-const nm=esc(w.alias||(isMain(w)?T.mainWorktree:0)||w.branch);const showBr=w.branch&&w.branch!==(w.alias||(isMain(w)?T.mainWorktree:0));const brLine=showBr?'<div class="wt-branch">'+esc(w.branch)+'</div>':'';const tag=w.dirtyCount?'<span class="wt-tag">'+w.dirtyCount+'</span>':'';const home=isMain(w)?'<span class="wt-home" title="'+esc(T.mainWorktree)+'">'+homeIco+'</span>':'';
+const nm=esc(w.alias||(isMain(w)?T.mainWorktree:0)||w.branch);const showBr=w.branch&&w.branch!==(w.alias||(isMain(w)?T.mainWorktree:0));const brLine=showBr?'<div class="wt-branch">'+esc(w.branch)+'</div>':'';const tag=w.dirtyCount?'<span class="wt-tag">'+w.dirtyCount+'</span>':'';
+// Uncommitted changes and unsent commits are different questions — "have I finished?" and "have I sent it?" —
+// so they are two pills, not one number. The arrow is what tells them apart at a glance; absent means zero,
+// which is the answer for most workspaces most of the time and deserves no ink.
+const aheadTag=w.ahead?'<span class="wt-tag wt-ahead" title="'+esc(T.ahead.replace('{n}',w.ahead))+'">↑'+w.ahead+'</span>':'';const home=isMain(w)?'<span class="wt-home" title="'+esc(T.mainWorktree)+'">'+homeIco+'</span>':'';
 // Which agent this worktree is running, in its own brand colour. The terminal records it the moment you
 // type claude/codex (agent-resume.ts), so a workspace shows its badge while the agent is live and keeps it
 // afterwards — the same fact the resume action is offered from. Only the expanded rail: the collapsed strip
 // is 46px of initials and a status dot, with no room for a second glyph.
 const agent=agentIco(w);
-return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+agent+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
+return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+agent+aheadTag+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
 list.innerHTML=cv+ev;
 // Worktree click → activate (or reconnect/forget a disconnected one). Collapsed badges and expanded cards are
 // both .wt with the same data-*, so one handler covers both views.

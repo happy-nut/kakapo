@@ -466,6 +466,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "hub.status.resumable": "resumable",
     "hub.status.disconnected": "disconnected",
     "hub.tip.changed": "{n} changed",
+    // Commits this workspace has that its upstream — or, for a task worktree nobody has pushed, the ref it was
+    // branched from — does not. The number that answers "is there anything in here I have not sent anywhere?"
+    "hub.tip.ahead": "{n} ahead",
     "hub.ago.now": "now",
     "hub.ago.m": "{n}m ago",
     "hub.ago.h": "{n}h ago",
@@ -1030,6 +1033,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "hub.status.resumable": "이어가기 가능",
     "hub.status.disconnected": "연결 끊김",
     "hub.tip.changed": "{n}개 변경",
+    "hub.tip.ahead": "{n}커밋 앞섬",
     "hub.ago.now": "방금",
     "hub.ago.m": "{n}분 전",
     "hub.ago.h": "{n}시간 전",

@@ -291,3 +291,22 @@ test("the start-ref is prefilled from the preview, editable, and reaches create"
   await tick();
   assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "fix-login", true, "develop"]);
 });
+
+// Uncommitted changes and unsent commits answer different questions — "have I finished?" and "have I sent
+// it?" — and only the first one had a pill. A task worktree nobody has pushed has no upstream, so its count
+// is measured against the ref it was branched from (aheadArgs, workspaces.ts).
+test("a workspace with unsent commits says so on its tile, and a clean one stays quiet", async () => {
+  const { document } = railWithState([
+    { ...KAKAPO_MAIN, id: 1, alias: "ahead-one", ahead: 3, dirtyCount: 0 },
+    { ...KAKAPO_MAIN, id: 2, path: "/repos/kakapo-b", alias: "clean-one", ahead: 0, dirtyCount: 0 },
+  ]);
+  await tick();
+
+  const tiles = [...document.querySelectorAll(".ev .wt")];
+  const ahead = tiles.find((el) => el.textContent.includes("ahead-one"));
+  const clean = tiles.find((el) => el.textContent.includes("clean-one"));
+  assert.ok(ahead && clean, "both workspaces render");
+  assert.equal(ahead.querySelector(".wt-ahead")?.textContent, "\u21913", "unsent commits get their own pill");
+  assert.equal(clean.querySelector(".wt-ahead"), null, "zero is the usual answer and earns no ink");
+  assert.match(ahead.getAttribute("title") || "", /hub\.tip\.ahead/, "and the tooltip spells it out");
+});
