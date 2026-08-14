@@ -69,7 +69,6 @@ function annotationBodyHtml(text) {
 // quiet default. An unknown role degrades to no role rather than an empty pill.
 var NOTE_ROLES = { problem: 'annotate.role.problem', fix: 'annotate.role.fix' };
 function agentCardHtml(c) {
-  var target = commentTargetLabel(c);
   var isReply = c.replyTo != null;
   var role = !isReply && NOTE_ROLES[c.role] ? c.role : '';
   return '<div class="mc-card mc-ai' + (isReply ? ' mc-reply-card' : '') + (role ? ' mc-role-' + role : '') + '">'
@@ -77,7 +76,7 @@ function agentCardHtml(c) {
     + '<span class="mc-kind-text">' + escapeHtml(t(isReply ? 'comment.answer' : 'annotate.kind')) + '</span></span>'
     + (role ? '<span class="mc-role">' + escapeHtml(t(NOTE_ROLES[role])) + '</span>' : '')
     + (c.title ? '<span class="mc-ai-title">' + escapeHtml(c.title) + '</span>' : '')
-    + '<span class="mc-target" title="' + escapeHtml(target) + '">' + escapeHtml(target) + '</span>'
+    + commentTargetHeadHtml(c)
     + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '"'
     + ' aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">\u00d7</button>'
     + '</div>'
@@ -132,7 +131,7 @@ function currentCodebasePromptText() {
 // ----- running it (⌘7 / the Explain rail button): stage the prompt in the terminal composer, the same
 // review-before-it-runs step every other prompt hand-off uses (sendPromptToTerminal, 24-prompt-palette.js).
 function runAnnotatePrompt() {
-  if (typeof sendPromptToTerminal === 'function') sendPromptToTerminal(currentAnnotatePromptText());
+  sendPromptToTerminal(currentAnnotatePromptText());
 }
 
 // ===== The walkthrough: a note whose explanation is a PATH through the code =====
@@ -172,7 +171,7 @@ var handleTourKey, startNoteTour;
       }
       return painted;
     }
-    var wrapper = typeof diffWrapperByPath === 'function' ? diffWrapperByPath(path) : null;
+    var wrapper = diffWrapperByPath(path);
     if (!wrapper) return 0;
     // One pass over the side's rows, not one lookup per line: a range of 40 lines would otherwise re-scan the
     // whole file 40 times for what a single walk answers.
@@ -190,9 +189,8 @@ var handleTourKey, startNoteTour;
   // a diff should walk the diff, not throw the reader into the source view halfway through.
   function gotoStep(step) {
     var path = step.path;
-    if (typeof isDiffViewVisible === 'function' && isDiffViewVisible()
-      && typeof navigateToLineInDiff === 'function' && navigateToLineInDiff(path, step.line, 'new')) return;
-    if (typeof navigateToLine === 'function') navigateToLine(path, step.line);
+    if (isDiffViewVisible() && navigateToLineInDiff(path, step.line, 'new')) return;
+    navigateToLine(path, step.line);
   }
 
   // The band is painted after the navigation has actually landed — a lazily-loaded file body materializes a
@@ -210,7 +208,7 @@ var handleTourKey, startNoteTour;
     var step = tour.steps[tour.index];
     tour.el.querySelector('.mc-tour-count').textContent = (tour.index + 1) + ' / ' + tour.steps.length;
     tour.el.querySelector('.mc-tour-body').innerHTML = annotationBodyHtml(step.text);
-    if (typeof renderMermaidDiagrams === 'function') renderMermaidDiagrams(tour.el);
+    renderMermaidDiagrams(tour.el);
     var play = tour.el.querySelector('.mc-tour-play');
     play.textContent = tour.playing ? '\u2016' : '\u25b6'; // ‖ / ▶ — plain glyphs, not emoji, so they match the rest of the chrome
     play.title = t(tour.playing ? 'tour.pause' : 'tour.play');

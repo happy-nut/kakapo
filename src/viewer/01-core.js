@@ -228,7 +228,7 @@ function openDiffImportFold(row) {
   var path = (wrapper.dataset && wrapper.dataset.path)
     || ((wrapper.querySelector('.d2h-file-name') || {}).textContent || '').trim();
   if (path) diffImportOpenPaths[path] = true;
-  if (typeof clearSelectedDiffFold === 'function') clearSelectedDiffFold();
+  clearSelectedDiffFold();
   resetDiffImportFolds(wrapper);
   invalidateDiffRows(wrapper);
   invalidateAsymmetricDiffGeometry(wrapper);
@@ -404,7 +404,7 @@ function restoreDiffCursorAfterContext(wrapper, snapshot) {
 }
 function expandDiffContext(row) {
   if (!row || row.dataset.contextLoading === '1') return;
-  if (typeof clearSelectedDiffFold === 'function') clearSelectedDiffFold();
+  clearSelectedDiffFold();
   var wrapper = row.closest('.d2h-file-wrapper');
   var key = row.dataset.contextHunk;
   if (!wrapper || key == null) return;
@@ -437,11 +437,11 @@ function expandDiffContext(row) {
     wrapper.__reviewAnchorsOld = null; wrapper.__reviewAnchorsNew = null;
     annotateDiffHunkRows(wrapper);
     restoreDiffCursorAfterContext(wrapper, cursorSnapshot);
-    if (typeof refreshComments === 'function') refreshComments();
+    refreshComments();
     syncDiffReviewChrome(request.path);
   }).catch(function () {
     peers.forEach(function (peer) { delete peer.dataset.contextLoading; }); refreshDiffContextFoldLabels();
-    if (typeof showToast === 'function') showToast(diffContextMessage('diff.contextUnavailable'));
+    showToast(diffContextMessage('diff.contextUnavailable'));
   });
 }
 
@@ -484,6 +484,11 @@ function materializeBody(wrapper, html) {
   body.innerHTML = html || '';
   body.removeAttribute('data-lazy');
   body.removeAttribute('data-loading');
+  // The body now lives in the DOM, so the string behind it is a second copy of the same bytes — and it is
+  // the expensive copy: walking a 130-file review costs 169 MB, of which 51 MB is these strings. Nothing
+  // reads them once the body is materialized (the rebuild path re-snapshots bodies off the DOM itself), and
+  // the paths that do need one again — a fast-path swap, a body dropped by a rebuild — refetch it from main.
+  delete bodyCache[(wrapper.id || '').replace('file-', '')];
   invalidateDiffRows(wrapper);
   markWrapperHunks(wrapper);
   if (diffBootDone && typeof reviewComments !== 'undefined' && reviewComments.length) { try { refreshComments(); } catch (e) {} }
@@ -603,9 +608,9 @@ function applyI18n() {
   if (langSelectRef) langSelectRef.render();
   if (themeSelectRef) themeSelectRef.render(); // theme labels are localized — refresh on a language switch too
   if (syntaxThemeSelectRef) syntaxThemeSelectRef.render();
-  if (typeof refreshDiffContextFoldLabels === 'function') refreshDiffContextFoldLabels();
-  if (typeof refreshCodeFoldLabels === 'function') refreshCodeFoldLabels();
-  if (typeof syncDiffReviewChrome === 'function') syncDiffReviewChrome();
+  refreshDiffContextFoldLabels();
+  refreshCodeFoldLabels();
+  syncDiffReviewChrome();
 }
 // Theme mirrors the locale pattern: persisted choice, applied by toggling data-theme on <html> so the
 // :root[data-theme="light"] palette takes over. Dark is the default (matches the inline :root). Applied
@@ -719,7 +724,7 @@ function installProjectIndex(payload) {
   fileSignatureByPath = new Map(fileStates.map(function (file) { return [file.path, file.signature]; }));
   projectIndexLoaded = true;
   projectIndexPayload = payload;
-  if (typeof pruneCommentsForMissingFiles === 'function' && pruneCommentsForMissingFiles()) refreshComments();
+  if (pruneCommentsForMissingFiles()) refreshComments();
   return payload;
 }
 

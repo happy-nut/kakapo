@@ -109,6 +109,10 @@ test("search reveals matches inside default-folded imports in File and Diff view
   await v.openDiffFor("src/folded.ts");
   assert.ok(v.$(".mc-import-fold-row"), "the diff import region starts folded too");
   v.key("f", { metaKey: true, code: "KeyF" });
+  // Before a single character is typed: restoring the panes rebuilds rows and re-runs the diff geometry, and
+  // that used to fire at exactly two characters — a stall between two keystrokes, on a boundary nobody could
+  // predict. Opening the bar is the deliberate moment; typing must never move the ground under the reviewer.
+  assert.equal(v.$(".mc-import-fold-row"), null, "opening the find bar restores the folded imports");
   v.typeInto(v.$("#file-find-input"), "hiddenImport");
   await v.settle(140);
   assert.equal(v.$(".mc-import-fold-row"), null, "diff search restores both import panes before matching");
@@ -159,5 +163,28 @@ test("continued typing cancels a pending broad query instead of publishing stale
   assert.equal(results.length, 1, "the cancelled one-character search cannot overwrite the final query");
   assert.match(results[0].row.textContent, /import target/);
   assert.equal(v.$("#file-find-count").textContent, "1/1");
+  v.close();
+});
+
+// A search belongs to the file it was opened on. Carrying the query onto the next file and re-running it
+// there reports a count for something the reviewer never asked about, under a bar that no longer describes
+// what is on screen.
+test("the find bar belongs to one file and closes when the reviewer moves to another", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/first.ts", before: "export const value = 1;\n", after: "export const value = 2;\n" },
+    { path: "src/second.ts", before: "export const other = 1;\n", after: "export const other = 3;\n" },
+  ]);
+  const v = await loadViewer(html);
+  await v.openDiffFor("src/first.ts");
+
+  v.key("f", { metaKey: true, code: "KeyF" });
+  v.typeInto(v.$("#file-find-input"), "value");
+  await v.settle(140);
+  assert.ok(v.window.__kakapoFileFind.results().length > 0, "it matches in the file it was opened on");
+
+  await v.openDiffFor("src/second.ts");
+  await v.settle(140);
+  assert.ok(v.$("#file-find").classList.contains("hidden"), "moving to another file closes the bar");
+  assert.equal(v.window.__kakapoFileFind.results().length, 0, "and takes its results with it");
   v.close();
 });

@@ -429,7 +429,7 @@ test("the launcher cannot keep the keyboard once it is not the thing on screen",
 
   // And the terminal, which paints over it, closes it as it opens.
   const client = readFileSync(new URL("../src/viewer/19-terminal.js", import.meta.url), "utf8");
-  assert.match(client, /closeQuickOpen === 'function'[\s\S]{0,200}closeQuickOpen\(\)/,
+  assert.match(client, /quickOpen && !quickOpen\.classList\.contains\('hidden'\)\) closeQuickOpen\(\)/,
     "opening the terminal dismisses a launcher it would cover");
   v.close();
 });

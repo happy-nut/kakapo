@@ -104,13 +104,24 @@ export async function createManagedWorkspaceAsync(
   return { ...workspaceRecord(realpathSync(target)), alias: label.trim() || slug, base, fetchWarning: fetch.ok ? undefined : fetch.output };
 }
 
+// Which ref "ahead" is measured against, in one place. The upstream when there is one; otherwise the ref this
+// workspace was branched from — kakapo's own task worktrees have no upstream until somebody pushes, so for
+// them `base` is the only answer that means anything. Returned as ARGS rather than a count so the sync caller
+// (removalRisk, below) and the async one (the hub tile, app-main.ts) can share the rule without sharing a
+// runner; a rule that lives twice is a rule that drifts.
+export function aheadArgs(upstream: string, base?: string): string[] | undefined {
+  const ref = upstream || base;
+  return ref ? ["rev-list", "--count", `${ref}..HEAD`] : undefined;
+}
+
+export function aheadCount(path: string, base?: string): number {
+  const args = aheadArgs(git(path, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]), base);
+  return args ? Number(git(path, args)) || 0 : 0;
+}
+
 export function removalRisk(workspace: WorkspaceRecord, runningProcesses = false): WorkspaceRemovalRisk {
   const status = git(workspace.path, ["status", "--porcelain"]);
-  const upstream = git(workspace.path, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
-  const raw = upstream
-    ? git(workspace.path, ["rev-list", "--count", `${upstream}..HEAD`])
-    : workspace.base ? git(workspace.path, ["rev-list", "--count", `${workspace.base}..HEAD`]) : "";
-  return { dirty: !!status, unpushed: Number(raw) || 0, runningProcesses };
+  return { dirty: !!status, unpushed: aheadCount(workspace.path, workspace.base), runningProcesses };
 }
 
 export function removeManagedWorkspace(workspace: WorkspaceRecord, force = false, deleteBranch = false): void {

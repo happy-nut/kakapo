@@ -1,6 +1,6 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -169,6 +169,44 @@ test("main-process fallback answers definition, references, implementation, symb
     ...impact.impact.mentions,
   ].every((item) => item.evidence === "heuristic"), "fallback provenance is retained on every impact item");
   analysis.dispose();
+});
+
+test("a TypeScript server is told to skip automatic type acquisition", async () => {
+  const root = tempProject();
+  write(root, "src/app.ts", "export const app = 1;\n");
+  const seen = join(root, "initialize.json");
+  const fake = join(root, "fake-lsp.mjs");
+  writeFileSync(fake, `
+import { writeFileSync } from 'node:fs';
+let buffer = Buffer.alloc(0);
+process.stdin.on('data', (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+  while (true) {
+    const end = buffer.indexOf('\\r\\n\\r\\n');
+    if (end < 0) return;
+    const length = Number(/Content-Length:\\s*(\\d+)/i.exec(buffer.subarray(0, end).toString())?.[1]);
+    if (buffer.length < end + 4 + length) return;
+    const message = JSON.parse(buffer.subarray(end + 4, end + 4 + length));
+    buffer = buffer.subarray(end + 4 + length);
+    if (typeof message.id !== 'number') continue;
+    if (message.method === 'initialize') writeFileSync(${JSON.stringify(seen)}, JSON.stringify(message.params.initializationOptions ?? null));
+    const result = message.method === 'initialize' ? { capabilities: {} } : [];
+    const body = Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }));
+    process.stdout.write('Content-Length: ' + body.length + '\\r\\n\\r\\n');
+    process.stdout.write(body);
+  }
+});
+`);
+  const client = new LspClient(root, { family: "typescript", name: "fake-lsp", command: process.execPath, args: [fake] });
+  try {
+    await client.workspaceSymbols("app");
+    const options = JSON.parse(readFileSync(seen, "utf8"));
+    // The typings installer is a third process that npm-installs @types and watches node_modules — for a
+    // read-only review.
+    assert.equal(options?.disableAutomaticTypingAcquisition, true, "automatic type acquisition stays off");
+  } finally {
+    client.dispose();
+  }
 });
 
 test("LSP adapter speaks stdio JSON-RPC and normalizes project-relative locations", async () => {

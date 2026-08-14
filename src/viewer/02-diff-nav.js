@@ -72,6 +72,33 @@ function renderBreadcrumb(container, path) {
     span.textContent = seg;
     container.appendChild(span);
   });
+  appendBreadcrumbStat(container, path);
+}
+
+// How big this change is, for the ONE file the toolbar is about. Read off that file's Changes row rather than
+// counted from the rendered diff: bodies materialize on demand (Phase 2 lazy-LOAD), so a file nobody has
+// scrolled to yet has no +/- rows in the DOM at all, and counting them would confidently report "+0 -0" for
+// the largest change in the review. The row carries the totals the parser already knew (render-tree.ts).
+// Matched by dataset rather than a [data-file="..."] selector so a path containing a quote cannot break it.
+function appendBreadcrumbStat(container, path) {
+  if (!path) return;
+  var row = Array.prototype.find.call(document.querySelectorAll('.change-row'), function (el) {
+    return el.dataset.file === path;
+  });
+  var added = Number(row && row.dataset.added) || 0;
+  var deleted = Number(row && row.dataset.deleted) || 0;
+  if (!added && !deleted) return; // a rename or a binary file has nothing to count, and says so by staying quiet
+  var stat = document.createElement('span');
+  stat.className = 'crumb-stat';
+  var plus = document.createElement('span');
+  plus.className = 'crumb-stat-add';
+  plus.textContent = '+' + added;
+  var minus = document.createElement('span');
+  minus.className = 'crumb-stat-del';
+  minus.textContent = '-' + deleted;
+  stat.appendChild(plus);
+  stat.appendChild(minus);
+  container.appendChild(stat);
 }
 
 // IntelliJ-style diff chrome follows the keyboard caret, not merely the selected file. A unified hunk
@@ -224,7 +251,7 @@ function applySetActive(idx, shouldScroll) {
     // the visible 146→21 double jump on F7 across a file boundary. Scrolling synchronously here lands the
     // view on the change before this frame paints, so the new file appears already at its first change.
     if (shouldScroll && targetRow && targetRow.scrollIntoView) targetRow.scrollIntoView({ block: 'center' });
-    if (typeof refreshFileFindForActiveView === 'function') refreshFileFindForActiveView();
+    refreshFileFindForActiveView();
   });
 }
 
@@ -241,7 +268,7 @@ function showOnlyFile(fileName, skipCursor) {
   });
   // Inactive observers deliberately defer gutter projection. Refresh only the newly visible editor; this
   // also ensures its line numbers are ready in the same animation frame as asymmetric scroll alignment.
-  if (activeWrapper && typeof scheduleLayeredDiffGutters === 'function') scheduleLayeredDiffGutters(activeWrapper);
+  if (activeWrapper) scheduleLayeredDiffGutters(activeWrapper);
   scheduleAsymmetricDiffScroll();
   // applySetActive passes skipCursor: it sets the caret itself via focusDiffRow(targetRow). Letting
   // ensureDiffCursor run here would first place the caret on the file's FIRST code row, then focusDiffRow

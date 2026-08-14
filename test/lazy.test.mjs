@@ -452,3 +452,39 @@ test("lazy-LOAD: a watch refresh waits out an IME composition, however long it t
   assert.match(v.$("#diff2html-container").textContent, /222/, "the held refresh lands once the syllable commits");
   v.close();
 });
+
+// The terminal is not the only textarea. A comment composer assembles syllables too, and refreshComments()
+// re-creates it — so the poll that pulls in an agent's answers used to land mid-syllable in the COMMENT box
+// while the terminal check happily reported that nobody was typing, because nobody was typing there.
+test("lazy-LOAD: a watch refresh waits out a composition anywhere in the page, not just the terminal", async () => {
+  const b1 = await makeReviewHtml(
+    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 111;\n" }],
+    { lazyLoad: true },
+  );
+  let bodies = await renderLazyBodies(b1.build);
+  const v = await loadViewer(b1.html, {
+    menuBridge: true,
+    lazySourceData: b1.build.lazySourceData,
+    getDiffBody: (idx) => bodies[idx] || "",
+  });
+  await v.openDiffFor("src/live.ts");
+  await v.settle(120);
+
+  // No terminal at all: this is a reviewer typing a comment, so every terminal-based signal says "idle".
+  v.window.__kakapoTerminal = undefined;
+  v.window.document.dispatchEvent(new v.window.Event("compositionstart", { bubbles: true }));
+
+  const b2 = await makeReviewHtml(
+    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 222;\n" }],
+    { lazyLoad: true },
+  );
+  bodies = await renderLazyBodies(b2.build);
+  await v.pushDiffUpdate(b2.build.update);
+  await v.settle(700);
+  assert.doesNotMatch(v.$("#diff2html-container").textContent, /222/, "no rebuild while a syllable is unfinished in a comment box");
+
+  v.window.document.dispatchEvent(new v.window.Event("compositionend", { bubbles: true }));
+  await v.settle(700);
+  assert.match(v.$("#diff2html-container").textContent, /222/, "the held refresh lands once that syllable commits");
+  v.close();
+});

@@ -219,7 +219,7 @@ test("the new-worktree toggle defaults on and creates a worktree", async () => {
   document.querySelector("#label").value = "fix-login";
   document.querySelector("#doCreate").click();
   await tick();
-  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "fix-login", true]);
+  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "fix-login", true, ""]);
 });
 
 test("unchecking it hides the task name and opens the checkout instead", async () => {
@@ -233,7 +233,7 @@ test("unchecking it hides the task name and opens the checkout instead", async (
   assert.deepEqual(hub.lastCall("preview"), ["/repos/zoobox", "", false]);
   document.querySelector("#doCreate").click();
   await tick();
-  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "", false]);
+  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "", false, ""]);
 });
 
 test("re-opening the dialog resets the toggle back on", async () => {
@@ -264,4 +264,49 @@ test("the delete confirmation offers to remove the local branch, pre-checked", a
   overlay.handlers.onModalOpen({ type: "confirm", ...spec });
   await tick();
   assert.equal(document.querySelector("#cfCheck").checked, true);
+});
+
+// Which ref a new worktree branches FROM decides whether it starts life current or already behind. main has
+// always accepted a base (createManagedWorkspaceAsync), and the dialog has always PRINTED the default one —
+// it just never let anyone change it, so on a repo that develops off the default branch every workspace
+// silently started from the wrong place.
+test("the start-ref is prefilled from the preview, editable, and reaches create", async () => {
+  const { hub, document } = openDialog({ path: "/repos/zoobox", name: "zoobox" },
+    { preview: { ok: true, worktree: true, slug: "fix-login", base: "origin/main", branch: "kakapo/fix-login", path: "~/kakapo/workspaces/zoobox/fix-login" } });
+  await tick();
+  const base = document.querySelector("#base");
+  assert.equal(base.value, "origin/main", "prefilled with what main would have used anyway");
+  assert.doesNotMatch(document.querySelector("#preview").innerHTML, /origin\/main/,
+    "and the preview stops printing a value the field beside it already shows");
+
+  // Typing a task name re-previews on every keystroke; that must not overwrite a ref just chosen by hand.
+  base.value = "develop";
+  const label = document.querySelector("#label");
+  label.value = "fix-login";
+  label.dispatchEvent(new document.defaultView.Event("input"));
+  await tick();
+  assert.equal(base.value, "develop", "a hand-picked ref survives the next preview");
+
+  document.querySelector("#doCreate").click();
+  await tick();
+  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "fix-login", true, "develop"]);
+});
+
+// Uncommitted changes and unsent commits answer different questions — "have I finished?" and "have I sent
+// it?" — and only the first one had a pill. A task worktree nobody has pushed has no upstream, so its count
+// is measured against the ref it was branched from (aheadArgs, workspaces.ts).
+test("a workspace with unsent commits says so on its tile, and a clean one stays quiet", async () => {
+  const { document } = railWithState([
+    { ...KAKAPO_MAIN, id: 1, alias: "ahead-one", ahead: 3, dirtyCount: 0 },
+    { ...KAKAPO_MAIN, id: 2, path: "/repos/kakapo-b", alias: "clean-one", ahead: 0, dirtyCount: 0 },
+  ]);
+  await tick();
+
+  const tiles = [...document.querySelectorAll(".ev .wt")];
+  const ahead = tiles.find((el) => el.textContent.includes("ahead-one"));
+  const clean = tiles.find((el) => el.textContent.includes("clean-one"));
+  assert.ok(ahead && clean, "both workspaces render");
+  assert.equal(ahead.querySelector(".wt-ahead")?.textContent, "\u21913", "unsent commits get their own pill");
+  assert.equal(clean.querySelector(".wt-ahead"), null, "zero is the usual answer and earns no ink");
+  assert.match(ahead.getAttribute("title") || "", /hub\.tip\.ahead/, "and the tooltip spells it out");
 });

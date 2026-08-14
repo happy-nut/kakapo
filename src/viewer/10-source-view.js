@@ -545,7 +545,7 @@ function isSourceViewerVisible() {
 function selectAllInView() {
   var target = null;
   if (isSourceViewerVisible()) target = document.getElementById('source-body');
-  else if (typeof isDiffViewVisible === 'function' && isDiffViewVisible()) {
+  else if (isDiffViewVisible()) {
     target = document.querySelector('#diff2html-container .d2h-file-wrapper:not(.df-inactive)') || document.getElementById('diff2html-container');
   }
   if (!target) return false;
@@ -935,7 +935,7 @@ function observeSourceTabWidth(bar) {
 }
 
 function showSourceTabOverflowMenu(button) {
-  if (!button || !sourceTabOverflowPaths.length || typeof showCustomDropdown !== 'function') return;
+  if (!button || !sourceTabOverflowPaths.length) return;
   var rect = button.getBoundingClientRect();
   showCustomDropdown(Math.max(8, rect.right - 280), rect.bottom + 4, sourceTabOverflowPaths.map(function (path) {
     return { label: sourceTabMenuLabel(path), onSelect: function () { openSourceFile(path); } };

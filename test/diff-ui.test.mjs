@@ -275,7 +275,13 @@ test("paired hunk rows use center gutters and IntelliJ semantic colors", async (
   const changeRow = v.$('.change-row[data-file="src/colors.ts"]');
   assert.equal(changeRow.querySelector(".diffstat"), null, "Changes rows omit added/deleted line totals");
   assert.equal(changeRow.querySelector(".status").textContent.trim(), "", "status uses no wide text label");
-  assert.ok(changeRow.querySelector(".status-modified svg"), "modified state is a compact icon badge");
+  // "Modified" is what every row in a tree of CHANGED files is, so the chip draws nothing and says nothing.
+  // It stays as the slot the viewed ✓ lands in, and as the thing that keeps every filename on one left edge.
+  const chip = changeRow.querySelector(".status-modified");
+  assert.ok(chip, "the chip stays, so a viewed file still has somewhere to show its check");
+  assert.equal(chip.querySelector("svg"), null, "but draws no pencil on a list where everything is modified");
+  assert.equal(chip.getAttribute("title"), null, "and an invisible chip answers no hover with the word Modified");
+  assert.equal(chip.getAttribute("aria-hidden"), "true", "nor repeats the status the row's own aria-label ends in");
   v.close();
 });
 
@@ -411,5 +417,32 @@ test("omitted context expands in both diff panes without losing hunk navigation"
     assert.equal(v.window.getComputedStyle(marker).display, "none", "expansion leaves no empty marker bar in either pane");
   });
   assert.equal(wrapper.querySelectorAll("tr.hunk").length, hunkCountBefore, "expansion preserves hunk navigation anchors");
+  v.close();
+});
+
+// How big the change is, for the one file the toolbar names. The Changes TREE still omits it — one number per
+// row, on a list where every row already means "changed", is noise — but the toolbar is about a single file
+// and the size of its change is the thing you are about to read.
+test("the diff toolbar carries the file's added and deleted line counts", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/grew.ts", before: "const a = 1;\n", after: "const a = 1;\nconst b = 2;\nconst c = 3;\n" },
+    { path: "src/shrank.ts", before: "const x = 1;\nconst y = 2;\n", after: "const x = 1;\n" },
+  ]);
+  const v = await loadViewer(html);
+
+  await v.openDiffFor("src/grew.ts");
+  await v.settle(60);
+  const crumb = v.$("#diff-breadcrumb");
+  assert.equal(crumb.querySelector(".crumb-stat-add").textContent, "+2", "two lines added");
+  assert.equal(crumb.querySelector(".crumb-stat-del").textContent, "-0", "none deleted");
+
+  await v.openDiffFor("src/shrank.ts");
+  await v.settle(60);
+  assert.equal(v.$("#diff-breadcrumb .crumb-stat-del").textContent, "-1", "the counts follow the open file");
+
+  // Counted from the parsed diff, not from rendered rows: a body nobody has scrolled to is not in the DOM.
+  const row = [...v.$all(".change-row")].find((el) => el.dataset.file === "src/grew.ts");
+  assert.equal(row.dataset.added, "2", "the tree row carries the totals the parser already knew");
+  assert.equal(row.querySelector(".diffstat"), null, "and still shows no diffstat of its own");
   v.close();
 });

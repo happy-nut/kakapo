@@ -37,13 +37,13 @@ function refreshViewerAfterSidebarLayout() {
     // Horizontal connector placement follows the CSS midpoint throughout the transition. Once the grid
     // reaches its final width, refresh the width/row-dependent caches exactly once; continuously measuring
     // every animation frame made large diffs stutter and still allowed the overlay to lag by one frame.
-    var wrapper = typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null;
+    var wrapper = diffActiveWrapper();
     if (wrapper && isDiffViewVisible()) {
-      if (typeof invalidateAsymmetricDiffGeometry === 'function') invalidateAsymmetricDiffGeometry(wrapper);
-      if (typeof refreshLayeredDiffGutters === 'function') refreshLayeredDiffGutters(wrapper);
-      if (typeof scrollAsymmetricDiff === 'function') scrollAsymmetricDiff();
+      invalidateAsymmetricDiffGeometry(wrapper);
+      refreshLayeredDiffGutters(wrapper);
+      scrollAsymmetricDiff();
     }
-    if (typeof positionFileFind === 'function') positionFileFind();
+    positionFileFind();
   });
 }
 function scheduleViewerAfterSidebarLayout() {
@@ -124,7 +124,7 @@ function focusDiffAfterSidebarCollapse() {
       try { content.focus({ preventScroll: true }); } catch (e) { try { content.focus(); } catch (ignore) {} }
     }
   }
-  if (!diffCursor && typeof ensureDiffCursor === 'function') ensureDiffCursor();
+  if (!diffCursor) ensureDiffCursor();
 }
 function setReviewSidebarCollapsed(collapsed, options) {
   reviewSidebarCollapsed = !!collapsed;
@@ -181,7 +181,7 @@ function syncRail() {
   setOn('impact', !!(impact && !impact.classList.contains('hidden')));
   // Explain opens no view of its own — light its rail icon while the agent's notes are on the diff, so the
   // button doubles as "there are notes to read" (23-annotations.js).
-  setOn('explain', typeof annotationList === 'function' && annotationList().length > 0);
+  setOn('explain', annotationList().length > 0);
   // Mirror the same state onto the shell title-bar tools (single-instance app only).
   var term = document.getElementById('terminal-toggle');
   if (window.kakapoMenu && window.kakapoMenu.sendRailState) {
@@ -208,7 +208,7 @@ function ensureTreeRendered() {
       panel.innerHTML = html;
       panel.dataset.projectIndex = 'loaded';
       sourceLinks = Array.from(document.querySelectorAll('.source-link'));
-      if (typeof refreshComments === 'function') { try { refreshComments(); } catch (e) {} }
+      try { refreshComments(); } catch (e) {}
     }, 0);
     return Promise.resolve();
   }
@@ -218,15 +218,15 @@ function ensureTreeRendered() {
     else panel.innerHTML = payload && payload.filesTree ? payload.filesTree : '<div class="empty-nav">' + escapeHtml(t('source.selectFile')) + '</div>';
     panel.dataset.projectIndex = 'loaded';
     sourceLinks = Array.from(document.querySelectorAll('.source-link'));
-    if (typeof refreshComments === 'function') { try { refreshComments(); } catch (e) {} } // re-render per-file badges
+    try { refreshComments(); } catch (e) {} // re-render per-file badges
   });
 }
 
 function showDiffView(shouldScroll) {
   document.getElementById('source-viewer')?.classList.add('hidden');
   document.getElementById('diff-view')?.classList.remove('hidden');
-  if (typeof updateDiffLineWrapToggle === 'function') updateDiffLineWrapToggle();
-  if (typeof refreshDiffLineWrapLayout === 'function') refreshDiffLineWrapLayout();
+  updateDiffLineWrapToggle();
+  refreshDiffLineWrapLayout();
   setTab('changes');
   syncReviewSidebarVisibility();
   if (current < 0 && hunkTotal()) {
@@ -240,7 +240,7 @@ function showDiffView(shouldScroll) {
       if (curRow) {
         showOnlyFile(hunkPathAt(cidx));
         if (shouldScroll) curRow.scrollIntoView({ block: 'start' });
-        if (typeof refreshFileFindForActiveView === 'function') refreshFileFindForActiveView();
+        refreshFileFindForActiveView();
       }
     });
   }
@@ -251,8 +251,8 @@ function showSourceView() {
   document.getElementById('source-viewer')?.classList.remove('hidden');
   setTab('files');
   syncReviewSidebarVisibility();
-  if (typeof scheduleSourceTabOverflow === 'function') scheduleSourceTabOverflow(currentSourceTabPath());
-  if (typeof refreshFileFindForActiveView === 'function') setTimeout(refreshFileFindForActiveView, 0);
+  scheduleSourceTabOverflow(currentSourceTabPath());
+  setTimeout(refreshFileFindForActiveView, 0);
 }
 
 function saveUiState() {
@@ -339,7 +339,19 @@ function restoreUiState() {
 // Unlike the composer this is time-based, not modal: the diff keeps refreshing live while you merely WATCH a
 // pane, and only defers around actual typing.
 var TERMINAL_TYPING_IDLE_MS = 450;
+// The terminal guards its own composition (composingPanes, 19-terminal.js), but it is not the only place a
+// syllable gets assembled: a comment composer is a textarea too, and refreshComments() RE-CREATES it. So the
+// poll that pulls in an agent's answers would land mid-syllable and macOS would commit the half-built 가 as
+// ㄱ ㅏ — in the comment box, while the terminal check said "nobody is typing", because nobody was typing
+// THERE. One pair of document-level listeners covers every field in the page instead of one guard per
+// textarea, and keeps covering the next one somebody adds.
+var pageComposing = false;
+if (typeof document !== 'undefined') {
+  document.addEventListener('compositionstart', function () { pageComposing = true; }, true);
+  document.addEventListener('compositionend', function () { pageComposing = false; }, true);
+}
 function terminalTypingAgeMs() {
+  if (pageComposing) return 0;
   var api = window.__kakapoTerminal;
   // An IME composition has no bounded duration — the user may sit mid-syllable indefinitely — and breaking one
   // corrupts the input rather than merely delaying it (가 arrives as ㄱ ㅏ). Treat it as always "just typed".
@@ -355,7 +367,6 @@ function terminalTypingAgeMs() {
 // and one queued render covers every change that arrived while waiting.
 var refreshCommentsTimer = null;
 function refreshCommentsWhenNotTyping() {
-  if (typeof refreshComments !== 'function') return;
   var age = terminalTypingAgeMs();
   if (age >= TERMINAL_TYPING_IDLE_MS) {
     if (refreshCommentsTimer) { clearTimeout(refreshCommentsTimer); refreshCommentsTimer = null; }
@@ -662,7 +673,7 @@ function applyDiffUpdate(u) {
     fileStates: fileStates,
     sourceFilesMeta: sourceFiles,
   };
-  if (typeof pruneCommentsForMissingFiles === 'function') pruneCommentsForMissingFiles();
+  pruneCommentsForMissingFiles();
   if (filesPanel && filesPanel.dataset.projectIndex === 'loaded' && REVIEW_LAZY_LOAD) renderDeferredSourceTree(sourceFiles);
   httpEnvironments = u.httpEnvironments || {};
   httpEnvNames = Object.keys(httpEnvironments);
@@ -711,8 +722,7 @@ function applyDiffUpdate(u) {
       if (!shell) return;
       var idx = (w.id || '').replace('file-', '');
       materializeBody(w, prev.html);           // fills the body + markWrapperHunks (uses the new data-first-hunk)
-      bodyCache[idx] = prev.html;              // keep the index cache consistent so it never refetches
-      bodyPromise[idx] = Promise.resolve(w);
+      bodyPromise[idx] = Promise.resolve(w);   // already materialized, so the observer never refetches it
     });
   }
   refreshHunkIndex(); // rebuild hunks/hunkMeta from the swapped-in DOM so hunkTotal()/hunkPathAt() aren't stale
@@ -740,7 +750,34 @@ function applyDiffUpdate(u) {
     container.scrollTop = activeFilePreserved ? diffScrollTop : 0;
   }
   hydrateVisibleDiffSwaps(deferredVisibleSwaps, diffCursorSnapshot, refreshGeneration);
-  if (typeof isImpactOpen === 'function' && isImpactOpen()) openImpact();
+  if (isImpactOpen()) openImpact();
+  return true;
+}
+
+// A workspace parked off screen holds its whole diff in the DOM for as long as the app runs: measured at
+// 169 MB for a 130-file review, 77 MB of it still resident after the body strings are dropped. Chromium
+// purges what it can behind a hidden view, but live DOM is not purgeable — only we know it is disposable.
+// Main asks for it back once the workspace has been idle long enough (see reconcileIdleSuspend), and pays
+// for it with the rebuild it already runs on the way back in, which repaints through applyDiffUpdate's
+// full-swap path (an empty container fails reconcileDiffWrappers' first guard). The page itself stays: the
+// terminals, their ptys and scrollback, the comment drafts and the source tabs are all untouched.
+function releaseDiffView() {
+  var container = document.getElementById('diff2html-container');
+  if (!container || !container.querySelector('.d2h-file-wrapper')) return false;
+  // A half-written comment lives in the diff DOM, and its composer would be dropped with it. Leave the
+  // review alone; main re-arms on the next time this workspace goes off screen.
+  if (typeof composerState !== 'undefined' && composerState) return false;
+  container.innerHTML = '';
+  bodyCache = {};
+  bodyPromise = {};
+  wrapperPathMap = null;
+  diffCursor = null;
+  diffBootDone = false;
+  // No build is painted any more, so no build is current. Without this the rebuild on the way back in is
+  // discarded as "unchanged" whenever nothing in the repo moved while the workspace was parked — which is
+  // the common case — and the review would stay empty until something edited the tree.
+  currentSignature = '';
+  refreshHunkIndex(); // hunk metadata is derived from the DOM that just went away
   return true;
 }
 

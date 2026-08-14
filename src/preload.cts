@@ -21,6 +21,10 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
   onDiffUpdate: (cb: (html: string) => void): void => {
     ipcRenderer.on("kakapo:diff-update", (_event, html: string) => cb(html));
   },
+  // A long-parked workspace is asked to drop its diff DOM; the rebuild on the way back in repaints it.
+  onReleaseView: (cb: () => void): void => {
+    ipcRenderer.on("kakapo:release-view", () => cb());
+  },
   // Cmd/Ctrl+W from the Window menu -> close the active Files-mode tab in the renderer.
   onCloseTab: (cb: () => void): void => {
     ipcRenderer.on("kakapo:close-tab", () => cb());

@@ -391,8 +391,6 @@ body.native-app .source-toolbar { min-height: var(--native-titlebar-height); }
 body.native-app .source-tabs {
   min-height: var(--native-titlebar-height);
   margin: 0;
-  padding: 4px 8px;
-  border-width: 0 0 1px;
 }
 .sidebar {
   position: relative;
@@ -403,9 +401,7 @@ body.native-app .source-tabs {
   flex-direction: column;
   overflow: hidden;
   border-right: 1px solid var(--border);
-  background: var(--sidebar);
   min-width: 0;
-  transition: opacity 180ms ease, transform 180ms cubic-bezier(.2, .8, .2, 1);
 }
 .sidebar-scroll {
   flex: 1 1 auto;
@@ -443,7 +439,6 @@ body.native-app .source-tabs {
   white-space: nowrap;
   border: 0;
 }
-.live-status { color: var(--muted); }
 .live-status.watching { color: var(--active); }
 .sidebar-brand {
   flex: 0 0 auto;
@@ -458,7 +453,6 @@ body.native-app .source-tabs {
   flex: 0 1 auto;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -487,7 +481,6 @@ body.native-app .source-tabs {
   flex-direction: column;
   align-items: center;
   padding: 8px 0;
-  background: var(--sidebar);
   border-right: 1px solid var(--border);
   overflow: visible; /* let tooltips escape to the right, over the sidebar */
   z-index: 32;
@@ -499,26 +492,16 @@ body.native-app .source-tabs {
   flex: none;
   width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
-  border: 0; border-radius: 7px;
-  background: transparent; color: var(--muted);
+  border: 0;
+  background: transparent;
   cursor: pointer; padding: 0;
-}
-.rail-btn > svg { width: 16px; height: 16px; }
-.rail-btn:hover { color: var(--text); background: color-mix(in srgb, var(--active) 16%, transparent); }
-.rail-btn.is-active { color: var(--active-strong); background: color-mix(in srgb, var(--active) 22%, transparent); }
-/* Left accent bar at the rail edge marks the active view (like IntelliJ). */
-.rail-btn.is-active::before {
-  content: ""; position: absolute; left: -4px; top: 4px; bottom: 4px; width: 2px;
-  background: var(--active); border-radius: 0 2px 2px 0;
 }
 .rail-gear { font-size: 16px; line-height: 1; }
 .rail-tip {
   position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
   display: flex; align-items: center; gap: 12px; white-space: nowrap;
-  background: var(--panel); color: var(--text);
-  border: 1px solid var(--border); border-radius: 6px;
+  border: 1px solid var(--border);
   padding: 6px 8px 6px 11px; font-size: 12.5px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
   opacity: 0; pointer-events: none; transition: opacity .12s ease;
   z-index: 90;
 }
@@ -530,39 +513,28 @@ body.native-app .source-tabs {
   /* System font + letter-spacing so ⌘⇧N reads clearly and the glyphs aren't cramped together. */
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   font-size: 11.5px; font-weight: 500; letter-spacing: 1px;
-  color: var(--text); background: var(--bg);
-  border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px;
+  border: 1px solid var(--border); padding: 2px 6px;
 }
 
 /* Current branch chip under the project name in the sidebar header. */
-.brand-branch { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 5px; margin-top: 0; min-width: 0; color: var(--muted); font-size: 12px; }
+.brand-branch { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 5px; margin-top: 0; min-width: 0; font-size: 12px; }
 .brand-branch-icon { flex: none; opacity: 0.8; }
 .brand-branch-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .tab, .plain-button {
   border: 1px solid var(--border);
-  border-radius: 6px;
   padding: 5px 9px;
-  color: var(--text);
-  background: var(--panel);
   font: 12px ui-sans-serif, system-ui, sans-serif;
   cursor: pointer;
 }
-.tab.active, .plain-button:hover { border-color: var(--active); color: var(--active); }
 .hidden { display: none !important; }
-/* IntelliJ-style git status on sidebar file names: untracked(new)=red, modified=blue, staged(git add)=green. */
-.vcs-new.source-link .path, .vcs-new.change-row .change-name { color: #d36c6c; }
-.vcs-edited.source-link .path, .vcs-edited.change-row .change-name { color: #6c9fd4; }
-.vcs-staged.source-link .path, .vcs-staged.change-row .change-name { color: #7faf6b; }
 .sidebar-footer {
   flex: 0 0 auto;
   padding: 8px 12px;
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--sidebar);
   border-top: 1px solid var(--border);
   font-size: 11px;
-  color: var(--muted);
 }
 .sidebar-footer .app-version {
   margin-right: auto; display: inline-flex; align-items: center; gap: 6px;
@@ -587,7 +559,7 @@ body.native-app .source-tabs {
 .app-version-text { overflow: hidden; text-overflow: ellipsis; }
 .analysis-status {
   min-width: 0; display: inline-flex; align-items: center; gap: 5px;
-  overflow: hidden; color: var(--muted); white-space: nowrap;
+  overflow: hidden; white-space: nowrap;
   font: 10.5px/1.3 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .analysis-status-label { overflow: hidden; text-overflow: ellipsis; }
@@ -605,7 +577,6 @@ body.native-app .source-tabs {
 }
 .empty-nav.changes-empty .empty-nav-icon { opacity: .45; }
 .empty-nav.changes-empty .empty-nav-text { font-size: 12px; }
-.analysis-status.is-ready { color: var(--text); }
 .analysis-status.is-ready .analysis-status-dot { background: var(--token-string); opacity: 1; }
 .analysis-status.is-fallback .analysis-status-dot { background: var(--token-tag); opacity: 1; }
 .analysis-status.is-failed .analysis-status-dot { background: var(--token-keyword); opacity: 1; }
@@ -624,7 +595,6 @@ body.native-app .source-tabs {
 .settings-btn {
   flex: none;
   border: 1px solid transparent;
-  border-radius: 0;
   background: transparent;
   color: var(--muted);
   font-size: 14px;
@@ -644,15 +614,11 @@ body.native-app .source-tabs {
   overflow: auto;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 0;
-  background: var(--panel);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
   font-size: 12px;
-  color: var(--text);
 }
 .app-info-head { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
 .app-info-head .app-info-ver { color: var(--muted); font-weight: 500; }
-.app-info-status { color: var(--muted); margin-bottom: 10px; }
+.app-info-status { margin-bottom: 10px; }
 .app-info-status.is-loading { display: flex; align-items: center; gap: 8px; }
 .app-info-status.has-update { color: var(--active); font-weight: 600; }
 .app-info-update { width: 100%; margin: 0 0 10px; border-color: var(--active); color: var(--active); font-weight: 600; }
@@ -674,9 +640,8 @@ body.native-app .source-tabs {
 .settings-panel {
   position: relative; z-index: 1; contain: paint; transform: translateZ(0);
   display: flex;
-  width: 900px; max-width: 92vw; height: 660px; max-height: 88vh;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 0;
-  overflow: hidden; box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
+  width: 900px; max-width: 92vw; height: 660px; max-height: 88vh; border: 1px solid var(--border);
+  overflow: hidden;
 }
 .settings-close {
   position: absolute; z-index: 2; top: 10px; right: 12px;
@@ -685,8 +650,7 @@ body.native-app .source-tabs {
 }
 .settings-close:hover { color: var(--text); background: var(--hover); }
 .settings-nav {
-  flex: 0 0 210px; padding: 18px 12px 16px;
-  background: var(--sidebar); border-right: 1px solid var(--border);
+  flex: 0 0 210px; padding: 18px 12px 16px; border-right: 1px solid var(--border);
   display: flex; flex-direction: column; gap: 3px;
 }
 /* Brand identity moved out of the General page and into the nav header, so it reads as the panel's title once
@@ -695,14 +659,13 @@ body.native-app .source-tabs {
 .settings-nav-brand .kakapo-mark { width: 28px; height: 28px; flex: none; }
 .settings-nav-brand-meta { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
 .settings-nav-brand-name { font-size: 14px; font-weight: 650; color: var(--text); }
-.settings-nav-title { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); padding: 2px 10px 6px; }
-.settings-cat { text-align: left; border: 0; background: transparent; color: var(--text); padding: 8px 10px; font-size: 13px; cursor: pointer; }
-.settings-cat:hover { background: color-mix(in srgb, var(--active) 12%, transparent); }
-.settings-cat.active { background: color-mix(in srgb, var(--active) 18%, transparent); color: var(--active); font-weight: 600; }
+.settings-nav-title { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; padding: 2px 10px 6px; }
+.settings-cat { text-align: left; border: 0; background: transparent; padding: 8px 10px; font-size: 13px; cursor: pointer; }
+.settings-cat.active { font-weight: 600; }
 .settings-body { flex: 1 1 auto; min-width: 0; padding: 26px 30px; overflow: auto; }
-.settings-h { font-size: 15px; font-weight: 650; color: var(--text); margin-bottom: 6px; }
-.settings-ver { color: var(--muted); font-weight: 500; font-size: 11px; letter-spacing: 0.02em; }
-.settings-desc { font-size: 12px; color: var(--muted); line-height: 1.6; margin-bottom: 18px; }
+.settings-h { font-size: 15px; font-weight: 650; margin-bottom: 6px; }
+.settings-ver { font-weight: 500; font-size: 11px; letter-spacing: 0.02em; }
+.settings-desc { font-size: 12px; line-height: 1.6; margin-bottom: 18px; }
 /* Grouped preference cards (Appearance, Terminal): one card per topic, each a stack of label/control rows so the
    General page reads as organized groups instead of a flat run of label-over-control fields. */
 .settings-card { border: 1px solid var(--border); border-radius: var(--ui-radius-lg, 12px); background: color-mix(in srgb, var(--bg) 50%, transparent); padding: 2px 16px; margin: 0 0 18px; max-width: 600px; }
@@ -750,21 +713,19 @@ body.native-app .source-tabs {
 /* Groups two or more distinct prompt fields under one settings-cat tab (e.g. merge prompts + Explain
    prompt) — a divider + top margin so the second .settings-h reads as a new group, not a continuation. */
 .settings-subsection { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border); }
-.settings-label { display: block; font-size: 12px; font-weight: 600; color: var(--text); margin: 14px 0 6px; }
+.settings-label { display: block; font-size: 12px; font-weight: 600; margin: 14px 0 6px; }
 .settings-textarea {
   width: 100%; box-sizing: border-box; resize: vertical; min-height: 70px;
-  background: var(--bg); color: var(--text);
-  border: 1px solid var(--border); border-radius: 0; padding: 10px 12px;
+  border: 1px solid var(--border); padding: 10px 12px;
   font: 12px/1.55 ui-sans-serif, system-ui, sans-serif;
 }
-.settings-textarea:focus { outline: none; border-color: var(--active); }
+.settings-textarea:focus { outline: none; }
 .settings-select {
   width: auto; box-sizing: border-box;
-  background: var(--bg); color: var(--text);
-  border: 1px solid var(--border); border-radius: 0; padding: 8px 12px;
+  border: 1px solid var(--border); padding: 8px 12px;
   font: 12px/1.55 ui-sans-serif, system-ui, sans-serif;
 }
-.settings-select:focus { outline: none; border-color: var(--active); }
+.settings-select:focus { outline: none; }
 /* The settings dropdowns are buttons (custom dropdown), not native <select> — style them to read like one. */
 .settings-select.mc-select { text-align: left; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; min-width: 150px; flex: none; }
 .settings-select.mc-select::after { content: '▾'; margin-left: auto; opacity: 0.55; }
@@ -772,7 +733,7 @@ body.native-app .source-tabs {
 .settings-actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
 .settings-saved { font-size: 12px; color: var(--active); }
 .app-info-keys-h { font-weight: 600; color: var(--text); margin-bottom: 8px; }
-.keys-cat { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 14px 0 6px; }
+.keys-cat { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin: 14px 0 6px; }
 .app-info-keys .keys-cat:first-of-type { margin-top: 4px; }
 .keys-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 10px; align-items: center; margin-bottom: 2px; }
 .keys-grid kbd {
@@ -785,14 +746,10 @@ body.native-app .source-tabs {
   font-size: 13px;
   font-weight: 500;
   line-height: 1.3;
-  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 0;
   padding: 3px 8px;
-  color: var(--text);
   white-space: nowrap;
 }
-.keys-grid span { color: var(--muted); }
 .diff2html-container { min-width: 0; caret-color: transparent; }
 /* The blinking caret already marks the exact column. Do not add a second blue rail at the start of its
    code cell: on wide changed rows it looks like another cursor immediately to the left of the real one. */
@@ -814,26 +771,23 @@ body.native-app .source-tabs {
 /* The per-file header is merged into the sticky toolbar to save vertical space. */
 .d2h-file-header { display: none; }
 .diff-toolbar {
-  flex: none; min-height: 36px; padding: 4px 8px; gap: 8px;
-  background: var(--sidebar); backdrop-filter: none;
+  flex: none; backdrop-filter: none;
 }
 .diff-toolbar-file { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; }
-.diff-file-icon { flex: none; display: inline-flex; color: var(--muted); }
+.diff-file-icon { flex: none; display: inline-flex; }
 .diff-review-controls { flex: none; display: inline-flex; align-items: center; gap: 2px; }
 .diff-tool-button {
-  width: 26px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid transparent; border-radius: 3px; background: transparent; color: var(--muted); cursor: pointer;
+  padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; background: transparent; cursor: pointer;
 }
-.diff-tool-button:hover { color: var(--text); background: color-mix(in srgb, var(--active) 14%, transparent); border-color: color-mix(in srgb, var(--active) 28%, transparent); }
 .diff-tool-button:focus-visible { outline: 1px solid var(--active); outline-offset: 1px; }
 .diff-tool-button:disabled { opacity: .35; cursor: default; background: transparent; border-color: transparent; }
-.diff-tool-separator { width: 1px; height: 16px; margin: 0 3px; background: var(--border); }
+.diff-tool-separator { width: 1px; height: 16px; margin: 0 3px; }
 .diff-toolbar-meta { min-width: 0; flex: none; margin-left: auto; display: flex; justify-content: flex-end; align-items: center; gap: 9px; }
 .diff-pane-header {
-  flex: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); height: 29px;
-  background: color-mix(in srgb, var(--sidebar) 88%, var(--panel)); border-bottom: 1px solid var(--border);
+  flex: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); height: 29px; border-bottom: 1px solid var(--border);
 }
-.diff-pane { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; color: var(--muted); }
+.diff-pane { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; }
 .diff-pane:first-child { border-right: 1px solid color-mix(in srgb, var(--active) 24%, var(--border)); }
 .diff-pane-kind { flex: none; color: var(--text); font-size: 10.5px; font-weight: 650; }
 .diff-pane-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 10.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -1358,13 +1312,10 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   gap: 4px;
   min-height: 18px;
   padding: 1px 5px 1px calc(7px + (var(--depth) * 14px));
-  color: var(--text);
-  border-radius: 0;
   cursor: default;
   list-style: none;
 }
 .tree-dir summary::-webkit-details-marker { display: none; }
-.tree-dir summary:hover { background: var(--bg); }
 .folder-icon {
   display: inline-grid;
   place-items: center;
@@ -1377,15 +1328,15 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .tree-dir[open] > summary .fi-closed { display: none; }
 .tree-dir[open] > summary .fi-open { display: block; }
 .file-link.tree-file { padding-left: calc(8px + (var(--depth) * 14px)); }
-/* Arrow-key focus in the tree (changes/files) matches the active-file highlight — a tinted fill + accent
-   border — so navigating the file tree reads the same as the diff-side selection (not a faint 1px outline). */
-.tree-focus { background: color-mix(in srgb, var(--active) 20%, transparent); border-radius: 0; }
+/* Arrow-key focus in the tree (changes/files) matches the active-file highlight, so navigating the file tree
+   reads the same as the diff-side selection. The fill and border are one shared rule with every other
+   selection surface — see "selection is one complete neutral surface" in the chrome section below. */
+.tree-focus { border-radius: 0; }
 .file-link.tree-focus { border-color: var(--active); }
 /* Rows in a Shift+Arrow / Shift+Click multi-selection (batch mark-as-viewed). Lighter than the focus row so
    the focused end of the range still stands out. */
 .tree-selected { background: color-mix(in srgb, var(--active) 12%, transparent); }
 .file-link.tree-selected { border-color: color-mix(in srgb, var(--active) 55%, transparent); }
-summary.tree-focus { background: color-mix(in srgb, var(--active) 20%, transparent); }
 .file-link {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1393,9 +1344,7 @@ summary.tree-focus { background: color-mix(in srgb, var(--active) 20%, transpare
   gap: 6px;
   min-height: 18px;
   padding: 1px 6px;
-  color: var(--text);
   text-decoration: none;
-  border-radius: 0;
   border: 1px solid transparent;
   background: transparent;
   width: 100%;
@@ -1403,14 +1352,10 @@ summary.tree-focus { background: color-mix(in srgb, var(--active) 20%, transpare
   font: inherit;
   cursor: pointer;
 }
-.file-link:hover { background: color-mix(in srgb, var(--text) 7%, transparent); border-color: var(--border); }
-/* The file being viewed stands out clearly: a tinted fill + accent border, not just a faint outline. */
-.file-link.active { background: color-mix(in srgb, var(--active) 26%, transparent); border-color: var(--active); }
 .file-link.active:hover { background: color-mix(in srgb, var(--active) 32%, transparent); }
-.file-link.viewed { opacity: 0.58; }
 .file-link.viewed:hover, .file-link.viewed.active { opacity: 1; }
 .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.count { color: var(--muted); font-size: 11px; }
+.count { font-size: 11px; }
 .change-name { display: flex; align-items: baseline; gap: 7px; min-width: 0; overflow: hidden; }
 .status {
   display: inline-flex;
@@ -1419,21 +1364,16 @@ summary.tree-focus { background: color-mix(in srgb, var(--active) 20%, transpare
   min-width: 16px;
   width: 16px;
   height: 16px;
-  border-radius: 3px;
   padding: 0;
-  background: var(--line);
-  color: var(--muted);
 }
 .status svg { display: block; width: 11px; height: 11px; }
 /* Viewed: dim the row and collapse the status chip into one green check (no stacked glyph). */
 .file-link.viewed .status { font-size: 0; background: color-mix(in srgb, #6ab04c 24%, transparent); color: #6ab04c; }
 .file-link.viewed .status svg { display: none; }
 .file-link.viewed .status::after { content: '✓'; font-size: 10px; font-weight: 700; line-height: 1; }
-.status-modified { background: color-mix(in srgb, var(--active) 18%, transparent); color: var(--active); }
 .status-added { background: var(--add); color: #1a7f37; }
 .status-deleted { background: var(--del); color: #cf222e; }
 .status-renamed { background: #fff8c5; color: #9a6700; }
-.status-source { background: var(--line); color: var(--muted); }
 .content { position: relative; min-width: 0; padding: 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; grid-column: 3; grid-row: 1; }
 .file-find {
   position: fixed;
@@ -1554,7 +1494,6 @@ summary.tree-focus { background: color-mix(in srgb, var(--active) 20%, transpare
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb {
   background-color: transparent;
-  border-radius: 0;
   transition: background-color 180ms ease;
 }
 .mc-scroll-active::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--muted) 32%, transparent); }
@@ -1587,15 +1526,18 @@ h1 { margin: 0; font-size: 18px; }
   white-space: nowrap;
   font: 13px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-.crumb { color: var(--muted); }
-.crumb-leaf { color: var(--text); font-weight: 500; }
-.crumb-sep { color: var(--muted); opacity: 0.55; }
+.crumb-leaf { font-weight: 500; }
+/* +30 -46 beside the path, for the one file the toolbar names. Built only from variables every theme block
+   already defines, so it needs no per-theme override — the thing viewer.css keeps having to be reminded of. */
+.crumb-stat { margin-left: 10px; display: inline-flex; gap: 7px; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.crumb-stat-add { color: var(--add-strong); font-weight: 600; }
+.crumb-stat-del { color: var(--del-strong); font-weight: 600; }
+.crumb-sep { opacity: 0.55; }
 .review-status {
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
-  color: var(--muted);
   font-size: 12px;
 }
 .review-status:empty { display: none; }
@@ -1618,7 +1560,6 @@ h1 { margin: 0; font-size: 18px; }
   align-items: center;
   gap: 12px;
   min-width: 0;
-  color: var(--muted);
   font-size: 12px;
 }
 .source-file-meta #source-title {
@@ -1627,7 +1568,6 @@ h1 { margin: 0; font-size: 18px; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text);
   font: 13px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .source-file-meta #source-meta {
@@ -1643,12 +1583,9 @@ h1 { margin: 0; font-size: 18px; }
      half). flex:none keeps the bar at its natural height; the body absorbs the overflow and scrolls. */
   flex: none;
   overflow: hidden;
-  gap: 1px;
   /* Breathing room from the window's top edge so the first row of tabs isn't flush against it. */
   margin: 6px 8px 6px;
-  background: var(--sidebar);
   border: 1px solid var(--border);
-  border-radius: 0;
 }
 .source-tab {
   display: inline-flex;
@@ -1656,23 +1593,17 @@ h1 { margin: 0; font-size: 18px; }
   gap: 6px;
   flex: 0 0 auto;
   max-width: 220px;
-  padding: 6px 8px 6px 12px;
   border-right: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--muted);
   font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
 }
 .source-tab:first-child { border-top-left-radius: 0; border-bottom-left-radius: 0; }
-.source-tab:hover { color: var(--text); }
-.source-tab.active { color: var(--text); background: var(--bg); box-shadow: inset 0 -2px 0 var(--active); }
 .source-tab-name { overflow: hidden; text-overflow: ellipsis; }
 .source-tab-close {
-  flex: none; border: 0; background: transparent; color: var(--muted);
-  font-size: 14px; line-height: 1; padding: 0 3px; cursor: pointer; border-radius: 0;
+  flex: none; border: 0; background: transparent;
+  font-size: 14px; line-height: 1; cursor: pointer;
 }
-.source-tab-close:hover { background: var(--line); color: var(--text); }
 .source-tab.source-tab-overflowed { display: none; }
 .source-tab-overflow {
   flex: 0 0 44px;
@@ -2004,7 +1935,6 @@ h1 { margin: 0; font-size: 18px; }
 .mc-sel-line .d2h-code-side-line { background: color-mix(in srgb, var(--active) 20%, transparent); }
 .source-row.mc-sel-line .source-code { background: color-mix(in srgb, var(--active) 20%, transparent); }
 /* A comment box "selected" while navigating with arrows (caret hidden; Backspace deletes it) */
-.mc-comment-row.mc-row-selected .mc-card { box-shadow: 0 0 0 2px var(--active); }
 .mc-comment-row td { padding: 0; background: var(--bg); }
 .mc-comment-spacer-row td { padding: 0; border: 0; background: var(--bg); }
 .mc-comment-spacer { width: 1px; min-height: 0; pointer-events: none; }
@@ -2025,8 +1955,7 @@ h1 { margin: 0; font-size: 18px; }
   max-width: calc(100cqw - 74px);
 }
 .mc-card {
-  border: 1px solid var(--border);
-  border-radius: 0; background: var(--panel); margin: 8px 0; max-width: 760px;
+  border: 1px solid var(--border); background: var(--panel); margin: 8px 0; max-width: 760px;
   font: 12px/1.5 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
   overflow: hidden;
@@ -2051,11 +1980,11 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-kind {
   display: inline-flex; align-items: center; gap: 5px;
   font-weight: 700; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
-  padding: 2px 8px; border-radius: 0;
+  padding: 2px 8px;
   color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent);
 }
 .mc-kind-ic { flex: none; }
-.mc-del { margin-left: 0; background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 1px 5px; border-radius: 0; }
+.mc-del { margin-left: 0; background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 1px 5px; }
 .mc-del:hover { color: var(--del-strong); background: color-mix(in srgb, var(--del-strong) 16%, transparent); }
 /* A comment whose anchored line changed in the latest round: dimmed + struck through, tagged "possibly
    addressed", with a reopen (↺) control. It is held out of the merged prompt until reopened. */
@@ -2162,13 +2091,13 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
      view uses a fake .code-cursor). caret-color inherits, so restore it here — a focused textarea must show
      its real caret. The single-caret rule hides the FILE caret while composing, not the textarea's own. */
   caret-color: var(--text);
-  border: 1px solid var(--border); border-radius: 0; padding: 9px 11px;
+  border: 1px solid var(--border); padding: 9px 11px;
   font: 12px/1.55 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
-.mc-input:focus { outline: none; border-color: var(--active); box-shadow: 0 0 0 3px color-mix(in srgb, var(--active) 22%, transparent); }
+.mc-input:focus { outline: none; border-color: var(--active); }
 .mc-actions { display: flex; align-items: center; gap: 8px; padding: 0 10px 9px; }
-.mc-btn { background: var(--active); color: #fff; border: 0; border-radius: 0; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+.mc-btn { background: var(--active); color: #fff; border: 0; padding: 5px 12px; font-size: 12px; cursor: pointer; }
 .mc-btn:hover { filter: brightness(1.1); }
 .mc-btn.mc-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
 
@@ -2177,56 +2106,54 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .impact-panel {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 48;
   width: min(600px, calc(100vw - var(--rail-width, 36px) - 40px));
-  display: flex; flex-direction: column; min-width: 320px;
-  background: var(--panel); border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; min-width: 320px; border-left: 1px solid var(--border);
   box-shadow: -14px 0 36px rgba(0, 0, 0, 0.34);
 }
 .impact-panel.hidden { display: none; }
-.impact-header { flex: none; display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px 11px; border-bottom: 1px solid var(--border); background: var(--sidebar); }
+.impact-header { flex: none; display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px 11px; border-bottom: 1px solid var(--border); }
 .impact-header > div:first-child { min-width: 0; flex: 1; }
-.impact-title { color: var(--text); font-size: 14px; font-weight: 650; }
-.impact-engine { min-height: 16px; margin-top: 5px; color: var(--muted); font-size: 10.5px; line-height: 1.45; }
+.impact-title { font-size: 14px; font-weight: 650; }
+.impact-engine { min-height: 16px; margin-top: 5px; font-size: 10.5px; line-height: 1.45; }
 .impact-target-row, .impact-analyzer-row { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.impact-target-label { flex: none; color: var(--muted); font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.impact-target-symbol { flex: none; max-width: 34%; overflow: hidden; color: var(--text); font: 600 11.5px/1.4 Monaco, ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
-.impact-target-path { min-width: 0; overflow: hidden; color: var(--muted); font: 10.5px/1.4 Monaco, ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.impact-target-label { flex: none; font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.impact-target-symbol { flex: none; max-width: 34%; overflow: hidden; font: 600 11.5px/1.4 Monaco, ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.impact-target-path { min-width: 0; overflow: hidden; font: 10.5px/1.4 Monaco, ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .impact-analyzer-row { margin-top: 2px; font: 10px/1.4 Monaco, ui-monospace, monospace; }
-.impact-keyboard-help { margin-left: auto; color: var(--muted); white-space: nowrap; }
+.impact-keyboard-help { margin-left: auto; white-space: nowrap; }
 .impact-header .dock-btn { font-size: 18px; }
 .impact-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 10px 20px; }
-.impact-empty { padding: 32px 18px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.impact-empty { padding: 32px 18px; font-size: 13px; line-height: 1.55; }
 .impact-loading { display: flex; align-items: center; gap: 10px; }
 .impact-loading .kakapo-loader { flex: none; }
-.impact-tier { margin-bottom: 10px; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--panel) 86%, var(--sidebar)); }
+.impact-tier { margin-bottom: 10px; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; }
 .impact-tier-head { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border-bottom: 1px solid var(--border); }
 .impact-tier-mark { display: grid; flex: none; place-items: center; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; font-size: 10px; font-weight: 800; }
 .impact-tier-confirmed .impact-tier-mark { color: #b8e8c8; background: color-mix(in srgb, #2b9b59 24%, transparent); }
 .impact-tier-candidates .impact-tier-mark { color: var(--muted); background: var(--line); }
 .impact-tier-copy { min-width: 0; flex: 1; }
-.impact-tier-title { display: block; color: var(--text); font-size: 12px; font-weight: 700; }
-.impact-tier-desc { display: block; margin-top: 2px; color: var(--muted); font-size: 10.5px; line-height: 1.4; }
-.impact-tier-count { flex: none; min-width: 22px; padding: 2px 6px; border-radius: 999px; background: var(--line); color: var(--muted); text-align: center; font-size: 10px; }
-.impact-tier-empty { padding: 12px; color: var(--muted); font-size: 11px; }
-.impact-fallback { display: flex; flex-direction: column; gap: 3px; margin: 9px 10px 2px; padding: 8px 9px; border-radius: 5px; background: var(--line); color: var(--muted); font-size: 10.5px; line-height: 1.35; }
-.impact-fallback strong { color: var(--text); font-weight: 650; }
+.impact-tier-title { display: block; font-size: 12px; font-weight: 700; }
+.impact-tier-desc { display: block; margin-top: 2px; font-size: 10.5px; line-height: 1.4; }
+.impact-tier-count { flex: none; min-width: 22px; padding: 2px 6px; border-radius: 999px; text-align: center; font-size: 10px; }
+.impact-tier-empty { padding: 12px; font-size: 11px; }
+.impact-fallback { display: flex; flex-direction: column; gap: 3px; margin: 9px 10px 2px; padding: 8px 9px; border-radius: 5px; font-size: 10.5px; line-height: 1.35; }
+.impact-fallback strong { font-weight: 650; }
 .impact-section { padding: 7px 7px 9px; border-bottom: 1px solid var(--border); }
 .impact-section:last-of-type { border-bottom: 0; }
-.impact-section-title { display: flex; align-items: center; justify-content: space-between; padding: 3px 5px 6px; color: var(--text); font-size: 11px; font-weight: 650; }
-.impact-count { min-width: 20px; padding: 1px 6px; border-radius: 10px; background: var(--line); color: var(--muted); text-align: center; font-size: 10.5px; font-weight: 500; }
-.impact-section-empty { padding: 6px 4px 10px; color: var(--muted); font-size: 11.5px; }
-.impact-item { position: relative; display: block; width: 100%; padding: 7px 8px 7px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
-.impact-item:hover { background: var(--line); }
-.impact-item:focus-visible { background: color-mix(in srgb, var(--active) 14%, transparent); outline: 1px solid color-mix(in srgb, var(--active) 68%, transparent); outline-offset: -1px; }
+.impact-section-title { display: flex; align-items: center; justify-content: space-between; padding: 3px 5px 6px; font-size: 11px; font-weight: 650; }
+.impact-count { min-width: 20px; padding: 1px 6px; text-align: center; font-size: 10.5px; font-weight: 500; }
+.impact-section-empty { padding: 6px 4px 10px; font-size: 11.5px; }
+.impact-item { position: relative; display: block; width: 100%; padding: 7px 8px 7px 10px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.impact-item:focus-visible { outline: 1px solid color-mix(in srgb, var(--active) 68%, transparent); outline-offset: -1px; }
 .impact-item-confirmed::before { position: absolute; top: 9px; bottom: 9px; left: 3px; width: 2px; border-radius: 2px; background: #4faa70; content: ''; }
 .impact-item-candidate { opacity: .88; }
 .impact-item-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.impact-item-name { overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; font: 600 11.5px/1.4 Monaco, ui-monospace, monospace; }
-.impact-relation { flex: none; padding: 1px 5px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: 9.5px; }
-.impact-item-path { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.impact-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 11.5px/1.4 Monaco, ui-monospace, monospace; }
+.impact-relation { flex: none; padding: 1px 5px; border: 1px solid var(--border); font-size: 9.5px; }
+.impact-item-path { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .impact-item-code { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: 11px/1.4 Monaco, ui-monospace, monospace; opacity: .84; }
-.impact-candidate-toggle { display: flex; align-items: center; justify-content: center; gap: 8px; width: calc(100% - 16px); margin: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; background: transparent; color: var(--muted); font-size: 10.5px; cursor: pointer; }
+.impact-candidate-toggle { display: flex; align-items: center; justify-content: center; gap: 8px; width: calc(100% - 16px); margin: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; background: transparent; font-size: 10.5px; cursor: pointer; }
 .impact-candidate-toggle:hover, .impact-candidate-toggle:focus-visible { color: var(--text); background: var(--line); outline: none; border-color: var(--active); }
-.impact-candidate-toggle span { min-width: 20px; padding: 1px 5px; border-radius: 999px; background: var(--line); font-size: 9.5px; }
+.impact-candidate-toggle span { min-width: 20px; padding: 1px 5px; border-radius: 999px; font-size: 9.5px; }
 
 /* Semantic navigation is a caret-local dropdown. It must never cover the code canvas with a second editor:
    arrows move the menu selection, Enter opens the real source, and Escape returns to the original caret. */
@@ -2237,44 +2164,36 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
   flex-direction: column;
   min-width: 280px;
   overflow: hidden;
-  background: var(--elevated);
   border: 1px solid var(--border);
-  box-shadow: 0 14px 38px var(--shadow);
 }
 .semantic-peek.hidden { display: none; }
-.semantic-peek-header { flex: none; display: flex; align-items: center; min-height: 36px; padding: 5px 9px 5px 10px; background: var(--sidebar); border-bottom: 1px solid var(--border); }
+.semantic-peek-header { flex: none; display: flex; align-items: center; min-height: 36px; padding: 5px 9px 5px 10px; border-bottom: 1px solid var(--border); }
 .semantic-peek-heading { min-width: 0; flex: 1; }
 .semantic-peek-title { display: inline; color: var(--text); font-size: 11.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.semantic-peek-meta { display: inline; margin-left: 8px; color: var(--muted); font: 10px/1.35 Monaco, ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.semantic-peek-meta { display: inline; margin-left: 8px; font: 10px/1.35 Monaco, ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .semantic-peek-results {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  background: var(--elevated);
   outline: none;
 }
 .semantic-peek-item {
   width: 100%; display: grid; grid-template-columns: minmax(145px, 36%) minmax(0, 1fr);
   align-items: center; gap: 9px; padding: 6px 9px; border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
-  background: transparent; color: var(--text); text-align: left; cursor: pointer;
+  background: transparent; text-align: left; cursor: pointer;
 }
-.semantic-peek-item:hover { background: color-mix(in srgb, var(--active) 13%, transparent); }
-.semantic-peek-item.active { background: var(--active); color: #fff; }
 .semantic-peek-item-path, .semantic-peek-item-code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .semantic-peek-item-path { color: var(--chrome-text); font: 11px/1.4 Monaco, ui-monospace, monospace; }
 .semantic-peek-item-line { color: var(--muted); text-align: right; font: 11px/1.4 Monaco, ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 .semantic-peek-item-code { color: var(--muted); font: 10.5px/1.4 Monaco, ui-monospace, monospace; }
-.semantic-peek-item.active .semantic-peek-item-path,
-.semantic-peek-item.active .semantic-peek-item-line,
-.semantic-peek-item.active .semantic-peek-item-code { color: #fff; }
 .semantic-peek-list-hint {
   position: sticky; bottom: 0; padding: 5px 9px; color: var(--muted); background: var(--elevated);
   border-top: 1px solid var(--border); font: 10px/1.35 Monaco, ui-monospace, monospace;
 }
 
 /* ===== Git history view (Cmd+9): full commit graph with a floating changed-files + diff workspace. ===== */
-.history-view { position: fixed; inset: 0 0 0 var(--rail-width); z-index: 75; display: flex; flex-direction: column; background: var(--bg); }
+.history-view { position: fixed; inset: 0 0 0 var(--rail-width); z-index: 75; display: flex; flex-direction: column; }
 .history-view.hidden { display: none; }
 /* Entrance animation when the panel opens (⌘9 / history rail button) — a brief fade + rise, matching the dock
    panel's arrival. Runs each time it goes from hidden to shown (display none→flex restarts the animation). */
@@ -2286,11 +2205,10 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    top-left edge, crosses the macOS traffic lights, and stays put for the whole session (it is focus, not the
    timed arrival flash). The active commit row is the real selection cue, so drop the container's own outline. */
 .history-view:focus { outline: none; }
-.history-bar { flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--sidebar); border-bottom: 1px solid var(--border); }
+.history-bar { flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
 .history-title { font-weight: 650; font-size: 13px; letter-spacing: 0.02em; }
 .history-scope { min-width: 0; max-width: min(42vw, 620px); overflow: hidden; color: var(--muted); font: 11px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
-.history-search { flex: 1 1 auto; max-width: 440px; height: 28px; border: 1px solid var(--border); border-radius: 0; background: var(--bg); color: var(--text); padding: 0 10px; font-size: 13px; outline: none; }
-.history-search:focus { border-color: var(--active); }
+.history-search { flex: 1 1 auto; max-width: 440px; height: 28px; border: 1px solid var(--border); padding: 0 10px; font-size: 13px; outline: none; }
 .history-bar .dock-btn { margin-left: auto; font-size: 16px; }
 /* Selection/compare strip below the history bar: hint for one commit, compare controls for a range. */
 .history-select-bar {
@@ -2347,9 +2265,7 @@ body.native-app .history-bar {
 body.native-app .history-bar input,
 body.native-app .history-bar button { -webkit-app-region: no-drag; }
 /* Fixed-height rows let the per-row SVGs tile as one continuous graph without a scroll-time overlay. */
-.hrow { display: grid; grid-template-columns: var(--hgraph-w, 62px) minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; height: 26px; padding: 0 12px 0 0; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; font-size: 12.5px; }
-.hrow:hover { background: color-mix(in srgb, var(--active) 8%, transparent); }
-.hrow.active { background: color-mix(in srgb, var(--active) 16%, transparent); }
+.hrow { display: grid; grid-template-columns: var(--hgraph-w, 62px) minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; height: 26px; padding: 0 12px 0 0; border: 0; background: transparent; text-align: left; cursor: pointer; font-size: 12.5px; }
 /* Shift-select compare range: commits between the two endpoints get a subtle band; the endpoints a bar. */
 .hrow.in-range { background: color-mix(in srgb, var(--active) 12%, transparent); }
 .hrow.in-range.active { background: color-mix(in srgb, var(--active) 22%, transparent); }
@@ -2402,7 +2318,7 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .hd-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 3px; font-size: 11.5px; line-height: 1.35; color: var(--muted); }
 .hd-hash { font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .history-workspace { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(190px, 260px) minmax(0, 1fr); transition: grid-template-columns .18s ease; }
-.history-files { min-width: 0; overflow: auto; padding: 6px; border-right: 1px solid var(--border); background: var(--sidebar); opacity: 1; transition: opacity .12s ease, padding .18s ease, border-color .12s ease; }
+.history-files { min-width: 0; overflow: auto; padding: 6px; border-right: 1px solid var(--border); opacity: 1; transition: opacity .12s ease, padding .18s ease, border-color .12s ease; }
 .history-workspace.history-files-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
 .history-workspace.history-files-collapsed .history-files { padding-inline: 0; border-right-color: transparent; opacity: 0; pointer-events: none; }
 .history-file { width: 100%; }
@@ -2411,21 +2327,17 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 
 /* Go-to-line (Cmd/Ctrl+L): a small numeric prompt near the top, like a command palette. */
 .goto-line {
-  position: fixed; top: 13vh; left: 50%; transform: translateX(-50%); z-index: 80;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
-  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.5); padding: 8px;
+  position: fixed; top: 13vh; left: 50%; transform: translateX(-50%); z-index: 80; border: 1px solid var(--border); padding: 8px;
 }
 .goto-line-input {
-  width: 220px; height: 30px; border: 1px solid var(--border); border-radius: 0;
-  background: var(--bg); color: var(--text); padding: 0 10px;
+  width: 220px; height: 30px; border: 1px solid var(--border); padding: 0 10px;
   font: 14px ui-sans-serif, -apple-system, system-ui, sans-serif; outline: none;
 }
-.goto-line-input:focus { border-color: var(--active); }
 .mc-hint { color: var(--muted); font-size: 11px; }
 .mc-modal { position: fixed; inset: 0; z-index: 60; display: grid; place-items: start center; padding-top: min(10vh, 80px); background: color-mix(in srgb, #000 32%, transparent); }
 .mc-modal.hidden { display: none; }
-.mc-modal-panel { width: min(900px, calc(100vw - 40px)); height: 80vh; max-height: 80vh; display: grid; grid-template-rows: auto minmax(0, 1fr); border: 1px solid var(--border); border-radius: 0; background: var(--panel); overflow: hidden; }
-.mc-modal-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text); font-weight: 650; }
+.mc-modal-panel { width: min(900px, calc(100vw - 40px)); height: 80vh; max-height: 80vh; display: grid; grid-template-rows: auto minmax(0, 1fr); border: 1px solid var(--border); overflow: hidden; }
+.mc-modal-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-weight: 650; }
 .mc-modal-head span { margin-right: auto; }
 .mc-modal-text { width: 100%; height: 100%; box-sizing: border-box; resize: none; border: 0; padding: 12px; background: var(--bg); color: var(--text); caret-color: var(--text); font: 12px/1.55 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .mc-modal-text:focus { outline: none; }
@@ -2433,19 +2345,18 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
    dropdown is appended to <body>, so anything that outranks it renders on top of it — which read as "the
    Language / Theme selects do nothing": the menu opened behind the modal, and the click that should have
    picked an option landed on the backdrop instead. Same for menus opened from History/Explain (z-index 75). */
-.mc-dropdown { position: fixed; z-index: 90; min-width: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 0; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); padding: 3px; }
-.mc-dropdown-item { display: block; width: 100%; text-align: left; padding: 4px 10px; border: 0; background: transparent; color: var(--text); border-radius: 0; font-size: 12px; line-height: 1.5; cursor: pointer; white-space: nowrap; }
-.mc-dropdown-item.active, .mc-dropdown-item:hover { background: var(--active); color: #fff; }
+.mc-dropdown { position: fixed; z-index: 90; min-width: 0; border: 1px solid var(--border); padding: 3px; }
+.mc-dropdown-item { display: block; width: 100%; text-align: left; padding: 4px 10px; border: 0; background: transparent; font-size: 12px; line-height: 1.5; cursor: pointer; white-space: nowrap; }
 #mc-toasts { position: fixed; left: 16px; bottom: 16px; z-index: 80; display: flex; flex-direction: column; gap: 8px; max-width: 360px; pointer-events: none; }
-.mc-toast { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-left: 3px solid var(--active); border-radius: 0; padding: 10px 14px; font-size: 13px; line-height: 1.45; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); opacity: 0; transform: translateY(8px); transition: opacity .25s ease, transform .25s ease; }
+.mc-toast { border: 1px solid var(--border); border-left: 3px solid var(--active); padding: 10px 14px; font-size: 13px; line-height: 1.45; opacity: 0; transform: translateY(8px); transition: opacity .25s ease, transform .25s ease; }
 .mc-toast.show { opacity: 1; transform: translateY(0); }
 .mc-toast.hide { opacity: 0; transform: translateY(8px); }
 /* Inline hint anchored just under the diff caret (F7 "last change" boundary announcement); fades on its own. */
-.mc-caret-hint { position: fixed; z-index: 75; max-width: 460px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-left: 3px solid var(--active); border-radius: 0; padding: 5px 10px; font-size: 12px; line-height: 1.4; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
+.mc-caret-hint { position: fixed; z-index: 75; max-width: 460px; border: 1px solid var(--border); border-left: 3px solid var(--active); padding: 5px 10px; font-size: 12px; line-height: 1.4; opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
 .mc-caret-hint.show { opacity: 1; transform: translateY(0); }
 /* Merged prompts render as several small editable prose regions (agent-contract text) interleaved with
    read-only comment cards — not one continuous editable document (see openMergedView in 08-dock.js). */
-.mc-merged-body { flex: 1 1 auto; min-width: 0; min-height: 0; height: 100%; overflow: auto; background: var(--panel); }
+.mc-merged-body { flex: 1 1 auto; min-width: 0; min-height: 0; height: 100%; overflow: auto; }
 /* .mc-inline-editor-host's own base rule (below) sets min-height: 100% for the memo's single full-page
    editor, which forces this host to the full panel height even once its actual (much shorter) content
    fits comfortably — the "extra" space is invisible until scrollIntoView/arrow navigation scrolls down far
@@ -2458,7 +2369,7 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
    overridden here explicitly (a higher-specificity selector with no value at all does NOT win; the lone
    .mc-inline-editor rule would still apply and force each region to ~90vh, blowing the gap between the
    contract heading and its first card up to nearly a full screen). */
-.mc-merged-editor-host .mc-merged-preview { flex: none; min-width: 0; min-height: 0; overflow: visible; padding: 0; background: var(--panel); outline: none; }
+.mc-merged-editor-host .mc-merged-preview { flex: none; min-width: 0; min-height: 0; overflow: visible; padding: 0; outline: none; }
 /* A comment's card in the merged dock — same .mc-card look as its counterpart in the diff/source view, plus
    the same "selected while navigating with arrows" treatment as .mc-comment-row.mc-row-selected there
    (a box-shadow ring, not a background tint, so it reads identically in every theme). Not contenteditable:
@@ -2479,7 +2390,7 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .mc-merged-select-all.mc-merged-editor-host .mc-merged-preview { background: color-mix(in srgb, var(--active) 20%, transparent); }
 
 /* One worktree-scoped, Notion-style inline Markdown document (Tiptap -> persisted Markdown). */
-.mc-memo-body { min-width: 0; min-height: 0; height: 100%; overflow: auto; background: var(--panel); }
+.mc-memo-body { min-width: 0; min-height: 0; height: 100%; overflow: auto; }
 .mc-inline-editor-host { position: relative; width: min(920px, calc(100% - 48px)); min-height: 100%; margin: 0 auto; padding: 24px 0 64px; }
 .mc-inline-editor-host[data-empty="true"]::before {
   content: attr(data-placeholder); position: absolute; top: 24px; left: 0; color: var(--muted);
@@ -2501,9 +2412,9 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .mc-memo-body .mc-inline-editor h6 { margin: 1.05em 0 .4em; }
 .mc-memo-body .mc-inline-editor li + li { margin-top: .12em; }
 .mc-inline-editor > :first-child { margin-top: 0; }
-.mc-memo-save-state { flex: none; min-width: 48px; color: var(--muted); font-size: 10px; text-align: right; font-weight: 500; }
+.mc-memo-save-state { flex: none; min-width: 48px; font-size: 10px; text-align: right; font-weight: 500; }
 .mc-memo-delete { flex: none; }
-.mc-memo-empty { color: var(--muted); font-size: 12px; font-style: italic; }
+.mc-memo-empty { font-size: 12px; font-style: italic; }
 /* Shown instead of a silently blank hand-off document when every comment got auto-flagged as addressed. */
 .mc-merged-empty-note { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 10px 12px; color: var(--muted); font-size: 12px; }
 .mc-merged-reopen-all { background: transparent; color: var(--active); border: 1px solid color-mix(in srgb, var(--active) 45%, transparent); border-radius: 7px; padding: 3px 9px; font-size: 12px; cursor: pointer; }
@@ -2519,9 +2430,8 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
      while either is showing, and it must land on top, not silently render underneath. Stays below the
      settings modal (80). */
   z-index: 78; min-height: 0;
-  display: flex; flex-direction: column; background: var(--panel);
-  border: 1px solid var(--border); border-radius: 12px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+  display: flex; flex-direction: column;
+  border: 1px solid var(--border);
   overflow: hidden;
 }
 /* Dim the editor behind the floating panel; clicking it closes (handler wired in mountDock). */
@@ -2538,16 +2448,13 @@ body:not(.dock-maximized) .dock-panel { animation: dock-in 165ms cubic-bezier(.2
 @media (prefers-reduced-motion: reduce) { .dock-panel, .dock-backdrop { animation: none; } }
 .dock-resizer { display: none; } /* a centered ~90% floating panel has no bottom edge to drag */
 .dock-bar {
-  flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px;
-  background: var(--sidebar); border-bottom: 1px solid var(--border);
-  color: var(--text); font-weight: 650; font-size: 12px;
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-weight: 650; font-size: 12px;
 }
 .dock-title { margin-right: auto; letter-spacing: 0.02em; }
-.dock-btn { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 2px 7px; border-radius: 0; font: inherit; font-weight: 500; }
+.dock-btn { border: 0; background: transparent; cursor: pointer; padding: 2px 7px; font: inherit; font-weight: 500; }
 .dock-bar button { -webkit-app-region: no-drag; }
 .dock-bar button:not(:disabled) { cursor: pointer; }
 .dock-bar button:disabled { cursor: default; }
-.dock-btn:hover { color: var(--text); background: color-mix(in srgb, var(--muted) 22%, transparent); }
 .dock-max { font-size: 14px; line-height: 1; }
 .dock-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .dock-body > .mc-modal-text { flex: 1 1 auto; height: auto; }
@@ -2681,9 +2588,6 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   border: 1px solid var(--border);
-  border-radius: 0;
-  background: var(--panel);
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.28);
   overflow: hidden;
 }
 .quick-open.quick-content .quick-open-panel { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
@@ -2761,14 +2665,13 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   gap: 12px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
-  color: var(--muted);
   font-size: 12px;
 }
 .quick-open-hint { font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 /* Recent files: no search box — typed letters filter the list (speed search). */
 .quick-open.quick-recent #quick-open-input { display: none; }
 .quick-open-filter { font-size: 12px; }
-.quick-open-filter.is-hint { color: var(--muted); opacity: 0.7; font-style: italic; }
+.quick-open-filter.is-hint { opacity: 0.7; font-style: italic; }
 .quick-open-filter.has-filter { color: var(--active); font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .quick-open-filter.has-filter::after { content: "\258F"; opacity: 0.7; animation: mc-caret-blink 1.1s steps(1) infinite; }
 @keyframes mc-caret-blink { 50% { opacity: 0; } }
@@ -2778,8 +2681,6 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   border-bottom: 1px solid var(--border);
   outline: 0;
   padding: 13px 14px;
-  background: var(--bg);
-  color: var(--text);
   font: 15px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .quick-open-search-options {
@@ -2839,7 +2740,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 /* Prompt palette rows (⌘⇧P): prompt name on top, its first line as a muted one-line gist below. */
 .usage-loc { flex: none; color: var(--chrome-text); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
 .usage-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.quick-open-main { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.quick-open-main { display: flex; align-items: baseline; gap: 8px; }
 .quick-open-path { flex: 1 1 auto; }
 .quick-open-preview {
   border-top: 1px solid var(--border);
@@ -2853,9 +2754,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   top: 0;
   z-index: 1;
   padding: 5px 10px;
-  background: var(--panel);
   border-bottom: 1px solid var(--border);
-  color: var(--muted);
   font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .qp-body { padding: 4px 0; font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -2871,14 +2770,11 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   width: 100%;
   min-height: 24px;
   border: 1px solid transparent;
-  border-radius: 0;
   padding: 2px 8px;
   background: transparent;
-  color: var(--text);
   text-align: left;
   cursor: pointer;
 }
-.quick-open-item.active, .quick-open-item:hover { background: var(--bg); border-color: var(--active); }
 .quick-open-main { min-width: 0; }
 .quick-open-name {
   display: block;
@@ -2892,12 +2788,11 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--muted);
   font-size: 12px;
   margin-top: 2px;
 }
-.quick-open-badge { align-self: center; color: var(--muted); font-size: 12px; }
-.quick-open-empty { padding: 28px 14px; color: var(--muted); font-size: 13px; }
+.quick-open-badge { align-self: center; font-size: 12px; }
+.quick-open-empty { padding: 28px 14px; font-size: 13px; }
 @media (max-width: 900px) {
   body { grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr); }
   body.native-app { padding-top: var(--native-titlebar-height); }
@@ -2913,7 +2808,6 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   .activity-rail .rail-bottom { margin-left: auto; margin-top: 0; }
   .history-view { inset: var(--rail-width) 0 0 0; }
   .rail-tip { left: 50%; top: calc(100% + 8px); transform: translateX(-50%); }
-  .rail-btn.is-active::before { left: 5px; right: 5px; top: auto; bottom: -4px; width: auto; height: 2px; }
   .sidebar { grid-row: 2; grid-column: 1; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
   .content { grid-row: 3; grid-column: 1; padding: 16px; }
   .toolbar { margin: -16px -16px 16px; padding: 12px 16px; }
@@ -2951,7 +2845,6 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   margin-right: 4px;
   padding: 0;
   border: 0;
-  border-radius: 0;
   background: transparent;
   color: #59a869;
   font-size: 10px;
@@ -2970,7 +2863,6 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .http-response {
   margin: 6px 0 12px;
   border: 1px solid var(--border);
-  border-radius: 0;
   background: color-mix(in srgb, var(--active) 5%, var(--panel));
   overflow: hidden;
   font-size: 12px;
@@ -3203,18 +3095,9 @@ body.native-app .sidebar.mc-panel-focus-flash::after {
   body.native-app .sidebar.mc-panel-focus-flash::after { animation-duration: 120ms; }
 }
 .diff-toolbar { min-height: 34px; padding: 3px 7px; gap: 7px; }
-.diff-tool-button { width: 27px; height: 27px; border-radius: 6px; }
-.plain-button { border-radius: 6px; padding: 5px 9px; background: var(--elevated); }
-.source-tab-close, .dock-btn, .mc-del { border-radius: 5px; }
+.diff-tool-button { width: 27px; height: 27px; }
+.plain-button { padding: 5px 9px; }
 .http-run { border-radius: 4px; }
-.mc-card, .http-response { border-radius: 7px; }
-.mc-kind { border-radius: 999px; }
-.change-row, .source-link { border-radius: 5px; }
-.change-row:hover, .source-link:hover { background: color-mix(in srgb, var(--active) 13%, transparent); }
-.change-row.active, .source-link.active {
-  background: color-mix(in srgb, var(--active) 22%, var(--sidebar));
-  color: var(--text);
-}
 
 /* ===== High-contrast application chrome (code palettes stay untouched) =====
    --bg/--panel/--text still own diff, raw source, and code previews. These --chrome-* tokens are
@@ -3255,7 +3138,9 @@ body.native-app .sidebar.mc-panel-focus-flash::after {
 .tree-dir summary:hover,
 .file-link:hover,
 .change-row:hover,
-.source-link:hover { background: var(--chrome-line); border-color: var(--chrome-border); }
+.source-link:hover { background: var(--chrome-line); }
+/* Every selected row — the file being viewed, the arrow-key focus, an active change — is one tinted fill
+   rather than a faint outline, so it stands out at a glance and reads identically in both trees. */
 .tree-focus,
 summary.tree-focus,
 .file-link.active,
@@ -3263,15 +3148,17 @@ summary.tree-focus,
 .source-link.active {
   color: var(--chrome-text);
   background: var(--chrome-selected);
-  border-color: var(--active-strong);
 }
 .file-link.viewed { opacity: .74; }
+/* IntelliJ-style git status on sidebar file names: untracked(new)=red, modified=blue, staged(git add)=green. */
 .vcs-new.source-link .path, .vcs-new.change-row .change-name { color: var(--chrome-vcs-new); }
 .vcs-edited.source-link .path, .vcs-edited.change-row .change-name { color: var(--chrome-vcs-edited); }
 .vcs-staged.source-link .path, .vcs-staged.change-row .change-name { color: var(--chrome-vcs-staged); }
-.status,
-.status-source { color: var(--chrome-muted); background: var(--chrome-line); }
-.status-modified { color: var(--chrome-vcs-edited); background: color-mix(in srgb, var(--chrome-vcs-edited) 18%, var(--chrome-panel)); }
+.status { color: var(--chrome-muted); background: var(--chrome-line); }
+/* The modified chip is an empty slot until the row is marked viewed, and then it is the green check — not a
+   blue badge saying "changed" on a list of changes. `.status` above sets a background on every chip, so this
+   has to switch it back off; the viewed ✓ rule is more specific and still wins. */
+.status-modified { color: var(--chrome-vcs-edited); background: transparent; }
 
 .diff-toolbar,
 .source-tabs,
@@ -3306,7 +3193,6 @@ summary.tree-focus,
   border-color: var(--chrome-border);
 }
 .source-tab:hover { color: var(--chrome-text); background: var(--chrome-elevated); }
-.source-tab.active { color: var(--chrome-text); background: var(--chrome-elevated); }
 .source-tab-close { color: var(--chrome-muted); }
 .source-tab-close:hover { color: var(--chrome-text); background: var(--chrome-line); }
 
@@ -3445,7 +3331,7 @@ summary.tree-focus,
 .quick-open-item:hover .quick-open-badge { color: var(--chrome-selected-text); }
 .qp-head { color: var(--chrome-muted); background: var(--chrome-bg); border-color: var(--chrome-border); }
 
-.semantic-peek { background: var(--chrome-elevated); border-color: var(--active-strong); }
+.semantic-peek { background: var(--chrome-elevated); }
 .semantic-peek-results { background: var(--chrome-elevated); }
 .semantic-peek-item { color: var(--chrome-text); border-color: var(--chrome-border); }
 .semantic-peek-item:hover { background: var(--chrome-line); }
@@ -3521,7 +3407,6 @@ summary.tree-focus,
   border-color: transparent;
   box-shadow: none;
 }
-.rail-btn.is-active::before { content: none; }
 .tree-dir summary:hover,
 .file-link:hover,
 .change-row:hover,

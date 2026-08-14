@@ -200,6 +200,20 @@ const SERVER_SPECS: Record<string, ServerSpec[]> = {
   php: [{ binary: "phpactor", args: ["language-server"] }],
 };
 
+// No --max-old-space-size here, deliberately. Capping a node-hosted server's heap looks like an easy win and
+// is not one: over repeat runs on a 3200-file Python repo, pyright's footprint spread 675-956 MB uncapped and
+// 722-859 MB under 2048 — the run-to-run spread is wider than the gap between the settings, so the cap buys
+// nothing measurable. What it does buy is an abort: 512 dies of heap exhaustion, and a server that dies stays
+// dead for the session (failedServers). V8's own default already ceilings the heap.
+
+// Per-family LSP initializationOptions, applied whether the server came from the bundle or from PATH.
+// typescript-language-server's automatic type acquisition spawns a third process (typingsInstaller, 34 MB)
+// that npm-installs @types packages and watches node_modules for changes — a background download and a pile
+// of fs watchers in aid of a read-only review. A whole process gone is a real saving, unlike a heap flag.
+const INIT_OPTIONS: Record<string, Record<string, unknown>> = {
+  typescript: { disableAutomaticTypingAcquisition: true },
+};
+
 const NODE_SERVER_ENTRIES: Record<string, { name: string; entry: string; args: string[] }> = {
   typescript: {
     name: "typescript-language-server",
@@ -686,6 +700,7 @@ export class LspClient {
         processId: process.pid,
         clientInfo: { name: "kakapo" },
         rootUri,
+        ...(INIT_OPTIONS[this.server.family] ? { initializationOptions: INIT_OPTIONS[this.server.family] } : {}),
         workspaceFolders: [{ uri: rootUri, name: this.root.split(/[\\/]/).pop() || "workspace" }],
         capabilities: {
           workspace: { configuration: true, workspaceFolders: true, symbol: {} },

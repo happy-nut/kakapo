@@ -54,10 +54,10 @@ function closeMergedMemoDocks() {
   document.body.classList.toggle('dock-open', !!activeDockPanel());
   document.body.classList.toggle('floating-dock', !!(document.getElementById('mc-merged-panel') || document.getElementById('mc-memo-panel')));
   applyDockMaximized();
-  if (typeof syncRail === 'function') syncRail(); // clear the rail icon for the closed dock(s)
+  syncRail(); // clear the rail icon for the closed dock(s)
   // The merged view reconciles/prunes comments while open; re-render the diff/source cards so the reviewer's
   // comments are visible again the instant the dock closes and never appear to vanish behind it.
-  if (hadDock && typeof refreshComments === 'function') { try { refreshComments(); } catch (e) {} }
+  if (hadDock) { try { refreshComments(); } catch (e) {} }
 }
 window.__kakapoCloseDocks = closeMergedMemoDocks;
 // Retry-focus a docked field (Electron async-restores focus to <body>, so a one-shot focus can lose the race).
@@ -141,7 +141,7 @@ function mountDock(id, titleText) {
   document.body.classList.add('dock-open');
   document.body.classList.add('floating-dock'); // scopes the maximize CSS so it doesn't hide the diff
   applyDockMaximized();
-  if (typeof syncRail === 'function') syncRail(); // light up the rail icon for the opened dock
+  syncRail(); // light up the rail icon for the opened dock
   return { panel: panel, body: body, bar: bar, close: close };
 }
 
@@ -249,8 +249,8 @@ function openMergedView() {
   // Shared by the Copy-all button and Cmd+C-after-Cmd+A (see handleMergedKeydown) so both paths copy the
   // exact same assembled text.
   function copyMergedText() {
-    var copied = typeof copyTextToClipboard === 'function' && copyTextToClipboard(currentMergedText());
-    if (typeof showToast === 'function') showToast(t(copied ? 'merged.copied' : 'merged.copyFailed'));
+    var copied = copyTextToClipboard(currentMergedText());
+    showToast(t(copied ? 'merged.copied' : 'merged.copyFailed'));
   }
   // The app menu keeps the standard Edit role so real text fields still get native Cut/Paste/Undo (see
   // app-main.ts) — but that means Cmd+C is ALSO a native accelerator that fires webContents.copy()
@@ -262,7 +262,7 @@ function openMergedView() {
     if (!host.classList.contains('mc-merged-select-all')) return;
     event.preventDefault();
     event.clipboardData.setData('text/plain', currentMergedText());
-    if (typeof showToast === 'function') showToast(t('merged.copied'));
+    showToast(t('merged.copied'));
   }
   // Deleting the selected card removes it from reviewComments (with the same shared undo stack the
   // diff/source view's row-Backspace uses — Cmd/Ctrl+Z restores it, see 05-keymap.js), then rebuilds the
@@ -603,6 +603,11 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function') {
   // Electron watch: refresh review data in place so comments and navigation context stay stable.
   window.kakapoMenu.onDiffUpdate(function (html) { try { applyDiffUpdate(html); } catch (e) {} });
 }
+if (window.kakapoMenu && typeof window.kakapoMenu.onReleaseView === 'function') {
+  // This workspace has been off screen long enough that its diff DOM is worth more as free memory; the
+  // rebuild on the way back in repaints it. See releaseDiffView.
+  window.kakapoMenu.onReleaseView(function () { try { releaseDiffView(); } catch (e) {} });
+}
 if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   // Cmd/Ctrl+W: close whatever the focus is on. A focused terminal pane closes just that pane (the last
   // pane collapses the panel); otherwise close the active Files-mode tab (no-op outside the source viewer).
@@ -702,8 +707,8 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
     if (pta) { pta.value = (typeof s.plan === 'string' && s.plan.trim()) ? s.plan : defaultMergePrompt('plan'); pta.placeholder = ''; }
     if (qta) { qta.value = (typeof s.q === 'string' && s.q.trim()) ? s.q : defaultMergePrompt('q'); qta.placeholder = ''; }
     if (cta) { cta.value = (typeof s.c === 'string' && s.c.trim()) ? s.c : defaultMergePrompt('c'); cta.placeholder = ''; }
-    if (annotateTa && typeof loadAnnotatePrompt === 'function') { annotateTa.value = loadAnnotatePrompt(); annotateTa.placeholder = ''; }
-    if (codebaseTa && typeof loadCodebasePrompt === 'function') { codebaseTa.value = loadCodebasePrompt(); codebaseTa.placeholder = ''; }
+    if (annotateTa) { annotateTa.value = loadAnnotatePrompt(); annotateTa.placeholder = ''; }
+    if (codebaseTa) { codebaseTa.value = loadCodebasePrompt(); codebaseTa.placeholder = ''; }
   }
   function open(cat) { fill(); if (cat) showCat(cat); modal.classList.remove('hidden'); }
   function close() { modal.classList.add('hidden'); }
@@ -766,11 +771,11 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   if (cta) cta.addEventListener('input', function () { saveMergePrompt('c', cta.value); flash(); });
   if (resetBtn) resetBtn.addEventListener('click', function () {
     saveMergePrompt('plan', ''); saveMergePrompt('q', ''); saveMergePrompt('c', '');
-    if (typeof saveAnnotatePrompt === 'function') saveAnnotatePrompt('');
+    saveAnnotatePrompt('');
     fill(); flash();
   });
-  if (annotateTa) annotateTa.addEventListener('input', function () { if (typeof saveAnnotatePrompt === 'function') saveAnnotatePrompt(annotateTa.value); flash(); });
-  if (codebaseTa) codebaseTa.addEventListener('input', function () { if (typeof saveCodebasePrompt === 'function') saveCodebasePrompt(codebaseTa.value); flash(); });
+  if (annotateTa) annotateTa.addEventListener('input', function () { saveAnnotatePrompt(annotateTa.value); flash(); });
+  if (codebaseTa) codebaseTa.addEventListener('input', function () { saveCodebasePrompt(codebaseTa.value); flash(); });
   // Language: live-switch the whole UI (no reload). Factored out so the cross-window chrome broadcast (below)
   // replays the exact same steps when another review window changes the shared locale.
   function applyLocale(next) {
@@ -780,7 +785,7 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
     persistSave(LOCALE_KEY, locale);
     applyI18n();
     fill(); // unsaved merge-prompt defaults follow the active locale
-    try { if (typeof refreshComments === 'function') refreshComments(); } catch (e) {}
+    try { refreshComments(); } catch (e) {}
     // Reopening runs mountDock's own closeMergedMemoDocks() first, so the outgoing panel still gets its
     // __kakapoBeforeClose flush instead of being yanked out from under the editor.
     if (document.getElementById('mc-merged-panel')) openMergedView();

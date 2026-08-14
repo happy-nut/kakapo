@@ -903,3 +903,23 @@ test("a plain comment carries no thread context", async () => {
   assert.doesNotMatch(v.window.buildMergedText(), /Continues/, "and no history line ahead of it");
   v.close();
 });
+
+// A card rendered inline is already sitting on the line it is about, in the file it is about. Repeating
+// "@path#L42" in its header restates the two things the reader can see, and takes up to 62% of the head
+// doing it. The range case above keeps its label, because a card anchored at one line cannot show ten.
+test("a saved card drops the location it is already sitting on", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("q");
+  assert.ok(v.$(".mc-composer .mc-target"), "the composer still says where this will attach, before it exists");
+
+  await v.writeAndSave("why this line");
+  const card = v.$("#source-body .mc-card:not(.mc-composer)");
+  assert.match(card.textContent, /why this line/, "the comment is saved and on screen");
+  assert.equal(card.querySelector(".mc-target"), null, "but its header no longer repeats the line it sits on");
+
+  await v.openMergedView();
+  assert.ok(v.$(".mc-merged-card .mc-target"), "the dock still labels every card — there the code is not beside it");
+  v.close();
+});

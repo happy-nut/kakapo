@@ -2,7 +2,7 @@
 // authored as ordered slices in src/viewer/*.js (numbered to preserve order) and CONCATENATED here into the
 // single inlined script the renderer ships — concatenation only, so it stays one global scope, byte-for-byte
 // the same as the former single-file viewer bundle. cli.ts reads these at runtime via readViewerAsset().
-import { readdirSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, copyFileSync, cpSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -18,6 +18,7 @@ const viewerDir = join(root, "src", "viewer");
 // statements (e.g. 05-keymap's init block runs on load); making it explicit removes the same-numeric-prefix
 // lexicographic-tie fragility and lets a new slice be placed precisely. The check below fails the build
 // loudly if a slice is added/removed without updating this list — instead of silently mis-ordering.
+// What that order implies for cross-slice names is checked in test/viewer-slices.test.mjs.
 const VIEWER_SLICES = [
   "00-util.js", "00-diff-layers.js", "01-core.js", "01-diff-alignment.js", "01-diff-model.js", "02-diff-nav.js",
   "03-quick-open.js", "04-source-tree.js", "05-keymap.js", "06-diff-caret.js", "07-comments.js",
@@ -72,6 +73,10 @@ try {
 }
 
 copyFileSync(join(root, "src", "viewer.css"), join(distDir, "viewer.css"));
+
+// The agent prompts are authored as Markdown (src/prompts/*.md) and read at runtime by i18n.ts, which
+// resolves them relative to its own dist location — so they have to land beside it.
+cpSync(join(root, "src", "prompts"), join(distDir, "prompts"), { recursive: true });
 
 // The rich Markdown editor is loaded lazily through Electron's narrow kakapo-asset:// scheme. The
 // directory keeps its historical name for protocol compatibility, but no code-editor runtime is shipped.

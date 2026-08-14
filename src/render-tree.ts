@@ -98,8 +98,12 @@ function renderDiffNode(node: DiffTreeNode, depth: number): string {
   if (node.file) {
     const file = node.file;
     const classes = ["file-link", "change-row", "tree-file", file.vcs ? "vcs-" + file.vcs : ""].filter(Boolean).join(" ");
+    // Counted here and carried on the row, because the row exists for every changed file and is already the
+    // client's per-file record (data-file/data-hunk). The diff BODY is materialized on demand, so counting
+    // rendered +/- rows in the DOM would report nothing for any file nobody has scrolled to yet.
+    const { added, deleted } = diffLineTotals(file);
     return [
-      `<a class="${classes}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + file.status)}">`,
+      `<a class="${classes}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" data-added="${added}" data-deleted="${deleted}" style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + file.status)}">`,
       fileTypeIcon(file.displayPath),
       changeStatusBadge(file.status),
       `<span class="change-name"><span class="path">${escapeHtml(node.name)}</span></span>`,
@@ -128,6 +132,21 @@ function renderDiffNode(node: DiffTreeNode, depth: number): string {
   ].join("");
 }
 
+// Added and deleted LINES for one file. Kakapo has never carried a diffstat: the Changes tree deliberately
+// omits it (one number per row, on a list where every row already means "changed", is noise), but the diff
+// toolbar shows exactly one file at a time and the size of that file's change is the thing you are about to
+// read.
+function diffLineTotals(file: DiffFile): { added: number; deleted: number } {
+  let added = 0, deleted = 0;
+  for (const hunk of file.hunks) {
+    for (const line of hunk.lines) {
+      if (line.kind === "add") added += 1;
+      else if (line.kind === "delete") deleted += 1;
+    }
+  }
+  return { added, deleted };
+}
+
 function changeStatusBadge(status: string): string {
   const label = status ? status[0].toUpperCase() + status.slice(1) : "Changed";
   let icon: string;
@@ -141,12 +160,21 @@ function changeStatusBadge(status: string): string {
     case "renamed":
       icon = '<path d="M3 5h8m-2.5-2.5L11 5 8.5 7.5M13 11H5m2.5-2.5L5 11l2.5 2.5"/>';
       break;
+    // No glyph: in a tree of changed files, "modified" is what every row is until it says otherwise, so a
+    // pencil on most of them marks nothing — and the filename colour (vcs-edited) already says it twice. The
+    // chip itself stays: it is the slot the viewed ✓ lands in (viewer.css), and keeping it holds every
+    // filename on the same left edge whether or not its status draws something.
     case "modified":
-      icon = '<path d="m3.2 11.8.6-2.7 6.6-6.6a1.2 1.2 0 0 1 1.7 0l1.4 1.4a1.2 1.2 0 0 1 0 1.7L6.9 12.2l-2.7.6zM9.5 3.4l3.1 3.1"/>';
+      icon = "";
       break;
     default:
       icon = '<circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/>';
   }
+  // With no glyph there is nothing to caption: a chip that draws nothing must not answer a hover with the
+  // word "Modified", and must not be announced at all — the row's own aria-label already ends in its status,
+  // so labelling the chip too made every changed file read its state twice. It stays purely as the slot the
+  // viewed ✓ lands in.
+  if (!icon) return '<span class="status status-modified" aria-hidden="true"></span>';
   return `<span class="status status-${escapeAttr(status)}" role="img" aria-label="${escapeAttr(label)}" title="${escapeAttr(label)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg></span>`;
 }
 

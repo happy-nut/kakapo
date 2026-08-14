@@ -100,7 +100,9 @@ function activateFilesView() {
 // move a file in a build script. It is a row order now — the same treatment WINDOW_SHORTCUTS gave the
 // chords, for the same reason: adding a surface should be a row, not a fourth thing to get right.
 //
-// Owners are looked up through `typeof` because every slice that owns one loads after this file.
+// The four owners whose handler is a `var` a later slice ASSIGNS (settings, terminal send-mode, note tour,
+// workspace hub) are still looked up through `typeof`: unlike a function declaration, that binding is
+// undefined until its slice runs. Everything else here is a plain call — see test/viewer-slices.test.mjs.
 // NOT here, and correctly so: the go-to-line prompt (13-goto.js) and the comment composer (08-dock.js)
 // both scope their listener to their own lifetime or target, so they never race anything.
 var KEY_OWNERS = [
@@ -116,7 +118,7 @@ var KEY_OWNERS = [
   // Semantic navigation is a caret-local dropdown. It must own arrows/Enter before the persistent sidebar's
   // logical tree focus gets a chance to consume them; otherwise Enter opens the tree row instead of the
   // selected definition when Cmd+B was invoked after Cmd+0/Cmd+1.
-  { name: 'semantic-peek', handle: function (event) { return typeof handleSemanticPeekKey === 'function' && handleSemanticPeekKey(event); } },
+  { name: 'semantic-peek', handle: function (event) { return handleSemanticPeekKey(event); } },
   // Quick Open / Find in Files is a true modal keyboard scope. Its own handler consumes navigation and
   // dismissal keys, then every other key is stopped from reaching the shortcut router (or later document
   // listeners). Do NOT prevent an unhandled key's default: native input editing such as Cmd/Ctrl+Left/Right,
@@ -135,7 +137,7 @@ var KEY_OWNERS = [
   } },
   // Cmd/Ctrl+F belongs to the active file surface, not the project-wide quick-open search. It sits above the
   // general focus guard so Enter/Shift+Enter/Esc keep working while its input owns focus.
-  { name: 'file-find', handle: function (event) { return typeof handleFileFindKey === 'function' && handleFileFindKey(event); } },
+  { name: 'file-find', handle: function (event) { return handleFileFindKey(event); } },
   { name: 'lightbox', handle: function (event) {
     if (event.key !== 'Escape' || !lightboxOpen()) return false;
     event.preventDefault();
@@ -158,11 +160,11 @@ var WINDOW_SHORTCUTS = [
     else openQuickOpen('prompts');
   } },
   { code: 'KeyN', shift: true, key: 'n', run: function () { openMemoView(); } },
-  { code: 'Digit9', key: '9', run: function () { if (typeof toggleHistory !== 'function') return false; toggleHistory(); } },
-  { code: 'Digit8', key: '8', run: function () { if (typeof toggleImpact !== 'function') return false; toggleImpact(); } },
+  { code: 'Digit9', key: '9', run: function () { toggleHistory(); } },
+  { code: 'Digit8', key: '8', run: function () { toggleImpact(); } },
   // Explain opens no view of its own: it stages the "annotate this diff" prompt in the terminal composer,
   // and the agent's notes land on the diff lines they explain (23-annotations.js).
-  { code: 'Digit7', key: '7', run: function () { if (typeof runAnnotatePrompt !== 'function') return false; runAnnotatePrompt(); } },
+  { code: 'Digit7', key: '7', run: function () { runAnnotatePrompt(); } },
   // Cmd+0/Cmd+1 mean "take me to the tree", so they close the History overlay first — otherwise the view
   // they activate would be switched invisibly underneath it.
   { code: 'Digit0', key: '0', run: function () { closeHistoryIfOpen(); activateChangesView(false); } },
@@ -171,12 +173,12 @@ var WINDOW_SHORTCUTS = [
   // safety net has to reach into that dock. Text surfaces keep their own native undo, and the key is only
   // swallowed when there was actually something to restore.
   { code: 'KeyZ', key: 'z', run: function () {
-    if (inTextField() || typeof undoLastCommentRemoval !== 'function') return false;
+    if (inTextField()) return false;
     return undoLastCommentRemoval() ? undefined : false; // nothing to restore -> let the key through
   } },
 ];
 function closeHistoryIfOpen() {
-  if (typeof isHistoryOpen === 'function' && isHistoryOpen() && typeof closeHistory === 'function') closeHistory();
+  if (isHistoryOpen()) closeHistory();
 }
 // Cmd/Ctrl + the given code (or key, for layouts that report no code), with the modifiers spelled out: a
 // shortcut fires only on the exact combination it declares, so Cmd+Shift+P can never answer a plain Cmd+P.
@@ -252,7 +254,7 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'F8' && !event.metaKey && !event.ctrlKey && !event.altKey) {
     event.preventDefault();
     clearTreeFocus(); // stepping to a comment moves the caret, so arrows follow it (see F7 above)
-    if (typeof gotoComment === 'function') gotoComment(event.shiftKey ? -1 : 1);
+    gotoComment(event.shiftKey ? -1 : 1);
     return;
   }
 
@@ -265,7 +267,7 @@ document.addEventListener('keydown', (event) => {
     // "Anything but a true modal" is `scope !== 'modal'` — which is already in hand. This used to re-read the
     // settings overlay and the go-to-line prompt itself, the one branch left doing by hand what keyboardScope
     // exists to answer, and so the one branch that would have gone on disagreeing with it as surfaces changed.
-    if (scope !== 'modal' && typeof revealOpenFileInTree === 'function') { event.preventDefault(); revealOpenFileInTree(); return; }
+    if (scope !== 'modal') { event.preventDefault(); revealOpenFileInTree(); return; }
   }
 
   // Settings overlay (or a focused merged/memo dock) captures keys: stand down the rest of the global
@@ -276,8 +278,7 @@ document.addEventListener('keydown', (event) => {
   // innermost multiline brace range. Shift+. remains the distinct merged change-request shortcut above.
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'Period' || event.key === '.')) {
     var foldAe = document.activeElement;
-    if (!(foldAe && (foldAe.tagName === 'INPUT' || foldAe.tagName === 'TEXTAREA' || foldAe.tagName === 'SELECT'))
-      && typeof toggleCurrentSourceFold === 'function' && toggleCurrentSourceFold()) {
+    if (!(foldAe && (foldAe.tagName === 'INPUT' || foldAe.tagName === 'TEXTAREA' || foldAe.tagName === 'SELECT')) && toggleCurrentSourceFold()) {
       event.preventDefault();
       return;
     }
@@ -429,7 +430,7 @@ document.addEventListener('keydown', (event) => {
       return;
     }
     // Option+Enter on a diagnostic line drafts a "fix this" change-request comment for the agent.
-    if (event.altKey && typeof createFixCommentAtCaret === 'function' && createFixCommentAtCaret()) {
+    if (event.altKey && createFixCommentAtCaret()) {
       event.preventDefault();
       return;
     }
@@ -535,7 +536,7 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'F2' && !event.metaKey && !event.ctrlKey && !event.altKey) {
     // F2 / Shift+F2 steps between language-server problems inside the open source file. It only consumes the
     // key when the source view owns it (a code file is on screen); otherwise the event falls through.
-    if (typeof gotoDiagnostic === 'function' && gotoDiagnostic(event.shiftKey ? -1 : 1)) event.preventDefault();
+    if (gotoDiagnostic(event.shiftKey ? -1 : 1)) event.preventDefault();
     return;
   }
 
@@ -548,7 +549,7 @@ document.addEventListener('keydown', (event) => {
     if (cfAe && (cfAe.tagName === 'INPUT' || cfAe.tagName === 'TEXTAREA' || cfAe.tagName === 'SELECT' || cfAe.isContentEditable)) return;
     event.preventDefault();
     clearTreeFocus(); // same as F7: stepping between comments moves the caret, so arrows follow it
-    if (typeof gotoComment === 'function') gotoComment(event.shiftKey ? -1 : 1);
+    gotoComment(event.shiftKey ? -1 : 1);
   }
 });
 
@@ -594,7 +595,7 @@ document.getElementById('changes-panel')?.addEventListener('click', (event) => {
   const link = event.target && event.target.closest ? event.target.closest('.file-link') : null;
   if (!link) return;
   // Shift+Click extends a multi-file selection (for batch "mark as viewed" with Space) instead of opening.
-  if (event.shiftKey && typeof extendTreeSelectionToRow === 'function' && extendTreeSelectionToRow(link)) {
+  if (event.shiftKey && extendTreeSelectionToRow(link)) {
     event.preventDefault();
     return;
   }
@@ -655,14 +656,14 @@ function openRailView(view) {
     setTab('changes');
     focusOpenFileInTree();
   } else if (view === 'history') {
-    if (typeof openHistory === 'function' && (typeof isHistoryOpen !== 'function' || !isHistoryOpen())) openHistory();
+    if (!isHistoryOpen()) openHistory();
   } else if (view === 'terminal') {
     var tp = document.getElementById('terminal-panel');
     if (tp && tp.classList.contains('hidden')) document.getElementById('terminal-toggle')?.click();
   } else {
     document.querySelector('.rail-btn[data-view="' + view + '"]')?.click();
   }
-  if (typeof syncRail === 'function') syncRail();
+  syncRail();
 }
 // The shell title-bar mirrors these tools (single-instance app). A title-bar click is relayed here as a rail
 // action; replay it by clicking the matching (possibly CSS-hidden) rail control so every existing handler and

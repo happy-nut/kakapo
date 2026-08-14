@@ -232,7 +232,7 @@ function extendTreeSelectionToRow(row) {
   if (treeSelectionAnchor < 0) treeSelectionAnchor = treeFocusIndex >= 0 ? treeFocusIndex : index;
   treeFocusIndex = index;
   renderTreeSelection();
-  if (typeof flashReviewPanelFocus === 'function') flashReviewPanelFocus(row.closest('.sidebar'));
+  flashReviewPanelFocus(row.closest('.sidebar'));
   try { row.focus({ preventScroll: true }); } catch (e) {}
   return true;
 }
@@ -321,7 +321,7 @@ function focusOpenFileInTree() {
   const rows = treeRows();
   if (rows.length === 0) return;
   let openPath = document.getElementById('source-viewer')?.dataset.openPath || '';
-  if (!openPath && typeof diffActiveWrapper === 'function') {
+  if (!openPath) {
     const w = diffActiveWrapper();
     const n = w && w.querySelector('.d2h-file-name');
     if (n && n.textContent) openPath = n.textContent.trim();
@@ -343,29 +343,29 @@ function revealOpenFileInTree() {
   // whichever is open to uncover the tree, then bring the Files tree forward (never toggling it closed)
   // and center + flash the open file. Previously this bailed unless the diff or source view already owned the
   // screen, so it silently did nothing while another panel was up.
-  if (typeof isHistoryOpen === 'function' && isHistoryOpen() && typeof closeHistory === 'function') closeHistory();
-  if (typeof isImpactOpen === 'function' && isImpactOpen() && typeof closeImpact === 'function') closeImpact(false);
-  if (typeof closeMergedMemoDocks === 'function') closeMergedMemoDocks();
+  if (isHistoryOpen()) closeHistory();
+  if (isImpactOpen()) closeImpact(false);
+  closeMergedMemoDocks();
 
-  var srcOn = typeof isSourceViewerVisible === 'function' && isSourceViewerVisible();
-  var diffOn = typeof isDiffViewVisible === 'function' && isDiffViewVisible();
-  if (!srcOn && !diffOn && typeof showSourceView === 'function') { showSourceView(); srcOn = true; }
+  var srcOn = isSourceViewerVisible();
+  var diffOn = isDiffViewVisible();
+  if (!srcOn && !diffOn) { showSourceView(); srcOn = true; }
   // Force the file tree open (setSource/Review collapsed(false) sets state — it doesn't toggle).
-  if (typeof setTab === 'function') setTab('files');
-  if (srcOn && typeof setSourceSidebarCollapsed === 'function') setSourceSidebarCollapsed(false);
-  else if (diffOn && typeof setReviewSidebarCollapsed === 'function') setReviewSidebarCollapsed(false);
+  setTab('files');
+  if (srcOn) setSourceSidebarCollapsed(false);
+  else if (diffOn) setReviewSidebarCollapsed(false);
 
   // Resolve the open file AFTER switching views (the source viewer now owns dataset.openPath), then center on
   // the next frame (folders/sidebar may have just opened).
   requestAnimationFrame(function () {
     var openPath = (document.getElementById('source-viewer') && document.getElementById('source-viewer').dataset.openPath) || '';
-    if (!openPath && typeof diffActiveWrapper === 'function') {
+    if (!openPath) {
       var w = diffActiveWrapper();
       var n = w && w.querySelector('.d2h-file-name');
       if (n && n.textContent) openPath = n.textContent.trim();
     }
     if (!openPath) return;
-    if (typeof revealTreeFor === 'function') revealTreeFor(openPath, false); // open ancestor folders; center below
+    revealTreeFor(openPath, false); // open ancestor folders; center below
     requestAnimationFrame(function () {
       var rows = treeRows();
       var target = null;
@@ -377,7 +377,7 @@ function revealOpenFileInTree() {
       document.querySelectorAll('.tree-focus').forEach(function (el) { if (el !== target) el.classList.remove('tree-focus'); });
       target.classList.add('tree-focus');
       if (target.scrollIntoView) { try { target.scrollIntoView({ block: 'center' }); } catch (e) { target.scrollIntoView(); } }
-      if (typeof flashReviewPanelFocus === 'function') flashReviewPanelFocus(target.closest('.sidebar'));
+      flashReviewPanelFocus(target.closest('.sidebar'));
     });
   });
 }
@@ -522,7 +522,7 @@ function handleTreeKey(event) {
   }
   if (event.key === 'Enter' && event.altKey) {
     event.preventDefault();
-    if (row && typeof openTreeRowMenu === 'function') openTreeRowMenu(row); // path / file manager / terminal actions
+    if (row) openTreeRowMenu(row); // path / file manager / terminal actions
     return true;
   }
   if (event.key === 'Enter') {
@@ -554,7 +554,7 @@ function handleTreeKey(event) {
   var dsc = document.getElementById('diff2html-container');
   if (dsc) dsc.addEventListener('wheel', function (e) {
     if (Math.abs(e.deltaY) >= Math.abs(e.deltaX) && e.deltaY !== 0) {
-      if (typeof prepareAsymmetricDiffWheel === 'function') prepareAsymmetricDiffWheel(e);
+      prepareAsymmetricDiffWheel(e);
       dsc.scrollTop += e.deltaY;
       e.preventDefault();
     }

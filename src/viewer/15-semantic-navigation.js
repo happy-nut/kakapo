@@ -29,7 +29,7 @@ function showSemanticNavigationFailure(kind, name) {
     : kind === 'implementation' ? 'monaco.implementationNotFound'
       : kind === 'symbol' ? 'monaco.noSymbol' : 'monaco.definitionNotFound';
   var message = t(key).replace('{symbol}', String(name || ''));
-  if (typeof closeSemanticPeek === 'function') closeSemanticPeek();
+  closeSemanticPeek();
   showCaretHint(message);
 }
 // Cmd+B: on a declaration, show its usages (navigate if there's only one); elsewhere, go to the definition.
@@ -39,7 +39,7 @@ async function goToDefOrUsages(name, explicitLoc) {
   var response = await queryProjectAnalysis('definition', name, loc);
   if (response && response.ok) {
     var defs = response.locations || [];
-    if (defs.length > 1 && typeof openSemanticPeek === 'function') {
+    if (defs.length > 1) {
       openSemanticPeek(name, defs, response, 'definition');
       return;
     }
@@ -80,7 +80,7 @@ function queryProjectAnalysis(kind, symbol, loc, extra) {
     column: loc && loc.column,
   }, extra || {});
   return Promise.resolve(window.kakapoAnalysis.query(request)).then(function (response) {
-    if (typeof analysisGenerationIsCurrent === 'function' && !analysisGenerationIsCurrent(response)) return null;
+    if (!analysisGenerationIsCurrent(response)) return null;
     return response;
   }).catch(function () { return null; });
 }
@@ -103,11 +103,11 @@ function findUsages(name, defPath, defLine) {
   var out = [];
   for (var fi = 0; fi < sourceFiles.length; fi++) {
     var f = sourceFiles[fi];
-    if (!f.embedded || (typeof semanticDocumentPath === 'function' && semanticDocumentPath(f.path))) continue;
+    if (!f.embedded || semanticDocumentPath(f.path)) continue;
     var lines = String(f.content).split(/\r?\n/);
     for (var li = 0; li < lines.length; li++) {
       if (f.path === defPath && li === defLine) continue;
-      if (typeof semanticCommentOnlyLine === 'function' && semanticCommentOnlyLine(lines[li])) continue;
+      if (semanticCommentOnlyLine(lines[li])) continue;
       var m = re.exec(lines[li]);
       if (m) {
         out.push({ path: f.path, lineIndex: li, column: m.index + (m[1] ? m[1].length : 0), text: lines[li] });
@@ -126,9 +126,9 @@ function openUsages(name, def) {
   showUsages(name, items.length);
 }
 function openAnalysisUsages(name, locations, response, kind) {
-  if (typeof semanticNavigationLocations === 'function') locations = semanticNavigationLocations(locations);
+  locations = semanticNavigationLocations(locations);
   if (!(locations || []).length) { showSemanticNavigationFailure(kind || 'references', name); return; }
-  if (locations.length > 1 && typeof openSemanticPeek === 'function') {
+  if (locations.length > 1) {
     openSemanticPeek(name, locations, response, kind || 'references');
     return;
   }
@@ -181,7 +181,7 @@ function renderUsages() {
   if (!usageItems.length) { results.innerHTML = '<div class="quick-open-empty">No usages found.</div>'; return; }
   results.innerHTML = usageItems.map(function (item, index) {
     var fname = item.path.split('/').pop();
-    var isTest = item.isTest || (typeof semanticTestPath === 'function' && semanticTestPath(item.path));
+    var isTest = item.isTest || semanticTestPath(item.path);
     return '<button type="button" class="quick-open-item usage-item' + (isTest ? ' is-test' : '') + (index === usageActive ? ' active' : '') + '" data-index="' + index + '" title="' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '">'
       + '<span class="usage-loc">' + escapeHtml(fname) + ':' + (item.lineIndex + 1) + '</span>'
       + '<span class="usage-code">' + escapeHtml(item.text.replace(/^\s+/, '').slice(0, 160)) + '</span>'
@@ -261,13 +261,13 @@ function findSymbolDefinition(name) {
   const orderedFiles = [
     ...sourceFiles.filter((file) => file.path === currentPath),
     ...sourceFiles.filter((file) => file.path !== currentPath),
-  ].filter((file) => file.embedded && !(typeof semanticDocumentPath === 'function' && semanticDocumentPath(file.path)));
+  ].filter((file) => file.embedded && !semanticDocumentPath(file.path));
 
   for (const file of orderedFiles) {
     const lines = file.content.split(/\r?\n/);
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
       const line = lines[lineIndex];
-      if (typeof semanticCommentOnlyLine === 'function' && semanticCommentOnlyLine(line)) continue;
+      if (semanticCommentOnlyLine(line)) continue;
       if (matchers.some((matcher) => matcher.test(line))) {
         return { path: file.path, lineIndex, column: Math.max(0, line.indexOf(name)) };
       }

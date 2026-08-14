@@ -3,7 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, shell, WebContentsView } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell, WebContentsView } from "electron";
 import type { WebContents } from "electron";
 import { git, gitAsync, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
@@ -36,7 +36,7 @@ import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
 import { collectUsageStats } from "./usage-stats.js";
 import { agentForCommand, type AgentKind } from "./agent-resume.js";
 import { hubHtml, modalOverlayHtml } from "./shell-pages.js";
-import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
+import { aheadArgs, aheadCount, createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
 
 type AppOptions = {
   root: string;
@@ -83,6 +83,9 @@ type WinState = {
   sourceFiles: Map<string, SourceFile>; // source content stays in main; renderer requests one open file at a time
   analysis: ProjectAnalysis; // LSP-first project analysis + main-process regex fallback
   analysisSuspended: boolean;
+  // The idle timer dropped this workspace's caches (main) and its diff DOM (renderer). Cleared once the
+  // rebuild on the way back in has repainted the view; until then every activation retries.
+  viewReleased: boolean;
   idleTimer?: NodeJS.Timeout;
   terms: Map<number, IPty>; // integrated-terminal ptys owned by this window (killed on close)
   termSessions: Map<number, string>; // pty id -> tmux session, for panes opted into persistent terminals
@@ -98,7 +101,7 @@ type WinState = {
   // Rail tile data (repo record + working-tree dirty count) is git-derived — ~5 subprocesses/workspace.
   // renderHub fires on every agent-activity event, so cache it per workspace with a short TTL: without this
   // an N-workspace hub render spawns ~5N git processes on the main thread each time an agent turn finishes.
-  hubTile?: { record: WorkspaceRecord; dirtyCount: number; computedAt: number };
+  hubTile?: { record: WorkspaceRecord; dirtyCount: number; ahead: number; base?: string; computedAt: number };
   bootStarted: boolean;
   // Set when activateWorkspace focuses this view while it is still loading, so the "content is ready" hook
   // can hand it the keyboard. Consumed once.
@@ -216,6 +219,12 @@ protocol.registerSchemesAsPrivileged([{
 // Mutating the live bundle during macOS didFinishLaunching can terminate Chromium with SIGTRAP.
 
 const iconPath = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "icon.png");
+// macOS has no window icons, and it reads the app icon off the bundle — the packaged one from Info.plist, the
+// dev one from the electron.icns that the postinstall branding step overwrites with ours. Handing Electron the
+// 1024² PNG on top of that only decoded bitmaps into the main process and left them there: measured +33.5 MB
+// for dock.setIcon, +14.3 MB for the first window's `icon:`, +5.2 MB per window after that, which is most of
+// the 64 MB of CG image this process was holding. Everywhere else it IS the window/taskbar icon, so it stays.
+const windowIcon = process.platform === "darwin" ? undefined : iconPath;
 const preloadPath = join(dirname(fileURLToPath(import.meta.url)), "preload.cjs");
 const hubPreloadPath = join(dirname(fileURLToPath(import.meta.url)), "hub-preload.cjs");
 
@@ -547,7 +556,7 @@ ipcMain.handle("kakapo:hub-preview", (_event, payload: { repo?: unknown; label?:
   return { ok: true, worktree: true, slug, base: defaultBase(repo.repoRoot), branch: `kakapo/${slug}`,
     path: join("~", "kakapo", "workspaces", repo.repoName, slug) };
 });
-ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; label?: unknown; worktree?: unknown }) => {
+ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; label?: unknown; worktree?: unknown; base?: unknown }) => {
   if (typeof payload?.repo !== "string" || typeof payload?.label !== "string") return { ok: false };
   // "Create a new worktree" unchecked: open the project's existing checkout instead of adding a branch+folder.
   if (payload.worktree === false) {
@@ -558,7 +567,11 @@ ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; la
   if (workspaceCreation) return { ok: false, error: "A workspace is already being created." };
   workspaceCreation = new AbortController();
   try {
-    const created = await createManagedWorkspaceAsync(payload.repo, payload.label, { signal: workspaceCreation.signal });
+    // An unknown ref is not worth pre-validating here: `git worktree add` refuses it, and its own message
+    // ("invalid reference: origin/nope") is more useful than anything a check of ours would say. It reaches
+    // the dialog's error line the same way every other creation failure does.
+    const base = typeof payload.base === "string" && payload.base.trim() ? payload.base.trim() : undefined;
+    const created = await createManagedWorkspaceAsync(payload.repo, payload.label, { base, signal: workspaceCreation.signal });
     const records = savedWorkspaceMetadata().filter((item) => resolveWorkspaceRoot(item.path) !== created.path);
     records.push(created);
     preferences.writeOpenWorkspaces(records, created.path);
@@ -988,11 +1001,6 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
 
   buildApplicationMenu();
 
-  const appIcon = nativeImage.createFromPath(iconPath);
-  if (process.platform === "darwin" && app.dock && !appIcon.isEmpty()) {
-    app.dock.setIcon(appIcon);
-  }
-
   // First window uses the CLI-resolved root + flags. The repository stays read-only: each window writes
   // generated review state into its mirrored directory below Electron userData.
   const restored = preferences.readOpenWorkspaces()
@@ -1174,7 +1182,7 @@ function ensureShellWindow(light: boolean): BrowserWindow {
   appQuitting = false; // a fresh shell means we're up-and-running again, not tearing down
   shellWindow = new BrowserWindow({
     width: 1440, height: 960, minWidth: 960, minHeight: 640, show: false, title: APP_TITLE,
-    icon: iconPath, backgroundColor: light ? "#f5f5f5" : "#202124", autoHideMenuBar: true,
+    icon: windowIcon, backgroundColor: light ? "#f5f5f5" : "#202124", autoHideMenuBar: true,
     ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 14, y: 12 } } : {}),
     webPreferences: { preload: hubPreloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
@@ -1275,17 +1283,24 @@ function activateWorkspace(id: number): void {
       activated.analysis = makeAnalysis(activated.options.root, () => activated);
       activated.analysisSuspended = false;
       scheduleAnalysisPrewarm(activated);
-      // Rebuilding the review on a switch to an idle workspace used to freeze the whole app for ~1-2s on a
-      // large repo (the build ran synchronously on the main process). buildReview now runs it in the worker,
-      // so main stays responsive; the view keeps its last-rendered diff and the refreshed diff/state is pushed
-      // when the build lands. Skip if the user has already switched away again.
+    }
+    // Rebuilding the review on a switch to an idle workspace used to freeze the whole app for ~1-2s on a
+    // large repo (the build ran synchronously on the main process). buildReview now runs it in the worker,
+    // so main stays responsive, and the refreshed diff/state is pushed when the build lands. Skip if the user
+    // has already switched away again — viewReleased stays set, so the next activation tries again. Keyed on
+    // the released view rather than on the suspend flag: a view whose diff DOM was dropped MUST be repainted,
+    // and the two are armed by the same timer.
+    if (activated.viewReleased) {
       const target = activated;
       setTimeout(async () => {
         if (target.win.isDestroyed() || target.win.webContents.id !== activeStateId) return;
         const rebuilt = await buildReview(target);
         if (!rebuilt || target.win.isDestroyed() || target.win.webContents.id !== activeStateId) return;
         target.signature = rebuilt.signature;
-        if (rebuilt.update) target.win.webContents.send("kakapo:diff-update", rebuilt.update);
+        if (rebuilt.update) {
+          target.win.webContents.send("kakapo:diff-update", rebuilt.update);
+          target.viewReleased = false;
+        }
       }, 0);
     } else if (activated.bootStarted) {
       // This workspace's pollers were paused while it was hidden (isVisibleWorkspace). Catch up now rather
@@ -1481,14 +1496,17 @@ const HUB_TILE_TTL_MS = 1000;
 // (however old) and revalidate off-thread, re-rendering only if something actually changed. Only a tile that
 // has never been computed still pays the synchronous cost, once.
 const hubTileRefreshing = new Set<number>();
-function hubTileFor(state: WinState): { record: WorkspaceRecord; dirtyCount: number } {
+function hubTileFor(state: WinState): { record: WorkspaceRecord; dirtyCount: number; ahead: number } {
   if (state.hubTile) {
     if (Date.now() - state.hubTile.computedAt >= HUB_TILE_TTL_MS) void refreshHubTile(state);
     return state.hubTile;
   }
   const record = workspaceRecord(state.options.root);
   const dirtyCount = git(record.path, ["status", "--porcelain"]).split("\n").filter(Boolean).length;
-  state.hubTile = { record, dirtyCount, computedAt: Date.now() };
+  // The base is read once, here, and then rides on the tile: a workspace cannot change what it was branched
+  // from, and the refresh below runs far more often than this seed does.
+  const base = savedWorkspaceMetadata().find((item) => resolveWorkspaceRoot(item.path) === record.path)?.base;
+  state.hubTile = { record, dirtyCount, ahead: aheadCount(record.path, base), base, computedAt: Date.now() };
   return state.hubTile;
 }
 // Only branch and dirty count can change for a live workspace — repoRoot/repoName/kind are fixed for a given
@@ -1502,15 +1520,19 @@ async function refreshHubTile(state: WinState): Promise<void> {
   // Bump the stamp up front so concurrent renderHub calls don't queue a second refresh behind this one.
   previous.computedAt = Date.now();
   try {
-    const [branch, status] = await Promise.all([
+    const [branch, status, upstream] = await Promise.all([
       gitAsync(previous.record.path, ["branch", "--show-current"]),
       gitAsync(previous.record.path, ["status", "--porcelain"]),
+      gitAsync(previous.record.path, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]),
     ]);
+    if (state.win.isDestroyed()) return;
+    const countArgs = aheadArgs(upstream, previous.base);
+    const ahead = countArgs ? Number(await gitAsync(previous.record.path, countArgs)) || 0 : 0;
     if (state.win.isDestroyed()) return;
     const dirtyCount = status.split("\n").filter(Boolean).length;
     const nextBranch = branch || "detached";
-    const changed = dirtyCount !== previous.dirtyCount || nextBranch !== previous.record.branch;
-    state.hubTile = { record: { ...previous.record, branch: nextBranch }, dirtyCount, computedAt: Date.now() };
+    const changed = dirtyCount !== previous.dirtyCount || nextBranch !== previous.record.branch || ahead !== previous.ahead;
+    state.hubTile = { record: { ...previous.record, branch: nextBranch }, dirtyCount, ahead, base: previous.base, computedAt: Date.now() };
     if (changed) renderHub();
   } finally {
     hubTileRefreshing.delete(id);
@@ -1581,13 +1603,13 @@ function renderHub(): void {
   const saved = savedWorkspaceMetadata();
   const panes = tmuxPaneCommands(); // shared 2s-cached tmux scan; also backs the green running dot
   const live = Array.from(states.values()).map((state) => {
-    const { record: current, dirtyCount } = hubTileFor(state);
+    const { record: current, dirtyCount, ahead } = hubTileFor(state);
     const metadata = saved.find((item) => resolveWorkspaceRoot(item.path) === current.path);
     const owner = githubOwnerFor(state.options.root);
     const avatar = owner ? ownerAvatar.get(owner) : undefined;
     if (owner && !avatar) void ensureOwnerAvatar(owner);
     return { id: state.win.webContents.id, ...current, alias: metadata?.alias, memo: metadata?.memo,
-      base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount, avatar,
+      base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount, ahead, avatar,
       active: state.win.webContents.id === activeStateId, running: hasRunningProcess(state),
       resume: state.resumeCommand, agent: agentForWorkspace(state, panes),
       unread: state.unread, busy: state.busy, detached: state.win.isDetached() };
@@ -1729,7 +1751,7 @@ function createWindow(root: string, deferBoot = false): WinState {
       detachedHost = new BrowserWindow({
         width: 1180, height: 820, minWidth: 720, minHeight: 480, show: false,
         title: `${workspaceRecord(root).branch} — ${APP_TITLE}`,
-        icon: iconPath, backgroundColor: themeLight ? "#f5f5f5" : "#202124", autoHideMenuBar: true,
+        icon: windowIcon, backgroundColor: themeLight ? "#f5f5f5" : "#202124", autoHideMenuBar: true,
       });
       surfaceHost = detachedHost;
       detachedHost.contentView.addChildView(view);
@@ -1775,6 +1797,7 @@ function createWindow(root: string, deferBoot = false): WinState {
     sourceFiles: new Map(),
     analysis,
     analysisSuspended: false,
+    viewReleased: false,
     terms: new Map(),
     termSessions: new Map(),
     commandBuffers: new Map(),
@@ -1955,6 +1978,12 @@ function reconcileIdleSuspend(state: WinState): void {
     state.analysisSuspended = true;
     state.sourceFiles.clear();
     state.bodyCache.clear();
+    // Main just dropped this workspace's caches, so a rebuild is owed on the way back in either way. The
+    // renderer holds the same review a second time, as DOM — 169 MB for a 130-file diff, and Chromium cannot
+    // purge live DOM behind a hidden view — so ask for that back too, and let the same rebuild repaint it.
+    // Only a workspace that got as far as painting a review has one to give.
+    state.viewReleased = true;
+    if (state.bootStarted && !state.win.isDestroyed()) state.win.webContents.send("kakapo:release-view");
   }, ANALYSIS_IDLE_SUSPEND_MS);
   state.idleTimer.unref?.();
 }

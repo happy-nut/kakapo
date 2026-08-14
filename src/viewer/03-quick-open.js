@@ -77,8 +77,8 @@ document.getElementById('quick-open-side')?.addEventListener('click', function (
     return;
   }
   closeQuickOpen();
-  if (section === 'merged' && typeof openMergedView === 'function') openMergedView();
-  else if (section === 'memo' && typeof openMemoView === 'function') openMemoView();
+  if (section === 'merged') openMergedView();
+  else if (section === 'memo') openMemoView();
   // The terminal is toggled by id, not by a data-view button like the rest.
   else if (section === 'terminal') document.getElementById('terminal-toggle')?.click();
   // Everything else is a view with a rail button behind it: click that, so the launcher opens it by exactly
@@ -681,7 +681,7 @@ function renderPromptSection() {
   // The card says WHEN to reach for a prompt, not what it says. You are picking between two or three of
   // them; the first line of the prompt text is the least useful thing to compare — they all open the same
   // way. The text itself is editable in Settings, which is where reading it belongs.
-  quickItems = (typeof promptPaletteEntries === 'function' ? promptPaletteEntries() : []).map(function (entry) {
+  quickItems = promptPaletteEntries().map(function (entry) {
     return { kind: 'prompt', path: entry.id, name: entry.title, detail: entry.when || '', prompt: entry };
   });
   quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
@@ -706,7 +706,7 @@ function openQuickItem(item) {
   if (item.kind === 'prompt') {
     closeQuickOpen();
     var text = item.prompt && typeof item.prompt.text === 'function' ? item.prompt.text() : (item.prompt && item.prompt.text);
-    if (text && typeof sendPromptToTerminal === 'function') sendPromptToTerminal(text);
+    if (text) sendPromptToTerminal(text);
     return;
   }
   closeQuickOpen();

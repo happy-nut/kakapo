@@ -345,7 +345,7 @@ function scrollAsymmetricDiffSurface(container, wrapper, cursor) {
 }
 function scrollAsymmetricDiff() {
   var container = document.getElementById('diff2html-container');
-  var wrapper = typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null;
+  var wrapper = diffActiveWrapper();
   var cursor = typeof diffCursor !== 'undefined' ? diffCursor : null;
   scrollAsymmetricDiffSurface(container, wrapper, cursor);
 }
@@ -358,7 +358,7 @@ function scheduleAsymmetricDiffScroll() {
 }
 var asymmetricDiffContainer = document.getElementById('diff2html-container');
 function noteAsymmetricDiffScroll() {
-  var wrapper = typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null;
+  var wrapper = diffActiveWrapper();
   var state = wrapper && wrapper.__asymmetricDiffState;
   if (state) state.scrollDriven = true;
   scheduleAsymmetricDiffScroll();
@@ -371,7 +371,7 @@ function asymmetricDiffSideFromTarget(target) {
   return side === sides[0] ? 'old' : 'new';
 }
 function prepareAsymmetricDiffWheel(event) {
-  var wrapper = typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null;
+  var wrapper = diffActiveWrapper();
   var state = wrapper && wrapper.__asymmetricDiffState;
   if (!state) return;
   var side = asymmetricDiffSideFromTarget(event && event.target);
@@ -382,12 +382,12 @@ function prepareAsymmetricDiffWheel(event) {
 if (asymmetricDiffContainer) {
   asymmetricDiffContainer.addEventListener('scroll', noteAsymmetricDiffScroll, { passive: true });
   asymmetricDiffContainer.addEventListener('pointermove', function (event) {
-    var wrapper = typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null;
+    var wrapper = diffActiveWrapper();
     var state = wrapper && wrapper.__asymmetricDiffState;
     if (state) state.pointerSide = asymmetricDiffSideFromTarget(event.target);
   }, { passive: true });
   asymmetricDiffContainer.addEventListener('pointerleave', function () {
-    var wrapper = typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null;
+    var wrapper = diffActiveWrapper();
     var state = wrapper && wrapper.__asymmetricDiffState;
     if (state) state.pointerSide = '';
   }, { passive: true });

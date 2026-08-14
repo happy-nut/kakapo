@@ -16,7 +16,10 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   listProjects: (): Promise<{ name: string; path: string }[]> => ipcRenderer.invoke("kakapo:hub-projects"),
   // worktree=false means "open this project's existing checkout" — no new branch, no new folder.
   preview: (repo: string, label: string, worktree: boolean) => ipcRenderer.invoke("kakapo:hub-preview", { repo, label, worktree }),
-  create: (repo: string, label: string, worktree: boolean) => ipcRenderer.invoke("kakapo:hub-create", { repo, label, worktree }),
+  // `base` is the ref the new worktree branches FROM. Empty means "whatever defaultBase() picks", which is
+  // origin/HEAD — right for a repo whose work lands on the default branch, wrong for one that develops on
+  // another, where every new workspace would silently start life behind.
+  create: (repo: string, label: string, worktree: boolean, base?: string) => ipcRenderer.invoke("kakapo:hub-create", { repo, label, worktree, base }),
   cancelCreate: () => ipcRenderer.send("kakapo:hub-cancel-create"),
   rename: (id: number, alias?: string, memo?: string) => ipcRenderer.invoke("kakapo:hub-rename", { id, alias, memo }),
   // Native workspace-tile context menu (drawn above the review views, so it doesn't blank the main panel).
