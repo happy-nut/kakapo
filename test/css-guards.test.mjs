@@ -291,7 +291,10 @@ test("modern chrome uses one compact radius and elevation system without roundin
   assert.match(css, /\.rail-btn\s*>\s*svg\s*\{[^}]*width:\s*16px;\s*height:\s*16px/, "all rail SVGs occupy the same optical box");
   assert.match(css, /\.d2h-file-wrapper\s*\{[^}]*border-radius:\s*0/, "diff rows retain exact square alignment");
   assert.match(css, /\.source-body\s*\{[^}]*border:\s*1px solid var\(--border\)/, "the source canvas remains a flat editor surface");
-  assert.match(css, /\.rail-btn\.is-active::before\s*\{[^}]*content:\s*none/, "activity selection uses a complete surface rather than a partial blue rail");
+  // The accent rail used to be drawn and then switched off again with `content: none` further down the file.
+  // Both halves are gone: the selection is the filled button surface, and nothing draws a partial rail at all.
+  assert.doesNotMatch(css, /\.rail-btn\.is-active::before/, "activity selection uses a complete surface rather than a partial blue rail");
+  assert.match(css, /\.rail-btn\.is-active\s*\{[^}]*background:\s*var\(--chrome-selected\)/, "the active rail button is one filled surface");
   assert.match(css, /\.tree-focus,[\s\S]{0,220}box-shadow:\s*none/, "sidebar selections use a complete neutral surface without an inset accent");
   assert.match(css, /\.source-tabs,[\s\S]{0,180}align-items:\s*flex-end[^}]*padding:\s*4px 6px 0/, "file tabs sit on the strip divider instead of floating above it");
   assert.match(css, /\.source-tab\s*\{[^}]*border-radius:\s*var\(--ui-radius-md\) var\(--ui-radius-md\) 0 0/, "file tabs only round their attached top corners");
@@ -436,4 +439,68 @@ test("the memo writes tighter than an article, and its rules actually win", () =
     "and it is tighter than the article rhythm it overrides");
   // The override only works because it carries a second class; .markdown-body p would otherwise win on order.
   assert.ok(css.includes(".mc-memo-body .mc-inline-editor p"), "scoped by the memo, not by .mc-inline-editor alone");
+});
+
+// One rule per property per selector — the cascade must not be where a visual decision hides (issue #30).
+//
+// viewer.css grew two global layers on top of its original rules: the --chrome-* application palette and the
+// --ui-* radius/shadow pass. Neither is conditional, so wherever they name a selector the ORIGINAL rule's
+// declaration for that property was already dead — it just still looked live. Editing the first one you find
+// then changes nothing, silently, and only in the surfaces the later layer claimed: exactly how a status chip
+// kept its blue background in the packaged app after the web rule was fixed.
+//
+// So: a top-level declaration may not be re-set by a LATER rule with the same selector. Same selector means
+// the same elements and the same specificity, so the later one always wins and the earlier one is a lie.
+// (A later rule inside @media, or one whose selector list only partly overlaps, is a real override and is
+// not counted here — those are the cases a human is meant to see and comment.)
+test("no rule sets a property that a later rule with the same selector sets again", () => {
+  const blanked = css.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "));
+  const rules = [];
+  const atRules = [];
+  let head = "";
+  for (let i = 0; i < blanked.length; i++) {
+    const ch = blanked[i];
+    if (ch === "{") {
+      const selector = head.trim();
+      head = "";
+      if (selector.startsWith("@")) { atRules.push(selector); continue; }
+      let depth = 1, j = i + 1;
+      for (; j < blanked.length && depth > 0; j++) {
+        if (blanked[j] === "{") depth++;
+        else if (blanked[j] === "}") { depth--; if (!depth) break; }
+      }
+      const declarations = blanked.slice(i + 1, j).split(";")
+        .filter((d) => d.includes(":") && !d.includes("{"))
+        .map((d) => ({ prop: d.slice(0, d.indexOf(":")).trim().toLowerCase(), important: d.includes("!important") }))
+        .filter((d) => d.prop);
+      rules.push({
+        selectors: selector.split(",").map((s) => s.trim().replace(/\s+/g, " ")).filter(Boolean),
+        declarations,
+        scope: atRules.join(">"),
+        line: blanked.slice(0, i).split("\n").length,
+      });
+      i = j;
+      continue;
+    }
+    if (ch === "}") { atRules.pop(); head = ""; continue; }
+    head += ch;
+  }
+
+  const byKey = new Map();
+  rules.forEach((rule, index) => rule.selectors.forEach((s) => {
+    const key = rule.scope + "|" + s;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push({ index, rule });
+  }));
+
+  const shadowed = [];
+  rules.forEach((rule, index) => {
+    for (const declaration of rule.declarations) {
+      if (declaration.important) continue;
+      const deadEverywhere = rule.selectors.every((s) => (byKey.get(rule.scope + "|" + s) || []).some(({ index: other, rule: later }) =>
+        other > index && later.declarations.some((d) => d.prop === declaration.prop && !d.important)));
+      if (deadEverywhere) shadowed.push(`${rule.selectors.join(", ")} — ${declaration.prop} (viewer.css:${rule.line})`);
+    }
+  });
+  assert.deepEqual(shadowed, [], "these declarations never apply — set the property where it wins, not twice");
 });
