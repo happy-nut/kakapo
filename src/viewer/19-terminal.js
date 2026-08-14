@@ -9,7 +9,6 @@ var handleTerminalSendModeKey;
   var panel = document.getElementById('terminal-panel');
   var host = document.getElementById('terminal-host');
   var toggleBtn = document.getElementById('terminal-toggle');
-  var closeBtn = document.getElementById('terminal-close');
   var resizer = panel ? panel.querySelector('.terminal-resizer') : null;
   if (!panel || !host) return;
   if (toggleBtn) toggleBtn.classList.remove('hidden'); // reveal the footer toggle in Electron
@@ -467,7 +466,6 @@ var handleTerminalSendModeKey;
   }
 
   if (toggleBtn) toggleBtn.addEventListener('click', toggle);
-  if (closeBtn) closeBtn.addEventListener('click', function () { setOpen(false); });
   // Toggle (Ctrl+`/Alt+F12) and split (Cmd+D) arrive from the Terminal menu accelerators (app-main),
   // because Chromium swallows Cmd+D before a renderer keydown would ever see it.
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalToggle === 'function') window.kakapoMenu.onTerminalToggle(toggleOrFocus);
