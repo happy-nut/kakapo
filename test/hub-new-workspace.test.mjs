@@ -310,3 +310,25 @@ test("a workspace with unsent commits says so on its tile, and a clean one stays
   assert.equal(clean.querySelector(".wt-ahead"), null, "zero is the usual answer and earns no ink");
   assert.match(ahead.getAttribute("title") || "", /hub\.tip\.ahead/, "and the tooltip spells it out");
 });
+
+// Pressing Enter on the open rail must enter the selected workspace. It used to close the panel instead: the
+// pin you clicked to open the rail keeps keyboard focus in Chromium, and Enter reached it whenever the tile
+// branch declined to swallow the key.
+test("the rail head gives the keyboard back once the rail is open, and Enter never reaches it", async () => {
+  const { hub, document } = railWithState([{ ...KAKAPO_MAIN, id: 1, alias: "one" }]);
+  await tick();
+  const pin = document.querySelector("#pin");
+  pin.focus();
+  assert.equal(document.activeElement, pin, "clicking the pin is what focuses it");
+  pin.click();
+  await tick();
+  assert.equal(hub.lastCall("setHubExpanded")?.[0], true, "the rail opened");
+  assert.notEqual(document.activeElement, pin, "and the arrow no longer owns the keyboard");
+
+  // With no tile selected at all — a collapsed project group has none — Enter must still be swallowed rather
+  // than falling through to whatever chrome button happens to hold focus.
+  pin.focus();
+  const enter = new document.defaultView.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+  document.dispatchEvent(enter);
+  assert.ok(enter.defaultPrevented, "Enter belongs to the rail's tiles while the rail is open");
+});

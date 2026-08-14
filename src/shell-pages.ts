@@ -378,7 +378,12 @@ let railExp=false;const pinBtn=document.getElementById('pin');
 function paintRail(){document.body.classList.toggle('rail-exp',railExp);paintUsage();}
 // User action (⌘⇧E / the » pin): flip and tell main, which animates the view push, collapses the file tree, and
 // moves focus onto the rail.
-function toggleRail(){railExp=!railExp;paintRail();window.kakapoHub.setHubExpanded(railExp);if(railExp)initRailSel();else railClearSel();}
+function toggleRail(){railExp=!railExp;paintRail();window.kakapoHub.setHubExpanded(railExp);if(railExp){initRailSel();railDropChromeFocus();}else railClearSel();}
+// Once the rail is open, ↑/↓/Enter belong to the workspace tiles — but the button you CLICKED to open it still
+// holds keyboard focus in Chromium, so Enter re-activated the collapse arrow and the panel shut instead of
+// entering the workspace under the selection. Nothing in the rail head is meant to be operated by Enter while
+// the rail is open, so it gives the keyboard back.
+function railDropChromeFocus(){const a=document.activeElement;if(a&&a.closest&&a.closest('#railhead')&&a.blur)a.blur();}
 // While the expanded rail holds focus, ↑/↓ move a selection through the workspace tiles and Enter opens it.
 let railSel=-1;
 // Disconnected tiles ARE keyboard-navigable — Enter/⌫ on one routes to the reconnect/forget dialog, same as a
@@ -411,7 +416,10 @@ document.addEventListener('keydown',e=>{
   }
   if(e.key==='ArrowDown'){e.preventDefault();railSelect(railSel<0?0:railSel+1);}
   else if(e.key==='ArrowUp'){e.preventDefault();railSelect(railSel<0?0:railSel-1);}
-  else if(e.key==='Enter'){const t=railTiles();if(railSel>=0&&t[railSel]){e.preventDefault();t[railSel].click();}}
+  // Always swallowed while the rail is open, even with nothing selected (a collapsed project group has no
+  // tiles at all). Otherwise Enter falls through to whatever chrome button happens to hold focus, which is how
+  // "open another workspace" became "close the panel".
+  else if(e.key==='Enter'){const t=railTiles();e.preventDefault();if(railSel>=0&&t[railSel])t[railSel].click();}
   // Rename (E) / delete (⌫). Match on e.code (the physical key) not e.key: under a Korean/other IME the 'e' key
   // emits a composed jamo rather than 'e', so an e.key==='e' test never fired with Hangul input active.
   else if(e.code==='KeyE'&&!e.metaKey&&!e.ctrlKey&&!e.altKey){const t=railTiles();const el=railSel>=0?t[railSel]:null;if(el&&el.dataset.disconnected!=='true'&&el.dataset.closed!=='true'){e.preventDefault();window.kakapoHub.openModal('rename',{id:Number(el.dataset.id),name:el.dataset.name||''});}}
@@ -424,7 +432,7 @@ pinBtn.onclick=toggleRail;
 window.kakapoHub.onToggleExpand(toggleRail);
 // Main collapses the rail (visual only, no echo) when focus returns to the review view — clicking back into the
 // "main window" dismisses the peek.
-window.kakapoHub.onSetExpanded(open=>{railExp=!!open;paintRail();if(!railExp)railClearSel();});
+window.kakapoHub.onSetExpanded(open=>{railExp=!!open;paintRail();if(!railExp)railClearSel();else railDropChromeFocus();});
 const ago=value=>{const seconds=Math.max(0,Math.floor((Date.now()-Number(value||Date.now()))/1000));return seconds<60?T.agoNow:seconds<3600?T.agoM.replace('{n}',Math.floor(seconds/60)):seconds<86400?T.agoH.replace('{n}',Math.floor(seconds/3600)):T.agoD.replace('{n}',Math.floor(seconds/86400))};
 let curRepo=null; // active workspace's project, used to prefill the New-workspace dialog
 window.kakapoHub.onState(items=>{const groups=new Map;for(const w of items){if(!groups.has(w.repoName))groups.set(w.repoName,[]);groups.get(w.repoName).push(w)}
