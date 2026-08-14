@@ -556,7 +556,7 @@ ipcMain.handle("kakapo:hub-preview", (_event, payload: { repo?: unknown; label?:
   return { ok: true, worktree: true, slug, base: defaultBase(repo.repoRoot), branch: `kakapo/${slug}`,
     path: join("~", "kakapo", "workspaces", repo.repoName, slug) };
 });
-ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; label?: unknown; worktree?: unknown }) => {
+ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; label?: unknown; worktree?: unknown; base?: unknown }) => {
   if (typeof payload?.repo !== "string" || typeof payload?.label !== "string") return { ok: false };
   // "Create a new worktree" unchecked: open the project's existing checkout instead of adding a branch+folder.
   if (payload.worktree === false) {
@@ -567,7 +567,11 @@ ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; la
   if (workspaceCreation) return { ok: false, error: "A workspace is already being created." };
   workspaceCreation = new AbortController();
   try {
-    const created = await createManagedWorkspaceAsync(payload.repo, payload.label, { signal: workspaceCreation.signal });
+    // An unknown ref is not worth pre-validating here: `git worktree add` refuses it, and its own message
+    // ("invalid reference: origin/nope") is more useful than anything a check of ours would say. It reaches
+    // the dialog's error line the same way every other creation failure does.
+    const base = typeof payload.base === "string" && payload.base.trim() ? payload.base.trim() : undefined;
+    const created = await createManagedWorkspaceAsync(payload.repo, payload.label, { base, signal: workspaceCreation.signal });
     const records = savedWorkspaceMetadata().filter((item) => resolveWorkspaceRoot(item.path) !== created.path);
     records.push(created);
     preferences.writeOpenWorkspaces(records, created.path);
