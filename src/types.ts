@@ -98,6 +98,26 @@ export type DiffTreeNode = {
   firstHunk?: number;
 };
 
+// What the diff on screen is actually comparing. A clean worktree silently moves the review to the branch
+// point — or, with nothing of your own left to read, to the tracking branch — and until now the screen looked
+// identical either way: "am I looking at my changes, or at the remote's?" had no answer on it. Derived in
+// buildDiffReview from what it has already resolved, so it costs no extra git call.
+//
+//   local     dirty worktree — HEAD vs the files as they are now
+//   staged    --staged — HEAD vs the index
+//   ahead     clean, unpushed commits — branch point vs HEAD
+//   incoming  clean and nothing unpushed — HEAD vs the tracking branch (what the remote has and you don't)
+//   manual    an explicit --base/--target, or a patch-set pick in the compare bar
+//
+// `right` is empty for local/staged: the right-hand side is the live working tree / index rather than a ref,
+// and naming it is the renderer's job (it is the one word here that gets translated).
+export type CompareState = {
+  mode: "local" | "staged" | "ahead" | "incoming" | "manual";
+  left: string;
+  right: string;
+  count?: number; // commits ahead / behind — the number the mode's name is counting
+};
+
 export type DiffReviewResult = {
   path: string;
   url: string;
@@ -113,7 +133,8 @@ export type DiffReviewUpdate = {
   diffContainer: string; // #diff2html-container innerHTML (lazy shells; bodies still fetched on demand)
   changesPanel: string; // #changes-panel innerHTML
   filesTree: string; // files tree HTML (#files-panel / #files-tree-html island)
-  reviewStatus: string; // .review-status innerHTML
+  reviewStatus: string; // .review-status innerHTML — the compare pill
+  compareBanner: string; // #compare-why innerHTML; empty in every mode but `incoming`
   fileStates: ReviewFileState[];
   sourceFilesMeta: SourceFile[]; // metadata only when lazyLoad (content fetched separately)
   httpEnvironments: Record<string, Record<string, string>>;

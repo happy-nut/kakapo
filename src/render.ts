@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import type { DiffFile, ReviewFileState, SourceFile } from "./types.js";
+import type { CompareState, DiffFile, ReviewFileState, SourceFile } from "./types.js";
 import { escapeAttr, escapeHtml, jsonForScript } from "./util.js";
 import { diff2HtmlCss, diffClientAsset, diffCss, diffScript, xtermCss, xtermScript } from "./assets.js";
 import { MESSAGES, makeTranslator } from "./i18n.js";
@@ -228,24 +228,71 @@ export function extractLazyDiffBody(diffHtml: string): string {
   return after.replace(/<\/div>\s*<\/div>\s*$/, "");
 }
 
-// The toolbar's review-status row (file/hunk counts, index + live status). Extracted so the in-place
-// update path can re-render just this strip; renderDiffHtml wraps it in <div class="review-status">.
-export function renderReviewStatus(_input: {
-  files: number;
-  hunks: number;
-  embeddedFiles: number;
-  sourceFileCount: number;
-  ignoreWhitespace?: boolean;
-  watch?: boolean;
-  generatedAt?: string;
-}): string {
-  // Deliberately empty. The reviewer asked for a clean header: file/hunk counts duplicate the Changes
-  // tab, the raw generatedAt ISO string is unreadable, and "<embedded>/<total> indexed" is a STATIC
-  // ratio (not a live counter), so it reads as a frozen/broken progress number. Symbol analysis now runs
-  // outside the renderer and reports its selected engine inside the Change Impact panel;
-  // Viewed state is intentionally changed only from the keyboard-selected row in the Changes sidebar.
-  // `.review-status:empty` collapses the now-empty strip so it takes no space next to the breadcrumb.
-  return "";
+// A ref as the pill prints it: a 40-char SHA is unreadable at 11px, and a branch name is already short.
+function compareRefLabel(ref: string): string {
+  return /^[0-9a-f]{40}$/i.test(ref) ? ref.slice(0, 7) : ref;
+}
+// The pill's name and the accent it carries. `count` rides beside the name (rather than inside a translated
+// sentence) so neither language needs interpolation — "Incoming 3" and "리모트에서 받음 3" are the same shape.
+const COMPARE_NAMES: Record<CompareState["mode"], string> = {
+  local: "Local changes",
+  staged: "Staged",
+  ahead: "Unpushed",
+  incoming: "Incoming",
+  manual: "Comparing",
+};
+// The right-hand side of local/staged is the live tree, not a ref — the one side of this that gets translated.
+function compareRightSide(state: CompareState): string {
+  if (state.mode === "local") return '<span class="compare-ref" data-i18n="compare.worktree">Working tree</span>';
+  if (state.mode === "staged") return '<span class="compare-ref" data-i18n="compare.index">Index</span>';
+  const right = state.right || "";
+  if (!right) return '<span class="compare-ref" data-i18n="compare.worktree">Working tree</span>';
+  return `<span class="compare-ref">${escapeHtml(compareRefLabel(right))}</span>`;
+}
+
+// The toolbar's review-status slot: ONE pill that answers both halves of "what am I looking at" in reading
+// order — the state's name, then the two refs it stands for. They were drafted as two separate controls (a
+// colored chip, a direction capsule) and merged deliberately: side by side they made the toolbar say the same
+// fact twice, and in the incoming case three times with the banner below. Extracted so the in-place update
+// path can re-render just this strip; renderDiffHtml wraps it in <div class="review-status">.
+//
+// (It replaces the file/hunk counts that used to live here and were removed for duplicating the Changes tab —
+// which is why the slot was sitting empty, collapsed by `.review-status:empty`, ready for this.)
+export function renderReviewStatus(input: { compare?: CompareState }): string {
+  const state = input.compare;
+  if (!state) return "";
+  const count = typeof state.count === "number" && state.count > 0
+    ? `<span class="compare-count">${state.count}</span>`
+    : "";
+  return [
+    `<span class="compare-pill compare-${state.mode}" data-i18n-title="compare.title" title="What this diff is comparing">`,
+    '<span class="compare-dot" aria-hidden="true"></span>',
+    `<span class="compare-name" data-i18n="compare.${state.mode}">${COMPARE_NAMES[state.mode]}</span>`,
+    count,
+    '<span class="compare-refs">',
+    `<span class="compare-ref">${escapeHtml(compareRefLabel(state.left || "HEAD"))}</span>`,
+    '<span class="compare-arrow" aria-hidden="true">→</span>',
+    compareRightSide(state),
+    "</span>",
+    "</span>",
+  ].join("");
+}
+
+// The one state the pill cannot fully explain: the review moved to the remote because there was nothing of
+// yours left to read, and no pill can say WHY. It says only that — the refs are on the pill directly above —
+// plus the single place that leads anywhere from here. (The compare bar has nothing to offer in this state:
+// its patch-set list is `branch point..HEAD`, which is empty when nothing is unpushed, so the bar hides
+// itself. History is where the incoming commits can actually be read.)
+export function renderCompareBanner(state: CompareState | undefined): string {
+  if (!state || state.mode !== "incoming") return "";
+  return [
+    '<span class="compare-why-mark" aria-hidden="true">↓</span>',
+    '<span class="compare-why-text" data-i18n="compare.incoming.why">',
+    "Nothing local to review — showing what the remote is ahead by.",
+    "</span>",
+    '<button type="button" id="compare-open-history" class="compare-why-link" data-keyhint="⌘9"',
+    ' data-i18n="compare.openHistory">History</button>',
+  ].join("");
 }
 
 export function renderDiffHtml(input: {
@@ -265,15 +312,14 @@ export function renderDiffHtml(input: {
   watch?: boolean;
   ignoreWhitespace?: boolean;
   app?: boolean; // Electron app — enable app-only review features such as Git history
+  compare?: CompareState; // what this diff compares — the toolbar pill and, for `incoming`, the banner
   signature?: string;
   generatedAt?: string;
 }): string {
-  const totalHunks = input.files.reduce((sum, file) => sum + file.hunks.length, 0);
   const fileNav = renderDiffTree(input.files);
   // A transport-backed review asks the host for the project tree only when the user opens Files. Keeping
   // this empty here removes several megabytes of repeated tree markup from large-project startup.
   const sourceNav = input.lazyLoad ? "" : renderSourceTree(input.sourceFiles);
-  const embeddedFiles = input.sourceFiles.filter((file) => file.embedded).length;
   const initialSourceFiles = input.lazyLoad ? initialReviewSources(input.files, input.sourceFiles) : input.sourceFiles;
   const initialSourcePaths = new Set(initialSourceFiles.map((file) => file.path));
   const initialFileStates = input.lazyLoad
@@ -379,7 +425,7 @@ export function renderDiffHtml(input: {
     '<div class="toolbar diff-toolbar">',
     '<div class="diff-toolbar-file"><span class="diff-file-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M3.5 1.75h5l4 4v8.5h-9z"/><path d="M8.5 1.75v4h4"/></svg></span><div class="breadcrumb" id="diff-breadcrumb"></div></div>',
     '<div class="diff-toolbar-meta">',
-    `<div class="review-status">${renderReviewStatus({ files: input.files.length, hunks: totalHunks, embeddedFiles, sourceFileCount: input.sourceFiles.length, ignoreWhitespace: input.ignoreWhitespace, watch: input.watch, generatedAt: input.generatedAt })}</div>`,
+    `<div class="review-status">${renderReviewStatus({ compare: input.compare })}</div>`,
     '<button type="button" id="diff-line-wrap-toggle" class="source-line-wrap-toggle diff-line-wrap-toggle" role="checkbox" aria-checked="false" data-keyhint="⌥W" data-i18n="source.lineWrap" data-i18n-title="source.lineWrap.title" title="Toggle line wrap (Option+W)">Line wrap</button>',
     '</div>',
     '<div class="diff-review-controls" role="group" data-i18n-aria="diff.navigation" aria-label="Change navigation">',
@@ -391,6 +437,9 @@ export function renderDiffHtml(input: {
     '<button type="button" id="diff-open-source" class="diff-tool-button" data-keyhint="⌘↓" data-i18n-title="diff.openSource" data-i18n-aria="diff.openSource" title="Open source (Cmd/Ctrl+Down)" aria-label="Open source"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5h4l1.5 2h5.5v9h-11z"/><path d="m6 10 2 2 2-2M8 7v5"/></svg></button>',
     '</div>',
     "</div>",
+    // Why the review moved to the remote. Empty (and collapsed by :empty) in every other state, so this is a
+    // strip the toolbar grows only when it has something to explain.
+    `<div class="compare-why" id="compare-why">${renderCompareBanner(input.compare)}</div>`,
     // Patch-set compare bar (Electron only): numbered patch-set buttons split base-left / target-right to
     // match the side-by-side diff (old | new). The viewer module fills the two groups from
     // kakapoGit.patchSets(); each button hovers its commit message. Distinct from the per-file path

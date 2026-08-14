@@ -476,12 +476,17 @@ test("syntax highlighter tags function calls, PascalCase types, and decorators",
   v.close();
 });
 
-test("header strip is free of meta clutter (no file/hunk counts, indexed ratio, or ISO timestamp)", async () => {
+test("header strip carries the compare pill and nothing else (no file/hunk counts, indexed ratio, or ISO timestamp)", async () => {
   // The reviewer found the file/hunk counts, the static "<embedded>/<total> indexed" ratio (which never
   // moves and reads as a frozen progress bar), and the raw generatedAt ISO string noisy and space-hungry.
+  // The strip stayed empty for a while afterwards; what earned the space back is the one thing the header
+  // could not otherwise say — which two things this diff is comparing (see compare-state.test.mjs).
   const v = await loadViewer(html);
   const strip = v.$(".review-status");
-  assert.equal((strip?.textContent || "").trim(), "", "review-status carries no meta text");
+  assert.equal(strip?.children.length, 1, "exactly one thing in the strip");
+  assert.ok(strip?.querySelector(".compare-pill"), "and it is the compare pill");
+  assert.doesNotMatch(strip?.textContent || "", /\d+\s*(files?|hunks?|indexed)|\d{4}-\d{2}-\d{2}T/,
+    "no counts, no indexed ratio, no ISO timestamp came back with it");
   // Viewed is changed only from the selected Changes row; the toolbar stays free of duplicate state controls.
   assert.equal(v.$("#diff-viewed-toggle"), null, "the toolbar carries no Viewed pill");
   assert.equal(v.$("#footer-progress"), null, "renderer indexing progress is absent");
