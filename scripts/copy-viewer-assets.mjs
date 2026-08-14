@@ -2,7 +2,7 @@
 // authored as ordered slices in src/viewer/*.js (numbered to preserve order) and CONCATENATED here into the
 // single inlined script the renderer ships — concatenation only, so it stays one global scope, byte-for-byte
 // the same as the former single-file viewer bundle. cli.ts reads these at runtime via readViewerAsset().
-import { readdirSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, copyFileSync, cpSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -72,6 +72,10 @@ try {
 }
 
 copyFileSync(join(root, "src", "viewer.css"), join(distDir, "viewer.css"));
+
+// The agent prompts are authored as Markdown (src/prompts/*.md) and read at runtime by i18n.ts, which
+// resolves them relative to its own dist location — so they have to land beside it.
+cpSync(join(root, "src", "prompts"), join(distDir, "prompts"), { recursive: true });
 
 // The rich Markdown editor is loaded lazily through Electron's narrow kakapo-asset:// scheme. The
 // directory keeps its historical name for protocol compatibility, but no code-editor runtime is shipped.
