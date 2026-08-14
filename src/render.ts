@@ -442,7 +442,7 @@ export function renderDiffHtml(input: {
     // whose whole point is the rows below them. The close button moved onto the pane-label row (viewer.css),
     // which is now the panel's only chrome.
     input.app
-      ? '<div id="terminal-panel" class="terminal-panel hidden"><div class="terminal-resizer" aria-hidden="true"></div><button type="button" id="terminal-close" class="terminal-x" data-i18n-title="terminal.close" title="Close terminal" aria-label="Close terminal">&times;</button><div id="terminal-host" class="terminal-host"></div></div>'
+      ? '<div id="terminal-panel" class="terminal-panel hidden"><div class="terminal-resizer" aria-hidden="true"></div><div id="terminal-host" class="terminal-host"></div></div>'
       : "",
     input.app
       ? '<aside id="impact-panel" class="impact-panel hidden" aria-label="Change Impact">'

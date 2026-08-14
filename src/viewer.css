@@ -2494,16 +2494,6 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
 .terminal-backdrop { position: fixed; inset: 0; z-index: 77; background: color-mix(in srgb, #000 40%, transparent); }
 @media (prefers-reduced-motion: reduce) { .terminal-panel:not(.hidden), .terminal-backdrop { animation: none; } }
 .terminal-resizer { display: none; } /* a centered ~90% floating panel has no edge to drag */
-/* Close sits ON the pane-label row rather than in a strip of its own. The panel used to stack two: a bar
-   reading "TERMINAL" above a row of panes each labelled "Terminal 1", "Terminal 2" — the same word twice,
-   for one button. Transparent, so the label strip's own background carries straight through it; its padding
-   and line box are the label's (below), which is what keeps the merged row exactly one row tall. */
-.terminal-x {
-  position: absolute; top: 0; right: 0; z-index: 2;
-  border: 0; background: transparent; color: var(--muted);
-  font-size: 12px; line-height: 12px; padding: 2px 10px; cursor: pointer;
-}
-.terminal-x:hover { color: var(--text); }
 /* Split panes sit side by side (no tabs); the 1px gap shows the --border underneath as a divider. */
 .terminal-host { flex: 1 1 auto; min-height: 0; display: flex; gap: 1px; overflow: hidden; background: var(--border); }
 /* Cmd+Shift+D stacks the panes instead (top/bottom); the same 1px gap becomes the horizontal divider. */

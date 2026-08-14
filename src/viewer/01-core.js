@@ -86,6 +86,30 @@ document.addEventListener('mousedown', function (event) {
 }, true);
 document.addEventListener('focusin', function (event) { flashReviewPanelFocus(event.target); }, true);
 
+// One window hosts every workspace view, and main hands keyboard focus back to the active one with
+// webContents.focus() — collapsing the rail, closing a dialog, switching workspace, re-activating the app.
+// That restores the PAGE's focus while the focused ELEMENT never changes, so the renderer has no new input
+// state to publish, and macOS' input method — which dropped this field when the view lost focus — stops
+// composing into it: every keystroke commits on its own and 한글 arrives as ㅎ ㅏ ㄴ instead of 한. Only a
+// real element focus change re-binds it, which is exactly why clicking another pane and back fixed it by
+// hand. Do that round trip here instead, for the terminal's xterm textarea and every composer alike.
+// The blur and the focus must land in DIFFERENT frames: within one, the state at frame end is the state it
+// started with and nothing is published — the whole point of the round trip.
+// Inputs and textareas only. The one contenteditable that can hold focus is the terminal's pane-rename
+// label, and its blur commits the rename — a re-activation must not do that behind the user's back.
+window.addEventListener('focus', function () {
+  var refocusEl = document.activeElement;
+  if (!refocusEl || (refocusEl.tagName !== 'TEXTAREA' && refocusEl.tagName !== 'INPUT')) return;
+  try { refocusEl.blur(); } catch (e) {}
+  requestAnimationFrame(function () {
+    // Something else may have claimed focus in the meantime (a click is what usually brings the view back) —
+    // it owns the keyboard now, and stealing it back would be worse than the bug.
+    var landed = document.activeElement;
+    if (!refocusEl.isConnected || (landed && landed !== document.body)) return;
+    try { refocusEl.focus({ preventScroll: true }); } catch (e) { try { refocusEl.focus(); } catch (ignore) {} }
+  });
+});
+
 // Shared lightweight import detection for the read-only source renderer and the diff. It deliberately
 // recognizes only top-level dependency declarations: an indented Python import inside a function or a
 // dynamic `import()` call remains ordinary code. Multiline `{ ... }`, `( ... )`, and `[ ... ]` imports are

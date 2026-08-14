@@ -239,3 +239,16 @@ test("the pane picker outranks xterm's key handling, so Enter confirms instead o
   assert.ok(/attachCustomKeyEventHandler\(function \(e\) \{\s*\/\/[\s\S]{0,700}?if \(sendModeText != null\) return false;/.test(client),
     "and it releases them FIRST — a later branch would already have consumed Enter or Escape");
 });
+
+// The reflow was coalesced to one per frame; the pty resize beside it was not conditioned on anything. A drag
+// crosses a character-row boundary every ~17px, so most frames measured the SAME cols/rows and sent SIGWINCH
+// anyway — and a full-screen TUI (an agent's own interface) repaints itself on each one. Sixty full repaints
+// a second is what a resize felt like.
+test("a pty hears about a resize only when the character grid changed", () => {
+  assert.match(client, /p\.sentCols === p\.term\.cols && p\.sentRows === p\.term\.rows\)\s*return/,
+    "an unchanged grid returns before the resize IPC");
+  assert.match(client, /p\.sentCols = p\.term\.cols[\s\S]{0,120}kakapoPty\.resize/,
+    "what was sent is recorded with the send, so the next frame can compare against it");
+  assert.match(client, /pane\.id = r && r\.id[\s\S]{0,220}sentCols = pane\.sentRows = 0/,
+    "a fresh pty forgets what the previous one was told, so it is sized even at an unchanged size");
+});

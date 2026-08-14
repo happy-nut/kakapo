@@ -76,9 +76,13 @@ export function hubHtml(light: boolean, appVersion: string, t: Translate): strin
   return `<!doctype html><meta charset="utf-8"><style>
 *{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:${bg};color:${fg};font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 body{display:flex;flex-direction:column}
-#titlebar{height:${TITLEBAR_H}px;flex:none;-webkit-app-region:drag;display:flex;align-items:center;gap:8px;padding:0 12px 0 84px;border-bottom:1px solid ${line};background:${light ? "#ececec" : "#1b1e25"}}
+#titlebar{position:relative;height:${TITLEBAR_H}px;flex:none;-webkit-app-region:drag;display:flex;align-items:center;gap:8px;padding:0 12px 0 84px;border-bottom:1px solid ${line};background:${light ? "#ececec" : "#1b1e25"}}
 #wsname{-webkit-app-region:no-drag;display:flex;align-items:center;gap:7px;max-width:72%;font-weight:600;color:${fg};font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #wsname .wsdot{width:6px;height:6px;border-radius:50%;background:#4d9a51;flex:none}#wsname .rp{color:${light ? "#888" : "#7d828c"};font-weight:400}
+/* The name you gave this workspace is the window's title, so it sits where a document window's title does —
+   centred on the WINDOW, not on what is left over between the project name and the tools. Absolute, so
+   neither side can push it off centre; the left cluster keeps identity (project · branch). */
+#wstitle{position:absolute;left:50%;transform:translateX(-50%);max-width:38%;font-weight:600;color:${fg};font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
 .tb-spacer{flex:1;align-self:stretch}
 /* A new version is worth exactly one always-visible word. It lives in the title bar rather than in the
    review's sidebar footer, which is where it used to be — behind a collapsible panel, in a window the user
@@ -245,7 +249,7 @@ body.rail-exp #pin svg{transform:rotate(180deg)}
 #railhead #new{border:1px dashed ${line}}
 .context-menu{position:fixed;z-index:20;width:172px;padding:5px;background:${bg};border:1px solid ${line};border-radius:8px;box-shadow:0 12px 30px #0008}
 .context-menu button{display:block;width:100%;border:0;text-align:left;padding:7px 9px}.context-menu button:hover{background:${light ? "#dfe7f5" : "#373d49"}}.context-menu .danger{color:#df6868}.hidden{display:none!important}</style>
-<div id="titlebar"><span id="wsname"></span><span class="tb-spacer"></span><button id="update-chip" class="hidden" title="${t("settings.updateAvailable")}">${t("sidebar.updateAvailable")}</button><div id="tools"><button class="tb" data-act="changes" data-tip="${t("tab.changes")}" data-key="⌘0" aria-label="${t("tab.changes")} (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" data-tip="${t("tab.files")}" data-key="⌘1" aria-label="${t("tab.files")} (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" data-tip="${t("terminal.title")}" data-key="⌃\`" aria-label="${t("terminal.title")} (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" data-tip="${t("rail.history")}" data-key="⌘9" aria-label="${t("rail.history")} (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button></div></div><main id="hub"><div id="railhead"><span id="railtitle">${t("hub.workspaces")}</span><button id="new" title="${t("hub.newWorkspace.title")}">＋</button><button id="pin" title="${t("hub.expandRail.title")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button></div><section id="list"></section><div id="usage-foot" class="usage-foot" aria-label="Agent usage"></div><div id="railfoot"><button id="settings" title="${t("hub.settings.title", { v: appVersion })}">⚙</button></div></main><div id="tt"></div>
+<div id="titlebar"><span id="wsname"></span><span id="wstitle"></span><span class="tb-spacer"></span><button id="update-chip" class="hidden" title="${t("settings.updateAvailable")}">${t("sidebar.updateAvailable")}</button><div id="tools"><button class="tb" data-act="changes" data-tip="${t("tab.changes")}" data-key="⌘0" aria-label="${t("tab.changes")} (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" data-tip="${t("tab.files")}" data-key="⌘1" aria-label="${t("tab.files")} (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" data-tip="${t("terminal.title")}" data-key="⌃\`" aria-label="${t("terminal.title")} (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" data-tip="${t("rail.history")}" data-key="⌘9" aria-label="${t("rail.history")} (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button></div></div><main id="hub"><div id="railhead"><span id="railtitle">${t("hub.workspaces")}</span><button id="new" title="${t("hub.newWorkspace.title")}">＋</button><button id="pin" title="${t("hub.expandRail.title")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button></div><section id="list"></section><div id="usage-foot" class="usage-foot" aria-label="Agent usage"></div><div id="railfoot"><button id="settings" title="${t("hub.settings.title", { v: appVersion })}">⚙</button></div></main><div id="tt"></div>
 <script>
 const T=${JSON.stringify(T)};
 const APP_VERSION=${JSON.stringify(appVersion)};
@@ -276,7 +280,12 @@ tools.addEventListener('click',e=>{const b=e.target.closest('button.tb');if(!b)r
 // Custom hover tooltip (label + shortcut kbd) for the top toolbar buttons — styled like the review view's, and
 // works reliably in this child view where the native title tooltip is flaky. Content is built with textContent.
 const tt=document.getElementById('tt');
-function showTip(b){const tip=b.dataset.tip;if(!tip){tt.classList.remove('show');return;}tt.textContent='';const lab=document.createElement('span');lab.textContent=tip;tt.appendChild(lab);if(b.dataset.key){const k=document.createElement('kbd');k.textContent=b.dataset.key;tt.appendChild(k);}tt.classList.add('show');const r=b.getBoundingClientRect(),bb=tt.getBoundingClientRect();tt.style.left=Math.max(6,Math.min(window.innerWidth-bb.width-6,r.left+r.width/2-bb.width/2))+'px';tt.style.top=(r.bottom+7)+'px';}
+function showTip(b){const tip=b.dataset.tip;if(!tip){tt.classList.remove('show');return;}tt.textContent='';const lab=document.createElement('span');lab.textContent=tip;tt.appendChild(lab);if(b.dataset.key){const k=document.createElement('kbd');k.textContent=b.dataset.key;tt.appendChild(k);}tt.classList.add('show');const r=b.getBoundingClientRect(),bb=tt.getBoundingClientRect();
+// Under the button is where a tooltip belongs and the one place this page cannot draw: the review view is
+// laid out from the title bar's bottom edge down (TITLEBAR_H) and covers everything below it, so the bubble
+// was rendering into a strip nobody can see. It lives IN the bar instead, right-aligned to the tools group —
+// so it never sits under the pointer, and never jumps as you sweep across the icons.
+tt.style.left=Math.max(6,tools.getBoundingClientRect().left-bb.width-8)+'px';tt.style.top=Math.max(2,r.top+r.height/2-bb.height/2)+'px';}
 tools.addEventListener('mouseover',e=>{const b=e.target.closest('button.tb');if(b)showTip(b);});
 tools.addEventListener('mouseout',e=>{const b=e.target.closest('button.tb');if(b&&(!e.relatedTarget||!b.contains(e.relatedTarget)))tt.classList.remove('show');});
 tools.addEventListener('click',()=>tt.classList.remove('show'));
@@ -378,7 +387,12 @@ let railExp=false;const pinBtn=document.getElementById('pin');
 function paintRail(){document.body.classList.toggle('rail-exp',railExp);paintUsage();}
 // User action (⌘⇧E / the » pin): flip and tell main, which animates the view push, collapses the file tree, and
 // moves focus onto the rail.
-function toggleRail(){railExp=!railExp;paintRail();window.kakapoHub.setHubExpanded(railExp);if(railExp)initRailSel();else railClearSel();}
+function toggleRail(){railExp=!railExp;paintRail();window.kakapoHub.setHubExpanded(railExp);if(railExp){initRailSel();railDropChromeFocus();}else railClearSel();}
+// Once the rail is open, ↑/↓/Enter belong to the workspace tiles — but the button you CLICKED to open it still
+// holds keyboard focus in Chromium, so Enter re-activated the collapse arrow and the panel shut instead of
+// entering the workspace under the selection. Nothing in the rail head is meant to be operated by Enter while
+// the rail is open, so it gives the keyboard back.
+function railDropChromeFocus(){const a=document.activeElement;if(a&&a.closest&&a.closest('#railhead')&&a.blur)a.blur();}
 // While the expanded rail holds focus, ↑/↓ move a selection through the workspace tiles and Enter opens it.
 let railSel=-1;
 // Disconnected tiles ARE keyboard-navigable — Enter/⌫ on one routes to the reconnect/forget dialog, same as a
@@ -411,7 +425,10 @@ document.addEventListener('keydown',e=>{
   }
   if(e.key==='ArrowDown'){e.preventDefault();railSelect(railSel<0?0:railSel+1);}
   else if(e.key==='ArrowUp'){e.preventDefault();railSelect(railSel<0?0:railSel-1);}
-  else if(e.key==='Enter'){const t=railTiles();if(railSel>=0&&t[railSel]){e.preventDefault();t[railSel].click();}}
+  // Always swallowed while the rail is open, even with nothing selected (a collapsed project group has no
+  // tiles at all). Otherwise Enter falls through to whatever chrome button happens to hold focus, which is how
+  // "open another workspace" became "close the panel".
+  else if(e.key==='Enter'){const t=railTiles();e.preventDefault();if(railSel>=0&&t[railSel])t[railSel].click();}
   // Rename (E) / delete (⌫). Match on e.code (the physical key) not e.key: under a Korean/other IME the 'e' key
   // emits a composed jamo rather than 'e', so an e.key==='e' test never fired with Hangul input active.
   else if(e.code==='KeyE'&&!e.metaKey&&!e.ctrlKey&&!e.altKey){const t=railTiles();const el=railSel>=0?t[railSel]:null;if(el&&el.dataset.disconnected!=='true'&&el.dataset.closed!=='true'){e.preventDefault();window.kakapoHub.openModal('rename',{id:Number(el.dataset.id),name:el.dataset.name||''});}}
@@ -424,11 +441,15 @@ pinBtn.onclick=toggleRail;
 window.kakapoHub.onToggleExpand(toggleRail);
 // Main collapses the rail (visual only, no echo) when focus returns to the review view — clicking back into the
 // "main window" dismisses the peek.
-window.kakapoHub.onSetExpanded(open=>{railExp=!!open;paintRail();if(!railExp)railClearSel();});
+window.kakapoHub.onSetExpanded(open=>{railExp=!!open;paintRail();if(!railExp)railClearSel();else railDropChromeFocus();});
 const ago=value=>{const seconds=Math.max(0,Math.floor((Date.now()-Number(value||Date.now()))/1000));return seconds<60?T.agoNow:seconds<3600?T.agoM.replace('{n}',Math.floor(seconds/60)):seconds<86400?T.agoH.replace('{n}',Math.floor(seconds/3600)):T.agoD.replace('{n}',Math.floor(seconds/86400))};
 let curRepo=null; // active workspace's project, used to prefill the New-workspace dialog
 window.kakapoHub.onState(items=>{const groups=new Map;for(const w of items){if(!groups.has(w.repoName))groups.set(w.repoName,[]);groups.get(w.repoName).push(w)}
-const _a=items.find(w=>w.active);const _wn=document.getElementById('wsname');if(_wn)_wn.innerHTML=_a?'<span class="wsdot"></span>'+esc(_a.alias||_a.branch)+' <span class="rp">· '+esc(_a.repoName)+'</span>':'';
+// Left: which checkout this is — project and the branch it is on, the two things you cannot rename away.
+// Centre: the alias, the title you CAN edit (blank when you never gave it one; the pair on the left already
+// says what this workspace is, and repeating the branch in the middle would say it twice).
+const _a=items.find(w=>w.active);const _wn=document.getElementById('wsname');if(_wn)_wn.innerHTML=_a?'<span class="wsdot"></span>'+esc(_a.repoName)+' <span class="rp">· '+esc(_a.branch)+'</span>':'';
+const _wt=document.getElementById('wstitle');if(_wt)_wt.textContent=_a&&_a.alias&&_a.alias!==_a.branch?_a.alias:'';
 // Remember the active workspace's project so ⌘N can prefill it — a new task almost always belongs to the repo
 // you are looking at.
 curRepo=_a&&_a.repoRoot?{path:_a.repoRoot,name:_a.repoName}:curRepo;
