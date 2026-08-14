@@ -438,12 +438,11 @@ var handleTerminalSendModeKey;
     if (toggleBtn) toggleBtn.classList.toggle('is-active', open);
     setBackdrop(open);
     try { sessionStorage.setItem(openKey, open ? '1' : '0'); } catch (e) {}
-    if (typeof applyDockMaximized === 'function') applyDockMaximized(); // keep Cmd+Shift+' maximize in sync
+    applyDockMaximized(); // keep Cmd+Shift+' maximize in sync
     if (open) {
       // The terminal renders above the quick-open launcher, so leaving one open underneath hides a dialog
       // that still owns every keystroke. Close it as the terminal comes up.
-      if (typeof closeQuickOpen === 'function' && typeof quickOpen !== 'undefined'
-        && quickOpen && !quickOpen.classList.contains('hidden')) closeQuickOpen();
+      if (typeof quickOpen !== 'undefined' && quickOpen && !quickOpen.classList.contains('hidden')) closeQuickOpen();
       if (panes.length === 0) {
         restorePanes().then(function () {
           if (panes.length === 0) makePane();
@@ -623,7 +622,7 @@ var handleTerminalSendModeKey;
       Promise.resolve(window.kakapoPty.foreground({ id: target.id })).then(function (result) {
         if (!(result && result.running)) { writeWhenReady(); return; }
         if (panes.length >= MAX_PANES) {
-          if (typeof showToast === 'function') showToast(t('terminal.openHere.busy'));
+          showToast(t('terminal.openHere.busy'));
           return;
         }
         split();

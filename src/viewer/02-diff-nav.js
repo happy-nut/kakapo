@@ -224,7 +224,7 @@ function applySetActive(idx, shouldScroll) {
     // the visible 146→21 double jump on F7 across a file boundary. Scrolling synchronously here lands the
     // view on the change before this frame paints, so the new file appears already at its first change.
     if (shouldScroll && targetRow && targetRow.scrollIntoView) targetRow.scrollIntoView({ block: 'center' });
-    if (typeof refreshFileFindForActiveView === 'function') refreshFileFindForActiveView();
+    refreshFileFindForActiveView();
   });
 }
 
@@ -241,7 +241,7 @@ function showOnlyFile(fileName, skipCursor) {
   });
   // Inactive observers deliberately defer gutter projection. Refresh only the newly visible editor; this
   // also ensures its line numbers are ready in the same animation frame as asymmetric scroll alignment.
-  if (activeWrapper && typeof scheduleLayeredDiffGutters === 'function') scheduleLayeredDiffGutters(activeWrapper);
+  if (activeWrapper) scheduleLayeredDiffGutters(activeWrapper);
   scheduleAsymmetricDiffScroll();
   // applySetActive passes skipCursor: it sets the caret itself via focusDiffRow(targetRow). Letting
   // ensureDiffCursor run here would first place the caret on the file's FIRST code row, then focusDiffRow

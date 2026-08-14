@@ -28,8 +28,8 @@ function showCaretHint(message, anchor) {
   if (anchor) {
     candidates = [anchor];
   } else {
-    var srcOnly = typeof isSourceViewerVisible === 'function' && isSourceViewerVisible();
-    var diffShown = typeof isDiffViewVisible !== 'function' || isDiffViewVisible();
+    var srcOnly = isSourceViewerVisible();
+    var diffShown = isDiffViewVisible();
     candidates = srcOnly
       ? [document.querySelector('#source-body .code-cursor')]
       : diffShown
@@ -218,8 +218,8 @@ function applyThreadRecords(records, extra, silent) {
   persistSave(COMMENTS_KEY, reviewComments);
   if (silent) seenAgentSeq = maxAgentSeq(); else notifyAgentTurns();
   // Agent-driven, so the re-render yields to a terminal being typed into (see refreshCommentsWhenNotTyping).
-  if (typeof refreshCommentsWhenNotTyping === 'function') refreshCommentsWhenNotTyping(); else refreshComments();
-  if (typeof syncRail === 'function') { try { syncRail(); } catch (e) {} } // the Explain rail lights up on notes
+  refreshCommentsWhenNotTyping();
+  try { syncRail(); } catch (e) {} // the Explain rail lights up on notes
 }
 // An agent finishing its work is worth knowing about when you are not watching, and answering a review
 // comment is the most precise form of that signal kakapo has — far better than guessing from terminal output.
@@ -791,7 +791,7 @@ function refreshComments() {
     if (!wrapper.querySelector('.mc-layered-diff-side')) return;
     syncDiffCommentSpacerHeights(wrapper);
     invalidateAsymmetricDiffGeometry(wrapper);
-    if (wrapper === (typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null)) {
+    if (wrapper === diffActiveWrapper()) {
       refreshLayeredDiffGutters(wrapper);
     } else {
       scheduleLayeredDiffGutters(wrapper);
@@ -799,7 +799,7 @@ function refreshComments() {
   });
   // A removed comment must not leave the previous base transform or connector geometry on screen until the
   // next user scroll. Recompute the active timeline in this same update, after both pane heights match.
-  if (changedDiffWrappers.length && typeof scrollAsymmetricDiff === 'function') scrollAsymmetricDiff();
+  if (changedDiffWrappers.length) scrollAsymmetricDiff();
   if (isSourceViewerVisible()) renderSourceComments();
   renderCommentBadges();
   applyCommentSelectionHighlight();
@@ -878,10 +878,10 @@ function closeComposer() {
 // moving it. Without this the textarea is removed, focus falls away, and the side tree (which owns arrows
 // while treeFocusIndex >= 0) captures navigation — the "focus jumped to the side panel" surprise.
 function returnCaretAfterComposer() {
-  if (typeof clearTreeFocus === 'function') clearTreeFocus();
-  if (typeof isDiffViewVisible === 'function' && isDiffViewVisible() && typeof diffCursor !== 'undefined' && diffCursor && typeof setDiffCursor === 'function') {
+  clearTreeFocus();
+  if (isDiffViewVisible() && typeof diffCursor !== 'undefined' && diffCursor) {
     setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, diffCursor.column, false);
-  } else if (typeof isSourceViewerVisible === 'function' && isSourceViewerVisible() && typeof viewerCursor !== 'undefined' && viewerCursor && typeof setSourceCursor === 'function') {
+  } else if (isSourceViewerVisible() && typeof viewerCursor !== 'undefined' && viewerCursor) {
     setSourceCursor(viewerCursor.path, viewerCursor.lineIndex, viewerCursor.column, false);
   }
 }
@@ -1003,7 +1003,7 @@ function openPathReference(ref) {
   ensureProjectIndex().then(function () {
     var late = resolve();
     if (late) { navigateToLine(late, line); return; }
-    if (typeof showCaretHint === 'function') showCaretHint(t('comment.pathMissing'));
+    showCaretHint(t('comment.pathMissing'));
   }, function () {});
 }
 function navigateToComment(seq) {
@@ -1047,7 +1047,6 @@ function navigateToCommentAndEdit(seq) {
 // same as one F7 press) to recompute on every call rather than cache/invalidate.
 function commentNavOrder() {
   var order = {};
-  if (typeof hunkTotal !== 'function' || typeof hunkPathAt !== 'function') return order;
   var next = 0;
   for (var i = 0; i < hunkTotal(); i++) {
     var p = hunkPathAt(i);
@@ -1089,12 +1088,12 @@ function sortedNavComments() {
 // (02-diff-nav.js), then fall back to the other side. Returns false when there's no matching row (e.g. the
 // file's diff body isn't materialized yet) so the caller can fall back to the source-view jump.
 function navigateToLineInDiff(path, line, side) {
-  var wrapper = typeof diffWrapperByPath === 'function' ? diffWrapperByPath(path) : null;
+  var wrapper = diffWrapperByPath(path);
   if (!wrapper) return false;
   // A hidden file's body may not be materialized yet (REVIEW_LAZY), and its rows are unfindable until it is —
   // so reveal it before looking for the line, not after. setDiffCursor reveals too, but by then this lookup
   // would already have failed and sent the jump to the source view instead.
-  if (wrapper.classList.contains('df-inactive') && typeof revealDiffFile === 'function') revealDiffFile(path);
+  if (wrapper.classList.contains('df-inactive')) revealDiffFile(path);
   var sides = side === 'old' ? ['old', 'new'] : ['new', 'old'];
   for (var i = 0; i < sides.length; i++) {
     var rowIndex = diffRowIndexForLine(wrapper, sides[i], line);
@@ -1152,12 +1151,12 @@ function sortedNavThread() {
 function centerThreadRow(path, line, tries) {
   requestAnimationFrame(function () {
     var row = null;
-    if (typeof isSourceViewerVisible === 'function' && isSourceViewerVisible()) {
+    if (isSourceViewerVisible()) {
       var anchor = document.querySelector('#source-body .source-row[data-line-index="' + (line - 1) + '"]');
       var next = anchor ? anchor.nextElementSibling : null;
       row = next && next.classList.contains('mc-comment-row') ? next : anchor;
     } else {
-      var wrapper = typeof diffWrapperByPath === 'function' ? diffWrapperByPath(path) : null;
+      var wrapper = diffWrapperByPath(path);
       row = wrapper ? wrapper.querySelector('.mc-comment-row[data-comment-slot="' + line + '"]') : null;
     }
     if (row && row.scrollIntoView) { try { row.scrollIntoView({ block: 'center' }); } catch (e) {} return; }

@@ -275,7 +275,7 @@ function reviewHistoryRangeInMain() {
     var c = historyCommits[i];
     scope.push({ sha: c.hash, shortSha: (c.hash || '').slice(0, 7), subject: c.subject, date: c.date });
   }
-  if (typeof requestDiffViewOnNextCompare === 'function') requestDiffViewOnNextCompare(); // land on the diff, not a stale source pane
+  requestDiffViewOnNextCompare(); // land on the diff, not a stale source pane
   Promise.resolve(window.kakapoGit.setReviewCompare(ep.olderSha, ep.newerSha, scope)).then(function (res) {
     if (res && res.ok) closeHistory();
   }).catch(function () {});
@@ -631,7 +631,7 @@ function setupHistoryDiffWorkspace(sha, fileStatus) {
     var wrapper = historyActiveDiffWrapper();
     var state = wrapper && wrapper.__asymmetricDiffState;
     if (!state) return;
-    var side = typeof asymmetricDiffSideFromTarget === 'function' ? asymmetricDiffSideFromTarget(event.target) : '';
+    var side = asymmetricDiffSideFromTarget(event.target);
     if (side) state.wheelSide = side;
     state.pendingScrollBudget = (Number(state.pendingScrollBudget) || 0) + Math.abs(Number(event.deltaY) || 0);
     state.scrollDriven = true;
@@ -639,7 +639,7 @@ function setupHistoryDiffWorkspace(sha, fileStatus) {
   container.addEventListener('pointermove', function (event) {
     var wrapper = historyActiveDiffWrapper();
     var state = wrapper && wrapper.__asymmetricDiffState;
-    if (state && typeof asymmetricDiffSideFromTarget === 'function') state.pointerSide = asymmetricDiffSideFromTarget(event.target);
+    if (state) state.pointerSide = asymmetricDiffSideFromTarget(event.target);
   }, { passive: true });
   container.addEventListener('pointerleave', function () {
     var wrapper = historyActiveDiffWrapper();
@@ -660,7 +660,7 @@ function scheduleHistoryDiffAlignment() {
   if (historyDiffAlignmentRaf || !historyDiffState) return;
   historyDiffAlignmentRaf = requestAnimationFrame(function () {
     historyDiffAlignmentRaf = 0;
-    if (!historyDiffState || typeof scrollAsymmetricDiffSurface !== 'function') return;
+    if (!historyDiffState) return;
     scrollAsymmetricDiffSurface(historyDiffState.container, historyActiveDiffWrapper(), historyDiffState.cursor);
   });
 }
@@ -669,13 +669,12 @@ function prepareHistoryReviewDiff(wrapper) {
   wrapper.__historyReviewDiffPrepared = true;
   // Reuse the exact Review pipeline: semantic row classification, centre gutters, compact asymmetric
   // peers, curved hunk connectors, import/context folding, and synchronized scroll geometry.
-  if (typeof annotateDiffHunkRows === 'function') annotateDiffHunkRows(wrapper);
-  else if (typeof installLayeredDiffGutters === 'function') installLayeredDiffGutters(wrapper);
-  if (typeof syncDiffBlameWrapper === 'function') syncDiffBlameWrapper(wrapper);
+  annotateDiffHunkRows(wrapper);
+  syncDiffBlameWrapper(wrapper);
   requestAnimationFrame(function () {
     if (!wrapper.isConnected) return;
-    if (typeof refreshLayeredDiffGutters === 'function') refreshLayeredDiffGutters(wrapper);
-    if (typeof invalidateAsymmetricDiffGeometry === 'function') invalidateAsymmetricDiffGeometry(wrapper);
+    refreshLayeredDiffGutters(wrapper);
+    invalidateAsymmetricDiffGeometry(wrapper);
     scheduleHistoryDiffAlignment();
   });
 }
@@ -892,9 +891,7 @@ function handleHistoryDiffKey(event) {
     var wc = historyDiffState.cursor;
     var ww = historyWrapperByPath(wc.path);
     var wr = ww ? historyRowAt(ww, wc.side, wc.rowIndex) : null;
-    var nextCol = typeof nextWordBoundary === 'function'
-      ? nextWordBoundary(diffLineText(wr), wc.column, event.key === 'ArrowRight' ? 1 : -1)
-      : wc.column;
+    var nextCol = nextWordBoundary(diffLineText(wr), wc.column, event.key === 'ArrowRight' ? 1 : -1);
     historySetDiffCursor(wc.path, wc.side, wc.rowIndex, nextCol, true);
     return true;
   }
@@ -961,7 +958,7 @@ function closeHistory() {
   var v = document.getElementById('history-view');
   if (v) { v.classList.add('hidden'); v.classList.remove('history-direct-diff'); }
   closeHistoryDetail(false);
-  if (typeof syncRail === 'function') syncRail();
+  syncRail();
 }
 function updateHistoryScopeChrome() {
   var title = document.querySelector('#history-view .history-title');
@@ -986,7 +983,7 @@ function openHistory(scope) {
     : null;
   updateHistoryScopeChrome();
   v.classList.remove('hidden');
-  if (typeof syncRail === 'function') syncRail();
+  syncRail();
   var search = document.getElementById('history-search');
   if (search) { search.value = ''; }
   applyHistoryFilter();
@@ -1038,7 +1035,7 @@ function openHistoryCommitFromSource(sha, path) {
   historyFocus = 'diff';
   v.classList.add('history-direct-diff');
   v.classList.remove('hidden');
-  if (typeof syncRail === 'function') syncRail();
+  syncRail();
   openHistoryCommit(sha);
 }
 function toggleHistory() { if (isHistoryOpen()) closeHistory(); else openHistory(); }
@@ -1065,7 +1062,7 @@ function handleHistoryKey(e) {
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.code === 'Digit1' || e.key === '1')) {
     e.preventDefault(); e.stopPropagation();
     closeHistory();
-    if (typeof activateFilesView === 'function') activateFilesView();
+    activateFilesView();
     return true;
   }
   if (e.key === 'Escape') {

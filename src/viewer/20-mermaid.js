@@ -126,11 +126,11 @@ document.addEventListener('click', function (event) {
     var parts = href.slice(at + '#kakapo:'.length).split(':');
     var line = parseInt(parts.pop(), 10);
     var path = decodeURIComponent(parts.join(':'));
-    if (path && typeof navigateToLine === 'function') navigateToLine(path, line > 0 ? line : 1);
+    if (path) navigateToLine(path, line > 0 ? line : 1);
     return;
   }
   if (link) return; // an ordinary link in a diagram keeps its own meaning
   var svg = host.querySelector('svg');
   var url = svg ? mermaidSvgDataUrl(svg) : '';
-  if (url && typeof openLightbox === 'function') { event.preventDefault(); openLightbox(url, t('diagram.zoom')); }
+  if (url) { event.preventDefault(); openLightbox(url, t('diagram.zoom')); }
 });

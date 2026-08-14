@@ -54,7 +54,7 @@ function refreshSourceDiagnostics(path) {
   var token = ++diagnosticsFetchToken;
   Promise.resolve(window.kakapoAnalysis.diagnostics(path)).then(function (response) {
     if (token !== diagnosticsFetchToken) return; // a newer file / watch refresh superseded this request
-    if (typeof analysisGenerationIsCurrent === 'function' && !analysisGenerationIsCurrent(response)) return;
+    if (!analysisGenerationIsCurrent(response)) return;
     if (!response || response.ok === false) return;
     diagnosticsCache.set(path, { sig: sig, items: Array.isArray(response.diagnostics) ? response.diagnostics : [] });
     if (diagnosticsSurfacePath() === path) paintSourceDiagnostics(path);
@@ -138,7 +138,7 @@ function gotoDiagnostic(delta) {
     return a.lineIndex - b.lineIndex || a.column - b.column;
   });
   if (!items.length) {
-    if (typeof showCaretHint === 'function') showCaretHint(t('diag.none'));
+    showCaretHint(t('diag.none'));
     return true;
   }
   var atPath = viewerCursor && viewerCursor.path === path;
@@ -156,7 +156,7 @@ function gotoDiagnostic(delta) {
   }
   setSourceCursor(path, target.lineIndex, target.column, true, target.lineIndex);
   scheduleSourceDiagnosticsPaint();
-  if (typeof showCaretHint === 'function' && target.message) showCaretHint(target.message);
+  if (target.message) showCaretHint(target.message);
   return true;
 }
 
@@ -180,7 +180,6 @@ function diagnosticsAtCaret() {
 function createFixCommentAtCaret() {
   var here = diagnosticsAtCaret();
   if (!here.length) return false;
-  if (typeof currentCommentTarget !== 'function' || typeof addComment !== 'function') return false;
   var target = currentCommentTarget();
   if (!target) return false;
   var messages = [];
@@ -189,8 +188,8 @@ function createFixCommentAtCaret() {
   // Function replacer so a diagnostic message containing $&, $1, etc. is inserted literally.
   var text = t('diag.fixComment').replace('{message}', function () { return joined; });
   addComment('c', target.path, target.line, target.code, text, target.from, target.to, target.side, target.anchorCode);
-  if (typeof refreshComments === 'function') refreshComments();
-  if (typeof showCaretHint === 'function') showCaretHint(t('diag.fixAdded'));
+  refreshComments();
+  showCaretHint(t('diag.fixAdded'));
   return true;
 }
 

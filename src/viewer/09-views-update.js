@@ -37,13 +37,13 @@ function refreshViewerAfterSidebarLayout() {
     // Horizontal connector placement follows the CSS midpoint throughout the transition. Once the grid
     // reaches its final width, refresh the width/row-dependent caches exactly once; continuously measuring
     // every animation frame made large diffs stutter and still allowed the overlay to lag by one frame.
-    var wrapper = typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null;
+    var wrapper = diffActiveWrapper();
     if (wrapper && isDiffViewVisible()) {
-      if (typeof invalidateAsymmetricDiffGeometry === 'function') invalidateAsymmetricDiffGeometry(wrapper);
-      if (typeof refreshLayeredDiffGutters === 'function') refreshLayeredDiffGutters(wrapper);
-      if (typeof scrollAsymmetricDiff === 'function') scrollAsymmetricDiff();
+      invalidateAsymmetricDiffGeometry(wrapper);
+      refreshLayeredDiffGutters(wrapper);
+      scrollAsymmetricDiff();
     }
-    if (typeof positionFileFind === 'function') positionFileFind();
+    positionFileFind();
   });
 }
 function scheduleViewerAfterSidebarLayout() {
@@ -124,7 +124,7 @@ function focusDiffAfterSidebarCollapse() {
       try { content.focus({ preventScroll: true }); } catch (e) { try { content.focus(); } catch (ignore) {} }
     }
   }
-  if (!diffCursor && typeof ensureDiffCursor === 'function') ensureDiffCursor();
+  if (!diffCursor) ensureDiffCursor();
 }
 function setReviewSidebarCollapsed(collapsed, options) {
   reviewSidebarCollapsed = !!collapsed;
@@ -181,7 +181,7 @@ function syncRail() {
   setOn('impact', !!(impact && !impact.classList.contains('hidden')));
   // Explain opens no view of its own — light its rail icon while the agent's notes are on the diff, so the
   // button doubles as "there are notes to read" (23-annotations.js).
-  setOn('explain', typeof annotationList === 'function' && annotationList().length > 0);
+  setOn('explain', annotationList().length > 0);
   // Mirror the same state onto the shell title-bar tools (single-instance app only).
   var term = document.getElementById('terminal-toggle');
   if (window.kakapoMenu && window.kakapoMenu.sendRailState) {
@@ -208,7 +208,7 @@ function ensureTreeRendered() {
       panel.innerHTML = html;
       panel.dataset.projectIndex = 'loaded';
       sourceLinks = Array.from(document.querySelectorAll('.source-link'));
-      if (typeof refreshComments === 'function') { try { refreshComments(); } catch (e) {} }
+      try { refreshComments(); } catch (e) {}
     }, 0);
     return Promise.resolve();
   }
@@ -218,15 +218,15 @@ function ensureTreeRendered() {
     else panel.innerHTML = payload && payload.filesTree ? payload.filesTree : '<div class="empty-nav">' + escapeHtml(t('source.selectFile')) + '</div>';
     panel.dataset.projectIndex = 'loaded';
     sourceLinks = Array.from(document.querySelectorAll('.source-link'));
-    if (typeof refreshComments === 'function') { try { refreshComments(); } catch (e) {} } // re-render per-file badges
+    try { refreshComments(); } catch (e) {} // re-render per-file badges
   });
 }
 
 function showDiffView(shouldScroll) {
   document.getElementById('source-viewer')?.classList.add('hidden');
   document.getElementById('diff-view')?.classList.remove('hidden');
-  if (typeof updateDiffLineWrapToggle === 'function') updateDiffLineWrapToggle();
-  if (typeof refreshDiffLineWrapLayout === 'function') refreshDiffLineWrapLayout();
+  updateDiffLineWrapToggle();
+  refreshDiffLineWrapLayout();
   setTab('changes');
   syncReviewSidebarVisibility();
   if (current < 0 && hunkTotal()) {
@@ -240,7 +240,7 @@ function showDiffView(shouldScroll) {
       if (curRow) {
         showOnlyFile(hunkPathAt(cidx));
         if (shouldScroll) curRow.scrollIntoView({ block: 'start' });
-        if (typeof refreshFileFindForActiveView === 'function') refreshFileFindForActiveView();
+        refreshFileFindForActiveView();
       }
     });
   }
@@ -251,8 +251,8 @@ function showSourceView() {
   document.getElementById('source-viewer')?.classList.remove('hidden');
   setTab('files');
   syncReviewSidebarVisibility();
-  if (typeof scheduleSourceTabOverflow === 'function') scheduleSourceTabOverflow(currentSourceTabPath());
-  if (typeof refreshFileFindForActiveView === 'function') setTimeout(refreshFileFindForActiveView, 0);
+  scheduleSourceTabOverflow(currentSourceTabPath());
+  setTimeout(refreshFileFindForActiveView, 0);
 }
 
 function saveUiState() {
@@ -367,7 +367,6 @@ function terminalTypingAgeMs() {
 // and one queued render covers every change that arrived while waiting.
 var refreshCommentsTimer = null;
 function refreshCommentsWhenNotTyping() {
-  if (typeof refreshComments !== 'function') return;
   var age = terminalTypingAgeMs();
   if (age >= TERMINAL_TYPING_IDLE_MS) {
     if (refreshCommentsTimer) { clearTimeout(refreshCommentsTimer); refreshCommentsTimer = null; }
@@ -674,7 +673,7 @@ function applyDiffUpdate(u) {
     fileStates: fileStates,
     sourceFilesMeta: sourceFiles,
   };
-  if (typeof pruneCommentsForMissingFiles === 'function') pruneCommentsForMissingFiles();
+  pruneCommentsForMissingFiles();
   if (filesPanel && filesPanel.dataset.projectIndex === 'loaded' && REVIEW_LAZY_LOAD) renderDeferredSourceTree(sourceFiles);
   httpEnvironments = u.httpEnvironments || {};
   httpEnvNames = Object.keys(httpEnvironments);
@@ -751,7 +750,7 @@ function applyDiffUpdate(u) {
     container.scrollTop = activeFilePreserved ? diffScrollTop : 0;
   }
   hydrateVisibleDiffSwaps(deferredVisibleSwaps, diffCursorSnapshot, refreshGeneration);
-  if (typeof isImpactOpen === 'function' && isImpactOpen()) openImpact();
+  if (isImpactOpen()) openImpact();
   return true;
 }
 

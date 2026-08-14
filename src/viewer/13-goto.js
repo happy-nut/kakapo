@@ -9,13 +9,13 @@ function copyTextToClipboard(text) {
 
 // "path:line" for the current caret — source view (the painted file) or the diff caret. '' if neither.
 function caretLocation() {
-  if (typeof isSourceViewerVisible === 'function' && isSourceViewerVisible()) {
+  if (isSourceViewerVisible()) {
     var sv = document.getElementById('source-viewer');
     var p = (sv && sv.dataset.openPath) || '';
     if (p && typeof viewerCursor !== 'undefined' && viewerCursor && viewerCursor.path === p) return p + ':' + (viewerCursor.lineIndex + 1);
     if (p) return p;
   }
-  if (typeof isDiffViewVisible === 'function' && isDiffViewVisible() && typeof diffCursor !== 'undefined' && diffCursor) {
+  if (isDiffViewVisible() && typeof diffCursor !== 'undefined' && diffCursor) {
     var wrap = diffWrapperByPath(diffCursor.path);
     var row = wrap ? diffRowAt(wrap, diffCursor.side, diffCursor.rowIndex) : null;
     var ln = row ? diffLineNumber(row) : null;
@@ -28,13 +28,13 @@ function caretLocation() {
 function copyCaretLocation() {
   var loc = caretLocation();
   if (!loc) return;
-  if (copyTextToClipboard(loc) && typeof showToast === 'function') showToast(t('goto.copied') + ' ' + loc);
+  if (copyTextToClipboard(loc)) showToast(t('goto.copied') + ' ' + loc);
 }
 
 // Diff view: place the caret on the row whose (new, then old) line number matches n, in the active file.
 function gotoDiffLine(n) {
   var path = (typeof diffCursor !== 'undefined' && diffCursor && diffCursor.path) || '';
-  if (!path && typeof diffActiveWrapper === 'function') {
+  if (!path) {
     var w = diffActiveWrapper();
     var nm = w && w.querySelector('.d2h-file-name');
     if (nm && nm.textContent) path = nm.textContent.trim();
@@ -52,7 +52,7 @@ function gotoDiffLine(n) {
 
 function gotoLineJump(n) {
   if (!(n >= 1)) return;
-  if (typeof isSourceViewerVisible === 'function' && isSourceViewerVisible()) {
+  if (isSourceViewerVisible()) {
     var sv = document.getElementById('source-viewer');
     var p = (sv && sv.dataset.openPath) || '';
     var f = p && sourceByPath.get(p);
@@ -62,12 +62,12 @@ function gotoLineJump(n) {
       return;
     }
   }
-  if (typeof isDiffViewVisible === 'function' && isDiffViewVisible()) gotoDiffLine(n);
+  if (isDiffViewVisible()) gotoDiffLine(n);
 }
 
 // Cmd/Ctrl+L — a small numeric prompt; Enter jumps, Esc closes.
 function openGotoLine() {
-  if (!((typeof isSourceViewerVisible === 'function' && isSourceViewerVisible()) || (typeof isDiffViewVisible === 'function' && isDiffViewVisible()))) return;
+  if (!isSourceViewerVisible() && !isDiffViewVisible()) return;
   var prior = document.getElementById('goto-line');
   if (prior) prior.remove();
   var box = document.createElement('div');
@@ -98,14 +98,14 @@ function openTreeRowMenu(row) {
   if (!path) return;
   var r = row.getBoundingClientRect();
   var items = [
-    { label: t('menu.copyRelativePath'), onSelect: function () { if (copyTextToClipboard(path) && typeof showToast === 'function') showToast(t('goto.copied') + ' ' + path); } },
+    { label: t('menu.copyRelativePath'), onSelect: function () { if (copyTextToClipboard(path)) showToast(t('goto.copied') + ' ' + path); } },
   ];
   if (window.kakapoApp && typeof window.kakapoApp.absolutePath === 'function') {
     items.push({ label: t('menu.copyAbsolutePath'), onSelect: function () {
       try {
         Promise.resolve(window.kakapoApp.absolutePath(path)).then(function (result) {
           var absolute = result && result.ok && typeof result.path === 'string' ? result.path : '';
-          if (absolute && copyTextToClipboard(absolute) && typeof showToast === 'function') showToast(t('goto.copied') + ' ' + absolute);
+          if (absolute && copyTextToClipboard(absolute)) showToast(t('goto.copied') + ' ' + absolute);
         });
       } catch (e) {}
     } });
@@ -133,12 +133,12 @@ function openTreeRowMenu(row) {
   // Clear this file's review comments in one action. It rides removeComments, so the whole batch comes back
   // with one Cmd/Ctrl+Z — which is why it asks for no confirmation. Only offered when there is something to
   // remove, so the menu never carries a dead row.
-  var owned = typeof commentSeqsForPath === 'function' ? commentSeqsForPath(path) : [];
+  var owned = commentSeqsForPath(path);
   if (owned.length) {
     items.push({ label: t('menu.clearComments').replace('{n}', String(owned.length)), onSelect: function () {
       removeComments(owned);
       refreshComments();
-      if (typeof showToast === 'function') showToast(t('comment.clearedMany').replace('{n}', String(owned.length)));
+      showToast(t('comment.clearedMany').replace('{n}', String(owned.length)));
     } });
   }
   showCustomDropdown(Math.round(r.left + 14), Math.round(r.bottom + 2), items, Math.round(r.top));
@@ -186,7 +186,7 @@ function hideSourceBlame(path) {
   clearSourceBlamePaint();
   var viewer = document.getElementById('source-viewer');
   var openPath = viewer && viewer.dataset.openPath || '';
-  if (openPath && typeof openSourceFile === 'function') openSourceFile(openPath, false, { scrollTree: false });
+  if (openPath) openSourceFile(openPath, false, { scrollTree: false });
 }
 
 function applySourceBlameIfActive(path) {
@@ -274,8 +274,7 @@ function diffBlameEnabled(path) { return !!path && diffBlamePath === path; }
 
 function diffBlameWrapperPath(wrapper) {
   if (!wrapper) return '';
-  if (typeof diffWrapperPathKey === 'function') return diffWrapperPathKey(wrapper);
-  return (wrapper.dataset && wrapper.dataset.path) || '';
+  return diffWrapperPathKey(wrapper);
 }
 
 function syncDiffBlameWrapper(wrapper) {
@@ -292,7 +291,7 @@ function syncDiffBlameWrapper(wrapper) {
 }
 
 function diffBlameSideName(side, wrapper) {
-  var tables = typeof diffSideTables === 'function' ? diffSideTables(wrapper) : { left: null, right: null };
+  var tables = diffSideTables(wrapper);
   return side === tables.left ? 'old' : 'new';
 }
 
@@ -330,11 +329,11 @@ function decorateDiffBlameGutterItem(item, entry, side) {
 }
 
 function refreshDiffBlamePath(path) {
-  var wrapper = typeof diffWrapperByPath === 'function' ? diffWrapperByPath(path) : null;
+  var wrapper = diffWrapperByPath(path);
   if (!wrapper) return;
   syncDiffBlameWrapper(wrapper);
-  if (typeof refreshLayeredDiffGutters === 'function') refreshLayeredDiffGutters(wrapper);
-  if (typeof invalidateAsymmetricDiffGeometry === 'function') invalidateAsymmetricDiffGeometry(wrapper);
+  refreshLayeredDiffGutters(wrapper);
+  invalidateAsymmetricDiffGeometry(wrapper);
 }
 
 function hideDiffBlame(path) {

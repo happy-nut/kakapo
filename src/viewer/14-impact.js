@@ -21,7 +21,7 @@ function currentImpactTarget() {
   var viewer = document.getElementById('source-viewer');
   var openPath = viewer && viewer.dataset.openPath;
   if (openPath) return { loc: { path: openPath, lineIndex: 0, column: 0 }, symbol: null };
-  var wrapper = typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null;
+  var wrapper = diffActiveWrapper();
   var pathEl = wrapper && wrapper.querySelector('.d2h-file-name');
   var path = pathEl && String(pathEl.textContent || '').trim();
   var row = wrapper && wrapper.querySelector('.d2h-code-side-linenumber[data-line-number], [data-line-number]');

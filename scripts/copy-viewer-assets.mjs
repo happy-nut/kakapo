@@ -18,6 +18,7 @@ const viewerDir = join(root, "src", "viewer");
 // statements (e.g. 05-keymap's init block runs on load); making it explicit removes the same-numeric-prefix
 // lexicographic-tie fragility and lets a new slice be placed precisely. The check below fails the build
 // loudly if a slice is added/removed without updating this list — instead of silently mis-ordering.
+// What that order implies for cross-slice names is checked in test/viewer-slices.test.mjs.
 const VIEWER_SLICES = [
   "00-util.js", "00-diff-layers.js", "01-core.js", "01-diff-alignment.js", "01-diff-model.js", "02-diff-nav.js",
   "03-quick-open.js", "04-source-tree.js", "05-keymap.js", "06-diff-caret.js", "07-comments.js",

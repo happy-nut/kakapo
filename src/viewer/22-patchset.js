@@ -84,7 +84,7 @@ function renderPatchSetBar() {
 // Switch base or target, then refresh the bar. The diff repaints via kakapo:diff-update.
 function selectPatchSet(which, ref) {
   if (!window.kakapoGit || !ref) return;
-  if (typeof requestDiffViewOnNextCompare === 'function') requestDiffViewOnNextCompare();
+  requestDiffViewOnNextCompare();
   // In a Cmd+9-opened range, both sides are commits in the scope; set them together so B..D shows.
   if (patchSetData && patchSetData.scoped && typeof window.kakapoGit.setReviewCompare === 'function') {
     var base = which === 'base' ? ref : patchSetData.activeBase;
@@ -126,7 +126,7 @@ function initPatchSetBar() {
     if (num) { selectPatchSet(num.getAttribute('data-which'), num.getAttribute('data-ref')); return; }
     if (e.target.closest && e.target.closest('#patchset-reset')) {
       if (typeof window.kakapoGit.setReviewCompare !== 'function') return;
-      if (typeof requestDiffViewOnNextCompare === 'function') requestDiffViewOnNextCompare();
+      requestDiffViewOnNextCompare();
       Promise.resolve(window.kakapoGit.setReviewCompare('auto', 'worktree')).then(function () { refreshPatchSets(); }).catch(function () {});
     }
   });

@@ -21,7 +21,7 @@ function openSourceFile(path, shouldSwitch = true, options) {
   if (!sourceContentLoaded(file)) {
     sourceBodyPath = null; // body shows a loading placeholder, not this path's content yet
     document.getElementById('source-viewer').dataset.openPath = path;
-    if (typeof refreshFileFindForActiveView === 'function') setTimeout(refreshFileFindForActiveView, 0);
+    setTimeout(refreshFileFindForActiveView, 0);
     sourceLinks.forEach((link) => link.classList.toggle('active', link.dataset.sourceFile === path));
     renderBreadcrumb(document.getElementById('source-title'), path);
     setSourceTypeIcon(path);
@@ -40,7 +40,7 @@ function openSourceFile(path, shouldSwitch = true, options) {
   rememberRecent(path, 'source');
   sourceBodyPath = path; // past the lazy guard — every branch below paints THIS path's body (text/image/not-embedded)
   document.getElementById('source-viewer').dataset.openPath = path;
-  if (typeof refreshFileFindForActiveView === 'function') setTimeout(refreshFileFindForActiveView, 0);
+  setTimeout(refreshFileFindForActiveView, 0);
   sourceLinks.forEach((link) => link.classList.toggle('active', link.dataset.sourceFile === path));
   renderBreadcrumb(document.getElementById('source-title'), path);
   setSourceTypeIcon(path);
@@ -92,7 +92,7 @@ function openSourceFile(path, shouldSwitch = true, options) {
     if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
     updateRenderToggle(path);
     renderSourceComments();
-    if (typeof refreshSourceBlamePaint === 'function') refreshSourceBlamePaint(path);
+    refreshSourceBlamePaint(path);
     if (shouldSwitch) showSourceView();
     return;
   }
@@ -106,7 +106,7 @@ function openSourceFile(path, shouldSwitch = true, options) {
     if (httpEnvSelect) httpEnvSelect.classList.add('hidden');
     updateRenderToggle(path);
     renderSourceComments();
-    if (typeof refreshSourceBlamePaint === 'function') refreshSourceBlamePaint(path);
+    refreshSourceBlamePaint(path);
     if (shouldSwitch) showSourceView();
     return;
   }
@@ -120,8 +120,8 @@ function openSourceFile(path, shouldSwitch = true, options) {
   }
   updateRenderToggle(path);
   renderSourceComments();
-  if (typeof refreshSourceBlamePaint === 'function') refreshSourceBlamePaint(path);
-  if (typeof refreshSourceDiagnostics === 'function') refreshSourceDiagnostics(path);
+  refreshSourceBlamePaint(path);
+  refreshSourceDiagnostics(path);
   if (shouldSwitch) showSourceView();
 }
 
@@ -154,16 +154,15 @@ function updateLineWrapToggle(path) {
   btn.setAttribute('aria-checked', available && lineWrapEnabled ? 'true' : 'false');
 }
 function refreshDiffLineWrapLayout() {
-  var wrapper = typeof diffActiveWrapper === 'function' ? diffActiveWrapper() : null;
+  var wrapper = diffActiveWrapper();
   if (!wrapper) return;
-  if (typeof invalidateAsymmetricDiffGeometry === 'function') invalidateAsymmetricDiffGeometry(wrapper);
+  invalidateAsymmetricDiffGeometry(wrapper);
   requestAnimationFrame(function () {
-    if (typeof refreshLayeredDiffGutters === 'function') refreshLayeredDiffGutters(wrapper);
-    if (typeof invalidateAsymmetricDiffGeometry === 'function') invalidateAsymmetricDiffGeometry(wrapper);
-    if (typeof scrollAsymmetricDiff === 'function') scrollAsymmetricDiff();
-    if (typeof diffCursor !== 'undefined' && diffCursor && diffCursor.path === (wrapper.dataset.path || '')
-      && typeof scheduleDiffReveal === 'function') scheduleDiffReveal(wrapper, diffCursor.side, diffCursor.rowIndex);
-    else if (typeof renderDiffCaret === 'function') renderDiffCaret();
+    refreshLayeredDiffGutters(wrapper);
+    invalidateAsymmetricDiffGeometry(wrapper);
+    scrollAsymmetricDiff();
+    if (typeof diffCursor !== 'undefined' && diffCursor && diffCursor.path === (wrapper.dataset.path || '')) scheduleDiffReveal(wrapper, diffCursor.side, diffCursor.rowIndex);
+    else renderDiffCaret();
   });
 }
 function updateDiffLineWrapToggle() {
@@ -184,7 +183,7 @@ function applyLineWrapState() {
   updateDiffLineWrapToggle();
 }
 function toggleLineWrap() {
-  if (!isSourceViewerVisible() && !(typeof isDiffViewVisible === 'function' && isDiffViewVisible())) return false;
+  if (!isSourceViewerVisible() && !isDiffViewVisible()) return false;
   if (isSourceViewerVisible()) {
     var viewer = document.getElementById('source-viewer');
     var open = viewer && viewer.dataset.openPath;

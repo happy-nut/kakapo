@@ -228,7 +228,7 @@ function openDiffImportFold(row) {
   var path = (wrapper.dataset && wrapper.dataset.path)
     || ((wrapper.querySelector('.d2h-file-name') || {}).textContent || '').trim();
   if (path) diffImportOpenPaths[path] = true;
-  if (typeof clearSelectedDiffFold === 'function') clearSelectedDiffFold();
+  clearSelectedDiffFold();
   resetDiffImportFolds(wrapper);
   invalidateDiffRows(wrapper);
   invalidateAsymmetricDiffGeometry(wrapper);
@@ -404,7 +404,7 @@ function restoreDiffCursorAfterContext(wrapper, snapshot) {
 }
 function expandDiffContext(row) {
   if (!row || row.dataset.contextLoading === '1') return;
-  if (typeof clearSelectedDiffFold === 'function') clearSelectedDiffFold();
+  clearSelectedDiffFold();
   var wrapper = row.closest('.d2h-file-wrapper');
   var key = row.dataset.contextHunk;
   if (!wrapper || key == null) return;
@@ -437,11 +437,11 @@ function expandDiffContext(row) {
     wrapper.__reviewAnchorsOld = null; wrapper.__reviewAnchorsNew = null;
     annotateDiffHunkRows(wrapper);
     restoreDiffCursorAfterContext(wrapper, cursorSnapshot);
-    if (typeof refreshComments === 'function') refreshComments();
+    refreshComments();
     syncDiffReviewChrome(request.path);
   }).catch(function () {
     peers.forEach(function (peer) { delete peer.dataset.contextLoading; }); refreshDiffContextFoldLabels();
-    if (typeof showToast === 'function') showToast(diffContextMessage('diff.contextUnavailable'));
+    showToast(diffContextMessage('diff.contextUnavailable'));
   });
 }
 
@@ -608,9 +608,9 @@ function applyI18n() {
   if (langSelectRef) langSelectRef.render();
   if (themeSelectRef) themeSelectRef.render(); // theme labels are localized — refresh on a language switch too
   if (syntaxThemeSelectRef) syntaxThemeSelectRef.render();
-  if (typeof refreshDiffContextFoldLabels === 'function') refreshDiffContextFoldLabels();
-  if (typeof refreshCodeFoldLabels === 'function') refreshCodeFoldLabels();
-  if (typeof syncDiffReviewChrome === 'function') syncDiffReviewChrome();
+  refreshDiffContextFoldLabels();
+  refreshCodeFoldLabels();
+  syncDiffReviewChrome();
 }
 // Theme mirrors the locale pattern: persisted choice, applied by toggling data-theme on <html> so the
 // :root[data-theme="light"] palette takes over. Dark is the default (matches the inline :root). Applied
@@ -724,7 +724,7 @@ function installProjectIndex(payload) {
   fileSignatureByPath = new Map(fileStates.map(function (file) { return [file.path, file.signature]; }));
   projectIndexLoaded = true;
   projectIndexPayload = payload;
-  if (typeof pruneCommentsForMissingFiles === 'function' && pruneCommentsForMissingFiles()) refreshComments();
+  if (pruneCommentsForMissingFiles()) refreshComments();
   return payload;
 }
 

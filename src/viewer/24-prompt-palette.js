@@ -26,7 +26,7 @@ function sendPromptToTerminal(text) {
     window.__kakapoTerminal.enterSendMode(text);
     return;
   }
-  if (copyTextToClipboard(text) && typeof showToast === 'function') showToast(t('explain.copied'));
+  if (copyTextToClipboard(text)) showToast(t('explain.copied'));
 }
 
 // One-line gist of each prompt so the list is scannable without opening Settings: the first non-empty line,
