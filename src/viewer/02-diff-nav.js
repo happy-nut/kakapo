@@ -72,6 +72,33 @@ function renderBreadcrumb(container, path) {
     span.textContent = seg;
     container.appendChild(span);
   });
+  appendBreadcrumbStat(container, path);
+}
+
+// How big this change is, for the ONE file the toolbar is about. Read off that file's Changes row rather than
+// counted from the rendered diff: bodies materialize on demand (Phase 2 lazy-LOAD), so a file nobody has
+// scrolled to yet has no +/- rows in the DOM at all, and counting them would confidently report "+0 -0" for
+// the largest change in the review. The row carries the totals the parser already knew (render-tree.ts).
+// Matched by dataset rather than a [data-file="..."] selector so a path containing a quote cannot break it.
+function appendBreadcrumbStat(container, path) {
+  if (!path) return;
+  var row = Array.prototype.find.call(document.querySelectorAll('.change-row'), function (el) {
+    return el.dataset.file === path;
+  });
+  var added = Number(row && row.dataset.added) || 0;
+  var deleted = Number(row && row.dataset.deleted) || 0;
+  if (!added && !deleted) return; // a rename or a binary file has nothing to count, and says so by staying quiet
+  var stat = document.createElement('span');
+  stat.className = 'crumb-stat';
+  var plus = document.createElement('span');
+  plus.className = 'crumb-stat-add';
+  plus.textContent = '+' + added;
+  var minus = document.createElement('span');
+  minus.className = 'crumb-stat-del';
+  minus.textContent = '-' + deleted;
+  stat.appendChild(plus);
+  stat.appendChild(minus);
+  container.appendChild(stat);
 }
 
 // IntelliJ-style diff chrome follows the keyboard caret, not merely the selected file. A unified hunk

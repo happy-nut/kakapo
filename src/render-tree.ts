@@ -98,8 +98,12 @@ function renderDiffNode(node: DiffTreeNode, depth: number): string {
   if (node.file) {
     const file = node.file;
     const classes = ["file-link", "change-row", "tree-file", file.vcs ? "vcs-" + file.vcs : ""].filter(Boolean).join(" ");
+    // Counted here and carried on the row, because the row exists for every changed file and is already the
+    // client's per-file record (data-file/data-hunk). The diff BODY is materialized on demand, so counting
+    // rendered +/- rows in the DOM would report nothing for any file nobody has scrolled to yet.
+    const { added, deleted } = diffLineTotals(file);
     return [
-      `<a class="${classes}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + file.status)}">`,
+      `<a class="${classes}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" data-added="${added}" data-deleted="${deleted}" style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + file.status)}">`,
       fileTypeIcon(file.displayPath),
       changeStatusBadge(file.status),
       `<span class="change-name"><span class="path">${escapeHtml(node.name)}</span></span>`,
@@ -126,6 +130,21 @@ function renderDiffNode(node: DiffTreeNode, depth: number): string {
     renderDiffChildren(labelNode, depth + 1),
     "</details>",
   ].join("");
+}
+
+// Added and deleted LINES for one file. Kakapo has never carried a diffstat: the Changes tree deliberately
+// omits it (one number per row, on a list where every row already means "changed", is noise), but the diff
+// toolbar shows exactly one file at a time and the size of that file's change is the thing you are about to
+// read.
+function diffLineTotals(file: DiffFile): { added: number; deleted: number } {
+  let added = 0, deleted = 0;
+  for (const hunk of file.hunks) {
+    for (const line of hunk.lines) {
+      if (line.kind === "add") added += 1;
+      else if (line.kind === "delete") deleted += 1;
+    }
+  }
+  return { added, deleted };
 }
 
 function changeStatusBadge(status: string): string {
