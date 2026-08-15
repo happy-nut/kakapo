@@ -300,6 +300,291 @@
   --token-type: #000000;
   --token-decorator: #9e880d;
 }
+/* ---- The three families below exist because the first four did not differ enough to be worth choosing
+   between: two near-black greys and two near-whites, all accented the same blue. These commit to a hue
+   (Solarized's teal/amber ground, Dracula's violet) or to contrast for its own sake, so the picker offers a
+   real decision rather than four shades of the same one. Each is the palette as its authors published it. */
+/* Solarized (Ethan Schoonover). The only family here whose GROUND is coloured — both members are tinted,
+   which is what makes it recognisable at a glance.
+   The accents are Solarized's hues at Solarized's saturation, but NOT at its lightness: the published
+   scheme tunes its palette for equal perceived weight, not for contrast, and on base3 that puts keywords
+   at 2.97:1 and comments at 2.48:1 — the least readable thing in this picker, in the family that was added
+   BECAUSE the picker had nothing with colour in it. Each accent is walked along lightness only, until it
+   clears 4.5:1 on its own ground. Same hue, same character, actually readable. */
+:root[data-theme="dark"][data-syntax-theme="solarized"] {
+  color-scheme: dark;
+  --bg: #002b36;
+  --panel: #002b36;
+  --text: #93a1a1;
+  --muted: #789696;
+  --border: #12404b;
+  --line: #073642;
+  --add: #04352c;
+  --del: #3c191c;
+  --add-strong: #0a5f43;
+  --del-strong: #8c2b2b;
+  --diff-modified: #05374a;
+  --diff-modified-strong: #0a5f7f;
+  --diff-added: #04352c;
+  --diff-added-strong: #0a5f43;
+  --diff-deleted: #3c191c;
+  --diff-deleted-strong: #8c2b2b;
+  --active: #268bd2;
+  --active-strong: #6cc0f5;
+  --sidebar: #012b33;
+  --elevated: #073642;
+  --shadow: rgba(0, 15, 20, 0.8);
+  --chrome-bg: #012129;
+  --chrome-panel: #002b36;
+  --chrome-elevated: #073642;
+  --chrome-text: #d6ded9;
+  --chrome-muted: #93a1a1;
+  --chrome-border: #12404b;
+  --chrome-line: #0c3a45;
+  --chrome-selected: #0e4553;
+  --chrome-selected-text: #fdf6e3;
+  --chrome-vcs-new: #859900;
+  --chrome-vcs-edited: #268bd2;
+  --chrome-vcs-staged: #2aa198;
+  --token-comment: #7c929a;
+  --token-keyword: #859900;
+  --token-string: #2aa198;
+  --token-number: #de68a1;
+  --token-literal: #de68a1;
+  --token-tag: #3295da;
+  --token-function: #3295da;
+  --token-type: #b58900;
+  --token-decorator: #858ace;
+}
+:root[data-theme="light"][data-syntax-theme="solarized"] {
+  color-scheme: light;
+  --bg: #fdf6e3;
+  --panel: #fdf6e3;
+  --text: #4a5f66;
+  --muted: #617170;
+  --border: #ded8c5;
+  --line: #f2ecd8;
+  --add: #e6efd0;
+  --del: #fbe0dd;
+  --add-strong: #b8d183;
+  --del-strong: #f0b0aa;
+  --diff-modified: #dceaf3;
+  --diff-modified-strong: #a8cde5;
+  --diff-added: #e6efd0;
+  --diff-added-strong: #b8d183;
+  --diff-deleted: #fbe0dd;
+  --diff-deleted-strong: #f0b0aa;
+  --active: #2074af;
+  --active-strong: #1a6fab;
+  --sidebar: #f2ecd8;
+  --elevated: #fffbf0;
+  --shadow: rgba(88, 110, 117, 0.22);
+  --chrome-bg: #f2ecd8;
+  --chrome-panel: #fdf6e3;
+  --chrome-elevated: #fffbf0;
+  --chrome-text: #2f4249;
+  --chrome-muted: #6b7f80;
+  --chrome-border: #d6cfba;
+  --chrome-line: #e3dcc8;
+  --chrome-selected: #e4ddc8;
+  --chrome-selected-text: #073642;
+  --chrome-vcs-new: #859900;
+  --chrome-vcs-edited: #268bd2;
+  --chrome-vcs-staged: #2aa198;
+  --token-comment: #627171;
+  --token-keyword: #667500;
+  --token-string: #1f7972;
+  --token-number: #c92c78;
+  --token-literal: #c92c78;
+  --token-tag: #2074af;
+  --token-function: #2074af;
+  --token-type: #8c6a00;
+  --token-decorator: #6166c0;
+}
+/* Dracula, and Alucard — the light theme its authors published as its counterpart, rather than a light mode
+   invented here. Violet ground, and the most saturated tokens in the picker. */
+:root[data-theme="dark"][data-syntax-theme="dracula"] {
+  color-scheme: dark;
+  --bg: #282a36;
+  --panel: #282a36;
+  --text: #f8f8f2;
+  --muted: #8f92a8;
+  --border: #44475a;
+  --line: #21222c;
+  --add: #1e3b2a;
+  --del: #45222c;
+  --add-strong: #2c6b45;
+  --del-strong: #8b3040;
+  --diff-modified: #2b3450;
+  --diff-modified-strong: #414d75;
+  --diff-added: #1e3b2a;
+  --diff-added-strong: #2c6b45;
+  --diff-deleted: #45222c;
+  --diff-deleted-strong: #8b3040;
+  --active: #bd93f9;
+  --active-strong: #d6b6ff;
+  --sidebar: #21222c;
+  --elevated: #343746;
+  --shadow: rgba(10, 10, 16, 0.8);
+  --chrome-bg: #1e1f29;
+  --chrome-panel: #282a36;
+  --chrome-elevated: #343746;
+  --chrome-text: #f8f8f2;
+  --chrome-muted: #a1a4bb;
+  --chrome-border: #44475a;
+  --chrome-line: #3a3d4d;
+  --chrome-selected: #44475a;
+  --chrome-selected-text: #ffffff;
+  --chrome-vcs-new: #50fa7b;
+  --chrome-vcs-edited: #8be9fd;
+  --chrome-vcs-staged: #50fa7b;
+  --token-comment: #8692b9;
+  --token-keyword: #ff79c6;
+  --token-string: #f1fa8c;
+  --token-number: #bd93f9;
+  --token-literal: #bd93f9;
+  --token-tag: #ff79c6;
+  --token-function: #50fa7b;
+  --token-type: #8be9fd;
+  --token-decorator: #ffb86c;
+}
+:root[data-theme="light"][data-syntax-theme="dracula"] {
+  color-scheme: light;
+  --bg: #fffbeb;
+  --panel: #fffbeb;
+  --text: #1f1f1f;
+  --muted: #6c664b;
+  --border: #dfd7bb;
+  --line: #f5efd8;
+  --add: #e2f0d9;
+  --del: #fbdcd7;
+  --add-strong: #a8d49a;
+  --del-strong: #efaba0;
+  --diff-modified: #dbe6f5;
+  --diff-modified-strong: #a9c2e8;
+  --diff-added: #e2f0d9;
+  --diff-added-strong: #a8d49a;
+  --diff-deleted: #fbdcd7;
+  --diff-deleted-strong: #efaba0;
+  --active: #644ac9;
+  --active-strong: #4a35a3;
+  --sidebar: #f7f1dc;
+  --elevated: #fffdf5;
+  --shadow: rgba(80, 70, 40, 0.2);
+  --chrome-bg: #f7f1dc;
+  --chrome-panel: #fffbeb;
+  --chrome-elevated: #fffdf5;
+  --chrome-text: #1f1f1f;
+  --chrome-muted: #6c664b;
+  --chrome-border: #d8d0b4;
+  --chrome-line: #e7e0c6;
+  --chrome-selected: #ece3c8;
+  --chrome-selected-text: #1f1f1f;
+  --chrome-vcs-new: #14710a;
+  --chrome-vcs-edited: #036a96;
+  --chrome-vcs-staged: #14710a;
+  --token-comment: #787255;
+  --token-keyword: #a3144d;
+  --token-string: #846e15;
+  --token-number: #644ac9;
+  --token-literal: #644ac9;
+  --token-tag: #a3144d;
+  --token-function: #14710a;
+  --token-type: #036a96;
+  --token-decorator: #a34d14;
+}
+/* High Contrast. Not a mood — an accessibility floor: pure black or pure white ground, borders you can
+   actually see, and tokens picked for separation rather than harmony. */
+:root[data-theme="dark"][data-syntax-theme="contrast"] {
+  color-scheme: dark;
+  --bg: #000000;
+  --panel: #000000;
+  --text: #ffffff;
+  --muted: #c8c8c8;
+  --border: #6e6e6e;
+  --line: #101010;
+  --add: #003820;
+  --del: #4a0d10;
+  --add-strong: #007a43;
+  --del-strong: #b81e26;
+  --diff-modified: #002c4d;
+  --diff-modified-strong: #0a6bb5;
+  --diff-added: #003820;
+  --diff-added-strong: #007a43;
+  --diff-deleted: #4a0d10;
+  --diff-deleted-strong: #b81e26;
+  --active: #4fc3f7;
+  --active-strong: #8ce0ff;
+  --sidebar: #000000;
+  --elevated: #141414;
+  --shadow: rgba(0, 0, 0, 0.95);
+  --chrome-bg: #000000;
+  --chrome-panel: #0a0a0a;
+  --chrome-elevated: #171717;
+  --chrome-text: #ffffff;
+  --chrome-muted: #d0d0d0;
+  --chrome-border: #7a7a7a;
+  --chrome-line: #5c5c5c;
+  --chrome-selected: #2b2b2b;
+  --chrome-selected-text: #ffffff;
+  --chrome-vcs-new: #6bff9e;
+  --chrome-vcs-edited: #8ce0ff;
+  --chrome-vcs-staged: #6bff9e;
+  --token-comment: #8fd98f;
+  --token-keyword: #6ab7ff;
+  --token-string: #ffb38a;
+  --token-number: #b8f0a0;
+  --token-literal: #b8f0a0;
+  --token-tag: #6ab7ff;
+  --token-function: #ffe58a;
+  --token-type: #6ff0d8;
+  --token-decorator: #f09aeb;
+}
+:root[data-theme="light"][data-syntax-theme="contrast"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --text: #000000;
+  --muted: #4a4a4a;
+  --border: #767676;
+  --line: #f2f2f2;
+  --add: #d6f5df;
+  --del: #ffdcd9;
+  --add-strong: #63c785;
+  --del-strong: #e8867e;
+  --diff-modified: #d6e9ff;
+  --diff-modified-strong: #7fb2e8;
+  --diff-added: #d6f5df;
+  --diff-added-strong: #63c785;
+  --diff-deleted: #ffdcd9;
+  --diff-deleted-strong: #e8867e;
+  --active: #0f4a85;
+  --active-strong: #0a3560;
+  --sidebar: #ffffff;
+  --elevated: #ffffff;
+  --shadow: rgba(0, 0, 0, 0.3);
+  --chrome-bg: #ffffff;
+  --chrome-panel: #ffffff;
+  --chrome-elevated: #ffffff;
+  --chrome-text: #000000;
+  --chrome-muted: #3d3d3d;
+  --chrome-border: #6b6b6b;
+  --chrome-line: #8a8a8a;
+  --chrome-selected: #d6e4f5;
+  --chrome-selected-text: #000000;
+  --chrome-vcs-new: #067d3a;
+  --chrome-vcs-edited: #0f4a85;
+  --chrome-vcs-staged: #067d3a;
+  --token-comment: #006600;
+  --token-keyword: #0000d4;
+  --token-string: #96000f;
+  --token-number: #0a6b3d;
+  --token-literal: #0a6b3d;
+  --token-tag: #0000d4;
+  --token-function: #6b4a00;
+  --token-type: #005f6b;
+  --token-decorator: #8a007a;
+}
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
 /* Reserve the scrollbar gutter so collapsing/expanding a file does not shift the layout. */
@@ -700,6 +985,15 @@ body.native-app .source-tabs {
 .theme-swatch[data-swatch="darcula-dark"] { background: linear-gradient(135deg, #2b2b2b 0 62%, #4a88c7 62%); }
 .theme-swatch[data-swatch="darcula-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #3574f0 62%); }
 .theme-swatch[data-swatch="darcula-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #2b2b2b 50%); }
+.theme-swatch[data-swatch="solarized-dark"] { background: linear-gradient(135deg, #002b36 0 62%, #b58900 62%); }
+.theme-swatch[data-swatch="solarized-light"] { background: linear-gradient(135deg, #fdf6e3 0 62%, #2aa198 62%); }
+.theme-swatch[data-swatch="solarized-system"] { background: linear-gradient(135deg, #fdf6e3 0 50%, #002b36 50%); }
+.theme-swatch[data-swatch="dracula-dark"] { background: linear-gradient(135deg, #282a36 0 62%, #ff79c6 62%); }
+.theme-swatch[data-swatch="dracula-light"] { background: linear-gradient(135deg, #fffbeb 0 62%, #644ac9 62%); }
+.theme-swatch[data-swatch="dracula-system"] { background: linear-gradient(135deg, #fffbeb 0 50%, #282a36 50%); }
+.theme-swatch[data-swatch="contrast-dark"] { background: linear-gradient(135deg, #000000 0 62%, #ffe58a 62%); }
+.theme-swatch[data-swatch="contrast-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0000d4 62%); }
+.theme-swatch[data-swatch="contrast-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #000000 50%); }
 .settings-card .settings-check { margin: 0; padding: 13px 2px; }
 .settings-card .settings-check + .settings-row-hint { padding: 0 2px 4px 24px; }
 /* Persistent-terminal setup: tmux status + install button, with brew's output streamed underneath so the
@@ -1751,6 +2045,76 @@ h1 { margin: 0; font-size: 18px; }
 :root[data-theme="light"][data-syntax-theme="darcula"] #diff2html-container,
 :root[data-theme="light"][data-syntax-theme="darcula"] .history-diff,
 :root[data-theme="light"][data-syntax-theme="darcula"] .source-body:not(.rendered-body):not(.image-body) {
+  --panel: #ffffff;
+  --text: #000000;
+  --d2h-bg-color: #ffffff;
+  --d2h-code-line-bg-color: #ffffff;
+  --d2h-code-line-color: #000000;
+  background-color: #ffffff;
+  color: #000000;
+}
+/* Solarized's ground is the theme — a code canvas painted the app's neutral would erase the one thing that
+   makes it recognisable, so both members carry base03 / base3 under the code. */
+:root[data-theme="dark"][data-syntax-theme="solarized"] #diff2html-container,
+:root[data-theme="dark"][data-syntax-theme="solarized"] .history-diff,
+:root[data-theme="dark"][data-syntax-theme="solarized"] .source-body:not(.rendered-body):not(.image-body) {
+  --panel: #002b36;
+  --text: #93a1a1;
+  --d2h-bg-color: #002b36;
+  --d2h-code-line-bg-color: #002b36;
+  --d2h-code-line-color: #93a1a1;
+  background-color: #002b36;
+  color: #93a1a1;
+}
+:root[data-theme="light"][data-syntax-theme="solarized"] #diff2html-container,
+:root[data-theme="light"][data-syntax-theme="solarized"] .history-diff,
+:root[data-theme="light"][data-syntax-theme="solarized"] .source-body:not(.rendered-body):not(.image-body) {
+  --panel: #fdf6e3;
+  --text: #4a5f66;
+  --d2h-bg-color: #fdf6e3;
+  --d2h-code-line-bg-color: #fdf6e3;
+  --d2h-code-line-color: #4a5f66;
+  background-color: #fdf6e3;
+  color: #4a5f66;
+}
+:root[data-theme="dark"][data-syntax-theme="dracula"] #diff2html-container,
+:root[data-theme="dark"][data-syntax-theme="dracula"] .history-diff,
+:root[data-theme="dark"][data-syntax-theme="dracula"] .source-body:not(.rendered-body):not(.image-body) {
+  --panel: #282a36;
+  --text: #f8f8f2;
+  --d2h-bg-color: #282a36;
+  --d2h-code-line-bg-color: #282a36;
+  --d2h-code-line-color: #f8f8f2;
+  background-color: #282a36;
+  color: #f8f8f2;
+}
+:root[data-theme="light"][data-syntax-theme="dracula"] #diff2html-container,
+:root[data-theme="light"][data-syntax-theme="dracula"] .history-diff,
+:root[data-theme="light"][data-syntax-theme="dracula"] .source-body:not(.rendered-body):not(.image-body) {
+  --panel: #fffbeb;
+  --text: #1f1f1f;
+  --d2h-bg-color: #fffbeb;
+  --d2h-code-line-bg-color: #fffbeb;
+  --d2h-code-line-color: #1f1f1f;
+  background-color: #fffbeb;
+  color: #1f1f1f;
+}
+/* Pure black / pure white under the code is the whole contract of this one — anything softer is a different
+   theme wearing its name. */
+:root[data-theme="dark"][data-syntax-theme="contrast"] #diff2html-container,
+:root[data-theme="dark"][data-syntax-theme="contrast"] .history-diff,
+:root[data-theme="dark"][data-syntax-theme="contrast"] .source-body:not(.rendered-body):not(.image-body) {
+  --panel: #000000;
+  --text: #ffffff;
+  --d2h-bg-color: #000000;
+  --d2h-code-line-bg-color: #000000;
+  --d2h-code-line-color: #ffffff;
+  background-color: #000000;
+  color: #ffffff;
+}
+:root[data-theme="light"][data-syntax-theme="contrast"] #diff2html-container,
+:root[data-theme="light"][data-syntax-theme="contrast"] .history-diff,
+:root[data-theme="light"][data-syntax-theme="contrast"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #ffffff;
   --text: #000000;
   --d2h-bg-color: #ffffff;

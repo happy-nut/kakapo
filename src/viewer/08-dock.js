@@ -814,8 +814,11 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   // The two preferences stay separately persisted ('kakapo-theme' / 'kakapo-syntax-theme') and keep their
   // existing values — only the UI is flattened, so a stored setting, the cross-window broadcast below, and
   // applyTheme/applySyntaxTheme are all untouched.
-  // The families a stored preference may name. A palette is a CSS block plus a row here — nothing else.
-  var SYNTAX_FAMILIES = ['default', 'darcula', 'github'];
+  // A palette is a CSS block, a row here, and a name in SYNTAX_FAMILIES (01-core.js, which is also where a
+  // stored preference is checked against it — this list used to be duplicated here and fell out of step).
+  // The first four are deliberately quiet and, between them, near-identical: two greys and two whites, one
+  // blue accent. The last three are the ones that answer "give me a theme with actual colour" — Solarized and
+  // Dracula bring a coloured ground, High Contrast brings the opposite of a mood.
   var THEMES = [
     { id: 'system', mode: 'system' },
     { id: 'default-dark', family: 'default', mode: 'dark' },
@@ -824,6 +827,12 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
     { id: 'darcula-light', family: 'darcula', mode: 'light' },
     { id: 'github-dark', family: 'github', mode: 'dark' },
     { id: 'github-light', family: 'github', mode: 'light' },
+    { id: 'solarized-dark', family: 'solarized', mode: 'dark' },
+    { id: 'solarized-light', family: 'solarized', mode: 'light' },
+    { id: 'dracula-dark', family: 'dracula', mode: 'dark' },
+    { id: 'dracula-light', family: 'dracula', mode: 'light' },
+    { id: 'contrast-dark', family: 'contrast', mode: 'dark' },
+    { id: 'contrast-light', family: 'contrast', mode: 'light' },
   ];
   function applySyntaxThemePref(next) {
     if (SYNTAX_FAMILIES.indexOf(next) < 0 || next === syntaxTheme) return;
