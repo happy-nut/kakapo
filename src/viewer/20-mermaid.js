@@ -132,5 +132,5 @@ document.addEventListener('click', function (event) {
   if (link) return; // an ordinary link in a diagram keeps its own meaning
   var svg = host.querySelector('svg');
   var url = svg ? mermaidSvgDataUrl(svg) : '';
-  if (url) { event.preventDefault(); openLightbox(url, t('diagram.zoom')); }
+  if (url) { event.preventDefault(); openLightbox(url, t('diagram.zoom'), true); }
 });

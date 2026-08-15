@@ -701,10 +701,16 @@ function applyUiScale(next) {
 }
 paintUiScale();
 var SYNTAX_THEME_KEY = 'kakapo-syntax-theme';
+// Every palette family, named once. A family is a pair of CSS blocks in viewer.css, a row in THEMES
+// (08-dock.js) and a name in this list — nothing else. It lives HERE, not beside the settings grid, because
+// this is where a stored preference is validated at boot, and the two lists had already drifted: 'github' was
+// added to the grid but not to the check below, so choosing GitHub Dark worked until you reopened the app and
+// it silently came back as Kakapo. One list cannot disagree with itself.
+var SYNTAX_FAMILIES = ['default', 'darcula', 'github', 'solarized', 'dracula', 'contrast'];
 var syntaxTheme = (function () {
   var v = persistRead(SYNTAX_THEME_KEY);
-  if (v !== 'default' && v !== 'darcula') { try { v = localStorage.getItem(SYNTAX_THEME_KEY); } catch (e) {} }
-  return (v === 'darcula' || v === 'default') ? v : 'default';
+  if (SYNTAX_FAMILIES.indexOf(v) < 0) { try { v = localStorage.getItem(SYNTAX_THEME_KEY); } catch (e) {} }
+  return SYNTAX_FAMILIES.indexOf(v) >= 0 ? v : 'default';
 })();
 function applySyntaxTheme() {
   document.documentElement.setAttribute('data-syntax-theme', syntaxTheme);

@@ -36,7 +36,7 @@ import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
 import { collectUsageStats } from "./usage-stats.js";
 import { agentForCommand, type AgentKind } from "./agent-resume.js";
 import { hubHtml, modalOverlayHtml } from "./shell-pages.js";
-import { aheadArgs, aheadCount, createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
+import { aheadArgs, aheadCount, createManagedWorkspaceAsync, defaultBase, listStartRefs, randomWorkspaceSlug, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
 
 type AppOptions = {
   root: string;
@@ -548,15 +548,20 @@ ipcMain.handle("kakapo:hub-projects", () =>
 // The workspace-tile context menu (kakapo:tile-menu / menu-size / menu-choose / menu-close) is a custom
 // frameless popup, not the OS native menu — it lives in registerTileMenuIpc (app-tile-menu-ipc.ts), wired with
 // the other IPC adapters above.
-ipcMain.handle("kakapo:hub-preview", (_event, payload: { repo?: unknown; label?: unknown; worktree?: unknown }) => {
+ipcMain.handle("kakapo:hub-preview", (_event, payload: { repo?: unknown; label?: unknown; worktree?: unknown; slug?: unknown }) => {
   if (typeof payload?.repo !== "string" || typeof payload?.label !== "string" || !isGitRepository(payload.repo)) return { ok: false };
-  const repo = workspaceRecord(payload.repo), slug = workspaceSlug(payload.label);
+  const repo = workspaceRecord(payload.repo);
   // worktree=false: nothing is created, the project's own checkout opens as-is — preview its real branch/path.
   if (payload.worktree === false) return { ok: true, worktree: false, branch: repo.branch, path: repo.repoRoot };
+  // The slug is random and the dialog sends back the one it was shown, so the preview is a promise rather than
+  // a guess. A slug already on screen is kept: re-previewing on every keystroke of the task name must not
+  // reshuffle the branch out from under the reader.
+  const slug = typeof payload.slug === "string" && payload.slug.trim() ? workspaceSlug(payload.slug) : randomWorkspaceSlug();
   return { ok: true, worktree: true, slug, base: defaultBase(repo.repoRoot), branch: `kakapo/${slug}`,
+    refs: listStartRefs(repo.repoRoot),
     path: join("~", "kakapo", "workspaces", repo.repoName, slug) };
 });
-ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; label?: unknown; worktree?: unknown; base?: unknown }) => {
+ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; label?: unknown; worktree?: unknown; base?: unknown; slug?: unknown; memo?: unknown }) => {
   if (typeof payload?.repo !== "string" || typeof payload?.label !== "string") return { ok: false };
   // "Create a new worktree" unchecked: open the project's existing checkout instead of adding a branch+folder.
   if (payload.worktree === false) {
@@ -571,7 +576,9 @@ ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; la
     // ("invalid reference: origin/nope") is more useful than anything a check of ours would say. It reaches
     // the dialog's error line the same way every other creation failure does.
     const base = typeof payload.base === "string" && payload.base.trim() ? payload.base.trim() : undefined;
-    const created = await createManagedWorkspaceAsync(payload.repo, payload.label, { base, signal: workspaceCreation.signal });
+    const slug = typeof payload.slug === "string" && payload.slug.trim() ? payload.slug.trim() : undefined;
+    const memo = typeof payload.memo === "string" && payload.memo.trim() ? payload.memo.trim() : undefined;
+    const created = await createManagedWorkspaceAsync(payload.repo, payload.label, { base, slug, memo, signal: workspaceCreation.signal });
     const records = savedWorkspaceMetadata().filter((item) => resolveWorkspaceRoot(item.path) !== created.path);
     records.push(created);
     preferences.writeOpenWorkspaces(records, created.path);

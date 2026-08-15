@@ -15,7 +15,11 @@ test("managed worktree creation, risk detection, and safe removal", async () => 
     writeFileSync(join(repo, "a.txt"), "a\n"); sh(repo, "add", "."); sh(repo, "commit", "-m", "init");
     assert.equal(defaultBase(repo), "main");
     const ws = await createManagedWorkspaceAsync(repo, "My Task", { container: join(tmp, "managed") });
-    assert.equal(ws.kind, "worktree"); assert.equal(ws.branch, "kakapo/my-task");
+    assert.equal(ws.kind, "worktree");
+    // The branch is a random pair, NOT the task name: that name is prose, often not in English, and it used to
+    // land verbatim in a ref and a filesystem path. The pretty name survives as the alias instead.
+    assert.match(ws.branch, /^kakapo\/[a-z]+-[a-z]+$/, "the worktree is named by a random pair");
+    assert.equal(ws.alias, "My Task", "and the task name is kept as the alias");
     assert.equal(workspaceRecord(repo).kind, "main");
     writeFileSync(join(ws.path, "dirty.txt"), "x");
     assert.equal(removalRisk(ws).dirty, true);
@@ -23,7 +27,7 @@ test("managed worktree creation, risk detection, and safe removal", async () => 
     // A refused removal must leave the workspace whole. app-main now runs this BEFORE killing the
     // workspace's terminals precisely because it can fail, so "nothing happened" has to mean nothing.
     assert.ok(existsSync(ws.path), "a refused removal leaves the worktree on disk");
-    assert.match(sh(repo, "worktree", "list"), /my-task/, "and leaves git still tracking it");
+    assert.match(sh(repo, "worktree", "list"), new RegExp(ws.branch.replace("kakapo/", "")), "and leaves git still tracking it");
 
     removeManagedWorkspace(ws, true, true);
     // Deleting a workspace deletes the code. The tile disappearing is not the point of the action.
@@ -62,7 +66,7 @@ test("async managed creation keeps fetch/worktree operations off the caller stac
     const pending = createManagedWorkspaceAsync(repo, "Async Task", { container: join(tmp, "managed") });
     assert.equal(typeof pending.then, "function");
     const ws = await pending;
-    assert.equal(ws.branch, "kakapo/async-task");
+    assert.match(ws.branch, /^kakapo\/[a-z]+-[a-z]+$/);
     removeManagedWorkspace(ws, true, true);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
@@ -80,5 +84,25 @@ test("async managed creation can be cancelled before fetch creates a worktree", 
       /cancelled/i,
     );
     assert.doesNotMatch(sh(repo, "branch", "--list"), /cancelled-task/);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+// The dialog previews a slug and sends that same one back, so what was on screen is what gets created; and a
+// description typed at creation is stored as the workspace's memo rather than a second field to keep in sync.
+test("an explicit slug and description are honoured", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "kakapo-slug-"));
+  try {
+    const repo = join(tmp, "repo"); mkdirSync(repo);
+    sh(repo, "init", "-b", "main"); sh(repo, "config", "user.email", "a@b.c"); sh(repo, "config", "user.name", "T");
+    writeFileSync(join(repo, "a.txt"), "a\n"); sh(repo, "add", "."); sh(repo, "commit", "-m", "init");
+
+    const ws = await createManagedWorkspaceAsync(repo, "버그 픽스", {
+      container: join(tmp, "managed"), slug: "quiet-heron", memo: "why this exists",
+    });
+    assert.equal(ws.branch, "kakapo/quiet-heron", "the previewed slug is the one created");
+    assert.equal(ws.alias, "버그 픽스", "the Korean task name stays the display name");
+    assert.equal(ws.memo, "why this exists");
+    assert.ok(!ws.path.includes("버그"), "and never reaches the filesystem path");
+    removeManagedWorkspace(ws, true, true);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });

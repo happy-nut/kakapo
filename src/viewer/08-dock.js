@@ -563,8 +563,6 @@ document.addEventListener('click', function (event) {
   var reopen = t.closest('.mc-reopen');
   if (reopen) { event.preventDefault(); reopenComment(parseInt(reopen.dataset.seq, 10)); return; }
   // ▶ on a note that carries steps: play its walkthrough (23-annotations.js).
-  var tourStart = t.closest('.mc-tour-start');
-  if (tourStart) { event.preventDefault(); startNoteTour(parseInt(tourStart.dataset.seq, 10)); return; }
   // A file path inside an agent's prose (linkifyPathCode in 23-annotations.js) navigates to that file.
   var pathCode = t.closest('.mc-path-code');
   if (pathCode) { event.preventDefault(); openPathReference(pathCode.textContent || ''); return; }
@@ -618,7 +616,12 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   });
 }
 
-(function checkForUpdate() {
+// Checked on a timer, not once at startup. This app is left running for days with workspaces open — that is
+// what the rail is FOR — so a check that only ran at page load meant a release published afterwards was
+// invisible until something happened to reload the page. The version you are told about must not depend on
+// when you last restarted.
+var UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
+function checkForUpdate() {
   var current = window.__KAKAPO_VERSION__ || '';
   if (!current) return;
   var isNewer = function (a, b) {
@@ -652,10 +655,15 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
       status.textContent = t('settings.upToDate') + ' (v' + current + ')';
     }
   };
-  // Cache the npm result for the session so watch-mode reloads reuse it instead of refetching.
-  var cached = '';
-  try { cached = sessionStorage.getItem('kakapo-update-latest') || ''; } catch (e) {}
-  if (cached) { apply(cached); return; }
+  // Cached for the session so watch-mode reloads reuse it instead of refetching — but with an age now, or the
+  // cache would answer every later check with the same stale version and the timer below would buy nothing.
+  var cached = '', cachedAt = 0;
+  try {
+    cached = sessionStorage.getItem('kakapo-update-latest') || '';
+    cachedAt = Number(sessionStorage.getItem('kakapo-update-checked-at')) || 0;
+  } catch (e) {}
+  if (cached) apply(cached); // show what we know immediately; a fetch below may replace it
+  if (cached && Date.now() - cachedAt < UPDATE_CHECK_MS) return;
   if (typeof fetch !== 'function') return;
   // GitHub Releases is where kakapo actually ships (release.yml attaches the dmg and the Linux tarballs;
   // there is no npm publish). This used to ask the npm registry, which answers 404 for this package — so the
@@ -669,14 +677,19 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
         if (status) { status.classList.remove('is-loading'); status.textContent = 'v' + current; }
         return;
       }
-      try { sessionStorage.setItem('kakapo-update-latest', data.version); } catch (e) {}
+      try {
+        sessionStorage.setItem('kakapo-update-latest', data.version);
+        sessionStorage.setItem('kakapo-update-checked-at', String(Date.now()));
+      } catch (e) {}
       apply(data.version);
     })
     .catch(function () {
       var status = document.getElementById('app-info-status');
       if (status) { status.classList.remove('is-loading'); status.textContent = 'v' + current; }
     });
-})();
+}
+checkForUpdate();
+setInterval(checkForUpdate, UPDATE_CHECK_MS);
 
 // Unified settings modal: the sidebar-footer gear opens it (General category by default), with
 // About/update/shortcuts under General and the merge-prompt editor under Merge prompts.
@@ -814,8 +827,11 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   // The two preferences stay separately persisted ('kakapo-theme' / 'kakapo-syntax-theme') and keep their
   // existing values — only the UI is flattened, so a stored setting, the cross-window broadcast below, and
   // applyTheme/applySyntaxTheme are all untouched.
-  // The families a stored preference may name. A palette is a CSS block plus a row here — nothing else.
-  var SYNTAX_FAMILIES = ['default', 'darcula', 'github'];
+  // A palette is a CSS block, a row here, and a name in SYNTAX_FAMILIES (01-core.js, which is also where a
+  // stored preference is checked against it — this list used to be duplicated here and fell out of step).
+  // The first four are deliberately quiet and, between them, near-identical: two greys and two whites, one
+  // blue accent. The last three are the ones that answer "give me a theme with actual colour" — Solarized and
+  // Dracula bring a coloured ground, High Contrast brings the opposite of a mood.
   var THEMES = [
     { id: 'system', mode: 'system' },
     { id: 'default-dark', family: 'default', mode: 'dark' },
@@ -824,6 +840,12 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
     { id: 'darcula-light', family: 'darcula', mode: 'light' },
     { id: 'github-dark', family: 'github', mode: 'dark' },
     { id: 'github-light', family: 'github', mode: 'light' },
+    { id: 'solarized-dark', family: 'solarized', mode: 'dark' },
+    { id: 'solarized-light', family: 'solarized', mode: 'light' },
+    { id: 'dracula-dark', family: 'dracula', mode: 'dark' },
+    { id: 'dracula-light', family: 'dracula', mode: 'light' },
+    { id: 'contrast-dark', family: 'contrast', mode: 'dark' },
+    { id: 'contrast-light', family: 'contrast', mode: 'light' },
   ];
   function applySyntaxThemePref(next) {
     if (SYNTAX_FAMILIES.indexOf(next) < 0 || next === syntaxTheme) return;

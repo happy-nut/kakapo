@@ -342,112 +342,53 @@ test("a note can be answered and dismissed without hunting for the controls", ()
 
 // A note whose explanation is a PATH through the code carries `steps`, and kakapo plays them back: the code
 // view moves to each stop and highlights its lines while that step's text is up. The player deliberately does
-// NOT live in the note card — a step can open another file, which unmounts the card it was started from.
-test("a note with steps plays as a walkthrough that outlives the card it started from", async () => {
+// The explanation is an argument, and an argument has an order. The agent groups its notes and appends them
+// in the order they should be read; kakapo walks group by group, and inside a group in that appended order —
+// even when it means going backwards through the file, because file position is where the code happens to
+// live and not what is being explained. Everything ungrouped keeps file order, after the groups.
+test("F8 walks the notes group by group, in the order they were written", async () => {
   const { html } = await makeReviewHtml([
-    {
-      path: "src/server.ts",
-      before: Array.from({ length: 12 }, (_, i) => `const a${i} = ${i};`).join("\n") + "\n",
-      after: Array.from({ length: 12 }, (_, i) => `const a${i} = ${i === 3 ? 99 : i};`).join("\n") + "\n",
-    },
-    { path: "src/router.ts", before: "export const route = 1;\n", after: "export const route = 2;\n" },
+    { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\n",
+      after: "const a = 9;\nconst b = 8;\nconst c = 7;\nconst d = 6;\n" },
   ]);
   const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
 
-  v.agentSays({
-    kind: "note", path: "src/server.ts", line: 4, title: "How a request becomes a response",
-    text: "Three places, and only in this order.",
-    steps: [
-      { line: 4, to: 6, text: "The request lands here, still raw." },
-      { path: "src/router.ts", line: 1, text: "The route is picked by method AND host.\n\n```mermaid\nflowchart TD\n  A[request] --> B[route]\n```" },
-    ],
-  });
+  // Group 1 is written bottom-up on purpose: line 4 then line 1. Group 2 sits between them in the file.
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 4, group: 1, text: "where it goes wrong" });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, group: 1, text: "why that line is reached at all" });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 3, group: 2, text: "how the fix is wired" });
   await v.settle(30);
 
-  const start = v.$(".mc-card.mc-ai .mc-tour-start");
-  assert.ok(start, "the card offers the walkthrough where the note is read");
-  assert.match(start.textContent, /2/, "and says how many stops it has");
+  // Array.from rebuilds it in THIS realm: an array made inside jsdom is not deepStrictEqual to a plain one.
+  const walk = Array.from(v.window.sortedNavThread()).filter((c) => c.by === "agent").map((c) => c.line);
+  assert.deepEqual(walk, [4, 1, 3], "group order first, then the order each group was appended");
 
-  start.click();
-  await v.settle(60);
-  const tour = v.$("#mc-tour");
-  assert.ok(tour, "the player opens as its own overlay, not inside the card");
-  assert.match(tour.textContent, /still raw/, "the first step's text is on screen");
-  assert.match(tour.querySelector(".mc-tour-count").textContent, /1 \/ 2/);
-  assert.ok(v.$(".mc-tour-line"), "the step's lines are highlighted in the code");
-
-  // Step two lives in ANOTHER file: the card is gone from the view, the player is not.
-  v.key("ArrowRight");
-  await v.settle(80);
-  assert.match(v.$("#mc-tour .mc-tour-count").textContent, /2 \/ 2/);
-  assert.match(v.$("#mc-tour").textContent, /method AND host/);
-  // A step is markdown like any note body, so a diagram in one plays as part of the walkthrough — which is
-  // how a sequence of diagrams becomes a sequence, with no separate mechanism for it.
-  assert.ok(v.$("#mc-tour .explain-mermaid"), "a diagram inside a step renders in the player");
-  assert.ok(v.$("#mc-tour"), "the player survives the file change");
-
-  // Stepping past the end is not a wrap-around, same as F7: the last stop is the last stop.
-  v.key("ArrowRight");
+  // A reviewer's own comment has no group and keeps file order, after the explanation.
+  v.window.addComment("q", "src/app.ts", 2, "const b = 8;", "what about this one?");
   await v.settle(30);
-  assert.match(v.$("#mc-tour .mc-tour-count").textContent, /2 \/ 2/, "the walkthrough ends rather than restarting");
-
-  v.key("Escape");
-  await v.settle(30);
-  assert.equal(v.$("#mc-tour"), null, "Esc ends it");
-  assert.equal(v.$(".mc-tour-line"), null, "and takes the highlight with it");
+  const all = Array.from(v.window.sortedNavThread()).map((c) => c.line);
+  assert.deepEqual(all, [4, 1, 3, 2], "an ungrouped comment follows the grouped walk");
   v.close();
 });
 
-// The renderer sends the WHOLE thread back on every save, so a field it fails to carry is a field the next
-// unrelated comment silently deletes from the agent's note.
-test("a note's steps survive a round trip through the renderer's own save", async () => {
+// Losing the group on the next save would silently collapse the walk back to file order.
+test("a note's group survives a round trip through the renderer's own save", async () => {
   const { html } = await makeReviewHtml([
-    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+    { path: "src/app.ts", before: "const a = 1;\n", after: "const a = 9;\n" },
   ]);
   const v = await loadViewer(html);
-  v.agentSays({
-    kind: "note", path: "src/app.ts", line: 1, text: "intro",
-    steps: [{ line: 1, to: 2, text: "first" }, { path: "src/other.ts", line: 9, text: "second" }],
-  });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, group: 2, text: "second group" });
+  await v.settle(30);
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, text: "a later, ungrouped note" });
   await v.settle(30);
 
-  // Objects built inside the jsdom realm are not deepEqual to plain ones here — compare the JSON shape.
-  const record = v.window.reviewComments.map(v.window.commentToRecord).find((r) => r.by === "agent");
-  assert.deepEqual(JSON.parse(JSON.stringify(record.steps)), [
-    { path: "src/app.ts", line: 1, text: "first", to: 2 },
-    { path: "src/other.ts", line: 9, text: "second" },
-  ], "every step goes back out as it came in");
+  const stored = v.storedComments().find((c) => c.text === "second group");
+  assert.equal(stored.group, 2, "the group is written back with the record");
   v.close();
 });
 
-// Steps are written by an agent, so they are hostile input: a stop with no usable line must be dropped rather
-// than played as line 1, which would send the reader to the top of the file for no reason.
-test("unusable steps are dropped instead of played", async () => {
-  const { html } = await makeReviewHtml([
-    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
-  ]);
-  const v = await loadViewer(html);
-  v.agentSays({
-    kind: "note", path: "src/app.ts", line: 1, text: "intro",
-    steps: [{ text: "no line at all" }, { line: "nonsense", text: "bad line" }, { line: 2, text: "the only real stop" }],
-  });
-  await v.settle(30);
-  const note = v.window.reviewComments.find((c) => c.by === "agent");
-  assert.equal(note.steps.length, 1);
-  assert.equal(note.steps[0].text, "the only real stop");
 
-  const plainId = v.agentSays({ kind: "note", path: "src/app.ts", line: 1, text: "plain note", steps: "not an array" });
-  await v.settle(30);
-  const plain = v.window.reviewComments.find((c) => c.seq === plainId);
-  assert.equal(plain.steps, null, "a malformed steps field leaves an ordinary note");
-  // A card renders once per diff pane, so count the notes that offer one rather than the buttons on screen.
-  const offered = new Set(v.$all(".mc-tour-start").map((b) => b.dataset.seq));
-  assert.ok(!offered.has(String(plainId)), "and offers no walkthrough button");
-  v.close();
-});
-
-// The two notes that carry a change's story. A reviewer skimming twelve notes should be able to find the one
-// that says where it hurts and the one that says where it stops hurting, so those two — and only those two —
 // get a pill and a coloured edge.
 test("a note can declare itself the problem or the fix, and an invented role degrades to neither", async () => {
   const { html } = await makeReviewHtml([
@@ -476,5 +417,59 @@ test("a note can declare itself the problem or the fix, and an invented role deg
   assert.ok(v.$(".mc-card.mc-role-problem"), "the mark survives the round trip through the thread file");
   assert.match(v.$(".mc-card.mc-role-problem").textContent, /Where it goes wrong/, "on the same note");
   assert.ok(problem > 0, "the note kept its id");
+  v.close();
+});
+
+// Following a note's path link opens the source view, and openSourceFile (11-render-http.js) re-injects the
+// cards by calling renderSourceComments directly — not through refreshComments, which is the only place that
+// used to render diagrams. So the card came back with its diagram stuck on "loading…" until some later
+// refresh happened to run, which is what made it look intermittent.
+test("a diagram renders when the source view injects its cards, not only on a comment refresh", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+
+  // No mermaid yet: the placeholder is created but nothing can render it, and it stays un-rendered rather
+  // than being marked done — exactly the state a card is in before you navigate to it.
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, title: "flow", text: NOTE_TEXT });
+  await v.settle(30);
+  assert.ok(v.$(".explain-mermaid"), "the placeholder exists");
+  assert.equal(v.$(".explain-mermaid svg"), null, "and has not been rendered");
+
+  // Now mermaid is available (loadMermaid checks window.mermaid before its cached script promise), and the
+  // source view opens — the path a note link takes.
+  v.window.mermaid = {
+    initialize() {},
+    render: (id) => Promise.resolve({ svg: `<svg data-rendered="${id}"></svg>` }),
+  };
+  await v.openSourceFile("src/app.ts");
+  await v.settle(60);
+
+  const rendered = v.$("#source-body .explain-mermaid svg");
+  assert.ok(rendered, "opening the file renders the diagram it just re-injected");
+  assert.match(rendered.dataset.rendered, /explain-mermaid-/, "and it is this placeholder's own render");
+  v.close();
+});
+
+// "Full size" that comes back the size it already was reads as a broken button. The data URL pins the SVG to
+// whatever it measured inside the note card, and the lightbox only ever had max-width/max-height, which can
+// shrink but never grow — so a diagram opened from a 700px card stayed 700px on a 2000px screen.
+test("a diagram fills the lightbox, while a raster preview is still never blown up", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+
+  v.window.openLightbox("data:image/svg+xml;charset=utf-8,%3Csvg%3E%3C/svg%3E", "diagram", true);
+  await v.settle(20);
+  const img = v.$("#mc-lightbox img");
+  assert.ok(img.classList.contains("mc-lightbox-vector"), "a vector source is marked as one");
+  assert.equal(v.window.getComputedStyle(img).width, "96vw", "and is given the viewport to grow into");
+
+  v.window.openLightbox("data:image/png;base64,iVBORw0KGgo=", "screenshot");
+  await v.settle(20);
+  assert.equal(img.classList.contains("mc-lightbox-vector"), false, "a raster preview is not");
+  assert.notEqual(v.window.getComputedStyle(img).width, "96vw", "so its own pixels still bound it");
   v.close();
 });

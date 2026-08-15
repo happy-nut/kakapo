@@ -4,7 +4,7 @@
 // inside a 4,000-character line nobody could diff (issue #28).
 //
 // So the examples in the prompts are tested as the contract they are: every JSON object a prompt shows the
-// agent is parsed back through the real reader, and its fields must exist on ThreadRecord/NoteStep. The key
+// agent is parsed back through the real reader, and its fields must exist on ThreadRecord. The key
 // list is read out of src/comments-file.ts rather than copied here, so renaming a field fails this test
 // instead of quietly outdating it.
 import { test } from "node:test";
@@ -26,7 +26,6 @@ function typeKeys(name) {
 }
 
 const RECORD_KEYS = typeKeys("ThreadRecord");
-const STEP_KEYS = typeKeys("NoteStep");
 
 // The prompts write placeholders where a real value goes ("id":<highest id in the file + 1>). Substituting a
 // number is what the agent does; it is the KEYS that are the contract, so that is what survives the swap.
@@ -74,12 +73,6 @@ test("every JSON example in the prompts is a record kakapo can read back", () =>
         for (const record of records) {
           for (const field of Object.keys(record)) {
             assert.ok(RECORD_KEYS.has(field), `${locale} ${key}: "${field}" is not a ThreadRecord field`);
-          }
-          for (const step of record.steps ?? []) {
-            for (const field of Object.keys(step)) {
-              assert.ok(STEP_KEYS.has(field), `${locale} ${key}: step "${field}" is not a NoteStep field`);
-            }
-            assert.ok(Number.isFinite(step.line), `${locale} ${key}: a step names its line`);
           }
         }
       }

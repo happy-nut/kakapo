@@ -266,15 +266,21 @@ document.querySelector("#settings").onclick=()=>window.kakapoHub.settings();
 // One version check per launch, against the same GitHub release the review's settings panel reads. The chip is
 // only ever a pointer: the install itself lives behind the Update button in Settings, which knows whether
 // this is the packaged bundle (release DMG) or the global CLI (npm).
+// On a timer, not once at startup: this window is left running for days with workspaces open, so a release
+// published after launch was invisible until something reloaded the page. The label is rebuilt from a base
+// caption each time — appending to the chip's own text would grow it by a version on every check.
 (()=>{const chip=document.querySelector("#update-chip");if(!chip||typeof fetch!=="function")return;
+const base=chip.textContent;
 chip.onclick=()=>window.kakapoHub.settings();
 const newer=(a,b)=>{const p=v=>String(v).replace(/^v/,"").split(".").map(n=>parseInt(n,10)||0),x=p(a),y=p(b);
   for(let i=0;i<Math.max(x.length,y.length);i++){const l=x[i]||0,r=y[i]||0;if(l!==r)return l>r;}return false;};
-fetch("https://api.github.com/repos/happy-nut/kakapo/releases/latest",{cache:"no-store",headers:{accept:"application/vnd.github+json"}})
+const check=()=>fetch("https://api.github.com/repos/happy-nut/kakapo/releases/latest",{cache:"no-store",headers:{accept:"application/vnd.github+json"}})
   .then(r=>r&&r.ok?r.json():null)
   .then(d=>{const v=d&&d.tag_name?String(d.tag_name).replace(/^v/,""):"";
-    if(v&&newer(v,APP_VERSION)){chip.textContent=chip.textContent+" v"+v;chip.classList.remove("hidden");}})
-  .catch(()=>{});})();
+    if(v&&newer(v,APP_VERSION)){chip.textContent=base+" v"+v;chip.classList.remove("hidden");}})
+  .catch(()=>{});
+check();
+setInterval(check,6*60*60*1000);})();
 const tools=document.getElementById('tools');
 tools.addEventListener('click',e=>{const b=e.target.closest('button.tb');if(!b)return;window.kakapoHub.railAction(b.dataset.act)});
 // Custom hover tooltip (label + shortcut kbd) for the top toolbar buttons — styled like the review view's, and
@@ -395,12 +401,26 @@ function toggleRail(){railExp=!railExp;paintRail();window.kakapoHub.setHubExpand
 function railDropChromeFocus(){const a=document.activeElement;if(a&&a.closest&&a.closest('#railhead')&&a.blur)a.blur();}
 // While the expanded rail holds focus, ↑/↓ move a selection through the workspace tiles and Enter opens it.
 let railSel=-1;
+// The cursor is remembered as the WORKSPACE it sits on, not as a row number. Every state push rebuilds the
+// list (list.innerHTML below), and an index survives that rebuild only while the rows happen to line up:
+// collapse a project group, or let one appear/disappear, and row 2 is a different worktree than it was. That
+// is how the ring ended up on a workspace nobody had chosen.
+let railSelId=null;
 // Disconnected tiles ARE keyboard-navigable — Enter/⌫ on one routes to the reconnect/forget dialog, same as a
 // click. (They used to be excluded here, so a dead workspace could be neither selected nor recovered by keyboard.)
 function railTiles(){return [...document.querySelectorAll('.ev .proj:not(.collapsed) .wt')];}
-function railSelect(i){const t=railTiles();if(!t.length){railSel=-1;return;}railSel=Math.max(0,Math.min(t.length-1,i));t.forEach((el,j)=>el.classList.toggle('kbd-sel',j===railSel));const el=t[railSel];if(el&&el.scrollIntoView)el.scrollIntoView({block:'nearest'});}
-function railClearSel(){railSel=-1;document.querySelectorAll('.ev .wt.kbd-sel').forEach(el=>el.classList.remove('kbd-sel'));}
+// The ring means "the keyboard is HERE, on this row". The expanded rail deliberately survives a click into a
+// terminal pane (kakapo:review-clicked in app-main: taking focus there is not "I am done with the rail"), so
+// the cursor outlived the keyboard and sat there as a second, competing "selected" workspace beside the real
+// one — highlighted rows in two different projects at once. Paint it only while this view actually holds the
+// keyboard; the selection itself is kept, so focus coming back restores it rather than starting over.
+function railPaint(){const t=railTiles();const i=(document.hasFocus()&&railSelId!=null)?t.findIndex(el=>el.dataset.id===railSelId):-1;railSel=i;t.forEach((el,j)=>el.classList.toggle('kbd-sel',j===i));}
+function railSelect(i){const t=railTiles();if(!t.length){railSel=-1;railSelId=null;return;}const n=Math.max(0,Math.min(t.length-1,i));railSelId=t[n].dataset.id;railPaint();const el=t[n];if(el&&el.scrollIntoView)el.scrollIntoView({block:'nearest'});}
+function railClearSel(){railSelId=null;railPaint();}
 function initRailSel(){const t=railTiles();const ai=t.findIndex(el=>el.classList.contains('act'));railSelect(ai>=0?ai:0);}
+// Focus leaving this view hides the ring; focus returning shows it again on the same workspace.
+window.addEventListener('blur',railPaint);
+window.addEventListener('focus',()=>{if(railExp&&railSelId==null)initRailSel();else railPaint();});
 document.addEventListener('keydown',e=>{
   if(!railExp||document.querySelector('dialog[open]'))return; // only when the rail is expanded and no dialog owns keys
   const a=document.activeElement;if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'))return;
@@ -416,6 +436,12 @@ document.addEventListener('keydown',e=>{
   else if(e.metaKey&&!e.ctrlKey&&!e.shiftKey&&!e.altKey&&e.key==='9')fwd='history';
   else if(e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&e.code==='Backquote')fwd='terminal';
   if(fwd){e.preventDefault();toggleRail();window.kakapoHub.railAction(fwd+':open');return;}
+  // ⌘, is the same story as the tools above — Settings lives in the review view, so while the rail holds the
+  // keyboard the standard Preferences accelerator did nothing at all. It carries no ':open': Settings is a
+  // modal you toggle, not a view the rail can reveal.
+  if((e.metaKey||e.ctrlKey)&&!e.shiftKey&&!e.altKey&&(e.key===','||e.code==='Comma')){
+    e.preventDefault();toggleRail();window.kakapoHub.railAction('settings');return;
+  }
   // F7/⇧F7 step through changes, which is a review action, not a rail one — collapse and forward it too so
   // the panel gets out of the way instead of swallowing the key.
   if(e.key==='F7'&&!e.metaKey&&!e.ctrlKey&&!e.altKey){
@@ -503,7 +529,10 @@ for(const el of list.querySelectorAll('.wt')){el.onclick=()=>{const id=Number(el
 for(const el of list.querySelectorAll('.phav')){el.onclick=()=>{const ws=groups.get(el.dataset.repo)||[];const t=ws.find(w=>w.active&&!w.disconnected)||ws.find(w=>!w.disconnected)||ws[0];if(!t)return;if(t.closed)window.kakapoHub.openPath(t.path);else if(t.disconnected)window.kakapoHub.openModal('disconnected',{path:t.path});else window.kakapoHub.activate(t.id);};}
 // Expanded project header → collapse/expand its worktree list (chevron rotates).
 for(const el of list.querySelectorAll('.prow')){el.onclick=()=>el.parentElement.classList.toggle('collapsed');}
-if(railExp)railSelect(railSel<0?0:railSel); // re-apply the keyboard selection after a re-render
+// Re-apply the keyboard cursor after a re-render — by workspace, and only if this view holds the keyboard.
+// It used to force row 0 selected whenever nothing was (railSel<0), so a rail nobody had touched still drew a
+// ring on whatever happened to be first.
+if(railExp)railPaint();
 });
 // Lightweight agent-activity ticks (spinner / attention dot) that toggle classes on existing tiles without a
 // full re-render, so a streaming agent doesn't rebuild the rail DOM and drop hover/focus state.
@@ -631,7 +660,7 @@ dialog#confirm::backdrop{background:${dim}}
 #confirm .cf-btn.danger{background:#d9463e;color:#fff;border-color:transparent}
 #confirm .cf-btn.pri:hover,#confirm .cf-btn.danger:hover{filter:brightness(1.07)}
 #confirm .cf-btn:focus-visible{outline:none;box-shadow:0 0 0 3px #4d86d955}</style>
-<dialog id="create"><div class="dh"><b>${t("newws.title")}</b><button class="dx" id="dlgClose" aria-label="${t("newws.close")}">✕</button></div><div class="db"><label>${t("newws.project")}</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">${t("newws.selectProject")}</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label class="wt-opt"><input type="checkbox" id="wtNew" checked><span>${t("newws.newWorktree")}</span></label><div class="wt-hint">${t("newws.newWorktree.hint")}</div><div id="labelRow"><label>${t("newws.taskName")}</label><input id="label" class="tin" placeholder="${t("newws.taskPlaceholder")}" autocomplete="off" spellcheck="false"></div><div id="baseRow"><label>${t("newws.base")}</label><input id="base" class="tin" autocomplete="off" spellcheck="false"><div class="wt-hint">${t("newws.base.hint")}</div></div><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">${t("newws.cancel")}</button><button id="doCreate" class="dbtn pri"><span class="dcl">${t("newws.create")}</span><kbd>⌘↵</kbd></button></div></div></dialog>
+<dialog id="create"><div class="dh"><b>${t("newws.title")}</b><button class="dx" id="dlgClose" aria-label="${t("newws.close")}">✕</button></div><div class="db"><label>${t("newws.project")}</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">${t("newws.selectProject")}</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label class="wt-opt"><input type="checkbox" id="wtNew" checked><span>${t("newws.newWorktree")}</span></label><div class="wt-hint">${t("newws.newWorktree.hint")}</div><div id="labelRow"><label>${t("newws.taskName")}</label><input id="label" class="tin" placeholder="${t("newws.taskPlaceholder")}" autocomplete="off" spellcheck="false"></div><div id="descRow"><label>${t("newws.desc")}</label><input id="desc" class="tin" placeholder="${t("newws.desc.placeholder")}" autocomplete="off"></div><div id="baseRow"><label>${t("newws.base")}</label><select id="base" class="tin"></select><div class="wt-hint">${t("newws.base.hint")}</div></div><input type="hidden" id="slug"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">${t("newws.cancel")}</button><button id="doCreate" class="dbtn pri"><span class="dcl">${t("newws.create")}</span><kbd>⌘↵</kbd></button></div></div></dialog>
 <dialog id="prompt"><div class="dh"><b id="promptTitle"></b></div><div class="db"><input id="promptInput" class="tin" autocomplete="off" spellcheck="false"><div class="actions"><button id="promptCancel" class="dbtn">${t("newws.cancel")}</button><button id="promptOk" class="dbtn pri">${t("newws.ok")}</button></div></div></dialog>
 <dialog id="disc"><div class="disc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div><div class="disc-msg">${t("disc.message")}</div><div id="discPath" class="disc-path"></div><div class="disc-actions"><button id="discReconnect" class="disc-btn pri">${t("disc.reconnect")}</button><button id="discRemove" class="disc-btn">${t("disc.remove")}</button><button id="discCancel" class="disc-btn">${t("disc.cancel")}</button></div></dialog>
 <dialog id="confirm"><div class="cf-ic hidden" id="cfIcon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div><div class="cf-title" id="cfTitle"></div><div class="cf-msg" id="cfMsg"></div><div class="cf-detail hidden" id="cfDetail"></div><label class="cf-check hidden" id="cfCheckWrap"><input type="checkbox" id="cfCheck"><span id="cfCheckLabel"></span></label><div class="cf-actions" id="cfActions"></div></dialog><script>
@@ -641,7 +670,7 @@ const dlg=document.querySelector("#create");let creating=false;
 // Each open starts clean (the overlay page persists across opens, so stale repo/label would otherwise linger).
 // repo/name prefill the project from the rail's active workspace (see the openModal('new',…) call sites) —
 // a new task nearly always belongs to the project you are looking at.
-function openCreate(repo,name){document.querySelector("#repo").value='';const n=document.querySelector("#repoName");n.textContent=T.selectProject;n.classList.add('ph');document.querySelector("#label").value='';document.querySelector("#base").value='';document.querySelector("#preview").innerHTML='';document.querySelector("#createError").textContent='';document.querySelector("#wtNew").checked=true;paintWorktreeMode();loadProjects();closeProjectMenu();dlg.showModal();
+function openCreate(repo,name){document.querySelector("#repo").value='';const n=document.querySelector("#repoName");n.textContent=T.selectProject;n.classList.add('ph');document.querySelector("#label").value='';document.querySelector("#desc").value='';document.querySelector("#slug").value='';document.querySelector("#base").innerHTML='';document.querySelector("#preview").innerHTML='';document.querySelector("#createError").textContent='';document.querySelector("#wtNew").checked=true;paintWorktreeMode();loadProjects();closeProjectMenu();dlg.showModal();
 if(repo)pickProject(repo,name);else setTimeout(()=>document.querySelector("#choose").focus(),0);}
 // Any close of the create dialog (cancel / ✕ / Esc / success) tells main to hide the overlay.
 dlg.addEventListener('close',()=>window.kakapoHub.closeModal());
@@ -649,16 +678,23 @@ document.querySelector("#cancelCreate").onclick=()=>{if(creating)window.kakapoHu
 const wtNew=document.querySelector("#wtNew");
 // Unchecked = open the project's existing checkout as-is: no new branch, no new folder, so the task-name field
 // (which only names a worktree) is irrelevant and hides.
-function paintWorktreeMode(){document.querySelector("#labelRow").classList.toggle('hidden',!wtNew.checked);document.querySelector("#baseRow").classList.toggle('hidden',!wtNew.checked);document.querySelector("#doCreate").querySelector('.dcl').textContent=wtNew.checked?T.create:T.open;}
+function paintWorktreeMode(){document.querySelector("#labelRow").classList.toggle('hidden',!wtNew.checked);document.querySelector("#baseRow").classList.toggle('hidden',!wtNew.checked);document.querySelector("#descRow").classList.toggle('hidden',!wtNew.checked);document.querySelector("#doCreate").querySelector('.dcl').textContent=wtNew.checked?T.create:T.open;}
 wtNew.onchange=()=>{paintWorktreeMode();document.querySelector("#createError").textContent='';if(document.querySelector("#repo").value)preview();else document.querySelector("#preview").innerHTML='';};
 // The base is no longer PRINTED in the preview: it is the value of an editable field two rows up, and a
 // preview that repeats an input the reader is looking at spends a line saying nothing. Filling that field is
 // this function's job instead — but only while it is still empty, or typing a task name would overwrite the
 // ref the reviewer just chose (preview() runs on every keystroke).
-async function preview(){const r=await window.kakapoHub.preview(document.querySelector("#repo").value,document.querySelector("#label").value,wtNew.checked);const b=document.querySelector("#base");if(r.ok&&r.worktree&&r.base&&!b.value)b.value=r.base;document.querySelector("#preview").innerHTML=r.ok?(r.worktree?'slug: '+esc(r.slug)+'<br>branch: '+esc(r.branch)+'<br>':'branch: '+esc(r.branch)+'<br>')+esc(r.path):''}
+async function preview(){const slugEl=document.querySelector("#slug");
+// The slug is random, so the preview must be told the one already on screen — otherwise every keystroke of the
+// task name would reshuffle the branch the reader is looking at.
+const r=await window.kakapoHub.preview(document.querySelector("#repo").value,document.querySelector("#label").value,wtNew.checked,slugEl.value);
+const b=document.querySelector("#base");
+if(r.ok&&r.worktree&&r.slug)slugEl.value=r.slug;
+if(r.ok&&r.worktree&&Array.isArray(r.refs)&&!b.options.length){for(const ref of r.refs){const o=document.createElement("option");o.value=ref;o.textContent=ref;b.appendChild(o);}}
+if(r.ok&&r.worktree&&r.base&&!b.value){if(![...b.options].some(o=>o.value===r.base)){const o=document.createElement("option");o.value=r.base;o.textContent=r.base;b.insertBefore(o,b.firstChild);}b.value=r.base;}document.querySelector("#preview").innerHTML=r.ok?(r.worktree?'slug: '+esc(r.slug)+'<br>branch: '+esc(r.branch)+'<br>':'branch: '+esc(r.branch)+'<br>')+esc(r.path):''}
 const projectMenu=document.querySelector("#projectMenu"),chooseBtn=document.querySelector("#choose");
 function closeProjectMenu(){projectMenu.classList.add('hidden');chooseBtn.setAttribute('aria-expanded','false');}
-function pickProject(path,name){document.querySelector("#repo").value=path;document.querySelector("#base").value='';const n=document.querySelector("#repoName");n.textContent=name||(path.split('/').filter(Boolean).pop()||path);n.classList.remove('ph');closeProjectMenu();preview();document.querySelector("#label").focus();}
+function pickProject(path,name){document.querySelector("#repo").value=path;const b=document.querySelector("#base");b.innerHTML='';b.value='';document.querySelector("#slug").value='';const n=document.querySelector("#repoName");n.textContent=name||(path.split('/').filter(Boolean).pop()||path);n.classList.remove('ph');closeProjectMenu();preview();document.querySelector("#label").focus();}
 async function browseForRepo(){closeProjectMenu();const r=await window.kakapoHub.chooseRepo();if(r.ok)pickProject(r.repo);}
 const _pmFolder='<span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span>';
 async function loadProjects(){let ps=[];try{ps=await window.kakapoHub.listProjects();}catch(e){}if(!Array.isArray(ps))ps=[];let html='';for(const p of ps)html+='<button type="button" role="option" data-path="'+esc(p.path)+'" data-name="'+esc(p.name)+'">'+_pmFolder+'<span class="pm-name">'+esc(p.name)+'</span><span class="pm-path">'+esc(p.path)+'</span></button>';if(ps.length)html+='<div class="pm-sep"></div>';html+='<button type="button" id="pmBrowse" class="pm-browse"><span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span><span class="pm-name">'+esc(T.browse)+'</span></button>';projectMenu.innerHTML=html;}
@@ -677,7 +713,7 @@ document.querySelector("#label").oninput=preview;
 document.querySelector("#dlgClose").onclick=()=>{if(!creating)dlg.close()};
 dlg.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();document.querySelector("#doCreate").click();}});
 document.querySelector("#doCreate").onclick=async()=>{const btn=document.querySelector("#doCreate"),lbl=btn.querySelector('.dcl'),err=document.querySelector("#createError");if(creating)return;if(!document.querySelector("#repo").value){err.textContent=T.chooseFirst;return;}const wt=wtNew.checked;creating=true;btn.disabled=true;lbl.textContent=wt?T.creating:T.opening;err.textContent="";
-const r=await window.kakapoHub.create(document.querySelector("#repo").value,document.querySelector("#label").value,wt,document.querySelector("#base").value);creating=false;btn.disabled=false;lbl.textContent=wt?T.create:T.open;if(r.ok)dlg.close();else err.textContent=r.error||T.createFailed};
+const r=await window.kakapoHub.create(document.querySelector("#repo").value,document.querySelector("#label").value,wt,{base:document.querySelector("#base").value,slug:document.querySelector("#slug").value,memo:document.querySelector("#desc").value});creating=false;btn.disabled=false;lbl.textContent=wt?T.create:T.open;if(r.ok)dlg.close();else err.textContent=r.error||T.createFailed};
 const promptDlg=document.querySelector("#prompt"),promptInput=document.querySelector("#promptInput"),promptTitle=document.querySelector("#promptTitle");
 function showPrompt(title,initial){return new Promise(resolve=>{promptTitle.textContent=title;promptInput.value=initial||'';const onClose=()=>{promptDlg.removeEventListener('close',onClose);resolve(promptDlg.returnValue==='ok'?promptInput.value:null);};promptDlg.addEventListener('close',onClose);promptDlg.showModal();setTimeout(()=>{promptInput.focus();promptInput.select();},0);});}
 document.querySelector("#promptOk").onclick=()=>promptDlg.close('ok');
