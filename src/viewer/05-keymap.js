@@ -114,7 +114,6 @@ var KEY_OWNERS = [
   // A playing note walkthrough (23-annotations.js) owns the arrows — they are how you step it, and the caret
   // they would otherwise move is being driven by the tour anyway. It claims nothing else, so every other key
   // reaches the surfaces below exactly as before.
-  { name: 'note-tour', handle: function (event) { return typeof handleTourKey === 'function' && handleTourKey(event); } },
   // Semantic navigation is a caret-local dropdown. It must own arrows/Enter before the persistent sidebar's
   // logical tree focus gets a chance to consume them; otherwise Enter opens the tree row instead of the
   // selected definition when Cmd+B was invoked after Cmd+0/Cmd+1.

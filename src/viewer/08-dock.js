@@ -563,8 +563,6 @@ document.addEventListener('click', function (event) {
   var reopen = t.closest('.mc-reopen');
   if (reopen) { event.preventDefault(); reopenComment(parseInt(reopen.dataset.seq, 10)); return; }
   // ▶ on a note that carries steps: play its walkthrough (23-annotations.js).
-  var tourStart = t.closest('.mc-tour-start');
-  if (tourStart) { event.preventDefault(); startNoteTour(parseInt(tourStart.dataset.seq, 10)); return; }
   // A file path inside an agent's prose (linkifyPathCode in 23-annotations.js) navigates to that file.
   var pathCode = t.closest('.mc-path-code');
   if (pathCode) { event.preventDefault(); openPathReference(pathCode.textContent || ''); return; }

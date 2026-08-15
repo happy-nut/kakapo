@@ -133,32 +133,15 @@ function commentToRecord(c) {
   if (Number(c.to) && Number(c.to) !== c.line) record.to = Number(c.to);
   if (c.side) record.side = c.side;
   if (c.role) record.role = c.role; // written back, or the agent's problem/fix marks vanish on the next save
+  if (c.group) record.group = c.group; // likewise: losing the group would collapse the walk back to file order
   if (c.anchorCode) record.anchor = c.anchorCode;
   if (c.title) record.title = c.title;
   if (c.addressed) record.addressed = true;
   // Written by the agent, never by this app — but it has to be carried back out. The renderer sends the WHOLE
   // list on every save (saveThread), so a field it forgets here is a field the next unrelated comment deletes
   // from the agent's note.
-  if (c.steps && c.steps.length) record.steps = c.steps;
   record.text = c.text;
   return record;
-}
-// A note's walkthrough stops, as written by an agent — so every field is treated as hostile input: a step
-// without a usable line is dropped rather than played as line 1, and a note whose "steps" is not an array
-// simply has none. `to` is normalized to at least `line`, so painting a range never has to test the order.
-function recordSteps(record, notePath) {
-  if (!Array.isArray(record.steps)) return null;
-  var steps = [];
-  record.steps.forEach(function (raw) {
-    if (!raw || typeof raw !== 'object') return;
-    var line = Math.floor(Number(raw.line));
-    if (!Number.isFinite(line) || line < 1) return;
-    var to = Math.floor(Number(raw.to));
-    var step = { path: raw.path ? String(raw.path) : notePath, line: line, text: String(raw.text == null ? '' : raw.text) };
-    if (Number.isFinite(to) && to > line) step.to = to;
-    steps.push(step);
-  });
-  return steps.length ? steps : null;
 }
 function recordToComment(record, byId) {
   var parent = record.re != null ? byId[record.re] : null;
@@ -174,8 +157,8 @@ function recordToComment(record, byId) {
     // Only the two roles the card knows how to draw survive the trip: anything else an agent invents would
     // otherwise reach agentCardHtml as a class name and a missing translation.
     role: record.role === 'problem' || record.role === 'fix' ? record.role : null,
+    group: Number(record.group) > 0 ? Number(record.group) : 0,
     addressed: !!record.addressed, anchorPresent: anchorLinePresent(path, anchor, anchor),
-    steps: recordSteps(record, path),
     text: String(record.text == null ? '' : record.text),
   };
 }
@@ -1078,9 +1061,17 @@ function navOrderFor(list) {
   extra.sort().forEach(function (path) { order[path] = next++; });
   return order;
 }
+// The agent's notes walk in the order the EXPLANATION was built — group by group, and inside a group in the
+// order they were appended — because that order is the argument being made. File position is where the code
+// happens to live, which is a different thing and was the only order this used to offer. Everything ungrouped
+// (the reviewer's own comments, and any note written before groups existed) keeps that file order, after them.
 function sortedNavComments() {
   var order = commentNavOrder();
   return reviewComments.slice().sort(function (a, b) {
+    var ga = Number(a.group) > 0 ? Number(a.group) : Infinity;
+    var gb = Number(b.group) > 0 ? Number(b.group) : Infinity;
+    if (ga !== gb) return ga - gb;
+    if (ga !== Infinity) return a.seq - b.seq;
     var oa = a.path in order ? order[a.path] : Infinity;
     var ob = b.path in order ? order[b.path] : Infinity;
     if (oa !== ob) return oa - ob;

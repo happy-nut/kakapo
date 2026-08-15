@@ -401,12 +401,26 @@ function toggleRail(){railExp=!railExp;paintRail();window.kakapoHub.setHubExpand
 function railDropChromeFocus(){const a=document.activeElement;if(a&&a.closest&&a.closest('#railhead')&&a.blur)a.blur();}
 // While the expanded rail holds focus, ↑/↓ move a selection through the workspace tiles and Enter opens it.
 let railSel=-1;
+// The cursor is remembered as the WORKSPACE it sits on, not as a row number. Every state push rebuilds the
+// list (list.innerHTML below), and an index survives that rebuild only while the rows happen to line up:
+// collapse a project group, or let one appear/disappear, and row 2 is a different worktree than it was. That
+// is how the ring ended up on a workspace nobody had chosen.
+let railSelId=null;
 // Disconnected tiles ARE keyboard-navigable — Enter/⌫ on one routes to the reconnect/forget dialog, same as a
 // click. (They used to be excluded here, so a dead workspace could be neither selected nor recovered by keyboard.)
 function railTiles(){return [...document.querySelectorAll('.ev .proj:not(.collapsed) .wt')];}
-function railSelect(i){const t=railTiles();if(!t.length){railSel=-1;return;}railSel=Math.max(0,Math.min(t.length-1,i));t.forEach((el,j)=>el.classList.toggle('kbd-sel',j===railSel));const el=t[railSel];if(el&&el.scrollIntoView)el.scrollIntoView({block:'nearest'});}
-function railClearSel(){railSel=-1;document.querySelectorAll('.ev .wt.kbd-sel').forEach(el=>el.classList.remove('kbd-sel'));}
+// The ring means "the keyboard is HERE, on this row". The expanded rail deliberately survives a click into a
+// terminal pane (kakapo:review-clicked in app-main: taking focus there is not "I am done with the rail"), so
+// the cursor outlived the keyboard and sat there as a second, competing "selected" workspace beside the real
+// one — highlighted rows in two different projects at once. Paint it only while this view actually holds the
+// keyboard; the selection itself is kept, so focus coming back restores it rather than starting over.
+function railPaint(){const t=railTiles();const i=(document.hasFocus()&&railSelId!=null)?t.findIndex(el=>el.dataset.id===railSelId):-1;railSel=i;t.forEach((el,j)=>el.classList.toggle('kbd-sel',j===i));}
+function railSelect(i){const t=railTiles();if(!t.length){railSel=-1;railSelId=null;return;}const n=Math.max(0,Math.min(t.length-1,i));railSelId=t[n].dataset.id;railPaint();const el=t[n];if(el&&el.scrollIntoView)el.scrollIntoView({block:'nearest'});}
+function railClearSel(){railSelId=null;railPaint();}
 function initRailSel(){const t=railTiles();const ai=t.findIndex(el=>el.classList.contains('act'));railSelect(ai>=0?ai:0);}
+// Focus leaving this view hides the ring; focus returning shows it again on the same workspace.
+window.addEventListener('blur',railPaint);
+window.addEventListener('focus',()=>{if(railExp&&railSelId==null)initRailSel();else railPaint();});
 document.addEventListener('keydown',e=>{
   if(!railExp||document.querySelector('dialog[open]'))return; // only when the rail is expanded and no dialog owns keys
   const a=document.activeElement;if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'))return;
@@ -515,7 +529,10 @@ for(const el of list.querySelectorAll('.wt')){el.onclick=()=>{const id=Number(el
 for(const el of list.querySelectorAll('.phav')){el.onclick=()=>{const ws=groups.get(el.dataset.repo)||[];const t=ws.find(w=>w.active&&!w.disconnected)||ws.find(w=>!w.disconnected)||ws[0];if(!t)return;if(t.closed)window.kakapoHub.openPath(t.path);else if(t.disconnected)window.kakapoHub.openModal('disconnected',{path:t.path});else window.kakapoHub.activate(t.id);};}
 // Expanded project header → collapse/expand its worktree list (chevron rotates).
 for(const el of list.querySelectorAll('.prow')){el.onclick=()=>el.parentElement.classList.toggle('collapsed');}
-if(railExp)railSelect(railSel<0?0:railSel); // re-apply the keyboard selection after a re-render
+// Re-apply the keyboard cursor after a re-render — by workspace, and only if this view holds the keyboard.
+// It used to force row 0 selected whenever nothing was (railSel<0), so a rail nobody had touched still drew a
+// ring on whatever happened to be first.
+if(railExp)railPaint();
 });
 // Lightweight agent-activity ticks (spinner / attention dot) that toggle classes on existing tiles without a
 // full re-render, so a streaming agent doesn't rebuild the rail DOM and drop hover/focus state.

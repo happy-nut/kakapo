@@ -9,6 +9,7 @@ One line per note:
 - "path" is repo-relative, exactly as the diff shows it.
 - "line" is the line number in the NEW version of the file (the right-hand side of the diff). Anchor each note to the single most important line of the passage it explains.
 - "text" is markdown on ONE line — write real line breaks as \n inside the JSON string.
+- "group" is required: which part of the explanation this note belongs to (see below).
 - "role" is optional and marks the notes that carry the story: "problem" on the note that shows where things actually go wrong, "fix" on the one or two places that decide how it is solved. kakapo draws those cards louder than the rest and lets the reader jump between them. Use it on at most three notes in a diff — a diff where everything is decisive has no decisive part.
 - APPEND only. The reviewer own comments and your earlier answers live in this same file: never rewrite, reorder or renumber a line already there.
 
@@ -20,7 +21,7 @@ How to write each note:
 - A name this codebase invented is NOT that. A pin, a manifest, the canonical set: the reader has never met it and no amount of general knowledge will help, so the rule above does not apply and there is nothing to look up. Say what the thing IS before you use it as a word - not "the pins that were never received" but "a pin - one ticker on one day - that never arrived". If you cannot define it in half a line, you do not understand it well enough to write the note yet.
 - Lead with WHY, never what. The code already says what it does. "Adds a null check" is worthless. "Without this, closing the window while the file is still loading crashes the app, because the callback fires after the state it needs is already gone" is the whole point. For every note, answer: what breaks without this? What was the author trying to avoid? Why this way instead of the obvious simpler way?
 - An everyday-life analogy is welcome whenever it carries the why faster than the code does.
-- Cover the whole change, not just the biggest hunk: 6-15 notes for an ordinary diff. Skip the trivia (renames, formatting, mechanical churn) and annotate the decisions.
+- Cover the whole change, not just the biggest hunk: AT MOST 10 notes, and fewer is better. Ten things to read is already a lot to hold; past that the reader stops walking them and starts skimming, which is the one outcome every rule here is trying to avoid. Skip the trivia (renames, formatting, mechanical churn) and annotate the decisions.
 - Never restate the diff line by line. Every note has to earn its place.
 - Two to five sentences per note. Longer than that is a note that has not been thought through yet.
 - Name the symptom a person would actually SEE: the list flashes empty for a moment when you switch tabs, not a state inconsistency.
@@ -50,15 +51,14 @@ Reach for a diagram whenever prose is struggling:
 - Keep every diagram down to a handful of nodes. Split a big one in two rather than letting it sprawl.
 At least a third of your notes should carry a diagram.
 
-Walk the reader through the code when the explanation is a PATH and not a paragraph: several places that only make sense in order — a request crossing layers, a value written in one file and read in another, a lifecycle from first call to teardown. Give that note "steps", and kakapo plays it back: the code view jumps to each stop and highlights its lines while that step is on screen, so the reader WATCHES the path being walked instead of reading a description of it.
+Every note belongs to a GROUP, and the groups are the reading order.
 
-{"id":13,"by":"agent","kind":"note","path":"src/server.ts","line":40,"title":"How a request becomes a response","text":"markdown intro","steps":[{"line":40,"to":52,"text":"The request lands here, still raw - nothing has been parsed yet."},{"path":"src/router.ts","line":88,"text":"The route is picked by method AND host, which is why renaming one here is never a local change."}]}
+A group is a set of notes that only mean something together — one thread of the argument. "Where it goes wrong and why it had to change" is one. "How the fix is wired through" is another. "What had to move out of the way to make room" is a third. Two to four groups for an ordinary diff; a group of one is fine when a point stands alone.
 
-- Each step: "line" (required, in the NEW version of the file), "to" for a range, "path" only when the step leaves the note file, and "text" - one or two sentences of markdown.
-- 3-7 steps. Every step is a place worth stopping at; a step that says nothing beyond and then this function is called belongs merged into its neighbour.
-- The note text stays the setup - what this walkthrough is about, and why it is worth following. The steps carry the journey itself.
-- Most notes need no steps. Use them where the ORDER is the explanation.
-- A step is markdown like any note body, so a step can carry its own Mermaid diagram. A walkthrough whose steps are diagrams is how you show a system changing state over time - one small diagram per stop beats one big one nobody can trace.
+- Give every note `"group": 1`, `"group": 2`, … Group 1 opens with the problem note.
+- Order the groups so that having read group 1, group 2 follows. The reader walks them end to end with F8: the last note of one group is followed immediately by the first of the next, so a group has to leave them standing somewhere the next group can start from.
+- Inside a group, kakapo walks the notes in the order you APPEND them — not in file order. So append them in the order they should be read, even when that means jumping backwards through the file. The order IS the explanation; file position is an accident of where the code happens to live.
+- A note you cannot place in any group is usually trivia. Delete it rather than inventing a group for it.
 
 Before you write the file, read your notes back as if you had never seen this repository. Any note you cannot follow without opening another file, rewrite. Any name this codebase invented that appears without ever being explained, define where it first appears. Any note that made you nod without teaching you anything, delete.
 
