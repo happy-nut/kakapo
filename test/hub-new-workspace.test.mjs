@@ -340,3 +340,61 @@ test("the rail head gives the keyboard back once the rail is open, and Enter nev
   document.dispatchEvent(enter);
   assert.ok(enter.defaultPrevented, "Enter belongs to the rail's tiles while the rail is open");
 });
+
+// The ring on a rail row means "the keyboard is HERE". The expanded rail deliberately survives a click into a
+// terminal pane (kakapo:review-clicked), so the ring used to stay painted after the keyboard had left for the
+// workspace — a second, competing "selected" workspace next to the real one, in a different project. And it
+// was restored by ROW NUMBER after every state push, so a rebuilt list moved it onto whoever now sat in that
+// row. The screenshot that reported this had the active workspace filled in one project and the ring around
+// an unrelated worktree in another.
+const ringed = (document) => [...document.querySelectorAll(".ev .wt.kbd-sel")]
+  .map((el) => el.querySelector(".wt-branch")?.textContent);
+const filled = (document) => [...document.querySelectorAll(".ev .wt.act")]
+  .map((el) => el.querySelector(".wt-branch")?.textContent);
+// jsdom always claims focus; drive it the way the shell view actually gets it and loses it.
+function setFocus(document, has) {
+  const window = document.defaultView;
+  Object.defineProperty(document, "hasFocus", { value: () => has, configurable: true });
+  window.dispatchEvent(new window.Event(has ? "focus" : "blur"));
+}
+
+test("the rail's keyboard ring is only drawn while the rail actually holds the keyboard", () => {
+  const items = [KAKAPO_MAIN, { ...ZOOBOX_MAIN, active: false }, { ...ZOOBOX_WORKTREE, active: true }];
+  const { hub, document } = railWithState(items);
+  const window = document.defaultView;
+  setFocus(document, true); // jsdom starts unfocused; the real rail is focused when you click its pin
+  document.getElementById("pin").click(); // expand the rail
+  // It opens on the workspace you are in, so the ring and the fill start on the same row.
+  assert.deepEqual(ringed(document), filled(document));
+
+  document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+  const moved = ringed(document);
+  assert.equal(moved.length, 1, "one row carries the keyboard cursor");
+  assert.notDeepEqual(moved, filled(document), "the cursor can sit somewhere other than the active workspace");
+
+  setFocus(document, false); // the user clicks into the terminal — main keeps the rail expanded on purpose
+  assert.deepEqual(ringed(document), [], "no ring while the keyboard is in the workspace");
+  assert.equal(filled(document).length, 1, "the active workspace is still the one highlighted");
+
+  hub.handlers.onState(items); // agent activity pushes state constantly; the ring must not come back
+  assert.deepEqual(ringed(document), [], "a re-render does not resurrect it either");
+
+  setFocus(document, true);
+  assert.deepEqual(ringed(document), moved, "focus returning puts it back where it was");
+});
+
+test("the keyboard ring follows its workspace across a re-render, not its row number", () => {
+  // Rows: 0 kakapo/main (active) · 1 zoobox/main · 2 zoobox/fix-login.
+  const items = [{ ...KAKAPO_MAIN, active: true }, { ...ZOOBOX_MAIN, active: false }, ZOOBOX_WORKTREE];
+  const { hub, document } = railWithState(items);
+  const window = document.defaultView;
+  setFocus(document, true);
+  document.getElementById("pin").click();
+  document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  assert.deepEqual(ringed(document), ["claude/legacy-strategy-removal"], "the cursor is on zoobox's main");
+
+  // The kakapo window closes: every row below it shifts up, and a cursor kept as "row 1" now points at
+  // zoobox's fix-login worktree — a workspace the user never moved to.
+  hub.handlers.onState(items.slice(1));
+  assert.deepEqual(ringed(document), ["claude/legacy-strategy-removal"], "still zoobox's main, wherever it now sits");
+});
