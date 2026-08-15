@@ -200,7 +200,7 @@ test("the dialog opens with the prefilled project already selected", async () =>
   assert.equal(document.querySelector("#repoName").textContent, "zoobox");
   assert.ok(!document.querySelector("#repoName").classList.contains("ph"), "placeholder styling cleared");
   // A prefilled project previews immediately instead of waiting for a pick.
-  assert.deepEqual(hub.lastCall("preview"), ["/repos/zoobox", "", true]);
+  assert.deepEqual(hub.lastCall("preview"), ["/repos/zoobox", "", true, ""]);
 });
 
 test("without a prefill the dialog still opens empty on the project chooser", async () => {
@@ -219,7 +219,7 @@ test("the new-worktree toggle defaults on and creates a worktree", async () => {
   document.querySelector("#label").value = "fix-login";
   document.querySelector("#doCreate").click();
   await tick();
-  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "fix-login", true, ""]);
+  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "fix-login", true, { base: "", slug: "", memo: "" }]);
 });
 
 test("unchecking it hides the task name and opens the checkout instead", async () => {
@@ -230,10 +230,10 @@ test("unchecking it hides the task name and opens the checkout instead", async (
   box.dispatchEvent(new document.defaultView.Event("change"));
   await tick();
   assert.ok(document.querySelector("#labelRow").classList.contains("hidden"), "task name is irrelevant");
-  assert.deepEqual(hub.lastCall("preview"), ["/repos/zoobox", "", false]);
+  assert.deepEqual(hub.lastCall("preview"), ["/repos/zoobox", "", false, ""]);
   document.querySelector("#doCreate").click();
   await tick();
-  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "", false, ""]);
+  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "", false, { base: "", slug: "", memo: "" }]);
 });
 
 test("re-opening the dialog resets the toggle back on", async () => {
@@ -270,27 +270,35 @@ test("the delete confirmation offers to remove the local branch, pre-checked", a
 // always accepted a base (createManagedWorkspaceAsync), and the dialog has always PRINTED the default one —
 // it just never let anyone change it, so on a repo that develops off the default branch every workspace
 // silently started from the wrong place.
-test("the start-ref is prefilled from the preview, editable, and reaches create", async () => {
+test("the start ref is a list of the repo's own refs, and the previewed slug is what gets created", async () => {
   const { hub, document } = openDialog({ path: "/repos/zoobox", name: "zoobox" },
-    { preview: { ok: true, worktree: true, slug: "fix-login", base: "origin/main", branch: "kakapo/fix-login", path: "~/kakapo/workspaces/zoobox/fix-login" } });
+    { preview: { ok: true, worktree: true, slug: "quiet-heron", base: "origin/main", branch: "kakapo/quiet-heron",
+      refs: ["origin/main", "develop", "origin/develop"], path: "~/kakapo/workspaces/zoobox/quiet-heron" } });
   await tick();
-  const base = document.querySelector("#base");
-  assert.equal(base.value, "origin/main", "prefilled with what main would have used anyway");
-  assert.doesNotMatch(document.querySelector("#preview").innerHTML, /origin\/main/,
-    "and the preview stops printing a value the field beside it already shows");
 
-  // Typing a task name re-previews on every keystroke; that must not overwrite a ref just chosen by hand.
-  base.value = "develop";
+  const base = document.querySelector("#base");
+  assert.equal(base.tagName, "SELECT", "the ref is chosen, not typed");
+  assert.deepEqual([...base.options].map((o) => o.value), ["origin/main", "develop", "origin/develop"],
+    "the repo's own refs are the choices");
+  assert.equal(base.value, "origin/main", "and the default is preselected");
+  assert.equal(document.querySelector("#slug").value, "quiet-heron", "the previewed slug is held for create");
+
+  // Typing a task name re-previews on every keystroke; the slug must not reshuffle under the reader, so the
+  // one already on screen is sent back with the request.
   const label = document.querySelector("#label");
-  label.value = "fix-login";
+  label.value = "버그 픽스";
   label.dispatchEvent(new document.defaultView.Event("input"));
   await tick();
-  assert.equal(base.value, "develop", "a hand-picked ref survives the next preview");
+  assert.equal(hub.lastCall("preview")?.[3], "quiet-heron", "the preview is told the slug already shown");
 
+  base.value = "develop";
+  document.querySelector("#desc").value = "왜 만들었는지";
   document.querySelector("#doCreate").click();
   await tick();
-  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "fix-login", true, "develop"]);
+  assert.deepEqual(hub.lastCall("create"),
+    ["/repos/zoobox", "버그 픽스", true, { base: "develop", slug: "quiet-heron", memo: "왜 만들었는지" }]);
 });
+
 
 // Uncommitted changes and unsent commits answer different questions — "have I finished?" and "have I sent
 // it?" — and only the first one had a pill. A task worktree nobody has pushed has no upstream, so its count

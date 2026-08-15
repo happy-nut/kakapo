@@ -508,8 +508,12 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // The ref the new worktree branches FROM. Prefilled with origin/HEAD, which is right for a repo whose
     // work lands on the default branch and wrong for one that develops on another — there, every new
     // workspace would start life behind, and the reviewer would find out by missing commits.
+    // Optional, and stored as the workspace's memo — the same field the rename dialog edits, so a description
+    // written here is not a second thing to keep in sync.
+    "newws.desc": "Description",
+    "newws.desc.placeholder": "optional — what this workspace is for",
     "newws.base": "Start from",
-    "newws.base.hint": "Any branch, tag or commit. origin/… uses the remote; a bare name uses your local branch.",
+    "newws.base.hint": "The branch this worktree starts from. origin/… is the remote's copy.",
     "newws.cancel": "Cancel",
     "newws.create": "Fetch & create",
     "newws.creating": "Fetching base…",
@@ -1085,8 +1089,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "newws.selectProject": "프로젝트 선택…",
     "newws.taskName": "작업 이름",
     "newws.taskPlaceholder": "예: fix-login-crash",
+    "newws.desc": "설명",
+    "newws.desc.placeholder": "선택 — 이 워크스페이스가 무엇을 위한 것인지",
     "newws.base": "시작 지점",
-    "newws.base.hint": "브랜치·태그·커밋 모두 됩니다. origin/… 은 원격 기준, 이름만 쓰면 로컬 브랜치 기준입니다.",
+    "newws.base.hint": "이 워크트리가 시작할 브랜치입니다. origin/… 은 원격 쪽입니다.",
     "newws.cancel": "취소",
     "newws.create": "가져와서 생성",
     "newws.creating": "베이스 가져오는 중…",
