@@ -618,7 +618,12 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
   });
 }
 
-(function checkForUpdate() {
+// Checked on a timer, not once at startup. This app is left running for days with workspaces open — that is
+// what the rail is FOR — so a check that only ran at page load meant a release published afterwards was
+// invisible until something happened to reload the page. The version you are told about must not depend on
+// when you last restarted.
+var UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
+function checkForUpdate() {
   var current = window.__KAKAPO_VERSION__ || '';
   if (!current) return;
   var isNewer = function (a, b) {
@@ -652,10 +657,15 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
       status.textContent = t('settings.upToDate') + ' (v' + current + ')';
     }
   };
-  // Cache the npm result for the session so watch-mode reloads reuse it instead of refetching.
-  var cached = '';
-  try { cached = sessionStorage.getItem('kakapo-update-latest') || ''; } catch (e) {}
-  if (cached) { apply(cached); return; }
+  // Cached for the session so watch-mode reloads reuse it instead of refetching — but with an age now, or the
+  // cache would answer every later check with the same stale version and the timer below would buy nothing.
+  var cached = '', cachedAt = 0;
+  try {
+    cached = sessionStorage.getItem('kakapo-update-latest') || '';
+    cachedAt = Number(sessionStorage.getItem('kakapo-update-checked-at')) || 0;
+  } catch (e) {}
+  if (cached) apply(cached); // show what we know immediately; a fetch below may replace it
+  if (cached && Date.now() - cachedAt < UPDATE_CHECK_MS) return;
   if (typeof fetch !== 'function') return;
   // GitHub Releases is where kakapo actually ships (release.yml attaches the dmg and the Linux tarballs;
   // there is no npm publish). This used to ask the npm registry, which answers 404 for this package — so the
@@ -669,14 +679,19 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
         if (status) { status.classList.remove('is-loading'); status.textContent = 'v' + current; }
         return;
       }
-      try { sessionStorage.setItem('kakapo-update-latest', data.version); } catch (e) {}
+      try {
+        sessionStorage.setItem('kakapo-update-latest', data.version);
+        sessionStorage.setItem('kakapo-update-checked-at', String(Date.now()));
+      } catch (e) {}
       apply(data.version);
     })
     .catch(function () {
       var status = document.getElementById('app-info-status');
       if (status) { status.classList.remove('is-loading'); status.textContent = 'v' + current; }
     });
-})();
+}
+checkForUpdate();
+setInterval(checkForUpdate, UPDATE_CHECK_MS);
 
 // Unified settings modal: the sidebar-footer gear opens it (General category by default), with
 // About/update/shortcuts under General and the merge-prompt editor under Merge prompts.
