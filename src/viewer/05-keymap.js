@@ -695,6 +695,11 @@ document.getElementById('source-tabs')?.addEventListener('click', function (even
   var tab = event.target && event.target.closest && event.target.closest('.source-tab');
   if (tab) openSourceFile(tab.getAttribute('data-tab-path'));
 });
+// The incoming-review banner's one way out. Delegated because the banner is re-rendered from every watch
+// payload — a listener bound to the button would be lost the first time the review refreshed under it.
+document.addEventListener('click', function (event) {
+  if (event.target && event.target.closest && event.target.closest('#compare-open-history')) openHistory();
+});
 document.getElementById('diff-prev-change')?.addEventListener('click', function () { next(-1); });
 document.getElementById('diff-next-change')?.addEventListener('click', function () { next(1); });
 document.getElementById('diff-open-source')?.addEventListener('click', function () { openDiffFileAtCaret(); });

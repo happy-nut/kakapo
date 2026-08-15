@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { basename, dirname, resolve } from "node:path";
-import type { DiffReviewBuild } from "./types.js";
+import type { AutomaticReviewBase } from "./git.js";
+import type { CompareState, DiffReviewBuild } from "./types.js";
 import { isGitRepository, git, resolveAutomaticReviewBase } from "./git.js";
 import { collectHttpEnvironments, collectReviewFileStates, collectSourceFiles, parseUnifiedDiff, readUnifiedDiff } from "./diff.js";
 import { renderDiff2Html } from "./highlight.js";
 import {
   diffSubtitle,
   extractLazyDiffBody,
+  renderCompareBanner,
   renderDiffHtml,
   renderDiffTree,
   renderLazyDiffShells,
@@ -16,6 +18,26 @@ import {
   shouldLazyRender,
   splitDiffForLazy,
 } from "./render.js";
+
+// What the toolbar pill says this diff is. Every value here has already been resolved above it — this only
+// names the case, so it costs no git call. The order matters: an explicit --base/--target (or a patch-set
+// pick, which arrives as the same options) is the reviewer's own choice and outranks anything automatic.
+function resolveCompareState(input: {
+  base?: string;
+  target?: string;
+  staged: boolean;
+}, automaticBase: AutomaticReviewBase | undefined): CompareState {
+  if (input.staged) return { mode: "staged", left: input.base ?? "HEAD", right: "" };
+  if (input.base || input.target) {
+    return { mode: "manual", left: input.base ?? "HEAD", right: input.target ?? "" };
+  }
+  if (automaticBase?.target) {
+    // Nothing of yours to read: the right side is the tracking branch, and `behind` is what it is ahead by.
+    return { mode: "incoming", left: "HEAD", right: automaticBase.target, count: automaticBase.behind };
+  }
+  if (automaticBase) return { mode: "ahead", left: automaticBase.upstream, right: "HEAD", count: automaticBase.ahead };
+  return { mode: "local", left: "HEAD", right: "" };
+}
 
 export function renderLazyDiffBody(diffText: string): string {
   return extractLazyDiffBody(renderDiff2Html(diffText));
@@ -57,6 +79,7 @@ export function buildDiffReview(input: {
     : undefined;
   const reviewBase = input.base ?? automaticBase?.revision;
   const reviewTarget = input.target ?? automaticBase?.target;
+  const compare = resolveCompareState(input, automaticBase);
   const diffText = readUnifiedDiff({
     base: reviewBase,
     target: reviewTarget,
@@ -142,6 +165,7 @@ export function buildDiffReview(input: {
     watch: Boolean(input.watch),
     ignoreWhitespace: Boolean(input.ignoreWhitespace),
     app: Boolean(input.app),
+    compare,
     signature,
     generatedAt,
   });
@@ -157,15 +181,8 @@ export function buildDiffReview(input: {
     // Transport-backed reviews build folder children incrementally from sourceFilesMeta in the renderer;
     // avoid generating/transferring a multi-megabyte all-files HTML tree on every build/update.
     filesTree: lazyLoad ? "" : renderSourceTree(sourceFiles),
-    reviewStatus: renderReviewStatus({
-      files: files.length,
-      hunks,
-      embeddedFiles: sourceFiles.filter((file) => file.embedded).length,
-      sourceFileCount: sourceFiles.length,
-      ignoreWhitespace: input.ignoreWhitespace,
-      watch: input.watch,
-      generatedAt,
-    }),
+    reviewStatus: renderReviewStatus({ compare }),
+    compareBanner: renderCompareBanner(compare),
     fileStates,
     sourceFilesMeta: lazyLoad ? sourceFiles.map((file) => ({ ...file, content: "", image: "" })) : sourceFiles,
     httpEnvironments,

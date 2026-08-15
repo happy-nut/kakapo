@@ -1541,6 +1541,69 @@ h1 { margin: 0; font-size: 18px; }
   font-size: 12px;
 }
 .review-status:empty { display: none; }
+/* ONE pill, read left to right: the state's name, then the two refs that name stands for. Drafted as two
+   controls (a colored chip and a direction capsule) and merged on purpose — side by side they made the
+   toolbar state the same fact twice. The accent is the state, so it is carried by `color` on the pill and
+   inherited by the dot; only the refs step out of it, in the toolbar's own muted ink. */
+.compare-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.compare-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+.compare-name { font-weight: 600; }
+.compare-count { font-weight: 600; font-variant-numeric: tabular-nums; }
+.compare-refs {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-left: 7px;
+  border-left: 1px solid color-mix(in srgb, currentColor 45%, transparent);
+  font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+  min-width: 0;
+}
+.compare-ref { color: var(--text); overflow: hidden; text-overflow: ellipsis; max-width: 16ch; }
+.compare-arrow { opacity: 0.7; }
+/* Three accents, not five: the states the app CHOSE for you carry colour, and the two you asked for by name
+   (--staged, an explicit base/target) stay neutral — you already know what you picked. */
+.compare-local { color: var(--add-strong); }
+.compare-ahead { color: var(--diag-warning); }
+.compare-incoming { color: var(--active); }
+.compare-staged { color: var(--muted); }
+.compare-manual { color: var(--muted); }
+/* The one thing the pill cannot say: WHY the review moved to the remote. Only the `incoming` state fills it,
+   so `:empty` keeps the strip out of the layout every other time. */
+.compare-why {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  background: color-mix(in srgb, var(--active) 10%, var(--panel));
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 11.5px;
+}
+.compare-why:empty { display: none; }
+.compare-why-mark { color: var(--active); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; flex: none; }
+.compare-why-text { flex: 1; min-width: 0; }
+.compare-why-link {
+  flex: none;
+  font: inherit;
+  font-size: 10.5px;
+  color: var(--active);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 7px;
+  cursor: pointer;
+}
+.compare-why-link:hover { border-color: var(--active); }
 .toolbar p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
 /* "No diff to review" is the whole pane's state, so it sits in the middle of it — margin:auto centers a lone
    item on both axes inside the container's column flexbox, no extra wrapper needed.
@@ -2802,7 +2865,10 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   .content { grid-row: 3; grid-column: 1; padding: 16px; }
   .toolbar { margin: -16px -16px 16px; padding: 12px 16px; }
   .semantic-peek { min-width: 240px; }
-  .diff-toolbar-meta .review-status { display: none; }
+  /* The compare pill is the toolbar's answer to "what am I even looking at", so it is the last thing to go —
+     it sheds the two refs and keeps the state's name and count, which is the half that answers the question.
+     (This used to hide the whole strip; there was nothing in it then but file/hunk counts.) */
+  .diff-toolbar-meta .compare-refs { display: none; }
   .diff-pane-header { grid-template-columns: 1fr; }
   .diff-pane-base { display: none; }
   .d2h-files-diff { grid-template-columns: 1fr; }

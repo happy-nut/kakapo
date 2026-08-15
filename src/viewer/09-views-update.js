@@ -640,6 +640,11 @@ function applyDiffUpdate(u) {
   if (filesPanel && u.filesTree && (!REVIEW_LAZY || filesPanel.innerHTML.trim())) filesPanel.innerHTML = u.filesTree;
   var statusEl = document.querySelector('.review-status');
   if (statusEl) statusEl.innerHTML = u.reviewStatus || '';
+  // What the review compares can change between watch ticks without a single file changing — commit your work
+  // and "local changes" becomes "unpushed"; push it and the review swings round to what the remote is ahead by.
+  // The pill and its banner are rebuilt from the payload for exactly that reason.
+  var compareWhy = document.getElementById('compare-why');
+  if (compareWhy) compareWhy.innerHTML = u.compareBanner || '';
   // Branch can change between watch ticks (checkout/commit) — keep the sidebar chip current.
   var branchName = document.getElementById('brand-branch-name');
   if (branchName) {
