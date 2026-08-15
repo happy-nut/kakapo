@@ -1124,6 +1124,16 @@ function stepAnchor(delta, list) {
   var curOrder = curPath != null && curPath in order ? order[curPath] : null;
   function rank(c) { return c.path in order ? order[c.path] : Infinity; }
   function lineOf(c) { return Number(c.from) || c.line || 0; }
+  // If the caret is sitting ON one of these comments — which is exactly where the last step left it — walk by
+  // INDEX from there. Searching by file position cannot answer this any more: the walk is ordered by the
+  // agent's groups, so the next note in the story is often further UP the file, and the previous one further
+  // DOWN. That mismatch is why Shift+F8 did not always undo F8; it re-ran a positional search that knew
+  // nothing about the order actually on screen.
+  var at = -1;
+  for (var k = 0; k < list.length; k++) {
+    if (list[k].path === curPath && lineOf(list[k]) === curLine) { at = k; break; }
+  }
+  if (at >= 0) return list[(at + (delta > 0 ? 1 : -1) + list.length) % list.length];
   if (delta > 0) {
     return list.find(function (c) {
       if (curOrder == null) return true;

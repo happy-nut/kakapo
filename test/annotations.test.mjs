@@ -77,7 +77,7 @@ test("the prompt palette lists the saved prompts and sends the selected one to t
   v.key("Enter");
   await v.settle(10);
   assert.equal(sent.length, 1, "Enter hands the prompt to the terminal send composer");
-  assert.match(sent[0], /12-year-old/, "the annotate prompt is what was sent");
+  assert.match(sent[0], /problem note/, "the annotate prompt is what was sent");
   assert.doesNotMatch(sent[0], /\{\{NOTES_PATH\}\}/, "the notes-path placeholder is substituted before sending");
   assert.ok(v.$("#quick-open").classList.contains("hidden"), "sending closes the launcher");
   v.close();
@@ -96,7 +96,7 @@ test("⌘7 runs Explain in place and opens no view of its own", async () => {
   v.key("7", { metaKey: true, code: "Digit7" });
   await v.settle(10);
   assert.equal(sent.length, 1, "⌘7 stages the annotate prompt in the terminal composer");
-  assert.match(sent[0], /12-year-old/, "it is the inline-notes prompt, not a content-spec prompt");
+  assert.match(sent[0], /problem note/, "it is the inline-notes prompt, not a content-spec prompt");
   assert.equal(v.$("#explain-view"), null, "no Explain overlay exists to open");
   v.close();
 });
@@ -471,5 +471,37 @@ test("a diagram fills the lightbox, while a raster preview is still never blown 
   await v.settle(20);
   assert.equal(img.classList.contains("mc-lightbox-vector"), false, "a raster preview is not");
   assert.notEqual(v.window.getComputedStyle(img).width, "96vw", "so its own pixels still bound it");
+  v.close();
+});
+
+// Shift+F8 has to undo F8. It did not once the walk was ordered by group: stepping searched by file position,
+// so from a note at line 4 whose predecessor in the story sits at line 1, "previous" looked for something
+// ABOVE line 4 and found the wrong card — or nothing. The list was ordered correctly and nothing walked it.
+test("Shift+F8 goes back to the note F8 just came from", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\n",
+      after: "const a = 9;\nconst b = 8;\nconst c = 7;\nconst d = 6;\n" },
+  ]);
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+
+  // Group 1 runs DOWN the file, group 2 jumps back UP it — the case file-position stepping cannot follow.
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 2, group: 1, text: "first" });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 4, group: 1, text: "second" });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 3, group: 2, text: "third" });
+  await v.settle(30);
+
+  const line = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1) + 1;
+  const seen = [];
+  for (let i = 0; i < 3; i++) { v.key("F8"); await v.settle(60); seen.push(line()); }
+  assert.deepEqual(seen, [2, 4, 3], "F8 walks the groups in order (the caret starts above them all)");
+
+  v.key("F8", { shiftKey: true });
+  await v.settle(60);
+  assert.equal(line(), 4, "and Shift+F8 returns to the one before it, not to the one above it in the file");
+
+  v.key("F8", { shiftKey: true });
+  await v.settle(60);
+  assert.equal(line(), 2, "step by step, all the way back");
   v.close();
 });

@@ -417,6 +417,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "annotate.kind": "Why",
     // The two notes that carry the story of a change: where it goes wrong, and where that is beaten. Louder
     // cards, because a reviewer who reads only two notes should read these two.
+    // The card's place in the reading order. Without it the order was real but invisible — the cards sit where
+    // the code does, so nothing said which one to open first.
+    "walk.start": "Start here — F8 walks the rest in order",
+    "walk.hint": "F8 for the next one, Shift+F8 to go back",
     "annotate.role.problem": "The problem",
     "annotate.role.fix": "The fix",
     "annotate.nav.none": "No Explain notes yet — press ⌘7 to have an agent write them.",
@@ -996,6 +1000,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "codebasePrompt.title": "코드베이스 설명",
     "codebasePrompt.desc": "⌘E 런처의 Prompts 섹션에서 보냅니다. 저장소를 읽고 진입점에 지도 노트 하나를 남깁니다 — 핵심 컴포넌트 3~5개의 다이어그램(노드를 클릭하면 그 위치로 이동)과 각 컴포넌트에 대한 짧은 문단. 일부러 이 높이에서 멈추며, 더 깊이 내려가는 것은 diff 설명이 합니다. 자동 저장됩니다. {{NOTES_PATH}}는 보낼 때 이 워크스페이스의 노트 파일 경로로 치환됩니다.",
     "annotate.kind": "왜",
+    "walk.start": "여기서 시작 — 나머지는 F8로 순서대로",
+    "walk.hint": "F8 다음, Shift+F8 이전",
     "annotate.role.problem": "문제",
     "annotate.role.fix": "해결",
     "annotate.nav.none": "아직 Explain 노트가 없습니다 — ⌘7을 눌러 에이전트에게 작성을 맡기세요.",

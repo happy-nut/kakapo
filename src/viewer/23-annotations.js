@@ -68,12 +68,25 @@ function annotationBodyHtml(text) {
 // with two minutes should read, so they get their own pill and a tinted edge — everything else stays the
 // quiet default. An unknown role degrades to no role rather than an empty pill.
 var NOTE_ROLES = { problem: 'annotate.role.problem', fix: 'annotate.role.fix' };
+// Where this note sits in the walk. The group order exists, but nothing on screen SAID so: the cards are
+// scattered down the file by line, so "which one do I read first" had no answer you could see — only one you
+// could discover by pressing F8 and watching where it went. A card that says 1/8 answers both halves at once
+// — there is an order, and this is where you are in it — and the first one says to start there.
+function noteWalkPosition(c) {
+  var walk = sortedNavThread().filter(function (x) { return x.by === 'agent' && x.replyTo == null; });
+  if (walk.length < 2) return null; // one note is not a walk
+  for (var i = 0; i < walk.length; i++) if (walk[i].seq === c.seq) return { at: i + 1, of: walk.length };
+  return null;
+}
 function agentCardHtml(c) {
   var isReply = c.replyTo != null;
   var role = !isReply && NOTE_ROLES[c.role] ? c.role : '';
+  var pos = isReply ? null : noteWalkPosition(c);
   return '<div class="mc-card mc-ai' + (isReply ? ' mc-reply-card' : '') + (role ? ' mc-role-' + role : '') + '">'
     + '<div class="mc-card-head"><span class="mc-kind mc-kind-ai">' + annotationKindIcon()
     + '<span class="mc-kind-text">' + escapeHtml(t(isReply ? 'comment.answer' : 'annotate.kind')) + '</span></span>'
+    + (pos ? '<span class="mc-walk' + (pos.at === 1 ? ' mc-walk-first' : '') + '" title="'
+      + escapeHtml(t(pos.at === 1 ? 'walk.start' : 'walk.hint')) + '">' + pos.at + '/' + pos.of + '</span>' : '')
     + (role ? '<span class="mc-role">' + escapeHtml(t(NOTE_ROLES[role])) + '</span>' : '')
     + (c.title ? '<span class="mc-ai-title">' + escapeHtml(c.title) + '</span>' : '')
     + commentTargetHeadHtml(c)

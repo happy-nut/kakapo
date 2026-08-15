@@ -4,36 +4,37 @@ Append the notes to exactly this file, ONE JSON object per line (create it and i
 {{NOTES_PATH}}
 
 One line per note:
-{"id":<highest id in the file + 1>,"by":"agent","kind":"note","path":"repo/relative/path.ts","line":42,"title":"short label (optional)","text":"markdown"}
+{"id":<highest id in the file + 1>,"by":"agent","kind":"note","group":1,"path":"repo/relative/path.ts","line":42,"title":"the point, in one line","text":"markdown"}
 - "id" continues the numbering already in the file; every line needs its own.
 - "path" is repo-relative, exactly as the diff shows it.
 - "line" is the line number in the NEW version of the file (the right-hand side of the diff). Anchor each note to the single most important line of the passage it explains.
 - "text" is markdown on ONE line — write real line breaks as \n inside the JSON string.
+- "title" is required, and it is the POINT in one line, not a label. Not "the countdown" but "the timer reset on every switch, so nothing was ever reclaimed". A title that carries the point lets the body be shorter.
 - "group" is required: which part of the explanation this note belongs to (see below).
 - "role" is optional and marks the notes that carry the story: "problem" on the note that shows where things actually go wrong, "fix" on the one or two places that decide how it is solved. kakapo draws those cards louder than the rest and lets the reader jump between them. Use it on at most three notes in a diff — a diff where everything is decisive has no decisive part.
 - APPEND only. The reviewer own comments and your earlier answers live in this same file: never rewrite, reorder or renumber a line already there.
 
-One finished note, as the bar to clear:
-{"id":12,"by":"agent","kind":"note","path":"src/app-main.ts","line":1198,"title":"Why the countdown starts here","text": "A workspace you cannot see keeps its language servers running, and those are the expensive part - a couple of gigabytes each. So the moment it goes off screen we start a countdown, and when it ends we shut them down.\n\nThe trap: this used to be restarted on every switch, so it was really measuring is nobody switching rather than has this one been hidden for a while. With three workspaces in rotation it never finished and nothing was ever reclaimed - a kettle that resets its timer every time someone walks past the kitchen." }
+One finished note — its LENGTH is part of the standard:
+{"id":12,"by":"agent","kind":"note","group":1,"role":"problem","path":"src/app-main.ts","line":1198,"title":"Why the countdown starts here","text":"A workspace you cannot see keeps its language servers running — a couple of gigabytes each. So the moment it goes off screen we start a countdown, and shut them down when it ends. It used to be restarted on every switch, so with three workspaces in rotation it never finished once."}
 
-How to write each note:
-- Explain it to a smart 12-year-old. Short sentences, plain words. Keep the real term - debounce, race condition - the reader deserves its name, and a note that talks around it teaches less. Just earn it: the first time one appears, spend half a sentence on what it means here.
-- A name this codebase invented is NOT that. A pin, a manifest, the canonical set: the reader has never met it and no amount of general knowledge will help, so the rule above does not apply and there is nothing to look up. Say what the thing IS before you use it as a word - not "the pins that were never received" but "a pin - one ticker on one day - that never arrived". If you cannot define it in half a line, you do not understand it well enough to write the note yet.
-- Lead with WHY, never what. The code already says what it does. "Adds a null check" is worthless. "Without this, closing the window while the file is still loading crashes the app, because the callback fires after the state it needs is already gone" is the whole point. For every note, answer: what breaks without this? What was the author trying to avoid? Why this way instead of the obvious simpler way?
-- An everyday-life analogy is welcome whenever it carries the why faster than the code does.
-- Cover the whole change, not just the biggest hunk: AT MOST 10 notes, and fewer is better. Ten things to read is already a lot to hold; past that the reader stops walking them and starts skimming, which is the one outcome every rule here is trying to avoid. Skip the trivia (renames, formatting, mechanical churn) and annotate the decisions.
-- Never restate the diff line by line. Every note has to earn its place.
-- Two to five sentences per note. Longer than that is a note that has not been thought through yet.
-- Name the symptom a person would actually SEE: the list flashes empty for a moment when you switch tabs, not a state inconsistency.
-- Land every abstraction on an example. The sentence after a general claim should be a concrete one with real names in it: "the index only holds changed files" is the claim, "so reopening a tab for an unchanged file finds nothing and ensureFullIndex() has to run first" is the example that makes it true. Half your sentences should contain a real identifier, path, number or symptom. A note with no example is a note the reader agrees with and forgets.
-- Link out, and often. A file path in inline code with a line number - `src/app-review-ipc.ts:50` - becomes a click that jumps there, so NAME the other end instead of describing it: the caller, the place the value is read, the sibling that had the same bug, the problem note this one hangs off. Most notes should carry at least one link, and when two notes are the two ends of one story they should point at each other. The notes are worth far more as a mesh than as a list.
-- Banned openers, because they carry no information: Refactors, Improves, Handles, Updates, Adds support for. Open with what goes wrong without this change instead.
-- If the diff alone does not tell you WHY, open the file around it and find out before writing. A confident wrong explanation is worse than no note at all - and so is a hedged one. If you still cannot establish it, write NO note there. Never write "probably", "seems to", "I think": a note that admits it is unsure costs the reader the same space as a real one and gives them nothing to act on, while a missing note at least reads as not explained yet.
-- THE FIRST NOTE IS THE PROBLEM NOTE, and it is the one note that must exist. Give it "role":"problem" and anchor it to the line where things actually go wrong - which is often a line this diff did not touch. It answers, in this order: (a) what was wrong before, as a symptom a person would SEE or a thing that could not be done at all; (b) why it had to be fixed now; (c) how this change solves it, in one or two sentences a reader can hold in their head - the SHAPE of the fix, not a tour of the hunks; (d) what else was possible and why it lost. If you cannot write (a), you have not found the problem yet: read the commit messages, the branch name, the issue it refers to, and the code around the change until you can.
-- Then mark the decisive places with "role":"fix" - the one or two edits where the problem is actually beaten. Not every file that had to change: the places where, if you reverted just that, the problem would come back.
-- Every other note says which PART of that problem it carries, and links back to the problem note by its line. A note that cannot be tied to the problem is usually trivia - delete it.
+How to write each note. Eight rules, and they all point the same way — **short, and plain**:
 
-Use diagrams, actively. Any note can embed one or more Mermaid diagrams as fenced blocks, and kakapo renders them inline inside the note card:
+1. **One idea per note, three sentences at most.** Over that, do not split it — drop the less important half. One clause per sentence: stop, rather than joining with "and", "so", "because".
+2. **Open with what a person SEES.** The symptom or the result first. Not "there was a state inconsistency" but "the list flashed empty when you switched tabs". Implementation starts in the second sentence. Never open with "This change…", "This note…", "Here we…" — that spends the whole first sentence saying nothing.
+3. **Why, not what.** What it does is already in the code. "Adds a null check" is not a note. Write what breaks without it. Never open with Refactors, Improves, Handles, Updates, Adds support for — they carry nothing.
+4. **At most one new term per note.** Keep the real name — debounce, race condition — and spend half a sentence on it the first time. A name this codebase invented (a pin, a manifest) has nowhere to be looked up, so define it on the spot; if you cannot define it in half a line, it is not time to write the note.
+5. **The sentence after an abstraction is a concrete one.** "The index only holds changed files" is the claim; "so reopening a tab for an unchanged file runs `ensureFullIndex()` first" is what makes it true. Name the real identifier, path, number.
+6. **Never say the same thing twice — point at it.** When two notes explain the same fact, the later one points instead of repeating: a path in inline code with a line number, `src/app-review-ipc.ts:50`, is a click that goes there. Write "the cache from `src/build.ts:20` is what gets cleared here". Point at the caller by name too, rather than describing it in a paragraph. Notes are worth more as a mesh than as a list. (It must be INLINE CODE, not a markdown link, for the jump to work.)
+7. **If you do not know, do not write it.** Read the surrounding code and the commits; if it still will not come, leave no note there. No "probably", no "seems to" — a hedged note costs the same space as a real one and gives nothing back.
+8. **An analogy only if it is short.** One line that gets there faster, or nothing.
+
+At most 10 notes, and fewer is better. Skip renames, formatting and mechanical churn; annotate the decisions. Never restate the diff line by line.
+
+**Notes go on production code.** As a rule, do not spend one on a test file — with only ten to give, a note on a test is a note the production code did not get. What a test tells you is "this behaviour must hold", and that belongs in one sentence of the note on the code that implements it ("break this and X catches it"). The exception is when the TEST is the point of the change: it was asserting the wrong thing, or the production design moved to make it possible.
+
+The first note is the problem note. Give it `"role":"problem"` and anchor it where things actually go wrong (often a line this diff did not touch) — three sentences here too: what was wrong before / how this change solves it / why not the other way. If you cannot state the problem in one sentence you have not found it yet: read the commit messages, the branch name, the code around the change. Then mark the one or two places where the problem is actually beaten with `"role":"fix"` — the places that, reverted alone, bring it back.
+
+When prose starts to run long, REPLACE it with a diagram rather than adding one. Any note can carry Mermaid in a fence, and kakapo draws it inside the card:
 
 ```mermaid
 sequenceDiagram
@@ -45,11 +46,9 @@ sequenceDiagram
   Agent-->>Kakapo: appends to the thread file
 ```
 
-Reach for a diagram whenever prose is struggling:
-- sequenceDiagram (swimlanes) — anything where two or more actors exchange messages over time: renderer and main, client and server, user and app and agent. Most "why" stories are really "who talks to whom, in what order", so use this one liberally.
-- flowchart TD — decision branches, state changes, before-and-after shapes. Two small flowcharts labelled before and after, inside one note, is often the clearest way to show what a change really did.
-- Keep every diagram down to a handful of nodes. Split a big one in two rather than letting it sprawl.
-At least a third of your notes should carry a diagram.
+- sequenceDiagram — two or more parties taking turns. Most "why" stories are really this.
+- flowchart TD — branches, and before/after side by side, which is often the fastest way to show what changed.
+- A handful of nodes. Split rather than sprawl.
 
 Every note belongs to a GROUP, and the groups are the reading order.
 
@@ -60,6 +59,6 @@ A group is a set of notes that only mean something together — one thread of th
 - Inside a group, kakapo walks the notes in the order you APPEND them — not in file order. So append them in the order they should be read, even when that means jumping backwards through the file. The order IS the explanation; file position is an accident of where the code happens to live.
 - A note you cannot place in any group is usually trivia. Delete it rather than inventing a group for it.
 
-Before you write the file, read your notes back as if you had never seen this repository. Any note you cannot follow without opening another file, rewrite. Any name this codebase invented that appears without ever being explained, define where it first appears. Any note that made you nod without teaching you anything, delete.
+Before you write the file, read each note ALOUD. If you run out of breath inside a sentence, it was two sentences. Then read them back as if you had never seen this repository, and do three things. Cut any note longer than three sentences, define any name this codebase invented where it first appears, and delete any note you nodded at without learning something. Deleting is almost always the right call.
 
 After writing the file, stop — kakapo detects it and renders the notes on the diff automatically.
