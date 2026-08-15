@@ -82,28 +82,22 @@ test("the close never toggles a closed terminal back on", () => {
   assert.match(helper, /typeof api\.isOpen !== 'function'/, "no-ops when the terminal bundle never booted");
 });
 
-// Esc closes the terminal panel. At a shell prompt one press does it; in a fullscreen TUI (vim, less, and
-// crucially Claude Code, where Esc is the interrupt) the first press has to reach the app, so a second press
-// within the window closes instead. Getting this wrong takes away the interrupt key.
+// Esc belongs to whatever is RUNNING in the pane, never to the panel. The panel used to take it — at once at
+// a plain prompt, and on a second press inside a window in a fullscreen TUI — and both cost the program its
+// key: vi-mode leaves insert with Esc, readline reads it as the Meta prefix, and Claude Code binds double-Esc
+// itself, which was precisely the gesture the panel listened for.
 const terminal = read("src/viewer/19-terminal.js");
 
-test("Esc closes at a shell prompt but never steals the TUI's first press", () => {
-  const handler = terminal.match(/if \(e\.type === 'keydown' && e\.key === 'Escape'[\s\S]*?\n      \}/)?.[0];
-  assert.ok(handler, "the Escape branch exists");
-  assert.match(handler, /if \(normalBuffer\) \{[^}]*setOpen\(false\)/,
-    "a normal shell prompt closes on the first press");
-  assert.match(handler, /return true; \/\/ first press belongs to the TUI/,
-    "in the alternate buffer the first Esc is passed through, not swallowed");
-  assert.match(handler, /now - lastEscAt < ESC_CLOSE_MS[\s\S]{0,60}setOpen\(false\)/,
-    "a second Esc inside the window closes the panel");
-});
-
-test("the double-Esc window is armed only by an Esc, and cleared when it fires", () => {
-  assert.match(terminal, /var ESC_CLOSE_MS = \d+;\s*\n\s*var lastEscAt = 0;/, "state is declared once per panel");
-  const handler = terminal.match(/if \(e\.type === 'keydown' && e\.key === 'Escape'[\s\S]*?\n      \}/)?.[0];
-  // Without the reset, one Esc long ago plus one now would close instead of interrupting twice.
-  assert.equal((handler.match(/lastEscAt = 0/g) || []).length, 2, "both close paths reset the window");
-  assert.match(handler, /lastEscAt = now;/, "and a passed-through press arms it");
+test("Escape is never intercepted by the terminal panel", () => {
+  assert.doesNotMatch(terminal, /e\.key === 'Escape'[\s\S]{0,400}setOpen\(false\)/,
+    "no Escape path closes the panel");
+  for (const gone of ["ESC_CLOSE_MS", "lastEscAt"]) {
+    assert.ok(!terminal.includes(gone), `the double-Esc window is gone with it: ${gone}`);
+  }
+  // The panel still has to be closable without it: the toggle is a menu accelerator (Ctrl+` / Alt+F12 in
+  // app-main.ts, because Chromium swallows those before the page sees them) plus the footer button.
+  assert.match(terminal, /kakapoMenu\.onTerminalToggle/, "the menu toggle still reaches the panel");
+  assert.match(terminal, /getElementById\('terminal-toggle'\)/, "and the footer button is still wired");
 });
 
 // The terminal's whole runtime is inlined as one island (assets.ts -> render.ts), so what that island

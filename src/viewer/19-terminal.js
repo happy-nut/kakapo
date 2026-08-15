@@ -37,8 +37,6 @@ var handleTerminalSendModeKey;
   // partial input, so a refresh must wait however long the composition takes — no timeout can bound it.
   var composingPanes = new Set();
   // Double-Esc window for closing the panel out of a fullscreen TUI (see the key handler below).
-  var ESC_CLOSE_MS = 600;
-  var lastEscAt = 0;
   var MAX_PANES = 4;
   var heightKey = 'kakapo-terminal-height';
   var openKey = 'kakapo-terminal-open:' + location.pathname;
@@ -219,20 +217,13 @@ var handleTerminalSendModeKey;
       // running in it as a bare newline instead: the pick never resolved and the prompt was never written.
       // Returning false makes xterm ignore the key so it reaches the picker.
       if (sendModeText != null) return false;
-      // Escape dismisses the floating terminal. At a normal shell prompt one press is enough. A fullscreen TUI
-      // (vim, less, claude/codex) runs in xterm's ALTERNATE buffer and needs Esc itself — in Claude Code it is
-      // the interrupt — so a single press still goes through to the shell there. A SECOND Esc within
-      // ESC_CLOSE_MS closes the panel instead: the app got its interrupt on the first press, and "Esc again to
-      // put this away" costs the TUI nothing.
-      if (e.type === 'keydown' && e.key === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-        var normalBuffer = true;
-        try { normalBuffer = !!(term.buffer && term.buffer.active && term.buffer.active.type === 'normal'); } catch (x) {}
-        if (normalBuffer) { lastEscAt = 0; setOpen(false); return false; }
-        var now = Date.now();
-        if (now - lastEscAt < ESC_CLOSE_MS) { lastEscAt = 0; setOpen(false); return false; }
-        lastEscAt = now;
-        return true; // first press belongs to the TUI
-      }
+      // Escape is the SHELL'S key, always. It used to close the panel — at once on a plain prompt, and on a
+      // second press inside a window in a fullscreen TUI. Both of those took a key that belongs to whatever is
+      // running: a prompt in vi mode leaves insert with it, readline treats it as the Meta prefix, and a menu
+      // completion cancels on it. Worst of all, Claude Code binds DOUBLE Esc itself (jump back to the previous
+      // message), which is exactly the gesture the panel was listening for — the second press closed the
+      // terminal instead of doing the thing the agent documents. Nothing about "put this panel away" needs the
+      // one key the program inside cannot do without: Ctrl+` toggles it, and so does the footer button.
       // F7 / Shift+F7 (diff prev/next-change) and Cmd+F7 / Shift+Cmd+F7 (comment prev/next) are nav keys.
       // Don't let the terminal eat them (it would send an escape sequence to the shell); return false so
       // xterm ignores the key and it bubbles to the document handler. We DON'T blur — both are JS-cursor
