@@ -2349,6 +2349,11 @@ h1 { margin: 0; font-size: 18px; }
 /* Review comments (questions / change-requests) — per-file sidebar count badges (no emoji) */
 .change-row { grid-template-columns: auto auto minmax(0, 1fr) auto; }
 .source-link { grid-template-columns: auto minmax(0, 1fr) auto; }
+/* The type glyphs are drawn INSET in their box — the code icon's ink runs 3..13 of 16 — so the same column gap
+   that sits snugly under a folder name reads far wider under a file name: measured 8.8px of whitespace on a
+   file row against 5.2px on the folder row right above it, in one tree. Spend only what the glyph doesn't
+   already carry, so both rows read at the same distance from their icon. */
+.source-link { column-gap: 2px; }
 .file-link .ftype { width: 15px; height: 15px; flex: none; display: block; }
 .source-link.not-embedded { opacity: 0.45; }
 .source-link.not-embedded:hover { opacity: 0.72; }
