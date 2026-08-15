@@ -70,31 +70,16 @@ test("a contenteditable is left alone — the terminal's rename label commits on
   v.close();
 });
 
-// The other half of the same failure, from the opposite direction: the field keeps focus, but the agent
-// PRINTS while a syllable is half built. xterm pins the composition overlay and the IME rect to the buffer
-// cursor, so that output drags the box you are typing in down to the agent's new last line (measured: the
-// overlay jumps from the prompt to 0,30 mid-composition), and macOS answers a moved rect by committing 가 as
-// ㄱ ㅏ. xterm doesn't boot under jsdom, so this pins the routing in the client instead.
-test("pty output is held while a pane is mid-syllable, and released after the typing gap", () => {
+// A composition-aware HOLD on the agent's output shipped in 0.4.18 and was pulled straight back out: a macOS
+// Hangul composition runs to the end of the WORD, not the end of a syllable, so holding output "until
+// compositionend" swallowed the echo of everything typed until the space bar. This pins the retraction — the
+// route from pty to terminal must stay unconditional — so the next attempt at the jamo bug cannot reach for
+// the same lever again.
+test("pty output reaches the terminal unconditionally, never gated on a composition", () => {
   const client = readFileSync(new URL("../src/viewer/19-terminal.js", import.meta.url), "utf8");
   const onData = client.match(/window\.kakapoPty\.onData\(function \(msg\)[\s\S]*?\n  \}\);/)?.[0];
   assert.ok(onData, "the pty output route exists");
-  assert.match(onData, /composingPanes\.has\(p\)[\s\S]{0,60}held[\s\S]{0,40}push\(msg\.data\)/,
-    "output for a composing pane is queued, not written into the terminal under the IME");
-  assert.match(onData, /p\.term\.write\(msg\.data\)/, "every other pane still writes straight through");
-
-  const flush = client.match(/function flushPaneOutput\(p\)[\s\S]*?\n  \}/)?.[0];
-  assert.ok(flush, "a flush exists");
-  assert.match(flush, /composingPanes\.has\(p\)/,
-    "the flush stands down again if another syllable started — output is never written mid-composition");
-  assert.match(flush, /held\.join\(''\)/, "held chunks go out in arrival order, as one write");
-
-  // Flushing the instant a syllable commits lands the burst inside the NEXT one, which is the reported
-  // "출력이 나면 그 다음 타이핑이 깨진다": xterm writes asynchronously, so the repaint outlives compositionend.
-  assert.match(client, /compositionend'[\s\S]{0,120}scheduleFlushPaneOutput\(pane\)/,
-    "compositionend defers the flush by a typing gap rather than releasing it immediately");
-  assert.match(client, /'blur'[\s\S]{0,120}flushPaneOutput\(pane\)/,
-    "leaving the pane releases the output at once — nobody is composing any more");
-  assert.match(client, /removePaneRef[\s\S]{0,400}clearTimeout\(p\.holdTimer\)/,
-    "a closed pane takes its pending flush with it");
+  assert.match(onData, /panes\[k\]\.term\.write\(msg\.data\)/, "output is written as it arrives");
+  assert.doesNotMatch(onData, /composingPanes|held|holdTimer/,
+    "output must not be queued behind an IME composition — that is a whole word of typing, not a syllable");
 });
