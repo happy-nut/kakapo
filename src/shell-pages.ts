@@ -416,6 +416,12 @@ document.addEventListener('keydown',e=>{
   else if(e.metaKey&&!e.ctrlKey&&!e.shiftKey&&!e.altKey&&e.key==='9')fwd='history';
   else if(e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&e.code==='Backquote')fwd='terminal';
   if(fwd){e.preventDefault();toggleRail();window.kakapoHub.railAction(fwd+':open');return;}
+  // ⌘, is the same story as the tools above — Settings lives in the review view, so while the rail holds the
+  // keyboard the standard Preferences accelerator did nothing at all. It carries no ':open': Settings is a
+  // modal you toggle, not a view the rail can reveal.
+  if((e.metaKey||e.ctrlKey)&&!e.shiftKey&&!e.altKey&&(e.key===','||e.code==='Comma')){
+    e.preventDefault();toggleRail();window.kakapoHub.railAction('settings');return;
+  }
   // F7/⇧F7 step through changes, which is a review action, not a rail one — collapse and forward it too so
   // the panel gets out of the way instead of swallowing the key.
   if(e.key==='F7'&&!e.metaKey&&!e.ctrlKey&&!e.altKey){

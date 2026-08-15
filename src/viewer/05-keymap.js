@@ -679,6 +679,14 @@ if (window.kakapoMenu && window.kakapoMenu.onRailAction) {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F7', shiftKey: action === 'prevChange', bubbles: true }));
       return;
     }
+    // Settings, forwarded from the expanded rail (⌘,). Replayed as the key rather than called: the toggle,
+    // and the rule that a floating merged/memo panel must be dismissed before Settings can take the keyboard,
+    // both live in handleSettingsKey — and the gear button is the only other way in, so there is no function
+    // here to call. Same reasoning as F7 above.
+    if (action === 'settings') {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: ',', metaKey: true, bubbles: true }));
+      return;
+    }
     if (action === 'terminal') { document.getElementById('terminal-toggle')?.click(); return; }
     document.querySelector('.rail-btn[data-view="' + action + '"]')?.click();
   });
