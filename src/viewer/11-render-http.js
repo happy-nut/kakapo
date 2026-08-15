@@ -281,7 +281,10 @@ function renderImageView(file) {
     + '</div>';
 }
 
-function openLightbox(src, alt) {
+// `vector` says the source scales without loss (a rendered Mermaid SVG). A raster preview must never be
+// blown up past its own pixels, but a diagram opened "full size" that comes back the size it was in a 700px
+// card reads as a broken button — and max-width/max-height alone can only ever shrink.
+function openLightbox(src, alt, vector) {
   if (!src) return;
   var lb = document.getElementById('mc-lightbox');
   if (!lb) {
@@ -293,6 +296,7 @@ function openLightbox(src, alt) {
     lb.addEventListener('click', closeLightbox);
   }
   var img = lb.querySelector('img');
+  img.classList.toggle('mc-lightbox-vector', !!vector);
   img.src = src;
   img.alt = alt || '';
   lb.classList.remove('hidden');

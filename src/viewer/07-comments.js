@@ -731,6 +731,13 @@ function renderSourceComments() {
     var anchor = body.querySelector('.source-row[data-line-index="' + (line - 1) + '"]');
     if (anchor) injectThreadRow(anchor, path, line);
   });
+  // Every card this just injected can carry a Mermaid fence, and the placeholders it renders are inert until
+  // something asks for them. refreshComments() does that at its own end — but openSourceFile (11-render-http.js)
+  // calls THIS function directly, on three paths, and following a note's path link is exactly that: the cards
+  // reappeared in the source view and their diagrams sat on "loading…" until some later refresh happened to
+  // run. Rendering here instead of at each caller means a new caller cannot forget. Already-rendered nodes are
+  // skipped inside, so the extra scan on the refreshComments path costs nothing.
+  try { renderMermaidDiagrams(body); } catch (e) {}
 }
 
 // Per-file comment counts as small (no-emoji) badges in BOTH sidebars — appended after the compact

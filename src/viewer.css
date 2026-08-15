@@ -3369,6 +3369,9 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 }
 .mc-lightbox.hidden { display: none; }
 .mc-lightbox-img { max-width: 96vw; max-height: 94vh; object-fit: contain; box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6); }
+/* A diagram is vector: fill the viewport instead of stopping at the intrinsic size baked into its data URL,
+   which is whatever it measured inside the note card. object-fit above keeps the aspect ratio while it grows. */
+.mc-lightbox-img.mc-lightbox-vector { width: 96vw; height: 94vh; }
 
 /* --- Shared Markdown typography.
    Source/merged HTML is markdown-it + DOMPurify; the Tiptap memo uses the same .markdown-body rules. --- */

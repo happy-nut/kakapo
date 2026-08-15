@@ -478,3 +478,57 @@ test("a note can declare itself the problem or the fix, and an invented role deg
   assert.ok(problem > 0, "the note kept its id");
   v.close();
 });
+
+// Following a note's path link opens the source view, and openSourceFile (11-render-http.js) re-injects the
+// cards by calling renderSourceComments directly — not through refreshComments, which is the only place that
+// used to render diagrams. So the card came back with its diagram stuck on "loading…" until some later
+// refresh happened to run, which is what made it look intermittent.
+test("a diagram renders when the source view injects its cards, not only on a comment refresh", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+
+  // No mermaid yet: the placeholder is created but nothing can render it, and it stays un-rendered rather
+  // than being marked done — exactly the state a card is in before you navigate to it.
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, title: "flow", text: NOTE_TEXT });
+  await v.settle(30);
+  assert.ok(v.$(".explain-mermaid"), "the placeholder exists");
+  assert.equal(v.$(".explain-mermaid svg"), null, "and has not been rendered");
+
+  // Now mermaid is available (loadMermaid checks window.mermaid before its cached script promise), and the
+  // source view opens — the path a note link takes.
+  v.window.mermaid = {
+    initialize() {},
+    render: (id) => Promise.resolve({ svg: `<svg data-rendered="${id}"></svg>` }),
+  };
+  await v.openSourceFile("src/app.ts");
+  await v.settle(60);
+
+  const rendered = v.$("#source-body .explain-mermaid svg");
+  assert.ok(rendered, "opening the file renders the diagram it just re-injected");
+  assert.match(rendered.dataset.rendered, /explain-mermaid-/, "and it is this placeholder's own render");
+  v.close();
+});
+
+// "Full size" that comes back the size it already was reads as a broken button. The data URL pins the SVG to
+// whatever it measured inside the note card, and the lightbox only ever had max-width/max-height, which can
+// shrink but never grow — so a diagram opened from a 700px card stayed 700px on a 2000px screen.
+test("a diagram fills the lightbox, while a raster preview is still never blown up", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+
+  v.window.openLightbox("data:image/svg+xml;charset=utf-8,%3Csvg%3E%3C/svg%3E", "diagram", true);
+  await v.settle(20);
+  const img = v.$("#mc-lightbox img");
+  assert.ok(img.classList.contains("mc-lightbox-vector"), "a vector source is marked as one");
+  assert.equal(v.window.getComputedStyle(img).width, "96vw", "and is given the viewport to grow into");
+
+  v.window.openLightbox("data:image/png;base64,iVBORw0KGgo=", "screenshot");
+  await v.settle(20);
+  assert.equal(img.classList.contains("mc-lightbox-vector"), false, "a raster preview is not");
+  assert.notEqual(v.window.getComputedStyle(img).width, "96vw", "so its own pixels still bound it");
+  v.close();
+});
