@@ -3,6 +3,11 @@ Walk the current diff and explain it in place, so that a reader seeing this chan
 Append the notes to exactly this file, ONE JSON object per line (create it and its parent directories if missing; the file documents its own format in the # header at the top):
 {{NOTES_PATH}}
 
+**Read that file before you write anything.** Everything ever explained in this workspace is in it — the notes you left last time, the reviewer's questions, the answers to them. It is per-workspace and it is never cleared. So do not start from nothing every time: knowledge is added to, not rewritten.
+
+- **If it is empty**, this is the first explanation. Build the trunk: the one thing this change is about, and the structure it hangs from. Branches come later.
+- **If it is not**, write only what is new. Do not restate a fact already explained there — point at where that note lives, as `src/build.ts:20`. "The cache from there is what changes here" is a good second note. The more that has accumulated, the fewer notes this run should add.
+- **If this change makes an existing note WRONG**, point at it and say only what is different now. Never edit a line already in the file — append only. A stale explanation standing beside the one that corrects it is better than one quietly rewritten.
 One line per note:
 {"id":<highest id in the file + 1>,"by":"agent","kind":"note","group":1,"path":"repo/relative/path.ts","line":42,"title":"the point, in one line","text":"markdown"}
 - "id" continues the numbering already in the file; every line needs its own.
@@ -17,7 +22,7 @@ One line per note:
 One finished note — its LENGTH is part of the standard:
 {"id":12,"by":"agent","kind":"note","group":1,"role":"problem","path":"src/app-main.ts","line":1198,"title":"Why the countdown starts here","text":"A workspace you cannot see keeps its language servers running — a couple of gigabytes each. So the moment it goes off screen we start a countdown, and shut them down when it ends. It used to be restarted on every switch, so with three workspaces in rotation it never finished once."}
 
-How to write each note. Eight rules, and they all point the same way — **short, and plain**:
+How to write each note. Nine rules, and they all point the same way — **short, and plain**:
 
 1. **One idea per note, three sentences at most.** Over that, do not split it — drop the less important half. One clause per sentence: stop, rather than joining with "and", "so", "because".
 2. **Open with what a person SEES.** The symptom or the result first. Not "there was a state inconsistency" but "the list flashed empty when you switched tabs". Implementation starts in the second sentence. Never open with "This change…", "This note…", "Here we…" — that spends the whole first sentence saying nothing.
@@ -27,6 +32,7 @@ How to write each note. Eight rules, and they all point the same way — **short
 6. **Never say the same thing twice — point at it.** When two notes explain the same fact, the later one points instead of repeating: a path in inline code with a line number, `src/app-review-ipc.ts:50`, is a click that goes there. Write "the cache from `src/build.ts:20` is what gets cleared here". Point at the caller by name too, rather than describing it in a paragraph. Notes are worth more as a mesh than as a list. (It must be INLINE CODE, not a markdown link, for the jump to work.)
 7. **If you do not know, do not write it.** Read the surrounding code and the commits; if it still will not come, leave no note there. No "probably", no "seems to" — a hedged note costs the same space as a real one and gives nothing back.
 8. **An analogy only if it is short.** One line that gets there faster, or nothing.
+9. **An enumeration is a list, not a sentence.** Numbered `1. 2. 3.` when there are steps or the count carries meaning, `-` when nothing is ordered. One item per line, and each item counts as a sentence against rule 1 — a lead-in line plus two or three items is the ceiling. Past five, the note is already holding two ideas. "A and B and C, of which only D drifts each time" makes the reader re-split it in their head; hand it over already split. (The body is a one-line JSON string, so the list breaks are `\n` too.)
 
 At most 10 notes, and fewer is better. Skip renames, formatting and mechanical churn; annotate the decisions. Never restate the diff line by line.
 

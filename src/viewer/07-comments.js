@@ -233,7 +233,9 @@ function loadThread() {
   if (!(window.kakapoComments && typeof window.kakapoComments.read === 'function')) return;
   window.kakapoComments.read().then(function (result) {
     if (!result) return;
-    annotationsPath = result.path || '';
+    // The Explain prompts write NOTES, which belong to the repository rather than to this worktree — main
+    // hands back both paths and this is the one {{NOTES_PATH}} means.
+    annotationsPath = result.notesPath || result.path || '';
     if (result.exists) { applyThreadRecords(result.records, null, true); return; } // a load is not news
     var migrated = reviewComments.slice();
     var nextSeq = migrated.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);

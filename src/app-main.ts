@@ -28,7 +28,7 @@ import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, resolveTmux } from "./app-terminal-ipc.js";
-import { registerCommentsIpc, syncCommentsFile, commentsFilePath } from "./comments-file.js";
+import { registerCommentsIpc, syncCommentsFile, commentsFilePath, knowledgeFilePath } from "./comments-file.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
@@ -77,6 +77,10 @@ type WinState = {
   // mtime+size, and the poll timer that picks up whatever an agent appended — all independent of --watch.
   commentsFile?: string;
   commentsSig?: string;
+  // The repository-shared notes file (knowledgeFilePath): what the agent has learned outlives the worktree it
+  // was learned in, so it does not live beside this workspace's conversation.
+  knowledgeFile?: string;
+  knowledgeSig?: string;
   commentsTimer?: NodeJS.Timeout;
   bodyDiffs: string[]; // Phase 2 lazy-LOAD: raw per-file diffs rendered for THIS window's renderer on demand
   bodyCache: Map<number, string>; // rendered per-file diff bodies, scoped to the current build
@@ -2036,6 +2040,7 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
         return;
       }
       state.commentsFile = commentsFilePath(state.options.root);
+      state.knowledgeFile = knowledgeFilePath(state.options.root);
       // Diff-first: paint the diff + changed-file sources now; the full project index is materialized on
       // demand (ensureFullProjectIndex) so a large tree's enumeration never blocks first paint. The build
       // runs off-main in the worker, so the boot spinner keeps animating while it works.
@@ -2219,7 +2224,9 @@ async function openReview(state: WinState, root: string): Promise<void> {
   state.lastDiffSig = ""; // new repo -> force the next watch tick to rebuild
   clearWatchTimers(state); // stop the previous repo's pollers before switching this window to the new repo
   state.commentsFile = commentsFilePath(state.options.root); // new repo -> that worktree's own thread
+  state.knowledgeFile = knowledgeFilePath(state.options.root); // ...but its knowledge is the repository's
   state.commentsSig = undefined;
+  state.knowledgeSig = undefined;
   // Diff-first, same as the cold boot: reusing this window for another repo paints its diff without waiting
   // on the new tree's full enumeration; the full index is pulled on demand (state.ensureFullIndex persists).
   const build = await buildReview(state, true);

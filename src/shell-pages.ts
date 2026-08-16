@@ -116,10 +116,16 @@ body.rail-exp .cv{display:none}
 .phav img{width:100%;height:100%;object-fit:cover;display:block}
 .wts{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:2px}
 .cv .wt{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-weight:700;font-size:10.5px;color:${light ? "#3a3f47" : "#c9cdd4"};background:${light ? "#d7dbe1" : "#2c2f35"}}
-.cv .wt.act{color:#dfe8fb;background:${light ? "#c5d4ee" : "#33456a"};box-shadow:0 0 0 2px #4d86d9}
+.cv .wt.act{color:#dfe8fb;background:${light ? "#c5d4ee" : "#33456a"}}
 .cv .wt.disc{opacity:.45}
 .cv .wt .rdot{position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#4cc38a;border:2px solid ${light ? "#eaecef" : "#212327"};display:none}
-.cv .wt.running:not(.busy) .rdot{display:block}
+.cv .wt.running .rdot,.cv .wt.busy .rdot{display:block}
+/* Working right now, read from the collapsed strip: the status dot becomes the same turning arc the
+   expanded rail uses (.ev .wt.busy .dot), instead of a blue ring breathing around the whole tile. The
+   ring said "look at me" without saying what, it fought the active tile's own ring two pixels away, and
+   with several workspaces busy the strip was a column of pulsing blue boxes. An arc that turns says
+   WORK, in the 8px the dot already occupies — so nothing on the strip moves when a turn starts. */
+.cv .wt.busy .rdot{width:10px;height:10px;top:-3px;right:-3px;box-sizing:border-box;background:${light ? "#eaecef" : "#212327"};border:1.5px solid #4cc38a44;border-top-color:#4cc38a;animation:wtspin .8s linear infinite}
 .cv .wt .udot{position:absolute;top:-2px;left:-2px;width:8px;height:8px;border-radius:50%;background:#e5484d;border:2px solid ${light ? "#eaecef" : "#212327"};display:none}
 .cv .wt.attn .udot{display:block}
 /* The project's main checkout (kind:main) wears a small home badge so the root worktree reads apart from
@@ -131,9 +137,9 @@ body.rail-exp .cv{display:none}
 .wt-home svg{width:13px;height:13px;display:block}
 /* Agent working: a breathing ring around the badge — scales + fades in place rather than rotating, so several
    working worktrees don't make the rail spin. pointer-events:none keeps the badge clickable through it. */
-.cv .wt.busy::after{content:"";position:absolute;inset:-2px;border-radius:9px;border:2px solid #4d86d9;animation:wsbreathe 1.3s ease-in-out infinite;pointer-events:none}
 @keyframes wsbreathe{0%,100%{opacity:.25;transform:scale(.94)}50%{opacity:.9;transform:scale(1.09)}}
-@media (prefers-reduced-motion:reduce){.cv .wt.busy::after{animation:none;opacity:.7}}
+/* Reduced motion: the arc still reads as "in progress" beside a solid disc, so keep it and stop the turn. */
+@media (prefers-reduced-motion:reduce){.cv .wt.busy .rdot{animation:none}}
 /* Being deleted (markDeleting): dimmed, inert, and SAYING so. \`git worktree remove\` is not instant, and a
    tile that stays fully lit and clickable until it abruptly disappears reads as "the click did nothing" —
    then as "something vanished". Declared after .busy so a worktree whose agent was mid-run gets the danger
