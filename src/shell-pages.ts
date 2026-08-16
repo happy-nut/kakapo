@@ -118,15 +118,18 @@ body.rail-exp .cv{display:none}
 .cv .wt{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-weight:700;font-size:10.5px;color:${light ? "#3a3f47" : "#c9cdd4"};background:${light ? "#d7dbe1" : "#2c2f35"}}
 .cv .wt.act{color:#dfe8fb;background:${light ? "#c5d4ee" : "#33456a"}}
 .cv .wt.disc{opacity:.45}
-.cv .wt .rdot{position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#4cc38a;border:2px solid ${light ? "#eaecef" : "#212327"};display:none}
+.cv .wt .rdot{position:absolute;top:-2px;left:-2px;width:8px;height:8px;border-radius:50%;background:#4cc38a;border:2px solid ${light ? "#eaecef" : "#212327"};display:none}
 .cv .wt.running .rdot,.cv .wt.busy .rdot{display:block}
 /* Working right now, read from the collapsed strip: the status dot becomes the same turning arc the
    expanded rail uses (.ev .wt.busy .dot), instead of a blue ring breathing around the whole tile. The
    ring said "look at me" without saying what, it fought the active tile's own ring two pixels away, and
    with several workspaces busy the strip was a column of pulsing blue boxes. An arc that turns says
    WORK, in the 8px the dot already occupies — so nothing on the strip moves when a turn starts. */
-.cv .wt.busy .rdot{width:10px;height:10px;top:-3px;right:-3px;box-sizing:border-box;background:${light ? "#eaecef" : "#212327"};border:1.5px solid #4cc38a44;border-top-color:#4cc38a;animation:wtspin .8s linear infinite}
-.cv .wt .udot{position:absolute;top:-2px;left:-2px;width:8px;height:8px;border-radius:50%;background:#e5484d;border:2px solid ${light ? "#eaecef" : "#212327"};display:none}
+.cv .wt.busy .rdot{width:10px;height:10px;top:-3px;left:-3px;box-sizing:border-box;background:${light ? "#eaecef" : "#212327"};border:1.5px solid #4cc38a44;border-top-color:#4cc38a;animation:wtspin .8s linear infinite}
+/* Corners on a collapsed tile: work turns at top-left, something waiting for you sits at top-right, the
+   agent badge at bottom-right. busy and attn are independent flags — a workspace can be mid-turn AND have an
+   answer waiting — so the two dots cannot share a corner. */
+.cv .wt .udot{position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#e5484d;border:2px solid ${light ? "#eaecef" : "#212327"};display:none}
 .cv .wt.attn .udot{display:block}
 /* The project's main checkout (kind:main) wears a small home badge so the root worktree reads apart from
    its task worktrees at a glance. Rendered only for main, so no state class gates it. Bottom-right corner
