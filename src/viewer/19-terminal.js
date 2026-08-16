@@ -691,6 +691,7 @@ var handleTerminalSendModeKey;
     // Only ever re-attaches sessions that already exist — it never starts a shell nobody asked for.
     restorePanes().then(done, done);
   }
-  if (typeof requestIdleCallback === 'function') requestIdleCallback(warmTerminal, { timeout: 4000 });
-  else setTimeout(warmTerminal, 1200);
+  // Electron only — this whole slice returns early without window.kakapoPty — so requestIdleCallback is
+  // always there. The timeout is the backstop for a window that never goes idle.
+  requestIdleCallback(warmTerminal, { timeout: 4000 });
 })();
