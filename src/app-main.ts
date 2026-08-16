@@ -1744,11 +1744,17 @@ function createWindow(root: string, deferBoot = false): WinState {
     // destroyed, so guard the read: a pty can drain buffered onData/onExit after its window is gone and
     // deliver() calls this — `undefined.isDestroyed()` would crash the main process.
     isDestroyed: () => !view.webContents || view.webContents.isDestroyed(),
-    isMinimized: () => surfaceHost.isMinimized(),
-    restore: () => surfaceHost.restore(),
+    // Every one of these touches the HOST window, which `isDestroyed` above does not speak for: it reports on
+    // the view's webContents, and on quit the host goes first while the view is still alive. So a caller that
+    // dutifully checked isDestroyed() went on to ask a destroyed BrowserWindow whether it was minimized and
+    // brought the main process down with "Object has been destroyed" — from a one-second timer, which is why
+    // it happened while quitting rather than when anything was clicked. A host that is gone is showing
+    // nothing, so it answers as not-visible instead of throwing.
+    isMinimized: () => surfaceHost.isDestroyed() || surfaceHost.isMinimized(),
+    restore: () => { if (!surfaceHost.isDestroyed()) surfaceHost.restore(); },
     show: () => detachedHost ? win.focus() : activateWorkspace(view.webContents.id),
     hide: () => view.setVisible(false),
-    focus: () => { surfaceHost.show(); surfaceHost.focus(); },
+    focus: () => { if (surfaceHost.isDestroyed()) return; surfaceHost.show(); surfaceHost.focus(); },
     loadURL: (url) => view.webContents.loadURL(url),
     loadFile: (path) => view.webContents.loadFile(path),
     isDetached: () => !!detachedHost && !detachedHost.isDestroyed(),
