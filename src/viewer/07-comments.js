@@ -1158,8 +1158,15 @@ function sortedNavThread() {
 // thing the reader is actually going to — hanging off the bottom edge, clipped. Center the whole thread row
 // instead. Scheduled after the caret's own reveal (registered first, so this frame's later scroll wins), and
 // retried a few frames because a freshly opened source file renders its rows asynchronously.
-function centerThreadRow(path, line, tries) {
+// Every reveal claims the scroll. A retry belongs to the target that started it, and gives up the moment a
+// newer one is chosen — without that, a row that renders late (a long file, lazily built rows) would find
+// itself two presses after it was asked for and drag the view BACK to where you no longer are. That is the
+// "F8 goes and then returns" this counter removes; it costs one comparison per frame.
+var centerThreadTarget = 0;
+function centerThreadRow(path, line, tries, token) {
+  var mine = token === undefined ? ++centerThreadTarget : token;
   requestAnimationFrame(function () {
+    if (mine !== centerThreadTarget) return;
     var row = null;
     if (isSourceViewerVisible()) {
       var anchor = document.querySelector('#source-body .source-row[data-line-index="' + (line - 1) + '"]');
@@ -1170,7 +1177,7 @@ function centerThreadRow(path, line, tries) {
       row = wrapper ? wrapper.querySelector('.mc-comment-row[data-comment-slot="' + line + '"]') : null;
     }
     if (row && row.scrollIntoView) { try { row.scrollIntoView({ block: 'center' }); } catch (e) {} return; }
-    if ((tries || 0) < 3) centerThreadRow(path, line, (tries || 0) + 1);
+    if ((tries || 0) < 3) centerThreadRow(path, line, (tries || 0) + 1, mine);
   });
 }
 // Land on one specific card: the tail every "go to a comment" path shares — F8's step, and the click on a
