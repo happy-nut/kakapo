@@ -2960,6 +2960,19 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
 .terminal-resizer { display: none; } /* a centered ~90% floating panel has no edge to drag */
 /* Split panes sit side by side (no tabs); the 1px gap shows the --border underneath as a divider. */
 .terminal-host { flex: 1 1 auto; min-height: 0; display: flex; gap: 1px; overflow: hidden; background: var(--border); }
+/* Reattaching to the tmux sessions that outlived the app is not instant — ask main which ones survived, attach
+   a pty to each, wait for tmux to redraw its screen — and until the first byte lands the panel is an empty
+   rectangle, which reads as a hang rather than as work in progress. One arc while that is happening, in the
+   same shape the workspace selector uses for a running agent. */
+.terminal-panel.is-connecting .terminal-host { position: relative; }
+.terminal-panel.is-connecting .terminal-host::after {
+  content: ""; position: absolute; inset: 0; margin: auto; width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--active) 28%, transparent); border-top-color: var(--active);
+  animation: workspace-selector-spin .8s linear infinite; pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .terminal-panel.is-connecting .terminal-host::after { animation: none; opacity: .65; }
+}
 /* Cmd+Shift+D stacks the panes instead (top/bottom); the same 1px gap becomes the horizontal divider. */
 /* The panel is a row of CELLS; a cell is a column of panes. One nesting level is what lets Cmd+Shift+D
    stack the focused pane without re-orienting every other pane (see split() in 19-terminal.js). */

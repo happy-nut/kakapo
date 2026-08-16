@@ -407,7 +407,9 @@ var handleTerminalSendModeKey;
   // reviewer watched their own typing disappear until they hit space. Whatever the jamo fix turns out to be,
   // it cannot be one that withholds output for the duration of a composition.
   window.kakapoPty.onData(function (msg) {
-    for (var k = 0; k < panes.length; k++) { if (panes[k].id === msg.id) { panes[k].term.write(msg.data); return; } }
+    for (var k = 0; k < panes.length; k++) {
+      if (panes[k].id === msg.id) { setConnecting(false); panes[k].term.write(msg.data); return; }
+    }
   });
   window.kakapoPty.onExit(function (msg) { removePane(msg.id); });
 
@@ -431,6 +433,17 @@ var handleTerminalSendModeKey;
     }, function () { /* no tmux, no sessions — a plain pane is right */ });
   }
 
+  // The panel opens before anything is attached to it: main still has to list the surviving tmux sessions, a
+  // pty has to be attached per pane, and tmux only redraws once that lands. Until the first byte the panel is
+  // an empty rectangle and the wait reads as a hang. Spin until something arrives — and never longer, because
+  // a pane attached to a silent session prints nothing at all and the spinner would outlive the thing it is
+  // describing, over a terminal that already works.
+  var connectingTimer = 0;
+  function setConnecting(on) {
+    if (connectingTimer) { clearTimeout(connectingTimer); connectingTimer = 0; }
+    panel.classList.toggle('is-connecting', !!on);
+    if (on) connectingTimer = setTimeout(function () { setConnecting(false); }, 4000);
+  }
   function isOpen() { return !panel.classList.contains('hidden'); }
   // The floating panel dims the app behind it; clicking the backdrop closes the terminal (dock-style).
   function setBackdrop(show) {
@@ -449,6 +462,7 @@ var handleTerminalSendModeKey;
     // The terminal shares the exclusive dock slot with merged/memo — opening it closes those.
     if (open && typeof window.__kakapoCloseDocks === 'function') { try { window.__kakapoCloseDocks(); } catch (e) {} }
     panel.classList.toggle('hidden', !open);
+    if (!open) setConnecting(false);
     document.body.classList.toggle('terminal-open', open);
     if (toggleBtn) toggleBtn.classList.toggle('is-active', open);
     setBackdrop(open);
@@ -459,6 +473,7 @@ var handleTerminalSendModeKey;
       // that still owns every keystroke. Close it as the terminal comes up.
       if (typeof quickOpen !== 'undefined' && quickOpen && !quickOpen.classList.contains('hidden')) closeQuickOpen();
       if (panes.length === 0) {
+        setConnecting(true);
         restorePanes().then(function () {
           if (panes.length === 0) makePane();
           scheduleFitAll();

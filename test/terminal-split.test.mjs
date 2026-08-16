@@ -246,3 +246,21 @@ test("a pty hears about a resize only when the character grid changed", () => {
   assert.match(client, /pane\.id = r && r\.id[\s\S]{0,220}sentCols = pane\.sentRows = 0/,
     "a fresh pty forgets what the previous one was told, so it is sized even at an unchanged size");
 });
+
+// Opening the panel does not open a terminal: main still has to list the tmux sessions that outlived the app,
+// attach a pty per pane, and wait for tmux to redraw. Measured on a trivial session that is ~400ms of empty
+// black rectangle, and longer with real agent panes in it — indistinguishable from a hang unless something
+// says otherwise.
+test("the panel says it is connecting until the first byte arrives, and never longer", () => {
+  assert.match(client, /setConnecting\(true\);\s*\n\s*restorePanes\(\)/,
+    "opening onto no panes raises the indicator before the restore starts");
+  const onData = client.match(/window\.kakapoPty\.onData\(function \(msg\)[\s\S]*?\n  \}\);/)?.[0];
+  assert.match(onData, /setConnecting\(false\); panes\[k\]\.term\.write/,
+    "the first byte from a pane is what takes it down — that is when there is something to look at");
+  const setter = client.match(/function setConnecting\(on\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(setter, "setConnecting exists");
+  assert.match(setter, /setTimeout\(function \(\) \{ setConnecting\(false\); \}, \d+\)/,
+    "a pane attached to a silent session never prints, so the spinner needs its own way out");
+  assert.match(client, /if \(!open\) setConnecting\(false\);/, "closing the panel takes it down too");
+  assert.match(css, /\.terminal-panel\.is-connecting \.terminal-host::after/, "and there is something to see");
+});
