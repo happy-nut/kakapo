@@ -246,3 +246,30 @@ test("a pty hears about a resize only when the character grid changed", () => {
   assert.match(client, /pane\.id = r && r\.id[\s\S]{0,220}sentCols = pane\.sentRows = 0/,
     "a fresh pty forgets what the previous one was told, so it is sized even at an unchanged size");
 });
+
+// Reattaching after a restart used to happen on the click that opens the panel: compile the ~490KB xterm
+// island, ask main which tmux sessions survived, attach a pty to each. None of it is slow alone, but it all
+// landed on the one main thread at the moment a freshly launched app was still building its diff, so the
+// panel opened empty and filled in after — "the terminal takes a while to connect". It happens at idle now,
+// which is only safe if the warm-up stays invisible, keeps its hands off the keyboard, and still sizes the
+// ptys the way the visible panel would.
+test("the terminal warms up in the background without showing itself or taking the keyboard", () => {
+  const warm = client.match(/function warmTerminal\(\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(warm, "there is a warm-up");
+  assert.match(client, /requestIdleCallback\(warmTerminal/, "it queues behind whatever the app is already doing");
+  assert.match(warm, /if \(isOpen\(\) \|\| panes\.length \|\| !ensureXterm\(\)\) return;/,
+    "it does nothing when the panel is already open, already built, or xterm is unavailable");
+  assert.match(warm, /restorePanes\(\)/, "it re-attaches the sessions that outlived the app");
+  assert.doesNotMatch(warm, /makePane\(\)/, "and never starts a shell nobody asked for");
+
+  // display:none measures 0x0, so FitAddon declines and the pty would attach at xterm's default 80x24 — a size
+  // tmux then imposes on the agent in that session even if the panel is never opened.
+  assert.match(warm, /visibility = 'hidden'[\s\S]*?classList\.remove\('hidden'\)/,
+    "the panel is laid out for measurement but not painted");
+  assert.match(warm, /fitAll\(\)[\s\S]{0,120}classList\.add\('hidden'\)/,
+    "every pane is fitted while the layout still exists — panes arrive one at a time, so the earlier ones are stale until a final pass");
+  assert.match(client, /if \(warming \|\| !isOpen\(\)\) return;/,
+    "a warming pane must not pull focus out of the diff");
+  assert.match(client, /if \(warming\) \{ warming = false;/,
+    "an explicit open cancels the warm-up rather than letting it re-hide the panel underneath the reviewer");
+});

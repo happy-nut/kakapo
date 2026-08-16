@@ -38,6 +38,8 @@ var handleTerminalSendModeKey;
   var composingPanes = new Set();
   // Double-Esc window for closing the panel out of a fullscreen TUI (see the key handler below).
   var MAX_PANES = 4;
+  // True only while the startup warm-up below has the panel laid out but invisible (see warmTerminal).
+  var warming = false;
   var heightKey = 'kakapo-terminal-height';
   var openKey = 'kakapo-terminal-open:' + location.pathname;
 
@@ -118,6 +120,10 @@ var handleTerminalSendModeKey;
     });
     if (p) requestAnimationFrame(function () {
       try {
+        // A panel nobody can see must not hold the keyboard: the warm-up below lays the panel out (to size
+        // its ptys correctly) while it is still invisible, and focusing a pane there would take the arrow keys
+        // away from the diff at startup.
+        if (warming || !isOpen()) return;
         if (p.labelEl && p.labelEl.getAttribute('contenteditable') === 'true') return;
         p.term.focus();
       } catch (e) {}
@@ -446,6 +452,8 @@ var handleTerminalSendModeKey;
     }
   }
   function setOpen(open) {
+    // The reviewer got there first: stop the warm-up from re-hiding the panel under them.
+    if (warming) { warming = false; panel.style.visibility = ''; }
     // The terminal shares the exclusive dock slot with merged/memo — opening it closes those.
     if (open && typeof window.__kakapoCloseDocks === 'function') { try { window.__kakapoCloseDocks(); } catch (e) {} }
     panel.classList.toggle('hidden', !open);
@@ -650,4 +658,39 @@ var handleTerminalSendModeKey;
 
   // Restore the open state across reloads.
   try { if (sessionStorage.getItem(openKey) === '1') setOpen(true); } catch (e) {}
+
+  // Everything a restored terminal needs — compiling the ~490KB xterm island, asking main which tmux sessions
+  // survived, attaching a pty to each — used to happen on the click that opens the panel. None of it is slow
+  // on its own (measured: 30ms + 8ms + ~20ms a pane), but it all lands on the ONE main thread at the one
+  // moment that thread is busiest: a freshly launched app still building its diff. So the panel opened empty
+  // and filled in afterwards, which reads as the terminal being slow to connect.
+  // Do it while nothing is waiting instead. The panel stays hidden throughout, so this only moves the work
+  // earlier — opening becomes "show what is already attached". Idle-scheduled so it queues behind the review
+  // itself; the timeout is the backstop for a window that never goes idle.
+  function warmTerminal() {
+    if (isOpen() || panes.length || !ensureXterm()) return;
+    // Lay the panel out to measure it, but do not paint it. A display:none panel measures 0x0, FitAddon
+    // declines to fit, and every warmed pty would attach at xterm's default 80x24 — a size tmux hands to the
+    // AGENT running in that session, whether or not anyone ever opens the panel, and then takes back the
+    // moment they do. The panel is position:fixed/inset:0, so laying it out moves nothing else on the page,
+    // and visibility:hidden keeps the frame from showing.
+    warming = true;
+    panel.style.visibility = 'hidden';
+    panel.classList.remove('hidden');
+    var done = function () {
+      if (!warming) return; // setOpen ran meanwhile — the panel is the reviewer's now
+      // Fit every pane while the panel is still laid out. Panes arrive one at a time and each fits against the
+      // row as it stood then, so the first of three attaches at full width and is squeezed by the two that
+      // follow it — right for the last pane, stale for the rest. One pass at the end, before the layout goes
+      // away, is what makes all of them attach at the width they will actually be shown at.
+      fitAll();
+      warming = false;
+      panel.classList.add('hidden');
+      panel.style.visibility = '';
+    };
+    // Only ever re-attaches sessions that already exist — it never starts a shell nobody asked for.
+    restorePanes().then(done, done);
+  }
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(warmTerminal, { timeout: 4000 });
+  else setTimeout(warmTerminal, 1200);
 })();
