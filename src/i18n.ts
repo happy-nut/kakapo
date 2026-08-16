@@ -421,6 +421,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // the code does, so nothing said which one to open first.
     "walk.start": "Start here — F8 walks the rest in order",
     "walk.hint": "F8 for the next one, Shift+F8 to go back",
+    "walk.prev": "Previous note",
+    "walk.next": "Next note",
     "annotate.role.problem": "The problem",
     "annotate.role.fix": "The fix",
     "annotate.nav.none": "No Explain notes yet — press ⌘7 to have an agent write them.",
@@ -1003,6 +1005,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "annotate.kind": "왜",
     "walk.start": "여기서 시작 — 나머지는 F8로 순서대로",
     "walk.hint": "F8 다음, Shift+F8 이전",
+    "walk.prev": "이전 노트",
+    "walk.next": "다음 노트",
     "annotate.role.problem": "문제",
     "annotate.role.fix": "해결",
     "annotate.nav.none": "아직 Explain 노트가 없습니다 — ⌘7을 눌러 에이전트에게 작성을 맡기세요.",

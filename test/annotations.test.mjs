@@ -505,3 +505,39 @@ test("Shift+F8 goes back to the note F8 just came from", async () => {
   assert.equal(line(), 2, "step by step, all the way back");
   v.close();
 });
+
+// The order the agent chose was only reachable by a key you had to already know. Once the notes ARE ordered,
+// the card carries the walk itself — and both routes go through gotoComment, so the mouse and F8 can never
+// disagree about where "next" is.
+test("an ordered note carries its own prev/next, and they drive the same walk as the keys", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\n",
+      after: "const a = 9;\nconst b = 8;\nconst c = 7;\nconst d = 6;\n" },
+  ]);
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 2, group: 1, text: "first" });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 4, group: 1, text: "second" });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 3, group: 2, text: "third" });
+  await v.settle(40);
+
+  const line = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1) + 1;
+  const buttons = () => v.$all("#source-body .mc-card.mc-ai .mc-walk-step");
+  assert.ok(buttons().length >= 2, "the card offers both directions");
+  assert.deepEqual([...new Set(buttons().map((b) => b.dataset.keyhint))].sort(), ["F8", "⇧F8"],
+    "and each names the key it stands for");
+
+  v.click(buttons().find((b) => b.dataset.walk === "1"));
+  await v.settle(60);
+  assert.equal(line(), 2, "clicking next walks the same order the keys do");
+
+  v.click(v.$all("#source-body .mc-card.mc-ai .mc-walk-step").find((b) => b.dataset.walk === "1"));
+  await v.settle(60);
+  assert.equal(line(), 4, "and keeps walking it");
+
+  v.click(v.$all("#source-body .mc-card.mc-ai .mc-walk-step").find((b) => b.dataset.walk === "-1"));
+  await v.settle(60);
+  assert.equal(line(), 2, "back is the same step in reverse");
+  v.close();
+});

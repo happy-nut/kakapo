@@ -2507,6 +2507,20 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    red is where it hurts, the green is where it stops hurting, and a third would make the pair a palette. */
 /* The card's place in the reading order: 1/8. Monospace and tabular so a column of them does not jitter, and
    the first is filled in — "start here" is the one thing a set of cards scattered down the file cannot say. */
+/* Prev/next for the ordered walk, at the head's right edge. Quiet until the card is hovered — a control that
+   shouts on every card in a nine-note review is nine shouts — and each reveals the KEY it stands for on the
+   way past, so one use with the mouse teaches the keyboard. */
+.mc-walk-nav { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 120ms ease; }
+.mc-card:hover .mc-walk-nav, .mc-walk-nav:focus-within { opacity: 1; }
+.mc-walk-step {
+  display: inline-flex; align-items: center; gap: 4px; border: 1px solid transparent; border-radius: 5px;
+  background: transparent; color: var(--muted); font-size: 13px; line-height: 1; padding: 2px 6px; cursor: pointer;
+}
+.mc-walk-step:hover { color: var(--text); border-color: var(--border); background: var(--elevated); }
+.mc-walk-step:focus-visible { outline: 2px solid var(--active); outline-offset: -2px; }
+/* The key name appears only while that button is under the cursor, so the row stays two glyphs wide at rest. */
+.mc-walk-step::after { content: ""; font-size: 9.5px; letter-spacing: .5px; color: var(--muted); }
+.mc-walk-step:hover::after { content: attr(data-keyhint); }
 .mc-walk {
   font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums;
   color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; white-space: nowrap;

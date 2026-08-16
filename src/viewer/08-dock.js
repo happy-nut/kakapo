@@ -572,6 +572,10 @@ document.addEventListener('click', function (event) {
   // other button deletes things.
   var stub = t.closest('.mc-reply-stub');
   if (stub) { event.preventDefault(); openReplyComposer(parseInt(stub.dataset.seq, 10)); return; }
+  // The card's own prev/next. Same walk the keys drive, so the mouse and F8 cannot disagree about where
+  // "next" is — both go through gotoComment.
+  var step = t.closest('.mc-walk-step');
+  if (step) { event.preventDefault(); gotoComment(Number(step.dataset.walk) < 0 ? -1 : 1); return; }
   var del = t.closest('.mc-del');
   if (del) { event.preventDefault(); deleteComment(parseInt(del.dataset.seq, 10)); return; }
   if (t.closest('.mc-save')) { event.preventDefault(); saveComposer(); return; }
