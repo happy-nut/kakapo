@@ -294,4 +294,16 @@ test("the panel says what it is waiting for while it reattaches", () => {
     "the overlay renders that property, and nothing when it is absent");
   // Both halves of the overlay belong to the same state, so neither can appear without the other.
   assert.match(css, /is-connecting \.terminal-host::after/, "the arc is still there too");
+
+  // xterm's own layers go up to z-index 10 (xterm.css), so an overlay left at auto is painted UNDER the
+  // terminal screen as soon as a pane mounts — which is exactly when it is wanted. Both halves must clear it.
+  // Only the rules that PLACE the overlay — the reduced-motion block re-states ::after to stop the spin, and
+  // has no business carrying a stacking order.
+  const overlay = (css.match(/is-connecting \.terminal-host::(?:before|after) \{[^}]*\}/g) || [])
+    .filter((rule) => rule.includes("position: absolute"));
+  assert.equal(overlay.length, 2, "the overlay is those two pseudo-elements");
+  for (const rule of overlay) {
+    const z = Number(rule.match(/z-index: (\d+)/)?.[1]);
+    assert.ok(z > 10, `an overlay half must sit above xterm's layers, got ${z || "auto"}`);
+  }
 });
