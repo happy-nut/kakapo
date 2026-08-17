@@ -108,8 +108,8 @@ function renderDiffNode(node: DiffTreeNode, depth: number): string {
     const { added, deleted } = diffLineTotals(file);
     return [
       `<a class="${classes}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" data-added="${added}" data-deleted="${deleted}" style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + file.status)}">`,
+      viewedBox(),
       fileTypeIcon(file.displayPath),
-      changeStatusBadge(file.status),
       `<span class="change-name"><span class="path">${escapeHtml(node.name)}</span></span>`,
       "</a>",
     ].join("");
@@ -151,12 +151,17 @@ function diffLineTotals(file: DiffFile): { added: number; deleted: number } {
   return { added, deleted };
 }
 
-// No glyph, whatever changed. The COLOUR of the name says added/modified/deleted — green, blue, grey, the
-// way IntelliJ says it — and a badge repeating that is a second alphabet for one fact. This element stays
-// only because the viewed ✓ lands in it (viewer.css) and because it holds every filename on the same left
-// edge; mirrored by historyStatusBadge in 12-history.js, which the client cannot import.
-function changeStatusBadge(status: string): string {
-  return `<span class="status status-${escapeAttr(status || "modified")}" aria-hidden="true"></span>`;
+// "Reviewed this one" is a thing you DO to a row, so the row shows the control you do it with — an empty box
+// on every changed file, not a mark that only exists once the state is already set. Left of the file icon,
+// where a checkbox goes and where the eye can run straight down the column to see what is left.
+// Drawn rather than an <input type=checkbox>: macOS paints the native control with the system chrome and
+// ignores the surrounding CSS (the same reason the New-workspace dialog has no <select>), and this one lives
+// inside the row's own <a>, where a real input would fight the anchor for the click.
+// It replaces the status chip that used to sit here: that element rendered nothing on a modified file and
+// existed, by its own comment, only to hold the viewed ✓ and to keep the filenames aligned. The box does
+// both. What CHANGED is still said by the colour of the name (.change-row.ch-* in viewer.css).
+function viewedBox(): string {
+  return '<span class="viewed-box" role="checkbox" aria-checked="false" data-i18n-aria="tree.markViewed"></span>';
 }
 
 export function renderSourceTree(files: SourceFile[]): string {

@@ -1025,7 +1025,10 @@ function applyViewedState() {
   });
   // Viewed is a diff-review concept: only the Changes list shows it, not the Files/source tree.
   links.forEach((link) => {
-    link.classList.toggle('viewed', isFileViewed(link.dataset.file || ''));
+    const viewed = isFileViewed(link.dataset.file || '');
+    link.classList.toggle('viewed', viewed);
+    // The box is a real checkbox to anything reading the tree, so its state has to be told, not just painted.
+    link.querySelector('.viewed-box')?.setAttribute('aria-checked', viewed ? 'true' : 'false');
   });
 }
 

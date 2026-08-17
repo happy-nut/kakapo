@@ -274,14 +274,14 @@ test("paired hunk rows use center gutters and IntelliJ semantic colors", async (
 
   const changeRow = v.$('.change-row[data-file="src/colors.ts"]');
   assert.equal(changeRow.querySelector(".diffstat"), null, "Changes rows omit added/deleted line totals");
-  assert.equal(changeRow.querySelector(".status").textContent.trim(), "", "status uses no wide text label");
   // The colour of the NAME says added/modified/deleted, the way every editor this reviewer has used says it,
-  // so no row draws a badge at all. The chip element stays only because the viewed ✓ lands in it.
-  const chip = changeRow.querySelector(".status-modified");
-  assert.ok(chip, "the chip stays, so a viewed file still has somewhere to show its check");
-  assert.equal(chip.querySelector("svg"), null, "but draws nothing itself");
-  assert.equal(chip.getAttribute("title"), null, "and answers no hover");
-  assert.equal(chip.getAttribute("aria-hidden"), "true", "nor repeats what the row's own aria-label already ends in");
+  // so no row draws a status badge at all. The chip that used to sit here existed only to hold the viewed ✓
+  // and to keep the filenames aligned; the box that replaced it does both, and says so while still unticked.
+  assert.equal(changeRow.querySelector(".status"), null, "no status chip repeating what the name's colour says");
+  const box = changeRow.querySelector(".viewed-box");
+  assert.ok(box, "the viewed box is where the check lives now");
+  assert.equal(box.textContent.trim(), "", "it is drawn, not spelled out — no wide text label");
+  assert.equal(box.getAttribute("role"), "checkbox", "and it is a checkbox to anything reading the tree");
   assert.ok(changeRow.classList.contains("ch-modified"), "the row carries its change type, which is what colours the name");
   v.close();
 });

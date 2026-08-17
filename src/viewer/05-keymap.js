@@ -594,6 +594,16 @@ document.getElementById('usages')?.addEventListener('click', function (event) {
 document.getElementById('changes-panel')?.addEventListener('click', (event) => {
   const link = event.target && event.target.closest ? event.target.closest('.file-link') : null;
   if (!link) return;
+  // The viewed box is inside the row's anchor, so its click would otherwise also open the file — which is
+  // the opposite of what ticking "I've read this" means. It toggles and stops there; Space on the focused
+  // row (04-source-tree.js) is the same action from the keyboard.
+  if (event.target.closest('.viewed-box')) {
+    event.preventDefault();
+    event.stopPropagation();
+    const viewedFile = link.dataset.file || '';
+    if (viewedFile && currentFileSignature(viewedFile)) setFileViewed(viewedFile, !isFileViewed(viewedFile));
+    return;
+  }
   // Shift+Click extends a multi-file selection (for batch "mark as viewed" with Space) instead of opening.
   if (event.shiftKey && extendTreeSelectionToRow(link)) {
     event.preventDefault();
