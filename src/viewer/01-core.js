@@ -699,6 +699,17 @@ function applyUiScale(next) {
   paintUiScale();
   if (uiScaleSelectRef) uiScaleSelectRef.render();
 }
+// ⌘+ / ⌘− are menu accelerators (Chromium eats them before any keydown here), so main changes the size and
+// says so. Adopt the value WITHOUT writing it back — main has already stored it, and echoing would race the
+// other views doing the same — but do re-render the Settings dropdown, or the keyboard and the panel would
+// disagree about what the current size is.
+if (window.kakapoMenu && typeof window.kakapoMenu.onUiScale === 'function') {
+  window.kakapoMenu.onUiScale(function (next) {
+    if (UI_SCALES.indexOf(next) < 0) return;
+    uiScale = next;
+    if (uiScaleSelectRef) uiScaleSelectRef.render();
+  });
+}
 paintUiScale();
 var SYNTAX_THEME_KEY = 'kakapo-syntax-theme';
 // Every palette family, named once. A family is a pair of CSS blocks in viewer.css, a row in THEMES

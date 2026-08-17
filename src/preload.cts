@@ -31,6 +31,11 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
   },
   // Terminal menu accelerators (Ctrl+` / Cmd+D / Cmd+Alt+[ etc.) that Chromium swallows before renderer
   // keydown, routed via the app menu to the focused window's terminal client.
+  // ⌘+ / ⌘− change the zoom in main (Chromium never lets these reach a renderer keydown). This is main
+  // telling the page what the new size is, so the Settings dropdown can show it.
+  onUiScale: (cb: (scale: number) => void): void => {
+    ipcRenderer.on("kakapo:ui-scale", (_event, scale: number) => cb(Number(scale)));
+  },
   onTerminalToggle: (cb: () => void): void => {
     ipcRenderer.on("kakapo:terminal-toggle", () => cb());
   },

@@ -32,7 +32,7 @@ import { registerCommentsIpc, syncCommentsFile, commentsFilePath, knowledgeFileP
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
-import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
+import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H, UI_SCALES } from "./constants.js";
 import { collectUsageStats } from "./usage-stats.js";
 import { agentForCommand, type AgentKind } from "./agent-resume.js";
 import { hubHtml, modalOverlayHtml } from "./shell-pages.js";
@@ -340,6 +340,29 @@ const UI_SCALE_KEY = "kakapo-ui-scale";
 function uiScale(): number {
   const raw = Number(preferences.readGlobal()[UI_SCALE_KEY]);
   return Number.isFinite(raw) && raw >= 0.8 && raw <= 1.6 ? raw : 1;
+}
+// ⌘+ / ⌘− / ⌘0. Chromium swallows these before a renderer keydown sees them, so they are menu accelerators
+// like the terminal's — and main owns the zoom anyway. Stepping through the SAME list the dropdown offers
+// keeps the two agreeing: the next keystroke and the next dropdown row are the same size.
+function stepUiScale(delta: number): void {
+  const current = uiScale();
+  const at = UI_SCALES.indexOf(current);
+  const from = at >= 0 ? at : UI_SCALES.indexOf(1);
+  const next = UI_SCALES[Math.max(0, Math.min(UI_SCALES.length - 1, from + delta))];
+  setUiScale(next);
+}
+function setUiScale(next: number): void {
+  if (!UI_SCALES.includes(next) || next === uiScale()) return;
+  const settings = preferences.readGlobal();
+  settings[UI_SCALE_KEY] = next;
+  preferences.writeGlobal(settings);
+  applyUiScale();
+  // The Settings dropdown reads its value from the renderer's own copy, so tell every view what happened —
+  // otherwise the keyboard and the panel would disagree about the current size.
+  const send = (wc: WebContents | undefined): void => { if (wc && !wc.isDestroyed()) wc.send("kakapo:ui-scale", next); };
+  send(shellWindow?.webContents);
+  send(modalView?.webContents);
+  for (const state of states.values()) send(state.win.webContents);
 }
 function applyUiScale(target?: WebContents): void {
   const factor = uiScale();
@@ -1156,6 +1179,18 @@ function buildApplicationMenu(): void {
           state.win.webContents.reloadIgnoringCache();
         },
       },
+    ],
+  });
+  // Zoom, for the same reason the terminal shortcuts are here: Chromium takes ⌘+/⌘−/⌘0 before any renderer
+  // keydown runs. Both ⌘= and ⌘+ are bound because the key is the same one with and without Shift, and
+  // binding only one means the shortcut works on some layouts and not others.
+  menuTemplate.push({
+    label: t("menu.view"),
+    submenu: [
+      { label: t("menu.zoomIn"), accelerator: "CommandOrControl+=", click: () => stepUiScale(1) },
+      { label: t("menu.zoomIn"), accelerator: "CommandOrControl+Plus", visible: false, click: () => stepUiScale(1) },
+      { label: t("menu.zoomOut"), accelerator: "CommandOrControl+-", click: () => stepUiScale(-1) },
+      { label: t("menu.zoomReset"), accelerator: "CommandOrControl+0", click: () => setUiScale(1) },
     ],
   });
   // Terminal toggle/split/pane shortcuts as menu accelerators: Chromium swallows Cmd+D / Ctrl+` before they
