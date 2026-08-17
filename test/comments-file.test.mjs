@@ -10,7 +10,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rm
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { commentsFilePath, registerCommentsIpc, syncCommentsFile, readThread, writeThread } from "../dist/comments-file.js";
+import { commentsFilePath, knowledgeFilePath, registerCommentsIpc, syncCommentsFile, readThread, writeThread } from "../dist/comments-file.js";
 
 function harness() {
   const root = mkdtempSync(join(tmpdir(), "kakapo-thread-"));
@@ -119,6 +119,37 @@ test("a pre-unification annotations.json is handed over once, then never again",
     assert.equal(second.exists, true);
     assert.deepEqual(second.legacyNotes, [], "once the thread file exists it is the only source");
     assert.deepEqual(second.records.map((r) => r.text), ["because."]);
+  } finally {
+    h.cleanup();
+  }
+});
+
+// Knowledge outlives the worktree it was learned in. A workspace is created for a task and deleted when the
+// task is done, so a note written beside that workspace's conversation died with it and the next Explain
+// started from nothing. The notes go to the git dir the repository SHARES with its worktrees; the
+// conversation about one particular diff stays where it was.
+test("what the agent learned goes to the repository, the conversation stays with the workspace", () => {
+  const h = harness();
+  try {
+    h.state.knowledgeFile = knowledgeFilePath(h.root);
+
+    h.write([
+      { id: 1, kind: "q", path: "src/a.ts", line: 1, text: "why here?" },
+      { id: 2, by: "agent", kind: "note", path: "src/a.ts", line: 3, text: "the trunk" },
+      { id: 3, re: 1, by: "agent", text: "because of X" },
+    ]);
+
+    const conversation = readFileSync(h.state.commentsFile, "utf8");
+    const knowledge = readFileSync(h.state.knowledgeFile, "utf8");
+    assert.match(conversation, /why here\?/, "the question stays with this workspace");
+    assert.match(conversation, /because of X/, "and so does its answer — a reply belongs to the thread it is in");
+    assert.doesNotMatch(conversation, /the trunk/, "the note is not duplicated into the workspace file");
+    assert.match(knowledge, /the trunk/, "it is in the repository's own file");
+
+    // One list again on the way back in, with the id space intact across both files.
+    const back = h.read();
+    assert.deepEqual(back.records.map((r) => r.id).sort(), [1, 2, 3]);
+    assert.equal(back.notesPath, h.state.knowledgeFile, "and that shared file is what {{NOTES_PATH}} means");
   } finally {
     h.cleanup();
   }

@@ -116,11 +116,20 @@ body.rail-exp .cv{display:none}
 .phav img{width:100%;height:100%;object-fit:cover;display:block}
 .wts{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:2px}
 .cv .wt{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-weight:700;font-size:10.5px;color:${light ? "#3a3f47" : "#c9cdd4"};background:${light ? "#d7dbe1" : "#2c2f35"}}
-.cv .wt.act{color:#dfe8fb;background:${light ? "#c5d4ee" : "#33456a"};box-shadow:0 0 0 2px #4d86d9}
+.cv .wt.act{color:#dfe8fb;background:${light ? "#c5d4ee" : "#33456a"}}
 .cv .wt.disc{opacity:.45}
-.cv .wt .rdot{position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#4cc38a;border:2px solid ${light ? "#eaecef" : "#212327"};display:none}
-.cv .wt.running:not(.busy) .rdot{display:block}
-.cv .wt .udot{position:absolute;top:-2px;left:-2px;width:8px;height:8px;border-radius:50%;background:#e5484d;border:2px solid ${light ? "#eaecef" : "#212327"};display:none}
+.cv .wt .rdot{position:absolute;top:-2px;left:-2px;width:8px;height:8px;border-radius:50%;background:#4cc38a;border:2px solid ${light ? "#eaecef" : "#212327"};display:none}
+.cv .wt.running .rdot,.cv .wt.busy .rdot{display:block}
+/* Working right now, read from the collapsed strip: the status dot becomes the same turning arc the
+   expanded rail uses (.ev .wt.busy .dot), instead of a blue ring breathing around the whole tile. The
+   ring said "look at me" without saying what, it fought the active tile's own ring two pixels away, and
+   with several workspaces busy the strip was a column of pulsing blue boxes. An arc that turns says
+   WORK, in the 8px the dot already occupies — so nothing on the strip moves when a turn starts. */
+.cv .wt.busy .rdot{width:10px;height:10px;top:-3px;left:-3px;box-sizing:border-box;background:${light ? "#eaecef" : "#212327"};border:1.5px solid #4cc38a44;border-top-color:#4cc38a;animation:wtspin .8s linear infinite}
+/* Corners on a collapsed tile: work turns at top-left, something waiting for you sits at top-right, the
+   agent badge at bottom-right. busy and attn are independent flags — a workspace can be mid-turn AND have an
+   answer waiting — so the two dots cannot share a corner. */
+.cv .wt .udot{position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#e5484d;border:2px solid ${light ? "#eaecef" : "#212327"};display:none}
 .cv .wt.attn .udot{display:block}
 /* The project's main checkout (kind:main) wears a small home badge so the root worktree reads apart from
    its task worktrees at a glance. Rendered only for main, so no state class gates it. Bottom-right corner
@@ -131,9 +140,9 @@ body.rail-exp .cv{display:none}
 .wt-home svg{width:13px;height:13px;display:block}
 /* Agent working: a breathing ring around the badge — scales + fades in place rather than rotating, so several
    working worktrees don't make the rail spin. pointer-events:none keeps the badge clickable through it. */
-.cv .wt.busy::after{content:"";position:absolute;inset:-2px;border-radius:9px;border:2px solid #4d86d9;animation:wsbreathe 1.3s ease-in-out infinite;pointer-events:none}
 @keyframes wsbreathe{0%,100%{opacity:.25;transform:scale(.94)}50%{opacity:.9;transform:scale(1.09)}}
-@media (prefers-reduced-motion:reduce){.cv .wt.busy::after{animation:none;opacity:.7}}
+/* Reduced motion: the arc still reads as "in progress" beside a solid disc, so keep it and stop the turn. */
+@media (prefers-reduced-motion:reduce){.cv .wt.busy .rdot{animation:none}}
 /* Being deleted (markDeleting): dimmed, inert, and SAYING so. \`git worktree remove\` is not instant, and a
    tile that stays fully lit and clickable until it abruptly disappears reads as "the click did nothing" —
    then as "something vanished". Declared after .busy so a worktree whose agent was mid-run gets the danger
@@ -567,6 +576,7 @@ export function modalOverlayHtml(light: boolean, t: Translate): string {
   // rename/memo prompt titles). Static dialog chrome below is localized inline with ${t(...)}.
   const T = {
     selectProject: t("newws.selectProject"), browse: t("newws.browse"), chooseFirst: t("newws.chooseFirst"),
+    baseSelect: t("newws.base.select"),
     creating: t("newws.creating"), create: t("newws.create"), createFailed: t("newws.createFailed"),
     opening: t("newws.opening"), open: t("newws.open"),
     renameTitle: t("newws.renameTitle"), memoTitle: t("newws.memoTitle"),
@@ -660,7 +670,7 @@ dialog#confirm::backdrop{background:${dim}}
 #confirm .cf-btn.danger{background:#d9463e;color:#fff;border-color:transparent}
 #confirm .cf-btn.pri:hover,#confirm .cf-btn.danger:hover{filter:brightness(1.07)}
 #confirm .cf-btn:focus-visible{outline:none;box-shadow:0 0 0 3px #4d86d955}</style>
-<dialog id="create"><div class="dh"><b>${t("newws.title")}</b><button class="dx" id="dlgClose" aria-label="${t("newws.close")}">✕</button></div><div class="db"><label>${t("newws.project")}</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">${t("newws.selectProject")}</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label class="wt-opt"><input type="checkbox" id="wtNew" checked><span>${t("newws.newWorktree")}</span></label><div class="wt-hint">${t("newws.newWorktree.hint")}</div><div id="labelRow"><label>${t("newws.taskName")}</label><input id="label" class="tin" placeholder="${t("newws.taskPlaceholder")}" autocomplete="off" spellcheck="false"></div><div id="descRow"><label>${t("newws.desc")}</label><input id="desc" class="tin" placeholder="${t("newws.desc.placeholder")}" autocomplete="off"></div><div id="baseRow"><label>${t("newws.base")}</label><select id="base" class="tin"></select><div class="wt-hint">${t("newws.base.hint")}</div></div><input type="hidden" id="slug"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">${t("newws.cancel")}</button><button id="doCreate" class="dbtn pri"><span class="dcl">${t("newws.create")}</span><kbd>⌘↵</kbd></button></div></div></dialog>
+<dialog id="create"><div class="dh"><b>${t("newws.title")}</b><button class="dx" id="dlgClose" aria-label="${t("newws.close")}">✕</button></div><div class="db"><label>${t("newws.project")}</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">${t("newws.selectProject")}</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label class="wt-opt"><input type="checkbox" id="wtNew" checked><span>${t("newws.newWorktree")}</span></label><div class="wt-hint">${t("newws.newWorktree.hint")}</div><div id="labelRow"><label>${t("newws.taskName")}</label><input id="label" class="tin" placeholder="${t("newws.taskPlaceholder")}" autocomplete="off" spellcheck="false"></div><div id="descRow"><label>${t("newws.desc")}</label><input id="desc" class="tin" placeholder="${t("newws.desc.placeholder")}" autocomplete="off"></div><div id="baseRow"><label>${t("newws.base")}</label><div class="field-wrap"><button id="chooseBase" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12M6 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM18 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM18 8v1a3 3 0 0 1-3 3H9a3 3 0 0 0-3 3"/></svg></span><span id="baseName" class="fv ph">${t("newws.base.select")}</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="baseMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="base"><div class="wt-hint">${t("newws.base.hint")}</div></div><input type="hidden" id="slug"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">${t("newws.cancel")}</button><button id="doCreate" class="dbtn pri"><span class="dcl">${t("newws.create")}</span><kbd>⌘↵</kbd></button></div></div></dialog>
 <dialog id="prompt"><div class="dh"><b id="promptTitle"></b></div><div class="db"><input id="promptInput" class="tin" autocomplete="off" spellcheck="false"><div class="actions"><button id="promptCancel" class="dbtn">${t("newws.cancel")}</button><button id="promptOk" class="dbtn pri">${t("newws.ok")}</button></div></div></dialog>
 <dialog id="disc"><div class="disc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div><div class="disc-msg">${t("disc.message")}</div><div id="discPath" class="disc-path"></div><div class="disc-actions"><button id="discReconnect" class="disc-btn pri">${t("disc.reconnect")}</button><button id="discRemove" class="disc-btn">${t("disc.remove")}</button><button id="discCancel" class="disc-btn">${t("disc.cancel")}</button></div></dialog>
 <dialog id="confirm"><div class="cf-ic hidden" id="cfIcon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div><div class="cf-title" id="cfTitle"></div><div class="cf-msg" id="cfMsg"></div><div class="cf-detail hidden" id="cfDetail"></div><label class="cf-check hidden" id="cfCheckWrap"><input type="checkbox" id="cfCheck"><span id="cfCheckLabel"></span></label><div class="cf-actions" id="cfActions"></div></dialog><script>
@@ -670,7 +680,7 @@ const dlg=document.querySelector("#create");let creating=false;
 // Each open starts clean (the overlay page persists across opens, so stale repo/label would otherwise linger).
 // repo/name prefill the project from the rail's active workspace (see the openModal('new',…) call sites) —
 // a new task nearly always belongs to the project you are looking at.
-function openCreate(repo,name){document.querySelector("#repo").value='';const n=document.querySelector("#repoName");n.textContent=T.selectProject;n.classList.add('ph');document.querySelector("#label").value='';document.querySelector("#desc").value='';document.querySelector("#slug").value='';document.querySelector("#base").innerHTML='';document.querySelector("#preview").innerHTML='';document.querySelector("#createError").textContent='';document.querySelector("#wtNew").checked=true;paintWorktreeMode();loadProjects();closeProjectMenu();dlg.showModal();
+function openCreate(repo,name){document.querySelector("#repo").value='';const n=document.querySelector("#repoName");n.textContent=T.selectProject;n.classList.add('ph');document.querySelector("#label").value='';document.querySelector("#desc").value='';document.querySelector("#slug").value='';resetBase();document.querySelector("#preview").innerHTML='';document.querySelector("#createError").textContent='';document.querySelector("#wtNew").checked=true;paintWorktreeMode();loadProjects();closeProjectMenu();dlg.showModal();
 if(repo)pickProject(repo,name);else setTimeout(()=>document.querySelector("#choose").focus(),0);}
 // Any close of the create dialog (cancel / ✕ / Esc / success) tells main to hide the overlay.
 dlg.addEventListener('close',()=>window.kakapoHub.closeModal());
@@ -690,11 +700,28 @@ async function preview(){const slugEl=document.querySelector("#slug");
 const r=await window.kakapoHub.preview(document.querySelector("#repo").value,document.querySelector("#label").value,wtNew.checked,slugEl.value);
 const b=document.querySelector("#base");
 if(r.ok&&r.worktree&&r.slug)slugEl.value=r.slug;
-if(r.ok&&r.worktree&&Array.isArray(r.refs)&&!b.options.length){for(const ref of r.refs){const o=document.createElement("option");o.value=ref;o.textContent=ref;b.appendChild(o);}}
-if(r.ok&&r.worktree&&r.base&&!b.value){if(![...b.options].some(o=>o.value===r.base)){const o=document.createElement("option");o.value=r.base;o.textContent=r.base;b.insertBefore(o,b.firstChild);}b.value=r.base;}document.querySelector("#preview").innerHTML=r.ok?(r.worktree?'slug: '+esc(r.slug)+'<br>branch: '+esc(r.branch)+'<br>':'branch: '+esc(r.branch)+'<br>')+esc(r.path):''}
+if(r.ok&&r.worktree&&Array.isArray(r.refs)&&!baseRefs.length)setBaseRefs(r.refs);
+// The repo's own answer for "where should this start" — put it at the top of the list if it isn't in it, and
+// select it, but never over a branch the reviewer already picked.
+if(r.ok&&r.worktree&&r.base&&!b.value){if(baseRefs.indexOf(r.base)<0)setBaseRefs([r.base].concat(baseRefs));pickBase(r.base);}document.querySelector("#preview").innerHTML=r.ok?(r.worktree?'slug: '+esc(r.slug)+'<br>branch: '+esc(r.branch)+'<br>':'branch: '+esc(r.branch)+'<br>')+esc(r.path):''}
+// Start-point picker. A native <select> shipped here first and macOS draws those with the system control, not
+// with CSS: a white box sitting in a dark dialog, ignoring every border/background rule around it. The project
+// field above already solved this — button.field + .pmenu, styled and keyboard-navigable — so this is that,
+// with the chosen ref kept in a hidden #base input so every reader of its .value is unchanged.
+const baseMenu=document.querySelector("#baseMenu"),baseBtn=document.querySelector("#chooseBase");
+let baseRefs=[];
+function closeBaseMenu(){baseMenu.classList.add('hidden');baseBtn.setAttribute('aria-expanded','false');}
+function setBaseRefs(refs){baseRefs=refs.slice();baseMenu.innerHTML=baseRefs.map(r=>'<button type="button" role="option" data-ref="'+esc(r)+'"><span class="pm-name">'+esc(r)+'</span></button>').join('');}
+function pickBase(ref){document.querySelector("#base").value=ref;const n=document.querySelector("#baseName");n.textContent=ref;n.classList.remove('ph');closeBaseMenu();}
+function resetBase(){baseRefs=[];baseMenu.innerHTML='';document.querySelector("#base").value='';const n=document.querySelector("#baseName");n.textContent=T.baseSelect;n.classList.add('ph');closeBaseMenu();}
+baseMenu.addEventListener('click',e=>{const b=e.target.closest('button');if(b&&b.dataset.ref){pickBase(b.dataset.ref);baseBtn.focus();}});
+baseBtn.onclick=()=>{if(baseMenu.classList.contains('hidden')){if(!baseRefs.length)return;baseMenu.classList.remove('hidden');baseBtn.setAttribute('aria-expanded','true');}else closeBaseMenu();};
+function moveBase(dir){const bs=[...baseMenu.querySelectorAll('button')];if(!bs.length)return;const i=bs.indexOf(document.activeElement);bs[i<0?(dir>0?0:bs.length-1):(i+dir+bs.length)%bs.length].focus();}
+function baseKeys(e){if(e.key!=='ArrowDown'&&e.key!=='ArrowUp')return;e.preventDefault();if(baseMenu.classList.contains('hidden')&&baseRefs.length){baseMenu.classList.remove('hidden');baseBtn.setAttribute('aria-expanded','true');}moveBase(e.key==='ArrowDown'?1:-1);}
+baseBtn.addEventListener('keydown',baseKeys);baseMenu.addEventListener('keydown',baseKeys);
 const projectMenu=document.querySelector("#projectMenu"),chooseBtn=document.querySelector("#choose");
 function closeProjectMenu(){projectMenu.classList.add('hidden');chooseBtn.setAttribute('aria-expanded','false');}
-function pickProject(path,name){document.querySelector("#repo").value=path;const b=document.querySelector("#base");b.innerHTML='';b.value='';document.querySelector("#slug").value='';const n=document.querySelector("#repoName");n.textContent=name||(path.split('/').filter(Boolean).pop()||path);n.classList.remove('ph');closeProjectMenu();preview();document.querySelector("#label").focus();}
+function pickProject(path,name){document.querySelector("#repo").value=path;resetBase();document.querySelector("#slug").value='';const n=document.querySelector("#repoName");n.textContent=name||(path.split('/').filter(Boolean).pop()||path);n.classList.remove('ph');closeProjectMenu();preview();document.querySelector("#label").focus();}
 async function browseForRepo(){closeProjectMenu();const r=await window.kakapoHub.chooseRepo();if(r.ok)pickProject(r.repo);}
 const _pmFolder='<span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span>';
 async function loadProjects(){let ps=[];try{ps=await window.kakapoHub.listProjects();}catch(e){}if(!Array.isArray(ps))ps=[];let html='';for(const p of ps)html+='<button type="button" role="option" data-path="'+esc(p.path)+'" data-name="'+esc(p.name)+'">'+_pmFolder+'<span class="pm-name">'+esc(p.name)+'</span><span class="pm-path">'+esc(p.path)+'</span></button>';if(ps.length)html+='<div class="pm-sep"></div>';html+='<button type="button" id="pmBrowse" class="pm-browse"><span class="pm-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span><span class="pm-name">'+esc(T.browse)+'</span></button>';projectMenu.innerHTML=html;}
@@ -708,7 +735,7 @@ dlg.addEventListener('mousedown',e=>{if(!e.target.closest('.field-wrap'))closePr
 function moveProject(dir){const bs=[...projectMenu.querySelectorAll('button')];if(!bs.length)return;const i=bs.indexOf(document.activeElement);bs[i<0?(dir>0?0:bs.length-1):(i+dir+bs.length)%bs.length].focus();}
 function projectKeys(e){if(e.key!=='ArrowDown'&&e.key!=='ArrowUp')return;e.preventDefault();if(projectMenu.classList.contains('hidden'))openProjectMenu();moveProject(e.key==='ArrowDown'?1:-1);}
 chooseBtn.addEventListener('keydown',projectKeys);projectMenu.addEventListener('keydown',projectKeys);
-dlg.addEventListener('cancel',e=>{if(!projectMenu.classList.contains('hidden')){e.preventDefault();closeProjectMenu();chooseBtn.focus();}});
+dlg.addEventListener('cancel',e=>{if(!projectMenu.classList.contains('hidden')){e.preventDefault();closeProjectMenu();chooseBtn.focus();return;}if(!baseMenu.classList.contains('hidden')){e.preventDefault();closeBaseMenu();baseBtn.focus();}});
 document.querySelector("#label").oninput=preview;
 document.querySelector("#dlgClose").onclick=()=>{if(!creating)dlg.close()};
 dlg.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();document.querySelector("#doCreate").click();}});

@@ -1,7 +1,7 @@
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent, WebContents } from "electron";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { kakapoGitDataFile } from "./git.js";
+import { kakapoGitDataFile, kakapoSharedDataFile } from "./git.js";
 
 // ONE store for the whole review conversation. A reviewer's question, an agent's answer, an agent's Explain
 // note and a follow-up to any of them are the same thing — a comment with an author and, optionally, a parent
@@ -43,6 +43,22 @@ export type ThreadRecord = {
 // back to its own localStorage copy, which is all a browser/static build ever had).
 export function commentsFilePath(root: string): string | undefined {
   return kakapoGitDataFile(root, "comments.jsonl");
+}
+
+// The agent's NOTES live one level up, in the git dir the repository shares with all of its worktrees. A
+// workspace is created for a task and deleted when the task is done — so knowledge written beside the
+// conversation died with the worktree that happened to be open when it was learned, and the next Explain
+// started from nothing. What was learned about the codebase outlives any one task; the conversation about a
+// particular diff does not, and stays where it was.
+export function knowledgeFilePath(root: string): string | undefined {
+  return kakapoSharedDataFile(root, "knowledge.jsonl");
+}
+
+// A record is knowledge when the agent wrote it about the code on its own — not a reply, not a question. Its
+// replies stay with the conversation they belong to, so a note can be discussed in one workspace without that
+// discussion following the note into every other one.
+export function isKnowledge(record: ThreadRecord): boolean {
+  return record.by === "agent" && record.kind === "note" && record.re == null;
 }
 
 // The file teaches its own format, so the prompt handed to an agent only has to name the path.
@@ -112,6 +128,8 @@ export type CommentsIpcState = {
   options: { root: string };
   commentsFile?: string;
   commentsSig?: string;
+  knowledgeFile?: string;
+  knowledgeSig?: string;
 };
 
 type CommentsEvent = IpcMainEvent | IpcMainInvokeEvent;
@@ -120,13 +138,17 @@ type CommentsStateResolver = (event: CommentsEvent) => CommentsIpcState | undefi
 export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateResolver): void {
   ipc.handle("kakapo:comments-read", (event) => {
     const state = stateFromEvent(event);
-    if (!state || !state.commentsFile) return { path: "", exists: false, records: [], legacyNotes: [] };
+    if (!state || !state.commentsFile) return { path: "", notesPath: "", exists: false, records: [], legacyNotes: [] };
     const exists = existsSync(state.commentsFile);
     state.commentsSig = fileSignature(state.commentsFile);
+    state.knowledgeSig = fileSignature(state.knowledgeFile);
+    // Two files, one list. The renderer has always worked from a single thread and assigns the next id from
+    // the highest it can see, so merging on read is what keeps the id space global across both of them.
     return {
       path: state.commentsFile,
-      exists,
-      records: readThread(state.commentsFile),
+      notesPath: state.knowledgeFile ?? state.commentsFile,
+      exists: exists || existsSync(state.knowledgeFile ?? ""),
+      records: readThread(state.commentsFile).concat(readThread(state.knowledgeFile)),
       legacyNotes: exists ? [] : legacyNotes(state.options.root),
     };
   });
@@ -138,10 +160,24 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
     const state = stateFromEvent(event);
     if (!state || !state.commentsFile || !Array.isArray(payload?.records)) return { ok: false };
     const knownMaxId = Number(payload.knownMaxId) || 0;
-    const arrived = readThread(state.commentsFile).filter((record) => record.id > knownMaxId);
-    writeThread(state.commentsFile, payload.records.concat(arrived));
+    // Split on the way out, exactly as they were merged on the way in: what the agent learned about the code
+    // goes to the shared file, the conversation stays with this workspace. Each file keeps whatever arrived in
+    // it since the renderer last looked.
+    // No shared file (a repo git could not resolve) means no split: everything goes where it always went,
+    // rather than knowledge being filtered out of the only file there is and lost.
+    const shared = state.knowledgeFile;
+    const mine = shared ? payload.records.filter((record) => !isKnowledge(record)) : payload.records;
+    const learned = shared ? payload.records.filter(isKnowledge) : [];
+    const arrivedHere = readThread(state.commentsFile).filter((record) => record.id > knownMaxId);
+    writeThread(state.commentsFile, mine.concat(arrivedHere));
     state.commentsSig = fileSignature(state.commentsFile); // our own write must not come back as a change
-    return { ok: true, path: state.commentsFile, arrived };
+    let arrivedShared: ThreadRecord[] = [];
+    if (shared) {
+      arrivedShared = readThread(shared).filter((record) => record.id > knownMaxId);
+      writeThread(shared, learned.concat(arrivedShared));
+      state.knowledgeSig = fileSignature(shared);
+    }
+    return { ok: true, path: state.commentsFile, arrived: arrivedHere.concat(arrivedShared) };
   });
 
   // The hand-off document goes to disk beside the thread file, so the terminal only has to carry the line that
@@ -167,8 +203,15 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
 // cannot drift the way a delta can.
 export function syncCommentsFile(state: CommentsIpcState): void {
   if (!state.commentsFile || state.win.isDestroyed()) return;
+  // Either file changing is news: an agent in ANOTHER workspace can add knowledge while this one is open, and
+  // that is the whole point of the shared file — it should arrive here without a reload.
   const sig = fileSignature(state.commentsFile);
-  if (!sig || sig === state.commentsSig) return;
+  const shared = fileSignature(state.knowledgeFile);
+  if (sig === state.commentsSig && shared === state.knowledgeSig) return;
+  if (!sig && !shared) return;
   state.commentsSig = sig;
-  state.win.webContents.send("kakapo:comments-update", { records: readThread(state.commentsFile) });
+  state.knowledgeSig = shared;
+  state.win.webContents.send("kakapo:comments-update", {
+    records: readThread(state.commentsFile).concat(readThread(state.knowledgeFile)),
+  });
 }

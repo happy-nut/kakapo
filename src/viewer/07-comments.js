@@ -233,7 +233,9 @@ function loadThread() {
   if (!(window.kakapoComments && typeof window.kakapoComments.read === 'function')) return;
   window.kakapoComments.read().then(function (result) {
     if (!result) return;
-    annotationsPath = result.path || '';
+    // The Explain prompts write NOTES, which belong to the repository rather than to this worktree — main
+    // hands back both paths and this is the one {{NOTES_PATH}} means.
+    annotationsPath = result.notesPath || result.path || '';
     if (result.exists) { applyThreadRecords(result.records, null, true); return; } // a load is not news
     var migrated = reviewComments.slice();
     var nextSeq = migrated.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
@@ -1124,6 +1126,16 @@ function stepAnchor(delta, list) {
   var curOrder = curPath != null && curPath in order ? order[curPath] : null;
   function rank(c) { return c.path in order ? order[c.path] : Infinity; }
   function lineOf(c) { return Number(c.from) || c.line || 0; }
+  // If the caret is sitting ON one of these comments — which is exactly where the last step left it — walk by
+  // INDEX from there. Searching by file position cannot answer this any more: the walk is ordered by the
+  // agent's groups, so the next note in the story is often further UP the file, and the previous one further
+  // DOWN. That mismatch is why Shift+F8 did not always undo F8; it re-ran a positional search that knew
+  // nothing about the order actually on screen.
+  var at = -1;
+  for (var k = 0; k < list.length; k++) {
+    if (list[k].path === curPath && lineOf(list[k]) === curLine) { at = k; break; }
+  }
+  if (at >= 0) return list[(at + (delta > 0 ? 1 : -1) + list.length) % list.length];
   if (delta > 0) {
     return list.find(function (c) {
       if (curOrder == null) return true;
@@ -1146,8 +1158,15 @@ function sortedNavThread() {
 // thing the reader is actually going to — hanging off the bottom edge, clipped. Center the whole thread row
 // instead. Scheduled after the caret's own reveal (registered first, so this frame's later scroll wins), and
 // retried a few frames because a freshly opened source file renders its rows asynchronously.
-function centerThreadRow(path, line, tries) {
+// Every reveal claims the scroll. A retry belongs to the target that started it, and gives up the moment a
+// newer one is chosen — without that, a row that renders late (a long file, lazily built rows) would find
+// itself two presses after it was asked for and drag the view BACK to where you no longer are. That is the
+// "F8 goes and then returns" this counter removes; it costs one comparison per frame.
+var centerThreadTarget = 0;
+function centerThreadRow(path, line, tries, token) {
+  var mine = token === undefined ? ++centerThreadTarget : token;
   requestAnimationFrame(function () {
+    if (mine !== centerThreadTarget) return;
     var row = null;
     if (isSourceViewerVisible()) {
       var anchor = document.querySelector('#source-body .source-row[data-line-index="' + (line - 1) + '"]');
@@ -1158,7 +1177,7 @@ function centerThreadRow(path, line, tries) {
       row = wrapper ? wrapper.querySelector('.mc-comment-row[data-comment-slot="' + line + '"]') : null;
     }
     if (row && row.scrollIntoView) { try { row.scrollIntoView({ block: 'center' }); } catch (e) {} return; }
-    if ((tries || 0) < 3) centerThreadRow(path, line, (tries || 0) + 1);
+    if ((tries || 0) < 3) centerThreadRow(path, line, (tries || 0) + 1, mine);
   });
 }
 // Land on one specific card: the tail every "go to a comment" path shares — F8's step, and the click on a

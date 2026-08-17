@@ -264,3 +264,19 @@ test("diff: ArrowDown reaches the waiting reply box and Enter opens it", async (
   assert.ok(v.visibleComposerInput(), "Enter opens the composer there, without reaching for the ↩ button");
   v.close();
 });
+
+// F8 went to the next note and then came BACK. Centring a thread row retries for a few frames, because the
+// row can be built late (a long file, lazily rendered rows) — but the retry did not check that it was still
+// the target anyone wanted. So a row that finally arrived two presses later dragged the view back to a note
+// the reader had already left. jsdom has no scrollIntoView and no layout, so this is pinned at the source.
+test("a thread-centring retry gives up as soon as a newer one is asked for", () => {
+  const source = readFileSync(new URL("../src/viewer/07-comments.js", import.meta.url), "utf8");
+  const fn = source.match(/function centerThreadRow\([\s\S]*?\n\}/)?.[0];
+  assert.ok(fn, "centerThreadRow is still a function");
+  assert.match(fn, /var mine = token === undefined \? \+\+centerThreadTarget : token;/,
+    "each fresh call claims the scroll; a retry carries the claim it was born with");
+  assert.match(fn, /if \(mine !== centerThreadTarget\) return;/,
+    "and a claim that has been superseded scrolls nothing");
+  assert.match(fn, /centerThreadRow\(path, line, \(tries \|\| 0\) \+ 1, mine\)/,
+    "the retry passes its own claim on, rather than minting a new one");
+});

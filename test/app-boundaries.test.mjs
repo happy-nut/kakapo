@@ -142,3 +142,18 @@ test("main process is a composition root for extracted persistence and IPC adapt
   assert.match(main, /registerMemoIpc\(ipcMain, \{/);
   assert.doesNotMatch(main, /function readSettings|function resolveProjectRowPath|kakapo:get-file|"kakapo:get-settings"|"kakapo:memo-read"/);
 });
+
+// The review surface wraps TWO objects: the view (its webContents) and the host window it is shown in. Its
+// isDestroyed() speaks only for the first, and on quit the host goes first — so a caller that dutifully
+// checked isDestroyed() went on to ask a destroyed BrowserWindow whether it was minimized, and took the main
+// process down with "Object has been destroyed" from a one-second timer. Anything touching the host has to
+// answer for the host.
+test("every use of the host window answers for the host being gone", () => {
+  const source = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
+  const uses = source.split("\n")
+    .map((line, i) => ({ line: line.trim(), n: i + 1 }))
+    .filter(({ line }) => line.includes("surfaceHost.") && !line.startsWith("//") && !line.startsWith("*"));
+  assert.ok(uses.length >= 3, "the wrapper still delegates to a host window");
+  const unguarded = uses.filter(({ line }) => !line.includes("isDestroyed"));
+  assert.deepEqual(unguarded, [], "a host method is only called after asking whether the host is still there");
+});

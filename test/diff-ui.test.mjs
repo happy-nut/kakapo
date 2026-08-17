@@ -275,13 +275,14 @@ test("paired hunk rows use center gutters and IntelliJ semantic colors", async (
   const changeRow = v.$('.change-row[data-file="src/colors.ts"]');
   assert.equal(changeRow.querySelector(".diffstat"), null, "Changes rows omit added/deleted line totals");
   assert.equal(changeRow.querySelector(".status").textContent.trim(), "", "status uses no wide text label");
-  // "Modified" is what every row in a tree of CHANGED files is, so the chip draws nothing and says nothing.
-  // It stays as the slot the viewed ✓ lands in, and as the thing that keeps every filename on one left edge.
+  // The colour of the NAME says added/modified/deleted, the way every editor this reviewer has used says it,
+  // so no row draws a badge at all. The chip element stays only because the viewed ✓ lands in it.
   const chip = changeRow.querySelector(".status-modified");
   assert.ok(chip, "the chip stays, so a viewed file still has somewhere to show its check");
-  assert.equal(chip.querySelector("svg"), null, "but draws no pencil on a list where everything is modified");
-  assert.equal(chip.getAttribute("title"), null, "and an invisible chip answers no hover with the word Modified");
-  assert.equal(chip.getAttribute("aria-hidden"), "true", "nor repeats the status the row's own aria-label ends in");
+  assert.equal(chip.querySelector("svg"), null, "but draws nothing itself");
+  assert.equal(chip.getAttribute("title"), null, "and answers no hover");
+  assert.equal(chip.getAttribute("aria-hidden"), "true", "nor repeats what the row's own aria-label already ends in");
+  assert.ok(changeRow.classList.contains("ch-modified"), "the row carries its change type, which is what colours the name");
   v.close();
 });
 
@@ -444,5 +445,29 @@ test("the diff toolbar carries the file's added and deleted line counts", async 
   const row = [...v.$all(".change-row")].find((el) => el.dataset.file === "src/grew.ts");
   assert.equal(row.dataset.added, "2", "the tree row carries the totals the parser already knew");
   assert.equal(row.querySelector(".diffstat"), null, "and still shows no diffstat of its own");
+  v.close();
+});
+
+// A deleted file used to be coloured by whether it was STAGED, so a staged deletion came out green — the
+// colour every editor uses for "added" — while its badge said deleted. One row saying both things at once.
+test("the Changes tree colours a row by what changed, not by whether it is staged", async () => {
+  const { html: tree } = await makeReviewHtml([
+    { path: "src/added.ts", after: "export const a = 1;\n" },
+    { path: "src/gone.ts", before: "export const g = 1;\n" },
+    { path: "src/edited.ts", before: "export const e = 1;\n", after: "export const e = 2;\n" },
+  ], { app: true });
+  const v = await loadViewer(tree);
+  const row = (path) => [...v.$all(".change-row")].find((el) => el.dataset.file === path);
+
+  assert.ok(row("src/added.ts").classList.contains("ch-added"));
+  assert.ok(row("src/gone.ts").classList.contains("ch-deleted"));
+  assert.ok(row("src/edited.ts").classList.contains("ch-modified"));
+
+  const colour = (path) => v.window.getComputedStyle(row(path).querySelector(".change-name")).color;
+  assert.notEqual(colour("src/added.ts"), colour("src/gone.ts"), "added and deleted never read alike");
+  assert.notEqual(colour("src/edited.ts"), colour("src/gone.ts"), "nor do modified and deleted");
+  // Whatever the working tree says about staging must not reach the name any more.
+  assert.equal(v.$all(".change-row.vcs-staged").length, 0, "a change row is no longer classed by staging");
+  assert.equal(row("src/gone.ts").querySelector(".status svg"), null, "and no row draws a badge");
   v.close();
 });

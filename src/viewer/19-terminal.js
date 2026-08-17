@@ -265,9 +265,8 @@ var handleTerminalSendModeKey;
       term.textarea.addEventListener('keydown', function () { lastInputAt = Date.now(); }, true);
       term.textarea.addEventListener('compositionstart', function () { composingPanes.add(pane); lastInputAt = Date.now(); });
       term.textarea.addEventListener('compositionupdate', function () { lastInputAt = Date.now(); });
-      term.textarea.addEventListener('compositionend', function () { composingPanes.delete(pane); lastInputAt = Date.now(); scheduleFlushPaneOutput(pane); flushDeferredFit(); });
-      // Focus left the pane: nobody is mid-syllable any more, so the agent's output goes up at once.
-      term.textarea.addEventListener('blur', function () { composingPanes.delete(pane); flushPaneOutput(pane); flushDeferredFit(); });
+      term.textarea.addEventListener('compositionend', function () { composingPanes.delete(pane); lastInputAt = Date.now(); flushDeferredFit(); });
+      term.textarea.addEventListener('blur', function () { composingPanes.delete(pane); flushDeferredFit(); });
     }
     // Bell from the pane's TUI (e.g. Claude Code finished a turn / needs input): badge the pane when it isn't
     // the one you're looking at, and ask the main process to raise a native notification when the whole window
@@ -341,7 +340,6 @@ var handleTerminalSendModeKey;
   function removePaneRef(p) {
     var i = panes.indexOf(p);
     if (i < 0) return;
-    if (p.holdTimer) { clearTimeout(p.holdTimer); p.holdTimer = 0; } // held output dies with the pane
     composingPanes.delete(p);
     try { p.term.dispose(); } catch (e) {}
     var cell = p.el.parentNode;
@@ -402,39 +400,15 @@ var handleTerminalSendModeKey;
   }
 
   // Route per-pane pty output / exit by id (registered once for the window).
-  // Output for a pane whose IME is mid-syllable is HELD rather than written. xterm pins the composition
-  // overlay AND the IME rect to the buffer cursor, so a line printed between two jamo keystrokes drags the
-  // box you are typing in over to wherever the agent's output left the cursor — measured: the overlay jumps
-  // from the prompt to the new last line while 가 is still half-built. macOS answers a moved IME rect by
-  // committing what it has, which is the ㄱ ㅏ on screen, and the overlay it leaves behind is drawn on top of
-  // unrelated text — which is also why the syllables "re-join" when you click another panel and come back:
-  // the composition ends, and the stray overlay goes with it. The existing guard stood the fit down for this
-  // and the watch refresh stands down for it too (applyDiffUpdate); the agent's own output never did, and it
-  // is the one that arrives while you are typing AT that agent. Same contract as the fit: held for however
-  // long the syllable takes, flushed in arrival order, never dropped.
-  // Releasing the held output the instant a syllable commits just moves the problem one keystroke along:
-  // xterm writes asynchronously, so a burst flushed on compositionend is still repainting when the NEXT
-  // syllable starts — which is exactly the "출력이 나면 그 다음 타이핑이 깨진다" shape. Wait out one typing
-  // gap first; a new composition inside that window re-arms the hold instead of flushing into it.
-  var HOLD_GRACE_MS = 120;
-  function flushPaneOutput(p) {
-    if (p.holdTimer) { clearTimeout(p.holdTimer); p.holdTimer = 0; }
-    if (!p.held || !p.held.length || composingPanes.has(p)) return;
-    var held = p.held;
-    p.held = null;
-    try { p.term.write(held.join('')); } catch (e) {}
-  }
-  function scheduleFlushPaneOutput(p) {
-    if (p.holdTimer) clearTimeout(p.holdTimer);
-    p.holdTimer = setTimeout(function () { p.holdTimer = 0; flushPaneOutput(p); }, HOLD_GRACE_MS);
-  }
+  // This used to HOLD output for a pane with a composition in flight, to stop xterm dragging the IME rect (it
+  // pins the composition overlay to the buffer cursor) out from under a half-built syllable. It went out in
+  // 0.4.18 and had to come straight back out: a macOS Hangul composition does not end at a syllable, it runs
+  // to the end of the WORD, so "hold until compositionend" held the agent's echo for the whole word and the
+  // reviewer watched their own typing disappear until they hit space. Whatever the jamo fix turns out to be,
+  // it cannot be one that withholds output for the duration of a composition.
   window.kakapoPty.onData(function (msg) {
     for (var k = 0; k < panes.length; k++) {
-      var p = panes[k];
-      if (p.id !== msg.id) continue;
-      if (composingPanes.has(p)) { (p.held || (p.held = [])).push(msg.data); return; }
-      p.term.write(msg.data);
-      return;
+      if (panes[k].id === msg.id) { setConnecting(false); panes[k].term.write(msg.data); return; }
     }
   });
   window.kakapoPty.onExit(function (msg) { removePane(msg.id); });
@@ -459,6 +433,17 @@ var handleTerminalSendModeKey;
     }, function () { /* no tmux, no sessions — a plain pane is right */ });
   }
 
+  // The panel opens before anything is attached to it: main still has to list the surviving tmux sessions, a
+  // pty has to be attached per pane, and tmux only redraws once that lands. Until the first byte the panel is
+  // an empty rectangle and the wait reads as a hang. Spin until something arrives — and never longer, because
+  // a pane attached to a silent session prints nothing at all and the spinner would outlive the thing it is
+  // describing, over a terminal that already works.
+  var connectingTimer = 0;
+  function setConnecting(on) {
+    if (connectingTimer) { clearTimeout(connectingTimer); connectingTimer = 0; }
+    panel.classList.toggle('is-connecting', !!on);
+    if (on) connectingTimer = setTimeout(function () { setConnecting(false); }, 4000);
+  }
   function isOpen() { return !panel.classList.contains('hidden'); }
   // The floating panel dims the app behind it; clicking the backdrop closes the terminal (dock-style).
   function setBackdrop(show) {
@@ -477,6 +462,7 @@ var handleTerminalSendModeKey;
     // The terminal shares the exclusive dock slot with merged/memo — opening it closes those.
     if (open && typeof window.__kakapoCloseDocks === 'function') { try { window.__kakapoCloseDocks(); } catch (e) {} }
     panel.classList.toggle('hidden', !open);
+    if (!open) setConnecting(false);
     document.body.classList.toggle('terminal-open', open);
     if (toggleBtn) toggleBtn.classList.toggle('is-active', open);
     setBackdrop(open);
@@ -487,6 +473,7 @@ var handleTerminalSendModeKey;
       // that still owns every keystroke. Close it as the terminal comes up.
       if (typeof quickOpen !== 'undefined' && quickOpen && !quickOpen.classList.contains('hidden')) closeQuickOpen();
       if (panes.length === 0) {
+        setConnecting(true);
         restorePanes().then(function () {
           if (panes.length === 0) makePane();
           scheduleFitAll();

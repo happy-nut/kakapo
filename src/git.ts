@@ -128,6 +128,19 @@ export function absoluteGitDir(root: string): string {
 // Absolute path to a kakapo data file inside the repo's git dir — `.git/kakapo/<name>`, or a linked
 // worktree's own `.git/worktrees/<id>/kakapo/<name>`. undefined when `root` isn't a git repo. This is where
 // kakapo stashes per-workspace agent-exchange files so they travel with the checkout but stay out of the tree.
+// The git dir SHARED by a repository and every worktree linked to it (`.git`, not `.git/worktrees/<id>`).
+// Anything that must outlive one task belongs here: a worktree is created for a task and deleted when it is
+// done, so a file written under absoluteGitDir dies with it.
+export function commonGitDir(root: string): string {
+  return git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+}
+
+// Like kakapoGitDataFile, but shared across the repository's worktrees — for knowledge that accumulates.
+export function kakapoSharedDataFile(root: string, name: string): string | undefined {
+  const gitDir = commonGitDir(root);
+  return gitDir ? join(gitDir, "kakapo", name) : undefined;
+}
+
 export function kakapoGitDataFile(root: string, name: string): string | undefined {
   const gitDir = absoluteGitDir(root);
   return gitDir ? join(gitDir, "kakapo", name) : undefined;

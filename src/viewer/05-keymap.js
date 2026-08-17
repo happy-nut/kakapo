@@ -909,7 +909,16 @@ window.addEventListener('beforeunload', saveUiState);
     // split the target text a second time and erase Chromium's pending word selection.
     if (Number(event.detail) > 1) return;
     const info = diffRowInfoFromNode(event.target);
-    if (info && info.path) setDiffCursor(info.path, info.side, info.rowIndex, 0, false);
+    if (!info || !info.path) return;
+    // Land the caret where the pointer is, not at the start of the line. The column was hard-coded to 0 here
+    // while the dblclick handler right below already asked estimateColumnFromClick for the real one — so a
+    // double click selected the word under the pointer, and the single click that preceded it threw that
+    // same information away. Clicks outside the code cell (the line-number gutter, the row's padding) have no
+    // column to speak of and still start the line.
+    const code = event.target?.closest?.('.d2h-code-line-ctn');
+    const row = code?.closest?.('tr');
+    const column = code && row && isDiffCodeRow(row) ? estimateColumnFromClick(code, event, diffLineText(row)) : 0;
+    setDiffCursor(info.path, info.side, info.rowIndex, column, false);
   });
   container.addEventListener('dblclick', (event) => {
     if (inComment(event)) return;

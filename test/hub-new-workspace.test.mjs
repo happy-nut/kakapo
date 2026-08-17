@@ -276,11 +276,16 @@ test("the start ref is a list of the repo's own refs, and the previewed slug is 
       refs: ["origin/main", "develop", "origin/develop"], path: "~/kakapo/workspaces/zoobox/quiet-heron" } });
   await tick();
 
+  // A native <select> shipped here first: macOS draws those with the system control and ignores every
+  // border/background rule in the dialog, so it landed as a white box in a dark panel. The chosen ref now
+  // rides in a hidden input behind the same button+menu the project field uses.
   const base = document.querySelector("#base");
-  assert.equal(base.tagName, "SELECT", "the ref is chosen, not typed");
-  assert.deepEqual([...base.options].map((o) => o.value), ["origin/main", "develop", "origin/develop"],
-    "the repo's own refs are the choices");
+  assert.equal(base.tagName, "INPUT", "the ref is chosen, not typed");
+  assert.equal(document.querySelectorAll("#create select").length, 0, "nothing in this dialog is a native select");
+  const refItems = () => [...document.querySelectorAll("#baseMenu button")].map((b) => b.dataset.ref);
+  assert.deepEqual(refItems(), ["origin/main", "develop", "origin/develop"], "the repo's own refs are the choices");
   assert.equal(base.value, "origin/main", "and the default is preselected");
+  assert.equal(document.querySelector("#baseName").textContent, "origin/main", "the field shows what is selected");
   assert.equal(document.querySelector("#slug").value, "quiet-heron", "the previewed slug is held for create");
 
   // Typing a task name re-previews on every keystroke; the slug must not reshuffle under the reader, so the
@@ -291,7 +296,9 @@ test("the start ref is a list of the repo's own refs, and the previewed slug is 
   await tick();
   assert.equal(hub.lastCall("preview")?.[3], "quiet-heron", "the preview is told the slug already shown");
 
-  base.value = "develop";
+  [...document.querySelectorAll("#baseMenu button")].find((b) => b.dataset.ref === "develop").click();
+  assert.equal(base.value, "develop", "picking from the menu is what sets the ref");
+  assert.equal(document.querySelector("#baseName").textContent, "develop");
   document.querySelector("#desc").value = "왜 만들었는지";
   document.querySelector("#doCreate").click();
   await tick();

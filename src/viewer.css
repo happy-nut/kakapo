@@ -2349,6 +2349,11 @@ h1 { margin: 0; font-size: 18px; }
 /* Review comments (questions / change-requests) — per-file sidebar count badges (no emoji) */
 .change-row { grid-template-columns: auto auto minmax(0, 1fr) auto; }
 .source-link { grid-template-columns: auto minmax(0, 1fr) auto; }
+/* The type glyphs are drawn INSET in their box — the code icon's ink runs 3..13 of 16 — so the same column gap
+   that sits snugly under a folder name reads far wider under a file name: measured 8.8px of whitespace on a
+   file row against 5.2px on the folder row right above it, in one tree. Spend only what the glyph doesn't
+   already carry, so both rows read at the same distance from their icon. */
+.source-link { column-gap: 2px; }
 .file-link .ftype { width: 15px; height: 15px; flex: none; display: block; }
 .source-link.not-embedded { opacity: 0.45; }
 .source-link.not-embedded:hover { opacity: 0.72; }
@@ -2462,6 +2467,17 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    otherwise a three-turn thread lights up whole while `e` and Backspace act on a single card in it. */
 .mc-comment-row.mc-row-selected .mc-card { box-shadow: none; }
 .mc-comment-row.mc-row-selected .mc-card.mc-card-selected { box-shadow: 0 0 0 2px var(--active); position: relative; z-index: 1; }
+/* A thread is deliberately flush — a card followed by another gives up its bottom margin and its bottom
+   radius so the turns read as one box. That leaves the selected card's ring with nowhere to draw its BOTTOM
+   edge: the next turn (the reply stub is a .mc-card too) sits directly on it, so the outline appeared to run
+   down both sides and stop. Give the selection those few pixels back, and its corners with them — only while
+   it is selected, so an unselected thread still reads as one box. */
+.mc-thread-cell .mc-card.mc-card-selected:has(+ .mc-card) {
+  margin-bottom: 4px;
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+}
+.mc-thread-cell .mc-card.mc-card-selected + .mc-card { margin-top: 0; }
 /* A file path an agent named in prose is a link: same inline-code chrome, plus the affordance. */
 .mc-path-code { cursor: pointer; text-decoration: underline dotted currentColor; text-underline-offset: 2px; }
 .mc-path-code:hover { color: var(--active); text-decoration-style: solid; }
@@ -2489,6 +2505,27 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    is a left border rather than a tint or a glow: it survives being read at a glance down a long thread, and
    it costs no layout, so a marked note is not a differently-sized note. Deliberately only two colours — the
    red is where it hurts, the green is where it stops hurting, and a third would make the pair a palette. */
+/* The card's place in the reading order: 1/8. Monospace and tabular so a column of them does not jitter, and
+   the first is filled in — "start here" is the one thing a set of cards scattered down the file cannot say. */
+/* Prev/next for the ordered walk, at the head's right edge. Quiet until the card is hovered — a control that
+   shouts on every card in a nine-note review is nine shouts — and each reveals the KEY it stands for on the
+   way past, so one use with the mouse teaches the keyboard. */
+.mc-walk-nav { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 120ms ease; }
+.mc-card:hover .mc-walk-nav, .mc-walk-nav:focus-within { opacity: 1; }
+.mc-walk-step {
+  display: inline-flex; align-items: center; gap: 4px; border: 1px solid transparent; border-radius: 5px;
+  background: transparent; color: var(--muted); font-size: 13px; line-height: 1; padding: 2px 6px; cursor: pointer;
+}
+.mc-walk-step:hover { color: var(--text); border-color: var(--border); background: var(--elevated); }
+.mc-walk-step:focus-visible { outline: 2px solid var(--active); outline-offset: -2px; }
+/* The key name appears only while that button is under the cursor, so the row stays two glyphs wide at rest. */
+.mc-walk-step::after { content: ""; font-size: 9.5px; letter-spacing: .5px; color: var(--muted); }
+.mc-walk-step:hover::after { content: attr(data-keyhint); }
+.mc-walk {
+  font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums;
+  color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+}
+.mc-walk-first { color: var(--active); border-color: color-mix(in srgb, var(--active) 45%, transparent); background: color-mix(in srgb, var(--active) 14%, transparent); font-weight: 700; }
 .mc-role {
   font-size: 9.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
   padding: 1px 6px; border-radius: 4px; border: 1px solid currentColor; white-space: nowrap;
@@ -2923,6 +2960,19 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
 .terminal-resizer { display: none; } /* a centered ~90% floating panel has no edge to drag */
 /* Split panes sit side by side (no tabs); the 1px gap shows the --border underneath as a divider. */
 .terminal-host { flex: 1 1 auto; min-height: 0; display: flex; gap: 1px; overflow: hidden; background: var(--border); }
+/* Reattaching to the tmux sessions that outlived the app is not instant — ask main which ones survived, attach
+   a pty to each, wait for tmux to redraw its screen — and until the first byte lands the panel is an empty
+   rectangle, which reads as a hang rather than as work in progress. One arc while that is happening, in the
+   same shape the workspace selector uses for a running agent. */
+.terminal-panel.is-connecting .terminal-host { position: relative; }
+.terminal-panel.is-connecting .terminal-host::after {
+  content: ""; position: absolute; inset: 0; margin: auto; width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--active) 28%, transparent); border-top-color: var(--active);
+  animation: workspace-selector-spin .8s linear infinite; pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .terminal-panel.is-connecting .terminal-host::after { animation: none; opacity: .65; }
+}
 /* Cmd+Shift+D stacks the panes instead (top/bottom); the same 1px gap becomes the horizontal divider. */
 /* The panel is a row of CELLS; a cell is a column of panes. One nesting level is what lets Cmd+Shift+D
    stack the focused pane without re-orienting every other pane (see split() in 19-terminal.js). */
@@ -3577,6 +3627,15 @@ summary.tree-focus,
 .vcs-new.source-link .path, .vcs-new.change-row .change-name { color: var(--chrome-vcs-new); }
 .vcs-edited.source-link .path, .vcs-edited.change-row .change-name { color: var(--chrome-vcs-edited); }
 .vcs-staged.source-link .path, .vcs-staged.change-row .change-name { color: var(--chrome-vcs-staged); }
+/* Changes tree, IntelliJ's alphabet: green added, blue modified, grey deleted. The colour IS the status, so
+   there is no badge — one signal, in the place the eye already is. A rename keeps the modified blue: the file
+   is still there, which is what the colour answers. Deleted is muted, not struck through — the strikethrough
+   is VS Code's convention, not this one. Placed after the vcs-* rules so a change row is coloured by WHAT
+   CHANGED rather than by whether it happens to be staged, which is how a deleted file came to look added. */
+.change-row.ch-added .change-name { color: var(--add-strong); }
+.change-row.ch-modified .change-name,
+.change-row.ch-renamed .change-name { color: var(--chrome-vcs-edited); }
+.change-row.ch-deleted .change-name { color: var(--muted); }
 .status { color: var(--chrome-muted); background: var(--chrome-line); }
 /* The modified chip is an empty slot until the row is marked viewed, and then it is the green check — not a
    blue badge saying "changed" on a list of changes. `.status` above sets a background on every chip, so this
