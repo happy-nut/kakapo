@@ -59,6 +59,9 @@ export type TerminalIpcState = {
   // which lights the "needs attention" dot on the workspace tile.
   onAgentOutput?: () => void;
   onAgentBell?: () => void;
+  // Whether THIS workspace is the one on screen. Workspaces are views inside one window, so "a window is
+  // focused" cannot answer it — and that was the question the bell was asking before suppressing itself.
+  isOnScreen?: () => boolean;
 };
 
 type TerminalEvent = IpcMainEvent | IpcMainInvokeEvent;
@@ -300,8 +303,12 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     // Light the tile's attention dot whenever a background turn finishes — even if the app is focused on a
     // different workspace. This runs before the focus check below, which only gates the native notification.
     state.onAgentBell?.();
-    const win = BrowserWindow.getFocusedWindow();
-    if (win?.isFocused()) return;
+    // Suppress only when you are looking at the workspace that rang. Any focused kakapo window used to be
+    // enough to swallow this, so a turn finishing in ANOTHER workspace — the case you most need telling about,
+    // since you cannot see its terminal — announced itself with nothing but a dock bounce. Workspaces are
+    // views inside one window, so being focused says which APP you are in, never which workspace.
+    const appFocused = !!BrowserWindow.getFocusedWindow()?.isFocused();
+    if (appFocused && state.isOnScreen?.() !== false) return;
     try {
       if (Notification.isSupported()) {
         const note = new Notification({ title: msg?.title || "kakapo", body: msg?.body || "Terminal task finished" });

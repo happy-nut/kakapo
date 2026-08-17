@@ -99,6 +99,9 @@ type WinState = {
   onAgentFinished: () => void;
   onAgentOutput: () => void;
   onAgentBell: () => void;
+  // Answered by isVisibleWorkspace: whether this workspace is the one the reviewer is actually looking at.
+  // The bell asks it before deciding to stay quiet (app-terminal-ipc.ts).
+  isOnScreen: () => boolean;
   unread: boolean; // an agent turn finished / needs input in this (non-active) workspace — the tile's red dot
   busy: boolean; // an agent is actively producing output here — the tile's animated "working" spinner
   busyTimer?: NodeJS.Timeout; // debounce: cleared/reset on each output chunk; on expiry the workspace goes idle
@@ -1876,6 +1879,8 @@ function createWindow(root: string, deferBoot = false): WinState {
       renderHub();
     },
     onAgentOutput: () => markAgentBusy(state),
+    // The same test the language-server reclaim uses: on screen means active (or detached) and not minimized.
+    isOnScreen: () => isVisibleWorkspace(state),
     onAgentBell: () => {
       if (state.busyTimer) { clearTimeout(state.busyTimer); state.busyTimer = undefined; }
       state.busy = false;

@@ -264,3 +264,20 @@ test("the panel says it is connecting until the first byte arrives, and never lo
   assert.match(client, /if \(!open\) setConnecting\(false\);/, "closing the panel takes it down too");
   assert.match(css, /\.terminal-panel\.is-connecting \.terminal-host::after/, "and there is something to see");
 });
+
+// A turn finishing in a workspace you are NOT looking at is the case you most need telling about — you cannot
+// see its terminal. It was the one case that stayed silent: any focused kakapo window suppressed the
+// notification, and workspaces are views inside one window, so "a window is focused" says which app you are
+// in and never which workspace.
+test("the bell notifies for a workspace you are not looking at", () => {
+  const ipc = read("src/app-terminal-ipc.ts");
+  const handler = ipc.match(/ipc\.on\("kakapo:bell"[\s\S]*?\n  \}\);/)?.[0];
+  assert.ok(handler, "the bell handler is still there");
+  assert.match(handler, /state\.isOnScreen\?\.\(\) !== false/,
+    "it asks whether the RINGING workspace is on screen, not merely whether a window is focused");
+  assert.doesNotMatch(handler, /if \(win\?\.isFocused\(\)\) return;/,
+    "the old any-window check is gone");
+  // main answers with the test it already uses for everything else that means "on screen".
+  assert.match(read("src/app-main.ts"), /isOnScreen: \(\) => isVisibleWorkspace\(state\)/,
+    "and main answers it with isVisibleWorkspace");
+});
