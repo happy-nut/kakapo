@@ -455,11 +455,18 @@ test("history changed-files list: real per-file status badges replace the old ha
   v.key("Enter");
   await v.settle(80);
 
-  const existingBadge = v.$("#history-files .history-file[data-file='src/existing.ts'] .status");
-  const addedBadge = v.$("#history-files .history-file[data-file='src/new-file.ts'] .status");
-  assert.ok(existingBadge.classList.contains("status-modified"), "the edited file keeps a Modified badge");
-  assert.ok(addedBadge.classList.contains("status-added"), "the new file gets a real Added badge instead of the old hardcoded Modified");
-  assert.notEqual(existingBadge.innerHTML, addedBadge.innerHTML, "added and modified badges render visually distinct icons");
+  // The status reaches the ROW, which is what colours the name — green added, blue modified, grey deleted,
+  // the same rules the Changes tree uses. No row draws a glyph: the colour is the whole signal.
+  const existingRow = v.$("#history-files .history-file[data-file='src/existing.ts']");
+  const addedRow = v.$("#history-files .history-file[data-file='src/new-file.ts']");
+  assert.ok(existingRow.classList.contains("ch-modified"), "the edited file is classed as modified");
+  assert.ok(addedRow.classList.contains("ch-added"), "and the new one as added, not the old hardcoded modified");
+  assert.equal(existingRow.querySelector(".status svg"), null, "neither draws a badge");
+  assert.notEqual(
+    v.window.getComputedStyle(existingRow.querySelector(".change-name")).color,
+    v.window.getComputedStyle(addedRow.querySelector(".change-name")).color,
+    "added and modified never read alike",
+  );
   v.close();
 });
 
@@ -472,8 +479,8 @@ test("history changed-files list: a commitDiff response without fileStatus still
   v.key("Enter");
   await v.settle(80);
 
-  const badge = v.$("#history-files .history-file[data-file='src/a.ts'] .status");
-  assert.ok(badge.classList.contains("status-modified"), "a missing fileStatus map defaults every file to Modified");
+  const row = v.$("#history-files .history-file[data-file='src/a.ts']");
+  assert.ok(row.classList.contains("ch-modified"), "a missing fileStatus map defaults every file to modified");
   v.close();
 });
 

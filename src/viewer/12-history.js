@@ -513,19 +513,11 @@ function historyFirstChangeRowForCaret(hunkRow) {
   }
   return historyFirstCodeRowOfHunk(hunkRow);
 }
-// Real per-status badge for the changed-files tree, mirroring render-tree.ts's changeStatusBadge exactly
-// (the client cannot import it). Falls back to the "modified" icon for any status readCommitDiff couldn't
-// resolve — e.g. a rename, whose diff2html file-name label doesn't match the fileStatus lookup key.
+// No badge, mirroring render-tree.ts: the COLOUR of the name says added/modified/deleted (green/blue/grey,
+// the way IntelliJ says it), and a glyph repeating it is a second alphabet for one fact. The element stays
+// because the viewed check lands in it and it holds every name on the same left edge.
 function historyStatusBadge(status) {
-  var label = status ? status[0].toUpperCase() + status.slice(1) : 'Modified';
-  var icon;
-  switch (status) {
-    case 'added': icon = '<path d="M8 3.5v9M3.5 8h9"/>'; break;
-    case 'deleted': icon = '<path d="M3.5 8h9"/>'; break;
-    case 'renamed': icon = '<path d="M3 5h8m-2.5-2.5L11 5 8.5 7.5M13 11H5m2.5-2.5L5 11l2.5 2.5"/>'; break;
-    default: icon = '<path d="m3.2 11.8.6-2.7 6.6-6.6a1.2 1.2 0 0 1 1.7 0l1.4 1.4a1.2 1.2 0 0 1 0 1.7L6.9 12.2l-2.7.6zM9.5 3.4l3.1 3.1"/>';
-  }
-  return '<span class="status status-' + escapeHtml(status || 'modified') + '" role="img" aria-label="' + escapeHtml(label) + '" title="' + escapeHtml(label) + '"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + icon + '</svg></span>';
+  return '<span class="status status-' + escapeHtml(status || 'modified') + '" aria-hidden="true"></span>';
 }
 // Groups the flat, DOM-walk-ordered `files` list (built below in setupHistoryDiffWorkspace) into a folder
 // tree — the same nesting/single-child-chain shape as render-tree.ts's renderDiffTree/Changes tree, reusing
@@ -556,7 +548,8 @@ function historyFileTreeChildrenHtml(node, depth) {
 function historyFileTreeNodeHtml(node, depth) {
   if (node.file) {
     var file = node.file;
-    return '<button type="button" class="file-link history-file change-row tree-file" data-index="' + node.fileIndex + '" data-file="' + escapeHtml(file.path) + '" data-hunk="' + file.hunk + '" style="--depth:' + depth + '" aria-label="' + escapeHtml(file.path) + '">'
+    // Same class the Changes tree uses, so one set of colour rules serves both lists.
+    return '<button type="button" class="file-link history-file change-row tree-file ch-' + escapeHtml(file.status || 'modified') + '" data-index="' + node.fileIndex + '" data-file="' + escapeHtml(file.path) + '" data-hunk="' + file.hunk + '" style="--depth:' + depth + '" aria-label="' + escapeHtml(file.path) + '">'
       + virtualTypeIcon(file.path)
       + historyStatusBadge(file.status)
       + '<span class="change-name"><span class="path" title="' + escapeHtml(file.path) + '">' + escapeHtml(node.name) + '</span></span></button>';

@@ -151,34 +151,11 @@ function diffLineTotals(file: DiffFile): { added: number; deleted: number } {
   return { added, deleted };
 }
 
+// No glyph, whatever changed. The COLOUR of the name says added/modified/deleted — green, blue, grey, the
+// way IntelliJ says it — and a badge repeating that is a second alphabet for one fact. This element stays
+// only because the viewed ✓ lands in it (viewer.css) and because it holds every filename on the same left
+// edge; mirrored by historyStatusBadge in 12-history.js, which the client cannot import.
 function changeStatusBadge(status: string): string {
-  const label = status ? status[0].toUpperCase() + status.slice(1) : "Changed";
-  let icon: string;
-  switch (status) {
-    case "added":
-      icon = '<path d="M8 3.5v9M3.5 8h9"/>';
-      break;
-    case "deleted":
-      icon = '<path d="M3.5 8h9"/>';
-      break;
-    case "renamed":
-      icon = '<path d="M3 5h8m-2.5-2.5L11 5 8.5 7.5M13 11H5m2.5-2.5L5 11l2.5 2.5"/>';
-      break;
-    // No glyph: in a tree of changed files, "modified" is what every row is until it says otherwise, so a
-    // pencil on most of them marks nothing — and the filename colour (vcs-edited) already says it twice. The
-    // chip itself stays: it is the slot the viewed ✓ lands in (viewer.css), and keeping it holds every
-    // filename on the same left edge whether or not its status draws something.
-    case "modified":
-      icon = "";
-      break;
-    default:
-      icon = '<circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/>';
-  }
-  // No glyph, whatever the status: the colour of the name says added/modified/deleted, the way every editor
-  // this reviewer has used says it, and a badge repeating it is a second alphabet to learn. The element stays
-  // because the viewed ✓ lands in it, and it keeps its status class because the history view styles by it.
-  void icon;
-  void label;
   return `<span class="status status-${escapeAttr(status || "modified")}" aria-hidden="true"></span>`;
 }
 
