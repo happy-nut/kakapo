@@ -259,7 +259,10 @@ body.rail-exp #railfoot{flex-direction:row;justify-content:flex-end;padding:7px 
    points is already the whole message and a second, colour-coded one just reads as a stray highlight. */
 #pin svg{width:16px;height:16px;transition:transform 180ms cubic-bezier(.2,.8,.2,1)}
 body.rail-exp #pin svg{transform:rotate(180deg)}
-#railhead #new{border:1px dashed ${line}}
+/* Collapsed, the rail is an index of what exists — a dashed ＋ floating above it advertises a panel that
+   isn't open yet, and its own dialog needs the panel's repo context anyway. It appears with the panel. */
+#railhead #new{border:1px dashed ${line};display:none}
+body.rail-exp #railhead #new{display:grid}
 .context-menu{position:fixed;z-index:20;width:172px;padding:5px;background:${bg};border:1px solid ${line};border-radius:8px;box-shadow:0 12px 30px #0008}
 .context-menu button{display:block;width:100%;border:0;text-align:left;padding:7px 9px}.context-menu button:hover{background:${light ? "#dfe7f5" : "#373d49"}}.context-menu .danger{color:#df6868}.hidden{display:none!important}</style>
 <div id="titlebar"><span id="wsname"></span><span id="wstitle"></span><span class="tb-spacer"></span><button id="update-chip" class="hidden" title="${t("settings.updateAvailable")}">${t("sidebar.updateAvailable")}</button><div id="tools"><button class="tb" data-act="changes" data-tip="${t("tab.changes")}" data-key="⌘0" aria-label="${t("tab.changes")} (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" data-tip="${t("tab.files")}" data-key="⌘1" aria-label="${t("tab.files")} (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" data-tip="${t("terminal.title")}" data-key="⌃\`" aria-label="${t("terminal.title")} (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" data-tip="${t("rail.history")}" data-key="⌘9" aria-label="${t("rail.history")} (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button></div></div><main id="hub"><div id="railhead"><span id="railtitle">${t("hub.workspaces")}</span><button id="new" title="${t("hub.newWorkspace.title")}">＋</button><button id="pin" title="${t("hub.expandRail.title")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button></div><section id="list"></section><div id="usage-foot" class="usage-foot" aria-label="Agent usage"></div><div id="railfoot"><button id="settings" title="${t("hub.settings.title", { v: appVersion })}">⚙</button></div></main><div id="tt"></div>
@@ -585,6 +588,7 @@ export function modalOverlayHtml(light: boolean, t: Translate): string {
   const T = {
     selectProject: t("newws.selectProject"), browse: t("newws.browse"), chooseFirst: t("newws.chooseFirst"),
     baseSelect: t("newws.base.select"),
+    refLocal: t("newws.base.local"), refRemote: t("newws.base.remote"),
     creating: t("newws.creating"), create: t("newws.create"), createFailed: t("newws.createFailed"),
     opening: t("newws.opening"), open: t("newws.open"),
     renameTitle: t("newws.renameTitle"), memoTitle: t("newws.memoTitle"),
@@ -711,7 +715,9 @@ if(r.ok&&r.worktree&&r.slug)slugEl.value=r.slug;
 if(r.ok&&r.worktree&&Array.isArray(r.refs)&&!baseRefs.length)setBaseRefs(r.refs);
 // The repo's own answer for "where should this start" — put it at the top of the list if it isn't in it, and
 // select it, but never over a branch the reviewer already picked.
-if(r.ok&&r.worktree&&r.base&&!b.value){if(baseRefs.indexOf(r.base)<0)setBaseRefs([r.base].concat(baseRefs));pickBase(r.base);}document.querySelector("#preview").innerHTML=r.ok?(r.worktree?'slug: '+esc(r.slug)+'<br>branch: '+esc(r.branch)+'<br>':'branch: '+esc(r.branch)+'<br>')+esc(r.path):''}
+// The default base is all but always already in the list; only a repo with more refs than the list's limit
+// can miss it, and there a slash in the name is the best guess left for which side of the fence it sits on.
+if(r.ok&&r.worktree&&r.base&&!b.value){if(!baseRefs.some(x=>x.ref===r.base))setBaseRefs([{ref:r.base,remote:r.base.indexOf('/')>0}].concat(baseRefs));pickBase(r.base);}document.querySelector("#preview").innerHTML=r.ok?(r.worktree?'slug: '+esc(r.slug)+'<br>branch: '+esc(r.branch)+'<br>':'branch: '+esc(r.branch)+'<br>')+esc(r.path):''}
 // Start-point picker. A native <select> shipped here first and macOS draws those with the system control, not
 // with CSS: a white box sitting in a dark dialog, ignoring every border/background rule around it. The project
 // field above already solved this — button.field + .pmenu, styled and keyboard-navigable — so this is that,
@@ -719,7 +725,13 @@ if(r.ok&&r.worktree&&r.base&&!b.value){if(baseRefs.indexOf(r.base)<0)setBaseRefs
 const baseMenu=document.querySelector("#baseMenu"),baseBtn=document.querySelector("#chooseBase");
 let baseRefs=[];
 function closeBaseMenu(){baseMenu.classList.add('hidden');baseBtn.setAttribute('aria-expanded','false');}
-function setBaseRefs(refs){baseRefs=refs.slice();baseMenu.innerHTML=baseRefs.map(r=>'<button type="button" role="option" data-ref="'+esc(r)+'"><span class="pm-name">'+esc(r)+'</span></button>').join('');}
+// Local branch vs the remote's copy, in the same 15px monochrome slot the project menu's folder icon uses.
+// The name alone cannot say which — a local branch really can be called "origin" — so the flag comes from
+// git (listStartRefs) and rides in the button's title for anyone who can't see the glyph.
+const _refIc=(remote)=>'<span class="pm-ic">'+(remote
+  ?'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18h10a3.5 3.5 0 0 0 .4-7A5 5 0 0 0 8 9.6 4.2 4.2 0 0 0 7 18z"/></svg>'
+  :'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.4"/><circle cx="6.5" cy="18" r="2.4"/><circle cx="17.5" cy="7" r="2.4"/><path d="M6.5 8.4v7.2"/><path d="M17.5 9.4c0 3.7-3.8 4.3-6.2 5.2"/></svg>')+'</span>';
+function setBaseRefs(refs){baseRefs=refs.slice();baseMenu.innerHTML=baseRefs.map(r=>'<button type="button" role="option" data-ref="'+esc(r.ref)+'" title="'+esc(r.remote?T.refRemote:T.refLocal)+'">'+_refIc(r.remote)+'<span class="pm-name">'+esc(r.ref)+'</span></button>').join('');}
 function pickBase(ref){document.querySelector("#base").value=ref;const n=document.querySelector("#baseName");n.textContent=ref;n.classList.remove('ph');closeBaseMenu();}
 function resetBase(){baseRefs=[];baseMenu.innerHTML='';document.querySelector("#base").value='';const n=document.querySelector("#baseName");n.textContent=T.baseSelect;n.classList.add('ph');closeBaseMenu();}
 baseMenu.addEventListener('click',e=>{const b=e.target.closest('button');if(b&&b.dataset.ref){pickBase(b.dataset.ref);baseBtn.focus();}});

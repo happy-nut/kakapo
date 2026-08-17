@@ -273,7 +273,10 @@ test("the delete confirmation offers to remove the local branch, pre-checked", a
 test("the start ref is a list of the repo's own refs, and the previewed slug is what gets created", async () => {
   const { hub, document } = openDialog({ path: "/repos/zoobox", name: "zoobox" },
     { preview: { ok: true, worktree: true, slug: "quiet-heron", base: "origin/main", branch: "kakapo/quiet-heron",
-      refs: ["origin/main", "develop", "origin/develop"], path: "~/kakapo/workspaces/zoobox/quiet-heron" } });
+      // A ref's short name cannot say which side it lives on (a local branch may be called `origin`), so
+      // listStartRefs sends the answer from git's own refname and the picker draws an icon from it.
+      refs: [{ ref: "origin/main", remote: true }, { ref: "develop", remote: false }, { ref: "origin/develop", remote: true }],
+      path: "~/kakapo/workspaces/zoobox/quiet-heron" } });
   await tick();
 
   // A native <select> shipped here first: macOS draws those with the system control and ignores every
@@ -284,6 +287,10 @@ test("the start ref is a list of the repo's own refs, and the previewed slug is 
   assert.equal(document.querySelectorAll("#create select").length, 0, "nothing in this dialog is a native select");
   const refItems = () => [...document.querySelectorAll("#baseMenu button")].map((b) => b.dataset.ref);
   assert.deepEqual(refItems(), ["origin/main", "develop", "origin/develop"], "the repo's own refs are the choices");
+  const refTitles = () => [...document.querySelectorAll("#baseMenu button")].map((b) => b.title);
+  assert.equal(new Set(refTitles()).size, 2, "local and remote refs are labelled apart, not all the same");
+  assert.notEqual(refTitles()[0], refTitles()[1], "origin/main (remote) and develop (local) do not read alike");
+  assert.equal(document.querySelectorAll("#baseMenu button .pm-ic svg").length, 3, "every ref carries its side as an icon");
   assert.equal(base.value, "origin/main", "and the default is preselected");
   assert.equal(document.querySelector("#baseName").textContent, "origin/main", "the field shows what is selected");
   assert.equal(document.querySelector("#slug").value, "quiet-heron", "the previewed slug is held for create");
