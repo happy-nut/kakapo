@@ -1135,7 +1135,19 @@ function stepAnchor(delta, list) {
   for (var k = 0; k < list.length; k++) {
     if (list[k].path === curPath && lineOf(list[k]) === curLine) { at = k; break; }
   }
-  if (at >= 0) return list[(at + (delta > 0 ? 1 : -1) + list.length) % list.length];
+  // A thread is ONE stop, not one per turn. A reply carries its parent's anchor, so the next entry after a
+  // note is very often that note's own answer — stepping onto it moved the caret to the line it was already
+  // on and looked like the key had done nothing. Backwards never hit this (the previous entry is a different
+  // line), which is exactly how it showed up: Shift+F8 walked and F8 did not. Skip everything sharing the
+  // anchor we are standing on.
+  if (at >= 0) {
+    var dir = delta > 0 ? 1 : -1;
+    for (var n = 1; n <= list.length; n++) {
+      var candidate = list[((at + dir * n) % list.length + list.length) % list.length];
+      if (candidate.path !== curPath || lineOf(candidate) !== curLine) return candidate;
+    }
+    return list[at]; // every card in the review is anchored here; there is nowhere else to go
+  }
   if (delta > 0) {
     return list.find(function (c) {
       if (curOrder == null) return true;

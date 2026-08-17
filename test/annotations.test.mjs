@@ -541,3 +541,38 @@ test("an ordered note carries its own prev/next, and they drive the same walk as
   assert.equal(line(), 2, "back is the same step in reverse");
   v.close();
 });
+
+// Shift+F8 walked and F8 did not. A reply carries its parent's anchor, so the entry after a note is very
+// often that note's own answer — stepping onto it moved the caret to the line it was already on, which looks
+// exactly like a key that does nothing. Backwards never hit it, because the previous entry is a different
+// line. A thread is one stop, not one per turn.
+test("F8 steps past a note's own replies instead of standing still on them", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\n",
+      after: "const a = 9;\nconst b = 8;\nconst c = 7;\nconst d = 6;\n" },
+  ]);
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+
+  // Ungrouped, like every note written before groups existed: the walk is file order, so a reply — which
+  // carries its parent's anchor — sits directly after the note it answers.
+  const first = v.agentSays({ kind: "note", path: "src/app.ts", line: 2, text: "the note" });
+  v.agentSays({ re: first, by: "agent", text: "an answer under it" });
+  v.agentSays({ re: first, by: "agent", text: "and another" });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 4, text: "the next note" });
+  await v.settle(40);
+
+  const line = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1) + 1;
+  v.key("F8");
+  await v.settle(60);
+  assert.equal(line(), 2, "the first step lands on the note");
+
+  v.key("F8");
+  await v.settle(60);
+  assert.equal(line(), 4, "the second steps over its two replies to the next note, not onto its own thread");
+
+  v.key("F8", { shiftKey: true });
+  await v.settle(60);
+  assert.equal(line(), 2, "and back is the same stop in reverse");
+  v.close();
+});

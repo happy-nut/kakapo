@@ -79,6 +79,10 @@ body{display:flex;flex-direction:column}
 #titlebar{position:relative;height:${TITLEBAR_H}px;flex:none;-webkit-app-region:drag;display:flex;align-items:center;gap:8px;padding:0 12px 0 84px;border-bottom:1px solid ${line};background:${light ? "#ececec" : "#1b1e25"}}
 #wsname{-webkit-app-region:no-drag;display:flex;align-items:center;gap:7px;max-width:72%;font-weight:600;color:${fg};font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #wsname .wsdot{width:6px;height:6px;border-radius:50%;background:#4d9a51;flex:none}#wsname .rp{color:${light ? "#888" : "#7d828c"};font-weight:400}
+/* The path is the last thing to matter and the first to give up room: it shrinks before the name or branch,
+   and disappears entirely on a narrow window rather than pushing them out. */
+#wsname .wspath{color:${light ? "#9aa0aa" : "#666b74"};font-weight:400;font-size:11px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:900px){#wsname .wspath{display:none}}
 /* The name you gave this workspace is the window's title, so it sits where a document window's title does —
    centred on the WINDOW, not on what is left over between the project name and the tools. Absolute, so
    neither side can push it off centre; the left cluster keeps identity (project · branch). */
@@ -483,7 +487,11 @@ window.kakapoHub.onState(items=>{const groups=new Map;for(const w of items){if(!
 // Left: which checkout this is — project and the branch it is on, the two things you cannot rename away.
 // Centre: the alias, the title you CAN edit (blank when you never gave it one; the pair on the left already
 // says what this workspace is, and repeating the branch in the middle would say it twice).
-const _a=items.find(w=>w.active);const _wn=document.getElementById('wsname');if(_wn)_wn.innerHTML=_a?'<span class="wsdot"></span>'+esc(_a.repoName)+' <span class="rp">· '+esc(_a.branch)+'</span>':'';
+// Project · branch · where it actually IS on disk. Several worktrees of one repo sit on similar branches and
+// their windows looked identical; the path is the only thing that always tells them apart — and it is the
+// thing you need when you go to run something there yourself. Home is written as ~ because the prefix is the
+// same on every row and would push the part that differs off the end.
+const _a=items.find(w=>w.active);const _wn=document.getElementById('wsname');if(_wn)_wn.innerHTML=_a?'<span class="wsdot"></span>'+esc(_a.repoName)+' <span class="rp">· '+esc(_a.branch)+'</span>'+(_a.shortPath||_a.path?' <span class="wspath">'+esc(_a.shortPath||_a.path)+'</span>':''):'';
 const _wt=document.getElementById('wstitle');if(_wt)_wt.textContent=_a&&_a.alias&&_a.alias!==_a.branch?_a.alias:'';
 // Remember the active workspace's project so ⌘N can prefill it — a new task almost always belongs to the repo
 // you are looking at.

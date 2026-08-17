@@ -405,3 +405,18 @@ test("the keyboard ring follows its workspace across a re-render, not its row nu
   hub.handlers.onState(items.slice(1));
   assert.deepEqual(ringed(document), ["claude/legacy-strategy-removal"], "still zoobox's main, wherever it now sits");
 });
+
+// Several worktrees of one repo sit on similar branches, and their title bars read identically — the path is
+// the only thing that always tells them apart, and the thing you need when you go to run something there.
+test("the title bar says which worktree on disk, with home folded to ~", async () => {
+  const { document } = railWithState([
+    { ...KAKAPO_MAIN, id: 1, active: true, branch: "fix/issue-1130",
+      path: "/repos/zoobox", shortPath: "~/kakapo/workspaces/zoobox/quiet-warbler" },
+  ]);
+  await tick();
+  const name = document.querySelector("#wsname");
+  assert.match(name.textContent, /kakapo/, "the project is still first");
+  assert.match(name.textContent, /fix\/issue-1130/, "then the branch");
+  assert.match(name.querySelector(".wspath").textContent, /^~\/kakapo\/workspaces\/zoobox\/quiet-warbler$/,
+    "then where it actually is, with the shared prefix folded away");
+});

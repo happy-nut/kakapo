@@ -1,6 +1,6 @@
 import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell, WebContentsView } from "electron";
@@ -1542,6 +1542,13 @@ const HUB_TILE_TTL_MS = 1000;
 // (however old) and revalidate off-thread, re-rendering only if something actually changed. Only a tile that
 // has never been computed still pays the synchronous cost, once.
 const hubTileRefreshing = new Set<number>();
+// `/Users/you/kakapo/workspaces/zoobox/quiet-warbler` with the part that is the same on every row folded
+// away, so what is left is the part that differs. The renderer cannot do this itself — it has no home dir.
+function tildePath(path: string): string {
+  const home = homedir();
+  return home && path.startsWith(home + "/") ? "~" + path.slice(home.length) : path;
+}
+
 function hubTileFor(state: WinState): { record: WorkspaceRecord; dirtyCount: number; ahead: number } {
   if (state.hubTile) {
     if (Date.now() - state.hubTile.computedAt >= HUB_TILE_TTL_MS) void refreshHubTile(state);
@@ -1656,6 +1663,7 @@ function renderHub(): void {
     if (owner && !avatar) void ensureOwnerAvatar(owner);
     return { id: state.win.webContents.id, ...current, alias: metadata?.alias, memo: metadata?.memo,
       base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount, ahead, avatar,
+      shortPath: tildePath(current.path),
       active: state.win.webContents.id === activeStateId, running: hasRunningProcess(state),
       resume: state.resumeCommand, agent: agentForWorkspace(state, panes),
       unread: state.unread, busy: state.busy, detached: state.win.isDetached() };
