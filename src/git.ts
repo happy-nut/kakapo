@@ -48,6 +48,18 @@ export type AutomaticReviewBase = {
   behind?: number;
 };
 
+// The ref a branch was cut from when it has no tracking branch — a feature branch nobody has pushed yet.
+// Without this the automatic base gave up on such a branch entirely, the review fell back to
+// HEAD-vs-worktree, and the moment an agent committed its work that diff went empty: every review comment
+// lost the line it hangs on and the whole review looked wiped (the comments were safe on disk the whole
+// time — there was simply no diff left to draw them on). Same fallback the patch-set selector already uses.
+function defaultBranchRef(root: string): string {
+  for (const candidate of ["main", "master"]) {
+    if (git(root, ["rev-parse", "--verify", "--quiet", candidate])) return candidate;
+  }
+  return "";
+}
+
 // A clean worktree can still contain the exact changes that need review when its branch has local,
 // unpushed commits. In that state HEAD-vs-worktree is empty, so use the tracking branch's merge-base as
 // the review base. The merge-base (rather than the upstream tip) also behaves correctly after divergence:
@@ -67,7 +79,8 @@ export function resolveAutomaticReviewBase(root: string, includeUntracked = true
   ]);
   if (status) return undefined;
 
-  const upstream = git(canonicalRoot, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
+  const tracking = git(canonicalRoot, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
+  const upstream = tracking || defaultBranchRef(canonicalRoot);
   if (!upstream) return undefined;
   const counts = git(canonicalRoot, ["rev-list", "--left-right", "--count", `${upstream}...HEAD`])
     .split(/\s+/)
@@ -77,6 +90,9 @@ export function resolveAutomaticReviewBase(root: string, includeUntracked = true
   const revision = git(canonicalRoot, ["merge-base", upstream, "HEAD"]);
   if (!revision) return undefined;
   if (ahead > 0) return { revision, upstream, label: `${upstream}...HEAD`, ahead };
+  // "Read what the remote has and you don't" only makes sense for a real tracking branch. Falling back to a
+  // local default branch here would flip an ordinary stale feature branch into an incoming-changes review.
+  if (!tracking) return undefined;
   // Nothing of your own to review: the worktree is clean and nothing is unpushed. The only difference left
   // between this checkout and the remote is what the remote has and you do not, so review THAT — right side
   // pinned to the tracking branch instead of the working tree. Reviewing an incoming change before you merge
