@@ -408,7 +408,7 @@ var handleTerminalSendModeKey;
   // it cannot be one that withholds output for the duration of a composition.
   window.kakapoPty.onData(function (msg) {
     for (var k = 0; k < panes.length; k++) {
-      if (panes[k].id === msg.id) { setConnecting(false); panes[k].term.write(msg.data); return; }
+      if (panes[k].id === msg.id) { noteConnectingOutput(); panes[k].term.write(msg.data); return; }
     }
   });
   window.kakapoPty.onExit(function (msg) { removePane(msg.id); });
@@ -439,7 +439,19 @@ var handleTerminalSendModeKey;
   // a pane attached to a silent session prints nothing at all and the spinner would outlive the thing it is
   // describing, over a terminal that already works.
   var connectingTimer = 0;
+  // The FIRST byte is not the end of the wait. Attaching to tmux echoes a handful of bytes at once, and the
+  // redraw of the session's actual screen follows a second or more later — so clearing on first output took the
+  // overlay away after ~100ms and left the rest of the wait as an empty terminal, which is the wait the
+  // reviewer actually sees. Spin until the output SETTLES instead: every byte pushes the finish line back a
+  // little, and the 4s ceiling below still ends it for a session that says nothing at all.
+  var connectingSettle = 0;
+  function noteConnectingOutput() {
+    if (!panel.classList.contains('is-connecting')) return;
+    if (connectingSettle) clearTimeout(connectingSettle);
+    connectingSettle = setTimeout(function () { connectingSettle = 0; setConnecting(false); }, 220);
+  }
   function setConnecting(on) {
+    if (connectingSettle) { clearTimeout(connectingSettle); connectingSettle = 0; }
     if (connectingTimer) { clearTimeout(connectingTimer); connectingTimer = 0; }
     panel.classList.toggle('is-connecting', !!on);
     // The label is handed to CSS as a quoted string, because the overlay is a pseudo-element and `content`

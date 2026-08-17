@@ -251,12 +251,12 @@ test("a pty hears about a resize only when the character grid changed", () => {
 // attach a pty per pane, and wait for tmux to redraw. Measured on a trivial session that is ~400ms of empty
 // black rectangle, and longer with real agent panes in it — indistinguishable from a hang unless something
 // says otherwise.
-test("the panel says it is connecting until the first byte arrives, and never longer", () => {
+test("the panel says it is connecting until there is something to look at, and never longer", () => {
   assert.match(client, /setConnecting\(true\);\s*\n\s*restorePanes\(\)/,
     "opening onto no panes raises the indicator before the restore starts");
   const onData = client.match(/window\.kakapoPty\.onData\(function \(msg\)[\s\S]*?\n  \}\);/)?.[0];
-  assert.match(onData, /setConnecting\(false\); panes\[k\]\.term\.write/,
-    "the first byte from a pane is what takes it down — that is when there is something to look at");
+  assert.match(onData, /noteConnectingOutput\(\); panes\[k\]\.term\.write/,
+    "output reports progress; what ends the wait is the output settling (see the settle test below)");
   const setter = client.match(/function setConnecting\(on\)[\s\S]*?\n  \}/)?.[0];
   assert.ok(setter, "setConnecting exists");
   assert.match(setter, /setTimeout\(function \(\) \{ setConnecting\(false\); \}, \d+\)/,
@@ -306,4 +306,24 @@ test("the panel says what it is waiting for while it reattaches", () => {
     const z = Number(rule.match(/z-index: (\d+)/)?.[1]);
     assert.ok(z > 10, `an overlay half must sit above xterm's layers, got ${z || "auto"}`);
   }
+});
+
+// The first byte is not the end of the wait. Attaching to tmux echoes a few bytes immediately and the redraw
+// of the session's screen lands a second or more later, so clearing on first output took the overlay away
+// after ~100ms and left the rest of the wait as an empty terminal — the part the reviewer actually waits
+// through, with nothing on screen to say so.
+test("the connecting overlay lasts until the output settles, not until the first byte", () => {
+  assert.doesNotMatch(client, /msg\.id\) \{ setConnecting\(false\)/,
+    "the data handler no longer ends the wait on its first byte");
+  assert.match(client, /noteConnectingOutput\(\); panes\[k\]\.term\.write/,
+    "every byte reports progress instead");
+  const settle = client.match(/function noteConnectingOutput\(\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(settle, "and progress is a function of its own");
+  assert.match(settle, /if \(!panel\.classList\.contains\('is-connecting'\)\) return;/,
+    "which does nothing once the wait is over");
+  assert.match(settle, /clearTimeout\(connectingSettle\)[\s\S]*setTimeout\([\s\S]*setConnecting\(false\)/,
+    "each byte pushes the finish line back, so the overlay outlives a burst");
+  // The ceiling still has to exist: a session that prints nothing would spin for ever on a terminal that works.
+  assert.match(client, /connectingTimer = setTimeout\(function \(\) \{ setConnecting\(false\); \}, 4000\)/,
+    "the 4s ceiling is untouched");
 });
