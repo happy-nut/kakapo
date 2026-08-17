@@ -1661,10 +1661,26 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   padding: 0;
 }
 .status svg { display: block; width: 11px; height: 11px; }
-/* Viewed: dim the row and collapse the status chip into one green check (no stacked glyph). */
-.file-link.viewed .status { font-size: 0; background: color-mix(in srgb, #6ab04c 24%, transparent); color: #6ab04c; }
-.file-link.viewed .status svg { display: none; }
-.file-link.viewed .status::after { content: '✓'; font-size: 10px; font-weight: 700; line-height: 1; }
+/* The mark-as-viewed box: leftmost on a changed row, drawn empty on every one of them so the column reads as
+   a checklist of what is still to review rather than a mark that materializes out of nowhere. */
+.viewed-box {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--chrome-border, #8888);
+  border-radius: var(--ui-radius-xs, 3px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: transparent;
+  cursor: pointer;
+}
+.viewed-box::after { content: '✓'; }
+.change-row:hover .viewed-box { border-color: currentColor; }
+.file-link.viewed .viewed-box { background: #6ab04c; border-color: #6ab04c; color: #fff; }
 .status-added { background: var(--add); color: #1a7f37; }
 .status-deleted { background: var(--del); color: #cf222e; }
 .status-renamed { background: #fff8c5; color: #9a6700; }
@@ -2974,6 +2990,14 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
   border: 2px solid color-mix(in srgb, var(--active) 28%, transparent); border-top-color: var(--active);
   animation: workspace-selector-spin .8s linear infinite; pointer-events: none;
 }
+/* And what it is waiting FOR, under the arc. A spinner says "something is happening"; the sentence says what,
+   which is the difference between waiting and wondering whether the panel is broken. The text arrives as a
+   CSS custom property (setConnecting) because a pseudo-element cannot read a translation itself. */
+.terminal-panel.is-connecting .terminal-host::before {
+  content: var(--terminal-connecting, "");
+  position: absolute; left: 0; right: 0; top: 50%; margin-top: 24px;
+  text-align: center; color: var(--muted); font-size: 12px; pointer-events: none;
+}
 @media (prefers-reduced-motion: reduce) {
   .terminal-panel.is-connecting .terminal-host::after { animation: none; opacity: .65; }
 }
@@ -3641,9 +3665,9 @@ summary.tree-focus,
 .change-row.ch-renamed .change-name { color: var(--chrome-vcs-edited); }
 .change-row.ch-deleted .change-name { color: var(--muted); }
 .status { color: var(--chrome-muted); background: var(--chrome-line); }
-/* The modified chip is an empty slot until the row is marked viewed, and then it is the green check — not a
-   blue badge saying "changed" on a list of changes. `.status` above sets a background on every chip, so this
-   has to switch it back off; the viewed ✓ rule is more specific and still wins. */
+/* Only History still draws this chip (the Changes tree leads with the viewed box instead). A modified row
+   shows nothing: a blue badge saying "changed" on a list of changes is a second alphabet for one fact, and
+   `.status` above puts a background on every chip, so this has to switch it back off. */
 .status-modified { color: var(--chrome-vcs-edited); background: transparent; }
 
 .diff-toolbar,

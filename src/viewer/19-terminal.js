@@ -442,6 +442,12 @@ var handleTerminalSendModeKey;
   function setConnecting(on) {
     if (connectingTimer) { clearTimeout(connectingTimer); connectingTimer = 0; }
     panel.classList.toggle('is-connecting', !!on);
+    // The label is handed to CSS as a quoted string, because the overlay is a pseudo-element and `content`
+    // cannot read a translation on its own. Set here rather than at boot so it follows a locale change.
+    try {
+      if (on) panel.style.setProperty('--terminal-connecting', JSON.stringify(t('terminal.connecting')));
+      else panel.style.removeProperty('--terminal-connecting');
+    } catch (e) {}
     if (on) connectingTimer = setTimeout(function () { setConnecting(false); }, 4000);
   }
   function isOpen() { return !panel.classList.contains('hidden'); }

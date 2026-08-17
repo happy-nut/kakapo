@@ -29,6 +29,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "tab.files": "Files",
     "tab.changes.title": "Changes (⌘0)",
     "tab.files.title": "Files (⌘1)",
+    "tree.markViewed": "Reviewed this file (Space)",
     "rail.reviewComments": "Review comments",
     "rail.branch": "Current branch",
     "brand.revealFile": "Reveal open file in the sidebar (⌥F1)",
@@ -120,6 +121,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Removes every comment anchored in one file, in one action. Counted, because "clear comments" with no
     // number is a question the menu should have already answered.
     "menu.clearComments": "Clear {n} comments in this file",
+    // Shown while the panel waits for tmux to redraw a session that outlived the app. A spinner alone says
+    // "something is happening"; this says WHAT, which is the difference between waiting and wondering.
+    "terminal.connecting": "Connecting to your session…",
     "terminal.title": "Terminal",
     "terminal.toggle": "Toggle terminal (⌃`)",
     "terminal.closeRunningConfirm": "“{name}” is still running in this terminal. Closing the pane stops it. Close anyway?",
@@ -619,6 +623,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Tabs (sidebar)
     "tab.changes": "변경사항",
     "tab.files": "파일",
+    "tree.markViewed": "이 파일 확인함 (Space)",
     "rail.reviewComments": "리뷰 코멘트",
     "rail.branch": "현재 브랜치",
     "brand.revealFile": "열린 파일을 사이드바에서 보기 (⌥F1)",
@@ -710,6 +715,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // 한 파일에 달린 코멘트를 한 번에 지운다. 개수를 붙이는 이유는, 숫자 없는 "코멘트 지우기"는
     // 메뉴가 이미 답해줬어야 할 질문을 남기기 때문이다.
     "menu.clearComments": "이 파일의 코멘트 {n}개 지우기",
+    "terminal.connecting": "세션 연결 중…",
     "terminal.title": "터미널",
     "terminal.toggle": "터미널 토글 (⌃`)",
     "terminal.closeRunningConfirm": "이 터미널에서 “{name}” 이(가) 실행 중입니다. 닫으면 종료됩니다. 그래도 닫을까요?",

@@ -281,3 +281,17 @@ test("the bell notifies for a workspace you are not looking at", () => {
   assert.match(read("src/app-main.ts"), /isOnScreen: \(\) => isVisibleWorkspace\(state\)/,
     "and main answers it with isVisibleWorkspace");
 });
+
+// Reattaching to sessions that outlived the app takes seconds, and the panel showed only a spinning arc. An
+// arc says "something is happening"; it does not say what, which is the difference between waiting and
+// wondering whether the panel is broken.
+test("the panel says what it is waiting for while it reattaches", () => {
+  assert.match(client, /panel\.style\.setProperty\('--terminal-connecting', JSON\.stringify\(t\('terminal\.connecting'\)\)\)/,
+    "the translated label is handed to CSS, which cannot read a translation itself");
+  assert.match(client, /panel\.style\.removeProperty\('--terminal-connecting'\)/,
+    "and is taken away when the wait ends, so it cannot outlive it");
+  assert.match(css, /is-connecting \.terminal-host::before \{\s*content: var\(--terminal-connecting, ""\)/,
+    "the overlay renders that property, and nothing when it is absent");
+  // Both halves of the overlay belong to the same state, so neither can appear without the other.
+  assert.match(css, /is-connecting \.terminal-host::after/, "the arc is still there too");
+});
