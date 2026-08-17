@@ -381,8 +381,12 @@ test("diff comment composers stay pinned inside the working-tree viewport", () =
   assert.match(card || "", /position:\s*sticky/, "diff comments are viewport UI, not horizontally scrolling source text");
   assert.match(card || "", /left:\s*62px/, "the comment begins ten pixels after the single visible working-tree gutter");
   assert.match(card || "", /max-width:\s*calc\(100cqw\s*-\s*74px\)/, "the composer and its actions cannot be clipped at the pane's right edge");
+  // The slot must paint nothing of its own. It used to be var(--bg), which is NOT the diff canvas (--panel,
+  // and a syntax theme overrides --panel per container) — so the reserved strip showed up as a darker slab
+  // across the review. Transparent inherits whatever surface the row is sitting on, in every theme.
   const spacerCell = ruleBodyForExactSelector(".mc-comment-spacer-row td");
-  assert.match(spacerCell || "", /background:\s*var\(--bg\)/, "the paired base timeline slot cannot expose a split table background");
+  assert.match(spacerCell || "", /background:\s*transparent/, "the paired base timeline slot cannot paint its own colour over the canvas");
+  assert.match(ruleBodyContaining(".mc-comment-row td") || "", /background:\s*transparent/, "nor can the comment row it is paired with");
   assert.match(css, /\.mc-comment-spacer\s*\{[^}]*pointer-events:\s*none/, "the invisible paired slot never steals review input");
 });
 

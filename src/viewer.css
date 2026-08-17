@@ -2387,8 +2387,11 @@ h1 { margin: 0; font-size: 18px; }
 .mc-sel-line .d2h-code-side-line { background: color-mix(in srgb, var(--active) 20%, transparent); }
 .source-row.mc-sel-line .source-code { background: color-mix(in srgb, var(--active) 20%, transparent); }
 /* A comment box "selected" while navigating with arrows (caret hidden; Backspace deletes it) */
-.mc-comment-row td { padding: 0; background: var(--bg); }
-.mc-comment-spacer-row td { padding: 0; border: 0; background: var(--bg); }
+/* Transparent, not a colour of their own: a comment is part of the file it hangs in, and painting its strip
+   --bg cut a darker slab across a --panel diff (and across the source view, which is a third colour again).
+   Inheriting whichever surface the row is sitting on is also the only version that is right in every theme. */
+.mc-comment-row td { padding: 0; background: transparent; }
+.mc-comment-spacer-row td { padding: 0; border: 0; background: transparent; }
 .mc-comment-spacer { width: 1px; min-height: 0; pointer-events: none; }
 .mc-thread-cell { padding: 4px 12px 8px 64px; }
 .source-table .mc-thread-cell { padding: 4px 12px 8px calc(var(--source-gutter-width) + 10px); }
