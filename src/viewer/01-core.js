@@ -922,6 +922,9 @@ var COMMENTS_KEY = 'kakapo-comments:' + location.pathname;
 var reviewComments = [];
 reviewComments = (function () { var b = persistRead(COMMENTS_KEY); if (Array.isArray(b)) return b; try { return JSON.parse(localStorage.getItem(COMMENTS_KEY) || '[]'); } catch (commentsErr) { return []; } })();
 if (!Array.isArray(reviewComments)) reviewComments = [];
+// Questions ("q") and change requests ("c") were unified into one review comment; anything persisted under
+// the old split reads back as the one kind, so a card saved last week doesn't render with a dead label.
+reviewComments.forEach(function (c) { if (c && c.kind !== 'note') c.kind = 'c'; });
 var commentSeq = reviewComments.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
 var composerState = null;
 

@@ -342,13 +342,14 @@ document.addEventListener('keydown', (event) => {
 
   // (Merged views Cmd/Ctrl+Shift+/ +. and the memo Cmd/Ctrl+Shift+N are handled above the focus guard so
   // they work from inside a dock too.)
-  // "?" = question, ">" = change-request composer on the current line/selection (no modifier).
-  if (!event.altKey && !event.metaKey && !event.ctrlKey && (event.key === '?' || event.key === '>')) {
+  // "?" (Shift+/) opens the comment composer on the current line/selection (no modifier). There used to be a
+  // second key (">") for change requests; asking and asking-for-a-change are the same thread, so there is one.
+  if (!event.altKey && !event.metaKey && !event.ctrlKey && event.key === '?') {
     const ce = document.activeElement;
     const inEditable = ce && (ce.tagName === 'INPUT' || ce.tagName === 'TEXTAREA' || ce.tagName === 'SELECT');
     if (!inEditable) {
       event.preventDefault();
-      openComposer(event.key === '?' ? 'q' : 'c');
+      openComposer('c');
       return;
     }
   }

@@ -384,8 +384,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.lineStartEnd": "Line start / end",
     "kbd.extendSelection": "Extend selection",
     "kbd.toggleViewed": "Toggle viewed on selected Changes row",
-    "kbd.addQuestionChange": "Add question / change",
-    "kbd.allQuestionsChanges": "All questions / changes",
+    "kbd.addComment": "Add a review comment",
+    "kbd.allComments": "All review comments",
     "kbd.ignoreWhitespace": "Ignore whitespace",
     "kbd.saveComment": "Save comment",
     "kbd.promptMemo": "Prompt memo",
@@ -400,10 +400,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Settings — Merge prompts
     "mergePrompts.title": "Merge prompts",
-    "mergePrompts.desc": "These editable defaults are prepended to prompts sent to the agent and are saved automatically. The plan contract is prepended to change requests (⌘⇧.) and to the prompt memo.",
-    "mergePrompts.planHeading": "Plan contract (change requests + memo)",
-    "mergePrompts.qHeading": "Questions heading",
-    "mergePrompts.cHeading": "Change-request instructions",
+    "mergePrompts.desc": "These editable defaults are prepended to prompts sent to the agent and are saved automatically. The plan contract is prepended to review comments (⌘⇧/) and to the prompt memo.",
+    "mergePrompts.planHeading": "Plan contract (review comments + memo)",
+    "mergePrompts.cHeading": "Review-comment instructions",
     "mergePrompts.reset": "Reset to defaults",
 
     // Settings — the Explain prompt (⌘7 / the ⌘⇧P palette sends it; the agent appends notes to the thread file)
@@ -564,18 +563,15 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "welcome.notGit": "That folder is not a Git repository.",
     "welcome.projectMissing": "That project folder is no longer available.",
 
-    // Composer (per-line question / change-request)
-    "composer.question": "Ask a question about this line",
+    // Composer (one per-line review comment — ask, request a change, or both)
+    "composer.comment": "Comment on this line — ask or request a change",
     "composer.reply": "Continue this thread",
-    "composer.changeRequest": "Request a change for this line",
     "composer.save": "Comment",
     "composer.cancel": "Cancel",
     "composer.hint": "⌘Enter to save, Esc to cancel",
     "composer.delete": "Delete",
-    "comment.kind.q": "Question",
-    "comment.kind.c": "Change request",
-    "badge.questions": "question(s)",
-    "badge.changeRequests": "change request(s)",
+    "comment.kind": "Comment",
+    "badge.comments": "comment(s)",
 
     // Merged comments modal
     "merged.title": "Review comments",
@@ -599,9 +595,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "memo.loadFailed": "Could not load this worktree's memo.",
 
     // Merge-prompt default agent contracts (these follow the locale — a Korean user gets Korean defaults)
-    "mergePrompt.default.q": "The following are questions about code you just wrote. Answer each one — explain the intent, rationale, or context. Do not change any code; this clarifies understanding before any revisions.",
-    "mergePrompt.default.c": "The following are change requests for code you just wrote. Work in small units that a human can review independently. Complete and verify one independently reviewable unit at a time before moving to the next. For each request, edit the code at the quoted location to satisfy it. Keep changes minimal and focused; do not combine unrelated changes.",
-    // Plan contract — prepended to change requests and the prompt memo so every task starts with a small, verifiable plan written to a file.
+    "mergePrompt.default.c": "The following are review comments on code you just wrote. Answer what each one asks — explain the intent, rationale, or context — and where it asks for a change, edit the code at the quoted location to satisfy it. Work in small units that a human can review independently: complete and verify one independently reviewable unit at a time before moving to the next. Keep changes minimal and focused; do not combine unrelated changes. If a comment only asks a question, answer it and change nothing.",
+    // Plan contract — prepended to review comments and the prompt memo so every task starts with a small, verifiable plan written to a file.
     "plan.contract": "Before changing any code, write a short implementation PLAN in your response. Break the work into small, independently verifiable steps — each with a one-line check for how you'll confirm it works. Get the plan right first, then implement one step at a time, keeping each step small enough to review on its own. Do not add kakapo state files to the repository.",
     // Sent once at the top of a terminal hand-off (sendWholeDocToTerminal, 08-dock.js) whenever kakapo wrote
     // an answers checklist for the items below — the absolute path is appended right after this line.
@@ -978,8 +973,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.lineStartEnd": "줄 시작 / 끝",
     "kbd.extendSelection": "선택 영역 확장",
     "kbd.toggleViewed": "선택한 변경 파일의 확인 표시 토글",
-    "kbd.addQuestionChange": "질문 / 변경요청 추가",
-    "kbd.allQuestionsChanges": "전체 질문 / 변경요청",
+    "kbd.addComment": "리뷰 코멘트 달기",
+    "kbd.allComments": "전체 리뷰 코멘트",
     "kbd.ignoreWhitespace": "공백 무시",
     "kbd.saveComment": "코멘트 저장",
     "kbd.promptMemo": "프롬프트 메모",
@@ -994,10 +989,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Settings — Merge prompts
     "mergePrompts.title": "병합 프롬프트",
-    "mergePrompts.desc": "에이전트에게 보내는 프롬프트 앞에 붙는 편집 가능한 기본값이며 수정 내용은 자동 저장됩니다. 플랜 계약문은 변경요청(⌘⇧.)과 프롬프트 메모 앞에 붙습니다.",
-    "mergePrompts.planHeading": "플랜 계약문 (변경요청 + 메모)",
-    "mergePrompts.qHeading": "질문 머리말",
-    "mergePrompts.cHeading": "변경요청 작업 지침",
+    "mergePrompts.desc": "에이전트에게 보내는 프롬프트 앞에 붙는 편집 가능한 기본값이며 수정 내용은 자동 저장됩니다. 플랜 계약문은 리뷰 코멘트(⌘⇧/)와 프롬프트 메모 앞에 붙습니다.",
+    "mergePrompts.planHeading": "플랜 계약문 (리뷰 코멘트 + 메모)",
+    "mergePrompts.cHeading": "리뷰 코멘트 작업 지침",
     "mergePrompts.reset": "기본값으로 초기화",
 
     // Settings — Explain 프롬프트 (⌘7 또는 ⌘⇧P 팔레트로 보내면 에이전트가 스레드 파일에 노트를 append)
@@ -1148,17 +1142,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "welcome.projectMissing": "해당 프로젝트 폴더를 더 이상 사용할 수 없습니다.",
 
     // Composer
-    "composer.question": "이 줄에 대해 질문하기",
+    "composer.comment": "이 줄에 코멘트 남기기 — 질문도 수정 요청도 여기서",
     "composer.reply": "이 대화 이어가기",
-    "composer.changeRequest": "이 줄에 대한 변경 요청하기",
     "composer.save": "코멘트",
     "composer.cancel": "취소",
     "composer.hint": "⌘Enter로 저장, Esc로 취소",
     "composer.delete": "삭제",
-    "comment.kind.q": "질문",
-    "comment.kind.c": "변경 요청",
-    "badge.questions": "개 질문",
-    "badge.changeRequests": "개 변경 요청",
+    "comment.kind": "코멘트",
+    "badge.comments": "개 코멘트",
 
     // Merged comments modal
     "merged.title": "리뷰 코멘트",
@@ -1182,9 +1173,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "memo.loadFailed": "이 워크트리의 메모를 불러오지 못했습니다.",
 
     // Merge-prompt default agent contracts (Korean default for Korean users)
-    "mergePrompt.default.q": "다음은 방금 작성한 코드에 대한 질문입니다. 각 질문에 답하면서 의도, 근거, 맥락을 설명하세요. 코드는 변경하지 마세요. 이 단계는 수정에 앞서 이해를 명확히 하기 위한 것입니다.",
-    "mergePrompt.default.c": "다음은 방금 작성한 코드에 대한 변경 요청입니다. 작업을 사람이 독립적으로 리뷰할 수 있는 작은 단위로 나누세요. 각 단위를 구현하고 검증한 뒤 다음 단위로 진행하세요. 각 요청은 인용된 위치의 코드를 수정해 충족하세요. 변경은 최소한으로 집중해서 하고, 관련 없는 변경을 한 작업에 섞지 마세요.",
-    // 플랜 계약문 — 모든 작업이 파일로 작성된 작고 검증 가능한 플랜에서 시작하도록 변경요청과 프롬프트 메모 앞에 붙는다.
+    "mergePrompt.default.c": "다음은 방금 작성한 코드에 대한 리뷰 코멘트입니다. 각 코멘트가 묻는 것에 답하면서 의도, 근거, 맥락을 설명하고, 수정을 요청하는 코멘트는 인용된 위치의 코드를 고쳐서 충족하세요. 작업은 사람이 독립적으로 리뷰할 수 있는 작은 단위로 나누고, 각 단위를 구현하고 검증한 뒤 다음 단위로 진행하세요. 변경은 최소한으로 집중해서 하고, 관련 없는 변경을 한 작업에 섞지 마세요. 질문만 하는 코멘트라면 답만 하고 코드는 건드리지 마세요.",
+    // 플랜 계약문 — 모든 작업이 파일로 작성된 작고 검증 가능한 플랜에서 시작하도록 리뷰 코멘트와 프롬프트 메모 앞에 붙는다.
     "plan.contract": "코드를 변경하기 전에, 먼저 응답에 짧은 구현 플랜을 작성하세요. 작업을 독립적으로 검증 가능한 작은 단계로 쪼개고, 각 단계마다 어떻게 확인할지 한 줄짜리 검증 기준을 적으세요. 플랜이 맞는지 먼저 확정한 뒤 한 번에 한 단계씩 구현하고, 각 단계는 따로 리뷰할 수 있을 만큼 작게 유지하세요. 저장소에는 kakapo 상태 파일을 추가하지 마세요.",
     // 터미널로 보내는 합본 프롬프트(sendWholeDocToTerminal, 08-dock.js) 맨 앞에 한 번 붙는다 — kakapo가 아래
     // 항목들에 대한 답변 체크리스트를 이미 써둔 경우에만 붙으며, 바로 다음 줄에 절대 경로가 이어진다.

@@ -19,11 +19,10 @@ test("merge prompt settings expose editable effective defaults and persist chang
   await openPromptSettings(v);
 
   const plan = v.$("#settings-prompt-plan");
-  const question = v.$("#settings-prompt-q");
   const change = v.$("#settings-prompt-c");
+  assert.equal(v.$("#settings-prompt-q"), null, "questions and change requests are one comment, so one prompt");
   assert.equal(plan.value, v.window.defaultMergePrompt("plan"), "the effective plan prompt is editable text");
-  assert.equal(question.value, v.window.defaultMergePrompt("q"), "the effective question prompt is editable text");
-  assert.equal(change.value, v.window.defaultMergePrompt("c"), "the effective change prompt is editable text");
+  assert.equal(change.value, v.window.defaultMergePrompt("c"), "the effective review-comment prompt is editable text");
   assert.equal(change.placeholder, "", "the default is not hidden in a placeholder");
   assert.match(change.value, /human can review independently/, "the default requires human-reviewable work units");
 

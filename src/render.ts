@@ -640,8 +640,8 @@ export function renderDiffHtml(input: {
     '<div class="keys-grid">' +
     '<kbd>⌘8</kbd><span data-i18n="kbd.changeImpact">Change Impact</span>' +
     '<kbd>Space</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed on selected Changes row</span>' +
-    '<kbd>? &nbsp;&gt;</kbd><span data-i18n="kbd.addQuestionChange">Add question / change</span>' +
-    '<kbd>⌘⇧/ .</kbd><span data-i18n="kbd.allQuestionsChanges">All questions / changes</span>' +
+    '<kbd>?</kbd><span data-i18n="kbd.addComment">Add a review comment</span>' +
+    '<kbd>⌘⇧/</kbd><span data-i18n="kbd.allComments">All review comments</span>' +
     '<kbd>⌘⇧W</kbd><span data-i18n="kbd.ignoreWhitespace">Ignore whitespace</span>' +
     '<kbd>⌘Enter</kbd><span data-i18n="kbd.saveComment">Save comment</span>' +
     '<kbd>&uarr; / &darr;</kbd><span data-i18n="kbd.reviewStops">Step through comments / folded context</span>' +
@@ -678,12 +678,10 @@ export function renderDiffHtml(input: {
     "</section>",
     '<section class="settings-section hidden" data-cat="prompts">',
     '<div class="settings-h" data-i18n="mergePrompts.title">Merge prompts</div>',
-    '<div class="settings-desc" data-i18n="mergePrompts.desc">These editable defaults are prepended to prompts sent to the agent and are saved automatically. The plan contract is prepended to change requests (⌘⇧.) and to the prompt memo.</div>',
-    '<label class="settings-label" for="settings-prompt-plan" data-i18n="mergePrompts.planHeading">Plan contract (change requests + memo)</label>',
+    '<div class="settings-desc" data-i18n="mergePrompts.desc">These editable defaults are prepended to prompts sent to the agent and are saved automatically. The plan contract is prepended to review comments (⌘⇧/) and to the prompt memo.</div>',
+    '<label class="settings-label" for="settings-prompt-plan" data-i18n="mergePrompts.planHeading">Plan contract (review comments + memo)</label>',
     '<textarea id="settings-prompt-plan" class="settings-textarea" rows="5" spellcheck="false"></textarea>',
-    '<label class="settings-label" for="settings-prompt-q" data-i18n="mergePrompts.qHeading">Questions heading</label>',
-    '<textarea id="settings-prompt-q" class="settings-textarea" rows="4" spellcheck="false"></textarea>',
-    '<label class="settings-label" for="settings-prompt-c" data-i18n="mergePrompts.cHeading">Change-request instructions</label>',
+    '<label class="settings-label" for="settings-prompt-c" data-i18n="mergePrompts.cHeading">Review-comment instructions</label>',
     '<textarea id="settings-prompt-c" class="settings-textarea" rows="4" spellcheck="false"></textarea>',
     '<div class="settings-subsection">',
     '<div class="settings-h" data-i18n="annotatePrompt.title">Explain the diff</div>',

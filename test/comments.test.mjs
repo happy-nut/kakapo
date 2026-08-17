@@ -47,7 +47,7 @@ test("source/markdown view: clicking Save persists the comment the user typed", 
   assert.equal(stored.length, 1);
   assert.deepEqual(
     { kind: stored[0].kind, line: stored[0].line, text: stored[0].text },
-    { kind: "q", line: 5, text: "why a CLI and not a library?" },
+    { kind: "c", line: 5, text: "why a CLI and not a library?" },
   );
   assert.deepEqual(v.visibleCardTexts(), ["why a CLI and not a library?"]);
   v.close();
@@ -236,8 +236,8 @@ test("change-request comments are saved and labeled distinctly from questions", 
   const stored = v.storedComments();
   assert.equal(stored.length, 1);
   assert.equal(stored[0].kind, "c");
-  // the saved card carries a change-request kind class (mc-c), distinct from questions (mc-q)
-  assert.ok(v.$("#source-body .mc-card.mc-c:not(.mc-composer)"), "rendered as a change-request card");
+  // one review-comment kind: the card carries mc-c whether it asks a question or requests a change
+  assert.ok(v.$("#source-body .mc-card.mc-c:not(.mc-composer)"), "rendered as a review comment card");
   v.close();
 });
 
@@ -559,42 +559,37 @@ test("Cmd+Z inside a real text input does not touch comments — native undo own
   v.close();
 });
 
-// GitHub issue #9: the merged prompt panel is a single unified hand-off (no separate question/change-request
-// panels), with the question section first so an agent answers questions (no edits) before touching code.
-test("unified merged prompt: questions and change requests share one document, questions first, both contracts included", async () => {
+// GitHub issue #9: the merged prompt panel is a single unified hand-off. Questions and change requests used
+// to be two kinds in two sections; they are one comment now, so the document is one contract and one list.
+test("unified merged prompt: every open comment shares one document behind one contract", async () => {
   const v = await loadViewer(html);
-  v.window.addComment("q", "AGENTS.md", 5, "", "why this wording?");
+  v.window.addComment("c", "AGENTS.md", 5, "", "why this wording?");
   v.window.addComment("c", "src/app.ts", 1, "", "simplify this");
 
   const merged = v.window.buildMergedText();
   const t = v.window.t;
-  const qContractAt = merged.indexOf(t("mergePrompt.default.q"));
-  const questionAt = merged.indexOf("why this wording?");
   const planContractAt = merged.indexOf(t("plan.contract"));
-  const cContractAt = merged.indexOf(t("mergePrompt.default.c"));
+  const contractAt = merged.indexOf(t("mergePrompt.default.c"));
+  const askAt = merged.indexOf("why this wording?");
   const changeAt = merged.indexOf("simplify this");
   assert.ok(
-    qContractAt >= 0 && qContractAt < questionAt
-      && questionAt < planContractAt && planContractAt < cContractAt
-      && cContractAt < changeAt,
-    "document order is: question contract -> questions -> plan contract -> change-request contract -> change requests",
+    planContractAt >= 0 && planContractAt < contractAt && contractAt < askAt && askAt < changeAt,
+    "document order is: plan contract -> review-comment contract -> the comments, in review order",
   );
+  assert.equal(merged.indexOf(t("mergePrompt.default.c"), contractAt + 1), -1, "one contract, not one per comment");
   v.close();
 });
 
-test("unified merged prompt: a kind with no open comments omits its contract entirely", async () => {
+test("unified merged prompt: no open comments means no contract at all", async () => {
   const v = await loadViewer(html);
-  v.window.addComment("c", "src/app.ts", 1, "", "only a change request");
   const t = v.window.t;
+  assert.ok(!v.window.buildMergedText().includes(t("mergePrompt.default.c")), "an empty review is a blank scratch document");
 
-  const onlyC = v.window.buildMergedText();
-  assert.ok(!onlyC.includes(t("mergePrompt.default.q")), "no question contract when there are no open questions");
-  assert.ok(onlyC.includes(t("mergePrompt.default.c")) && onlyC.includes("only a change request"));
+  v.window.addComment("c", "src/app.ts", 1, "", "only this one");
+  assert.ok(v.window.buildMergedText().includes(t("mergePrompt.default.c")), "the contract appears once there is something to hand off");
 
-  v.window.addComment("q", "AGENTS.md", 5, "", "only a question");
-  v.window.deleteComment(v.storedComments().find((c) => c.kind === "c").seq);
-  const onlyQ = v.window.buildMergedText();
-  assert.ok(!onlyQ.includes(t("plan.contract")) && !onlyQ.includes(t("mergePrompt.default.c")), "no plan/change-request contract when there are no open change requests");
+  v.window.deleteComment(v.storedComments()[0].seq);
+  assert.ok(!v.window.buildMergedText().includes(t("plan.contract")), "and goes away again with the last comment");
   v.close();
 });
 
@@ -877,7 +872,7 @@ test("a reply continues the thread and carries the earlier exchange to the agent
   assert.equal(stored.length, 3, "the question, the agent's answer, and the follow-up");
   const reply = stored[2];
   assert.equal(reply.replyTo, stored[1].seq, "linked to the answer it follows");
-  assert.equal(reply.kind, "q", "a follow-up to a question is still a question");
+  assert.equal(reply.kind, "c", "a follow-up is the same one review-comment kind as what it continues");
   assert.equal(reply.line, stored[0].line, "and stays anchored to the same line, so it renders as one thread");
 
   // The exchange reaches the agent as ids into the thread file, not as quoted text: a third round would

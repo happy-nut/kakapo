@@ -110,7 +110,7 @@ function agentCardHtml(c) {
     + '<div class="mc-card-body markdown-body mc-ai-body">' + annotationBodyHtml(c.text)
     + '</div></div>';
 }
-// A lightbulb, in the same monochrome stroke style as commentKindIcon()'s question/pencil glyphs.
+// A lightbulb, in the same monochrome stroke style as commentKindIcon()'s speech bubble.
 function annotationKindIcon() {
   return '<svg class="mc-kind-ic" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
     + '<path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.4.3.5.7.5 1.1V16h6v-1c0-.4.1-.8.5-1.1A6 6 0 0 0 12 3z"/></svg>';

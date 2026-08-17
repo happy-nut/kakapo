@@ -705,7 +705,6 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
   var flag = document.getElementById('app-update-flag');
   var updateBtn = document.getElementById('app-info-update');
   var pta = document.getElementById('settings-prompt-plan');
-  var qta = document.getElementById('settings-prompt-q');
   var cta = document.getElementById('settings-prompt-c');
   var resetBtn = document.getElementById('settings-reset');
   var savedMsg = document.getElementById('settings-saved');
@@ -722,7 +721,6 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     // Defaults are real editable values, not placeholders. This makes the effective prompt visible
     // before the first edit and lets a reviewer verify exactly what was saved after reopening Settings.
     if (pta) { pta.value = (typeof s.plan === 'string' && s.plan.trim()) ? s.plan : defaultMergePrompt('plan'); pta.placeholder = ''; }
-    if (qta) { qta.value = (typeof s.q === 'string' && s.q.trim()) ? s.q : defaultMergePrompt('q'); qta.placeholder = ''; }
     if (cta) { cta.value = (typeof s.c === 'string' && s.c.trim()) ? s.c : defaultMergePrompt('c'); cta.placeholder = ''; }
     if (annotateTa) { annotateTa.value = loadAnnotatePrompt(); annotateTa.placeholder = ''; }
     if (codebaseTa) { codebaseTa.value = loadCodebasePrompt(); codebaseTa.placeholder = ''; }
@@ -784,10 +782,9 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     });
   }
   if (pta) pta.addEventListener('input', function () { saveMergePrompt('plan', pta.value); flash(); });
-  if (qta) qta.addEventListener('input', function () { saveMergePrompt('q', qta.value); flash(); });
   if (cta) cta.addEventListener('input', function () { saveMergePrompt('c', cta.value); flash(); });
   if (resetBtn) resetBtn.addEventListener('click', function () {
-    saveMergePrompt('plan', ''); saveMergePrompt('q', ''); saveMergePrompt('c', '');
+    saveMergePrompt('plan', ''); saveMergePrompt('c', '');
     saveAnnotatePrompt('');
     fill(); flash();
   });
