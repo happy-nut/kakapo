@@ -516,6 +516,15 @@ function insertSourceCaret(row, column) {
   var span = document.createElement('span');
   span.className = 'code-cursor';
   span.setAttribute('aria-hidden', 'true');
+  // An empty line has no text box for `vertical-align: text-bottom` to align against, so a 1.25em-tall
+  // inline-block hangs out of the row and reads as a caret straddling this line and the next. The diff caret
+  // met this first and answers it the same way (06-diff-caret.js): take the caret out of the flow, where its
+  // height cannot push anything around, and pin it to the cell's own left edge.
+  if ((cell.textContent || '').length === 0) {
+    span.classList.add('code-cursor-empty');
+    cell.appendChild(span);
+    return;
+  }
   try {
     var off = pos.node.nodeType === 3 ? Math.min(pos.offset, (pos.node.textContent || '').length) : pos.offset;
     var range = document.createRange();

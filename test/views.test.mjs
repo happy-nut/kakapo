@@ -1522,3 +1522,32 @@ test("window-level shortcuts are one table with one scope rule, and a modal is w
   const dock = readFileSync(new URL("../src/viewer/08-dock.js", import.meta.url), "utf8");
   assert.match(dock, /function isDockFocused[\s\S]{0,200}terminal-panel/, "the terminal counts as a focused panel");
 });
+
+// The caret is an inline-block 1.25em tall, aligned to text-bottom. An empty line has no text box for that to
+// align against, so the caret hung out of its row and read as straddling this line and the next. Taken out of
+// the flow, its height cannot push anything around. jsdom has no layout, so what is pinned here is that the
+// empty-line path is the one taken — the geometry itself lives in viewer.css.
+test("the caret on an empty line is taken out of the flow", async () => {
+  const { html: gapped } = await makeReviewHtml([
+    { path: "src/gap.ts", before: "const a = 1;\n\nconst b = 2;\n", after: "const a = 9;\n\nconst b = 2;\n" },
+  ]);
+  const v = await loadViewer(gapped);
+  await v.openSourceFile("src/gap.ts");
+
+  const rows = v.$all("#source-body .source-row");
+  const empty = rows.find((r) => !(r.querySelector(".source-code")?.textContent || "").length);
+  const filled = rows.find((r) => (r.querySelector(".source-code")?.textContent || "").length > 2);
+  assert.ok(empty && filled, "the fixture has both an empty line and a filled one");
+
+  v.window.insertSourceCaret(empty, 0);
+  const caret = empty.querySelector(".code-cursor");
+  assert.ok(caret, "an empty line still shows a caret");
+  assert.ok(caret.classList.contains("code-cursor-empty"), "and it is the out-of-flow one");
+
+  // A line WITH text keeps the inline caret — that is what puts it between the right two characters.
+  v.window.insertSourceCaret(filled, 1);
+  const inline = filled.querySelector(".code-cursor");
+  assert.ok(inline, "a filled line has one too");
+  assert.equal(inline.classList.contains("code-cursor-empty"), false, "but it stays in the text flow");
+  v.close();
+});

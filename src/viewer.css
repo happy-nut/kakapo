@@ -2243,7 +2243,11 @@ h1 { margin: 0; font-size: 18px; }
   padding: 2px 10px;
   cursor: text;
   user-select: text;
+  /* The caret on an EMPTY line is absolute (insertSourceCaret): out of the flow, so its height cannot push the
+     row around. This makes the cell the box it is positioned against. */
+  position: relative;
 }
+.code-cursor-empty { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); margin: 0; }
 .code-cursor {
   display: inline-block;
   width: 2px;
@@ -2360,9 +2364,9 @@ h1 { margin: 0; font-size: 18px; }
 .source-type-icon { display: inline-flex; align-items: center; flex: none; margin-right: 2px; }
 .source-type-icon .ftype { width: 16px; height: 16px; display: block; }
 .mc-file-badge { display: inline-flex; gap: 4px; align-items: center; }
-.mc-fb { font-size: 10px; line-height: 1; padding: 1px 6px; border-radius: 0; font-weight: 700; font-variant-numeric: tabular-nums; border: 1px solid transparent; }
-.mc-fb-q { color: var(--token-number); background: color-mix(in srgb, var(--token-number) 16%, transparent); border-color: color-mix(in srgb, var(--token-number) 38%, transparent); }
-.mc-fb-c { color: var(--token-tag); background: color-mix(in srgb, var(--token-tag) 16%, transparent); border-color: color-mix(in srgb, var(--token-tag) 38%, transparent); }
+/* One badge per file: questions and change requests are one kind of comment now, so one count. */
+.mc-fb { font-size: 10px; line-height: 1; padding: 1px 6px; border-radius: 0; font-weight: 700; font-variant-numeric: tabular-nums; border: 1px solid transparent;
+  color: var(--token-tag); background: color-mix(in srgb, var(--token-tag) 16%, transparent); border-color: color-mix(in srgb, var(--token-tag) 38%, transparent); }
 /* Lines kept highlighted while composing a comment on a drag selection */
 .mc-sel-line .d2h-code-side-line { background: color-mix(in srgb, var(--active) 20%, transparent); }
 .source-row.mc-sel-line .source-code { background: color-mix(in srgb, var(--active) 20%, transparent); }
