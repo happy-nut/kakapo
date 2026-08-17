@@ -3627,6 +3627,15 @@ summary.tree-focus,
 .vcs-new.source-link .path, .vcs-new.change-row .change-name { color: var(--chrome-vcs-new); }
 .vcs-edited.source-link .path, .vcs-edited.change-row .change-name { color: var(--chrome-vcs-edited); }
 .vcs-staged.source-link .path, .vcs-staged.change-row .change-name { color: var(--chrome-vcs-staged); }
+/* Changes tree, IntelliJ's alphabet: green added, blue modified, grey deleted. The colour IS the status, so
+   there is no badge — one signal, in the place the eye already is. A rename keeps the modified blue: the file
+   is still there, which is what the colour answers. Deleted is muted, not struck through — the strikethrough
+   is VS Code's convention, not this one. Placed after the vcs-* rules so a change row is coloured by WHAT
+   CHANGED rather than by whether it happens to be staged, which is how a deleted file came to look added. */
+.change-row.ch-added .change-name { color: var(--add-strong); }
+.change-row.ch-modified .change-name,
+.change-row.ch-renamed .change-name { color: var(--chrome-vcs-edited); }
+.change-row.ch-deleted .change-name { color: var(--muted); }
 .status { color: var(--chrome-muted); background: var(--chrome-line); }
 /* The modified chip is an empty slot until the row is marked viewed, and then it is the green check — not a
    blue badge saying "changed" on a list of changes. `.status` above sets a background on every chip, so this

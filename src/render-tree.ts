@@ -97,7 +97,11 @@ function renderDiffChildren(node: DiffTreeNode, depth: number): string {
 function renderDiffNode(node: DiffTreeNode, depth: number): string {
   if (node.file) {
     const file = node.file;
-    const classes = ["file-link", "change-row", "tree-file", file.vcs ? "vcs-" + file.vcs : ""].filter(Boolean).join(" ");
+    // The change type rides on the ROW, because that is what colours the name: IntelliJ says green for added,
+    // blue for modified, grey for deleted, and nothing else needs saying. The working-tree state (vcs-*) used
+    // to colour it instead, which put "staged" green on a DELETED file — a row that read as added and deleted
+    // at the same time. Staging still colours the Files tree, where there is no change type to show.
+    const classes = ["file-link", "change-row", "tree-file", "ch-" + (file.status || "modified")].join(" ");
     // Counted here and carried on the row, because the row exists for every changed file and is already the
     // client's per-file record (data-file/data-hunk). The diff BODY is materialized on demand, so counting
     // rendered +/- rows in the DOM would report nothing for any file nobody has scrolled to yet.
@@ -170,12 +174,12 @@ function changeStatusBadge(status: string): string {
     default:
       icon = '<circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/>';
   }
-  // With no glyph there is nothing to caption: a chip that draws nothing must not answer a hover with the
-  // word "Modified", and must not be announced at all — the row's own aria-label already ends in its status,
-  // so labelling the chip too made every changed file read its state twice. It stays purely as the slot the
-  // viewed ✓ lands in.
-  if (!icon) return '<span class="status status-modified" aria-hidden="true"></span>';
-  return `<span class="status status-${escapeAttr(status)}" role="img" aria-label="${escapeAttr(label)}" title="${escapeAttr(label)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg></span>`;
+  // No glyph, whatever the status: the colour of the name says added/modified/deleted, the way every editor
+  // this reviewer has used says it, and a badge repeating it is a second alphabet to learn. The element stays
+  // because the viewed ✓ lands in it, and it keeps its status class because the history view styles by it.
+  void icon;
+  void label;
+  return `<span class="status status-${escapeAttr(status || "modified")}" aria-hidden="true"></span>`;
 }
 
 export function renderSourceTree(files: SourceFile[]): string {
