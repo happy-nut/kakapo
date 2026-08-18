@@ -508,3 +508,18 @@ test("no rule sets a property that a later rule with the same selector sets agai
   });
   assert.deepEqual(shadowed, [], "these declarations never apply — set the property where it wins, not twice");
 });
+
+// Selecting one turn in a thread used to hand that card 4px of bottom margin, so that its outset ring had
+// somewhere to draw a bottom edge against the next card sitting flush on it. Margin moves things: every card
+// below it, and the code line under the whole thread, jumped 4px down on select and back up on deselect —
+// visible as the text juddering while arrowing through a thread.
+test("selecting a comment turn cannot move the thread it is in", () => {
+  // ruleBodyContaining, not ...ForExactSelector: that one anchors on the previous rule's closing brace, and
+  // this rule is introduced by a comment.
+  const selected = ruleBodyContaining(".mc-comment-row.mc-row-selected .mc-card.mc-card-selected");
+  assert.ok(selected, "the selected turn still has a ring");
+  assert.match(selected, /box-shadow:\s*inset/, "drawn inside the card, so it needs no room of its own");
+  assert.doesNotMatch(selected, /margin|padding|border-width/, "and claims no layout: any of these shifts the cards below");
+  assert.equal(ruleBodyForExactSelector(".mc-thread-cell .mc-card.mc-card-selected + .mc-card"), null,
+    "…so the neighbour no longer has to give its own margin back");
+});

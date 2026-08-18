@@ -299,7 +299,11 @@ test("the terminal hand-off carries the request file's path, not the request", a
   const sent = [];
   const written = [];
   v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text), paneCount: () => 1 };
-  v.window.annotationsPath = "/w/.git/kakapo/comments.jsonl"; // normally set by kakapoComments.read()
+  // Both are set by kakapoComments.read(), and they are DIFFERENT files: the review thread lives beside the
+  // worktree, the codebase notes in the git dir every worktree shares. The hand-off must name the thread —
+  // it used to name the notes file, so an agent answering #19 appended to a store with no #19 in it.
+  v.window.reviewThreadPath = "/w/.git/kakapo/comments.jsonl";
+  v.window.annotationsPath = "/repo/.git/kakapo/knowledge.jsonl";
   v.window.kakapoComments = {
     writeRequest: (text) => { written.push(text); return Promise.resolve({ ok: true, path: "/w/.git/kakapo/request.md" }); },
   };
@@ -313,6 +317,8 @@ test("the terminal hand-off carries the request file's path, not the request", a
   assert.doesNotMatch(sent[0], /rename this to something honest/, "…and does not repeat the review into it");
   assert.match(written[0], /rename this to something honest/, "the request itself went to the file");
   assert.match(written[0], /append ONE line per answer/, "answers-file instructions travel inside it, not in the pane");
+  assert.match(written[0], /comments\.jsonl/, "and they name the thread the comments are actually in");
+  assert.doesNotMatch(written[0], /knowledge\.jsonl/, "never the shared notes store, which has never heard of these ids");
 
   // No file to write to (a non-git root, or the CLI's browser viewer): the document still has to arrive.
   v.window.kakapoComments = { writeRequest: () => Promise.resolve({ ok: false }) };

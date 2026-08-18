@@ -1551,3 +1551,32 @@ test("the caret on an empty line is taken out of the flow", async () => {
   assert.equal(inline.classList.contains("code-cursor-empty"), false, "but it stays in the text flow");
   v.close();
 });
+
+// ⌘0 hands the keyboard to the Changes tree, and pressing it again closes the panel and hands the keyboard
+// back. Only the first half said so: collapsing cleared the tree's focus ring and then left the diff caret
+// parked wherever it had been — no re-render, no reveal, no arrival flash — so the review looked like it had
+// no keyboard at all until an arrow key was pressed.
+test("closing the Changes panel with ⌘0 puts the caret back on the diff, without waiting for an arrow", async () => {
+  const v = await loadViewer(html);
+  await v.openDiffFor("src/app.ts");
+  await v.settle(100);
+
+  v.key("0", { metaKey: true, code: "Digit0" });
+  await v.settle(60);
+  assert.ok(v.$(".tree-focus"), "the first press moves the keyboard to the Changes tree");
+
+  // Tag the caret that is on screen now: re-asserting the cursor rebuilds the span (clearDiffCaret first),
+  // so a surviving tag means the caret was merely left where it was.
+  const stale = v.$("#diff2html-container .code-cursor");
+  assert.ok(stale, "the diff had a caret before the panel took the keyboard");
+  stale.dataset.stale = "1";
+
+  v.key("0", { metaKey: true, code: "Digit0" });
+  await v.settle(60);
+  assert.ok(!v.$(".tree-focus"), "the second press takes the keyboard off the tree");
+  const caret = v.$("#diff2html-container .code-cursor");
+  assert.ok(caret, "…and the diff caret is on screen");
+  assert.ok(!caret.dataset.stale, "…freshly placed, so the highlight arrives with the panel closing");
+  assert.ok(v.$(".mc-diff-cursor-row"), "the caret's row is highlighted too");
+  v.close();
+});

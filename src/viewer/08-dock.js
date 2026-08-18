@@ -236,7 +236,11 @@ function openMergedView() {
   function sendWholeDocToTerminal() {
     var text = currentMergedText();
     dock.close();
-    var path = typeof annotationsPath === 'string' ? annotationsPath : '';
+    // The REVIEW THREAD, not the notes file. mergePrompt.answersFile tells the agent to append one
+    // {"id","re","by","text"} line per answer — and it was being handed annotationsPath, which is
+    // knowledge.jsonl: the shared codebase-notes store that does not contain these comments at all. Agents
+    // did exactly as told and appended there, so answers never reached the cards they answered.
+    var path = typeof reviewThreadPath === 'string' ? reviewThreadPath : '';
     var doc = path ? t('mergePrompt.answersFile') + '\n' + path + '\n\n' + text : text;
     var writeRequest = window.kakapoComments && typeof window.kakapoComments.writeRequest === 'function'
       ? window.kakapoComments.writeRequest(doc)

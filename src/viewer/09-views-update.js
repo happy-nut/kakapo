@@ -124,7 +124,13 @@ function focusDiffAfterSidebarCollapse() {
       try { content.focus({ preventScroll: true }); } catch (e) { try { content.focus(); } catch (ignore) {} }
     }
   }
+  // Re-assert the caret, don't merely create one when it is missing. The panel closing IS the moment the
+  // reader asks "where is the keyboard now" — and until this, the answer only appeared once they pressed an
+  // arrow: the caret was left parked wherever it had been, unrevealed, with no arrival flash. Handing focus
+  // back has to look like handing focus back. Revealing is scroll-off (scrolloffReveal), so a caret already
+  // comfortably on screen does not drag the view.
   if (!diffCursor) ensureDiffCursor();
+  else setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, diffCursor.column, true);
 }
 function setReviewSidebarCollapsed(collapsed, options) {
   reviewSidebarCollapsed = !!collapsed;
@@ -148,6 +154,8 @@ function focusSourceAfterSidebarCollapse() {
       try { content.focus({ preventScroll: true }); } catch (e) { try { content.focus(); } catch (ignore) {} }
     }
   }
+  // Same for ⌘1 over a file: the Files tree gives the keyboard back and the caret has to say so.
+  if (viewerCursor) setSourceCursor(viewerCursor.path, viewerCursor.lineIndex, viewerCursor.column, true);
 }
 function setSourceSidebarCollapsed(collapsed, options) {
   sourceSidebarCollapsed = !!collapsed;

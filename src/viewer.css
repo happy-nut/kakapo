@@ -2489,18 +2489,13 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 /* Arrow-key selection addresses ONE turn inside a thread, so the outline has to be on the card, not the row —
    otherwise a three-turn thread lights up whole while `e` and Backspace act on a single card in it. */
 .mc-comment-row.mc-row-selected .mc-card { box-shadow: none; }
-.mc-comment-row.mc-row-selected .mc-card.mc-card-selected { box-shadow: 0 0 0 2px var(--active); position: relative; z-index: 1; }
-/* A thread is deliberately flush — a card followed by another gives up its bottom margin and its bottom
-   radius so the turns read as one box. That leaves the selected card's ring with nowhere to draw its BOTTOM
-   edge: the next turn (the reply stub is a .mc-card too) sits directly on it, so the outline appeared to run
-   down both sides and stop. Give the selection those few pixels back, and its corners with them — only while
-   it is selected, so an unselected thread still reads as one box. */
-.mc-thread-cell .mc-card.mc-card-selected:has(+ .mc-card) {
-  margin-bottom: 4px;
-  border-bottom-left-radius: inherit;
-  border-bottom-right-radius: inherit;
-}
-.mc-thread-cell .mc-card.mc-card-selected + .mc-card { margin-top: 0; }
+/* The ring is drawn INSIDE the card, the way the fold rows above already draw theirs. A thread is
+   deliberately flush — a card followed by another gives up its bottom margin so the turns read as one box —
+   which leaves an outset ring with nowhere to put its bottom edge. The fix for that used to be handing the
+   selected card 4px of margin back, and margin moves things: selecting a turn pushed every card under it,
+   and the code line below the whole thread, down by 4px, then back up on deselect. An inset ring needs no
+   room of its own, closes on all four sides however flush the card is, and cannot move a pixel. */
+.mc-comment-row.mc-row-selected .mc-card.mc-card-selected { box-shadow: inset 0 0 0 2px var(--active); }
 /* A file path an agent named in prose is a link: same inline-code chrome, plus the affordance. */
 .mc-path-code { cursor: pointer; text-decoration: underline dotted currentColor; text-underline-offset: 2px; }
 .mc-path-code:hover { color: var(--active); text-decoration-style: solid; }

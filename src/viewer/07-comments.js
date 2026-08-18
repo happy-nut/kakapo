@@ -204,6 +204,7 @@ function threadFromRecords(records) {
 // Debounced because one rebuild can remap many comments at once. Main keeps anything an agent appended since
 // this renderer last read the file (knownMaxId), so saving a comment never swallows an answer that landed a
 // moment earlier.
+var reviewThreadPath = ''; // comments.jsonl — the file an agent appends its ANSWERS to (see loadThread)
 var threadSaveTimer = 0;
 function saveThread() {
   if (!(window.kakapoComments && typeof window.kakapoComments.write === 'function')) return;
@@ -265,6 +266,11 @@ function loadThread() {
     // The Explain prompts write NOTES, which belong to the repository rather than to this worktree — main
     // hands back both paths and this is the one {{NOTES_PATH}} means.
     annotationsPath = result.notesPath || result.path || '';
+    // …and the CONVERSATION file, which is a different file. Answers to review comments belong here, beside
+    // the comments they answer; knowledge.jsonl is where what-was-learned-about-the-codebase outlives the
+    // worktree. The hand-off used to name the notes file for both, so an agent answering #19 appended to a
+    // store that has never heard of #19 — the answer landed nowhere the review could show it.
+    reviewThreadPath = result.path || '';
     if (result.exists) { applyThreadRecords(result.records, null, true); return; } // a load is not news
     var migrated = reviewComments.slice();
     var nextSeq = migrated.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
