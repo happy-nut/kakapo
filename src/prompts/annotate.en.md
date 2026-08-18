@@ -9,8 +9,8 @@ Append the notes to exactly this file, ONE JSON object per line (create it and i
 - **If it is not**, write only what is new. Do not restate a fact already explained there — point at where that note lives, as `src/build.ts:20`. "The cache from there is what changes here" is a good second note. The more that has accumulated, the fewer notes this run should add.
 - **If this change makes an existing note WRONG**, point at it and say only what is different now. Never edit a line already in the file — append only. A stale explanation standing beside the one that corrects it is better than one quietly rewritten.
 One line per note:
-{"id":<highest id in the file + 1>,"by":"agent","kind":"note","group":1,"path":"repo/relative/path.ts","line":42,"title":"the point, in one line","text":"markdown"}
-- "id" continues the numbering already in the file; every line needs its own.
+{"id":<the NEXT FREE ID given at the top of the file>,"by":"agent","kind":"note","group":1,"path":"repo/relative/path.ts","line":42,"title":"the point, in one line","text":"markdown"}
+- "id" comes from the `NEXT FREE ID` line at the top of the file, NOT from the highest id you can see: the ids are shared with a second thread file you are not looking at. Every line needs its own — count up from there.
 - "path" is repo-relative, exactly as the diff shows it.
 - "line" is the line number in the NEW version of the file (the right-hand side of the diff). Anchor each note to the single most important line of the passage it explains.
 - "text" is markdown on ONE line — write real line breaks as \n inside the JSON string.

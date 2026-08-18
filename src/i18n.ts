@@ -608,7 +608,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "plan.contract": "Before changing any code, write a short implementation PLAN in your response. Break the work into small, independently verifiable steps — each with a one-line check for how you'll confirm it works. Get the plan right first, then implement one step at a time, keeping each step small enough to review on its own. Do not add kakapo state files to the repository.",
     // Sent once at the top of a terminal hand-off (sendWholeDocToTerminal, 08-dock.js) whenever kakapo wrote
     // an answers checklist for the items below — the absolute path is appended right after this line.
-    "mergePrompt.answersFile": "Answer in the review thread file below instead of replying here — append ONE line per answer, {\"id\":<highest id in the file + 1>,\"re\":<the #id of the request you are answering>,\"by\":\"agent\",\"text\":\"markdown\"}, and never rewrite a line already there. Each request below is headed with its #id, and your answer lands in the review beside the code it is about:",
+    "mergePrompt.answersFile": "Answer in the review thread file below instead of replying here — append ONE line per answer, {\"id\":<the NEXT FREE ID given at the top of that file, counting up if you append more than one>,\"re\":<the #id of the request you are answering>,\"by\":\"agent\",\"text\":\"markdown\"}, and never rewrite a line already there. Take the id from that line, NOT from the highest id you can see: the ids are shared with a second file you are not looking at. Each request below is headed with its #id, and your answer lands in the review beside the code it is about:",
     // The ENTIRE terminal hand-off when kakapo could park the document on disk: this line plus its absolute
     // path. The document (answers-file instructions included) waits in the file — see sendWholeDocToTerminal.
     "mergePrompt.requestFile": "Read this review request file and do everything it asks:",
@@ -1194,7 +1194,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "plan.contract": "코드를 변경하기 전에, 먼저 응답에 짧은 구현 플랜을 작성하세요. 작업을 독립적으로 검증 가능한 작은 단계로 쪼개고, 각 단계마다 어떻게 확인할지 한 줄짜리 검증 기준을 적으세요. 플랜이 맞는지 먼저 확정한 뒤 한 번에 한 단계씩 구현하고, 각 단계는 따로 리뷰할 수 있을 만큼 작게 유지하세요. 저장소에는 kakapo 상태 파일을 추가하지 마세요.",
     // 터미널로 보내는 합본 프롬프트(sendWholeDocToTerminal, 08-dock.js) 맨 앞에 한 번 붙는다 — kakapo가 아래
     // 항목들에 대한 답변 체크리스트를 이미 써둔 경우에만 붙으며, 바로 다음 줄에 절대 경로가 이어진다.
-    "mergePrompt.answersFile": "답변은 여기에 적지 말고 아래 리뷰 스레드 파일에 기록하세요 — 답변 하나당 한 줄씩 append 합니다: {\"id\":<파일에서 가장 큰 id + 1>,\"re\":<답할 요청의 #id>,\"by\":\"agent\",\"text\":\"markdown\"}. 이미 있는 줄은 절대 고치지 마세요. 아래 각 요청 제목에 #id가 붙어 있고, 답변은 그 코드 옆 리뷰에 그대로 표시됩니다:",
+    "mergePrompt.answersFile": "답변은 여기에 적지 말고 아래 리뷰 스레드 파일에 기록하세요 — 답변 하나당 한 줄씩 append 합니다: {\"id\":<그 파일 맨 위의 NEXT FREE ID. 여러 줄이면 거기서부터 하나씩 올립니다>,\"re\":<답할 요청의 #id>,\"by\":\"agent\",\"text\":\"markdown\"}. 이미 있는 줄은 절대 고치지 마세요. id는 보이는 가장 큰 id가 아니라 그 줄에서 가져오세요 — id는 지금 보고 있지 않은 다른 파일과 공유됩니다. 아래 각 요청 제목에 #id가 붙어 있고, 답변은 그 코드 옆 리뷰에 그대로 표시됩니다:",
     // kakapo가 문서를 디스크에 저장할 수 있었을 때 터미널로 가는 내용 전부 — 이 한 줄과 절대 경로.
     // 문서(답변 파일 안내 포함)는 그 파일 안에서 기다린다. sendWholeDocToTerminal 참고.
     "mergePrompt.requestFile": "이 리뷰 요청 파일을 읽고 시키는 대로 전부 처리하세요:",
