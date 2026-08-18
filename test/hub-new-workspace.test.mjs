@@ -504,3 +504,46 @@ test("the workspace description is shown, and Edit memo opens holding it", async
   overlay.handlers.onModalOpen({ type: "memo", id: 7, name: "eager-lark", memo: "리뷰 코멘트 통합" });
   assert.equal(overlayDoc.querySelector("#promptInput").value, "리뷰 코멘트 통합", "the prompt opens prefilled");
 });
+
+// Reordering the rail. Press and HOLD lifts a workspace; dragging then moves it inside its project. The hold
+// is what keeps ordinary use intact: a press that moves before the timer fires is a scroll, and one that
+// never moves is a click, so neither becomes a drag by accident.
+test("holding a workspace lifts it, and dropping it reorders its project", async () => {
+  const project = (id, name) => ({ ...KAKAPO_MAIN, id, kind: "worktree", alias: name,
+    branch: `kakapo/${name}`, path: `/kakapo/workspaces/kakapo/${name}` });
+  const { hub, document } = railWithState([project(1, "alpha"), project(2, "beta"), project(3, "gamma")]);
+  hub.handlers.onSetExpanded(true);
+  await tick();
+  const view = document.defaultView;
+  const names = () => [...document.querySelectorAll(".ev .wt")].map((el) => el.dataset.name);
+  assert.deepEqual(names(), ["alpha", "beta", "gamma"], "the rail starts in the order main sent");
+
+  const tiles = [...document.querySelectorAll(".ev .wt")];
+  const press = (target, opts) => target.dispatchEvent(new view.MouseEvent("mousedown",
+    { bubbles: true, button: 0, clientX: 50, clientY: 10, ...opts }));
+  // jsdom has no layout: say where the drop target is and what the pointer is over.
+  document.elementFromPoint = () => tiles[2];
+  tiles[2].getBoundingClientRect = () => ({ top: 40, height: 20, bottom: 60, left: 0, right: 100, width: 100 });
+
+  // A press that lets go too early is still a click — nothing is lifted and nothing moves.
+  press(tiles[0]);
+  document.dispatchEvent(new view.MouseEvent("mouseup", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 340));
+  assert.ok(!document.querySelector(".wt-lifted"), "a short press never lifts anything");
+
+  press(tiles[0]);
+  await new Promise((resolve) => setTimeout(resolve, 340));
+  assert.ok(tiles[0].classList.contains("wt-lifted"), "holding still lifts the tile");
+
+  tiles[2].dispatchEvent(new view.MouseEvent("mousemove", { bubbles: true, clientX: 50, clientY: 58 }));
+  assert.deepEqual(names(), ["beta", "gamma", "alpha"], "dragging past a tile's midpoint moves it below");
+
+  document.dispatchEvent(new view.MouseEvent("mouseup", { bubbles: true }));
+  assert.deepEqual(hub.lastCall("reorder"), ["kakapo", [
+    "/kakapo/workspaces/kakapo/beta", "/kakapo/workspaces/kakapo/gamma", "/kakapo/workspaces/kakapo/alpha",
+  ]], "the drop reports the project's new order by path");
+
+  // The click that follows a drop would otherwise open whatever the tile landed on.
+  tiles[0].click();
+  assert.equal(hub.lastCall("activate"), undefined, "dropping a tile does not also switch to it");
+});

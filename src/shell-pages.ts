@@ -177,6 +177,11 @@ body.rail-exp .ev{display:flex}
 .ewts{padding:2px 0 2px 9px;display:flex;flex-direction:column;gap:2px}
 .ev .wt{padding:7px 9px 7px 11px;border-radius:9px}
 .ev .wt:hover{background:${light ? "#e4eaf6" : "#25272c"}}
+/* Lifted: the tile leaves the list's surface — raised, slightly larger, and following the pointer's row —
+   so it is obvious which one you are holding and that letting go will put it down somewhere. */
+.ev .wt.wt-lifted{background:${light ? "#dbe6f8" : "#2c333f"};box-shadow:0 8px 20px #0007;transform:scale(1.02);position:relative;z-index:2;cursor:grabbing}
+body.wt-reordering{cursor:grabbing;-webkit-user-select:none;user-select:none}
+body.wt-reordering .ev .wt:not(.wt-lifted){transition:transform 120ms ease}
 .ev .wt.kbd-sel{background:${light ? "#dbe6f8" : "#2c333f"};box-shadow:inset 0 0 0 1.5px ${light ? "#4d86d9" : "#5f92df"}}
 .ev .wt.act{background:${light ? "#dfe7f5" : "#2a3446"}}
 .ev .wt.disc{opacity:.5}
@@ -590,7 +595,7 @@ return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span clas
 list.innerHTML=cv+ev;
 // Worktree click → activate (or reconnect/forget a disconnected one). Collapsed badges and expanded cards are
 // both .wt with the same data-*, so one handler covers both views.
-for(const el of list.querySelectorAll('.wt')){el.onclick=()=>{const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){window.kakapoHub.openModal('disconnected',{path});return}if(el.dataset.closed==='true'){window.kakapoHub.openPath(path);return}window.kakapoHub.activate(id)};}
+for(const el of list.querySelectorAll('.wt')){el.onclick=()=>{if(justDragged)return;const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){window.kakapoHub.openModal('disconnected',{path});return}if(el.dataset.closed==='true'){window.kakapoHub.openPath(path);return}window.kakapoHub.activate(id)};}
 // Collapsed project avatar → jump to that project's active (or first) worktree.
 for(const el of list.querySelectorAll('.phav')){el.onclick=()=>{const ws=groups.get(el.dataset.repo)||[];const t=ws.find(w=>w.active&&!w.disconnected)||ws.find(w=>!w.disconnected)||ws[0];if(!t)return;if(t.closed)window.kakapoHub.openPath(t.path);else if(t.disconnected)window.kakapoHub.openModal('disconnected',{path:t.path});else window.kakapoHub.activate(t.id);};}
 // Expanded project header → collapse/expand its worktree list (chevron rotates).
@@ -624,6 +629,45 @@ async function removeWorkspace(id,name){const r0=await window.kakapoHub.confirm(
 const rm=async(...a)=>{markDeleting(id,true);try{return await window.kakapoHub.remove(id,'delete',...a)}finally{markDeleting(id,false)}};
 try{r=await rm(false,delBranch);if(r.needsConfirmation){const x=r.risk;const detail=[x.dirty&&T.dirty,x.unpushed&&T.unpushed.replace('{n}',x.unpushed).replace('{s}',x.unpushed===1?'':'s'),x.runningProcesses&&T.runningProc].filter(Boolean).join('\\n');const r2=await window.kakapoHub.confirm({title:T.anywayTitle,message:T.hasWork,detail,buttons:[T.cancel,T.anyway],danger:true,defaultId:0});if(r2.index!==1)return;r=await rm(true,delBranch);}}catch(err){r={ok:false,error:(err&&err.message)||String(err)};}
 if(!r.ok)await window.kakapoHub.confirm({title:T.failedTitle,message:r.error||T.failedMsg,buttons:[T.ok]});}
+// Press and HOLD a workspace to lift it, then drag to reorder it inside its project. A press that moves
+// before the timer fires is a scroll and a press that never moves is a click, so the lift only happens when
+// you hold still — which is what keeps ordinary clicking and scrolling untouched. Only the expanded rail:
+// the 46px strip has no room to aim at, and the order it shows is this one anyway.
+// The order is per PROJECT because that is the only move that means anything — a worktree belongs to its
+// repository, so dragging one out of its group would be asking for a workspace that lives nowhere.
+var justDragged=false;
+(function(){
+  var LIFT_MS=280,SLOP=5,timer=0,lifted=null,group=null,startX=0,startY=0;
+  function reset(){if(timer){clearTimeout(timer);timer=0;}if(lifted)lifted.classList.remove('wt-lifted');lifted=null;group=null;document.body.classList.remove('wt-reordering');}
+  list.addEventListener('mousedown',e=>{
+    if(e.button!==0||!railExp)return;
+    var wt=e.target.closest&&e.target.closest('.ev .wt');
+    if(!wt||!wt.parentElement||!wt.parentElement.classList.contains('ewts'))return;
+    startX=e.clientX;startY=e.clientY;
+    timer=setTimeout(()=>{timer=0;lifted=wt;group=wt.parentElement;wt.classList.add('wt-lifted');document.body.classList.add('wt-reordering');},LIFT_MS);
+  });
+  document.addEventListener('mousemove',e=>{
+    if(timer&&(Math.abs(e.clientX-startX)>SLOP||Math.abs(e.clientY-startY)>SLOP)){clearTimeout(timer);timer=0;return;}
+    if(!lifted||!group)return;
+    e.preventDefault();
+    var over=document.elementFromPoint(e.clientX,e.clientY);
+    var target=over&&over.closest?over.closest('.ev .wt'):null;
+    if(!target||target===lifted||target.parentElement!==group)return;
+    var r=target.getBoundingClientRect();
+    group.insertBefore(lifted,e.clientY<r.top+r.height/2?target:target.nextSibling);
+  });
+  document.addEventListener('mouseup',()=>{
+    if(lifted&&group){
+      var repo=(group.parentElement&&group.parentElement.querySelector('.prow')||{}).dataset;
+      var paths=[...group.querySelectorAll('.wt')].map(w=>decodeURIComponent(w.dataset.path||'')).filter(Boolean);
+      if(repo&&repo.repo&&paths.length)window.kakapoHub.reorder(repo.repo,paths);
+      // The click that follows this mouseup would activate whatever the tile landed on; swallow exactly one.
+      justDragged=true;setTimeout(()=>{justDragged=false},0);
+    }
+    reset();
+  });
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&lifted){reset();window.kakapoHub.requestState();}});
+})();
 document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.wt');if(card){e.preventDefault();if(card.dataset.closed==='true')return;if(card.dataset.disconnected==='true'){window.kakapoHub.openModal('disconnected',{path:decodeURIComponent(card.dataset.path)});return}window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1',kind:card.dataset.kind||''});}});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.altKey&&/^[1-9]$/.test(e.key)){e.preventDefault();window.kakapoHub.activateIndex(Number(e.key)-1)}});
 document.addEventListener('click',e=>{if(!railExp&&!e.target.closest('button,input,textarea,dialog,#wsname'))window.kakapoHub.refocusReview()});

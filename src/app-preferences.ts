@@ -8,6 +8,7 @@ export type RecentProject = { path: string; name: string; openedAt: number };
 const RECENT_KEY = "kakapo-recent-projects";
 const RECENT_MAX = 12;
 const OPEN_WORKSPACES_KEY = "kakapo-open-workspaces";
+const WORKSPACE_ORDER_KEY = "kakapo-workspace-order";
 const ACTIVE_WORKSPACE_KEY = "kakapo-active-workspace";
 const GLOBAL_SETTING_KEYS = new Set([
   "kakapo-locale",
@@ -125,6 +126,25 @@ export class AppPreferences {
     const settings = this.readGlobal();
     settings[OPEN_WORKSPACES_KEY] = workspaces;
     settings[ACTIVE_WORKSPACE_KEY] = activePath;
+    this.writeGlobal(settings);
+  }
+
+  // Rail order, per project: the paths of one repo's workspaces in the order the reviewer dragged them into.
+  // Keyed by repoName because reordering only means anything inside a group — a worktree belongs to its
+  // repository. Paths rather than ids: a closed main and a disconnected workspace have no window and no id.
+  readWorkspaceOrder(): Record<string, string[]> {
+    const raw = this.readGlobal()[WORKSPACE_ORDER_KEY];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const out: Record<string, string[]> = {};
+    for (const [repo, paths] of Object.entries(raw as Record<string, unknown>)) {
+      if (Array.isArray(paths)) out[repo] = paths.filter((p): p is string => typeof p === "string");
+    }
+    return out;
+  }
+
+  writeWorkspaceOrder(repo: string, paths: string[]): void {
+    const settings = this.readGlobal();
+    settings[WORKSPACE_ORDER_KEY] = { ...this.readWorkspaceOrder(), [repo]: paths };
     this.writeGlobal(settings);
   }
 

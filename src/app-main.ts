@@ -684,6 +684,16 @@ ipcMain.handle("kakapo:hub-rename", (_event, payload: { id?: unknown; alias?: un
   renderHub();
   return { ok: true };
 });
+// Drag-to-reorder in the expanded rail. The client sends one project's workspaces in the order it now shows
+// them; renderHub sorts by this on the way back out, so the tile stays where it was dropped.
+ipcMain.handle("kakapo:hub-reorder", (_event, payload: { repo?: unknown; paths?: unknown }) => {
+  if (typeof payload?.repo !== "string" || !Array.isArray(payload.paths)) return { ok: false };
+  const paths = payload.paths.filter((p): p is string => typeof p === "string").map((p) => resolveWorkspaceRoot(p));
+  if (!paths.length) return { ok: false };
+  preferences.writeWorkspaceOrder(payload.repo, paths);
+  renderHub();
+  return { ok: true };
+});
 ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unknown; force?: unknown; deleteBranch?: unknown }) => {
   if (typeof payload?.id !== "number" || (payload.mode !== "close" && payload.mode !== "delete")) return { ok: false };
   const state = states.get(payload.id);
@@ -1762,6 +1772,17 @@ function renderHub(): void {
   // Drop any tile whose repo identity couldn't be resolved: the rail groups by repoName, so an empty one renders
   // as an unidentifiable "?" project. Valid workspaces always carry a repoName, so this only strips junk.
   const workspaces = [...live, ...disconnected, ...closedMains].filter((w) => typeof w.repoName === "string" && w.repoName.trim());
+  // Apply the reviewer's own order. Projects keep the order they first appear in (a stable sort on the repo's
+  // first index), and inside each one the dragged order wins; anything never dragged keeps its place after
+  // what was, which is what makes a freshly created workspace show up at the bottom rather than in the middle.
+  const railOrder = preferences.readWorkspaceOrder();
+  const repoAt = new Map<string, number>();
+  workspaces.forEach((w, index) => { if (!repoAt.has(w.repoName)) repoAt.set(w.repoName, index); });
+  const dragRank = (w: { repoName: string; path: string }): number => {
+    const at = (railOrder[w.repoName] || []).indexOf(resolveWorkspaceRoot(w.path));
+    return at < 0 ? Number.MAX_SAFE_INTEGER : at;
+  };
+  workspaces.sort((a, b) => (repoAt.get(a.repoName)! - repoAt.get(b.repoName)!) || (dragRank(a) - dragRank(b)));
   void shellWindow.webContents.send("kakapo:hub-state", workspaces);
   for (const state of states.values()) {
     if (state.win.isDestroyed()) continue;

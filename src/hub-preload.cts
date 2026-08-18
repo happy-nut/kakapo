@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld("kakapoHub", {
     ipcRenderer.invoke("kakapo:hub-create", { repo, label, worktree, ...(opts || {}) }),
   cancelCreate: () => ipcRenderer.send("kakapo:hub-cancel-create"),
   rename: (id: number, alias?: string, memo?: string) => ipcRenderer.invoke("kakapo:hub-rename", { id, alias, memo }),
+  // Drag-to-reorder inside a project group. Paths, not ids: a tile can be a closed project main or a
+  // disconnected workspace, neither of which has a window and therefore neither of which has an id.
+  reorder: (repo: string, paths: string[]) => ipcRenderer.invoke("kakapo:hub-reorder", { repo, paths }),
   // Native workspace-tile context menu (drawn above the review views, so it doesn't blank the main panel).
   tileMenu: (info: { id: number; name: string; resume: boolean; kind?: string }) => ipcRenderer.send("kakapo:tile-menu", info),
   onTileAction: (callback: (data: { id: number; action: string; name: string }) => void) =>
