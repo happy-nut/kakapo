@@ -1300,13 +1300,12 @@ function revealComment(seq) {
   return true;
 }
 function gotoComment(delta) {
-  // Only cards this workspace can actually show. A note whose file is not in this checkout cannot be revealed
-  // — navigateToComment has nowhere to go, so the caret ended up at the top of whatever was already open,
-  // which reads as the key having gone somewhere random. Knowledge is shared across a repository's worktrees
-  // on purpose; being ABLE to walk to it is a different question, and the answer is per workspace.
-  var list = sortedNavThread().filter(function (c) {
-    return !c.path || typeof sourceByPath === 'undefined' || !sourceByPath.size || sourceByPath.has(c.path);
-  });
+  // NOT filtered by the source index. Scoping a shared note to the workspace that has its file is main's job
+  // (notesForWorkspace, comments-file.ts) and it is done before the renderer ever sees the record. Filtering
+  // again here read `sourceByPath`, which on a diff-first launch holds only the CHANGED files — so notes on
+  // untouched files vanished from the walk while the card badge, counting the unfiltered list, went on
+  // numbering them. F8 then bounced between whichever two survived, calling them 8/9 and 9/9.
+  var list = sortedNavThread();
   if (!list.length) { showCaretHint(t('comment.nav.none')); return true; }
   revealComment(stepAnchor(delta, list).seq);
   return true;

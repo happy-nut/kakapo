@@ -659,3 +659,32 @@ test("F8 keeps walking after it lands on a card whose anchor is a range", async 
   assert.equal(line(), 6, "and backwards still undoes the step");
   v.close();
 });
+
+// The card counts "8/9" from one list and F8 walked another: the walk was filtered by the source index, which
+// on a diff-first launch holds only the CHANGED files, so notes on untouched files disappeared from the walk
+// while the badge went on numbering them. Stepping then bounced between whichever two survived. Whatever is
+// counted must be what is walked — scoping a shared note to this workspace happens in main, before either.
+test("the number on a card counts the same cards F8 walks", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/changed.ts", before: "const a = 1;\nconst b = 2;\n", after: "const a = 9;\nconst b = 8;\n" },
+  ]);
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/changed.ts");
+
+  // One note on the changed file, two on a file this launch never indexed — all three belong to this
+  // workspace, and all three must be walkable.
+  v.agentSays({ kind: "note", path: "src/changed.ts", line: 1, group: 1, text: "on the diff" });
+  v.agentSays({ kind: "note", path: "src/untouched.ts", line: 3, group: 1, text: "not in the diff" });
+  v.agentSays({ kind: "note", path: "src/untouched.ts", line: 7, group: 2, text: "nor is this" });
+  await v.settle(40);
+
+  const walked = Array.from(v.window.sortedNavThread()).filter((c) => c.by === "agent");
+  assert.equal(walked.length, 3, "every note in this workspace is in the walk, indexed or not");
+
+  const badges = v.$all(".mc-card.mc-ai .mc-walk").map((el) => el.textContent);
+  assert.ok(badges.length > 0, "the cards carry their place in it");
+  for (const badge of badges) {
+    assert.match(badge, /\/3$/, `a card counts out of the walk it belongs to, got ${badge}`);
+  }
+  v.close();
+});
