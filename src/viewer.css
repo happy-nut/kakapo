@@ -2987,24 +2987,40 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
    a pty to each, wait for tmux to redraw its screen — and until the first byte lands the panel is an empty
    rectangle, which reads as a hang rather than as work in progress. One arc while that is happening, in the
    same shape the workspace selector uses for a running agent. */
+/* The wait belongs to a PANE, not to the panel: a split can have one pane still attaching while the one
+   beside it is already printing, and a single arc in the middle described neither. Each waiting rectangle
+   wears its own.
+   Above xterm, or invisible: xterm's own layers carry z-index up to 10 (xterm.css), so a pseudo-element at
+   z-index auto is painted UNDER the terminal screen — which is every moment this overlay is wanted. */
+.terminal-pane.is-connecting { position: relative; }
+.terminal-pane.is-connecting::after {
+  content: ""; position: absolute; inset: 0; margin: auto; width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--active) 28%, transparent); border-top-color: var(--active);
+  animation: workspace-selector-spin .8s linear infinite; pointer-events: none; z-index: 11;
+}
+/* And what it is waiting FOR, under the arc. An arc says something is happening; the sentence says what,
+   which is the difference between waiting and wondering whether the pane is broken. The text arrives as a
+   custom property (setPaneConnecting) because a pseudo-element cannot read a translation itself. */
+.terminal-pane.is-connecting::before {
+  content: var(--terminal-connecting, "");
+  position: absolute; left: 0; right: 0; top: 50%; margin-top: 24px;
+  text-align: center; color: var(--muted); font-size: 12px; pointer-events: none; z-index: 11;
+}
+/* Before any pane exists at all — main is still listing the sessions that survived — the panel carries it,
+   and hands over as soon as there is a rectangle to draw on. */
 .terminal-panel.is-connecting .terminal-host { position: relative; }
-/* Above xterm, or invisible. xterm's own layers carry z-index up to 10 (xterm.css), so a pseudo-element at
-   z-index auto is painted UNDER the terminal screen the moment a pane mounts — which is every time this
-   overlay is wanted. It was on screen the whole 4 seconds and behind the thing it was covering for. */
 .terminal-panel.is-connecting .terminal-host::after {
   content: ""; position: absolute; inset: 0; margin: auto; width: 22px; height: 22px; border-radius: 50%;
   border: 2px solid color-mix(in srgb, var(--active) 28%, transparent); border-top-color: var(--active);
   animation: workspace-selector-spin .8s linear infinite; pointer-events: none; z-index: 11;
 }
-/* And what it is waiting FOR, under the arc. A spinner says "something is happening"; the sentence says what,
-   which is the difference between waiting and wondering whether the panel is broken. The text arrives as a
-   CSS custom property (setConnecting) because a pseudo-element cannot read a translation itself. */
 .terminal-panel.is-connecting .terminal-host::before {
   content: var(--terminal-connecting, "");
   position: absolute; left: 0; right: 0; top: 50%; margin-top: 24px;
   text-align: center; color: var(--muted); font-size: 12px; pointer-events: none; z-index: 11;
 }
 @media (prefers-reduced-motion: reduce) {
+  .terminal-pane.is-connecting::after,
   .terminal-panel.is-connecting .terminal-host::after { animation: none; opacity: .65; }
 }
 /* Cmd+Shift+D stacks the panes instead (top/bottom); the same 1px gap becomes the horizontal divider. */

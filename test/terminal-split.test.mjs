@@ -251,19 +251,52 @@ test("a pty hears about a resize only when the character grid changed", () => {
 // attach a pty per pane, and wait for tmux to redraw. Measured on a trivial session that is ~400ms of empty
 // black rectangle, and longer with real agent panes in it — indistinguishable from a hang unless something
 // says otherwise.
-test("the panel says it is connecting until there is something to look at, and never longer", () => {
+// Connecting is a PER-PANE state. A split can have one pane still attaching while the one beside it is
+// already printing an agent's output, and a single arc in the middle of the panel described neither of them.
+// It also has to LAST as long as the wait: attaching to tmux echoes a few bytes at once and the redraw of the
+// session's screen lands a second or more later, so ending on the first byte took the overlay away after
+// ~100ms and left the rest as an empty pane — the part actually waited through.
+test("each pane says it is connecting, until its own output settles", () => {
+  const setter = client.match(/function setPaneConnecting\(p, on\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(setter, "the state belongs to a pane");
+  assert.match(setter, /p\.el\.classList\.toggle\('is-connecting', !!on\)/, "worn by that pane's own element");
+  assert.match(setter, /setTimeout\(function \(\) \{ setPaneConnecting\(p, false\); \}, 4000\)/,
+    "a session that prints nothing still has a way out");
+
+  const settle = client.match(/function noteConnectingOutput\(p\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(settle, "output reports progress rather than ending the wait");
+  assert.match(settle, /clearTimeout\(p\.settleTimer\)[\s\S]*setTimeout\([\s\S]*setPaneConnecting\(p, false\)/,
+    "each byte pushes the finish line back, so the overlay outlives a burst");
+  assert.match(client, /noteConnectingOutput\(panes\[k\]\); panes\[k\]\.term\.write/,
+    "and it is the pane that produced the byte which hears about it");
+
+  // A pane is waiting from the moment its rectangle exists; the panel-wide overlay only covers the sliver
+  // before any pane does, and steps aside as soon as one appears.
+  assert.match(client, /setPaneConnecting\(pane, true\);\s*\n\s*setConnecting\(false\);/,
+    "a new pane takes the wait over from the panel");
   assert.match(client, /setConnecting\(true\);\s*\n\s*restorePanes\(\)/,
-    "opening onto no panes raises the indicator before the restore starts");
-  const onData = client.match(/window\.kakapoPty\.onData\(function \(msg\)[\s\S]*?\n  \}\);/)?.[0];
-  assert.match(onData, /noteConnectingOutput\(\); panes\[k\]\.term\.write/,
-    "output reports progress; what ends the wait is the output settling (see the settle test below)");
-  const setter = client.match(/function setConnecting\(on\)[\s\S]*?\n  \}/)?.[0];
-  assert.ok(setter, "setConnecting exists");
-  assert.match(setter, /setTimeout\(function \(\) \{ setConnecting\(false\); \}, \d+\)/,
-    "a pane attached to a silent session never prints, so the spinner needs its own way out");
-  assert.match(client, /if \(!open\) setConnecting\(false\);/, "closing the panel takes it down too");
-  assert.match(css, /\.terminal-panel\.is-connecting \.terminal-host::after/, "and there is something to see");
+    "which the panel raised before the restore started");
+
+  // Both halves, on both surfaces, must clear xterm's own layers (z-index up to 10 in xterm.css).
+  const placed = (css.match(/is-connecting(?:[^{]*)::(?:before|after) \{[^}]*\}/g) || [])
+    .filter((rule) => rule.includes("position: absolute"));
+  assert.equal(placed.length, 4, "an arc and a label, on the pane and on the empty panel");
+  for (const rule of placed) {
+    assert.ok(Number(rule.match(/z-index: (\d+)/)?.[1]) > 10, "each sits above the terminal it covers");
+  }
+  assert.match(css, /\.terminal-pane\.is-connecting::before \{\s*content: var\(--terminal-connecting, ""\)/,
+    "the label is a translation handed to CSS, and nothing when absent");
 });
+
+test("a pty hears about a resize only when the character grid changed", () => {
+  assert.match(client, /p\.sentCols === p\.term\.cols && p\.sentRows === p\.term\.rows\)\s*return/,
+    "an unchanged grid returns before the resize IPC");
+  assert.match(client, /p\.sentCols = p\.term\.cols[\s\S]{0,120}kakapoPty\.resize/,
+    "what was sent is recorded with the send, so the next frame can compare against it");
+  assert.match(client, /pane\.id = r && r\.id[\s\S]{0,220}sentCols = pane\.sentRows = 0/,
+    "a fresh pty forgets what the previous one was told, so it is sized even at an unchanged size");
+});
+
 
 // A turn finishing in a workspace you are NOT looking at is the case you most need telling about — you cannot
 // see its terminal. It was the one case that stayed silent: any focused kakapo window suppressed the
@@ -282,48 +315,4 @@ test("the bell notifies for a workspace you are not looking at", () => {
     "and main answers it with isVisibleWorkspace");
 });
 
-// Reattaching to sessions that outlived the app takes seconds, and the panel showed only a spinning arc. An
-// arc says "something is happening"; it does not say what, which is the difference between waiting and
-// wondering whether the panel is broken.
-test("the panel says what it is waiting for while it reattaches", () => {
-  assert.match(client, /panel\.style\.setProperty\('--terminal-connecting', JSON\.stringify\(t\('terminal\.connecting'\)\)\)/,
-    "the translated label is handed to CSS, which cannot read a translation itself");
-  assert.match(client, /panel\.style\.removeProperty\('--terminal-connecting'\)/,
-    "and is taken away when the wait ends, so it cannot outlive it");
-  assert.match(css, /is-connecting \.terminal-host::before \{\s*content: var\(--terminal-connecting, ""\)/,
-    "the overlay renders that property, and nothing when it is absent");
-  // Both halves of the overlay belong to the same state, so neither can appear without the other.
-  assert.match(css, /is-connecting \.terminal-host::after/, "the arc is still there too");
 
-  // xterm's own layers go up to z-index 10 (xterm.css), so an overlay left at auto is painted UNDER the
-  // terminal screen as soon as a pane mounts — which is exactly when it is wanted. Both halves must clear it.
-  // Only the rules that PLACE the overlay — the reduced-motion block re-states ::after to stop the spin, and
-  // has no business carrying a stacking order.
-  const overlay = (css.match(/is-connecting \.terminal-host::(?:before|after) \{[^}]*\}/g) || [])
-    .filter((rule) => rule.includes("position: absolute"));
-  assert.equal(overlay.length, 2, "the overlay is those two pseudo-elements");
-  for (const rule of overlay) {
-    const z = Number(rule.match(/z-index: (\d+)/)?.[1]);
-    assert.ok(z > 10, `an overlay half must sit above xterm's layers, got ${z || "auto"}`);
-  }
-});
-
-// The first byte is not the end of the wait. Attaching to tmux echoes a few bytes immediately and the redraw
-// of the session's screen lands a second or more later, so clearing on first output took the overlay away
-// after ~100ms and left the rest of the wait as an empty terminal — the part the reviewer actually waits
-// through, with nothing on screen to say so.
-test("the connecting overlay lasts until the output settles, not until the first byte", () => {
-  assert.doesNotMatch(client, /msg\.id\) \{ setConnecting\(false\)/,
-    "the data handler no longer ends the wait on its first byte");
-  assert.match(client, /noteConnectingOutput\(\); panes\[k\]\.term\.write/,
-    "every byte reports progress instead");
-  const settle = client.match(/function noteConnectingOutput\(\)[\s\S]*?\n  \}/)?.[0];
-  assert.ok(settle, "and progress is a function of its own");
-  assert.match(settle, /if \(!panel\.classList\.contains\('is-connecting'\)\) return;/,
-    "which does nothing once the wait is over");
-  assert.match(settle, /clearTimeout\(connectingSettle\)[\s\S]*setTimeout\([\s\S]*setConnecting\(false\)/,
-    "each byte pushes the finish line back, so the overlay outlives a burst");
-  // The ceiling still has to exist: a session that prints nothing would spin for ever on a terminal that works.
-  assert.match(client, /connectingTimer = setTimeout\(function \(\) \{ setConnecting\(false\); \}, 4000\)/,
-    "the 4s ceiling is untouched");
-});

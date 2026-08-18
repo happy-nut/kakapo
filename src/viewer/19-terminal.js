@@ -205,6 +205,11 @@ var handleTerminalSendModeKey;
     var pane = { id: null, term: term, fit: fit, el: el, labelEl: labelEl, restoreOrdinal: restoreOrdinal,
       name: 'Terminal ' + (panes.length + 1) };
     labelEl.textContent = pane.name;
+    // From the moment the rectangle exists it is a rectangle that is waiting. The panel-wide overlay covered
+    // the sliver before any pane existed (main still listing the surviving sessions); now that there is a
+    // pane to draw on, it hands over rather than sitting behind this one.
+    setPaneConnecting(pane, true);
+    setConnecting(false);
     // Cmd combos are app shortcuts (Cmd+1/0 tab switch, Cmd+B go-to-def, …). Release the terminal and let
     // them bubble to the document handler instead of typing into the shell (fixes "Cmd+1 stuck in term").
     // Exception: keep focus for clipboard/selection combos (Cmd+C/V/X/A) so the terminal's own copy &
@@ -408,7 +413,7 @@ var handleTerminalSendModeKey;
   // it cannot be one that withholds output for the duration of a composition.
   window.kakapoPty.onData(function (msg) {
     for (var k = 0; k < panes.length; k++) {
-      if (panes[k].id === msg.id) { noteConnectingOutput(); panes[k].term.write(msg.data); return; }
+      if (panes[k].id === msg.id) { noteConnectingOutput(panes[k]); panes[k].term.write(msg.data); return; }
     }
   });
   window.kakapoPty.onExit(function (msg) { removePane(msg.id); });
@@ -439,25 +444,40 @@ var handleTerminalSendModeKey;
   // a pane attached to a silent session prints nothing at all and the spinner would outlive the thing it is
   // describing, over a terminal that already works.
   var connectingTimer = 0;
-  // The FIRST byte is not the end of the wait. Attaching to tmux echoes a handful of bytes at once, and the
-  // redraw of the session's actual screen follows a second or more later — so clearing on first output took the
-  // overlay away after ~100ms and left the rest of the wait as an empty terminal, which is the wait the
-  // reviewer actually sees. Spin until the output SETTLES instead: every byte pushes the finish line back a
-  // little, and the 4s ceiling below still ends it for a session that says nothing at all.
-  var connectingSettle = 0;
-  function noteConnectingOutput() {
-    if (!panel.classList.contains('is-connecting')) return;
-    if (connectingSettle) clearTimeout(connectingSettle);
-    connectingSettle = setTimeout(function () { connectingSettle = 0; setConnecting(false); }, 220);
+  // Connecting is a PER-PANE state: a split can have one pane still attaching while the pane beside it is
+  // already showing an agent's output, and a single arc in the middle of the panel described neither of them.
+  // Each pane wears its own, so the wait is drawn over exactly the rectangle that is waiting.
+  //
+  // The FIRST byte is not the end of that wait. Attaching to tmux echoes a handful of bytes at once and the
+  // redraw of the session's screen follows a second or more later — clearing on first output took the overlay
+  // away after ~100ms and left the rest as an empty pane, which is the wait the reviewer actually sees. Every
+  // byte pushes the finish line back instead; the 4s ceiling still ends a session that says nothing at all.
+  function paneLabel() {
+    try { return JSON.stringify(t('terminal.connecting')); } catch (e) { return '""'; }
+  }
+  function setPaneConnecting(p, on) {
+    if (!p || !p.el) return;
+    if (p.settleTimer) { clearTimeout(p.settleTimer); p.settleTimer = 0; }
+    if (p.connectTimer) { clearTimeout(p.connectTimer); p.connectTimer = 0; }
+    p.el.classList.toggle('is-connecting', !!on);
+    // The label reaches CSS as a quoted string: the overlay is a pseudo-element and `content` cannot read a
+    // translation itself. Read at this moment rather than at boot, so it follows a locale change.
+    try {
+      if (on) p.el.style.setProperty('--terminal-connecting', paneLabel());
+      else p.el.style.removeProperty('--terminal-connecting');
+    } catch (e) {}
+    if (on) p.connectTimer = setTimeout(function () { setPaneConnecting(p, false); }, 4000);
+  }
+  function noteConnectingOutput(p) {
+    if (!p || !p.el || !p.el.classList.contains('is-connecting')) return;
+    if (p.settleTimer) clearTimeout(p.settleTimer);
+    p.settleTimer = setTimeout(function () { p.settleTimer = 0; setPaneConnecting(p, false); }, 220);
   }
   function setConnecting(on) {
-    if (connectingSettle) { clearTimeout(connectingSettle); connectingSettle = 0; }
     if (connectingTimer) { clearTimeout(connectingTimer); connectingTimer = 0; }
     panel.classList.toggle('is-connecting', !!on);
-    // The label is handed to CSS as a quoted string, because the overlay is a pseudo-element and `content`
-    // cannot read a translation on its own. Set here rather than at boot so it follows a locale change.
     try {
-      if (on) panel.style.setProperty('--terminal-connecting', JSON.stringify(t('terminal.connecting')));
+      if (on) panel.style.setProperty('--terminal-connecting', paneLabel());
       else panel.style.removeProperty('--terminal-connecting');
     } catch (e) {}
     if (on) connectingTimer = setTimeout(function () { setConnecting(false); }, 4000);
