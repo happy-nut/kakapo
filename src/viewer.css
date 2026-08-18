@@ -2393,7 +2393,12 @@ h1 { margin: 0; font-size: 18px; }
 .mc-comment-row td { padding: 0; background: transparent; }
 .mc-comment-spacer-row td { padding: 0; border: 0; background: transparent; }
 .mc-comment-spacer { width: 1px; min-height: 0; pointer-events: none; }
-.mc-thread-cell { padding: 4px 12px 8px 64px; }
+/* No padding around the card except the gutter alignment on the left. The cell must stay TRANSPARENT — it is
+   the spacer that keeps both panes of a layered diff in step, and painting it would cover the other pane's
+   canvas — so every pixel of padding showed the diff colour of the line the comment hangs from. A comment on
+   an added line therefore sat in a green frame, as if the conversation were part of the change. Taking the
+   padding away lets the card meet the code directly; the 64px is alignment past the gutter, not spacing. */
+.mc-thread-cell { padding: 0 0 0 64px; }
 .source-table .mc-thread-cell { padding: 4px 12px 8px calc(var(--source-gutter-width) + 10px); }
 /* Diff code lives on a max-content canvas so long lines can scroll horizontally. A comment is editor UI,
    not source text: keep its cell pinned to the working-tree viewport just after the one visible gutter.
