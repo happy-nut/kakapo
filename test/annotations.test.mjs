@@ -334,8 +334,8 @@ test("a note can be answered and dismissed without hunting for the controls", ()
   assert.match(css.slice(at, css.indexOf("}", at)), /opacity: \.55/, "they are visible before you hover");
 
   const sourceView = readFileSync(new URL("../src/viewer/10-source-view.js", import.meta.url), "utf8");
-  assert.match(sourceView, /if \(isFinite\(seq\)\) removeComments\(\[seq\]\)/,
-    "Backspace on a selected card removes exactly that one");
+  assert.match(sourceView, /if \(isFinite\(seq\)\) deleteComment\(seq\)/,
+    "Backspace acts on the SELECTED card, not on everything that shares the line");
   assert.match(sourceView, /classList\.contains\('mc-ai'\)\) return;/,
     "and `e` refuses to rewrite the agent's own words");
 });
@@ -623,5 +623,39 @@ test("a prompt still pastes when there is nowhere to write it", async () => {
   await v.settle(30);
   assert.equal(sent.length, 1);
   assert.match(sent[0], /problem note/, "the prompt itself is sent when the file could not be");
+  v.close();
+});
+
+// A card's anchor is a RANGE, and the walk has to recognise the caret as standing on it wherever inside that
+// range it lands. This one passes on the old code too — reveal puts the caret at `from` and the old test read
+// `from`, so the two agreed by luck. It is here as the guard for the day one of them changes.
+test("F8 keeps walking after it lands on a card whose anchor is a range", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts",
+      before: "const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\nconst e = 5;\nconst f = 6;\n",
+      after: "const a = 9;\nconst b = 8;\nconst c = 7;\nconst d = 6;\nconst e = 5;\nconst f = 0;\n" },
+  ]);
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+
+  // The middle card covers lines 2-4: `from` is 2, and the caret lands on `line`, which is 4.
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, group: 1, text: "first" });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 4, from: 2, to: 4, group: 1, text: "a range" });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 6, group: 1, text: "last" });
+  await v.settle(40);
+
+  const line = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1) + 1;
+  const walked = [];
+  for (let i = 0; i < 3; i++) { v.key("F8"); await v.settle(60); walked.push(line()); }
+
+  // Entering at the nearest card below the caret, then following the story: 1 is where the caret already is,
+  // so the walk starts at the range and carries on — it must never skip to the end and stay there.
+  // Landing on a range puts the caret at its START (line 2), which is where the selection begins — the point
+  // is that the walk carries ON from there instead of losing track of where it is.
+  assert.deepEqual(walked, [2, 6, 1], "the walk continues past a range card instead of stranding on it");
+
+  v.key("F8", { shiftKey: true });
+  await v.settle(60);
+  assert.equal(line(), 6, "and backwards still undoes the step");
   v.close();
 });

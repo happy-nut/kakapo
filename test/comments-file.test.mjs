@@ -132,6 +132,9 @@ test("what the agent learned goes to the repository, the conversation stays with
   const h = harness();
   try {
     h.state.knowledgeFile = knowledgeFilePath(h.root);
+    // The note below is anchored to this file, and a shared note only reaches a workspace that HAS its file.
+    mkdirSync(join(h.root, "src"), { recursive: true });
+    writeFileSync(join(h.root, "src", "a.ts"), "export const a = 1;\n");
 
     h.write([
       { id: 1, kind: "q", path: "src/a.ts", line: 1, text: "why here?" },
@@ -150,6 +153,32 @@ test("what the agent learned goes to the repository, the conversation stays with
     const back = h.read();
     assert.deepEqual(back.records.map((r) => r.id).sort(), [1, 2, 3]);
     assert.equal(back.notesPath, h.state.knowledgeFile, "and that shared file is what {{NOTES_PATH}} means");
+  } finally {
+    h.cleanup();
+  }
+});
+
+// Knowledge is shared by every worktree of a repository, but a note is ANCHORED to a file and a line. A note
+// about a file this workspace does not have has nothing to attach to here — the card cannot render, yet the
+// count on the tree counted it and F8 walked to it, sending the caret to a file it could not open.
+test("a shared note arrives only in a workspace that has its file", () => {
+  const h = harness();
+  try {
+    h.state.knowledgeFile = knowledgeFilePath(h.root);
+    writeFileSync(join(h.root, "here.ts"), "export const a = 1;\n");
+
+    h.write([
+      { id: 1, by: "agent", kind: "note", path: "here.ts", line: 1, text: "about a file this workspace has" },
+      { id: 2, by: "agent", kind: "note", path: "only/in/another/worktree.ts", line: 9, text: "about one it does not" },
+      { id: 3, by: "agent", kind: "note", text: "about the repository itself, anchored to nothing" },
+    ]);
+
+    const back = h.read().records.map((r) => r.id).sort();
+    assert.deepEqual(back, [1, 3], "the note whose file is missing here stays out of this workspace's list");
+
+    // It is not deleted — another worktree still has that file, and the knowledge belongs to the repository.
+    const knowledge = readFileSync(h.state.knowledgeFile, "utf8");
+    assert.match(knowledge, /only\/in\/another\/worktree\.ts/, "it is still on disk for the workspace it is about");
   } finally {
     h.cleanup();
   }

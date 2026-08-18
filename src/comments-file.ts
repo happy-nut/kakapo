@@ -54,6 +54,20 @@ export function knowledgeFilePath(root: string): string | undefined {
   return kakapoSharedDataFile(root, "knowledge.jsonl");
 }
 
+// Knowledge is shared by every worktree of a repository, but a note is ANCHORED — it names a file and a line.
+// A note written about a file that does not exist in this workspace has nothing to attach to here: the card
+// cannot render, yet the count on the tree still counted it and F8 still walked to it, which sent the caret to
+// a file it could not open and left it at the top. So a shared note arrives only where its file does.
+//
+// Same-file drift (the line moved, or this branch changed it) is a different problem and already has an
+// answer: the record carries the text of the line it was written on, and the renderer re-finds it.
+function notesForWorkspace(records: ThreadRecord[], root: string): ThreadRecord[] {
+  return records.filter((record) => {
+    if (!record.path) return true; // a note with no anchor belongs to the repository, not to a file
+    return existsSync(join(root, record.path));
+  });
+}
+
 // A record is knowledge when the agent wrote it about the code on its own — not a reply, not a question. Its
 // replies stay with the conversation they belong to, so a note can be discussed in one workspace without that
 // discussion following the note into every other one.
@@ -148,7 +162,7 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
       path: state.commentsFile,
       notesPath: state.knowledgeFile ?? state.commentsFile,
       exists: exists || existsSync(state.knowledgeFile ?? ""),
-      records: readThread(state.commentsFile).concat(readThread(state.knowledgeFile)),
+      records: readThread(state.commentsFile).concat(notesForWorkspace(readThread(state.knowledgeFile), state.options.root)),
       legacyNotes: exists ? [] : legacyNotes(state.options.root),
     };
   });
@@ -217,6 +231,6 @@ export function syncCommentsFile(state: CommentsIpcState): void {
   state.commentsSig = sig;
   state.knowledgeSig = shared;
   state.win.webContents.send("kakapo:comments-update", {
-    records: readThread(state.commentsFile).concat(readThread(state.knowledgeFile)),
+    records: readThread(state.commentsFile).concat(notesForWorkspace(readThread(state.knowledgeFile), state.options.root)),
   });
 }

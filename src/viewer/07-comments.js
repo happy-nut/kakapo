@@ -99,6 +99,28 @@ function moveCommentToBaseSide(c) {
   }
   return false;
 }
+// A reply has no anchor of its own: it lives wherever the comment it continues lives, which is why
+// openReplyComposer copies the parent's and commentToRecord omits path/line whenever they still match.
+// Nothing kept that true once the parent MOVED. remapComments follows a root to its new line after the agent
+// edits the file, but a reply carries no anchor text to follow with — so it stayed on the line the question
+// used to be on, and the answer showed up as a card of its own, in a thread of its own, somewhere else in the
+// file. Re-seat every reply on its parent, parents first so a chain propagates in one pass.
+function reanchorReplies() {
+  var changed = 0;
+  reviewComments.slice().sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); }).forEach(function (c) {
+    if (c.replyTo == null) return;
+    var parent = reviewComments.find(function (x) { return x.seq === c.replyTo; });
+    if (!parent) return;
+    if (c.path === parent.path && c.line === parent.line && c.side === parent.side) return;
+    c.path = parent.path;
+    c.line = parent.line;
+    c.side = parent.side;
+    c.from = parent.from;
+    c.to = parent.to;
+    changed += 1;
+  });
+  return changed;
+}
 function remapComments() {
   if (!reviewComments.length) return;
   var changed = 0;
@@ -134,6 +156,7 @@ function remapComments() {
       changed++;
     }
   });
+  changed += reanchorReplies(); // a root that moved drags its answers along
   if (!changed) return; // nothing moved or re-flagged — skip the save/re-render
   saveComments();
   refreshComments();
@@ -227,6 +250,7 @@ function applyThreadRecords(records, extra, silent) {
     threadFromRecords(extra).forEach(function (c) { if (!byId[c.seq]) next.push(c); });
   }
   reviewComments = next;
+  reanchorReplies(); // an answer that named its own line lands in its question's thread, not beside it
   commentSeq = reviewComments.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
   persistSave(COMMENTS_KEY, reviewComments);
   if (silent) seenAgentSeq = maxAgentSeq(); else notifyAgentTurns();
@@ -467,8 +491,23 @@ function removeComments(seqs) {
   reviewComments = reviewComments.filter(function (c) { return seqs.indexOf(c.seq) === -1; });
   saveComments();
 }
+// This card and every card that continues from it. A thread hangs off its first comment — a reply carries no
+// anchor of its own, only its parent's — so removing that comment without its replies leaves them pointing at
+// a parent that is not there: cards that answer a question nobody can read, in a thread with no beginning.
+// Deleting the root therefore deletes the thread, which is also the only reading of "delete this" that a
+// reviewer looking at the top card has. One batch, so one Cmd+Z brings the whole conversation back.
+function commentSubtreeSeqs(seq) {
+  var out = [seq], queue = [seq], guard = 0;
+  while (queue.length && ++guard < 500) {
+    var parent = queue.shift();
+    reviewComments.forEach(function (c) {
+      if (c.replyTo === parent && out.indexOf(c.seq) < 0) { out.push(c.seq); queue.push(c.seq); }
+    });
+  }
+  return out;
+}
 function deleteComment(seq) {
-  removeComments([seq]);
+  removeComments(commentSubtreeSeqs(seq));
   refreshComments();
 }
 // Every comment anchored in one file, whichever line and whoever wrote it — the file tree's "clear comments"
@@ -1175,39 +1214,49 @@ function stepAnchor(delta, list) {
   var curOrder = curPath != null && curPath in order ? order[curPath] : null;
   function rank(c) { return c.path in order ? order[c.path] : Infinity; }
   function lineOf(c) { return Number(c.from) || c.line || 0; }
-  // If the caret is sitting ON one of these comments — which is exactly where the last step left it — walk by
-  // INDEX from there. Searching by file position cannot answer this any more: the walk is ordered by the
-  // agent's groups, so the next note in the story is often further UP the file, and the previous one further
-  // DOWN. That mismatch is why Shift+F8 did not always undo F8; it re-ran a positional search that knew
-  // nothing about the order actually on screen.
-  var at = -1;
-  for (var k = 0; k < list.length; k++) {
-    if (list[k].path === curPath && lineOf(list[k]) === curLine) { at = k; break; }
+  // Is the caret standing on this card? Its anchor is a RANGE — from..to for a drag selection — and
+  // revealComment puts the caret on `line`, which for such a card is not `from`. Comparing against one end
+  // only meant that after stepping onto a range the walk no longer recognised where it was, fell through to
+  // the positional search below, and jumped to whatever happened to come first in GROUP order — usually a
+  // note near the end of the file. "The first F8 works and then it goes to the end" was exactly that.
+  function standingOn(c) {
+    if (c.path !== curPath) return false;
+    var ends = [lineOf(c), Number(c.line) || 0, Number(c.to) || 0].filter(Boolean);
+    return curLine >= Math.min.apply(null, ends) && curLine <= Math.max.apply(null, ends);
   }
-  // A thread is ONE stop, not one per turn. A reply carries its parent's anchor, so the next entry after a
-  // note is very often that note's own answer — stepping onto it moved the caret to the line it was already
-  // on and looked like the key had done nothing. Backwards never hit this (the previous entry is a different
-  // line), which is exactly how it showed up: Shift+F8 walked and F8 did not. Skip everything sharing the
-  // anchor we are standing on.
+  // On a card: walk by INDEX from it. The walk is ordered by the agent's groups, so the next note in the
+  // story is often further UP the file and the previous one further DOWN — a positional search cannot
+  // express that order at all. A thread is one stop: skip every card sharing this anchor, or stepping would
+  // land on a reply of the card we are leaving and look like the key did nothing.
+  var at = -1;
+  for (var k = 0; k < list.length; k++) if (standingOn(list[k])) { at = k; break; }
   if (at >= 0) {
     var dir = delta > 0 ? 1 : -1;
     for (var n = 1; n <= list.length; n++) {
       var candidate = list[((at + dir * n) % list.length + list.length) % list.length];
-      if (candidate.path !== curPath || lineOf(candidate) !== curLine) return candidate;
+      if (!standingOn(candidate)) return candidate;
     }
     return list[at]; // every card in the review is anchored here; there is nowhere else to go
   }
-  if (delta > 0) {
-    return list.find(function (c) {
-      if (curOrder == null) return true;
-      return rank(c) > curOrder || (rank(c) === curOrder && lineOf(c) > curLine);
-    }) || list[0];
+  // Not on a card — the reader scrolled or clicked somewhere of their own. Enter the walk at the NEAREST card
+  // in the file rather than at the first one in group order, which is an order about the explanation and says
+  // nothing about where the caret happens to be. From the next press on, the story's order takes over.
+  var best = null, bestGap = Infinity;
+  for (var j = 0; j < list.length; j++) {
+    var item = list[j];
+    var sameFile = curOrder != null && rank(item) === curOrder;
+    var gap = sameFile ? (delta > 0 ? lineOf(item) - curLine : curLine - lineOf(item)) : Infinity;
+    if (sameFile && gap > 0 && gap < bestGap) { best = item; bestGap = gap; }
   }
-  for (var i = list.length - 1; i >= 0; i--) {
-    var c = list[i];
-    if (curOrder == null || rank(c) < curOrder || (rank(c) === curOrder && lineOf(c) < curLine)) return c;
-  }
-  return list[list.length - 1];
+  if (best) return best;
+  // Nothing left in this file that way: fall out to the file order, which is where the reader would look next.
+  var byFile = list.slice().sort(function (a, b) {
+    return rank(a) !== rank(b) ? rank(a) - rank(b) : lineOf(a) - lineOf(b);
+  });
+  if (curOrder == null) return delta > 0 ? byFile[0] : byFile[byFile.length - 1];
+  if (delta > 0) return byFile.find(function (c) { return rank(c) > curOrder; }) || byFile[0];
+  for (var m = byFile.length - 1; m >= 0; m--) if (rank(byFile[m]) < curOrder) return byFile[m];
+  return byFile[byFile.length - 1];
 }
 // F8 steps every card on the diff, whoever wrote it — an agent's explanation and a reviewer's question are
 // the same object to a reader walking the file. They are one list now, so this is just that list in file
@@ -1251,7 +1300,13 @@ function revealComment(seq) {
   return true;
 }
 function gotoComment(delta) {
-  var list = sortedNavThread();
+  // Only cards this workspace can actually show. A note whose file is not in this checkout cannot be revealed
+  // — navigateToComment has nowhere to go, so the caret ended up at the top of whatever was already open,
+  // which reads as the key having gone somewhere random. Knowledge is shared across a repository's worktrees
+  // on purpose; being ABLE to walk to it is a different question, and the answer is per workspace.
+  var list = sortedNavThread().filter(function (c) {
+    return !c.path || typeof sourceByPath === 'undefined' || !sourceByPath.size || sourceByPath.has(c.path);
+  });
   if (!list.length) { showCaretHint(t('comment.nav.none')); return true; }
   revealComment(stepAnchor(delta, list).seq);
   return true;

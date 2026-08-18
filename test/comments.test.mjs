@@ -510,6 +510,73 @@ test("Backspace removes the selected turn only, and Cmd+Z restores it", async ()
   v.close();
 });
 
+// …but a question and the answers to it are ONE thing. A reply carries no anchor of its own, only its
+// parent's, so deleting the first card and leaving the rest behind left cards answering something nobody
+// could read, in a thread with no beginning.
+test("Backspace on the first card in a thread takes the conversation with it, and one Cmd+Z brings it back", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("c");
+  await v.writeAndSave("why is this here?");
+  const seq = v.storedComments()[0].seq;
+  v.agentSays({ re: seq, text: "because of X." });
+  await v.settle(60);
+  assert.equal(v.storedComments().length, 2, "the question and the answer to it");
+
+  const row = v.$(".mc-comment-row");
+  v.window.selectCommentRow(row); // selection starts on the first turn
+  v.key("Backspace");
+  await v.settle(20);
+  assert.deepEqual(v.storedComments(), [], "the answer goes with the question it answers");
+
+  v.key("z", { metaKey: true, code: "KeyZ" });
+  await v.settle(20);
+  assert.equal(v.storedComments().length, 2, "one undo restores the whole thread, not just the question");
+
+  // Deleting a LATER turn is still just that turn — the question it continues is not its to remove.
+  v.window.selectCommentRow(v.$(".mc-comment-row"));
+  v.key("ArrowDown");
+  await v.settle(20);
+  v.key("Backspace");
+  await v.settle(20);
+  assert.deepEqual(v.storedComments().map((c) => c.text), ["why is this here?"], "the answer alone is gone");
+  v.close();
+});
+
+// The agent's usual order is: read the comment, CHANGE the code, then answer. The change moves the comment —
+// remapComments follows its anchor text to the new line — but an answer carries no anchor text of its own, so
+// it stayed on the line the question used to be on and rendered as a lone card in a thread of its own,
+// somewhere else in the file entirely.
+test("an answer follows its question when the agent's own edit moves it", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1); // `export const y = 3;` -> line 2
+  await v.openComposer("c");
+  await v.writeAndSave("rename y");
+  const seq = v.storedComments()[0].seq;
+  const line = v.storedComments()[0].line;
+  v.agentSays({ re: seq, text: "renamed." });
+  await v.settle(60);
+  assert.equal(v.storedComments().length, 2, "the question and its answer");
+
+  // The agent's edit: the commented line is now further down the file. remapComments follows the anchor.
+  const file = v.window.sourceByPath.get("src/app.ts");
+  const lines = file.content.split("\n");
+  const moved = ["// inserted above by the agent", "// and another"].concat(lines);
+  file.content = moved.join("\n");
+  v.window.remapComments();
+  await v.settle(40);
+
+  const [question, answer] = v.storedComments().sort((a, b) => a.seq - b.seq);
+  assert.equal(question.line, line + 2, "the question followed its anchor down the file");
+  assert.equal(answer.line, question.line, "and the answer went with it, instead of staying behind");
+  assert.equal(answer.path, question.path, "same file, too");
+  // Which is what puts them in ONE thread on screen rather than two cards two lines apart.
+  assert.equal(v.window.commentsAt(question.path, question.line).length, 2, "one thread, both turns in it");
+  v.close();
+});
+
 // Arrow keys used to step off the whole row, so the second turn of a thread could be neither selected nor
 // edited: `e` always reopened the first comment on the line.
 test("arrows walk the turns inside a thread, and `e` edits the one selected", async () => {

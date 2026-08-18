@@ -661,8 +661,9 @@ function clearCommentRowSelection() {
   selectedCommentRow = null;
   markSelectedCard(null);
 }
-// Backspace deletes the SELECTED turn, not the whole conversation on that line — an accidental press on a
-// thread used to take the question, every follow-up, and the agent's notes with it in one batch.
+// Backspace deletes the SELECTED turn and whatever continues from it (commentSubtreeSeqs) — not everything
+// that happens to share the line. Two threads anchored to one row are two conversations and delete apart; a
+// question and the answers to it are one, and on the first card that is the whole thread.
 function deleteCommentsInRow(row) {
   if (!row) return;
   var card = selectedCommentCard() || commentCardsIn(row)[0];
@@ -670,8 +671,7 @@ function deleteCommentsInRow(row) {
   if (!del) return;
   clearCommentRowSelection();
   var seq = parseInt(del.dataset.seq, 10);
-  if (isFinite(seq)) removeComments([seq]);
-  refreshComments(); // remaining comment rows re-injected; the caret stays hidden until the next arrow press
+  if (isFinite(seq)) deleteComment(seq); // re-injects the remaining rows; the caret stays hidden until the next arrow
 }
 // Open the composer in EDIT mode for the SELECTED comment in `row`, pre-filled with its text. threadHtml
 // renders the composer in place of that card (via composerState.editSeq), and saveComposer routes editSeq
