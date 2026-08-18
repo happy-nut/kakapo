@@ -27,7 +27,7 @@ import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
-import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, resolveTmux } from "./app-terminal-ipc.js";
+import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, reapUnreachableTerminals, resolveTmux } from "./app-terminal-ipc.js";
 import { registerCommentsIpc, syncCommentsFile, commentsFilePath, knowledgeFilePath } from "./comments-file.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
 import type { IPty } from "node-pty";
@@ -709,6 +709,9 @@ ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unk
     // its session (and whatever agent is in it) running forever, invisible, with its worktree deleted.
     killWorkspaceTerminals(state);
   }
+  // Removing one workspace can strand another's sessions (a folder moved, a worktree pruned outside the app),
+  // so take the same look here that startup takes.
+  reapOrphanTerminals();
   const metadataIndex = startupWorkspaceMetadata.findIndex((item) => resolveWorkspaceRoot(item.path) === record.path);
   if (metadataIndex >= 0) startupWorkspaceMetadata.splice(metadataIndex, 1);
   if (payload.mode === "delete") {
@@ -1058,6 +1061,9 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
     active.win.show();
     active.win.focus();
   }
+  // AFTER the restore, so every workspace this launch brought back counts as reachable. Doing it earlier
+  // would look at a list of sessions whose owners had not registered yet and end the ones being restored.
+  reapOrphanTerminals();
 }).catch((error: unknown) => {
   console.error(errorMessage(error));
   app.quit();
@@ -1547,6 +1553,27 @@ const HUB_TILE_TTL_MS = 1000;
 const hubTileRefreshing = new Set<number>();
 // `/Users/you/kakapo/workspaces/zoobox/quiet-warbler` with the part that is the same on every row folded
 // away, so what is left is the part that differs. The renderer cannot do this itself — it has no home dir.
+// Every root a session could still be reached from: the workspaces kakapo has open or saved, and the main
+// checkout of every project it knows. A kakapo session whose name matches none of these has no tile to click
+// and no window to come back to (reapUnreachableTerminals).
+function reachableWorkspaceRoots(): string[] {
+  const roots = new Set<string>();
+  for (const state of states.values()) roots.add(state.options.root);
+  for (const item of savedWorkspaceMetadata()) roots.add(item.path);
+  for (const { root } of knownProjectRoots()) roots.add(root);
+  return [...roots];
+}
+
+// Sessions outlive the app on purpose — that is what resume is — so nothing ever ended the ones belonging to
+// a workspace that has since been closed or moved away. Do it here, and again after a removal, which is the
+// other moment a session can become unreachable.
+function reapOrphanTerminals(): void {
+  try {
+    const ended = reapUnreachableTerminals(reachableWorkspaceRoots());
+    if (ended.length) console.log(`kakapo: ended ${ended.length} terminal session(s) no workspace could reach`);
+  } catch { /* best-effort: a missing tmux is not a startup failure */ }
+}
+
 function tildePath(path: string): string {
   const home = homedir();
   return home && path.startsWith(home + "/") ? "~" + path.slice(home.length) : path;

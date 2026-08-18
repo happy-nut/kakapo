@@ -5,7 +5,7 @@ import { spawn as spawnPty, type IPty } from "node-pty";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper, endTmuxSession, tmuxPaneCommand } from "./util.js";
+import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, unreachableSessions, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper, endTmuxSession, tmuxPaneCommand } from "./util.js";
 import { resumeCommandForInput } from "./agent-resume.js";
 
 // A GUI launch (Finder, Dock, Spotlight) inherits a minimal PATH with no Homebrew prefix, so `tmux` is
@@ -89,6 +89,26 @@ export const ptyReaper = createPtyReaper();
 // launch, so that map only knows the panes reopened by hand since the last start, and everything else would
 // be left running forever, invisible, with its worktree deleted out from under it. Ask tmux which sessions
 // belong to this workspace instead. Called from app-main.ts's hub-remove (delete), and nowhere else.
+// Run once at startup, and again whenever a workspace is removed: end the sessions no workspace can reach.
+// They are created the ordinary way — a workspace is opened, terminals are used, and then it is closed or its
+// folder goes away — and because quitting deliberately leaves sessions running (that is what resume is for),
+// nothing ever ends them. They cost little, but they accumulate for as long as the machine is up, and a list
+// of eleven sessions for four workspaces is a list nobody can reason about.
+export function reapUnreachableTerminals(knownRoots: Iterable<string>): string[] {
+  const tmux = resolveTmux(process.env);
+  if (!tmux) return [];
+  let listed = "";
+  try {
+    const list = spawnSync(tmux, ["list-sessions", "-F", "#{session_name} #{session_attached} #{session_activity}"], { encoding: "utf8" });
+    listed = String(list.stdout ?? ""); // no server running -> nothing to reap
+  } catch { return []; }
+  const doomed = unreachableSessions(listed, knownRoots, Math.floor(Date.now() / 1000));
+  for (const session of doomed) {
+    try { spawnSync(tmux, ["kill-session", "-t", session]); } catch { /* already gone */ }
+  }
+  return doomed;
+}
+
 export function killWorkspaceTerminals(state: TerminalIpcState): void {
   const tmux = resolveTmux(process.env);
   if (tmux) {
