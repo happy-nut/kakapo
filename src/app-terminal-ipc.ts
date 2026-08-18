@@ -57,7 +57,9 @@ export type TerminalIpcState = {
   // Rail activity indicators: onAgentOutput fires on every pty output chunk (drives the "working" spinner via a
   // debounce in main); onAgentBell fires when a TUI rings the bell (Claude Code finished a turn / needs input),
   // which lights the "needs attention" dot on the workspace tile.
-  onAgentOutput?: () => void;
+  // The pane id rides along: the rail draws one row per pane now, so "something produced output" has to say
+  // WHICH pane, or every row in the workspace lights up together.
+  onAgentOutput?: (paneId: number) => void;
   onAgentBell?: () => void;
   // Whether THIS workspace is the one on screen. Workspaces are views inside one window, so "a window is
   // focused" cannot answer it — and that was the question the bell was asking before suppressing itself.
@@ -197,7 +199,7 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
       try {
         deliver("kakapo:pty-data", { id, data });
         const quiet = resizeEchoUntil.get(id);
-        if (!(quiet && Date.now() < quiet)) state.onAgentOutput?.();
+        if (!(quiet && Date.now() < quiet)) state.onAgentOutput?.(id);
       } catch { /* window torn down mid-drain */ }
     });
     t.onExit(() => {

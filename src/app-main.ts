@@ -97,7 +97,7 @@ type WinState = {
   resumeCommand?: string;
   onResumeCommand: (command: string | undefined) => void;
   onAgentFinished: () => void;
-  onAgentOutput: () => void;
+  onAgentOutput: (paneId: number) => void;
   onAgentBell: () => void;
   // Answered by isVisibleWorkspace: whether this workspace is the one the reviewer is actually looking at.
   // The bell asks it before deciding to stay quiet (app-terminal-ipc.ts).
@@ -105,6 +105,9 @@ type WinState = {
   unread: boolean; // an agent turn finished / needs input in this (non-active) workspace — the tile's red dot
   busy: boolean; // an agent is actively producing output here — the tile's animated "working" spinner
   busyTimer?: NodeJS.Timeout; // debounce: cleared/reset on each output chunk; on expiry the workspace goes idle
+  // Per-pane version of the same debounce. The rail lists one row per pane, so a workspace-wide flag would
+  // spin every row whenever any one of them printed a character — including the one sitting at a prompt.
+  busyPanes: Map<number, NodeJS.Timeout>;
   // Rail tile data (repo record + working-tree dirty count) is git-derived — ~5 subprocesses/workspace.
   // renderHub fires on every agent-activity event, so cache it per workspace with a short TTL: without this
   // an N-workspace hub render spawns ~5N git processes on the main thread each time an agent turn finishes.
@@ -1449,16 +1452,40 @@ function runningTmuxSessions(): string {
 function rootHasRunningAgent(root: string): boolean {
   return tmuxSessionsForRoot(root, runningTmuxSessions()).length > 0;
 }
-function hasRunningProcess(state: WinState): boolean {
+// One row per terminal pane — what the expanded rail draws, and now the single source the workspace's own dot
+// is derived from. Everything here comes from what the pane is actually RUNNING.
+//
+// That distinction is the whole fix. A tmux-backed pane's pty reports `tmux` as its foreground process,
+// forever, whatever is happening inside it — so the old whole-workspace check ("is any pty running something
+// other than the shell?") answered yes the moment a persistent pane existed and could never answer no again.
+// The green "running" dot stayed lit on a workspace whose agents had all finished. tmux already tells us the
+// real command per session (tmuxPaneCommands), so ask it instead of trusting the pty.
+type WorkspacePane = { id: number; command: string; agent?: AgentKind; running: boolean; busy: boolean };
+function panesForWorkspace(state: WinState, panes: Map<string, string>): WorkspacePane[] {
   const shellName = shellBasename();
-  for (const t of state.terms.values()) {
-    let fg = "";
-    try { fg = t.process || ""; } catch { /* pty may have exited mid-query */ }
-    const name = fg.replace(/^-/, ""); // login shells surface as "-zsh"
-    if (name && name !== shellName) return true;
+  const rows: WorkspacePane[] = [];
+  for (const [id, t] of state.terms) {
+    const session = state.termSessions.get(id);
+    let command = "";
+    if (session) command = panes.get(session) || "";
+    else { try { command = t.process || ""; } catch { /* pty may have exited mid-query */ } }
+    command = command.replace(/^-/, ""); // login shells surface as "-zsh"
+    rows.push({ id, command, agent: agentForCommand(command), running: !!command && command !== shellName, busy: state.busyPanes.has(id) });
   }
-  // No pane of ours is busy — but one may be running detached in tmux, from before this app run.
-  return rootHasRunningAgent(state.options.root);
+  // A session left running detached — from before this app run, or after its pane was closed — has no pty here
+  // but is very much still working. It gets a row of its own so the rail says so instead of going quiet.
+  const attached = new Set(state.termSessions.values());
+  let next = -1;
+  for (const session of tmuxSessionsForRoot(state.options.root, Array.from(panes.keys()).join("\n"))) {
+    if (attached.has(session)) continue;
+    const command = (panes.get(session) || "").replace(/^-/, "");
+    if (!command || command === shellName) continue;
+    rows.push({ id: next--, command, agent: agentForCommand(command), running: true, busy: false });
+  }
+  return rows;
+}
+function hasRunningProcess(state: WinState): boolean {
+  return panesForWorkspace(state, tmuxPaneCommands()).some((pane) => pane.running);
 }
 
 // Which agent this workspace is running, most authoritative source first.
@@ -1489,21 +1516,44 @@ function agentForWorkspace(state: WinState, panes: Map<string, string>): AgentKi
 // Push only the per-workspace agent-activity flags (busy spinner + attention dot) to the rail, so the tiles'
 // indicators update without a full renderHub — which re-runs `git status` for every workspace and rebuilds the
 // rail DOM (dropping hover/focus). The shell toggles CSS classes on the existing tiles from this.
+// The panes as the rail wants them: the id it keys rows by, which agent (if any) is in there, what it is
+// running, and whether it is mid-turn. One tmux scan serves every workspace in the push.
+function railPanes(state: WinState, panes: Map<string, string>) {
+  return panesForWorkspace(state, panes).map((pane) => ({
+    id: pane.id, command: pane.command, agent: pane.agent, running: pane.running, busy: pane.busy,
+  }));
+}
 function sendAgentActivity(): void {
   if (!shellWindow || shellWindow.isDestroyed()) return;
-  const activity = Array.from(states.values()).map((state) => ({
-    id: state.win.webContents.id, busy: state.busy, unread: state.unread, running: hasRunningProcess(state),
-  }));
+  const panes = tmuxPaneCommands();
+  const activity = Array.from(states.values()).map((state) => {
+    const rows = railPanes(state, panes);
+    return {
+      id: state.win.webContents.id, busy: state.busy, unread: state.unread,
+      running: rows.some((pane) => pane.running), panes: rows,
+    };
+  });
   void shellWindow.webContents.send("kakapo:hub-activity", activity);
 }
-// An output chunk arrived: mark the workspace "working" and (re)arm the idle timer. Only notify the rail on the
-// idle->busy edge; while output keeps flowing the timer just resets, so a streaming agent doesn't spam IPC.
-function markAgentBusy(state: WinState): void {
-  if (state.busyTimer) clearTimeout(state.busyTimer);
-  if (!state.busy) { state.busy = true; sendAgentActivity(); }
-  state.busyTimer = setTimeout(() => { state.busyTimer = undefined; if (state.busy) { state.busy = false; sendAgentActivity(); } }, 1200);
+// An output chunk arrived in `paneId`: mark THAT pane working and (re)arm its idle timer, and keep the
+// workspace-level flag as "any pane is working". Only notify the rail on an idle->busy edge; while output
+// keeps flowing the timers just reset, so a streaming agent doesn't spam IPC.
+function markAgentBusy(state: WinState, paneId: number): void {
+  const existing = state.busyPanes.get(paneId);
+  if (existing) clearTimeout(existing);
+  const wasIdle = !state.busy || !existing;
+  state.busy = true;
+  state.busyPanes.set(paneId, setTimeout(() => {
+    state.busyPanes.delete(paneId);
+    if (state.busyPanes.size) { sendAgentActivity(); return; } // another pane is still working
+    if (state.busy) { state.busy = false; }
+    sendAgentActivity();
+  }, 1200));
+  if (wasIdle) sendAgentActivity();
 }
 function clearAgentBusy(state: WinState): void {
+  for (const timer of state.busyPanes.values()) clearTimeout(timer);
+  state.busyPanes.clear();
   if (state.busyTimer) { clearTimeout(state.busyTimer); state.busyTimer = undefined; }
   if (state.busy) { state.busy = false; sendAgentActivity(); }
 }
@@ -1691,11 +1741,15 @@ function renderHub(): void {
     const owner = githubOwnerFor(state.options.root);
     const avatar = owner ? ownerAvatar.get(owner) : undefined;
     if (owner && !avatar) void ensureOwnerAvatar(owner);
+    const paneRows = railPanes(state, panes); // reads each pty's foreground process — compute it once
     return { id: state.win.webContents.id, ...current, alias: metadata?.alias, memo: metadata?.memo,
       base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount, ahead, avatar,
       shortPath: tildePath(current.path),
-      active: state.win.webContents.id === activeStateId, running: hasRunningProcess(state),
+      active: state.win.webContents.id === activeStateId,
       resume: state.resumeCommand, agent: agentForWorkspace(state, panes),
+      // The full render carries the pane rows too, so a rail rebuilt from scratch (opening it, switching
+      // workspaces) already shows them instead of waiting for the next activity tick to fill them in.
+      panes: paneRows, running: paneRows.some((pane) => pane.running),
       unread: state.unread, busy: state.busy, detached: state.win.isDetached() };
   });
   const disconnected = saved.filter((item) => !existsSync(item.path)).map((item, index) => ({
@@ -1890,6 +1944,7 @@ function createWindow(root: string, deferBoot = false): WinState {
     viewReleased: false,
     terms: new Map(),
     termSessions: new Map(),
+    busyPanes: new Map(),
     commandBuffers: new Map(),
     resumeCommand: typeof preferences.readWorkspace(resolvedRoot)["kakapo-agent-resume"] === "string"
       ? preferences.readWorkspace(resolvedRoot)["kakapo-agent-resume"] as string : undefined,
@@ -1905,7 +1960,7 @@ function createWindow(root: string, deferBoot = false): WinState {
       preferences.writeUnread(state.options.root, state.unread);
       renderHub();
     },
-    onAgentOutput: () => markAgentBusy(state),
+    onAgentOutput: (paneId: number) => markAgentBusy(state, paneId),
     // The same test the language-server reclaim uses: on screen means active (or detached) and not minimized.
     isOnScreen: () => isVisibleWorkspace(state),
     onAgentBell: () => {

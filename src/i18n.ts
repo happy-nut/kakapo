@@ -492,6 +492,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Commits this workspace has that its upstream — or, for a task worktree nobody has pushed, the ref it was
     // branched from — does not. The number that answers "is there anything in here I have not sent anywhere?"
     "hub.tip.ahead": "{n} ahead",
+    // One row per terminal pane on an expanded tile: what is in it, and what that thing is doing.
+    "hub.pane.shell": "Shell",
+    "hub.pane.working": "working",
+    "hub.pane.waiting": "waiting for you",
     "hub.ago.now": "now",
     "hub.ago.m": "{n}m ago",
     "hub.ago.h": "{n}h ago",
@@ -1077,6 +1081,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "hub.status.disconnected": "연결 끊김",
     "hub.tip.changed": "{n}개 변경",
     "hub.tip.ahead": "{n}커밋 앞섬",
+    "hub.pane.shell": "쉘",
+    "hub.pane.working": "작업 중",
+    "hub.pane.waiting": "대기 중",
     "hub.ago.now": "방금",
     "hub.ago.m": "{n}분 전",
     "hub.ago.h": "{n}시간 전",

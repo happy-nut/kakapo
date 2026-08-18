@@ -66,6 +66,7 @@ export function hubHtml(light: boolean, appVersion: string, t: Translate): strin
     running: t("hub.status.running"), resumable: t("hub.status.resumable"), disconnected: t("hub.status.disconnected"),
     changed: t("hub.tip.changed"),
     ahead: t("hub.tip.ahead"),
+    paneShell: t("hub.pane.shell"), paneWorking: t("hub.pane.working"), paneWaiting: t("hub.pane.waiting"),
     agoNow: t("hub.ago.now"), agoM: t("hub.ago.m"), agoH: t("hub.ago.h"), agoD: t("hub.ago.d"),
     delTitle: t("hubdel.title"), delTitleNamed: t("hubdel.titleNamed"), delMessage: t("hubdel.message"),
     delCheckbox: t("hubdel.checkbox"), cancel: t("hubdel.cancel"), del: t("hubdel.delete"),
@@ -207,6 +208,24 @@ body.rail-exp .ev{display:flex}
 .wt-ahead{color:${light ? "#2f7d32" : "#98cb80"};border-color:${light ? "#bcd9bd" : "#3d6045"}}
 .wt-tag{font-size:9.5px;font-weight:700;color:${light ? "#9aa0aa" : "#8b909a"};border:1px solid ${line};border-radius:5px;padding:1px 5px;flex:none;font-variant-numeric:tabular-nums}
 .wt-branch{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:${light ? "#9aa0aa" : "#666b73"};margin:3px 0 0 16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Prose, not a ref — so it is set in the UI face rather than the branch line's mono, and reads as the note a
+   person left rather than as another thing git knows. */
+.wt-memo{font-size:11px;color:${light ? "#8b909a" : "#7b818b"};margin:2px 0 0 16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+/* One row per terminal pane. A workspace runs several agents at once and the tile's single dot had to
+   summarize all of them into one glyph — which is both less than you need and, when the summary was wrong,
+   actively misleading. Each row carries its own state so the summary above it is checkable at a glance. */
+.wt-panes{display:flex;flex-direction:column;gap:1px;margin:4px 0 0 16px}
+.wt-pane{display:flex;align-items:center;gap:7px;font-size:11.5px;color:${light ? "#8b909a" : "#7b818b"};min-width:0;padding:1px 0;text-align:left}
+.wt-pane .pw{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.wt-pane.pane-busy .pw{color:${fg}}
+.wt-pane.pane-attn .pw{color:#e5484d}
+.wt-pane .usage-ico{width:11px;height:11px}
+/* Same three states as the tile dot, at 6px. border-box again, so a pane starting work shifts nothing. */
+.pdot{width:6px;height:6px;border-radius:50%;flex:none;background:${light ? "#b7bcc4" : "#5b616b"}}
+.wt-pane.pane-running .pdot{background:#4cc38a}
+.wt-pane.pane-busy .pdot{background:transparent;box-sizing:border-box;border:1.25px solid #4cc38a44;border-top-color:#4cc38a;animation:wtspin .8s linear infinite}
+.wt-pane.pane-attn .pdot{background:#e5484d;border:0;animation:none}
+@media (prefers-reduced-motion:reduce){.wt-pane.pane-busy .pdot{animation:none}}
 /* Agent quota (Claude + Codex), moved here from the review's sidebar footer: it is per-account, not
    per-workspace, so the rail is the one place that is always on screen and never duplicated per window.
    Collapsed the rail is 46px, so only the battery survives; the expanded rail shows the full row. */
@@ -326,6 +345,7 @@ window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));
 // stop work — Claude's 5h session, its weekly caps, then Codex's — each a battery of the quota still LEFT
 // plus how long until that window resets. Marks are the official Claude / OpenAI logos (simple-icons, CC0).
 const CLAUDE_ICO='<svg class="usage-ico usage-ico-claude" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg>';
+const SHELL_ICO='<svg class="usage-ico usage-ico-shell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg>';
 const CODEX_ICO='<svg class="usage-ico usage-ico-codex" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>';
 const uTokens=n=>{n=n||0;if(n>=1e6)return (n/1e6).toFixed(n>=1e7?0:1)+'M';if(n>=1e3)return Math.round(n/1e3)+'k';return String(n)};
 const uSpan=d=>{const h=Math.floor(d/3600000),days=Math.floor(h/24),rh=h%24,m=Math.floor((d%3600000)/60000);
@@ -495,6 +515,24 @@ window.kakapoHub.onToggleExpand(toggleRail);
 window.kakapoHub.onSetExpanded(open=>{railExp=!!open;paintRail();if(!railExp)railClearSel();else railDropChromeFocus();});
 const ago=value=>{const seconds=Math.max(0,Math.floor((Date.now()-Number(value||Date.now()))/1000));return seconds<60?T.agoNow:seconds<3600?T.agoM.replace('{n}',Math.floor(seconds/60)):seconds<86400?T.agoH.replace('{n}',Math.floor(seconds/3600)):T.agoD.replace('{n}',Math.floor(seconds/86400))};
 let curRepo=null; // active workspace's project, used to prefill the New-workspace dialog
+// Proper nouns, so the same two labels in every locale — they name the agent, they don't describe it.
+const AGENT_NAME={claude:'Claude',codex:'Codex'};
+const AGENT_ICO={claude:CLAUDE_ICO,codex:CODEX_ICO};
+// The badge is omitted, not blanked, for a workspace whose agent is unknown: a worktree you have only ever
+// run plain shell commands in has no agent, which is different from having one we failed to name.
+const agentIco=w=>AGENT_ICO[w.agent]?'<span class="wt-agent" role="img" aria-label="'+esc(AGENT_NAME[w.agent])+'">'+AGENT_ICO[w.agent]+'</span>':'';
+// What each terminal pane in this workspace is doing. "attn" belongs to the WORKSPACE (a bell has no pane to
+// come from), so it lands on the pane that is otherwise idle-but-alive — the one that just stopped working is
+// the one waiting for you. A pane running a plain command shows the command; a bare shell says so.
+const paneState=(p,unread)=>p.busy?'busy':(unread&&p.running?'attn':p.running?'running':'idle');
+const paneWhat=p=>p.agent?AGENT_NAME[p.agent]:(p.running&&p.command?p.command:T.paneShell);
+const paneIco=p=>AGENT_ICO[p.agent]||SHELL_ICO;
+const panesHtml=w=>{const list=Array.isArray(w.panes)?w.panes:[];if(!list.length)return'';
+  // Only the first still-alive pane wears the attention dot: repeating it on every row would say the same
+  // thing three times and stop meaning "look here".
+  let claimed=!w.unread;
+  return '<div class="wt-panes">'+list.map(p=>{let st=paneState(p,!claimed);if(st==='attn')claimed=true;
+    return '<div class="wt-pane pane-'+st+'"><span class="pdot"></span>'+paneIco(p)+'<span class="pw">'+esc(paneWhat(p))+(st==='busy'?' · '+T.paneWorking:st==='attn'?' · '+T.paneWaiting:'')+'</span></div>';}).join('')+'</div>';};
 window.kakapoHub.onState(items=>{const groups=new Map;for(const w of items){if(!groups.has(w.repoName))groups.set(w.repoName,[]);groups.get(w.repoName).push(w)}
 // Left: which checkout this is — project and the branch it is on, the two things you cannot rename away.
 // Centre: the alias, the title you CAN edit (blank when you never gave it one; the pair on the left already
@@ -512,19 +550,13 @@ curRepo=_a&&_a.repoRoot?{path:_a.repoRoot,name:_a.repoName}:curRepo;
 // letters instead of collapsing to "?". Latin → uppercased two-word/two-letter initials; CJK → the first one
 // or two characters as-is (Hangul has no case).
 const initials=w=>{var s=String(w.alias||(w.kind==='main'?w.repoName:0)||w.branch||w.repoName||'?').replace(/^(feature|fix|chore|bugfix|hotfix|release)[\\/_-]/i,'').trim();if(!s)return'?';var parts=s.split(/[\\s._/-]+/).filter(Boolean);var a=parts[0]||s,ac=Array.from(a),latin=/^[A-Za-z0-9]/.test(a),r;if(parts.length>1){var bc=Array.from(parts[1]);r=(ac[0]||'')+(bc[0]||'');}else{r=ac.slice(0,2).join('');}return latin?r.toUpperCase():r;};
-// Proper nouns, so the same two labels in every locale — they name the agent, they don't describe it.
-const AGENT_NAME={claude:'Claude',codex:'Codex'};
-const AGENT_ICO={claude:CLAUDE_ICO,codex:CODEX_ICO};
-// The badge is omitted, not blanked, for a workspace whose agent is unknown: a worktree you have only ever
-// run plain shell commands in has no agent, which is different from having one we failed to name.
-const agentIco=w=>AGENT_ICO[w.agent]?'<span class="wt-agent" role="img" aria-label="'+esc(AGENT_NAME[w.agent])+'">'+AGENT_ICO[w.agent]+'</span>':'';
-const tip=w=>(w.alias||w.branch)+' · '+w.repoName+' · '+w.path+(AGENT_NAME[w.agent]?' · '+AGENT_NAME[w.agent]:'')+(w.dirtyCount?' · '+T.changed.replace('{n}',w.dirtyCount):'')+(w.ahead?' · '+T.ahead.replace('{n}',w.ahead):'')+(w.running?' · ● '+T.running:w.resume?' · '+T.resumable:w.disconnected?' · '+T.disconnected:'');
+const tip=w=>(w.alias||w.branch)+' · '+w.repoName+' · '+w.path+(w.memo?String.fromCharCode(10)+w.memo:'')+(AGENT_NAME[w.agent]?' · '+AGENT_NAME[w.agent]:'')+(w.dirtyCount?' · '+T.changed.replace('{n}',w.dirtyCount):'')+(w.ahead?' · '+T.ahead.replace('{n}',w.ahead):'')+(w.running?' · ● '+T.running:w.resume?' · '+T.resumable:w.disconnected?' · '+T.disconnected:'');
 // Stable per-project hue (all worktrees share it) — tints the collapsed group's accent bar + avatar
 // placeholder and the expanded panel's project badge, so projects read apart at a glance.
 const projHue=n=>{let h=0;const s=String(n||'');for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h%360;};
 // Shared per-worktree bits: state classes and the data-* every click/activate/context-menu handler reads.
 const wcls=w=>(w.active?' act':'')+(w.disconnected?' disc':'')+(w.busy?' busy':'')+(w.running?' running':'')+(w.unread?' attn':'')+(deletingIds.has(w.id)?' deleting':'');
-const wattr=w=>' data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-closed="'+!!w.closed+'" data-resume="'+(w.resume&&!w.running?'1':'')+'" data-kind="'+esc(w.kind||'')+'" title="'+esc(tip(w))+'"';
+const wattr=w=>' data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-memo="'+esc(w.memo||'')+'" data-disconnected="'+!!w.disconnected+'" data-closed="'+!!w.closed+'" data-resume="'+(w.resume&&!w.running?'1':'')+'" data-kind="'+esc(w.kind||'')+'" title="'+esc(tip(w))+'"';
 const grpAvatar=ws=>{for(const w of ws)if(w.avatar)return w.avatar;return null;};
 const projMark=repo=>{const a=Array.from(String(repo||'?').trim());const c=a[0]||'?';return /[A-Za-z0-9]/.test(c)?c.toUpperCase():c;};
 const avInner=(ws,repo)=>{const av=grpAvatar(ws);return av?'<img src="'+av+'" alt="">':esc(projMark(repo));};
@@ -549,7 +581,12 @@ const aheadTag=w.ahead?'<span class="wt-tag wt-ahead" title="'+esc(T.ahead.repla
 // afterwards — the same fact the resume action is offered from. Only the expanded rail: the collapsed strip
 // is 46px of initials and a status dot, with no room for a second glyph.
 const agent=agentIco(w);
-return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+agent+aheadTag+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
+// The description asked for at create time. It was written to the workspace record and then never read by
+// anything — not shown, and the edit dialog opened blank, so the only thing you could do with it was
+// overwrite it blind. It is the one line saying what this workspace is FOR, which is exactly what a rail of
+// near-identical branch names is missing, so it goes under the branch.
+const memoLine=w.memo?'<div class="wt-memo">'+esc(w.memo)+'</div>':'';
+return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+agent+aheadTag+tag+'</div>'+brLine+memoLine+panesHtml(w)+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
 list.innerHTML=cv+ev;
 // Worktree click → activate (or reconnect/forget a disconnected one). Collapsed badges and expanded cards are
 // both .wt with the same data-*, so one handler covers both views.
@@ -565,8 +602,18 @@ if(railExp)railPaint();
 });
 // Lightweight agent-activity ticks (spinner / attention dot) that toggle classes on existing tiles without a
 // full re-render, so a streaming agent doesn't rebuild the rail DOM and drop hover/focus state.
-window.kakapoHub.onActivity(list=>{for(const a of list){for(const el of document.querySelectorAll('.wt[data-id="'+a.id+'"]')){el.classList.toggle('busy',!!a.busy);el.classList.toggle('running',!!a.running);el.classList.toggle('attn',!!a.unread);}}});
-window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){window.kakapoHub.openModal('rename',{id,name});}else if(action==='memo'){window.kakapoHub.openModal('memo',{id,name});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id,name);});
+window.kakapoHub.onActivity(list=>{for(const a of list){for(const el of document.querySelectorAll('.wt[data-id="'+a.id+'"]')){el.classList.toggle('busy',!!a.busy);el.classList.toggle('running',!!a.running);el.classList.toggle('attn',!!a.unread);
+// The pane rows carry per-pane state, so a class toggle cannot update them — their markup has to be rebuilt.
+// Only in the expanded rail (the 46px strip has no room for rows), and only when the markup actually CHANGED:
+// replacing the nodes restarts every spinner's animation from zero, which on a chatty agent is a visible
+// stutter rather than a turning ring.
+if(!el.closest('.ev'))continue;
+const html=panesHtml({panes:a.panes,unread:a.unread});
+if(el.dataset.panesKey===html)continue;
+el.dataset.panesKey=html;
+const old=el.querySelector('.wt-panes');if(old)old.remove();
+if(html)el.insertAdjacentHTML('beforeend',html);}}});
+window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){window.kakapoHub.openModal('rename',{id,name});}else if(action==='memo'){const el=document.querySelector('.wt[data-id="'+id+'"]');window.kakapoHub.openModal('memo',{id,name,memo:el?el.dataset.memo||'':''});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id,name);});
 async function removeWorkspace(id,name){const r0=await window.kakapoHub.confirm({title:name?T.delTitleNamed.replace('{name}',name):T.delTitle,message:T.delMessage,checkbox:T.delCheckbox,checked:true,buttons:[T.cancel,T.del],danger:true,defaultId:0});if(r0.index!==1)return;const delBranch=r0.checked;let r;
 // Main answers a failed removal with {ok:false,error}, but an invoke can still reject outright (a thrown
 // handler crosses the bridge as a rejection). Unguarded, that rejection skipped the failure dialog below and
@@ -802,7 +849,7 @@ confirmDlg.addEventListener('close',()=>{if(!cfSent){cfSent=true;window.kakapoHu
 // Main tells this overlay which dialog to open. Rename/memo resolve to a value, apply it, then hide the overlay.
 window.kakapoHub.onModalOpen(d=>{d=d||{};
   if(d.type==='rename'){showPrompt(T.renameTitle,d.name||'').then(alias=>{if(alias!==null)window.kakapoHub.rename(d.id,alias);window.kakapoHub.closeModal();});}
-  else if(d.type==='memo'){showPrompt(T.memoTitle,'').then(memo=>{if(memo!==null)window.kakapoHub.rename(d.id,undefined,memo);window.kakapoHub.closeModal();});}
+  else if(d.type==='memo'){showPrompt(T.memoTitle,d.memo||'').then(memo=>{if(memo!==null)window.kakapoHub.rename(d.id,undefined,memo);window.kakapoHub.closeModal();});}
   else if(d.type==='disconnected'){showDisconnected(d.path);}
   else if(d.type==='confirm'){showConfirm(d);}
   else openCreate(d.path,d.name);});

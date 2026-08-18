@@ -446,3 +446,61 @@ test("the rail's own buttons name their shortcut on hover, like the toolbar's", 
   assert.ok(!/⌘/.test(document.querySelector("#pin").dataset.tip), "the label text does not repeat the keys");
   assert.ok(document.querySelector("#pin").dataset.tip.length > 0, "but there is a label");
 });
+
+// A workspace runs several agents at once and the tile had ONE dot for all of them — so the summary was both
+// less than you need and, when it was wrong, actively misleading (a tmux pane's pty reports "tmux" forever,
+// which read as "still running" and could never turn off). The expanded tile lists the panes themselves.
+test("an expanded tile lists what each terminal pane is running, with its own state", async () => {
+  const { hub, document } = railWithState([{
+    ...KAKAPO_MAIN, id: 1, kind: "worktree", branch: "kakapo/eager-lark", alias: "eager-lark",
+    busy: true, running: true, unread: false,
+    panes: [
+      { id: 1, command: "claude", agent: "claude", running: true, busy: true },
+      { id: 2, command: "npm", running: true, busy: false },
+      { id: 3, command: "zsh", running: false, busy: false },
+    ],
+  }]);
+  await tick();
+
+  const rows = [...document.querySelectorAll(".ev .wt .wt-pane")];
+  assert.equal(rows.length, 3, "one row per pane, including the one that is only a shell");
+  assert.match(rows[0].className, /pane-busy/, "the agent mid-turn spins on its own row");
+  assert.match(rows[0].textContent, /Claude/, "…and is named by its agent, not by the process");
+  assert.match(rows[1].className, /pane-running/, "a plain command is alive but not mid-turn");
+  assert.match(rows[1].textContent, /npm/, "…and says which command it is");
+  assert.match(rows[2].className, /pane-idle/, "a bare shell is neither");
+
+  // The activity tick has to rebuild these rows: they carry per-pane state, which no class toggle can express.
+  hub.handlers.onActivity([{ id: 1, busy: false, unread: true, running: true, panes: [
+    { id: 1, command: "claude", agent: "claude", running: true, busy: false },
+    { id: 2, command: "zsh", running: false, busy: false },
+  ] }]);
+  const after = [...document.querySelectorAll(".ev .wt .wt-pane")];
+  assert.equal(after.length, 2, "a closed pane leaves the list on the next tick");
+  assert.match(after[0].className, /pane-attn/, "the turn that just ended is the one waiting for you");
+  assert.ok(!after.slice(1).some((r) => /pane-attn/.test(r.className)), "and only that one — repeated, it stops meaning look-here");
+});
+
+// The New-workspace dialog asks for a description, wrote it to the workspace record, and then nothing ever
+// read it back: no tile showed it, and Edit memo opened an EMPTY box, so the only thing you could do with the
+// note you wrote was overwrite it blind.
+test("the workspace description is shown, and Edit memo opens holding it", async () => {
+  const { hub, document } = railWithState([{
+    ...KAKAPO_MAIN, id: 7, kind: "worktree", branch: "kakapo/eager-lark", alias: "eager-lark",
+    memo: "리뷰 코멘트 통합",
+  }]);
+  await tick();
+
+  assert.equal(document.querySelector(".ev .wt .wt-memo")?.textContent, "리뷰 코멘트 통합", "the note is on the tile");
+  assert.match(document.querySelector(".ev .wt").getAttribute("title"), /리뷰 코멘트 통합/, "and in the tooltip the collapsed strip shows");
+
+  hub.handlers.onTileAction({ id: 7, action: "memo", name: "eager-lark" });
+  assert.equal(hub.lastCall("openModal")?.[1]?.memo, "리뷰 코멘트 통합", "Edit memo is handed the current note");
+
+  // …and the dialog actually puts it in the box, rather than starting blank the way it always did.
+  const overlay = stubHub();
+  const overlayDoc = loadPage(modalOverlayHtml(false, t), overlay);
+  await tick();
+  overlay.handlers.onModalOpen({ type: "memo", id: 7, name: "eager-lark", memo: "리뷰 코멘트 통합" });
+  assert.equal(overlayDoc.querySelector("#promptInput").value, "리뷰 코멘트 통합", "the prompt opens prefilled");
+});
