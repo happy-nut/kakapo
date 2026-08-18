@@ -427,3 +427,22 @@ test("the title bar says which worktree on disk, with home folded to ~", async (
   assert.match(name.querySelector(".wspath").textContent, /^~\/kakapo\/workspaces\/zoobox\/quiet-warbler$/,
     "then where it actually is, with the shared prefix folded away");
 });
+
+// Every shortcut this rail has lived only in the menu bar: the buttons carried a native `title`, which this
+// frameless child view renders unreliably, and the custom bubble was wired to the top toolbar alone. Hovering
+// the rail's own controls therefore told you nothing — least of all that ⌘⇧E and ⌘, existed.
+test("the rail's own buttons name their shortcut on hover, like the toolbar's", async () => {
+  const { document } = railWithState([{ ...KAKAPO_MAIN, id: 1, alias: "one" }]);
+  await tick();
+  const tip = document.querySelector("#tt");
+  const hover = (id) => {
+    document.querySelector(id).dispatchEvent(new document.defaultView.MouseEvent("mouseover", { bubbles: true }));
+    return { shown: tip.classList.contains("show"), key: tip.querySelector("kbd")?.textContent };
+  };
+  assert.deepEqual(hover("#pin"), { shown: true, key: "⌘⇧E" }, "the rail toggle says ⌘⇧E");
+  assert.deepEqual(hover("#settings"), { shown: true, key: "⌘," }, "the gear at the bottom says ⌘,");
+  assert.deepEqual(hover("#new"), { shown: true, key: "⌘N" }, "and the ＋ says ⌘N");
+  // The shortcut belongs in its own kbd, not buried in the sentence, and the label still names the action.
+  assert.ok(!/⌘/.test(document.querySelector("#pin").dataset.tip), "the label text does not repeat the keys");
+  assert.ok(document.querySelector("#pin").dataset.tip.length > 0, "but there is a label");
+});
