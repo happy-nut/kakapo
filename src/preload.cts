@@ -122,8 +122,8 @@ contextBridge.exposeInMainWorld("kakapoComments", {
     ipcRenderer.invoke("kakapo:comments-write", payload),
   // Park the merged hand-off document next to the thread file and return its path — what the terminal gets is
   // that one path, not the document.
-  writeRequest: (text: string): Promise<{ ok: boolean; path?: string }> =>
-    ipcRenderer.invoke("kakapo:comments-request-write", { text }),
+  writeRequest: (text: string, name?: string): Promise<{ ok: boolean; path?: string }> =>
+    ipcRenderer.invoke("kakapo:comments-request-write", { text, name }),
   onUpdate: (cb: (payload: { records: unknown[] }) => void): void => {
     ipcRenderer.on("kakapo:comments-update", (_event, payload) => cb(payload));
   },

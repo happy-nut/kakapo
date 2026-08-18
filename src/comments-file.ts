@@ -184,10 +184,15 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
   // names it (sendWholeDocToTerminal, 08-dock.js). Every byte of that document was already on disk anyway —
   // pasting it back was a copy of the review, and a thread with a few turns quoted per comment made the copy
   // kilobytes long. Overwritten on every send: it is the CURRENT request, not a log.
-  ipc.handle("kakapo:comments-request-write", (event, payload: { text?: string }) => {
+  ipc.handle("kakapo:comments-request-write", (event, payload: { text?: string; name?: string }) => {
     const state = stateFromEvent(event);
     if (!state || !state.commentsFile || typeof payload?.text !== "string") return { ok: false };
-    const file = join(dirname(state.commentsFile), "request.md");
+    // A name so the two kinds of hand-off cannot overwrite each other: a review request and an Explain
+    // instruction are both "the current request", but they are sent from different places and an agent may
+    // still be reading one when the other is sent. Sanitised to a plain basename — this path is built from
+    // renderer input, and the only thing it may choose is which of OUR files it is.
+    const wanted = typeof payload.name === "string" ? payload.name.replace(/[^a-z0-9._-]/gi, "") : "";
+    const file = join(dirname(state.commentsFile), wanted && wanted.endsWith(".md") ? wanted : "request.md");
     try {
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, payload.text.endsWith("\n") ? payload.text : payload.text + "\n");

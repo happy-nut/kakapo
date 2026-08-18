@@ -706,7 +706,7 @@ function openQuickItem(item) {
   if (item.kind === 'prompt') {
     closeQuickOpen();
     var text = item.prompt && typeof item.prompt.text === 'function' ? item.prompt.text() : (item.prompt && item.prompt.text);
-    if (text) sendPromptToTerminal(text);
+    if (text) sendPromptToTerminal(text, item.prompt && item.prompt.file);
     return;
   }
   closeQuickOpen();

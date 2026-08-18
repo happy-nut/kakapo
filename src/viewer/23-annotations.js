@@ -150,5 +150,5 @@ function currentCodebasePromptText() {
 // ----- running it (⌘7 / the Explain rail button): stage the prompt in the terminal composer, the same
 // review-before-it-runs step every other prompt hand-off uses (sendPromptToTerminal, 24-prompt-palette.js).
 function runAnnotatePrompt() {
-  sendPromptToTerminal(currentAnnotatePromptText());
+  sendPromptToTerminal(currentAnnotatePromptText(), 'explain-diff.md');
 }

@@ -612,6 +612,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // The ENTIRE terminal hand-off when kakapo could park the document on disk: this line plus its absolute
     // path. The document (answers-file instructions included) waits in the file — see sendWholeDocToTerminal.
     "mergePrompt.requestFile": "Read this review request file and do everything it asks:",
+    // Explain hands its instructions over the same way, but they are not a review REQUEST — nobody is being
+    // asked to change anything, only to read the codebase and write notes.
+    "prompt.requestFile": "Read this instruction file and do what it asks:",
     // Stands in for the earlier turns a follow-up continues (mergedItemLines) — the ids, not the text, since
     // the thread file named at the top of the document holds all of them.
     "mergePrompt.continues": "Continues; read these ids in the thread file first:",
@@ -1195,6 +1198,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // kakapo가 문서를 디스크에 저장할 수 있었을 때 터미널로 가는 내용 전부 — 이 한 줄과 절대 경로.
     // 문서(답변 파일 안내 포함)는 그 파일 안에서 기다린다. sendWholeDocToTerminal 참고.
     "mergePrompt.requestFile": "이 리뷰 요청 파일을 읽고 시키는 대로 전부 처리하세요:",
+    "prompt.requestFile": "이 지침 파일을 읽고 그대로 수행하세요:",
     // 후속 코멘트가 이어받는 이전 대화를 대신한다 (mergedItemLines) — 본문이 아니라 id만. 문서 맨 앞에
     // 적힌 스레드 파일에 전부 들어 있기 때문이다.
     "mergePrompt.continues": "이어지는 대화입니다. 스레드 파일에서 다음 id를 먼저 읽으세요:",

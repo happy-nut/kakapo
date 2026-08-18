@@ -576,3 +576,52 @@ test("F8 steps past a note's own replies instead of standing still on them", asy
   assert.equal(line(), 2, "and back is the same stop in reverse");
   v.close();
 });
+
+// These prompts are sixty lines of instructions. Pasted into the composer they filled it with a wall of text
+// the reviewer had to scroll past to reach the send button, and every send pasted the same sixty lines again.
+// The merged review request already solved this: write the document, send the line that names it.
+test("an Explain prompt is written to a file and the terminal carries its path", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  const sent = [];
+  const written = [];
+  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text) };
+  v.window.kakapoComments = {
+    ...(v.window.kakapoComments || {}),
+    writeRequest: (text, name) => {
+      written.push({ name, text });
+      return Promise.resolve({ ok: true, path: "/repo/.git/kakapo/" + name });
+    },
+  };
+
+  v.key("7", { metaKey: true, code: "Digit7" });
+  await v.settle(30);
+
+  assert.equal(written.length, 1, "the prompt went to disk");
+  assert.equal(written[0].name, "explain-diff.md", "under a name of its own, so it cannot overwrite a review request");
+  assert.match(written[0].text, /problem note/, "and it is the whole prompt that was written");
+  assert.equal(sent.length, 1);
+  assert.match(sent[0], /\/repo\/\.git\/kakapo\/explain-diff\.md$/, "the composer carries the path");
+  assert.doesNotMatch(sent[0], /problem note/, "not the sixty lines");
+  v.close();
+});
+
+// A prompt that reaches the agent as text still works. One that reaches it as a path to a file that was never
+// written does not — so the wall of text is the right answer whenever the write cannot happen at all.
+test("a prompt still pastes when there is nowhere to write it", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  const sent = [];
+  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text) };
+  v.window.kakapoComments = { ...(v.window.kakapoComments || {}), writeRequest: () => Promise.reject(new Error("no git dir")) };
+
+  v.key("7", { metaKey: true, code: "Digit7" });
+  await v.settle(30);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0], /problem note/, "the prompt itself is sent when the file could not be");
+  v.close();
+});
