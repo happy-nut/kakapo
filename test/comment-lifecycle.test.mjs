@@ -63,3 +63,30 @@ test("iterative review: addressed comments drop out of the merged prompt, and re
   assert.ok(merged.includes("fix the broken assignment"), "a reopened request returns to the merged prompt");
   v.close();
 });
+
+// The agent's usual order is: read the comment, CHANGE the code, then answer. The change moves the comment —
+// remapComments follows its anchor text to the new line — but an answer carries no anchor text of its own, so
+// it stayed on the line the question used to be on. The thread came apart: a lone answer card sitting at a
+// line it has nothing to do with, and a question somewhere else with nothing under it.
+test("an answer follows the question it answers when the agent's own edit moves it", async () => {
+  const moved = ["const inserted = 0;", "const alsoInserted = 1;", "const a = 1;", "const c = 3;", ""].join("\n");
+  const thread = [
+    { seq: 1, kind: "c", path: FILE, line: 2, code: "const c = 3;", text: "rename c to something clearer",
+      from: 2, to: 2, side: null, anchorCode: "const c = 3;", anchorPresent: true, addressed: false },
+    // A reply carries no anchor of its own — it lives wherever its parent lives (openReplyComposer copies it,
+    // commentToRecord omits path/line whenever they still match).
+    { seq: 2, kind: "c", by: "agent", replyTo: 1, path: FILE, line: 2, code: "", anchorCode: "",
+      from: 2, to: 2, side: null, text: "renamed.", anchorPresent: false, addressed: false },
+  ];
+  const { html } = await makeReviewHtml([{ path: FILE, before: "const a = 1;\n", after: moved }]);
+  const v = await loadViewer(html, { seedStorage: { [COMMENTS_KEY]: JSON.stringify(thread) } });
+  await v.openSourceFile(FILE);
+  v.window.remapComments();
+  await v.settle(40);
+
+  const [question, answer] = v.storedComments().sort((a, b) => a.seq - b.seq);
+  assert.equal(question.line, 4, "the question followed its anchor two lines down");
+  assert.equal(answer.line, question.line, "and the answer went with it instead of staying on line 2");
+  assert.equal(v.window.commentsAt(FILE, question.line).length, 2, "so both turns still render as one thread");
+  v.close();
+});

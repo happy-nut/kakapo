@@ -544,38 +544,6 @@ test("Backspace on the first card in a thread takes the conversation with it, an
   v.close();
 });
 
-// The agent's usual order is: read the comment, CHANGE the code, then answer. The change moves the comment —
-// remapComments follows its anchor text to the new line — but an answer carries no anchor text of its own, so
-// it stayed on the line the question used to be on and rendered as a lone card in a thread of its own,
-// somewhere else in the file entirely.
-test("an answer follows its question when the agent's own edit moves it", async () => {
-  const v = await loadViewer(html);
-  await v.openSourceFile("src/app.ts");
-  await v.clickSourceLine(1); // `export const y = 3;` -> line 2
-  await v.openComposer("c");
-  await v.writeAndSave("rename y");
-  const seq = v.storedComments()[0].seq;
-  const line = v.storedComments()[0].line;
-  v.agentSays({ re: seq, text: "renamed." });
-  await v.settle(60);
-  assert.equal(v.storedComments().length, 2, "the question and its answer");
-
-  // The agent's edit: the commented line is now further down the file. remapComments follows the anchor.
-  const file = v.window.sourceByPath.get("src/app.ts");
-  const lines = file.content.split("\n");
-  const moved = ["// inserted above by the agent", "// and another"].concat(lines);
-  file.content = moved.join("\n");
-  v.window.remapComments();
-  await v.settle(40);
-
-  const [question, answer] = v.storedComments().sort((a, b) => a.seq - b.seq);
-  assert.equal(question.line, line + 2, "the question followed its anchor down the file");
-  assert.equal(answer.line, question.line, "and the answer went with it, instead of staying behind");
-  assert.equal(answer.path, question.path, "same file, too");
-  // Which is what puts them in ONE thread on screen rather than two cards two lines apart.
-  assert.equal(v.window.commentsAt(question.path, question.line).length, 2, "one thread, both turns in it");
-  v.close();
-});
 
 // Arrow keys used to step off the whole row, so the second turn of a thread could be neither selected nor
 // edited: `e` always reopened the first comment on the line.
