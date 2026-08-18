@@ -214,13 +214,37 @@ function recordToComment(record, byId) {
     text: String(record.text == null ? '' : record.text),
   };
 }
+// Index every record BEFORE converting any of them, and convert a parent before whatever continues it.
+// byId used to be filled as the list was walked, so a record could only inherit from a parent that happened
+// to appear earlier — and this list is two files concatenated: the conversation first, then the shared notes.
+// A reply written in the conversation to a NOTE therefore never found its parent. Inheriting nothing, it came
+// out with no path at all, which matches no file: the answer was in the file and nowhere on screen.
 function threadFromRecords(records) {
-  var byId = {}, out = [];
-  (Array.isArray(records) ? records : []).forEach(function (record) {
-    if (!record || !Number.isFinite(Number(record.id))) return;
-    var comment = recordToComment(record, byId);
-    byId[comment.seq] = comment;
-    out.push(comment);
+  var list = (Array.isArray(records) ? records : []).filter(function (r) {
+    return r && Number.isFinite(Number(r.id));
+  });
+  var raw = {};
+  // First wins, so the conversation owns an id the shared notes happen to reuse — the two files number
+  // themselves independently and an agent can only ever see the one it was pointed at.
+  list.forEach(function (r) { var id = Number(r.id); if (!(id in raw)) raw[id] = r; });
+  var byId = {}, visiting = {};
+  var convert = function (record) {
+    var id = Number(record.id);
+    if (byId[id]) return byId[id];
+    if (visiting[id]) return null; // a record that answers itself, or a cycle: treat it as having no parent
+    visiting[id] = true;
+    var parentId = record.re == null ? null : Number(record.re);
+    if (parentId != null && parentId !== id && raw[parentId]) convert(raw[parentId]);
+    byId[id] = recordToComment(record, byId);
+    visiting[id] = false;
+    return byId[id];
+  };
+  list.forEach(convert);
+  // Back into the file's own order, not the order resolution happened to need.
+  var out = [];
+  list.forEach(function (record) {
+    var comment = byId[Number(record.id)];
+    if (comment && out.indexOf(comment) < 0) out.push(comment);
   });
   return out;
 }

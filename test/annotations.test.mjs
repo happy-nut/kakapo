@@ -688,3 +688,28 @@ test("the number on a card counts the same cards F8 walks", async () => {
   }
   v.close();
 });
+
+// A note lives in the shared knowledge file and the conversation lives in this workspace's own — main merges
+// them into one list on the way in, notes LAST. The renderer resolved each record's parent from the records
+// it had already walked, so a reply written to a note never found one: it inherited no anchor, came out with
+// no path, and matched no file. The answer was in the file and nowhere on screen.
+test("a reply to a shared note lands on the note, whichever order the two files merge in", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const x = 1;\n", after: "export const x = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  // The merge order main sends: the conversation first (the reply is in it), the shared notes after.
+  v.window.applyThreadRecords([
+    { id: 7, re: 3, by: "me", text: "왜 이렇게 했어?" },
+    { id: 3, by: "agent", kind: "note", path: "src/app.ts", line: 1, text: "이 줄이 바뀐 이유" },
+  ]);
+  await v.settle(60);
+
+  const reply = v.storedComments().find((c) => c.seq === 7);
+  const note = v.storedComments().find((c) => c.seq === 3);
+  assert.ok(reply, "the reply survived the load");
+  assert.equal(reply.path, note.path, "and took the note's file, rather than none at all");
+  assert.equal(reply.line, note.line, "…and its line");
+  assert.equal(v.window.commentsAt(note.path, note.line).length, 2, "so the note and its reply are one thread");
+  v.close();
+});
