@@ -978,22 +978,16 @@ body.native-app .source-tabs {
 .theme-swatch { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); }
 .theme-swatch[data-swatch="default-dark"] { background: linear-gradient(135deg, #101318 0 62%, #58a6ff 62%); }
 .theme-swatch[data-swatch="default-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0969da 62%); }
-.theme-swatch[data-swatch="default-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #101318 50%); }
 .theme-swatch[data-swatch="github-dark"] { background: linear-gradient(135deg, #0d1117 0 62%, #58a6ff 62%); }
 .theme-swatch[data-swatch="github-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0969da 62%); }
-.theme-swatch[data-swatch="github-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #0d1117 50%); }
 .theme-swatch[data-swatch="darcula-dark"] { background: linear-gradient(135deg, #2b2b2b 0 62%, #4a88c7 62%); }
 .theme-swatch[data-swatch="darcula-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #3574f0 62%); }
-.theme-swatch[data-swatch="darcula-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #2b2b2b 50%); }
 .theme-swatch[data-swatch="solarized-dark"] { background: linear-gradient(135deg, #002b36 0 62%, #b58900 62%); }
 .theme-swatch[data-swatch="solarized-light"] { background: linear-gradient(135deg, #fdf6e3 0 62%, #2aa198 62%); }
-.theme-swatch[data-swatch="solarized-system"] { background: linear-gradient(135deg, #fdf6e3 0 50%, #002b36 50%); }
 .theme-swatch[data-swatch="dracula-dark"] { background: linear-gradient(135deg, #282a36 0 62%, #ff79c6 62%); }
 .theme-swatch[data-swatch="dracula-light"] { background: linear-gradient(135deg, #fffbeb 0 62%, #644ac9 62%); }
-.theme-swatch[data-swatch="dracula-system"] { background: linear-gradient(135deg, #fffbeb 0 50%, #282a36 50%); }
 .theme-swatch[data-swatch="contrast-dark"] { background: linear-gradient(135deg, #000000 0 62%, #ffe58a 62%); }
 .theme-swatch[data-swatch="contrast-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0000d4 62%); }
-.theme-swatch[data-swatch="contrast-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #000000 50%); }
 .settings-card .settings-check { margin: 0; padding: 13px 2px; }
 .settings-card .settings-check + .settings-row-hint { padding: 0 2px 4px 24px; }
 /* Persistent-terminal setup: tmux status + install button, with brew's output streamed underneath so the

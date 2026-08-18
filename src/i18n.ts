@@ -311,7 +311,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "syntaxTheme.github": "GitHub",
     // Theme grid: a theme is one named palette that is already light or dark (see renderThemeGrid).
     // "System" is the only automatic entry — it follows the OS with whichever family is currently chosen.
-    "theme.name.system": "System",
     "theme.name.default-dark": "Kakapo Dark",
     "theme.name.default-light": "Kakapo Light",
     "theme.name.darcula-dark": "Darcula",
@@ -437,7 +436,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // --- Appearance / theme (redesigned settings) ---
     "theme.system": "System",
     "settings.appearance": "Appearance",
-    "settings.theme.hint": "System follows your OS light / dark setting.",
     "settings.terminal": "Terminal",
     "settings.cat.shortcuts": "Shortcuts",
     // --- Native application menu ---
@@ -910,7 +908,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "syntaxTheme.darcula": "Darcula",
     "syntaxTheme.github": "GitHub",
     // 테마 그리드 — 테마 이름은 고유명사라 번역하지 않고, 밝기 수식어만 한국어로 둡니다.
-    "theme.name.system": "시스템",
     "theme.name.default-dark": "Kakapo 다크",
     "theme.name.default-light": "Kakapo 라이트",
     "theme.name.darcula-dark": "Darcula",
@@ -1032,7 +1029,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // --- Appearance / theme (redesigned settings) ---
     "theme.system": "시스템",
     "settings.appearance": "화면",
-    "settings.theme.hint": "시스템은 OS의 밝게 / 어둡게 설정을 따릅니다.",
     "settings.terminal": "터미널",
     "settings.cat.shortcuts": "단축키",
     // --- Native application menu ---

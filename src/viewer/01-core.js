@@ -640,20 +640,23 @@ function applyI18n() {
 // :root[data-theme="light"] palette takes over. Dark is the default (matches the inline :root). Applied
 // immediately at script start to minimize a first-paint flash from the dark default to light.
 var THEME_KEY = 'kakapo-theme';
-// The persisted THEME choice is a preference, not the final palette: 'system' follows the OS (in Electron the
-// main process sets nativeTheme.themeSource so prefers-color-scheme flips with the OS), 'light'/'dark' pin it.
-// resolvedTheme() collapses the preference to the light|dark value that actually drives data-theme.
+// The theme is light or dark and nothing else. "System" used to sit alongside them as a third choice that
+// resolved to one of the two — which made the setting answer two questions at once (which palette, and who
+// decides) and left every reader of `theme` needing resolvedTheme() to find out what was actually on screen.
+// Anyone still holding the old preference is resolved ONCE here, to whatever the OS was saying at that moment,
+// and keeps it: their app looks the same the next time they open it as it did when they closed it.
 var theme = (function () {
   var v = persistRead(THEME_KEY);
   if (v !== 'light' && v !== 'dark' && v !== 'system') { try { v = localStorage.getItem(THEME_KEY); } catch (e) {} }
-  // Default to dark (unchanged from before System existed) rather than 'system', so an existing user who never
-  // touched the setting keeps the dark UI they had instead of silently flipping to their OS appearance.
-  return (v === 'light' || v === 'dark' || v === 'system') ? v : 'dark';
+  if (v === 'system') {
+    var dark = true;
+    try { dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) {}
+    v = dark ? 'dark' : 'light';
+    persistSave(THEME_KEY, v);
+  }
+  return v === 'light' ? 'light' : 'dark';
 })();
-function systemPrefersDark() {
-  try { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) { return true; }
-}
-function resolvedTheme() { return theme === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : theme; }
+function resolvedTheme() { return theme === 'light' ? 'light' : 'dark'; }
 function applyTheme() {
   beginDiffViewportChurn(); // every row's computed style is about to change at once — settle, don't thrash
   document.documentElement.setAttribute('data-theme', resolvedTheme());
@@ -669,12 +672,6 @@ function retheme() {
   if (api && typeof api.retheme === 'function') { try { api.retheme(); } catch (e) {} }
 }
 applyTheme();
-// Follow the OS while the preference is 'system'. Electron flips prefers-color-scheme when the app theme source
-// is 'system' and the OS switches; the standalone browser review gets the same live behavior for free.
-try {
-  var _themeMq = window.matchMedia('(prefers-color-scheme: dark)');
-  if (_themeMq && _themeMq.addEventListener) _themeMq.addEventListener('change', function () { if (theme === 'system') applyTheme(); });
-} catch (e) {}
 // The persisted syntax choice is a complete theme family rather than a code-only palette. `theme` selects
 // the family's dark/light member, keeping navigation chrome, diff, raw source, and HTTP coherent.
 // Whole-interface scale. Persisted here; the Electron main process reads it and applies a Chromium zoom

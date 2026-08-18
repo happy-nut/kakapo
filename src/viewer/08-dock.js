@@ -808,9 +808,9 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     // __kakapoBeforeClose flush instead of being yanked out from under the editor.
     if (document.getElementById('mc-merged-panel')) openMergedView();
   }
-  // Theme is a preference ('system'|'light'|'dark'); applyTheme() resolves it to the light/dark data-theme.
+  // Theme is light or dark; applyTheme() writes it to data-theme.
   function applyThemePref(next) {
-    if (next !== 'system' && next !== 'light' && next !== 'dark') return;
+    if (next !== 'light' && next !== 'dark') return;
     if (next === theme) return;
     theme = next;
     persistSave(THEME_KEY, theme);
@@ -838,7 +838,6 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
   // blue accent. The last three are the ones that answer "give me a theme with actual colour" — Solarized and
   // Dracula bring a coloured ground, High Contrast brings the opposite of a mood.
   var THEMES = [
-    { id: 'system', mode: 'system' },
     { id: 'default-dark', family: 'default', mode: 'dark' },
     { id: 'default-light', family: 'default', mode: 'light' },
     { id: 'darcula-dark', family: 'darcula', mode: 'dark' },
@@ -862,13 +861,10 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     var grid = document.getElementById('settings-theme-grid');
     if (!grid) return;
     grid.innerHTML = THEMES.map(function (entry) {
-      // System wins whenever the appearance is automatic, whatever family is underneath it.
-      var on = theme === 'system' ? entry.id === 'system' : (entry.family === syntaxTheme && entry.mode === theme);
-      // The System swatch previews the current family's own light and dark halves — the two it flips between.
-      var swatch = entry.id === 'system' ? syntaxTheme + '-system' : entry.id;
+      var on = entry.family === syntaxTheme && entry.mode === theme;
       return '<button type="button" class="theme-card' + (on ? ' is-active' : '') + '" role="radio"'
         + ' aria-checked="' + (on ? 'true' : 'false') + '" data-theme-id="' + entry.id + '">'
-        + '<span class="theme-swatch" data-swatch="' + swatch + '" aria-hidden="true"></span>'
+        + '<span class="theme-swatch" data-swatch="' + entry.id + '" aria-hidden="true"></span>'
         + '<span class="theme-card-name">' + escapeHtml(t('theme.name.' + entry.id)) + '</span></button>';
     }).join('');
   }

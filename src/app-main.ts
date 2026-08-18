@@ -182,25 +182,25 @@ function loadingHtml(light: boolean, compact = false): string {
   @media(prefers-reduced-motion:reduce){.kakapo-mark{animation:kakapo-breathe 1.6s ease-in-out infinite}@keyframes kakapo-breathe{50%{opacity:.65}}}
 </style></head><body><span class="kakapo-loader" role="status" aria-label="Kakapo is loading">${mark}<span class="sr-only">Kakapo is loading</span></span></body></html>`;
 }
-// The persisted theme PREFERENCE (set by the renderer via kakapoSettings): 'system' follows the OS, 'light'/'dark'
-// pin it. Defaults to 'system'. Mirrored into nativeTheme.themeSource (see syncNativeThemeSource) so the native
+// The persisted theme (set by the renderer via kakapoSettings): 'light' or 'dark', nothing else. It used to
+// also accept 'system', which answered two questions at once — which palette, and who decides — so every
+// reader had to resolve it before it meant anything. A stored 'system' resolves once, in the renderer, to
+// whatever the OS was saying then. Mirrored into nativeTheme.themeSource (see syncNativeThemeSource) so the native
 // window chrome (traffic lights, menus) and prefers-color-scheme both track the choice.
-type ThemePreference = "system" | "light" | "dark";
+type ThemePreference = "light" | "dark";
 function themePreference(): ThemePreference {
   try {
     const value = preferences.readGlobal()["kakapo-theme"];
     // Default dark (as before System existed), so users who never set a theme keep the UI they had.
-    return value === "light" || value === "dark" || value === "system" ? value : "dark";
+    // A pre-existing "system" is not a theme any more; dark is the default it always fell back to.
+    return value === "light" ? "light" : "dark";
   } catch {
     return "dark";
   }
 }
-// The resolved light/dark used by the loading screen, window backgrounds, hub, and welcome page. 'system' resolves
-// against nativeTheme.shouldUseDarkColors, which itself tracks themeSource + the OS.
+// The light/dark used by the loading screen, window backgrounds, hub, and welcome page.
 function isLightTheme(): boolean {
-  const preference = themePreference();
-  if (preference === "system") return !nativeTheme.shouldUseDarkColors;
-  return preference === "light";
+  return themePreference() === "light";
 }
 function syncNativeThemeSource(): void {
   try { nativeTheme.themeSource = themePreference(); } catch { /* best-effort */ }
@@ -1046,11 +1046,9 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // Drop recent-project entries whose folder is gone, so deleted worktrees stop cluttering the settings + rail.
   preferences.pruneRecentProjects();
 
-  // Mirror the saved theme preference into nativeTheme so the OS chrome (traffic lights, menus) and every
-  // renderer's prefers-color-scheme track it from the first paint. When "system" is active and the OS theme
-  // flips, re-theme all the chrome live.
+  // Mirror the saved theme into nativeTheme so the OS chrome (traffic lights, menus) and every renderer's
+  // prefers-color-scheme track it from the first paint.
   syncNativeThemeSource();
-  nativeTheme.on("updated", () => { if (themePreference() === "system") refreshChrome(); });
 
   buildApplicationMenu();
 
@@ -1796,8 +1794,8 @@ function renderHub(): void {
   }
 }
 
-// Re-apply the current theme + locale everywhere after either changes (a settings pick in one window, or the OS
-// theme switching while "system" is active). The review views re-theme/re-localize live from the kakapo:chrome
+// Re-apply the current theme + locale everywhere after either changes (a settings pick in one window, with the
+// OS chrome following it). The review views re-theme/re-localize live from the kakapo:chrome
 // broadcast; the shell chrome pages (hub, modal overlay, tile menu) bake their theme/locale at build time, so they
 // are regenerated instead. The hub reload is safe: review views are separate WebContentsViews layered on top, so
 // only the rail document reloads, and it re-requests its state on load.
