@@ -655,6 +655,7 @@ function systemPrefersDark() {
 }
 function resolvedTheme() { return theme === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : theme; }
 function applyTheme() {
+  beginDiffViewportChurn(); // every row's computed style is about to change at once — settle, don't thrash
   document.documentElement.setAttribute('data-theme', resolvedTheme());
   if (themeSelectRef) themeSelectRef.render();
   // Theme families own both app chrome and Review code colors.
@@ -688,6 +689,7 @@ var uiScale = (function () {
   return UI_SCALES.indexOf(v) >= 0 ? v : 1;
 })();
 function paintUiScale() {
+  beginDiffViewportChurn(); // zoom changes every row's HEIGHT; re-project once it has settled, not per row
   // In the packaged app main owns the zoom, so the page must NOT also scale itself — that would compound.
   if (window.kakapoSettings) return;
   try { document.documentElement.style.zoom = uiScale === 1 ? '' : String(uiScale); } catch (e) {}
@@ -706,6 +708,7 @@ function applyUiScale(next) {
 if (window.kakapoMenu && typeof window.kakapoMenu.onUiScale === 'function') {
   window.kakapoMenu.onUiScale(function (next) {
     if (UI_SCALES.indexOf(next) < 0) return;
+    beginDiffViewportChurn(); // main has already zoomed this view; the re-projection is ours to settle
     uiScale = next;
     if (uiScaleSelectRef) uiScaleSelectRef.render();
   });
@@ -724,6 +727,7 @@ var syntaxTheme = (function () {
   return SYNTAX_FAMILIES.indexOf(v) >= 0 ? v : 'default';
 })();
 function applySyntaxTheme() {
+  beginDiffViewportChurn(); // a syntax family repaints every token in the diff — same story as the theme
   document.documentElement.setAttribute('data-syntax-theme', syntaxTheme);
   if (syntaxThemeSelectRef) syntaxThemeSelectRef.render();
   retheme(); // a syntax family carries its own --panel/--text, which the panes are painted from

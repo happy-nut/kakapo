@@ -26,11 +26,19 @@ function settleDiffViewportResize() {
   if (typeof scheduleAsymmetricDiffScroll === 'function') scheduleAsymmetricDiffScroll();
 }
 
-window.addEventListener('resize', function () {
+// A native resize is not the only thing that dirties every row at once. Swapping the theme (or the syntax
+// family) rewrites the custom properties the whole document is painted from, and a zoom step changes every
+// row's height — after either, the ResizeObserver on each diff table fires with the entire document's style
+// invalidated. What it triggers then reads a computed style and a rect PER ROW, and writes spacer heights
+// that resize the table and fire the observer again: on a large diff that is the window going unresponsive
+// rather than a hitch. It is the same shape as a resize, so it takes the same exit — mark dirty, let it
+// settle, project once.
+function beginDiffViewportChurn() {
   diffViewportResizing = true;
   if (diffViewportResizeTimer) clearTimeout(diffViewportResizeTimer);
   diffViewportResizeTimer = setTimeout(settleDiffViewportResize, 140);
-}, { passive: true });
+}
+window.addEventListener('resize', beginDiffViewportChurn, { passive: true });
 
 function buildDiffRowModel(side) {
   var table = side && side.querySelector('.d2h-diff-table');
