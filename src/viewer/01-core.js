@@ -80,8 +80,10 @@ document.addEventListener('mousedown', function (event) {
   // panel is exempt: it lives inside this same view, so main's "the view took focus" signal could not tell
   // the two apart and clicking into a shell closed the rail the user had just opened.
   var inTerminal = event.target && event.target.closest && event.target.closest('.terminal-panel');
-  if (!inTerminal && window.kakapoApp && typeof window.kakapoApp.reviewClicked === 'function') {
-    window.kakapoApp.reviewClicked();
+  // kakapoMenu, not kakapoApp. It has always been on the menu bridge, and the typeof guard turned the
+  // mistake into silence: clicking the review never dismissed the rail, and nothing said so.
+  if (!inTerminal && window.kakapoMenu && typeof window.kakapoMenu.railStandDown === 'function') {
+    window.kakapoMenu.railStandDown();
   }
 }, true);
 document.addEventListener('focusin', function (event) { flashReviewPanelFocus(event.target); }, true);

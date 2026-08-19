@@ -56,9 +56,13 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
     ipcRenderer.on("kakapo:workspace-state", (_event, state: unknown) => cb(state));
   },
   toggleWorkspaceHub: (): void => ipcRenderer.send("kakapo:workspace-hub-toggle"),
-  // A click in the review CONTENT dismisses an expanded rail. Reported from here rather than inferred from
-  // the view's focus event in main, which cannot tell a click in the diff from one in the terminal panel.
-  reviewClicked: (): void => ipcRenderer.send("kakapo:review-clicked"),
+  // Put an expanded rail away, because the review is taking over. Reported from here rather than inferred
+  // from the view's focus event in main, which cannot tell a click in the diff from one in the terminal
+  // panel. Two callers: a click in the review CONTENT, and ⌘0/⌘1 — while the rail is pushed open it
+  // force-collapses the in-view tree, so a shortcut that means "take me to that tree" has to ask first.
+  // One name, not one per caller: both are the same sentence, and the second was a no-op for as long as it
+  // was spelled on the wrong bridge (see test/window-layout.test.mjs).
+  railStandDown: (): void => ipcRenderer.send("kakapo:review-clicked"),
   // ⌘K opens a floating quick-switcher rendered over the review (the review stays visible behind it).
   onOpenQuickSwitcher: (cb: () => void): void => {
     ipcRenderer.on("kakapo:open-quick-switcher", () => cb());

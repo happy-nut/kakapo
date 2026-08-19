@@ -39,8 +39,19 @@ function closeTerminalForViewSwitch() {
 
 // Cmd+0/1 and their rail icons are focus-aware. From content they reveal/focus the matching tree; only a
 // repeated activation while that tree owns the logical focus collapses it. A collapsed tree expands first.
+// The workspace rail, pushed open, force-collapses this sidebar (railPushedCollapse in 09-views-update.js).
+// So while it is open, ⌘0/⌘1 could set the review's own collapse flag all they liked and nothing moved: the
+// tree stayed hidden because something else was holding it shut. The rail's own handler covers the case where
+// the SHELL has the keyboard, which is why this worked right after opening the rail and stopped working once
+// you clicked into the diff — the key reached the review instead, and the review had no way to say "let go".
+function standDownRailForViewSwitch() {
+  if (!railPushedCollapse) return;
+  if (window.kakapoMenu && typeof window.kakapoMenu.railStandDown === 'function') window.kakapoMenu.railStandDown();
+}
+
 function activateChangesView(navigateToDiff) {
   closeTerminalForViewSwitch();
+  standDownRailForViewSwitch();
   if (isDiffViewVisible()) {
     if (reviewSidebarCollapsed) { setReviewSidebarCollapsed(false, { focusSidebar: true }); return; }
     if (treeFocusIndex >= 0) { toggleReviewSidebar(); return; }
@@ -59,6 +70,7 @@ function activateChangesView(navigateToDiff) {
 
 function activateFilesView() {
   closeTerminalForViewSwitch();
+  standDownRailForViewSwitch();
   if (isSourceViewerVisible()) {
     if (sourceSidebarCollapsed) { setSourceSidebarCollapsed(false, { focusSidebar: true }); return; }
     if (treeFocusIndex >= 0) { toggleSourceSidebar(); return; }

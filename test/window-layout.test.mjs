@@ -36,14 +36,35 @@ test("only a click in the review content dismisses the expanded rail — not one
   const main = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
   const core = readFileSync(new URL("../src/viewer/01-core.js", import.meta.url), "utf8");
   const preload = readFileSync(new URL("../src/preload.cts", import.meta.url), "utf8");
+  const keymap = readFileSync(new URL("../src/viewer/05-keymap.js", import.meta.url), "utf8");
 
   assert.match(main, /ipcMain\.on\("kakapo:review-clicked"[\s\S]{0,220}collapseRailFromReview\(\)/,
     "main collapses the rail on the renderer's click report");
   assert.doesNotMatch(main, /on\("focus",[\s\S]{0,160}collapseRailFromReview/,
     "and no longer collapses on the view merely taking focus");
-  assert.match(preload, /reviewClicked[\s\S]{0,120}kakapo:review-clicked/, "the bridge exposes it");
-  assert.match(core, /closest\('\.terminal-panel'\)[\s\S]{0,260}reviewClicked\(\)/,
+  // WHICH bridge, not just the name. This guard used to check for the name alone, and the call site was
+  // spelled window.kakapoApp.reviewClicked() while the function lived on kakapoMenu — so the typeof guard
+  // around it turned a wrong receiver into silence, and clicking the review dismissed nothing for as long as
+  // that stood. A name is not a wiring check.
+  const bridgeOf = (name) => {
+    const at = preload.indexOf(`exposeInMainWorld("${name}"`);
+    return at < 0 ? "" : preload.slice(at, preload.indexOf("\n});", at));
+  };
+  assert.match(bridgeOf("kakapoMenu"), /railStandDown[\s\S]{0,200}kakapo:review-clicked/, "the menu bridge exposes it");
+  for (const [file, where] of [[core, "a content click"], [keymap, "⌘0 / ⌘1"]]) {
+    assert.match(file, /window\.kakapoMenu\.railStandDown\(\)/, `${where} asks the bridge that defines it`);
+    assert.doesNotMatch(file, /window\.kakapoApp\.railStandDown/, `${where} does not ask a bridge that does not`);
+  }
+  assert.match(core, /closest\('\.terminal-panel'\)[\s\S]{0,320}railStandDown\(\)/,
     "the renderer reports content clicks only — a click in the terminal is exempt");
+  // The rail force-collapses the in-view tree while it is open, so a shortcut meaning "take me to that tree"
+  // has to put the rail away first or it moves nothing at all.
+  assert.match(keymap, /function standDownRailForViewSwitch[\s\S]{0,300}railPushedCollapse/,
+    "and it only asks while the rail is actually holding the tree shut");
+  for (const view of ["activateChangesView", "activateFilesView"]) {
+    assert.match(keymap, new RegExp(`function ${view}\\([^)]*\\) \\{[\\s\\S]{0,200}standDownRailForViewSwitch\\(\\)`),
+      `${view} stands the rail down before it tries to reveal anything`);
+  }
 });
 
 // Choosing a workspace from the expanded rail — a click or Enter on a tile — is the rail's whole purpose, so
