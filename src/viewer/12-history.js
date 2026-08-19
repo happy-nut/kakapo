@@ -262,14 +262,28 @@ function selectHistoryRange(focusSha, shouldScroll) {
 // comment-able review. Falls back to the read-only in-history detail for a single commit or in serve mode.
 function reviewHistoryRangeInMain() {
   var ep = historyRangeEndpoints();
-  if (!ep || !ep.isRange || !window.kakapoGit || typeof window.kakapoGit.setReviewCompare !== 'function') {
+  if (!ep || !window.kakapoGit || typeof window.kakapoGit.setReviewCompare !== 'function') {
     openHistoryCurrentSelection();
     return;
   }
-  // Pass every commit in the selected span (oldest → newest) as the compare scope, so the main review's two
-  // dropdowns can then pick any B..D within this opened A..F.
+  // A single commit goes the same way a range does — as parent..commit. It used to be the one thing that
+  // stayed in the overlay's own read-only pane: no comments, no F7, half the width, and a second diff
+  // implementation to keep in step with the real one. There is nothing about one commit that needs its own
+  // viewer, and "the commits I already made" is exactly the thing a review is for.
   var a = historyIndexOfSha(historyAnchorSha), b = historyIndexOfSha(historyActiveSha);
   var lo = Math.min(a, b), hi = Math.max(a, b);
+  if (!ep.isRange) {
+    var only = historyCommits[lo];
+    var parent = only && Array.isArray(only.parents) ? only.parents[0] : '';
+    // A root commit has nothing to diff against. The overlay's own pane is the only thing that could ever
+    // show it, so that is where it stays.
+    if (!parent) { openHistoryCurrentSelection(); return; }
+    requestDiffViewOnNextCompare();
+    Promise.resolve(window.kakapoGit.setReviewCompare(parent, only.hash, [
+      { sha: only.hash, shortSha: (only.hash || '').slice(0, 7), subject: only.subject, date: only.date },
+    ])).then(function (res) { if (res && res.ok) closeHistory(); }).catch(function () {});
+    return;
+  }
   var scope = [];
   for (var i = hi; i >= lo; i--) {
     var c = historyCommits[i];

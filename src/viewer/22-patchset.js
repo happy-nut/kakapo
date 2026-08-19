@@ -9,6 +9,33 @@ var patchSetData = null; // last { activeBase, activeTarget, branchPoint, upstre
 
 function patchSetBarEl() { return document.getElementById('patchset-bar'); }
 
+// What the diff toolbar's breadcrumb leads with while the review is pointed at commits rather than at the
+// working tree. Returns null in the ordinary case, which is what keeps the toolbar quiet when nothing needs
+// saying — the whole point of marking this state is lost if it marks every state.
+//
+// A single commit has a subject and that is the best thing to call it. A RANGE has no subject: naming it
+// after one of its commits promotes that commit over the others, and across unrelated work the line at the
+// top of the screen would be half a lie. So the newest commit's subject leads and the rest are counted, which
+// is honest about which one the words came from. Narrowing the range down to one commit drops the count on
+// its own — one rule, both ends of it: name it when there is exactly one to name, otherwise count.
+function compareCommitLead() {
+  var data = patchSetData;
+  if (!data || !data.scoped || !Array.isArray(data.commits) || !data.commits.length) return null;
+  var target = data.activeTarget;
+  if (!target || target === 'worktree') return null; // the right side is the working tree — nothing committed to name
+  var at = -1, baseAt = -1;
+  for (var i = 0; i < data.commits.length; i++) {
+    if (data.commits[i].sha === target) at = i;
+    if (data.commits[i].sha === data.activeBase) baseAt = i;
+  }
+  if (at < 0) return null;
+  var newest = data.commits[at];
+  // commits are oldest → newest, and the base is the commit BEFORE the first one shown, so the span is the
+  // half-open (base, target]. An unknown base (auto, a branch point outside this scope) counts as one.
+  var span = baseAt >= 0 && baseAt < at ? at - baseAt : 1;
+  return { sha: newest.shortSha || String(newest.sha).slice(0, 7), subject: newest.subject || '', others: Math.max(0, span - 1) };
+}
+
 function patchSetShortRef(ref) {
   if (!ref) return '';
   var trimmed = String(ref).replace(/^refs\/heads\//, '').replace(/^refs\/remotes\//, '');
@@ -60,7 +87,41 @@ function patchSetTargetOptions(data) {
   return opts;
 }
 
+// Thirty-three patch sets wrapped the bar onto a second row and every number stopped being findable — the
+// list had become a wall rather than a control. Show a window instead: the two at each end, the one you are
+// on with its neighbours, and an ellipsis for each run that was left out. Seven numbers, whatever the branch
+// length, and the ends stay reachable in one click because "the beginning" and "HEAD" are the two places a
+// reviewer jumps to blind.
+// The wide entries ("All" / "WT") are not patch sets and never fold away — they are the exits.
+var PATCHSET_EDGE = 2;   // how many at each end
+var PATCHSET_AROUND = 1; // how many either side of the active one
+function patchSetWindow(opts) {
+  var numbers = opts.filter(function (o) { return !o.wide; });
+  if (numbers.length <= PATCHSET_EDGE * 2 + PATCHSET_AROUND * 2 + 1) return opts;
+  var at = -1;
+  for (var i = 0; i < numbers.length; i++) if (numbers[i].active) at = i;
+  // Nothing active on this side (base is "All", target is the working tree): the ends are all there is to say.
+  var keep = {};
+  for (var e = 0; e < PATCHSET_EDGE; e++) { keep[e] = true; keep[numbers.length - 1 - e] = true; }
+  if (at >= 0) for (var d = -PATCHSET_AROUND; d <= PATCHSET_AROUND; d++) {
+    var k = at + d;
+    if (k >= 0 && k < numbers.length) keep[k] = true;
+  }
+  var out = [], gap = false;
+  numbers.forEach(function (o, index) {
+    if (keep[index]) { out.push(o); gap = false; return; }
+    if (!gap) { out.push({ ellipsis: true, from: index }); gap = true; }
+  });
+  // Put the wide exits back where they were: base leads with "All", target ends with "WT".
+  var lead = opts.filter(function (o) { return o.wide && opts.indexOf(o) === 0; });
+  var tail = opts.filter(function (o) { return o.wide && opts.indexOf(o) !== 0; });
+  return lead.concat(out, tail);
+}
+
 function patchSetNumButton(which, opt) {
+  // A fold is not a control: it says how many were left out and answers a hover, nothing more. Clicking it
+  // would have to guess which of the hidden commits you meant.
+  if (opt.ellipsis) return '<span class="patchset-gap" aria-hidden="true">…</span>';
   return '<button type="button" class="patchset-num' + (opt.active ? ' active' : '') + (opt.wide ? ' patchset-num-wide' : '') + '"'
     + ' data-which="' + which + '" data-ref="' + escapeHtml(opt.ref) + '" title="' + escapeHtml(opt.title) + '"'
     + ' aria-pressed="' + (opt.active ? 'true' : 'false') + '">' + escapeHtml(opt.label) + '</button>';
@@ -75,8 +136,8 @@ function renderPatchSetBar() {
   bar.classList.remove('hidden');
   var baseWrap = document.getElementById('patchset-base-nums');
   var targetWrap = document.getElementById('patchset-target-nums');
-  if (baseWrap) baseWrap.innerHTML = patchSetBaseOptions(patchSetData).map(function (o) { return patchSetNumButton('base', o); }).join('');
-  if (targetWrap) targetWrap.innerHTML = patchSetTargetOptions(patchSetData).map(function (o) { return patchSetNumButton('target', o); }).join('');
+  if (baseWrap) baseWrap.innerHTML = patchSetWindow(patchSetBaseOptions(patchSetData)).map(function (o) { return patchSetNumButton('base', o); }).join('');
+  if (targetWrap) targetWrap.innerHTML = patchSetWindow(patchSetTargetOptions(patchSetData)).map(function (o) { return patchSetNumButton('target', o); }).join('');
   var reset = document.getElementById('patchset-reset');
   if (reset) reset.classList.toggle('hidden', !inCompare);
 }

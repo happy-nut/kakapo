@@ -56,9 +56,39 @@ function focusDiffRow(row) {
   }
 }
 
+// The file path, and — while the review is pointed at commits instead of the working tree — the commit it is
+// showing, first. This is the one place a reader's eyes already go on every file change, which is what makes
+// it the place to say "these are not your local changes": opening a commit from Cmd+9 closes the history
+// overlay and lands you here, so nothing else on screen would have told you.
 function renderBreadcrumb(container, path) {
   if (!container) return;
   container.textContent = '';
+  const lead = compareCommitLead();
+  if (lead) {
+    const mark = document.createElement('span');
+    mark.className = 'crumb-commit';
+    mark.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor"'
+      + ' stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1v4M8 11v4"/></svg>'
+      + '<span class="crumb-sha"></span>';
+    mark.querySelector('.crumb-sha').textContent = lead.sha;
+    container.appendChild(mark);
+    if (lead.subject) {
+      const subject = document.createElement('span');
+      subject.className = 'crumb-subject';
+      subject.textContent = lead.subject;
+      container.appendChild(subject);
+    }
+    if (lead.others > 0) {
+      const more = document.createElement('span');
+      more.className = 'crumb-count';
+      more.textContent = t('compare.andMore', { n: lead.others });
+      container.appendChild(more);
+    }
+    const sep = document.createElement('span');
+    sep.className = 'crumb-sep';
+    sep.textContent = '›';
+    container.appendChild(sep);
+  }
   const parts = (path || '').split('/').filter(Boolean);
   parts.forEach((seg, i) => {
     if (i > 0) {

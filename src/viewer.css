@@ -18,6 +18,10 @@
   --diff-deleted: #35383b;
   --diff-deleted-strong: #4b4f53;
   --active: #58a6ff;
+  /* The review is showing commits, not the working tree. Its own accent because the compare pill's
+     three do not cover this case, and because two palettes already spend violet on --active — a
+     commit mark the same colour as the selection is not a mark. */
+  --commit-accent: #a98bff;
   --active-strong: #79b8ff;
   --diag-error: #f47067;
   --diag-warning: #e0a326;
@@ -85,6 +89,7 @@
   --diff-deleted: #e6e8ea;
   --diff-deleted-strong: #cfd3d7;
   --active: #0969da;
+  --commit-accent: #6d45c9;
   --sidebar: #f0f2f5;
   --active-strong: #0557b8;
   --diag-error: #cf222e;
@@ -138,6 +143,7 @@
   --diff-deleted: #25171c;
   --diff-deleted-strong: #78191b;
   --active: #58a6ff;
+  --commit-accent: #a98bff;
   --active-strong: #79c0ff;
   --sidebar: #0d1117;
   --elevated: #161b22;
@@ -183,6 +189,7 @@
   --diff-deleted: #ffebe9;
   --diff-deleted-strong: #ffcecb;
   --active: #0969da;
+  --commit-accent: #6d45c9;
   --active-strong: #0550ae;
   --sidebar: #f6f8fa;
   --elevated: #ffffff;
@@ -228,6 +235,7 @@
   --diff-deleted: #3f3f3f;
   --diff-deleted-strong: #55595c;
   --active: #4a88c7;
+  --commit-accent: #a98bff;
   --active-strong: #6aa7e4;
   --sidebar: #3c3f41;
   --elevated: #45494a;
@@ -274,6 +282,7 @@
   --diff-deleted: #e7e7e7;
   --diff-deleted-strong: #d0d0d0;
   --active: #3574f0;
+  --commit-accent: #6d45c9;
   --active-strong: #1b5fd1;
   --sidebar: #f2f3f5;
   --elevated: #ffffff;
@@ -330,6 +339,7 @@
   --diff-deleted: #3c191c;
   --diff-deleted-strong: #8c2b2b;
   --active: #268bd2;
+  --commit-accent: #d33682;
   --active-strong: #6cc0f5;
   --sidebar: #012b33;
   --elevated: #073642;
@@ -375,6 +385,7 @@
   --diff-deleted: #fbe0dd;
   --diff-deleted-strong: #f0b0aa;
   --active: #2074af;
+  --commit-accent: #d33682;
   --active-strong: #1a6fab;
   --sidebar: #f2ecd8;
   --elevated: #fffbf0;
@@ -422,6 +433,7 @@
   --diff-deleted: #45222c;
   --diff-deleted-strong: #8b3040;
   --active: #bd93f9;
+  --commit-accent: #ff79c6;
   --active-strong: #d6b6ff;
   --sidebar: #21222c;
   --elevated: #343746;
@@ -467,6 +479,7 @@
   --diff-deleted: #fbdcd7;
   --diff-deleted-strong: #efaba0;
   --active: #644ac9;
+  --commit-accent: #c4257f;
   --active-strong: #4a35a3;
   --sidebar: #f7f1dc;
   --elevated: #fffdf5;
@@ -514,6 +527,7 @@
   --diff-deleted: #4a0d10;
   --diff-deleted-strong: #b81e26;
   --active: #4fc3f7;
+  --commit-accent: #d7a3ff;
   --active-strong: #8ce0ff;
   --sidebar: #000000;
   --elevated: #141414;
@@ -559,6 +573,7 @@
   --diff-deleted: #ffdcd9;
   --diff-deleted-strong: #e8867e;
   --active: #0f4a85;
+  --commit-accent: #6a0dad;
   --active-strong: #0a3560;
   --sidebar: #ffffff;
   --elevated: #ffffff;
@@ -1119,6 +1134,10 @@ body.native-app .source-tabs {
 .patchset-latest-tag {
   padding: 1.5px 7px; border-radius: 999px; font-size: 10px; font-weight: 650;
   color: var(--active); background: color-mix(in srgb, var(--active) 16%, transparent);
+}
+.patchset-gap {
+  color: var(--muted); font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 0 2px; align-self: center; user-select: none;
 }
 .patchset-reset {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
@@ -1844,6 +1863,24 @@ h1 { margin: 0; font-size: 18px; }
 .crumb-stat-add { color: var(--add-strong); font-weight: 600; }
 .crumb-stat-del { color: var(--del-strong); font-weight: 600; }
 .crumb-sep { opacity: 0.55; }
+/* While the review is pointed at commits, the breadcrumb leads with the one it is showing. Its own accent —
+   not one of the pill's three — because this is the state the pill's rule did not cover: those three colour
+   what the app chose FOR you, and the two it leaves neutral are the ones you picked with the control right in
+   front of you. A commit opened from Cmd+9 is neither: you chose it, in a panel that then closed. */
+.crumb-commit {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  color: var(--commit-accent); font-weight: 650;
+}
+.crumb-commit svg { flex: none; }
+.crumb-sha { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* The subject gives up its width first: the file path is what the rest of the toolbar is about, and a title
+   that has pushed the filename off the end has stopped being context and become the content. */
+.crumb-subject { color: var(--muted); font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.crumb-count {
+  flex: none; font-size: 10px; font-weight: 700; color: var(--commit-accent);
+  border: 1px solid color-mix(in srgb, var(--commit-accent) 45%, transparent);
+  border-radius: 999px; padding: 1px 6px;
+}
 .review-status {
   display: flex;
   align-items: center;

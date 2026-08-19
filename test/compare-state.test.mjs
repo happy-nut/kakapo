@@ -129,3 +129,53 @@ test("every mode has a name in every locale", () => {
     for (const key of keys) assert.ok(messages[key], `${locale} is missing ${key}`);
   }
 });
+
+// ── The two renderer-side halves of "you are looking at commits, not your working tree" ──────────────────
+// Both are pure functions over the patch-set payload, so they are exercised against the built bundle rather
+// than through a whole viewer: the payload IS their input, and that is what the IPC hands them.
+import { readFileSync } from "node:fs";
+const bundle = readFileSync(new URL("../dist/viewer.client.js", import.meta.url), "utf8");
+function bundled(name, ...deps) {
+  const source = new RegExp(`function ${name}\\([\\s\\S]*?\\n}`).exec(bundle);
+  assert.ok(source, `${name} is in the bundle`);
+  return new Function(...deps.map((d) => d[0]), `${source[0]}; return ${name};`)(...deps.map((d) => d[1]));
+}
+
+// A single commit has a subject and that is what to call it. A RANGE has none: naming it after one of its
+// commits promotes that commit over the others. The newest one's subject leads and the rest are counted, so
+// the words on screen are honestly attributed — and narrowing a range to one commit drops the count by
+// itself, which is the same rule read from the other end.
+test("the breadcrumb names one commit, and counts the rest of a range", () => {
+  const commits = [1, 2, 3, 4, 5, 6].map((n) => ({
+    sha: `sha${n}`, shortSha: `abc000${n}`, subject: `커밋 ${n}`, date: "",
+  }));
+  const lead = (activeBase, activeTarget, extra) => bundled("compareCommitLead", ["patchSetData",
+    { commits, activeBase, activeTarget, scoped: true, ...extra }])();
+
+  assert.deepEqual(lead("sha3", "sha4"), { sha: "abc0004", subject: "커밋 4", others: 0 },
+    "base..target spanning one commit is named, not counted");
+  assert.deepEqual(lead("sha1", "sha6"), { sha: "abc0006", subject: "커밋 6", others: 4 },
+    "a five-commit span leads with the newest and counts the other four");
+  assert.equal(lead("sha1", "worktree"), null, "the working tree is not a commit and says nothing");
+  assert.equal(lead("sha1", "sha6", { scoped: false }), null,
+    "outside a Cmd+9 compare the toolbar stays quiet — marking every state marks none");
+});
+
+// Thirty-three patch sets wrapped the bar onto a second row and no number was findable. Show the two at each
+// end, the active one with its neighbours, and a fold for each run left out.
+test("the patch-set bar folds a long branch down to a findable window", () => {
+  // Read the two window sizes out of the bundle rather than restating them, or this test would keep passing
+  // while the bar on screen showed a different shape.
+  const sizeOf = (name) => Number(new RegExp(`var ${name} = (\\d+)`).exec(bundle)?.[1]);
+  const patchSetWindow = bundled("patchSetWindow",
+    ["PATCHSET_EDGE", sizeOf("PATCHSET_EDGE")], ["PATCHSET_AROUND", sizeOf("PATCHSET_AROUND")]);
+  const of = (count, activeIndex) => patchSetWindow(
+    Array.from({ length: count }, (_, i) => ({ label: String(i + 1), active: i === activeIndex })),
+  ).map((o) => (o.ellipsis ? "…" : o.label)).join(" ");
+
+  assert.equal(of(33, 3), "1 2 3 4 5 … 32 33", "seven numbers: both ends, and where you are");
+  assert.equal(of(33, 32), "1 2 … 32 33", "…and no fold where the window already touches an end");
+  assert.equal(of(33, -1), "1 2 … 32 33", "nothing active (base is All / target is the working tree): just the ends");
+  assert.equal(of(7, 3), "1 2 3 4 5 6 7", "a branch that already fits is never folded");
+  assert.equal(of(8, 3), "1 2 3 4 5 … 7 8", "one past the limit folds exactly one run");
+});

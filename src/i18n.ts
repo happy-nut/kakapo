@@ -225,6 +225,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "compare.index": "Index",
     "compare.incoming.why": "Nothing local to review — showing what the remote is ahead by.",
     "compare.openHistory": "History",
+    // The breadcrumb, while the review shows commits: the newest one is named, the rest are counted.
+    "compare.andMore": "+{n} more",
     "patchset.bar": "Compare base",
     "patchset.base": "Base",
     "patchset.pick": "Choose a patch set to compare against",
@@ -823,6 +825,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "compare.index": "인덱스",
     "compare.incoming.why": "로컬에 볼 것이 없어, 리모트가 앞서 있는 커밋을 대신 보여주는 중입니다.",
     "compare.openHistory": "히스토리",
+    "compare.andMore": "외 {n}개",
     "patchset.bar": "기준 비교",
     "patchset.base": "기준",
     "patchset.pick": "비교 기준으로 삼을 patch set 선택",
