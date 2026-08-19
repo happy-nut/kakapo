@@ -31,6 +31,11 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
   },
   // Terminal menu accelerators (Ctrl+` / Cmd+D / Cmd+Alt+[ etc.) that Chromium swallows before renderer
   // keydown, routed via the app menu to the focused window's terminal client.
+  // ⌘+ / ⌘− change the zoom in main (Chromium never lets these reach a renderer keydown). This is main
+  // telling the page what the new size is, so the Settings dropdown can show it.
+  onUiScale: (cb: (scale: number) => void): void => {
+    ipcRenderer.on("kakapo:ui-scale", (_event, scale: number) => cb(Number(scale)));
+  },
   onTerminalToggle: (cb: () => void): void => {
     ipcRenderer.on("kakapo:terminal-toggle", () => cb());
   },
@@ -51,9 +56,13 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
     ipcRenderer.on("kakapo:workspace-state", (_event, state: unknown) => cb(state));
   },
   toggleWorkspaceHub: (): void => ipcRenderer.send("kakapo:workspace-hub-toggle"),
-  // A click in the review CONTENT dismisses an expanded rail. Reported from here rather than inferred from
-  // the view's focus event in main, which cannot tell a click in the diff from one in the terminal panel.
-  reviewClicked: (): void => ipcRenderer.send("kakapo:review-clicked"),
+  // Put an expanded rail away, because the review is taking over. Reported from here rather than inferred
+  // from the view's focus event in main, which cannot tell a click in the diff from one in the terminal
+  // panel. Two callers: a click in the review CONTENT, and ⌘0/⌘1 — while the rail is pushed open it
+  // force-collapses the in-view tree, so a shortcut that means "take me to that tree" has to ask first.
+  // One name, not one per caller: both are the same sentence, and the second was a no-op for as long as it
+  // was spelled on the wrong bridge (see test/window-layout.test.mjs).
+  railStandDown: (): void => ipcRenderer.send("kakapo:review-clicked"),
   // ⌘K opens a floating quick-switcher rendered over the review (the review stays visible behind it).
   onOpenQuickSwitcher: (cb: () => void): void => {
     ipcRenderer.on("kakapo:open-quick-switcher", () => cb());
@@ -117,8 +126,8 @@ contextBridge.exposeInMainWorld("kakapoComments", {
     ipcRenderer.invoke("kakapo:comments-write", payload),
   // Park the merged hand-off document next to the thread file and return its path — what the terminal gets is
   // that one path, not the document.
-  writeRequest: (text: string): Promise<{ ok: boolean; path?: string }> =>
-    ipcRenderer.invoke("kakapo:comments-request-write", { text }),
+  writeRequest: (text: string, name?: string): Promise<{ ok: boolean; path?: string }> =>
+    ipcRenderer.invoke("kakapo:comments-request-write", { text, name }),
   onUpdate: (cb: (payload: { records: unknown[] }) => void): void => {
     ipcRenderer.on("kakapo:comments-update", (_event, payload) => cb(payload));
   },

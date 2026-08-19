@@ -37,8 +37,13 @@ test("inactive diff files defer gutter work until navigation makes them visible"
 test("native window resizing defers row projection and connector geometry until the viewport settles", () => {
   assert.match(
     layers,
-    /window\.addEventListener\('resize',[\s\S]*?diffViewportResizing = true;[\s\S]*?setTimeout\(settleDiffViewportResize, 140\)/,
-    "viewport resize enters one debounced settling phase",
+    /function beginDiffViewportChurn\(\) \{[\s\S]*?diffViewportResizing = true;[\s\S]*?setTimeout\(settleDiffViewportResize, 140\)/,
+    "viewport churn enters one debounced settling phase",
+  );
+  assert.match(
+    layers,
+    /window\.addEventListener\('resize', beginDiffViewportChurn/,
+    "a native resize is one of the things that starts it",
   );
   assert.match(
     layers,
@@ -54,5 +59,25 @@ test("native window resizing defers row projection and connector geometry until 
     alignment,
     /if \(typeof diffViewportResizing === 'undefined' \|\| !diffViewportResizing\) scheduleAsymmetricDiffScroll\(\)/,
     "connector alignment does not force layout during intermediate resize frames",
+  );
+});
+
+// A resize is not the only thing that dirties every row at once. Swapping the theme or the syntax family
+// rewrites the custom properties the whole document is painted from, and a zoom step changes every row's
+// height — after either, the table's ResizeObserver fires with the entire style tree invalidated, and what it
+// triggers reads a computed style and a rect per row while writing spacer heights that resize the table and
+// fire it again. Reported twice as the window simply stopping. They take the resize's exit now.
+test("a theme swap or a zoom step settles like a resize instead of re-projecting per row", () => {
+  const core = readFileSync(new URL("../src/viewer/01-core.js", import.meta.url), "utf8");
+  const arms = (fn) => new RegExp("function " + fn + "\\([^)]*\\) \\{[\\s\\S]{0,400}?beginDiffViewportChurn\\(\\)").test(core);
+  assert.ok(arms("applyTheme"), "the app palette arms the settle before it repaints");
+  assert.ok(arms("applySyntaxTheme"), "the syntax family does too");
+  assert.ok(arms("paintUiScale"), "and the page's own zoom");
+  // ⌘+/⌘− are menu accelerators: main zooms the view and only tells the renderer afterwards, so that path has
+  // to arm the settle itself or the keyboard stays exactly as slow as it was.
+  assert.match(
+    core,
+    /onUiScale\(function \(next\) \{[\s\S]{0,200}?beginDiffViewportChurn\(\)/,
+    "the ⌘+/⌘− notification from main arms it too",
   );
 });

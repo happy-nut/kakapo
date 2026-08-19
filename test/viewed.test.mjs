@@ -204,3 +204,31 @@ test("Space marks the arrow-selected Changes row instead of the open file", asyn
   assert.equal(v.activeDiffFile(), "src/a.ts", "marking a sidebar selection does not replace the open file");
   v.close();
 });
+
+// The mark itself used to be the whole control: nothing was drawn until a row was already viewed, so there
+// was no way to see from the list that ticking one off was even an option. Every changed row now carries an
+// empty box, leftmost, and clicking it is the mouse's version of Space — which means it must NOT also open
+// the file, the way every other click on that row does.
+test("every changed row shows an empty viewed box, and clicking it toggles without opening the file", async () => {
+  const v = await loadViewer(html);
+  await v.openDiffFor("src/a.ts");
+  await v.settle(100);
+
+  const boxes = v.$all(".change-row .viewed-box");
+  assert.equal(boxes.length, 2, "both changed rows draw the box, viewed or not");
+  assert.ok(boxes.every((b) => b.getAttribute("aria-checked") === "false"), "an unreviewed row reads as an unchecked box");
+  const rowB = v.$('.change-row[data-file="src/b.ts"]');
+  assert.ok(rowB.firstElementChild.classList.contains("viewed-box"), "the box is the leftmost thing on the row, ahead of the file icon");
+
+  v.click(rowB.querySelector(".viewed-box"));
+  await v.settle(80);
+  assert.equal(v.window.isFileViewed("src/b.ts"), true, "the click marks that row viewed");
+  assert.equal(rowB.querySelector(".viewed-box").getAttribute("aria-checked"), "true", "and the box says so");
+  assert.equal(v.activeDiffFile(), "src/a.ts", "ticking a row off never navigates away from what is open");
+
+  v.click(rowB.querySelector(".viewed-box"));
+  await v.settle(80);
+  assert.equal(v.window.isFileViewed("src/b.ts"), false, "clicking again unticks it");
+  assert.equal(v.activeDiffFile(), "src/a.ts", "still no navigation");
+  v.close();
+});

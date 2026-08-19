@@ -219,7 +219,7 @@ test("the new-worktree toggle defaults on and creates a worktree", async () => {
   document.querySelector("#label").value = "fix-login";
   document.querySelector("#doCreate").click();
   await tick();
-  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "fix-login", true, { base: "", slug: "", memo: "" }]);
+  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "fix-login", true, { base: "", slug: "", memo: "", agent: "claude" }]);
 });
 
 test("unchecking it hides the task name and opens the checkout instead", async () => {
@@ -233,7 +233,7 @@ test("unchecking it hides the task name and opens the checkout instead", async (
   assert.deepEqual(hub.lastCall("preview"), ["/repos/zoobox", "", false, ""]);
   document.querySelector("#doCreate").click();
   await tick();
-  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "", false, { base: "", slug: "", memo: "" }]);
+  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "", false, { base: "", slug: "", memo: "", agent: "claude" }]);
 });
 
 test("re-opening the dialog resets the toggle back on", async () => {
@@ -273,7 +273,10 @@ test("the delete confirmation offers to remove the local branch, pre-checked", a
 test("the start ref is a list of the repo's own refs, and the previewed slug is what gets created", async () => {
   const { hub, document } = openDialog({ path: "/repos/zoobox", name: "zoobox" },
     { preview: { ok: true, worktree: true, slug: "quiet-heron", base: "origin/main", branch: "kakapo/quiet-heron",
-      refs: ["origin/main", "develop", "origin/develop"], path: "~/kakapo/workspaces/zoobox/quiet-heron" } });
+      // A ref's short name cannot say which side it lives on (a local branch may be called `origin`), so
+      // listStartRefs sends the answer from git's own refname and the picker draws an icon from it.
+      refs: [{ ref: "origin/main", remote: true }, { ref: "develop", remote: false }, { ref: "origin/develop", remote: true }],
+      path: "~/kakapo/workspaces/zoobox/quiet-heron" } });
   await tick();
 
   // A native <select> shipped here first: macOS draws those with the system control and ignores every
@@ -284,6 +287,10 @@ test("the start ref is a list of the repo's own refs, and the previewed slug is 
   assert.equal(document.querySelectorAll("#create select").length, 0, "nothing in this dialog is a native select");
   const refItems = () => [...document.querySelectorAll("#baseMenu button")].map((b) => b.dataset.ref);
   assert.deepEqual(refItems(), ["origin/main", "develop", "origin/develop"], "the repo's own refs are the choices");
+  const refTitles = () => [...document.querySelectorAll("#baseMenu button")].map((b) => b.title);
+  assert.equal(new Set(refTitles()).size, 2, "local and remote refs are labelled apart, not all the same");
+  assert.notEqual(refTitles()[0], refTitles()[1], "origin/main (remote) and develop (local) do not read alike");
+  assert.equal(document.querySelectorAll("#baseMenu button .pm-ic svg").length, 3, "every ref carries its side as an icon");
   assert.equal(base.value, "origin/main", "and the default is preselected");
   assert.equal(document.querySelector("#baseName").textContent, "origin/main", "the field shows what is selected");
   assert.equal(document.querySelector("#slug").value, "quiet-heron", "the previewed slug is held for create");
@@ -303,7 +310,7 @@ test("the start ref is a list of the repo's own refs, and the previewed slug is 
   document.querySelector("#doCreate").click();
   await tick();
   assert.deepEqual(hub.lastCall("create"),
-    ["/repos/zoobox", "버그 픽스", true, { base: "develop", slug: "quiet-heron", memo: "왜 만들었는지" }]);
+    ["/repos/zoobox", "버그 픽스", true, { base: "develop", slug: "quiet-heron", memo: "왜 만들었는지", agent: "claude" }]);
 });
 
 
@@ -404,4 +411,181 @@ test("the keyboard ring follows its workspace across a re-render, not its row nu
   // zoobox's fix-login worktree — a workspace the user never moved to.
   hub.handlers.onState(items.slice(1));
   assert.deepEqual(ringed(document), ["claude/legacy-strategy-removal"], "still zoobox's main, wherever it now sits");
+});
+
+// Several worktrees of one repo sit on similar branches, and their title bars read identically — the path is
+// the only thing that always tells them apart, and the thing you need when you go to run something there.
+test("the title bar says which worktree on disk, with home folded to ~", async () => {
+  const { document } = railWithState([
+    { ...KAKAPO_MAIN, id: 1, active: true, branch: "fix/issue-1130",
+      path: "/repos/zoobox", shortPath: "~/kakapo/workspaces/zoobox/quiet-warbler" },
+  ]);
+  await tick();
+  const name = document.querySelector("#wsname");
+  assert.match(name.textContent, /kakapo/, "the project is still first");
+  assert.match(name.textContent, /fix\/issue-1130/, "then the branch");
+  assert.match(name.querySelector(".wspath").textContent, /^~\/kakapo\/workspaces\/zoobox\/quiet-warbler$/,
+    "then where it actually is, with the shared prefix folded away");
+});
+
+// Every shortcut this rail has lived only in the menu bar: the buttons carried a native `title`, which this
+// frameless child view renders unreliably, and the custom bubble was wired to the top toolbar alone. Hovering
+// the rail's own controls therefore told you nothing — least of all that ⌘⇧E and ⌘, existed.
+test("the rail's own buttons name their shortcut on hover, like the toolbar's", async () => {
+  const { document } = railWithState([{ ...KAKAPO_MAIN, id: 1, alias: "one" }]);
+  await tick();
+  const tip = document.querySelector("#tt");
+  const hover = (id) => {
+    document.querySelector(id).dispatchEvent(new document.defaultView.MouseEvent("mouseover", { bubbles: true }));
+    return { shown: tip.classList.contains("show"), key: tip.querySelector("kbd")?.textContent };
+  };
+  assert.deepEqual(hover("#pin"), { shown: true, key: "⌘⇧E" }, "the rail toggle says ⌘⇧E");
+  assert.deepEqual(hover("#settings"), { shown: true, key: "⌘," }, "the gear at the bottom says ⌘,");
+  assert.deepEqual(hover("#new"), { shown: true, key: "⌘N" }, "and the ＋ says ⌘N");
+  // The shortcut belongs in its own kbd, not buried in the sentence, and the label still names the action.
+  assert.ok(!/⌘/.test(document.querySelector("#pin").dataset.tip), "the label text does not repeat the keys");
+  assert.ok(document.querySelector("#pin").dataset.tip.length > 0, "but there is a label");
+});
+
+// A workspace runs several agents at once and the tile had ONE dot for all of them — so the summary was both
+// less than you need and, when it was wrong, actively misleading (a tmux pane's pty reports "tmux" forever,
+// which read as "still running" and could never turn off). The expanded tile lists the panes themselves.
+test("an expanded tile lists what each terminal pane is running, with its own state", async () => {
+  const { hub, document } = railWithState([{
+    ...KAKAPO_MAIN, id: 1, kind: "worktree", branch: "kakapo/eager-lark", alias: "eager-lark",
+    busy: true, running: true, unread: false,
+    panes: [
+      { id: 1, command: "claude", agent: "claude", running: true, busy: true },
+      { id: 2, command: "npm", running: true, busy: false },
+      { id: 3, command: "zsh", running: false, busy: false },
+    ],
+  }]);
+  await tick();
+
+  const rows = [...document.querySelectorAll(".ev .wt .wt-pane")];
+  assert.equal(rows.length, 3, "one row per pane, including the one that is only a shell");
+  assert.match(rows[0].className, /pane-busy/, "the agent mid-turn spins on its own row");
+  assert.match(rows[0].textContent, /Claude/, "…and is named by its agent, not by the process");
+  assert.match(rows[1].className, /pane-running/, "a plain command is alive but not mid-turn");
+  assert.match(rows[1].textContent, /npm/, "…and says which command it is");
+  assert.match(rows[2].className, /pane-idle/, "a bare shell is neither");
+
+  // The activity tick has to rebuild these rows: they carry per-pane state, which no class toggle can express.
+  hub.handlers.onActivity([{ id: 1, busy: false, unread: true, running: true, panes: [
+    { id: 1, command: "claude", agent: "claude", running: true, busy: false },
+    { id: 2, command: "zsh", running: false, busy: false },
+  ] }]);
+  const after = [...document.querySelectorAll(".ev .wt .wt-pane")];
+  assert.equal(after.length, 2, "a closed pane leaves the list on the next tick");
+  assert.match(after[0].className, /pane-attn/, "the turn that just ended is the one waiting for you");
+  assert.ok(!after.slice(1).some((r) => /pane-attn/.test(r.className)), "and only that one — repeated, it stops meaning look-here");
+});
+
+// The New-workspace dialog asks for a description, wrote it to the workspace record, and then nothing ever
+// read it back: no tile showed it, and Edit memo opened an EMPTY box, so the only thing you could do with the
+// note you wrote was overwrite it blind.
+test("the workspace description is shown, and Edit memo opens holding it", async () => {
+  const { hub, document } = railWithState([{
+    ...KAKAPO_MAIN, id: 7, kind: "worktree", branch: "kakapo/eager-lark", alias: "eager-lark",
+    memo: "리뷰 코멘트 통합",
+  }]);
+  await tick();
+
+  assert.equal(document.querySelector(".ev .wt .wt-memo")?.textContent, "리뷰 코멘트 통합", "the note is on the tile");
+  assert.match(document.querySelector(".ev .wt").getAttribute("title"), /리뷰 코멘트 통합/, "and in the tooltip the collapsed strip shows");
+
+  hub.handlers.onTileAction({ id: 7, action: "memo", name: "eager-lark" });
+  assert.equal(hub.lastCall("openModal")?.[1]?.memo, "리뷰 코멘트 통합", "Edit memo is handed the current note");
+
+  // …and the dialog actually puts it in the box, rather than starting blank the way it always did.
+  const overlay = stubHub();
+  const overlayDoc = loadPage(modalOverlayHtml(false, t), overlay);
+  await tick();
+  overlay.handlers.onModalOpen({ type: "memo", id: 7, name: "eager-lark", memo: "리뷰 코멘트 통합" });
+  assert.equal(overlayDoc.querySelector("#promptInput").value, "리뷰 코멘트 통합", "the prompt opens prefilled");
+});
+
+// Reordering the rail. Press and HOLD lifts a workspace; dragging then moves it inside its project. The hold
+// is what keeps ordinary use intact: a press that moves before the timer fires is a scroll, and one that
+// never moves is a click, so neither becomes a drag by accident.
+test("holding a workspace lifts it, and dropping it reorders its project", async () => {
+  const project = (id, name) => ({ ...KAKAPO_MAIN, id, kind: "worktree", alias: name,
+    branch: `kakapo/${name}`, path: `/kakapo/workspaces/kakapo/${name}` });
+  const { hub, document } = railWithState([project(1, "alpha"), project(2, "beta"), project(3, "gamma")]);
+  hub.handlers.onSetExpanded(true);
+  await tick();
+  const view = document.defaultView;
+  const names = () => [...document.querySelectorAll(".ev .wt")].map((el) => el.dataset.name);
+  assert.deepEqual(names(), ["alpha", "beta", "gamma"], "the rail starts in the order main sent");
+
+  const tiles = [...document.querySelectorAll(".ev .wt")];
+  const press = (target, opts) => target.dispatchEvent(new view.MouseEvent("mousedown",
+    { bubbles: true, button: 0, clientX: 50, clientY: 10, ...opts }));
+  // jsdom has no layout: say where the drop target is and what the pointer is over.
+  document.elementFromPoint = () => tiles[2];
+  tiles[2].getBoundingClientRect = () => ({ top: 40, height: 20, bottom: 60, left: 0, right: 100, width: 100 });
+
+  // A press that lets go too early is still a click — nothing is lifted and nothing moves.
+  press(tiles[0]);
+  document.dispatchEvent(new view.MouseEvent("mouseup", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 340));
+  assert.ok(!document.querySelector(".wt-lifted"), "a short press never lifts anything");
+
+  press(tiles[0]);
+  await new Promise((resolve) => setTimeout(resolve, 340));
+  assert.ok(tiles[0].classList.contains("wt-lifted"), "holding still lifts the tile");
+
+  tiles[2].dispatchEvent(new view.MouseEvent("mousemove", { bubbles: true, clientX: 50, clientY: 58 }));
+  assert.deepEqual(names(), ["beta", "gamma", "alpha"], "dragging past a tile's midpoint moves it below");
+
+  document.dispatchEvent(new view.MouseEvent("mouseup", { bubbles: true }));
+  assert.deepEqual(hub.lastCall("reorder"), ["kakapo", [
+    "/kakapo/workspaces/kakapo/beta", "/kakapo/workspaces/kakapo/gamma", "/kakapo/workspaces/kakapo/alpha",
+  ]], "the drop reports the project's new order by path");
+
+  // The click that follows a drop would otherwise open whatever the tile landed on.
+  tiles[0].click();
+  assert.equal(hub.lastCall("activate"), undefined, "dropping a tile does not also switch to it");
+});
+
+// A workspace is made to give an agent something to do, and the first thing anyone did in the terminal it
+// already opens was type that agent's name. The dialog offers to do it, defaulting to on — and remembers
+// which one, because you reach for the same one most days.
+test("the New-workspace dialog starts an agent, on by default, on the one used last", async () => {
+  const { hub, document } = openDialog({ path: "/repos/zoobox", name: "zoobox" },
+    { preview: { ok: true, worktree: true, slug: "quiet-heron", base: "origin/main", branch: "kakapo/quiet-heron",
+      refs: [{ ref: "origin/main", remote: true }], path: "~/kakapo/workspaces/zoobox/quiet-heron",
+      lastAgent: "codex" } });
+  await tick();
+
+  assert.equal(document.querySelector("#agentStart").checked, true, "starting an agent is the default");
+  assert.equal(document.querySelector("#agent").value, "codex", "…and it opens on the one used last time");
+  assert.equal(document.querySelector("#agentFace .fv").textContent, "Codex", "which the button says");
+  // Its own mark, the one the rail already badges tiles with — a picker that names two products and draws
+  // neither makes you read where you could have looked.
+  assert.ok(document.querySelector("#agentFace .agent-ic-codex svg"), "and shows, in its brand colour");
+  assert.deepEqual(
+    [...document.querySelectorAll("#agentMenu button")].map((b) => `${b.dataset.agent}:${!!b.querySelector(".agent-ic svg")}`),
+    ["claude:true", "codex:true"], "every row in the menu carries its own mark too");
+
+  // Picking one in this dialog must survive the next preview — it re-runs on every keystroke of the task name.
+  document.querySelector('#agentMenu button[data-agent="claude"]').click();
+  const label = document.querySelector("#label");
+  label.value = "버그 픽스";
+  label.dispatchEvent(new document.defaultView.Event("input"));
+  await tick();
+  assert.equal(document.querySelector("#agent").value, "claude", "a deliberate pick is not undone by a re-preview");
+
+  document.querySelector("#doCreate").click();
+  await tick();
+  assert.equal(hub.lastCall("create")?.[3]?.agent, "claude", "the chosen agent goes with the create request");
+
+  // Unchecking sends nothing — and leaves the picker in place rather than making the row jump.
+  document.querySelector("#agentStart").checked = false;
+  document.querySelector("#agentStart").dispatchEvent(new document.defaultView.Event("change"));
+  assert.ok(document.querySelector("#agentRow").classList.contains("agent-off"), "the row reads as off");
+  assert.equal(document.querySelector("#chooseAgent").disabled, true, "and its picker stops answering");
+  document.querySelector("#doCreate").click();
+  await tick();
+  assert.equal(hub.lastCall("create")?.[3]?.agent, "", "nothing is started when it is turned off");
 });

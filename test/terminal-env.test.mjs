@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, nextTerminalOrdinal, tmuxSpawnArgs } from "../dist/util.js";
+import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, tmuxSessionPrefix, unreachableSessions, nextTerminalOrdinal, tmuxSpawnArgs } from "../dist/util.js";
 
 test("strips every npm_*-injected var (incl. the npm_config_prefix nvm rejects)", () => {
   const out = sanitizeTerminalEnv({
@@ -175,4 +175,35 @@ test("the close confirmation names the process the pane is actually running", as
     try { execFileSync(tmux, ["kill-session", "-t", session], { stdio: "pipe" }); } catch { /* already gone */ }
   }
   assert.equal(tmuxPaneCommand(tmux, session), "", "a session that is gone reports nothing running");
+});
+
+// Sessions outlive the app on purpose — that is what resume is — so nothing ever ended the ones belonging to
+// a workspace that has since been closed or moved away. Eleven sessions for four workspaces is a list nobody
+// can reason about. An orphan is not "old" and not "idle": it is a session whose name matches no workspace
+// this app knows, which means no tile to click and no window to come back to.
+test("unreachable sessions are the ones no workspace can name, and nothing else", () => {
+  const HOUR = 3600;
+  const now = 1_000_000;
+  const mine = tmuxSessionPrefix("/repos/zoobox");
+  const gone = tmuxSessionPrefix("/tmp/scratch/probe");
+  const old = now - 48 * HOUR;
+
+  const listed = [
+    `${mine}1 1 ${now}`,            // attached, reachable
+    `${mine}2 0 ${old}`,            // detached and idle, but its workspace is right there
+    `${gone}1 0 ${old}`,            // nothing can reach it, quiet for days
+    `${gone}2 1 ${old}`,            // unreachable BUT something is attached to it
+    `${gone}3 0 ${now - HOUR}`,     // unreachable, but busy an hour ago
+    `other-tool-1 0 ${old}`,        // not ours to end
+  ].join("\n");
+
+  assert.deepEqual(unreachableSessions(listed, ["/repos/zoobox"], now), [`${gone}1`],
+    "only the detached, quiet, unreachable one");
+
+  // The guards, stated one at a time so a future change cannot quietly drop one.
+  assert.equal(unreachableSessions(`${gone}2 1 ${old}`, [], now).length, 0, "attached is never touched");
+  assert.equal(unreachableSessions(`${gone}3 0 ${now - HOUR}`, [], now).length, 0, "nor is one that was busy recently");
+  assert.equal(unreachableSessions(`other-tool-1 0 ${old}`, [], now).length, 0, "nor another tool's session");
+  assert.equal(unreachableSessions(`${mine}2 0 ${old}`, ["/repos/zoobox"], now).length, 0,
+    "and a workspace kakapo knows keeps its sessions however long they idle");
 });

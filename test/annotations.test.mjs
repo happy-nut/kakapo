@@ -334,8 +334,8 @@ test("a note can be answered and dismissed without hunting for the controls", ()
   assert.match(css.slice(at, css.indexOf("}", at)), /opacity: \.55/, "they are visible before you hover");
 
   const sourceView = readFileSync(new URL("../src/viewer/10-source-view.js", import.meta.url), "utf8");
-  assert.match(sourceView, /if \(isFinite\(seq\)\) removeComments\(\[seq\]\)/,
-    "Backspace on a selected card removes exactly that one");
+  assert.match(sourceView, /if \(isFinite\(seq\)\) deleteComment\(seq\)/,
+    "Backspace acts on the SELECTED card, not on everything that shares the line");
   assert.match(sourceView, /classList\.contains\('mc-ai'\)\) return;/,
     "and `e` refuses to rewrite the agent's own words");
 });
@@ -539,5 +539,177 @@ test("an ordered note carries its own prev/next, and they drive the same walk as
   v.click(v.$all("#source-body .mc-card.mc-ai .mc-walk-step").find((b) => b.dataset.walk === "-1"));
   await v.settle(60);
   assert.equal(line(), 2, "back is the same step in reverse");
+  v.close();
+});
+
+// Shift+F8 walked and F8 did not. A reply carries its parent's anchor, so the entry after a note is very
+// often that note's own answer — stepping onto it moved the caret to the line it was already on, which looks
+// exactly like a key that does nothing. Backwards never hit it, because the previous entry is a different
+// line. A thread is one stop, not one per turn.
+test("F8 steps past a note's own replies instead of standing still on them", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\n",
+      after: "const a = 9;\nconst b = 8;\nconst c = 7;\nconst d = 6;\n" },
+  ]);
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+
+  // Ungrouped, like every note written before groups existed: the walk is file order, so a reply — which
+  // carries its parent's anchor — sits directly after the note it answers.
+  const first = v.agentSays({ kind: "note", path: "src/app.ts", line: 2, text: "the note" });
+  v.agentSays({ re: first, by: "agent", text: "an answer under it" });
+  v.agentSays({ re: first, by: "agent", text: "and another" });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 4, text: "the next note" });
+  await v.settle(40);
+
+  const line = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1) + 1;
+  v.key("F8");
+  await v.settle(60);
+  assert.equal(line(), 2, "the first step lands on the note");
+
+  v.key("F8");
+  await v.settle(60);
+  assert.equal(line(), 4, "the second steps over its two replies to the next note, not onto its own thread");
+
+  v.key("F8", { shiftKey: true });
+  await v.settle(60);
+  assert.equal(line(), 2, "and back is the same stop in reverse");
+  v.close();
+});
+
+// These prompts are sixty lines of instructions. Pasted into the composer they filled it with a wall of text
+// the reviewer had to scroll past to reach the send button, and every send pasted the same sixty lines again.
+// The merged review request already solved this: write the document, send the line that names it.
+test("an Explain prompt is written to a file and the terminal carries its path", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  const sent = [];
+  const written = [];
+  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text) };
+  v.window.kakapoComments = {
+    ...(v.window.kakapoComments || {}),
+    writeRequest: (text, name) => {
+      written.push({ name, text });
+      return Promise.resolve({ ok: true, path: "/repo/.git/kakapo/" + name });
+    },
+  };
+
+  v.key("7", { metaKey: true, code: "Digit7" });
+  await v.settle(30);
+
+  assert.equal(written.length, 1, "the prompt went to disk");
+  assert.equal(written[0].name, "explain-diff.md", "under a name of its own, so it cannot overwrite a review request");
+  assert.match(written[0].text, /problem note/, "and it is the whole prompt that was written");
+  assert.equal(sent.length, 1);
+  assert.match(sent[0], /\/repo\/\.git\/kakapo\/explain-diff\.md$/, "the composer carries the path");
+  assert.doesNotMatch(sent[0], /problem note/, "not the sixty lines");
+  v.close();
+});
+
+// A prompt that reaches the agent as text still works. One that reaches it as a path to a file that was never
+// written does not — so the wall of text is the right answer whenever the write cannot happen at all.
+test("a prompt still pastes when there is nowhere to write it", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  const sent = [];
+  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text) };
+  v.window.kakapoComments = { ...(v.window.kakapoComments || {}), writeRequest: () => Promise.reject(new Error("no git dir")) };
+
+  v.key("7", { metaKey: true, code: "Digit7" });
+  await v.settle(30);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0], /problem note/, "the prompt itself is sent when the file could not be");
+  v.close();
+});
+
+// A card's anchor is a RANGE, and the walk has to recognise the caret as standing on it wherever inside that
+// range it lands. This one passes on the old code too — reveal puts the caret at `from` and the old test read
+// `from`, so the two agreed by luck. It is here as the guard for the day one of them changes.
+test("F8 keeps walking after it lands on a card whose anchor is a range", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts",
+      before: "const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\nconst e = 5;\nconst f = 6;\n",
+      after: "const a = 9;\nconst b = 8;\nconst c = 7;\nconst d = 6;\nconst e = 5;\nconst f = 0;\n" },
+  ]);
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+
+  // The middle card covers lines 2-4: `from` is 2, and the caret lands on `line`, which is 4.
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, group: 1, text: "first" });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 4, from: 2, to: 4, group: 1, text: "a range" });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 6, group: 1, text: "last" });
+  await v.settle(40);
+
+  const line = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1) + 1;
+  const walked = [];
+  for (let i = 0; i < 3; i++) { v.key("F8"); await v.settle(60); walked.push(line()); }
+
+  // Entering at the nearest card below the caret, then following the story: 1 is where the caret already is,
+  // so the walk starts at the range and carries on — it must never skip to the end and stay there.
+  // Landing on a range puts the caret at its START (line 2), which is where the selection begins — the point
+  // is that the walk carries ON from there instead of losing track of where it is.
+  assert.deepEqual(walked, [2, 6, 1], "the walk continues past a range card instead of stranding on it");
+
+  v.key("F8", { shiftKey: true });
+  await v.settle(60);
+  assert.equal(line(), 6, "and backwards still undoes the step");
+  v.close();
+});
+
+// The card counts "8/9" from one list and F8 walked another: the walk was filtered by the source index, which
+// on a diff-first launch holds only the CHANGED files, so notes on untouched files disappeared from the walk
+// while the badge went on numbering them. Stepping then bounced between whichever two survived. Whatever is
+// counted must be what is walked — scoping a shared note to this workspace happens in main, before either.
+test("the number on a card counts the same cards F8 walks", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/changed.ts", before: "const a = 1;\nconst b = 2;\n", after: "const a = 9;\nconst b = 8;\n" },
+  ]);
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/changed.ts");
+
+  // One note on the changed file, two on a file this launch never indexed — all three belong to this
+  // workspace, and all three must be walkable.
+  v.agentSays({ kind: "note", path: "src/changed.ts", line: 1, group: 1, text: "on the diff" });
+  v.agentSays({ kind: "note", path: "src/untouched.ts", line: 3, group: 1, text: "not in the diff" });
+  v.agentSays({ kind: "note", path: "src/untouched.ts", line: 7, group: 2, text: "nor is this" });
+  await v.settle(40);
+
+  const walked = Array.from(v.window.sortedNavThread()).filter((c) => c.by === "agent");
+  assert.equal(walked.length, 3, "every note in this workspace is in the walk, indexed or not");
+
+  const badges = v.$all(".mc-card.mc-ai .mc-walk").map((el) => el.textContent);
+  assert.ok(badges.length > 0, "the cards carry their place in it");
+  for (const badge of badges) {
+    assert.match(badge, /\/3$/, `a card counts out of the walk it belongs to, got ${badge}`);
+  }
+  v.close();
+});
+
+// A note lives in the shared knowledge file and the conversation lives in this workspace's own — main merges
+// them into one list on the way in, notes LAST. The renderer resolved each record's parent from the records
+// it had already walked, so a reply written to a note never found one: it inherited no anchor, came out with
+// no path, and matched no file. The answer was in the file and nowhere on screen.
+test("a reply to a shared note lands on the note, whichever order the two files merge in", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const x = 1;\n", after: "export const x = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  // The merge order main sends: the conversation first (the reply is in it), the shared notes after.
+  v.window.applyThreadRecords([
+    { id: 7, re: 3, by: "me", text: "왜 이렇게 했어?" },
+    { id: 3, by: "agent", kind: "note", path: "src/app.ts", line: 1, text: "이 줄이 바뀐 이유" },
+  ]);
+  await v.settle(60);
+
+  const reply = v.storedComments().find((c) => c.seq === 7);
+  const note = v.storedComments().find((c) => c.seq === 3);
+  assert.ok(reply, "the reply survived the load");
+  assert.equal(reply.path, note.path, "and took the note's file, rather than none at all");
+  assert.equal(reply.line, note.line, "…and its line");
+  assert.equal(v.window.commentsAt(note.path, note.line).length, 2, "so the note and its reply are one thread");
   v.close();
 });

@@ -5,7 +5,7 @@ Stop at the top. This prompt does not explain files, functions or decisions - "E
 Write it to exactly this file, ONE JSON object per line (create it and its parent directories if missing; the file documents its own format in the # header at the top):
 {{NOTES_PATH}}
 
-{"id":<highest id in the file + 1>,"by":"agent","kind":"note","path":"repo/relative/entry-point.ts","line":1,"title":"What this repository is made of","text":"markdown"}
+{"id":<the NEXT FREE ID given at the top of the file>,"by":"agent","kind":"note","path":"repo/relative/entry-point.ts","line":1,"title":"What this repository is made of","text":"markdown"}
 - APPEND only. Comments from the reviewer and your earlier answers live in this same file: never rewrite, reorder or renumber a line already there.
 - "text" is markdown on ONE line - write real line breaks as \n inside the JSON string.
 - Anchor the note to the entry point: whatever actually runs first. That is where a newcomer starts reading, so that is where the map belongs.

@@ -74,6 +74,53 @@ function anchorLinePresent(path, anchorCode, code) {
 //     if the heuristic was wrong). anchorPresent is set at creation so the first round is not missed; an
 //     old-side anchor is never present, so it never flips to addressed.
 // Files whose content isn't loaded yet (lazy) are skipped here and reconciled after loadSourceFile resolves.
+// The commented line has left the working tree, so its line number on the right now points at whatever code
+// took its place — the card would sit beside a stranger. The base pane is where a line that is gone still
+// exists, so look the anchor up there and move the card across, keeping the reviewer's words next to the code
+// they were about.
+// ponytail: reads the base out of the rendered diff, so a file whose body has not materialized yet (lazy
+// review) simply doesn't move — same as before. Give the renderer the base text if that ever matters.
+function moveCommentToBaseSide(c) {
+  if (commentSide(c) === 'old') return false;
+  var code = String(c.anchorCode == null ? '' : c.anchorCode);
+  if (!code.trim()) return false;
+  var wrapper = diffWrapperByPath(c.path);
+  var rows = wrapper ? diffRowsOf(diffSideTable(wrapper, 'old')) : [];
+  for (var i = 0; i < rows.length; i++) {
+    if (diffLineText(rows[i]) !== code) continue;
+    var line = diffLineNumber(rows[i]);
+    if (line == null) continue;
+    var delta = line - c.line;
+    c.side = 'old';
+    c.line = line;
+    if (Number.isFinite(Number(c.from))) c.from = Number(c.from) + delta;
+    if (Number.isFinite(Number(c.to))) c.to = Number(c.to) + delta;
+    return true;
+  }
+  return false;
+}
+// A reply has no anchor of its own: it lives wherever the comment it continues lives, which is why
+// openReplyComposer copies the parent's and commentToRecord omits path/line whenever they still match.
+// Nothing kept that true once the parent MOVED. remapComments follows a root to its new line after the agent
+// edits the file, but a reply carries no anchor text to follow with — so it stayed on the line the question
+// used to be on, and the answer showed up as a card of its own, in a thread of its own, somewhere else in the
+// file. Re-seat every reply on its parent, parents first so a chain propagates in one pass.
+function reanchorReplies() {
+  var changed = 0;
+  reviewComments.slice().sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); }).forEach(function (c) {
+    if (c.replyTo == null) return;
+    var parent = reviewComments.find(function (x) { return x.seq === c.replyTo; });
+    if (!parent) return;
+    if (c.path === parent.path && c.line === parent.line && c.side === parent.side) return;
+    c.path = parent.path;
+    c.line = parent.line;
+    c.side = parent.side;
+    c.from = parent.from;
+    c.to = parent.to;
+    changed += 1;
+  });
+  return changed;
+}
 function remapComments() {
   if (!reviewComments.length) return;
   var changed = 0;
@@ -105,9 +152,11 @@ function remapComments() {
       if (!c.anchorPresent) { c.anchorPresent = true; changed++; } // confirm the anchor is real in this content
     } else if (c.anchorPresent && !c.addressed) {
       c.addressed = true; // the commented line is gone in the new content — the agent likely addressed it
+      moveCommentToBaseSide(c); // and its card belongs beside the base copy, not next to whatever took its place
       changed++;
     }
   });
+  changed += reanchorReplies(); // a root that moved drags its answers along
   if (!changed) return; // nothing moved or re-flagged — skip the save/re-render
   saveComments();
   refreshComments();
@@ -125,7 +174,8 @@ function commentToRecord(c) {
   var record = { id: c.seq };
   if (c.replyTo != null) record.re = c.replyTo;
   if (c.by === 'agent') record.by = 'agent';
-  if (c.kind && c.kind !== 'q') record.kind = c.kind;
+  // The only kind left that isn't the default review comment is the agent's own Explain note.
+  if (c.kind === 'note') record.kind = 'note';
   var parent = c.replyTo != null ? reviewComments.find(function (x) { return x.seq === c.replyTo; }) : null;
   if (!parent || parent.path !== c.path) record.path = c.path;
   if (!parent || parent.line !== c.line) record.line = c.line;
@@ -149,7 +199,9 @@ function recordToComment(record, byId) {
   var line = Math.max(1, Number(record.line) || (parent ? parent.line : 1));
   var anchor = record.anchor != null ? String(record.anchor) : '';
   return {
-    seq: Number(record.id), kind: String(record.kind || (parent ? parent.kind : (record.by === 'agent' ? 'note' : 'q'))),
+    // A file written before questions and change requests were unified says kind:"q" or kind:"c"; both are
+    // just a review comment now, so only "note" survives the trip.
+    seq: Number(record.id), kind: (record.kind === 'note' || (record.kind == null && !parent && record.by === 'agent')) ? 'note' : 'c',
     by: record.by === 'agent' ? 'agent' : 'me', replyTo: record.re == null ? null : Number(record.re),
     path: path, line: line, code: anchor, anchorCode: anchor,
     from: Number(record.from) || line, to: Number(record.to) || line, side: record.side || null,
@@ -162,19 +214,44 @@ function recordToComment(record, byId) {
     text: String(record.text == null ? '' : record.text),
   };
 }
+// Index every record BEFORE converting any of them, and convert a parent before whatever continues it.
+// byId used to be filled as the list was walked, so a record could only inherit from a parent that happened
+// to appear earlier — and this list is two files concatenated: the conversation first, then the shared notes.
+// A reply written in the conversation to a NOTE therefore never found its parent. Inheriting nothing, it came
+// out with no path at all, which matches no file: the answer was in the file and nowhere on screen.
 function threadFromRecords(records) {
-  var byId = {}, out = [];
-  (Array.isArray(records) ? records : []).forEach(function (record) {
-    if (!record || !Number.isFinite(Number(record.id))) return;
-    var comment = recordToComment(record, byId);
-    byId[comment.seq] = comment;
-    out.push(comment);
+  var list = (Array.isArray(records) ? records : []).filter(function (r) {
+    return r && Number.isFinite(Number(r.id));
+  });
+  var raw = {};
+  // First wins, so the conversation owns an id the shared notes happen to reuse — the two files number
+  // themselves independently and an agent can only ever see the one it was pointed at.
+  list.forEach(function (r) { var id = Number(r.id); if (!(id in raw)) raw[id] = r; });
+  var byId = {}, visiting = {};
+  var convert = function (record) {
+    var id = Number(record.id);
+    if (byId[id]) return byId[id];
+    if (visiting[id]) return null; // a record that answers itself, or a cycle: treat it as having no parent
+    visiting[id] = true;
+    var parentId = record.re == null ? null : Number(record.re);
+    if (parentId != null && parentId !== id && raw[parentId]) convert(raw[parentId]);
+    byId[id] = recordToComment(record, byId);
+    visiting[id] = false;
+    return byId[id];
+  };
+  list.forEach(convert);
+  // Back into the file's own order, not the order resolution happened to need.
+  var out = [];
+  list.forEach(function (record) {
+    var comment = byId[Number(record.id)];
+    if (comment && out.indexOf(comment) < 0) out.push(comment);
   });
   return out;
 }
 // Debounced because one rebuild can remap many comments at once. Main keeps anything an agent appended since
 // this renderer last read the file (knownMaxId), so saving a comment never swallows an answer that landed a
 // moment earlier.
+var reviewThreadPath = ''; // comments.jsonl — the file an agent appends its ANSWERS to (see loadThread)
 var threadSaveTimer = 0;
 function saveThread() {
   if (!(window.kakapoComments && typeof window.kakapoComments.write === 'function')) return;
@@ -197,6 +274,7 @@ function applyThreadRecords(records, extra, silent) {
     threadFromRecords(extra).forEach(function (c) { if (!byId[c.seq]) next.push(c); });
   }
   reviewComments = next;
+  reanchorReplies(); // an answer that named its own line lands in its question's thread, not beside it
   commentSeq = reviewComments.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
   persistSave(COMMENTS_KEY, reviewComments);
   if (silent) seenAgentSeq = maxAgentSeq(); else notifyAgentTurns();
@@ -236,6 +314,11 @@ function loadThread() {
     // The Explain prompts write NOTES, which belong to the repository rather than to this worktree — main
     // hands back both paths and this is the one {{NOTES_PATH}} means.
     annotationsPath = result.notesPath || result.path || '';
+    // …and the CONVERSATION file, which is a different file. Answers to review comments belong here, beside
+    // the comments they answer; knowledge.jsonl is where what-was-learned-about-the-codebase outlives the
+    // worktree. The hand-off used to name the notes file for both, so an agent answering #19 appended to a
+    // store that has never heard of #19 — the answer landed nowhere the review could show it.
+    reviewThreadPath = result.path || '';
     if (result.exists) { applyThreadRecords(result.records, null, true); return; } // a load is not news
     var migrated = reviewComments.slice();
     var nextSeq = migrated.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
@@ -306,13 +389,20 @@ function removeCommentsForPaths(paths) {
 function pruneCommentsForMissingFiles() {
   var missing = [];
   reviewComments.forEach(function (comment) {
-    if (commentFileIsKnownMissing(comment.path) && missing.indexOf(comment.path) < 0) missing.push(comment.path);
+    if (comment.path && commentFileIsKnownMissing(comment.path) && missing.indexOf(comment.path) < 0) missing.push(comment.path);
   });
   return removeCommentsForPaths(missing);
 }
 function verifyCommentFilesExist() {
   var paths = [];
-  reviewComments.forEach(function (comment) { if (paths.indexOf(comment.path) < 0) paths.push(comment.path); });
+  // Never ask about an empty path. It means "we do not know where this belongs" — a reply whose parent did
+  // not resolve used to come out that way — and the question below is "has this file been deleted?", to which
+  // the answer for "" is no, it is a directory. That answer removed the comment AND saved, so a card that was
+  // merely unplaceable was deleted from disk the next time this panel opened. Not knowing where something
+  // goes is not grounds for throwing it away.
+  reviewComments.forEach(function (comment) {
+    if (comment.path && paths.indexOf(comment.path) < 0) paths.push(comment.path);
+  });
   if (!paths.length) return Promise.resolve(0);
   if (hasProjectExistenceBridge()) {
     return Promise.resolve(window.kakapoFile.existingPaths(paths)).then(function (result) {
@@ -322,29 +412,35 @@ function verifyCommentFilesExist() {
   }
   return ensureProjectIndex().then(function () { return pruneCommentsForMissingFiles(); }, function () { return 0; });
 }
-function commentsAt(path, line) {
-  return reviewComments.filter(function (c) { return c.path === path && c.line === line; });
+// Which diff pane a comment belongs to. Everything written before sides existed (and everything written in
+// the source view, which has no panes) is a working-tree comment, so null reads as 'new'.
+function commentSide(c) {
+  return c && c.side === 'old' ? 'old' : 'new';
 }
-function commentKindLabel(kind) {
-  return kind === 'q' ? t('comment.kind.q') : t('comment.kind.c');
+// `side` is optional: omitting it means "either pane", which is what the source view wants — it shows one
+// file, not two, so a card anchored to the base still belongs at its line there.
+function commentsAt(path, line, side) {
+  return reviewComments.filter(function (c) {
+    return c.path === path && c.line === line && (!side || commentSide(c) === side);
+  });
 }
-// Monochrome inline icons for the two comment kinds: a help-circle for questions, a pencil for change
-// requests. No emoji, no color — stroke=currentColor so the kind pill stays monotone (.mc-kind in
-// viewer.css); the icon, not the color, distinguishes q vs c.
-function commentKindIcon(kind) {
-  var path = kind === 'q'
-    ? '<circle cx="12" cy="12" r="9"/><path d="M9.4 9.3a2.7 2.7 0 0 1 5.2 1c0 1.8-2.6 2.4-2.6 2.4"/><line x1="12" y1="16.7" x2="12.01" y2="16.7"/>'
-    : '<path d="M14.5 5.5l4 4"/><path d="M4.5 19.5l1-4 10-10 3 3-10 10z"/>';
-  return '<svg class="mc-kind-ic" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + path + '</svg>';
+// Questions and change requests used to be two kinds with two shortcuts. They were the same conversation:
+// any thread that runs long enough reaches "…so change it", and the kind you picked first decided whether
+// that was allowed. One kind now, one shortcut ("?"), one icon — a speech bubble, matching the rail.
+function commentKindIcon() {
+  return '<svg class="mc-kind-ic" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M5.5 5.5h13c.8 0 1.5.7 1.5 1.5v6.4c0 .8-.7 1.5-1.5 1.5H12l-4.5 3.6V16.4H5.5c-.8 0-1.5-.7-1.5-1.5V7c0-.8.7-1.5 1.5-1.5z"/></svg>';
 }
 // Full inner HTML for a .mc-kind pill: monochrome icon + the (localized) label.
-function commentKindHtml(kind) {
-  return commentKindIcon(kind) + '<span class="mc-kind-text">' + escapeHtml(commentKindLabel(kind)) + '</span>';
+function commentKindHtml() {
+  return commentKindIcon() + '<span class="mc-kind-text">' + escapeHtml(t('comment.kind')) + '</span>';
 }
-function relevantLines(path) {
+function relevantLines(path, side) {
   var set = {};
-  reviewComments.forEach(function (c) { if (c.path === path) set[c.line] = true; });
-  if (composerState && composerState.path === path) set[composerState.line] = true;
+  reviewComments.forEach(function (c) {
+    if (c.path === path && (!side || commentSide(c) === side)) set[c.line] = true;
+  });
+  if (composerState && composerState.path === path && (!side || commentSide(composerState) === side)) set[composerState.line] = true;
   return Object.keys(set).map(Number).sort(function (a, b) { return a - b; });
 }
 function addComment(kind, path, line, code, text, from, to, side, anchorCode, replyTo) {
@@ -426,8 +522,23 @@ function removeComments(seqs) {
   reviewComments = reviewComments.filter(function (c) { return seqs.indexOf(c.seq) === -1; });
   saveComments();
 }
+// This card and every card that continues from it. A thread hangs off its first comment — a reply carries no
+// anchor of its own, only its parent's — so removing that comment without its replies leaves them pointing at
+// a parent that is not there: cards that answer a question nobody can read, in a thread with no beginning.
+// Deleting the root therefore deletes the thread, which is also the only reading of "delete this" that a
+// reviewer looking at the top card has. One batch, so one Cmd+Z brings the whole conversation back.
+function commentSubtreeSeqs(seq) {
+  var out = [seq], queue = [seq], guard = 0;
+  while (queue.length && ++guard < 500) {
+    var parent = queue.shift();
+    reviewComments.forEach(function (c) {
+      if (c.replyTo === parent && out.indexOf(c.seq) < 0) { out.push(c.seq); queue.push(c.seq); }
+    });
+  }
+  return out;
+}
 function deleteComment(seq) {
-  removeComments([seq]);
+  removeComments(commentSubtreeSeqs(seq));
   refreshComments();
 }
 // Every comment anchored in one file, whichever line and whoever wrote it — the file tree's "clear comments"
@@ -480,7 +591,9 @@ function currentCommentTarget() {
     var dwrap = diffWrapperByPath(diffCursor.path);
     var drow = dwrap ? diffRowAt(dwrap, diffCursor.side, diffCursor.rowIndex) : null;
     var dline = drow ? diffLineNumber(drow) : null;
-    if (dline != null) return { path: diffCursor.path, line: dline, code: diffLineText(drow) || '', anchorCode: diffLineText(drow) || '', from: null, to: null, side: null };
+    // The caret's own pane decides where the card lands: commenting on a line the change deleted is a normal
+    // thing to want to do, and it only makes sense beside the base copy of that line.
+    if (dline != null) return { path: diffCursor.path, line: dline, code: diffLineText(drow) || '', anchorCode: diffLineText(drow) || '', from: null, to: null, side: diffCursor.side === 'old' ? 'old' : 'new' };
   }
   // Diff view with a selection (or click): anchor at the LAST line so the composer drops BELOW the
   // drag; capture the selected code + line span (used to keep the drag highlighted via .mc-sel-line).
@@ -543,9 +656,9 @@ function commentTargetLabel(s) {
 // so a comment you had just written offered no way onward except finding the ↩ button in its header. Clicking
 // it opens the real composer (one shared composerState), on the last card in the thread so the conversation
 // keeps going in a line rather than branching.
-function replyStubHtml(path, line) {
-  if (composerState && composerState.path === path && composerState.line === line) return ''; // already open here
-  var cards = commentsAt(path, line);
+function replyStubHtml(path, line, side) {
+  if (composerAt(path, line, side)) return ''; // already open here
+  var cards = commentsAt(path, line, side);
   if (!cards.length) return '';
   var last = cards[cards.length - 1];
   return '<button type="button" class="mc-card mc-reply-stub" data-path="' + escapeHtml(path) + '" data-line="' + line + '"'
@@ -556,25 +669,29 @@ function replyStubHtml(path, line) {
 function reviewerCardHtml(c) {
   var addressed = !!c.addressed;
   return '<div class="mc-card mc-' + c.kind + (addressed ? ' mc-addressed' : '') + (c.replyTo != null ? ' mc-reply-card' : '') + '">'
-    + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(c.kind) + '</span>'
+    + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml() + '</span>'
     + commentTargetHeadHtml(c)
     + (addressed ? '<span class="mc-addressed-tag" title="' + escapeHtml(t('comment.addressed.hint')) + '">' + escapeHtml(t('comment.addressed')) + '</span>' : '')
     + (addressed ? '<button type="button" class="mc-reopen" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reopen')) + '" title="' + escapeHtml(t('comment.reopen')) + '">↺</button>' : '')
     + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
     + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div></div>';
 }
-function threadHtml(path, line) {
+// Is the open composer the one that belongs in this (path, line, pane) slot?
+function composerAt(path, line, side) {
+  return !!(composerState && composerState.path === path && composerState.line === line
+    && (!side || commentSide(composerState) === side));
+}
+function threadHtml(path, line, side) {
   var html = '';
-  commentsAt(path, line).forEach(function (c) {
+  commentsAt(path, line, side).forEach(function (c) {
     if (composerState && composerState.editSeq === c.seq) return; // being edited -> rendered as the composer below
     html += c.by === 'agent' ? agentCardHtml(c) : reviewerCardHtml(c);
   });
-  html += replyStubHtml(path, line);
-  if (composerState && composerState.path === path && composerState.line === line) {
-    var ph = composerState.replyTo != null ? t('composer.reply')
-      : composerState.kind === 'q' ? t('composer.question') : t('composer.changeRequest');
+  html += replyStubHtml(path, line, side);
+  if (composerAt(path, line, side)) {
+    var ph = composerState.replyTo != null ? t('composer.reply') : t('composer.comment');
     html += '<div class="mc-card mc-' + composerState.kind + ' mc-composer' + (composerState.replyTo != null ? ' mc-reply-card' : '') + '">'
-      + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(composerState.kind) + '</span><span class="mc-target" title="' + escapeHtml(commentTargetLabel(composerState)) + '">' + escapeHtml(commentTargetLabel(composerState)) + '</span></div>'
+      + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml() + '</span><span class="mc-target" title="' + escapeHtml(commentTargetLabel(composerState)) + '">' + escapeHtml(commentTargetLabel(composerState)) + '</span></div>'
       // spellcheck/autocorrect/autocapitalize off: a code-review comment carries identifiers and symbols that
       // macOS/Chromium text substitution mangles (foo_bar -> foo bar, capitalizing names) — and that OS-level
       // autocorrect is the leading suspect for a space being swallowed right after punctuation like "?".
@@ -586,7 +703,7 @@ function threadHtml(path, line) {
   return html;
 }
 
-function injectThreadRow(anchorRow, path, line) {
+function injectThreadRow(anchorRow, path, line, side) {
   if (!anchorRow || !anchorRow.parentNode) return null;
   var tr = document.createElement('tr');
   tr.className = 'mc-comment-row';
@@ -594,20 +711,20 @@ function injectThreadRow(anchorRow, path, line) {
   // source/markdown/csv rows can have >2 cells (csv); span them all. diff (d2h) rows stay 2.
   td.colSpan = (anchorRow.classList && anchorRow.classList.contains('source-row')) ? (anchorRow.children.length || 2) : 2;
   td.className = 'mc-thread-cell';
-  td.innerHTML = threadHtml(path, line);
+  td.innerHTML = threadHtml(path, line, side);
   tr.appendChild(td);
   anchorRow.parentNode.insertBefore(tr, anchorRow.nextSibling);
   return tr;
 }
 
-// A diff comment is visible only in the working-tree pane, but its vertical space belongs to the shared
-// review timeline. Reserve the exact same height in the base pane so semantic anchors, connector curves,
-// and the one line-number layer never learn a false offset from opening/closing a comment.
-function injectDiffCommentSpacer(anchorRow, line) {
+// A diff comment is visible in one pane, but its vertical space belongs to the shared review timeline.
+// Reserve the exact same height in the opposite pane so semantic anchors, connector curves, and the one
+// line-number layer never learn a false offset from opening/closing a comment.
+function injectDiffCommentSpacer(anchorRow, slot) {
   if (!anchorRow || !anchorRow.parentNode) return null;
   var tr = document.createElement('tr');
   tr.className = 'mc-spacer-row mc-comment-spacer-row';
-  tr.dataset.commentSlot = String(line);
+  tr.dataset.commentSlot = String(slot);
   tr.setAttribute('aria-hidden', 'true');
   var td = document.createElement('td');
   td.colSpan = 2;
@@ -623,13 +740,15 @@ function syncDiffCommentSpacerHeights(wrapper) {
   if (!wrapper) return false;
   var sides = wrapper.querySelectorAll('.d2h-file-side-diff');
   if (sides.length < 2) return false;
-  var oldSpacers = {};
-  sides[0].querySelectorAll('.mc-comment-spacer-row').forEach(function (row) {
-    oldSpacers[row.dataset.commentSlot || ''] = row;
+  // Comment rows and their spacers now live on both sides (a card anchored to a deleted line sits in the base
+  // pane), so pair them by slot across the whole wrapper rather than assuming which pane each is in.
+  var bySlot = {};
+  wrapper.querySelectorAll('.mc-comment-spacer-row').forEach(function (row) {
+    bySlot[row.dataset.commentSlot || ''] = row;
   });
   var changed = false;
-  sides[sides.length - 1].querySelectorAll('.mc-comment-row[data-comment-slot]').forEach(function (row) {
-    var peer = oldSpacers[row.dataset.commentSlot || ''];
+  wrapper.querySelectorAll('.mc-comment-row[data-comment-slot]').forEach(function (row) {
+    var peer = bySlot[row.dataset.commentSlot || ''];
     var spacer = peer && peer.querySelector('.mc-comment-spacer');
     if (!spacer) return;
     var rect = row.getBoundingClientRect();
@@ -662,43 +781,50 @@ function renderDiffComments() {
     var activeComposer = composerState && composerState.path === path ? composerState : null;
     var renderKey = JSON.stringify({
       comments: pathComments.map(function (comment) {
-        return [comment.seq, comment.kind, comment.by, comment.replyTo, comment.line, comment.from, comment.to, comment.text];
+        return [comment.seq, comment.kind, comment.by, comment.replyTo, comment.line, comment.from, comment.to, commentSide(comment), comment.text];
       }),
       composer: activeComposer
-        ? [activeComposer.kind, activeComposer.line, activeComposer.from, activeComposer.to, activeComposer.editSeq, activeComposer.editText || '']
+        ? [activeComposer.kind, activeComposer.line, activeComposer.from, activeComposer.to, commentSide(activeComposer), activeComposer.editSeq, activeComposer.editText || '']
         : null,
     });
-    var lines = relevantLines(path);
+    var slotCount = relevantLines(path, 'new').length + relevantLines(path, 'old').length;
     var existingRows = w.querySelectorAll('.mc-comment-row');
     var existingSpacers = w.querySelectorAll('.mc-comment-spacer-row');
     // A watch/lazy body swap can remove rows without changing comment data. Count expected timeline slots as
     // part of the cache validity check so that a newly materialized table still receives its comments.
-    if (w.__mcDiffCommentRenderKey === renderKey && existingRows.length === lines.length && existingSpacers.length === lines.length) return;
+    if (w.__mcDiffCommentRenderKey === renderKey && existingRows.length === slotCount && existingSpacers.length === slotCount) return;
     w.__mcDiffCommentRenderKey = renderKey;
-    if (!lines.length && !existingRows.length && !existingSpacers.length) return;
+    if (!slotCount && !existingRows.length && !existingSpacers.length) return;
     w.querySelectorAll('.mc-comment-row, .mc-comment-spacer-row').forEach(function (row) { row.remove(); });
     remember(w);
-    if (!lines.length) return;
+    if (!slotCount) return;
     var sides = w.querySelectorAll('.d2h-file-side-diff');
     var right = sides[sides.length - 1];
     var left = sides[0];
     if (!right || !left || right === left) return;
-    var rows = Array.prototype.slice.call(right.querySelectorAll('tr')).filter(function (row) {
-      return !row.classList.contains('mc-comment-row') && !row.classList.contains('mc-spacer-row');
-    });
-    var leftRows = Array.prototype.slice.call(left.querySelectorAll('tr')).filter(function (row) {
-      return !row.classList.contains('mc-comment-row') && !row.classList.contains('mc-spacer-row');
-    });
-    lines.forEach(function (line) {
-      for (var i = 0; i < rows.length; i++) {
-        var num = rows[i].querySelector('.d2h-code-side-linenumber');
-        if (num && (num.textContent || '').trim() === String(line)) {
-          var commentRow = injectThreadRow(rows[i], path, line);
-          if (commentRow) commentRow.dataset.commentSlot = String(line);
-          if (leftRows[i]) injectDiffCommentSpacer(leftRows[i], line);
-          break;
+    var codeRows = function (side) {
+      return Array.prototype.slice.call(side.querySelectorAll('tr')).filter(function (row) {
+        return !row.classList.contains('mc-comment-row') && !row.classList.contains('mc-spacer-row');
+      });
+    };
+    // Split rows align 1:1 by index, so a card in one pane reserves its height at the same index in the other.
+    var rowsBySide = { new: codeRows(right), old: codeRows(left) };
+    ['new', 'old'].forEach(function (side) {
+      var rows = rowsBySide[side];
+      var peers = rowsBySide[side === 'new' ? 'old' : 'new'];
+      relevantLines(path, side).forEach(function (line) {
+        for (var i = 0; i < rows.length; i++) {
+          var num = rows[i].querySelector('.d2h-code-side-linenumber');
+          if (num && (num.textContent || '').trim() === String(line)) {
+            // The pane is part of the slot key: old line 12 and new line 12 are two different anchors.
+            var slot = side + ':' + line;
+            var commentRow = injectThreadRow(rows[i], path, line, side);
+            if (commentRow) commentRow.dataset.commentSlot = slot;
+            if (peers[i]) injectDiffCommentSpacer(peers[i], slot);
+            break;
+          }
         }
-      }
+      });
     });
     syncDiffCommentSpacerHeights(w);
   });
@@ -730,25 +856,19 @@ function renderSourceComments() {
 function renderCommentBadges() {
   document.querySelectorAll('.mc-file-badge').forEach(function (b) { b.remove(); });
   var counts = {};
-  reviewComments.forEach(function (x) {
-    var k = counts[x.path] || (counts[x.path] = { q: 0, c: 0 });
-    if (x.kind === 'q') k.q += 1; else k.c += 1;
-  });
-  function makeBadge(k) {
+  reviewComments.forEach(function (x) { counts[x.path] = (counts[x.path] || 0) + 1; });
+  function makeBadge(n) {
     var badge = document.createElement('span');
     badge.className = 'mc-file-badge';
-    var html = '';
-    if (k.q) html += '<span class="mc-fb mc-fb-q" title="' + k.q + ' ' + escapeHtml(t('badge.questions')) + '">' + k.q + '</span>';
-    if (k.c) html += '<span class="mc-fb mc-fb-c" title="' + k.c + ' ' + escapeHtml(t('badge.changeRequests')) + '">' + k.c + '</span>';
-    badge.innerHTML = html;
+    badge.innerHTML = '<span class="mc-fb" title="' + n + ' ' + escapeHtml(t('badge.comments')) + '">' + n + '</span>';
     return badge;
   }
   function inject(selector, keyAttr, refSelector) {
     document.querySelectorAll(selector).forEach(function (row) {
-      var k = counts[row.dataset[keyAttr] || ''];
-      if (!k) return;
+      var n = counts[row.dataset[keyAttr] || ''];
+      if (!n) return;
       var ref = refSelector ? row.querySelector(refSelector) : null;
-      if (ref) row.insertBefore(makeBadge(k), ref); else row.appendChild(makeBadge(k));
+      if (ref) row.insertBefore(makeBadge(n), ref); else row.appendChild(makeBadge(n));
     });
   }
   inject('.change-row', 'file', '');
@@ -850,10 +970,9 @@ function openReplyComposer(seq) {
   var parent = reviewComments.find(function (x) { return x.seq === seq; });
   if (!parent) return;
   composerState = {
-    // A follow-up to an explanation is a question — inheriting `note` would make the reviewer's own words
-    // read as the agent's and keep them out of the hand-off entirely. Every other kind carries over, so a
-    // follow-up inside a change-request thread stays a change request.
-    kind: parent.kind === 'note' ? 'q' : parent.kind,
+    // Inheriting `note` would make the reviewer's own words read as the agent's and keep them out of the
+    // hand-off entirely, so a follow-up to an explanation is a plain review comment like any other.
+    kind: 'c',
     path: parent.path, line: parent.line, code: parent.code, anchorCode: parent.anchorCode,
     from: parent.from, to: parent.to, side: parent.side, replyTo: parent.seq,
   };
@@ -907,7 +1026,7 @@ function saveComposer(ta) {
 // Settings → Merge prompts (stored per browser in localStorage); buildMergedText + the textarea
 // placeholders fall back to these when the stored value is empty.
 function defaultMergePrompt(kind) {
-  return t(kind === 'q' ? 'mergePrompt.default.q' : kind === 'plan' ? 'plan.contract' : 'mergePrompt.default.c');
+  return t(kind === 'plan' ? 'plan.contract' : 'mergePrompt.default.c');
 }
 var mergePromptsKey = 'kakapo-merge-prompts';
 function loadMergePrompts() {
@@ -1126,27 +1245,49 @@ function stepAnchor(delta, list) {
   var curOrder = curPath != null && curPath in order ? order[curPath] : null;
   function rank(c) { return c.path in order ? order[c.path] : Infinity; }
   function lineOf(c) { return Number(c.from) || c.line || 0; }
-  // If the caret is sitting ON one of these comments — which is exactly where the last step left it — walk by
-  // INDEX from there. Searching by file position cannot answer this any more: the walk is ordered by the
-  // agent's groups, so the next note in the story is often further UP the file, and the previous one further
-  // DOWN. That mismatch is why Shift+F8 did not always undo F8; it re-ran a positional search that knew
-  // nothing about the order actually on screen.
+  // Is the caret standing on this card? Its anchor is a RANGE — from..to for a drag selection — and
+  // revealComment puts the caret on `line`, which for such a card is not `from`. Comparing against one end
+  // only meant that after stepping onto a range the walk no longer recognised where it was, fell through to
+  // the positional search below, and jumped to whatever happened to come first in GROUP order — usually a
+  // note near the end of the file. "The first F8 works and then it goes to the end" was exactly that.
+  function standingOn(c) {
+    if (c.path !== curPath) return false;
+    var ends = [lineOf(c), Number(c.line) || 0, Number(c.to) || 0].filter(Boolean);
+    return curLine >= Math.min.apply(null, ends) && curLine <= Math.max.apply(null, ends);
+  }
+  // On a card: walk by INDEX from it. The walk is ordered by the agent's groups, so the next note in the
+  // story is often further UP the file and the previous one further DOWN — a positional search cannot
+  // express that order at all. A thread is one stop: skip every card sharing this anchor, or stepping would
+  // land on a reply of the card we are leaving and look like the key did nothing.
   var at = -1;
-  for (var k = 0; k < list.length; k++) {
-    if (list[k].path === curPath && lineOf(list[k]) === curLine) { at = k; break; }
+  for (var k = 0; k < list.length; k++) if (standingOn(list[k])) { at = k; break; }
+  if (at >= 0) {
+    var dir = delta > 0 ? 1 : -1;
+    for (var n = 1; n <= list.length; n++) {
+      var candidate = list[((at + dir * n) % list.length + list.length) % list.length];
+      if (!standingOn(candidate)) return candidate;
+    }
+    return list[at]; // every card in the review is anchored here; there is nowhere else to go
   }
-  if (at >= 0) return list[(at + (delta > 0 ? 1 : -1) + list.length) % list.length];
-  if (delta > 0) {
-    return list.find(function (c) {
-      if (curOrder == null) return true;
-      return rank(c) > curOrder || (rank(c) === curOrder && lineOf(c) > curLine);
-    }) || list[0];
+  // Not on a card — the reader scrolled or clicked somewhere of their own. Enter the walk at the NEAREST card
+  // in the file rather than at the first one in group order, which is an order about the explanation and says
+  // nothing about where the caret happens to be. From the next press on, the story's order takes over.
+  var best = null, bestGap = Infinity;
+  for (var j = 0; j < list.length; j++) {
+    var item = list[j];
+    var sameFile = curOrder != null && rank(item) === curOrder;
+    var gap = sameFile ? (delta > 0 ? lineOf(item) - curLine : curLine - lineOf(item)) : Infinity;
+    if (sameFile && gap > 0 && gap < bestGap) { best = item; bestGap = gap; }
   }
-  for (var i = list.length - 1; i >= 0; i--) {
-    var c = list[i];
-    if (curOrder == null || rank(c) < curOrder || (rank(c) === curOrder && lineOf(c) < curLine)) return c;
-  }
-  return list[list.length - 1];
+  if (best) return best;
+  // Nothing left in this file that way: fall out to the file order, which is where the reader would look next.
+  var byFile = list.slice().sort(function (a, b) {
+    return rank(a) !== rank(b) ? rank(a) - rank(b) : lineOf(a) - lineOf(b);
+  });
+  if (curOrder == null) return delta > 0 ? byFile[0] : byFile[byFile.length - 1];
+  if (delta > 0) return byFile.find(function (c) { return rank(c) > curOrder; }) || byFile[0];
+  for (var m = byFile.length - 1; m >= 0; m--) if (rank(byFile[m]) < curOrder) return byFile[m];
+  return byFile[byFile.length - 1];
 }
 // F8 steps every card on the diff, whoever wrote it — an agent's explanation and a reviewer's question are
 // the same object to a reader walking the file. They are one list now, so this is just that list in file
@@ -1163,7 +1304,7 @@ function sortedNavThread() {
 // itself two presses after it was asked for and drag the view BACK to where you no longer are. That is the
 // "F8 goes and then returns" this counter removes; it costs one comparison per frame.
 var centerThreadTarget = 0;
-function centerThreadRow(path, line, tries, token) {
+function centerThreadRow(path, line, side, tries, token) {
   var mine = token === undefined ? ++centerThreadTarget : token;
   requestAnimationFrame(function () {
     if (mine !== centerThreadTarget) return;
@@ -1174,10 +1315,10 @@ function centerThreadRow(path, line, tries, token) {
       row = next && next.classList.contains('mc-comment-row') ? next : anchor;
     } else {
       var wrapper = diffWrapperByPath(path);
-      row = wrapper ? wrapper.querySelector('.mc-comment-row[data-comment-slot="' + line + '"]') : null;
+      row = wrapper ? wrapper.querySelector('.mc-comment-row[data-comment-slot="' + (side || 'new') + ':' + line + '"]') : null;
     }
     if (row && row.scrollIntoView) { try { row.scrollIntoView({ block: 'center' }); } catch (e) {} return; }
-    if ((tries || 0) < 3) centerThreadRow(path, line, (tries || 0) + 1, mine);
+    if ((tries || 0) < 3) centerThreadRow(path, line, side, (tries || 0) + 1, mine);
   });
 }
 // Land on one specific card: the tail every "go to a comment" path shares — F8's step, and the click on a
@@ -1186,21 +1327,27 @@ function revealComment(seq) {
   var target = reviewComments.find(function (c) { return c.seq === seq; });
   if (!target) return false;
   if (!isDiffViewVisible() || !navigateToCommentInDiff(target.seq)) navigateToComment(target.seq);
-  centerThreadRow(target.path, Number(target.line) || 1, 0);
+  centerThreadRow(target.path, Number(target.line) || 1, commentSide(target), 0);
   return true;
 }
 function gotoComment(delta) {
+  // NOT filtered by the source index. Scoping a shared note to the workspace that has its file is main's job
+  // (notesForWorkspace, comments-file.ts) and it is done before the renderer ever sees the record. Filtering
+  // again here read `sourceByPath`, which on a diff-first launch holds only the CHANGED files — so notes on
+  // untouched files vanished from the walk while the card badge, counting the unfiltered list, went on
+  // numbering them. F8 then bounced between whichever two survived, calling them 8/9 and 9/9.
   var list = sortedNavThread();
   if (!list.length) { showCaretHint(t('comment.nav.none')); return true; }
   revealComment(stepAnchor(delta, list).seq);
   return true;
 }
 
-// The merged prompt's data shape: one block per kind that has open comments (its agent-contract prose,
-// then its items), in order — questions first, so the agent answers those (no edits) before touching code
-// for the change requests. A kind with no open comments is omitted entirely (heading, contract, and all).
-// When NEITHER kind has anything open, one empty block is still returned so the panel isn't a dead surface
-// (matching its long-standing behavior of a blank scratch document you can still type into and copy).
+// The merged prompt's data shape: the agent-contract prose, then every open comment. It used to be two
+// blocks — questions first (answer, don't edit), change requests second — which forced the reviewer to
+// decide which one a comment was before writing it. It is one conversation, so it is one block, and the
+// contract tells the agent to answer what is asked and change what is requested.
+// With nothing open, an empty block is still returned so the panel isn't a dead surface (matching its
+// long-standing behavior of a blank scratch document you can still type into and copy).
 // Comment bodies are never edited by typing into this document (see mergedCardHtml/the merged dock) — they
 // render `comment.text` verbatim and read/write straight through `reviewComments`, so there is no markdown
 // round-trip of comment text to get wrong, and no reconcile step needed at all.
@@ -1208,17 +1355,9 @@ function mergedBlocks() {
   // An agent's own cards (its answers and its notes) are not requests going back to it, so they are never
   // items here — they reach it as the quoted context of the follow-up that continues them.
   var open = reviewComments.filter(function (c) { return c.by !== 'agent' && !c.addressed; });
-  var qItems = open.filter(function (c) { return c.kind === 'q'; });
-  var cItems = open.filter(function (c) { return c.kind === 'c'; });
-  var blocks = [];
-  if (qItems.length) blocks.push({ prose: mergePromptFor('q'), items: qItems });
-  if (cItems.length) {
-    // Change requests are task instructions, so they lead with the plan contract: plan first and decompose
-    // into verifiable steps without asking the agent to add an application-state file to the repository.
-    blocks.push({ prose: mergePromptFor('plan') + '\n\n' + mergePromptFor('c'), items: cItems });
-  }
-  if (!blocks.length) blocks.push({ prose: '', items: [] });
-  return blocks;
+  // The plan contract leads: a comment can ask for work, so plan first and decompose into verifiable steps
+  // without asking the agent to add an application-state file to the repository.
+  return [{ prose: open.length ? mergePromptFor('plan') + '\n\n' + mergePromptFor('c') : '', items: open }];
 }
 
 // One unified hand-off document as a single string (Copy all's default, "Send to terminal", and tests).
@@ -1265,7 +1404,7 @@ function buildMergedText() {
 // reviewing. The full answer stays one click away, in the thread at the comment's own line.
 function mergedCardHtml(comment) {
   return '<div class="mc-card mc-merged-card mc-' + comment.kind + '" data-comment-seq="' + comment.seq + '" tabindex="-1" role="button">'
-    + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml(comment.kind) + '</span>'
+    + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml() + '</span>'
     + '<span class="mc-target">' + escapeHtml(commentTargetLabel(comment)) + '</span>'
     + (hasAgentReply(comment) ? '<span class="mc-answered-tag" title="' + escapeHtml(t('comment.answered.hint')) + '">' + escapeHtml(t('comment.answered')) + '</span>' : '')
     + '</div>'

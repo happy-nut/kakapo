@@ -26,7 +26,7 @@ var diffImportOpenPaths = Object.create(null);
 // read-only code carets) call the same function even though they intentionally do not move native focus.
 var REVIEW_FOCUS_PANEL_SELECTOR = [
   '.activity-rail', '.sidebar', '.content', '#diff2html-container', '.source-body',
-  '.impact-panel', '.semantic-peek', '.history-list', '.history-detail',
+  '.impact-panel', '.semantic-peek', '.history-list',
   '.dock-panel', '.settings-panel', '.quick-open-panel', '.mc-modal-panel',
 ].join(',');
 var reviewFocusedPanel = null;
@@ -80,8 +80,10 @@ document.addEventListener('mousedown', function (event) {
   // panel is exempt: it lives inside this same view, so main's "the view took focus" signal could not tell
   // the two apart and clicking into a shell closed the rail the user had just opened.
   var inTerminal = event.target && event.target.closest && event.target.closest('.terminal-panel');
-  if (!inTerminal && window.kakapoApp && typeof window.kakapoApp.reviewClicked === 'function') {
-    window.kakapoApp.reviewClicked();
+  // kakapoMenu, not kakapoApp. It has always been on the menu bridge, and the typeof guard turned the
+  // mistake into silence: clicking the review never dismissed the rail, and nothing said so.
+  if (!inTerminal && window.kakapoMenu && typeof window.kakapoMenu.railStandDown === 'function') {
+    window.kakapoMenu.railStandDown();
   }
 }, true);
 document.addEventListener('focusin', function (event) { flashReviewPanelFocus(event.target); }, true);
@@ -640,21 +642,25 @@ function applyI18n() {
 // :root[data-theme="light"] palette takes over. Dark is the default (matches the inline :root). Applied
 // immediately at script start to minimize a first-paint flash from the dark default to light.
 var THEME_KEY = 'kakapo-theme';
-// The persisted THEME choice is a preference, not the final palette: 'system' follows the OS (in Electron the
-// main process sets nativeTheme.themeSource so prefers-color-scheme flips with the OS), 'light'/'dark' pin it.
-// resolvedTheme() collapses the preference to the light|dark value that actually drives data-theme.
+// The theme is light or dark and nothing else. "System" used to sit alongside them as a third choice that
+// resolved to one of the two — which made the setting answer two questions at once (which palette, and who
+// decides) and left every reader of `theme` needing resolvedTheme() to find out what was actually on screen.
+// Anyone still holding the old preference is resolved ONCE here, to whatever the OS was saying at that moment,
+// and keeps it: their app looks the same the next time they open it as it did when they closed it.
 var theme = (function () {
   var v = persistRead(THEME_KEY);
   if (v !== 'light' && v !== 'dark' && v !== 'system') { try { v = localStorage.getItem(THEME_KEY); } catch (e) {} }
-  // Default to dark (unchanged from before System existed) rather than 'system', so an existing user who never
-  // touched the setting keeps the dark UI they had instead of silently flipping to their OS appearance.
-  return (v === 'light' || v === 'dark' || v === 'system') ? v : 'dark';
+  if (v === 'system') {
+    var dark = true;
+    try { dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) {}
+    v = dark ? 'dark' : 'light';
+    persistSave(THEME_KEY, v);
+  }
+  return v === 'light' ? 'light' : 'dark';
 })();
-function systemPrefersDark() {
-  try { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) { return true; }
-}
-function resolvedTheme() { return theme === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : theme; }
+function resolvedTheme() { return theme === 'light' ? 'light' : 'dark'; }
 function applyTheme() {
+  beginDiffViewportChurn(); // every row's computed style is about to change at once — settle, don't thrash
   document.documentElement.setAttribute('data-theme', resolvedTheme());
   if (themeSelectRef) themeSelectRef.render();
   // Theme families own both app chrome and Review code colors.
@@ -668,12 +674,6 @@ function retheme() {
   if (api && typeof api.retheme === 'function') { try { api.retheme(); } catch (e) {} }
 }
 applyTheme();
-// Follow the OS while the preference is 'system'. Electron flips prefers-color-scheme when the app theme source
-// is 'system' and the OS switches; the standalone browser review gets the same live behavior for free.
-try {
-  var _themeMq = window.matchMedia('(prefers-color-scheme: dark)');
-  if (_themeMq && _themeMq.addEventListener) _themeMq.addEventListener('change', function () { if (theme === 'system') applyTheme(); });
-} catch (e) {}
 // The persisted syntax choice is a complete theme family rather than a code-only palette. `theme` selects
 // the family's dark/light member, keeping navigation chrome, diff, raw source, and HTTP coherent.
 // Whole-interface scale. Persisted here; the Electron main process reads it and applies a Chromium zoom
@@ -688,6 +688,7 @@ var uiScale = (function () {
   return UI_SCALES.indexOf(v) >= 0 ? v : 1;
 })();
 function paintUiScale() {
+  beginDiffViewportChurn(); // zoom changes every row's HEIGHT; re-project once it has settled, not per row
   // In the packaged app main owns the zoom, so the page must NOT also scale itself — that would compound.
   if (window.kakapoSettings) return;
   try { document.documentElement.style.zoom = uiScale === 1 ? '' : String(uiScale); } catch (e) {}
@@ -698,6 +699,18 @@ function applyUiScale(next) {
   persistSave(UI_SCALE_KEY, next);
   paintUiScale();
   if (uiScaleSelectRef) uiScaleSelectRef.render();
+}
+// ⌘+ / ⌘− are menu accelerators (Chromium eats them before any keydown here), so main changes the size and
+// says so. Adopt the value WITHOUT writing it back — main has already stored it, and echoing would race the
+// other views doing the same — but do re-render the Settings dropdown, or the keyboard and the panel would
+// disagree about what the current size is.
+if (window.kakapoMenu && typeof window.kakapoMenu.onUiScale === 'function') {
+  window.kakapoMenu.onUiScale(function (next) {
+    if (UI_SCALES.indexOf(next) < 0) return;
+    beginDiffViewportChurn(); // main has already zoomed this view; the re-projection is ours to settle
+    uiScale = next;
+    if (uiScaleSelectRef) uiScaleSelectRef.render();
+  });
 }
 paintUiScale();
 var SYNTAX_THEME_KEY = 'kakapo-syntax-theme';
@@ -713,6 +726,7 @@ var syntaxTheme = (function () {
   return SYNTAX_FAMILIES.indexOf(v) >= 0 ? v : 'default';
 })();
 function applySyntaxTheme() {
+  beginDiffViewportChurn(); // a syntax family repaints every token in the diff — same story as the theme
   document.documentElement.setAttribute('data-syntax-theme', syntaxTheme);
   if (syntaxThemeSelectRef) syntaxThemeSelectRef.render();
   retheme(); // a syntax family carries its own --panel/--text, which the panes are painted from
@@ -911,6 +925,9 @@ var COMMENTS_KEY = 'kakapo-comments:' + location.pathname;
 var reviewComments = [];
 reviewComments = (function () { var b = persistRead(COMMENTS_KEY); if (Array.isArray(b)) return b; try { return JSON.parse(localStorage.getItem(COMMENTS_KEY) || '[]'); } catch (commentsErr) { return []; } })();
 if (!Array.isArray(reviewComments)) reviewComments = [];
+// Questions ("q") and change requests ("c") were unified into one review comment; anything persisted under
+// the old split reads back as the one kind, so a card saved last week doesn't render with a dead label.
+reviewComments.forEach(function (c) { if (c && c.kind !== 'note') c.kind = 'c'; });
 var commentSeq = reviewComments.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
 var composerState = null;
 
@@ -1011,7 +1028,10 @@ function applyViewedState() {
   });
   // Viewed is a diff-review concept: only the Changes list shows it, not the Files/source tree.
   links.forEach((link) => {
-    link.classList.toggle('viewed', isFileViewed(link.dataset.file || ''));
+    const viewed = isFileViewed(link.dataset.file || '');
+    link.classList.toggle('viewed', viewed);
+    // The box is a real checkbox to anything reading the tree, so its state has to be told, not just painted.
+    link.querySelector('.viewed-box')?.setAttribute('aria-checked', viewed ? 'true' : 'false');
   });
 }
 

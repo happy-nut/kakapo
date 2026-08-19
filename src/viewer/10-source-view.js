@@ -516,6 +516,15 @@ function insertSourceCaret(row, column) {
   var span = document.createElement('span');
   span.className = 'code-cursor';
   span.setAttribute('aria-hidden', 'true');
+  // An empty line has no text box for `vertical-align: text-bottom` to align against, so a 1.25em-tall
+  // inline-block hangs out of the row and reads as a caret straddling this line and the next. The diff caret
+  // met this first and answers it the same way (06-diff-caret.js): take the caret out of the flow, where its
+  // height cannot push anything around, and pin it to the cell's own left edge.
+  if ((cell.textContent || '').length === 0) {
+    span.classList.add('code-cursor-empty');
+    cell.appendChild(span);
+    return;
+  }
   try {
     var off = pos.node.nodeType === 3 ? Math.min(pos.offset, (pos.node.textContent || '').length) : pos.offset;
     var range = document.createRange();
@@ -652,8 +661,9 @@ function clearCommentRowSelection() {
   selectedCommentRow = null;
   markSelectedCard(null);
 }
-// Backspace deletes the SELECTED turn, not the whole conversation on that line — an accidental press on a
-// thread used to take the question, every follow-up, and the agent's notes with it in one batch.
+// Backspace deletes the SELECTED turn and whatever continues from it (commentSubtreeSeqs) — not everything
+// that happens to share the line. Two threads anchored to one row are two conversations and delete apart; a
+// question and the answers to it are one, and on the first card that is the whole thread.
 function deleteCommentsInRow(row) {
   if (!row) return;
   var card = selectedCommentCard() || commentCardsIn(row)[0];
@@ -661,8 +671,7 @@ function deleteCommentsInRow(row) {
   if (!del) return;
   clearCommentRowSelection();
   var seq = parseInt(del.dataset.seq, 10);
-  if (isFinite(seq)) removeComments([seq]);
-  refreshComments(); // remaining comment rows re-injected; the caret stays hidden until the next arrow press
+  if (isFinite(seq)) deleteComment(seq); // re-injects the remaining rows; the caret stays hidden until the next arrow
 }
 // Open the composer in EDIT mode for the SELECTED comment in `row`, pre-filled with its text. threadHtml
 // renders the composer in place of that card (via composerState.editSeq), and saveComposer routes editSeq

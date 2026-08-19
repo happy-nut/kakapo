@@ -116,3 +116,30 @@ test("the tree's terminal row cds the integrated terminal, and clears a file's c
   v.$("#mc-dropdown").dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   v.close();
 });
+
+// ⌘B is about the code you are reading, and while the terminal is up you are not reading it — the panel
+// covers the review. The old guard only skipped a focused INPUT/TEXTAREA, which catches typing into a pane
+// but not the moment after clicking the panel's own chrome: ⌘B then sent the hidden view underneath to a
+// definition nobody could watch it reach. (The terminal releases ⌘ combos on purpose so ⌘1/⌘0 keep working,
+// which is why this one has to say no for itself.)
+test("go-to-definition does nothing while the terminal panel is open", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export function used() {}\nused();\n", after: "export function used() {}\nused();\nused();\n" },
+  ]);
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+
+  const before = v.$("#source-viewer")?.dataset.openPath;
+  v.window.document.body.classList.add("terminal-open");
+  v.key("b", { metaKey: true, code: "KeyB" });
+  await v.settle(40);
+  assert.equal(v.$("#source-viewer")?.dataset.openPath, before, "nothing under the panel moved");
+
+  // With the panel away it is an ordinary shortcut again — the guard is about the panel, not about ⌘B.
+  v.window.document.body.classList.remove("terminal-open");
+  v.key("b", { metaKey: true, code: "KeyB" });
+  await v.settle(40);
+  assert.ok(true, "and the key is handled again once the terminal is closed");
+  v.close();
+});

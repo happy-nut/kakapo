@@ -1,6 +1,6 @@
 import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell, WebContentsView } from "electron";
@@ -27,14 +27,14 @@ import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
-import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, resolveTmux } from "./app-terminal-ipc.js";
+import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, reapUnreachableTerminals, resolveTmux } from "./app-terminal-ipc.js";
 import { registerCommentsIpc, syncCommentsFile, commentsFilePath, knowledgeFilePath } from "./comments-file.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
-import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
+import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H, UI_SCALES } from "./constants.js";
 import { collectUsageStats } from "./usage-stats.js";
-import { agentForCommand, type AgentKind } from "./agent-resume.js";
+import { AGENT_LAUNCH, agentForCommand, type AgentKind } from "./agent-resume.js";
 import { hubHtml, modalOverlayHtml } from "./shell-pages.js";
 import { aheadArgs, aheadCount, createManagedWorkspaceAsync, defaultBase, listStartRefs, randomWorkspaceSlug, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
 
@@ -97,11 +97,17 @@ type WinState = {
   resumeCommand?: string;
   onResumeCommand: (command: string | undefined) => void;
   onAgentFinished: () => void;
-  onAgentOutput: () => void;
+  onAgentOutput: (paneId: number) => void;
   onAgentBell: () => void;
+  // Answered by isVisibleWorkspace: whether this workspace is the one the reviewer is actually looking at.
+  // The bell asks it before deciding to stay quiet (app-terminal-ipc.ts).
+  isOnScreen: () => boolean;
   unread: boolean; // an agent turn finished / needs input in this (non-active) workspace — the tile's red dot
   busy: boolean; // an agent is actively producing output here — the tile's animated "working" spinner
   busyTimer?: NodeJS.Timeout; // debounce: cleared/reset on each output chunk; on expiry the workspace goes idle
+  // Per-pane version of the same debounce. The rail lists one row per pane, so a workspace-wide flag would
+  // spin every row whenever any one of them printed a character — including the one sitting at a prompt.
+  busyPanes: Map<number, NodeJS.Timeout>;
   // Rail tile data (repo record + working-tree dirty count) is git-derived — ~5 subprocesses/workspace.
   // renderHub fires on every agent-activity event, so cache it per workspace with a short TTL: without this
   // an N-workspace hub render spawns ~5N git processes on the main thread each time an agent turn finishes.
@@ -176,25 +182,25 @@ function loadingHtml(light: boolean, compact = false): string {
   @media(prefers-reduced-motion:reduce){.kakapo-mark{animation:kakapo-breathe 1.6s ease-in-out infinite}@keyframes kakapo-breathe{50%{opacity:.65}}}
 </style></head><body><span class="kakapo-loader" role="status" aria-label="Kakapo is loading">${mark}<span class="sr-only">Kakapo is loading</span></span></body></html>`;
 }
-// The persisted theme PREFERENCE (set by the renderer via kakapoSettings): 'system' follows the OS, 'light'/'dark'
-// pin it. Defaults to 'system'. Mirrored into nativeTheme.themeSource (see syncNativeThemeSource) so the native
+// The persisted theme (set by the renderer via kakapoSettings): 'light' or 'dark', nothing else. It used to
+// also accept 'system', which answered two questions at once — which palette, and who decides — so every
+// reader had to resolve it before it meant anything. A stored 'system' resolves once, in the renderer, to
+// whatever the OS was saying then. Mirrored into nativeTheme.themeSource (see syncNativeThemeSource) so the native
 // window chrome (traffic lights, menus) and prefers-color-scheme both track the choice.
-type ThemePreference = "system" | "light" | "dark";
+type ThemePreference = "light" | "dark";
 function themePreference(): ThemePreference {
   try {
     const value = preferences.readGlobal()["kakapo-theme"];
     // Default dark (as before System existed), so users who never set a theme keep the UI they had.
-    return value === "light" || value === "dark" || value === "system" ? value : "dark";
+    // A pre-existing "system" is not a theme any more; dark is the default it always fell back to.
+    return value === "light" ? "light" : "dark";
   } catch {
     return "dark";
   }
 }
-// The resolved light/dark used by the loading screen, window backgrounds, hub, and welcome page. 'system' resolves
-// against nativeTheme.shouldUseDarkColors, which itself tracks themeSource + the OS.
+// The light/dark used by the loading screen, window backgrounds, hub, and welcome page.
 function isLightTheme(): boolean {
-  const preference = themePreference();
-  if (preference === "system") return !nativeTheme.shouldUseDarkColors;
-  return preference === "light";
+  return themePreference() === "light";
 }
 function syncNativeThemeSource(): void {
   try { nativeTheme.themeSource = themePreference(); } catch { /* best-effort */ }
@@ -340,6 +346,29 @@ const UI_SCALE_KEY = "kakapo-ui-scale";
 function uiScale(): number {
   const raw = Number(preferences.readGlobal()[UI_SCALE_KEY]);
   return Number.isFinite(raw) && raw >= 0.8 && raw <= 1.6 ? raw : 1;
+}
+// ⌘+ / ⌘− / ⌘0. Chromium swallows these before a renderer keydown sees them, so they are menu accelerators
+// like the terminal's — and main owns the zoom anyway. Stepping through the SAME list the dropdown offers
+// keeps the two agreeing: the next keystroke and the next dropdown row are the same size.
+function stepUiScale(delta: number): void {
+  const current = uiScale();
+  const at = UI_SCALES.indexOf(current);
+  const from = at >= 0 ? at : UI_SCALES.indexOf(1);
+  const next = UI_SCALES[Math.max(0, Math.min(UI_SCALES.length - 1, from + delta))];
+  setUiScale(next);
+}
+function setUiScale(next: number): void {
+  if (!UI_SCALES.includes(next) || next === uiScale()) return;
+  const settings = preferences.readGlobal();
+  settings[UI_SCALE_KEY] = next;
+  preferences.writeGlobal(settings);
+  applyUiScale();
+  // The Settings dropdown reads its value from the renderer's own copy, so tell every view what happened —
+  // otherwise the keyboard and the panel would disagree about the current size.
+  const send = (wc: WebContents | undefined): void => { if (wc && !wc.isDestroyed()) wc.send("kakapo:ui-scale", next); };
+  send(shellWindow?.webContents);
+  send(modalView?.webContents);
+  for (const state of states.values()) send(state.win.webContents);
 }
 function applyUiScale(target?: WebContents): void {
   const factor = uiScale();
@@ -556,16 +585,16 @@ ipcMain.handle("kakapo:hub-preview", (_event, payload: { repo?: unknown; label?:
   if (typeof payload?.repo !== "string" || typeof payload?.label !== "string" || !isGitRepository(payload.repo)) return { ok: false };
   const repo = workspaceRecord(payload.repo);
   // worktree=false: nothing is created, the project's own checkout opens as-is — preview its real branch/path.
-  if (payload.worktree === false) return { ok: true, worktree: false, branch: repo.branch, path: repo.repoRoot };
+  if (payload.worktree === false) return { ok: true, worktree: false, branch: repo.branch, path: repo.repoRoot, lastAgent: preferences.readLastAgent() };
   // The slug is random and the dialog sends back the one it was shown, so the preview is a promise rather than
   // a guess. A slug already on screen is kept: re-previewing on every keystroke of the task name must not
   // reshuffle the branch out from under the reader.
   const slug = typeof payload.slug === "string" && payload.slug.trim() ? workspaceSlug(payload.slug) : randomWorkspaceSlug();
   return { ok: true, worktree: true, slug, base: defaultBase(repo.repoRoot), branch: `kakapo/${slug}`,
-    refs: listStartRefs(repo.repoRoot),
+    refs: listStartRefs(repo.repoRoot), lastAgent: preferences.readLastAgent(),
     path: join("~", "kakapo", "workspaces", repo.repoName, slug) };
 });
-ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; label?: unknown; worktree?: unknown; base?: unknown; slug?: unknown; memo?: unknown }) => {
+ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; label?: unknown; worktree?: unknown; base?: unknown; slug?: unknown; memo?: unknown; agent?: unknown }) => {
   if (typeof payload?.repo !== "string" || typeof payload?.label !== "string") return { ok: false };
   // "Create a new worktree" unchecked: open the project's existing checkout instead of adding a branch+folder.
   if (payload.worktree === false) {
@@ -582,6 +611,10 @@ ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; la
     const base = typeof payload.base === "string" && payload.base.trim() ? payload.base.trim() : undefined;
     const slug = typeof payload.slug === "string" && payload.slug.trim() ? payload.slug.trim() : undefined;
     const memo = typeof payload.memo === "string" && payload.memo.trim() ? payload.memo.trim() : undefined;
+    // Only the agents we can recognise afterwards: the rail badges a workspace by matching a command name
+    // (agentForCommand), so anything else would launch something the app could never name.
+    const agent = agentForCommand(typeof payload.agent === "string" ? payload.agent : undefined);
+    if (agent) preferences.writeLastAgent(agent); // the next New dialog opens on this one
     const created = await createManagedWorkspaceAsync(payload.repo, payload.label, { base, slug, memo, signal: workspaceCreation.signal });
     const records = savedWorkspaceMetadata().filter((item) => resolveWorkspaceRoot(item.path) !== created.path);
     records.push(created);
@@ -591,7 +624,16 @@ ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; la
       if (state.win.webContents.isDestroyed()) return;
       if (!state.win.webContents.getURL().includes(REVIEW_FILE)) return;
       state.win.webContents.removeListener("did-finish-load", openTerminal);
-      state.win.webContents.send("kakapo:terminal-toggle");
+      // A workspace is made to give an agent something to do, and the first thing anyone did in the terminal
+      // this already opens was type that agent's name. Sending it is the same message the rail's Resume uses,
+      // so the renderer's existing retry-until-a-pty-exists loop covers a view that is still starting up.
+      if (agent) {
+        const launch = AGENT_LAUNCH[agent];
+        state.resumeCommand = launch; // the tile badges the agent immediately, before it has printed anything
+        state.win.webContents.send("kakapo:agent-resume", launch);
+      } else {
+        state.win.webContents.send("kakapo:terminal-toggle");
+      }
     };
     state.win.webContents.on("did-finish-load", openTerminal);
     openTerminal();
@@ -655,6 +697,16 @@ ipcMain.handle("kakapo:hub-rename", (_event, payload: { id?: unknown; alias?: un
   renderHub();
   return { ok: true };
 });
+// Drag-to-reorder in the expanded rail. The client sends one project's workspaces in the order it now shows
+// them; renderHub sorts by this on the way back out, so the tile stays where it was dropped.
+ipcMain.handle("kakapo:hub-reorder", (_event, payload: { repo?: unknown; paths?: unknown }) => {
+  if (typeof payload?.repo !== "string" || !Array.isArray(payload.paths)) return { ok: false };
+  const paths = payload.paths.filter((p): p is string => typeof p === "string").map((p) => resolveWorkspaceRoot(p));
+  if (!paths.length) return { ok: false };
+  preferences.writeWorkspaceOrder(payload.repo, paths);
+  renderHub();
+  return { ok: true };
+});
 ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unknown; force?: unknown; deleteBranch?: unknown }) => {
   if (typeof payload?.id !== "number" || (payload.mode !== "close" && payload.mode !== "delete")) return { ok: false };
   const state = states.get(payload.id);
@@ -683,6 +735,9 @@ ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unk
     // its session (and whatever agent is in it) running forever, invisible, with its worktree deleted.
     killWorkspaceTerminals(state);
   }
+  // Removing one workspace can strand another's sessions (a folder moved, a worktree pruned outside the app),
+  // so take the same look here that startup takes.
+  reapOrphanTerminals();
   const metadataIndex = startupWorkspaceMetadata.findIndex((item) => resolveWorkspaceRoot(item.path) === record.path);
   if (metadataIndex >= 0) startupWorkspaceMetadata.splice(metadataIndex, 1);
   if (payload.mode === "delete") {
@@ -1004,11 +1059,9 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // Drop recent-project entries whose folder is gone, so deleted worktrees stop cluttering the settings + rail.
   preferences.pruneRecentProjects();
 
-  // Mirror the saved theme preference into nativeTheme so the OS chrome (traffic lights, menus) and every
-  // renderer's prefers-color-scheme track it from the first paint. When "system" is active and the OS theme
-  // flips, re-theme all the chrome live.
+  // Mirror the saved theme into nativeTheme so the OS chrome (traffic lights, menus) and every renderer's
+  // prefers-color-scheme track it from the first paint.
   syncNativeThemeSource();
-  nativeTheme.on("updated", () => { if (themePreference() === "system") refreshChrome(); });
 
   buildApplicationMenu();
 
@@ -1032,6 +1085,9 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
     active.win.show();
     active.win.focus();
   }
+  // AFTER the restore, so every workspace this launch brought back counts as reachable. Doing it earlier
+  // would look at a list of sessions whose owners had not registered yet and end the ones being restored.
+  reapOrphanTerminals();
 }).catch((error: unknown) => {
   console.error(errorMessage(error));
   app.quit();
@@ -1156,6 +1212,18 @@ function buildApplicationMenu(): void {
           state.win.webContents.reloadIgnoringCache();
         },
       },
+    ],
+  });
+  // Zoom, for the same reason the terminal shortcuts are here: Chromium takes ⌘+/⌘−/⌘0 before any renderer
+  // keydown runs. Both ⌘= and ⌘+ are bound because the key is the same one with and without Shift, and
+  // binding only one means the shortcut works on some layouts and not others.
+  menuTemplate.push({
+    label: t("menu.view"),
+    submenu: [
+      { label: t("menu.zoomIn"), accelerator: "CommandOrControl+=", click: () => stepUiScale(1) },
+      { label: t("menu.zoomIn"), accelerator: "CommandOrControl+Plus", visible: false, click: () => stepUiScale(1) },
+      { label: t("menu.zoomOut"), accelerator: "CommandOrControl+-", click: () => stepUiScale(-1) },
+      { label: t("menu.zoomReset"), accelerator: "CommandOrControl+0", click: () => setUiScale(1) },
     ],
   });
   // Terminal toggle/split/pane shortcuts as menu accelerators: Chromium swallows Cmd+D / Ctrl+` before they
@@ -1405,16 +1473,40 @@ function runningTmuxSessions(): string {
 function rootHasRunningAgent(root: string): boolean {
   return tmuxSessionsForRoot(root, runningTmuxSessions()).length > 0;
 }
-function hasRunningProcess(state: WinState): boolean {
+// One row per terminal pane — what the expanded rail draws, and now the single source the workspace's own dot
+// is derived from. Everything here comes from what the pane is actually RUNNING.
+//
+// That distinction is the whole fix. A tmux-backed pane's pty reports `tmux` as its foreground process,
+// forever, whatever is happening inside it — so the old whole-workspace check ("is any pty running something
+// other than the shell?") answered yes the moment a persistent pane existed and could never answer no again.
+// The green "running" dot stayed lit on a workspace whose agents had all finished. tmux already tells us the
+// real command per session (tmuxPaneCommands), so ask it instead of trusting the pty.
+type WorkspacePane = { id: number; command: string; agent?: AgentKind; running: boolean; busy: boolean };
+function panesForWorkspace(state: WinState, panes: Map<string, string>): WorkspacePane[] {
   const shellName = shellBasename();
-  for (const t of state.terms.values()) {
-    let fg = "";
-    try { fg = t.process || ""; } catch { /* pty may have exited mid-query */ }
-    const name = fg.replace(/^-/, ""); // login shells surface as "-zsh"
-    if (name && name !== shellName) return true;
+  const rows: WorkspacePane[] = [];
+  for (const [id, t] of state.terms) {
+    const session = state.termSessions.get(id);
+    let command = "";
+    if (session) command = panes.get(session) || "";
+    else { try { command = t.process || ""; } catch { /* pty may have exited mid-query */ } }
+    command = command.replace(/^-/, ""); // login shells surface as "-zsh"
+    rows.push({ id, command, agent: agentForCommand(command), running: !!command && command !== shellName, busy: state.busyPanes.has(id) });
   }
-  // No pane of ours is busy — but one may be running detached in tmux, from before this app run.
-  return rootHasRunningAgent(state.options.root);
+  // A session left running detached — from before this app run, or after its pane was closed — has no pty here
+  // but is very much still working. It gets a row of its own so the rail says so instead of going quiet.
+  const attached = new Set(state.termSessions.values());
+  let next = -1;
+  for (const session of tmuxSessionsForRoot(state.options.root, Array.from(panes.keys()).join("\n"))) {
+    if (attached.has(session)) continue;
+    const command = (panes.get(session) || "").replace(/^-/, "");
+    if (!command || command === shellName) continue;
+    rows.push({ id: next--, command, agent: agentForCommand(command), running: true, busy: false });
+  }
+  return rows;
+}
+function hasRunningProcess(state: WinState): boolean {
+  return panesForWorkspace(state, tmuxPaneCommands()).some((pane) => pane.running);
 }
 
 // Which agent this workspace is running, most authoritative source first.
@@ -1445,21 +1537,44 @@ function agentForWorkspace(state: WinState, panes: Map<string, string>): AgentKi
 // Push only the per-workspace agent-activity flags (busy spinner + attention dot) to the rail, so the tiles'
 // indicators update without a full renderHub — which re-runs `git status` for every workspace and rebuilds the
 // rail DOM (dropping hover/focus). The shell toggles CSS classes on the existing tiles from this.
+// The panes as the rail wants them: the id it keys rows by, which agent (if any) is in there, what it is
+// running, and whether it is mid-turn. One tmux scan serves every workspace in the push.
+function railPanes(state: WinState, panes: Map<string, string>) {
+  return panesForWorkspace(state, panes).map((pane) => ({
+    id: pane.id, command: pane.command, agent: pane.agent, running: pane.running, busy: pane.busy,
+  }));
+}
 function sendAgentActivity(): void {
   if (!shellWindow || shellWindow.isDestroyed()) return;
-  const activity = Array.from(states.values()).map((state) => ({
-    id: state.win.webContents.id, busy: state.busy, unread: state.unread, running: hasRunningProcess(state),
-  }));
+  const panes = tmuxPaneCommands();
+  const activity = Array.from(states.values()).map((state) => {
+    const rows = railPanes(state, panes);
+    return {
+      id: state.win.webContents.id, busy: state.busy, unread: state.unread,
+      running: rows.some((pane) => pane.running), panes: rows,
+    };
+  });
   void shellWindow.webContents.send("kakapo:hub-activity", activity);
 }
-// An output chunk arrived: mark the workspace "working" and (re)arm the idle timer. Only notify the rail on the
-// idle->busy edge; while output keeps flowing the timer just resets, so a streaming agent doesn't spam IPC.
-function markAgentBusy(state: WinState): void {
-  if (state.busyTimer) clearTimeout(state.busyTimer);
-  if (!state.busy) { state.busy = true; sendAgentActivity(); }
-  state.busyTimer = setTimeout(() => { state.busyTimer = undefined; if (state.busy) { state.busy = false; sendAgentActivity(); } }, 1200);
+// An output chunk arrived in `paneId`: mark THAT pane working and (re)arm its idle timer, and keep the
+// workspace-level flag as "any pane is working". Only notify the rail on an idle->busy edge; while output
+// keeps flowing the timers just reset, so a streaming agent doesn't spam IPC.
+function markAgentBusy(state: WinState, paneId: number): void {
+  const existing = state.busyPanes.get(paneId);
+  if (existing) clearTimeout(existing);
+  const wasIdle = !state.busy || !existing;
+  state.busy = true;
+  state.busyPanes.set(paneId, setTimeout(() => {
+    state.busyPanes.delete(paneId);
+    if (state.busyPanes.size) { sendAgentActivity(); return; } // another pane is still working
+    if (state.busy) { state.busy = false; }
+    sendAgentActivity();
+  }, 1200));
+  if (wasIdle) sendAgentActivity();
 }
 function clearAgentBusy(state: WinState): void {
+  for (const timer of state.busyPanes.values()) clearTimeout(timer);
+  state.busyPanes.clear();
   if (state.busyTimer) { clearTimeout(state.busyTimer); state.busyTimer = undefined; }
   if (state.busy) { state.busy = false; sendAgentActivity(); }
 }
@@ -1507,6 +1622,34 @@ const HUB_TILE_TTL_MS = 1000;
 // (however old) and revalidate off-thread, re-rendering only if something actually changed. Only a tile that
 // has never been computed still pays the synchronous cost, once.
 const hubTileRefreshing = new Set<number>();
+// `/Users/you/kakapo/workspaces/zoobox/quiet-warbler` with the part that is the same on every row folded
+// away, so what is left is the part that differs. The renderer cannot do this itself — it has no home dir.
+// Every root a session could still be reached from: the workspaces kakapo has open or saved, and the main
+// checkout of every project it knows. A kakapo session whose name matches none of these has no tile to click
+// and no window to come back to (reapUnreachableTerminals).
+function reachableWorkspaceRoots(): string[] {
+  const roots = new Set<string>();
+  for (const state of states.values()) roots.add(state.options.root);
+  for (const item of savedWorkspaceMetadata()) roots.add(item.path);
+  for (const { root } of knownProjectRoots()) roots.add(root);
+  return [...roots];
+}
+
+// Sessions outlive the app on purpose — that is what resume is — so nothing ever ended the ones belonging to
+// a workspace that has since been closed or moved away. Do it here, and again after a removal, which is the
+// other moment a session can become unreachable.
+function reapOrphanTerminals(): void {
+  try {
+    const ended = reapUnreachableTerminals(reachableWorkspaceRoots());
+    if (ended.length) console.log(`kakapo: ended ${ended.length} terminal session(s) no workspace could reach`);
+  } catch { /* best-effort: a missing tmux is not a startup failure */ }
+}
+
+function tildePath(path: string): string {
+  const home = homedir();
+  return home && path.startsWith(home + "/") ? "~" + path.slice(home.length) : path;
+}
+
 function hubTileFor(state: WinState): { record: WorkspaceRecord; dirtyCount: number; ahead: number } {
   if (state.hubTile) {
     if (Date.now() - state.hubTile.computedAt >= HUB_TILE_TTL_MS) void refreshHubTile(state);
@@ -1619,10 +1762,15 @@ function renderHub(): void {
     const owner = githubOwnerFor(state.options.root);
     const avatar = owner ? ownerAvatar.get(owner) : undefined;
     if (owner && !avatar) void ensureOwnerAvatar(owner);
+    const paneRows = railPanes(state, panes); // reads each pty's foreground process — compute it once
     return { id: state.win.webContents.id, ...current, alias: metadata?.alias, memo: metadata?.memo,
       base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount, ahead, avatar,
-      active: state.win.webContents.id === activeStateId, running: hasRunningProcess(state),
+      shortPath: tildePath(current.path),
+      active: state.win.webContents.id === activeStateId,
       resume: state.resumeCommand, agent: agentForWorkspace(state, panes),
+      // The full render carries the pane rows too, so a rail rebuilt from scratch (opening it, switching
+      // workspaces) already shows them instead of waiting for the next activity tick to fill them in.
+      panes: paneRows, running: paneRows.some((pane) => pane.running),
       unread: state.unread, busy: state.busy, detached: state.win.isDetached() };
   });
   const disconnected = saved.filter((item) => !existsSync(item.path)).map((item, index) => ({
@@ -1635,6 +1783,17 @@ function renderHub(): void {
   // Drop any tile whose repo identity couldn't be resolved: the rail groups by repoName, so an empty one renders
   // as an unidentifiable "?" project. Valid workspaces always carry a repoName, so this only strips junk.
   const workspaces = [...live, ...disconnected, ...closedMains].filter((w) => typeof w.repoName === "string" && w.repoName.trim());
+  // Apply the reviewer's own order. Projects keep the order they first appear in (a stable sort on the repo's
+  // first index), and inside each one the dragged order wins; anything never dragged keeps its place after
+  // what was, which is what makes a freshly created workspace show up at the bottom rather than in the middle.
+  const railOrder = preferences.readWorkspaceOrder();
+  const repoAt = new Map<string, number>();
+  workspaces.forEach((w, index) => { if (!repoAt.has(w.repoName)) repoAt.set(w.repoName, index); });
+  const dragRank = (w: { repoName: string; path: string }): number => {
+    const at = (railOrder[w.repoName] || []).indexOf(resolveWorkspaceRoot(w.path));
+    return at < 0 ? Number.MAX_SAFE_INTEGER : at;
+  };
+  workspaces.sort((a, b) => (repoAt.get(a.repoName)! - repoAt.get(b.repoName)!) || (dragRank(a) - dragRank(b)));
   void shellWindow.webContents.send("kakapo:hub-state", workspaces);
   for (const state of states.values()) {
     if (state.win.isDestroyed()) continue;
@@ -1648,8 +1807,8 @@ function renderHub(): void {
   }
 }
 
-// Re-apply the current theme + locale everywhere after either changes (a settings pick in one window, or the OS
-// theme switching while "system" is active). The review views re-theme/re-localize live from the kakapo:chrome
+// Re-apply the current theme + locale everywhere after either changes (a settings pick in one window, with the
+// OS chrome following it). The review views re-theme/re-localize live from the kakapo:chrome
 // broadcast; the shell chrome pages (hub, modal overlay, tile menu) bake their theme/locale at build time, so they
 // are regenerated instead. The hub reload is safe: review views are separate WebContentsViews layered on top, so
 // only the rail document reloads, and it re-requests its state on load.
@@ -1817,6 +1976,7 @@ function createWindow(root: string, deferBoot = false): WinState {
     viewReleased: false,
     terms: new Map(),
     termSessions: new Map(),
+    busyPanes: new Map(),
     commandBuffers: new Map(),
     resumeCommand: typeof preferences.readWorkspace(resolvedRoot)["kakapo-agent-resume"] === "string"
       ? preferences.readWorkspace(resolvedRoot)["kakapo-agent-resume"] as string : undefined,
@@ -1832,7 +1992,9 @@ function createWindow(root: string, deferBoot = false): WinState {
       preferences.writeUnread(state.options.root, state.unread);
       renderHub();
     },
-    onAgentOutput: () => markAgentBusy(state),
+    onAgentOutput: (paneId: number) => markAgentBusy(state, paneId),
+    // The same test the language-server reclaim uses: on screen means active (or detached) and not minimized.
+    isOnScreen: () => isVisibleWorkspace(state),
     onAgentBell: () => {
       if (state.busyTimer) { clearTimeout(state.busyTimer); state.busyTimer = undefined; }
       state.busy = false;

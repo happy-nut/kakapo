@@ -39,8 +39,12 @@ app.whenReady().then(async () => {
     const spacer = document.getElementById('spacer-row').getBoundingClientRect();
     const oldFollow = document.getElementById('old-follow').getBoundingClientRect();
     const newFollow = document.getElementById('new-follow').getBoundingClientRect();
+    // Compare the blank slot against a REAL code row in its own pane, not against document.body. The body
+    // was standing in for the canvas here, and it is not the canvas: the diff paints --panel (and a syntax
+    // theme overrides --panel per container), so a slot painted --bg matched this fixture's body while
+    // cutting a visibly darker slab across the actual review.
     const spacerBackground = getComputedStyle(document.querySelector('#spacer-row td')).backgroundColor;
-    const bodyBackground = getComputedStyle(document.body).backgroundColor;
+    const codeRowBackground = getComputedStyle(document.getElementById('old-follow')).backgroundColor;
     document.getElementById('comment-row').remove();
     document.getElementById('spacer-row').remove();
     refreshLayeredDiffGutters(document.getElementById('surface'));
@@ -51,7 +55,7 @@ app.whenReady().then(async () => {
       pairedHeightGap: Math.abs(comment.height - spacer.height),
       openFollowTopGap: Math.abs(oldFollow.top - newFollow.top),
       removedFollowTopGap: Math.abs(oldRemoved.top - newRemoved.top),
-      backgroundMatches: spacerBackground === bodyBackground,
+      backgroundMatches: spacerBackground === codeRowBackground,
     };
   })()`);
   process.stdout.write(`KAKAPO_COMMENT_LAYOUT=${JSON.stringify(result)}\n`);

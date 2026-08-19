@@ -383,18 +383,21 @@ function moveDiffWord(dir, extend) {
   setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, ncol, true);
   if (anchor) { diffSelectionAnchor = anchor; applyDiffSelection(); }
 }
-// Comment boxes are injected on the right(new) side, right after the line's row (see injectThreadRow /
-// renderDiffComments). Split-view rows align 1:1 by index, so the caret's row index on the new side finds
-// the adjacent box regardless of which side the caret sits on. Mirrors commentRowSiblingOf for the source view.
+// A comment box is injected right after its line's row, in the pane the comment was written on (see
+// injectThreadRow / renderDiffComments) — the other pane gets only a height-matching spacer. Split-view rows
+// align 1:1 by index, so check the caret's own pane first and then the other one, and the box is found from
+// either side. Mirrors commentRowSiblingOf for the source view.
 function diffCommentBoxSiblingOf(dir) {
   if (!diffCursor) return null;
   var wrapper = diffWrapperByPath(diffCursor.path);
   if (!wrapper) return null;
-  var rows = diffRowsOf(diffSideTable(wrapper, 'new'));
-  var row = rows[diffCursor.rowIndex];
-  if (!row) return null;
-  var sib = dir < 0 ? row.previousElementSibling : row.nextElementSibling;
-  return (sib && sib.classList && sib.classList.contains('mc-comment-row')) ? sib : null;
+  var order = diffCursor.side === 'old' ? ['old', 'new'] : ['new', 'old'];
+  for (var i = 0; i < order.length; i++) {
+    var row = diffRowsOf(diffSideTable(wrapper, order[i]))[diffCursor.rowIndex];
+    var sib = row ? (dir < 0 ? row.previousElementSibling : row.nextElementSibling) : null;
+    if (sib && sib.classList && sib.classList.contains('mc-comment-row')) return sib;
+  }
+  return null;
 }
 // Omitted-context rows participate in vertical caret navigation just like comment boxes. diffRowsOf keeps
 // the fold marker in positional order but moveDiffCursor normally skips non-code rows, so explicitly detect

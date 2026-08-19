@@ -276,6 +276,37 @@ export function tmuxSessionsForRoot(root: string, listOutput: string): string[] 
   return listOutput.split("\n").map((line) => line.trim()).filter((name) => name.startsWith(prefix));
 }
 
+// Sessions kakapo can no longer reach. A session is named after the workspace that owns it
+// (tmuxSessionPrefix), so one whose prefix matches no workspace this app knows about has no tile, no window
+// and no way back: reattaching to it is not something the UI can be asked to do. That is what an orphan IS —
+// not "old", not "idle", but unreachable.
+//
+// Three guards, because being wrong here costs a running agent:
+//   - ATTACHED is never touched. Something is holding it, whatever we think we know.
+//   - QUIET for `idleHours` first, so a workspace being opened right now cannot be reaped out from under its
+//     own startup (the list is read before the window has registered).
+//   - kakapo's OWN prefix only. Sessions belonging to anything else on this machine are not ours to end.
+export function unreachableSessions(
+  listOutput: string,
+  knownRoots: Iterable<string>,
+  nowSeconds: number,
+  idleHours = 24,
+): string[] {
+  const reachable = new Set<string>();
+  for (const root of knownRoots) if (root) reachable.add(tmuxSessionPrefix(root));
+  const doomed: string[] = [];
+  for (const line of listOutput.split("\n")) {
+    const [name, attached, activity] = line.trim().split(/\s+/);
+    if (!name || !name.startsWith("kakapo-")) continue;
+    if (attached !== "0") continue;
+    const idleFor = nowSeconds - (Number(activity) || 0);
+    if (!Number.isFinite(idleFor) || idleFor < idleHours * 3600) continue;
+    if ([...reachable].some((prefix) => name.startsWith(prefix))) continue;
+    doomed.push(name);
+  }
+  return doomed;
+}
+
 // Ordinals are per-workspace and reused lowest-first: after a restart the first pane you open takes ordinal
 // 1 again and therefore re-attaches to the session the previous pane 1 left running. Panes are not restored
 // automatically — reopening one is what reconnects it.

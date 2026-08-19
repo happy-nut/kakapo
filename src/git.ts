@@ -48,6 +48,18 @@ export type AutomaticReviewBase = {
   behind?: number;
 };
 
+// The ref a branch was cut from when it has no tracking branch — a feature branch nobody has pushed yet.
+// Without this the automatic base gave up on such a branch entirely, the review fell back to
+// HEAD-vs-worktree, and the moment an agent committed its work that diff went empty: every review comment
+// lost the line it hangs on and the whole review looked wiped (the comments were safe on disk the whole
+// time — there was simply no diff left to draw them on). Same fallback the patch-set selector already uses.
+function defaultBranchRef(root: string): string {
+  for (const candidate of ["main", "master"]) {
+    if (git(root, ["rev-parse", "--verify", "--quiet", candidate])) return candidate;
+  }
+  return "";
+}
+
 // A clean worktree can still contain the exact changes that need review when its branch has local,
 // unpushed commits. In that state HEAD-vs-worktree is empty, so use the tracking branch's merge-base as
 // the review base. The merge-base (rather than the upstream tip) also behaves correctly after divergence:
@@ -67,7 +79,8 @@ export function resolveAutomaticReviewBase(root: string, includeUntracked = true
   ]);
   if (status) return undefined;
 
-  const upstream = git(canonicalRoot, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
+  const tracking = git(canonicalRoot, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
+  const upstream = tracking || defaultBranchRef(canonicalRoot);
   if (!upstream) return undefined;
   const counts = git(canonicalRoot, ["rev-list", "--left-right", "--count", `${upstream}...HEAD`])
     .split(/\s+/)
@@ -77,6 +90,9 @@ export function resolveAutomaticReviewBase(root: string, includeUntracked = true
   const revision = git(canonicalRoot, ["merge-base", upstream, "HEAD"]);
   if (!revision) return undefined;
   if (ahead > 0) return { revision, upstream, label: `${upstream}...HEAD`, ahead };
+  // "Read what the remote has and you don't" only makes sense for a real tracking branch. Falling back to a
+  // local default branch here would flip an ordinary stale feature branch into an incoming-changes review.
+  if (!tracking) return undefined;
   // Nothing of your own to review: the worktree is clean and nothing is unpushed. The only difference left
   // between this checkout and the remote is what the remote has and you do not, so review THAT — right side
   // pinned to the tracking branch instead of the working tree. Reviewing an incoming change before you merge
@@ -86,6 +102,13 @@ export function resolveAutomaticReviewBase(root: string, includeUntracked = true
   return undefined;
 }
 
+// git's own hash for the empty tree — the same value in every repository, and the only way to say "before
+// anything existed". A repository's FIRST commit has no parent, so it is the one commit that cannot be shown
+// as "this against the one before it"; against the empty tree it shows as what it actually is, every file
+// added. Without this the initial commit is the single thing Cmd+9 cannot open, which is the kind of
+// exception that comes back as a bug report a year later.
+export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
 // Validate a user-supplied review base (the CLI --base value) before it reaches `git diff <base>`. spawnSync
 // uses argv (no shell) so the ref cannot inject a command; this check just rejects typos and refs that don't
 // exist in the repository, and fails fast at launch with a clear message instead of an empty/garbage diff.
@@ -94,6 +117,9 @@ export function validateReviewBase(root: string, ref: string): string {
   if (!trimmed || !/^[\w./@^~{}-]+$/.test(trimmed)) {
     throw new Error(`Invalid --base value ${JSON.stringify(ref)}: expected a branch, tag, or commit.`);
   }
+  // A tree, not a commit, so the ^{commit} check below would reject it. `git diff` takes it on the left
+  // exactly like any revision.
+  if (trimmed === EMPTY_TREE) return trimmed;
   const resolved = git(root, ["rev-parse", "--verify", "--quiet", `${trimmed}^{commit}`]);
   if (!resolved) {
     throw new Error(`--base ${trimmed} is not a commit in this repository (try a branch, tag, or commit SHA).`);

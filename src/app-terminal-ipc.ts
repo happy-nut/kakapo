@@ -5,7 +5,7 @@ import { spawn as spawnPty, type IPty } from "node-pty";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper, endTmuxSession, tmuxPaneCommand } from "./util.js";
+import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, unreachableSessions, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper, endTmuxSession, tmuxPaneCommand } from "./util.js";
 import { resumeCommandForInput } from "./agent-resume.js";
 
 // A GUI launch (Finder, Dock, Spotlight) inherits a minimal PATH with no Homebrew prefix, so `tmux` is
@@ -57,8 +57,13 @@ export type TerminalIpcState = {
   // Rail activity indicators: onAgentOutput fires on every pty output chunk (drives the "working" spinner via a
   // debounce in main); onAgentBell fires when a TUI rings the bell (Claude Code finished a turn / needs input),
   // which lights the "needs attention" dot on the workspace tile.
-  onAgentOutput?: () => void;
+  // The pane id rides along: the rail draws one row per pane now, so "something produced output" has to say
+  // WHICH pane, or every row in the workspace lights up together.
+  onAgentOutput?: (paneId: number) => void;
   onAgentBell?: () => void;
+  // Whether THIS workspace is the one on screen. Workspaces are views inside one window, so "a window is
+  // focused" cannot answer it — and that was the question the bell was asking before suppressing itself.
+  isOnScreen?: () => boolean;
 };
 
 type TerminalEvent = IpcMainEvent | IpcMainInvokeEvent;
@@ -86,6 +91,26 @@ export const ptyReaper = createPtyReaper();
 // launch, so that map only knows the panes reopened by hand since the last start, and everything else would
 // be left running forever, invisible, with its worktree deleted out from under it. Ask tmux which sessions
 // belong to this workspace instead. Called from app-main.ts's hub-remove (delete), and nowhere else.
+// Run once at startup, and again whenever a workspace is removed: end the sessions no workspace can reach.
+// They are created the ordinary way — a workspace is opened, terminals are used, and then it is closed or its
+// folder goes away — and because quitting deliberately leaves sessions running (that is what resume is for),
+// nothing ever ends them. They cost little, but they accumulate for as long as the machine is up, and a list
+// of eleven sessions for four workspaces is a list nobody can reason about.
+export function reapUnreachableTerminals(knownRoots: Iterable<string>): string[] {
+  const tmux = resolveTmux(process.env);
+  if (!tmux) return [];
+  let listed = "";
+  try {
+    const list = spawnSync(tmux, ["list-sessions", "-F", "#{session_name} #{session_attached} #{session_activity}"], { encoding: "utf8" });
+    listed = String(list.stdout ?? ""); // no server running -> nothing to reap
+  } catch { return []; }
+  const doomed = unreachableSessions(listed, knownRoots, Math.floor(Date.now() / 1000));
+  for (const session of doomed) {
+    try { spawnSync(tmux, ["kill-session", "-t", session]); } catch { /* already gone */ }
+  }
+  return doomed;
+}
+
 export function killWorkspaceTerminals(state: TerminalIpcState): void {
   const tmux = resolveTmux(process.env);
   if (tmux) {
@@ -174,7 +199,7 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
       try {
         deliver("kakapo:pty-data", { id, data });
         const quiet = resizeEchoUntil.get(id);
-        if (!(quiet && Date.now() < quiet)) state.onAgentOutput?.();
+        if (!(quiet && Date.now() < quiet)) state.onAgentOutput?.(id);
       } catch { /* window torn down mid-drain */ }
     });
     t.onExit(() => {
@@ -300,8 +325,12 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     // Light the tile's attention dot whenever a background turn finishes — even if the app is focused on a
     // different workspace. This runs before the focus check below, which only gates the native notification.
     state.onAgentBell?.();
-    const win = BrowserWindow.getFocusedWindow();
-    if (win?.isFocused()) return;
+    // Suppress only when you are looking at the workspace that rang. Any focused kakapo window used to be
+    // enough to swallow this, so a turn finishing in ANOTHER workspace — the case you most need telling about,
+    // since you cannot see its terminal — announced itself with nothing but a dock bounce. Workspaces are
+    // views inside one window, so being focused says which APP you are in, never which workspace.
+    const appFocused = !!BrowserWindow.getFocusedWindow()?.isFocused();
+    if (appFocused && state.isOnScreen?.() !== false) return;
     try {
       if (Notification.isSupported()) {
         const note = new Notification({ title: msg?.title || "kakapo", body: msg?.body || "Terminal task finished" });

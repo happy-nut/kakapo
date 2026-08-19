@@ -18,6 +18,10 @@
   --diff-deleted: #35383b;
   --diff-deleted-strong: #4b4f53;
   --active: #58a6ff;
+  /* The review is showing commits, not the working tree. Its own accent because the compare pill's
+     three do not cover this case, and because two palettes already spend violet on --active — a
+     commit mark the same colour as the selection is not a mark. */
+  --commit-accent: #a98bff;
   --active-strong: #79b8ff;
   --diag-error: #f47067;
   --diag-warning: #e0a326;
@@ -85,6 +89,7 @@
   --diff-deleted: #e6e8ea;
   --diff-deleted-strong: #cfd3d7;
   --active: #0969da;
+  --commit-accent: #6d45c9;
   --sidebar: #f0f2f5;
   --active-strong: #0557b8;
   --diag-error: #cf222e;
@@ -138,6 +143,7 @@
   --diff-deleted: #25171c;
   --diff-deleted-strong: #78191b;
   --active: #58a6ff;
+  --commit-accent: #a98bff;
   --active-strong: #79c0ff;
   --sidebar: #0d1117;
   --elevated: #161b22;
@@ -183,6 +189,7 @@
   --diff-deleted: #ffebe9;
   --diff-deleted-strong: #ffcecb;
   --active: #0969da;
+  --commit-accent: #6d45c9;
   --active-strong: #0550ae;
   --sidebar: #f6f8fa;
   --elevated: #ffffff;
@@ -228,6 +235,7 @@
   --diff-deleted: #3f3f3f;
   --diff-deleted-strong: #55595c;
   --active: #4a88c7;
+  --commit-accent: #a98bff;
   --active-strong: #6aa7e4;
   --sidebar: #3c3f41;
   --elevated: #45494a;
@@ -274,6 +282,7 @@
   --diff-deleted: #e7e7e7;
   --diff-deleted-strong: #d0d0d0;
   --active: #3574f0;
+  --commit-accent: #6d45c9;
   --active-strong: #1b5fd1;
   --sidebar: #f2f3f5;
   --elevated: #ffffff;
@@ -330,6 +339,7 @@
   --diff-deleted: #3c191c;
   --diff-deleted-strong: #8c2b2b;
   --active: #268bd2;
+  --commit-accent: #d33682;
   --active-strong: #6cc0f5;
   --sidebar: #012b33;
   --elevated: #073642;
@@ -375,6 +385,7 @@
   --diff-deleted: #fbe0dd;
   --diff-deleted-strong: #f0b0aa;
   --active: #2074af;
+  --commit-accent: #d33682;
   --active-strong: #1a6fab;
   --sidebar: #f2ecd8;
   --elevated: #fffbf0;
@@ -422,6 +433,7 @@
   --diff-deleted: #45222c;
   --diff-deleted-strong: #8b3040;
   --active: #bd93f9;
+  --commit-accent: #ff79c6;
   --active-strong: #d6b6ff;
   --sidebar: #21222c;
   --elevated: #343746;
@@ -467,6 +479,7 @@
   --diff-deleted: #fbdcd7;
   --diff-deleted-strong: #efaba0;
   --active: #644ac9;
+  --commit-accent: #c4257f;
   --active-strong: #4a35a3;
   --sidebar: #f7f1dc;
   --elevated: #fffdf5;
@@ -514,6 +527,7 @@
   --diff-deleted: #4a0d10;
   --diff-deleted-strong: #b81e26;
   --active: #4fc3f7;
+  --commit-accent: #d7a3ff;
   --active-strong: #8ce0ff;
   --sidebar: #000000;
   --elevated: #141414;
@@ -559,6 +573,7 @@
   --diff-deleted: #ffdcd9;
   --diff-deleted-strong: #e8867e;
   --active: #0f4a85;
+  --commit-accent: #6a0dad;
   --active-strong: #0a3560;
   --sidebar: #ffffff;
   --elevated: #ffffff;
@@ -978,22 +993,16 @@ body.native-app .source-tabs {
 .theme-swatch { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); }
 .theme-swatch[data-swatch="default-dark"] { background: linear-gradient(135deg, #101318 0 62%, #58a6ff 62%); }
 .theme-swatch[data-swatch="default-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0969da 62%); }
-.theme-swatch[data-swatch="default-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #101318 50%); }
 .theme-swatch[data-swatch="github-dark"] { background: linear-gradient(135deg, #0d1117 0 62%, #58a6ff 62%); }
 .theme-swatch[data-swatch="github-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0969da 62%); }
-.theme-swatch[data-swatch="github-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #0d1117 50%); }
 .theme-swatch[data-swatch="darcula-dark"] { background: linear-gradient(135deg, #2b2b2b 0 62%, #4a88c7 62%); }
 .theme-swatch[data-swatch="darcula-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #3574f0 62%); }
-.theme-swatch[data-swatch="darcula-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #2b2b2b 50%); }
 .theme-swatch[data-swatch="solarized-dark"] { background: linear-gradient(135deg, #002b36 0 62%, #b58900 62%); }
 .theme-swatch[data-swatch="solarized-light"] { background: linear-gradient(135deg, #fdf6e3 0 62%, #2aa198 62%); }
-.theme-swatch[data-swatch="solarized-system"] { background: linear-gradient(135deg, #fdf6e3 0 50%, #002b36 50%); }
 .theme-swatch[data-swatch="dracula-dark"] { background: linear-gradient(135deg, #282a36 0 62%, #ff79c6 62%); }
 .theme-swatch[data-swatch="dracula-light"] { background: linear-gradient(135deg, #fffbeb 0 62%, #644ac9 62%); }
-.theme-swatch[data-swatch="dracula-system"] { background: linear-gradient(135deg, #fffbeb 0 50%, #282a36 50%); }
 .theme-swatch[data-swatch="contrast-dark"] { background: linear-gradient(135deg, #000000 0 62%, #ffe58a 62%); }
 .theme-swatch[data-swatch="contrast-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0000d4 62%); }
-.theme-swatch[data-swatch="contrast-system"] { background: linear-gradient(135deg, #ffffff 0 50%, #000000 50%); }
 .settings-card .settings-check { margin: 0; padding: 13px 2px; }
 .settings-card .settings-check + .settings-row-hint { padding: 0 2px 4px 24px; }
 /* Persistent-terminal setup: tmux status + install button, with brew's output streamed underneath so the
@@ -1125,6 +1134,10 @@ body.native-app .source-tabs {
 .patchset-latest-tag {
   padding: 1.5px 7px; border-radius: 999px; font-size: 10px; font-weight: 650;
   color: var(--active); background: color-mix(in srgb, var(--active) 16%, transparent);
+}
+.patchset-gap {
+  color: var(--muted); font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 0 2px; align-self: center; user-select: none;
 }
 .patchset-reset {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
@@ -1584,12 +1597,6 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-file-side-diff:last-of-type tr.mc-active-hunk > td.d2h-code-side-linenumber {
   color: var(--text);
 }
-.d2h-diff-table tr.hunk, .d2h-diff-table tr.hunk-peer, .d2h-diff-table tr.history-hunk, .d2h-diff-table tr.history-hunk-peer { scroll-margin-top: 76px; }
-.d2h-diff-table tr.hunk.active td, .d2h-diff-table tr.hunk-peer.active td,
-.d2h-diff-table tr.history-hunk.active td, .d2h-diff-table tr.history-hunk-peer.active td {
-  box-shadow: none;
-  background-color: color-mix(in srgb, var(--active) 10%, var(--line));
-}
 /* F7 navigation and the JS caret already identify the active row. An older focus layer also outlined the
    whole row in blue (top/bottom plus a gutter rail), producing a second, persistent selection rectangle. */
 .d2h-diff-table tr.diff-active-row td { box-shadow: none; }
@@ -1661,10 +1668,33 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   padding: 0;
 }
 .status svg { display: block; width: 11px; height: 11px; }
-/* Viewed: dim the row and collapse the status chip into one green check (no stacked glyph). */
-.file-link.viewed .status { font-size: 0; background: color-mix(in srgb, #6ab04c 24%, transparent); color: #6ab04c; }
-.file-link.viewed .status svg { display: none; }
-.file-link.viewed .status::after { content: '✓'; font-size: 10px; font-weight: 700; line-height: 1; }
+/* The mark-as-viewed box: leftmost on a changed row, drawn empty on every one of them so the column reads as
+   a checklist of what is still to review rather than a mark that materializes out of nowhere. */
+.viewed-box {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--chrome-border, #8888);
+  border-radius: var(--ui-radius-xs, 3px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: transparent;
+  cursor: pointer;
+}
+.viewed-box::after { content: '✓'; }
+/* On any row the eye is on, the box borrows that row's own text colour. --chrome-border and
+   --chrome-selected are within a few points of each other, so on the SELECTED row the outline disappeared
+   into the highlight and the checkbox was simply not there — invisible exactly when you are about to click
+   it. currentColor cannot collide with the background it is sitting on, whatever a theme does to either. */
+.change-row:hover .viewed-box,
+.file-link.active .viewed-box,
+.change-row.active .viewed-box,
+.tree-focus .viewed-box { border-color: currentColor; }
+.file-link.viewed .viewed-box { background: #6ab04c; border-color: #6ab04c; color: #fff; }
 .status-added { background: var(--add); color: #1a7f37; }
 .status-deleted { background: var(--del); color: #cf222e; }
 .status-renamed { background: #fff8c5; color: #9a6700; }
@@ -1827,6 +1857,24 @@ h1 { margin: 0; font-size: 18px; }
 .crumb-stat-add { color: var(--add-strong); font-weight: 600; }
 .crumb-stat-del { color: var(--del-strong); font-weight: 600; }
 .crumb-sep { opacity: 0.55; }
+/* While the review is pointed at commits, the breadcrumb leads with the one it is showing. Its own accent —
+   not one of the pill's three — because this is the state the pill's rule did not cover: those three colour
+   what the app chose FOR you, and the two it leaves neutral are the ones you picked with the control right in
+   front of you. A commit opened from Cmd+9 is neither: you chose it, in a panel that then closed. */
+.crumb-commit {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  color: var(--commit-accent); font-weight: 650;
+}
+.crumb-commit svg { flex: none; }
+.crumb-sha { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* The subject gives up its width first: the file path is what the rest of the toolbar is about, and a title
+   that has pushed the filename off the end has stopped being context and become the content. */
+.crumb-subject { color: var(--muted); font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.crumb-count {
+  flex: none; font-size: 10px; font-weight: 700; color: var(--commit-accent);
+  border: 1px solid color-mix(in srgb, var(--commit-accent) 45%, transparent);
+  border-radius: 999px; padding: 1px 6px;
+}
 .review-status {
   display: flex;
   align-items: center;
@@ -2008,7 +2056,6 @@ h1 { margin: 0; font-size: 18px; }
 }
 /* GitHub's canvas under the code, so a diff reads like the same diff on github.com. */
 :root[data-theme="dark"][data-syntax-theme="github"] #diff2html-container,
-:root[data-theme="dark"][data-syntax-theme="github"] .history-diff,
 :root[data-theme="dark"][data-syntax-theme="github"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #0d1117;
   --text: #e6edf3;
@@ -2019,7 +2066,6 @@ h1 { margin: 0; font-size: 18px; }
   color: #e6edf3;
 }
 :root[data-theme="light"][data-syntax-theme="github"] #diff2html-container,
-:root[data-theme="light"][data-syntax-theme="github"] .history-diff,
 :root[data-theme="light"][data-syntax-theme="github"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #ffffff;
   --text: #1f2328;
@@ -2031,7 +2077,6 @@ h1 { margin: 0; font-size: 18px; }
 }
 /* The dark member owns a Darcula canvas; rendered Markdown keeps the app surface because it is prose. */
 :root[data-theme="dark"][data-syntax-theme="darcula"] #diff2html-container,
-:root[data-theme="dark"][data-syntax-theme="darcula"] .history-diff,
 :root[data-theme="dark"][data-syntax-theme="darcula"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #2b2b2b;
   --text: #a9b7c6;
@@ -2043,7 +2088,6 @@ h1 { margin: 0; font-size: 18px; }
 }
 /* IntelliJ Light is the light member of the same family, including its code canvas and foreground. */
 :root[data-theme="light"][data-syntax-theme="darcula"] #diff2html-container,
-:root[data-theme="light"][data-syntax-theme="darcula"] .history-diff,
 :root[data-theme="light"][data-syntax-theme="darcula"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #ffffff;
   --text: #000000;
@@ -2056,7 +2100,6 @@ h1 { margin: 0; font-size: 18px; }
 /* Solarized's ground is the theme — a code canvas painted the app's neutral would erase the one thing that
    makes it recognisable, so both members carry base03 / base3 under the code. */
 :root[data-theme="dark"][data-syntax-theme="solarized"] #diff2html-container,
-:root[data-theme="dark"][data-syntax-theme="solarized"] .history-diff,
 :root[data-theme="dark"][data-syntax-theme="solarized"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #002b36;
   --text: #93a1a1;
@@ -2067,7 +2110,6 @@ h1 { margin: 0; font-size: 18px; }
   color: #93a1a1;
 }
 :root[data-theme="light"][data-syntax-theme="solarized"] #diff2html-container,
-:root[data-theme="light"][data-syntax-theme="solarized"] .history-diff,
 :root[data-theme="light"][data-syntax-theme="solarized"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #fdf6e3;
   --text: #4a5f66;
@@ -2078,7 +2120,6 @@ h1 { margin: 0; font-size: 18px; }
   color: #4a5f66;
 }
 :root[data-theme="dark"][data-syntax-theme="dracula"] #diff2html-container,
-:root[data-theme="dark"][data-syntax-theme="dracula"] .history-diff,
 :root[data-theme="dark"][data-syntax-theme="dracula"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #282a36;
   --text: #f8f8f2;
@@ -2089,7 +2130,6 @@ h1 { margin: 0; font-size: 18px; }
   color: #f8f8f2;
 }
 :root[data-theme="light"][data-syntax-theme="dracula"] #diff2html-container,
-:root[data-theme="light"][data-syntax-theme="dracula"] .history-diff,
 :root[data-theme="light"][data-syntax-theme="dracula"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #fffbeb;
   --text: #1f1f1f;
@@ -2102,7 +2142,6 @@ h1 { margin: 0; font-size: 18px; }
 /* Pure black / pure white under the code is the whole contract of this one — anything softer is a different
    theme wearing its name. */
 :root[data-theme="dark"][data-syntax-theme="contrast"] #diff2html-container,
-:root[data-theme="dark"][data-syntax-theme="contrast"] .history-diff,
 :root[data-theme="dark"][data-syntax-theme="contrast"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #000000;
   --text: #ffffff;
@@ -2113,7 +2152,6 @@ h1 { margin: 0; font-size: 18px; }
   color: #ffffff;
 }
 :root[data-theme="light"][data-syntax-theme="contrast"] #diff2html-container,
-:root[data-theme="light"][data-syntax-theme="contrast"] .history-diff,
 :root[data-theme="light"][data-syntax-theme="contrast"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #ffffff;
   --text: #000000;
@@ -2243,7 +2281,11 @@ h1 { margin: 0; font-size: 18px; }
   padding: 2px 10px;
   cursor: text;
   user-select: text;
+  /* The caret on an EMPTY line is absolute (insertSourceCaret): out of the flow, so its height cannot push the
+     row around. This makes the cell the box it is positioned against. */
+  position: relative;
 }
+.code-cursor-empty { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); margin: 0; }
 .code-cursor {
   display: inline-block;
   width: 2px;
@@ -2360,17 +2402,25 @@ h1 { margin: 0; font-size: 18px; }
 .source-type-icon { display: inline-flex; align-items: center; flex: none; margin-right: 2px; }
 .source-type-icon .ftype { width: 16px; height: 16px; display: block; }
 .mc-file-badge { display: inline-flex; gap: 4px; align-items: center; }
-.mc-fb { font-size: 10px; line-height: 1; padding: 1px 6px; border-radius: 0; font-weight: 700; font-variant-numeric: tabular-nums; border: 1px solid transparent; }
-.mc-fb-q { color: var(--token-number); background: color-mix(in srgb, var(--token-number) 16%, transparent); border-color: color-mix(in srgb, var(--token-number) 38%, transparent); }
-.mc-fb-c { color: var(--token-tag); background: color-mix(in srgb, var(--token-tag) 16%, transparent); border-color: color-mix(in srgb, var(--token-tag) 38%, transparent); }
+/* One badge per file: questions and change requests are one kind of comment now, so one count. */
+.mc-fb { font-size: 10px; line-height: 1; padding: 1px 6px; border-radius: 0; font-weight: 700; font-variant-numeric: tabular-nums; border: 1px solid transparent;
+  color: var(--token-tag); background: color-mix(in srgb, var(--token-tag) 16%, transparent); border-color: color-mix(in srgb, var(--token-tag) 38%, transparent); }
 /* Lines kept highlighted while composing a comment on a drag selection */
 .mc-sel-line .d2h-code-side-line { background: color-mix(in srgb, var(--active) 20%, transparent); }
 .source-row.mc-sel-line .source-code { background: color-mix(in srgb, var(--active) 20%, transparent); }
 /* A comment box "selected" while navigating with arrows (caret hidden; Backspace deletes it) */
-.mc-comment-row td { padding: 0; background: var(--bg); }
-.mc-comment-spacer-row td { padding: 0; border: 0; background: var(--bg); }
+/* Transparent, not a colour of their own: a comment is part of the file it hangs in, and painting its strip
+   --bg cut a darker slab across a --panel diff (and across the source view, which is a third colour again).
+   Inheriting whichever surface the row is sitting on is also the only version that is right in every theme. */
+.mc-comment-row td { padding: 0; background: transparent; }
+.mc-comment-spacer-row td { padding: 0; border: 0; background: transparent; }
 .mc-comment-spacer { width: 1px; min-height: 0; pointer-events: none; }
-.mc-thread-cell { padding: 4px 12px 8px 64px; }
+/* No padding around the card except the gutter alignment on the left. The cell must stay TRANSPARENT — it is
+   the spacer that keeps both panes of a layered diff in step, and painting it would cover the other pane's
+   canvas — so every pixel of padding showed the diff colour of the line the comment hangs from. A comment on
+   an added line therefore sat in a green frame, as if the conversation were part of the change. Taking the
+   padding away lets the card meet the code directly; the 64px is alignment past the gutter, not spacing. */
+.mc-thread-cell { padding: 0 0 0 64px; }
 .source-table .mc-thread-cell { padding: 4px 12px 8px calc(var(--source-gutter-width) + 10px); }
 /* Diff code lives on a max-content canvas so long lines can scroll horizontally. A comment is editor UI,
    not source text: keep its cell pinned to the working-tree viewport just after the one visible gutter.
@@ -2466,18 +2516,13 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 /* Arrow-key selection addresses ONE turn inside a thread, so the outline has to be on the card, not the row —
    otherwise a three-turn thread lights up whole while `e` and Backspace act on a single card in it. */
 .mc-comment-row.mc-row-selected .mc-card { box-shadow: none; }
-.mc-comment-row.mc-row-selected .mc-card.mc-card-selected { box-shadow: 0 0 0 2px var(--active); position: relative; z-index: 1; }
-/* A thread is deliberately flush — a card followed by another gives up its bottom margin and its bottom
-   radius so the turns read as one box. That leaves the selected card's ring with nowhere to draw its BOTTOM
-   edge: the next turn (the reply stub is a .mc-card too) sits directly on it, so the outline appeared to run
-   down both sides and stop. Give the selection those few pixels back, and its corners with them — only while
-   it is selected, so an unselected thread still reads as one box. */
-.mc-thread-cell .mc-card.mc-card-selected:has(+ .mc-card) {
-  margin-bottom: 4px;
-  border-bottom-left-radius: inherit;
-  border-bottom-right-radius: inherit;
-}
-.mc-thread-cell .mc-card.mc-card-selected + .mc-card { margin-top: 0; }
+/* The ring is drawn INSIDE the card, the way the fold rows above already draw theirs. A thread is
+   deliberately flush — a card followed by another gives up its bottom margin so the turns read as one box —
+   which leaves an outset ring with nowhere to put its bottom edge. The fix for that used to be handing the
+   selected card 4px of margin back, and margin moves things: selecting a turn pushed every card under it,
+   and the code line below the whole thread, down by 4px, then back up on deselect. An inset ring needs no
+   room of its own, closes on all four sides however flush the card is, and cannot move a pixel. */
+.mc-comment-row.mc-row-selected .mc-card.mc-card-selected { box-shadow: inset 0 0 0 2px var(--active); }
 /* A file path an agent named in prose is a link: same inline-code chrome, plus the affordance. */
 .mc-path-code { cursor: pointer; text-decoration: underline dotted currentColor; text-underline-offset: 2px; }
 .mc-path-code:hover { color: var(--active); text-decoration-style: solid; }
@@ -2691,30 +2736,9 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .hsel-actions { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .hsel-btn { padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--text); font-size: 11px; font-weight: 600; line-height: 1.4; cursor: pointer; }
 .hsel-btn:hover { border-color: var(--active); }
-.hsel-btn.hsel-open { color: var(--active); border-color: color-mix(in srgb, var(--active) 45%, var(--border)); }
 .hrow { -webkit-user-select: none; user-select: none; } /* double-click activates, never selects row text */
 .history-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; overflow: hidden; }
 .history-list { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 4px 0; }
-.history-detail-backdrop {
-  position: absolute; inset: 0; z-index: 1;
-  background: color-mix(in srgb, #000 42%, transparent);
-}
-.history-detail-backdrop.hidden,
-.history-detail.hidden { display: none; }
-.history-detail {
-  position: absolute;
-  inset: clamp(12px, 2vh, 20px) clamp(14px, 2vw, 28px);
-  z-index: 2;
-  min-width: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  color: var(--chrome-text);
-  background: var(--chrome-panel);
-  border: 1px solid var(--chrome-border);
-  border-radius: var(--ui-radius-lg);
-  box-shadow: 0 22px 70px rgba(0, 0, 0, .52);
-}
 body.native-app .history-bar {
   /* Pin the bar to exactly the title-bar height so its bottom border lines up with the activity rail's
      title-strip divider (::before at --native-titlebar-height - 1). The default 8px top/bottom padding made
@@ -2735,11 +2759,6 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .hrow.in-range.active { background: color-mix(in srgb, var(--active) 22%, transparent); }
 .hrow.range-end { box-shadow: inset 2px 0 0 var(--active); }
 /* Range compare detail header (two-commit span). */
-.hd-subject.hd-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.hd-range-kind { color: var(--muted); font-weight: 600; }
-.hd-range .hd-hash { font: 12px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); }
-.hd-range-arrow { color: var(--muted); }
-.hd-range-count { color: var(--muted); font-size: 11px; }
 .hgraph-cell { height: 26px; line-height: 0; }
 .hgraph { display: block; overflow: visible; }
 /* Filtering breaks the contiguous graph, so hide the lane column and show a flat list (IntelliJ does too). */
@@ -2757,37 +2776,6 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .href-branch { color: #69d47c; }
 .href-remote { color: #bd91ff; }
 .href-tag { color: #efb84f; }
-.history-detail-head { flex: none; display: flex; align-items: flex-start; gap: 10px; min-height: 62px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--border); }
-.history-detail-copy { flex: 1 1 auto; min-width: 0; }
-.history-detail-close,
-.history-message-toggle {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  line-height: 1;
-}
-.history-detail-close { align-self: flex-start; margin-left: auto; }
-.history-detail-close svg,
-.history-message-toggle svg { display: block; width: 15px; height: 15px; }
-.history-message-toggle .history-message-chevron { transition: transform 120ms ease; }
-.history-message-toggle[aria-expanded="true"] .history-message-chevron { transform: rotate(180deg); }
-.hd-summary { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 26px; }
-.hd-subject { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 1.45; font-weight: 600; }
-.history-detail-head .dock-btn:hover { transform: none; }
-.hd-body { display: none; max-height: min(24vh, 240px); margin: 8px 2px 6px 0; padding: 8px 10px; overflow: auto; border-left: 2px solid var(--chrome-border); color: var(--chrome-text-muted); font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-.history-detail-head.message-expanded .hd-body { display: block; }
-.hd-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 3px; font-size: 11.5px; line-height: 1.35; color: var(--muted); }
-.hd-hash { font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.history-workspace { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(190px, 260px) minmax(0, 1fr); transition: grid-template-columns .18s ease; }
-.history-files { min-width: 0; overflow: auto; padding: 6px; border-right: 1px solid var(--border); opacity: 1; transition: opacity .12s ease, padding .18s ease, border-color .12s ease; }
-.history-workspace.history-files-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
-.history-workspace.history-files-collapsed .history-files { padding-inline: 0; border-right-color: transparent; opacity: 0; pointer-events: none; }
-.history-file { width: 100%; }
-.history-diff { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
-.history-diff:focus { outline: none; }
 
 /* Go-to-line (Cmd/Ctrl+L): a small numeric prompt near the top, like a command palette. */
 .goto-line {
@@ -2964,13 +2952,40 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
    a pty to each, wait for tmux to redraw its screen — and until the first byte lands the panel is an empty
    rectangle, which reads as a hang rather than as work in progress. One arc while that is happening, in the
    same shape the workspace selector uses for a running agent. */
+/* The wait belongs to a PANE, not to the panel: a split can have one pane still attaching while the one
+   beside it is already printing, and a single arc in the middle described neither. Each waiting rectangle
+   wears its own.
+   Above xterm, or invisible: xterm's own layers carry z-index up to 10 (xterm.css), so a pseudo-element at
+   z-index auto is painted UNDER the terminal screen — which is every moment this overlay is wanted. */
+.terminal-pane.is-connecting { position: relative; }
+.terminal-pane.is-connecting::after {
+  content: ""; position: absolute; inset: 0; margin: auto; width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--active) 28%, transparent); border-top-color: var(--active);
+  animation: workspace-selector-spin .8s linear infinite; pointer-events: none; z-index: 11;
+}
+/* And what it is waiting FOR, under the arc. An arc says something is happening; the sentence says what,
+   which is the difference between waiting and wondering whether the pane is broken. The text arrives as a
+   custom property (setPaneConnecting) because a pseudo-element cannot read a translation itself. */
+.terminal-pane.is-connecting::before {
+  content: var(--terminal-connecting, "");
+  position: absolute; left: 0; right: 0; top: 50%; margin-top: 24px;
+  text-align: center; color: var(--muted); font-size: 12px; pointer-events: none; z-index: 11;
+}
+/* Before any pane exists at all — main is still listing the sessions that survived — the panel carries it,
+   and hands over as soon as there is a rectangle to draw on. */
 .terminal-panel.is-connecting .terminal-host { position: relative; }
 .terminal-panel.is-connecting .terminal-host::after {
   content: ""; position: absolute; inset: 0; margin: auto; width: 22px; height: 22px; border-radius: 50%;
   border: 2px solid color-mix(in srgb, var(--active) 28%, transparent); border-top-color: var(--active);
-  animation: workspace-selector-spin .8s linear infinite; pointer-events: none;
+  animation: workspace-selector-spin .8s linear infinite; pointer-events: none; z-index: 11;
+}
+.terminal-panel.is-connecting .terminal-host::before {
+  content: var(--terminal-connecting, "");
+  position: absolute; left: 0; right: 0; top: 50%; margin-top: 24px;
+  text-align: center; color: var(--muted); font-size: 12px; pointer-events: none; z-index: 11;
 }
 @media (prefers-reduced-motion: reduce) {
+  .terminal-pane.is-connecting::after,
   .terminal-panel.is-connecting .terminal-host::after { animation: none; opacity: .65; }
 }
 /* Cmd+Shift+D stacks the panes instead (top/bottom); the same 1px gap becomes the horizontal divider. */
@@ -3632,14 +3647,18 @@ summary.tree-focus,
    is still there, which is what the colour answers. Deleted is muted, not struck through — the strikethrough
    is VS Code's convention, not this one. Placed after the vcs-* rules so a change row is coloured by WHAT
    CHANGED rather than by whether it happens to be staged, which is how a deleted file came to look added. */
-.change-row.ch-added .change-name { color: var(--add-strong); }
+/* --chrome-vcs-staged, not --add-strong. The latter is a FILL — it tints an added diff line's background —
+   and using a fill as ink is why this was unreadable at both ends: #1f5b34 on a dark panel is ~1.9:1, and the
+   light palette's #abf2bc on white is worse. Every palette already carries a green sized to be READ, because
+   the Files tree writes staged names in it. */
+.change-row.ch-added .change-name { color: var(--chrome-vcs-staged); }
 .change-row.ch-modified .change-name,
 .change-row.ch-renamed .change-name { color: var(--chrome-vcs-edited); }
 .change-row.ch-deleted .change-name { color: var(--muted); }
 .status { color: var(--chrome-muted); background: var(--chrome-line); }
-/* The modified chip is an empty slot until the row is marked viewed, and then it is the green check — not a
-   blue badge saying "changed" on a list of changes. `.status` above sets a background on every chip, so this
-   has to switch it back off; the viewed ✓ rule is more specific and still wins. */
+/* Only History still draws this chip (the Changes tree leads with the viewed box instead). A modified row
+   shows nothing: a blue badge saying "changed" on a list of changes is a second alphabet for one fact, and
+   `.status` above puts a background on every chip, so this has to switch it back off. */
 .status-modified { color: var(--chrome-vcs-edited); background: transparent; }
 
 .diff-toolbar,
@@ -3694,52 +3713,6 @@ summary.tree-focus,
   background: var(--chrome-panel);
   border-color: var(--chrome-border);
 }
-.settings-nav,
-.impact-header,
-.history-bar,
-.history-files,
-.dock-bar,
-.mc-modal-head,
-.quick-open-title,
-.semantic-peek-header {
-  color: var(--chrome-text);
-  background: var(--chrome-bg);
-  border-color: var(--chrome-border);
-}
-.settings-nav-title,
-.settings-desc,
-.settings-ver,
-.keys-cat,
-.keys-grid span,
-.app-info-status,
-.app-info-ver,
-.impact-engine,
-.impact-empty,
-.impact-section-empty,
-.impact-item-path,
-.impact-relation,
-.impact-target-label,
-.impact-target-path,
-.impact-analyzer-row,
-.impact-keyboard-help,
-.impact-tier-desc,
-.impact-tier-count,
-.impact-tier-empty,
-.impact-fallback,
-.impact-candidate-toggle,
-.history-view .hauthor,
-.history-view .hdate,
-.history-view .hd-meta,
-.history-view .href-remote,
-.dock-btn,
-.mc-memo-save-state,
-.mc-memo-empty,
-.quick-open-title,
-.quick-open-filter.is-hint,
-.quick-open-path,
-.quick-open-badge,
-.quick-open-empty,
-.semantic-peek-meta { color: var(--chrome-muted); }
 .settings-h,
 .settings-label,
 .impact-title,
@@ -3772,14 +3745,6 @@ summary.tree-focus,
 .tab { color: var(--chrome-text); background: var(--chrome-elevated); border-color: var(--chrome-border); }
 .plain-button:hover,
 .tab.active { color: var(--chrome-selected-text); background: var(--chrome-selected); border-color: var(--active-strong); }
-
-.impact-body,
-.impact-section,
-.impact-tier,
-.impact-tier-head,
-.impact-candidate-toggle,
-.history-list,
-.history-detail-head { border-color: var(--chrome-border); }
 .impact-count { color: var(--chrome-text); background: var(--chrome-line); }
 .impact-item { color: var(--chrome-text); }
 .impact-item:hover,
@@ -3873,7 +3838,6 @@ body {
 .change-row,
 .source-link,
 .impact-item,
-.history-file,
 .settings-cat,
 .quick-open-item,
 .mc-dropdown-item { border-radius: var(--ui-radius-sm); }

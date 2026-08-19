@@ -12,8 +12,8 @@
 // and the {{...}} placeholders (spec/notes paths) are only known once a workspace is loaded.
 function promptPaletteEntries() {
   return [
-    { id: 'annotate', title: t('annotatePrompt.title'), when: t('annotatePrompt.when'), text: currentAnnotatePromptText },
-    { id: 'codebase', title: t('codebasePrompt.title'), when: t('codebasePrompt.when'), text: currentCodebasePromptText },
+    { id: 'annotate', file: 'explain-diff.md', title: t('annotatePrompt.title'), when: t('annotatePrompt.when'), text: currentAnnotatePromptText },
+    { id: 'codebase', file: 'explain-codebase.md', title: t('codebasePrompt.title'), when: t('codebasePrompt.when'), text: currentCodebasePromptText },
   ];
 }
 
@@ -21,12 +21,29 @@ function promptPaletteEntries() {
 // the composer for review rather than executing behind the user's back. Falls back to the clipboard where
 // there is no integrated terminal (the CLI's browser viewer). Also the ⌘7 Explain entry point — see
 // runAnnotatePrompt (23-annotations.js).
-function sendPromptToTerminal(text) {
-  if (window.__kakapoTerminal && typeof window.__kakapoTerminal.enterSendMode === 'function') {
-    window.__kakapoTerminal.enterSendMode(text);
-    return;
-  }
-  if (copyTextToClipboard(text)) showToast(t('explain.copied'));
+// The prompt goes to DISK and the composer carries one line naming it — the same hand-off the merged review
+// request uses (sendWholeDocToTerminal, 08-dock.js). These prompts are sixty lines of instructions; pasted in,
+// they filled the composer with a wall of text the reviewer had to scroll past to find the send button, and
+// every send pasted the same sixty lines again. On disk it is also inspectable afterwards: what the agent was
+// actually asked is a file you can open, not something that scrolled away.
+//
+// Falls back to pasting whenever the write cannot happen — a browser build with no bridge, a repo with no git
+// dir — because a prompt that reaches the agent as text still works, and one that reaches it as a path to a
+// file that was never written does not.
+function sendPromptToTerminal(text, name) {
+  var toTerminal = function (payload) {
+    if (window.__kakapoTerminal && typeof window.__kakapoTerminal.enterSendMode === 'function') {
+      window.__kakapoTerminal.enterSendMode(payload);
+      return;
+    }
+    if (copyTextToClipboard(payload)) showToast(t('explain.copied'));
+  };
+  var canWrite = name && window.kakapoComments && typeof window.kakapoComments.writeRequest === 'function';
+  if (!canWrite) { toTerminal(text); return; }
+  Promise.resolve(window.kakapoComments.writeRequest(text, name)).catch(function () { return null; })
+    .then(function (result) {
+      toTerminal(result && result.ok && result.path ? t('prompt.requestFile') + ' ' + result.path : text);
+    });
 }
 
 // One-line gist of each prompt so the list is scannable without opening Settings: the first non-empty line,

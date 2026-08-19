@@ -473,9 +473,9 @@ class Viewer {
     this.click(tr.querySelector(".d2h-code-line, .d2h-code-side-line") || numCell);
     await this.settle(20);
   }
-  /** Open the composer for the caret line. kind: 'q' (question, "?") or 'c' (change request, ">"). */
-  async openComposer(kind = "q") {
-    this.key(kind === "q" ? "?" : ">");
+  /** Open the review-comment composer for the caret line ("?"). */
+  async openComposer() {
+    this.key("?");
     await this.settle(40);
   }
   /** Type into the *visible* composer and click its own Save ("Comment") button. */

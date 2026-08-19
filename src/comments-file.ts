@@ -54,6 +54,20 @@ export function knowledgeFilePath(root: string): string | undefined {
   return kakapoSharedDataFile(root, "knowledge.jsonl");
 }
 
+// Knowledge is shared by every worktree of a repository, but a note is ANCHORED — it names a file and a line.
+// A note written about a file that does not exist in this workspace has nothing to attach to here: the card
+// cannot render, yet the count on the tree still counted it and F8 still walked to it, which sent the caret to
+// a file it could not open and left it at the top. So a shared note arrives only where its file does.
+//
+// Same-file drift (the line moved, or this branch changed it) is a different problem and already has an
+// answer: the record carries the text of the line it was written on, and the renderer re-finds it.
+function notesForWorkspace(records: ThreadRecord[], root: string): ThreadRecord[] {
+  return records.filter((record) => {
+    if (!record.path) return true; // a note with no anchor belongs to the repository, not to a file
+    return existsSync(join(root, record.path));
+  });
+}
+
 // A record is knowledge when the agent wrote it about the code on its own — not a reply, not a question. Its
 // replies stay with the conversation they belong to, so a note can be discussed in one workspace without that
 // discussion following the note into every other one.
@@ -62,13 +76,26 @@ export function isKnowledge(record: ThreadRecord): boolean {
 }
 
 // The file teaches its own format, so the prompt handed to an agent only has to name the path.
-const HEADER = [
-  "# kakapo review thread — one JSON object per line, oldest first. Lines starting with # are ignored.",
-  '# Reply to a comment:  {"id":<highest id + 1>,"re":<id you are answering>,"by":"agent","text":"markdown"}',
-  '# Leave a note of your own:  {"id":<highest id + 1>,"by":"agent","kind":"note","path":"repo/relative.ts","line":42,"text":"markdown"}',
-  '# Notes are read group by group, in the order appended:  add "group":1 to each note (see the Explain prompt).',
-  "# APPEND only. Never rewrite, reorder or renumber the lines already here.",
-];
+//
+// Including the next free id is not a convenience. There are TWO files — this workspace's conversation and
+// the notes shared across every worktree of the repository — and they are ONE id space: a reply in the
+// conversation may answer a note in the shared file, so an id has to mean one thing across both. But an agent
+// is only ever pointed at the file it is writing to, so "highest id in this file + 1" was the only rule it
+// could follow, and the two files number themselves independently: comments reached 20 while notes reached
+// 18, and the next note and the next answer both claimed 19. Two records, one id, and everything that
+// resolves a parent by id — a reply's anchor, its thread, its delete — picks whichever it happens to find.
+// The renderer sees both files and cannot be fooled; the agent sees one and needs to be told.
+function headerFor(nextId: number): string[] {
+  return [
+    "# kakapo review thread — one JSON object per line, oldest first. Lines starting with # are ignored.",
+    `# NEXT FREE ID: ${nextId}. Ids are shared with the other kakapo thread file, so use this, not the highest id below.`,
+    '# Reply to a comment:  {"id":<next free id>,"re":<id you are answering>,"by":"agent","text":"markdown"}',
+    '# Leave a note of your own:  {"id":<next free id>,"by":"agent","kind":"note","path":"repo/relative.ts","line":42,"text":"markdown"}',
+    '# Notes are read group by group, in the order appended:  add "group":1 to each note (see the Explain prompt).',
+    "# Appending more than one line? Keep counting up from the next free id.",
+    "# APPEND only. Never rewrite, reorder or renumber the lines already here.",
+  ];
+}
 
 export function readThread(file: string | undefined): ThreadRecord[] {
   if (!file || !existsSync(file)) return [];
@@ -94,9 +121,17 @@ export function readThread(file: string | undefined): ThreadRecord[] {
   return records;
 }
 
-export function writeThread(file: string, records: ThreadRecord[]): void {
+// `nextId` is the id space's high-water mark across BOTH files, so whichever one is being written tells an
+// agent the same truth. Defaults to this file's own contents for callers that have only one (tests, and the
+// no-shared-file case where the two really are the same file).
+export function writeThread(file: string, records: ThreadRecord[], nextId?: number): void {
+  const floor = records.reduce((max, record) => Math.max(max, Number(record.id) || 0), 0) + 1;
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, HEADER.concat(records.map((record) => JSON.stringify(record))).join("\n") + "\n");
+  writeFileSync(file, headerFor(Math.max(floor, Number(nextId) || 0)).concat(records.map((record) => JSON.stringify(record))).join("\n") + "\n");
+}
+// The next id nobody has used, in either file. The only place that can answer it is the one that holds both.
+export function nextThreadId(...records: ThreadRecord[][]): number {
+  return records.reduce((max, list) => list.reduce((m, r) => Math.max(m, Number(r.id) || 0), max), 0) + 1;
 }
 
 // mtime+size: a bare stat gates the read+parse, so an idle poll tick costs one syscall.
@@ -148,7 +183,7 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
       path: state.commentsFile,
       notesPath: state.knowledgeFile ?? state.commentsFile,
       exists: exists || existsSync(state.knowledgeFile ?? ""),
-      records: readThread(state.commentsFile).concat(readThread(state.knowledgeFile)),
+      records: readThread(state.commentsFile).concat(notesForWorkspace(readThread(state.knowledgeFile), state.options.root)),
       legacyNotes: exists ? [] : legacyNotes(state.options.root),
     };
   });
@@ -169,12 +204,20 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
     const mine = shared ? payload.records.filter((record) => !isKnowledge(record)) : payload.records;
     const learned = shared ? payload.records.filter(isKnowledge) : [];
     const arrivedHere = readThread(state.commentsFile).filter((record) => record.id > knownMaxId);
-    writeThread(state.commentsFile, mine.concat(arrivedHere));
-    state.commentsSig = fileSignature(state.commentsFile); // our own write must not come back as a change
+    const here = mine.concat(arrivedHere);
     let arrivedShared: ThreadRecord[] = [];
+    let there: ThreadRecord[] = [];
     if (shared) {
       arrivedShared = readThread(shared).filter((record) => record.id > knownMaxId);
-      writeThread(shared, learned.concat(arrivedShared));
+      there = learned.concat(arrivedShared);
+    }
+    // Both files carry the SAME next free id, computed across both — that is what makes them one id space to
+    // an agent, which only ever sees the one it was pointed at.
+    const nextId = nextThreadId(here, there);
+    writeThread(state.commentsFile, here, nextId);
+    state.commentsSig = fileSignature(state.commentsFile); // our own write must not come back as a change
+    if (shared) {
+      writeThread(shared, there, nextId);
       state.knowledgeSig = fileSignature(shared);
     }
     return { ok: true, path: state.commentsFile, arrived: arrivedHere.concat(arrivedShared) };
@@ -184,10 +227,15 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
   // names it (sendWholeDocToTerminal, 08-dock.js). Every byte of that document was already on disk anyway —
   // pasting it back was a copy of the review, and a thread with a few turns quoted per comment made the copy
   // kilobytes long. Overwritten on every send: it is the CURRENT request, not a log.
-  ipc.handle("kakapo:comments-request-write", (event, payload: { text?: string }) => {
+  ipc.handle("kakapo:comments-request-write", (event, payload: { text?: string; name?: string }) => {
     const state = stateFromEvent(event);
     if (!state || !state.commentsFile || typeof payload?.text !== "string") return { ok: false };
-    const file = join(dirname(state.commentsFile), "request.md");
+    // A name so the two kinds of hand-off cannot overwrite each other: a review request and an Explain
+    // instruction are both "the current request", but they are sent from different places and an agent may
+    // still be reading one when the other is sent. Sanitised to a plain basename — this path is built from
+    // renderer input, and the only thing it may choose is which of OUR files it is.
+    const wanted = typeof payload.name === "string" ? payload.name.replace(/[^a-z0-9._-]/gi, "") : "";
+    const file = join(dirname(state.commentsFile), wanted && wanted.endsWith(".md") ? wanted : "request.md");
     try {
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, payload.text.endsWith("\n") ? payload.text : payload.text + "\n");
@@ -212,6 +260,6 @@ export function syncCommentsFile(state: CommentsIpcState): void {
   state.commentsSig = sig;
   state.knowledgeSig = shared;
   state.win.webContents.send("kakapo:comments-update", {
-    records: readThread(state.commentsFile).concat(readThread(state.knowledgeFile)),
+    records: readThread(state.commentsFile).concat(notesForWorkspace(readThread(state.knowledgeFile), state.options.root)),
   });
 }

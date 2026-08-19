@@ -157,3 +157,29 @@ test("every use of the host window answers for the host being gone", () => {
   const unguarded = uses.filter(({ line }) => !line.includes("isDestroyed"));
   assert.deepEqual(unguarded, [], "a host method is only called after asking whether the host is still there");
 });
+
+// The scale list exists twice: main steps through it for ⌘+ / ⌘− and the Settings dropdown renders it in the
+// viewer, which cannot import TypeScript. Let them drift and a keystroke lands on a size the dropdown cannot
+// show as selected — the same way the syntax-family list once drifted and a chosen theme came back wrong.
+test("the UI scale list main steps through is the one the dropdown offers", async () => {
+  const { UI_SCALES } = await import("../dist/constants.js");
+  const core = readFileSync(new URL("../src/viewer/01-core.js", import.meta.url), "utf8");
+  const declared = core.match(/var UI_SCALES = \[([^\]]*)\]/)?.[1];
+  assert.ok(declared, "the viewer still declares its own copy");
+  assert.deepEqual(declared.split(",").map((n) => Number(n.trim())), UI_SCALES);
+});
+
+// The scale is one setting for the whole app: main applies it to the shell, the overlay and every review view
+// from the GLOBAL file. Stored per-workspace instead, the dropdown moved and nothing changed size.
+test("the UI scale is stored globally, not per workspace", () => {
+  const base = mkdtempSync(join(tmpdir(), "kakapo-scale-"));
+  try {
+    const prefs = new AppPreferences(join(base, "app-data"));
+    const repo = join(base, "repo");
+    mkdirSync(repo, { recursive: true });
+    prefs.setRendererSetting(repo, "kakapo-ui-scale", 1.25);
+    assert.equal(prefs.readGlobal()["kakapo-ui-scale"], 1.25, "a workspace window writing it still writes the global");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});

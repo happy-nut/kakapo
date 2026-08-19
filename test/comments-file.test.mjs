@@ -132,6 +132,9 @@ test("what the agent learned goes to the repository, the conversation stays with
   const h = harness();
   try {
     h.state.knowledgeFile = knowledgeFilePath(h.root);
+    // The note below is anchored to this file, and a shared note only reaches a workspace that HAS its file.
+    mkdirSync(join(h.root, "src"), { recursive: true });
+    writeFileSync(join(h.root, "src", "a.ts"), "export const a = 1;\n");
 
     h.write([
       { id: 1, kind: "q", path: "src/a.ts", line: 1, text: "why here?" },
@@ -150,6 +153,69 @@ test("what the agent learned goes to the repository, the conversation stays with
     const back = h.read();
     assert.deepEqual(back.records.map((r) => r.id).sort(), [1, 2, 3]);
     assert.equal(back.notesPath, h.state.knowledgeFile, "and that shared file is what {{NOTES_PATH}} means");
+  } finally {
+    h.cleanup();
+  }
+});
+
+// Knowledge is shared by every worktree of a repository, but a note is ANCHORED to a file and a line. A note
+// about a file this workspace does not have has nothing to attach to here — the card cannot render, yet the
+// count on the tree counted it and F8 walked to it, sending the caret to a file it could not open.
+test("a shared note arrives only in a workspace that has its file", () => {
+  const h = harness();
+  try {
+    h.state.knowledgeFile = knowledgeFilePath(h.root);
+    writeFileSync(join(h.root, "here.ts"), "export const a = 1;\n");
+
+    h.write([
+      { id: 1, by: "agent", kind: "note", path: "here.ts", line: 1, text: "about a file this workspace has" },
+      { id: 2, by: "agent", kind: "note", path: "only/in/another/worktree.ts", line: 9, text: "about one it does not" },
+      { id: 3, by: "agent", kind: "note", text: "about the repository itself, anchored to nothing" },
+    ]);
+
+    const back = h.read().records.map((r) => r.id).sort();
+    assert.deepEqual(back, [1, 3], "the note whose file is missing here stays out of this workspace's list");
+
+    // It is not deleted — another worktree still has that file, and the knowledge belongs to the repository.
+    const knowledge = readFileSync(h.state.knowledgeFile, "utf8");
+    assert.match(knowledge, /only\/in\/another\/worktree\.ts/, "it is still on disk for the workspace it is about");
+  } finally {
+    h.cleanup();
+  }
+});
+
+// The two files are ONE id space — a reply in the conversation can answer a note in the shared file, so an id
+// has to mean one thing across both. But they number themselves independently and an agent is only ever
+// pointed at the file it is writing to, so "highest id in this file + 1" was the only rule it could follow:
+// comments reached 20 while notes reached 18, and the next answer and the next note both claimed 19. Two
+// records, one id, and everything that resolves a parent by id picks whichever it happens to find first.
+// Neither file can answer this on its own; the process that holds both writes the answer into each of them.
+test("both thread files carry the same next free id, so an agent seeing one cannot collide with the other", () => {
+  const h = harness();
+  try {
+    h.state.knowledgeFile = knowledgeFilePath(h.root);
+    mkdirSync(join(h.root, "src"), { recursive: true });
+    writeFileSync(join(h.root, "src", "a.ts"), "export const a = 1;\n");
+
+    // The conversation runs ahead of the notes, which is the case that used to collide.
+    h.write([
+      { id: 1, kind: "c", path: "src/a.ts", line: 1, text: "why here?" },
+      { id: 2, by: "agent", kind: "note", path: "src/a.ts", line: 3, text: "the trunk" },
+      { id: 7, re: 1, by: "agent", text: "because of X" },
+    ]);
+
+    const nextIdIn = (file) => {
+      const line = readFileSync(file, "utf8").split("\n").find((l) => l.includes("NEXT FREE ID"));
+      assert.ok(line, `${file} states its next free id`);
+      return Number(/NEXT FREE ID: (\d+)/.exec(line)[1]);
+    };
+    assert.equal(nextIdIn(h.state.commentsFile), 8, "the conversation counts past every id in BOTH files");
+    assert.equal(nextIdIn(h.state.knowledgeFile), 8,
+      "and the shared notes say the same 8 — its own highest is 2, which is exactly the trap");
+
+    // And it is the number an agent is told to use, not a decoration: taking it produces a free id.
+    const used = h.read().records.map((r) => r.id);
+    assert.ok(!used.includes(8), "8 is free in the merged list the renderer works from");
   } finally {
     h.cleanup();
   }

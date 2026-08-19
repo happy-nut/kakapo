@@ -176,6 +176,23 @@ var handleTerminalSendModeKey;
     host.appendChild(cell);
     return cell;
   }
+  // Reaching into xterm's private composition helper is deliberate: the send we need to stand down has no
+  // public switch. If a future xterm changes that shape, do nothing — xterm keeps its own commit, which is
+  // wrong for Hangul but is never a doubled keystroke, and doubling is the worse failure to ship.
+  function takeCompositionCommit(term, event) {
+    var core = term && term._core;
+    var helper = core && core._compositionHelper;
+    var service = core && core.coreService;
+    if (!helper || !service || typeof service.triggerDataEvent !== 'function') return;
+    if (!('_isSendingComposition' in helper)) return;
+    helper._isSendingComposition = false; // the send xterm queued for the next tick finds this false and stands down
+    helper._isComposing = false;
+    helper._dataAlreadySent = '';
+    if (event && event.data) service.triggerDataEvent(event.data, true);
+    // The textarea is xterm's to manage (it clears on blur, Enter and Ctrl+C). Clearing it here as well
+    // bought nothing measurable and raced the next composition: type quickly enough and the deferred clear
+    // landed after the following composition had already begun, wiping a value only it still held.
+  }
   function makePane(cell, restoreOrdinal) {
     if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw
     var el = document.createElement('div');
@@ -205,6 +222,11 @@ var handleTerminalSendModeKey;
     var pane = { id: null, term: term, fit: fit, el: el, labelEl: labelEl, restoreOrdinal: restoreOrdinal,
       name: 'Terminal ' + (panes.length + 1) };
     labelEl.textContent = pane.name;
+    // From the moment the rectangle exists it is a rectangle that is waiting. The panel-wide overlay covered
+    // the sliver before any pane existed (main still listing the surviving sessions); now that there is a
+    // pane to draw on, it hands over rather than sitting behind this one.
+    setPaneConnecting(pane, true);
+    setConnecting(false);
     // Cmd combos are app shortcuts (Cmd+1/0 tab switch, Cmd+B go-to-def, …). Release the terminal and let
     // them bubble to the document handler instead of typing into the shell (fixes "Cmd+1 stuck in term").
     // Exception: keep focus for clipboard/selection combos (Cmd+C/V/X/A) so the terminal's own copy &
@@ -265,7 +287,19 @@ var handleTerminalSendModeKey;
       term.textarea.addEventListener('keydown', function () { lastInputAt = Date.now(); }, true);
       term.textarea.addEventListener('compositionstart', function () { composingPanes.add(pane); lastInputAt = Date.now(); });
       term.textarea.addEventListener('compositionupdate', function () { lastInputAt = Date.now(); });
-      term.textarea.addEventListener('compositionend', function () { composingPanes.delete(pane); lastInputAt = Date.now(); flushDeferredFit(); });
+      // xterm commits a composition by slicing its textarea with offsets recorded while the composition ran
+      // (start at compositionstart, end on a setTimeout after each update). A macOS Hangul composition runs
+      // to the end of the WORD and rewrites the whole value on every keystroke, so those offsets go stale:
+      // measured against xterm 6.0, composing "해야" sends only "야", and output arriving mid-composition
+      // loses the word outright. compositionend already carries the committed text, so take the commit —
+      // cancel xterm's deferred send and write event.data ourselves. Nothing then depends on an offset
+      // surviving the composition, which is the part macOS Hangul breaks.
+      term.textarea.addEventListener('compositionend', function (event) {
+        composingPanes.delete(pane);
+        lastInputAt = Date.now();
+        takeCompositionCommit(term, event);
+        flushDeferredFit();
+      });
       term.textarea.addEventListener('blur', function () { composingPanes.delete(pane); flushDeferredFit(); });
     }
     // Bell from the pane's TUI (e.g. Claude Code finished a turn / needs input): badge the pane when it isn't
@@ -408,7 +442,7 @@ var handleTerminalSendModeKey;
   // it cannot be one that withholds output for the duration of a composition.
   window.kakapoPty.onData(function (msg) {
     for (var k = 0; k < panes.length; k++) {
-      if (panes[k].id === msg.id) { setConnecting(false); panes[k].term.write(msg.data); return; }
+      if (panes[k].id === msg.id) { noteConnectingOutput(panes[k]); panes[k].term.write(msg.data); return; }
     }
   });
   window.kakapoPty.onExit(function (msg) { removePane(msg.id); });
@@ -439,9 +473,45 @@ var handleTerminalSendModeKey;
   // a pane attached to a silent session prints nothing at all and the spinner would outlive the thing it is
   // describing, over a terminal that already works.
   var connectingTimer = 0;
+  // Connecting is a PER-PANE state: a split can have one pane still attaching while the pane beside it is
+  // already showing an agent's output, and a single arc in the middle of the panel described neither of them.
+  // Each pane wears its own, so the wait is drawn over exactly the rectangle that is waiting.
+  //
+  // The FIRST byte is not the end of that wait. Attaching to tmux echoes a handful of bytes at once and the
+  // redraw of the session's screen follows a second or more later — clearing on first output took the overlay
+  // away after ~100ms and left the rest as an empty pane, which is the wait the reviewer actually sees. Every
+  // byte pushes the finish line back instead; the 4s ceiling still ends a session that says nothing at all.
+  function paneLabel() {
+    try { return JSON.stringify(t('terminal.connecting')); } catch (e) { return '""'; }
+  }
+  function setPaneConnecting(p, on) {
+    if (!p || !p.el) return;
+    if (p.settleTimer) { clearTimeout(p.settleTimer); p.settleTimer = 0; }
+    if (p.connectTimer) { clearTimeout(p.connectTimer); p.connectTimer = 0; }
+    p.el.classList.toggle('is-connecting', !!on);
+    // The label reaches CSS as a quoted string: the overlay is a pseudo-element and `content` cannot read a
+    // translation itself. Read at this moment rather than at boot, so it follows a locale change.
+    try {
+      if (on) p.el.style.setProperty('--terminal-connecting', paneLabel());
+      else p.el.style.removeProperty('--terminal-connecting');
+    } catch (e) {}
+    if (on) p.connectTimer = setTimeout(function () { setPaneConnecting(p, false); }, 4000);
+  }
+  // The first byte IS the connection — the pty answered. This used to wait for output to go QUIET for 220ms,
+  // to avoid uncovering a pane mid-repaint, and that condition is never met by the pane you most want to see:
+  // re-attaching to a session whose agent is streaming means output never stops, so the overlay sat until the
+  // 4s ceiling and the workspace read as slow to open when it had connected in about 20ms.
+  function noteConnectingOutput(p) {
+    if (!p || !p.el || !p.el.classList.contains('is-connecting')) return;
+    setPaneConnecting(p, false);
+  }
   function setConnecting(on) {
     if (connectingTimer) { clearTimeout(connectingTimer); connectingTimer = 0; }
     panel.classList.toggle('is-connecting', !!on);
+    try {
+      if (on) panel.style.setProperty('--terminal-connecting', paneLabel());
+      else panel.style.removeProperty('--terminal-connecting');
+    } catch (e) {}
     if (on) connectingTimer = setTimeout(function () { setConnecting(false); }, 4000);
   }
   function isOpen() { return !panel.classList.contains('hidden'); }

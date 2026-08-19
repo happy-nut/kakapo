@@ -29,6 +29,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "tab.files": "Files",
     "tab.changes.title": "Changes (⌘0)",
     "tab.files.title": "Files (⌘1)",
+    "tree.markViewed": "Reviewed this file (Space)",
     "rail.reviewComments": "Review comments",
     "rail.branch": "Current branch",
     "brand.revealFile": "Reveal open file in the sidebar (⌥F1)",
@@ -88,20 +89,13 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "history.lineTitle": "Line history",
     "history.search": "Filter by message or author",
     "history.close": "Close",
-    "history.showMessage": "Show full commit message",
-    "history.hideMessage": "Hide commit message",
     "history.empty": "No commits.",
     "history.emptyLine": "No committed history for this line.",
     "history.loading": "Loading…",
-    "history.selectCommit": "Select a commit to view its changes.",
-    "history.merge": "Merge commit — no single-parent diff to show.",
-    "history.noDiff": "No changes in this commit.",
     "history.rangeCompare": "Comparing",
     "history.commit": "commit",
     "history.commits": "commits",
-    "history.openCompare": "Quick look",
     "history.reviewCompare": "Open in review",
-    "history.quickLook": "Quick look",
     "history.clearRange": "Clear",
     "history.selectHint": "Shift-click (or Shift+↑↓) two commits, then Open in review to compare and comment",
     "goto.placeholder": "Go to line…",
@@ -120,6 +114,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Removes every comment anchored in one file, in one action. Counted, because "clear comments" with no
     // number is a question the menu should have already answered.
     "menu.clearComments": "Clear {n} comments in this file",
+    // Shown while the panel waits for tmux to redraw a session that outlived the app. A spinner alone says
+    // "something is happening"; this says WHAT, which is the difference between waiting and wondering.
+    "terminal.connecting": "Connecting to your session…",
     "terminal.title": "Terminal",
     "terminal.toggle": "Toggle terminal (⌃`)",
     "terminal.closeRunningConfirm": "“{name}” is still running in this terminal. Closing the pane stops it. Close anyway?",
@@ -221,6 +218,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "compare.index": "Index",
     "compare.incoming.why": "Nothing local to review — showing what the remote is ahead by.",
     "compare.openHistory": "History",
+    // The breadcrumb, while the review shows commits: the newest one is named, the rest are counted.
+    "compare.andMore": "+{n} more",
     "patchset.bar": "Compare base",
     "patchset.base": "Base",
     "patchset.pick": "Choose a patch set to compare against",
@@ -307,7 +306,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "syntaxTheme.github": "GitHub",
     // Theme grid: a theme is one named palette that is already light or dark (see renderThemeGrid).
     // "System" is the only automatic entry — it follows the OS with whichever family is currently chosen.
-    "theme.name.system": "System",
     "theme.name.default-dark": "Kakapo Dark",
     "theme.name.default-light": "Kakapo Light",
     "theme.name.darcula-dark": "Darcula",
@@ -384,26 +382,20 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.lineStartEnd": "Line start / end",
     "kbd.extendSelection": "Extend selection",
     "kbd.toggleViewed": "Toggle viewed on selected Changes row",
-    "kbd.addQuestionChange": "Add question / change",
-    "kbd.allQuestionsChanges": "All questions / changes",
+    "kbd.addComment": "Add a review comment",
+    "kbd.allComments": "All review comments",
     "kbd.ignoreWhitespace": "Ignore whitespace",
     "kbd.saveComment": "Save comment",
     "kbd.promptMemo": "Prompt memo",
     "kbd.promptPalette": "Prompt palette (send a prompt to the terminal)",
     "kbd.maximizePanel": "Maximize panel (merged / memo)",
-    "kbd.historyNavigate": "Select / open commit or file",
-    "kbd.historyFiles": "Focus changed files",
-    "kbd.historyHunks": "Next / previous commit hunk",
-    "kbd.historyDiffPane": "Switch diff pane",
-    "kbd.historyMessage": "Show / hide commit message",
-    "kbd.historySelectDiff": "Select commit diff",
+    "kbd.historyNavigate": "Select a commit, open it in the review",
 
     // Settings — Merge prompts
     "mergePrompts.title": "Merge prompts",
-    "mergePrompts.desc": "These editable defaults are prepended to prompts sent to the agent and are saved automatically. The plan contract is prepended to change requests (⌘⇧.) and to the prompt memo.",
-    "mergePrompts.planHeading": "Plan contract (change requests + memo)",
-    "mergePrompts.qHeading": "Questions heading",
-    "mergePrompts.cHeading": "Change-request instructions",
+    "mergePrompts.desc": "These editable defaults are prepended to prompts sent to the agent and are saved automatically. The plan contract is prepended to review comments (⌘⇧/) and to the prompt memo.",
+    "mergePrompts.planHeading": "Plan contract (review comments + memo)",
+    "mergePrompts.cHeading": "Review-comment instructions",
     "mergePrompts.reset": "Reset to defaults",
 
     // Settings — the Explain prompt (⌘7 / the ⌘⇧P palette sends it; the agent appends notes to the thread file)
@@ -434,7 +426,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // --- Appearance / theme (redesigned settings) ---
     "theme.system": "System",
     "settings.appearance": "Appearance",
-    "settings.theme.hint": "System follows your OS light / dark setting.",
     "settings.terminal": "Terminal",
     "settings.cat.shortcuts": "Shortcuts",
     // --- Native application menu ---
@@ -443,6 +434,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.openNewWindow": "Open in New Window…",
     "menu.workspace": "Workspace",
     "menu.switchWorkspace": "Switch Workspace",
+    "menu.view": "View",
+    "menu.zoomIn": "Zoom In",
+    "menu.zoomOut": "Zoom Out",
+    "menu.zoomReset": "Actual Size",
     "menu.newWorkspace": "New Workspace",
     "menu.expandRail": "Expand Workspace Rail",
     "menu.workspaceNumbered": "Workspace",
@@ -475,9 +470,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "hub.workspaces": "Workspaces",
     "hub.mainWorktree": "Main worktree",
     "hub.moreTools": "More review tools",
-    "hub.expandRail.title": "Expand workspace rail (⌘⇧E)",
-    "hub.newWorkspace.title": "New workspace (⌘N)",
-    "hub.settings.title": "Settings — v{v}",
+    // Label only: the rail buttons carry their shortcut in a data-key kbd beside it, not inside the sentence.
+    "hub.newWorkspace": "New workspace",
+    "hub.settings": "Settings — v{v}",
     "hub.status.running": "running",
     "hub.status.resumable": "resumable",
     "hub.status.disconnected": "disconnected",
@@ -485,6 +480,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Commits this workspace has that its upstream — or, for a task worktree nobody has pushed, the ref it was
     // branched from — does not. The number that answers "is there anything in here I have not sent anywhere?"
     "hub.tip.ahead": "{n} ahead",
+    // One row per terminal pane on an expanded tile: what is in it, and what that thing is doing.
+    "hub.pane.shell": "Shell",
+    "hub.pane.working": "working",
+    "hub.pane.waiting": "waiting for you",
     "hub.ago.now": "now",
     "hub.ago.m": "{n}m ago",
     "hub.ago.h": "{n}h ago",
@@ -511,9 +510,15 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // written here is not a second thing to keep in sync.
     "newws.desc": "Description",
     "newws.desc.placeholder": "optional — what this workspace is for",
+    // The agent row: a workspace is made to give an agent something to do, so the terminal it already opens
+    // may as well already be running one.
+    "newws.agent": "Start an agent in the terminal",
+    "newws.agent.hint": "The new workspace opens with this agent already running.",
     "newws.base": "Start from",
-    "newws.base.hint": "The branch this worktree starts from. origin/… is the remote's copy.",
+    "newws.base.hint": "The branch this worktree starts from.",
     "newws.base.select": "Select a branch…",
+    "newws.base.local": "Local branch",
+    "newws.base.remote": "Remote-tracking branch",
     "newws.cancel": "Cancel",
     "newws.create": "Fetch & create",
     "newws.creating": "Fetching base…",
@@ -558,18 +563,15 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "welcome.notGit": "That folder is not a Git repository.",
     "welcome.projectMissing": "That project folder is no longer available.",
 
-    // Composer (per-line question / change-request)
-    "composer.question": "Ask a question about this line",
+    // Composer (one per-line review comment — ask, request a change, or both)
+    "composer.comment": "Comment on this line — ask or request a change",
     "composer.reply": "Continue this thread",
-    "composer.changeRequest": "Request a change for this line",
     "composer.save": "Comment",
     "composer.cancel": "Cancel",
     "composer.hint": "⌘Enter to save, Esc to cancel",
     "composer.delete": "Delete",
-    "comment.kind.q": "Question",
-    "comment.kind.c": "Change request",
-    "badge.questions": "question(s)",
-    "badge.changeRequests": "change request(s)",
+    "comment.kind": "Comment",
+    "badge.comments": "comment(s)",
 
     // Merged comments modal
     "merged.title": "Review comments",
@@ -593,16 +595,18 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "memo.loadFailed": "Could not load this worktree's memo.",
 
     // Merge-prompt default agent contracts (these follow the locale — a Korean user gets Korean defaults)
-    "mergePrompt.default.q": "The following are questions about code you just wrote. Answer each one — explain the intent, rationale, or context. Do not change any code; this clarifies understanding before any revisions.",
-    "mergePrompt.default.c": "The following are change requests for code you just wrote. Work in small units that a human can review independently. Complete and verify one independently reviewable unit at a time before moving to the next. For each request, edit the code at the quoted location to satisfy it. Keep changes minimal and focused; do not combine unrelated changes.",
-    // Plan contract — prepended to change requests and the prompt memo so every task starts with a small, verifiable plan written to a file.
+    "mergePrompt.default.c": "The following are review comments on code you just wrote. Answer what each one asks — explain the intent, rationale, or context — and where it asks for a change, edit the code at the quoted location to satisfy it. Work in small units that a human can review independently: complete and verify one independently reviewable unit at a time before moving to the next. Keep changes minimal and focused; do not combine unrelated changes. If a comment only asks a question, answer it and change nothing.",
+    // Plan contract — prepended to review comments and the prompt memo so every task starts with a small, verifiable plan written to a file.
     "plan.contract": "Before changing any code, write a short implementation PLAN in your response. Break the work into small, independently verifiable steps — each with a one-line check for how you'll confirm it works. Get the plan right first, then implement one step at a time, keeping each step small enough to review on its own. Do not add kakapo state files to the repository.",
     // Sent once at the top of a terminal hand-off (sendWholeDocToTerminal, 08-dock.js) whenever kakapo wrote
     // an answers checklist for the items below — the absolute path is appended right after this line.
-    "mergePrompt.answersFile": "Answer in the review thread file below instead of replying here — append ONE line per answer, {\"id\":<highest id in the file + 1>,\"re\":<the #id of the request you are answering>,\"by\":\"agent\",\"text\":\"markdown\"}, and never rewrite a line already there. Each request below is headed with its #id, and your answer lands in the review beside the code it is about:",
+    "mergePrompt.answersFile": "Answer in the review thread file below instead of replying here — append ONE line per answer, {\"id\":<the NEXT FREE ID given at the top of that file, counting up if you append more than one>,\"re\":<the #id of the request you are answering>,\"by\":\"agent\",\"text\":\"markdown\"}, and never rewrite a line already there. Take the id from that line, NOT from the highest id you can see: the ids are shared with a second file you are not looking at. Each request below is headed with its #id, and your answer lands in the review beside the code it is about:",
     // The ENTIRE terminal hand-off when kakapo could park the document on disk: this line plus its absolute
     // path. The document (answers-file instructions included) waits in the file — see sendWholeDocToTerminal.
     "mergePrompt.requestFile": "Read this review request file and do everything it asks:",
+    // Explain hands its instructions over the same way, but they are not a review REQUEST — nobody is being
+    // asked to change anything, only to read the codebase and write notes.
+    "prompt.requestFile": "Read this instruction file and do what it asks:",
     // Stands in for the earlier turns a follow-up continues (mergedItemLines) — the ids, not the text, since
     // the thread file named at the top of the document holds all of them.
     "mergePrompt.continues": "Continues; read these ids in the thread file first:",
@@ -618,6 +622,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Tabs (sidebar)
     "tab.changes": "변경사항",
     "tab.files": "파일",
+    "tree.markViewed": "이 파일 확인함 (Space)",
     "rail.reviewComments": "리뷰 코멘트",
     "rail.branch": "현재 브랜치",
     "brand.revealFile": "열린 파일을 사이드바에서 보기 (⌥F1)",
@@ -677,20 +682,13 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "history.lineTitle": "라인 히스토리",
     "history.search": "메시지·작성자로 필터",
     "history.close": "닫기",
-    "history.showMessage": "전체 커밋 메시지 펼치기",
-    "history.hideMessage": "커밋 메시지 접기",
     "history.empty": "커밋이 없습니다.",
     "history.emptyLine": "이 줄에 연결된 커밋 이력이 없습니다.",
     "history.loading": "불러오는 중…",
-    "history.selectCommit": "커밋을 선택하면 변경 내용이 표시됩니다.",
-    "history.merge": "머지 커밋 — 표시할 단일 부모 diff가 없습니다.",
-    "history.noDiff": "이 커밋에는 변경이 없습니다.",
     "history.rangeCompare": "비교",
     "history.commit": "커밋",
     "history.commits": "커밋",
-    "history.openCompare": "미리보기",
     "history.reviewCompare": "리뷰에서 열기",
-    "history.quickLook": "미리보기",
     "history.clearRange": "해제",
     "history.selectHint": "Shift+클릭(또는 Shift+↑↓)으로 두 커밋 선택 후, '리뷰에서 열기'로 비교·코멘트",
     "goto.placeholder": "이동할 줄 번호…",
@@ -709,6 +707,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // 한 파일에 달린 코멘트를 한 번에 지운다. 개수를 붙이는 이유는, 숫자 없는 "코멘트 지우기"는
     // 메뉴가 이미 답해줬어야 할 질문을 남기기 때문이다.
     "menu.clearComments": "이 파일의 코멘트 {n}개 지우기",
+    "terminal.connecting": "세션 연결 중…",
     "terminal.title": "터미널",
     "terminal.toggle": "터미널 토글 (⌃`)",
     "terminal.closeRunningConfirm": "이 터미널에서 “{name}” 이(가) 실행 중입니다. 닫으면 종료됩니다. 그래도 닫을까요?",
@@ -804,12 +803,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "compare.local": "로컬 변경",
     "compare.staged": "스테이지",
     "compare.ahead": "안 올린 커밋",
-    "compare.incoming": "리모트에서 받음",
+    // "받음"이 아니다 — 이 커밋들은 아직 이 체크아웃에 없다. 바로 위 "안 올린 커밋"과 짝이 되는 반대 방향.
+    "compare.incoming": "안 받은 커밋",
     "compare.manual": "비교",
     "compare.worktree": "작업 트리",
     "compare.index": "인덱스",
     "compare.incoming.why": "로컬에 볼 것이 없어, 리모트가 앞서 있는 커밋을 대신 보여주는 중입니다.",
     "compare.openHistory": "히스토리",
+    "compare.andMore": "외 {n}개",
     "patchset.bar": "기준 비교",
     "patchset.base": "기준",
     "patchset.pick": "비교 기준으로 삼을 patch set 선택",
@@ -895,7 +896,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "syntaxTheme.darcula": "Darcula",
     "syntaxTheme.github": "GitHub",
     // 테마 그리드 — 테마 이름은 고유명사라 번역하지 않고, 밝기 수식어만 한국어로 둡니다.
-    "theme.name.system": "시스템",
     "theme.name.default-dark": "Kakapo 다크",
     "theme.name.default-light": "Kakapo 라이트",
     "theme.name.darcula-dark": "Darcula",
@@ -972,26 +972,20 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.lineStartEnd": "줄 시작 / 끝",
     "kbd.extendSelection": "선택 영역 확장",
     "kbd.toggleViewed": "선택한 변경 파일의 확인 표시 토글",
-    "kbd.addQuestionChange": "질문 / 변경요청 추가",
-    "kbd.allQuestionsChanges": "전체 질문 / 변경요청",
+    "kbd.addComment": "리뷰 코멘트 달기",
+    "kbd.allComments": "전체 리뷰 코멘트",
     "kbd.ignoreWhitespace": "공백 무시",
     "kbd.saveComment": "코멘트 저장",
     "kbd.promptMemo": "프롬프트 메모",
     "kbd.promptPalette": "프롬프트 팔레트 (프롬프트를 터미널로 보내기)",
     "kbd.maximizePanel": "패널 최대화 (합본 / 메모)",
     "kbd.historyNavigate": "커밋 / 파일 선택·열기",
-    "kbd.historyFiles": "변경 파일 목록 포커스",
-    "kbd.historyHunks": "커밋의 다음 / 이전 변경",
-    "kbd.historyDiffPane": "Diff 패널 전환",
-    "kbd.historyMessage": "커밋 메시지 표시 / 숨기기",
-    "kbd.historySelectDiff": "커밋 Diff 전체 선택",
 
     // Settings — Merge prompts
     "mergePrompts.title": "병합 프롬프트",
-    "mergePrompts.desc": "에이전트에게 보내는 프롬프트 앞에 붙는 편집 가능한 기본값이며 수정 내용은 자동 저장됩니다. 플랜 계약문은 변경요청(⌘⇧.)과 프롬프트 메모 앞에 붙습니다.",
-    "mergePrompts.planHeading": "플랜 계약문 (변경요청 + 메모)",
-    "mergePrompts.qHeading": "질문 머리말",
-    "mergePrompts.cHeading": "변경요청 작업 지침",
+    "mergePrompts.desc": "에이전트에게 보내는 프롬프트 앞에 붙는 편집 가능한 기본값이며 수정 내용은 자동 저장됩니다. 플랜 계약문은 리뷰 코멘트(⌘⇧/)와 프롬프트 메모 앞에 붙습니다.",
+    "mergePrompts.planHeading": "플랜 계약문 (리뷰 코멘트 + 메모)",
+    "mergePrompts.cHeading": "리뷰 코멘트 작업 지침",
     "mergePrompts.reset": "기본값으로 초기화",
 
     // Settings — Explain 프롬프트 (⌘7 또는 ⌘⇧P 팔레트로 보내면 에이전트가 스레드 파일에 노트를 append)
@@ -1018,7 +1012,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // --- Appearance / theme (redesigned settings) ---
     "theme.system": "시스템",
     "settings.appearance": "화면",
-    "settings.theme.hint": "시스템은 OS의 밝게 / 어둡게 설정을 따릅니다.",
     "settings.terminal": "터미널",
     "settings.cat.shortcuts": "단축키",
     // --- Native application menu ---
@@ -1027,6 +1020,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.openNewWindow": "새 창에서 열기…",
     "menu.workspace": "워크스페이스",
     "menu.switchWorkspace": "워크스페이스 전환",
+    "menu.view": "보기",
+    "menu.zoomIn": "확대",
+    "menu.zoomOut": "축소",
+    "menu.zoomReset": "실제 크기",
     "menu.newWorkspace": "새 워크스페이스",
     "menu.expandRail": "워크스페이스 레일 펼치기",
     "menu.workspaceNumbered": "워크스페이스",
@@ -1059,14 +1056,16 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "hub.workspaces": "워크스페이스",
     "hub.mainWorktree": "메인 워크트리",
     "hub.moreTools": "더 많은 리뷰 도구",
-    "hub.expandRail.title": "워크스페이스 레일 펼치기 (⌘⇧E)",
-    "hub.newWorkspace.title": "새 워크스페이스 (⌘N)",
-    "hub.settings.title": "설정 — v{v}",
+    "hub.newWorkspace": "새 워크스페이스",
+    "hub.settings": "설정 — v{v}",
     "hub.status.running": "실행 중",
     "hub.status.resumable": "이어가기 가능",
     "hub.status.disconnected": "연결 끊김",
     "hub.tip.changed": "{n}개 변경",
     "hub.tip.ahead": "{n}커밋 앞섬",
+    "hub.pane.shell": "쉘",
+    "hub.pane.working": "작업 중",
+    "hub.pane.waiting": "대기 중",
     "hub.ago.now": "방금",
     "hub.ago.m": "{n}분 전",
     "hub.ago.h": "{n}시간 전",
@@ -1088,9 +1087,13 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "newws.taskPlaceholder": "예: fix-login-crash",
     "newws.desc": "설명",
     "newws.desc.placeholder": "선택 — 이 워크스페이스가 무엇을 위한 것인지",
+    "newws.agent": "터미널에서 에이전트 실행",
+    "newws.agent.hint": "새 워크스페이스가 이 에이전트를 띄운 채로 열립니다.",
     "newws.base": "시작 지점",
-    "newws.base.hint": "이 워크트리가 시작할 브랜치입니다. origin/… 은 원격 쪽입니다.",
+    "newws.base.hint": "이 워크트리가 시작할 브랜치입니다.",
     "newws.base.select": "브랜치 선택…",
+    "newws.base.local": "로컬 브랜치",
+    "newws.base.remote": "원격 추적 브랜치",
     "newws.cancel": "취소",
     "newws.create": "가져와서 생성",
     "newws.creating": "베이스 가져오는 중…",
@@ -1136,17 +1139,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "welcome.projectMissing": "해당 프로젝트 폴더를 더 이상 사용할 수 없습니다.",
 
     // Composer
-    "composer.question": "이 줄에 대해 질문하기",
+    "composer.comment": "이 줄에 코멘트 남기기 — 질문도 수정 요청도 여기서",
     "composer.reply": "이 대화 이어가기",
-    "composer.changeRequest": "이 줄에 대한 변경 요청하기",
     "composer.save": "코멘트",
     "composer.cancel": "취소",
     "composer.hint": "⌘Enter로 저장, Esc로 취소",
     "composer.delete": "삭제",
-    "comment.kind.q": "질문",
-    "comment.kind.c": "변경 요청",
-    "badge.questions": "개 질문",
-    "badge.changeRequests": "개 변경 요청",
+    "comment.kind": "코멘트",
+    "badge.comments": "개 코멘트",
 
     // Merged comments modal
     "merged.title": "리뷰 코멘트",
@@ -1170,16 +1170,16 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "memo.loadFailed": "이 워크트리의 메모를 불러오지 못했습니다.",
 
     // Merge-prompt default agent contracts (Korean default for Korean users)
-    "mergePrompt.default.q": "다음은 방금 작성한 코드에 대한 질문입니다. 각 질문에 답하면서 의도, 근거, 맥락을 설명하세요. 코드는 변경하지 마세요. 이 단계는 수정에 앞서 이해를 명확히 하기 위한 것입니다.",
-    "mergePrompt.default.c": "다음은 방금 작성한 코드에 대한 변경 요청입니다. 작업을 사람이 독립적으로 리뷰할 수 있는 작은 단위로 나누세요. 각 단위를 구현하고 검증한 뒤 다음 단위로 진행하세요. 각 요청은 인용된 위치의 코드를 수정해 충족하세요. 변경은 최소한으로 집중해서 하고, 관련 없는 변경을 한 작업에 섞지 마세요.",
-    // 플랜 계약문 — 모든 작업이 파일로 작성된 작고 검증 가능한 플랜에서 시작하도록 변경요청과 프롬프트 메모 앞에 붙는다.
+    "mergePrompt.default.c": "다음은 방금 작성한 코드에 대한 리뷰 코멘트입니다. 각 코멘트가 묻는 것에 답하면서 의도, 근거, 맥락을 설명하고, 수정을 요청하는 코멘트는 인용된 위치의 코드를 고쳐서 충족하세요. 작업은 사람이 독립적으로 리뷰할 수 있는 작은 단위로 나누고, 각 단위를 구현하고 검증한 뒤 다음 단위로 진행하세요. 변경은 최소한으로 집중해서 하고, 관련 없는 변경을 한 작업에 섞지 마세요. 질문만 하는 코멘트라면 답만 하고 코드는 건드리지 마세요.",
+    // 플랜 계약문 — 모든 작업이 파일로 작성된 작고 검증 가능한 플랜에서 시작하도록 리뷰 코멘트와 프롬프트 메모 앞에 붙는다.
     "plan.contract": "코드를 변경하기 전에, 먼저 응답에 짧은 구현 플랜을 작성하세요. 작업을 독립적으로 검증 가능한 작은 단계로 쪼개고, 각 단계마다 어떻게 확인할지 한 줄짜리 검증 기준을 적으세요. 플랜이 맞는지 먼저 확정한 뒤 한 번에 한 단계씩 구현하고, 각 단계는 따로 리뷰할 수 있을 만큼 작게 유지하세요. 저장소에는 kakapo 상태 파일을 추가하지 마세요.",
     // 터미널로 보내는 합본 프롬프트(sendWholeDocToTerminal, 08-dock.js) 맨 앞에 한 번 붙는다 — kakapo가 아래
     // 항목들에 대한 답변 체크리스트를 이미 써둔 경우에만 붙으며, 바로 다음 줄에 절대 경로가 이어진다.
-    "mergePrompt.answersFile": "답변은 여기에 적지 말고 아래 리뷰 스레드 파일에 기록하세요 — 답변 하나당 한 줄씩 append 합니다: {\"id\":<파일에서 가장 큰 id + 1>,\"re\":<답할 요청의 #id>,\"by\":\"agent\",\"text\":\"markdown\"}. 이미 있는 줄은 절대 고치지 마세요. 아래 각 요청 제목에 #id가 붙어 있고, 답변은 그 코드 옆 리뷰에 그대로 표시됩니다:",
+    "mergePrompt.answersFile": "답변은 여기에 적지 말고 아래 리뷰 스레드 파일에 기록하세요 — 답변 하나당 한 줄씩 append 합니다: {\"id\":<그 파일 맨 위의 NEXT FREE ID. 여러 줄이면 거기서부터 하나씩 올립니다>,\"re\":<답할 요청의 #id>,\"by\":\"agent\",\"text\":\"markdown\"}. 이미 있는 줄은 절대 고치지 마세요. id는 보이는 가장 큰 id가 아니라 그 줄에서 가져오세요 — id는 지금 보고 있지 않은 다른 파일과 공유됩니다. 아래 각 요청 제목에 #id가 붙어 있고, 답변은 그 코드 옆 리뷰에 그대로 표시됩니다:",
     // kakapo가 문서를 디스크에 저장할 수 있었을 때 터미널로 가는 내용 전부 — 이 한 줄과 절대 경로.
     // 문서(답변 파일 안내 포함)는 그 파일 안에서 기다린다. sendWholeDocToTerminal 참고.
     "mergePrompt.requestFile": "이 리뷰 요청 파일을 읽고 시키는 대로 전부 처리하세요:",
+    "prompt.requestFile": "이 지침 파일을 읽고 그대로 수행하세요:",
     // 후속 코멘트가 이어받는 이전 대화를 대신한다 (mergedItemLines) — 본문이 아니라 id만. 문서 맨 앞에
     // 적힌 스레드 파일에 전부 들어 있기 때문이다.
     "mergePrompt.continues": "이어지는 대화입니다. 스레드 파일에서 다음 id를 먼저 읽으세요:",

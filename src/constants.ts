@@ -16,3 +16,8 @@ export const IMAGE_MAX_BYTES = 10_000_000;
 export const HUB_WIDTH = 46;
 export const HUB_EXPANDED = HUB_WIDTH + 264;
 export const TITLEBAR_H = 38;
+
+// Every UI scale the app offers, smallest first. One list: the Settings dropdown renders it (01-core.js keeps
+// its own copy, pinned to this one by a test) and ⌘+ / ⌘− step through it, so a keystroke can never land on a
+// size the dropdown cannot show as selected.
+export const UI_SCALES = [0.9, 1, 1.1, 1.25, 1.5];

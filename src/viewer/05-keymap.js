@@ -39,8 +39,19 @@ function closeTerminalForViewSwitch() {
 
 // Cmd+0/1 and their rail icons are focus-aware. From content they reveal/focus the matching tree; only a
 // repeated activation while that tree owns the logical focus collapses it. A collapsed tree expands first.
+// The workspace rail, pushed open, force-collapses this sidebar (railPushedCollapse in 09-views-update.js).
+// So while it is open, ⌘0/⌘1 could set the review's own collapse flag all they liked and nothing moved: the
+// tree stayed hidden because something else was holding it shut. The rail's own handler covers the case where
+// the SHELL has the keyboard, which is why this worked right after opening the rail and stopped working once
+// you clicked into the diff — the key reached the review instead, and the review had no way to say "let go".
+function standDownRailForViewSwitch() {
+  if (!railPushedCollapse) return;
+  if (window.kakapoMenu && typeof window.kakapoMenu.railStandDown === 'function') window.kakapoMenu.railStandDown();
+}
+
 function activateChangesView(navigateToDiff) {
   closeTerminalForViewSwitch();
+  standDownRailForViewSwitch();
   if (isDiffViewVisible()) {
     if (reviewSidebarCollapsed) { setReviewSidebarCollapsed(false, { focusSidebar: true }); return; }
     if (treeFocusIndex >= 0) { toggleReviewSidebar(); return; }
@@ -59,6 +70,7 @@ function activateChangesView(navigateToDiff) {
 
 function activateFilesView() {
   closeTerminalForViewSwitch();
+  standDownRailForViewSwitch();
   if (isSourceViewerVisible()) {
     if (sourceSidebarCollapsed) { setSourceSidebarCollapsed(false, { focusSidebar: true }); return; }
     if (treeFocusIndex >= 0) { toggleSourceSidebar(); return; }
@@ -342,13 +354,14 @@ document.addEventListener('keydown', (event) => {
 
   // (Merged views Cmd/Ctrl+Shift+/ +. and the memo Cmd/Ctrl+Shift+N are handled above the focus guard so
   // they work from inside a dock too.)
-  // "?" = question, ">" = change-request composer on the current line/selection (no modifier).
-  if (!event.altKey && !event.metaKey && !event.ctrlKey && (event.key === '?' || event.key === '>')) {
+  // "?" (Shift+/) opens the comment composer on the current line/selection (no modifier). There used to be a
+  // second key (">") for change requests; asking and asking-for-a-change are the same thread, so there is one.
+  if (!event.altKey && !event.metaKey && !event.ctrlKey && event.key === '?') {
     const ce = document.activeElement;
     const inEditable = ce && (ce.tagName === 'INPUT' || ce.tagName === 'TEXTAREA' || ce.tagName === 'SELECT');
     if (!inEditable) {
       event.preventDefault();
-      openComposer(event.key === '?' ? 'q' : 'c');
+      openComposer('c');
       return;
     }
   }
@@ -448,8 +461,17 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
+  // Go-to-definition belongs to the code you are reading, and while the terminal is up you are not reading it:
+  // the panel covers the review entirely. The existing guard only skipped a focused INPUT/TEXTAREA, which
+  // catches typing INTO a pane but not the moment after clicking the panel's chrome — and then ⌘B jumped the
+  // hidden view underneath to a definition nobody could see it reach. The terminal deliberately releases ⌘
+  // combos to this handler (attachCustomKeyEventHandler, 19-terminal.js) so ⌘1/⌘0 still work; this is the one
+  // that has nothing to do while it is open.
+  var terminalUp = document.body.classList.contains('terminal-open');
+
   if ((event.metaKey || event.ctrlKey) && event.altKey && !event.shiftKey && (event.code === 'KeyB' || event.key.toLowerCase() === 'b')) {
     var aeImpl = document.activeElement;
+    if (terminalUp) return;
     if (aeImpl && (aeImpl.tagName === 'INPUT' || aeImpl.tagName === 'TEXTAREA' || aeImpl.tagName === 'SELECT')) return;
     event.preventDefault();
     goToImplementation();
@@ -458,6 +480,7 @@ document.addEventListener('keydown', (event) => {
 
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyB' || event.key === 'b' || event.key === 'B')) {
     var aeB = document.activeElement;
+    if (terminalUp) return;
     if (aeB && (aeB.tagName === 'INPUT' || aeB.tagName === 'TEXTAREA' || aeB.tagName === 'SELECT')) return;
     event.preventDefault();
     if (isSourceViewerVisible()) goToSymbolUnderCursor();
@@ -593,6 +616,16 @@ document.getElementById('usages')?.addEventListener('click', function (event) {
 document.getElementById('changes-panel')?.addEventListener('click', (event) => {
   const link = event.target && event.target.closest ? event.target.closest('.file-link') : null;
   if (!link) return;
+  // The viewed box is inside the row's anchor, so its click would otherwise also open the file — which is
+  // the opposite of what ticking "I've read this" means. It toggles and stops there; Space on the focused
+  // row (04-source-tree.js) is the same action from the keyboard.
+  if (event.target.closest('.viewed-box')) {
+    event.preventDefault();
+    event.stopPropagation();
+    const viewedFile = link.dataset.file || '';
+    if (viewedFile && currentFileSignature(viewedFile)) setFileViewed(viewedFile, !isFileViewed(viewedFile));
+    return;
+  }
   // Shift+Click extends a multi-file selection (for batch "mark as viewed" with Space) instead of opening.
   if (event.shiftKey && extendTreeSelectionToRow(link)) {
     event.preventDefault();

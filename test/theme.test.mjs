@@ -21,10 +21,12 @@ test("defaults to dark, with a theme selector in settings", async () => {
   const v = await loadViewer(html);
   assert.equal(v.document.documentElement.getAttribute("data-theme"), "dark");
   assert.equal(v.document.documentElement.getAttribute("data-syntax-theme"), "default");
-  // One flat grid, not two dropdowns: each card is a whole named theme that is already light or dark,
-  // plus System — the only entry that has an appearance to resolve at all.
+  // One flat grid, not two dropdowns: every card is a whole named theme that already IS light or dark.
+  // System used to lead the list; it was the only entry that had an appearance to resolve, which meant every
+  // reader of the setting had to resolve it before the value meant anything.
   const names = v.$all("#settings-theme-grid .theme-card-name").map((n) => n.textContent);
-  assert.deepEqual(names, ["System", "Kakapo Dark", "Kakapo Light", "Darcula", "IntelliJ Light",
+  assert.ok(!names.includes("System"), "the theme is picked, not delegated");
+  assert.deepEqual(names, ["Kakapo Dark", "Kakapo Light", "Darcula", "IntelliJ Light",
     "GitHub Dark", "GitHub Light", "Solarized Dark", "Solarized Light", "Dracula", "Alucard",
     "High Contrast", "High Contrast Light"]);
   assert.equal(v.$("#settings-theme-grid .theme-card.is-active").dataset.themeId, "default-dark");
@@ -198,7 +200,9 @@ test("every theme family is complete on all six surfaces", async () => {
     if (family !== "default") {
       assert.ok(css.includes(`data-syntax-theme="${family}"] #diff2html-container`), `${family} paints its code canvas`);
     }
-    assert.ok(css.includes(`.theme-swatch[data-swatch="${family}-system"]`), `${family} has a System swatch`);
+    // No System swatch any more: it previewed the two halves a family flipped between, and nothing flips —
+    // the theme IS light or dark, picked directly.
+    assert.ok(!css.includes(`data-swatch="${family}-system"`), `${family} has no leftover System swatch`);
   }
   v.close();
 });

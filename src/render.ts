@@ -560,10 +560,10 @@ export function renderDiffHtml(input: {
     '<div class="settings-card">',
     '<div class="settings-card-title" data-i18n="settings.appearance">Appearance</div>',
     '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.language">Language</span></div><button type="button" id="settings-language" class="settings-select mc-select" data-i18n-aria="settings.language"></button></div>',
-    // Theme is one pick, not two: the family (Kakapo / Darcula) and the light-dark-system appearance were
-    // separate dropdowns whose product you had to assemble in your head. A swatch grid shows all six real
-    // themes at once, each previewing its own canvas and accent — the choice is visible, not described.
-    '<div class="settings-row settings-row-stacked"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.theme">Theme</span><span class="settings-row-hint" data-i18n="settings.theme.hint">System follows your OS light / dark setting.</span></div>',
+    // Theme is one pick, not two: the family (Kakapo / Darcula) and the light/dark appearance were separate
+    // dropdowns whose product you had to assemble in your head. A swatch grid shows every real theme at once,
+    // each previewing its own canvas and accent — the choice is visible, not described.
+    '<div class="settings-row settings-row-stacked"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.theme">Theme</span></div>',
     '<div id="settings-theme-grid" class="theme-grid" role="radiogroup" data-i18n-aria="settings.theme"></div></div>',
     // One scale for the whole app rather than a code-font size: the review is chrome + tree + diff + terminal,
     // and sizing only the code leaves the rest mismatched. Applied by main as a Chromium zoom factor.
@@ -640,8 +640,8 @@ export function renderDiffHtml(input: {
     '<div class="keys-grid">' +
     '<kbd>⌘8</kbd><span data-i18n="kbd.changeImpact">Change Impact</span>' +
     '<kbd>Space</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed on selected Changes row</span>' +
-    '<kbd>? &nbsp;&gt;</kbd><span data-i18n="kbd.addQuestionChange">Add question / change</span>' +
-    '<kbd>⌘⇧/ .</kbd><span data-i18n="kbd.allQuestionsChanges">All questions / changes</span>' +
+    '<kbd>?</kbd><span data-i18n="kbd.addComment">Add a review comment</span>' +
+    '<kbd>⌘⇧/</kbd><span data-i18n="kbd.allComments">All review comments</span>' +
     '<kbd>⌘⇧W</kbd><span data-i18n="kbd.ignoreWhitespace">Ignore whitespace</span>' +
     '<kbd>⌘Enter</kbd><span data-i18n="kbd.saveComment">Save comment</span>' +
     '<kbd>&uarr; / &darr;</kbd><span data-i18n="kbd.reviewStops">Step through comments / folded context</span>' +
@@ -656,12 +656,7 @@ export function renderDiffHtml(input: {
     '<div class="keys-cat" data-i18n="settings.kbd.cat.history">History</div>' +
     '<div class="keys-grid">' +
     '<kbd>⌘9</kbd><span data-i18n="kbd.openHistory">Open / close Git history</span>' +
-    '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.historyNavigate">Select / open commit or file</span>' +
-    '<kbd>⌘0</kbd><span data-i18n="kbd.historyFiles">Focus changed files</span>' +
-    '<kbd>F7 / ⇧F7</kbd><span data-i18n="kbd.historyHunks">Next / previous commit hunk</span>' +
-    '<kbd>⇧Tab</kbd><span data-i18n="kbd.historyDiffPane">Switch diff pane</span>' +
-    '<kbd>M</kbd><span data-i18n="kbd.historyMessage">Show / hide commit message</span>' +
-    '<kbd>⌘A</kbd><span data-i18n="kbd.historySelectDiff">Select commit diff</span>' +
+    '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.historyNavigate">Select a commit, open it in the review</span>' +
     '<kbd>PageUp / PageDown</kbd><span data-i18n="kbd.pageUpDown">Page up / down</span>' +
     '</div>' +
     (input.app
@@ -678,12 +673,10 @@ export function renderDiffHtml(input: {
     "</section>",
     '<section class="settings-section hidden" data-cat="prompts">',
     '<div class="settings-h" data-i18n="mergePrompts.title">Merge prompts</div>',
-    '<div class="settings-desc" data-i18n="mergePrompts.desc">These editable defaults are prepended to prompts sent to the agent and are saved automatically. The plan contract is prepended to change requests (⌘⇧.) and to the prompt memo.</div>',
-    '<label class="settings-label" for="settings-prompt-plan" data-i18n="mergePrompts.planHeading">Plan contract (change requests + memo)</label>',
+    '<div class="settings-desc" data-i18n="mergePrompts.desc">These editable defaults are prepended to prompts sent to the agent and are saved automatically. The plan contract is prepended to review comments (⌘⇧/) and to the prompt memo.</div>',
+    '<label class="settings-label" for="settings-prompt-plan" data-i18n="mergePrompts.planHeading">Plan contract (review comments + memo)</label>',
     '<textarea id="settings-prompt-plan" class="settings-textarea" rows="5" spellcheck="false"></textarea>',
-    '<label class="settings-label" for="settings-prompt-q" data-i18n="mergePrompts.qHeading">Questions heading</label>',
-    '<textarea id="settings-prompt-q" class="settings-textarea" rows="4" spellcheck="false"></textarea>',
-    '<label class="settings-label" for="settings-prompt-c" data-i18n="mergePrompts.cHeading">Change-request instructions</label>',
+    '<label class="settings-label" for="settings-prompt-c" data-i18n="mergePrompts.cHeading">Review-comment instructions</label>',
     '<textarea id="settings-prompt-c" class="settings-textarea" rows="4" spellcheck="false"></textarea>',
     '<div class="settings-subsection">',
     '<div class="settings-h" data-i18n="annotatePrompt.title">Explain the diff</div>',
@@ -715,8 +708,6 @@ export function renderDiffHtml(input: {
     '<div id="history-select-bar" class="history-select-bar hidden" aria-live="polite"></div>',
     '<div class="history-body">',
     '<div id="history-list" class="history-list"></div>',
-    '<div id="history-detail-backdrop" class="history-detail-backdrop hidden" aria-hidden="true"></div>',
-    '<div id="history-detail" class="history-detail hidden" role="document" aria-hidden="true"></div>',
     "</div>",
     "</div>",
     input.diffIslands || "",

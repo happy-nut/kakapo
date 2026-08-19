@@ -251,16 +251,130 @@ test("a pty hears about a resize only when the character grid changed", () => {
 // attach a pty per pane, and wait for tmux to redraw. Measured on a trivial session that is ~400ms of empty
 // black rectangle, and longer with real agent panes in it — indistinguishable from a hang unless something
 // says otherwise.
-test("the panel says it is connecting until the first byte arrives, and never longer", () => {
+// Connecting is a PER-PANE state. A split can have one pane still attaching while the one beside it is
+// already printing an agent's output, and a single arc in the middle of the panel described neither of them.
+// It also has to LAST as long as the wait: attaching to tmux echoes a few bytes at once and the redraw of the
+// session's screen lands a second or more later, so ending on the first byte took the overlay away after
+// ~100ms and left the rest as an empty pane — the part actually waited through.
+test("each pane owns its own connecting overlay, with a way out when nothing prints", () => {
+  const setter = client.match(/function setPaneConnecting\(p, on\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(setter, "the state belongs to a pane");
+  assert.match(setter, /p\.el\.classList\.toggle\('is-connecting', !!on\)/, "worn by that pane's own element");
+  assert.match(setter, /setTimeout\(function \(\) \{ setPaneConnecting\(p, false\); \}, 4000\)/,
+    "a session that prints nothing still has a way out");
+
+  // What output MEANS is pinned by its own test below: the first byte ends the wait.
+  assert.match(client, /noteConnectingOutput\(panes\[k\]\); panes\[k\]\.term\.write/,
+    "and it is the pane that produced the byte which hears about it");
+
+  // A pane is waiting from the moment its rectangle exists; the panel-wide overlay only covers the sliver
+  // before any pane does, and steps aside as soon as one appears.
+  assert.match(client, /setPaneConnecting\(pane, true\);\s*\n\s*setConnecting\(false\);/,
+    "a new pane takes the wait over from the panel");
   assert.match(client, /setConnecting\(true\);\s*\n\s*restorePanes\(\)/,
-    "opening onto no panes raises the indicator before the restore starts");
-  const onData = client.match(/window\.kakapoPty\.onData\(function \(msg\)[\s\S]*?\n  \}\);/)?.[0];
-  assert.match(onData, /setConnecting\(false\); panes\[k\]\.term\.write/,
-    "the first byte from a pane is what takes it down — that is when there is something to look at");
-  const setter = client.match(/function setConnecting\(on\)[\s\S]*?\n  \}/)?.[0];
-  assert.ok(setter, "setConnecting exists");
-  assert.match(setter, /setTimeout\(function \(\) \{ setConnecting\(false\); \}, \d+\)/,
-    "a pane attached to a silent session never prints, so the spinner needs its own way out");
-  assert.match(client, /if \(!open\) setConnecting\(false\);/, "closing the panel takes it down too");
-  assert.match(css, /\.terminal-panel\.is-connecting \.terminal-host::after/, "and there is something to see");
+    "which the panel raised before the restore started");
+
+  // Both halves, on both surfaces, must clear xterm's own layers (z-index up to 10 in xterm.css).
+  const placed = (css.match(/is-connecting(?:[^{]*)::(?:before|after) \{[^}]*\}/g) || [])
+    .filter((rule) => rule.includes("position: absolute"));
+  assert.equal(placed.length, 4, "an arc and a label, on the pane and on the empty panel");
+  for (const rule of placed) {
+    assert.ok(Number(rule.match(/z-index: (\d+)/)?.[1]) > 10, "each sits above the terminal it covers");
+  }
+  assert.match(css, /\.terminal-pane\.is-connecting::before \{\s*content: var\(--terminal-connecting, ""\)/,
+    "the label is a translation handed to CSS, and nothing when absent");
+});
+
+test("a pty hears about a resize only when the character grid changed", () => {
+  assert.match(client, /p\.sentCols === p\.term\.cols && p\.sentRows === p\.term\.rows\)\s*return/,
+    "an unchanged grid returns before the resize IPC");
+  assert.match(client, /p\.sentCols = p\.term\.cols[\s\S]{0,120}kakapoPty\.resize/,
+    "what was sent is recorded with the send, so the next frame can compare against it");
+  assert.match(client, /pane\.id = r && r\.id[\s\S]{0,220}sentCols = pane\.sentRows = 0/,
+    "a fresh pty forgets what the previous one was told, so it is sized even at an unchanged size");
+});
+
+
+// A turn finishing in a workspace you are NOT looking at is the case you most need telling about — you cannot
+// see its terminal. It was the one case that stayed silent: any focused kakapo window suppressed the
+// notification, and workspaces are views inside one window, so "a window is focused" says which app you are
+// in and never which workspace.
+test("the bell notifies for a workspace you are not looking at", () => {
+  const ipc = read("src/app-terminal-ipc.ts");
+  const handler = ipc.match(/ipc\.on\("kakapo:bell"[\s\S]*?\n  \}\);/)?.[0];
+  assert.ok(handler, "the bell handler is still there");
+  assert.match(handler, /state\.isOnScreen\?\.\(\) !== false/,
+    "it asks whether the RINGING workspace is on screen, not merely whether a window is focused");
+  assert.doesNotMatch(handler, /if \(win\?\.isFocused\(\)\) return;/,
+    "the old any-window check is gone");
+  // main answers with the test it already uses for everything else that means "on screen".
+  assert.match(read("src/app-main.ts"), /isOnScreen: \(\) => isVisibleWorkspace\(state\)/,
+    "and main answers it with isVisibleWorkspace");
+});
+
+// Hangul in a pane. xterm commits a composition by slicing its textarea with offsets it recorded while the
+// composition ran, and a macOS Hangul composition runs to the end of the WORD, rewriting that value on every
+// keystroke: the offsets go stale and the word arrives truncated ("해야" -> "야") or, when the agent prints
+// something mid-composition, not at all. The client takes the commit instead. Two things must hold — the
+// committed word goes out whole, and xterm's own queued send is stood down so no keystroke is ever doubled.
+test("a Hangul composition commits whole, and exactly once", async () => {
+  const src = client.match(/function takeCompositionCommit\(term, event\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(src, "the composition commit takeover is still in the client");
+  const takeCommit = new Function(`${src}; return takeCompositionCommit;`)();
+
+  const sent = [];
+  const helper = { _isSendingComposition: true, _isComposing: true, _dataAlreadySent: "해" };
+  const term = {
+    textarea: { value: "해야" },
+    _core: { _compositionHelper: helper, coreService: { triggerDataEvent: (d) => sent.push(d) } },
+  };
+  // xterm's own send, as it schedules it: next tick, and only if nothing cancelled it.
+  setTimeout(() => {
+    if (helper._isSendingComposition) sent.push(term.textarea.value.substring(helper._dataAlreadySent.length));
+  }, 0);
+  takeCommit(term, { data: "해야" });
+  await new Promise((r) => setTimeout(r, 5));
+
+  assert.deepEqual(sent, ["해야"], "the whole word went out once — not truncated, not doubled by xterm's send");
+  assert.equal(term.textarea.value, "해야",
+    "the textarea is left to xterm — clearing it here raced the next composition and ate fast typing");
+
+  // An xterm whose private shape we no longer recognise keeps its own commit. That commit is wrong for
+  // Hangul, but sending our own on top of one we failed to cancel would double every keystroke.
+  const bare = [];
+  takeCommit({ textarea: { value: "해" }, _core: {} }, { data: "해" });
+  takeCommit({ _core: { _compositionHelper: {}, coreService: { triggerDataEvent: (d) => bare.push(d) } } }, { data: "해" });
+  assert.deepEqual(bare, [], "no send when the send we meant to cancel could not be found");
+});
+
+// "Session connecting…" must answer to the pty, not to a lull in its output. The overlay used to clear only
+// after 220ms of QUIET, a condition the most important pane never meets: re-attaching to a session whose
+// agent is mid-stream produces output continuously, so the overlay sat until its 4s ceiling and the
+// workspace read as slow to open when the pty had answered in about 20ms.
+test("a pane stops saying 'connecting' as soon as the pty answers, even while output keeps coming", () => {
+  const setSrc = client.match(/function setPaneConnecting\(p, on\)[\s\S]*?\n  \}/)?.[0];
+  const noteSrc = client.match(/function noteConnectingOutput\(p\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(setSrc && noteSrc, "both halves of the per-pane connecting overlay are still there");
+  const fns = new Function(`
+    function paneLabel() { return '"connecting"'; }
+    ${setSrc}
+    ${noteSrc}
+    return { setPaneConnecting, noteConnectingOutput };
+  `)();
+
+  const classes = new Set();
+  const pane = { el: {
+    classList: { toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)), contains: (c) => classes.has(c) },
+    style: { setProperty() {}, removeProperty() {} },
+  } };
+
+  fns.setPaneConnecting(pane, true);
+  assert.ok(classes.has("is-connecting"), "a pane that has just been created is waiting on its pty");
+
+  fns.noteConnectingOutput(pane); // the attach repaint starts — and does not stop
+  fns.noteConnectingOutput(pane);
+  fns.noteConnectingOutput(pane);
+  assert.ok(!classes.has("is-connecting"),
+    "the overlay is gone on the first byte; a busy agent must not hold it up to the ceiling");
+  assert.ok(!pane.settleTimer && !pane.connectTimer, "no timer is left running to uncover the pane later");
 });

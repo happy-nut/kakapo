@@ -47,7 +47,7 @@ test("source/markdown view: clicking Save persists the comment the user typed", 
   assert.equal(stored.length, 1);
   assert.deepEqual(
     { kind: stored[0].kind, line: stored[0].line, text: stored[0].text },
-    { kind: "q", line: 5, text: "why a CLI and not a library?" },
+    { kind: "c", line: 5, text: "why a CLI and not a library?" },
   );
   assert.deepEqual(v.visibleCardTexts(), ["why a CLI and not a library?"]);
   v.close();
@@ -236,8 +236,8 @@ test("change-request comments are saved and labeled distinctly from questions", 
   const stored = v.storedComments();
   assert.equal(stored.length, 1);
   assert.equal(stored[0].kind, "c");
-  // the saved card carries a change-request kind class (mc-c), distinct from questions (mc-q)
-  assert.ok(v.$("#source-body .mc-card.mc-c:not(.mc-composer)"), "rendered as a change-request card");
+  // one review-comment kind: the card carries mc-c whether it asks a question or requests a change
+  assert.ok(v.$("#source-body .mc-card.mc-c:not(.mc-composer)"), "rendered as a review comment card");
   v.close();
 });
 
@@ -299,7 +299,11 @@ test("the terminal hand-off carries the request file's path, not the request", a
   const sent = [];
   const written = [];
   v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text), paneCount: () => 1 };
-  v.window.annotationsPath = "/w/.git/kakapo/comments.jsonl"; // normally set by kakapoComments.read()
+  // Both are set by kakapoComments.read(), and they are DIFFERENT files: the review thread lives beside the
+  // worktree, the codebase notes in the git dir every worktree shares. The hand-off must name the thread —
+  // it used to name the notes file, so an agent answering #19 appended to a store with no #19 in it.
+  v.window.reviewThreadPath = "/w/.git/kakapo/comments.jsonl";
+  v.window.annotationsPath = "/repo/.git/kakapo/knowledge.jsonl";
   v.window.kakapoComments = {
     writeRequest: (text) => { written.push(text); return Promise.resolve({ ok: true, path: "/w/.git/kakapo/request.md" }); },
   };
@@ -313,6 +317,8 @@ test("the terminal hand-off carries the request file's path, not the request", a
   assert.doesNotMatch(sent[0], /rename this to something honest/, "…and does not repeat the review into it");
   assert.match(written[0], /rename this to something honest/, "the request itself went to the file");
   assert.match(written[0], /append ONE line per answer/, "answers-file instructions travel inside it, not in the pane");
+  assert.match(written[0], /comments\.jsonl/, "and they name the thread the comments are actually in");
+  assert.doesNotMatch(written[0], /knowledge\.jsonl/, "never the shared notes store, which has never heard of these ids");
 
   // No file to write to (a non-git root, or the CLI's browser viewer): the document still has to arrive.
   v.window.kakapoComments = { writeRequest: () => Promise.resolve({ ok: false }) };
@@ -504,6 +510,41 @@ test("Backspace removes the selected turn only, and Cmd+Z restores it", async ()
   v.close();
 });
 
+// …but a question and the answers to it are ONE thing. A reply carries no anchor of its own, only its
+// parent's, so deleting the first card and leaving the rest behind left cards answering something nobody
+// could read, in a thread with no beginning.
+test("Backspace on the first card in a thread takes the conversation with it, and one Cmd+Z brings it back", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("c");
+  await v.writeAndSave("why is this here?");
+  const seq = v.storedComments()[0].seq;
+  v.agentSays({ re: seq, text: "because of X." });
+  await v.settle(60);
+  assert.equal(v.storedComments().length, 2, "the question and the answer to it");
+
+  const row = v.$(".mc-comment-row");
+  v.window.selectCommentRow(row); // selection starts on the first turn
+  v.key("Backspace");
+  await v.settle(20);
+  assert.deepEqual(v.storedComments(), [], "the answer goes with the question it answers");
+
+  v.key("z", { metaKey: true, code: "KeyZ" });
+  await v.settle(20);
+  assert.equal(v.storedComments().length, 2, "one undo restores the whole thread, not just the question");
+
+  // Deleting a LATER turn is still just that turn — the question it continues is not its to remove.
+  v.window.selectCommentRow(v.$(".mc-comment-row"));
+  v.key("ArrowDown");
+  await v.settle(20);
+  v.key("Backspace");
+  await v.settle(20);
+  assert.deepEqual(v.storedComments().map((c) => c.text), ["why is this here?"], "the answer alone is gone");
+  v.close();
+});
+
+
 // Arrow keys used to step off the whole row, so the second turn of a thread could be neither selected nor
 // edited: `e` always reopened the first comment on the line.
 test("arrows walk the turns inside a thread, and `e` edits the one selected", async () => {
@@ -559,42 +600,37 @@ test("Cmd+Z inside a real text input does not touch comments — native undo own
   v.close();
 });
 
-// GitHub issue #9: the merged prompt panel is a single unified hand-off (no separate question/change-request
-// panels), with the question section first so an agent answers questions (no edits) before touching code.
-test("unified merged prompt: questions and change requests share one document, questions first, both contracts included", async () => {
+// GitHub issue #9: the merged prompt panel is a single unified hand-off. Questions and change requests used
+// to be two kinds in two sections; they are one comment now, so the document is one contract and one list.
+test("unified merged prompt: every open comment shares one document behind one contract", async () => {
   const v = await loadViewer(html);
-  v.window.addComment("q", "AGENTS.md", 5, "", "why this wording?");
+  v.window.addComment("c", "AGENTS.md", 5, "", "why this wording?");
   v.window.addComment("c", "src/app.ts", 1, "", "simplify this");
 
   const merged = v.window.buildMergedText();
   const t = v.window.t;
-  const qContractAt = merged.indexOf(t("mergePrompt.default.q"));
-  const questionAt = merged.indexOf("why this wording?");
   const planContractAt = merged.indexOf(t("plan.contract"));
-  const cContractAt = merged.indexOf(t("mergePrompt.default.c"));
+  const contractAt = merged.indexOf(t("mergePrompt.default.c"));
+  const askAt = merged.indexOf("why this wording?");
   const changeAt = merged.indexOf("simplify this");
   assert.ok(
-    qContractAt >= 0 && qContractAt < questionAt
-      && questionAt < planContractAt && planContractAt < cContractAt
-      && cContractAt < changeAt,
-    "document order is: question contract -> questions -> plan contract -> change-request contract -> change requests",
+    planContractAt >= 0 && planContractAt < contractAt && contractAt < askAt && askAt < changeAt,
+    "document order is: plan contract -> review-comment contract -> the comments, in review order",
   );
+  assert.equal(merged.indexOf(t("mergePrompt.default.c"), contractAt + 1), -1, "one contract, not one per comment");
   v.close();
 });
 
-test("unified merged prompt: a kind with no open comments omits its contract entirely", async () => {
+test("unified merged prompt: no open comments means no contract at all", async () => {
   const v = await loadViewer(html);
-  v.window.addComment("c", "src/app.ts", 1, "", "only a change request");
   const t = v.window.t;
+  assert.ok(!v.window.buildMergedText().includes(t("mergePrompt.default.c")), "an empty review is a blank scratch document");
 
-  const onlyC = v.window.buildMergedText();
-  assert.ok(!onlyC.includes(t("mergePrompt.default.q")), "no question contract when there are no open questions");
-  assert.ok(onlyC.includes(t("mergePrompt.default.c")) && onlyC.includes("only a change request"));
+  v.window.addComment("c", "src/app.ts", 1, "", "only this one");
+  assert.ok(v.window.buildMergedText().includes(t("mergePrompt.default.c")), "the contract appears once there is something to hand off");
 
-  v.window.addComment("q", "AGENTS.md", 5, "", "only a question");
-  v.window.deleteComment(v.storedComments().find((c) => c.kind === "c").seq);
-  const onlyQ = v.window.buildMergedText();
-  assert.ok(!onlyQ.includes(t("plan.contract")) && !onlyQ.includes(t("mergePrompt.default.c")), "no plan/change-request contract when there are no open change requests");
+  v.window.deleteComment(v.storedComments()[0].seq);
+  assert.ok(!v.window.buildMergedText().includes(t("plan.contract")), "and goes away again with the last comment");
   v.close();
 });
 
@@ -877,7 +913,7 @@ test("a reply continues the thread and carries the earlier exchange to the agent
   assert.equal(stored.length, 3, "the question, the agent's answer, and the follow-up");
   const reply = stored[2];
   assert.equal(reply.replyTo, stored[1].seq, "linked to the answer it follows");
-  assert.equal(reply.kind, "q", "a follow-up to a question is still a question");
+  assert.equal(reply.kind, "c", "a follow-up is the same one review-comment kind as what it continues");
   assert.equal(reply.line, stored[0].line, "and stays anchored to the same line, so it renders as one thread");
 
   // The exchange reaches the agent as ids into the thread file, not as quoted text: a third round would
@@ -921,5 +957,28 @@ test("a saved card drops the location it is already sitting on", async () => {
 
   await v.openMergedView();
   assert.ok(v.$(".mc-merged-card .mc-target"), "the dock still labels every card — there the code is not beside it");
+  v.close();
+});
+
+test("a comment with no path is never swept away as a missing file", async () => {
+  const v = await loadViewer(html);
+  const asked = [];
+  v.window.kakapoFile = {
+    existingPaths: (paths) => {
+      asked.push(...paths);
+      return Promise.resolve(Object.fromEntries(paths.map((p) => [p, p === "AGENTS.md"])));
+    },
+  };
+  v.window.applyThreadRecords([
+    { id: 1, by: "me", path: "AGENTS.md", line: 5, text: "a placed comment" },
+    { id: 2, re: 99, by: "agent", text: "an answer whose question is nowhere" },
+  ]);
+  await v.settle(40);
+  assert.equal(v.storedComments().find((c) => c.seq === 2)?.path, "", "the unplaceable answer has no path, as before");
+
+  await v.window.verifyCommentFilesExist();
+  await v.settle(40);
+  assert.ok(!asked.includes(""), "an empty path is never presented as a file to check");
+  assert.equal(v.storedComments().length, 2, "and nothing is deleted for not knowing where it goes");
   v.close();
 });

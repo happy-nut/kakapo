@@ -277,6 +277,6 @@ test("a thread-centring retry gives up as soon as a newer one is asked for", () 
     "each fresh call claims the scroll; a retry carries the claim it was born with");
   assert.match(fn, /if \(mine !== centerThreadTarget\) return;/,
     "and a claim that has been superseded scrolls nothing");
-  assert.match(fn, /centerThreadRow\(path, line, \(tries \|\| 0\) \+ 1, mine\)/,
+  assert.match(fn, /centerThreadRow\(path, line, side, \(tries \|\| 0\) \+ 1, mine\)/,
     "the retry passes its own claim on, rather than minting a new one");
 });

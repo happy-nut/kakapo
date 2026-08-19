@@ -77,19 +77,26 @@ export function randomWorkspaceSlug(pick: () => number = Math.random): string {
   return `${at(SLUG_ADJECTIVES)}-${at(SLUG_NOUNS)}`;
 }
 
+export type StartRef = { ref: string; remote: boolean };
+
 // Every ref a new worktree could sensibly start from, most recently committed first. Local branches and
 // remote-tracking ones both, because "start from origin/main" and "start from my develop" are equally normal
 // answers — and typing either by hand was the only way to say it before.
-export function listStartRefs(root: string, limit = 60): string[] {
-  const raw = git(root, ["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads", "refs/remotes"]);
+// Which of the two a ref IS cannot be read off its short name: a local branch may be called `origin`, and
+// `team/fix` is a perfectly ordinary local name. So the full refname rides along and the picker draws the
+// answer from where git actually keeps the ref, not from a slash.
+export function listStartRefs(root: string, limit = 60): StartRef[] {
+  const raw = git(root, ["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)%09%(refname)", "refs/heads", "refs/remotes"]);
   const seen = new Set<string>();
-  const refs: string[] = [];
+  const refs: StartRef[] = [];
   for (const line of raw.split("\n")) {
-    const name = line.trim();
+    const tab = line.indexOf("\t");
+    if (tab < 0) continue;
+    const name = line.slice(0, tab).trim();
     // origin/HEAD is a symbolic alias for the default branch, which is already in this list under its own name.
     if (!name || name.endsWith("/HEAD") || seen.has(name)) continue;
     seen.add(name);
-    refs.push(name);
+    refs.push({ ref: name, remote: line.slice(tab + 1).trim().startsWith("refs/remotes/") });
     if (refs.length >= limit) break;
   }
   return refs;

@@ -1522,3 +1522,61 @@ test("window-level shortcuts are one table with one scope rule, and a modal is w
   const dock = readFileSync(new URL("../src/viewer/08-dock.js", import.meta.url), "utf8");
   assert.match(dock, /function isDockFocused[\s\S]{0,200}terminal-panel/, "the terminal counts as a focused panel");
 });
+
+// The caret is an inline-block 1.25em tall, aligned to text-bottom. An empty line has no text box for that to
+// align against, so the caret hung out of its row and read as straddling this line and the next. Taken out of
+// the flow, its height cannot push anything around. jsdom has no layout, so what is pinned here is that the
+// empty-line path is the one taken — the geometry itself lives in viewer.css.
+test("the caret on an empty line is taken out of the flow", async () => {
+  const { html: gapped } = await makeReviewHtml([
+    { path: "src/gap.ts", before: "const a = 1;\n\nconst b = 2;\n", after: "const a = 9;\n\nconst b = 2;\n" },
+  ]);
+  const v = await loadViewer(gapped);
+  await v.openSourceFile("src/gap.ts");
+
+  const rows = v.$all("#source-body .source-row");
+  const empty = rows.find((r) => !(r.querySelector(".source-code")?.textContent || "").length);
+  const filled = rows.find((r) => (r.querySelector(".source-code")?.textContent || "").length > 2);
+  assert.ok(empty && filled, "the fixture has both an empty line and a filled one");
+
+  v.window.insertSourceCaret(empty, 0);
+  const caret = empty.querySelector(".code-cursor");
+  assert.ok(caret, "an empty line still shows a caret");
+  assert.ok(caret.classList.contains("code-cursor-empty"), "and it is the out-of-flow one");
+
+  // A line WITH text keeps the inline caret — that is what puts it between the right two characters.
+  v.window.insertSourceCaret(filled, 1);
+  const inline = filled.querySelector(".code-cursor");
+  assert.ok(inline, "a filled line has one too");
+  assert.equal(inline.classList.contains("code-cursor-empty"), false, "but it stays in the text flow");
+  v.close();
+});
+
+// ⌘0 hands the keyboard to the Changes tree, and pressing it again closes the panel and hands the keyboard
+// back. Only the first half said so: collapsing cleared the tree's focus ring and then left the diff caret
+// parked wherever it had been — no re-render, no reveal, no arrival flash — so the review looked like it had
+// no keyboard at all until an arrow key was pressed.
+test("closing the Changes panel with ⌘0 puts the caret back on the diff, without waiting for an arrow", async () => {
+  const v = await loadViewer(html);
+  await v.openDiffFor("src/app.ts");
+  await v.settle(100);
+
+  v.key("0", { metaKey: true, code: "Digit0" });
+  await v.settle(60);
+  assert.ok(v.$(".tree-focus"), "the first press moves the keyboard to the Changes tree");
+
+  // Tag the caret that is on screen now: re-asserting the cursor rebuilds the span (clearDiffCaret first),
+  // so a surviving tag means the caret was merely left where it was.
+  const stale = v.$("#diff2html-container .code-cursor");
+  assert.ok(stale, "the diff had a caret before the panel took the keyboard");
+  stale.dataset.stale = "1";
+
+  v.key("0", { metaKey: true, code: "Digit0" });
+  await v.settle(60);
+  assert.ok(!v.$(".tree-focus"), "the second press takes the keyboard off the tree");
+  const caret = v.$("#diff2html-container .code-cursor");
+  assert.ok(caret, "…and the diff caret is on screen");
+  assert.ok(!caret.dataset.stale, "…freshly placed, so the highlight arrives with the panel closing");
+  assert.ok(v.$(".mc-diff-cursor-row"), "the caret's row is highlighted too");
+  v.close();
+});

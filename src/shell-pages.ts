@@ -66,6 +66,7 @@ export function hubHtml(light: boolean, appVersion: string, t: Translate): strin
     running: t("hub.status.running"), resumable: t("hub.status.resumable"), disconnected: t("hub.status.disconnected"),
     changed: t("hub.tip.changed"),
     ahead: t("hub.tip.ahead"),
+    paneShell: t("hub.pane.shell"), paneWorking: t("hub.pane.working"), paneWaiting: t("hub.pane.waiting"),
     agoNow: t("hub.ago.now"), agoM: t("hub.ago.m"), agoH: t("hub.ago.h"), agoD: t("hub.ago.d"),
     delTitle: t("hubdel.title"), delTitleNamed: t("hubdel.titleNamed"), delMessage: t("hubdel.message"),
     delCheckbox: t("hubdel.checkbox"), cancel: t("hubdel.cancel"), del: t("hubdel.delete"),
@@ -79,6 +80,10 @@ body{display:flex;flex-direction:column}
 #titlebar{position:relative;height:${TITLEBAR_H}px;flex:none;-webkit-app-region:drag;display:flex;align-items:center;gap:8px;padding:0 12px 0 84px;border-bottom:1px solid ${line};background:${light ? "#ececec" : "#1b1e25"}}
 #wsname{-webkit-app-region:no-drag;display:flex;align-items:center;gap:7px;max-width:72%;font-weight:600;color:${fg};font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #wsname .wsdot{width:6px;height:6px;border-radius:50%;background:#4d9a51;flex:none}#wsname .rp{color:${light ? "#888" : "#7d828c"};font-weight:400}
+/* The path is the last thing to matter and the first to give up room: it shrinks before the name or branch,
+   and disappears entirely on a narrow window rather than pushing them out. */
+#wsname .wspath{color:${light ? "#9aa0aa" : "#666b74"};font-weight:400;font-size:11px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:900px){#wsname .wspath{display:none}}
 /* The name you gave this workspace is the window's title, so it sits where a document window's title does —
    centred on the WINDOW, not on what is left over between the project name and the tools. Absolute, so
    neither side can push it off centre; the left cluster keeps identity (project · branch). */
@@ -172,6 +177,11 @@ body.rail-exp .ev{display:flex}
 .ewts{padding:2px 0 2px 9px;display:flex;flex-direction:column;gap:2px}
 .ev .wt{padding:7px 9px 7px 11px;border-radius:9px}
 .ev .wt:hover{background:${light ? "#e4eaf6" : "#25272c"}}
+/* Lifted: the tile leaves the list's surface — raised, slightly larger, and following the pointer's row —
+   so it is obvious which one you are holding and that letting go will put it down somewhere. */
+.ev .wt.wt-lifted{background:${light ? "#dbe6f8" : "#2c333f"};box-shadow:0 8px 20px #0007;transform:scale(1.02);position:relative;z-index:2;cursor:grabbing}
+body.wt-reordering{cursor:grabbing;-webkit-user-select:none;user-select:none}
+body.wt-reordering .ev .wt:not(.wt-lifted){transition:transform 120ms ease}
 .ev .wt.kbd-sel{background:${light ? "#dbe6f8" : "#2c333f"};box-shadow:inset 0 0 0 1.5px ${light ? "#4d86d9" : "#5f92df"}}
 .ev .wt.act{background:${light ? "#dfe7f5" : "#2a3446"}}
 .ev .wt.disc{opacity:.5}
@@ -203,6 +213,24 @@ body.rail-exp .ev{display:flex}
 .wt-ahead{color:${light ? "#2f7d32" : "#98cb80"};border-color:${light ? "#bcd9bd" : "#3d6045"}}
 .wt-tag{font-size:9.5px;font-weight:700;color:${light ? "#9aa0aa" : "#8b909a"};border:1px solid ${line};border-radius:5px;padding:1px 5px;flex:none;font-variant-numeric:tabular-nums}
 .wt-branch{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:${light ? "#9aa0aa" : "#666b73"};margin:3px 0 0 16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Prose, not a ref — so it is set in the UI face rather than the branch line's mono, and reads as the note a
+   person left rather than as another thing git knows. */
+.wt-memo{font-size:11px;color:${light ? "#8b909a" : "#7b818b"};margin:2px 0 0 16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+/* One row per terminal pane. A workspace runs several agents at once and the tile's single dot had to
+   summarize all of them into one glyph — which is both less than you need and, when the summary was wrong,
+   actively misleading. Each row carries its own state so the summary above it is checkable at a glance. */
+.wt-panes{display:flex;flex-direction:column;gap:1px;margin:4px 0 0 16px}
+.wt-pane{display:flex;align-items:center;gap:7px;font-size:11.5px;color:${light ? "#8b909a" : "#7b818b"};min-width:0;padding:1px 0;text-align:left}
+.wt-pane .pw{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.wt-pane.pane-busy .pw{color:${fg}}
+.wt-pane.pane-attn .pw{color:#e5484d}
+.wt-pane .usage-ico{width:11px;height:11px}
+/* Same three states as the tile dot, at 6px. border-box again, so a pane starting work shifts nothing. */
+.pdot{width:6px;height:6px;border-radius:50%;flex:none;background:${light ? "#b7bcc4" : "#5b616b"}}
+.wt-pane.pane-running .pdot{background:#4cc38a}
+.wt-pane.pane-busy .pdot{background:transparent;box-sizing:border-box;border:1.25px solid #4cc38a44;border-top-color:#4cc38a;animation:wtspin .8s linear infinite}
+.wt-pane.pane-attn .pdot{background:#e5484d;border:0;animation:none}
+@media (prefers-reduced-motion:reduce){.wt-pane.pane-busy .pdot{animation:none}}
 /* Agent quota (Claude + Codex), moved here from the review's sidebar footer: it is per-account, not
    per-workspace, so the rail is the one place that is always on screen and never duplicated per window.
    Collapsed the rail is 46px, so only the battery survives; the expanded rail shows the full row. */
@@ -255,10 +283,23 @@ body.rail-exp #railfoot{flex-direction:row;justify-content:flex-end;padding:7px 
    points is already the whole message and a second, colour-coded one just reads as a stray highlight. */
 #pin svg{width:16px;height:16px;transition:transform 180ms cubic-bezier(.2,.8,.2,1)}
 body.rail-exp #pin svg{transform:rotate(180deg)}
-#railhead #new{border:1px dashed ${line}}
+/* Collapsed, the rail is an index of what exists — a dashed ＋ floating above it advertises a panel that
+   isn't open yet, and its own dialog needs the panel's repo context anyway. It appears with the panel. */
+/* The agent row sits with the fields it follows; the picker stays in place when unchecked so the row does
+   not jump, and only stops answering. */
+#agentRow .agent-pick{margin-top:6px}
+.agent-face{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.agent-ic{display:grid;place-items:center;flex:none}
+.agent-ic svg{width:15px;height:15px;display:block}
+.agent-ic-claude{color:#d97757}.agent-ic-codex{color:#10a37f}
+#agentRow.agent-off .agent-ic{filter:grayscale(1)}
+#agentRow.agent-off .agent-pick{opacity:.45}
+#agentRow.agent-off .field{cursor:default}
+#railhead #new{border:1px dashed ${line};display:none}
+body.rail-exp #railhead #new{display:grid}
 .context-menu{position:fixed;z-index:20;width:172px;padding:5px;background:${bg};border:1px solid ${line};border-radius:8px;box-shadow:0 12px 30px #0008}
 .context-menu button{display:block;width:100%;border:0;text-align:left;padding:7px 9px}.context-menu button:hover{background:${light ? "#dfe7f5" : "#373d49"}}.context-menu .danger{color:#df6868}.hidden{display:none!important}</style>
-<div id="titlebar"><span id="wsname"></span><span id="wstitle"></span><span class="tb-spacer"></span><button id="update-chip" class="hidden" title="${t("settings.updateAvailable")}">${t("sidebar.updateAvailable")}</button><div id="tools"><button class="tb" data-act="changes" data-tip="${t("tab.changes")}" data-key="⌘0" aria-label="${t("tab.changes")} (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" data-tip="${t("tab.files")}" data-key="⌘1" aria-label="${t("tab.files")} (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" data-tip="${t("terminal.title")}" data-key="⌃\`" aria-label="${t("terminal.title")} (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" data-tip="${t("rail.history")}" data-key="⌘9" aria-label="${t("rail.history")} (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button></div></div><main id="hub"><div id="railhead"><span id="railtitle">${t("hub.workspaces")}</span><button id="new" title="${t("hub.newWorkspace.title")}">＋</button><button id="pin" title="${t("hub.expandRail.title")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button></div><section id="list"></section><div id="usage-foot" class="usage-foot" aria-label="Agent usage"></div><div id="railfoot"><button id="settings" title="${t("hub.settings.title", { v: appVersion })}">⚙</button></div></main><div id="tt"></div>
+<div id="titlebar"><span id="wsname"></span><span id="wstitle"></span><span class="tb-spacer"></span><button id="update-chip" class="hidden" title="${t("settings.updateAvailable")}">${t("sidebar.updateAvailable")}</button><div id="tools"><button class="tb" data-act="changes" data-tip="${t("tab.changes")}" data-key="⌘0" aria-label="${t("tab.changes")} (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" data-tip="${t("tab.files")}" data-key="⌘1" aria-label="${t("tab.files")} (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" data-tip="${t("terminal.title")}" data-key="⌃\`" aria-label="${t("terminal.title")} (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" data-tip="${t("rail.history")}" data-key="⌘9" aria-label="${t("rail.history")} (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button></div></div><main id="hub"><div id="railhead"><span id="railtitle">${t("hub.workspaces")}</span><button id="new" data-tip="${t("hub.newWorkspace")}" data-key="⌘N" aria-label="${t("hub.newWorkspace")} (⌘N)">＋</button><button id="pin" data-tip="${t("menu.expandRail")}" data-key="⌘⇧E" aria-label="${t("menu.expandRail")} (⌘⇧E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button></div><section id="list"></section><div id="usage-foot" class="usage-foot" aria-label="Agent usage"></div><div id="railfoot"><button id="settings" data-tip="${t("hub.settings", { v: appVersion })}" data-key="⌘," aria-label="${t("hub.settings", { v: appVersion })} (⌘,)">⚙</button></div></main><div id="tt"></div>
 <script>
 const T=${JSON.stringify(T)};
 const APP_VERSION=${JSON.stringify(appVersion)};
@@ -300,17 +341,27 @@ function showTip(b){const tip=b.dataset.tip;if(!tip){tt.classList.remove('show')
 // laid out from the title bar's bottom edge down (TITLEBAR_H) and covers everything below it, so the bubble
 // was rendering into a strip nobody can see. It lives IN the bar instead, right-aligned to the tools group —
 // so it never sits under the pointer, and never jumps as you sweep across the icons.
-tt.style.left=Math.max(6,tools.getBoundingClientRect().left-bb.width-8)+'px';tt.style.top=Math.max(2,r.top+r.height/2-bb.height/2)+'px';}
-tools.addEventListener('mouseover',e=>{const b=e.target.closest('button.tb');if(b)showTip(b);});
-tools.addEventListener('mouseout',e=>{const b=e.target.closest('button.tb');if(b&&(!e.relatedTarget||!b.contains(e.relatedTarget)))tt.classList.remove('show');});
-tools.addEventListener('click',()=>tt.classList.remove('show'));
+tt.style.left=Math.max(6,tools.getBoundingClientRect().left-bb.width-8)+'px';
+// The rail's own buttons (expand, new workspace, settings) sit BELOW the bar, in a 46px column — the only
+// strip of that row this page owns, so a bubble beside one of them would be cut off at 46px or hidden behind
+// the review view entirely. Clamp every tooltip into the bar, which is the one full-width surface here and
+// already where the toolbar's own tooltips appear. One place for all of them, never under the pointer.
+const bar=document.getElementById('titlebar').getBoundingClientRect();
+tt.style.top=Math.min(Math.max(2,r.top+r.height/2-bb.height/2),Math.max(2,bar.bottom-bb.height-3))+'px';}
+// Delegated on the document, not on #tools: the rail buttons are in #railhead/#railfoot, and a shortcut you
+// can only discover from the menu bar is a shortcut nobody finds. Anything carrying data-tip gets the bubble.
+const tipTarget=e=>e.target.closest?e.target.closest('button[data-tip]'):null;
+document.addEventListener('mouseover',e=>{const b=tipTarget(e);if(b)showTip(b);});
+document.addEventListener('mouseout',e=>{const b=tipTarget(e);if(b&&(!e.relatedTarget||!b.contains(e.relatedTarget)))tt.classList.remove('show');});
+document.addEventListener('click',()=>tt.classList.remove('show'));
 window.kakapoHub.onRailState(s=>{s=s||{};const active=s.active||[];for(const b of tools.querySelectorAll('button.tb')){const a=b.dataset.act;if(a==='terminal'){b.classList.toggle('hidden',!s.terminal);}b.classList.toggle('active',active.indexOf(a)>=0);}});
 window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(prefill=>newModal(prefill));
 // ---- Agent quota, moved here from the review's sidebar footer. One row per limit window that can actually
 // stop work — Claude's 5h session, its weekly caps, then Codex's — each a battery of the quota still LEFT
 // plus how long until that window resets. Marks are the official Claude / OpenAI logos (simple-icons, CC0).
-const CLAUDE_ICO='<svg class="usage-ico usage-ico-claude" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg>';
-const CODEX_ICO='<svg class="usage-ico usage-ico-codex" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>';
+const CLAUDE_ICO=${JSON.stringify(AGENT_MARK.claude)};
+const SHELL_ICO='<svg class="usage-ico usage-ico-shell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg>';
+const CODEX_ICO=${JSON.stringify(AGENT_MARK.codex)};
 const uTokens=n=>{n=n||0;if(n>=1e6)return (n/1e6).toFixed(n>=1e7?0:1)+'M';if(n>=1e3)return Math.round(n/1e3)+'k';return String(n)};
 const uSpan=d=>{const h=Math.floor(d/3600000),days=Math.floor(h/24),rh=h%24,m=Math.floor((d%3600000)/60000);
   if(days>0)return days+T.uD+' '+rh+T.uH; if(h>0)return h+T.uH+' '+m+T.uM; return m+T.uM;};
@@ -479,11 +530,33 @@ window.kakapoHub.onToggleExpand(toggleRail);
 window.kakapoHub.onSetExpanded(open=>{railExp=!!open;paintRail();if(!railExp)railClearSel();else railDropChromeFocus();});
 const ago=value=>{const seconds=Math.max(0,Math.floor((Date.now()-Number(value||Date.now()))/1000));return seconds<60?T.agoNow:seconds<3600?T.agoM.replace('{n}',Math.floor(seconds/60)):seconds<86400?T.agoH.replace('{n}',Math.floor(seconds/3600)):T.agoD.replace('{n}',Math.floor(seconds/86400))};
 let curRepo=null; // active workspace's project, used to prefill the New-workspace dialog
+// Proper nouns, so the same two labels in every locale — they name the agent, they don't describe it.
+const AGENT_NAME={claude:'Claude',codex:'Codex'};
+const AGENT_ICO={claude:CLAUDE_ICO,codex:CODEX_ICO};
+// The badge is omitted, not blanked, for a workspace whose agent is unknown: a worktree you have only ever
+// run plain shell commands in has no agent, which is different from having one we failed to name.
+const agentIco=w=>AGENT_ICO[w.agent]?'<span class="wt-agent" role="img" aria-label="'+esc(AGENT_NAME[w.agent])+'">'+AGENT_ICO[w.agent]+'</span>':'';
+// What each terminal pane in this workspace is doing. "attn" belongs to the WORKSPACE (a bell has no pane to
+// come from), so it lands on the pane that is otherwise idle-but-alive — the one that just stopped working is
+// the one waiting for you. A pane running a plain command shows the command; a bare shell says so.
+const paneState=(p,unread)=>p.busy?'busy':(unread&&p.running?'attn':p.running?'running':'idle');
+const paneWhat=p=>p.agent?AGENT_NAME[p.agent]:(p.running&&p.command?p.command:T.paneShell);
+const paneIco=p=>AGENT_ICO[p.agent]||SHELL_ICO;
+const panesHtml=w=>{const list=Array.isArray(w.panes)?w.panes:[];if(!list.length)return'';
+  // Only the first still-alive pane wears the attention dot: repeating it on every row would say the same
+  // thing three times and stop meaning "look here".
+  let claimed=!w.unread;
+  return '<div class="wt-panes">'+list.map(p=>{let st=paneState(p,!claimed);if(st==='attn')claimed=true;
+    return '<div class="wt-pane pane-'+st+'"><span class="pdot"></span>'+paneIco(p)+'<span class="pw">'+esc(paneWhat(p))+(st==='busy'?' · '+T.paneWorking:st==='attn'?' · '+T.paneWaiting:'')+'</span></div>';}).join('')+'</div>';};
 window.kakapoHub.onState(items=>{const groups=new Map;for(const w of items){if(!groups.has(w.repoName))groups.set(w.repoName,[]);groups.get(w.repoName).push(w)}
 // Left: which checkout this is — project and the branch it is on, the two things you cannot rename away.
 // Centre: the alias, the title you CAN edit (blank when you never gave it one; the pair on the left already
 // says what this workspace is, and repeating the branch in the middle would say it twice).
-const _a=items.find(w=>w.active);const _wn=document.getElementById('wsname');if(_wn)_wn.innerHTML=_a?'<span class="wsdot"></span>'+esc(_a.repoName)+' <span class="rp">· '+esc(_a.branch)+'</span>':'';
+// Project · branch · where it actually IS on disk. Several worktrees of one repo sit on similar branches and
+// their windows looked identical; the path is the only thing that always tells them apart — and it is the
+// thing you need when you go to run something there yourself. Home is written as ~ because the prefix is the
+// same on every row and would push the part that differs off the end.
+const _a=items.find(w=>w.active);const _wn=document.getElementById('wsname');if(_wn)_wn.innerHTML=_a?'<span class="wsdot"></span>'+esc(_a.repoName)+' <span class="rp">· '+esc(_a.branch)+'</span>'+(_a.shortPath||_a.path?' <span class="wspath">'+esc(_a.shortPath||_a.path)+'</span>':''):'';
 const _wt=document.getElementById('wstitle');if(_wt)_wt.textContent=_a&&_a.alias&&_a.alias!==_a.branch?_a.alias:'';
 // Remember the active workspace's project so ⌘N can prefill it — a new task almost always belongs to the repo
 // you are looking at.
@@ -492,19 +565,13 @@ curRepo=_a&&_a.repoRoot?{path:_a.repoRoot,name:_a.repoName}:curRepo;
 // letters instead of collapsing to "?". Latin → uppercased two-word/two-letter initials; CJK → the first one
 // or two characters as-is (Hangul has no case).
 const initials=w=>{var s=String(w.alias||(w.kind==='main'?w.repoName:0)||w.branch||w.repoName||'?').replace(/^(feature|fix|chore|bugfix|hotfix|release)[\\/_-]/i,'').trim();if(!s)return'?';var parts=s.split(/[\\s._/-]+/).filter(Boolean);var a=parts[0]||s,ac=Array.from(a),latin=/^[A-Za-z0-9]/.test(a),r;if(parts.length>1){var bc=Array.from(parts[1]);r=(ac[0]||'')+(bc[0]||'');}else{r=ac.slice(0,2).join('');}return latin?r.toUpperCase():r;};
-// Proper nouns, so the same two labels in every locale — they name the agent, they don't describe it.
-const AGENT_NAME={claude:'Claude',codex:'Codex'};
-const AGENT_ICO={claude:CLAUDE_ICO,codex:CODEX_ICO};
-// The badge is omitted, not blanked, for a workspace whose agent is unknown: a worktree you have only ever
-// run plain shell commands in has no agent, which is different from having one we failed to name.
-const agentIco=w=>AGENT_ICO[w.agent]?'<span class="wt-agent" role="img" aria-label="'+esc(AGENT_NAME[w.agent])+'">'+AGENT_ICO[w.agent]+'</span>':'';
-const tip=w=>(w.alias||w.branch)+' · '+w.repoName+' · '+w.path+(AGENT_NAME[w.agent]?' · '+AGENT_NAME[w.agent]:'')+(w.dirtyCount?' · '+T.changed.replace('{n}',w.dirtyCount):'')+(w.ahead?' · '+T.ahead.replace('{n}',w.ahead):'')+(w.running?' · ● '+T.running:w.resume?' · '+T.resumable:w.disconnected?' · '+T.disconnected:'');
+const tip=w=>(w.alias||w.branch)+' · '+w.repoName+' · '+w.path+(w.memo?String.fromCharCode(10)+w.memo:'')+(AGENT_NAME[w.agent]?' · '+AGENT_NAME[w.agent]:'')+(w.dirtyCount?' · '+T.changed.replace('{n}',w.dirtyCount):'')+(w.ahead?' · '+T.ahead.replace('{n}',w.ahead):'')+(w.running?' · ● '+T.running:w.resume?' · '+T.resumable:w.disconnected?' · '+T.disconnected:'');
 // Stable per-project hue (all worktrees share it) — tints the collapsed group's accent bar + avatar
 // placeholder and the expanded panel's project badge, so projects read apart at a glance.
 const projHue=n=>{let h=0;const s=String(n||'');for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h%360;};
 // Shared per-worktree bits: state classes and the data-* every click/activate/context-menu handler reads.
 const wcls=w=>(w.active?' act':'')+(w.disconnected?' disc':'')+(w.busy?' busy':'')+(w.running?' running':'')+(w.unread?' attn':'')+(deletingIds.has(w.id)?' deleting':'');
-const wattr=w=>' data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-disconnected="'+!!w.disconnected+'" data-closed="'+!!w.closed+'" data-resume="'+(w.resume&&!w.running?'1':'')+'" data-kind="'+esc(w.kind||'')+'" title="'+esc(tip(w))+'"';
+const wattr=w=>' data-id="'+w.id+'" data-path="'+encodeURIComponent(w.path)+'" data-name="'+esc(w.alias||w.branch)+'" data-memo="'+esc(w.memo||'')+'" data-disconnected="'+!!w.disconnected+'" data-closed="'+!!w.closed+'" data-resume="'+(w.resume&&!w.running?'1':'')+'" data-kind="'+esc(w.kind||'')+'" title="'+esc(tip(w))+'"';
 const grpAvatar=ws=>{for(const w of ws)if(w.avatar)return w.avatar;return null;};
 const projMark=repo=>{const a=Array.from(String(repo||'?').trim());const c=a[0]||'?';return /[A-Za-z0-9]/.test(c)?c.toUpperCase():c;};
 const avInner=(ws,repo)=>{const av=grpAvatar(ws);return av?'<img src="'+av+'" alt="">':esc(projMark(repo));};
@@ -529,11 +596,16 @@ const aheadTag=w.ahead?'<span class="wt-tag wt-ahead" title="'+esc(T.ahead.repla
 // afterwards — the same fact the resume action is offered from. Only the expanded rail: the collapsed strip
 // is 46px of initials and a status dot, with no room for a second glyph.
 const agent=agentIco(w);
-return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+agent+aheadTag+tag+'</div>'+brLine+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
+// The description asked for at create time. It was written to the workspace record and then never read by
+// anything — not shown, and the edit dialog opened blank, so the only thing you could do with it was
+// overwrite it blind. It is the one line saying what this workspace is FOR, which is exactly what a rail of
+// near-identical branch names is missing, so it goes under the branch.
+const memoLine=w.memo?'<div class="wt-memo">'+esc(w.memo)+'</div>':'';
+return '<button class="wt'+wcls(w)+'"'+wattr(w)+'><div class="wt-top"><span class="dot"></span><span class="wt-name">'+nm+'</span>'+home+agent+aheadTag+tag+'</div>'+brLine+memoLine+panesHtml(w)+'</button>';}).join('')+'</div></div>').join('')+'</div></div>';
 list.innerHTML=cv+ev;
 // Worktree click → activate (or reconnect/forget a disconnected one). Collapsed badges and expanded cards are
 // both .wt with the same data-*, so one handler covers both views.
-for(const el of list.querySelectorAll('.wt')){el.onclick=()=>{const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){window.kakapoHub.openModal('disconnected',{path});return}if(el.dataset.closed==='true'){window.kakapoHub.openPath(path);return}window.kakapoHub.activate(id)};}
+for(const el of list.querySelectorAll('.wt')){el.onclick=()=>{if(justDragged)return;const id=Number(el.dataset.id),path=decodeURIComponent(el.dataset.path);if(el.dataset.disconnected==='true'){window.kakapoHub.openModal('disconnected',{path});return}if(el.dataset.closed==='true'){window.kakapoHub.openPath(path);return}window.kakapoHub.activate(id)};}
 // Collapsed project avatar → jump to that project's active (or first) worktree.
 for(const el of list.querySelectorAll('.phav')){el.onclick=()=>{const ws=groups.get(el.dataset.repo)||[];const t=ws.find(w=>w.active&&!w.disconnected)||ws.find(w=>!w.disconnected)||ws[0];if(!t)return;if(t.closed)window.kakapoHub.openPath(t.path);else if(t.disconnected)window.kakapoHub.openModal('disconnected',{path:t.path});else window.kakapoHub.activate(t.id);};}
 // Expanded project header → collapse/expand its worktree list (chevron rotates).
@@ -545,8 +617,18 @@ if(railExp)railPaint();
 });
 // Lightweight agent-activity ticks (spinner / attention dot) that toggle classes on existing tiles without a
 // full re-render, so a streaming agent doesn't rebuild the rail DOM and drop hover/focus state.
-window.kakapoHub.onActivity(list=>{for(const a of list){for(const el of document.querySelectorAll('.wt[data-id="'+a.id+'"]')){el.classList.toggle('busy',!!a.busy);el.classList.toggle('running',!!a.running);el.classList.toggle('attn',!!a.unread);}}});
-window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){window.kakapoHub.openModal('rename',{id,name});}else if(action==='memo'){window.kakapoHub.openModal('memo',{id,name});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id,name);});
+window.kakapoHub.onActivity(list=>{for(const a of list){for(const el of document.querySelectorAll('.wt[data-id="'+a.id+'"]')){el.classList.toggle('busy',!!a.busy);el.classList.toggle('running',!!a.running);el.classList.toggle('attn',!!a.unread);
+// The pane rows carry per-pane state, so a class toggle cannot update them — their markup has to be rebuilt.
+// Only in the expanded rail (the 46px strip has no room for rows), and only when the markup actually CHANGED:
+// replacing the nodes restarts every spinner's animation from zero, which on a chatty agent is a visible
+// stutter rather than a turning ring.
+if(!el.closest('.ev'))continue;
+const html=panesHtml({panes:a.panes,unread:a.unread});
+if(el.dataset.panesKey===html)continue;
+el.dataset.panesKey=html;
+const old=el.querySelector('.wt-panes');if(old)old.remove();
+if(html)el.insertAdjacentHTML('beforeend',html);}}});
+window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){window.kakapoHub.openModal('rename',{id,name});}else if(action==='memo'){const el=document.querySelector('.wt[data-id="'+id+'"]');window.kakapoHub.openModal('memo',{id,name,memo:el?el.dataset.memo||'':''});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id,name);});
 async function removeWorkspace(id,name){const r0=await window.kakapoHub.confirm({title:name?T.delTitleNamed.replace('{name}',name):T.delTitle,message:T.delMessage,checkbox:T.delCheckbox,checked:true,buttons:[T.cancel,T.del],danger:true,defaultId:0});if(r0.index!==1)return;const delBranch=r0.checked;let r;
 // Main answers a failed removal with {ok:false,error}, but an invoke can still reject outright (a thrown
 // handler crosses the bridge as a rejection). Unguarded, that rejection skipped the failure dialog below and
@@ -557,6 +639,45 @@ async function removeWorkspace(id,name){const r0=await window.kakapoHub.confirm(
 const rm=async(...a)=>{markDeleting(id,true);try{return await window.kakapoHub.remove(id,'delete',...a)}finally{markDeleting(id,false)}};
 try{r=await rm(false,delBranch);if(r.needsConfirmation){const x=r.risk;const detail=[x.dirty&&T.dirty,x.unpushed&&T.unpushed.replace('{n}',x.unpushed).replace('{s}',x.unpushed===1?'':'s'),x.runningProcesses&&T.runningProc].filter(Boolean).join('\\n');const r2=await window.kakapoHub.confirm({title:T.anywayTitle,message:T.hasWork,detail,buttons:[T.cancel,T.anyway],danger:true,defaultId:0});if(r2.index!==1)return;r=await rm(true,delBranch);}}catch(err){r={ok:false,error:(err&&err.message)||String(err)};}
 if(!r.ok)await window.kakapoHub.confirm({title:T.failedTitle,message:r.error||T.failedMsg,buttons:[T.ok]});}
+// Press and HOLD a workspace to lift it, then drag to reorder it inside its project. A press that moves
+// before the timer fires is a scroll and a press that never moves is a click, so the lift only happens when
+// you hold still — which is what keeps ordinary clicking and scrolling untouched. Only the expanded rail:
+// the 46px strip has no room to aim at, and the order it shows is this one anyway.
+// The order is per PROJECT because that is the only move that means anything — a worktree belongs to its
+// repository, so dragging one out of its group would be asking for a workspace that lives nowhere.
+var justDragged=false;
+(function(){
+  var LIFT_MS=280,SLOP=5,timer=0,lifted=null,group=null,startX=0,startY=0;
+  function reset(){if(timer){clearTimeout(timer);timer=0;}if(lifted)lifted.classList.remove('wt-lifted');lifted=null;group=null;document.body.classList.remove('wt-reordering');}
+  list.addEventListener('mousedown',e=>{
+    if(e.button!==0||!railExp)return;
+    var wt=e.target.closest&&e.target.closest('.ev .wt');
+    if(!wt||!wt.parentElement||!wt.parentElement.classList.contains('ewts'))return;
+    startX=e.clientX;startY=e.clientY;
+    timer=setTimeout(()=>{timer=0;lifted=wt;group=wt.parentElement;wt.classList.add('wt-lifted');document.body.classList.add('wt-reordering');},LIFT_MS);
+  });
+  document.addEventListener('mousemove',e=>{
+    if(timer&&(Math.abs(e.clientX-startX)>SLOP||Math.abs(e.clientY-startY)>SLOP)){clearTimeout(timer);timer=0;return;}
+    if(!lifted||!group)return;
+    e.preventDefault();
+    var over=document.elementFromPoint(e.clientX,e.clientY);
+    var target=over&&over.closest?over.closest('.ev .wt'):null;
+    if(!target||target===lifted||target.parentElement!==group)return;
+    var r=target.getBoundingClientRect();
+    group.insertBefore(lifted,e.clientY<r.top+r.height/2?target:target.nextSibling);
+  });
+  document.addEventListener('mouseup',()=>{
+    if(lifted&&group){
+      var repo=(group.parentElement&&group.parentElement.querySelector('.prow')||{}).dataset;
+      var paths=[...group.querySelectorAll('.wt')].map(w=>decodeURIComponent(w.dataset.path||'')).filter(Boolean);
+      if(repo&&repo.repo&&paths.length)window.kakapoHub.reorder(repo.repo,paths);
+      // The click that follows this mouseup would activate whatever the tile landed on; swallow exactly one.
+      justDragged=true;setTimeout(()=>{justDragged=false},0);
+    }
+    reset();
+  });
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&lifted){reset();window.kakapoHub.requestState();}});
+})();
 document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.wt');if(card){e.preventDefault();if(card.dataset.closed==='true')return;if(card.dataset.disconnected==='true'){window.kakapoHub.openModal('disconnected',{path:decodeURIComponent(card.dataset.path)});return}window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1',kind:card.dataset.kind||''});}});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.altKey&&/^[1-9]$/.test(e.key)){e.preventDefault();window.kakapoHub.activateIndex(Number(e.key)-1)}});
 document.addEventListener('click',e=>{if(!railExp&&!e.target.closest('button,input,textarea,dialog,#wsname'))window.kakapoHub.refocusReview()});
@@ -569,6 +690,14 @@ window.kakapoHub.requestState();
 // dim, the live review content shows through dimmed rather than blanking — no snapshot/capturePage needed.
 // The rail (hubHtml) asks main to show this via openModal(); main tells this page which dialog to open via
 // onModalOpen(); closing any dialog asks main to hide the overlay again via closeModal().
+// The agents' own marks (simple-icons, CC0), shared by the rail's usage footer and tiles and by the
+// New-workspace dialog's agent picker. One copy: a brand mark that differs between two surfaces of the same
+// app reads as two different products.
+const AGENT_MARK: Record<string, string> = {
+  claude: '<svg class="usage-ico usage-ico-claude" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg>',
+  codex: '<svg class="usage-ico usage-ico-codex" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>',
+};
+
 export function modalOverlayHtml(light: boolean, t: Translate): string {
   const fg = light ? "#242424" : "#ddd", line = light ? "#d0d0d0" : "#454545";
   const dim = "rgba(0,0,0,.45)";
@@ -577,6 +706,7 @@ export function modalOverlayHtml(light: boolean, t: Translate): string {
   const T = {
     selectProject: t("newws.selectProject"), browse: t("newws.browse"), chooseFirst: t("newws.chooseFirst"),
     baseSelect: t("newws.base.select"),
+    refLocal: t("newws.base.local"), refRemote: t("newws.base.remote"),
     creating: t("newws.creating"), create: t("newws.create"), createFailed: t("newws.createFailed"),
     opening: t("newws.opening"), open: t("newws.open"),
     renameTitle: t("newws.renameTitle"), memoTitle: t("newws.memoTitle"),
@@ -670,7 +800,7 @@ dialog#confirm::backdrop{background:${dim}}
 #confirm .cf-btn.danger{background:#d9463e;color:#fff;border-color:transparent}
 #confirm .cf-btn.pri:hover,#confirm .cf-btn.danger:hover{filter:brightness(1.07)}
 #confirm .cf-btn:focus-visible{outline:none;box-shadow:0 0 0 3px #4d86d955}</style>
-<dialog id="create"><div class="dh"><b>${t("newws.title")}</b><button class="dx" id="dlgClose" aria-label="${t("newws.close")}">✕</button></div><div class="db"><label>${t("newws.project")}</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">${t("newws.selectProject")}</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label class="wt-opt"><input type="checkbox" id="wtNew" checked><span>${t("newws.newWorktree")}</span></label><div class="wt-hint">${t("newws.newWorktree.hint")}</div><div id="labelRow"><label>${t("newws.taskName")}</label><input id="label" class="tin" placeholder="${t("newws.taskPlaceholder")}" autocomplete="off" spellcheck="false"></div><div id="descRow"><label>${t("newws.desc")}</label><input id="desc" class="tin" placeholder="${t("newws.desc.placeholder")}" autocomplete="off"></div><div id="baseRow"><label>${t("newws.base")}</label><div class="field-wrap"><button id="chooseBase" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12M6 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM18 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM18 8v1a3 3 0 0 1-3 3H9a3 3 0 0 0-3 3"/></svg></span><span id="baseName" class="fv ph">${t("newws.base.select")}</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="baseMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="base"><div class="wt-hint">${t("newws.base.hint")}</div></div><input type="hidden" id="slug"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">${t("newws.cancel")}</button><button id="doCreate" class="dbtn pri"><span class="dcl">${t("newws.create")}</span><kbd>⌘↵</kbd></button></div></div></dialog>
+<dialog id="create"><div class="dh"><b>${t("newws.title")}</b><button class="dx" id="dlgClose" aria-label="${t("newws.close")}">✕</button></div><div class="db"><label>${t("newws.project")}</label><div class="field-wrap"><button id="choose" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></span><span id="repoName" class="fv ph">${t("newws.selectProject")}</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="projectMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="repo"><label class="wt-opt"><input type="checkbox" id="wtNew" checked><span>${t("newws.newWorktree")}</span></label><div class="wt-hint">${t("newws.newWorktree.hint")}</div><div id="labelRow"><label>${t("newws.taskName")}</label><input id="label" class="tin" placeholder="${t("newws.taskPlaceholder")}" autocomplete="off" spellcheck="false"></div><div id="descRow"><label>${t("newws.desc")}</label><input id="desc" class="tin" placeholder="${t("newws.desc.placeholder")}" autocomplete="off"></div><div id="agentRow"><label class="wt-opt"><input type="checkbox" id="agentStart" checked><span>${t("newws.agent")}</span></label><div class="field-wrap agent-pick"><button id="chooseAgent" class="field" aria-haspopup="listbox" aria-expanded="false"><span id="agentFace" class="agent-face"><span class="fv">Claude</span></span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="agentMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="agent" value="claude"><div class="wt-hint">${t("newws.agent.hint")}</div></div><div id="baseRow"><label>${t("newws.base")}</label><div class="field-wrap"><button id="chooseBase" class="field" aria-haspopup="listbox" aria-expanded="false"><span class="fi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12M6 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM18 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM18 8v1a3 3 0 0 1-3 3H9a3 3 0 0 0-3 3"/></svg></span><span id="baseName" class="fv ph">${t("newws.base.select")}</span><span class="fc"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></button><div id="baseMenu" class="pmenu hidden" role="listbox"></div></div><input type="hidden" id="base"><div class="wt-hint">${t("newws.base.hint")}</div></div><input type="hidden" id="slug"><div id="preview"></div><div class="error" id="createError"></div><div class="actions"><button id="cancelCreate" class="dbtn">${t("newws.cancel")}</button><button id="doCreate" class="dbtn pri"><span class="dcl">${t("newws.create")}</span><kbd>⌘↵</kbd></button></div></div></dialog>
 <dialog id="prompt"><div class="dh"><b id="promptTitle"></b></div><div class="db"><input id="promptInput" class="tin" autocomplete="off" spellcheck="false"><div class="actions"><button id="promptCancel" class="dbtn">${t("newws.cancel")}</button><button id="promptOk" class="dbtn pri">${t("newws.ok")}</button></div></div></dialog>
 <dialog id="disc"><div class="disc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div><div class="disc-msg">${t("disc.message")}</div><div id="discPath" class="disc-path"></div><div class="disc-actions"><button id="discReconnect" class="disc-btn pri">${t("disc.reconnect")}</button><button id="discRemove" class="disc-btn">${t("disc.remove")}</button><button id="discCancel" class="disc-btn">${t("disc.cancel")}</button></div></dialog>
 <dialog id="confirm"><div class="cf-ic hidden" id="cfIcon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div><div class="cf-title" id="cfTitle"></div><div class="cf-msg" id="cfMsg"></div><div class="cf-detail hidden" id="cfDetail"></div><label class="cf-check hidden" id="cfCheckWrap"><input type="checkbox" id="cfCheck"><span id="cfCheckLabel"></span></label><div class="cf-actions" id="cfActions"></div></dialog><script>
@@ -680,7 +810,7 @@ const dlg=document.querySelector("#create");let creating=false;
 // Each open starts clean (the overlay page persists across opens, so stale repo/label would otherwise linger).
 // repo/name prefill the project from the rail's active workspace (see the openModal('new',…) call sites) —
 // a new task nearly always belongs to the project you are looking at.
-function openCreate(repo,name){document.querySelector("#repo").value='';const n=document.querySelector("#repoName");n.textContent=T.selectProject;n.classList.add('ph');document.querySelector("#label").value='';document.querySelector("#desc").value='';document.querySelector("#slug").value='';resetBase();document.querySelector("#preview").innerHTML='';document.querySelector("#createError").textContent='';document.querySelector("#wtNew").checked=true;paintWorktreeMode();loadProjects();closeProjectMenu();dlg.showModal();
+function openCreate(repo,name){document.querySelector("#repo").value='';agentTouched=false;agentStart.checked=true;pickAgent('claude');paintAgentRow();const n=document.querySelector("#repoName");n.textContent=T.selectProject;n.classList.add('ph');document.querySelector("#label").value='';document.querySelector("#desc").value='';document.querySelector("#slug").value='';resetBase();document.querySelector("#preview").innerHTML='';document.querySelector("#createError").textContent='';document.querySelector("#wtNew").checked=true;paintWorktreeMode();loadProjects();closeProjectMenu();dlg.showModal();
 if(repo)pickProject(repo,name);else setTimeout(()=>document.querySelector("#choose").focus(),0);}
 // Any close of the create dialog (cancel / ✕ / Esc / success) tells main to hide the overlay.
 dlg.addEventListener('close',()=>window.kakapoHub.closeModal());
@@ -701,9 +831,12 @@ const r=await window.kakapoHub.preview(document.querySelector("#repo").value,doc
 const b=document.querySelector("#base");
 if(r.ok&&r.worktree&&r.slug)slugEl.value=r.slug;
 if(r.ok&&r.worktree&&Array.isArray(r.refs)&&!baseRefs.length)setBaseRefs(r.refs);
+if(r.ok&&r.lastAgent&&!agentTouched)pickAgent(r.lastAgent); // reach for the same one you reached for last time
 // The repo's own answer for "where should this start" — put it at the top of the list if it isn't in it, and
 // select it, but never over a branch the reviewer already picked.
-if(r.ok&&r.worktree&&r.base&&!b.value){if(baseRefs.indexOf(r.base)<0)setBaseRefs([r.base].concat(baseRefs));pickBase(r.base);}document.querySelector("#preview").innerHTML=r.ok?(r.worktree?'slug: '+esc(r.slug)+'<br>branch: '+esc(r.branch)+'<br>':'branch: '+esc(r.branch)+'<br>')+esc(r.path):''}
+// The default base is all but always already in the list; only a repo with more refs than the list's limit
+// can miss it, and there a slash in the name is the best guess left for which side of the fence it sits on.
+if(r.ok&&r.worktree&&r.base&&!b.value){if(!baseRefs.some(x=>x.ref===r.base))setBaseRefs([{ref:r.base,remote:r.base.indexOf('/')>0}].concat(baseRefs));pickBase(r.base);}document.querySelector("#preview").innerHTML=r.ok?(r.worktree?'slug: '+esc(r.slug)+'<br>branch: '+esc(r.branch)+'<br>':'branch: '+esc(r.branch)+'<br>')+esc(r.path):''}
 // Start-point picker. A native <select> shipped here first and macOS draws those with the system control, not
 // with CSS: a white box sitting in a dark dialog, ignoring every border/background rule around it. The project
 // field above already solved this — button.field + .pmenu, styled and keyboard-navigable — so this is that,
@@ -711,7 +844,13 @@ if(r.ok&&r.worktree&&r.base&&!b.value){if(baseRefs.indexOf(r.base)<0)setBaseRefs
 const baseMenu=document.querySelector("#baseMenu"),baseBtn=document.querySelector("#chooseBase");
 let baseRefs=[];
 function closeBaseMenu(){baseMenu.classList.add('hidden');baseBtn.setAttribute('aria-expanded','false');}
-function setBaseRefs(refs){baseRefs=refs.slice();baseMenu.innerHTML=baseRefs.map(r=>'<button type="button" role="option" data-ref="'+esc(r)+'"><span class="pm-name">'+esc(r)+'</span></button>').join('');}
+// Local branch vs the remote's copy, in the same 15px monochrome slot the project menu's folder icon uses.
+// The name alone cannot say which — a local branch really can be called "origin" — so the flag comes from
+// git (listStartRefs) and rides in the button's title for anyone who can't see the glyph.
+const _refIc=(remote)=>'<span class="pm-ic">'+(remote
+  ?'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18h10a3.5 3.5 0 0 0 .4-7A5 5 0 0 0 8 9.6 4.2 4.2 0 0 0 7 18z"/></svg>'
+  :'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.4"/><circle cx="6.5" cy="18" r="2.4"/><circle cx="17.5" cy="7" r="2.4"/><path d="M6.5 8.4v7.2"/><path d="M17.5 9.4c0 3.7-3.8 4.3-6.2 5.2"/></svg>')+'</span>';
+function setBaseRefs(refs){baseRefs=refs.slice();baseMenu.innerHTML=baseRefs.map(r=>'<button type="button" role="option" data-ref="'+esc(r.ref)+'" title="'+esc(r.remote?T.refRemote:T.refLocal)+'">'+_refIc(r.remote)+'<span class="pm-name">'+esc(r.ref)+'</span></button>').join('');}
 function pickBase(ref){document.querySelector("#base").value=ref;const n=document.querySelector("#baseName");n.textContent=ref;n.classList.remove('ph');closeBaseMenu();}
 function resetBase(){baseRefs=[];baseMenu.innerHTML='';document.querySelector("#base").value='';const n=document.querySelector("#baseName");n.textContent=T.baseSelect;n.classList.add('ph');closeBaseMenu();}
 baseMenu.addEventListener('click',e=>{const b=e.target.closest('button');if(b&&b.dataset.ref){pickBase(b.dataset.ref);baseBtn.focus();}});
@@ -719,6 +858,23 @@ baseBtn.onclick=()=>{if(baseMenu.classList.contains('hidden')){if(!baseRefs.leng
 function moveBase(dir){const bs=[...baseMenu.querySelectorAll('button')];if(!bs.length)return;const i=bs.indexOf(document.activeElement);bs[i<0?(dir>0?0:bs.length-1):(i+dir+bs.length)%bs.length].focus();}
 function baseKeys(e){if(e.key!=='ArrowDown'&&e.key!=='ArrowUp')return;e.preventDefault();if(baseMenu.classList.contains('hidden')&&baseRefs.length){baseMenu.classList.remove('hidden');baseBtn.setAttribute('aria-expanded','true');}moveBase(e.key==='ArrowDown'?1:-1);}
 baseBtn.addEventListener('keydown',baseKeys);baseMenu.addEventListener('keydown',baseKeys);
+// Which agent the new workspace starts. Two entries, so the same button+menu the project and base fields use
+// rather than a native <select> (macOS draws those with the system control and ignores every rule around it).
+const AGENT_ICO={claude:${JSON.stringify(AGENT_MARK.claude)},codex:${JSON.stringify(AGENT_MARK.codex)}};
+const AGENTS=[{id:'claude',label:'Claude'},{id:'codex',label:'Codex'}];
+const agentMark=id=>'<span class="pm-ic agent-ic agent-ic-'+id+'">'+(AGENT_ICO[id]||'')+'</span>';
+const agentMenu=document.querySelector("#agentMenu"),agentBtn=document.querySelector("#chooseAgent");
+function closeAgentMenu(){agentMenu.classList.add('hidden');agentBtn.setAttribute('aria-expanded','false');}
+function pickAgent(id){const found=AGENTS.find(a=>a.id===id)||AGENTS[0];document.querySelector("#agent").value=found.id;document.querySelector("#agentFace").innerHTML=agentMark(found.id)+'<span class="fv">'+esc(found.label)+'</span>';closeAgentMenu();}
+agentMenu.innerHTML=AGENTS.map(a=>'<button type="button" role="option" data-agent="'+a.id+'">'+agentMark(a.id)+'<span class="pm-name">'+esc(a.label)+'</span></button>').join('');
+let agentTouched=false;
+agentMenu.addEventListener('click',e=>{const b=e.target.closest('button');if(b&&b.dataset.agent){agentTouched=true;pickAgent(b.dataset.agent);agentBtn.focus();}});
+agentBtn.onclick=()=>{if(agentMenu.classList.contains('hidden')){agentMenu.classList.remove('hidden');agentBtn.setAttribute('aria-expanded','true');}else closeAgentMenu();};
+// Unchecking leaves the picker visible but inert: hiding it would make the row jump, and the choice is still
+// the answer to "which one, when I turn this back on".
+const agentStart=document.querySelector("#agentStart");
+function paintAgentRow(){document.querySelector("#agentRow").classList.toggle('agent-off',!agentStart.checked);agentBtn.disabled=!agentStart.checked;}
+agentStart.onchange=paintAgentRow;
 const projectMenu=document.querySelector("#projectMenu"),chooseBtn=document.querySelector("#choose");
 function closeProjectMenu(){projectMenu.classList.add('hidden');chooseBtn.setAttribute('aria-expanded','false');}
 function pickProject(path,name){document.querySelector("#repo").value=path;resetBase();document.querySelector("#slug").value='';const n=document.querySelector("#repoName");n.textContent=name||(path.split('/').filter(Boolean).pop()||path);n.classList.remove('ph');closeProjectMenu();preview();document.querySelector("#label").focus();}
@@ -740,7 +896,7 @@ document.querySelector("#label").oninput=preview;
 document.querySelector("#dlgClose").onclick=()=>{if(!creating)dlg.close()};
 dlg.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();document.querySelector("#doCreate").click();}});
 document.querySelector("#doCreate").onclick=async()=>{const btn=document.querySelector("#doCreate"),lbl=btn.querySelector('.dcl'),err=document.querySelector("#createError");if(creating)return;if(!document.querySelector("#repo").value){err.textContent=T.chooseFirst;return;}const wt=wtNew.checked;creating=true;btn.disabled=true;lbl.textContent=wt?T.creating:T.opening;err.textContent="";
-const r=await window.kakapoHub.create(document.querySelector("#repo").value,document.querySelector("#label").value,wt,{base:document.querySelector("#base").value,slug:document.querySelector("#slug").value,memo:document.querySelector("#desc").value});creating=false;btn.disabled=false;lbl.textContent=wt?T.create:T.open;if(r.ok)dlg.close();else err.textContent=r.error||T.createFailed};
+const r=await window.kakapoHub.create(document.querySelector("#repo").value,document.querySelector("#label").value,wt,{base:document.querySelector("#base").value,slug:document.querySelector("#slug").value,memo:document.querySelector("#desc").value,agent:agentStart.checked?document.querySelector("#agent").value:''});creating=false;btn.disabled=false;lbl.textContent=wt?T.create:T.open;if(r.ok)dlg.close();else err.textContent=r.error||T.createFailed};
 const promptDlg=document.querySelector("#prompt"),promptInput=document.querySelector("#promptInput"),promptTitle=document.querySelector("#promptTitle");
 function showPrompt(title,initial){return new Promise(resolve=>{promptTitle.textContent=title;promptInput.value=initial||'';const onClose=()=>{promptDlg.removeEventListener('close',onClose);resolve(promptDlg.returnValue==='ok'?promptInput.value:null);};promptDlg.addEventListener('close',onClose);promptDlg.showModal();setTimeout(()=>{promptInput.focus();promptInput.select();},0);});}
 document.querySelector("#promptOk").onclick=()=>promptDlg.close('ok');
@@ -773,7 +929,7 @@ confirmDlg.addEventListener('close',()=>{if(!cfSent){cfSent=true;window.kakapoHu
 // Main tells this overlay which dialog to open. Rename/memo resolve to a value, apply it, then hide the overlay.
 window.kakapoHub.onModalOpen(d=>{d=d||{};
   if(d.type==='rename'){showPrompt(T.renameTitle,d.name||'').then(alias=>{if(alias!==null)window.kakapoHub.rename(d.id,alias);window.kakapoHub.closeModal();});}
-  else if(d.type==='memo'){showPrompt(T.memoTitle,'').then(memo=>{if(memo!==null)window.kakapoHub.rename(d.id,undefined,memo);window.kakapoHub.closeModal();});}
+  else if(d.type==='memo'){showPrompt(T.memoTitle,d.memo||'').then(memo=>{if(memo!==null)window.kakapoHub.rename(d.id,undefined,memo);window.kakapoHub.closeModal();});}
   else if(d.type==='disconnected'){showDisconnected(d.path);}
   else if(d.type==='confirm'){showConfirm(d);}
   else openCreate(d.path,d.name);});

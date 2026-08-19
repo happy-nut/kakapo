@@ -236,7 +236,11 @@ function openMergedView() {
   function sendWholeDocToTerminal() {
     var text = currentMergedText();
     dock.close();
-    var path = typeof annotationsPath === 'string' ? annotationsPath : '';
+    // The REVIEW THREAD, not the notes file. mergePrompt.answersFile tells the agent to append one
+    // {"id","re","by","text"} line per answer — and it was being handed annotationsPath, which is
+    // knowledge.jsonl: the shared codebase-notes store that does not contain these comments at all. Agents
+    // did exactly as told and appended there, so answers never reached the cards they answered.
+    var path = typeof reviewThreadPath === 'string' ? reviewThreadPath : '';
     var doc = path ? t('mergePrompt.answersFile') + '\n' + path + '\n\n' + text : text;
     var writeRequest = window.kakapoComments && typeof window.kakapoComments.writeRequest === 'function'
       ? window.kakapoComments.writeRequest(doc)
@@ -705,7 +709,6 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
   var flag = document.getElementById('app-update-flag');
   var updateBtn = document.getElementById('app-info-update');
   var pta = document.getElementById('settings-prompt-plan');
-  var qta = document.getElementById('settings-prompt-q');
   var cta = document.getElementById('settings-prompt-c');
   var resetBtn = document.getElementById('settings-reset');
   var savedMsg = document.getElementById('settings-saved');
@@ -722,7 +725,6 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     // Defaults are real editable values, not placeholders. This makes the effective prompt visible
     // before the first edit and lets a reviewer verify exactly what was saved after reopening Settings.
     if (pta) { pta.value = (typeof s.plan === 'string' && s.plan.trim()) ? s.plan : defaultMergePrompt('plan'); pta.placeholder = ''; }
-    if (qta) { qta.value = (typeof s.q === 'string' && s.q.trim()) ? s.q : defaultMergePrompt('q'); qta.placeholder = ''; }
     if (cta) { cta.value = (typeof s.c === 'string' && s.c.trim()) ? s.c : defaultMergePrompt('c'); cta.placeholder = ''; }
     if (annotateTa) { annotateTa.value = loadAnnotatePrompt(); annotateTa.placeholder = ''; }
     if (codebaseTa) { codebaseTa.value = loadCodebasePrompt(); codebaseTa.placeholder = ''; }
@@ -784,10 +786,9 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     });
   }
   if (pta) pta.addEventListener('input', function () { saveMergePrompt('plan', pta.value); flash(); });
-  if (qta) qta.addEventListener('input', function () { saveMergePrompt('q', qta.value); flash(); });
   if (cta) cta.addEventListener('input', function () { saveMergePrompt('c', cta.value); flash(); });
   if (resetBtn) resetBtn.addEventListener('click', function () {
-    saveMergePrompt('plan', ''); saveMergePrompt('q', ''); saveMergePrompt('c', '');
+    saveMergePrompt('plan', ''); saveMergePrompt('c', '');
     saveAnnotatePrompt('');
     fill(); flash();
   });
@@ -807,9 +808,9 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     // __kakapoBeforeClose flush instead of being yanked out from under the editor.
     if (document.getElementById('mc-merged-panel')) openMergedView();
   }
-  // Theme is a preference ('system'|'light'|'dark'); applyTheme() resolves it to the light/dark data-theme.
+  // Theme is light or dark; applyTheme() writes it to data-theme.
   function applyThemePref(next) {
-    if (next !== 'system' && next !== 'light' && next !== 'dark') return;
+    if (next !== 'light' && next !== 'dark') return;
     if (next === theme) return;
     theme = next;
     persistSave(THEME_KEY, theme);
@@ -837,7 +838,6 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
   // blue accent. The last three are the ones that answer "give me a theme with actual colour" — Solarized and
   // Dracula bring a coloured ground, High Contrast brings the opposite of a mood.
   var THEMES = [
-    { id: 'system', mode: 'system' },
     { id: 'default-dark', family: 'default', mode: 'dark' },
     { id: 'default-light', family: 'default', mode: 'light' },
     { id: 'darcula-dark', family: 'darcula', mode: 'dark' },
@@ -861,13 +861,10 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     var grid = document.getElementById('settings-theme-grid');
     if (!grid) return;
     grid.innerHTML = THEMES.map(function (entry) {
-      // System wins whenever the appearance is automatic, whatever family is underneath it.
-      var on = theme === 'system' ? entry.id === 'system' : (entry.family === syntaxTheme && entry.mode === theme);
-      // The System swatch previews the current family's own light and dark halves — the two it flips between.
-      var swatch = entry.id === 'system' ? syntaxTheme + '-system' : entry.id;
+      var on = entry.family === syntaxTheme && entry.mode === theme;
       return '<button type="button" class="theme-card' + (on ? ' is-active' : '') + '" role="radio"'
         + ' aria-checked="' + (on ? 'true' : 'false') + '" data-theme-id="' + entry.id + '">'
-        + '<span class="theme-swatch" data-swatch="' + swatch + '" aria-hidden="true"></span>'
+        + '<span class="theme-swatch" data-swatch="' + entry.id + '" aria-hidden="true"></span>'
         + '<span class="theme-card-name">' + escapeHtml(t('theme.name.' + entry.id)) + '</span></button>';
     }).join('');
   }
