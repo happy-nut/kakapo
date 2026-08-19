@@ -523,3 +523,16 @@ test("selecting a comment turn cannot move the thread it is in", () => {
   assert.equal(ruleBodyForExactSelector(".mc-thread-cell .mc-card.mc-card-selected + .mc-card"), null,
     "…so the neighbour no longer has to give its own margin back");
 });
+
+// The viewed checkbox vanished on the selected row: its border is --chrome-border and the selection is
+// --chrome-selected, and in the app theme those are #34363a and #3a3c40 — the same colour to any eye. A
+// control has to be visible exactly when you are about to click it.
+test("the viewed checkbox keeps an outline on every row the eye is on", () => {
+  // Whatever emphasises a row must also re-colour that outline, and currentColor is the only value that
+  // cannot collide with the background it sits on.
+  for (const selector of [".change-row:hover .viewed-box", ".file-link.active .viewed-box",
+    ".change-row.active .viewed-box", ".tree-focus .viewed-box"]) {
+    const rule = ruleBodyContaining(selector);
+    assert.match(rule || "", /border-color:\s*currentColor/, `${selector} borrows the row's own colour`);
+  }
+});

@@ -1673,7 +1673,14 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   cursor: pointer;
 }
 .viewed-box::after { content: '✓'; }
-.change-row:hover .viewed-box { border-color: currentColor; }
+/* On any row the eye is on, the box borrows that row's own text colour. --chrome-border and
+   --chrome-selected are within a few points of each other, so on the SELECTED row the outline disappeared
+   into the highlight and the checkbox was simply not there — invisible exactly when you are about to click
+   it. currentColor cannot collide with the background it is sitting on, whatever a theme does to either. */
+.change-row:hover .viewed-box,
+.file-link.active .viewed-box,
+.change-row.active .viewed-box,
+.tree-focus .viewed-box { border-color: currentColor; }
 .file-link.viewed .viewed-box { background: #6ab04c; border-color: #6ab04c; color: #fff; }
 .status-added { background: var(--add); color: #1a7f37; }
 .status-deleted { background: var(--del); color: #cf222e; }
