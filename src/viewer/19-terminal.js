@@ -496,10 +496,13 @@ var handleTerminalSendModeKey;
     } catch (e) {}
     if (on) p.connectTimer = setTimeout(function () { setPaneConnecting(p, false); }, 4000);
   }
+  // The first byte IS the connection — the pty answered. This used to wait for output to go QUIET for 220ms,
+  // to avoid uncovering a pane mid-repaint, and that condition is never met by the pane you most want to see:
+  // re-attaching to a session whose agent is streaming means output never stops, so the overlay sat until the
+  // 4s ceiling and the workspace read as slow to open when it had connected in about 20ms.
   function noteConnectingOutput(p) {
     if (!p || !p.el || !p.el.classList.contains('is-connecting')) return;
-    if (p.settleTimer) clearTimeout(p.settleTimer);
-    p.settleTimer = setTimeout(function () { p.settleTimer = 0; setPaneConnecting(p, false); }, 220);
+    setPaneConnecting(p, false);
   }
   function setConnecting(on) {
     if (connectingTimer) { clearTimeout(connectingTimer); connectingTimer = 0; }

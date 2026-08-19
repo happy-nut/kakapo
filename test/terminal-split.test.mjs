@@ -256,17 +256,14 @@ test("a pty hears about a resize only when the character grid changed", () => {
 // It also has to LAST as long as the wait: attaching to tmux echoes a few bytes at once and the redraw of the
 // session's screen lands a second or more later, so ending on the first byte took the overlay away after
 // ~100ms and left the rest as an empty pane — the part actually waited through.
-test("each pane says it is connecting, until its own output settles", () => {
+test("each pane owns its own connecting overlay, with a way out when nothing prints", () => {
   const setter = client.match(/function setPaneConnecting\(p, on\)[\s\S]*?\n  \}/)?.[0];
   assert.ok(setter, "the state belongs to a pane");
   assert.match(setter, /p\.el\.classList\.toggle\('is-connecting', !!on\)/, "worn by that pane's own element");
   assert.match(setter, /setTimeout\(function \(\) \{ setPaneConnecting\(p, false\); \}, 4000\)/,
     "a session that prints nothing still has a way out");
 
-  const settle = client.match(/function noteConnectingOutput\(p\)[\s\S]*?\n  \}/)?.[0];
-  assert.ok(settle, "output reports progress rather than ending the wait");
-  assert.match(settle, /clearTimeout\(p\.settleTimer\)[\s\S]*setTimeout\([\s\S]*setPaneConnecting\(p, false\)/,
-    "each byte pushes the finish line back, so the overlay outlives a burst");
+  // What output MEANS is pinned by its own test below: the first byte ends the wait.
   assert.match(client, /noteConnectingOutput\(panes\[k\]\); panes\[k\]\.term\.write/,
     "and it is the pane that produced the byte which hears about it");
 
@@ -347,4 +344,36 @@ test("a Hangul composition commits whole, and exactly once", async () => {
   takeCommit({ textarea: { value: "해" }, _core: {} }, { data: "해" });
   takeCommit({ _core: { _compositionHelper: {}, coreService: { triggerDataEvent: (d) => bare.push(d) } } }, { data: "해" });
   assert.deepEqual(bare, [], "no send when the send we meant to cancel could not be found");
+});
+
+// "Session connecting…" must answer to the pty, not to a lull in its output. The overlay used to clear only
+// after 220ms of QUIET, a condition the most important pane never meets: re-attaching to a session whose
+// agent is mid-stream produces output continuously, so the overlay sat until its 4s ceiling and the
+// workspace read as slow to open when the pty had answered in about 20ms.
+test("a pane stops saying 'connecting' as soon as the pty answers, even while output keeps coming", () => {
+  const setSrc = client.match(/function setPaneConnecting\(p, on\)[\s\S]*?\n  \}/)?.[0];
+  const noteSrc = client.match(/function noteConnectingOutput\(p\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(setSrc && noteSrc, "both halves of the per-pane connecting overlay are still there");
+  const fns = new Function(`
+    function paneLabel() { return '"connecting"'; }
+    ${setSrc}
+    ${noteSrc}
+    return { setPaneConnecting, noteConnectingOutput };
+  `)();
+
+  const classes = new Set();
+  const pane = { el: {
+    classList: { toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)), contains: (c) => classes.has(c) },
+    style: { setProperty() {}, removeProperty() {} },
+  } };
+
+  fns.setPaneConnecting(pane, true);
+  assert.ok(classes.has("is-connecting"), "a pane that has just been created is waiting on its pty");
+
+  fns.noteConnectingOutput(pane); // the attach repaint starts — and does not stop
+  fns.noteConnectingOutput(pane);
+  fns.noteConnectingOutput(pane);
+  assert.ok(!classes.has("is-connecting"),
+    "the overlay is gone on the first byte; a busy agent must not hold it up to the ceiling");
+  assert.ok(!pane.settleTimer && !pane.connectTimer, "no timer is left running to uncover the pane later");
 });
