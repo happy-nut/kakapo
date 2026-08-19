@@ -233,36 +233,6 @@ function openMergedView() {
   // it out first also means the agent reads the state at the moment it looks, not at the moment you pressed
   // send. Where there is no file to write to (a non-git root, or the CLI's browser viewer), the document goes
   // over as text exactly as it always did.
-  // Two clicks, because the second one runs code. The first only tells you what the second will do.
-  function handleTeamClick() {
-    var jobs = teamJobs().slice(0, window.__kakapoTerminal.maxPanes || 4);
-    if (!jobs.length) return;
-    if (!teamArmed) {
-      teamArmed = true;
-      teamBtn.textContent = t('merged.teamConfirm').replace('{n}', String(jobs.length));
-      teamBtn.classList.add('is-armed');
-      return;
-    }
-    teamArmed = false;
-    teamBtn.classList.remove('is-armed');
-    dock.close();
-    window.__kakapoTerminal.runTeam(jobs).then(function (started) {
-      paintTeamButton();
-      showToast(started.length
-        ? t('merged.teamStarted').replace('{n}', String(started.length))
-        : t('merged.teamNoPane'));
-    });
-  }
-  function paintTeamButton() {
-    if (!teamBtn) return;
-    var jobs = teamJobs();
-    teamArmed = false;
-    teamBtn.classList.remove('is-armed');
-    // Below two files there is nothing to parallelise: one agent, which is what the send button already does.
-    teamBtn.classList.toggle('hidden', jobs.length < 2);
-    teamBtn.textContent = t('merged.sendTeam').replace('{n}', String(Math.min(jobs.length, window.__kakapoTerminal.maxPanes || 4)));
-  }
-
   function sendWholeDocToTerminal() {
     var text = currentMergedText();
     dock.close();
@@ -389,8 +359,6 @@ function openMergedView() {
   // The visible half of the hand-off. Without it the only route into the pane picker was ⌥⏎ with the right
   // thing focused, so "send the merged prompt to a terminal" read as a feature that had been removed.
   var sendBtn = null;
-  var teamBtn = null;
-  var teamArmed = false;
   if (terminalAvailable()) {
     sendBtn = document.createElement('button');
     sendBtn.type = 'button';
@@ -401,15 +369,6 @@ function openMergedView() {
     sendBtn.disabled = true;
     sendBtn.addEventListener('click', sendWholeDocToTerminal);
     dock.bar.insertBefore(sendBtn, copyBtn);
-    // One agent per FILE, started at once. This is the only button in the app that presses Enter for you, so
-    // it asks twice: the first click says how many panes it is about to take and what it will run in them,
-    // and only the second one types. A team is worth having when the review spans several files and the work
-    // does not overlap; below two files it is just the send button with extra steps, so it hides.
-    teamBtn = document.createElement('button');
-    teamBtn.type = 'button';
-    teamBtn.className = 'dock-btn mc-send-team';
-    teamBtn.addEventListener('click', handleTeamClick);
-    dock.bar.insertBefore(teamBtn, copyBtn);
   }
   // Registered once (not per-rebuild inside initializeMergedEditor) so a Backspace-delete rebuild never
   // stacks a second copy of either listener.
@@ -478,7 +437,6 @@ function openMergedView() {
       renderAllAddressedNote();
       copyBtn.disabled = false;
       if (sendBtn) sendBtn.disabled = false;
-      paintTeamButton(); // the count changes with the review, and an armed button must not survive a rebuild
       if (reselectIndex !== null) {
         var cards = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
         if (cards.length) { selectCard(cards[Math.min(reselectIndex, cards.length - 1)], true); return; }
