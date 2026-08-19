@@ -528,3 +528,13 @@ test("the viewed checkbox keeps an outline on every row the eye is on", () => {
     assert.match(rule || "", /border-color:\s*currentColor/, `${selector} borrows the row's own colour`);
   }
 });
+
+// An added file's name in the Changes tree was painted with --add-strong, which is the tint an added diff
+// LINE gets behind its code. A fill is not ink: on the dark palette that is #1f5b34 on a #171b21 panel, and
+// the light palette's #abf2bc on white is worse still. Every palette carries a green meant to be read.
+test("the Changes tree writes an added file's name in ink, not in a diff fill", () => {
+  const added = ruleBodyContaining(".change-row.ch-added .change-name");
+  assert.ok(added, "added rows still colour their name");
+  assert.doesNotMatch(added, /--add(-strong)?\b/, "no diff-fill token is used as a text colour");
+  assert.match(added, /color:\s*var\(--chrome-vcs-\w+\)/, "it uses one of the sidebar's own ink colours");
+});

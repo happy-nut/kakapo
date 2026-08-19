@@ -3647,7 +3647,11 @@ summary.tree-focus,
    is still there, which is what the colour answers. Deleted is muted, not struck through — the strikethrough
    is VS Code's convention, not this one. Placed after the vcs-* rules so a change row is coloured by WHAT
    CHANGED rather than by whether it happens to be staged, which is how a deleted file came to look added. */
-.change-row.ch-added .change-name { color: var(--add-strong); }
+/* --chrome-vcs-staged, not --add-strong. The latter is a FILL — it tints an added diff line's background —
+   and using a fill as ink is why this was unreadable at both ends: #1f5b34 on a dark panel is ~1.9:1, and the
+   light palette's #abf2bc on white is worse. Every palette already carries a green sized to be READ, because
+   the Files tree writes staged names in it. */
+.change-row.ch-added .change-name { color: var(--chrome-vcs-staged); }
 .change-row.ch-modified .change-name,
 .change-row.ch-renamed .change-name { color: var(--chrome-vcs-edited); }
 .change-row.ch-deleted .change-name { color: var(--muted); }
