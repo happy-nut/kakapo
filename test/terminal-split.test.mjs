@@ -314,3 +314,37 @@ test("the bell notifies for a workspace you are not looking at", () => {
   assert.match(read("src/app-main.ts"), /isOnScreen: \(\) => isVisibleWorkspace\(state\)/,
     "and main answers it with isVisibleWorkspace");
 });
+
+// Hangul in a pane. xterm commits a composition by slicing its textarea with offsets it recorded while the
+// composition ran, and a macOS Hangul composition runs to the end of the WORD, rewriting that value on every
+// keystroke: the offsets go stale and the word arrives truncated ("해야" -> "야") or, when the agent prints
+// something mid-composition, not at all. The client takes the commit instead. Two things must hold — the
+// committed word goes out whole, and xterm's own queued send is stood down so no keystroke is ever doubled.
+test("a Hangul composition commits whole, and exactly once", async () => {
+  const src = client.match(/function takeCompositionCommit\(term, event\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(src, "the composition commit takeover is still in the client");
+  const takeCommit = new Function(`${src}; return takeCompositionCommit;`)();
+
+  const sent = [];
+  const helper = { _isSendingComposition: true, _isComposing: true, _dataAlreadySent: "해" };
+  const term = {
+    textarea: { value: "해야" },
+    _core: { _compositionHelper: helper, coreService: { triggerDataEvent: (d) => sent.push(d) } },
+  };
+  // xterm's own send, as it schedules it: next tick, and only if nothing cancelled it.
+  setTimeout(() => {
+    if (helper._isSendingComposition) sent.push(term.textarea.value.substring(helper._dataAlreadySent.length));
+  }, 0);
+  takeCommit(term, { data: "해야" });
+  await new Promise((r) => setTimeout(r, 5));
+
+  assert.deepEqual(sent, ["해야"], "the whole word went out once — not truncated, not doubled by xterm's send");
+  assert.equal(term.textarea.value, "", "the textarea is cleared so the next composition starts from empty");
+
+  // An xterm whose private shape we no longer recognise keeps its own commit. That commit is wrong for
+  // Hangul, but sending our own on top of one we failed to cancel would double every keystroke.
+  const bare = [];
+  takeCommit({ textarea: { value: "해" }, _core: {} }, { data: "해" });
+  takeCommit({ _core: { _compositionHelper: {}, coreService: { triggerDataEvent: (d) => bare.push(d) } } }, { data: "해" });
+  assert.deepEqual(bare, [], "no send when the send we meant to cancel could not be found");
+});

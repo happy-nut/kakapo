@@ -176,6 +176,22 @@ var handleTerminalSendModeKey;
     host.appendChild(cell);
     return cell;
   }
+  // Reaching into xterm's private composition helper is deliberate: the send we need to stand down has no
+  // public switch. If a future xterm changes that shape, do nothing — xterm keeps its own commit, which is
+  // wrong for Hangul but is never a doubled keystroke, and doubling is the worse failure to ship.
+  function takeCompositionCommit(term, event) {
+    var core = term && term._core;
+    var helper = core && core._compositionHelper;
+    var service = core && core.coreService;
+    if (!helper || !service || typeof service.triggerDataEvent !== 'function') return;
+    if (!('_isSendingComposition' in helper)) return;
+    helper._isSendingComposition = false; // the send xterm queued for the next tick finds this false and stands down
+    helper._isComposing = false;
+    helper._dataAlreadySent = '';
+    if (event && event.data) service.triggerDataEvent(event.data, true);
+    // Left alone the value accumulates, and the next composition's offsets start from the whole line.
+    if (term.textarea) setTimeout(function () { term.textarea.value = ''; }, 0);
+  }
   function makePane(cell, restoreOrdinal) {
     if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw
     var el = document.createElement('div');
@@ -270,7 +286,19 @@ var handleTerminalSendModeKey;
       term.textarea.addEventListener('keydown', function () { lastInputAt = Date.now(); }, true);
       term.textarea.addEventListener('compositionstart', function () { composingPanes.add(pane); lastInputAt = Date.now(); });
       term.textarea.addEventListener('compositionupdate', function () { lastInputAt = Date.now(); });
-      term.textarea.addEventListener('compositionend', function () { composingPanes.delete(pane); lastInputAt = Date.now(); flushDeferredFit(); });
+      // xterm commits a composition by slicing its textarea with offsets recorded while the composition ran
+      // (start at compositionstart, end on a setTimeout after each update). A macOS Hangul composition runs
+      // to the end of the WORD and rewrites the whole value on every keystroke, so those offsets go stale:
+      // measured against xterm 6.0, composing "해야" sends only "야", and output arriving mid-composition
+      // loses the word outright. compositionend already carries the committed text, so take the commit —
+      // cancel xterm's deferred send and write event.data ourselves. Nothing then depends on an offset
+      // surviving the composition, which is the part macOS Hangul breaks.
+      term.textarea.addEventListener('compositionend', function (event) {
+        composingPanes.delete(pane);
+        lastInputAt = Date.now();
+        takeCompositionCommit(term, event);
+        flushDeferredFit();
+      });
       term.textarea.addEventListener('blur', function () { composingPanes.delete(pane); flushDeferredFit(); });
     }
     // Bell from the pane's TUI (e.g. Claude Code finished a turn / needs input): badge the pane when it isn't
