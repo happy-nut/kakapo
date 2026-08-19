@@ -449,8 +449,17 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
+  // Go-to-definition belongs to the code you are reading, and while the terminal is up you are not reading it:
+  // the panel covers the review entirely. The existing guard only skipped a focused INPUT/TEXTAREA, which
+  // catches typing INTO a pane but not the moment after clicking the panel's chrome — and then ⌘B jumped the
+  // hidden view underneath to a definition nobody could see it reach. The terminal deliberately releases ⌘
+  // combos to this handler (attachCustomKeyEventHandler, 19-terminal.js) so ⌘1/⌘0 still work; this is the one
+  // that has nothing to do while it is open.
+  var terminalUp = document.body.classList.contains('terminal-open');
+
   if ((event.metaKey || event.ctrlKey) && event.altKey && !event.shiftKey && (event.code === 'KeyB' || event.key.toLowerCase() === 'b')) {
     var aeImpl = document.activeElement;
+    if (terminalUp) return;
     if (aeImpl && (aeImpl.tagName === 'INPUT' || aeImpl.tagName === 'TEXTAREA' || aeImpl.tagName === 'SELECT')) return;
     event.preventDefault();
     goToImplementation();
@@ -459,6 +468,7 @@ document.addEventListener('keydown', (event) => {
 
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyB' || event.key === 'b' || event.key === 'B')) {
     var aeB = document.activeElement;
+    if (terminalUp) return;
     if (aeB && (aeB.tagName === 'INPUT' || aeB.tagName === 'TEXTAREA' || aeB.tagName === 'SELECT')) return;
     event.preventDefault();
     if (isSourceViewerVisible()) goToSymbolUnderCursor();
