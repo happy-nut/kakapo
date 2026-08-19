@@ -106,3 +106,15 @@ test("an explicit slug and description are honoured", async () => {
     removeManagedWorkspace(ws, true, true);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
+
+// Starting an agent for a fresh worktree and then stopping it on every command is the thing the worktree was
+// created to make unnecessary, so both launch with their confirmation prompt off. The first word has to stay
+// something agentForCommand answers to, or the workspace would run an agent its own tile could never badge.
+test("each agent's launch command turns approvals off, and still names an agent kakapo recognises", async () => {
+  const { AGENT_LAUNCH, agentForCommand } = await import("../dist/agent-resume.js");
+  assert.deepEqual(Object.keys(AGENT_LAUNCH).sort(), ["claude", "codex"]);
+  for (const [kind, command] of Object.entries(AGENT_LAUNCH)) {
+    assert.equal(agentForCommand(command), kind, `${kind}'s launch line is still recognisably ${kind}`);
+    assert.match(command, /--dangerously-/, `${kind} starts without asking per action`);
+  }
+});

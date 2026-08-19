@@ -34,7 +34,7 @@ import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H, UI_SCALES } from "./constants.js";
 import { collectUsageStats } from "./usage-stats.js";
-import { agentForCommand, type AgentKind } from "./agent-resume.js";
+import { AGENT_LAUNCH, agentForCommand, type AgentKind } from "./agent-resume.js";
 import { hubHtml, modalOverlayHtml } from "./shell-pages.js";
 import { aheadArgs, aheadCount, createManagedWorkspaceAsync, defaultBase, listStartRefs, randomWorkspaceSlug, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
 
@@ -628,8 +628,9 @@ ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; la
       // this already opens was type that agent's name. Sending it is the same message the rail's Resume uses,
       // so the renderer's existing retry-until-a-pty-exists loop covers a view that is still starting up.
       if (agent) {
-        state.resumeCommand = agent; // the tile badges the agent immediately, before it has printed anything
-        state.win.webContents.send("kakapo:agent-resume", agent);
+        const launch = AGENT_LAUNCH[agent];
+        state.resumeCommand = launch; // the tile badges the agent immediately, before it has printed anything
+        state.win.webContents.send("kakapo:agent-resume", launch);
       } else {
         state.win.webContents.send("kakapo:terminal-toggle");
       }

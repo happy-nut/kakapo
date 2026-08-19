@@ -560,7 +560,13 @@ test("the New-workspace dialog starts an agent, on by default, on the one used l
 
   assert.equal(document.querySelector("#agentStart").checked, true, "starting an agent is the default");
   assert.equal(document.querySelector("#agent").value, "codex", "…and it opens on the one used last time");
-  assert.equal(document.querySelector("#agentName").textContent, "Codex", "which the button says");
+  assert.equal(document.querySelector("#agentFace .fv").textContent, "Codex", "which the button says");
+  // Its own mark, the one the rail already badges tiles with — a picker that names two products and draws
+  // neither makes you read where you could have looked.
+  assert.ok(document.querySelector("#agentFace .agent-ic-codex svg"), "and shows, in its brand colour");
+  assert.deepEqual(
+    [...document.querySelectorAll("#agentMenu button")].map((b) => `${b.dataset.agent}:${!!b.querySelector(".agent-ic svg")}`),
+    ["claude:true", "codex:true"], "every row in the menu carries its own mark too");
 
   // Picking one in this dialog must survive the next preview — it re-runs on every keystroke of the task name.
   document.querySelector('#agentMenu button[data-agent="claude"]').click();
