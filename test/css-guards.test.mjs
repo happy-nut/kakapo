@@ -323,14 +323,6 @@ test("panel focus is a brief shared flash instead of a persistent native outline
   assert.match(css, /body\.native-app \.activity-rail\.mc-panel-focus-flash\s*\{[^}]*outline:\s*0/, "the activity rail never outlines the traffic-light strip");
 });
 
-test("history commit details reserve the canvas for code until the message is expanded", () => {
-  assert.match(css, /\.history-detail-head\s*\{[^}]*align-items:\s*flex-start[^}]*min-height:\s*62px[^}]*padding:\s*8px 10px 8px 14px/, "the default commit header is compact and its actions share one top edge");
-  assert.match(css, /\.history-detail-close,\s*\.history-message-toggle\s*\{[^}]*place-items:\s*center[^}]*width:\s*26px[^}]*height:\s*26px/, "history disclosure and close controls share the same box and centerline");
-  assert.match(css, /\.history-detail-close svg,\s*\.history-message-toggle svg\s*\{[^}]*width:\s*15px[^}]*height:\s*15px/, "history actions use equal-sized baseline-stable icons");
-  assert.match(css, /\.history-detail-head \.dock-btn:hover\s*\{[^}]*transform:\s*none/, "hover does not introduce a one-pixel action-button step");
-  assert.match(css, /\.hd-body\s*\{[^}]*display:\s*none[^}]*max-height:\s*min\(24vh, 240px\)/, "long commit bodies are collapsed and bounded");
-  assert.match(css, /\.history-detail-head\.message-expanded \.hd-body\s*\{[^}]*display:\s*block/, "the full message remains explicitly expandable");
-});
 
 test("diff hunk connectors bridge both center line-number gutters without stealing input", () => {
   const connector = ruleBodyContaining(".mc-diff-connectors");

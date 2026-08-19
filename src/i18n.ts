@@ -394,9 +394,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.promptMemo": "Prompt memo",
     "kbd.promptPalette": "Prompt palette (send a prompt to the terminal)",
     "kbd.maximizePanel": "Maximize panel (merged / memo)",
-    "kbd.historyNavigate": "Select / open commit or file",
-    "kbd.historyFiles": "Focus changed files",
-    "kbd.historyHunks": "Next / previous commit hunk",
+    "kbd.historyNavigate": "Select a commit, open it in the review",
 
     // Settings — Merge prompts
     "mergePrompts.title": "Merge prompts",
@@ -987,8 +985,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.promptPalette": "프롬프트 팔레트 (프롬프트를 터미널로 보내기)",
     "kbd.maximizePanel": "패널 최대화 (합본 / 메모)",
     "kbd.historyNavigate": "커밋 / 파일 선택·열기",
-    "kbd.historyFiles": "변경 파일 목록 포커스",
-    "kbd.historyHunks": "커밋의 다음 / 이전 변경",
 
     // Settings — Merge prompts
     "mergePrompts.title": "병합 프롬프트",

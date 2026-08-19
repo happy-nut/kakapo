@@ -19,7 +19,9 @@ test("settings lists current app, editor, review, and history shortcuts", async 
   }
 
   const keyNames = v.$all("#settings-modal .keys-grid kbd").map((node) => node.textContent.replace(/\s+/g, " ").trim());
-  for (const key of ["⌘9", "⌘G / ⌘⇧G", "⌘A", "Space", "⌥R", "⌥W", "M"]) {
+  // "M" and History's own ⌘A were the overlay's read-only diff pane: expand the commit message, select its
+  // diff. That pane is gone — everything opens in the main review now — so the keys it owned went with it.
+  for (const key of ["⌘9", "⌘G / ⌘⇧G", "⌘A", "Space", "⌥R", "⌥W"]) {
     assert.ok(keyNames.includes(key), `settings documents ${key}`);
   }
 
@@ -31,8 +33,7 @@ test("settings lists current app, editor, review, and history shortcuts", async 
     "Toggle line wrap",
     "Expand selected diff context",
     "Toggle viewed on selected Changes row",
-    "Focus changed files",
-    "Show / hide commit message",
+    "Select a commit, open it in the review",
   ]) {
     assert.match(text, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `settings explains ${label}`);
   }

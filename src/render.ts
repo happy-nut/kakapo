@@ -656,9 +656,7 @@ export function renderDiffHtml(input: {
     '<div class="keys-cat" data-i18n="settings.kbd.cat.history">History</div>' +
     '<div class="keys-grid">' +
     '<kbd>⌘9</kbd><span data-i18n="kbd.openHistory">Open / close Git history</span>' +
-    '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.historyNavigate">Select / open commit or file</span>' +
-    '<kbd>⌘0</kbd><span data-i18n="kbd.historyFiles">Focus changed files</span>' +
-    '<kbd>F7 / ⇧F7</kbd><span data-i18n="kbd.historyHunks">Next / previous commit hunk</span>' +
+    '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.historyNavigate">Select a commit, open it in the review</span>' +
     '<kbd>PageUp / PageDown</kbd><span data-i18n="kbd.pageUpDown">Page up / down</span>' +
     '</div>' +
     (input.app
