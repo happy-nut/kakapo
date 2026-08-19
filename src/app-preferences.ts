@@ -9,6 +9,7 @@ const RECENT_KEY = "kakapo-recent-projects";
 const RECENT_MAX = 12;
 const OPEN_WORKSPACES_KEY = "kakapo-open-workspaces";
 const WORKSPACE_ORDER_KEY = "kakapo-workspace-order";
+const LAST_AGENT_KEY = "kakapo-last-agent";
 const ACTIVE_WORKSPACE_KEY = "kakapo-active-workspace";
 const GLOBAL_SETTING_KEYS = new Set([
   "kakapo-locale",
@@ -132,6 +133,19 @@ export class AppPreferences {
   // Rail order, per project: the paths of one repo's workspaces in the order the reviewer dragged them into.
   // Keyed by repoName because reordering only means anything inside a group — a worktree belongs to its
   // repository. Paths rather than ids: a closed main and a disconnected workspace have no window and no id.
+  // The agent the New-workspace dialog offers next time. A preference, not per-workspace state: you reach for
+  // the same one most days, and the dialog should already be on it.
+  readLastAgent(): string {
+    const value = this.readGlobal()[LAST_AGENT_KEY];
+    return typeof value === "string" ? value : "";
+  }
+
+  writeLastAgent(agent: string): void {
+    const settings = this.readGlobal();
+    settings[LAST_AGENT_KEY] = agent;
+    this.writeGlobal(settings);
+  }
+
   readWorkspaceOrder(): Record<string, string[]> {
     const raw = this.readGlobal()[WORKSPACE_ORDER_KEY];
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};

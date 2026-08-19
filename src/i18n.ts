@@ -515,6 +515,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // written here is not a second thing to keep in sync.
     "newws.desc": "Description",
     "newws.desc.placeholder": "optional — what this workspace is for",
+    // The agent row: a workspace is made to give an agent something to do, so the terminal it already opens
+    // may as well already be running one.
+    "newws.agent": "Start an agent in the terminal",
+    "newws.agent.hint": "The new workspace opens with this agent already running.",
     "newws.base": "Start from",
     "newws.base.hint": "The branch this worktree starts from.",
     "newws.base.select": "Select a branch…",
@@ -1092,6 +1096,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "newws.taskPlaceholder": "예: fix-login-crash",
     "newws.desc": "설명",
     "newws.desc.placeholder": "선택 — 이 워크스페이스가 무엇을 위한 것인지",
+    "newws.agent": "터미널에서 에이전트 실행",
+    "newws.agent.hint": "새 워크스페이스가 이 에이전트를 띄운 채로 열립니다.",
     "newws.base": "시작 지점",
     "newws.base.hint": "이 워크트리가 시작할 브랜치입니다.",
     "newws.base.select": "브랜치 선택…",

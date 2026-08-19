@@ -585,16 +585,16 @@ ipcMain.handle("kakapo:hub-preview", (_event, payload: { repo?: unknown; label?:
   if (typeof payload?.repo !== "string" || typeof payload?.label !== "string" || !isGitRepository(payload.repo)) return { ok: false };
   const repo = workspaceRecord(payload.repo);
   // worktree=false: nothing is created, the project's own checkout opens as-is — preview its real branch/path.
-  if (payload.worktree === false) return { ok: true, worktree: false, branch: repo.branch, path: repo.repoRoot };
+  if (payload.worktree === false) return { ok: true, worktree: false, branch: repo.branch, path: repo.repoRoot, lastAgent: preferences.readLastAgent() };
   // The slug is random and the dialog sends back the one it was shown, so the preview is a promise rather than
   // a guess. A slug already on screen is kept: re-previewing on every keystroke of the task name must not
   // reshuffle the branch out from under the reader.
   const slug = typeof payload.slug === "string" && payload.slug.trim() ? workspaceSlug(payload.slug) : randomWorkspaceSlug();
   return { ok: true, worktree: true, slug, base: defaultBase(repo.repoRoot), branch: `kakapo/${slug}`,
-    refs: listStartRefs(repo.repoRoot),
+    refs: listStartRefs(repo.repoRoot), lastAgent: preferences.readLastAgent(),
     path: join("~", "kakapo", "workspaces", repo.repoName, slug) };
 });
-ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; label?: unknown; worktree?: unknown; base?: unknown; slug?: unknown; memo?: unknown }) => {
+ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; label?: unknown; worktree?: unknown; base?: unknown; slug?: unknown; memo?: unknown; agent?: unknown }) => {
   if (typeof payload?.repo !== "string" || typeof payload?.label !== "string") return { ok: false };
   // "Create a new worktree" unchecked: open the project's existing checkout instead of adding a branch+folder.
   if (payload.worktree === false) {
@@ -611,6 +611,10 @@ ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; la
     const base = typeof payload.base === "string" && payload.base.trim() ? payload.base.trim() : undefined;
     const slug = typeof payload.slug === "string" && payload.slug.trim() ? payload.slug.trim() : undefined;
     const memo = typeof payload.memo === "string" && payload.memo.trim() ? payload.memo.trim() : undefined;
+    // Only the agents we can recognise afterwards: the rail badges a workspace by matching a command name
+    // (agentForCommand), so anything else would launch something the app could never name.
+    const agent = agentForCommand(typeof payload.agent === "string" ? payload.agent : undefined);
+    if (agent) preferences.writeLastAgent(agent); // the next New dialog opens on this one
     const created = await createManagedWorkspaceAsync(payload.repo, payload.label, { base, slug, memo, signal: workspaceCreation.signal });
     const records = savedWorkspaceMetadata().filter((item) => resolveWorkspaceRoot(item.path) !== created.path);
     records.push(created);
@@ -620,7 +624,15 @@ ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; la
       if (state.win.webContents.isDestroyed()) return;
       if (!state.win.webContents.getURL().includes(REVIEW_FILE)) return;
       state.win.webContents.removeListener("did-finish-load", openTerminal);
-      state.win.webContents.send("kakapo:terminal-toggle");
+      // A workspace is made to give an agent something to do, and the first thing anyone did in the terminal
+      // this already opens was type that agent's name. Sending it is the same message the rail's Resume uses,
+      // so the renderer's existing retry-until-a-pty-exists loop covers a view that is still starting up.
+      if (agent) {
+        state.resumeCommand = agent; // the tile badges the agent immediately, before it has printed anything
+        state.win.webContents.send("kakapo:agent-resume", agent);
+      } else {
+        state.win.webContents.send("kakapo:terminal-toggle");
+      }
     };
     state.win.webContents.on("did-finish-load", openTerminal);
     openTerminal();

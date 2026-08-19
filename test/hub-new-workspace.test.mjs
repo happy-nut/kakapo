@@ -219,7 +219,7 @@ test("the new-worktree toggle defaults on and creates a worktree", async () => {
   document.querySelector("#label").value = "fix-login";
   document.querySelector("#doCreate").click();
   await tick();
-  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "fix-login", true, { base: "", slug: "", memo: "" }]);
+  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "fix-login", true, { base: "", slug: "", memo: "", agent: "claude" }]);
 });
 
 test("unchecking it hides the task name and opens the checkout instead", async () => {
@@ -233,7 +233,7 @@ test("unchecking it hides the task name and opens the checkout instead", async (
   assert.deepEqual(hub.lastCall("preview"), ["/repos/zoobox", "", false, ""]);
   document.querySelector("#doCreate").click();
   await tick();
-  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "", false, { base: "", slug: "", memo: "" }]);
+  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "", false, { base: "", slug: "", memo: "", agent: "claude" }]);
 });
 
 test("re-opening the dialog resets the toggle back on", async () => {
@@ -310,7 +310,7 @@ test("the start ref is a list of the repo's own refs, and the previewed slug is 
   document.querySelector("#doCreate").click();
   await tick();
   assert.deepEqual(hub.lastCall("create"),
-    ["/repos/zoobox", "버그 픽스", true, { base: "develop", slug: "quiet-heron", memo: "왜 만들었는지" }]);
+    ["/repos/zoobox", "버그 픽스", true, { base: "develop", slug: "quiet-heron", memo: "왜 만들었는지", agent: "claude" }]);
 });
 
 
@@ -546,4 +546,40 @@ test("holding a workspace lifts it, and dropping it reorders its project", async
   // The click that follows a drop would otherwise open whatever the tile landed on.
   tiles[0].click();
   assert.equal(hub.lastCall("activate"), undefined, "dropping a tile does not also switch to it");
+});
+
+// A workspace is made to give an agent something to do, and the first thing anyone did in the terminal it
+// already opens was type that agent's name. The dialog offers to do it, defaulting to on — and remembers
+// which one, because you reach for the same one most days.
+test("the New-workspace dialog starts an agent, on by default, on the one used last", async () => {
+  const { hub, document } = openDialog({ path: "/repos/zoobox", name: "zoobox" },
+    { preview: { ok: true, worktree: true, slug: "quiet-heron", base: "origin/main", branch: "kakapo/quiet-heron",
+      refs: [{ ref: "origin/main", remote: true }], path: "~/kakapo/workspaces/zoobox/quiet-heron",
+      lastAgent: "codex" } });
+  await tick();
+
+  assert.equal(document.querySelector("#agentStart").checked, true, "starting an agent is the default");
+  assert.equal(document.querySelector("#agent").value, "codex", "…and it opens on the one used last time");
+  assert.equal(document.querySelector("#agentName").textContent, "Codex", "which the button says");
+
+  // Picking one in this dialog must survive the next preview — it re-runs on every keystroke of the task name.
+  document.querySelector('#agentMenu button[data-agent="claude"]').click();
+  const label = document.querySelector("#label");
+  label.value = "버그 픽스";
+  label.dispatchEvent(new document.defaultView.Event("input"));
+  await tick();
+  assert.equal(document.querySelector("#agent").value, "claude", "a deliberate pick is not undone by a re-preview");
+
+  document.querySelector("#doCreate").click();
+  await tick();
+  assert.equal(hub.lastCall("create")?.[3]?.agent, "claude", "the chosen agent goes with the create request");
+
+  // Unchecking sends nothing — and leaves the picker in place rather than making the row jump.
+  document.querySelector("#agentStart").checked = false;
+  document.querySelector("#agentStart").dispatchEvent(new document.defaultView.Event("change"));
+  assert.ok(document.querySelector("#agentRow").classList.contains("agent-off"), "the row reads as off");
+  assert.equal(document.querySelector("#chooseAgent").disabled, true, "and its picker stops answering");
+  document.querySelector("#doCreate").click();
+  await tick();
+  assert.equal(hub.lastCall("create")?.[3]?.agent, "", "nothing is started when it is turned off");
 });

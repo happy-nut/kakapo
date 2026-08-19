@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   // `base` is the ref the new worktree branches FROM. Empty means "whatever defaultBase() picks", which is
   // origin/HEAD — right for a repo whose work lands on the default branch, wrong for one that develops on
   // another, where every new workspace would silently start life behind.
-  create: (repo: string, label: string, worktree: boolean, opts?: { base?: string; slug?: string; memo?: string }) =>
+  create: (repo: string, label: string, worktree: boolean, opts?: { base?: string; slug?: string; memo?: string; agent?: string }) =>
     ipcRenderer.invoke("kakapo:hub-create", { repo, label, worktree, ...(opts || {}) }),
   cancelCreate: () => ipcRenderer.send("kakapo:hub-cancel-create"),
   rename: (id: number, alias?: string, memo?: string) => ipcRenderer.invoke("kakapo:hub-rename", { id, alias, memo }),
