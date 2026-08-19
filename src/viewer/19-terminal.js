@@ -189,8 +189,9 @@ var handleTerminalSendModeKey;
     helper._isComposing = false;
     helper._dataAlreadySent = '';
     if (event && event.data) service.triggerDataEvent(event.data, true);
-    // Left alone the value accumulates, and the next composition's offsets start from the whole line.
-    if (term.textarea) setTimeout(function () { term.textarea.value = ''; }, 0);
+    // The textarea is xterm's to manage (it clears on blur, Enter and Ctrl+C). Clearing it here as well
+    // bought nothing measurable and raced the next composition: type quickly enough and the deferred clear
+    // landed after the following composition had already begun, wiping a value only it still held.
   }
   function makePane(cell, restoreOrdinal) {
     if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw

@@ -336,7 +336,8 @@ test("a Hangul composition commits whole, and exactly once", async () => {
   await new Promise((r) => setTimeout(r, 5));
 
   assert.deepEqual(sent, ["해야"], "the whole word went out once — not truncated, not doubled by xterm's send");
-  assert.equal(term.textarea.value, "", "the textarea is cleared so the next composition starts from empty");
+  assert.equal(term.textarea.value, "해야",
+    "the textarea is left to xterm — clearing it here raced the next composition and ate fast typing");
 
   // An xterm whose private shape we no longer recognise keeps its own commit. That commit is wrong for
   // Hangul, but sending our own on top of one we failed to cancel would double every keystroke.
