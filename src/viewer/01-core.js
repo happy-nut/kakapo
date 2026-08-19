@@ -26,7 +26,7 @@ var diffImportOpenPaths = Object.create(null);
 // read-only code carets) call the same function even though they intentionally do not move native focus.
 var REVIEW_FOCUS_PANEL_SELECTOR = [
   '.activity-rail', '.sidebar', '.content', '#diff2html-container', '.source-body',
-  '.impact-panel', '.semantic-peek', '.history-list', '.history-detail',
+  '.impact-panel', '.semantic-peek', '.history-list',
   '.dock-panel', '.settings-panel', '.quick-open-panel', '.mc-modal-panel',
 ].join(',');
 var reviewFocusedPanel = null;

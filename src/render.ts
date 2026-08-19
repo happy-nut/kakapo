@@ -659,9 +659,6 @@ export function renderDiffHtml(input: {
     '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.historyNavigate">Select / open commit or file</span>' +
     '<kbd>⌘0</kbd><span data-i18n="kbd.historyFiles">Focus changed files</span>' +
     '<kbd>F7 / ⇧F7</kbd><span data-i18n="kbd.historyHunks">Next / previous commit hunk</span>' +
-    '<kbd>⇧Tab</kbd><span data-i18n="kbd.historyDiffPane">Switch diff pane</span>' +
-    '<kbd>M</kbd><span data-i18n="kbd.historyMessage">Show / hide commit message</span>' +
-    '<kbd>⌘A</kbd><span data-i18n="kbd.historySelectDiff">Select commit diff</span>' +
     '<kbd>PageUp / PageDown</kbd><span data-i18n="kbd.pageUpDown">Page up / down</span>' +
     '</div>' +
     (input.app
@@ -713,8 +710,6 @@ export function renderDiffHtml(input: {
     '<div id="history-select-bar" class="history-select-bar hidden" aria-live="polite"></div>',
     '<div class="history-body">',
     '<div id="history-list" class="history-list"></div>',
-    '<div id="history-detail-backdrop" class="history-detail-backdrop hidden" aria-hidden="true"></div>',
-    '<div id="history-detail" class="history-detail hidden" role="document" aria-hidden="true"></div>',
     "</div>",
     "</div>",
     input.diffIslands || "",

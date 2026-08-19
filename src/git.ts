@@ -102,6 +102,13 @@ export function resolveAutomaticReviewBase(root: string, includeUntracked = true
   return undefined;
 }
 
+// git's own hash for the empty tree — the same value in every repository, and the only way to say "before
+// anything existed". A repository's FIRST commit has no parent, so it is the one commit that cannot be shown
+// as "this against the one before it"; against the empty tree it shows as what it actually is, every file
+// added. Without this the initial commit is the single thing Cmd+9 cannot open, which is the kind of
+// exception that comes back as a bug report a year later.
+export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
 // Validate a user-supplied review base (the CLI --base value) before it reaches `git diff <base>`. spawnSync
 // uses argv (no shell) so the ref cannot inject a command; this check just rejects typos and refs that don't
 // exist in the repository, and fails fast at launch with a clear message instead of an empty/garbage diff.
@@ -110,6 +117,9 @@ export function validateReviewBase(root: string, ref: string): string {
   if (!trimmed || !/^[\w./@^~{}-]+$/.test(trimmed)) {
     throw new Error(`Invalid --base value ${JSON.stringify(ref)}: expected a branch, tag, or commit.`);
   }
+  // A tree, not a commit, so the ^{commit} check below would reject it. `git diff` takes it on the left
+  // exactly like any revision.
+  if (trimmed === EMPTY_TREE) return trimmed;
   const resolved = git(root, ["rev-parse", "--verify", "--quiet", `${trimmed}^{commit}`]);
   if (!resolved) {
     throw new Error(`--base ${trimmed} is not a commit in this repository (try a branch, tag, or commit SHA).`);

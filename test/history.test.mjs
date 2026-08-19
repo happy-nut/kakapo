@@ -23,9 +23,18 @@ before(async () => {
 });
 after(cleanupFixtures);
 
+// The overlay no longer renders a diff of its own: everything it opens goes to the MAIN review through
+// setReviewCompare, so that is what the bridge records. `calls` is the list of [base, target] pairs it was
+// asked for — the whole observable behaviour of opening something from here.
 function installHistoryBridge(v) {
   const calls = [];
   v.window.kakapoGit = {
+    setReviewCompare: (base, target, scope) => {
+      // Arguments cross the jsdom realm boundary, so an array from in there is not deepEqual to a plain one
+      // out here. Compare the JSON shape instead, as the hub tests do.
+      calls.push(JSON.parse(JSON.stringify([base, target, Array.from(scope || [], (c) => c.sha)])));
+      return Promise.resolve({ ok: true, activeBase: base, activeTarget: target });
+    },
     log: () => Promise.resolve([
       { hash: "aaaaaaaa", parents: ["bbbbbbbb"], author: "A", email: "a@test", date: "2026-06-01T10:00:00+09:00", refs: "HEAD -> main", subject: "newer commit" },
       { hash: "bbbbbbbb", parents: [], author: "B", email: "b@test", date: "2026-05-31T10:00:00+09:00", refs: "", subject: "older commit" },
@@ -123,30 +132,22 @@ test("history keyboard: Cmd+9 then ArrowDown navigates commits before opening a 
   assert.equal(v.document.activeElement, v.$("#history-view"), "the History dialog holds keyboard focus on open");
   assert.match(css, /\.history-view:focus\s*\{[^}]*outline:\s*none/, "the focus-holding History dialog suppresses its own focus outline");
   assert.equal(v.$("#history-list .hrow.active").dataset.sha, "aaaaaaaa", "newest commit selected");
-  assert.equal(v.$("#history-detail").classList.contains("hidden"), true, "commit graph owns the full canvas before Enter");
-  assert.deepEqual(calls, [], "opening history does not auto-load a narrow diff preview");
+  assert.deepEqual(calls, [], "opening history does not repoint the review on its own");
 
   v.key("ArrowDown");
   await v.settle(20);
   assert.equal(v.$("#history-list .hrow.active").dataset.sha, "bbbbbbbb", "ArrowDown moves through commit history");
-  assert.deepEqual(calls, [], "navigation still does not load the commit diff");
+  assert.deepEqual(calls, [], "navigating the list still does not repoint it");
 
+  // Enter hands the commit to the main review — as parent..commit, the same shape a range is opened with —
+  // and the overlay closes behind it. It used to render a read-only diff inside the overlay instead: half the
+  // width, no comments, and a second diff implementation to keep in step with the real one.
   v.key("Enter");
   await v.settle(80);
-  assert.deepEqual(calls, ["bbbbbbbb"], "Enter opens the selected commit diff");
-  assert.equal(v.$("#history-view").classList.contains("hidden"), false, "floating history view stays open");
-  assert.equal(v.$("#history-view").classList.contains("history-diff-open"), true, "commit diff opens as a floating workspace");
-  assert.equal(v.$("#history-detail-backdrop").classList.contains("hidden"), false, "floating diff visually separates from the commit graph");
-  assert.match(css, /\.history-detail\s*\{[^}]*position:\s*absolute[^}]*inset:\s*clamp/, "diff workspace floats over the full-width commit graph");
-  assert.ok(v.$("#history-files .history-file[data-file='src/a.ts']"), "diff workspace includes changed-file list");
-  assert.ok(v.$("#history-diff-container .d2h-file-wrapper:not(.df-inactive)"), "diff workspace shows a changed file");
-  assert.equal(v.$all("#history-diff-container .d2h-file-wrapper:not(.df-inactive) .mc-layered-diff-side").length, 2, "commit diff reuses both Review editor panes");
-  assert.equal(v.$all("#history-diff-container .d2h-file-wrapper:not(.df-inactive) .mc-diff-gutter-layer").length, 2, "commit diff reuses the centre line-number gutters");
-
-  v.key("Escape");
-  await v.settle(20);
-  assert.equal(v.$("#history-detail").classList.contains("hidden"), true, "Escape closes only the floating diff first");
-  assert.equal(v.$("#history-view").classList.contains("hidden"), false, "commit history remains open after closing its diff");
+  assert.deepEqual(calls, [["4b825dc642cb6eb9a060e54bf8d69288fbee4904", "bbbbbbbb", ["bbbbbbbb"]]],
+    "the selected commit opens in the main review (this one is a root commit, so against the empty tree)");
+  assert.equal(v.$("#history-view").classList.contains("hidden"), true, "and the overlay gets out of the way");
+  assert.equal(v.$("#history-detail"), null, "the overlay has no diff pane of its own any more");
   v.close();
 });
 
@@ -170,7 +171,7 @@ test("history keyboard: Cmd+1 leaves History for the Files view", async () => {
 test("right-clicking a Files-mode line number shows blame in the gutter and opens its commit diff", async () => {
   const v = await loadViewer(html);
   const blameCalls = [];
-  const diffCalls = [];
+  const compareCalls = [];
   v.window.kakapoGit = {
     log: () => Promise.reject(new Error("full history should not be loaded")),
     blame: (request) => {
@@ -180,18 +181,9 @@ test("right-clicking a Files-mode line number shows blame in the gutter and open
         { line: 2, hash: "cccccccc", author: "Grace Reviewer", date: "2025-06-01", summary: "older stable line" },
       ]);
     },
-    commitDiff: (sha) => {
-      diffCalls.push(sha);
-      return Promise.resolve({
-        hash: sha,
-        author: "Ada Reviewer",
-        email: "a@test",
-        date: "2026-06-01T10:00:00+09:00",
-        refs: "",
-        message: "changed selected line",
-        diffHtml: build.update.diffContainer,
-        isMerge: false,
-      });
+    setReviewCompare: (base, target, scope) => {
+      compareCalls.push(JSON.parse(JSON.stringify([base, target, Array.from(scope || [], (c) => c.sha)])));
+      return Promise.resolve({ ok: true, activeBase: base, activeTarget: target });
     },
   };
 
@@ -224,23 +216,21 @@ test("right-clicking a Files-mode line number shows blame in the gutter and open
     "date and author precede the line number so the number remains adjacent to source code",
   );
 
+  // Clicking the attribution asks "show me the commit that wrote this line". It used to open the overlay in a
+  // diff-only mode of its own; it is the same act as picking that commit from the list, so it takes the same
+  // door — the main review — and the overlay never appears. `sha^` because this path has no commit list to
+  // look a parent up in, and git resolves it.
   v.$('.source-row[data-line-index="0"] [data-blame-sha]').click();
   await v.settle(80);
-  assert.deepEqual(diffCalls, ["aaaaaaaa"]);
-  assert.equal(v.$("#history-view").classList.contains("hidden"), false, "clicking date/author opens the corresponding commit diff");
-  assert.equal(v.$("#history-files .history-file.active").dataset.file, "src/b.ts", "the clicked attribution selects that file inside the commit diff");
-  const sourceCommitWrapper = v.$("#history-diff-container .d2h-file-wrapper:not(.df-inactive)");
-  assert.equal(sourceCommitWrapper.querySelectorAll('.mc-layered-diff-side').length, 2, "annotation navigation still opens the shared Review diff renderer");
-  assert.equal(sourceCommitWrapper.classList.contains('mc-diff-blame-visible'), false, "annotation navigation opens the commit diff with annotations closed");
-  assert.equal(sourceCommitWrapper.querySelector('.mc-diff-blame-entry'), null, "the commit diff does not inherit source annotation cells");
-
-  v.key("Escape");
-  assert.equal(v.$("#history-view").classList.contains("hidden"), true, "closing a directly opened commit returns to the source file");
+  assert.deepEqual(compareCalls, [["aaaaaaaa^", "aaaaaaaa", ["aaaaaaaa"]]],
+    "the commit opens in the main review, as parent..commit");
+  assert.equal(v.$("#history-view").classList.contains("hidden"), true, "and no overlay is put in the way");
   v.close();
 });
 
 test("right-clicking a diff line number loads both revisions and keeps numbers against their code panes", async () => {
   const v = await loadViewer(html);
+  const compareCalls = [];
   const wrapper = v.$('#diff2html-container .d2h-file-wrapper:not(.df-inactive)');
   const sides = wrapper.querySelectorAll('.d2h-file-side-diff');
   const oldItem = sides[0].querySelector('.mc-diff-gutter-number');
@@ -259,16 +249,10 @@ test("right-clicking a diff line number loads both revisions and keeps numbers a
         summary: 'line attribution',
       }]);
     },
-    commitDiff: (sha) => Promise.resolve({
-      hash: sha,
-      author: 'Working Author',
-      email: 'working@test',
-      date: '2026-07-18T10:00:00+09:00',
-      refs: '',
-      message: 'line attribution',
-      diffHtml: build.update.diffContainer,
-      isMerge: false,
-    }),
+    setReviewCompare: (base, target, scope) => {
+      compareCalls.push(JSON.parse(JSON.stringify([base, target, Array.from(scope || [], (c) => c.sha)])));
+      return Promise.resolve({ ok: true, activeBase: base, activeTarget: target });
+    },
   };
 
   const opened = oldItem.dispatchEvent(new v.window.MouseEvent('contextmenu', {
@@ -304,183 +288,13 @@ test("right-clicking a diff line number loads both revisions and keeps numbers a
       & v.window.Node.DOCUMENT_POSITION_FOLLOWING,
     'working-tree order is date, author, line number, code',
   );
+  // Following an attribution from the diff gutter goes where following one from the source gutter goes: the
+  // main review, repointed at that commit. No overlay, and no second diff renderer to keep in step.
   paintedNew.querySelector('[data-blame-sha]').click();
   await v.settle(80);
-  const diffCommitWrapper = v.$('#history-diff-container .d2h-file-wrapper:not(.df-inactive)');
-  assert.equal(diffCommitWrapper.querySelectorAll('.mc-layered-diff-side').length, 2, 'diff annotation navigation reuses the centre-gutter Review renderer');
-  assert.equal(diffCommitWrapper.classList.contains('mc-diff-blame-visible'), false, 'the destination commit diff starts with annotation closed even for the same path');
-  assert.equal(diffCommitWrapper.querySelector('.mc-diff-blame-entry'), null, 'no blame cells leak into the destination commit diff');
-  v.close();
-});
-
-test("history diff workspace: Cmd+0 focuses, collapses, and restores changed files", async () => {
-  const v = await loadViewer(html);
-  installHistoryBridge(v);
-
-  v.key("9", { metaKey: true, code: "Digit9" });
-  await v.settle(80);
-  v.key("Enter");
-  await v.settle(80);
-  assert.equal(v.$("#history-files .history-file.active").dataset.file, "src/a.ts", "first changed file is shown initially");
-
-  v.key("0", { metaKey: true });
-  await v.settle(20);
-  assert.ok(v.$("#history-files .history-file.tree-focus"), "the first Cmd+0 moves logical focus into changed files");
-
-  v.key("0", { metaKey: true });
-  await v.settle(20);
-  assert.ok(v.$("#history-detail .history-workspace").classList.contains("history-files-collapsed"), "a repeated Cmd+0 collapses the focused file list");
-  assert.equal(v.$("#history-files").getAttribute("aria-hidden"), "true", "the collapsed list leaves keyboard and accessibility navigation");
-
-  v.key("0", { metaKey: true });
-  await v.settle(20);
-  assert.equal(v.$("#history-detail .history-workspace").classList.contains("history-files-collapsed"), false, "Cmd+0 restores the collapsed file list");
-  assert.ok(v.$("#history-files .history-file.tree-focus"), "the restored list owns logical focus");
-
-  v.key("ArrowDown");
-  await v.settle(20);
-  assert.equal(v.$("#history-files .history-file.tree-focus").dataset.file, "src/b.ts", "ArrowDown moves in the history changed-file list");
-  v.key("Enter");
-  await v.settle(40);
-
-  assert.equal(v.$("#history-files .history-file.active").dataset.file, "src/b.ts", "Enter opens the focused changed file");
-  const visible = v.$all("#history-diff-container .d2h-file-wrapper").filter((w) => !w.classList.contains("df-inactive"));
-  assert.equal(visible.length, 1, "history diff shows one changed file, not the whole commit diff");
-  assert.equal(visible[0].dataset.path, "src/b.ts");
-
-  v.key("F7");
-  await v.settle(40);
-  assert.equal(v.$("#history-files .history-file.active").dataset.file, "src/a.ts", "F7 navigates hunks inside the history diff workspace");
-  v.close();
-});
-
-test("long commit messages stay compact until explicitly expanded", async () => {
-  const v = await loadViewer(html);
-  installHistoryBridge(v);
-
-  v.key("9", { metaKey: true, code: "Digit9" });
-  await v.settle(80);
-  v.key("Enter");
-  await v.settle(80);
-
-  const head = v.$("#history-detail .history-detail-head");
-  const body = v.$("#history-message-body");
-  const toggle = v.$("#history-message-toggle");
-  const close = v.$("#history-detail-close");
-  assert.equal(v.$(".hd-subject").textContent, "newer commit", "only the commit subject occupies the fixed header");
-  assert.match(body.textContent, /detailed rationale/, "the complete body remains available");
-  assert.equal(v.window.getComputedStyle(body).display, "none", "the long body is collapsed by default");
-  assert.equal(toggle.dataset.keyhint, "M", "the disclosure button exposes its keyboard shortcut");
-  assert.ok(toggle.querySelector("svg.history-message-chevron"), "the disclosure uses a baseline-stable SVG icon");
-  assert.ok(close.querySelector("svg"), "the close action uses the same SVG icon system");
-  assert.equal(v.window.getComputedStyle(toggle).height, v.window.getComputedStyle(close).height, "header actions share one button height");
-  assert.ok(v.$("#history-diff-container .d2h-file-wrapper:not(.df-inactive)"), "the reclaimed space belongs to the code diff");
-
-  v.click(toggle);
-  await v.settle(20);
-  assert.ok(head.classList.contains("message-expanded"), "mouse click expands the message on demand");
-  assert.equal(toggle.getAttribute("aria-expanded"), "true");
-  assert.equal(v.window.getComputedStyle(body).display, "block");
-
-  // History owns its keys even if Chromium left focus outside the floating detail. event.code keeps the
-  // physical M binding working under a Korean input source, where event.key is the Hangul glyph `ㅡ`.
-  v.document.body.dispatchEvent(new v.window.KeyboardEvent("keydown", {
-    key: "ㅡ", code: "KeyM", bubbles: true, cancelable: true,
-  }));
-  await v.settle(20);
-  assert.equal(head.classList.contains("message-expanded"), false, "physical M collapses the message regardless of DOM focus or input source");
-  assert.equal(toggle.getAttribute("aria-expanded"), "false");
-  v.close();
-});
-
-// GitHub-issue-style request: the History changed-files list should be a real folder tree (reusing the
-// Cmd+0 Changes tree's structure/classes), not a flat list of full repo-relative paths.
-test("history changed-files list: files in different directories render as a real folder tree, reusing the Changes tree's classes", async () => {
-  const { html: treeHtml, build: treeBuild } = await makeReviewHtml([
-    { path: "src/nested/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
-    { path: "docs/readme.md", before: "# Readme\n", after: "# Readme\n\nMore.\n" },
-  ], { app: true });
-  const v = await loadViewer(treeHtml);
-  v.window.kakapoGit = {
-    log: () => Promise.resolve([
-      { hash: "aaaaaaaa", parents: [], author: "A", email: "a@test", date: "2026-06-01T10:00:00+09:00", refs: "HEAD -> main", subject: "touch two directories" },
-    ]),
-    commitDiff: () => Promise.resolve({
-      hash: "aaaaaaaa", author: "A", email: "a@test", date: "2026-06-01T10:00:00+09:00", refs: "",
-      message: "touch two directories", diffHtml: treeBuild.update.diffContainer, isMerge: false,
-    }),
-  };
-
-  v.key("9", { metaKey: true, code: "Digit9" });
-  await v.settle(80);
-  v.key("Enter");
-  await v.settle(80);
-
-  const dirs = v.$all("#history-files .tree-dir");
-  assert.ok(dirs.some((d) => d.dataset.dir === "src/nested"), "a folder row groups the file under src/nested");
-  assert.ok(dirs.some((d) => d.dataset.dir === "docs"), "a separate folder row groups the file under docs");
-  assert.ok(v.$("#history-files nav.tree.changes-tree"), "the tree wrapper reuses the Changes tree's own nav class");
-  assert.ok(v.$("#history-files .history-file[data-file='src/nested/a.ts']").closest(".tree-dir").querySelector(".path").textContent.includes("nested"), "the file nests under its real folder, not a flat path label");
-  assert.equal(v.$("#history-files .change-dir"), null, "the old flat inline directory suffix is gone now that folders provide the grouping");
-
-  // Collapsing a folder still leaves the other one openable and clickable (click-to-open contract intact).
-  dirs.find((d) => d.dataset.dir === "docs").open = false;
-  const readmeFile = v.$("#history-files .history-file[data-file='docs/readme.md']");
-  assert.ok(readmeFile, "a collapsed folder's file row stays in the DOM (just visually hidden)");
-  v.$("#history-files .history-file[data-file='src/nested/a.ts']").click();
-  await v.settle(40);
-  assert.equal(v.$("#history-files .history-file.active").dataset.file, "src/nested/a.ts", "clicking a nested tree leaf still opens that file (unchanged click contract)");
-  v.close();
-});
-
-test("history changed-files list: real per-file status badges replace the old hardcoded 'Modified' for every row", async () => {
-  const { html: statusHtml, build: statusBuild } = await makeReviewHtml([
-    { path: "src/existing.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
-    { path: "src/new-file.ts", after: "export const b = 1;\n" },
-  ], { app: true });
-  const v = await loadViewer(statusHtml);
-  v.window.kakapoGit = {
-    log: () => Promise.resolve([
-      { hash: "aaaaaaaa", parents: [], author: "A", email: "a@test", date: "2026-06-01T10:00:00+09:00", refs: "HEAD -> main", subject: "add and edit" },
-    ]),
-    commitDiff: () => Promise.resolve({
-      hash: "aaaaaaaa", author: "A", email: "a@test", date: "2026-06-01T10:00:00+09:00", refs: "",
-      message: "add and edit", diffHtml: statusBuild.update.diffContainer, isMerge: false,
-      fileStatus: { "src/existing.ts": "modified", "src/new-file.ts": "added" },
-    }),
-  };
-
-  v.key("9", { metaKey: true, code: "Digit9" });
-  await v.settle(80);
-  v.key("Enter");
-  await v.settle(80);
-
-  // The status reaches the ROW, which is what colours the name — green added, blue modified, grey deleted,
-  // the same rules the Changes tree uses. No row draws a glyph: the colour is the whole signal.
-  const existingRow = v.$("#history-files .history-file[data-file='src/existing.ts']");
-  const addedRow = v.$("#history-files .history-file[data-file='src/new-file.ts']");
-  assert.ok(existingRow.classList.contains("ch-modified"), "the edited file is classed as modified");
-  assert.ok(addedRow.classList.contains("ch-added"), "and the new one as added, not the old hardcoded modified");
-  assert.equal(existingRow.querySelector(".status svg"), null, "neither draws a badge");
-  assert.notEqual(
-    v.window.getComputedStyle(existingRow.querySelector(".change-name")).color,
-    v.window.getComputedStyle(addedRow.querySelector(".change-name")).color,
-    "added and modified never read alike",
-  );
-  v.close();
-});
-
-test("history changed-files list: a commitDiff response without fileStatus still falls back to Modified (no crash)", async () => {
-  const v = await loadViewer(html);
-  installHistoryBridge(v); // this fixture's mock commitDiff omits fileStatus entirely, as older/other call sites might
-
-  v.key("9", { metaKey: true, code: "Digit9" });
-  await v.settle(80);
-  v.key("Enter");
-  await v.settle(80);
-
-  const row = v.$("#history-files .history-file[data-file='src/a.ts']");
-  assert.ok(row.classList.contains("ch-modified"), "a missing fileStatus map defaults every file to modified");
+  assert.equal(compareCalls.length, 1, 'the attribution opens its commit in the main review');
+  assert.equal(compareCalls[0][1], 'bbbbbbbb', '…the commit the working-tree side was attributed to');
+  assert.equal(v.$('#history-view').classList.contains('hidden'), true, 'and the overlay stays out of it');
   v.close();
 });
 
@@ -512,6 +326,7 @@ test("history: Enter typed into the terminal reaches the terminal, not the open 
   v.$("#history-view").focus();
   v.key("Enter");
   await v.settle(80);
-  assert.deepEqual(calls, ["aaaaaaaa"], "Enter inside History still opens the selected commit");
+  assert.equal(calls.length, 1, "Enter inside History still opens the selected commit");
+  assert.equal(calls[0][1], "aaaaaaaa", "…the one that was selected");
   v.close();
 });

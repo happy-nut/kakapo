@@ -647,8 +647,60 @@ var handleTerminalSendModeKey;
     }
     return true; // every key while picking belongs to the picker
   };
+  // Run a set of jobs at once, one pane each. The rules are the ones openAt already established, because they
+  // are the same rules: never type into a pane that is running something (the line would land in a running
+  // agent's composer as a prompt), split when there is no free pane, and stop at the cap rather than
+  // interrupting anyone. What is new is only that it does several at once and presses Enter — every other
+  // path in this app stages text for the reviewer to send, so the caller has to have asked for this
+  // explicitly. Returns what it managed to start, which is not always what it was given.
+  function freePane() {
+    var idle = panes.filter(function (p) { return p.id != null && !p.busyWith; });
+    if (idle.length) return Promise.resolve(idle[0]);
+    if (panes.length >= MAX_PANES) return Promise.resolve(null);
+    split();
+    return new Promise(function (resolve) {
+      var tries = 0;
+      var iv = setInterval(function () {
+        if (active && active.id != null && !active.busyWith) { clearInterval(iv); resolve(active); return; }
+        if (++tries > 40) { clearInterval(iv); resolve(null); }
+      }, 50);
+    });
+  }
+  function paneIsFree(p) {
+    if (!p || p.id == null) return Promise.resolve(false);
+    return Promise.resolve(window.kakapoPty.foreground({ id: p.id }))
+      .then(function (r) { return !(r && r.running); }, function () { return false; });
+  }
+  function runTeam(jobs) {
+    if (!jobs || !jobs.length) return Promise.resolve([]);
+    setOpen(true);
+    var started = [];
+    var step = function (i) {
+      if (i >= jobs.length || started.length >= MAX_PANES) return Promise.resolve(started);
+      return freePane().then(function (pane) {
+        if (!pane) return started; // the cap: say what was started rather than interrupt a pane that is working
+        return paneIsFree(pane).then(function (free) {
+          if (!free) return started;
+          pane.busyWith = jobs[i].name;
+          renamePaneTo(pane, jobs[i].name);
+          window.kakapoPty.write({ id: pane.id, data: String(jobs[i].text) + '\r' });
+          started.push(jobs[i].name);
+          return step(i + 1);
+        });
+      });
+    };
+    return step(0).then(function () { scheduleFitAll(); return started; });
+  }
+  function renamePaneTo(pane, name) {
+    if (!pane || !name) return;
+    pane.name = name;
+    if (pane.labelEl) pane.labelEl.textContent = name;
+  }
+
   window.__kakapoTerminal = {
     isOpen: isOpen,
+    runTeam: runTeam,
+    maxPanes: MAX_PANES,
     // True when keyboard focus is inside the terminal panel (a pane owns it) — Cmd/Ctrl+W uses this to
     // decide between closing a pane and closing a source tab.
     hasFocus: function () { var ae = document.activeElement; return !!(ae && panel.contains(ae)); },

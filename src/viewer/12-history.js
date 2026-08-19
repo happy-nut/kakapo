@@ -9,14 +9,11 @@ var historyGraph = [];
 var historyMaxLane = 0;
 var historyActiveSha = '';
 var historyLoading = false;
-var historyFocus = 'commits'; // commits | files | diff
-var historyDiffState = null;
+var EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'; // git's empty tree — the base for a root commit
 var historyDetailSha = '';
 var historyFilesCollapsed = false;
 var historyScope = null; // null | { path, line } — right-clicked source line history
 var historyLoadSeq = 0;
-var historyDirectDetail = false; // a gutter attribution opened one commit diff without the graph first
-var historyDirectPath = '';
 var historyAnchorSha = ''; // shift-select range anchor; the other end is historyActiveSha (the focus)
 
 // Lane layout. Walk commits newest-first (git --topo-order) and track the parent hash each open lane is
@@ -201,7 +198,6 @@ function moveHistoryCommit(delta) {
   var idx = rows.findIndex(function (r) { return r.dataset.sha === historyActiveSha; });
   if (idx < 0) idx = delta > 0 ? -1 : 0;
   idx = Math.max(0, Math.min(rows.length - 1, idx + delta));
-  historyFocus = 'commits';
   clearHistoryRange(); // a plain move collapses any shift-selection back to a single commit
   historyAnchorSha = rows[idx].dataset.sha;
   selectHistoryCommit(rows[idx].dataset.sha, true);
@@ -257,27 +253,25 @@ function selectHistoryRange(focusSha, shouldScroll) {
   if (shouldScroll !== false && active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
   updateHistorySelectBar();
 }
-// Open the shift-selected range in the MAIN review (git diff older..newer), where the full comment system
-// applies, and close the history overlay. This is how an already-committed / merged range becomes a
-// comment-able review. Falls back to the read-only in-history detail for a single commit or in serve mode.
-function reviewHistoryRangeInMain() {
+// Open whatever is selected in the MAIN review — where the comment system, F7 and the file tree already are
+// — and close the overlay. This is the only way anything opens from here now. It used to be the RANGE path
+// only, with a single commit falling back to a read-only pane inside the overlay: half the width, no
+// comments, and a second diff implementation that had to be kept in step with the real one. There is nothing
+// about one commit that needs its own viewer, and "the commits I already made" is what a review is for.
+// Serve mode (no window.kakapoGit) has no way to repoint the review, so it does nothing rather than
+// pretending — the commit list itself still reads.
+function reviewHistoryInMain() {
   var ep = historyRangeEndpoints();
-  if (!ep || !window.kakapoGit || typeof window.kakapoGit.setReviewCompare !== 'function') {
-    openHistoryCurrentSelection();
-    return;
-  }
-  // A single commit goes the same way a range does — as parent..commit. It used to be the one thing that
-  // stayed in the overlay's own read-only pane: no comments, no F7, half the width, and a second diff
-  // implementation to keep in step with the real one. There is nothing about one commit that needs its own
-  // viewer, and "the commits I already made" is exactly the thing a review is for.
+  if (!ep || !window.kakapoGit || typeof window.kakapoGit.setReviewCompare !== 'function') return;
   var a = historyIndexOfSha(historyAnchorSha), b = historyIndexOfSha(historyActiveSha);
   var lo = Math.min(a, b), hi = Math.max(a, b);
   if (!ep.isRange) {
     var only = historyCommits[lo];
-    var parent = only && Array.isArray(only.parents) ? only.parents[0] : '';
-    // A root commit has nothing to diff against. The overlay's own pane is the only thing that could ever
-    // show it, so that is where it stays.
-    if (!parent) { openHistoryCurrentSelection(); return; }
+    if (!only) return;
+    // The first commit in a repository has no parent, so it is the one commit with nothing to diff against.
+    // git's empty-tree hash is how you say "before anything existed": it opens as what it actually is, every
+    // file added. Otherwise the initial commit would be the single thing Cmd+9 could not open.
+    var parent = (Array.isArray(only.parents) && only.parents[0]) || EMPTY_TREE_SHA;
     requestDiffViewOnNextCompare();
     Promise.resolve(window.kakapoGit.setReviewCompare(parent, only.hash, [
       { sha: only.hash, shortSha: (only.hash || '').slice(0, 7), subject: only.subject, date: only.date },
@@ -294,14 +288,9 @@ function reviewHistoryRangeInMain() {
     if (res && res.ok) closeHistory();
   }).catch(function () {});
 }
-// Open whatever is currently selected: the range diff when a span is selected, else the single commit.
-function openHistoryCurrentSelection() {
-  var ep = historyRangeEndpoints();
-  if (ep && ep.isRange) { openHistoryRange(ep.olderSha, ep.newerSha); return; }
-  var sha = historyActiveSha;
-  if (!sha) { var rows = historyVisibleRows(); sha = rows[0] && rows[0].dataset.sha; }
-  if (sha) openHistoryCommit(sha);
-}
+// Nothing opens here any more — every selection goes to the main review (reviewHistoryInMain). Kept as the
+// name the Open button and Enter both call, so there is one door rather than three.
+function openHistoryCurrentSelection() { reviewHistoryInMain(); }
 // The selection/compare strip below the history bar. Shows a discoverability hint for a single commit,
 // and the pending two-commit compare (with Open / Clear) once a range is selected. Hidden in line-history
 // scope, where arbitrary-commit compare does not apply.
@@ -320,7 +309,6 @@ function updateHistorySelectBar() {
       + '<span class="hsel-count">' + escapeHtml(ep.count + ' ' + t(ep.count === 1 ? 'history.commit' : 'history.commits')) + '</span></span>'
       + '<span class="hsel-actions">'
       + '<button type="button" id="hsel-review" class="hsel-btn hsel-open" data-keyhint="⏎">' + escapeHtml(t('history.reviewCompare')) + '</button>'
-      + '<button type="button" id="hsel-open" class="hsel-btn">' + escapeHtml(t('history.quickLook')) + '</button>'
       + '<button type="button" id="hsel-clear" class="hsel-btn">' + escapeHtml(t('history.clearRange')) + '</button></span>';
   } else if (historyActiveSha) {
     bar.classList.remove('hidden');
@@ -340,42 +328,7 @@ function moveHistoryRange(delta) {
   var idx = rows.findIndex(function (r) { return r.dataset.sha === historyActiveSha; });
   if (idx < 0) idx = 0;
   idx = Math.max(0, Math.min(rows.length - 1, idx + delta));
-  historyFocus = 'commits';
   selectHistoryRange(rows[idx].dataset.sha, true);
-}
-// Fetch + render the combined diff for a two-commit span (older → newer).
-function openHistoryRange(olderSha, newerSha) {
-  if (!olderSha || !newerSha || !window.kakapoGit || typeof window.kakapoGit.rangeDiff !== 'function') return;
-  var key = olderSha + '..' + newerSha;
-  historyDetailSha = key;
-  setHistoryDetailOpen(true);
-  var detail = document.getElementById('history-detail');
-  if (detail) detail.innerHTML = loadingStateHtml(t('history.loading'), 'quick-open-empty');
-  Promise.resolve(window.kakapoGit.rangeDiff(olderSha, newerSha)).then(function (d) {
-    if (!d || historyDetailSha !== key || !isHistoryDetailOpen()) return;
-    renderHistoryRangeDetail(d);
-  }, function () {});
-}
-function renderHistoryRangeDetail(d) {
-  var detail = document.getElementById('history-detail');
-  if (!detail) return;
-  var countLabel = (d.count || 0) + ' ' + t(d.count === 1 ? 'history.commit' : 'history.commits');
-  var head = '<div class="history-detail-head">'
-    + '<div class="history-detail-copy"><div class="hd-summary"><div class="hd-subject hd-range" title="'
-    + escapeHtml((d.oldShort || '') + ' → ' + (d.newShort || '')) + '">'
-    + '<span class="hd-range-kind">' + escapeHtml(t('history.rangeCompare')) + '</span> '
-    + '<span class="hd-hash">' + escapeHtml(d.oldShort || (d.oldHash || '').slice(0, 7)) + '</span>'
-    + '<span class="hd-range-arrow" aria-hidden="true"> → </span>'
-    + '<span class="hd-hash">' + escapeHtml(d.newShort || (d.newHash || '').slice(0, 7)) + '</span>'
-    + '</div></div>'
-    + '<div class="hd-meta"><span class="hd-range-count">' + escapeHtml(countLabel) + '</span></div></div>'
-    + '<button type="button" id="history-detail-close" class="dock-btn history-detail-close" data-keyhint="Esc" aria-label="' + escapeHtml(t('history.close')) + '"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>';
-  var body = (d.diffHtml && d.diffHtml.trim())
-    ? '<div class="history-workspace"><aside id="history-files" class="history-files"></aside><div id="history-diff-container" class="history-diff diff2html-container" tabindex="0" aria-readonly="true">' + d.diffHtml + '</div></div>'
-    : '<div class="quick-open-empty">' + escapeHtml(t('history.noDiff')) + '</div>';
-  detail.innerHTML = head + body;
-  setHistoryDetailOpen(true);
-  setupHistoryDiffWorkspace(d.newHash || historyActiveSha, d.fileStatus);
 }
 
 // Text filter (subject / author). The graph only reads right on the full contiguous history, so filtering
@@ -398,573 +351,19 @@ function applyHistoryFilter() {
   }
 }
 
-function openHistoryCommit(sha) {
-  if (!sha || !window.kakapoGit) return;
-  selectHistoryCommit(sha, true);
-  historyDetailSha = sha;
-  setHistoryDetailOpen(true);
-  var detail = document.getElementById('history-detail');
-  if (detail) detail.innerHTML = loadingStateHtml(t('history.loading'), 'quick-open-empty');
-  Promise.resolve(window.kakapoGit.commitDiff(sha)).then(function (d) {
-    if (!d || historyActiveSha !== sha || historyDetailSha !== sha || !isHistoryDetailOpen()) return;
-    renderHistoryDetail(d);
-  }, function () {});
-}
 
-function renderHistoryDetail(d) {
-  var detail = document.getElementById('history-detail');
-  if (!detail) return;
-  var message = String(d.message || '');
-  var messageLines = message.split(/\r?\n/);
-  var subject = messageLines.shift() || '';
-  var messageBody = messageLines.join('\n').trim();
-  var messageToggle = messageBody
-    ? '<button type="button" id="history-message-toggle" class="dock-btn history-message-toggle" data-keyhint="M" data-tooltip="' + escapeHtml(t('history.showMessage')) + '" aria-expanded="false" aria-controls="history-message-body" aria-label="' + escapeHtml(t('history.showMessage')) + '"><svg class="history-message-chevron" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6.25 8 10l4-3.75"/></svg></button>'
-    : '';
-  var head = '<div class="history-detail-head">'
-    + '<div class="history-detail-copy"><div class="hd-summary"><div class="hd-subject" title="' + escapeHtml(subject) + '">' + escapeHtml(subject) + '</div>' + messageToggle + '</div>'
-    + (messageBody ? '<div id="history-message-body" class="hd-body" aria-hidden="true">' + escapeHtml(messageBody).replace(/\n/g, '<br>') + '</div>' : '')
-    + '<div class="hd-meta"><span class="hd-hash">' + escapeHtml((d.hash || '').slice(0, 10)) + '</span>'
-    + '<span class="hd-author">' + escapeHtml(d.author) + (d.email ? ' &lt;' + escapeHtml(d.email) + '&gt;' : '') + '</span>'
-    + '<span class="hd-date">' + escapeHtml(historyShortDate(d.date)) + '</span>'
-    + historyRefBadges(d.refs) + '</div></div>'
-    + '<button type="button" id="history-detail-close" class="dock-btn history-detail-close" data-keyhint="Esc" aria-label="' + escapeHtml(t('history.close')) + '"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>';
-  var body = (d.diffHtml && d.diffHtml.trim())
-    ? '<div class="history-workspace"><aside id="history-files" class="history-files"></aside><div id="history-diff-container" class="history-diff diff2html-container" tabindex="0" aria-readonly="true">' + d.diffHtml + '</div></div>'
-    : '<div class="quick-open-empty">' + escapeHtml(t(d.isMerge ? 'history.merge' : 'history.noDiff')) + '</div>';
-  detail.innerHTML = head + body;
-  setHistoryDetailOpen(true);
-  setupHistoryDiffWorkspace(d.hash || historyActiveSha, d.fileStatus);
-  var preferredPath = historyDirectPath || (historyScope && historyScope.path) || '';
-  if (preferredPath && historyWrapperByPath(preferredPath)) historyShowFile(preferredPath, undefined, true);
-}
 
-function toggleHistoryCommitMessage(force) {
-  var head = document.querySelector('#history-detail .history-detail-head');
-  var button = document.getElementById('history-message-toggle');
-  var body = document.getElementById('history-message-body');
-  if (!head || !button || !body) return false;
-  var expanded = typeof force === 'boolean' ? force : !head.classList.contains('message-expanded');
-  var label = t(expanded ? 'history.hideMessage' : 'history.showMessage');
-  head.classList.toggle('message-expanded', expanded);
-  button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-  button.setAttribute('aria-label', label);
-  button.setAttribute('data-tooltip', label);
-  body.setAttribute('aria-hidden', expanded ? 'false' : 'true');
-  return true;
-}
 
-function historyWrapperPathKey(w) {
-  return (w.dataset && w.dataset.path) || ((w.querySelector('.d2h-file-name') || {}).textContent || '').trim();
-}
-function historyWrapperByPath(path) {
-  if (!historyDiffState || !path) return null;
-  for (var i = 0; i < historyDiffState.wrappers.length; i++) {
-    if (historyWrapperPathKey(historyDiffState.wrappers[i]) === path) return historyDiffState.wrappers[i];
-  }
-  return null;
-}
-function historySideTables(wrapper) {
-  var sides = wrapper ? wrapper.querySelectorAll('.d2h-file-side-diff') : [];
-  return { left: sides[0] || null, right: sides[sides.length - 1] || null };
-}
-function historySideTable(wrapper, side) {
-  var t = historySideTables(wrapper);
-  return side === 'old' ? t.left : t.right;
-}
-function historyRowsOf(sideTable) {
-  return diffRowsOf(sideTable);
-}
-function historyRowAt(wrapper, side, rowIndex) {
-  return historyRowsOf(historySideTable(wrapper, side))[rowIndex] || null;
-}
-function historyDiffRowInfoFromNode(node) {
-  var el = node ? (node.nodeType === 1 ? node : node.parentElement) : null;
-  if (!el || !el.closest) return null;
-  var wrapper = el.closest('.d2h-file-wrapper');
-  var sideEl = el.closest('.d2h-file-side-diff');
-  var row = el.closest('tr');
-  if (!wrapper || !sideEl || !row || !isDiffCodeRow(row)) return null;
-  var path = historyWrapperPathKey(wrapper);
-  var t = historySideTables(wrapper);
-  var rowIndex = historyRowsOf(sideEl).indexOf(row);
-  if (!path || rowIndex < 0) return null;
-  return { path: path, side: sideEl === t.left ? 'old' : 'new', rowIndex: rowIndex };
-}
-function historyFirstDiffCodeRow(wrapper, side) {
-  var rows = historyRowsOf(historySideTable(wrapper, side));
-  for (var i = 0; i < rows.length; i++) if (isDiffCodeRow(rows[i])) return i;
-  return -1;
-}
-function historyFirstCodeRowOfHunk(hunkRow) {
-  var row = hunkRow.nextElementSibling;
-  var firstRow = null;
-  while (row && !row.classList.contains('history-hunk') && !row.classList.contains('history-hunk-peer')) {
-    if (row.querySelector && row.querySelector('.d2h-code-side-line')) {
-      if (!firstRow) firstRow = row;
-      if (isChangeCodeRow(row)) return row;
-    }
-    row = row.nextElementSibling;
-  }
-  return firstRow || hunkRow;
-}
-function historyFirstChangeRowForCaret(hunkRow) {
-  var wrapper = hunkRow.closest('.d2h-file-wrapper');
-  var sides = wrapper ? wrapper.querySelectorAll('.d2h-file-side-diff') : [];
-  var hunkSideEl = hunkRow.closest('.d2h-file-side-diff');
-  if (sides.length >= 2 && hunkSideEl) {
-    var hunkRows = Array.prototype.slice.call(hunkSideEl.querySelectorAll('tr'));
-    var otherEl = hunkSideEl === sides[0] ? sides[1] : sides[0];
-    var otherRows = Array.prototype.slice.call(otherEl.querySelectorAll('tr'));
-    var fallbackOld = null;
-    for (var i = hunkRows.indexOf(hunkRow) + 1; i < hunkRows.length; i++) {
-      var hr = hunkRows[i];
-      if (hr.classList.contains('history-hunk') || hr.classList.contains('history-hunk-peer')) break;
-      if (isChangeCodeRow(otherRows[i])) return otherRows[i];
-      if (fallbackOld === null && isChangeCodeRow(hr)) fallbackOld = hr;
-    }
-    if (fallbackOld) return fallbackOld;
-  }
-  return historyFirstCodeRowOfHunk(hunkRow);
-}
-// No badge, mirroring render-tree.ts: the COLOUR of the name says added/modified/deleted (green/blue/grey,
-// the way IntelliJ says it), and a glyph repeating it is a second alphabet for one fact. The element stays
-// because the viewed check lands in it and it holds every name on the same left edge.
-function historyStatusBadge(status) {
-  return '<span class="status status-' + escapeHtml(status || 'modified') + '" aria-hidden="true"></span>';
-}
-// Groups the flat, DOM-walk-ordered `files` list (built below in setupHistoryDiffWorkspace) into a folder
-// tree — the same nesting/single-child-chain shape as render-tree.ts's renderDiffTree/Changes tree, reusing
-// its exact "changes-dir"/"tree-file"/"change-row" classes and the Files tree's virtualTypeIcon/
-// VIRTUAL_FOLDER_ICON glyphs (04-source-tree.js) so no new CSS is needed and the History tree looks and
-// collapses identically to Cmd+0's. Order is preserved (not re-sorted alphabetically like the Changes
-// tree) so historyDiffState.files stays index-aligned with the rendered .history-file DOM order —
-// historySetFileFocus/historyShowFile/historySetActiveHunk all index into that array by DOM position.
-function buildHistoryFileTree(files) {
-  var root = { name: '', path: '', children: new Map() };
-  files.forEach(function (file, index) {
-    var parts = String(file.path || '').split('/').filter(Boolean);
-    var node = root, current = '';
-    for (var i = 0; i < parts.length - 1; i++) {
-      current = current ? current + '/' + parts[i] : parts[i];
-      var child = node.children.get(parts[i]);
-      if (!child) { child = { name: parts[i], path: current, children: new Map() }; node.children.set(parts[i], child); }
-      node = child;
-    }
-    var leaf = parts[parts.length - 1] || file.path;
-    node.children.set(leaf + '\0' + file.path, { name: leaf, path: file.path, children: new Map(), file: file, fileIndex: index });
-  });
-  return root;
-}
-function historyFileTreeChildrenHtml(node, depth) {
-  return Array.from(node.children.values()).map(function (child) { return historyFileTreeNodeHtml(child, depth); }).join('');
-}
-function historyFileTreeNodeHtml(node, depth) {
-  if (node.file) {
-    var file = node.file;
-    // Same class the Changes tree uses, so one set of colour rules serves both lists.
-    return '<button type="button" class="file-link history-file change-row tree-file ch-' + escapeHtml(file.status || 'modified') + '" data-index="' + node.fileIndex + '" data-file="' + escapeHtml(file.path) + '" data-hunk="' + file.hunk + '" style="--depth:' + depth + '" aria-label="' + escapeHtml(file.path) + '">'
-      + virtualTypeIcon(file.path)
-      + historyStatusBadge(file.status)
-      + '<span class="change-name"><span class="path" title="' + escapeHtml(file.path) + '">' + escapeHtml(node.name) + '</span></span></button>';
-  }
-  // Collapse single-child directory chains ("a/b/c") into one summary row, exactly as the Changes tree does.
-  var labelNode = node;
-  var names = [node.name];
-  for (;;) {
-    var entries = Array.from(labelNode.children.values());
-    if (entries.length !== 1 || entries[0].file) break;
-    names.push(entries[0].name);
-    labelNode = entries[0];
-  }
-  return '<details class="tree-dir changes-dir" data-dir="' + escapeHtml(labelNode.path) + '" style="--depth:' + depth + '" open>'
-    + '<summary>' + VIRTUAL_FOLDER_ICON + '<span class="path">' + escapeHtml(names.join('/')) + '</span></summary>'
-    + historyFileTreeChildrenHtml(labelNode, depth + 1)
-    + '</details>';
-}
-function renderHistoryFileTree(files) {
-  if (!files.length) return '';
-  return '<nav class="tree changes-tree">' + historyFileTreeChildrenHtml(buildHistoryFileTree(files), 0) + '</nav>';
-}
-function setupHistoryDiffWorkspace(sha, fileStatus) {
-  var container = document.getElementById('history-diff-container');
-  var filesEl = document.getElementById('history-files');
-  if (!container || !filesEl) { historyDiffState = null; return; }
-  container.querySelectorAll('.d2h-code-side-linenumber, .d2h-code-linenumber, .d2h-code-line-prefix').forEach(function (el) { el.setAttribute('contenteditable', 'false'); });
-  var wrappers = Array.prototype.slice.call(container.querySelectorAll('.d2h-file-wrapper'));
-  var files = [], hunks = [];
-  var hunkIndex = 0;
-  wrappers.forEach(function (wrapper, fileIndex) {
-    var path = historyWrapperPathKey(wrapper);
-    if (path) wrapper.dataset.path = path;
-    wrapper.dataset.historyFileIndex = String(fileIndex);
-    var first = hunkIndex;
-    var headerToIndex = new Map();
-    Array.prototype.forEach.call(wrapper.querySelectorAll('tr'), function (row) {
-      var header = (row.textContent || '').trim();
-      if (header.indexOf('@@') !== 0) return;
-      var idx = headerToIndex.get(header);
-      if (idx === undefined) {
-        idx = hunkIndex++;
-        headerToIndex.set(header, idx);
-        row.classList.add('history-hunk');
-        hunks[idx] = { path: path, row: row };
-      } else {
-        row.classList.add('history-hunk-peer');
-      }
-      row.dataset.historyHunkIndex = String(idx);
-      row.dataset.historyFile = path;
-    });
-    files.push({ path: path, hunk: first, count: hunkIndex - first, status: (fileStatus && fileStatus[path]) || 'modified' });
-  });
-  historyDiffState = { sha: sha, container: container, filesEl: filesEl, wrappers: wrappers, files: files, hunks: hunks, currentHunk: -1, cursor: null, fileFocusIndex: 0 };
-  historyFilesCollapsed = false;
-  filesEl.innerHTML = renderHistoryFileTree(files);
-  syncHistoryFilesVisibility();
-  container.addEventListener('click', function (event) {
-    var info = historyDiffRowInfoFromNode(event.target);
-    if (info && info.path) {
-      historyFocus = 'diff';
-      historySetDiffCursor(info.path, info.side, info.rowIndex, 0, false);
-    }
-  });
-  container.addEventListener('scroll', function () {
-    var wrapper = historyActiveDiffWrapper();
-    var state = wrapper && wrapper.__asymmetricDiffState;
-    if (state) state.scrollDriven = true;
-    scheduleHistoryDiffAlignment();
-  }, { passive: true });
-  container.addEventListener('wheel', function (event) {
-    var wrapper = historyActiveDiffWrapper();
-    var state = wrapper && wrapper.__asymmetricDiffState;
-    if (!state) return;
-    var side = asymmetricDiffSideFromTarget(event.target);
-    if (side) state.wheelSide = side;
-    state.pendingScrollBudget = (Number(state.pendingScrollBudget) || 0) + Math.abs(Number(event.deltaY) || 0);
-    state.scrollDriven = true;
-  }, { passive: true });
-  container.addEventListener('pointermove', function (event) {
-    var wrapper = historyActiveDiffWrapper();
-    var state = wrapper && wrapper.__asymmetricDiffState;
-    if (state) state.pointerSide = asymmetricDiffSideFromTarget(event.target);
-  }, { passive: true });
-  container.addEventListener('pointerleave', function () {
-    var wrapper = historyActiveDiffWrapper();
-    var state = wrapper && wrapper.__asymmetricDiffState;
-    if (state) state.pointerSide = '';
-  }, { passive: true });
-  if (files[0]) historyShowFile(files[0].path, files[0].hunk, false);
-  focusHistoryDiff();
-}
 var historyDiffAlignmentRaf = 0;
-function historyActiveDiffWrapper() {
-  if (!historyDiffState) return null;
-  return historyWrapperByPath(historyCurrentFile())
-    || historyDiffState.wrappers.find(function (wrapper) { return !wrapper.classList.contains('df-inactive'); })
-    || null;
-}
-function scheduleHistoryDiffAlignment() {
-  if (historyDiffAlignmentRaf || !historyDiffState) return;
-  historyDiffAlignmentRaf = requestAnimationFrame(function () {
-    historyDiffAlignmentRaf = 0;
-    if (!historyDiffState) return;
-    scrollAsymmetricDiffSurface(historyDiffState.container, historyActiveDiffWrapper(), historyDiffState.cursor);
-  });
-}
-function prepareHistoryReviewDiff(wrapper) {
-  if (!wrapper || wrapper.__historyReviewDiffPrepared) return;
-  wrapper.__historyReviewDiffPrepared = true;
-  // Reuse the exact Review pipeline: semantic row classification, centre gutters, compact asymmetric
-  // peers, curved hunk connectors, import/context folding, and synchronized scroll geometry.
-  annotateDiffHunkRows(wrapper);
-  syncDiffBlameWrapper(wrapper);
-  requestAnimationFrame(function () {
-    if (!wrapper.isConnected) return;
-    refreshLayeredDiffGutters(wrapper);
-    invalidateAsymmetricDiffGeometry(wrapper);
-    scheduleHistoryDiffAlignment();
-  });
-}
-function historySetFileFocus(index) {
-  if (!historyDiffState || !historyDiffState.files.length) return;
-  var max = historyDiffState.files.length - 1;
-  historyDiffState.fileFocusIndex = Math.max(0, Math.min(max, index));
-  historyFocus = 'files';
-  var btns = historyDiffState.filesEl.querySelectorAll('.history-file');
-  btns.forEach(function (b, i) {
-    b.classList.toggle('tree-focus', i === historyDiffState.fileFocusIndex);
-    if (i === historyDiffState.fileFocusIndex && b.scrollIntoView) b.scrollIntoView({ block: 'nearest' });
-  });
-}
-function focusHistoryFiles() {
-  if (!historyDiffState) return;
-  var active = historyDiffState.files.findIndex(function (f) { return f.path === historyCurrentFile(); });
-  historySetFileFocus(active >= 0 ? active : 0);
-}
-function syncHistoryFilesVisibility() {
-  var workspace = document.querySelector('#history-detail .history-workspace');
-  var filesEl = historyDiffState ? historyDiffState.filesEl : document.getElementById('history-files');
-  if (workspace) workspace.classList.toggle('history-files-collapsed', historyFilesCollapsed);
-  if (filesEl) {
-    if (historyFilesCollapsed) {
-      filesEl.setAttribute('inert', '');
-      filesEl.setAttribute('aria-hidden', 'true');
-    } else {
-      filesEl.removeAttribute('inert');
-      filesEl.removeAttribute('aria-hidden');
-    }
-  }
-}
-function setHistoryFilesCollapsed(collapsed, options) {
-  if (!historyDiffState) return false;
-  historyFilesCollapsed = !!collapsed;
-  syncHistoryFilesVisibility();
-  if (historyFilesCollapsed) focusHistoryDiff();
-  else if (!options || options.focusFiles !== false) focusHistoryFiles();
-  return true;
-}
-// Match the main review sidebar contract: from the diff Cmd+0 moves focus into the file list; a repeated
-// Cmd+0 while that list owns the logical focus collapses it. When collapsed, Cmd+0 restores and focuses it.
-function activateHistoryFiles() {
-  if (!historyDiffState) return false;
-  if (historyFilesCollapsed) return setHistoryFilesCollapsed(false, { focusFiles: true });
-  if (historyFocus === 'files') return setHistoryFilesCollapsed(true);
-  focusHistoryFiles();
-  return true;
-}
-function focusHistoryDiff() {
-  if (!historyDiffState) return;
-  historyFocus = 'diff';
-  historyDiffState.filesEl.querySelectorAll('.history-file').forEach(function (b) { b.classList.remove('tree-focus'); });
-  try { historyDiffState.container.focus(); } catch (e) {}
-}
-function historyCurrentFile() {
-  if (!historyDiffState) return '';
-  var active = historyDiffState.filesEl.querySelector('.history-file.active');
-  return active ? active.dataset.file || '' : '';
-}
-function historyShowFile(path, hunkIndex, shouldScroll) {
-  if (!historyDiffState || !path) return;
-  historyDiffState.wrappers.forEach(function (wrapper) {
-    wrapper.classList.toggle('df-inactive', historyWrapperPathKey(wrapper) !== path);
-  });
-  historyDiffState.filesEl.querySelectorAll('.history-file').forEach(function (button, i) {
-    var on = button.dataset.file === path;
-    button.classList.toggle('active', on);
-    if (on) historyDiffState.fileFocusIndex = i;
-  });
-  prepareHistoryReviewDiff(historyWrapperByPath(path));
-  var file = historyDiffState.files.find(function (f) { return f.path === path; });
-  var target = typeof hunkIndex === 'number' && hunkIndex >= 0 ? hunkIndex : (file ? file.hunk : -1);
-  if (target >= 0 && historyDiffState.hunks[target]) historySetActiveHunk(target, shouldScroll !== false);
-  else historyEnsureDiffCursor(path, shouldScroll !== false);
-}
-function historyHunkPathAt(index) {
-  return historyDiffState && historyDiffState.hunks[index] ? historyDiffState.hunks[index].path : '';
-}
-function historySetActiveHunk(index, shouldScroll) {
-  if (!historyDiffState || !historyDiffState.hunks.length) return;
-  var len = historyDiffState.hunks.length;
-  var idx = ((index % len) + len) % len;
-  var h = historyDiffState.hunks[idx];
-  if (!h || !h.path) return;
-  historyDiffState.currentHunk = idx;
-  historyDiffState.wrappers.forEach(function (wrapper) {
-    wrapper.classList.toggle('df-inactive', historyWrapperPathKey(wrapper) !== h.path);
-  });
-  historyDiffState.filesEl.querySelectorAll('.history-file').forEach(function (button, i) {
-    var on = button.dataset.file === h.path;
-    button.classList.toggle('active', on);
-    if (on) historyDiffState.fileFocusIndex = i;
-  });
-  prepareHistoryReviewDiff(historyWrapperByPath(h.path));
-  historyDiffState.container.querySelectorAll('.history-hunk.active, .history-hunk-peer.active').forEach(function (row) { row.classList.remove('active'); });
-  historyDiffState.container.querySelectorAll('[data-history-hunk-index="' + idx + '"]').forEach(function (row) { row.classList.add('active'); });
-  var targetRow = historyFirstChangeRowForCaret(h.row);
-  if (targetRow) {
-    var info = historyDiffRowInfoFromNode(targetRow);
-    if (info) historySetDiffCursor(info.path, info.side, info.rowIndex, 0, shouldScroll);
-  }
-}
-function historyEnsureDiffCursor(path, reveal) {
-  var wrapper = historyWrapperByPath(path);
-  var ri = historyFirstDiffCodeRow(wrapper, 'new');
-  if (ri >= 0) historySetDiffCursor(path, 'new', ri, 0, reveal);
-}
-function historyClearDiffCaret() {
-  if (!historyDiffState) return;
-  historyDiffState.container.querySelectorAll('.mc-diff-cursor-row').forEach(function (r) { r.classList.remove('mc-diff-cursor-row'); });
-  historyDiffState.container.querySelectorAll('.code-cursor').forEach(function (s) { var p = s.parentNode; if (p) { p.removeChild(s); if (p.normalize) p.normalize(); } });
-}
-function historyRenderDiffCaret() {
-  historyClearDiffCaret();
-  if (!historyDiffState || !historyDiffState.cursor) return;
-  var c = historyDiffState.cursor;
-  var wrapper = historyWrapperByPath(c.path);
-  var row = wrapper ? historyRowAt(wrapper, c.side, c.rowIndex) : null;
-  if (!row) return;
-  row.classList.add('mc-diff-cursor-row');
-  var ctn = diffCellCtn(row);
-  if (!ctn) return;
-  if ((ctn.textContent || '').length === 0) {
-    var emptySpan = document.createElement('span');
-    emptySpan.className = 'code-cursor';
-    emptySpan.setAttribute('aria-hidden', 'true');
-    emptySpan.style.position = 'absolute';
-    ctn.appendChild(emptySpan);
-    return;
-  }
-  var pos = diffCaretDomPosition(ctn, c.column);
-  if (!pos) return;
-  var span = document.createElement('span');
-  span.className = 'code-cursor';
-  span.setAttribute('aria-hidden', 'true');
-  try {
-    var off = pos.node.nodeType === 3 ? Math.min(pos.offset, (pos.node.textContent || '').length) : pos.offset;
-    var range = document.createRange();
-    range.setStart(pos.node, off);
-    range.collapse(true);
-    range.insertNode(span);
-  } catch (e) {}
-}
-function historySetDiffCursor(path, side, rowIndex, column, reveal) {
-  if (!historyDiffState) return;
-  var wrapper = historyWrapperByPath(path);
-  if (!wrapper) return;
-  var rows = historyRowsOf(historySideTable(wrapper, side));
-  if (!rows.length) return;
-  var ri = Math.max(0, Math.min(rowIndex, rows.length - 1));
-  var col = Math.max(0, Math.min(column, diffLineText(rows[ri]).length));
-  historyDiffState.cursor = { path: path, side: side, rowIndex: ri, column: col };
-  historyRenderDiffCaret();
-  scheduleHistoryDiffAlignment();
-  if (reveal) scrolloffReveal(rows[ri], historyDiffState.container, 0.15);
-}
-function historyMoveDiffCursor(dLine, dColumn) {
-  if (!historyDiffState || !historyDiffState.cursor) return;
-  var c = historyDiffState.cursor;
-  var wrapper = historyWrapperByPath(c.path);
-  if (!wrapper) return;
-  var rows = historyRowsOf(historySideTable(wrapper, c.side));
-  var ri = c.rowIndex, col = c.column;
-  var text = diffLineText(rows[ri]);
-  if (dColumn < 0) {
-    if (col > 0) col -= 1;
-    else { var p = ri - 1; while (p >= 0 && !isDiffCodeRow(rows[p])) p -= 1; if (p >= 0) { ri = p; col = diffLineText(rows[p]).length; } }
-  } else if (dColumn > 0) {
-    if (col < text.length) col += 1;
-    else { var n = ri + 1; while (n < rows.length && !isDiffCodeRow(rows[n])) n += 1; if (n < rows.length) { ri = n; col = 0; } }
-  }
-  if (dLine !== 0) {
-    var step = dLine > 0 ? 1 : -1;
-    var cand = ri + step;
-    while (cand >= 0 && cand < rows.length && !isDiffCodeRow(rows[cand])) cand += step;
-    if (cand >= 0 && cand < rows.length) { ri = cand; col = Math.min(col, diffLineText(rows[ri]).length); }
-  }
-  historySetDiffCursor(c.path, c.side, ri, col, true);
-}
-function historyNextHunk(delta) {
-  if (!historyDiffState || !historyDiffState.hunks.length) return;
-  var base = historyDiffState.currentHunk >= 0 ? historyDiffState.currentHunk : 0;
-  historySetActiveHunk(base + delta, true);
-  focusHistoryDiff();
-}
-function historySelectAllDiff() {
-  if (!historyDiffState) return;
-  var sel = window.getSelection();
-  if (!sel) return;
-  var range = document.createRange();
-  range.selectNodeContents(historyDiffState.container);
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-function handleHistoryDiffKey(event) {
-  if (!historyDiffState || !historyDiffState.cursor) return false;
-  if (event.key === 'Tab' && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
-    var tc = historyDiffState.cursor;
-    var tw = historyWrapperByPath(tc.path);
-    var otherSide = tc.side === 'new' ? 'old' : 'new';
-    var otherRow = tw ? historyRowAt(tw, otherSide, tc.rowIndex) : null;
-    if (isDiffCodeRow(otherRow)) historySetDiffCursor(tc.path, otherSide, tc.rowIndex, Math.min(tc.column, diffLineText(otherRow).length), true);
-    return true;
-  }
-  if (!event.metaKey && !event.ctrlKey && !event.altKey) {
-    if (event.key === 'ArrowDown') { historyMoveDiffCursor(1, 0); return true; }
-    if (event.key === 'ArrowUp') { historyMoveDiffCursor(-1, 0); return true; }
-    if (event.key === 'ArrowLeft') { historyMoveDiffCursor(0, -1); return true; }
-    if (event.key === 'ArrowRight') { historyMoveDiffCursor(0, 1); return true; }
-  }
-  if (event.altKey && !event.metaKey && !event.ctrlKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-    var wc = historyDiffState.cursor;
-    var ww = historyWrapperByPath(wc.path);
-    var wr = ww ? historyRowAt(ww, wc.side, wc.rowIndex) : null;
-    var nextCol = nextWordBoundary(diffLineText(wr), wc.column, event.key === 'ArrowRight' ? 1 : -1);
-    historySetDiffCursor(wc.path, wc.side, wc.rowIndex, nextCol, true);
-    return true;
-  }
-  if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-    var c = historyDiffState.cursor;
-    var wrapper = historyWrapperByPath(c.path);
-    var row = wrapper ? historyRowAt(wrapper, c.side, c.rowIndex) : null;
-    var len = diffLineText(row).length;
-    if (event.key === 'ArrowLeft') {
-      if (c.column > 0) historySetDiffCursor(c.path, c.side, c.rowIndex, 0, true);
-      else if (c.side === 'new') { var oldRow = historyRowAt(wrapper, 'old', c.rowIndex); if (isDiffCodeRow(oldRow)) historySetDiffCursor(c.path, 'old', c.rowIndex, diffLineText(oldRow).length, true); }
-    } else {
-      if (c.column < len) historySetDiffCursor(c.path, c.side, c.rowIndex, len, true);
-      else if (c.side === 'old') { var newRow = historyRowAt(wrapper, 'new', c.rowIndex); if (isDiffCodeRow(newRow)) historySetDiffCursor(c.path, 'new', c.rowIndex, 0, true); }
-    }
-    return true;
-  }
-  return false;
-}
 
 function isHistoryOpen() {
   var v = document.getElementById('history-view');
   return !!(v && !v.classList.contains('hidden'));
 }
-function isHistoryDetailOpen() {
-  var detail = document.getElementById('history-detail');
-  return !!(detail && !detail.classList.contains('hidden'));
-}
-function setHistoryDetailOpen(open) {
-  var view = document.getElementById('history-view');
-  var detail = document.getElementById('history-detail');
-  var backdrop = document.getElementById('history-detail-backdrop');
-  if (view) view.classList.toggle('history-diff-open', !!open);
-  if (detail) {
-    detail.classList.toggle('hidden', !open);
-    detail.setAttribute('aria-hidden', open ? 'false' : 'true');
-  }
-  if (backdrop) {
-    backdrop.classList.toggle('hidden', !open);
-    backdrop.setAttribute('aria-hidden', open ? 'false' : 'true');
-  }
-}
-function closeHistoryDetail(restoreFocus) {
-  if (historyDirectDetail && restoreFocus !== false) {
-    closeHistory();
-    return;
-  }
-  historyDetailSha = '';
-  historyDiffState = null;
-  historyFocus = 'commits';
-  clearHistoryRange(); // closing the diff drops any shift-select compare range
-  setHistoryDetailOpen(false);
-  var detail = document.getElementById('history-detail');
-  if (detail) detail.innerHTML = '';
-  if (restoreFocus !== false) {
-    var view = document.getElementById('history-view');
-    setTimeout(function () { try { if (view) view.focus(); } catch (e) {} }, 0);
-  }
-}
 function closeHistory() {
   historyLoadSeq += 1;
-  historyDirectDetail = false;
-  historyDirectPath = '';
   var v = document.getElementById('history-view');
   if (v) { v.classList.add('hidden'); v.classList.remove('history-direct-diff'); }
-  closeHistoryDetail(false);
   syncRail();
 }
 function updateHistoryScopeChrome() {
@@ -982,8 +381,6 @@ function openHistory(scope) {
   var v = document.getElementById('history-view');
   if (!v) return;
   if (!window.kakapoGit) return; // browser/serve mode: no git bridge
-  historyDirectDetail = false;
-  historyDirectPath = '';
   v.classList.remove('history-direct-diff');
   historyScope = scope && scope.path && Number(scope.line) >= 1
     ? { path: String(scope.path), line: Math.trunc(Number(scope.line)) }
@@ -1000,9 +397,6 @@ function openHistory(scope) {
   historyMaxLane = 0;
   historyActiveSha = '';
   historyAnchorSha = '';
-  historyFocus = 'commits';
-  historyDiffState = null;
-  closeHistoryDetail(false);
   renderHistoryList();
   var seq = ++historyLoadSeq;
   var request = historyScope && typeof window.kakapoGit.lineLog === 'function'
@@ -1015,8 +409,6 @@ function openHistory(scope) {
     historyGraph = computeHistoryGraph(historyCommits);
     historyMaxLane = historyGraph.maxLane || 0;
     renderHistoryList();
-    var detail = document.getElementById('history-detail');
-    if (detail) detail.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('history.selectCommit')) + '</div>';
     if (historyCommits[0]) { historyAnchorSha = historyCommits[0].hash; selectHistoryCommit(historyCommits[0].hash, false); }
     updateHistorySelectBar(); // show the compare hint as soon as the list is ready
     setTimeout(function () { try { v.focus(); } catch (e) {} }, 0);
@@ -1026,24 +418,21 @@ function openLineHistory(path, line) {
   if (!window.kakapoGit || typeof window.kakapoGit.lineLog !== 'function') return;
   openHistory({ path: path, line: line });
 }
+// A blame attribution in the source gutter: "show me the commit that wrote this line". It used to open the
+// overlay in a diff-only mode of its own; it is the same act as picking that commit from the list, so it
+// takes the same door and never opens the overlay at all.
+// `sha^` rather than a looked-up parent — this path has no commit list to look one up in, and git resolves
+// it. A root commit has no `^`, so that attempt fails and the empty tree is what "before this" means there.
 function openHistoryCommitFromSource(sha, path) {
-  if (!sha || !window.kakapoGit || typeof window.kakapoGit.commitDiff !== 'function') return;
-  var v = document.getElementById('history-view');
-  if (!v) return;
-  historyLoadSeq += 1;
-  closeHistoryDetail(false);
-  historyDirectDetail = true;
-  historyDirectPath = path ? String(path) : '';
-  historyScope = null;
-  updateHistoryScopeChrome();
-  historyCommits = [];
-  historyGraph = [];
-  historyActiveSha = sha;
-  historyFocus = 'diff';
-  v.classList.add('history-direct-diff');
-  v.classList.remove('hidden');
-  syncRail();
-  openHistoryCommit(sha);
+  if (!sha || !window.kakapoGit || typeof window.kakapoGit.setReviewCompare !== 'function') return;
+  var scope = [{ sha: sha, shortSha: String(sha).slice(0, 7), subject: '', date: '' }];
+  requestDiffViewOnNextCompare();
+  Promise.resolve(window.kakapoGit.setReviewCompare(sha + '^', sha, scope)).then(function (res) {
+    if (res && res.ok) { closeHistory(); return null; }
+    return window.kakapoGit.setReviewCompare(EMPTY_TREE_SHA, sha, scope).then(function (r2) {
+      if (r2 && r2.ok) closeHistory();
+    });
+  }).catch(function () {});
 }
 function toggleHistory() { if (isHistoryOpen()) closeHistory(); else openHistory(); }
 if (typeof window !== 'undefined') window.__kakapoHistory = { open: openHistory, openLine: openLineHistory, openCommit: openHistoryCommitFromSource, close: closeHistory, toggle: toggleHistory, isOpen: isHistoryOpen };
@@ -1074,54 +463,28 @@ function handleHistoryKey(e) {
   }
   if (e.key === 'Escape') {
     e.preventDefault(); e.stopPropagation();
-    if (isHistoryDetailOpen()) closeHistoryDetail(true);
-    else closeHistory();
+    closeHistory();
     return true;
   }
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === '0') {
-    if (historyDiffState) { e.preventDefault(); e.stopPropagation(); activateHistoryFiles(); return true; }
-  }
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.code === 'KeyA' || e.key === 'a' || e.key === 'A') && historyFocus === 'diff') {
-    e.preventDefault(); e.stopPropagation(); historySelectAllDiff(); return true;
-  }
   if (e.key === 'PageDown' || e.key === 'PageUp') {
-    var scroller = historyFocus === 'diff' && historyDiffState ? historyDiffState.container : document.getElementById('history-list');
+    var scroller = document.getElementById('history-list');
     if (scroller) { e.preventDefault(); e.stopPropagation(); scroller.scrollTop += (e.key === 'PageDown' ? 0.9 : -0.9) * scroller.clientHeight; return true; }
-  }
-  if (e.key === 'F7' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-    e.preventDefault(); e.stopPropagation(); historyNextHunk(e.shiftKey ? -1 : 1); return true;
-  }
-  if (!inSearch && isHistoryDetailOpen() && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
-    && (e.code === 'KeyM' || e.key === 'm' || e.key === 'M')) {
-    e.preventDefault(); e.stopPropagation(); toggleHistoryCommitMessage(); return true;
   }
   if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
     e.preventDefault(); e.stopPropagation();
     var delta = e.key === 'ArrowDown' ? 1 : -1;
-    if (historyFocus === 'files') historySetFileFocus((historyDiffState ? historyDiffState.fileFocusIndex : 0) + delta);
-    else if (historyFocus === 'diff' && historyDiffState) historyMoveDiffCursor(delta, 0);
-    else if (e.shiftKey) moveHistoryRange(delta); // Shift+Arrow extends the compare range
+    if (e.shiftKey) moveHistoryRange(delta); // Shift+Arrow extends the compare range
     else moveHistoryCommit(delta);
     return true;
   }
-  if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && historyFocus === 'diff') {
-    e.preventDefault(); e.stopPropagation(); historyMoveDiffCursor(0, e.key === 'ArrowRight' ? 1 : -1); return true;
-  }
   if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'Enter') {
     e.preventDefault(); e.stopPropagation();
-    if (historyFocus === 'diff') {
-      return true;
-    } else if (historyFocus === 'files' && historyDiffState) {
-      var file = historyDiffState.files[historyDiffState.fileFocusIndex];
-      if (file) historyShowFile(file.path, file.hunk, true);
-      focusHistoryDiff();
-    } else {
-      reviewHistoryRangeInMain(); // Enter: open the range in the main review (comments); single commit -> read-only
-    }
+    reviewHistoryInMain();
     return true;
   }
-  if (historyFocus === 'diff' && handleHistoryDiffKey(e)) { e.preventDefault(); e.stopPropagation(); return true; }
-  return !inSearch && historyFocus !== 'commits';
+  // Everything below this is the review's own, and the review is what Enter just went to. History owns the
+  // commit list and nothing else: a key it has no use for belongs to whatever is underneath.
+  return false;
 }
 
 (function wireHistory() {
@@ -1129,7 +492,6 @@ function handleHistoryKey(e) {
   if (list) list.addEventListener('click', function (e) {
     var row = e.target.closest && e.target.closest('.hrow[data-sha]');
     if (!row) return;
-    historyFocus = 'commits';
     if (e.shiftKey) { e.preventDefault(); selectHistoryRange(row.dataset.sha, false); } // extend the compare range
     else { clearHistoryRange(); historyAnchorSha = row.dataset.sha; selectHistoryCommit(row.dataset.sha, false); updateHistorySelectBar(); } // select only; open on double-click/Enter
   });
@@ -1138,7 +500,6 @@ function handleHistoryKey(e) {
     var row = e.target.closest && e.target.closest('.hrow[data-sha]');
     if (!row) return;
     e.preventDefault();
-    historyFocus = 'commits';
     var ep = historyRangeEndpoints();
     if (ep && ep.isRange && row.classList.contains('in-range')) { openHistoryRange(ep.olderSha, ep.newerSha); return; }
     clearHistoryRange(); historyAnchorSha = row.dataset.sha; selectHistoryCommit(row.dataset.sha, false); updateHistorySelectBar();
@@ -1146,8 +507,7 @@ function handleHistoryKey(e) {
   });
   var selBar = document.getElementById('history-select-bar');
   if (selBar) selBar.addEventListener('click', function (e) {
-    if (e.target.closest && e.target.closest('#hsel-review')) reviewHistoryRangeInMain(); // open in main review (comments)
-    else if (e.target.closest && e.target.closest('#hsel-open')) openHistoryCurrentSelection(); // read-only quick look
+    if (e.target.closest && e.target.closest('#hsel-review')) reviewHistoryInMain(); // open in main review (comments)
     else if (e.target.closest && e.target.closest('#hsel-clear')) clearHistoryRange();
   });
   var search = document.getElementById('history-search');
@@ -1162,19 +522,4 @@ function handleHistoryKey(e) {
   document.addEventListener('keydown', function (e) {
     if (isHistoryOpen()) handleHistoryKey(e);
   }, true);
-  var detail = document.getElementById('history-detail');
-  if (detail) detail.addEventListener('click', function (e) {
-    var close = e.target.closest && e.target.closest('#history-detail-close');
-    if (close) { e.preventDefault(); closeHistoryDetail(true); return; }
-    var messageToggle = e.target.closest && e.target.closest('#history-message-toggle');
-    if (messageToggle) { e.preventDefault(); toggleHistoryCommitMessage(); return; }
-    var file = e.target.closest && e.target.closest('.history-file[data-file]');
-    if (file && historyDiffState) {
-      e.preventDefault();
-      historyShowFile(file.dataset.file, Number(file.dataset.hunk), true);
-      focusHistoryDiff();
-    }
-  });
-  var backdrop = document.getElementById('history-detail-backdrop');
-  if (backdrop) backdrop.addEventListener('click', function () { closeHistoryDetail(true); });
 })();

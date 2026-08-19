@@ -1376,6 +1376,37 @@ function mergedItemLines(c) {
   lines.push('');
   return lines;
 }
+// The review, split into one job per FILE. Files are the unit because two agents editing the same file at
+// once is a merge conflict the reviewer never asked for — everything else (grouping by comment, by kind, by
+// order) puts two of them in the same file eventually. A file with three comments is one job carrying all
+// three, which is also how a human would take the work.
+//
+// Each job is the whole hand-off for its file: the same plan contract the single-agent send uses, then that
+// file's comments. An agent that receives one has no idea it is on a team, which is the point — nothing about
+// the instructions changes, only how many of them are running.
+function teamJobs() {
+  var open = reviewComments.filter(function (c) { return c.by !== 'agent' && !c.addressed; });
+  var byFile = [];
+  var index = {};
+  open.forEach(function (c) {
+    var path = c.path || '';
+    if (!(path in index)) { index[path] = byFile.length; byFile.push({ path: path, items: [] }); }
+    byFile[index[path]].items.push(c);
+  });
+  var prose = mergePromptFor('plan') + '\n\n' + mergePromptFor('c');
+  var nl = String.fromCharCode(10);
+  return byFile.map(function (group) {
+    var lines = [prose, ''];
+    group.items.forEach(function (c) { lines.push.apply(lines, mergedItemLines(c)); });
+    return {
+      name: (group.path || 'review').split('/').pop(),
+      path: group.path,
+      count: group.items.length,
+      text: lines.join(nl),
+    };
+  });
+}
+
 function buildMergedText() {
   var nl = String.fromCharCode(10);
   var lines = [];

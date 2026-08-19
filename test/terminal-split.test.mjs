@@ -316,3 +316,20 @@ test("the bell notifies for a workspace you are not looking at", () => {
 });
 
 
+
+// The team runner reuses the rules openAt established, because they are the same rules: a line typed into a
+// pane that is running something lands in that agent's composer as a prompt, and there is no way to take it
+// back. What is new is only that it does several at once and presses Enter.
+test("a team never types into a pane that is working, and stops at the cap", () => {
+  const run = client.match(/function runTeam\(jobs\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(run, "the runner exists");
+  assert.match(run, /started\.length >= MAX_PANES/, "it stops at the pane cap rather than interrupting anyone");
+  assert.match(run, /paneIsFree\(pane\)\.then\(function \(free\) \{\s*\n\s*if \(!free\) return started;/,
+    "and asks a pane what it is running before typing into it");
+  assert.match(run, /kakapoPty\.write\(\{ id: pane\.id, data: String\(jobs\[i\]\.text\) \+ '\\r' \}\)/,
+    "this is the one path that sends the newline itself");
+
+  const free = client.match(/function paneIsFree\(p\)[\s\S]*?\n  \}/)?.[0];
+  assert.match(free, /foreground\(\{ id: p\.id \}\)/, "which it answers from the pty, not from what it believes");
+  assert.match(free, /function \(\) \{ return false; \}/, "and an unanswerable pane counts as busy, never as free");
+});

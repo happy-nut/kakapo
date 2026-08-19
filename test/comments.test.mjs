@@ -959,3 +959,72 @@ test("a saved card drops the location it is already sitting on", async () => {
   assert.ok(v.$(".mc-merged-card .mc-target"), "the dock still labels every card — there the code is not beside it");
   v.close();
 });
+
+// A team is one agent per FILE. Files are the unit because two agents editing the same file at once is a
+// merge conflict the reviewer never asked for; a file with three comments is one job carrying all three,
+// which is also how a person would take the work.
+test("the review splits into one job per file, each carrying that file's comments", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("c");
+  await v.writeAndSave("first ask, AGENTS.md");
+  await v.clickSourceLine(6);
+  await v.openComposer("c");
+  await v.writeAndSave("second ask, same file");
+
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("c");
+  await v.writeAndSave("an ask about app.ts");
+  await v.settle(30);
+
+  const jobs = Array.from(v.window.teamJobs());
+  assert.equal(jobs.length, 2, "two files, two jobs — not three comments, three jobs");
+
+  const agents = jobs.find((j) => j.path === "AGENTS.md");
+  assert.equal(agents.count, 2, "a file's comments travel together");
+  assert.match(agents.text, /first ask, AGENTS\.md/);
+  assert.match(agents.text, /second ask, same file/);
+  assert.doesNotMatch(agents.text, /an ask about app\.ts/, "and never into another file's job");
+
+  // Each job is the whole hand-off: an agent receiving one cannot tell it is on a team.
+  assert.match(agents.text, /PLAN/, "the plan contract leads every job, exactly as the single-agent send does");
+  v.close();
+});
+
+// The only button in the app that presses Enter for you, so it asks twice: the first click says what the
+// second will do.
+test("running a team takes two clicks, and the first one only says what it will do", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("c");
+  await v.writeAndSave("do this");
+  await v.openSourceFile("src/app.ts");
+  await v.clickSourceLine(1);
+  await v.openComposer("c");
+  await v.writeAndSave("and this");
+
+  const runs = [];
+  v.window.__kakapoTerminal = {
+    enterSendMode: () => {}, paneCount: () => 1, maxPanes: 4,
+    runTeam: (jobs) => { runs.push(jobs); return Promise.resolve(jobs.map((j) => j.name)); },
+  };
+  await v.openMergedView();
+
+  const team = v.$("#mc-merged-panel .mc-send-team");
+  assert.ok(team, "the button is there when the review spans more than one file");
+  assert.match(team.textContent, /2/, "and says how many panes it would take");
+
+  team.click();
+  await v.settle(20);
+  assert.equal(runs.length, 0, "the first click starts nothing");
+  assert.ok(team.classList.contains("is-armed"), "it asks instead");
+
+  team.click();
+  await v.settle(20);
+  assert.equal(runs.length, 1, "the second click runs it");
+  assert.equal(runs[0].length, 2, "one job per file");
+  v.close();
+});

@@ -1597,12 +1597,6 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-file-side-diff:last-of-type tr.mc-active-hunk > td.d2h-code-side-linenumber {
   color: var(--text);
 }
-.d2h-diff-table tr.hunk, .d2h-diff-table tr.hunk-peer, .d2h-diff-table tr.history-hunk, .d2h-diff-table tr.history-hunk-peer { scroll-margin-top: 76px; }
-.d2h-diff-table tr.hunk.active td, .d2h-diff-table tr.hunk-peer.active td,
-.d2h-diff-table tr.history-hunk.active td, .d2h-diff-table tr.history-hunk-peer.active td {
-  box-shadow: none;
-  background-color: color-mix(in srgb, var(--active) 10%, var(--line));
-}
 /* F7 navigation and the JS caret already identify the active row. An older focus layer also outlined the
    whole row in blue (top/bottom plus a gutter rail), producing a second, persistent selection rectangle. */
 .d2h-diff-table tr.diff-active-row td { box-shadow: none; }
@@ -2062,7 +2056,6 @@ h1 { margin: 0; font-size: 18px; }
 }
 /* GitHub's canvas under the code, so a diff reads like the same diff on github.com. */
 :root[data-theme="dark"][data-syntax-theme="github"] #diff2html-container,
-:root[data-theme="dark"][data-syntax-theme="github"] .history-diff,
 :root[data-theme="dark"][data-syntax-theme="github"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #0d1117;
   --text: #e6edf3;
@@ -2073,7 +2066,6 @@ h1 { margin: 0; font-size: 18px; }
   color: #e6edf3;
 }
 :root[data-theme="light"][data-syntax-theme="github"] #diff2html-container,
-:root[data-theme="light"][data-syntax-theme="github"] .history-diff,
 :root[data-theme="light"][data-syntax-theme="github"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #ffffff;
   --text: #1f2328;
@@ -2085,7 +2077,6 @@ h1 { margin: 0; font-size: 18px; }
 }
 /* The dark member owns a Darcula canvas; rendered Markdown keeps the app surface because it is prose. */
 :root[data-theme="dark"][data-syntax-theme="darcula"] #diff2html-container,
-:root[data-theme="dark"][data-syntax-theme="darcula"] .history-diff,
 :root[data-theme="dark"][data-syntax-theme="darcula"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #2b2b2b;
   --text: #a9b7c6;
@@ -2097,7 +2088,6 @@ h1 { margin: 0; font-size: 18px; }
 }
 /* IntelliJ Light is the light member of the same family, including its code canvas and foreground. */
 :root[data-theme="light"][data-syntax-theme="darcula"] #diff2html-container,
-:root[data-theme="light"][data-syntax-theme="darcula"] .history-diff,
 :root[data-theme="light"][data-syntax-theme="darcula"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #ffffff;
   --text: #000000;
@@ -2110,7 +2100,6 @@ h1 { margin: 0; font-size: 18px; }
 /* Solarized's ground is the theme — a code canvas painted the app's neutral would erase the one thing that
    makes it recognisable, so both members carry base03 / base3 under the code. */
 :root[data-theme="dark"][data-syntax-theme="solarized"] #diff2html-container,
-:root[data-theme="dark"][data-syntax-theme="solarized"] .history-diff,
 :root[data-theme="dark"][data-syntax-theme="solarized"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #002b36;
   --text: #93a1a1;
@@ -2121,7 +2110,6 @@ h1 { margin: 0; font-size: 18px; }
   color: #93a1a1;
 }
 :root[data-theme="light"][data-syntax-theme="solarized"] #diff2html-container,
-:root[data-theme="light"][data-syntax-theme="solarized"] .history-diff,
 :root[data-theme="light"][data-syntax-theme="solarized"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #fdf6e3;
   --text: #4a5f66;
@@ -2132,7 +2120,6 @@ h1 { margin: 0; font-size: 18px; }
   color: #4a5f66;
 }
 :root[data-theme="dark"][data-syntax-theme="dracula"] #diff2html-container,
-:root[data-theme="dark"][data-syntax-theme="dracula"] .history-diff,
 :root[data-theme="dark"][data-syntax-theme="dracula"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #282a36;
   --text: #f8f8f2;
@@ -2143,7 +2130,6 @@ h1 { margin: 0; font-size: 18px; }
   color: #f8f8f2;
 }
 :root[data-theme="light"][data-syntax-theme="dracula"] #diff2html-container,
-:root[data-theme="light"][data-syntax-theme="dracula"] .history-diff,
 :root[data-theme="light"][data-syntax-theme="dracula"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #fffbeb;
   --text: #1f1f1f;
@@ -2156,7 +2142,6 @@ h1 { margin: 0; font-size: 18px; }
 /* Pure black / pure white under the code is the whole contract of this one — anything softer is a different
    theme wearing its name. */
 :root[data-theme="dark"][data-syntax-theme="contrast"] #diff2html-container,
-:root[data-theme="dark"][data-syntax-theme="contrast"] .history-diff,
 :root[data-theme="dark"][data-syntax-theme="contrast"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #000000;
   --text: #ffffff;
@@ -2167,7 +2152,6 @@ h1 { margin: 0; font-size: 18px; }
   color: #ffffff;
 }
 :root[data-theme="light"][data-syntax-theme="contrast"] #diff2html-container,
-:root[data-theme="light"][data-syntax-theme="contrast"] .history-diff,
 :root[data-theme="light"][data-syntax-theme="contrast"] .source-body:not(.rendered-body):not(.image-body) {
   --panel: #ffffff;
   --text: #000000;
@@ -2752,30 +2736,9 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .hsel-actions { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .hsel-btn { padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--text); font-size: 11px; font-weight: 600; line-height: 1.4; cursor: pointer; }
 .hsel-btn:hover { border-color: var(--active); }
-.hsel-btn.hsel-open { color: var(--active); border-color: color-mix(in srgb, var(--active) 45%, var(--border)); }
 .hrow { -webkit-user-select: none; user-select: none; } /* double-click activates, never selects row text */
 .history-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; overflow: hidden; }
 .history-list { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 4px 0; }
-.history-detail-backdrop {
-  position: absolute; inset: 0; z-index: 1;
-  background: color-mix(in srgb, #000 42%, transparent);
-}
-.history-detail-backdrop.hidden,
-.history-detail.hidden { display: none; }
-.history-detail {
-  position: absolute;
-  inset: clamp(12px, 2vh, 20px) clamp(14px, 2vw, 28px);
-  z-index: 2;
-  min-width: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  color: var(--chrome-text);
-  background: var(--chrome-panel);
-  border: 1px solid var(--chrome-border);
-  border-radius: var(--ui-radius-lg);
-  box-shadow: 0 22px 70px rgba(0, 0, 0, .52);
-}
 body.native-app .history-bar {
   /* Pin the bar to exactly the title-bar height so its bottom border lines up with the activity rail's
      title-strip divider (::before at --native-titlebar-height - 1). The default 8px top/bottom padding made
@@ -2796,11 +2759,6 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .hrow.in-range.active { background: color-mix(in srgb, var(--active) 22%, transparent); }
 .hrow.range-end { box-shadow: inset 2px 0 0 var(--active); }
 /* Range compare detail header (two-commit span). */
-.hd-subject.hd-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.hd-range-kind { color: var(--muted); font-weight: 600; }
-.hd-range .hd-hash { font: 12px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); }
-.hd-range-arrow { color: var(--muted); }
-.hd-range-count { color: var(--muted); font-size: 11px; }
 .hgraph-cell { height: 26px; line-height: 0; }
 .hgraph { display: block; overflow: visible; }
 /* Filtering breaks the contiguous graph, so hide the lane column and show a flat list (IntelliJ does too). */
@@ -2818,37 +2776,6 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .href-branch { color: #69d47c; }
 .href-remote { color: #bd91ff; }
 .href-tag { color: #efb84f; }
-.history-detail-head { flex: none; display: flex; align-items: flex-start; gap: 10px; min-height: 62px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--border); }
-.history-detail-copy { flex: 1 1 auto; min-width: 0; }
-.history-detail-close,
-.history-message-toggle {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  line-height: 1;
-}
-.history-detail-close { align-self: flex-start; margin-left: auto; }
-.history-detail-close svg,
-.history-message-toggle svg { display: block; width: 15px; height: 15px; }
-.history-message-toggle .history-message-chevron { transition: transform 120ms ease; }
-.history-message-toggle[aria-expanded="true"] .history-message-chevron { transform: rotate(180deg); }
-.hd-summary { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 26px; }
-.hd-subject { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 1.45; font-weight: 600; }
-.history-detail-head .dock-btn:hover { transform: none; }
-.hd-body { display: none; max-height: min(24vh, 240px); margin: 8px 2px 6px 0; padding: 8px 10px; overflow: auto; border-left: 2px solid var(--chrome-border); color: var(--chrome-text-muted); font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-.history-detail-head.message-expanded .hd-body { display: block; }
-.hd-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 3px; font-size: 11.5px; line-height: 1.35; color: var(--muted); }
-.hd-hash { font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.history-workspace { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(190px, 260px) minmax(0, 1fr); transition: grid-template-columns .18s ease; }
-.history-files { min-width: 0; overflow: auto; padding: 6px; border-right: 1px solid var(--border); opacity: 1; transition: opacity .12s ease, padding .18s ease, border-color .12s ease; }
-.history-workspace.history-files-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
-.history-workspace.history-files-collapsed .history-files { padding-inline: 0; border-right-color: transparent; opacity: 0; pointer-events: none; }
-.history-file { width: 100%; }
-.history-diff { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
-.history-diff:focus { outline: none; }
 
 /* Go-to-line (Cmd/Ctrl+L): a small numeric prompt near the top, like a command palette. */
 .goto-line {
@@ -3782,52 +3709,6 @@ summary.tree-focus,
   background: var(--chrome-panel);
   border-color: var(--chrome-border);
 }
-.settings-nav,
-.impact-header,
-.history-bar,
-.history-files,
-.dock-bar,
-.mc-modal-head,
-.quick-open-title,
-.semantic-peek-header {
-  color: var(--chrome-text);
-  background: var(--chrome-bg);
-  border-color: var(--chrome-border);
-}
-.settings-nav-title,
-.settings-desc,
-.settings-ver,
-.keys-cat,
-.keys-grid span,
-.app-info-status,
-.app-info-ver,
-.impact-engine,
-.impact-empty,
-.impact-section-empty,
-.impact-item-path,
-.impact-relation,
-.impact-target-label,
-.impact-target-path,
-.impact-analyzer-row,
-.impact-keyboard-help,
-.impact-tier-desc,
-.impact-tier-count,
-.impact-tier-empty,
-.impact-fallback,
-.impact-candidate-toggle,
-.history-view .hauthor,
-.history-view .hdate,
-.history-view .hd-meta,
-.history-view .href-remote,
-.dock-btn,
-.mc-memo-save-state,
-.mc-memo-empty,
-.quick-open-title,
-.quick-open-filter.is-hint,
-.quick-open-path,
-.quick-open-badge,
-.quick-open-empty,
-.semantic-peek-meta { color: var(--chrome-muted); }
 .settings-h,
 .settings-label,
 .impact-title,
@@ -3860,14 +3741,6 @@ summary.tree-focus,
 .tab { color: var(--chrome-text); background: var(--chrome-elevated); border-color: var(--chrome-border); }
 .plain-button:hover,
 .tab.active { color: var(--chrome-selected-text); background: var(--chrome-selected); border-color: var(--active-strong); }
-
-.impact-body,
-.impact-section,
-.impact-tier,
-.impact-tier-head,
-.impact-candidate-toggle,
-.history-list,
-.history-detail-head { border-color: var(--chrome-border); }
 .impact-count { color: var(--chrome-text); background: var(--chrome-line); }
 .impact-item { color: var(--chrome-text); }
 .impact-item:hover,
@@ -3961,7 +3834,6 @@ body {
 .change-row,
 .source-link,
 .impact-item,
-.history-file,
 .settings-cat,
 .quick-open-item,
 .mc-dropdown-item { border-radius: var(--ui-radius-sm); }
