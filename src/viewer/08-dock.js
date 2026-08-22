@@ -242,6 +242,12 @@ function openMergedView() {
     // did exactly as told and appended there, so answers never reached the cards they answered.
     var path = typeof reviewThreadPath === 'string' ? reviewThreadPath : '';
     var doc = path ? t('mergePrompt.answersFile') + '\n' + path + '\n\n' + text : text;
+    // …and the vocabulary, which is judged in the same pass: the agent has the reviewer's question, its own
+    // answer and the reviewer's response to it in front of it, which is everything "did this land?" needs.
+    // The renderer used to guess that from the shape of the reply, and a guess made of Korean question words
+    // could not have worked in an English review at all (26-terms.js).
+    var terms = (typeof termsState !== 'undefined' && termsState.path) || '';
+    if (terms) doc += '\n\n' + t('mergePrompt.terms') + '\n' + terms;
     var writeRequest = window.kakapoComments && typeof window.kakapoComments.writeRequest === 'function'
       ? window.kakapoComments.writeRequest(doc)
       : Promise.resolve(null);
@@ -373,8 +379,14 @@ function openMergedView() {
   // Registered once (not per-rebuild inside initializeMergedEditor) so a Backspace-delete rebuild never
   // stacks a second copy of either listener.
   host.addEventListener('click', handleMergedClick);
-  // Capture so this wins the race against ProseMirror's own keymap for Alt+Enter/Cmd+A.
-  dock.panel.addEventListener('keydown', handleMergedKeydown, true);
+  // Capture so this wins the race against ProseMirror's own keymap for Alt+Enter/Cmd+A. A key this panel
+  // claimed must also not reach the window keymap: ⌥⏎ and ⏎-on-a-card close the dock synchronously, so by
+  // the time the event bubbles to document the "a dock is focused, stand down" guard (isDockFocused) is
+  // already false — and the still-focused Changes row answered the same keystroke by opening its row menu.
+  dock.panel.addEventListener('keydown', function (event) {
+    handleMergedKeydown(event);
+    if (event.defaultPrevented) event.stopPropagation();
+  }, true);
   document.addEventListener('copy', handleNativeCopy);
   function handlePrunedComments(event) {
     if (validatingCommentFiles) return;
@@ -392,13 +404,24 @@ function openMergedView() {
   // remapComments flags them all "possibly addressed" and mergedBlocks filters them all out — the panel comes
   // up blank while the reviewer can still see their comments sitting in the code. That guess must not silently
   // eat the hand-off document: say what happened and offer the one action that undoes it.
+  //
+  // The other way it comes up blank is now the ORDINARY end of a round: the agent has answered everything and
+  // the reviewer has not written back yet, so mergedBlocks holds every thread (07-comments.js). That is not a
+  // guess to undo, it is a finished conversation — so it gets the same explanation and no button, because the
+  // action is to go and reply to one of the answers.
   function renderAllAddressedNote() {
     if (host.querySelector('.mc-merged-card')) return;
     var flagged = reviewComments.filter(function (c) { return c.addressed; });
-    if (!flagged.length) return;
     var note = document.createElement('div');
     note.className = 'mc-merged-empty-note';
     var label = document.createElement('span');
+    if (!flagged.length) {
+      if (!reviewComments.some(function (c) { return c.by !== 'agent'; })) return; // a review with nothing in it
+      label.textContent = t('merged.allAnswered');
+      note.appendChild(label);
+      host.appendChild(note);
+      return;
+    }
     label.textContent = t('merged.allAddressed').replace('{n}', String(flagged.length));
     var button = document.createElement('button');
     button.type = 'button';
@@ -568,8 +591,18 @@ document.addEventListener('click', function (event) {
   if (reopen) { event.preventDefault(); reopenComment(parseInt(reopen.dataset.seq, 10)); return; }
   // ▶ on a note that carries steps: play its walkthrough (23-annotations.js).
   // A file path inside an agent's prose (linkifyPathCode in 23-annotations.js) navigates to that file.
+  // The (…) standing in for the folded directories is its own control: it unfolds the path rather than
+  // following it. One way only — once the path is open there is nothing left to click to fold it, and a
+  // reader who wanted it open is not asking to put it back.
+  var pathEllipsis = t.closest('.mc-path-ell');
+  if (pathEllipsis) {
+    event.preventDefault();
+    if (pathEllipsis.parentNode) pathEllipsis.parentNode.classList.add('mc-path-open');
+    return;
+  }
+  // dataset.path, not textContent: the folded directory is still in the DOM and the (…) is in there with it.
   var pathCode = t.closest('.mc-path-code');
-  if (pathCode) { event.preventDefault(); openPathReference(pathCode.textContent || ''); return; }
+  if (pathCode) { event.preventDefault(); openPathReference(pathCode.dataset.path || pathCode.textContent || ''); return; }
   // The waiting box at the end of every thread (replyStubHtml) is now the ONLY way in to a reply: it sits
   // where the next turn goes, it is always visible, and it is a keyboard stop. The per-card ↩ in each header
   // opened the same composer on the same card — a second control for one action, in the row where the only
@@ -646,13 +679,11 @@ function checkForUpdate() {
     var status = document.getElementById('app-info-status');
     if (status) status.classList.remove('is-loading');
     if (isNewer(latest, current)) {
-      var flag = document.getElementById('app-update-flag');
-      if (flag) flag.classList.remove('hidden');
       // One-click auto-update needs the Electron main process (it spawns npm). When available, reveal the
       // button so a click installs + restarts; otherwise (browser/static export) name the command instead.
       var ub = document.getElementById('app-info-update');
       if (ub && window.kakapoUpdate && typeof window.kakapoUpdate.run === 'function') {
-        ub.textContent = t('settings.updateRestart') + ' (v' + latest + ')';
+        ub.textContent = t('settings.updateRestart');
         ub.classList.remove('hidden');
         if (status) { status.textContent = t('settings.updateAvailable') + ': v' + latest; status.classList.add('has-update'); }
       } else if (status) {
@@ -706,7 +737,6 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
   if (!modal) return;
   var gearBtn = document.getElementById('app-info-btn');
   var closeBtn = document.getElementById('settings-close');
-  var flag = document.getElementById('app-update-flag');
   var updateBtn = document.getElementById('app-info-update');
   var pta = document.getElementById('settings-prompt-plan');
   var cta = document.getElementById('settings-prompt-c');
@@ -729,13 +759,12 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     if (annotateTa) { annotateTa.value = loadAnnotatePrompt(); annotateTa.placeholder = ''; }
     if (codebaseTa) { codebaseTa.value = loadCodebasePrompt(); codebaseTa.placeholder = ''; }
   }
-  function open(cat) { fill(); if (cat) showCat(cat); modal.classList.remove('hidden'); }
+  function open(cat) { fill(); if (cat) showCat(cat); modal.classList.remove('hidden'); syncMcpAgents(); }
   function close() { modal.classList.add('hidden'); }
   var flashTimer = null;
   function flash() { if (!savedMsg) return; savedMsg.textContent = t('settings.saved'); if (flashTimer) clearTimeout(flashTimer); flashTimer = setTimeout(function () { savedMsg.textContent = ''; }, 1200); }
   if (gearBtn) gearBtn.addEventListener('click', function (e) { e.stopPropagation(); if (modal.classList.contains('hidden')) open('general'); else close(); });
   if (closeBtn) closeBtn.addEventListener('click', close);
-  if (flag) flag.addEventListener('click', function (e) { e.stopPropagation(); open('general'); });
   cats.forEach(function (c) { c.addEventListener('click', function () { showCat(c.dataset.cat); }); });
   modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
   // Settings is the first row of KEY_OWNERS (05-keymap.js), which is what makes its Esc beat the lightbox
@@ -761,7 +790,7 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
       var status = document.getElementById('app-info-status');
       if (status) {
         status.classList.add('has-update', 'is-loading');
-        status.innerHTML = kakapoLoaderHtml('kakapo-loader-inline') + '<span>' + escapeHtml(t('settings.updating')) + '</span>';
+        status.innerHTML = kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(t('settings.updating')) + '</span>';
       }
       window.kakapoUpdate.run().then(function (r) {
         if (r && r.ok) { if (status) { status.classList.remove('is-loading'); status.textContent = t('settings.updated'); } }
@@ -824,6 +853,9 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     function () { return UI_SCALES.map(function (v) { return { value: String(v), label: Math.round(v * 100) + '%' }; }); },
     function () { return String(uiScale); },
     function (next) { applyUiScale(Number(next)); });
+  // The knowledge map's own settings row registers itself from 26-terms.js: its choices are a `var` in that
+  // slice, and a var read from an earlier slice is undefined, not missing — setupCustomSelect renders
+  // immediately, so reading it here threw and took the rest of this boot block with it.
   // ----- theme grid. A theme is one named thing that is ALREADY light or dark — Darcula is a dark theme,
   // IntelliJ Light is a light one; neither has an "appearance" to pick separately. So the grid is a flat
   // list of the four real palettes, plus System, which is the one genuinely automatic choice (it follows

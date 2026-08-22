@@ -740,7 +740,12 @@ test("an agent's answer raises a notification, but re-reading the thread does no
   await v.settle(40);
   assert.equal(v.window.revealComment(answered.seq), true, "and that id is enough to go back to it");
   await v.settle(80);
-  assert.equal(v.$("#source-viewer").dataset.openPath, "AGENTS.md", "the file the exchange is in is open again");
+  // Whichever view can show it: a comment on a changed line goes back in the diff now (revealComment), and
+  // only a line no hunk covers reopens the source file. Either way the exchange is what is on screen.
+  const shown = v.window.isDiffViewVisible()
+    ? v.window.diffWrapperPathKey(v.diffCaretRow()?.closest(".d2h-file-wrapper"))
+    : v.$("#source-viewer").dataset.openPath;
+  assert.equal(shown, "AGENTS.md", "the file the exchange is in is on screen again");
 
   // The same list arriving again (a poll tick, a workspace switch, a reload) is not a second answer.
   v.window.applyThreadRecords(v.window.reviewComments.map(v.window.commentToRecord));
@@ -805,10 +810,11 @@ test("a diagram in an agent's answer is rendered, in a review with no notes at a
   v.close();
 });
 
-// An agent's answer belongs in the thread at the comment's own line, where you asked the question — not in
-// the merged hand-off panel, where a multi-paragraph reply buries the requests you're there to scan and send.
-// The merged card says only that an answer exists.
-test("an agent's answer renders in the thread but is only flagged in the merged panel", async () => {
+// An agent's answer belongs in the thread at the comment's own line, where you asked the question — and the
+// exchange then leaves the hand-off panel entirely. A question the agent has already answered is not a request
+// going back to it: sending it again hands the agent its own finished work as new, every round, and buries
+// whatever the reviewer actually just wrote.
+test("an agent's answer renders in the thread and takes the exchange out of the hand-off", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("AGENTS.md");
   await v.clickSourceLine(4);
@@ -828,23 +834,60 @@ test("an agent's answer renders in the thread but is only flagged in the merged 
   assert.doesNotMatch(thread.textContent, /\*\*/, "no raw markdown syntax leaks through");
 
   await v.openMergedView();
-  const card = v.$(".mc-merged-card");
-  assert.ok(card, "merged card rendered");
-  assert.equal(v.$all('.mc-merged-card').length, 1, 'the agent own reply is not an item in the hand-off');
-  assert.ok(card.querySelector(".mc-answered-tag"), "merged card is flagged as answered instead");
-  assert.match(card.querySelector(".mc-card-body").textContent, /why is this a CLI\?/, "the request itself still shows");
+  assert.equal(v.$all(".mc-merged-card").length, 0, "the answered exchange is not in the hand-off at all");
+  assert.doesNotMatch(v.window.buildMergedText(), /why is this a CLI\?/, "…nor in the document it builds");
+  assert.match(v.$(".mc-merged-empty-note").textContent, /answer/i, "and the empty panel says why it is empty");
   v.close();
 });
 
-test("an unanswered comment carries no answered flag in the merged panel", async () => {
+// The reply is what reopens the conversation: the reviewer's word is the newest turn again, so it goes over —
+// naming the ids it continues rather than re-quoting an answer the thread file already holds.
+test("replying to an answer puts the follow-up — and only the follow-up — back in the hand-off", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("AGENTS.md");
   await v.clickSourceLine(4);
   await v.openComposer("q");
-  await v.writeAndSave("still open");
+  await v.writeAndSave("why is this a CLI?");
 
-  await v.openMergedView();
-  assert.equal(v.$(".mc-merged-card .mc-answered-tag"), null, "no flag until an answer actually arrives");
+  const seq = v.storedComments()[0].seq;
+  v.agentSays({ re: seq, text: "Because it ships as one binary." });
+  await v.settle(60);
+
+  v.click(v.$("#source-body .mc-reply-stub"));
+  await v.settle(40);
+  await v.writeAndSave("then why is the binary 90MB?");
+  await v.settle(60);
+
+  const merged = v.window.buildMergedText();
+  assert.match(merged, /then why is the binary 90MB\?/, "the follow-up is handed over");
+  assert.doesNotMatch(merged, /why is this a CLI\?/, "the question it grew out of is not sent again");
+  assert.doesNotMatch(merged, /ships as one binary/, "and neither is the agent's own answer");
+  assert.match(merged, new RegExp("#" + seq), "the thread it continues is named by id instead");
+
+  // Answer the follow-up too and the whole thread goes quiet again.
+  v.agentSays({ re: v.storedComments().find((c) => c.text.includes("90MB")).seq, text: "Bundled runtimes." });
+  await v.settle(60);
+  assert.doesNotMatch(v.window.buildMergedText(), /90MB/, "an answered follow-up drops out the same way");
+  v.close();
+});
+
+test("an unrelated open comment still goes over while another thread is answered", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("AGENTS.md");
+  await v.clickSourceLine(4);
+  await v.openComposer("q");
+  await v.writeAndSave("why is this a CLI?");
+  v.agentSays({ re: v.storedComments()[0].seq, text: "One binary." });
+  await v.settle(60);
+
+  await v.clickSourceLine(6);
+  await v.openComposer("q");
+  await v.writeAndSave("still open");
+  await v.settle(60);
+
+  const merged = v.window.buildMergedText();
+  assert.match(merged, /still open/, "the unanswered comment is handed over");
+  assert.doesNotMatch(merged, /why is this a CLI\?/, "the answered one is not");
   v.close();
 });
 
@@ -921,9 +964,9 @@ test("a reply continues the thread and carries the earlier exchange to the agent
   const merged = v.window.buildMergedText();
   assert.match(merged, new RegExp(`#${stored[0].seq}, #${stored[1].seq}`), "the hand-off names the turns it continues");
   assert.doesNotMatch(merged, /It ships as one binary\./, "…without re-sending the agent its own answer");
-  assert.equal((merged.match(/why is this a CLI\?/g) || []).length, 1,
-    "the question appears once, as its own open item — not a second time quoted under the follow-up");
-  assert.match(merged, /then why not a library too\?/, "and the follow-up itself is inline");
+  assert.equal((merged.match(/why is this a CLI\?/g) || []).length, 0,
+    "and without the question either: the agent answered it, so it is a turn already taken — the id names it");
+  assert.match(merged, /then why not a library too\?/, "the follow-up itself is inline — it is the only thing new");
   v.close();
 });
 
@@ -980,5 +1023,94 @@ test("a comment with no path is never swept away as a missing file", async () =>
   await v.settle(40);
   assert.ok(!asked.includes(""), "an empty path is never presented as a file to check");
   assert.equal(v.storedComments().length, 2, "and nothing is deleted for not knowing where it goes");
+  v.close();
+});
+
+// REGRESSION: a comment left in the BASE pane on a file the change deletes. commentFileIsKnownMissing reports
+// vcs === 'deleted' as missing and the prune took the whole path with it — so "why did you remove this?", the
+// most natural thing to write on a deleted file, vanished from the merged prompt (and from disk) the moment
+// the panel opened. The base pane is where a deleted file still exists; an old-side anchor is never orphaned.
+test("a base-pane comment on a deleted file survives the merged panel's missing-file prune", async () => {
+  const { html: withDeletion } = await makeReviewHtml([
+    { path: "src/gone.ts", before: "export const gone = 1;\nexport const also = 2;\n" }, // deleted by the change
+    { path: "src/app.ts", before: "export function run() {\n  return 42;\n}\n", after: "export function run() {\n  return 43;\n}\n" },
+  ]);
+  const v = await loadViewer(withDeletion);
+  v.window.addComment("c", "src/gone.ts", 1, "export const gone = 1;", "why remove this?", 1, 1, "old", "export const gone = 1;");
+  v.window.refreshComments();
+  await v.settle(20);
+  assert.equal(v.window.commentFileIsKnownMissing("src/gone.ts"), true, "precondition: the deleted file reads as missing from the working tree");
+
+  await v.openMergedView();
+  assert.equal(v.storedComments().length, 1, "the comment is not deleted from disk on the way in");
+  assert.match(v.window.buildMergedText(), /why remove this\?/, "and it reaches the agent in the hand-off document");
+  assert.ok(v.$(".mc-merged-card"), "the panel shows its card rather than coming up blank");
+  v.close();
+});
+
+// The other half of the same choke point: a working-tree comment on a path that really is gone is still
+// pruned, and pruning one side of a file leaves the base-pane comments on that same file alone.
+test("the missing-file prune still removes working-tree comments, per comment and not per path", async () => {
+  const { html: withDeletion } = await makeReviewHtml([
+    { path: "src/gone.ts", before: "export const gone = 1;\n" },
+    { path: "src/app.ts", before: "export function run() {\n  return 42;\n}\n", after: "export function run() {\n  return 43;\n}\n" },
+  ]);
+  const v = await loadViewer(withDeletion);
+  v.window.addComment("c", "src/gone.ts", 1, "export const gone = 1;", "base side", 1, 1, "old", "export const gone = 1;");
+  v.window.addComment("c", "src/gone.ts", 1, "export const gone = 1;", "working-tree side", 1, 1, "new", "export const gone = 1;");
+  await v.settle(20);
+
+  assert.equal(v.window.pruneCommentsForMissingFiles(), 1, "exactly the one that lost its anchor");
+  assert.deepEqual(v.storedComments().map((c) => c.text), ["base side"], "the base-pane comment on the same file stays");
+  v.close();
+});
+
+// REGRESSION: an agent's answer sat in the app's memory, correctly anchored, and never appeared on screen.
+// renderDiffComments walked every file wrapper in one unguarded loop, and its only agent-driven caller wraps
+// applyThreadRecords in a bare try/catch — so one wrapper throwing aborted the pass, left every file after it
+// showing its previous render, and swallowed the error. Each file renders on its own now.
+test("one file failing to render cannot strand every other file's comments", async () => {
+  const v = await loadViewer(html);
+  await v.openDiffFor("src/app.ts");
+  v.window.addComment("c", "src/app.ts", 2, "  return 43;", "why 43?");
+  v.window.refreshComments();
+  await v.settle(40);
+  assert.deepEqual(v.visibleCardTexts(), ["why 43?"], "precondition: the comment renders normally");
+
+  // Make the FIRST wrapper throw, the way a bad card body would, and confirm the later file still updates.
+  const wrappers = v.$all("#diff2html-container .d2h-file-wrapper");
+  assert.ok(wrappers.length > 1, "precondition: the review has more than one file");
+  Object.defineProperty(wrappers[0], "__mcDiffCommentRenderKey", {
+    get() { throw new Error("boom"); },
+    configurable: true,
+  });
+  v.window.addComment("c", "src/app.ts", 2, "  return 43;", "and the answer to it");
+  v.window.refreshComments();
+  await v.settle(40);
+  assert.ok(v.visibleCardTexts().includes("and the answer to it"),
+    "the second comment reaches the screen even though an earlier file's render blew up");
+  v.close();
+});
+
+// The render key records "this file is painted". Stamping it before the bail-outs meant a file whose body was
+// not materialized yet recorded a render it never performed, so the retry never came.
+test("a file that could not be painted does not record itself as painted", async () => {
+  const v = await loadViewer(html);
+  await v.openDiffFor("src/app.ts");
+  v.window.addComment("c", "src/app.ts", 2, "  return 43;", "paint me");
+  const wrapper = v.$all("#diff2html-container .d2h-file-wrapper")
+    .find((w) => w.querySelector(".d2h-file-name")?.textContent.trim() === "src/app.ts");
+  const body = wrapper.querySelector(".d2h-files-diff");
+  const parked = body.parentNode;
+  body.remove(); // the lazy/unmaterialized body: there are no panes to inject into
+  v.window.refreshComments();
+  await v.settle(40);
+  assert.ok(!String(wrapper.__mcDiffCommentRenderKey).includes("paint me"),
+    "the unpaintable pass must not record itself as having painted this comment");
+
+  parked.appendChild(body); // the body arrives; the next pass must actually render
+  v.window.refreshComments();
+  await v.settle(40);
+  assert.ok(v.visibleCardTexts().includes("paint me"), "the retry paints it instead of trusting a stale key");
   v.close();
 });

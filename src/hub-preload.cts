@@ -86,4 +86,8 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   onToggleExpand: (callback: () => void) => ipcRenderer.on("kakapo:hub-toggle-expand", callback),
   // Main collapses the rail (visual only) when focus returns to the review view.
   onSetExpanded: (callback: (open: boolean) => void) => ipcRenderer.on("kakapo:hub-set-expanded", (_event, open) => callback(open)),
+  // How far the release image has downloaded. The rail's kakapo mark is the only reporting surface — it is
+  // one per app and always on screen, where a per-workspace one was neither.
+  onUpdateProgress: (callback: (payload: { percent: number; done?: boolean }) => void) =>
+    ipcRenderer.on("kakapo:update-progress", (_event, payload) => callback(payload)),
 });

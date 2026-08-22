@@ -27,7 +27,10 @@ export type ThreadRecord = {
   // The two notes that carry a change's story: where it goes wrong ("problem") and where that is beaten
   // ("fix"). Absent on everything else, which is most notes — the point of marking them is that a reviewer
   // with two minutes reads these and stops. The viewer draws them louder (agentCardHtml, 23-annotations.js).
-  role?: "problem" | "fix";
+  role?: "key" | "problem" | "fix"; // "key" is what is written now; the older two still read back as the mark
+  // Which view the reviewer was in when they wrote it, so going back to it goes back THERE. Absent on an
+  // agent's note: a note was never written in a view, and the diff is the right place to read one.
+  view?: "diff" | "source";
   // Which part of the explanation this note belongs to. The reader walks notes group by group, and inside a
   // group in the order they were appended — that order is the argument the agent is making, and it is not the
   // order the lines happen to sit in the file. Absent on a reviewer's own comment, which keeps file order.

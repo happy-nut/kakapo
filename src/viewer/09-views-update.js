@@ -190,6 +190,9 @@ function syncRail() {
   // Explain opens no view of its own — light its rail icon while the agent's notes are on the diff, so the
   // button doubles as "there are notes to read" (23-annotations.js).
   setOn('explain', annotationList().length > 0);
+  // The same two moments the rail cares about are the two the briefing cares about — notes arriving, and the
+  // diff coming into view — so it rides this sync rather than growing hooks of its own (25-briefing.js).
+  syncBriefing();
   // Mirror the same state onto the shell title-bar tools (single-instance app only).
   var term = document.getElementById('terminal-toggle');
   if (window.kakapoMenu && window.kakapoMenu.sendRailState) {
@@ -929,4 +932,77 @@ async function checkForLiveUpdate() {
     function qsChoose(w) { if (!w) return; qsClose(); if (w.id !== qsCurrentId) bridge.activateWorkspace(w.id); }
     bridge.onOpenQuickSwitcher(qsOpen);
   }
+})();
+
+// "Switching workspaces freezes the screen for a few seconds." The main process is not the one blocking —
+// its own trace says the switch costs it ~1-2ms (mainBlockMs) — so the stall is in this renderer, and the
+// only way to tell which of the several things a switch kicks off (rebuild repaint, terminal re-fit, LSP
+// churn) is holding the thread is to measure it where it happens. A 1s heartbeat that reports how late it
+// ran: anything past 1.5s is a stretch where this page answered nothing, and it lands in the same perf trace
+// as review-build-complete, so the two line up by timestamp.
+// A stall used to record only its own length, which says a freeze happened and nothing about what did it —
+// "13.7s, terminal open, 53 files" fits half a dozen suspects, and the next question was always the same one
+// we could not answer. So each mark now carries what was going on immediately before it: what the browser
+// itself blames the long task on, when the last zoom step was (a zoom relayouts the document and refits every
+// terminal), and how many bytes the terminals had just taken. One occurrence should be enough to name it.
+var kakapoActivity = { zoomAt: 0, ptyBytes: 0, ptyAt: 0, longest: null };
+function noteKakapoActivity(kind, amount) {
+  var now = performance.now();
+  if (kind === 'zoom') { kakapoActivity.zoomAt = now; return; }
+  if (kind === 'pty') {
+    if (now - kakapoActivity.ptyAt > 5000) kakapoActivity.ptyBytes = 0;
+    kakapoActivity.ptyAt = now;
+    kakapoActivity.ptyBytes += amount || 0;
+  }
+}
+(function trackMainThreadStalls() {
+  var perf = window.kakapoPerf;
+  if (!perf || typeof perf.mark !== 'function') return;
+  // Long tasks name the frame that blocked (and, where the browser can tell, the container element), which
+  // is the difference between "the renderer stalled" and "the terminal's own frame stalled".
+  // Wrapped rather than feature-tested: `typeof PerformanceObserver` reads as a guard on one of our own
+  // names to the slice checker, and longtask is an entry type Chromium may simply not accept — the throw is
+  // the honest test, and losing the attribution costs nothing else.
+  try {
+    {
+      new PerformanceObserver(function (entries) {
+        entries.getEntries().forEach(function (entry) {
+          if (!kakapoActivity.longest || entry.duration > kakapoActivity.longest.duration) {
+            var blame = (entry.attribution && entry.attribution[0]) || {};
+            kakapoActivity.longest = {
+              duration: Math.round(entry.duration),
+              name: String(entry.name || ''),
+              containerType: String(blame.containerType || ''),
+              containerId: String(blame.containerId || ''),
+              containerName: String(blame.containerName || ''),
+            };
+          }
+        });
+      }).observe({ entryTypes: ['longtask'] });
+    }
+  } catch (e) {}
+  var TICK_MS = 1000, STALL_MS = 1500;
+  var last = performance.now();
+  setInterval(function () {
+    var now = performance.now();
+    var late = now - last - TICK_MS;
+    last = now;
+    if (late >= STALL_MS - TICK_MS) {
+      var worst = kakapoActivity.longest || {};
+      perf.mark('renderer-stall', {
+        blockedMs: Math.round(late + TICK_MS),
+        hidden: document.visibilityState === 'hidden',
+        terminalOpen: !!(window.__kakapoTerminal && typeof window.__kakapoTerminal.isOpen === 'function' && window.__kakapoTerminal.isOpen()),
+        diffFiles: document.querySelectorAll('#diff2html-container .d2h-file-wrapper').length,
+        // Everything below is "what had just happened", so one occurrence names the cause.
+        sinceZoomMs: kakapoActivity.zoomAt ? Math.round(now - kakapoActivity.zoomAt) : -1,
+        ptyBytes: kakapoActivity.ptyBytes,
+        sincePtyMs: kakapoActivity.ptyAt ? Math.round(now - kakapoActivity.ptyAt) : -1,
+        longTaskMs: worst.duration || 0,
+        longTaskIn: (worst.containerType || '') + (worst.containerId ? '#' + worst.containerId : ''),
+        panes: (window.__kakapoTerminal && typeof window.__kakapoTerminal.paneCount === 'function') ? window.__kakapoTerminal.paneCount() : 0,
+      });
+      kakapoActivity.longest = null;
+    }
+  }, TICK_MS);
 })();

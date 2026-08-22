@@ -4,6 +4,80 @@
 // active pane. Cmd combos are released back to the app so shortcuts like Cmd+1 don't get stuck typing.
 // Assigned by setupTerminal; read by the KEY_OWNERS table in 05-keymap.js, which loads first.
 var handleTerminalSendModeKey;
+
+// A file path an agent prints should be as clickable as the URL beside it. Same rule and same action as a
+// path inside an agent's prose: linkifyPathCode's charset test plus PATH_CODE_EXT (23-annotations.js) decide
+// what looks like a file, and openPathReference (07-comments.js) opens it at its `:42`, resolving by exact or
+// suffix match — so an absolute path inside the workspace works too. A path this workspace does not have
+// stays inert and says so: terminal output is untrusted, and app-path-ipc.ts deliberately refuses to hand it
+// to the OS (see externalUrl there, which rejects file:// for exactly this reason).
+function terminalPathToken(text) {
+  var bare = text.replace(/:\d+$/, '');
+  return text.length < 200 && /^[A-Za-z0-9_@.\-/]+$/.test(bare) && PATH_CODE_EXT.test(bare);
+}
+// A wrapped row is a continuation, not a line of its own, and half a path resolves to nothing. Rebuild the
+// whole logical line the hovered row belongs to, the way the web-links addon does before matching URLs.
+function terminalLogicalLine(term, row) {
+  var buffer = term.buffer.active;
+  var start = row, end = row, line;
+  while (start > 0 && (line = buffer.getLine(start)) && line.isWrapped) start--;
+  while ((line = buffer.getLine(end + 1)) && line.isWrapped && end - start < 32) end++;
+  var text = '';
+  for (var y = start; y <= end; y++) {
+    line = buffer.getLine(y);
+    if (line) text += line.translateToString(true);
+  }
+  return { start: start, text: text };
+}
+// String index -> buffer cell. A row's string is not its columns — a CJK glyph is one character across two of
+// them, and this terminal carries Korean agent output — so an underline drawn at the string offset lands in
+// the wrong place. Walk cells instead, same as the addon's own _mapStrIdx.
+function terminalCellForIndex(term, startRow, startCol, remaining) {
+  var buffer = term.buffer.active;
+  var cell = buffer.getNullCell();
+  var last = null;
+  for (var y = startRow, x = startCol; ; y++, x = 0) {
+    var line = buffer.getLine(y);
+    // Locating the END of a run means finding the cell one PAST its last character, and that cell does not
+    // exist when the run reaches the last row of the buffer. Answer with the column just past the last cell
+    // we did see — dropping the link is how a path printed as the terminal's final line, which is where an
+    // agent's paths land, stayed stubbornly unclickable while the same path mid-scrollback worked.
+    if (!line) return last && { x: last.x + 1, y: last.y };
+    for (; x < line.length; x++) {
+      line.getCell(x, cell);
+      if (cell.getWidth()) remaining -= cell.getChars().length || 1;
+      if (remaining < 0) return { x: x, y: y };
+      last = { x: x, y: y };
+    }
+  }
+}
+function terminalPathLinkProvider(term) {
+  return {
+    provideLinks: function (row, callback) {
+      var logical = terminalLogicalLine(term, row - 1); // provideLinks counts rows from 1, the buffer from 0
+      var links = [];
+      logical.text.split(/(\s+)/).reduce(function (index, token) {
+        if (token.trim() && terminalPathToken(token)) {
+          var from = terminalCellForIndex(term, logical.start, 0, index);
+          var to = from && terminalCellForIndex(term, from.y, from.x, token.length);
+          if (from && to) {
+            links.push({
+              range: { start: { x: from.x + 1, y: from.y + 1 }, end: { x: to.x, y: to.y + 1 } },
+              text: token,
+              activate: function (event, path) {
+                if (event && event.button !== 0) return; // a middle/right click keeps its native meaning
+                openPathReference(path);
+              },
+            });
+          }
+        }
+        return index + token.length;
+      }, 0);
+      callback(links.length ? links : undefined);
+    },
+  };
+}
+
 (function setupTerminal() {
   if (!window.kakapoPty) return; // xterm (window.Terminal) is loaded lazily on first open
   var panel = document.getElementById('terminal-panel');
@@ -36,6 +110,16 @@ var handleTerminalSendModeKey;
   // Panes with an IME composition in flight (Hangul/Kana/Pinyin mid-syllable). Interrupting one commits the
   // partial input, so a refresh must wait however long the composition takes — no timeout can bound it.
   var composingPanes = new Set();
+  // ---- why a syllable broke, recorded while it was breaking -------------------------------------------
+  // The jamo failure is a RACE, so it cannot be reproduced on demand and cannot be read off a stack trace
+  // after the fact: by the time ㄱ ㅏ is on screen, whatever moved the terminal under the composition has
+  // already finished. So each composition carries a tally of what happened during it, and the commit itself
+  // is checked — a committed run containing Hangul JAMO (U+1100 block, or the compatibility block a partial
+  // commit lands in) is a syllable that was cut in half, and nothing else produces one.
+  // Read it with `__kakapoTerminal.imeLog()` in the review window's devtools; the last split also warns.
+  var JAMO_CODEPOINTS = /[\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uD7B0-\uD7FF]/;
+  var imeLog = [];        // newest last, capped — a session's worth of compositions is not worth keeping
+  var imeNow = null;      // the composition in flight, or null
   // Double-Esc window for closing the panel out of a fullscreen TUI (see the key handler below).
   var MAX_PANES = 4;
   var heightKey = 'kakapo-terminal-height';
@@ -55,8 +139,17 @@ var handleTerminalSendModeKey;
   // expensive half was never the one being counted. Sent per pane, since a split moves only some of them.
   function fitPane(p) {
     if (!p) return;
+    // A pane with no size on screen has no grid to measure, and the fit addon answers anyway — with whatever
+    // its arithmetic makes of zero, which then goes to the pty as a real resize. tmux redraws its window to
+    // that shape, and the shape survives the pane coming back: the layout stays broken until the session is
+    // restarted. It happens whenever the panel is measured while it is not being shown — a workspace being
+    // switched away from, a zoom step arriving at a hidden view — so the measurement is simply skipped there
+    // and taken again when the pane has a size.
+    var host = p.host || (p.term && p.term.element);
+    if (host && (!host.clientWidth || !host.clientHeight)) return;
     try {
       p.fit.fit();
+      if (!(p.term.cols > 1 && p.term.rows > 1)) return; // a degenerate grid is not worth telling anyone about
       if (p.id == null) return;
       if (p.sentCols === p.term.cols && p.sentRows === p.term.rows) return;
       p.sentCols = p.term.cols;
@@ -81,7 +174,7 @@ var handleTerminalSendModeKey;
       // switch INTO fires its ResizeObserver as it becomes visible again: exactly when you arrive at an
       // already-open terminal and start typing, which is how Korean came out as ㄱㅏㄴㅏㄷㅏ there. Held until
       // the syllable commits (compositionend/blur below), never dropped.
-      if (composingPanes.size) { fitDeferred = true; return; }
+      if (composingPanes.size) { fitDeferred = true; if (imeNow) imeNow.fitsHeld++; return; }
       fitAll();
     });
   }
@@ -167,6 +260,10 @@ var handleTerminalSendModeKey;
       }));
     } catch (e) {}
   }
+  function loadPathLinks(term) {
+    if (typeof term.registerLinkProvider !== 'function') return;
+    try { term.registerLinkProvider(terminalPathLinkProvider(term)); } catch (e) {}
+  }
   // Every pane lives in a CELL: the panel is a row of cells, and a cell is a column of panes. One level of
   // nesting is what makes "split the pane I am in" expressible — a single flex axis for the whole panel meant
   // a stacked split re-oriented every pane at once (the old is-column class).
@@ -193,6 +290,64 @@ var handleTerminalSendModeKey;
     // bought nothing measurable and raced the next composition: type quickly enough and the deferred clear
     // landed after the following composition had already begun, wiping a value only it still held.
   }
+  // THE ANCHOR MUST NOT MOVE. While a composition is live, xterm re-points its helper textarea at the buffer
+  // cursor on a 0ms loop (CompositionHelper.updateCompositionElements: it writes textarea.style.left/top from
+  // buffer.x/buffer.y and re-schedules itself until the composition ends). The textarea is what the macOS
+  // input context is attached to, so an agent pouring output — every line moving the cursor — drags the
+  // anchor out from under a half-built syllable many times a second, and macOS answers by committing it: 가
+  // arrives as ㄱ ㅏ. Switching workspace does the same thing once, through changed cell dimensions.
+  //
+  // The earlier attempt at this held the OUTPUT instead and had to be reverted (see the onData comment): a
+  // Hangul composition runs to the end of the word, so holding until compositionend hid the reviewer's own
+  // echo until they pressed space. Nothing is held here. The output renders exactly as it always did; only
+  // the anchor stays where the composition started, which is where the reader is looking anyway.
+  //
+  // Reaching into the private helper is deliberate and already the house style here (takeCompositionCommit).
+  // If a future xterm changes the shape, this does nothing and the old behaviour is back — never a throw.
+  // Close out the composition in flight and, if what it committed is a broken syllable, say so at the moment
+  // it broke — with everything that was happening to the terminal while it did. `blur` passes no event: the
+  // composition was abandoned rather than committed, which is its own way of splitting one.
+  function noteCompositionEnd(event) {
+    if (!imeNow) return;
+    var entry = imeNow;
+    imeNow = null;
+    entry.data = event && typeof event.data === 'string' ? event.data : '';
+    entry.abandoned = !event;
+    entry.ms = Date.now() - entry.at;
+    entry.split = JAMO_CODEPOINTS.test(entry.data);
+    imeLog.push(entry);
+    if (imeLog.length > 30) imeLog.shift();
+    // Loud on purpose, and only here: this line is the whole point of the tally. It fires when a syllable was
+    // actually cut, never on ordinary typing, so a quiet console means the terminal is behaving.
+    if (entry.split) {
+      try {
+        console.warn('[kakapo:ime] a syllable was committed as jamo — ' + JSON.stringify(entry)
+          + ' (writes = output that arrived mid-composition, anchorPins = anchor drags stopped,'
+          + ' fitsHeld = re-flows deferred)');
+      } catch (e) {}
+    }
+  }
+  function pinCompositionAnchor(term) {
+    var core = term && term._core;
+    var helper = core && core._compositionHelper;
+    var textarea = term && term.textarea;
+    if (!helper || !textarea || typeof helper.updateCompositionElements !== 'function') return;
+    if (helper.__kakapoAnchorPinned) return;
+    helper.__kakapoAnchorPinned = true;
+    var reposition = helper.updateCompositionElements.bind(helper);
+    var pinned = null;
+    helper.updateCompositionElements = function (dontRecurse) {
+      reposition(dontRecurse);
+      if (!helper._isComposing) { pinned = null; return; }
+      // The first pass of a composition places the anchor; every pass after it is the drag we are here to stop.
+      if (!pinned) { pinned = { left: textarea.style.left, top: textarea.style.top }; return; }
+      if (textarea.style.left !== pinned.left || textarea.style.top !== pinned.top) {
+        if (imeNow) imeNow.anchorPins++;
+        textarea.style.left = pinned.left;
+        textarea.style.top = pinned.top;
+      }
+    };
+  }
   function makePane(cell, restoreOrdinal) {
     if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw
     var el = document.createElement('div');
@@ -213,14 +368,15 @@ var handleTerminalSendModeKey;
     var fit = new window.FitAddon.FitAddon();
     term.loadAddon(fit);
     loadWebLinks(term);
+    loadPathLinks(term); // after the URL provider, so a URL is still a URL and not its trailing filename
     term.open(paneHost);
     // restoreOrdinal has to be on the pane BEFORE the spawn below: this used to be assigned by restorePanes()
     // after makePane() returned, so every restored pane spawned with `ordinal: undefined` and main handed out
     // the lowest FREE one instead. With sessions 1 and 3 alive (any pane but the last closed), the restore
     // attached to 1, then created a brand-new session 2 — leaving 3 orphaned and running. The next launch saw
     // three sessions and restored three panes, one of them empty, and the count grew again every time.
-    var pane = { id: null, term: term, fit: fit, el: el, labelEl: labelEl, restoreOrdinal: restoreOrdinal,
-      name: 'Terminal ' + (panes.length + 1) };
+    var pane = { id: null, term: term, fit: fit, el: el, host: paneHost, labelEl: labelEl,
+      restoreOrdinal: restoreOrdinal, name: 'Terminal ' + (panes.length + 1) };
     labelEl.textContent = pane.name;
     // From the moment the rectangle exists it is a rectangle that is waiting. The panel-wide overlay covered
     // the sliver before any pane existed (main still listing the surviving sessions); now that there is a
@@ -285,7 +441,12 @@ var handleTerminalSendModeKey;
     // ㄱ ㅏ. This is why the breakage was intermittent — it needed a refresh to land mid-syllable.
     if (term.textarea) {
       term.textarea.addEventListener('keydown', function () { lastInputAt = Date.now(); }, true);
-      term.textarea.addEventListener('compositionstart', function () { composingPanes.add(pane); lastInputAt = Date.now(); });
+      term.textarea.addEventListener('compositionstart', function () {
+        composingPanes.add(pane);
+        lastInputAt = Date.now();
+        pinCompositionAnchor(term);
+        imeNow = { at: Date.now(), writes: 0, bytes: 0, fitsHeld: 0, anchorPins: 0, panes: panes.length, data: '' };
+      });
       term.textarea.addEventListener('compositionupdate', function () { lastInputAt = Date.now(); });
       // xterm commits a composition by slicing its textarea with offsets recorded while the composition ran
       // (start at compositionstart, end on a setTimeout after each update). A macOS Hangul composition runs
@@ -299,8 +460,15 @@ var handleTerminalSendModeKey;
         lastInputAt = Date.now();
         takeCompositionCommit(term, event);
         flushDeferredFit();
+        noteCompositionEnd(event);
       });
-      term.textarea.addEventListener('blur', function () { composingPanes.delete(pane); flushDeferredFit(); });
+      // A composition the pane never got to finish — focus left mid-syllable, which is itself a way to split
+      // one. Closed out here so the log never shows it as still running.
+      term.textarea.addEventListener('blur', function () {
+        composingPanes.delete(pane);
+        if (imeNow) noteCompositionEnd(null);
+        flushDeferredFit();
+      });
     }
     // Bell from the pane's TUI (e.g. Claude Code finished a turn / needs input): badge the pane when it isn't
     // the one you're looking at, and ask the main process to raise a native notification when the whole window
@@ -442,7 +610,16 @@ var handleTerminalSendModeKey;
   // it cannot be one that withholds output for the duration of a composition.
   window.kakapoPty.onData(function (msg) {
     for (var k = 0; k < panes.length; k++) {
-      if (panes[k].id === msg.id) { noteConnectingOutput(panes[k]); panes[k].term.write(msg.data); return; }
+      if (panes[k].id === msg.id) {
+        // Counted, never queued: output arriving mid-composition is the commonest thing happening while a
+        // syllable breaks, and this count is how the log gets to say so.
+        if (imeNow) { imeNow.writes++; imeNow.bytes += (msg.data || '').length; }
+        // What the terminals had just taken, so a renderer stall can say whether it was drowning in output
+        // (a tmux repaint after a resize is thousands of bytes) — see trackMainThreadStalls.
+        noteKakapoActivity('pty', (msg.data || '').length);
+        noteConnectingOutput(panes[k]); panes[k].term.write(msg.data);
+        return;
+      }
     }
   });
   window.kakapoPty.onExit(function (msg) { removePane(msg.id); });
@@ -689,6 +866,9 @@ var handleTerminalSendModeKey;
     typingAt: function () { return lastInputAt; },
     // True while an IME syllable is still being assembled in some pane.
     isComposing: function () { return composingPanes.size > 0; },
+    // The last 30 compositions and what the terminal was doing during each. `split: true` marks one that came
+    // out as jamo. Read from the review window's devtools: __kakapoTerminal.imeLog()
+    imeLog: function () { return imeLog.slice(); },
     open: function () { setOpen(true); },
     // Called when the app's theme family changes (see applyTheme in 01-core.js).
     retheme: applyTerminalTheme,

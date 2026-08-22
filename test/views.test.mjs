@@ -607,6 +607,24 @@ test("mouse change selection focuses the clicked row without moving the sidebar"
   v.close();
 });
 
+// F7/F8 move the caret into the code, so the sidebar has to let go of BOTH cursors. It gave up the logical
+// one and kept the native focus a click had put on the row, leaving the panel focused after the reader left it.
+test("F7/F8 hand the sidebar's focus back to the code, including the DOM focus a click took", async () => {
+  for (const key of ["F7", "F8"]) {
+    const v = await loadViewer(html);
+    const change = v.$('.change-row[data-file="src/app.ts"]');
+    v.click(change);
+    await v.settle(80);
+    assert.equal(v.document.activeElement, change, `${key}: the clicked row starts with real DOM focus`);
+
+    v.key(key);
+    await v.settle(60);
+    assert.equal(v.$(".tree-focus"), null, `${key}: no row keeps the logical tree cursor`);
+    assert.equal(v.document.activeElement.closest(".sidebar"), null, `${key}: no row keeps native focus either`);
+    v.close();
+  }
+});
+
 test("Cmd+0 focuses Changes from content, then toggles its sidebar without losing the diff", async () => {
   const v = await loadViewer(html);
   await v.openDiffFor("src/app.ts");
@@ -1511,7 +1529,7 @@ test("window-level shortcuts are one table with one scope rule, and a modal is w
 
   const table = keymap.match(/var WINDOW_SHORTCUTS = \[[\s\S]*?\n\];/)?.[0];
   assert.ok(table, "the table exists");
-  for (const code of ["Quote", "Slash", "KeyP", "KeyN", "Digit9", "Digit8", "Digit7", "Digit0", "Digit1", "KeyZ"]) {
+  for (const code of ["Quote", "Slash", "KeyP", "KeyN", "Digit9", "Digit8", "Digit0", "Digit1", "KeyZ"]) {
     assert.ok(table.includes(`code: '${code}'`), `${code} is a row, not a branch`);
   }
   // Every row matches by code first, so a non-US layout or an IME can never swallow a combo.

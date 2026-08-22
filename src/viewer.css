@@ -676,11 +676,15 @@ body.native-app .source-tabs,
 body.native-app .source-toolbar {
   -webkit-app-region: drag;
 }
+/* Everything in these bars that answers a click has to opt OUT of the drag region: inside a drag region the
+   window takes the press and the click never reaches the page. The file tabs are plain <div>s (the <button>
+   in them is the × close), so only closing a tab worked — clicking a tab to open its file did nothing at all. */
 body.native-app .diff-toolbar button,
 body.native-app .diff-toolbar input,
 body.native-app .diff-toolbar select,
 body.native-app .source-tabs button,
 body.native-app .source-tabs [tabindex],
+body.native-app .source-tabs .source-tab,
 body.native-app .source-toolbar button,
 body.native-app .source-toolbar input,
 body.native-app .source-toolbar select {
@@ -827,35 +831,9 @@ body.native-app .source-tabs {
   cursor: pointer;
 }
 .hidden { display: none !important; }
-.sidebar-footer {
-  flex: 0 0 auto;
-  padding: 8px 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border-top: 1px solid var(--border);
-  font-size: 11px;
-}
-.sidebar-footer .app-version {
-  margin-right: auto; display: inline-flex; align-items: center; gap: 6px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.app-version .kakapo-mark { width: 28px; height: 28px; }
-/* Downloading an update: the mark itself becomes the gauge. A conic-gradient ring sweeps around it as the
-   bytes arrive, and the logo greys out underneath so "something is happening here" reads before the ring
-   does. Costs no layout — nothing moves, nothing appears beside it — which is the point: the reviewer is
-   mid-review and the update is not the thing they are doing. Everything keys off one --update-progress
-   percentage set by applyUpdateProgress; with the class off, none of this applies and it is just the logo. */
-.app-version.is-updating { position: relative; }
-.app-version.is-updating .kakapo-mark { opacity: 0.35; }
-.app-version.is-updating::before {
-  content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
-  width: 28px; height: 28px; border-radius: 50%; pointer-events: none;
-  background: conic-gradient(var(--active) var(--update-progress, 0%), transparent 0);
-  /* Ring, not pie: the logo has to stay recognisable under it. */
-  -webkit-mask: radial-gradient(circle, transparent 0 9px, #000 10px);
-  mask: radial-gradient(circle, transparent 0 9px, #000 10px);
-}
+/* Static export only: with no rail to put it in, the version stays in the sidebar header. The Electron app
+   shows it once, at the foot of the rail (#railver in shell-pages.ts), where the update ring lives too. */
+.app-version .kakapo-mark { width: 16px; height: 16px; }
 .app-version-text { overflow: hidden; text-overflow: ellipsis; }
 .analysis-status {
   min-width: 0; display: inline-flex; align-items: center; gap: 5px;
@@ -885,13 +863,11 @@ body.native-app .source-tabs {
 .brand-meta { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
 .sidebar-brand .brand-reveal { margin-left: 8px; }
 .brand-meta .app-version { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; white-space: nowrap; }
-.brand-meta .app-version .kakapo-mark { width: 16px; height: 16px; }
 .brand-meta .app-version-text { font-variant-numeric: tabular-nums; }
 .brand-meta .analysis-status { gap: 0; }
 .brand-meta .analysis-status .analysis-status-label { display: none; }
 .brand-meta .analysis-status .analysis-status-dot { width: 8px; height: 8px; opacity: .9; }
 @keyframes analysis-pulse { 50% { opacity: .25; transform: scale(.78); } }
-.app-update-flag { color: var(--active); font-weight: 600; cursor: pointer; white-space: nowrap; }
 .settings-btn {
   flex: none;
   border: 1px solid transparent;
@@ -918,10 +894,13 @@ body.native-app .source-tabs {
 }
 .app-info-head { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
 .app-info-head .app-info-ver { color: var(--muted); font-weight: 500; }
-.app-info-status { margin-bottom: 10px; }
-.app-info-status.is-loading { display: flex; align-items: center; gap: 8px; }
+.app-info-status.is-loading { display: flex; align-items: center; gap: 6px; }
+/* A 22px bird beside an 11.5px line of text is a mark, not a spinner: it out-weighed the sentence it was
+   waiting on. Scaled to the line it sits in. */
+.app-info-status .kakapo-loader-micro { width: 15px; height: 15px; }
+.app-info-status .kakapo-loader-micro .kakapo-mark { width: 15px; height: 15px; }
 .app-info-status.has-update { color: var(--active); font-weight: 600; }
-.app-info-update { width: 100%; margin: 0 0 10px; border-color: var(--active); color: var(--active); font-weight: 600; }
+.app-info-update { flex: none; border-color: var(--active); color: var(--active); font-weight: 600; }
 .app-info-update:hover { background: color-mix(in srgb, var(--active) 14%, transparent); color: var(--active); }
 .app-info-update:disabled { opacity: 0.55; cursor: default; }
 .app-info-keys { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
@@ -1861,15 +1840,23 @@ h1 { margin: 0; font-size: 18px; }
    not one of the pill's three — because this is the state the pill's rule did not cover: those three colour
    what the app chose FOR you, and the two it leaves neutral are the ones you picked with the control right in
    front of you. A commit opened from Cmd+9 is neither: you chose it, in a panel that then closed. */
+/* The mark and the sha are ONE thing — an icon naming what the hash beside it is — so they sit tighter than
+   the breadcrumb's own 5px. The icon's 12px box already carries about 4px of empty air to the right of its
+   ink, and adding a full gap on top of that pushed the glyph away from the hash it belongs to. */
 .crumb-commit {
-  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  display: inline-flex; align-items: center; gap: 2px; flex: none;
   color: var(--commit-accent); font-weight: 650;
 }
 .crumb-commit svg { flex: none; }
 .crumb-sha { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
 /* The subject gives up its width first: the file path is what the rest of the toolbar is about, and a title
-   that has pushed the filename off the end has stopped being context and become the content. */
-.crumb-subject { color: var(--muted); font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+   that has pushed the filename off the end has stopped being context and become the content.
+   It also needs more room than the 5px the breadcrumb gives every gap: the sha and the subject are two
+   different things, and at 5px "b91ab3c" and "fix(turtle): …" read as one run-on token with no space in it. */
+.crumb-subject {
+  margin-left: 6px; color: var(--muted); font-weight: 500;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+}
 .crumb-count {
   flex: none; font-size: 10px; font-weight: 700; color: var(--commit-accent);
   border: 1px solid color-mix(in srgb, var(--commit-accent) 45%, transparent);
@@ -2429,6 +2416,21 @@ h1 { margin: 0; font-size: 18px; }
   box-sizing: border-box;
   padding: 4px 12px 8px 0;
 }
+/* Mirror image for the base pane, whose one gutter layer floats at the pane's RIGHT edge instead. A card
+   anchored to a deleted line lives here, and without this it kept the plain .mc-card width on the wide
+   max-content canvas — so the opaque gutter (z-index 3) painted over its right edge and the box read as
+   cut in half. Same 74px budget as the other pane: 12px padding + the 52px gutter + 10px of daylight. */
+.mc-layered-diff-side:first-child .mc-comment-row > .mc-thread-cell {
+  box-sizing: border-box;
+  padding: 4px 0 8px 12px;
+}
+.mc-layered-diff-side:first-child .mc-comment-row .mc-card {
+  position: sticky;
+  left: 12px;
+  z-index: 2;
+  width: min(760px, calc(100cqw - 74px));
+  max-width: calc(100cqw - 74px);
+}
 .mc-layered-diff-side:last-of-type .mc-comment-row .mc-card {
   position: sticky;
   left: 62px;
@@ -2473,14 +2475,6 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-card.mc-addressed { opacity: 0.6; }
 .mc-card.mc-addressed .mc-card-body { text-decoration: line-through; text-decoration-color: var(--muted); }
 .mc-addressed-tag { font: 10px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0 5px; line-height: 15px; white-space: nowrap; }
-/* The merged panel's stand-in for an answer body: same chip as .mc-addressed-tag, tinted with the answer's
-   own accent so "answered" reads at a glance without the panel carrying the whole reply. */
-.mc-answered-tag {
-  font: 10px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap;
-  color: var(--active); border: 1px solid color-mix(in srgb, var(--active) 45%, transparent);
-  background: color-mix(in srgb, var(--active) 10%, transparent);
-  border-radius: 6px; padding: 0 5px; line-height: 15px;
-}
 .mc-reopen { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 1px 5px; border-radius: 0; }
 .mc-reopen:hover { color: var(--active); background: color-mix(in srgb, var(--active) 16%, transparent); }
 /* One conversation, one box. A reply — already written, being written, or the empty box waiting for the next
@@ -2526,6 +2520,19 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 /* A file path an agent named in prose is a link: same inline-code chrome, plus the affordance. */
 .mc-path-code { cursor: pointer; text-decoration: underline dotted currentColor; text-underline-offset: 2px; }
 .mc-path-code:hover { color: var(--active); text-decoration-style: solid; }
+/* The directories are in the DOM the whole time — folded, not dropped, so unfolding is a class and the text
+   is still selectable and searchable once it is open. */
+.mc-path-code .mc-path-dir { display: none; }
+.mc-path-code.mc-path-open .mc-path-dir { display: inline; }
+.mc-path-code.mc-path-open .mc-path-ell { display: none; }
+/* A real <button>, so Enter and Space unfold it without a key handler of our own. It sits inside the link and
+   does something else, so it carries no underline — the break in the rule is what says it is its own control. */
+.mc-path-ell {
+  font: inherit; color: inherit; background: none; border: 0; padding: 0;
+  cursor: pointer; text-decoration: none; vertical-align: baseline;
+}
+.mc-path-ell:hover { color: var(--active); }
+.mc-path-ell:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; }
 .mc-card-body { padding: 2px 12px 11px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* An agent-written explanation or answer (23-annotations.js) is a comment the agent left, so it wears the
    same card shell. What it does NOT share is the background: in a thread that alternates reviewer → agent →
@@ -2566,19 +2573,12 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 /* The key name appears only while that button is under the cursor, so the row stays two glyphs wide at rest. */
 .mc-walk-step::after { content: ""; font-size: 9.5px; letter-spacing: .5px; color: var(--muted); }
 .mc-walk-step:hover::after { content: attr(data-keyhint); }
-.mc-walk {
-  font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums;
-  color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; white-space: nowrap;
-}
-.mc-walk-first { color: var(--active); border-color: color-mix(in srgb, var(--active) 45%, transparent); background: color-mix(in srgb, var(--active) 14%, transparent); font-weight: 700; }
 .mc-role {
   font-size: 9.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
   padding: 1px 6px; border-radius: 4px; border: 1px solid currentColor; white-space: nowrap;
 }
-.mc-card.mc-role-problem { border-left: 3px solid var(--diag-error); }
-.mc-card.mc-role-problem .mc-role { color: var(--diag-error); }
-.mc-card.mc-role-fix { border-left: 3px solid var(--add-strong); }
-.mc-card.mc-role-fix .mc-role { color: var(--token-string); }
+.mc-card.mc-role-key { border-left: 3px solid var(--active); }
+.mc-card.mc-role-key .mc-role { color: var(--active); }
 /* Prose, not a code snippet: undo .mc-card-body's pre-wrap (markdown supplies its own block structure) and
    let .markdown-body typography take over. */
 .mc-ai-body { white-space: normal; font: 12.5px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -3592,8 +3592,7 @@ body.native-app .sidebar.mc-panel-focus-flash::after {
    applied only to navigation, controls, dialogs, and writing/inspection surfaces so the UI hierarchy reads
    immediately without making the editor canvas loud. */
 .activity-rail,
-.sidebar,
-.sidebar-footer {
+.sidebar {
   background: var(--chrome-bg);
   color: var(--chrome-text);
   border-color: var(--chrome-border);
@@ -3602,7 +3601,6 @@ body.native-app .sidebar.mc-panel-focus-flash::after {
 .sidebar-brand .brand-project,
 .analysis-status.is-ready { color: var(--chrome-text); }
 .brand-branch,
-.sidebar-footer,
 .analysis-status,
 .live-status,
 .count { color: var(--chrome-muted); }
@@ -3967,7 +3965,7 @@ body.native-app .source-tabs {
   body:has(.sidebar-resizer.resizing) { transition: none; }
   /* Keep child layout at the remembered width while the grid track clips it closed. Otherwise every file
      row reflows through dozens of intermediate widths and the animation appears to stutter. */
-  .sidebar-brand, .sidebar-scroll, .sidebar-footer { width: var(--sidebar-width, 264px); }
+  .sidebar-brand, .sidebar-scroll { width: var(--sidebar-width, 264px); }
   body.sidebar-collapsed { grid-template-columns: var(--rail-width) 0 minmax(0, 1fr); }
   /* While the workspace rail slides open/closed the shell resizes this whole view every frame. The sidebar's
      children are already width-pinned above, but the diff (content) column is 1fr, so it re-wraps through dozens
@@ -4237,3 +4235,331 @@ body.workspace-view.sidebar-collapsed .content { grid-column: 3; grid-row: 1; }
    unmounts the card it was started from. Bottom-right, clear of the caret hint and the terminal panel. */
 /* The step's lines, in whichever view is showing them. A left bar carries the "you are here" — a background
    tint alone is lost against a diff row that already has one (added/removed green and red). */
+
+/* ===== The Explain briefing (25-briefing.js) ==============================================================
+   A panel with a beak, not a balloon: it is 52vw wide because page two carries two AS IS / TO BE diagrams and
+   they need the room. The beak is what makes it worth pointing — it says which file to start in without a
+   sentence having to spell out a path.
+
+   HEIGHT IS FIXED, and that is load-bearing. A panel sized by its content grows on the diagram page, walks
+   off the row it is pointing at, and the reader has to work out what it was ever about; the cap also keeps it
+   inside the window, without which the position clamp goes negative and the beak points at nothing. Short
+   pages leave air. That is the cheaper cost. */
+.mc-brf {
+  position: fixed;
+  z-index: 74;
+  width: min(52vw, 648px);
+  height: calc(100vh - 40px);
+  max-height: 648px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--chrome-panel);
+  color: var(--chrome-text);
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--ui-radius-xl);
+  box-shadow: var(--ui-shadow-float);
+}
+/* No row to point at (sidebar collapsed, or the Files tab is open): centre it and drop the beak rather than
+   aim it at nothing. */
+.mc-brf.mc-brf-nobeak { left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.mc-brf::before,
+.mc-brf::after {
+  content: "";
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  top: calc(var(--mc-brf-beak, 50%) - 10px);
+}
+.mc-brf::before { left: -9px; border-right: 9px solid var(--chrome-border); }
+.mc-brf::after { left: -8px; border-right: 8px solid var(--chrome-panel); }
+.mc-brf.mc-brf-nobeak::before,
+.mc-brf.mc-brf-nobeak::after { display: none; }
+/* The scrim stops at the sidebar: the rows the last page lights up are the thing being pointed at, and
+   dimming them by 45% would answer "look here" in a whisper. */
+.mc-brf-scrim { position: fixed; inset: 0; z-index: 72; background: color-mix(in srgb, #000 45%, transparent); }
+body:has(#mc-briefing) .sidebar { z-index: 73; }
+
+.mc-brf-top { flex: none; padding: 15px 20px 14px; border-bottom: 1px solid var(--ui-border-soft); }
+.mc-brf-kicker {
+  display: flex; align-items: center; gap: 8px;
+  font: 700 10.5px/1 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: .11em; text-transform: uppercase; color: var(--chrome-muted);
+}
+.mc-brf-of { margin-left: auto; letter-spacing: .04em; }
+.mc-brf-h { margin: 7px 0 0; font-size: 16.5px; font-weight: 650; line-height: 1.4; letter-spacing: -.01em; text-wrap: balance; }
+/* Three pages exist so that none of them scrolls — the split IS the budget. `auto` rather than `hidden` so a
+   note that overruns degrades to a scroll instead of being silently cut; but a page that needs the scrollbar
+   has too much on it, and what wants fixing then is the prompt, not this box. */
+.mc-brf-body { flex: 1; min-height: 0; overflow: auto; padding: 15px 20px 12px; font-size: 13.5px; line-height: 1.68; }
+.mc-brf-body h3 { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--chrome-muted); }
+.mc-brf-foot {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 11px 16px 11px 20px; border-top: 1px solid var(--ui-border-soft);
+}
+.mc-brf-sp { flex: 1; }
+.mc-brf-dots { display: flex; align-items: center; gap: 6px; }
+.mc-brf-dot {
+  width: 22px; height: 5px; padding: 0; border: 0; border-radius: 3px; cursor: pointer;
+  background: var(--chrome-border); transition: background 130ms ease, width 130ms ease;
+}
+.mc-brf-dot:hover { background: var(--chrome-muted); }
+.mc-brf-dot[aria-current="true"] { width: 30px; background: var(--active); }
+.mc-brf-dot:focus-visible { outline: 2px solid var(--active); outline-offset: 2px; }
+.mc-brf-go {
+  font: inherit; font-size: 12.5px; font-weight: 620; cursor: pointer;
+  border-radius: var(--ui-radius-md); padding: 6px 13px;
+  border: 1px solid color-mix(in srgb, var(--active) 55%, transparent);
+  background: color-mix(in srgb, var(--active) 18%, transparent); color: var(--chrome-text);
+}
+.mc-brf-go:hover { background: color-mix(in srgb, var(--active) 28%, transparent); }
+.mc-brf-go:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; }
+.mc-brf-go.mc-brf-quiet { border-color: var(--chrome-border); background: transparent; color: var(--chrome-muted); font-weight: 520; }
+.mc-brf-go:disabled { opacity: .32; cursor: default; background: transparent; }
+
+/* Two strengths, never one. The beak points at ONE file and its row is lit hard with a ring; the files the
+   page merely names are lit faintly and underlined, and only the one under the cursor comes up to meet it.
+   Equal strength would leave "where do I look?" with two answers. */
+.change-row.mc-brf-mark { background: color-mix(in srgb, var(--active) 9%, transparent); }
+.change-row.mc-brf-mark .change-name { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, var(--active) 55%, transparent); }
+.change-row.mc-brf-hot { background: color-mix(in srgb, var(--active) 24%, transparent); }
+.change-row.mc-brf-hot .change-name { text-decoration-color: var(--active); }
+.change-row.mc-brf-aim { background: color-mix(in srgb, var(--active) 18%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--active) 60%, transparent); }
+
+/* The way back in, directly above the files it is about. Always there once an explanation exists — a control
+   you have to already know about is not a control, which is how the walk went unmet in the first place. */
+.mc-brf-recall {
+  display: flex; align-items: center; gap: 8px; width: calc(100% - 12px);
+  margin: 2px 6px 6px; padding: 7px 9px; border-radius: var(--ui-radius-sm);
+  background: color-mix(in srgb, var(--active) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--active) 34%, transparent);
+  color: var(--chrome-text); font: inherit; font-size: 11.5px; font-weight: 600;
+  text-align: left; cursor: pointer;
+}
+.mc-brf-recall:hover { background: color-mix(in srgb, var(--active) 20%, transparent); }
+.mc-brf-recall:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; }
+.mc-brf-recall > svg { flex: none; color: var(--active); }
+.mc-brf-recall-text { flex: 1; }
+.mc-brf-recall-key {
+  font: 10px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--chrome-muted); background: color-mix(in srgb, #000 22%, transparent);
+  border-radius: var(--ui-radius-xs); padding: 1px 5px;
+}
+body:has(#mc-briefing) .mc-brf-recall { opacity: .45; }
+
+/* ===== The knowledge map (⌘⇧K, 26-terms.js) =======================================================
+   Obsidian's shape, and for the same reason: a vocabulary is only legible when the words that carry
+   others sit in the middle and the rest fade outward. Everything here is either the world (which the
+   pan/zoom transform moves as one) or screen furniture that must NOT scale — the open card, the head. */
+.mc-map {
+  position: fixed; inset: 0;
+  /* Above the terminal panel (78) and Settings (80). At 76 the map drew BEHIND an open terminal, so every
+     click on a word or on a code link went to the terminal instead and the map looked dead. Below the ⌘E
+     launcher (94), which is allowed to open over it. */
+  z-index: 93;
+  display: flex; flex-direction: column;
+  background: var(--chrome-bg);
+}
+.mc-map-head {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 0 12px 0 16px; height: var(--native-titlebar-height, 38px);
+  border-bottom: 1px solid var(--ui-border-soft); -webkit-app-region: drag;
+}
+.mc-map-title { font-size: 12.5px; font-weight: 620; color: var(--chrome-text); }
+.mc-map-count {
+  font: 600 10.5px/1 Monaco, ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--chrome-muted); padding: 3px 6px; border-radius: 999px; background: var(--chrome-line);
+}
+.mc-map-sp { flex: 1; }
+.mc-map-x {
+  -webkit-app-region: no-drag;
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--ui-radius-md);
+  background: transparent; color: var(--chrome-muted); cursor: pointer; font-size: 12px;
+}
+.mc-map-x:hover { background: var(--chrome-line); color: var(--chrome-text); }
+
+.mc-map-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; cursor: grab; }
+.mc-map-stage:active { cursor: grabbing; }
+.mc-map-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.mc-map-edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.mc-edge {
+  stroke: var(--chrome-border); stroke-width: 1.1; opacity: .55;
+  transition: opacity 260ms ease, stroke 260ms ease;
+}
+.mc-edge.is-lit { stroke: var(--active); opacity: .95; stroke-width: 1.5; }
+.mc-edge.is-dim { opacity: .1; }
+
+.mc-node {
+  position: absolute;
+  /* One radius up, not half the box: the circle's centre must sit exactly on the point the edges are drawn
+     to, and the label hangs below it. --r is set per node from its own radius. */
+  transform: translate(-50%, calc(-1 * var(--r, 6px)));
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 0; border: 0; background: transparent; cursor: pointer;
+  transition: opacity 300ms ease;
+}
+.mc-node-dot {
+  display: block; border-radius: 50%;
+  background: var(--chrome-muted);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--chrome-bg) 88%, transparent);
+  transition: background 220ms ease, box-shadow 220ms ease;
+}
+/* The label is never hidden — a word you cannot read is not on the map. Distance is expressed as fade
+   (set per node from its radius out of the middle), not as a disappearing name. */
+.mc-node-t {
+  max-width: 168px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 11.5px; font-weight: 560; letter-spacing: -.01em; color: var(--chrome-text);
+  text-shadow: 0 0 4px var(--chrome-bg), 0 0 4px var(--chrome-bg);
+}
+.mc-node.is-lit .mc-node-dot { background: color-mix(in srgb, var(--active) 70%, var(--chrome-muted)); }
+.mc-node.is-focus .mc-node-dot {
+  background: var(--active);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--active) 22%, transparent);
+}
+.mc-node.is-focus .mc-node-t { font-weight: 680; }
+.mc-node:focus-visible { outline: 2px solid var(--active); outline-offset: 3px; border-radius: 4px; }
+/* A word that arrived since it was last read. Cleared by opening THAT word — not by opening the map. */
+/* Sits on the shoulder of the circle, whatever the circle's size — the dots got smaller, so a fixed offset
+   left the pip floating away from its own word. */
+.mc-node-new {
+  position: absolute; top: -1px; right: 50%;
+  margin-right: calc(-1 * var(--r, 6px) - 4px);
+  width: 5px; height: 5px; border-radius: 50%; background: #e5484d;
+}
+
+/* The repository itself, in the middle. Not a word — it opens nothing — so it is drawn as a place rather
+   than a term: filled, ringed, and the only label on the map that is not somebody's vocabulary. */
+.mc-node.is-root { pointer-events: auto; }
+.mc-node.is-root .mc-node-dot {
+  background: var(--chrome-text);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--chrome-text) 12%, transparent);
+}
+.mc-node.is-root .mc-node-t {
+  font-size: 13px; font-weight: 720; letter-spacing: -.015em; max-width: 260px;
+}
+.mc-node.is-root .mc-node-new { display: none; }
+/* Structural lines: the project to its leading concepts. Quieter than a mention, which is a thing the
+   reader actually said. */
+.mc-edge.is-structural { stroke-dasharray: 2 4; opacity: .35; }
+
+/* The agent's offerings: concepts it found in the code that the reader has not taken up. Hollow, because
+   they are not filled in yet — nothing about them is the reader's, and they join nothing on the map. */
+.mc-node.is-offered .mc-node-dot {
+  background: transparent;
+  border: 1.5px dashed var(--chrome-muted);
+  box-shadow: none;
+}
+.mc-node.is-offered .mc-node-t { font-weight: 480; font-style: italic; }
+.mc-term-offered {
+  margin-left: 7px; padding: 2px 6px; border-radius: 999px;
+  font: 600 9.5px/1.4 Monaco, ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .04em; color: var(--chrome-muted); background: var(--chrome-line);
+}
+
+.mc-map-empty {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px; padding: 0 40px; text-align: center;
+}
+.mc-map-empty-h { margin: 0; font-size: 14px; font-weight: 620; color: var(--chrome-text); }
+.mc-map-empty-p { margin: 0; max-width: 46ch; font-size: 12.5px; line-height: 1.7; color: var(--chrome-muted); }
+
+/* Screen space, not world space: it stays the same size at every zoom, and it is clamped against the
+   window rather than the graph. It is re-placed every frame, so it can never be left covering its node. */
+.mc-term-card {
+  position: absolute; z-index: 3; width: 300px; max-height: 340px; overflow: auto;
+  padding: 13px 15px 14px;
+  border: 1px solid var(--chrome-border); border-radius: var(--ui-radius-lg, 10px);
+  background: var(--chrome-panel); box-shadow: var(--ui-shadow-popup);
+  animation: mc-term-in 150ms ease;
+}
+@keyframes mc-term-in { from { opacity: 0; transform: translateY(-6px); } }
+.mc-term-h { display: flex; align-items: baseline; gap: 4px; }
+.mc-term-parent, .mc-term-sep { font-size: 11.5px; color: var(--chrome-muted); }
+.mc-term-w { font-size: 14.5px; font-weight: 680; letter-spacing: -.01em; color: var(--chrome-text); }
+.mc-term-gloss { margin: 8px 0 0; font-size: 12.5px; line-height: 1.72; color: var(--chrome-text); }
+.mc-term-link {
+  font: inherit; padding: 0; border: 0; background: transparent; cursor: pointer;
+  color: var(--active); border-bottom: 1px dotted color-mix(in srgb, var(--active) 60%, transparent);
+}
+.mc-term-link:hover { border-bottom-style: solid; }
+.mc-term-codes { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+.mc-term-kicker {
+  font: 700 9.5px/1 Monaco, ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .11em; text-transform: uppercase; color: var(--chrome-muted); margin-bottom: 2px;
+}
+.mc-term-code {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; cursor: pointer;
+  padding: 5px 7px; border: 0; border-radius: var(--ui-radius-sm, 5px); background: var(--chrome-line);
+  font: inherit;
+}
+.mc-term-code:hover { background: color-mix(in srgb, var(--active) 14%, var(--chrome-line)); }
+.mc-term-code code { font-size: 11.5px; color: var(--chrome-text); }
+.mc-term-at {
+  margin-left: auto; font-size: 10.5px; color: var(--chrome-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%;
+}
+/* `at` is a cache and the name is the truth: a rotten address is reported, never hidden. */
+.mc-term-at.is-gone { color: #e5484d; }
+
+/* Unread words, said on the launcher row that lists the map — the rail's own tool buttons are permanently
+   hidden, so a dot there would be a dot nobody sees. */
+.rail-dot {
+  flex: none; margin-left: 6px; margin-right: auto; /* hug the label; the shortcut keeps the right edge */
+  width: 6px; height: 6px; border-radius: 50%; background: #e5484d;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-term-card { animation: none; }
+  .mc-node, .mc-edge { transition: none; }
+}
+
+/* The harvest offer (26-terms.js): shown after a thread is deleted, when there is something in it the reader
+   worked out. Bottom-right, out of the way of the code the deletion just uncovered — it is an offer, not a
+   confirmation, and the delete has already happened. */
+.mc-harvest {
+  /* Same reasoning as the map: an offer you cannot see or click is not an offer. */
+  position: fixed; right: 18px; bottom: 18px; z-index: 95; width: 380px; max-height: 60vh;
+  display: flex; flex-direction: column;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--chrome-border); border-radius: var(--ui-radius-lg);
+  background: var(--chrome-panel); box-shadow: var(--ui-shadow-float);
+  animation: mc-harvest-in 160ms ease;
+}
+@keyframes mc-harvest-in { from { opacity: 0; transform: translateY(10px); } }
+.mc-harvest-h { font-size: 13px; font-weight: 650; color: var(--chrome-text); }
+.mc-harvest-p { margin: 5px 0 10px; font-size: 11.5px; line-height: 1.6; color: var(--chrome-muted); }
+.mc-harvest-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.mc-harvest-row {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: baseline;
+  padding: 6px 8px; border-radius: var(--ui-radius-sm); cursor: pointer;
+}
+.mc-harvest-row:hover { background: var(--chrome-line); }
+.mc-harvest-row input { grid-row: span 2; margin: 0; accent-color: var(--active); }
+.mc-harvest-w { font-size: 12.5px; font-weight: 620; color: var(--chrome-text); }
+.mc-harvest-g {
+  grid-column: 2; font-size: 11px; line-height: 1.55; color: var(--chrome-muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.mc-harvest-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 11px; }
+.mc-harvest-skip, .mc-harvest-save {
+  font: inherit; font-size: 12px; font-weight: 620; cursor: pointer;
+  padding: 6px 13px; border-radius: var(--ui-radius-md);
+}
+.mc-harvest-skip { border: 1px solid var(--chrome-border); background: transparent; color: var(--chrome-muted); }
+.mc-harvest-skip:hover { color: var(--chrome-text); background: var(--chrome-line); }
+.mc-harvest-save { border: 1px solid color-mix(in srgb, var(--active) 55%, transparent); background: var(--active); color: #fff; }
+.mc-harvest-save:hover { filter: brightness(1.08); }
+@media (prefers-reduced-motion: reduce) { .mc-harvest { animation: none; } }
+
+/* One row per agent CLI on this machine: connected, or one click from it. */
+.mcp-agents { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.mcp-agent {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 9px; border-radius: var(--ui-radius-sm); background: var(--chrome-line);
+  font-size: 12px; color: var(--chrome-text);
+}
+.mcp-agent-name { font-weight: 620; }
+.mcp-agent-state { margin-left: auto; font-size: 11px; color: var(--chrome-muted); }
+.mcp-agent.is-on .mcp-agent-state { color: var(--active); font-weight: 620; }

@@ -2,6 +2,7 @@
 // tile context-menu popup (tileMenuHtml). Extracted from app-main.ts to keep that file focused on main-process
 // orchestration. Pure string builders with no Electron imports, so they render/diff in isolation.
 import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H } from "./constants.js";
+import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 
 // Translator handed in by the main process (makeTranslator(locale)); shell pages stay pure string builders
 // with no Electron/i18n imports of their own, so the caller owns which locale renders.
@@ -73,8 +74,11 @@ export function hubHtml(light: boolean, appVersion: string, t: Translate): strin
     anywayTitle: t("hubdel.anywayTitle"), hasWork: t("hubdel.hasWork"), dirty: t("hubdel.dirty"),
     unpushed: t("hubdel.unpushed"), runningProc: t("hubdel.runningProc"), anyway: t("hubdel.anyway"),
     failedTitle: t("hubdel.failedTitle"), failedMsg: t("hubdel.failedMsg"), ok: t("dialog.ok"),
+    settingsTip: t("hub.settings", { v: appVersion }), updateAvailable: t("sidebar.updateAvailable"),
+    downloading: t("update.downloading"),
   };
   return `<!doctype html><meta charset="utf-8"><style>
+:root{${kakapoIconCssVariable()}}
 *{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:${bg};color:${fg};font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 body{display:flex;flex-direction:column}
 #titlebar{position:relative;height:${TITLEBAR_H}px;flex:none;-webkit-app-region:drag;display:flex;align-items:center;gap:8px;padding:0 12px 0 84px;border-bottom:1px solid ${line};background:${light ? "#ececec" : "#1b1e25"}}
@@ -89,11 +93,6 @@ body{display:flex;flex-direction:column}
    neither side can push it off centre; the left cluster keeps identity (project · branch). */
 #wstitle{position:absolute;left:50%;transform:translateX(-50%);max-width:38%;font-weight:600;color:${fg};font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
 .tb-spacer{flex:1;align-self:stretch}
-/* A new version is worth exactly one always-visible word. It lives in the title bar rather than in the
-   review's sidebar footer, which is where it used to be — behind a collapsible panel, in a window the user
-   may not have open. Clicking it goes where the update actually happens: Settings. */
-#update-chip{-webkit-app-region:no-drag;border:1px solid ${light ? "#b5d0f5" : "#3c5a86"};border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:600;color:#4d86d9;background:transparent;cursor:pointer;white-space:nowrap}
-#update-chip:hover{background:${light ? "#e8f0fd" : "#22303f"}}
 #tools{-webkit-app-region:no-drag;display:flex;align-items:center;gap:2px;flex:none}
 #tools .tb-sep{width:1px;height:16px;background:${line};margin:0 5px}
 #tools button.tb{width:28px;height:26px;border:0;border-radius:6px;color:${light ? "#5f6470" : "#9aa0ab"};display:grid;place-items:center;padding:0;background:transparent}
@@ -276,30 +275,44 @@ body.rail-exp #railhead{flex-direction:row;gap:8px;justify-content:space-between
 #railtitle{display:none;font-size:12px;font-weight:600;color:${fg}}
 body.rail-exp #railtitle{display:block;flex:1}
 #railfoot{display:flex;flex-direction:column;align-items:center;gap:5px;padding:7px 0;border-top:1px solid ${line};width:100%;flex:none}
-body.rail-exp #railfoot{flex-direction:row;justify-content:flex-end;padding:7px 6px;gap:4px}
+body.rail-exp #railfoot{flex-direction:row;justify-content:space-between;padding:7px 6px 7px 12px;gap:4px}
 #railfoot button,#railhead button{width:34px;height:32px;border:0;border-radius:8px;font-size:17px;color:${light ? "#666" : "#999"};display:grid;place-items:center;padding:0}
 #railfoot button:hover,#railhead button:hover{background:${light ? "#dfe7f5" : "#373d49"};color:${fg}}
+/* Which kakapo you are running belongs where the app itself lives — the rail is one per app, always on
+   screen, and never duplicated per workspace. It used to sit in each review's sidebar header, so five open
+   workspaces meant five copies of one global fact. Collapsed, only the mark survives (46px fits no text). */
+#railver{display:flex;align-items:center;gap:6px;font-size:11px;color:${light ? "#8a8f99" : "#7d828c"};font-variant-numeric:tabular-nums;-webkit-app-region:no-drag}
+#railver .kakapo-mark{--mark:16px;display:block;width:var(--mark);height:var(--mark);flex:none;background:var(--kakapo-ui-icon) center/contain no-repeat}
+/* Collapsed, the rail is 46px of pure navigation and a logo there is decoration — it says nothing you did not
+   already know from the app you are looking at. Gone entirely, not just its number. The one exception is a
+   download in flight: then the mark is a gauge, and a gauge earns its pixels. */
+body:not(.rail-exp) #railver{display:none}
+body:not(.rail-exp) #railver.is-updating{display:flex}
+/* Downloading a release: the mark becomes the gauge — a conic ring sweeping around it, logo greyed under it.
+   No bar, no dialog, no layout: whatever you were doing keeps its pixels. Sized off --mark, never px, so it
+   cannot end up drawn at some other placement's diameter and spill over the text beside it. */
+#railver.is-updating .kakapo-mark{opacity:.35}
+#railver.is-updating{position:relative}
+#railver.is-updating::before{content:"";position:absolute;left:0;top:50%;transform:translateY(-50%);
+  width:16px;height:16px;border-radius:50%;pointer-events:none;
+  background:conic-gradient(#4d86d9 var(--update-progress,0%),transparent 0);
+  -webkit-mask:radial-gradient(circle closest-side,transparent 0 64%,#000 72%)}
+/* A new version is worth exactly one dot. The gear is where the install actually happens, so the badge sits
+   on the gear rather than spelling "update available" somewhere else in the chrome; the version it found
+   rides in the button's tooltip for anyone who wants the number. */
+#settings{position:relative}
+#settings-dot{position:absolute;top:3px;right:4px;width:7px;height:7px;border-radius:50%;background:#e5484d;box-shadow:0 0 0 2px ${bg}}
 /* Only the chevrons turn around; the button keeps the same colour open or shut, because the direction it
    points is already the whole message and a second, colour-coded one just reads as a stray highlight. */
 #pin svg{width:16px;height:16px;transition:transform 180ms cubic-bezier(.2,.8,.2,1)}
 body.rail-exp #pin svg{transform:rotate(180deg)}
 /* Collapsed, the rail is an index of what exists — a dashed ＋ floating above it advertises a panel that
    isn't open yet, and its own dialog needs the panel's repo context anyway. It appears with the panel. */
-/* The agent row sits with the fields it follows; the picker stays in place when unchecked so the row does
-   not jump, and only stops answering. */
-#agentRow .agent-pick{margin-top:6px}
-.agent-face{display:inline-flex;align-items:center;gap:8px;min-width:0}
-.agent-ic{display:grid;place-items:center;flex:none}
-.agent-ic svg{width:15px;height:15px;display:block}
-.agent-ic-claude{color:#d97757}.agent-ic-codex{color:#10a37f}
-#agentRow.agent-off .agent-ic{filter:grayscale(1)}
-#agentRow.agent-off .agent-pick{opacity:.45}
-#agentRow.agent-off .field{cursor:default}
 #railhead #new{border:1px dashed ${line};display:none}
 body.rail-exp #railhead #new{display:grid}
 .context-menu{position:fixed;z-index:20;width:172px;padding:5px;background:${bg};border:1px solid ${line};border-radius:8px;box-shadow:0 12px 30px #0008}
 .context-menu button{display:block;width:100%;border:0;text-align:left;padding:7px 9px}.context-menu button:hover{background:${light ? "#dfe7f5" : "#373d49"}}.context-menu .danger{color:#df6868}.hidden{display:none!important}</style>
-<div id="titlebar"><span id="wsname"></span><span id="wstitle"></span><span class="tb-spacer"></span><button id="update-chip" class="hidden" title="${t("settings.updateAvailable")}">${t("sidebar.updateAvailable")}</button><div id="tools"><button class="tb" data-act="changes" data-tip="${t("tab.changes")}" data-key="⌘0" aria-label="${t("tab.changes")} (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" data-tip="${t("tab.files")}" data-key="⌘1" aria-label="${t("tab.files")} (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" data-tip="${t("terminal.title")}" data-key="⌃\`" aria-label="${t("terminal.title")} (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" data-tip="${t("rail.history")}" data-key="⌘9" aria-label="${t("rail.history")} (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button></div></div><main id="hub"><div id="railhead"><span id="railtitle">${t("hub.workspaces")}</span><button id="new" data-tip="${t("hub.newWorkspace")}" data-key="⌘N" aria-label="${t("hub.newWorkspace")} (⌘N)">＋</button><button id="pin" data-tip="${t("menu.expandRail")}" data-key="⌘⇧E" aria-label="${t("menu.expandRail")} (⌘⇧E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button></div><section id="list"></section><div id="usage-foot" class="usage-foot" aria-label="Agent usage"></div><div id="railfoot"><button id="settings" data-tip="${t("hub.settings", { v: appVersion })}" data-key="⌘," aria-label="${t("hub.settings", { v: appVersion })} (⌘,)">⚙</button></div></main><div id="tt"></div>
+<div id="titlebar"><span id="wsname"></span><span id="wstitle"></span><span class="tb-spacer"></span><div id="tools"><button class="tb" data-act="changes" data-tip="${t("tab.changes")}" data-key="⌘0" aria-label="${t("tab.changes")} (⌘0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/></svg></button><button class="tb" data-act="files" data-tip="${t("tab.files")}" data-key="⌘1" aria-label="${t("tab.files")} (⌘1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/></svg></button><span class="tb-sep"></span><button class="tb hidden" data-act="terminal" data-tip="${t("terminal.title")}" data-key="⌃\`" aria-label="${t("terminal.title")} (⌃\`)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg></button><button class="tb" data-act="history" data-tip="${t("rail.history")}" data-key="⌘9" aria-label="${t("rail.history")} (⌘9)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/></svg></button></div></div><main id="hub"><div id="railhead"><span id="railtitle">${t("hub.workspaces")}</span><button id="new" data-tip="${t("hub.newWorkspace")}" data-key="⌘N" aria-label="${t("hub.newWorkspace")} (⌘N)">＋</button><button id="pin" data-tip="${t("menu.expandRail")}" data-key="⌘⇧E" aria-label="${t("menu.expandRail")} (⌘⇧E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg></button></div><section id="list"></section><div id="usage-foot" class="usage-foot" aria-label="Agent usage"></div><div id="railfoot"><span id="railver" title="Kakapo v${appVersion}">${kakapoIconHtml("kakapo-mark")}<span>v${appVersion}</span></span><button id="settings" data-tip="${t("hub.settings", { v: appVersion })}" data-key="⌘," aria-label="${t("hub.settings", { v: appVersion })} (⌘,)">⚙<span id="settings-dot" class="hidden"></span></button></div></main><div id="tt"></div>
 <script>
 const T=${JSON.stringify(T)};
 const APP_VERSION=${JSON.stringify(appVersion)};
@@ -313,24 +326,33 @@ function markDeleting(id,on){on?deletingIds.add(id):deletingIds.delete(id);for(c
 const newModal=prefill=>window.kakapoHub.openModal('new',prefill&&prefill.path?{path:prefill.path,name:prefill.name}:curRepo?{path:curRepo.path,name:curRepo.name}:undefined);
 document.querySelector("#new").onclick=()=>newModal();
 document.querySelector("#settings").onclick=()=>window.kakapoHub.settings();
-// One version check per launch, against the same GitHub release the review's settings panel reads. The chip is
-// only ever a pointer: the install itself lives behind the Update button in Settings, which knows whether
-// this is the packaged bundle (release DMG) or the global CLI (npm).
+// One version check against the same GitHub release the review's settings panel reads. A new version is worth
+// exactly one dot on the gear: the install itself lives behind the Update button in Settings, which knows
+// whether this is the packaged bundle (release DMG) or the global CLI (npm), and the dot points at it.
 // On a timer, not once at startup: this window is left running for days with workspaces open, so a release
-// published after launch was invisible until something reloaded the page. The label is rebuilt from a base
-// caption each time — appending to the chip's own text would grow it by a version on every check.
-(()=>{const chip=document.querySelector("#update-chip");if(!chip||typeof fetch!=="function")return;
-const base=chip.textContent;
-chip.onclick=()=>window.kakapoHub.settings();
+// published after launch was invisible until something reloaded the page. The tooltip is rebuilt from the base
+// caption each time — appending to the button's own tip would grow it by a version on every check.
+(()=>{const dot=document.querySelector("#settings-dot"),gear=document.querySelector("#settings");
+if(!dot||typeof fetch!=="function")return;
 const newer=(a,b)=>{const p=v=>String(v).replace(/^v/,"").split(".").map(n=>parseInt(n,10)||0),x=p(a),y=p(b);
   for(let i=0;i<Math.max(x.length,y.length);i++){const l=x[i]||0,r=y[i]||0;if(l!==r)return l>r;}return false;};
 const check=()=>fetch("https://api.github.com/repos/happy-nut/kakapo/releases/latest",{cache:"no-store",headers:{accept:"application/vnd.github+json"}})
   .then(r=>r&&r.ok?r.json():null)
   .then(d=>{const v=d&&d.tag_name?String(d.tag_name).replace(/^v/,""):"";
-    if(v&&newer(v,APP_VERSION)){chip.textContent=base+" v"+v;chip.classList.remove("hidden");}})
+    if(v&&newer(v,APP_VERSION)){dot.classList.remove("hidden");gear.dataset.tip=T.settingsTip+" · "+T.updateAvailable+" v"+v;}})
   .catch(()=>{});
 check();
 setInterval(check,6*60*60*1000);})();
+// The release image streams down while you keep working, so the report has to cost no layout and interrupt
+// nothing: the rail's kakapo mark fills as a ring for as long as there is progress, and goes back to being
+// the logo the moment there is not. The percentage rides in its title for anyone who wants the number.
+if(window.kakapoHub.onUpdateProgress)window.kakapoHub.onUpdateProgress(p=>{
+  const el=document.getElementById('railver');if(!el)return;
+  const pct=Math.max(0,Math.min(100,Math.round(Number(p&&p.percent)||0))),on=!!p&&!p.done;
+  el.classList.toggle('is-updating',on);
+  el.style.setProperty('--update-progress',pct+'%');
+  el.title=on?T.downloading.replace('{n}',String(pct)):'Kakapo v'+APP_VERSION;
+});
 const tools=document.getElementById('tools');
 tools.addEventListener('click',e=>{const b=e.target.closest('button.tb');if(!b)return;window.kakapoHub.railAction(b.dataset.act)});
 // Custom hover tooltip (label + shortcut kbd) for the top toolbar buttons — styled like the review view's, and
@@ -354,6 +376,12 @@ const tipTarget=e=>e.target.closest?e.target.closest('button[data-tip]'):null;
 document.addEventListener('mouseover',e=>{const b=tipTarget(e);if(b)showTip(b);});
 document.addEventListener('mouseout',e=>{const b=tipTarget(e);if(b&&(!e.relatedTarget||!b.contains(e.relatedTarget)))tt.classList.remove('show');});
 document.addEventListener('click',()=>tt.classList.remove('show'));
+// A rail button hands off to somewhere else — Settings opens its own window, ＋ opens a dialog — and then goes
+// on holding DOM focus. Chromium repaints its native focus ring whenever this window comes back, so the gear
+// sat there ringed in the system accent colour long after the click, with nothing on screen to explain it.
+// Dropping focus at the source is the fix, not hiding the ring: the ring is right, the focus is not.
+// POINTER activations only (a keyboard Enter reports detail 0) — someone tabbing the rail keeps their place.
+document.addEventListener('click',e=>{const b=e.target.closest?e.target.closest('#railhead button,#railfoot button'):null;if(b&&e.detail>0)b.blur();});
 window.kakapoHub.onRailState(s=>{s=s||{};const active=s.active||[];for(const b of tools.querySelectorAll('button.tb')){const a=b.dataset.act;if(a==='terminal'){b.classList.toggle('hidden',!s.terminal);}b.classList.toggle('active',active.indexOf(a)>=0);}});
 window.kakapoHub.onToggle(open=>document.body.classList.toggle('closed',!open));window.kakapoHub.onNew(prefill=>newModal(prefill));
 // ---- Agent quota, moved here from the review's sidebar footer. One row per limit window that can actually
@@ -741,6 +769,22 @@ dialog#create::backdrop{background:${dim}}
 #create .pmenu .pm-path{flex:none;max-width:44%;color:${light ? "#9aa0ab" : "#71767f"};font-size:10.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:right}
 #create .pmenu .pm-sep{height:1px;background:${line};margin:5px 3px}
 #create .pmenu .pm-browse{color:#4d86d9;font-weight:550}
+/* The agent row sits with the fields it follows; the picker stays in place when unchecked so the row does
+   not jump, and only stops answering.
+   These live HERE, with the dialog. They used to sit in hubHtml's stylesheet — a different document, which
+   never emits a single .agent-ic — so the picker got none of them. The marks carry no width/height of their
+   own, so unsized they filled the button (a 15px glyph drawn at ~80px) and collapsed to nothing inside the
+   menu rows, where '#create .pmenu .pm-ic{flex:none}' gave them no basis to grow from. */
+#agentRow .agent-pick{margin-top:6px}
+#create .agent-face{display:inline-flex;align-items:center;gap:8px;min-width:0}
+#create .agent-ic{display:grid;place-items:center;flex:none}
+#create .agent-ic svg{width:15px;height:15px;display:block}
+/* Two classes deep on purpose: inside the menu, '#create .pmenu .pm-ic' sets a flat grey at the same
+   specificity, and the mark is only recognisable in its own colour. Source order settles the tie. */
+#create .agent-ic.agent-ic-claude{color:#d97757}#create .agent-ic.agent-ic-codex{color:#10a37f}
+#agentRow.agent-off .agent-ic{filter:grayscale(1)}
+#agentRow.agent-off .agent-pick{opacity:.45}
+#agentRow.agent-off .field{cursor:default}
 dialog#prompt{border:1px solid ${line};border-radius:14px;background:${light ? "#fbfbfc" : "#242529"};color:${fg};width:400px;max-width:calc(100vw - 40px);padding:0;box-shadow:0 30px 90px #000a}
 dialog#prompt::backdrop{background:${dim}}
 #prompt .dh{padding:18px 20px 2px}#prompt .dh b{font-size:15px;font-weight:650}

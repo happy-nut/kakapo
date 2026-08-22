@@ -488,3 +488,36 @@ test("lazy-LOAD: a watch refresh waits out a composition anywhere in the page, n
   assert.match(v.$("#diff2html-container").textContent, /222/, "the held refresh lands once that syllable commits");
   v.close();
 });
+
+// REGRESSION: a file opened to a completely blank body — header, both pane titles, "+44 −0", and nothing
+// underneath — and stayed blank for the rest of the session. Main returns "" for an index it cannot resolve
+// (a watch rebuild swaps state.bodyDiffs out from under an in-flight fetch), loadBodyHtml cached that ""
+// as the file's body, and materializeBody then stripped data-lazy — so nothing would ever ask again.
+test("lazy-LOAD: a failed body fetch is retried, not cached as an empty file forever", async () => {
+  const b = await makeReviewHtml(
+    [{ path: "src/blank.ts", before: "export const x = 1;\n", after: "export const x = 111;\n" }],
+    { lazyLoad: true },
+  );
+  const bodies = await renderLazyBodies(b.build);
+  let fail = true; // the first fetch loses the race with a rebuild and comes back empty
+  const asked = [];
+  const v = await loadViewer(b.html, {
+    menuBridge: true,
+    lazySourceData: b.build.lazySourceData,
+    getDiffBody: (idx) => { asked.push(idx); return fail ? "" : (bodies[idx] || ""); },
+  });
+  await v.openDiffFor("src/blank.ts");
+  await v.settle(120);
+  const wrapper = v.$("#diff2html-container .d2h-file-wrapper");
+  assert.ok(wrapper.querySelector(".d2h-files-diff[data-lazy]"),
+    "an empty answer is a failed load, so the body stays lazy instead of committing to blank");
+  assert.doesNotMatch(v.$("#diff2html-container").textContent, /111/, "precondition: nothing painted yet");
+
+  fail = false; // main can answer now
+  const before = asked.length;
+  await v.openDiffFor("src/blank.ts");
+  await v.settle(150);
+  assert.ok(asked.length > before, "the next look actually refetches rather than trusting the cached miss");
+  assert.match(v.$("#diff2html-container").textContent, /111/, "and the diff finally paints");
+  v.close();
+});

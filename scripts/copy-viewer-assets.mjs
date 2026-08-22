@@ -25,7 +25,7 @@ const VIEWER_SLICES = [
   "08-dock.js", "09-views-update.js", "10-source-view.js", "11-render-http.js", "12-history.js",
   "13-goto.js", "14-impact.js", "15-analysis-status.js", "15-semantic-navigation.js", "16-semantic-peek.js",
   "17-file-find.js", "18-diagnostics.js", "19-terminal.js", "20-mermaid.js",
-  "22-patchset.js", "23-annotations.js", "24-prompt-palette.js",
+  "22-patchset.js", "23-annotations.js", "24-prompt-palette.js", "25-briefing.js", "26-terms.js",
 ];
 const onDisk = readdirSync(viewerDir).filter((f) => f.endsWith(".js")).sort();
 const listed = [...VIEWER_SLICES].sort();

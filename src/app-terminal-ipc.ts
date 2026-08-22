@@ -75,6 +75,11 @@ let nextPtyId = 0; // global so pty ids never collide across windows; each windo
 // the globally unique pty id, so one map serves every window; entries are dropped when the pty exits.
 const resizeEchoUntil = new Map<number, number>();
 const RESIZE_ECHO_MS = 250;
+// The same treatment for the first moments of a pane's life. Opening one produces output before anything is
+// running in it: the shell's own prompt, and — for a tmux-backed pane — tmux repainting the whole session it
+// just attached to. Both looked like an agent starting work, so a freshly opened terminal announced itself as
+// "working" for a second and a half, every time. Nothing has been asked to do anything yet.
+const SPAWN_ECHO_MS = 1500;
 
 // Every pty kill in the app goes through this (window close, workspace removal, pane close, quit) so quit can
 // wait for the native exit deliveries instead of aborting on them — see createPtyReaper.
@@ -179,6 +184,7 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
       }),
     });
     state.terms.set(id, t);
+    resizeEchoUntil.set(id, Date.now() + SPAWN_ECHO_MS); // the prompt (and tmux's redraw) is not work
     if (session) state.termSessions?.set(id, session);
     state.commandBuffers?.set(id, "");
     // Guard every relay with isDestroyed(): a pty can outlive its window (close races pty teardown), and

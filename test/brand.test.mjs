@@ -49,16 +49,23 @@ test("visible product labels and wait states reuse the real Kakapo icon", async 
     { path: "src/app.ts", before: "export const value = 1;\n", after: "export const value = 2;\n" },
   ], { app: true });
   assert.match(html, /id="boot-overlay"[^>]*>.*kakapo-loader-boot.*kakapo-mark/s, "review boot uses the animated parrot");
-  assert.match(html, /class="app-version"[^>]*aria-label="Kakapo v[^\"]+"[^>]*>.*kakapo-mark/s, "footer wordmark is an icon plus version");
   assert.match(html, /class="settings-nav-brand"[^>]*>.*kakapo-mark/s, "settings nav header reuses the same icon");
-  assert.doesNotMatch(html, /class="app-version"[^>]*>\s*kakapo/i, "footer no longer paints the product name as text");
+  // The app's own version lives once, at the foot of the workspace rail — see #railver in shell-pages.ts.
+  // In the static export there is no rail, so the review's sidebar header keeps it there instead.
+  const shellPage = readFileSync(join(root, "src", "shell-pages.ts"), "utf8");
+  assert.match(shellPage, /id="railver"[^>]*>\$\{kakapoIconHtml\("kakapo-mark"\)\}/, "the rail's version is an icon plus number");
+  const exported = (await makeReviewHtml([
+    { path: "src/app.ts", before: "export const value = 1;\n", after: "export const value = 2;\n" },
+  ], { app: false })).html;
+  assert.match(exported, /class="app-version"[^>]*aria-label="Kakapo v[^\"]+"[^>]*>.*kakapo-mark/s, "the static export shows an icon plus version");
+  assert.doesNotMatch(exported, /class="app-version"[^>]*>\s*kakapo/i, "and never paints the product name as text");
   assert.doesNotMatch(html, /class="settings-h">\s*kakapo/i, "settings no longer paints the product name as text");
 
   const css = readFileSync(join(root, "dist", "viewer.css"), "utf8");
   const viewer = readFileSync(join(root, "dist", "viewer.client.js"), "utf8");
   const main = readFileSync(join(root, "dist", "app-main.js"), "utf8");
   assert.match(css, /@keyframes kakapo-peck/, "the parrot has one shared activity animation");
-  assert.match(css, /\.app-version \.kakapo-mark\s*\{\s*width:\s*28px;\s*height:\s*28px;/, "the compact footer still shows a legible parrot");
+  assert.match(css, /\.app-version \.kakapo-mark\s*\{\s*width:\s*16px;\s*height:\s*16px;/, "the export's header mark stays legible");
   assert.match(css, /\.settings-nav-brand \.kakapo-mark\s*\{\s*width:\s*28px;\s*height:\s*28px;/, "panel branding does not collapse to an indistinct glyph");
   // The review's boot overlay paints on EVERY workspace window, so it is the compact mark; the full-size
   // parrot belongs to opening the app, and lives in the native first-paint screen (asserted below).

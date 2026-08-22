@@ -152,3 +152,21 @@ test("closing a maximized dock clears the maximized state", async () => {
   assert.equal(v.isDockMaximized(), false, "maximized state cleared once nothing is docked");
   v.close();
 });
+
+// A key the dock claimed is the dock's alone. ⌥⏎ closes the panel synchronously on its way out, so by the
+// time it reached the window keymap "a dock is focused" was already false — and a file left selected in the
+// ⌘0 Changes tree answered the same keystroke by popping its row menu.
+test("⌥⏎ in the merged dock hands off the document without also opening the focused tree row's menu", async () => {
+  const v = await loadViewer(html);
+  v.window.__kakapoTerminal = { enterSendMode() {} };
+  await v.openDiffFor("src/app.ts");
+  v.window.focusTree(v.window.treeRows().findIndex((row) => row.dataset.file)); // a FILE selected in the ⌘0 Changes panel
+  await v.openMergedView();
+  await v.settle(20);
+  v.$("#mc-merged-panel").dispatchEvent(new v.window.KeyboardEvent("keydown", {
+    key: "Enter", altKey: true, bubbles: true, cancelable: true,
+  }));
+  await v.settle(30);
+  assert.equal(v.$("#mc-dropdown"), null, "no tree row menu behind the hand-off");
+  v.close();
+});

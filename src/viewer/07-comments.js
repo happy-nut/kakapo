@@ -182,11 +182,12 @@ function commentToRecord(c) {
   if (Number(c.from) && Number(c.from) !== c.line) record.from = Number(c.from);
   if (Number(c.to) && Number(c.to) !== c.line) record.to = Number(c.to);
   if (c.side) record.side = c.side;
-  if (c.role) record.role = c.role; // written back, or the agent's problem/fix marks vanish on the next save
+  if (c.role) record.role = c.role; // written back, or the agent's key marks vanish on the next save
   if (c.group) record.group = c.group; // likewise: losing the group would collapse the walk back to file order
   if (c.anchorCode) record.anchor = c.anchorCode;
   if (c.title) record.title = c.title;
   if (c.addressed) record.addressed = true;
+  if (c.view) record.view = c.view; // same trap as role/group: a field not written back is a field the next save deletes
   // Written by the agent, never by this app — but it has to be carried back out. The renderer sends the WHOLE
   // list on every save (saveThread), so a field it forgets here is a field the next unrelated comment deletes
   // from the agent's note.
@@ -206,11 +207,13 @@ function recordToComment(record, byId) {
     path: path, line: line, code: anchor, anchorCode: anchor,
     from: Number(record.from) || line, to: Number(record.to) || line, side: record.side || null,
     title: record.title ? String(record.title) : '',
-    // Only the two roles the card knows how to draw survive the trip: anything else an agent invents would
-    // otherwise reach agentCardHtml as a class name and a missing translation.
-    role: record.role === 'problem' || record.role === 'fix' ? record.role : null,
+    // Only a role the card knows how to draw survives the trip: anything else an agent invents would otherwise
+    // reach agentCardHtml as a class name and a missing translation. "key" is the one written now; the older
+    // "problem"/"fix" still read back as the same single mark (NOTE_ROLES, 23-annotations.js).
+    role: NOTE_ROLES[record.role] ? record.role : null,
     group: Number(record.group) > 0 ? Number(record.group) : 0,
     addressed: !!record.addressed, anchorPresent: anchorLinePresent(path, anchor, anchor),
+    view: record.view === 'diff' || record.view === 'source' ? record.view : null,
     text: String(record.text == null ? '' : record.text),
   };
 }
@@ -276,6 +279,10 @@ function applyThreadRecords(records, extra, silent) {
   reviewComments = next;
   reanchorReplies(); // an answer that named its own line lands in its question's thread, not beside it
   commentSeq = reviewComments.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
+  // A fresh explanation retires the one it replaces (23-annotations.js). Here, because this is where the
+  // agent's first new note actually lands — and its own write-back merges anything the agent appended in the
+  // meantime, so pruning cannot race the run that triggered it.
+  pruneSupersededNotes();
   persistSave(COMMENTS_KEY, reviewComments);
   if (silent) seenAgentSeq = maxAgentSeq(); else notifyAgentTurns();
   // Agent-driven, so the re-render yields to a terminal being typed into (see refreshCommentsWhenNotTyping).
@@ -374,12 +381,20 @@ function commentFileIsKnownMissing(path) {
   // reviews can treat absence from an authoritative full index as deletion; Electron asks main directly.
   return !hasProjectExistenceBridge() && !!projectIndexLoaded;
 }
+// "The file this comment points at is gone, so the comment is orphaned" holds for a working-tree comment
+// only. A base-pane comment is anchored on the OLD side, and the base is precisely where a file the change
+// DELETED still exists — commentFileIsKnownMissing reports vcs === 'deleted' as missing, which is the one
+// file whose entire diff lives in that pane. So "why did you remove this?" — the most natural thing to write
+// there — was silently deleted from disk the next time the merged panel opened. Same carve-out the addressed
+// heuristic already makes for an old-side anchor (see remapComments). Filtering per comment, not per path,
+// because one file can hold comments on both sides and only the working-tree ones lost their anchor.
 function removeCommentsForPaths(paths) {
   var missing = new Set(Array.isArray(paths) ? paths : []);
   if (!missing.size) return 0;
-  var removed = reviewComments.filter(function (comment) { return missing.has(comment.path); });
+  var orphaned = function (comment) { return missing.has(comment.path) && commentSide(comment) !== 'old'; };
+  var removed = reviewComments.filter(orphaned);
   if (!removed.length) return 0;
-  reviewComments = reviewComments.filter(function (comment) { return !missing.has(comment.path); });
+  reviewComments = reviewComments.filter(function (comment) { return !orphaned(comment); });
   saveComments();
   try {
     document.dispatchEvent(new CustomEvent('kakapo:comments-pruned', { detail: { comments: removed } }));
@@ -419,10 +434,18 @@ function commentSide(c) {
 }
 // `side` is optional: omitting it means "either pane", which is what the source view wants — it shows one
 // file, not two, so a card anchored to the base still belongs at its line there.
+// A thread reads top to bottom in the order it was written, so it is sorted by id rather than left in the
+// order `reviewComments` happens to hold. That order is two files concatenated — this workspace's
+// conversation, then the repository's shared notes (comments-file.ts) — so an agent's note always sank below
+// every question and answer at the same line, however long before them it was written. A reader saw their own
+// question at the top of a thread that had started with the note it was asked about.
+//
+// `seq` is safe to sort on across both files because they are ONE id space, which is the whole reason the
+// prompt is handed a NEXT FREE ID rather than "highest in this file + 1".
 function commentsAt(path, line, side) {
   return reviewComments.filter(function (c) {
     return c.path === path && c.line === line && (!side || commentSide(c) === side);
-  });
+  }).sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
 }
 // Questions and change requests used to be two kinds with two shortcuts. They were the same conversation:
 // any thread that runs long enough reaches "…so change it", and the kind you picked first decided whether
@@ -459,6 +482,12 @@ function addComment(kind, path, line, code, text, from, to, side, anchorCode, re
     // Record whether the anchor line exists now so a later rebuild can tell "the line I commented on changed"
     // from "this old-side anchor was never in the working tree". addressed starts false.
     anchorPresent: anchorLinePresent(path, anchorCode, code), addressed: false,
+    // WHICH VIEW this was written in. Going back to a comment used to prefer the diff whenever the diff could
+    // show the line at all — but a comment written while reading the whole file was about the whole file, and
+    // answering it with two narrow hunk panes drops the context it was made in. The view is part of where the
+    // comment is, so it is recorded with the line. An agent's note has none (it never sat in a view) and keeps
+    // the diff-first rule.
+    view: isDiffViewVisible() ? 'diff' : 'source',
     // Set when this comment continues an existing exchange (a Reply on any card in it). The follow-up is a
     // full comment of its own — own seq, own replies — anchored where its parent is, so it renders and
     // travels as part of the same thread.
@@ -473,11 +502,6 @@ function commentThreadContext(comment) {
   return commentAncestry(comment).map(function (parent) {
     return { by: parent.by === 'agent' ? 'agent' : 'me', kind: parent.kind, text: parent.text };
   });
-}
-// Has the agent replied to this comment (directly, or further down its chain)? What "answered" means now
-// that an answer is a reply rather than a field on the question.
-function hasAgentReply(comment) {
-  return reviewComments.some(function (c) { return c.by === 'agent' && c.replyTo === comment.seq; });
 }
 // Walk a comment's reply chain back to its root, oldest exchange first. Used to give an agent the
 // conversation a follow-up belongs to (see the answers payload in 08-dock.js) and to indent the thread.
@@ -521,6 +545,10 @@ function removeComments(seqs) {
   if (commentUndoStack.length > 20) commentUndoStack.shift();
   reviewComments = reviewComments.filter(function (c) { return seqs.indexOf(c.seq) === -1; });
   saveComments();
+  // Everything the reader worked out in that conversation is going with it, so this is where the vocabulary
+  // asks to keep the concepts (26-terms.js). After the delete, never in front of it: the delete already has
+  // an undo, and nothing should have to wait on a dialog. A batch with nothing to learn puts up no dialog.
+  offerTermHarvest(removed);
 }
 // This card and every card that continues from it. A thread hangs off its first comment — a reply carries no
 // anchor of its own, only its parent's — so removing that comment without its replies leaves them pointing at
@@ -773,62 +801,76 @@ function renderDiffComments() {
   reviewComments.forEach(function (comment) {
     (commentsByPath[comment.path] || (commentsByPath[comment.path] = [])).push(comment);
   });
+  // One file's render is its own business. This loop used to let a throw anywhere inside it escape — and the
+  // only caller that can throw is the one that matters: the agent-update handler wraps applyThreadRecords in
+  // a bare try/catch, so a single bad wrapper aborted the whole pass, left EVERY file after it painting its
+  // last render, and said nothing. The reviewer's comments were all still on screen, correct and stale, with
+  // the agent's answers sitting in memory behind them. Isolate per file, and stamp the render key only when
+  // that file actually finished, so the next pass retries it rather than trusting a render that never ran.
   container.querySelectorAll('.d2h-file-wrapper').forEach(function (w) {
-    var nameEl = w.querySelector('.d2h-file-name');
-    var path = (nameEl && nameEl.textContent ? nameEl.textContent : '').trim();
-    if (!path) return;
-    var pathComments = commentsByPath[path] || [];
-    var activeComposer = composerState && composerState.path === path ? composerState : null;
-    var renderKey = JSON.stringify({
-      comments: pathComments.map(function (comment) {
-        return [comment.seq, comment.kind, comment.by, comment.replyTo, comment.line, comment.from, comment.to, commentSide(comment), comment.text];
-      }),
-      composer: activeComposer
-        ? [activeComposer.kind, activeComposer.line, activeComposer.from, activeComposer.to, commentSide(activeComposer), activeComposer.editSeq, activeComposer.editText || '']
-        : null,
-    });
-    var slotCount = relevantLines(path, 'new').length + relevantLines(path, 'old').length;
-    var existingRows = w.querySelectorAll('.mc-comment-row');
-    var existingSpacers = w.querySelectorAll('.mc-comment-spacer-row');
-    // A watch/lazy body swap can remove rows without changing comment data. Count expected timeline slots as
-    // part of the cache validity check so that a newly materialized table still receives its comments.
-    if (w.__mcDiffCommentRenderKey === renderKey && existingRows.length === slotCount && existingSpacers.length === slotCount) return;
-    w.__mcDiffCommentRenderKey = renderKey;
-    if (!slotCount && !existingRows.length && !existingSpacers.length) return;
-    w.querySelectorAll('.mc-comment-row, .mc-comment-spacer-row').forEach(function (row) { row.remove(); });
-    remember(w);
-    if (!slotCount) return;
-    var sides = w.querySelectorAll('.d2h-file-side-diff');
-    var right = sides[sides.length - 1];
-    var left = sides[0];
-    if (!right || !left || right === left) return;
-    var codeRows = function (side) {
-      return Array.prototype.slice.call(side.querySelectorAll('tr')).filter(function (row) {
-        return !row.classList.contains('mc-comment-row') && !row.classList.contains('mc-spacer-row');
-      });
-    };
-    // Split rows align 1:1 by index, so a card in one pane reserves its height at the same index in the other.
-    var rowsBySide = { new: codeRows(right), old: codeRows(left) };
-    ['new', 'old'].forEach(function (side) {
-      var rows = rowsBySide[side];
-      var peers = rowsBySide[side === 'new' ? 'old' : 'new'];
-      relevantLines(path, side).forEach(function (line) {
-        for (var i = 0; i < rows.length; i++) {
-          var num = rows[i].querySelector('.d2h-code-side-linenumber');
-          if (num && (num.textContent || '').trim() === String(line)) {
-            // The pane is part of the slot key: old line 12 and new line 12 are two different anchors.
-            var slot = side + ':' + line;
-            var commentRow = injectThreadRow(rows[i], path, line, side);
-            if (commentRow) commentRow.dataset.commentSlot = slot;
-            if (peers[i]) injectDiffCommentSpacer(peers[i], slot);
-            break;
-          }
-        }
-      });
-    });
-    syncDiffCommentSpacerHeights(w);
+    // No need to clear the render key here: it is only stamped once a file has actually painted, so a file
+    // that threw is already un-stamped and the next pass retries it.
+    try { renderDiffCommentsForFile(w, commentsByPath, remember); }
+    catch (e) { try { console.error('kakapo: comments render failed for one file', e); } catch (e2) {} }
   });
   return affected;
+}
+function renderDiffCommentsForFile(w, commentsByPath, remember) {
+  var nameEl = w.querySelector('.d2h-file-name');
+  var path = (nameEl && nameEl.textContent ? nameEl.textContent : '').trim();
+  if (!path) return;
+  var pathComments = commentsByPath[path] || [];
+  var activeComposer = composerState && composerState.path === path ? composerState : null;
+  var renderKey = JSON.stringify({
+    comments: pathComments.map(function (comment) {
+      return [comment.seq, comment.kind, comment.by, comment.replyTo, comment.line, comment.from, comment.to, commentSide(comment), comment.text];
+    }),
+    composer: activeComposer
+      ? [activeComposer.kind, activeComposer.line, activeComposer.from, activeComposer.to, commentSide(activeComposer), activeComposer.editSeq, activeComposer.editText || '']
+      : null,
+  });
+  var slotCount = relevantLines(path, 'new').length + relevantLines(path, 'old').length;
+  var existingRows = w.querySelectorAll('.mc-comment-row');
+  var existingSpacers = w.querySelectorAll('.mc-comment-spacer-row');
+  // A watch/lazy body swap can remove rows without changing comment data. Count expected timeline slots as
+  // part of the cache validity check so that a newly materialized table still receives its comments.
+  if (w.__mcDiffCommentRenderKey === renderKey && existingRows.length === slotCount && existingSpacers.length === slotCount) return;
+  // Stamped at the END, once the rows are actually in. It used to be stamped here, before any of the bail-outs
+  // below — so a file whose body had not materialized recorded a render it never performed.
+  if (!slotCount && !existingRows.length && !existingSpacers.length) { w.__mcDiffCommentRenderKey = renderKey; return; }
+  w.querySelectorAll('.mc-comment-row, .mc-comment-spacer-row').forEach(function (row) { row.remove(); });
+  remember(w);
+  if (!slotCount) { w.__mcDiffCommentRenderKey = renderKey; return; }
+  var sides = w.querySelectorAll('.d2h-file-side-diff');
+  var right = sides[sides.length - 1];
+  var left = sides[0];
+  if (!right || !left || right === left) return; // body not materialized yet — retry on the next pass
+  var codeRows = function (side) {
+    return Array.prototype.slice.call(side.querySelectorAll('tr')).filter(function (row) {
+      return !row.classList.contains('mc-comment-row') && !row.classList.contains('mc-spacer-row');
+    });
+  };
+  // Split rows align 1:1 by index, so a card in one pane reserves its height at the same index in the other.
+  var rowsBySide = { new: codeRows(right), old: codeRows(left) };
+  ['new', 'old'].forEach(function (side) {
+    var rows = rowsBySide[side];
+    var peers = rowsBySide[side === 'new' ? 'old' : 'new'];
+    relevantLines(path, side).forEach(function (line) {
+      for (var i = 0; i < rows.length; i++) {
+        var num = rows[i].querySelector('.d2h-code-side-linenumber');
+        if (num && (num.textContent || '').trim() === String(line)) {
+          // The pane is part of the slot key: old line 12 and new line 12 are two different anchors.
+          var slot = side + ':' + line;
+          var commentRow = injectThreadRow(rows[i], path, line, side);
+          if (commentRow) commentRow.dataset.commentSlot = slot;
+          if (peers[i]) injectDiffCommentSpacer(peers[i], slot);
+          break;
+        }
+      }
+    });
+  });
+  syncDiffCommentSpacerHeights(w);
+  w.__mcDiffCommentRenderKey = renderKey;
 }
 
 function renderSourceComments() {
@@ -1084,9 +1126,19 @@ function showCustomDropdown(x, y, options, flipTop, className) {
 }
 // Open `path` in the source view and land the caret on `line` (1-based). The shared tail of every
 // "jump to an anchor" path — review comments below, agent notes in 23-annotations.js.
+// The file is often not here yet. On a lazy review openSourceFile paints a loading placeholder and fetches
+// the content, so a caret placed one frame later found `file.embedded` false and setSourceCursor returned
+// having done nothing at all — silently. On screen that is "the file changed but the comment is nowhere":
+// the body finishes painting at the top of the file while the card sits four hundred lines down, and nothing
+// ever comes back to place the caret. Wait for the content instead of guessing a frame; loadSourceFile
+// dedupes with the fetch openSourceFile already started, and resolves immediately when there is nothing to
+// fetch, so the eager path costs one microtask.
 function navigateToLine(path, line) {
   openSourceFile(path);
-  requestAnimationFrame(function () { setSourceCursor(path, Math.max(0, (Number(line) || 1) - 1), 0, true, -1); });
+  var place = function () {
+    requestAnimationFrame(function () { setSourceCursor(path, Math.max(0, (Number(line) || 1) - 1), 0, true, -1); });
+  };
+  loadSourceFile(path).then(place, place);
 }
 // A path an agent names in prose is a place to go: `campaign_control.py`, `tests/foo/test_bar.py:42`. The
 // agent writes it relative to wherever it works, so an exact hit is tried first, then the SHORTEST project
@@ -1257,17 +1309,33 @@ function stepAnchor(delta, list) {
   }
   // On a card: walk by INDEX from it. The walk is ordered by the agent's groups, so the next note in the
   // story is often further UP the file and the previous one further DOWN — a positional search cannot
-  // express that order at all. A thread is one stop: skip every card sharing this anchor, or stepping would
-  // land on a reply of the card we are leaving and look like the key did nothing.
+  // express that order at all.
+  //
+  // WHICH card, though. The caret is a line, and a line does not identify a card: notes accumulate in the
+  // repository's shared knowledge file, so two explanations of the same code put two separate notes on the
+  // same line, and "the first card standing here" was always the same one of them. Stepping off the second
+  // note computed its way back to the first and returned the second again — F8 pressed forever without
+  // moving, and the note behind it could not be reached at all. So the walk remembers the card it last put
+  // the caret on and starts from that one while the caret is still standing there.
+  var byId = {};
+  list.forEach(function (c) { byId[c.seq] = c; });
   var at = -1;
-  for (var k = 0; k < list.length; k++) if (standingOn(list[k])) { at = k; break; }
+  for (var k = 0; k < list.length; k++) {
+    if (!standingOn(list[k])) continue;
+    if (at < 0) at = k;
+    if (list[k].seq === lastRevealedSeq) { at = k; break; }
+  }
   if (at >= 0) {
+    // A THREAD is one stop — skip the card we are leaving and its replies, or stepping would land on an
+    // answer to the question we just read and look like the key did nothing. Sharing an anchor is not the
+    // same as being one conversation, which is what this used to test.
+    var here = commentThreadRoot(list[at], byId);
     var dir = delta > 0 ? 1 : -1;
     for (var n = 1; n <= list.length; n++) {
       var candidate = list[((at + dir * n) % list.length + list.length) % list.length];
-      if (!standingOn(candidate)) return candidate;
+      if (!standingOn(candidate) || commentThreadRoot(candidate, byId) !== here) return candidate;
     }
-    return list[at]; // every card in the review is anchored here; there is nowhere else to go
+    return list[at]; // the whole review is one thread anchored here; there is nowhere else to go
   }
   // Not on a card — the reader scrolled or clicked somewhere of their own. Enter the walk at the NEAREST card
   // in the file rather than at the first one in group order, which is an order about the explanation and says
@@ -1321,13 +1389,61 @@ function centerThreadRow(path, line, side, tries, token) {
     if ((tries || 0) < 3) centerThreadRow(path, line, side, (tries || 0) + 1, mine);
   });
 }
+// Can the diff put the caret on this comment's line? A diff is hunks, not files: a comment on a line no hunk
+// covers — which is where the Explain prompt deliberately puts its briefing note — has no row to land on, and
+// neither does one on a file this review does not change at all. Asked before anything moves, so the answer
+// can decide WHICH view to show rather than being discovered after switching to the wrong one.
+function diffCanShowComment(c) {
+  var wrapper = c && diffWrapperByPath(c.path);
+  if (!wrapper) return false;
+  // A lazily-built file has no rows until it is revealed, and "no rows" is not "no line" — reveal first, or
+  // every comment in a collapsed file would be answered with a wrong no.
+  if (wrapper.classList.contains('df-inactive')) revealDiffFile(c.path);
+  var line = Number(c.from) || c.line;
+  var sides = commentSide(c) === 'old' ? ['old', 'new'] : ['new', 'old'];
+  for (var i = 0; i < sides.length; i++) if (diffRowIndexForLine(wrapper, sides[i], line) >= 0) return true;
+  return false;
+}
 // Land on one specific card: the tail every "go to a comment" path shares — F8's step, and the click on a
 // notification about an answer (kakapo:comments-reveal, below).
+//
+// Go back to the view the comment was WRITTEN in (`view`, set in addComment). It used to hinge on which view
+// happened to be open, which stranded a walk in Files; that was replaced by "the diff wins whenever it can
+// show the line", and that overshot the other way — a comment written while reading the whole file was about
+// the whole file, and answering it with two narrow hunk panes takes away the context it was made in. Where
+// you were IS part of where the comment is, so it travels with the line rather than being re-decided later.
+//
+// Two things still override it. A line no hunk covers cannot be shown in the diff at all (the briefing note is
+// deliberately one of those), and an agent's note has no `view` because it never sat in a view — those keep
+// the diff-first rule, which is right for them: the change beside a note is half of what the note means.
+//
+// lastRevealedSeq is the card the walk last landed on. A line cannot say which of the cards anchored to it you
+// are reading, and stepAnchor needs to know — see the walk-by-index branch there.
+var lastRevealedSeq = 0;
 function revealComment(seq) {
   var target = reviewComments.find(function (c) { return c.seq === seq; });
   if (!target) return false;
-  if (!isDiffViewVisible() || !navigateToCommentInDiff(target.seq)) navigateToComment(target.seq);
-  centerThreadRow(target.path, Number(target.line) || 1, commentSide(target), 0);
+  lastRevealedSeq = seq;
+  var center = function () { centerThreadRow(target.path, Number(target.line) || 1, commentSide(target), 0); };
+  var land = function () {
+    if (!navigateToCommentInDiff(target.seq)) navigateToComment(target.seq);
+    center();
+  };
+  // Short-circuited on purpose: a comment that belongs in the source view must not make diffCanShowComment
+  // materialize a diff file (revealDiffFile) that nothing is going to show.
+  if (target.view === 'source' || !diffCanShowComment(target)) {
+    navigateToComment(target.seq);
+    // Same race as navigateToLine: on a lazy review the row this wants to centre does not exist for as long
+    // as the fetch takes, and its own retry budget is four frames — nowhere near a round trip.
+    loadSourceFile(target.path).then(center, center);
+    return true;
+  }
+  // showDiffView, not activateChangesView: this is "show the diff", not "go work in the tree" — the latter
+  // focuses the sidebar row, which takes the caret off the code we are about to put it on. Opening the diff
+  // for the first time also selects hunk 0, and that lands a frame later: placing the caret in the same tick
+  // put it on the right line and then watched the view drag it back to the top of the file.
+  if (isDiffViewVisible()) land();
+  else { showDiffView(false); requestAnimationFrame(land); }
   return true;
 }
 function gotoComment(delta) {
@@ -1351,10 +1467,39 @@ function gotoComment(delta) {
 // Comment bodies are never edited by typing into this document (see mergedCardHtml/the merged dock) — they
 // render `comment.text` verbatim and read/write straight through `reviewComments`, so there is no markdown
 // round-trip of comment text to get wrong, and no reconcile step needed at all.
+// The seq of the comment a thread hangs off, following replyTo up. Used to ask "has the agent spoken in this
+// conversation since?" — a question about the whole thread, not about one card's direct children.
+function commentThreadRoot(c, byId) {
+  var node = c, guard = 0;
+  while (node && node.replyTo != null && ++guard < 50) {
+    var parent = byId[node.replyTo];
+    if (!parent) break;
+    node = parent;
+  }
+  return node ? node.seq : c.seq;
+}
 function mergedBlocks() {
   // An agent's own cards (its answers and its notes) are not requests going back to it, so they are never
   // items here — they reach it as the quoted context of the follow-up that continues them.
-  var open = reviewComments.filter(function (c) { return c.by !== 'agent' && !c.addressed; });
+  //
+  // And a request the agent has ALREADY answered is not a request either. The hand-off used to carry every
+  // unaddressed comment, so a question answered in round one went back in round two, and round three, wearing
+  // an "answered" tag — the agent was handed its own finished work as if it were new, and the reviewer had to
+  // read past it to find what they had actually just written. The turn is what decides: a comment goes over
+  // only while the agent has not spoken in its thread since. Reply to an answer and the reply goes over (with
+  // `continues #N` naming the history); say nothing and the thread is done.
+  var byId = {};
+  reviewComments.forEach(function (c) { byId[c.seq] = c; });
+  var lastAgentTurn = {};
+  reviewComments.forEach(function (c) {
+    if (c.by !== 'agent') return;
+    var root = commentThreadRoot(c, byId);
+    if (!(root in lastAgentTurn) || c.seq > lastAgentTurn[root]) lastAgentTurn[root] = c.seq;
+  });
+  var open = reviewComments.filter(function (c) {
+    if (c.by === 'agent' || c.addressed) return false;
+    return !(lastAgentTurn[commentThreadRoot(c, byId)] > c.seq);
+  });
   // The plan contract leads: a comment can ask for work, so plan first and decompose into verifiable steps
   // without asking the agent to add an application-state file to the repository.
   return [{ prose: open.length ? mergePromptFor('plan') + '\n\n' + mergePromptFor('c') : '', items: open }];
@@ -1399,14 +1544,13 @@ function buildMergedText() {
 // box" — just without the reopen/delete buttons (deletion happens by navigating to the source and using the
 // existing select-row-then-Backspace flow there, not from this panel). `.mc-merged-card` carries the
 // selection/keyboard behavior; `tabindex="-1"` makes it programmatically focusable without joining Tab order.
-// An answered comment shows only a tag here, never the answer body: this panel is the hand-off document you
-// scan and send, and a multi-paragraph agent answer inlined into it buries the requests you're actually
-// reviewing. The full answer stays one click away, in the thread at the comment's own line.
+// No "answered" tag any more: an answered comment is not in this document at all (mergedBlocks). The tag
+// existed to explain why a finished exchange was still sitting in the hand-off, and the answer to that turned
+// out to be "it should not be". The answer itself stays one click away, in the thread at the comment's line.
 function mergedCardHtml(comment) {
   return '<div class="mc-card mc-merged-card mc-' + comment.kind + '" data-comment-seq="' + comment.seq + '" tabindex="-1" role="button">'
     + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml() + '</span>'
     + '<span class="mc-target">' + escapeHtml(commentTargetLabel(comment)) + '</span>'
-    + (hasAgentReply(comment) ? '<span class="mc-answered-tag" title="' + escapeHtml(t('comment.answered.hint')) + '">' + escapeHtml(t('comment.answered')) + '</span>' : '')
     + '</div>'
     + '<div class="mc-card-body">' + escapeHtml(comment.text) + '</div></div>';
 }

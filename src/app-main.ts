@@ -29,6 +29,8 @@ import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, reapUnreachableTerminals, resolveTmux } from "./app-terminal-ipc.js";
 import { registerCommentsIpc, syncCommentsFile, commentsFilePath, knowledgeFilePath } from "./comments-file.js";
+import { registerTermsIpc } from "./terms-file.js";
+import { connectMcp, mcpStatus, type McpAgent } from "./mcp-register.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
@@ -337,6 +339,13 @@ registerReviewIpc(ipcMain, stateFromEvent);
 registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerTerminalIpc(ipcMain, stateFromEvent);
 registerCommentsIpc(ipcMain, stateFromEvent);
+registerTermsIpc(ipcMain, stateFromEvent);
+// Whether the agent CLIs on this machine can see kakapo's vocabulary, and the one call that makes them.
+ipcMain.handle("kakapo:mcp-status", () => mcpStatus());
+ipcMain.handle("kakapo:mcp-connect", (_event, payload: { agent?: string }) => {
+  const agent = payload?.agent === "codex" ? "codex" : "claude";
+  return connectMcp(agent as McpAgent);
+});
 registerTileMenuIpc(ipcMain, { getShellWindow: () => shellWindow, isLightTheme, getTranslate: tr });
 // Theme + locale are global settings; re-theme the native chrome and broadcast to every window when either changes.
 // One UI scale for the whole app. Each surface is its own WebContents (the rail, every review view, the modal
@@ -365,18 +374,29 @@ function setUiScale(next: number): void {
   applyUiScale();
   // The Settings dropdown reads its value from the renderer's own copy, so tell every view what happened —
   // otherwise the keyboard and the panel would disagree about the current size.
+  // Every view is TOLD (their Settings dropdown has to agree with the keyboard), but only the visible ones
+  // are re-zoomed above — a hidden workspace hears the number and pays for it when it is next shown.
   const send = (wc: WebContents | undefined): void => { if (wc && !wc.isDestroyed()) wc.send("kakapo:ui-scale", next); };
   send(shellWindow?.webContents);
   send(modalView?.webContents);
   for (const state of states.values()) send(state.win.webContents);
 }
+// Zooming a view is not free: Chromium re-lays out the whole document, and a review document is a diff of
+// every changed file plus however many terminals. Doing that to EVERY open workspace on one ⌘+ meant paying
+// for six of them at once — six full relayouts, six sets of ResizeObservers, six terminals refitting and
+// telling tmux to repaint — while the reviewer sat looking at one of them. That is the thirty-second freeze.
+//
+// So only the views the reviewer can actually see are zoomed now, and a hidden workspace takes its new size
+// when it is next activated (activateWorkspace). The scale is read from preferences there, so a workspace
+// that was hidden through three zoom steps arrives at the right size in one relayout instead of three.
 function applyUiScale(target?: WebContents): void {
   const factor = uiScale();
   const set = (wc: WebContents | undefined): void => { if (wc && !wc.isDestroyed()) wc.setZoomFactor(factor); };
   if (target) { set(target); return; }
   set(shellWindow?.webContents);
   set(modalView?.webContents);
-  for (const state of states.values()) set(state.win.webContents);
+  const active = activeStateId === undefined ? undefined : states.get(activeStateId);
+  set(active?.win.webContents);
 }
 registerSettingsIpc(ipcMain, preferences, stateFromEvent, (key) => {
   if (key === "kakapo-theme" || key === "kakapo-locale") refreshChrome();
@@ -458,6 +478,13 @@ function presentModal(payload: unknown): boolean {
   layoutModalView();
   view.setVisible(true);
   view.webContents.focus();
+  // A modal dialog owns the keyboard until it is dismissed. The overlay is a WebContentsView layered over the
+  // review — DOM keys go to it, but application-menu ACCELERATORS are window-level and fired straight through
+  // to the review behind it, so ⌘D split a terminal and ⌘0 moved the rail while the New-workspace dialog sat
+  // on screen waiting for an answer. Claiming them here, at the one place that knows a modal is up, covers
+  // every dialog the overlay hosts rather than asking each to remember (the same switch the merged dock uses
+  // for its own panel — see setIgnoreMenuShortcuts in 08-dock.js and the IPC handler below).
+  view.webContents.setIgnoreMenuShortcuts(true);
   if (modalViewReady) view.webContents.send("kakapo:modal-open", payload);
   else pendingModalOpen = payload;
   return true;
@@ -465,6 +492,7 @@ function presentModal(payload: unknown): boolean {
 function hideModal(): void {
   modalOpen = false;
   pendingModalOpen = null;
+  if (modalView && !modalView.webContents.isDestroyed()) modalView.webContents.setIgnoreMenuShortcuts(false);
   modalView?.setVisible(false);
   focusActiveReviewView();
 }
@@ -884,13 +912,12 @@ ipcMain.handle("kakapo:open-recent", async (event, payload: { path?: string }) =
 // The packaged bundle and the global CLI are two different installs with two different update channels, and
 // answering with the wrong one is why "Update" could report success and change nothing: `npm i -g` replaces
 // the command, never /Applications/Kakapo.app. Ask the release for the DMG when we ARE the bundle.
-// Tell every open workspace how far the download has got, so the brand mark can fill (15-analysis-status.js).
-// Percent only — a byte count in a 28px mark is unreadable, and the one thing the reviewer wants to know is
-// whether it is moving. `done` releases the mark whether the update succeeded or failed.
+// Tell the rail how far the download has got, so its kakapo mark can fill (see #railver in shell-pages.ts).
+// Percent only — a byte count in a 16px mark is unreadable, and the one thing the reviewer wants to know is
+// whether it is moving. `done` releases the mark whether the update succeeded or failed. One recipient, not
+// one per workspace: the version being installed is the app's, so five open reviews meant five copies of it.
 function sendUpdateProgress(payload: { percent: number; done?: boolean }): void {
-  for (const state of states.values()) {
-    if (!state.win.isDestroyed()) state.win.webContents.send("kakapo:update-progress", payload);
-  }
+  if (shellWindow && !shellWindow.isDestroyed()) shellWindow.webContents.send("kakapo:update-progress", payload);
 }
 
 // Stream the release DMG to disk, reporting bytes as they land. Electron's net.request rather than fetch or
@@ -942,7 +969,11 @@ async function updatePackagedApp(): Promise<{ ok: boolean; error?: string }> {
     if (!asset) return { ok: false, error: `${tag} has no build for this machine` };
     const downloaded = await downloadUpdateDmg(asset.url);
     if (!downloaded.ok || !downloaded.path) return { ok: false, error: downloaded.error ?? "download failed" };
-    return installPackagedUpdate({ dmgPath: downloaded.path, installed, quit: () => { quitConfirmed = true; app.quit(); } });
+    // Through finishQuit, never `quitConfirmed = true; app.quit()`: setting the flag by hand is exactly what
+    // makes before-quit stand aside, so the ptys were never killed or drained and their exits landed in the
+    // middle of the Node teardown — an abort, and a macOS crash dialog, on every update. finishQuit sets the
+    // same flag itself, so the agents-running prompt still stays out of the way of an update the user asked for.
+    return installPackagedUpdate({ dmgPath: downloaded.path, installed, quit: () => { void finishQuit(); } });
   } catch (error) {
     return { ok: false, error: errorMessage(error) };
   }
@@ -1353,6 +1384,16 @@ function activateWorkspace(id: number): void {
   activeStateId = id;
   const activated = states.get(id);
   if (activated) {
+    // It may have missed zoom steps while it was hidden (applyUiScale only pays for what is on screen).
+    // Setting it here is a no-op when it already matches.
+    applyUiScale(activated.win.webContents);
+    // What this switch is about to pay for, stamped before it does: the renderer's own stall marks
+    // (trackMainThreadStalls in 09-views-update.js) then line up against it by timestamp.
+    activated.perf.mark("workspace-activate", {
+      released: activated.viewReleased,
+      analysisSuspended: activated.analysisSuspended,
+      booted: activated.bootStarted,
+    });
     activated.unread = false;
     preferences.writeUnread(activated.options.root, false);
     if (activated.idleTimer) { clearTimeout(activated.idleTimer); activated.idleTimer = undefined; }
@@ -1485,20 +1526,36 @@ type WorkspacePane = { id: number; command: string; agent?: AgentKind; running: 
 function panesForWorkspace(state: WinState, panes: Map<string, string>): WorkspacePane[] {
   const shellName = shellBasename();
   const rows: WorkspacePane[] = [];
+  // This workspace's live tmux sessions, in name order, as a fallback for panes whose own session is not
+  // known. The in-memory pty -> session map is the fast path and the right answer when it has one — but it is
+  // memory, and when it has drifted (a pane re-attached by another route, a map cleared by a workspace
+  // reload) the pty underneath reports `tmux` or the login shell, and the row said "shell" about a pane with
+  // an agent visibly working in it. tmux itself always knows; this makes it the backstop rather than the
+  // thing we hope the map agrees with.
+  const ownSessions = tmuxSessionsForRoot(state.options.root, Array.from(panes.keys()).join("\n")).sort();
+  const claimed = new Set(state.termSessions.values());
+  const spare = ownSessions.filter((name) => !claimed.has(name));
   for (const [id, t] of state.terms) {
     const session = state.termSessions.get(id);
     let command = "";
     if (session) command = panes.get(session) || "";
     else { try { command = t.process || ""; } catch { /* pty may have exited mid-query */ } }
     command = command.replace(/^-/, ""); // login shells surface as "-zsh"
+    // "tmux" is what a tmux-backed pty always reports about itself, and it is never the answer anyone wants.
+    if (!command || command === "tmux" || command === shellName) {
+      const borrowed = spare.shift();
+      const inside = borrowed ? (panes.get(borrowed) || "").replace(/^-/, "") : "";
+      if (inside && inside !== shellName) command = inside;
+    }
     rows.push({ id, command, agent: agentForCommand(command), running: !!command && command !== shellName, busy: state.busyPanes.has(id) });
   }
   // A session left running detached — from before this app run, or after its pane was closed — has no pty here
   // but is very much still working. It gets a row of its own so the rail says so instead of going quiet.
   const attached = new Set(state.termSessions.values());
   let next = -1;
-  for (const session of tmuxSessionsForRoot(state.options.root, Array.from(panes.keys()).join("\n"))) {
-    if (attached.has(session)) continue;
+  for (const session of ownSessions) {
+    // Either claimed by a pane, or handed to one above as its fallback — both mean it already has a row.
+    if (attached.has(session) || !spare.includes(session)) continue;
     const command = (panes.get(session) || "").replace(/^-/, "");
     if (!command || command === shellName) continue;
     rows.push({ id: next--, command, agent: agentForCommand(command), running: true, busy: false });
@@ -1622,7 +1679,7 @@ const HUB_TILE_TTL_MS = 1000;
 // (however old) and revalidate off-thread, re-rendering only if something actually changed. Only a tile that
 // has never been computed still pays the synchronous cost, once.
 const hubTileRefreshing = new Set<number>();
-// `/Users/you/kakapo/workspaces/zoobox/quiet-warbler` with the part that is the same on every row folded
+// `/Users/you/kakapo/workspaces/acme/quiet-warbler` with the part that is the same on every row folded
 // away, so what is left is the part that differs. The renderer cannot do this itself — it has no home dir.
 // Every root a session could still be reached from: the workspaces kakapo has open or saved, and the main
 // checkout of every project it knows. A kakapo session whose name matches none of these has no tile to click

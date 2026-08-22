@@ -38,6 +38,25 @@ function waitForResize(window) {
   });
 }
 
+// The projection settles on a 140ms timer in the renderer (settleDiffViewportResize, 00-diff-layers.js), and
+// this window is hidden — Chromium throttles a hidden window's timers, so "sleep a bit longer than 140ms"
+// measured a projection that had not been given the chance to settle, and the assertion failed on a loaded
+// machine rather than on a real regression. Wait for the thing itself, with a ceiling that still fails if it
+// never settles at all.
+// Settled has to mean STAYS settled: a native resize arrives as a burst of events, and each one re-arms the
+// timer, so a single "not resizing right now" reading can be the gap between two of them.
+async function waitForProjection(window) {
+  const resizing = () => window.webContents.executeJavaScript(
+    "(typeof diffViewportResizing !== 'undefined' && diffViewportResizing)");
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (!await resizing()) {
+      await pause(160); // longer than the settle timer: anything still coming re-arms it inside this window
+      if (!await resizing()) return;
+    }
+    await pause(50);
+  }
+}
+
 async function measure(window) {
   return window.webContents.executeJavaScript(`(() => {
     const body = document.body.getBoundingClientRect();
@@ -65,13 +84,13 @@ app.whenReady().then(async () => {
   let resized = waitForResize(window);
   window.setSize(1900, 1000, false);
   await resized;
-  await pause(220);
+  await waitForProjection(window);
   const after = await measure(window);
 
   resized = waitForResize(window);
   window.maximize();
   await resized;
-  await pause(220);
+  await waitForProjection(window);
   const afterMaximize = await measure(window);
   process.stdout.write(`KAKAPO_WINDOW_RESIZE=${JSON.stringify({ before, after, afterMaximize })}\n`);
   window.destroy();

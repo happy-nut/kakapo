@@ -260,6 +260,12 @@ function selectHistoryRange(focusSha, shouldScroll) {
 // about one commit that needs its own viewer, and "the commits I already made" is what a review is for.
 // Serve mode (no window.kakapoGit) has no way to repoint the review, so it does nothing rather than
 // pretending — the commit list itself still reads.
+// What a commit is compared AGAINST: its first parent. The first commit in a repository has no parent, so it
+// is the one commit with nothing to diff against — git's empty-tree hash is how you say "before anything
+// existed", and it opens as what it actually is, every file added.
+function historyCompareBase(commit) {
+  return (commit && Array.isArray(commit.parents) && commit.parents[0]) || EMPTY_TREE_SHA;
+}
 function reviewHistoryInMain() {
   var ep = historyRangeEndpoints();
   if (!ep || !window.kakapoGit || typeof window.kakapoGit.setReviewCompare !== 'function') return;
@@ -268,12 +274,8 @@ function reviewHistoryInMain() {
   if (!ep.isRange) {
     var only = historyCommits[lo];
     if (!only) return;
-    // The first commit in a repository has no parent, so it is the one commit with nothing to diff against.
-    // git's empty-tree hash is how you say "before anything existed": it opens as what it actually is, every
-    // file added. Otherwise the initial commit would be the single thing Cmd+9 could not open.
-    var parent = (Array.isArray(only.parents) && only.parents[0]) || EMPTY_TREE_SHA;
     requestDiffViewOnNextCompare();
-    Promise.resolve(window.kakapoGit.setReviewCompare(parent, only.hash, [
+    Promise.resolve(window.kakapoGit.setReviewCompare(historyCompareBase(only), only.hash, [
       { sha: only.hash, shortSha: (only.hash || '').slice(0, 7), subject: only.subject, date: only.date },
     ])).then(function (res) { if (res && res.ok) closeHistory(); }).catch(function () {});
     return;
@@ -284,7 +286,10 @@ function reviewHistoryInMain() {
     scope.push({ sha: c.hash, shortSha: (c.hash || '').slice(0, 7), subject: c.subject, date: c.date });
   }
   requestDiffViewOnNextCompare(); // land on the diff, not a stale source pane
-  Promise.resolve(window.kakapoGit.setReviewCompare(ep.olderSha, ep.newerSha, scope)).then(function (res) {
+  // The base is what came BEFORE the oldest selected commit, exactly as it is for a single one. Comparing
+  // from the oldest commit itself left that commit's own changes out of its own compare, so two selected
+  // commits opened showing only the newer one — and the bar still said "2 commits".
+  Promise.resolve(window.kakapoGit.setReviewCompare(historyCompareBase(historyCommits[hi]), ep.newerSha, scope)).then(function (res) {
     if (res && res.ok) closeHistory();
   }).catch(function () {});
 }
@@ -495,15 +500,18 @@ function handleHistoryKey(e) {
     if (e.shiftKey) { e.preventDefault(); selectHistoryRange(row.dataset.sha, false); } // extend the compare range
     else { clearHistoryRange(); historyAnchorSha = row.dataset.sha; selectHistoryCommit(row.dataset.sha, false); updateHistorySelectBar(); } // select only; open on double-click/Enter
   });
-  // Double-click activates: open the compare range when the row is inside it, else that single commit.
+  // Double-click activates: the compare range when the row is inside it, else that single commit. Both go
+  // through the same door Enter and the Open button use — the two names this used to call (openHistoryRange,
+  // openHistoryCommit) went away with the overlay's own diff pane, so every double-click threw instead.
   if (list) list.addEventListener('dblclick', function (e) {
     var row = e.target.closest && e.target.closest('.hrow[data-sha]');
     if (!row) return;
     e.preventDefault();
     var ep = historyRangeEndpoints();
-    if (ep && ep.isRange && row.classList.contains('in-range')) { openHistoryRange(ep.olderSha, ep.newerSha); return; }
-    clearHistoryRange(); historyAnchorSha = row.dataset.sha; selectHistoryCommit(row.dataset.sha, false); updateHistorySelectBar();
-    openHistoryCommit(row.dataset.sha);
+    if (!(ep && ep.isRange && row.classList.contains('in-range'))) {
+      clearHistoryRange(); historyAnchorSha = row.dataset.sha; selectHistoryCommit(row.dataset.sha, false); updateHistorySelectBar();
+    }
+    openHistoryCurrentSelection();
   });
   var selBar = document.getElementById('history-select-bar');
   if (selBar) selBar.addEventListener('click', function (e) {

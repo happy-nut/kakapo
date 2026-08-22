@@ -255,6 +255,16 @@ export async function loadViewer(html, opts = {}) {
       if (opts.perfBridge) {
         window.kakapoPerf = { mark: (name, details) => opts.perfBridge(name, details) };
       }
+      // The vocabulary bridge (terms-file.ts). Writes are captured rather than persisted: what a test
+      // needs to see is WHEN the map writes back, and reading a word is the only thing that should.
+      if (opts.termsBridge) {
+        const terms = JSON.parse(JSON.stringify(opts.termsBridge));
+        window.__termsWrites = [];
+        window.kakapoTerms = {
+          read: () => Promise.resolve({ path: ".git/kakapo/terms.jsonl", terms }),
+          write: (next) => { window.__termsWrites.push(JSON.parse(JSON.stringify(next))); return Promise.resolve({ ok: true }); },
+        };
+      }
       if (opts.monacoBridge) installMonacoMock(window);
     },
   });
@@ -387,6 +397,14 @@ class Viewer {
     const n = row && row.querySelector(".d2h-code-side-linenumber");
     const v = n ? parseInt((n.textContent || "").trim(), 10) : NaN;
     return Number.isFinite(v) ? v : null;
+  }
+  /** The 1-based line the caret is on, in whichever view is showing it. Walking a review crosses views —
+   *  revealComment prefers the diff for any line a hunk covers and drops to the source view for the rest —
+   *  so a test that reads only one of them is asserting the view, not the step it meant to check. */
+  caretLine() {
+    const row = this.$("#source-body .source-row.cursor-line");
+    if (row && this.window.isSourceViewerVisible()) return Number(row.dataset.lineIndex) + 1;
+    return this.diffCaretLine();
   }
 
   // ---- low-level events ------------------------------------------------------------------------

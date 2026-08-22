@@ -158,6 +158,20 @@ test("every use of the host window answers for the host being gone", () => {
   assert.deepEqual(unguarded, [], "a host method is only called after asking whether the host is still there");
 });
 
+// A zoom step re-lays out a whole document, and a review document is every changed file plus its terminals.
+// Doing that to every open workspace at once — while the reviewer is looking at one of them — is a freeze
+// measured in tens of seconds, and the terminals refitting inside hidden views told tmux to redraw at sizes
+// nobody could see. Only what is on screen pays; a hidden workspace takes the new size when it is activated.
+test("a zoom step only re-lays out the views that are on screen", () => {
+  const main = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
+  const body = main.match(/function applyUiScale\([\s\S]*?\n\}/)[0];
+  assert.doesNotMatch(body, /for \(const state of states\.values\(\)\)/,
+    "applyUiScale does not walk every workspace");
+  assert.match(body, /activeStateId/, "it zooms the active one");
+  assert.match(main, /activeStateId = id;[\s\S]{0,400}applyUiScale\(activated\.win\.webContents\)/,
+    "and a workspace catches up with the current size when it is activated");
+});
+
 // The scale list exists twice: main steps through it for ⌘+ / ⌘− and the Settings dropdown renders it in the
 // viewer, which cannot import TypeScript. Let them drift and a keystroke lands on a size the dropdown cannot
 // show as selected — the same way the syntax-family list once drifted and a chosen theme came back wrong.
@@ -182,4 +196,36 @@ test("the UI scale is stored globally, not per workspace", () => {
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
+});
+
+// Every quit path has to go through finishQuit: it kills the ptys and waits for their exits while the Node
+// environment is still alive. Setting quitConfirmed by hand is what makes before-quit stand aside, so a caller
+// that did that (the packaged self-update) quit with live ptys, and node-pty delivered their exits into the
+// middle of the teardown — abort(), and a macOS crash dialog, every time the app updated itself.
+test("quitConfirmed is only ever set by finishQuit", () => {
+  const source = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
+  const assignments = source.split("\n")
+    .map((line, i) => ({ line: line.trim(), n: i + 1 }))
+    .filter(({ line }) => /(^|[^.\w])quitConfirmed\s*=\s*true/.test(line) && !line.startsWith("//") && !line.startsWith("*"));
+  assert.equal(assignments.length, 1, `quitConfirmed is set outside finishQuit: ${JSON.stringify(assignments)}`);
+  assert.match(source, /async function finishQuit\(\): Promise<void> \{\n\s*quitConfirmed = true;/);
+});
+
+// A modal dialog owns the keyboard until it is dismissed. The overlay is a WebContentsView layered over the
+// review, so DOM keys go to it — but application-menu ACCELERATORS are window-level and fired straight
+// through to the review behind it: ⌘D split a terminal and ⌘0 moved the rail while the New-workspace dialog
+// sat waiting for an answer. presentModal/hideModal are the one pair that knows a modal is up, so the claim
+// belongs there — not in each dialog, which is how one gets forgotten.
+test("showing a modal claims the menu accelerators, and hiding it gives them back", () => {
+  const source = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
+  const between = (from, to) => source.slice(source.indexOf(from), source.indexOf(to));
+  const present = between("function presentModal(", "function hideModal(");
+  const hide = between("function hideModal(", "ipcMain.on(\"kakapo:hub-open-modal\"");
+  assert.match(present, /setIgnoreMenuShortcuts\(true\)/, "the overlay takes the accelerators while it is up");
+  assert.match(hide, /setIgnoreMenuShortcuts\(false\)/, "and releases them, or the app goes deaf after one dialog");
+  // The release runs on the way out, while the view is still around to hear it.
+  assert.ok(hide.indexOf("setIgnoreMenuShortcuts(false)") < hide.indexOf("focusActiveReviewView()"),
+    "released before focus goes back to the review");
+  assert.match(hide, /modalView && !modalView\.webContents\.isDestroyed\(\)/,
+    "a torn-down overlay is not asked to release anything");
 });

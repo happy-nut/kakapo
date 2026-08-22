@@ -1,6 +1,6 @@
 // Kakapo is left running for days with workspaces open — that is what the rail is for — so "is there a new
 // version?" was asked exactly once, at page load, and answered with whatever was true when you last
-// restarted. A release published afterwards stayed invisible: the titlebar chip never appeared, and Settings
+// restarted. A release published afterwards stayed invisible: the gear never got its dot, and Settings
 // went on saying you were up to date. Both checks now run on a timer, and the pieces that would quietly
 // defeat a timer (a session cache with no age, a label built by appending) are pinned here.
 import { test } from "node:test";
@@ -25,10 +25,9 @@ test("the session cache carries an age, so it cannot answer every later check wi
   assert.match(dock, /if \(cached\) apply\(cached\);/, "what is already known still paints immediately");
 });
 
-test("the titlebar chip rebuilds its label instead of appending to it", () => {
-  // chip.textContent = chip.textContent + " v" + v grows by one version per check: "업데이트 있음 v1 v1 v1".
-  assert.match(shell, /const base=chip\.textContent;/, "the caption is captured once");
-  assert.match(shell, /chip\.textContent=base\+" v"\+v/, "and the label is rebuilt from it");
-  assert.doesNotMatch(shell, /chip\.textContent=chip\.textContent\+/, "never appended to itself");
-  assert.match(shell, /setInterval\(check,6\*60\*60\*1000\)/, "the chip re-checks on the same six hours");
+test("the rail's gear rebuilds its tooltip instead of appending to it", () => {
+  // gear.dataset.tip = gear.dataset.tip + " v" + v grows by one version per check: "설정 v1 v1 v1".
+  assert.match(shell, /gear\.dataset\.tip=T\.settingsTip\+/, "the tip is rebuilt from the captured caption");
+  assert.doesNotMatch(shell, /gear\.dataset\.tip=gear\.dataset\.tip\+/, "never appended to itself");
+  assert.match(shell, /setInterval\(check,6\*60\*60\*1000\)/, "the rail re-checks on the same six hours");
 });

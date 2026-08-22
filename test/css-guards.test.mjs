@@ -263,7 +263,7 @@ test("packaged app reuses its top toolbars as compact draggable window chrome", 
   assert.match(css, /body\.native-app\s+\.history-bar\s*\{[^}]*padding-left:\s*var\(--native-title-safe-after-rail\)/, "History uses the shared traffic-light safe inset");
   assert.match(css, /body\.native-app\.dock-maximized\s+\.dock-bar\s*\{[^}]*min-height:\s*var\(--native-titlebar-height\)[^}]*padding-left:\s*var\(--native-title-safe-left\)/, "maximized memo and merged-prompt headers reserve the native controls");
   assert.match(css, /body\.native-app\.dock-maximized\s+\.dock-bar\s+button,[\s\S]{0,180}-webkit-app-region:\s*no-drag/, "maximized writing-panel actions stay clickable inside the draggable title row");
-  assert.match(css, /\.sidebar-brand,\s*\.sidebar-scroll,\s*\.sidebar-footer\s*\{[^}]*width:\s*var\(--sidebar-width,\s*264px\)/, "fixed header and scrolling contents keep their layout while the grid track closes");
+  assert.match(css, /\.sidebar-brand,\s*\.sidebar-scroll\s*\{[^}]*width:\s*var\(--sidebar-width,\s*264px\)/, "fixed header and scrolling contents keep their layout while the grid track closes");
   assert.doesNotMatch(css, /body\.sidebar-collapsed\s+\.sidebar\s*\{[^}]*visibility:\s*hidden/, "sidebar content is not blanked before the close animation finishes");
   assert.match(css, /\.sidebar-resizer\s*\{[^}]*transition:\s*left\s+180ms/, "the resize divider follows the collapsing track instead of jumping");
 });
@@ -373,6 +373,11 @@ test("diff comment composers stay pinned inside the working-tree viewport", () =
   assert.match(card || "", /position:\s*sticky/, "diff comments are viewport UI, not horizontally scrolling source text");
   assert.match(card || "", /left:\s*62px/, "the comment begins ten pixels after the single visible working-tree gutter");
   assert.match(card || "", /max-width:\s*calc\(100cqw\s*-\s*74px\)/, "the composer and its actions cannot be clipped at the pane's right edge");
+  // A card anchored to a deleted line sits in the BASE pane, whose gutter layer floats at the pane's right
+  // edge — opaque and above the card, so an unpinned card was simply painted over and read as cut in half.
+  const baseCard = ruleBodyForExactSelector(".mc-layered-diff-side:first-child .mc-comment-row .mc-card");
+  assert.match(baseCard || "", /position:\s*sticky/, "base-pane comments are viewport UI too, not scrolling source text");
+  assert.match(baseCard || "", /max-width:\s*calc\(100cqw\s*-\s*74px\)/, "the card stops short of the base pane's right-hand gutter instead of sliding under it");
   // The slot must paint nothing of its own. It used to be var(--bg), which is NOT the diff canvas (--panel,
   // and a syntax theme overrides --panel per container) — so the reserved strip showed up as a darker slab
   // across the review. Transparent inherits whatever surface the row is sitting on, in every theme.

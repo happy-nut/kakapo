@@ -151,6 +151,38 @@ test("history keyboard: Cmd+9 then ArrowDown navigates commits before opening a 
   v.close();
 });
 
+// Shift-selecting two commits and pressing Enter compares from what came BEFORE the oldest of them. It used
+// to compare from the oldest selected commit itself, which leaves that commit's own changes out: two commits
+// opened showing only the newer one's diff, under a bar that said "2 commits".
+test("history: a shift-selected range opens from the parent of its oldest commit", async () => {
+  const v = await loadViewer(html);
+  const calls = [];
+  v.window.kakapoGit = {
+    setReviewCompare: (base, target, scope) => {
+      calls.push(JSON.parse(JSON.stringify([base, target, Array.from(scope || [], (c) => c.sha)])));
+      return Promise.resolve({ ok: true, activeBase: base, activeTarget: target });
+    },
+    log: () => Promise.resolve([
+      { hash: "aaaaaaaa", parents: ["bbbbbbbb"], author: "A", email: "a@test", date: "2026-06-03T10:00:00+09:00", refs: "HEAD -> main", subject: "newest" },
+      { hash: "bbbbbbbb", parents: ["cccccccc"], author: "B", email: "b@test", date: "2026-06-02T10:00:00+09:00", refs: "", subject: "middle" },
+      { hash: "cccccccc", parents: [], author: "C", email: "c@test", date: "2026-06-01T10:00:00+09:00", refs: "", subject: "root" },
+    ]),
+    commitDiff: () => Promise.resolve(null),
+  };
+
+  v.key("9", { metaKey: true, code: "Digit9" });
+  await v.settle(80);
+  v.key("ArrowDown", { shiftKey: true }); // newest + the one under it
+  await v.settle(40);
+  assert.equal(v.$all("#history-list .hrow.in-range").length, 2, "two commits are selected");
+
+  v.key("Enter");
+  await v.settle(80);
+  assert.deepEqual(calls, [["cccccccc", "aaaaaaaa", ["bbbbbbbb", "aaaaaaaa"]]],
+    "compare runs from the oldest selected commit's parent, so both commits are in the diff");
+  v.close();
+});
+
 test("history keyboard: Cmd+1 leaves History for the Files view", async () => {
   const v = await loadViewer(html);
   installHistoryBridge(v);
