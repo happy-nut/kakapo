@@ -70,34 +70,89 @@ test("the prompt palette lists the saved prompts and sends the selected one to t
   assert.ok(v.$('#quick-open-side .quick-open-side-item[data-section="prompts"]').classList.contains("active"), "on the Prompts section");
   const items = v.$all("#quick-open-results .quick-open-item");
   // Only the prompts a human sends deliberately — the merge prompts ride along with the merged hand-off.
-  assert.equal(items.length, 2, "the section lists the send-on-purpose prompts");
+  assert.equal(items.length, 3, "the section lists the send-on-purpose prompts");
   assert.match(items[0].textContent, /diff/i, "the inline-diff explanation prompt is first");
   assert.match(items[1].textContent, /codebase/i, "then the codebase map");
+  // …and the one that is about the conversation rather than the code: it asks the agent to record the words
+  // the reader took in during an ordinary terminal exchange, which nothing else in kakapo can see.
+  assert.match(items[2].textContent, /learned|배운 말/i, "then keeping what a terminal conversation taught");
 
   v.key("Enter");
   await v.settle(10);
   assert.equal(sent.length, 1, "Enter hands the prompt to the terminal send composer");
-  assert.match(sent[0], /problem note/, "the annotate prompt is what was sent");
+  assert.match(sent[0], /"kind":"note"/, "the annotate prompt is what was sent");
   assert.doesNotMatch(sent[0], /\{\{NOTES_PATH\}\}/, "the notes-path placeholder is substituted before sending");
   assert.ok(v.$("#quick-open").classList.contains("hidden"), "sending closes the launcher");
   v.close();
 });
 
-// Explain is the annotations, not a panel: ⌘7 asks for them and F8 walks them with everything else. Guards the regression where
-// ⌘7 opened a second reading surface the reviewer had to hold beside the diff.
-test("⌘7 runs Explain in place and opens no view of its own", async () => {
+// Explain is the annotations, not a panel: the rail button asks for them and F8 walks them with everything
+// else. Guards the regression where it opened a second reading surface beside the diff. ⌘7 no longer exists —
+// the only thing that shortcut did was send a prompt the ⌘⇧P palette already sends.
+test("the Explain rail button runs it in place and opens no view of its own", async () => {
   const { html } = await makeReviewHtml([
     { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
-  ]);
+  ], { app: true }); // the rail only exists in the Electron review
   const v = await loadViewer(html);
   const sent = [];
   v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text) };
 
   v.key("7", { metaKey: true, code: "Digit7" });
   await v.settle(10);
-  assert.equal(sent.length, 1, "⌘7 stages the annotate prompt in the terminal composer");
-  assert.match(sent[0], /problem note/, "it is the inline-notes prompt, not a content-spec prompt");
+  assert.equal(sent.length, 0, "⌘7 is not a shortcut any more");
+
+  v.click(v.$('.rail-btn[data-view="explain"]'));
+  await v.settle(10);
+  assert.equal(sent.length, 1, "the rail button stages the annotate prompt in the terminal composer");
+  assert.match(sent[0], /"kind":"note"/, "it is the inline-notes prompt, not a content-spec prompt");
   assert.equal(v.$("#explain-view"), null, "no Explain overlay exists to open");
+  v.close();
+});
+
+// The rail lights Explain up once notes exist — and that lit button used to re-run the generator, so the one
+// control saying "there is an explanation here" was the one control that would not open it. With notes
+// present it goes to the top of the walk (the briefing); only an unexplained diff still sends the prompt.
+test("Explain opens the explanation once there is one, instead of regenerating it", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\nconst c = 3;\n", after: "const a = 9;\nconst b = 8;\nconst c = 7;\n" },
+  ], { app: true });
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  const sent = [];
+  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text) };
+
+  // Appended out of file order on purpose: the walk follows group then append order, so the briefing is
+  // first even though it sits on the last line — which is exactly what the button has to land on.
+  v.agentSays({ kind: "note", group: 1, role: "problem", path: "src/app.ts", line: 3, text: "the briefing" });
+  v.agentSays({ kind: "note", group: 2, path: "src/app.ts", line: 1, text: "a detail hanging off it" });
+  await v.settle(30);
+
+  v.click(v.$('.rail-btn[data-view="explain"]'));
+  await v.settle(80);
+  assert.equal(sent.length, 0, "nothing is sent to the terminal — the notes are already there");
+  assert.equal(v.caretLine(), 3,
+    "the caret lands on the first note of the walk, not the first note in the file");
+  v.close();
+});
+
+// A comment on a changed line belongs beside its change. Which view you happened to be in decided that: the
+// walk only tried the diff when the diff was already on screen, so stepping from the Files tree read every
+// card in the source view — the change it was about nowhere in sight. Now the diff is tried first and only a
+// line no hunk covers falls back.
+test("the walk shows a comment in the diff when the diff can show it, whichever view you start in", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\n", after: "const a = 9;\nconst b = 8;\n" },
+  ], { app: true });
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts"); // start in Files, deliberately
+  assert.equal(v.window.isSourceViewerVisible(), true, "the source view is what is on screen");
+
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, group: 1, text: "on a changed line" });
+  await v.settle(30);
+
+  v.key("F8");
+  await v.settle(80);
+  assert.equal(v.window.isDiffViewVisible(), true, "stepping to it brought the diff up");
   v.close();
 });
 
@@ -110,7 +165,7 @@ test("F8 and Shift+F8 walk the agent's notes", async () => {
 
   v.key("F8");
   await v.settle(30);
-  const cursorLine = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1);
+  const cursorLine = () => v.caretLine() - 1;
 
   // Written out of order on purpose: stepping follows the diff, not the order the agent emitted them.
   v.agentSays({ kind: "note", path: "src/app.ts", line: 3, text: "why c changed" });
@@ -210,6 +265,101 @@ test("inline code is linked only when it names a file, not an attribute chain", 
   v.close();
 });
 
+// A path several folders deep spends most of a line naming directories the sentence was not about. It folds to
+// the filename with a (…) in front, and the whole path is still there — in the DOM, in data-path, and one
+// click away — because folding it must not cost the reader the thing they might have needed it for.
+test("a deep path folds to its filename, unfolds on click, and still opens the file it names", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  const deep = "turtle/backend/src/app/stock/backtest/domain/evaluation_policy.py:27";
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, text: "See `" + deep + "` and `src/app.ts`." });
+  await v.settle(40);
+
+  const body = v.$(".mc-ai-body");
+  const [folded, shallow] = Array.from(body.querySelectorAll("code.mc-path-code"));
+  assert.equal(folded.dataset.path, deep, "the whole path is carried on the element");
+  assert.equal(folded.querySelector(".mc-path-dir").textContent, "turtle/backend/src/app/stock/backtest/domain",
+    "…and the folded part is the directories, not dropped");
+  assert.ok(folded.querySelector("button.mc-path-ell"), "a (…) control stands in for them");
+  assert.equal(folded.title, deep, "hovering says the whole path without a click");
+
+  // One directory deep is left alone: folding it would save no room and cost a click.
+  assert.equal(shallow.querySelector(".mc-path-ell"), null, "`src/app.ts` is short enough already");
+  assert.equal(shallow.textContent, "src/app.ts");
+
+  // The (…) unfolds. It does NOT follow the path — that is what the rest of the link is for.
+  const opened = [];
+  v.window.openPathReference = (ref) => opened.push(ref);
+  v.click(folded.querySelector("button.mc-path-ell"));
+  assert.ok(folded.classList.contains("mc-path-open"), "clicking the (…) opens the path");
+  assert.deepEqual(opened, [], "…and does not navigate on the way");
+
+  v.click(folded);
+  assert.deepEqual(opened, [deep], "clicking the path itself still opens the file, whole path and all");
+  v.close();
+});
+
+// The same file, in one note, used to come out three different ways: folded when the span was nothing but the
+// path, spelled out in full when git's status marker sat in front of it, and — unquoted — as a blue external
+// link, because half the extensions agents name are country TLDs and linkify treats `chart.py` as a domain.
+test("a path reads the same wherever it appears in a note, and a bare filename is never an external link", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  const deep = "turtle/backend/src/app/shared/strategies/daily/turtle.py";
+  v.agentSays({
+    kind: "note",
+    path: "src/app.ts",
+    line: 1,
+    text: "워킹트리에서 `M " + deep + "` 로 잡힙니다. `" + deep + "` 를 보세요. chart.py 는 그대로 두고, https://example.com 참고.",
+  });
+  await v.settle(40);
+
+  const body = v.$(".mc-ai-body");
+  const chips = Array.from(body.querySelectorAll(".mc-path-code"));
+  assert.deepEqual(chips.map((el) => el.dataset.path), [deep, deep], "both mentions are the same path chip");
+  assert.deepEqual(chips.map((el) => el.querySelector(".mc-path-dir").textContent),
+    ["turtle/backend/src/app/shared/strategies/daily", "turtle/backend/src/app/shared/strategies/daily"],
+    "and both fold the same directories away");
+  assert.match(chips[0].parentElement.textContent, /^M\s/, "git's status marker stays in front of the marked path");
+
+  const links = Array.from(body.querySelectorAll("a"), (a) => a.getAttribute("href"));
+  assert.deepEqual(links, ["https://example.com"], "a real URL still links; `chart.py` is not a domain");
+  assert.doesNotMatch(body.innerHTML, /mc-path-code[^>]*data-path="chart\.py"/,
+    "a filename this project does not have stays prose rather than becoming a dead link");
+  v.close();
+});
+
+// The other half of the same complaint: an agent refers to a file it is not editing the way anyone does — by
+// its name, no directory — and that mention has to reach the file too. The path it is missing is one the
+// project index knows, so it gets filled in and the mention reads like every other mention of that file.
+test("a file named without its directory gets the path filled in, in prose and in backticks alike", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "turtle/backend/src/app/stock/backtest/chart.py", before: "a = 1\n", after: "a = 2\n" },
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const full = "turtle/backend/src/app/stock/backtest/chart.py";
+  const v = await loadViewer(html);
+  v.agentSays({
+    kind: "note",
+    path: "src/app.ts",
+    line: 1,
+    text: "chart.py 가 이 모듈을 씁니다 (`chart.py:106`). 버전 1.5 는 그대로.",
+  });
+  await v.settle(40);
+
+  const body = v.$(".mc-ai-body");
+  const chips = Array.from(body.querySelectorAll(".mc-path-code"));
+  assert.deepEqual(chips.map((el) => el.dataset.path), [full, full + ":106"],
+    "both the prose mention and the backticked one carry the whole path, line number kept");
+  assert.ok(chips.every((el) => el.querySelector(".mc-path-dir")), "and both fold it like any other path");
+  assert.doesNotMatch(body.innerHTML, /mc-path-code[^>]*data-path="1\.5"/, "a version number is not a file");
+  v.close();
+});
+
 // A follow-up must reach the agent with a way back to what it follows — including a note that STARTED the
 // thread. A reply opened from an explain card has no parent comment to inherit, so it used to arrive as a
 // bare "then why not…?" with the "why" nowhere in it. It travels as the note's id now, not its text: the
@@ -269,7 +419,7 @@ test("F8 steps to an agent note, not only to the reviewer's own comments", async
   ]);
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
-  const line = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1);
+  const line = () => v.caretLine() - 1;
   // Establish the caret the same way the F8 walk test does, then hand the note to the store.
   v.key("F8");
   await v.settle(30);
@@ -390,33 +540,39 @@ test("a note's group survives a round trip through the renderer's own save", asy
 
 
 // get a pill and a coloured edge.
-test("a note can declare itself the problem or the fix, and an invented role degrades to neither", async () => {
+test("a note can mark itself as key, and an invented role degrades to no mark", async () => {
   const { html } = await makeReviewHtml([
     { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
   ]);
   const v = await loadViewer(html);
 
-  const problem = v.agentSays({ kind: "note", path: "src/app.ts", line: 1, role: "problem", text: "Where it goes wrong." });
-  v.agentSays({ kind: "note", path: "src/app.ts", line: 1, role: "fix", text: "Where that is beaten." });
+  const key = v.agentSays({ kind: "note", path: "src/app.ts", line: 1, role: "key", text: "Where the change turns." });
+  // "problem" and "fix" were the two values this used to have. Notes written under them are still marked —
+  // one mark now, because the distinction was weight the reader carried for nothing.
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 2, role: "problem", text: "An older mark." });
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 2, role: "fix", text: "The other older mark." });
   v.agentSays({ kind: "note", path: "src/app.ts", line: 1, role: "editorialising", text: "Not a role kakapo draws." });
   await v.settle(30);
 
-  const problemCard = v.$(".mc-card.mc-role-problem");
-  assert.ok(problemCard, "the problem note is marked");
-  assert.match(problemCard.textContent, /The problem/, "and says so in a pill");
-  assert.ok(v.$(".mc-card.mc-role-fix"), "so is the fix");
+  assert.equal(v.$all(".mc-card.mc-role-problem").length, 0, "there is no second kind of mark to draw");
+  assert.equal(v.$all(".mc-card.mc-role-fix").length, 0);
+  const marked = v.$all(".mc-card.mc-role-key").map((c) => c.textContent);
+  assert.ok(marked.some((t) => /Where the change turns/.test(t)), "a key note is marked");
+  assert.ok(marked.some((t) => /An older mark/.test(t)), "and so is one written under the old values");
+  assert.ok(marked.some((t) => /The other older mark/.test(t)));
+  assert.ok(!marked.some((t) => /Not a role kakapo draws/.test(t)), "an invented role is not");
+
   // A card renders once per diff pane, so compare the SET of pill labels rather than counting them.
-  const pills = new Set(v.$all(".mc-role").map((p) => p.textContent));
-  assert.deepEqual([...pills].sort(), ["The fix", "The problem"], "the invented role gets no pill rather than an untranslated one");
-  assert.ok(v.visibleCardTexts().some((t) => /Not a role kakapo draws/.test(t)), "and its note still renders");
+  assert.deepEqual([...new Set(v.$all(".mc-role").map((p) => p.textContent))], ["Key"], "one label, not two");
+  assert.ok(v.visibleCardTexts().some((t) => /Not a role kakapo draws/.test(t)), "the unmarked note still renders");
 
   // Every later write re-serialises the notes already in the thread (commentToRecord), so a role that is not
   // written back would silently disappear the next time anyone comments.
   v.agentSays({ kind: "note", path: "src/app.ts", line: 1, text: "A later, unmarked note." });
   await v.settle(30);
-  assert.ok(v.$(".mc-card.mc-role-problem"), "the mark survives the round trip through the thread file");
-  assert.match(v.$(".mc-card.mc-role-problem").textContent, /Where it goes wrong/, "on the same note");
-  assert.ok(problem > 0, "the note kept its id");
+  assert.ok(v.$all(".mc-card.mc-role-key").some((c) => /Where the change turns/.test(c.textContent)),
+    "the mark survives the round trip through the thread file");
+  assert.ok(key > 0, "the note kept its id");
   v.close();
 });
 
@@ -491,7 +647,7 @@ test("Shift+F8 goes back to the note F8 just came from", async () => {
   v.agentSays({ kind: "note", path: "src/app.ts", line: 3, group: 2, text: "third" });
   await v.settle(30);
 
-  const line = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1) + 1;
+  const line = () => v.caretLine();
   const seen = [];
   for (let i = 0; i < 3; i++) { v.key("F8"); await v.settle(60); seen.push(line()); }
   assert.deepEqual(seen, [2, 4, 3], "F8 walks the groups in order (the caret starts above them all)");
@@ -522,7 +678,7 @@ test("an ordered note carries its own prev/next, and they drive the same walk as
   v.agentSays({ kind: "note", path: "src/app.ts", line: 3, group: 2, text: "third" });
   await v.settle(40);
 
-  const line = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1) + 1;
+  const line = () => v.caretLine();
   const buttons = () => v.$all("#source-body .mc-card.mc-ai .mc-walk-step");
   assert.ok(buttons().length >= 2, "the card offers both directions");
   assert.deepEqual([...new Set(buttons().map((b) => b.dataset.keyhint))].sort(), ["F8", "⇧F8"],
@@ -562,7 +718,7 @@ test("F8 steps past a note's own replies instead of standing still on them", asy
   v.agentSays({ kind: "note", path: "src/app.ts", line: 4, text: "the next note" });
   await v.settle(40);
 
-  const line = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1) + 1;
+  const line = () => v.caretLine();
   v.key("F8");
   await v.settle(60);
   assert.equal(line(), 2, "the first step lands on the note");
@@ -596,15 +752,17 @@ test("an Explain prompt is written to a file and the terminal carries its path",
     },
   };
 
-  v.key("7", { metaKey: true, code: "Digit7" });
+  v.key("P", { metaKey: true, shiftKey: true, code: "KeyP" });
+  await v.settle(10);
+  v.key("Enter");
   await v.settle(30);
 
   assert.equal(written.length, 1, "the prompt went to disk");
   assert.equal(written[0].name, "explain-diff.md", "under a name of its own, so it cannot overwrite a review request");
-  assert.match(written[0].text, /problem note/, "and it is the whole prompt that was written");
+  assert.match(written[0].text, /"kind":"note"/, "and it is the whole prompt that was written");
   assert.equal(sent.length, 1);
   assert.match(sent[0], /\/repo\/\.git\/kakapo\/explain-diff\.md$/, "the composer carries the path");
-  assert.doesNotMatch(sent[0], /problem note/, "not the sixty lines");
+  assert.doesNotMatch(sent[0], /"kind":"note"/, "not the sixty lines");
   v.close();
 });
 
@@ -619,10 +777,12 @@ test("a prompt still pastes when there is nowhere to write it", async () => {
   v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text) };
   v.window.kakapoComments = { ...(v.window.kakapoComments || {}), writeRequest: () => Promise.reject(new Error("no git dir")) };
 
-  v.key("7", { metaKey: true, code: "Digit7" });
+  v.key("P", { metaKey: true, shiftKey: true, code: "KeyP" });
+  await v.settle(10);
+  v.key("Enter");
   await v.settle(30);
   assert.equal(sent.length, 1);
-  assert.match(sent[0], /problem note/, "the prompt itself is sent when the file could not be");
+  assert.match(sent[0], /"kind":"note"/, "the prompt itself is sent when the file could not be");
   v.close();
 });
 
@@ -644,7 +804,7 @@ test("F8 keeps walking after it lands on a card whose anchor is a range", async 
   v.agentSays({ kind: "note", path: "src/app.ts", line: 6, group: 1, text: "last" });
   await v.settle(40);
 
-  const line = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1) + 1;
+  const line = () => v.caretLine();
   const walked = [];
   for (let i = 0; i < 3; i++) { v.key("F8"); await v.settle(60); walked.push(line()); }
 
@@ -660,11 +820,11 @@ test("F8 keeps walking after it lands on a card whose anchor is a range", async 
   v.close();
 });
 
-// The card counts "8/9" from one list and F8 walked another: the walk was filtered by the source index, which
-// on a diff-first launch holds only the CHANGED files, so notes on untouched files disappeared from the walk
-// while the badge went on numbering them. Stepping then bounced between whichever two survived. Whatever is
-// counted must be what is walked — scoping a shared note to this workspace happens in main, before either.
-test("the number on a card counts the same cards F8 walks", async () => {
+// The walk was filtered by the source index, which on a diff-first launch holds only the CHANGED files, so
+// notes on untouched files disappeared from it — and stepping bounced between whichever two survived. A note
+// belongs to the walk because it belongs to this workspace, which main decides (notesForWorkspace) before the
+// renderer sees it; nothing here may filter again.
+test("every note in this workspace is walkable, indexed or not", async () => {
   const { html } = await makeReviewHtml([
     { path: "src/changed.ts", before: "const a = 1;\nconst b = 2;\n", after: "const a = 9;\nconst b = 8;\n" },
   ]);
@@ -681,11 +841,10 @@ test("the number on a card counts the same cards F8 walks", async () => {
   const walked = Array.from(v.window.sortedNavThread()).filter((c) => c.by === "agent");
   assert.equal(walked.length, 3, "every note in this workspace is in the walk, indexed or not");
 
-  const badges = v.$all(".mc-card.mc-ai .mc-walk").map((el) => el.textContent);
-  assert.ok(badges.length > 0, "the cards carry their place in it");
-  for (const badge of badges) {
-    assert.match(badge, /\/3$/, `a card counts out of the walk it belongs to, got ${badge}`);
-  }
+  // No count on the card any more — "4/7" read as "the 4th of 7 comments", which is not what it was
+  // counting. What the card still carries is the step: an order exists and it goes this way.
+  assert.equal(v.$all(".mc-card.mc-ai .mc-walk").length, 0, "no card claims a total nothing else shares");
+  assert.ok(v.$all(".mc-card.mc-ai .mc-walk-step").length > 0, "the step buttons stay");
   v.close();
 });
 
@@ -711,5 +870,64 @@ test("a reply to a shared note lands on the note, whichever order the two files 
   assert.equal(reply.path, note.path, "and took the note's file, rather than none at all");
   assert.equal(reply.line, note.line, "…and its line");
   assert.equal(v.window.commentsAt(note.path, note.line).length, 2, "so the note and its reply are one thread");
+  v.close();
+});
+
+// An explanation is about ONE change, but the notes file is shared and append-only, so a second run landed on
+// top of the first: two explanations of two different diffs, both numbering their groups from 1, read by the
+// walk as one story. A new run now retires the previous run's notes — except any the reviewer replied to,
+// which stopped being an explanation the moment they became a conversation.
+test("a new explanation retires the last one, and keeps the notes that became conversations", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\nconst c = 3;\n", after: "const a = 9;\nconst b = 8;\nconst c = 7;\n" },
+  ], { app: true });
+  const v = await loadViewer(html);
+  const notes = () => v.storedComments().filter((c) => c.by === "agent" && c.replyTo == null).map((c) => c.text);
+
+  // Run one. The first run under this code prunes nothing — it only records where it began.
+  v.window.runAnnotatePrompt();
+  const asked = v.agentSays({ kind: "note", group: 1, path: "src/app.ts", line: 1, text: "old: discussed" });
+  v.agentSays({ kind: "note", group: 1, path: "src/app.ts", line: 2, text: "old: plain" });
+  await v.settle(40);
+  assert.deepEqual(notes(), ["old: discussed", "old: plain"], "run one's notes are here");
+
+  // The reviewer takes one of them up.
+  v.agentSays({ re: asked, text: "an answer, so this one is a thread now" });
+  await v.settle(40);
+
+  // Run two.
+  v.window.runAnnotatePrompt();
+  v.agentSays({ kind: "note", group: 1, path: "src/app.ts", line: 3, text: "new: briefing" });
+  await v.settle(60);
+
+  assert.deepEqual(notes(), ["old: discussed", "new: briefing"],
+    "the plain note from run one is gone; the one with a reply stayed, and run two's is here");
+  assert.equal(v.storedComments().some((c) => c.replyTo === asked), true, "the answer is still attached to it");
+  v.close();
+});
+
+// A thread is two files stitched together — this workspace's conversation and the repository's shared notes —
+// and `reviewComments` holds them in file order, conversation first. So a note always sank below every
+// question and answer sharing its line, however long before them it was written: the reader's own question sat
+// at the top of a thread that had actually started with the note it was asked about.
+test("a thread reads in the order it was written, not in the order the two files were stitched", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "const a = 1;\n", after: "const a = 9;\n" },
+  ]);
+  const v = await loadViewer(html);
+
+  // The note comes FIRST in time. agentSays appends to the same one id space, so its seq is the lowest.
+  const note = v.agentSays({ kind: "note", role: "key", path: "src/app.ts", line: 1, text: "the note, written first" });
+  await v.settle(40);
+  v.window.addComment("q", "src/app.ts", 1, "const a = 9;", "my question, second");
+  await v.settle(40);
+  const question = v.storedComments().find((c) => c.text === "my question, second").seq;
+  v.agentSays({ re: question, text: "the answer, third" });
+  await v.settle(60);
+
+  assert.ok(note < question, "the note really was written before the question");
+  const order = v.$all(".mc-thread-cell .mc-card:not(.mc-composer) .mc-card-body").map((b) => b.textContent.trim());
+  assert.deepEqual(order.slice(0, 3), ["the note, written first", "my question, second", "the answer, third"],
+    "the thread reads in the order the turns were taken");
   v.close();
 });

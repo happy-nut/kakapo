@@ -313,6 +313,12 @@ function clearTreeFocus() {
   treeFocusIndex = -1;
   clearTreeSelection();
   document.querySelectorAll('.tree-focus').forEach((el) => el.classList.remove('tree-focus'));
+  // A row that was CLICKED also holds native DOM focus (focusTreeRowFromPointer takes it, because macOS
+  // does not). Dropping only the logical cursor left that focus ring sitting in the sidebar: F7/F8 moved the
+  // caret into the code while the panel still looked — and to the browser still was — the focused one. Only
+  // focus this tree took is given back, so a sidebar text field is never blurred out from under the user.
+  var active = document.activeElement;
+  if (active && active.matches && active.matches('.sidebar summary, .sidebar .file-link')) active.blur();
 }
 
 // Focus the tree row for the currently open file (source openPath, else the active diff file);

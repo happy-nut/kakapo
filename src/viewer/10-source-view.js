@@ -293,6 +293,9 @@ function handleSourceClick(event) {
   // The second click belongs to the native word-selection gesture. Do not split the text node again by
   // repainting the fake caret; handleSourceDoubleClick selects the stable logical word afterward.
   if (Number(event.detail) > 1) return;
+  // A click carrying a range selection is the end of a drag (see selectedText). Painting the caret here
+  // re-splits the text nodes the selection lives in and leaves the drag with nothing selected.
+  if (selectedText()) return;
   const row = target?.closest?.('.source-row');
   if (!row) return;
   clearTreeFocus();
@@ -649,8 +652,11 @@ function selectCommentRow(row, fromBelow) {
   if (!selectedCommentRow) { markSelectedCard(null); return; }
   selectedCommentRow.classList.add('mc-row-selected');
   // Entering from below (ArrowUp off the line under the thread) lands on the last turn, so the walk through a
-  // thread reads in the same direction the caret is travelling.
-  var cards = commentCardsIn(selectedCommentRow);
+  // thread reads in the same direction the caret is travelling. The last CARD there is the "Continue this
+  // thread" stub, which is an affordance and not a turn: parking the selection on it made the first Backspace
+  // (and `e`) silently do nothing, so deleting a comment you had arrowed up to took two presses. Arrows still
+  // step onto the stub — Enter opens the reply there — it is just never what entering the row selects.
+  var cards = commentCardsIn(selectedCommentRow).filter(function (card) { return !card.classList.contains('mc-reply-stub'); });
   markSelectedCard(fromBelow ? cards[cards.length - 1] : cards[0]);
   // Keep the caret visible: the box's active outline (.mc-row-selected) already shows the selection, and the
   // caret must never be hidden ("어떤 경우에도 커서는 가려지면 안 됨"). Previously this removed cursor-line +

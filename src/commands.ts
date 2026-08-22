@@ -4,6 +4,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { errorMessage, readOption } from "./util.js";
+import { runMcpServer } from "./mcp-server.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -15,6 +16,12 @@ export function main(): void {
   try {
     if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
       printHelp();
+      return;
+    }
+    // `kakapo mcp` is not a review — it is the stdio server an agent CLI spawns and talks JSON-RPC to
+    // (mcp-server.ts). It must print nothing but protocol on stdout, so it returns before anything else runs.
+    if (rawArgs[0] === "mcp") {
+      runMcpServer();
       return;
     }
     launchReviewApp(rawArgs);
@@ -116,6 +123,8 @@ function printHelp(): void {
 Usage:
   kakapo            open the review app for the current repository
                     reuse the running app; focus the same worktree or open another
+  kakapo mcp        speak MCP on stdio, offering this review's vocabulary to an agent
+                    (what the Connect button in the ⌘⇧K map registers for you)
 
 Diff review keys:
   F7 / Shift+F7     next / previous changed hunk

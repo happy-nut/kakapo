@@ -1,4 +1,4 @@
-// ===== Explain (⌘7): an AI walks the diff and drops explanatory note cards on the lines that matter
+// ===== Explain: an AI walks the diff and drops explanatory note cards on the lines that matter
 // ("why is this here?", explained for a beginner), which render inline exactly where a review comment would.
 //
 // A note is NOT a separate store any more: it is a comment whose author is the agent (`by: 'agent'`,
@@ -7,7 +7,7 @@
 // who wrote them and what they hang off — keeping three shapes for that meant three sync paths, three
 // lifetimes, and a reply that could not cross from one to another.
 //
-// What is left here is the note's own rendering (markdown + Mermaid + path links) and the ⌘7 prompt.
+// What is left here is the note's own rendering (markdown + Mermaid + path links) and the Explain prompt.
 
 var annotationsPath = ''; // the thread file the Explain prompt tells the agent to append to
 
@@ -36,12 +36,78 @@ var PATH_CODE_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|json|jsonl|css|scss|sass|less|html
 // (`/campaigns/{id}/lessons`), a number (`0.5`) and an attribute chain (`advisor.study_summary.params`) all
 // fail and stay plain text. Fenced blocks are untouched — their <code> carries a class and highlight spans,
 // so `[^<]+` never matches one.
+// A deep path spends most of a line naming directories nobody reads — `turtle/backend/src/app/stock/backtest/
+// domain/evaluation_policy.py:27` is one file's name wearing seven folders, and the sentence around it was
+// about the file. Everything before the last slash folds into a (…) that unfolds on click, so the prose keeps
+// its rhythm and the full path stays one click (or one hover — it is the title) away.
+//
+// The characters are restricted to [A-Za-z0-9_@.-/] plus a trailing :42 by the caller, so the text is safe in
+// an attribute as-is. `data-path` carries the whole thing because textContent no longer does: the folded
+// directory is still in the DOM, and the (…) is in there with it.
+function pathCodeHtml(text, tag) {
+  var el = tag || 'code';
+  // A mention with no directory in it — `chart.py`, `chart.py:106` — is a reference to a file whose path this
+  // project already knows. Fill it in (resolveBareFileName) so every mention of that file in a note carries
+  // the same path, folds the same way, and lands in the same place on click.
+  if (text.indexOf('/') < 0) {
+    var bare = text.replace(/:\d+$/, '');
+    var resolved = resolveBareFileName(bare);
+    if (resolved) text = resolved + text.slice(bare.length);
+  }
+  var open = '<' + el + ' class="mc-path-code" data-path="' + text + '" title="' + text + '">';
+  var cut = text.lastIndexOf('/');
+  // One directory deep is already short: folding `src/build.ts` saves no room and costs a click.
+  if (cut < 0 || text.slice(0, cut).split('/').length < 2) return open + text + '</' + el + '>';
+  return open
+    + '<span class="mc-path-dir">' + text.slice(0, cut) + '</span>'
+    + '<button type="button" class="mc-path-ell" title="' + escapeHtml(t('comment.expandPath')) + '">(&hellip;)</button>'
+    + text.slice(cut) + '</' + el + '>';
+}
+function isPathCodeText(text) {
+  var bare = String(text).replace(/:\d+$/, ''); // a trailing :42 is a line number, not part of the name
+  return text.length < 200 && /^[A-Za-z0-9_@.\-/]+$/.test(bare) && PATH_CODE_EXT.test(bare);
+}
 function linkifyPathCode(html) {
   return String(html).replace(/<code>([^<]+)<\/code>/g, function (whole, text) {
-    var bare = text.replace(/:\d+$/, ''); // a trailing :42 is a line number, not part of the name
-    return text.length < 200 && /^[A-Za-z0-9_@.\-/]+$/.test(bare) && PATH_CODE_EXT.test(bare)
-      ? '<code class="mc-path-code" title="' + escapeHtml(t('comment.openPath')) + '">' + text + '</code>'
-      : whole;
+    if (isPathCodeText(text)) return pathCodeHtml(text);
+    // A path an agent quotes with something in front of it is still that path: `M turtle/.../turtle.py` is
+    // how git status names a file, and requiring the WHOLE span to be a path left exactly those spans as
+    // plain text — the same file, in the same note, folded in one sentence and spelled out in full in the
+    // next. Mark the tokens that are paths and leave the rest of the span (already escaped) alone.
+    if (text.length >= 200 || !/\s/.test(text)) return whole;
+    var parts = text.split(/(\s+)/);
+    if (!parts.some(isPathCodeText)) return whole;
+    return '<code>' + parts.map(function (part) {
+      return isPathCodeText(part) ? pathCodeHtml(part, 'span') : part;
+    }).join('') + '</code>';
+  });
+}
+// An agent names a file it is only referring to by its bare name — `chart.py`, no directory — because that is
+// how anyone talks about a file. The reference is real; what is missing is the path, and the project index
+// already knows it (the same suffix match openPathReference does on click). So fill it in: one match and the
+// mention becomes the ordinary folded path chip carrying the WHOLE path, reading exactly like every other
+// mention of that file in the note. Ambiguous, or not in this project, and it stays what it was — text.
+function resolveBareFileName(name) {
+  if (typeof sourceByPath === 'undefined' || !sourceByPath || typeof sourceByPath.forEach !== 'function') return '';
+  if (sourceByPath.has(name)) return name;
+  var suffix = '/' + name, hits = [];
+  sourceByPath.forEach(function (_file, path) {
+    if (path.length > suffix.length && path.slice(-suffix.length) === suffix) hits.push(path);
+  });
+  return hits.length === 1 ? hits[0] : '';
+}
+// Prose only: an existing chip, a code block and a real link are all left exactly as they are.
+function linkifyBareFileNames(html) {
+  // The `<` is matched by lookahead, never consumed: consuming it would leave the scanner INSIDE the tag that
+  // follows, so the skip branch could not recognise the chip it had just walked past and rewrote its innards.
+  return String(html).replace(/(<(?:code|pre|a)\b[\s\S]*?<\/(?:code|pre|a)>)|>([^<]*)(?=<)/gi, function (whole, skip, text) {
+    if (skip || !text) return whole;
+    return '>' + text.replace(/[A-Za-z0-9_][A-Za-z0-9_.-]*\.[A-Za-z0-9]{1,8}(?::\d+)?/g, function (name) {
+      var bare = name.replace(/:\d+$/, '');
+      // Only a name this project actually has becomes a link. Anything else — a version, a domain, a file
+      // from somewhere else entirely — is prose, and stays prose.
+      return PATH_CODE_EXT.test(bare) && resolveBareFileName(bare) ? pathCodeHtml(name, 'span') : name;
+    });
   });
 }
 // The closing fence is OPTIONAL: a diagram runs to the end of the note when nothing closes it. An agent
@@ -56,7 +122,7 @@ function annotationBodyHtml(text) {
   var html = '';
   for (var i = 0; i < parts.length; i++) {
     if (i % 2 === 1) html += mermaidPlaceholderHtml(parts[i].trim());
-    else if (parts[i].trim()) html += linkifyPathCode(renderMarkdownHtml(parts[i]));
+    else if (parts[i].trim()) html += linkifyBareFileNames(linkifyPathCode(renderMarkdownHtml(parts[i])));
   }
   return html;
 }
@@ -64,19 +130,25 @@ function annotationBodyHtml(text) {
 // Same .mc-card shell as a review comment, because it IS one — written by the agent instead of by the
 // reviewer. The kind pill says who wrote it; a tinted background (viewer.css) says the same thing at a
 // glance, so a long thread reads as an alternating conversation without having to parse every pill.
-// A note may declare itself the problem or the fix (comments-file.ts). Those two are the ones a reviewer
-// with two minutes should read, so they get their own pill and a tinted edge — everything else stays the
-// quiet default. An unknown role degrades to no role rather than an empty pill.
-var NOTE_ROLES = { problem: 'annotate.role.problem', fix: 'annotate.role.fix' };
-// Where this note sits in the walk. The group order exists, but nothing on screen SAID so: the cards are
-// scattered down the file by line, so "which one do I read first" had no answer you could see — only one you
-// could discover by pressing F8 and watching where it went. A card that says 1/8 answers both halves at once
-// — there is an order, and this is where you are in it — and the first one says to start there.
-function noteWalkPosition(c) {
-  var walk = sortedNavThread().filter(function (x) { return x.by === 'agent' && x.replyTo == null; });
-  if (walk.length < 2) return null; // one note is not a walk
-  for (var i = 0; i < walk.length; i++) if (walk[i].seq === c.seq) return { at: i + 1, of: walk.length };
-  return null;
+// A note may mark itself as one of the few places the change actually turns on (comments-file.ts). ONE mark,
+// not two: "the problem" and "the fix" asked the reader to hold a distinction while reading, and it bought
+// nothing — what a note says is already in the note, and the only thing worth adding beside it is whether
+// this is a place to stop. Notes written under the old two values still carry the mark; the pill just no
+// longer tries to tell them apart. An unknown role degrades to no role rather than an empty pill.
+var NOTE_ROLES = { key: 1, problem: 1, fix: 1 };
+// The walk, in the order the explanation was built: group first, then append order inside a group
+// (sortedNavComments). Note 1 is the briefing the Explain prompt asks for — nothing here privileges
+// `role`, so a note that skips its group number simply sorts to the back with the rest.
+function annotationWalk() {
+  return sortedNavThread().filter(function (x) { return x.by === 'agent' && x.replyTo == null; });
+}
+// Cards used to carry their place in the walk — "4/7". It read as "the 4th of 7 comments", which is not what
+// it counted: F8 also stops at the reviewer's own comments, and the sidebar counts something different again.
+// Three numbers for one review, none of them agreeing, and the one on the card was the loudest. The prev/next
+// buttons below say the same thing the badge was for — there is an order, and it goes this way — without
+// claiming a total that nothing else on screen shares.
+function noteIsInWalk() {
+  return annotationWalk().length > 1; // one note is not a walk
 }
 // Prev/next on the card itself, once the agent has put the notes in an order. The keys have always existed
 // and were never on screen — and a key you have to already know is not a control. They sit at the head's
@@ -93,15 +165,13 @@ function walkStepButtonsHtml() {
 
 function agentCardHtml(c) {
   var isReply = c.replyTo != null;
-  var role = !isReply && NOTE_ROLES[c.role] ? c.role : '';
-  var pos = isReply ? null : noteWalkPosition(c);
+  var role = !isReply && NOTE_ROLES[c.role] ? 'key' : '';
+  var inWalk = !isReply && noteIsInWalk();
   return '<div class="mc-card mc-ai' + (isReply ? ' mc-reply-card' : '') + (role ? ' mc-role-' + role : '') + '">'
     + '<div class="mc-card-head"><span class="mc-kind mc-kind-ai">' + annotationKindIcon()
     + '<span class="mc-kind-text">' + escapeHtml(t(isReply ? 'comment.answer' : 'annotate.kind')) + '</span></span>'
-    + (pos ? '<span class="mc-walk' + (pos.at === 1 ? ' mc-walk-first' : '') + '" title="'
-      + escapeHtml(t(pos.at === 1 ? 'walk.start' : 'walk.hint')) + '">' + pos.at + '/' + pos.of + '</span>' : '')
-    + (pos ? walkStepButtonsHtml() : '')
-    + (role ? '<span class="mc-role">' + escapeHtml(t(NOTE_ROLES[role])) + '</span>' : '')
+    + (inWalk ? walkStepButtonsHtml() : '')
+    + (role ? '<span class="mc-role">' + escapeHtml(t('annotate.role.key')) + '</span>' : '')
     + (c.title ? '<span class="mc-ai-title">' + escapeHtml(c.title) + '</span>' : '')
     + commentTargetHeadHtml(c)
     + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '"'
@@ -127,7 +197,19 @@ function loadAnnotatePrompt() {
 }
 function saveAnnotatePrompt(text) { persistSave(annotatePromptKey, text || ''); }
 function currentAnnotatePromptText() {
-  return loadAnnotatePrompt().split('{{NOTES_PATH}}').join(annotationsPath || '');
+  return fillPromptPaths(loadAnnotatePrompt());
+}
+// The two paths every explanation prompt needs: where its notes go, and where the reader's own words are
+// (26-terms.js). The vocabulary is read-only to an agent — it is the reader's language, not a scratchpad —
+// so the prompt only ever hands over the path to read.
+function fillPromptPaths(text) {
+  // The vocabulary sits beside the repository, not beside the workspace, so its path is the same for every
+  // worktree — and naming it is worth doing even before the bridge has answered: an agent handed the
+  // conventional location can look, and the prompt already says what an empty file means.
+  var terms = (typeof termsState !== 'undefined' && termsState.path) || '.git/kakapo/terms.jsonl';
+  return String(text)
+    .split('{{NOTES_PATH}}').join(annotationsPath || '')
+    .split('{{TERMS_PATH}}').join(terms);
 }
 
 // The other editable prompt: map the WHOLE repository rather than explain one diff. Same storage shape as
@@ -144,11 +226,88 @@ function loadCodebasePrompt() {
 }
 function saveCodebasePrompt(text) { persistSave(codebasePromptKey, text || ''); }
 function currentCodebasePromptText() {
-  return loadCodebasePrompt().split('{{NOTES_PATH}}').join(annotationsPath || '');
+  return fillPromptPaths(loadCodebasePrompt());
 }
 
-// ----- running it (⌘7 / the Explain rail button): stage the prompt in the terminal composer, the same
+// The third prompt: not about a diff or a repository, but about the conversation the reader just had in the
+// terminal. Nothing in kakapo reads that conversation — the agent that held it does, and it is the one that
+// can tell a word the reader took in from a word it merely said. Same vocabulary file, same one rule: the
+// words are the reader's.
+function currentTermsPromptText() {
+  return fillPromptPaths(t('terms.prompt.default'));
+}
+
+// ----- running it (the ⌘⇧P palette, or the Explain rail button with nothing to open yet): stage the
+// prompt in the terminal composer, the same
 // review-before-it-runs step every other prompt hand-off uses (sendPromptToTerminal, 24-prompt-palette.js).
 function runAnnotatePrompt() {
+  markExplainRunStarting();
   sendPromptToTerminal(currentAnnotatePromptText(), 'explain-diff.md');
+}
+
+// ----- one explanation at a time -------------------------------------------------------------------------
+// An explanation is about ONE change. The notes file is shared and append-only, so a second run used to land
+// on top of the first: seven notes, four of them about a diff that had already been merged, and both runs
+// numbering their groups from 1 — so the walk read them as one story and stepped from this change into an
+// old one without saying so. A new explanation therefore supersedes the last one.
+//
+// Superseded, not "everything that was here": the window is the previous RUN's notes, so a codebase map (the
+// other prompt that writes root notes) is not swept up by an Explain. The first run under this code records
+// its boundary and prunes nothing — there is no way to know which of the existing notes an older kakapo
+// wrote, and deleting on a guess is not worth the one run it would save.
+//
+// A note somebody REPLIED to is not superseded at all. It stopped being an explanation the moment it became a
+// conversation, and a question and its answer outlive the diff they were about.
+// Scoped to THIS review, like every other per-review key (COMMENTS_KEY, viewedKey, treeOpenKey …). It was one
+// app-wide value, and notes are no longer app-wide: they live in the repository's shared knowledge file and
+// arrive in every worktree whose tree has the file (notesForWorkspace, comments-file.ts). So an Explain run
+// started in one worktree moved the boundary for all of them — the next run somewhere else then pruned against
+// a window it never wrote, and the briefing this boundary identifies was whatever some other worktree had
+// explained last. A run belongs to the workspace it was started in.
+var EXPLAIN_RUNS_KEY = 'kakapo-explain-runs:' + location.pathname;
+// persistRead answers from the Electron settings bridge and nothing else, so outside the app it returns
+// undefined for everything ever written. Same localStorage fallback the merge prompts use — without it this
+// boundary is forgotten between the send and the notes arriving, and no run ever supersedes another.
+function readExplainRuns() {
+  var runs = persistRead(EXPLAIN_RUNS_KEY);
+  if (runs && typeof runs === 'object') return runs;
+  try { var raw = localStorage.getItem(EXPLAIN_RUNS_KEY); if (raw) return JSON.parse(raw); } catch (e) {}
+  return null;
+}
+function maxNoteSeq() {
+  return annotationList().reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
+}
+function markExplainRunStarting() {
+  var high = maxNoteSeq();
+  var runs = readExplainRuns();
+  var last = (runs && typeof runs.last === 'number') ? runs.last : high; // first run: keep what is already here
+  // `seen` (25-briefing.js) rides along untouched: dropping it here would put the OLD briefing back on screen
+  // in the gap between sending the prompt and the new notes arriving.
+  persistSave(EXPLAIN_RUNS_KEY, { prev: last, last: high, seen: runs && runs.seen });
+}
+// Called as records arrive (applyThreadRecords). The trigger is the first note of the new run, not the send:
+// a run that is cancelled, or never pasted into the terminal, must cost nothing.
+function pruneSupersededNotes() {
+  var runs = readExplainRuns();
+  if (!runs || typeof runs.last !== 'number' || typeof runs.prev !== 'number') return;
+  var notes = annotationList();
+  if (!notes.some(function (c) { return c.seq > runs.last; })) return; // the new run has not written yet
+  var replied = {};
+  reviewComments.forEach(function (c) { if (c.replyTo != null) replied[c.replyTo] = true; });
+  var stale = notes
+    .filter(function (c) { return c.seq > runs.prev && c.seq <= runs.last && !replied[c.seq]; })
+    .map(function (c) { return c.seq; });
+  persistSave(EXPLAIN_RUNS_KEY, { prev: runs.last, last: runs.last, seen: runs.seen });
+  if (stale.length) removeComments(stale); // one batch, so one Cmd+Z brings the old explanation back
+}
+
+// The Explain rail button. It lights up once notes exist (syncRail), and until now it answered
+// that by re-running the generator: the one control saying "there is an explanation here" was the one control
+// that would not open it, so the reader had to hunt down note 1 in the diff themselves. With notes present it
+// now goes to the top of the walk — the briefing — and only an unexplained diff sends the prompt. Re-running
+// on purpose lives in the ⌘⇧P palette, which lists Explain whether or not notes are already there.
+function openExplain() {
+  var walk = annotationWalk();
+  if (walk.length && revealComment(walk[0].seq)) return;
+  runAnnotatePrompt();
 }

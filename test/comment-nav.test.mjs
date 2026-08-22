@@ -103,6 +103,26 @@ test("diff: e opens the editor prefilled with the existing comment text", async 
   v.close();
 });
 
+// Coming back UP onto a comment is how you reach one you have already read past. That entry used to land on
+// the row's LAST card — the "Continue this thread" stub, which is an affordance, not a turn — so Backspace
+// and `e` hit a card with nothing to delete or edit: the first press did nothing and the comment only went
+// away on the second.
+test("diff: ArrowUp onto a comment selects the comment, not the reply stub, so one Backspace deletes it", async () => {
+  const v = await loadViewer(html);
+  await diffCommentOnFirstLine(v, "delete me from below");
+  v.key("ArrowDown"); await v.settle(20); // onto the comment
+  v.key("ArrowDown"); await v.settle(20); // onto the reply stub
+  v.key("ArrowDown"); await v.settle(20); // off the row, onto the next code line
+  assert.equal(v.selectedCommentBox(), null, "stepped off the row");
+
+  v.key("ArrowUp"); await v.settle(20);
+  const selected = v.selectedCommentBox().querySelector(".mc-card-selected");
+  assert.equal(selected.classList.contains("mc-reply-stub"), false, "entering from below selects a written turn");
+  v.key("Backspace"); await v.settle(40);
+  assert.equal(v.storedComments().length, 0, "one Backspace is enough");
+  v.close();
+});
+
 test("diff: ArrowDown on a line with NO comment just moves the caret (no false selection)", async () => {
   const v = await loadViewer(html);
   await v.openDiffFor("src/app.ts");
@@ -168,8 +188,10 @@ test("F8 and Shift+F8 walk the comments, mirroring F7 for changes", async () => 
   await v.settle(60);
   assert.equal(v.storedComments().length, 2, "two comments to walk between");
 
-  const cursorLine = () => Number(v.$("#source-body .source-row.cursor-line")?.dataset.lineIndex ?? -1);
-  const [a, b] = v.storedComments().map((c) => c.line - 1).sort((x, y) => x - y);
+  // caretLine, not the source row: a comment on a changed line is shown in the diff now, whichever view the
+  // walk started in (revealComment), so reading only the source view reads the view and not the step.
+  const cursorLine = () => v.caretLine();
+  const [a, b] = v.storedComments().map((c) => c.line).sort((x, y) => x - y);
 
   v.key("F8");
   await v.settle(80);
@@ -279,4 +301,133 @@ test("a thread-centring retry gives up as soon as a newer one is asked for", () 
     "and a claim that has been superseded scrolls nothing");
   assert.match(fn, /centerThreadRow\(path, line, side, \(tries \|\| 0\) \+ 1, mine\)/,
     "the retry passes its own claim on, rather than minting a new one");
+});
+
+// "F8 moved to the file but the comment is nowhere." Going to a comment opened the file and placed the caret
+// one frame later — but on a lazy review that frame is spent fetching, so setSourceCursor found no content,
+// returned without doing anything, and the body then finished painting at the TOP of the file. The card was
+// in the DOM the whole time, four hundred lines below the fold, with nothing ever coming back for it. Here
+// the note sits at line 50 of a file whose content arrives on a delay, exactly as an IPC read does.
+test("going to a comment waits for a lazily fetched file instead of placing the caret a frame early", async () => {
+  const line = (n, head) => [`const head = ${head};`, ...Array.from({ length: n - 1 }, (_, i) => `const v${i + 2} = ${i + 2};`)].join("\n") + "\n";
+  const files = [
+    { path: "src/app.ts", before: "const a = 1;\n", after: "const a = 9;\n" },
+    // Changed at line 1 only, so with the fixture's 12 lines of context no hunk reaches line 50: the walk
+    // has to fall out of the diff and into the source view, which is where the race lives.
+    { path: "src/far.ts", before: line(60, 1), after: line(60, 9) },
+  ];
+  const build = await makeReviewHtml(files, { lazyLoad: true, app: true });
+  const bodies = await renderLazyBodies(build.build);
+  const records = JSON.parse(build.build.lazySourceData || "[]");
+  const v = await loadViewer(build.html, {
+    lazySourceData: build.build.lazySourceData,
+    getDiffBody: (i) => bodies[i] || "",
+    sourceBridge: (path) => new Promise((resolve) => setTimeout(() => resolve({
+      ...(records.find((r) => r.path === path) || { path }),
+      content: readFileSync(new URL("file://" + build.dir + "/" + path), "utf8"),
+      embedded: true,
+      deferred: false,
+    }), 60)),
+  });
+  await v.openSourceFile("src/app.ts"); // the reader is already browsing, so the index is here
+
+  const seq = v.agentSays({ kind: "note", path: "src/far.ts", line: 50, group: 1, text: "far down a file that is still being fetched" });
+  await v.settle(40);
+  v.window.revealComment(seq);
+  await v.settle(400);
+
+  assert.equal(v.$("#source-viewer")?.dataset.openPath, "src/far.ts", "the file opened");
+  assert.equal(v.$all("#source-body .source-row").length, 61, "and finished painting");
+  assert.equal(v.caretLine(), 50, "the caret is on the commented line, not at the top of the file");
+  assert.equal(v.$all(".mc-card.mc-ai").length, 1, "with the card on it");
+  v.close();
+});
+
+// Two notes on ONE line. Notes accumulate in the repository's shared knowledge file, so a second explanation
+// of the same code puts a second note on the same anchor — and the walk could not tell them apart, because a
+// caret is a line and a line does not name a card. It always resolved to the first one, so stepping off the
+// second computed its way back to the first and handed the second straight back: F8 pressed forever without
+// moving, with the other note unreachable.
+test("F8 steps between two notes that share one line, and still treats a thread as one stop", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\nconst c = 3;\n", after: "const a = 9;\nconst b = 8;\nconst c = 7;\n" },
+  ]);
+  const v = await loadViewer(html);
+
+  const first = v.agentSays({ kind: "note", group: 1, path: "src/app.ts", line: 1, title: "one", text: "first" });
+  const second = v.agentSays({ kind: "note", group: 2, path: "src/app.ts", line: 1, title: "two", text: "second" });
+  await v.settle(60);
+
+  const seqOf = () => v.window.sortedNavThread().find((c) => c.seq === v.window.lastRevealedSeq)?.seq;
+  v.window.revealComment(first);
+  await v.settle(40);
+  assert.equal(seqOf(), first, "the walk starts on the first of them");
+
+  v.window.gotoComment(1);
+  await v.settle(40);
+  assert.equal(seqOf(), second, "F8 reaches the note behind it instead of standing still");
+
+  v.window.gotoComment(1);
+  await v.settle(40);
+  assert.equal(seqOf(), first, "and comes back — two notes on one line are two stops");
+
+  // A question and the answer to it DO share an anchor, and they are one conversation, so they stay one stop.
+  v.window.addComment("q", "src/app.ts", 2, "const b = 8;", "why?");
+  await v.settle(40);
+  const question = v.storedComments().find((c) => c.text === "why?").seq;
+  v.agentSays({ re: question, text: "because." });
+  await v.settle(60);
+
+  v.window.revealComment(question);
+  await v.settle(40);
+  v.window.gotoComment(1);
+  await v.settle(40);
+  assert.notEqual(seqOf(), question, "stepping off the question moves");
+  assert.ok([first, second].includes(seqOf()), "…past its own answer, not onto it");
+  v.close();
+});
+
+// Where you were is part of where the comment is. Going back used to prefer the diff whenever the diff could
+// show the line at all, so a comment written while reading the whole file came back as two narrow hunk panes —
+// the context it was made in taken away by the act of returning to it.
+test("a comment comes back in the view it was written in, and survives the thread-file round trip", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\n", after: "const a = 9;\nconst b = 8;\n" },
+  ]);
+  const v = await loadViewer(html);
+  const w = v.window;
+
+  // Written while reading the FILE — on a changed line, so the diff could perfectly well show it.
+  await v.openSourceFile("src/app.ts");
+  assert.equal(w.isSourceViewerVisible(), true, "in the file view to start with");
+  w.addComment("q", "src/app.ts", 1, "const a = 9;", "read the whole file to ask this");
+  await v.settle(40);
+  const fromFile = v.storedComments().find((c) => c.text === "read the whole file to ask this").seq;
+  assert.equal(v.storedComments().find((c) => c.seq === fromFile).view, "source", "the view is recorded with the line");
+
+  // Written in the DIFF, on the other changed line.
+  w.showDiffView(false);
+  await v.settle(40);
+  assert.equal(w.isDiffViewVisible(), true);
+  w.addComment("q", "src/app.ts", 2, "const b = 8;", "asked beside the change");
+  await v.settle(40);
+  const fromDiff = v.storedComments().find((c) => c.text === "asked beside the change").seq;
+  assert.equal(v.storedComments().find((c) => c.seq === fromDiff).view, "diff");
+
+  // From the diff, the file-view comment goes back to the file view — even though the diff has its line.
+  w.revealComment(fromFile);
+  await v.settle(80);
+  assert.equal(w.isSourceViewerVisible(), true, "back to the file it was read in, not to the hunks");
+
+  // …and the other one goes the other way, from wherever you are.
+  w.revealComment(fromDiff);
+  await v.settle(80);
+  assert.equal(w.isDiffViewVisible(), true, "and a comment made beside the change comes back beside it");
+
+  // Every save re-serialises the whole thread, so a field not written back is a field the next comment deletes.
+  v.agentSays({ kind: "note", path: "src/app.ts", line: 2, text: "an unrelated note, forcing a rewrite" });
+  await v.settle(60);
+  assert.equal(v.storedComments().find((c) => c.seq === fromFile).view, "source", "the view survives the round trip");
+  assert.equal(v.storedComments().find((c) => c.seq === fromDiff).view, "diff");
+  v.close();
 });

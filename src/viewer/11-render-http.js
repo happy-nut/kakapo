@@ -335,6 +335,11 @@ function getMarkdownEngine() {
       return String(source).split('\n').map(function (line) { return highlightLine(line, language); }).join('\n');
     },
   });
+  // Autolink real URLs only. linkify's fuzzy mode turns anything shaped like a domain into a link, and half
+  // the file extensions an agent names in prose are country TLDs — `chart.py` (Paraguay), `run.sh`, `notes.md`
+  // — so a file it mentioned without backticks came out as a blue external link to a domain that does not
+  // exist, opening a browser tab on click. `https://…` still linkifies; a bare filename degrades to text.
+  markdownEngine.linkify.set({ fuzzyLink: false, fuzzyEmail: false });
   var defaultLinkOpen = markdownEngine.renderer.rules.link_open || function (tokens, idx, options, env, self) {
     return self.renderToken(tokens, idx, options);
   };
