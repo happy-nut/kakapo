@@ -58,11 +58,11 @@ function loadPage(html, hub) {
 
 const KAKAPO_MAIN = { id: 1, path: "/repos/kakapo", repoRoot: "/repos/kakapo", repoName: "kakapo",
   branch: "main", kind: "main", active: false };
-// The reported case: zoobox's ONLY checkout is its main, sitting on a feature branch.
-const ZOOBOX_MAIN = { id: 2, path: "/repos/zoobox", repoRoot: "/repos/zoobox", repoName: "zoobox",
+// The reported case: acme's ONLY checkout is its main, sitting on a feature branch.
+const ACME_MAIN = { id: 2, path: "/repos/acme", repoRoot: "/repos/acme", repoName: "acme",
   branch: "claude/legacy-strategy-removal", kind: "main", active: true };
-const ZOOBOX_WORKTREE = { id: 3, path: "/kakapo/workspaces/zoobox/fix-login", repoRoot: "/repos/zoobox",
-  repoName: "zoobox", branch: "kakapo/fix-login", kind: "worktree", active: false };
+const ACME_WORKTREE = { id: 3, path: "/kakapo/workspaces/acme/fix-login", repoRoot: "/repos/acme",
+  repoName: "acme", branch: "kakapo/fix-login", kind: "worktree", active: false };
 
 function railWithState(items) {
   const hub = stubHub();
@@ -79,14 +79,14 @@ const cardName = (document, branch) => {
 };
 
 test("a main checkout on a feature branch is still labelled as the main worktree", () => {
-  const { document } = railWithState([ZOOBOX_MAIN, KAKAPO_MAIN]);
+  const { document } = railWithState([ACME_MAIN, KAKAPO_MAIN]);
   assert.equal(cardName(document, "claude/legacy-strategy-removal"), "hub.mainWorktree");
   // ...and its branch is still shown, so nothing is hidden by the rename.
   assert.equal(cardName(document, "main"), "hub.mainWorktree");
 });
 
 test("worktrees keep their branch as the label, and an alias still wins everywhere", () => {
-  const { document } = railWithState([ZOOBOX_WORKTREE, { ...KAKAPO_MAIN, alias: "trunk" }]);
+  const { document } = railWithState([ACME_WORKTREE, { ...KAKAPO_MAIN, alias: "trunk" }]);
   assert.equal(cardName(document, "kakapo/fix-login"), "kakapo/fix-login");
   assert.equal(cardName(document, "main"), "trunk");
 });
@@ -97,7 +97,7 @@ const cardFor = (document, branch) => [...document.querySelectorAll(".ev .wt")]
 
 test("an expanded tile badges the agent its worktree is running", () => {
   const { document } = railWithState([
-    { ...ZOOBOX_WORKTREE, agent: "claude" },
+    { ...ACME_WORKTREE, agent: "claude" },
     { ...KAKAPO_MAIN, branch: "topic", kind: "worktree", agent: "codex" },
   ]);
 
@@ -116,7 +116,7 @@ test("an expanded tile badges the agent its worktree is running", () => {
 // one you needed to open looked exactly like the three you did not.
 test("a workspace with something waiting wears a red dot, not the running green", () => {
   const { document } = railWithState([
-    { ...ZOOBOX_WORKTREE, running: true, unread: true },
+    { ...ACME_WORKTREE, running: true, unread: true },
     { ...KAKAPO_MAIN, branch: "topic", kind: "worktree", running: true },
   ]);
   const css = document.querySelector("style").textContent;
@@ -143,41 +143,41 @@ test("a workspace with something waiting wears a red dot, not the running green"
 test("a worktree with no agent gets no badge, and the collapsed rail never does", () => {
   // No agent is a real state — a worktree you have only run shell commands in — and must read as absent
   // rather than as an unnamed agent.
-  const { document } = railWithState([ZOOBOX_WORKTREE, { ...KAKAPO_MAIN, agent: "claude" }]);
+  const { document } = railWithState([ACME_WORKTREE, { ...KAKAPO_MAIN, agent: "claude" }]);
   assert.equal(cardFor(document, "kakapo/fix-login").querySelector(".wt-agent"), null);
   // The collapsed strip is 46px of initials and a status dot; the badge belongs to the expanded rail only.
   assert.equal(document.querySelector(".cv .wt-agent"), null, "no badge in the collapsed rail");
 });
 
 test("the + button and ⌘N both prefill the active workspace's project", () => {
-  const { hub, document } = railWithState([KAKAPO_MAIN, ZOOBOX_MAIN]);
+  const { hub, document } = railWithState([KAKAPO_MAIN, ACME_MAIN]);
   document.querySelector("#new").click();
-  assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/zoobox", name: "zoobox" }]);
+  assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/acme", name: "acme" }]);
   hub.handlers.onNew();
-  assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/zoobox", name: "zoobox" }]);
+  assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/acme", name: "acme" }]);
 });
 
 // A detached workspace has its own OS window, so the hub's "active" can name a different one entirely —
 // ⌘N pressed in B offered A. Main now names the project of the window the key was pressed in, and that wins
 // over whatever the rail last saw activated.
 test("⌘N takes the project main names, over the rail's own active workspace", () => {
-  const { hub, document } = railWithState([KAKAPO_MAIN, ZOOBOX_MAIN]); // zoobox is the active one
+  const { hub, document } = railWithState([KAKAPO_MAIN, ACME_MAIN]); // acme is the active one
   hub.handlers.onNew({ path: "/repos/kakapo", name: "kakapo" });
   assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/kakapo", name: "kakapo" }]);
 
   // With nothing named (no workspace open anywhere), the rail's own answer still stands.
   hub.handlers.onNew(undefined);
-  assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/zoobox", name: "zoobox" }]);
+  assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/acme", name: "acme" }]);
 
   // The + button hands its click event to the same function; a MouseEvent must not read as a project.
   document.querySelector("#new").click();
-  assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/zoobox", name: "zoobox" }]);
+  assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/acme", name: "acme" }]);
 });
 
 test("an active worktree prefills its PROJECT root, not the worktree path", () => {
-  const { hub, document } = railWithState([{ ...ZOOBOX_WORKTREE, active: true }]);
+  const { hub, document } = railWithState([{ ...ACME_WORKTREE, active: true }]);
   document.querySelector("#new").click();
-  assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/zoobox", name: "zoobox" }]);
+  assert.deepEqual(hub.lastCall("openModal"), ["new", { path: "/repos/acme", name: "acme" }]);
 });
 
 test("with no active workspace ⌘N opens the dialog with no prefill", () => {
@@ -194,13 +194,13 @@ function openDialog(payload, results) {
 }
 
 test("the dialog opens with the prefilled project already selected", async () => {
-  const { hub, document } = openDialog({ path: "/repos/zoobox", name: "zoobox" });
+  const { hub, document } = openDialog({ path: "/repos/acme", name: "acme" });
   await tick();
-  assert.equal(document.querySelector("#repo").value, "/repos/zoobox");
-  assert.equal(document.querySelector("#repoName").textContent, "zoobox");
+  assert.equal(document.querySelector("#repo").value, "/repos/acme");
+  assert.equal(document.querySelector("#repoName").textContent, "acme");
   assert.ok(!document.querySelector("#repoName").classList.contains("ph"), "placeholder styling cleared");
   // A prefilled project previews immediately instead of waiting for a pick.
-  assert.deepEqual(hub.lastCall("preview"), ["/repos/zoobox", "", true, ""]);
+  assert.deepEqual(hub.lastCall("preview"), ["/repos/acme", "", true, ""]);
 });
 
 test("without a prefill the dialog still opens empty on the project chooser", async () => {
@@ -212,32 +212,32 @@ test("without a prefill the dialog still opens empty on the project chooser", as
 });
 
 test("the new-worktree toggle defaults on and creates a worktree", async () => {
-  const { hub, document } = openDialog({ path: "/repos/zoobox", name: "zoobox" });
+  const { hub, document } = openDialog({ path: "/repos/acme", name: "acme" });
   await tick();
   assert.equal(document.querySelector("#wtNew").checked, true);
   assert.ok(!document.querySelector("#labelRow").classList.contains("hidden"), "task name is asked for");
   document.querySelector("#label").value = "fix-login";
   document.querySelector("#doCreate").click();
   await tick();
-  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "fix-login", true, { base: "", slug: "", memo: "", agent: "claude" }]);
+  assert.deepEqual(hub.lastCall("create"), ["/repos/acme", "fix-login", true, { base: "", slug: "", memo: "", agent: "claude" }]);
 });
 
 test("unchecking it hides the task name and opens the checkout instead", async () => {
-  const { hub, document } = openDialog({ path: "/repos/zoobox", name: "zoobox" });
+  const { hub, document } = openDialog({ path: "/repos/acme", name: "acme" });
   await tick();
   const box = document.querySelector("#wtNew");
   box.checked = false;
   box.dispatchEvent(new document.defaultView.Event("change"));
   await tick();
   assert.ok(document.querySelector("#labelRow").classList.contains("hidden"), "task name is irrelevant");
-  assert.deepEqual(hub.lastCall("preview"), ["/repos/zoobox", "", false, ""]);
+  assert.deepEqual(hub.lastCall("preview"), ["/repos/acme", "", false, ""]);
   document.querySelector("#doCreate").click();
   await tick();
-  assert.deepEqual(hub.lastCall("create"), ["/repos/zoobox", "", false, { base: "", slug: "", memo: "", agent: "claude" }]);
+  assert.deepEqual(hub.lastCall("create"), ["/repos/acme", "", false, { base: "", slug: "", memo: "", agent: "claude" }]);
 });
 
 test("re-opening the dialog resets the toggle back on", async () => {
-  const { hub, document } = openDialog({ path: "/repos/zoobox", name: "zoobox" });
+  const { hub, document } = openDialog({ path: "/repos/acme", name: "acme" });
   await tick();
   const box = document.querySelector("#wtNew");
   box.checked = false;
@@ -251,7 +251,7 @@ test("re-opening the dialog resets the toggle back on", async () => {
 // Deleting a workspace almost always means the branch it was made for is finished too; leaving the box empty
 // made "delete" routinely leave a dead branch behind, and the reviewer had to remember to tick it every time.
 test("the delete confirmation offers to remove the local branch, pre-checked", async () => {
-  const { hub } = railWithState([ZOOBOX_WORKTREE]);
+  const { hub } = railWithState([ACME_WORKTREE]);
   hub.handlers.onTileAction({ id: 3, name: "fix-login", action: "delete" });
   await tick();
   const [spec] = hub.lastCall("confirm");
@@ -271,12 +271,12 @@ test("the delete confirmation offers to remove the local branch, pre-checked", a
 // it just never let anyone change it, so on a repo that develops off the default branch every workspace
 // silently started from the wrong place.
 test("the start ref is a list of the repo's own refs, and the previewed slug is what gets created", async () => {
-  const { hub, document } = openDialog({ path: "/repos/zoobox", name: "zoobox" },
+  const { hub, document } = openDialog({ path: "/repos/acme", name: "acme" },
     { preview: { ok: true, worktree: true, slug: "quiet-heron", base: "origin/main", branch: "kakapo/quiet-heron",
       // A ref's short name cannot say which side it lives on (a local branch may be called `origin`), so
       // listStartRefs sends the answer from git's own refname and the picker draws an icon from it.
       refs: [{ ref: "origin/main", remote: true }, { ref: "develop", remote: false }, { ref: "origin/develop", remote: true }],
-      path: "~/kakapo/workspaces/zoobox/quiet-heron" } });
+      path: "~/kakapo/workspaces/acme/quiet-heron" } });
   await tick();
 
   // A native <select> shipped here first: macOS draws those with the system control and ignores every
@@ -310,7 +310,7 @@ test("the start ref is a list of the repo's own refs, and the previewed slug is 
   document.querySelector("#doCreate").click();
   await tick();
   assert.deepEqual(hub.lastCall("create"),
-    ["/repos/zoobox", "버그 픽스", true, { base: "develop", slug: "quiet-heron", memo: "왜 만들었는지", agent: "claude" }]);
+    ["/repos/acme", "버그 픽스", true, { base: "develop", slug: "quiet-heron", memo: "왜 만들었는지", agent: "claude" }]);
 });
 
 
@@ -373,7 +373,7 @@ function setFocus(document, has) {
 }
 
 test("the rail's keyboard ring is only drawn while the rail actually holds the keyboard", () => {
-  const items = [KAKAPO_MAIN, { ...ZOOBOX_MAIN, active: false }, { ...ZOOBOX_WORKTREE, active: true }];
+  const items = [KAKAPO_MAIN, { ...ACME_MAIN, active: false }, { ...ACME_WORKTREE, active: true }];
   const { hub, document } = railWithState(items);
   const window = document.defaultView;
   setFocus(document, true); // jsdom starts unfocused; the real rail is focused when you click its pin
@@ -398,19 +398,19 @@ test("the rail's keyboard ring is only drawn while the rail actually holds the k
 });
 
 test("the keyboard ring follows its workspace across a re-render, not its row number", () => {
-  // Rows: 0 kakapo/main (active) · 1 zoobox/main · 2 zoobox/fix-login.
-  const items = [{ ...KAKAPO_MAIN, active: true }, { ...ZOOBOX_MAIN, active: false }, ZOOBOX_WORKTREE];
+  // Rows: 0 kakapo/main (active) · 1 acme/main · 2 acme/fix-login.
+  const items = [{ ...KAKAPO_MAIN, active: true }, { ...ACME_MAIN, active: false }, ACME_WORKTREE];
   const { hub, document } = railWithState(items);
   const window = document.defaultView;
   setFocus(document, true);
   document.getElementById("pin").click();
   document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
-  assert.deepEqual(ringed(document), ["claude/legacy-strategy-removal"], "the cursor is on zoobox's main");
+  assert.deepEqual(ringed(document), ["claude/legacy-strategy-removal"], "the cursor is on acme's main");
 
   // The kakapo window closes: every row below it shifts up, and a cursor kept as "row 1" now points at
-  // zoobox's fix-login worktree — a workspace the user never moved to.
+  // acme's fix-login worktree — a workspace the user never moved to.
   hub.handlers.onState(items.slice(1));
-  assert.deepEqual(ringed(document), ["claude/legacy-strategy-removal"], "still zoobox's main, wherever it now sits");
+  assert.deepEqual(ringed(document), ["claude/legacy-strategy-removal"], "still acme's main, wherever it now sits");
 });
 
 // Several worktrees of one repo sit on similar branches, and their title bars read identically — the path is
@@ -418,13 +418,13 @@ test("the keyboard ring follows its workspace across a re-render, not its row nu
 test("the title bar says which worktree on disk, with home folded to ~", async () => {
   const { document } = railWithState([
     { ...KAKAPO_MAIN, id: 1, active: true, branch: "fix/issue-1130",
-      path: "/repos/zoobox", shortPath: "~/kakapo/workspaces/zoobox/quiet-warbler" },
+      path: "/repos/acme", shortPath: "~/kakapo/workspaces/acme/quiet-warbler" },
   ]);
   await tick();
   const name = document.querySelector("#wsname");
   assert.match(name.textContent, /kakapo/, "the project is still first");
   assert.match(name.textContent, /fix\/issue-1130/, "then the branch");
-  assert.match(name.querySelector(".wspath").textContent, /^~\/kakapo\/workspaces\/zoobox\/quiet-warbler$/,
+  assert.match(name.querySelector(".wspath").textContent, /^~\/kakapo\/workspaces\/acme\/quiet-warbler$/,
     "then where it actually is, with the shared prefix folded away");
 });
 
@@ -552,9 +552,9 @@ test("holding a workspace lifts it, and dropping it reorders its project", async
 // already opens was type that agent's name. The dialog offers to do it, defaulting to on — and remembers
 // which one, because you reach for the same one most days.
 test("the New-workspace dialog starts an agent, on by default, on the one used last", async () => {
-  const { hub, document } = openDialog({ path: "/repos/zoobox", name: "zoobox" },
+  const { hub, document } = openDialog({ path: "/repos/acme", name: "acme" },
     { preview: { ok: true, worktree: true, slug: "quiet-heron", base: "origin/main", branch: "kakapo/quiet-heron",
-      refs: [{ ref: "origin/main", remote: true }], path: "~/kakapo/workspaces/zoobox/quiet-heron",
+      refs: [{ ref: "origin/main", remote: true }], path: "~/kakapo/workspaces/acme/quiet-heron",
       lastAgent: "codex" } });
   await tick();
 
@@ -588,4 +588,33 @@ test("the New-workspace dialog starts an agent, on by default, on the one used l
   document.querySelector("#doCreate").click();
   await tick();
   assert.equal(hub.lastCall("create")?.[3]?.agent, "", "nothing is started when it is turned off");
+});
+
+// REGRESSION: the agent marks were styled in hubHtml's stylesheet while the picker that draws them lives in
+// the overlay — a different document — so the dialog got none of those rules. The SVGs carry no width/height
+// of their own: unsized, the mark filled the button (a 15px glyph at ~80px) and collapsed to nothing inside
+// the menu rows, where `#create .pmenu .pm-ic{flex:none}` left it no basis to grow from.
+test("the agent picker's marks are sized and coloured by the document that draws them", () => {
+  const css = modalOverlayHtml(false, t);
+  assert.match(css, /#create \.agent-ic svg\{width:15px;height:15px/,
+    "the overlay sizes the mark itself — the SVGs have no width/height attribute to fall back on");
+  assert.match(css, /#create \.agent-face\{display:inline-flex/, "and lays the button face out");
+  // Brand colour has to beat `#create .pmenu .pm-ic`'s flat grey, which is equally specific — hence two classes.
+  assert.match(css, /#create \.agent-ic\.agent-ic-codex\{color:#10a37f\}/, "each mark keeps its own colour inside the menu");
+  const iconRule = css.indexOf("#create .agent-ic.agent-ic-codex");
+  assert.ok(iconRule > css.indexOf("#create .pmenu .pm-ic{"), "…and comes after it, so the tie goes to the brand colour");
+
+  assert.doesNotMatch(hubHtml(false, "1.0.0", t), /\.agent-ic\b/,
+    "the rail never draws an .agent-ic, so it must not carry the rules either");
+});
+
+test("both agents render a mark in the picker button and in every menu row", async () => {
+  const { document } = openDialog({ path: "/repos/acme", name: "acme" });
+  await tick();
+  assert.ok(document.querySelector("#agentFace .agent-ic svg"), "the button shows the selected agent's mark");
+  const rows = [...document.querySelectorAll("#agentMenu button")];
+  assert.deepEqual(rows.map((r) => r.dataset.agent), ["claude", "codex"], "both agents are offered");
+  for (const row of rows) {
+    assert.ok(row.querySelector(".agent-ic svg"), `the ${row.dataset.agent} row carries its mark, not just a label`);
+  }
 });

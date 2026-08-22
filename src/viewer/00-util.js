@@ -18,3 +18,14 @@ function formatBytes(bytes) {
   if (kib < 1024) return kib.toFixed(1) + ' KiB';
   return (kib / 1024).toFixed(1) + ' MiB';
 }
+
+// Text the user has selected right now, '' when nothing is. Both code views paint a FAKE caret — a span
+// spliced into the line's text nodes — and repainting it re-splits those nodes, which destroys any live
+// selection anchored in them. A drag ends with a click, so the click handler that places the caret was
+// wiping the selection the drag had just made, in the diff and in the source view alike. A click that
+// arrives on top of a range selection is the tail of a drag, not a request to move the caret.
+function selectedText() {
+  var sel = window.getSelection && window.getSelection();
+  if (!sel || !sel.rangeCount || sel.isCollapsed) return '';
+  return String(sel);
+}

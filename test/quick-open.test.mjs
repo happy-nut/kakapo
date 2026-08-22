@@ -449,7 +449,7 @@ test("prompts are pickable cards that say when to use them", async () => {
   v.key("P", { metaKey: true, shiftKey: true, code: "KeyP" });
   await v.settle(30);
   const cards = v.$all("#quick-open-results .quick-open-prompt");
-  assert.equal(cards.length, 2, "both prompts render as cards");
+  assert.equal(cards.length, 3, "every send-on-purpose prompt renders as a card");
   const when = cards[0].querySelector(".quick-open-prompt-when");
   assert.ok(when && when.textContent.trim(), "the card says when to reach for it");
   assert.doesNotMatch(cards[0].textContent, /NOTES_PATH|JSON/,

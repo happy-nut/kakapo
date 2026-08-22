@@ -214,24 +214,28 @@ test("the update installs from a DMG already on disk, and the download reports p
   assert.match(main, /content-length[\s\S]{0,900}sendUpdateProgress\(\{ percent \}\)/,
     "and turns bytes received into a percentage");
   assert.match(main, /if \(percent !== lastSent\)/, "one message per whole percent, not per chunk");
-  assert.match(main, /downloadUpdateDmg\(asset\.url\)[\s\S]{0,200}installPackagedUpdate\(\{ dmgPath/,
+  assert.match(main, /downloadUpdateDmg\(asset\.url\)[\s\S]{0,600}installPackagedUpdate\(\{ dmgPath/,
     "download first, then install what it produced");
 
   // The report has to cost no layout: the reviewer is mid-review, and the update is not what they are doing.
-  const status = readFileSync(new URL("../src/viewer/15-analysis-status.js", import.meta.url), "utf8");
-  assert.match(status, /classList\.toggle\('is-updating', active\)/, "the brand mark carries the progress");
-  assert.match(status, /setProperty\('--update-progress', percent \+ '%'\)/, "as one percentage custom property");
-  const css = readFileSync(new URL("../src/viewer.css", import.meta.url), "utf8");
-  assert.match(css, /\.app-version\.is-updating::before[\s\S]{0,400}conic-gradient\(var\(--active\) var\(--update-progress/,
+  // It draws on the rail's mark, which is one per app — the review view's was one per open workspace.
+  const shell = readFileSync(new URL("../src/shell-pages.ts", import.meta.url), "utf8");
+  assert.match(shell, /classList\.toggle\('is-updating',on\)/, "the rail's brand mark carries the progress");
+  assert.match(shell, /setProperty\('--update-progress',pct\+'%'\)/, "as one percentage custom property");
+  assert.match(shell, /#railver\.is-updating::before[\s\S]{0,400}conic-gradient\(#4d86d9 var\(--update-progress/,
     "drawn as a ring that sweeps around the mark");
-  assert.match(css, /mask: radial-gradient\(circle, transparent 0 9px/, "a ring, so the logo stays readable under it");
+  assert.match(shell, /mask:radial-gradient\(circle closest-side,transparent 0 64%/,
+    "a ring sized off the mark, so the logo stays readable under it and it cannot spill onto the version text");
+  assert.match(main, /shellWindow\.webContents\.send\("kakapo:update-progress"/, "and only the rail is told");
 });
 
-// A tooltip that repeats the label it is attached to is a rectangle over the content behind it and nothing else.
-test("the update flag has no tooltip repeating its own label", () => {
+// One new version, one indicator. It used to be three — a titlebar chip, a sidebar-footer flag, and the
+// Settings line — all saying the same two words in the same window at the same time.
+test("an available update shows in exactly one place: a dot on the rail's gear", () => {
+  const shell = readFileSync(new URL("../src/shell-pages.ts", import.meta.url), "utf8");
   const render = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
-  const flag = render.match(/<span id="app-update-flag"[^>]*>/)?.[0];
-  assert.ok(flag, "the flag is still rendered");
-  assert.doesNotMatch(flag, /title=/, "with no native tooltip");
-  assert.doesNotMatch(flag, /data-i18n-title/, "and nothing to re-add one on locale change");
+  assert.match(shell, /id="settings-dot" class="hidden"/, "the badge starts hidden");
+  assert.match(shell, /dot\.classList\.remove\("hidden"\)/, "and only a newer release reveals it");
+  assert.doesNotMatch(shell, /update-chip/, "no titlebar chip");
+  assert.doesNotMatch(render, /app-update-flag/, "no sidebar-footer flag");
 });

@@ -184,7 +184,7 @@ test("the close confirmation names the process the pane is actually running", as
 test("unreachable sessions are the ones no workspace can name, and nothing else", () => {
   const HOUR = 3600;
   const now = 1_000_000;
-  const mine = tmuxSessionPrefix("/repos/zoobox");
+  const mine = tmuxSessionPrefix("/repos/acme");
   const gone = tmuxSessionPrefix("/tmp/scratch/probe");
   const old = now - 48 * HOUR;
 
@@ -197,13 +197,13 @@ test("unreachable sessions are the ones no workspace can name, and nothing else"
     `other-tool-1 0 ${old}`,        // not ours to end
   ].join("\n");
 
-  assert.deepEqual(unreachableSessions(listed, ["/repos/zoobox"], now), [`${gone}1`],
+  assert.deepEqual(unreachableSessions(listed, ["/repos/acme"], now), [`${gone}1`],
     "only the detached, quiet, unreachable one");
 
   // The guards, stated one at a time so a future change cannot quietly drop one.
   assert.equal(unreachableSessions(`${gone}2 1 ${old}`, [], now).length, 0, "attached is never touched");
   assert.equal(unreachableSessions(`${gone}3 0 ${now - HOUR}`, [], now).length, 0, "nor is one that was busy recently");
   assert.equal(unreachableSessions(`other-tool-1 0 ${old}`, [], now).length, 0, "nor another tool's session");
-  assert.equal(unreachableSessions(`${mine}2 0 ${old}`, ["/repos/zoobox"], now).length, 0,
+  assert.equal(unreachableSessions(`${mine}2 0 ${old}`, ["/repos/acme"], now).length, 0,
     "and a workspace kakapo knows keeps its sessions however long they idle");
 });

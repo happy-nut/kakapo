@@ -142,3 +142,40 @@ test("a clean branch BEHIND upstream reviews the incoming change instead of noth
   assert.match((build.lazyBodyDiffs || []).join("\n"), /value = 2/,
     "and shows what the remote has, not the local baseline");
 });
+
+// Explaining work that is already COMMITTED. The review is the branch's own commits (merge-base…HEAD), not a
+// dirty worktree, and everything the explanation depends on has to survive that: the diff exists, the Changes
+// panel has rows to anchor a beak on, and the run boundary — which is what makes a note a briefing — is
+// recorded by sending the prompt, not by anything about the tree being dirty.
+test("a briefing appears for an explanation of already-committed work", async () => {
+  const { loadViewer } = await import("./helpers/dom.mjs");
+  const build = buildDiffReview({
+    root: repo, staged: false, includeUntracked: true, context: 12,
+    title: "committed review", lazyLoad: false, app: false,
+  });
+  assert.ok(build.files >= 1, "the committed change is the review");
+
+  const v = await loadViewer(build.html);
+  const sent = [];
+  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text) };
+  v.window.showDiffView(false);
+  await v.settle(40);
+
+  v.key("P", { metaKey: true, shiftKey: true, code: "KeyP" });
+  await v.settle(20);
+  v.key("Enter");
+  await v.settle(30);
+  assert.equal(sent.length, 1, "the explain prompt went out");
+
+  v.agentSays({
+    kind: "note", role: "problem", group: 1, path: "src/app.ts", line: 1, title: "why",
+    text: "## The value was wrong\nIt read 1.\n\n## It reads 2 now\nOne line.\n\n## Start in src/app.ts\n- `src/app.ts` — the only file that changed.",
+  });
+  await v.settle(60);
+
+  const pop = v.$("#mc-briefing");
+  assert.ok(pop, "the briefing opens on a committed diff exactly as on a dirty one");
+  assert.match(pop.querySelector(".mc-brf-h").textContent, /value was wrong/);
+  assert.ok(v.$('#changes-panel .change-row[data-file="src/app.ts"]'), "and the file it points at is in the Changes list");
+  v.close();
+});

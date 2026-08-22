@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The agent prompts (⌘7 Explain, the codebase map) are thousands of characters each, so they live as
+// The agent prompts (Explain, the codebase map) are thousands of characters each, so they live as
 // Markdown next to this file instead of as one string literal per locale: a wording change shows up as a
 // readable diff, en/ko sit side by side so they cannot drift unnoticed, and the prompt is edited as a
 // prompt (real line breaks, no \n escapes). Copied to dist/prompts/ by scripts/copy-viewer-assets.mjs.
@@ -77,7 +77,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "impact.server.override": "override",
     "impact.server.path": "PATH",
 
-    // Explain (⌘7): the agent's notes land on the diff itself (23-annotations.js) — these cover the prompt
+    // Explain: the agent's notes land on the diff itself (23-annotations.js) — these cover the prompt
     // hand-off and the Mermaid diagrams a note can embed.
     "explain.copied": "Copied",
     "explain.diagramLoading": "Loading diagram…",
@@ -141,7 +141,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.showLineHistory": "Show date and author",
     "menu.hideLineHistory": "Hide date and author",
 
-    // Sidebar footer / About
+    // Rail: gear-badge tooltip / About
     "sidebar.updateAvailable": "update available",
     // Title on the brand mark while the release image streams down (applyUpdateProgress). The ring on the
     // mark is the report; this is for anyone who wants the number.
@@ -188,7 +188,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.addressed": "possibly addressed",
     "comment.addressed.hint": "The line this comment was anchored to changed in the latest revision — the agent likely addressed it. Reopen if it isn't resolved.",
     "comment.reopen": "Reopen",
-    "comment.openPath": "Open this file",
+    "comment.expandPath": "Show the full path",
     // The agent named a file this workspace does not have — said out loud, because a link that does nothing
     // reads as a broken app (openPathReference).
     "comment.pathMissing": "No such file in this workspace",
@@ -318,6 +318,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "theme.name.dracula-light": "Alucard",
     "theme.name.contrast-dark": "High Contrast",
     "theme.name.contrast-light": "High Contrast Light",
+    "settings.update": "Update",
     "settings.checkingUpdates": "Checking for updates…",
     "settings.updateRestart": "Update & Restart",
     "settings.upToDate": "Up to date",
@@ -359,6 +360,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.nextChange": "Next change",
     "kbd.prevChange": "Previous change",
     "kbd.nextComment": "Next / previous comment",
+    "kbd.briefing": "Explain briefing",
     "kbd.nextNote": "Next / previous Explain note",
     "kbd.closeTab": "Close tab",
     "kbd.prevNextTab": "Prev / next tab",
@@ -398,10 +400,16 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "mergePrompts.cHeading": "Review-comment instructions",
     "mergePrompts.reset": "Reset to defaults",
 
-    // Settings — the Explain prompt (⌘7 / the ⌘⇧P palette sends it; the agent appends notes to the thread file)
+    // Settings — the Explain prompt (the ⌘⇧P palette sends it; the agent appends notes to the thread file)
     "annotatePrompt.title": "Explain the diff",
-    "annotatePrompt.desc": "Sent to an AI agent by ⌘7 (or the ⌘⇧P palette) to walk the diff and drop plain-language note cards on the lines that matter. F8 steps through them alongside your own comments. Saved automatically. {{NOTES_PATH}} is replaced with this workspace's annotations file when sent.",
+    "annotatePrompt.desc": "Sent to an AI agent from the ⌘⇧P palette to walk the diff and drop plain-language note cards on the lines that matter. F8 steps through them alongside your own comments. Saved automatically. {{NOTES_PATH}} is replaced with this workspace's annotations file when sent.",
     "codebase.prompt.default": readPrompt("codebase", "en"),
+    // The vocabulary can be fed from an ordinary terminal conversation too — the agent in there is in the
+    // conversation and can judge what landed, and the file merges appends safely. All it lacks is knowing
+    // the file exists, which is what this prompt hands it.
+    "terms.prompt.default": readPrompt("terms", "en"),
+    "termsPrompt.title": "Keep what I learned",
+    "termsPrompt.when": "After a conversation in the terminal that taught you something — it records the words you took in.",
     "annotatePrompt.when": "When a diff needs explaining — yours to read, or someone else's to review.",
     "codebasePrompt.title": "Explain the codebase",
     "codebasePrompt.when": "When the repository is new to you and you need its shape before its details.",
@@ -411,13 +419,51 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // cards, because a reviewer who reads only two notes should read these two.
     // The card's place in the reading order. Without it the order was real but invisible — the cards sit where
     // the code does, so nothing said which one to open first.
-    "walk.start": "Start here — F8 walks the rest in order",
     "walk.hint": "F8 for the next one, Shift+F8 to go back",
     "walk.prev": "Previous note",
     "walk.next": "Next note",
-    "annotate.role.problem": "The problem",
-    "annotate.role.fix": "The fix",
-    "annotate.nav.none": "No Explain notes yet — press ⌘7 to have an agent write them.",
+    "annotate.role.key": "Key",
+    "annotate.nav.none": "No Explain notes yet — send the Explain prompt (⌘⇧P) to have an agent write them.",
+
+    // The briefing panel (25-briefing.js). The three eyebrows are ours, not the agent's: the shape is fixed,
+    // so the note only has to carry the sentence that goes under each one.
+    "briefing.title": "This change, at a glance",
+    "briefing.kind": "Briefing",
+    "briefing.p1": "The problem",
+    "briefing.p2": "As is · To be",
+    "briefing.p3": "What to read · what to watch",
+    "briefing.recall": "Replay the briefing",
+    "briefing.prev": "Back",
+    "briefing.next": "Next",
+    "briefing.close": "Done",
+
+    // The knowledge map (⌘⇧K). Its nodes are words the reviewer has used, never words an agent chose, so
+    // the empty state says how a word gets in rather than offering a button that would add one.
+    "rail.terms": "Knowledge map",
+    "terms.close": "Close",
+    "terms.code": "In the code",
+    "terms.offered": "found by the agent",
+    "terms.code.gone": "not found",
+    "terms.empty.title": "No words yet",
+    "terms.empty.body":
+      "A word lands here once you have used it yourself — ask about something in a comment, and the concept behind your question joins the map with what it turns out to be in the code.",
+    "terms.harvest.title": "Keep what this conversation taught you?",
+    "terms.harvest.body":
+      "The thread is gone. These are the words you used in it, with the line from the answer that explains each one.",
+    "terms.harvest.save": "Keep these",
+    "terms.harvest.skip": "Nothing to keep",
+    "terms.harvest.saved": "added to the knowledge map",
+    "settings.mcp": "MCP server for building the knowledge map",
+    "settings.mcp.hint":
+      "Lets the agent in the terminal read the words you use and add the ones you take up — in any conversation, not just the ones sent from kakapo. Registered once per machine.",
+    "settings.mcp.connect": "Connect",
+    "settings.mcp.connected": "Connected",
+    "settings.mcp.missing": "not installed",
+    "settings.termsSweep": "Re-check where words point",
+    "settings.termsSweep.hint":
+      "A word stores the name it is in the code, and where that name last was. The address goes stale on any commit, so it is re-checked when you open the word — and every so many new words, across the whole map.",
+    "settings.termsSweep.every": "every {n} new words",
+    "settings.termsSweep.never": "only when I open a word",
 
     // Prompt palette (⌘⇧P)
     "promptPalette.title": "Prompts",
@@ -577,6 +623,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "merged.title": "Review comments",
     "merged.copyAll": "Copy all",
     "merged.allAddressed": "All {n} comments are flagged as possibly addressed, so nothing is left to hand off.",
+    "merged.allAnswered": "The agent has answered every open thread. Reply to one of its answers and the reply comes back here.",
     "merged.reopenAll": "Reopen them",
     "merged.copied": "Copied",
     "merged.copyFailed": "Copy failed",
@@ -597,12 +644,16 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Merge-prompt default agent contracts (these follow the locale — a Korean user gets Korean defaults)
     "mergePrompt.default.c": "The following are review comments on code you just wrote. Answer what each one asks — explain the intent, rationale, or context — and where it asks for a change, edit the code at the quoted location to satisfy it. Work in small units that a human can review independently: complete and verify one independently reviewable unit at a time before moving to the next. Keep changes minimal and focused; do not combine unrelated changes. If a comment only asks a question, answer it and change nothing.",
     // Plan contract — prepended to review comments and the prompt memo so every task starts with a small, verifiable plan written to a file.
-    "plan.contract": "Before changing any code, write a short implementation PLAN in your response. Break the work into small, independently verifiable steps — each with a one-line check for how you'll confirm it works. Get the plan right first, then implement one step at a time, keeping each step small enough to review on its own. Do not add kakapo state files to the repository.",
+    "plan.contract": "Before changing any code, write a short implementation PLAN in your response. Break the work into small, independently verifiable steps — each with a one-line check for how you'll confirm it works. Then carry it out yourself, one step at a time, without waiting for approval — the plan is there to be reviewed alongside the work, not before it. Answering review comments is never gated on the plan: write every answer first, then start on the code. Do not add kakapo state files to the repository.",
     // Sent once at the top of a terminal hand-off (sendWholeDocToTerminal, 08-dock.js) whenever kakapo wrote
     // an answers checklist for the items below — the absolute path is appended right after this line.
-    "mergePrompt.answersFile": "Answer in the review thread file below instead of replying here — append ONE line per answer, {\"id\":<the NEXT FREE ID given at the top of that file, counting up if you append more than one>,\"re\":<the #id of the request you are answering>,\"by\":\"agent\",\"text\":\"markdown\"}, and never rewrite a line already there. Take the id from that line, NOT from the highest id you can see: the ids are shared with a second file you are not looking at. Each request below is headed with its #id, and your answer lands in the review beside the code it is about:",
+    "mergePrompt.answersFile": "Answer in the review thread file below instead of replying here — append ONE line per answer, {\"id\":<the NEXT FREE ID given at the top of that file, counting up if you append more than one>,\"re\":<the #id of the request you are answering>,\"by\":\"agent\",\"text\":\"markdown\"}, and never rewrite a line already there. Take the id from that line, NOT from the highest id you can see: the ids are shared with a second file you are not looking at. Each request below is headed with its #id, and your answer lands in the review beside the code it is about. Append every answer to that file BEFORE you touch any code, and do not list them here for approval first — a listing in this session is not an answer and nobody is reading it:",
     // The ENTIRE terminal hand-off when kakapo could park the document on disk: this line plus its absolute
     // path. The document (answers-file instructions included) waits in the file — see sendWholeDocToTerminal.
+    // The vocabulary (terms-file.ts) is the reader's own words, and whether a reader has taken a word in is a
+    // reading problem — so it is judged here, by the agent that just answered them, and not by a regex over
+    // their reply. The rule the agent cannot bend: the words are theirs, never yours.
+    "mergePrompt.terms": "After you answer, one more thing — and only if it is true. When one of these threads shows that the reviewer has taken a concept into their own words (they used the word themselves and then wrote back something that was not the same question again), append ONE line for it to the vocabulary file below: {\"w\":\"their word, exactly as they wrote it\",\"gloss\":\"one line saying what it is, in their words\",\"code\":[{\"name\":\"the identifier it is\",\"at\":\"src/x.ts:12\"}]}. Read the file first; never rewrite a line already in it; add nothing for a word that is already there. Only words the REVIEWER wrote — never a name you coined, however much better it is, and never a word from an answer they have not responded to. Add `\"parent\":\"안커\"` when the word only means something inside another word already in the file. If a thread taught nothing, add nothing: most do not, and a vocabulary of words the reviewer never chose is worse than an empty one. This file is what every later explanation of this repository is written in:",
     "mergePrompt.requestFile": "Read this review request file and do everything it asks:",
     // Explain hands its instructions over the same way, but they are not a review REQUEST — nobody is being
     // asked to change anything, only to read the codebase and write notes.
@@ -611,10 +662,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // the thread file named at the top of the document holds all of them.
     "mergePrompt.continues": "Continues; read these ids in the thread file first:",
     "comment.answer": "Answer",
-    "comment.answered": "answered",
-    "comment.answered.hint": "An agent answered this comment. Open the comment at its line to read the answer.",
 
-    // The Explain prompt (⌘7) — the agent-written note cards. {{NOTES_PATH}} is substituted client-side
+    // The Explain prompt — the agent-written note cards. {{NOTES_PATH}} is substituted client-side
     // with this workspace's annotations file before sending (Korean default for Korean users below).
     "annotate.prompt.default": readPrompt("annotate", "en"),
   },
@@ -670,7 +719,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "impact.server.override": "지정",
     "impact.server.path": "PATH",
 
-    // Explain (⌘7): 에이전트의 노트가 diff 위에 직접 붙습니다(23-annotations.js). 아래는 프롬프트 전달과
+    // Explain: 에이전트의 노트가 diff 위에 직접 붙습니다(23-annotations.js). 아래는 프롬프트 전달과
     // 노트가 품을 수 있는 Mermaid 다이어그램용 문자열입니다.
     "explain.copied": "복사됨",
     "explain.diagramLoading": "다이어그램을 불러오는 중…",
@@ -734,7 +783,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "tab.changes.title": "변경사항 (⌘0)",
     "tab.files.title": "파일 (⌘1)",
 
-    // Sidebar footer / About
+    // 레일: 톱니바퀴 배지 툴팁 / 정보
     "sidebar.updateAvailable": "업데이트 있음",
     // 릴리스 이미지를 내려받는 동안 브랜드 마크에 붙는 title (applyUpdateProgress). 링이 곧 보고이고,
     // 이건 숫자를 보고 싶은 사람을 위한 것이다.
@@ -781,7 +830,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.addressed": "반영된 듯",
     "comment.addressed.hint": "이 코멘트가 가리키던 줄이 최신 변경에서 바뀌었습니다 — 에이전트가 반영했을 가능성이 큽니다. 아직 안 됐으면 재열기하세요.",
     "comment.reopen": "재열기",
-    "comment.openPath": "이 파일 열기",
+    "comment.expandPath": "전체 경로 보기",
     // 에이전트가 이 워크스페이스에 없는 파일을 지목했다 — 아무 반응 없는 링크는 앱이 고장 난 것처럼
     // 보이므로 이유를 말해준다 (openPathReference).
     "comment.pathMissing": "이 워크스페이스에 없는 파일입니다",
@@ -908,6 +957,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "theme.name.dracula-light": "Alucard",
     "theme.name.contrast-dark": "고대비 다크",
     "theme.name.contrast-light": "고대비 라이트",
+    "settings.update": "업데이트",
     "settings.checkingUpdates": "업데이트 확인 중…",
     "settings.updateRestart": "업데이트 후 재시작",
     "settings.upToDate": "최신 버전입니다",
@@ -949,6 +999,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.nextChange": "다음 변경",
     "kbd.prevChange": "이전 변경",
     "kbd.nextComment": "다음 / 이전 코멘트",
+    "kbd.briefing": "설명 브리핑",
     "kbd.nextNote": "다음 / 이전 Explain 노트",
     "kbd.closeTab": "탭 닫기",
     "kbd.prevNextTab": "이전 / 다음 탭",
@@ -988,22 +1039,60 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "mergePrompts.cHeading": "리뷰 코멘트 작업 지침",
     "mergePrompts.reset": "기본값으로 초기화",
 
-    // Settings — Explain 프롬프트 (⌘7 또는 ⌘⇧P 팔레트로 보내면 에이전트가 스레드 파일에 노트를 append)
+    // Settings — Explain 프롬프트 (⌘⇧P 팔레트로 보내면 에이전트가 스레드 파일에 노트를 append)
     "annotatePrompt.title": "diff 설명",
-    "annotatePrompt.desc": "⌘7(또는 ⌘⇧P 팔레트)로 AI 에이전트에게 보내, diff를 훑으며 중요한 줄마다 쉬운 말로 설명 카드를 달게 하는 프롬프트입니다. F8로 내 코멘트와 함께 노트 사이를 이동합니다. 자동 저장됩니다. {{NOTES_PATH}}는 보낼 때 이 워크스페이스의 주석 파일 경로로 치환됩니다.",
+    "annotatePrompt.desc": "⌘⇧P 팔레트에서 AI 에이전트에게 보내, diff를 훑으며 중요한 줄마다 쉬운 말로 설명 카드를 달게 하는 프롬프트입니다. F8로 내 코멘트와 함께 노트 사이를 이동합니다. 자동 저장됩니다. {{NOTES_PATH}}는 보낼 때 이 워크스페이스의 주석 파일 경로로 치환됩니다.",
     "codebase.prompt.default": readPrompt("codebase", "ko"),
+    "terms.prompt.default": readPrompt("terms", "ko"),
+    "termsPrompt.title": "배운 말 남기기",
+    "termsPrompt.when": "터미널에서 뭔가 알게 된 대화를 한 뒤 — 그 대화에서 받아들인 말을 단어집에 남깁니다.",
     "annotatePrompt.when": "diff를 설명해야 할 때 — 내가 읽으려고, 또는 남이 리뷰하도록.",
     "codebasePrompt.when": "저장소가 처음이라, 세부보다 전체 구조를 먼저 알아야 할 때.",
     "codebasePrompt.title": "코드베이스 설명",
     "codebasePrompt.desc": "⌘E 런처의 Prompts 섹션에서 보냅니다. 저장소를 읽고 진입점에 지도 노트 하나를 남깁니다 — 핵심 컴포넌트 3~5개의 다이어그램(노드를 클릭하면 그 위치로 이동)과 각 컴포넌트에 대한 짧은 문단. 일부러 이 높이에서 멈추며, 더 깊이 내려가는 것은 diff 설명이 합니다. 자동 저장됩니다. {{NOTES_PATH}}는 보낼 때 이 워크스페이스의 노트 파일 경로로 치환됩니다.",
     "annotate.kind": "왜",
-    "walk.start": "여기서 시작 — 나머지는 F8로 순서대로",
     "walk.hint": "F8 다음, Shift+F8 이전",
     "walk.prev": "이전 노트",
     "walk.next": "다음 노트",
-    "annotate.role.problem": "문제",
-    "annotate.role.fix": "해결",
-    "annotate.nav.none": "아직 Explain 노트가 없습니다 — ⌘7을 눌러 에이전트에게 작성을 맡기세요.",
+    "annotate.role.key": "핵심",
+    "annotate.nav.none": "아직 Explain 노트가 없습니다 — ⌘⇧P로 설명 프롬프트를 보내 에이전트에게 작성을 맡기세요.",
+
+    // 브리핑 말풍선 (25-briefing.js)
+    "briefing.title": "이 변경, 한눈에",
+    "briefing.kind": "브리핑",
+    "briefing.p1": "문제",
+    "briefing.p2": "AS IS · TO BE",
+    "briefing.p3": "볼 것 · 모니터링",
+    "briefing.recall": "브리핑 다시 보기",
+    "briefing.prev": "이전",
+    "briefing.next": "다음",
+    "briefing.close": "닫기",
+
+    // 지식 그래프 (⌘⇧K)
+    "rail.terms": "지식 그래프",
+    "terms.close": "닫기",
+    "terms.code": "코드에서는",
+    "terms.offered": "에이전트가 찾은 것",
+    "terms.code.gone": "찾지 못함",
+    "terms.empty.title": "아직 쌓인 단어가 없습니다",
+    "terms.empty.body":
+      "단어는 직접 써야 들어옵니다 — 코멘트로 무언가를 물어보면, 그 질문이 담고 있던 개념이 코드에서 무엇인지와 함께 지도에 올라옵니다.",
+    "terms.harvest.title": "이 대화에서 알게 된 것을 남길까요?",
+    "terms.harvest.body": "대화는 지워졌습니다. 아래는 그 대화에서 직접 쓴 말과, 답변에서 그 말을 설명한 문장입니다.",
+    "terms.harvest.save": "남기기",
+    "terms.harvest.skip": "남길 것 없음",
+    "terms.harvest.saved": "지식 그래프에 추가됨",
+    "settings.mcp": "지식 그래프 생성을 위한 MCP 서버 연결",
+    "settings.mcp.hint":
+      "터미널의 에이전트가 내가 쓰는 말을 읽고, 내가 받아들인 말을 직접 넣을 수 있게 합니다 — kakapo에서 보낸 대화뿐 아니라 그냥 나눈 대화에서도. 컴퓨터당 한 번만 연결하면 됩니다.",
+    "settings.mcp.connect": "연결",
+    "settings.mcp.connected": "연결됨",
+    "settings.mcp.missing": "설치되어 있지 않음",
+    "settings.termsSweep": "단어가 가리키는 곳 다시 확인",
+    "settings.termsSweep.hint":
+      "단어는 자기가 코드에서 어떤 이름인지와, 그 이름이 마지막으로 있던 자리를 함께 들고 있습니다. 자리는 커밋 한 번에 어긋나므로, 단어를 열 때마다 다시 확인하고, 새 단어가 몇 개 쌓일 때마다 전체를 한 번 훑습니다.",
+    "settings.termsSweep.every": "새 단어 {n}개마다",
+    "settings.termsSweep.never": "단어를 열 때만",
 
     // 프롬프트 팔레트 (⌘⇧P)
     "promptPalette.title": "프롬프트",
@@ -1152,6 +1241,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "merged.title": "리뷰 코멘트",
     "merged.copyAll": "전체 복사",
     "merged.allAddressed": "코멘트 {n}개가 모두 반영된 듯으로 표시되어 전달할 내용이 없습니다.",
+    "merged.allAnswered": "열린 스레드에 에이전트가 모두 답했습니다. 답변에 답글을 달면 그 답글이 여기로 옵니다.",
     "merged.reopenAll": "다시 열기",
     "merged.copied": "복사됨",
     "merged.copyFailed": "복사 실패",
@@ -1172,22 +1262,21 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Merge-prompt default agent contracts (Korean default for Korean users)
     "mergePrompt.default.c": "다음은 방금 작성한 코드에 대한 리뷰 코멘트입니다. 각 코멘트가 묻는 것에 답하면서 의도, 근거, 맥락을 설명하고, 수정을 요청하는 코멘트는 인용된 위치의 코드를 고쳐서 충족하세요. 작업은 사람이 독립적으로 리뷰할 수 있는 작은 단위로 나누고, 각 단위를 구현하고 검증한 뒤 다음 단위로 진행하세요. 변경은 최소한으로 집중해서 하고, 관련 없는 변경을 한 작업에 섞지 마세요. 질문만 하는 코멘트라면 답만 하고 코드는 건드리지 마세요.",
     // 플랜 계약문 — 모든 작업이 파일로 작성된 작고 검증 가능한 플랜에서 시작하도록 리뷰 코멘트와 프롬프트 메모 앞에 붙는다.
-    "plan.contract": "코드를 변경하기 전에, 먼저 응답에 짧은 구현 플랜을 작성하세요. 작업을 독립적으로 검증 가능한 작은 단계로 쪼개고, 각 단계마다 어떻게 확인할지 한 줄짜리 검증 기준을 적으세요. 플랜이 맞는지 먼저 확정한 뒤 한 번에 한 단계씩 구현하고, 각 단계는 따로 리뷰할 수 있을 만큼 작게 유지하세요. 저장소에는 kakapo 상태 파일을 추가하지 마세요.",
+    "plan.contract": "코드를 변경하기 전에, 먼저 응답에 짧은 구현 플랜을 작성하세요. 작업을 독립적으로 검증 가능한 작은 단계로 쪼개고, 각 단계마다 어떻게 확인할지 한 줄짜리 검증 기준을 적으세요. 그리고 승인을 기다리지 말고 그대로 한 단계씩 직접 진행하세요 — 플랜은 작업과 함께 리뷰받으라고 쓰는 것이지, 작업 전에 허락받으라고 쓰는 것이 아닙니다. 리뷰 코멘트 답변은 플랜과 무관합니다: 답변을 전부 먼저 기록한 다음 코드 작업을 시작하세요. 저장소에는 kakapo 상태 파일을 추가하지 마세요.",
     // 터미널로 보내는 합본 프롬프트(sendWholeDocToTerminal, 08-dock.js) 맨 앞에 한 번 붙는다 — kakapo가 아래
     // 항목들에 대한 답변 체크리스트를 이미 써둔 경우에만 붙으며, 바로 다음 줄에 절대 경로가 이어진다.
-    "mergePrompt.answersFile": "답변은 여기에 적지 말고 아래 리뷰 스레드 파일에 기록하세요 — 답변 하나당 한 줄씩 append 합니다: {\"id\":<그 파일 맨 위의 NEXT FREE ID. 여러 줄이면 거기서부터 하나씩 올립니다>,\"re\":<답할 요청의 #id>,\"by\":\"agent\",\"text\":\"markdown\"}. 이미 있는 줄은 절대 고치지 마세요. id는 보이는 가장 큰 id가 아니라 그 줄에서 가져오세요 — id는 지금 보고 있지 않은 다른 파일과 공유됩니다. 아래 각 요청 제목에 #id가 붙어 있고, 답변은 그 코드 옆 리뷰에 그대로 표시됩니다:",
+    "mergePrompt.answersFile": "답변은 여기에 적지 말고 아래 리뷰 스레드 파일에 기록하세요 — 답변 하나당 한 줄씩 append 합니다: {\"id\":<그 파일 맨 위의 NEXT FREE ID. 여러 줄이면 거기서부터 하나씩 올립니다>,\"re\":<답할 요청의 #id>,\"by\":\"agent\",\"text\":\"markdown\"}. 이미 있는 줄은 절대 고치지 마세요. id는 보이는 가장 큰 id가 아니라 그 줄에서 가져오세요 — id는 지금 보고 있지 않은 다른 파일과 공유됩니다. 아래 각 요청 제목에 #id가 붙어 있고, 답변은 그 코드 옆 리뷰에 그대로 표시됩니다. 코드를 건드리기 전에 모든 답변을 그 파일에 먼저 append 하세요. 세션에 답변을 나열하고 승인을 기다리지 마세요 — 여기 적은 것은 답변이 아니고 아무도 읽지 않습니다:",
     // kakapo가 문서를 디스크에 저장할 수 있었을 때 터미널로 가는 내용 전부 — 이 한 줄과 절대 경로.
     // 문서(답변 파일 안내 포함)는 그 파일 안에서 기다린다. sendWholeDocToTerminal 참고.
+    "mergePrompt.terms": "답변을 마친 뒤, 해당될 때만 한 가지 더 하세요. 위 대화 중에 리뷰어가 어떤 개념을 자기 말로 받아들인 것이 보이면(그 말을 직접 썼고, 그 뒤에 같은 질문을 되묻지 않았다면), 아래 단어집 파일에 그 말 하나당 한 줄씩 append 하세요: {\"w\":\"리뷰어가 쓴 그대로의 말\",\"gloss\":\"그게 무엇인지 리뷰어의 말로 한 줄\",\"code\":[{\"name\":\"코드에서의 식별자\",\"at\":\"src/x.ts:12\"}]}. 먼저 파일을 읽으세요. 이미 있는 줄은 절대 고치지 말고, 이미 있는 말은 다시 넣지 마세요. 오직 **리뷰어가 쓴 말**만입니다 — 당신이 지은 이름은 아무리 더 정확해도 안 되고, 리뷰어가 아직 반응하지 않은 답변 속의 말도 안 됩니다. 다른 말 안에서만 뜻이 서는 말이면 `\"parent\":\"말풍선\"`을 붙이세요. 배운 것이 없는 대화면 아무것도 넣지 마세요 — 대부분이 그렇고, 리뷰어가 고르지 않은 말이 쌓인 단어집은 빈 단어집보다 나쁩니다. 이 파일이 앞으로 이 저장소에 대한 모든 설명이 쓰이는 말입니다:",
     "mergePrompt.requestFile": "이 리뷰 요청 파일을 읽고 시키는 대로 전부 처리하세요:",
     "prompt.requestFile": "이 지침 파일을 읽고 그대로 수행하세요:",
     // 후속 코멘트가 이어받는 이전 대화를 대신한다 (mergedItemLines) — 본문이 아니라 id만. 문서 맨 앞에
     // 적힌 스레드 파일에 전부 들어 있기 때문이다.
     "mergePrompt.continues": "이어지는 대화입니다. 스레드 파일에서 다음 id를 먼저 읽으세요:",
     "comment.answer": "답변",
-    "comment.answered": "답변 달림",
-    "comment.answered.hint": "에이전트가 이 코멘트에 답변했습니다. 해당 줄의 코멘트를 열면 답변을 볼 수 있습니다.",
 
-    // Explain 기본 프롬프트 (⌘7) — 에이전트가 diff 위에 붙일 노트 카드를 작성한다. {{NOTES_PATH}}는
+    // Explain 기본 프롬프트 — 에이전트가 diff 위에 붙일 노트 카드를 작성한다. {{NOTES_PATH}}는
     // 보내는 시점에 이 워크스페이스의 주석 파일 경로로 클라이언트에서 치환된다.
     "annotate.prompt.default": readPrompt("annotate", "ko"),
   },

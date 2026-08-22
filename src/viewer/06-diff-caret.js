@@ -126,12 +126,17 @@ function codeWordBounds(text, column) {
 // fake caret. This helper is shared by source and side-by-side diff views.
 function selectCodeWord(container, text, column) {
   if (!container) return false;
+  // A double click that turned into a drag: Chromium has already extended the selection word by word, and
+  // that range is what the user is dragging out. Replacing it with the single word under the pointer threw
+  // the whole gesture away — the selection snapped back to one word (the one under wherever the drag ended).
+  // Only a plain double click reaches past here: its native selection is the one word we are about to select.
+  var bounds = codeWordBounds(text, column);
+  if (bounds && selectedText().length > bounds.end - bounds.start) return false;
   container.querySelectorAll('.code-cursor').forEach(function (span) {
     var parent = span.parentNode;
     if (parent) { parent.removeChild(span); if (parent.normalize) parent.normalize(); }
   });
   if (diffCaretSpan && !diffCaretSpan.isConnected) diffCaretSpan = null;
-  var bounds = codeWordBounds(text, column);
   var start = bounds && diffCaretDomPosition(container, bounds.start);
   var end = bounds && diffCaretDomPosition(container, bounds.end);
   var selection = window.getSelection && window.getSelection();

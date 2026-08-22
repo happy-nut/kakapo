@@ -192,11 +192,22 @@ contextBridge.exposeInMainWorld("kakapoGit", {
 // in the Electron app (not browser/watch mode), so the renderer hides the in-app update button there.
 contextBridge.exposeInMainWorld("kakapoUpdate", {
   run: (): Promise<unknown> => ipcRenderer.invoke("kakapo:self-update"),
-  // How far the release image has downloaded. The reviewer keeps working while it streams, so the only
-  // reporting surface is the brand mark in the sidebar header — see applyUpdateProgress.
-  onProgress: (cb: (payload: { percent: number; done?: boolean }) => void): void => {
-    ipcRenderer.on("kakapo:update-progress", (_event, payload) => cb(payload));
-  },
+  // Download progress is not reported here: it draws on the rail's kakapo mark (hub-preload's
+  // onUpdateProgress), which is one per app rather than one per open workspace.
+});
+
+// Connecting the terminal's agents to kakapo's vocabulary server (mcp-register.ts). A one-off per machine:
+// the server works out which repository it is being asked about from where the agent is running.
+contextBridge.exposeInMainWorld("kakapoMcp", {
+  status: (): Promise<unknown> => ipcRenderer.invoke("kakapo:mcp-status"),
+  connect: (agent: string): Promise<unknown> => ipcRenderer.invoke("kakapo:mcp-connect", { agent }),
+});
+
+// The vocabulary the reviewer built (terms-file.ts). Read once when the map opens, written back when a word
+// is added, corrected, or marked read — there is no merge because nothing else writes to it.
+contextBridge.exposeInMainWorld("kakapoTerms", {
+  read: (): Promise<unknown> => ipcRenderer.invoke("kakapo:terms-read"),
+  write: (terms: unknown[]): Promise<unknown> => ipcRenderer.invoke("kakapo:terms-write", { terms }),
 });
 
 // Packaged .app (double-clicked, no cwd repo): the welcome screen's "Open Folder" button asks the main

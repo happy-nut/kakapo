@@ -15,7 +15,7 @@ test("application data mirrors absolute workspace folders and isolates nested mo
   const base = mkdtempSync(join(tmpdir(), "kakapo-workspace-data-"));
   try {
     const userData = join(base, "app-data");
-    const root = join(base, "repos", "zoobox");
+    const root = join(base, "repos", "acme");
     const nested = join(root, "turtle");
     mkdirSync(nested, { recursive: true });
     const expected = join(userData, "workspaces", ...canonicalWorkspacePath(nested).split(sep).filter(Boolean));

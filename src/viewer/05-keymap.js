@@ -129,6 +129,12 @@ var KEY_OWNERS = [
   // Semantic navigation is a caret-local dropdown. It must own arrows/Enter before the persistent sidebar's
   // logical tree focus gets a chance to consume them; otherwise Enter opens the tree row instead of the
   // selected definition when Cmd+B was invoked after Cmd+0/Cmd+1.
+  // The briefing panel is up over the whole review: while it is, the arrows page it rather than moving a
+  // caret nobody can see behind it (25-briefing.js). It claims Esc/arrows/Enter and nothing else.
+  { name: 'briefing', handle: function (event) { return handleBriefingKey(event); } },
+  // The knowledge map covers the window too, and Cmd+0/Cmd+- mean zoom while it is up rather than "take me
+  // to the tree" behind it (26-terms.js). Esc closes the open word first, then the map.
+  { name: 'terms', handle: function (event) { return handleTermsKey(event); } },
   { name: 'semantic-peek', handle: function (event) { return handleSemanticPeekKey(event); } },
   // Quick Open / Find in Files is a true modal keyboard scope. Its own handler consumes navigation and
   // dismissal keys, then every other key is stopped from reaching the shortcut router (or later document
@@ -171,11 +177,14 @@ var WINDOW_SHORTCUTS = [
     else openQuickOpen('prompts');
   } },
   { code: 'KeyN', shift: true, key: 'n', run: function () { openMemoView(); } },
+  // The briefing shows itself once per explanation and then stays out of the way, so the way BACK to it has to
+  // be somewhere. Two of them: the sidebar button above the changed files, and this.
+  { code: 'KeyB', shift: true, key: 'b', run: function () { toggleBriefing(); } },
+  { code: 'KeyK', shift: true, key: 'k', run: function () { toggleTermMap(); } },
   { code: 'Digit9', key: '9', run: function () { toggleHistory(); } },
   { code: 'Digit8', key: '8', run: function () { toggleImpact(); } },
-  // Explain opens no view of its own: it stages the "annotate this diff" prompt in the terminal composer,
-  // and the agent's notes land on the diff lines they explain (23-annotations.js).
-  { code: 'Digit7', key: '7', run: function () { runAnnotatePrompt(); } },
+  // No ⌘7. Explain used to own it, and all that shortcut did was send a prompt the ⌘⇧P palette already
+  // sends — one key reserved for a duplicate. The rail's Explain button still opens the notes (openExplain).
   // Cmd+0/Cmd+1 mean "take me to the tree", so they close the History overlay first — otherwise the view
   // they activate would be switched invisibly underneath it.
   { code: 'Digit0', key: '0', run: function () { closeHistoryIfOpen(); activateChangesView(false); } },
@@ -665,7 +674,8 @@ document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
   else if (view === 'merged') { toggleMergedRail(); }
   else if (view === 'memo') { openMemoView(); } // openMemoView already toggles
   else if (view === 'impact') { toggleImpact(); }
-  else if (view === 'explain') { runAnnotatePrompt(); }
+  else if (view === 'explain') { openExplain(); }
+  else if (view === 'terms') { toggleTermMap(); }
   else if (view === 'history') { toggleHistory(); }
   document.getElementById('workspace-more-menu')?.classList.add('hidden');
   document.getElementById('workspace-more-toggle')?.setAttribute('aria-expanded', 'false');
@@ -941,6 +951,9 @@ window.addEventListener('beforeunload', saveUiState);
     // The second click is completed by the dblclick handler below. Re-inserting the fake caret here would
     // split the target text a second time and erase Chromium's pending word selection.
     if (Number(event.detail) > 1) return;
+    // The tail of a drag, for the same reason: repainting the caret re-splits the text nodes the selection
+    // is anchored in, so every attempt to select code by dragging ended with nothing selected.
+    if (selectedText()) return;
     const info = diffRowInfoFromNode(event.target);
     if (!info || !info.path) return;
     // Land the caret where the pointer is, not at the start of the line. The column was hard-coded to 0 here

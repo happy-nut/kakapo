@@ -493,7 +493,7 @@ function markWrapperHunks(wrapper) {
 var bodyCache = {};   // file index -> diff body html (lazy-LOAD cache)
 var bodyPromise = {}; // file index -> Promise that resolves once the body is materialized
 function loadBodyHtml(index) {
-  if (bodyCache[index] != null) return Promise.resolve(bodyCache[index]);
+  if (bodyCache[index]) return Promise.resolve(bodyCache[index]);
   var p;
   if (typeof window !== 'undefined' && window.kakapoFile && typeof window.kakapoFile.get === 'function') {
     p = Promise.resolve().then(function () { return window.kakapoFile.get(Number(index), 'diff'); });
@@ -502,14 +502,20 @@ function loadBodyHtml(index) {
   } else {
     p = Promise.resolve('');
   }
-  return p.then(function (html) { bodyCache[index] = html || ''; return bodyCache[index]; }, function () { bodyCache[index] = ''; return ''; });
+  // An empty answer is a FAILED load, never a file's body. Main returns "" for an index it cannot resolve —
+  // a watch rebuild swaps state.bodyDiffs out from under an in-flight fetch — and for a window whose state it
+  // cannot find. Caching that as the body (the guard here was `!= null`, so "" counted as an answer) and then
+  // stripping data-lazy left the file blank for the rest of the session, with a perfectly good diff sitting
+  // in main and nothing that would ever ask for it again. Cache only a real body; let a miss be retried.
+  return p.then(function (html) { if (html) bodyCache[index] = html; return html || ''; }, function () { return ''; });
 }
 function materializeBody(wrapper, html) {
   var body = wrapper.querySelector('.d2h-files-diff[data-lazy]');
   if (!body) return;
-  body.innerHTML = html || '';
-  body.removeAttribute('data-lazy');
   body.removeAttribute('data-loading');
+  if (!html) return; // failed load (see loadBodyHtml): keep data-lazy so the next look fetches it again
+  body.innerHTML = html;
+  body.removeAttribute('data-lazy');
   // The body now lives in the DOM, so the string behind it is a second copy of the same bytes — and it is
   // the expensive copy: walking a 130-file review costs 169 MB, of which 51 MB is these strings. Nothing
   // reads them once the body is materialized (the rebuild path re-snapshots bodies off the DOM itself), and
@@ -529,7 +535,14 @@ function ensureFileReady(wrapper) {
   if (REVIEW_LAZY_LOAD) {
     if (!bodyPromise[idx]) {
       body.setAttribute('data-loading', '1');
-      bodyPromise[idx] = loadBodyHtml(idx).then(function (html) { materializeBody(wrapper, html); return wrapper; });
+      bodyPromise[idx] = loadBodyHtml(idx).then(function (html) {
+        materializeBody(wrapper, html);
+        // A failed fetch must not leave a resolved promise behind: this map is the "already handled" guard, so
+        // a cached miss made every later look — opening the file, navigating to it — a no-op against a body
+        // that was never there. Forget it, and the next look tries again.
+        if (!html) delete bodyPromise[idx];
+        return wrapper;
+      });
     }
     return wrapper;
   }
@@ -604,6 +617,9 @@ var locale = (function () {
 })();
 function t(key) { var m = (I18N[locale] || I18N.en || {}); return (m && key in m) ? m[key] : ((I18N.en && I18N.en[key]) || key); }
 var langSelectRef = null, themeSelectRef = null, syntaxThemeSelectRef = null;
+// The knowledge map's sweep-interval select (26-terms.js), held here for the same reason as the three above:
+// its labels are localized, so applyI18n has to be able to re-render it.
+var termsSweepSelectRef = null;
 // Replace a native <select> with a button that opens our custom dropdown (consistent with the comment
 // dropdown + themable; native <select> popups ignore the app theme). getOptions() -> [{value,label}];
 // returns { render } so localized labels can be refreshed on a language switch.
@@ -634,6 +650,7 @@ function applyI18n() {
   if (langSelectRef) langSelectRef.render();
   if (themeSelectRef) themeSelectRef.render(); // theme labels are localized — refresh on a language switch too
   if (syntaxThemeSelectRef) syntaxThemeSelectRef.render();
+  if (termsSweepSelectRef) termsSweepSelectRef.render();
   refreshDiffContextFoldLabels();
   refreshCodeFoldLabels();
   syncDiffReviewChrome();
@@ -707,6 +724,7 @@ function applyUiScale(next) {
 if (window.kakapoMenu && typeof window.kakapoMenu.onUiScale === 'function') {
   window.kakapoMenu.onUiScale(function (next) {
     if (UI_SCALES.indexOf(next) < 0) return;
+    noteKakapoActivity('zoom'); // so a stall right after this one says so (trackMainThreadStalls)
     beginDiffViewportChurn(); // main has already zoomed this view; the re-projection is ours to settle
     uiScale = next;
     if (uiScaleSelectRef) uiScaleSelectRef.render();

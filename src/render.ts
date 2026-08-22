@@ -346,7 +346,10 @@ export function renderDiffHtml(input: {
     ? railButton("impact", "rail.impact", "Change Impact", "⌘8", '<circle cx="6" cy="12" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M8.2 11.2l7.6-4.1M8.2 12.8l7.6 4.1"/>')
     : "";
   const explainButton = input.app
-    ? railButton("explain", "rail.explain", "Explain", "⌘7", '<path d="M4 5.5c2.4-1 5.4-1 8 0v13c-2.6-1-5.6-1-8 0z"/><path d="M20 5.5c-2.4-1-5.4-1-8 0v13c2.6-1 5.6-1 8 0z"/>')
+    ? railButton("explain", "rail.explain", "Explain", "⌘⇧P", '<path d="M4 5.5c2.4-1 5.4-1 8 0v13c-2.6-1-5.6-1-8 0z"/><path d="M20 5.5c-2.4-1-5.4-1-8 0v13c2.6-1 5.6-1 8 0z"/>')
+    : "";
+  const termsButton = input.app
+    ? railButton("terms", "rail.terms", "Knowledge map", "⌘⇧K", '<circle cx="12" cy="12" r="2.6"/><circle cx="5" cy="6.5" r="1.7"/><circle cx="19" cy="7.5" r="1.7"/><circle cx="7.5" cy="19" r="1.7"/><circle cx="18" cy="17.5" r="1.7"/><path d="M6.4 7.7l3.7 3M17.6 8.6l-3.6 2.4M9.9 13.7l-1.4 3.6M14.3 13.3l2.6 2.9"/>')
     : "";
   const activityRail = [
     '<nav class="activity-rail" aria-label="Views">',
@@ -369,6 +372,7 @@ export function renderDiffHtml(input: {
     '<div id="workspace-more-menu" class="workspace-more-menu hidden" role="presentation">',
     impactButton,
     explainButton,
+    termsButton,
     railButton("merged", "rail.reviewComments", "Review comments", "⌘⇧/", '<path d="M5.5 5.5h13c.8 0 1.5.7 1.5 1.5v6.4c0 .8-.7 1.5-1.5 1.5H12l-4.5 3.6V16.4H5.5c-.8 0-1.5-.7-1.5-1.5V7c0-.8.7-1.5 1.5-1.5z"/>'),
     railButton("memo", "memo.title", "Markdown memo", "⌘⇧N", '<rect x="5.5" y="4" width="13" height="16" rx="1.5"/><line x1="8.5" y1="9" x2="15.5" y2="9"/><line x1="8.5" y1="12.5" x2="15.5" y2="12.5"/><line x1="8.5" y1="16" x2="12.5" y2="16"/>'),
     // Always rendered (its data-view button is the anchor the history view + shell mirror the active state on);
@@ -398,12 +402,15 @@ export function renderDiffHtml(input: {
     `<div id="boot-overlay">${brandLoader}</div>`,
     activityRail,
     '<aside class="sidebar" aria-label="Review navigation">',
-    `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name">${escapeHtml(input.branch || "")}</span></span><span class="brand-meta">${input.app ? `<span id="analysis-status" class="analysis-status is-idle" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-label">Analysis idle</span></span>` : ""}<span class="app-version" id="app-version" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}${packageVersion ? '<span class="app-version-text">v' + escapeHtml(packageVersion) + "</span>" : ""}</span></span><button type="button" class="brand-reveal" id="brand-reveal" data-keyhint="⌥F1" data-i18n-title="brand.revealFile" title="Reveal open file in the sidebar" aria-label="Reveal open file in the sidebar"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3.2"/><path d="M12 17.8V21"/><path d="M3 12h3.2"/><path d="M17.8 12H21"/></svg></button></div>`,
+    `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name">${escapeHtml(input.branch || "")}</span></span><span class="brand-meta">${input.app ? `<span id="analysis-status" class="analysis-status is-idle" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-label">Analysis idle</span></span>` : `<span class="app-version" id="app-version" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}${packageVersion ? '<span class="app-version-text">v' + escapeHtml(packageVersion) + "</span>" : ""}</span>`}</span><button type="button" class="brand-reveal" id="brand-reveal" data-keyhint="⌥F1" data-i18n-title="brand.revealFile" title="Reveal open file in the sidebar" aria-label="Reveal open file in the sidebar"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3.2"/><path d="M12 17.8V21"/><path d="M3 12h3.2"/><path d="M17.8 12H21"/></svg></button></div>`,
     '<div class="sidebar-scroll">',
     input.lazy
       ? '<div class="tabs"><button type="button" class="tab active" data-tab="changes" data-i18n="tab.changes" data-i18n-title="tab.changes.title" title="Changes (⌘0)">Changes</button><button type="button" class="tab" data-tab="files" data-i18n="tab.files" data-i18n-title="tab.files.title" title="Files (⌘1)">Files</button></div>'
       : '<div class="tabs"><button type="button" class="tab" data-tab="changes" data-i18n="tab.changes" data-i18n-title="tab.changes.title" title="Changes (⌘0)">Changes</button><button type="button" class="tab active" data-tab="files" data-i18n="tab.files" data-i18n-title="tab.files.title" title="Files (⌘1)">Files</button></div>',
-    `<div class="tab-panel${input.lazy ? "" : " hidden"}" id="changes-panel">${fileNav}</div>`,
+    // The way back into the briefing (25-briefing.js), directly above the files it is about. Hidden until an
+    // explanation exists, and it carries kakapo's own note lightbulb — the same glyph annotationKindIcon()
+    // stamps on every card the briefing is the first of.
+    `<div class="tab-panel${input.lazy ? "" : " hidden"}" id="changes-panel"><button type="button" class="mc-brf-recall hidden" id="mc-briefing-recall" data-keyhint="⌘⇧B" data-i18n-title="briefing.recall" title="Replay the briefing"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.4.3.5.7.5 1.1V16h6v-1c0-.4.1-.8.5-1.1A6 6 0 0 0 12 3z"/></svg><span class="mc-brf-recall-text" data-i18n="briefing.recall">Replay the briefing</span><span class="mc-brf-recall-key">⌘⇧B</span></button>${fileNav}</div>`,
     // Transport-backed reviews do not even embed an inert tree island: parsing its multi-megabyte text was
     // the dominant startup cost. Static lazy reviews retain the self-contained island fallback.
     input.lazy
@@ -412,12 +419,11 @@ export function renderDiffHtml(input: {
         : `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
       : `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
     "</div>",
-    // Usage quota now lives in the workspace rail (shell-pages.ts) — it is per-account, not per-workspace.
-    // (see 15-analysis-status.js). Brand mark, version, and the analysis indicator moved up to the header above.
-    // No `title` on the flag: its tooltip was the same words as the label it sits under ("업데이트 있음" for
-    // both), so hovering it produced a native bubble that said nothing new and covered the file row above it.
-    // A tooltip repeating the visible label is never worth the rectangle it takes.
-    `<div class="sidebar-footer">${input.app ? '' : ""}<span id="app-update-flag" class="app-update-flag hidden" data-i18n="sidebar.updateAvailable">update available</span></div>`,
+    // No sidebar footer any more: the usage quota moved to the rail (per-account, not per-workspace), the
+    // version and its update-download ring moved to the rail's foot (per-app, not per-workspace), and the
+    // "update available" flag that was the last thing left is now one dot on the rail's Settings gear. In the
+    // static export there is no rail, so the header above keeps the version there and only there.
+    "",
     "</aside>",
     '<div class="sidebar-resizer" aria-hidden="true"></div>',
     '<main class="content">',
@@ -518,7 +524,11 @@ export function renderDiffHtml(input: {
     '<button type="button" class="quick-open-side-item" data-section="merged" data-keyhint="⌘⇧/"><span data-i18n="rail.reviewComments">Review comments</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="memo" data-keyhint="⌘⇧N"><span data-i18n="memo.title">Markdown memo</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="impact" data-keyhint="⌘8"><span data-i18n="rail.impact">Change Impact</span></button>',
-    '<button type="button" class="quick-open-side-item" data-section="explain" data-keyhint="⌘7"><span data-i18n="rail.explain">Explain</span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="explain"><span data-i18n="rail.explain">Explain</span></button>',
+    // The unread dot lives here rather than on the rail button: the rail's tool buttons are permanently
+    // hidden (they are dispatch targets now), so this launcher row is the one place a reader actually sees
+    // a tool listed. It clears when every new word has been opened.
+    '<button type="button" class="quick-open-side-item" data-section="terms" data-keyhint="⌘⇧K"><span data-i18n="rail.terms">Knowledge map</span><span id="terms-unread-dot" class="rail-dot hidden" aria-hidden="true"></span></button>',
     '<button type="button" class="quick-open-side-item" data-section="history" data-keyhint="⌘9"><span data-i18n="rail.history">History</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="terminal" data-keyhint="⌃`"><span data-i18n="terminal.title">Terminal</span></button>',
     '</nav>',
@@ -552,9 +562,18 @@ export function renderDiffHtml(input: {
     '</aside>',
     '<div class="settings-body">',
     '<section class="settings-section" data-cat="general">',
-    // Update status + one-click self-update (Electron); harmless no-ops in the browser build.
-    `<div id="app-info-status" class="app-info-status is-loading"><span class="kakapo-loader kakapo-loader-inline" aria-hidden="true">${brandMark}</span><span data-i18n="settings.checkingUpdates">Checking for updates…</span></div>`,
+    // Update status + one-click self-update (Electron); harmless no-ops in the browser build. Shaped like every
+    // other preference on this page — a labelled row with its control on the right — instead of the loose blue
+    // headline over a full-width button it used to be, which read as an alert bar rather than a setting.
+    // The installed version is the row's label, so the status line underneath only has to say what is going on.
+    '<div class="settings-card">',
+    '<div class="settings-card-title" data-i18n="settings.update">Update</div>',
+    '<div class="settings-row">',
+    `<div class="settings-row-text"><span class="settings-row-label">Kakapo${packageVersion ? " v" + escapeHtml(packageVersion) : ""}</span>`,
+    `<span id="app-info-status" class="settings-row-hint app-info-status is-loading"><span class="kakapo-loader kakapo-loader-micro" aria-hidden="true">${brandMark}</span><span data-i18n="settings.checkingUpdates">Checking for updates…</span></span></div>`,
     '<button type="button" id="app-info-update" class="plain-button app-info-update hidden" data-i18n="settings.updateRestart">Update &amp; Restart</button>',
+    '</div>',
+    '</div>',
     // Appearance card: language + light/dark/system theme + code theme family, each a label/hint on the left and
     // the custom themable dropdown on the right (native <select> popups ignore the app theme).
     '<div class="settings-card">',
@@ -569,6 +588,19 @@ export function renderDiffHtml(input: {
     // and sizing only the code leaves the rest mismatched. Applied by main as a Chromium zoom factor.
     '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.uiScale">Font size</span><span class="settings-row-hint" data-i18n="settings.uiScale.hint">Scales the whole interface, including the terminal.</span></div><button type="button" id="settings-ui-scale" class="settings-select mc-select" data-i18n-aria="settings.uiScale"></button></div>',
     '</div>',
+    // Knowledge map card (Electron only — the check is a ripgrep, which browser/static reviews cannot run).
+    input.app
+      ? '<div class="settings-card"><div class="settings-card-title" data-i18n="rail.terms">Knowledge map</div>'
+      + '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.termsSweep">Re-check where words point</span>'
+      + '<span class="settings-row-hint" data-i18n="settings.termsSweep.hint">A word stores the name it is in the code, and where that name last was. The address goes stale on any commit, so it is re-checked when you open the word — and every so many new words, across the whole map.</span></div>'
+      + '<button type="button" id="settings-terms-sweep" class="settings-select mc-select" data-i18n-aria="settings.termsSweep"></button></div>'
+      // Connecting the terminal's agent to the vocabulary. Without this the agent only learns the words exist
+      // when a kakapo prompt tells it; with it, reading and adding to them is a tool it can always see.
+      + '<div class="settings-row settings-row-stacked"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.mcp">MCP server for building the knowledge map</span>'
+      + '<span class="settings-row-hint" data-i18n="settings.mcp.hint">Lets the agent in the terminal read the words you use and add the ones you take up — in any conversation, not just the ones sent from kakapo. Registered once per machine.</span></div>'
+      + '<div id="mcp-agents" class="mcp-agents"></div></div>'
+      + '</div>'
+      : "",
     // Terminal card (Electron only): integrated-terminal bell → native notification opt-out.
     input.app
       ? '<div class="settings-card"><div class="settings-card-title" data-i18n="settings.terminal">Terminal</div>'
@@ -604,6 +636,7 @@ export function renderDiffHtml(input: {
     '<kbd>F7</kbd><span data-i18n="kbd.nextChange">Next change</span>' +
     '<kbd>⇧F7</kbd><span data-i18n="kbd.prevChange">Previous change</span>' +
     '<kbd>F8 / ⇧F8</kbd><span data-i18n="kbd.nextComment">Next / previous comment</span>' +
+    '<kbd>⌘⇧B</kbd><span data-i18n="kbd.briefing">Explain briefing</span>' +
     '<kbd>⌘1 / ⌘0</kbd><span data-i18n="kbd.filesChangesTab">Files / Changes tab</span>' +
     '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.sidebarNavigate">Navigate / open sidebar row</span>' +
     '<kbd>Tab / ⇧Tab</kbd><span data-i18n="kbd.sidebarContent">Sidebar &harr; content / diff pane</span>' +

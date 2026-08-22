@@ -12,14 +12,21 @@
 // and the {{...}} placeholders (spec/notes paths) are only known once a workspace is loaded.
 function promptPaletteEntries() {
   return [
-    { id: 'annotate', file: 'explain-diff.md', title: t('annotatePrompt.title'), when: t('annotatePrompt.when'), text: currentAnnotatePromptText },
+    // `onSend` is what makes a run a RUN. Sending the explain prompt has to record the note high-water mark
+    // (markExplainRunStarting) or the next run's notes land on top of the last one's: the walk still starts at
+    // the old briefing, which has already been seen, so the new briefing never opens and F8 steps through two
+    // explanations of two different changes. The rail's Explain button did this and the launcher did not —
+    // and the launcher is how the prompt is actually sent.
+    { id: 'annotate', file: 'explain-diff.md', title: t('annotatePrompt.title'), when: t('annotatePrompt.when'),
+      text: currentAnnotatePromptText, onSend: markExplainRunStarting },
     { id: 'codebase', file: 'explain-codebase.md', title: t('codebasePrompt.title'), when: t('codebasePrompt.when'), text: currentCodebasePromptText },
+    { id: 'terms', file: 'keep-what-i-learned.md', title: t('termsPrompt.title'), when: t('termsPrompt.when'), text: currentTermsPromptText },
   ];
 }
 
 // Hand `text` to the terminal's send mode (the same staging step ⌥⏎ uses everywhere else), so it lands in
 // the composer for review rather than executing behind the user's back. Falls back to the clipboard where
-// there is no integrated terminal (the CLI's browser viewer). Also the ⌘7 Explain entry point — see
+// there is no integrated terminal (the CLI's browser viewer). Also the Explain rail button's fallback — see
 // runAnnotatePrompt (23-annotations.js).
 // The prompt goes to DISK and the composer carries one line naming it — the same hand-off the merged review
 // request uses (sendWholeDocToTerminal, 08-dock.js). These prompts are sixty lines of instructions; pasted in,

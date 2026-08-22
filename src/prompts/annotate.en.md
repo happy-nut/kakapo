@@ -3,7 +3,7 @@ Walk the current diff and explain it in place, so that a reader seeing this chan
 Append the notes to exactly this file, ONE JSON object per line (create it and its parent directories if missing; the file documents its own format in the # header at the top):
 {{NOTES_PATH}}
 
-**Read that file before you write anything.** Everything ever explained in this workspace is in it — the notes you left last time, the reviewer's questions, the answers to them. It is per-workspace and it is never cleared. So do not start from nothing every time: knowledge is added to, not rewritten.
+**Read that file before you write anything.** Everything ever explained about this repository is in it — the notes you left last time, and the ones an agent left while working in another workspace. It is **shared by every worktree** of the repository and it is never cleared: a workspace ends when its task does, but what was learned about the code has to outlive it. The reviewer's questions and the answers to them are NOT in there — those live in this workspace's own conversation file and go when the workspace goes. So do not start from nothing every time: knowledge is added to, not rewritten.
 
 - **If it is empty**, this is the first explanation. Build the trunk: the one thing this change is about, and the structure it hangs from. Branches come later.
 - **If it is not**, write only what is new. Do not restate a fact already explained there — point at where that note lives, as `src/build.ts:20`. "The cache from there is what changes here" is a good second note. The more that has accumulated, the fewer notes this run should add.
@@ -16,11 +16,22 @@ One line per note:
 - "text" is markdown on ONE line — write real line breaks as \n inside the JSON string.
 - "title" is required, and it is the POINT in one line, not a label. Not "the countdown" but "the timer reset on every switch, so nothing was ever reclaimed". A title that carries the point lets the body be shorter.
 - "group" is required: which part of the explanation this note belongs to (see below).
-- "role" is optional and marks the notes that carry the story: "problem" on the note that shows where things actually go wrong, "fix" on the one or two places that decide how it is solved. kakapo draws those cards louder than the rest and lets the reader jump between them. Use it on at most three notes in a diff — a diff where everything is decisive has no decisive part.
-- APPEND only. The reviewer own comments and your earlier answers live in this same file: never rewrite, reorder or renumber a line already there.
+- "role" is optional and has one value, `"key"`. Put it only where the change actually turns — the place that, reverted alone, brings the problem back. kakapo marks that card. It used to be split into "problem" and "fix", and that distinction was only ever weight for the reader to carry: what a note says is already in the note, and the one thing worth adding beside it is whether this is a place to stop. At most three in a diff — a diff where everything is key has no key part.
+- APPEND only. An agent in another workspace writes to this same file: never rewrite, reorder or renumber a line already there.
 
 One finished note — its LENGTH is part of the standard:
-{"id":12,"by":"agent","kind":"note","group":1,"role":"problem","path":"src/app-main.ts","line":1198,"title":"Why the countdown starts here","text":"A workspace you cannot see keeps its language servers running — a couple of gigabytes each. So the moment it goes off screen we start a countdown, and shut them down when it ends. It used to be restarted on every switch, so with three workspaces in rotation it never finished once."}
+{"id":12,"by":"agent","kind":"note","group":1,"role":"key","path":"src/app-main.ts","line":1198,"title":"Why the countdown starts here","text":"A workspace you cannot see keeps its language servers running — a couple of gigabytes each. So the moment it goes off screen we start a countdown, and shut them down when it ends. It used to be restarted on every switch, so with three workspaces in rotation it never finished once."}
+
+**Write in the reader's words.** The words this repository's reviewer has actually used are in this file, one per line:
+{{TERMS_PATH}}
+
+Read it; never write to it. A word gets in there only when the reader used it themselves — that the names are theirs and not yours is the entire point of the file. What you do with it is keep three rules.
+
+1. **Do not coin a new name.** If a word in that file says it, use that word. Calling the same thing by a second name makes the reader solve "are these two the same?" before they can read the explanation at all. If you genuinely need a concept that is not in there, pay for it on the spot, as rule 4 says.
+2. **Attach it to what they already know.** A new thing lands fastest when it is hung off a word they have — "this is the same place a comment used to hang from" beats a fresh paragraph. Where that file shows two words used together, keep that connection.
+3. **Do not break the "why" chain.** Understanding travels along why. When one note answers a why, the next note starts from that answer. The place the chain breaks — where you write about something the reader does not know yet as if they did — is the place the explanation fails.
+
+If that file is missing or empty, the reviewer has not built up any words yet. Then it matters even more not to coin one: write in plain words anyone knows — whatever they meet in this explanation is what they will be saying next time.
 
 How to write each note. Nine rules, and they all point the same way — **short, and plain**:
 
@@ -38,7 +49,32 @@ At most 10 notes, and fewer is better. Skip renames, formatting and mechanical c
 
 **Notes go on production code.** As a rule, do not spend one on a test file — with only ten to give, a note on a test is a note the production code did not get. What a test tells you is "this behaviour must hold", and that belongs in one sentence of the note on the code that implements it ("break this and X catches it"). The exception is when the TEST is the point of the change: it was asserting the wrong thing, or the production design moved to make it possible.
 
-The first note is the problem note. Give it `"role":"problem"` and anchor it where things actually go wrong (often a line this diff did not touch) — three sentences here too: what was wrong before / how this change solves it / why not the other way. If you cannot state the problem in one sentence you have not found it yet: read the commit messages, the branch name, the code around the change. Then mark the one or two places where the problem is actually beaten with `"role":"fix"` — the places that, reverted alone, bring it back.
+The first note is the briefing, and it is the one exception to the three-sentence rule. Give it `"role":"key"` and anchor it where things actually go wrong (often a line this diff did not touch). kakapo puts this note up as a panel the first time the review is opened, with a beak pointing at the file the change is really about. It is the **first thing the reader reads about this change**, so it has to stand on its own: someone who reads it and closes the diff should still know what happened.
+
+Write the body as **exactly three `##` headings**. kakapo turns those three into three pages the reader steps through, and each heading becomes that page's title. A heading is not a label, it is **one sentence** ("Going to a comment opened the file but left the comment off-screen", not "The problem"). The body is a one-line JSON string, so the newlines around a heading are `\n` too.
+
+**Each page has to fit without scrolling.** That is why there are three of them, so treat the sizes below as a budget. Over it, drop the least important thing rather than splitting it.
+
+`## <one sentence: what went wrong>` — page one. **The title IS the problem statement**; do not add a "problem" item under it as well.
+
+- **Symptom** — as the person hitting it saw it. Two sentences.
+- **Why it happens** — what produces that symptom. Three sentences.
+- **No internal vocabulary on this page.** Function names, file names, names this repository invented — all of that is page three's job. Rule 2 says the same thing.
+
+`## <one sentence: what changed>` — page two. As-is and to-be, one diagram each.
+
+- **Two** Mermaid diagrams. Draw before and after with the same participants in the same order, so what changed shows up as the **difference** between two pictures. sequenceDiagram is usually right. Five steps per diagram.
+- **What changed** — that difference, in words. Two sentences.
+
+`## <one sentence: where to start reading>` — page three. This is where names appear for the first time.
+
+- **Key files** — at most three. Name each as **inline code**, `src/viewer/07-comments.js`, and give it **one line on why it is key**. Naming a file is not introducing it. (kakapo lights the files you name here in the sidebar alongside this page.)
+- **Reproduce** — the steps that reproduced the old bug, or that show this one works. One or two sentences.
+- **Signal** — what you would see if it came back: the log line, the metric. One or two sentences.
+- **Test** — the test that fails if it comes back. Name a real one.
+- If you cannot name one of those three, drop that line entirely — an item nobody can act on ("monitor for regressions") is worse than none.
+
+If you cannot state the problem in one sentence you have not found it yet: read the commit messages, the branch name, the code around the change. Then mark the one or two places where the problem is actually beaten with `"role":"key"` — the places that, reverted alone, bring it back. Every note after the briefing hangs off it and stays inside the three-sentence rule; do not restate the briefing anywhere below, point back at it.
 
 When prose starts to run long, REPLACE it with a diagram rather than adding one. Any note can carry Mermaid in a fence, and kakapo draws it inside the card:
 

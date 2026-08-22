@@ -378,3 +378,49 @@ test("a pane stops saying 'connecting' as soon as the pty answers, even while ou
     "the overlay is gone on the first byte; a busy agent must not hold it up to the ceiling");
   assert.ok(!pane.settleTimer && !pane.connectTimer, "no timer is left running to uncover the pane later");
 });
+
+// A pane that is not on screen has no grid to measure, but the fit addon answers anyway — and its answer,
+// made out of zero, goes to the pty as a real resize. tmux redraws its window to that shape and the shape
+// outlives the pane coming back: the split stays broken until the session is restarted. It happens whenever
+// the panel is measured while it is not being shown — switching away from a workspace, or a zoom step
+// arriving at a hidden view.
+test("a pane with no size on screen is not measured, and a degenerate grid is never sent to the pty", () => {
+  const fit = client.match(/function fitPane\(p\)[\s\S]*?\n  \}/)[0];
+  assert.match(fit, /clientWidth|clientHeight/, "it asks whether the pane has a size before measuring");
+  assert.ok(
+    fit.indexOf("clientWidth") < fit.indexOf("p.fit.fit()"),
+    "and asks BEFORE fitting, not after the bad number already exists",
+  );
+  assert.match(fit, /cols > 1 && p\.term\.rows > 1/, "a 1x1 grid is not something to tell a shell about");
+  assert.ok(
+    fit.indexOf("rows > 1") < fit.indexOf("kakapoPty.resize"),
+    "and that check comes before the resize goes out",
+  );
+});
+
+// What a pane row SAYS it is running. The identity used to come only from an in-memory pty -> tmux session
+// map; when that drifted, the pty underneath answered "tmux" or the login shell and the rail called a pane
+// with a working agent in it a shell. tmux always knows, so it is the backstop.
+test("a pane whose session is not known falls back to what tmux says is running there", () => {
+  const main = read("src/app-main.ts");
+  const body = main.match(/function panesForWorkspace\([\s\S]*?\n\}/)[0];
+  assert.match(body, /command === "tmux"/, '"tmux" — what a tmux-backed pty says about itself — is not an answer');
+  assert.match(body, /spare\.shift\(\)/, "an unclaimed session for this workspace is handed to the pane");
+  assert.ok(
+    body.indexOf("spare.shift()") < body.indexOf("agent: agentForCommand(command)"),
+    "and the fallback happens before the row decides which agent it is",
+  );
+  // …and a session handed out that way must not ALSO appear as a detached row of its own.
+  assert.match(body, /!spare\.includes\(session\)/, "a session already used as a fallback does not get a second row");
+});
+
+// Opening a terminal produces output before anything has been asked to do anything: the shell prints its
+// prompt, and a tmux-backed pane repaints the whole session it just attached to. Both were read as an agent
+// starting work, so every freshly opened terminal claimed to be working for a second and a half.
+test("the first moments of a pane's life do not count as an agent working", () => {
+  const ipc = read("src/app-terminal-ipc.ts");
+  assert.match(ipc, /SPAWN_ECHO_MS/, "there is a quiet window at spawn");
+  const spawn = ipc.match(/state\.terms\.set\(id, t\);[\s\S]{0,200}/)[0];
+  assert.match(spawn, /resizeEchoUntil\.set\(id, Date\.now\(\) \+ SPAWN_ECHO_MS\)/,
+    "and it is armed the moment the pty exists, not after the first chunk has already counted");
+});

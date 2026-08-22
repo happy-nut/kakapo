@@ -83,3 +83,41 @@ test("pty output reaches the terminal unconditionally, never gated on a composit
   assert.doesNotMatch(onData, /composingPanes|held|holdTimer/,
     "output must not be queued behind an IME composition — that is a whole word of typing, not a syllable");
 });
+
+// WHY a syllable was breaking, and what the fix may not be.
+//
+// While a composition is live, xterm re-points its helper textarea at the buffer cursor on a 0ms loop
+// (CompositionHelper.updateCompositionElements writes textarea.style.left/top from buffer.x/y and reschedules
+// itself). That textarea is what the macOS input context is attached to, so an agent pouring output — every
+// line moving the cursor — drags the anchor out from under a half-built 가 many times a second and macOS
+// commits it as ㄱ ㅏ. Switching workspace does the same once, through changed cell dimensions.
+//
+// The fix pins the anchor. It must NOT hold output: that was tried, and a Hangul composition runs to the end
+// of the word, so holding until compositionend hid the reviewer's own echo until they pressed space.
+test("the IME anchor is pinned for the life of a composition, and holds nothing back", () => {
+  const client = readFileSync(new URL("../src/viewer/19-terminal.js", import.meta.url), "utf8");
+  const pin = client.match(/function pinCompositionAnchor\(term\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(pin, "the anchor pin exists");
+  assert.match(pin, /updateCompositionElements/, "it wraps xterm's own repositioning rather than forking it");
+  assert.match(pin, /helper\._isComposing/, "and only acts while a composition is actually live");
+  assert.match(pin, /textarea\.style\.left = pinned\.left/, "putting the anchor back where the composition started");
+  assert.doesNotMatch(pin, /term\.write|msg\.data/, "it touches no output — pinning is not queueing");
+  assert.match(client, /compositionstart'[\s\S]{0,240}pinCompositionAnchor\(term\)/, "armed as the composition starts");
+  // A shape change in a future xterm must degrade to the old behaviour, never throw into node-pty's callback.
+  assert.match(pin, /typeof helper\.updateCompositionElements !== 'function'\) return/, "absent internals are a no-op");
+});
+
+// The failure is a race: by the time ㄱ ㅏ is on screen, whatever moved the terminal has already finished. So
+// each composition carries a tally, and the commit itself is checked — a committed run containing Hangul jamo
+// is a syllable that was cut in half, and nothing else produces one.
+test("a split syllable names itself, with what the terminal was doing while it split", () => {
+  const client = readFileSync(new URL("../src/viewer/19-terminal.js", import.meta.url), "utf8");
+  const note = client.match(/function noteCompositionEnd\(event\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(note, "each composition is closed out somewhere");
+  assert.match(client, /\\u1100-\\u11FF/, "the Hangul jamo block is what marks a broken commit");
+  assert.match(note, /JAMO_CODEPOINTS\.test/, "and the committed text is what gets checked");
+  assert.match(note, /console\.warn/, "a split says so at the moment it happens, not silently");
+  assert.match(note, /imeLog\.push\(entry\)/, "…and is kept, so the next report has the context with it");
+  assert.match(note, /writes|anchorPins|fitsHeld/, "the tally names what was happening to the terminal");
+  assert.match(client, /imeLog: function/, "readable afterwards from __kakapoTerminal");
+});
