@@ -641,6 +641,18 @@ function applyDiffUpdate(u) {
   // 1) Replace the visible regions straight from the payload (no full-HTML parse) — unless the fast-path
   // already reconciled the diff DOM in place.
   if (container && !fastPath) container.innerHTML = u.diffContainer || '';
+  // df-inactive is VIEW state, so the payload arrives with every file "active" — and the refill below
+  // re-materializes each previously-opened body, which projects that file's gutter layer. Each projection
+  // forces a layout of the whole review, so it costs the same ~0.5s whether the file has 50 rows or 2,780:
+  // measured on a 72-file zoobox review, 33s in total, which is the multi-second freeze a watch tick showed
+  // whenever a file was added (the fast path only survives an unchanged file set). One file is on screen, so
+  // put the single-file state back BEFORE the refill: refreshLayeredDiffGutters then marks the off-screen
+  // ones dirty through its own guard, and showOnlyFile projects the one being read — 33s becomes 0.5s.
+  if (container && !fastPath) {
+    container.querySelectorAll('.d2h-file-wrapper').forEach(function (w) {
+      w.classList.toggle('df-inactive', diffWrapperPathKey(w) !== visibleDiffPath);
+    });
+  }
   var changesPanel = document.getElementById('changes-panel');
   if (changesPanel) changesPanel.innerHTML = u.changesPanel || '';
   // Files tree: keep the inert island (lazy, not yet opened) in sync, and refresh the live panel when it's
@@ -983,11 +995,18 @@ function noteKakapoActivity(kind, amount) {
   } catch (e) {}
   var TICK_MS = 1000, STALL_MS = 1500;
   var last = performance.now();
+  var hiddenSinceLastTick = document.visibilityState === 'hidden';
   setInterval(function () {
     var now = performance.now();
     var late = now - last - TICK_MS;
+    var wasHidden = hiddenSinceLastTick;
+    hiddenSinceLastTick = document.visibilityState === 'hidden';
     last = now;
-    if (late >= STALL_MS - TICK_MS) {
+    // A workspace off screen is a hidden page, and Chromium throttles a hidden page's timers to about one
+    // tick a minute — so every parked workspace was filing 60-second "stalls", and the first tick after it
+    // came back filed the throttled gap as one too. Neither is the renderer failing to answer; they were
+    // noise on top of the real stalls, which is what this exists to find.
+    if (late >= STALL_MS - TICK_MS && !wasHidden && !hiddenSinceLastTick) {
       var worst = kakapoActivity.longest || {};
       perf.mark('renderer-stall', {
         blockedMs: Math.round(late + TICK_MS),
