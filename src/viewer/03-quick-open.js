@@ -708,8 +708,10 @@ function openQuickItem(item) {
     var text = item.prompt && typeof item.prompt.text === 'function' ? item.prompt.text() : (item.prompt && item.prompt.text);
     // Before the text goes: a prompt that starts something (an explain run) says so here, so the receiving
     // side can tell this run's notes from the last one's (promptPaletteEntries, 24-prompt-palette.js).
-    if (text && item.prompt && typeof item.prompt.onSend === 'function') item.prompt.onSend();
-    if (text) sendPromptToTerminal(text, item.prompt && item.prompt.file);
+    // A prompt that starts something says so here — and may refuse. Explain refuses when the review has no
+    // changed files: better a line saying so now than an agent coming back with nothing in ten seconds.
+    if (text && item.prompt && typeof item.prompt.onSend === 'function' && item.prompt.onSend() === false) return;
+    if (text) runPrompt(item.prompt, text);
     return;
   }
   closeQuickOpen();

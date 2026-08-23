@@ -569,3 +569,38 @@ function handleTreeKey(event) {
 // A floating, focus-grabbing overlay (merged-comments, prompt memo, settings) is open. While one is up it
 // owns focus AND the only caret, so global shortcuts stand down until Esc/close — we must not navigate a
 // panel the user can't even see behind the overlay (nor leave a second blinking caret in it).
+
+// ── Changes that are not about the code fold themselves out of the queue ─────────────────────────────────
+// A pure move, a mode bit, a whitespace sweep — marked on the row by trivialChange() (render-tree.ts). The
+// review queue already has exactly the behaviour "I don't need to read this one" wants: mark it viewed. F7
+// steps past it, the row dims, and the box that unticks it is the box that has always been there. So nothing
+// is invented here — the file simply arrives already ticked, with the reason beside its name saying why.
+//
+// Once per SIGNATURE, and that is the whole of the state this keeps. Unticking has to stick, and a rebuild
+// that re-ran the rule would tick it straight back — the reviewer would untick the same row every time an
+// agent saved a file. The signature is the one the viewed state itself is keyed by, so a file that was a
+// whitespace sweep and later gains a real change is offered to the reviewer again, unticked.
+var trivialSeenKey = 'kakapo-trivial-seen:' + location.pathname;
+function loadTrivialSeen() {
+  var seen = persistRead(trivialSeenKey);
+  if (seen && typeof seen === 'object') return seen;
+  // Same localStorage fallback the other per-review keys keep, so this survives outside the Electron bridge.
+  try { var raw = localStorage.getItem(trivialSeenKey); if (raw) return JSON.parse(raw); } catch (e) {}
+  return {};
+}
+function autoViewTrivial() {
+  var rows = document.querySelectorAll('#changes-panel .change-row[data-trivial]');
+  if (!rows.length) return;
+  var seen = loadTrivialSeen();
+  var changed = false;
+  Array.prototype.forEach.call(rows, function (row) {
+    var path = row.dataset.file || '';
+    var signature = path ? currentFileSignature(path) : '';
+    if (!signature || seen[path] === signature) return; // already offered this exact patch — respect the answer
+    seen[path] = signature;
+    changed = true;
+    if (!isFileViewed(path)) setFileViewed(path, true);
+  });
+  if (changed) persistSave(trivialSeenKey, seen);
+}
+autoViewTrivial();
