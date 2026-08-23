@@ -16,30 +16,29 @@ test("a hidden pane holds its output instead of writing it into xterm", () => {
   const onData = client.match(/window\.kakapoPty\.onData\(function \(msg\)[\s\S]*?\n  \}\);/)?.[0];
   assert.ok(onData, "the pty data handler is still where the writes happen");
   assert.match(onData, /document\.visibilityState === 'hidden'/, "a hidden page is recognised on the write path");
-  assert.match(onData, /holdHiddenOutput\(panes\[k\], msg\.data\); return;/,
-    "…and the bytes are held rather than handed to xterm");
+  assert.match(onData, /holdHiddenOutput\(panes\[k\]\); return;/,
+    "…and the write is skipped rather than queued into a renderer that cannot parse it");
   assert.match(onData, /panes\[k\]\.lastOutputAt = Date\.now\(\)/,
     "activity is still recorded — a held pane is still a working one (the rail's running dot)");
 });
 
-test("what is held is bounded, and the newest is what survives", () => {
-  const hold = client.match(/function holdHiddenOutput[\s\S]*?\n  \}/)?.[0];
+test("what a hidden pane keeps is the FACT of output, not the bytes", () => {
+  const hold = client.match(/function holdHiddenOutput\(pane\)[\s\S]*?\n  \}/)?.[0];
   assert.ok(hold, "holdHiddenOutput exists");
-  assert.match(client, /HIDDEN_CAP_BYTES = \d/, "there is a cap on what a hidden pane may hold");
-  assert.match(hold, /slice\(-HIDDEN_KEEP_BYTES\)/, "past the cap the OLDEST bytes go, never the newest");
-  assert.match(hold, /hiddenDropped = true/, "and the cut is remembered, because a cut tail cannot be trusted whole");
+  assert.match(hold, /pane\.hiddenHeld = true/, "it records that something arrived");
+  assert.doesNotMatch(client, /HIDDEN_KEEP_BYTES/,
+    "and keeps no tail: a tail was wrapped for the width tmux had while away, and pouring it into a pane that "
+    + "came back at another width broke the layout until the session restarted");
 });
 
-test("arriving paints the recent screenful, then tmux repaints the real one", () => {
-  const flush = client.match(/function flushHiddenOutput[\s\S]*?\n  \}\n/)?.[0];
+test("arriving fits the grid first, then has tmux repaint the real screen", () => {
+  const flush = client.match(/function flushHiddenOutput\(\)[\s\S]*?\n  \}\n/)?.[0];
   assert.ok(flush, "flushHiddenOutput exists");
-  assert.match(flush, /if \(cut\) \{[\s\S]*?term\.reset\(\)/,
-    "a tail that was cut starts from a clean terminal — half an escape sequence paints garbage");
-  assert.match(flush, /pane\.term\.write\(held\)/, "the held tail is what goes in first");
-  assert.match(flush, /kakapoPty\.refresh\(\{ id: pane\.id \}\)/,
-    "…and tmux repaints the pane's current screen after it, so the final state is tmux's, not our guess");
-  assert.match(client, /visibilitychange[\s\S]{0,120}flushHiddenOutput\(\)/,
-    "the flush is what becoming visible does");
+  assert.match(flush, /scheduleFitAll\(\);[\s\S]{0,200}requestAnimationFrame/,
+    "the resize goes first — it is what tells tmux the grid to wrap to");
+  assert.match(flush, /term\.reset\(\)/, "the pane is cleared rather than left holding a screen drawn for another size");
+  assert.match(flush, /kakapoPty\.refresh\(\{ id: pane\.id \}\)/, "and tmux paints what is actually there");
+  assert.match(client, /visibilitychange[\s\S]{0,120}flushHiddenOutput\(\)/, "becoming visible is what runs it");
 });
 
 test("the refresh request reaches tmux", () => {

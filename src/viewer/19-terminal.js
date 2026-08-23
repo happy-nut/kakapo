@@ -663,7 +663,7 @@ function terminalPathLinkProvider(term) {
         // and switching back pays for all of it in one task. Stop feeding it, remember only that output
         // happened, and let tmux repaint the current screen on the way back (paneNeedsRepaint below). The
         // scrollback is tmux's and stays there; what the reader wants on arrival is the last screen.
-        if (document.visibilityState === 'hidden') { holdHiddenOutput(panes[k], msg.data); return; }
+        if (document.visibilityState === 'hidden') { holdHiddenOutput(panes[k]); return; }
         panes[k].term.write(msg.data);
         return;
       }
@@ -679,33 +679,28 @@ function terminalPathLinkProvider(term) {
   // it: the most recent screenful goes in first, then tmux repaints the pane's true current screen over it.
   // What is held is bounded — past the cap the oldest is dropped, because a screen you cannot see does not
   // need every byte of a build log kept twice (tmux has the scrollback and always did).
-  var HIDDEN_KEEP_BYTES = 256 * 1024;   // what gets painted the moment you arrive
-  var HIDDEN_CAP_BYTES = 1024 * 1024;   // what is worth holding at all
-  function holdHiddenOutput(pane, data) {
-    pane.hiddenBuf = (pane.hiddenBuf || '') + data;
-    if (pane.hiddenBuf.length > HIDDEN_CAP_BYTES) {
-      pane.hiddenBuf = pane.hiddenBuf.slice(-HIDDEN_KEEP_BYTES);
-      pane.hiddenDropped = true;
-    }
+  // Nothing is kept, only the FACT that output happened. Holding the bytes and replaying them was tried and
+  // taken out: the held tail was drawn for the width tmux had while the workspace was away, and a pane that
+  // came back to a different width (the rail, a window resize, a zoom step) then had that tail poured into a
+  // grid it was never wrapped for — text broke mid-word at the wrong column and the pane stayed wrong until
+  // the session restarted. tmux holds the real screen and the real scrollback; asking it to repaint is both
+  // cheaper and correct, so that is all this does.
+  function holdHiddenOutput(pane) {
+    pane.hiddenHeld = true;
   }
-  // Escape sequences are a stream: starting mid-way through one paints garbage. A tail that had to be cut
-  // therefore starts from a clean terminal and ends with tmux redrawing the real screen, so what is on the
-  // pane when the writing stops is what tmux says is there — not our guess at it.
+  // Fit FIRST, then repaint: the resize is what tells tmux the grid it must wrap to, and a repaint asked for
+  // before it would draw the old shape into the new pane.
   function flushHiddenOutput() {
-    panes.forEach(function (pane) {
-      var held = pane.hiddenBuf || '';
-      pane.hiddenBuf = '';
-      if (!held) return;
-      var cut = pane.hiddenDropped;
-      pane.hiddenDropped = false;
-      if (cut) {
-        held = held.slice(-HIDDEN_KEEP_BYTES);
+    scheduleFitAll();
+    requestAnimationFrame(function () {
+      panes.forEach(function (pane) {
+        if (!pane.hiddenHeld) return;
+        pane.hiddenHeld = false;
         try { pane.term.reset(); } catch (e) {}
-      }
-      try { pane.term.write(held); } catch (e) {}
-      if (pane.id != null && window.kakapoPty && typeof window.kakapoPty.refresh === 'function') {
-        window.kakapoPty.refresh({ id: pane.id });
-      }
+        if (pane.id != null && window.kakapoPty && typeof window.kakapoPty.refresh === 'function') {
+          window.kakapoPty.refresh({ id: pane.id });
+        }
+      });
     });
   }
   document.addEventListener('visibilitychange', function () {
@@ -813,8 +808,18 @@ function terminalPathLinkProvider(term) {
           requestAnimationFrame(function () { focusPane(active); });
         });
       } else {
+        // Opening an existing pane: fit it to the panel it is being shown in, then have tmux repaint what is
+        // actually on that session's screen. Without the repaint the pane shows whatever it last drew — which,
+        // after time away at another width, is a screen wrapped for a grid that no longer exists.
         scheduleFitAll();
-        requestAnimationFrame(function () { focusPane(active); });
+        requestAnimationFrame(function () {
+          focusPane(active);
+          panes.forEach(function (pane) {
+            if (pane.id != null && window.kakapoPty && typeof window.kakapoPty.refresh === 'function') {
+              window.kakapoPty.refresh({ id: pane.id });
+            }
+          });
+        });
       }
     }
   }
