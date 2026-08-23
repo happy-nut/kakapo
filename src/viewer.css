@@ -1704,10 +1704,14 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   font-size: 9px;
   font-weight: 700;
   line-height: 1;
-  color: transparent;
+  /* The row's own text colour, so `currentColor` below means something. The tick is hidden on the ::after
+     instead: colouring the BOX transparent to hide it also made currentColor transparent, which turned the
+     "borrow the row's colour" rule into a transparent border — the box disappeared on exactly the rows that
+     rule exists for (hovered, active, keyboard-focused). */
+  color: inherit;
   cursor: pointer;
 }
-.viewed-box::after { content: '✓'; }
+.viewed-box::after { content: '✓'; color: transparent; }
 /* On any row the eye is on, the box borrows that row's own text colour. --chrome-border and
    --chrome-selected are within a few points of each other, so on the SELECTED row the outline disappeared
    into the highlight and the checkbox was simply not there — invisible exactly when you are about to click
@@ -1716,7 +1720,8 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .file-link.active .viewed-box,
 .change-row.active .viewed-box,
 .tree-focus .viewed-box { border-color: currentColor; }
-.file-link.viewed .viewed-box { background: #6ab04c; border-color: #6ab04c; color: #fff; }
+.file-link.viewed .viewed-box { background: #6ab04c; border-color: #6ab04c; }
+.file-link.viewed .viewed-box::after { color: #fff; }
 .status-added { background: var(--add); color: #1a7f37; }
 .status-deleted { background: var(--del); color: #cf222e; }
 .status-renamed { background: #fff8c5; color: #9a6700; }
