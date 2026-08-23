@@ -1,12 +1,12 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { buildDiffReview } from "../dist/build.js";
 import { resolveAutomaticReviewBase } from "../dist/git.js";
-import { reviewDiffSignature, writeReviewWorkspace } from "../dist/review-workspace.js";
+import { readReviewBody, reviewDiffSignature, writeReviewWorkspace } from "../dist/review-workspace.js";
 
 let fixture;
 let repo;
@@ -93,7 +93,12 @@ test("review workspace service persists a lazy snapshot and detects later Git ch
   const snapshot = writeReviewWorkspace(target, options, "Kakapo");
 
   assert.equal(readFileSync(target, "utf8"), snapshot.html);
-  assert.ok(snapshot.bodyDiffs.length > 0, "lazy diff bodies remain available to the IPC adapter");
+  // The diffs are the biggest thing a build makes, so the snapshot carries WHERE they are, not the text: main
+  // reads one slice when a body is asked for instead of holding every byte per workspace (review-workspace.ts).
+  assert.ok(snapshot.bodies.offsets.length > 0, "the snapshot carries an index of the lazy diff bodies");
+  assert.ok(existsSync(snapshot.bodies.file), "and the file they were written to");
+  assert.match(readReviewBody(snapshot.bodies, 0), /^diff --git|^--- |^\+\+\+ |@@/m,
+    "a slice read off it is that file's own diff");
   assert.ok(snapshot.sourceFiles.some((file) => file.path === "src/app.ts"), "source metadata survives the service boundary");
 
   const before = reviewDiffSignature(options, snapshot.reviewBase, snapshot.reviewUpstream);

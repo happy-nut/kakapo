@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { closeSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { buildDiffReview } from "./cli.js";
 import { collectSourceFiles, parseUnifiedDiff, readUnifiedDiff } from "./diff.js";
 import { git } from "./git.js";
@@ -25,12 +25,72 @@ export type ReviewWorkspaceSnapshot = {
   reviewBase?: string;
   reviewTarget?: string;
   reviewUpstream?: string;
-  bodyDiffs: string[];
+  // Where this build's per-file diffs are, NOT the diffs themselves. On a large review they are the biggest
+  // thing a build produces — 106 MB of text for a 1,352-file compare — and main used to hold every byte of it
+  // for every open workspace, cloned across the worker boundary to get there. They are written beside the
+  // review HTML instead, and read one slice at a time when a body is actually asked for.
+  bodies: { file: string; offsets: number[] }; // offsets: [start, length, start, length, …] by file index
   sourceFiles: SourceFile[];
   // Diff-first: true when sourceFiles holds ONLY the changed files and the full project index is still owed
   // (materialize it with collectReviewSourceIndex below, on demand). False for a full build.
   fullIndexDeferred: boolean;
 };
+
+// One file, appended in build order, with a [start, length] pair per diff. A slice read is what a body costs
+// to fetch — no parse, no index of its own, and nothing retained between requests.
+export function reviewBodiesFile(target: string): string {
+  return join(dirname(target), "bodies.diff");
+}
+function writeReviewBodies(target: string, diffs: string[]): { file: string; offsets: number[] } {
+  const file = reviewBodiesFile(target);
+  const offsets: number[] = [];
+  const chunks: Buffer[] = [];
+  let at = 0;
+  for (const diff of diffs) {
+    const buffer = Buffer.from(diff, "utf8");
+    offsets.push(at, buffer.length);
+    chunks.push(buffer);
+    at += buffer.length;
+  }
+  writeFileSync(file, Buffer.concat(chunks));
+  return { file, offsets };
+}
+
+export function readReviewBody(bodies: { file: string; offsets: number[] } | undefined, index: number): string {
+  if (!bodies || !Number.isInteger(index) || index < 0) return "";
+  const start = bodies.offsets[index * 2];
+  const length = bodies.offsets[index * 2 + 1];
+  if (start === undefined || !length) return "";
+  let fd: number | undefined;
+  try {
+    fd = openSync(bodies.file, "r");
+    const buffer = Buffer.allocUnsafe(length);
+    readSync(fd, buffer, 0, length, start);
+    return buffer.toString("utf8");
+  } catch {
+    return ""; // the build that wrote it has been replaced; the caller re-asks after the next one
+  } finally {
+    if (fd !== undefined) { try { closeSync(fd); } catch { /* already gone */ } }
+  }
+}
+// The one caller that needs every diff at once (folding context open, which searches the review for a path).
+// It reads the file in one go and throws the strings away with the call — the opposite of holding them.
+export function allReviewBodies(bodies: { file: string; offsets: number[] } | undefined): string[] {
+  if (!bodies || !bodies.offsets.length) return [];
+  let raw: Buffer;
+  try { raw = readFileSync(bodies.file); } catch { return []; }
+  const out: string[] = [];
+  for (let at = 0; at < bodies.offsets.length; at += 2) {
+    const start = bodies.offsets[at];
+    const length = bodies.offsets[at + 1];
+    out.push(raw.subarray(start, start + length).toString("utf8"));
+  }
+  return out;
+}
+// How many files this build carried, for the callers that only need the count.
+export function reviewBodyCount(bodies: { file: string; offsets: number[] } | undefined): number {
+  return bodies ? bodies.offsets.length / 2 : 0;
+}
 
 export function writeReviewWorkspace(
   target: string,
@@ -53,6 +113,7 @@ export function writeReviewWorkspace(
   });
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, build.html);
+  const bodies = writeReviewBodies(target, build.lazyBodyDiffs ?? []);
   return {
     signature: build.signature,
     html: build.html,
@@ -60,7 +121,7 @@ export function writeReviewWorkspace(
     reviewBase: build.reviewBase,
     reviewTarget: build.reviewTarget,
     reviewUpstream: build.reviewUpstream,
-    bodyDiffs: build.lazyBodyDiffs ?? [],
+    bodies,
     sourceFiles: build.lazySourceFiles ?? [],
     fullIndexDeferred: Boolean(build.fullIndexDeferred),
   };

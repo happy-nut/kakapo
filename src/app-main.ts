@@ -16,7 +16,7 @@ import { ProjectMarkdownMemo } from "./memos.js";
 import type { SourceFile } from "./types.js";
 import { workspaceReviewFile } from "./workspace-data.js";
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
-import { reviewDiffSignature } from "./review-workspace.js";
+import { reviewBodyCount, reviewDiffSignature } from "./review-workspace.js";
 import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { parseReviewArgs, readOption } from "./cli-args.js";
@@ -85,7 +85,10 @@ type WinState = {
   knowledgeFile?: string;
   knowledgeSig?: string;
   commentsTimer?: NodeJS.Timeout;
-  bodyDiffs: string[]; // Phase 2 lazy-LOAD: raw per-file diffs rendered for THIS window's renderer on demand
+  // WHERE this build's per-file diffs are, not the diffs. They are the biggest thing a build makes — 106 MB
+  // for a 1,352-file compare — and holding them per workspace is what put main's heap in gigabyte territory.
+  // readReviewBody reads one slice when a body is actually asked for (review-workspace.ts).
+  bodies: { file: string; offsets: number[] };
   // Rendered per-file diff bodies, scoped to the current build. BOUNDED: body HTML is about 17x the diff
   // text it comes from, and this used to keep one for every file ever opened, per workspace, until the next
   // rebuild. On a 1,352-file review that is ~1.8 GB in main — measured 2.1 GB of main heap for one such
@@ -2188,7 +2191,7 @@ function createWindow(root: string, deferBoot = false): WinState {
     options: makeOptions(root),
     signature: "",
     refreshing: false,
-    bodyDiffs: [],
+    bodies: { file: "", offsets: [] },
     bodyCache: new ByteBudgetCache<string>(BODY_CACHE_BYTES, (body) => body.length),
     sourceFiles: new Map(),
     analysis,
@@ -2500,7 +2503,7 @@ function applySnapshot(state: WinState, snapshot: BuildSnapshot): void {
   state.reviewUpstream = snapshot.reviewUpstream;
   // The review artifact mirrors the workspace's absolute folder structure below userData. Different
   // repositories, nested monorepo packages, and worktrees therefore never share a file or touch source.
-  state.bodyDiffs = snapshot.bodyDiffs;
+  state.bodies = snapshot.bodies;
   state.bodyCache.clear();
   // Retain native records from the workspace snapshot instead of serializing and parsing the whole project
   // index (which can approach the source budget on large repositories).
@@ -2538,7 +2541,7 @@ async function buildReview(state: WinState, deferFullIndex = false): Promise<Bui
     workerMs,
     mainBlockMs: Math.round((performance.now() - applyStarted) * 10) / 10,
     sourceFiles: state.sourceFiles.size,
-    diffBodies: state.bodyDiffs.length,
+    diffBodies: reviewBodyCount(state.bodies),
   });
   return snapshot;
 }
