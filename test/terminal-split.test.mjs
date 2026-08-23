@@ -268,15 +268,15 @@ test("each pane owns its own connecting overlay, with a way out when nothing pri
   // What output MEANS is pinned by its own test below: the first byte ends the wait. The byte itself may be
   // held rather than written (a hidden workspace — see terminal-hidden-output.test.mjs); what matters here is
   // that the pane which produced it is the one told, before anything decides what to do with the bytes.
-  assert.match(client, /noteConnectingOutput\(panes\[k\]\);[\s\S]{0,900}?panes\[k\]\.term\.write/,
+  assert.match(client, /noteConnectingOutput\(panes\[k\]\);[\s\S]{0,1200}?panes\[k\]\.term\.write/,
     "and it is the pane that produced the byte which hears about it");
 
   // A pane is waiting from the moment its rectangle exists; the panel-wide overlay only covers the sliver
   // before any pane does, and steps aside as soon as one appears.
   assert.match(client, /setPaneConnecting\(pane, true\);\s*\n\s*setConnecting\(false\);/,
     "a new pane takes the wait over from the panel");
-  assert.match(client, /setConnecting\(true\);\s*\n\s*restorePanes\(\)/,
-    "which the panel raised before the restore started");
+  assert.match(client, /setConnecting\(true\);\s*\n\s*ensurePanes\(\)/,
+    "which the panel raised before the attach started");
 
   // Both halves, on both surfaces, must clear xterm's own layers (z-index up to 10 in xterm.css).
   const placed = (css.match(/is-connecting(?:[^{]*)::(?:before|after) \{[^}]*\}/g) || [])

@@ -352,6 +352,34 @@ function terminalPathLinkProvider(term) {
       }
     };
   }
+  // Terminal typography is its own preference, not the app-wide zoom: a pane full of an agent's prose wants a
+  // bigger glyph and much more room between lines than a diff does. Hangul fills its box top to bottom, so at
+  // xterm's default line height of 1.0 the lines touch and long output reads as a wall of text.
+  var TERM_FONT_KEY = 'kakapo-terminal-font';
+  var TERM_LINE_KEY = 'kakapo-terminal-line';
+  var TERM_FONT_SIZES = [11, 12, 13, 14, 15, 16];
+  var TERM_LINE_HEIGHTS = [1, 1.15, 1.3, 1.45, 1.6];
+  function terminalFontSize() {
+    var stored = Number(persistRead(TERM_FONT_KEY));
+    return TERM_FONT_SIZES.indexOf(stored) >= 0 ? stored : 13;
+  }
+  function terminalLineHeight() {
+    var stored = Number(persistRead(TERM_LINE_KEY));
+    return TERM_LINE_HEIGHTS.indexOf(stored) >= 0 ? stored : 1.45;
+  }
+  // Applied to every open pane at once: the setting is about the terminal, not about the pane that happened to
+  // be focused when it changed. The re-fit is what turns the new metrics into a new row/column count, which is
+  // then sent on to tmux like any other resize.
+  function applyTerminalTypography() {
+    panes.forEach(function (pane) {
+      try {
+        pane.term.options.fontSize = terminalFontSize();
+        pane.term.options.lineHeight = terminalLineHeight();
+      } catch (e) {}
+    });
+    scheduleFitAll();
+  }
+
   function makePane(cell, restoreOrdinal) {
     if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw
     var el = document.createElement('div');
@@ -364,8 +392,12 @@ function terminalPathLinkProvider(term) {
     el.appendChild(paneHost);
     (cell || makeCell()).appendChild(el);
     var term = new window.Terminal({
-      fontSize: 12,
-      fontFamily: 'Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+      fontSize: terminalFontSize(),
+      lineHeight: terminalLineHeight(),
+      // ui-monospace first, not Monaco. Monaco carries no Hangul, so Korean fell to a system fallback while
+      // xterm kept sizing the cell grid from Monaco's metrics — every Korean glyph then sat slightly wrong in
+      // a box built for something else, and a double-width character shows that twice over.
+      fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
       theme: themeColors(),
       cursorBlink: true,
     });
@@ -777,9 +809,7 @@ function terminalPathLinkProvider(term) {
       if (typeof quickOpen !== 'undefined' && quickOpen && !quickOpen.classList.contains('hidden')) closeQuickOpen();
       if (panes.length === 0) {
         setConnecting(true);
-        restorePanes().then(function () {
-          if (panes.length === 0) makePane();
-          scheduleFitAll();
+        ensurePanes().then(function () {
           requestAnimationFrame(function () { focusPane(active); });
         });
       } else {
@@ -798,24 +828,23 @@ function terminalPathLinkProvider(term) {
   // Only on arrival, never at app boot: a workspace nobody visits should not hold ptys, and a hidden pane's
   // output is held rather than written (the visibilitychange handler above), so warming one costs a tmux
   // client and no parsing.
-  var warmed = false;
-  function warmPanes() {
-    if (warmed || panes.length || !window.kakapoPty) return;
-    warmed = true;
-    restorePanes().then(function () {
-      if (panes.length === 0) makePane();  // no surviving session: one plain pane, attached and waiting
-      scheduleFitAll();
-    }, function () {});
+  // ONE in-flight attach, shared by the warm below and ⌃` — never two. A pane spawned without an ordinal
+  // takes the lowest one this window is not already using, and that bookkeeping only lands when main answers:
+  // two callers racing therefore both got ordinal 1, both attached to the SAME tmux session, and the panel
+  // came back with two panes mirroring each other keystroke for keystroke.
+  var panesReady = null;
+  function ensurePanes() {
+    if (!panesReady) {
+      panesReady = restorePanes().then(function () {
+        if (panes.length === 0) makePane(); // no surviving session: one plain pane, attached and waiting
+        scheduleFitAll();
+      }, function () {});
+    }
+    return panesReady;
   }
-  function scheduleWarmPanes() {
-    if (document.visibilityState === 'hidden') return;
-    var idle = window.requestIdleCallback || function (fn) { return setTimeout(fn, 400); };
-    idle(function () { warmPanes(); }, { timeout: 2000 });
-  }
-  document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible') scheduleWarmPanes();
-  });
-  scheduleWarmPanes();
+  // Attaching on ARRIVAL was tried and taken back out: it does not make the wait smaller, it moves it onto the
+  // switch, where it is worse — every workspace you passed through paid an xterm boot before it would draw.
+  // The wait belongs to ⌃`, where the reader asked for it, until the boot itself is made cheap.
 
   function toggle() { setOpen(!isOpen()); }
   // The keyboard shortcut is "focus-first": when the terminal is visible but focus is elsewhere, the first
@@ -948,6 +977,9 @@ function terminalPathLinkProvider(term) {
   };
   window.__kakapoTerminal = {
     isOpen: isOpen,
+    // The Settings rows (08-dock.js) own the values; the panel owns what they mean on screen.
+    typography: function () { return { size: terminalFontSize(), line: terminalLineHeight(), sizes: TERM_FONT_SIZES, lines: TERM_LINE_HEIGHTS, sizeKey: TERM_FONT_KEY, lineKey: TERM_LINE_KEY }; },
+    applyTypography: applyTerminalTypography,
     // True when keyboard focus is inside the terminal panel (a pane owns it) — Cmd/Ctrl+W uses this to
     // decide between closing a pane and closing a source tab.
     hasFocus: function () { var ae = document.activeElement; return !!(ae && panel.contains(ae)); },
