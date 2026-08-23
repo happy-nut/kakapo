@@ -571,11 +571,21 @@ function animateHubWidth(target: number): void {
   const start = hubWidth;
   if (start === target) { hubWidth = target; layoutWorkspaceViews(); return; }
   const t0 = Date.now(), dur = 180;
+  // The hidden views get the final width immediately — they are not on screen, and re-bounding them twelve
+  // times is what made the slide cost seconds.
+  const settled = hubWidth;
+  hubWidth = target;
+  layoutWorkspaceViews();
+  hubWidth = settled;
   hubAnimTimer = setInterval(() => {
     const p = Math.min(1, (Date.now() - t0) / dur);
     hubWidth = Math.round(start + (target - start) * easeRail(p));
-    layoutWorkspaceViews();
-    if (p >= 1 && hubAnimTimer) { clearInterval(hubAnimTimer); hubAnimTimer = undefined; }
+    layoutWorkspaceViews({ activeOnly: true });
+    if (p >= 1 && hubAnimTimer) {
+      clearInterval(hubAnimTimer);
+      hubAnimTimer = undefined;
+      layoutWorkspaceViews(); // one settled pass, so nothing is left on a mid-animation width
+    }
   }, 16);
 }
 function sendRailPushed(): void {
@@ -1466,11 +1476,19 @@ function ensureShellWindow(light: boolean): BrowserWindow {
   return shellWindow;
 }
 
-function layoutWorkspaceViews(): void {
+// `x` is the rail's width, so every frame of the rail's expand/collapse used to re-bound EVERY workspace view.
+// A view resize is a full relayout in that renderer, and a review is a big document — 1,352 file wrappers and
+// ~17k nodes on a large diff — so twelve frames times N workspaces was seconds of work nobody could see: the
+// animation dropped frames, the review the reader was looking at lagged behind the rail, and the terminal
+// panel inside it appeared to sit ON the expanded rail because its view had not moved yet.
+// Only the view being looked at follows the animation. The rest take the final width once (`settle`), which is
+// all a hidden view ever needed — it is not on screen while the rail slides.
+function layoutWorkspaceViews(options?: { activeOnly?: boolean }): void {
   if (!shellWindow || shellWindow.isDestroyed()) return;
   const [width, height] = shellWindow.getContentSize();
   for (const state of states.values()) {
     if (state.win.isDetached()) continue;
+    if (options?.activeOnly && state.win.webContents.id !== activeStateId) continue;
     const view = shellWindow.contentView.children.find(
       (child): child is WebContentsView => child instanceof WebContentsView && child.webContents.id === state.win.webContents.id,
     );
