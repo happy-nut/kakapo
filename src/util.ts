@@ -193,6 +193,19 @@ export function sanitizeTerminalEnv(env: NodeJS.ProcessEnv): { [key: string]: st
   return out;
 }
 
+// Where a command-line tool actually is. A GUI launch (Finder, Dock, Spotlight) inherits a minimal PATH with
+// no Homebrew prefix and no ~/.local/bin, so a tool the user's own shell finds every day is invisible to us —
+// which is how `tmux` and, now, the agent CLIs go missing in the packaged app and nowhere else. Check PATH
+// first, then the standard prefixes. Never cached: installing the tool has to take effect without a restart.
+export function resolveBin(name: string, env: NodeJS.ProcessEnv): string | undefined {
+  const fromPath = (env.PATH ?? "").split(":").filter(Boolean).map((dir) => join(dir, name));
+  const prefixes = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", join(env.HOME ?? "", ".local", "bin")];
+  for (const candidate of [...fromPath, ...prefixes.map((dir) => join(dir, name))]) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
 // GUI launches (Finder double-click, Spotlight, the `mo` relauncher) often start with no LANG/LC_* at
 // all, so the pty's shell — and tools it runs, notably git's `less` pager — fall back to the C locale and
 // render UTF-8 text (e.g. Korean commit messages) as escaped bytes like "<EA><B5><AD>". Force a UTF-8
