@@ -521,3 +521,46 @@ test("lazy-LOAD: a failed body fetch is retried, not cached as an empty file for
   assert.match(v.$("#diff2html-container").textContent, /111/, "and the diff finally paints");
   v.close();
 });
+
+// A watch tick that ADDS a file drops out of the per-file fast path into the full swap, which re-materializes
+// every body the reviewer had already opened. Each re-materialization projects that file's gutter layer, and
+// a projection forces a layout of the whole review — the same ~0.5s whether the file is 50 rows or 2,780, so
+// on a 72-file review it measured 33 SECONDS of frozen UI (Chromium, real bodies). Only one file is on
+// screen, so the swap restores the single-file view state first: the off-screen wrappers are marked inactive
+// and defer their projection (refreshLayeredDiffGutters' own guard), and only the file being read is drawn.
+test("lazy: a file-set change leaves only the viewed file projected, not every body that was ever opened", async () => {
+  const b1 = await makeReviewHtml(
+    [
+      { path: "src/a.ts", before: "const a = 1;\n", after: "const a = 1; // AAA\n" },
+      { path: "src/b.ts", before: "const b = 2;\n", after: "const b = 2; // BBB\n" },
+    ],
+    { lazyLoad: true },
+  );
+  let bodies = await renderLazyBodies(b1.build);
+  const v = await loadViewer(b1.html, {
+    menuBridge: true,
+    lazySourceData: b1.build.lazySourceData,
+    getDiffBody: (idx) => bodies[idx] || "",
+  });
+  await v.openDiffFor("src/b.ts");
+  await v.openDiffFor("src/a.ts"); // both bodies materialized, a.ts is the one on screen
+  await v.settle(120);
+
+  // A third file appears — the file set changed, so this is the full-swap path.
+  const b2 = await makeReviewHtml(
+    [
+      { path: "src/a.ts", before: "const a = 1;\n", after: "const a = 1; // AAA\n" },
+      { path: "src/b.ts", before: "const b = 2;\n", after: "const b = 2; // BBB\n" },
+      { path: "src/c.ts", before: undefined, after: "const c = 3;\n" },
+    ],
+    { lazyLoad: true },
+  );
+  bodies = await renderLazyBodies(b2.build);
+  await v.pushDiffUpdate(b2.build.update);
+  await v.settle(150);
+
+  const active = v.$all("#diff2html-container .d2h-file-wrapper:not(.df-inactive)");
+  assert.equal(active.length, 1, "exactly one file is projected after the swap");
+  assert.equal(active[0].dataset.path, "src/a.ts", "and it is the one being read");
+  v.close();
+});
