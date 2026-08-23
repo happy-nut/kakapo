@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { closeSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { buildDiffReview } from "./cli.js";
 import { collectSourceFiles, parseUnifiedDiff, readUnifiedDiff } from "./diff.js";
-import { git } from "./git.js";
+import { canonicalWorkspaceRoot, git } from "./git.js";
 import type { DiffReviewUpdate, SourceFile } from "./types.js";
 
 // This is the stable input boundary between Electron window orchestration and review generation. Keeping
@@ -161,19 +161,57 @@ export function reviewDiffSignature(
 ): string {
   const base = reviewBase ?? options.base;
   const upstreamRevision = reviewUpstream ? git(options.root, ["rev-parse", reviewUpstream]) : "";
+  // NOT the unified diff. This runs on the watch tick and on every activation, in the MAIN process, and the
+  // diff of a large review is enormous: on a 1,352-file compare `git diff` was 15s of blocked main thread per
+  // sweep, plus 1.6s decoding 106 MB to a string and 4s hashing it — the app-wide lag a workspace switch had.
+  //
+  // The question being asked is only "has anything changed since the last build". `--raw` answers it exactly:
+  // one line per path with the blob hashes and status, which move if and only if content moves, and it is
+  // kilobytes rather than megabytes. Untracked files carry their own (path, size, mtime) because they have no
+  // blob yet. The REAL signature is still the one the build computes from the diff itself.
+  const root = canonicalWorkspaceRoot(options.root ?? process.cwd());
+  const args = ["diff", "--no-ext-diff", "--find-renames", "--relative", "--raw", "--abbrev=40"];
+  if (options.target) args.push(options.base ?? "HEAD", options.target);
+  else if (options.staged) args.push("--cached");
+  else args.push(options.base ?? "HEAD");
+  args.push("--", ".");
+  const raw = git(root, args);
+  // `--raw` names the new blob only when there IS one. An unstaged edit has not been hashed yet, so git prints
+  // all-zeros for that side and the line does not move when the file's content does — the probe would sleep
+  // through exactly the edits the watch exists for. Stat what the raw output names, which is what the working
+  // tree has to say for itself.
+  const touched = raw.split("\n").filter(Boolean).map((line) => {
+    const paths = line.split("\t").slice(1);
+    return paths.map((path) => {
+      try {
+        const stat = statSync(join(root, path));
+        return `${path}\0${stat.size}\0${Math.round(stat.mtimeMs)}`;
+      } catch { return `${path}\0gone`; }
+    }).join("\t");
+  }).join("\n");
+  const untracked = options.includeUntracked && !options.target
+    ? git(root, ["ls-files", "--others", "--exclude-standard", "--", "."])
+        .split("\n").filter(Boolean)
+        .map((path) => {
+          try {
+            const stat = statSync(join(root, path));
+            return `${path}\0${stat.size}\0${Math.round(stat.mtimeMs)}`;
+          } catch { return `${path}\0gone`; }
+        })
+        .join("\n")
+    : "";
   return createHash("sha1")
     .update(base ?? "HEAD")
     .update("\n")
     .update(upstreamRevision)
     .update("\n")
-    .update(readUnifiedDiff({
-      base,
-      target: options.target,
-      staged: options.staged,
-      context: options.context,
-      includeUntracked: options.includeUntracked,
-      ignoreWhitespace: options.ignoreWhitespace,
-      root: options.root,
-    }))
+    .update(options.staged ? "staged" : "worktree")
+    .update("\n")
+    .update(raw)
+    .update("\n")
+    .update(touched)
+    .update("\n")
+    .update(untracked)
     .digest("hex");
 }
+
