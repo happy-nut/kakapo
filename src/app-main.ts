@@ -21,14 +21,15 @@ import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { parseReviewArgs, readOption } from "./cli-args.js";
 import { easeRail } from "./rail-animation.js";
-import { errorMessage, githubOwnerFromUrl, tmuxSessionsForRoot } from "./util.js";
+import { ByteBudgetCache, errorMessage, githubOwnerFromUrl, tmuxSessionsForRoot } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, reapUnreachableTerminals, resolveTmux } from "./app-terminal-ipc.js";
-import { registerCommentsIpc, syncCommentsFile, commentsFilePath, knowledgeFilePath } from "./comments-file.js";
+import { registerCommentsIpc, syncCommentsFile, commentsFilePath, knowledgeFilePath, readThread, writeThread, nextThreadId, isKnowledge, type ThreadRecord } from "./comments-file.js";
+import { ask, askAgent } from "./ask-session.js";
 import { registerTermsIpc } from "./terms-file.js";
 import { connectMcp, mcpStatus, type McpAgent } from "./mcp-register.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
@@ -85,7 +86,12 @@ type WinState = {
   knowledgeSig?: string;
   commentsTimer?: NodeJS.Timeout;
   bodyDiffs: string[]; // Phase 2 lazy-LOAD: raw per-file diffs rendered for THIS window's renderer on demand
-  bodyCache: Map<number, string>; // rendered per-file diff bodies, scoped to the current build
+  // Rendered per-file diff bodies, scoped to the current build. BOUNDED: body HTML is about 17x the diff
+  // text it comes from, and this used to keep one for every file ever opened, per workspace, until the next
+  // rebuild. On a 1,352-file review that is ~1.8 GB in main — measured 2.1 GB of main heap for one such
+  // workspace, and V8 aborting the whole app at 2.7 GB once a second one was opened. Re-rendering an evicted
+  // body is one renderLazyDiffBody call on the file the reader just asked for.
+  bodyCache: ByteBudgetCache<string>;
   sourceFiles: Map<string, SourceFile>; // source content stays in main; renderer requests one open file at a time
   analysis: ProjectAnalysis; // LSP-first project analysis + main-process regex fallback
   analysisSuspended: boolean;
@@ -106,6 +112,10 @@ type WinState = {
   isOnScreen: () => boolean;
   unread: boolean; // an agent turn finished / needs input in this (non-active) workspace — the tile's red dot
   busy: boolean; // an agent is actively producing output here — the tile's animated "working" spinner
+  // What the HIDDEN session is doing right now (ask-session.ts). It has no pane and no terminal output, so
+  // nothing about it is visible unless we say so: this is the list the status pill draws and the reason the
+  // workspace tile spins while an invisible agent works. One entry per question in flight, oldest first.
+  asking: Array<{ label: string; seq?: number }>;
   busyTimer?: NodeJS.Timeout; // debounce: cleared/reset on each output chunk; on expiry the workspace goes idle
   // Per-pane version of the same debounce. The rail lists one row per pane, so a workspace-wide flag would
   // spin every row whenever any one of them printed a character — including the one sitting at a prompt.
@@ -154,6 +164,9 @@ const APP_VERSION = app.isPackaged ? app.getVersion() : (() => {
 const REVIEW_FILE = "app-review.html";
 const WATCH_INTERVAL_MS = 1000;
 const ANALYSIS_PREWARM_DELAY_MS = 350;
+// What one workspace may hold in rendered diff bodies. Enough for the run of files a reading pass actually
+// walks; past that the oldest goes and is re-rendered if the reader comes back to it.
+const BODY_CACHE_BYTES = 64_000_000;
 // How long a workspace must stay hidden before its language servers are shut down. Resuming pays the full
 // cold start again (the bundled Kotlin server alone allocates well over a gigabyte on every restart), so a
 // short timer turns ordinary back-and-forth switching into pure churn: it costs more than the RSS it frees.
@@ -340,6 +353,135 @@ registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerTerminalIpc(ipcMain, stateFromEvent);
 registerCommentsIpc(ipcMain, stateFromEvent);
 registerTermsIpc(ipcMain, stateFromEvent);
+
+// ── the hidden session (ask-session.ts) ──────────────────────────────────────────────────────────────────
+// The renderer hands over a prompt and a label for it. Everything else — which agent, which conversation,
+// what it is allowed to touch, where the answer lands — is decided here, because none of it is the
+// renderer's to know and all of it is the part that has to be right.
+function sendAskStatus(state: WinState): void {
+  if (!state.win.isDestroyed()) state.win.webContents.send("kakapo:ask-status", { asks: state.asking });
+  sendAgentActivity(); // ...and the rail, so an invisible agent still moves something on screen
+}
+// Which model the hidden session runs on, and `auto` — the default — is deliberately not one answer:
+//
+//   - A COMMENT is a bounded question about one hunk, asked while the reviewer waits. A mid-tier model
+//     answers it as well and several times cheaper, and cost is the entire reason this session exists rather
+//     than forking the reviewer's own (which re-reads ~320k tokens a question).
+//   - An EXPLAIN run reads a whole diff and writes the notes the review is read through. That is the
+//     reviewer's own quality bar, so it inherits whatever their `claude` is configured to use and kakapo
+//     does not quietly downgrade a feature that has always run on their choice.
+//
+// Anything else in the setting pins BOTH to one model. Returning undefined means "pass no --model at all",
+// which is not the same as naming a default: the CLI then uses their configuration, whatever it becomes.
+const ASK_MODEL_KEY = "kakapo-ask-model";
+function askModel(notes: boolean): string | undefined {
+  let raw = "auto";
+  try { raw = String(preferences.readGlobal()[ASK_MODEL_KEY] ?? "auto"); } catch { /* unreadable settings */ }
+  if (raw === "auto") return notes ? undefined : "sonnet";
+  return raw === "inherit" ? undefined : raw;
+}
+
+// Records the hidden session PRINTED instead of writing (it has no write access at all — see ask-session.ts).
+// Their ids are re-assigned here and that is the point rather than a chore: the id space spans two files and
+// an agent is only ever shown one, which is the mistake the thread file's own header spends four lines
+// warning about. Ours is the only counter that can see both.
+//
+// Forgiving about what it reads, strict about what it keeps: a model that wrapped its lines in a fence or
+// wrote a sentence first costs those lines, not the run.
+function collectPrintedRecords(state: WinState, output: string): number {
+  const parsed: ThreadRecord[] = [];
+  for (const line of output.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) continue;
+    try {
+      const record = JSON.parse(trimmed) as ThreadRecord;
+      if (record && typeof record === "object" && typeof record.text === "string") parsed.push(record);
+    } catch { /* prose that happened to open with a brace */ }
+  }
+  if (!parsed.length || !state.commentsFile) return 0;
+  const here = readThread(state.commentsFile);
+  const there = state.knowledgeFile ? readThread(state.knowledgeFile) : [];
+  let next = nextThreadId(here, there);
+  const mine: ThreadRecord[] = [], learned: ThreadRecord[] = [];
+  for (const record of parsed) {
+    const numbered: ThreadRecord = { ...record, id: next++, by: "agent" };
+    // Same split the renderer's save uses: what was learned about the code goes to the file every worktree
+    // of this repository shares, the conversation stays with this workspace.
+    (state.knowledgeFile && isKnowledge(numbered) ? learned : mine).push(numbered);
+  }
+  writeThread(state.commentsFile, here.concat(mine), next);
+  if (state.knowledgeFile) writeThread(state.knowledgeFile, there.concat(learned), next);
+  syncCommentsFile(state); // an Explain run's notes, on screen the moment they land — see appendAgentAnswer
+  return parsed.length;
+}
+// An answer is a reply in the thread, written by us. The agent is never asked to format it into a file: a
+// record the app appends cannot be appended wrong, and the reviewer's card is where the answer belongs.
+function appendAgentAnswer(state: WinState, re: number, text: string): void {
+  if (!state.commentsFile || !text.trim()) return;
+  const here = readThread(state.commentsFile);
+  const there = state.knowledgeFile ? readThread(state.knowledgeFile) : [];
+  // `re + 1` is the floor, and it is load-bearing now that a comment asks on its own: the ask starts the
+  // moment the comment is written and the renderer's save is debounced behind it, so the file this reads
+  // frequently does not contain the comment being answered yet — and the next free id it reports is the
+  // comment's OWN id. Two records, one id, and every reply, delete and thread lookup resolves whichever it
+  // happens to find first.
+  const id = Math.max(nextThreadId(here, there), re + 1);
+  writeThread(state.commentsFile, here.concat({ id, re, by: "agent", text: text.trim() }), id + 1);
+  // Push it NOW rather than leaving it for the next poll tick. The poll is how a write kakapo did not make
+  // arrives — the terminal's agent appending an answer, a note written in another worktree reaching this one
+  // — and it stays exactly as it is for those. But it is the wrong messenger for our own write: we know the
+  // moment it lands, and a second of nothing after the spinner stops reads as the answer having failed.
+  // commentsSig is left stale on purpose so this call sees the change; syncCommentsFile refreshes it.
+  syncCommentsFile(state);
+}
+// A comment that asked for a CHANGE, not an explanation. The hidden session cannot edit — that is the rule
+// the whole design rests on — so it writes the instruction instead and it travels to the agent the reviewer
+// has open in the terminal (deliverHandoff, 27-ask.js).
+//
+// The thread still gets a record, and that matters more than it looks: the reviewer has to be able to see,
+// on the card, that their request went somewhere. A hand-off that only appeared as a line in a terminal is a
+// request nobody can find again ten minutes later.
+const HANDOFF_MARKER = "KAKAPO-HANDOFF";
+function handOffOrAnswer(state: WinState, re: number, answer: string): void {
+  const trimmed = answer.trim();
+  if (!trimmed.startsWith(HANDOFF_MARKER)) { appendAgentAnswer(state, re, trimmed); return; }
+  const instruction = trimmed.slice(HANDOFF_MARKER.length).trim();
+  if (!instruction) return;
+  appendAgentAnswer(state, re, `${tr()("ask.handoff.note")}\n\n${instruction}`);
+  if (!state.win.isDestroyed()) state.win.webContents.send("kakapo:ask-handoff", { text: instruction, seq: re });
+}
+
+ipcMain.handle("kakapo:ask", async (event, payload: { prompt?: string; label?: string; seq?: number; notes?: boolean }) => {
+  const state = stateFromEvent(event);
+  let prompt = typeof payload?.prompt === "string" ? payload.prompt.trim() : "";
+  if (!state || !prompt) return { ok: false, reason: "empty" };
+  if (!askAgent()) return { ok: false, reason: "no-agent" }; // nothing installed to ask — the renderer says so
+  // A prompt that ordinarily tells the agent to APPEND its notes to a file. The hidden session cannot write,
+  // so the last word overrides that one instruction and kakapo takes the lines off stdout instead. Appended
+  // here rather than edited into the prompt files: those are the reviewer's to change in Settings, and the
+  // terminal hand-off still needs them to say exactly what they say now.
+  if (payload?.notes) prompt = prompt + "\n\n" + tr()("ask.prompt.notes");
+  const entry = { label: String(payload?.label ?? ""), seq: Number.isFinite(payload?.seq) ? Number(payload?.seq) : undefined };
+  state.asking.push(entry);
+  sendAskStatus(state);
+  try {
+    const answer = await ask(state.options.root, prompt, askModel(!!payload?.notes));
+    if (entry.seq != null) handOffOrAnswer(state, entry.seq, answer);
+    else if (payload?.notes) collectPrintedRecords(state, answer);
+    // An answer that arrived while you were reading another workspace is exactly what the attention dot is
+    // for — and this one made no sound at all on its way in.
+    if (answer && !isVisibleWorkspace(state)) {
+      state.unread = true;
+      preferences.writeUnread(state.options.root, true);
+    }
+    return { ok: !!answer };
+  } finally {
+    const at = state.asking.indexOf(entry);
+    if (at >= 0) state.asking.splice(at, 1);
+    sendAskStatus(state);
+  }
+});
+
 // Whether the agent CLIs on this machine can see kakapo's vocabulary, and the one call that makes them.
 ipcMain.handle("kakapo:mcp-status", () => mcpStatus());
 ipcMain.handle("kakapo:mcp-connect", (_event, payload: { agent?: string }) => {
@@ -1385,8 +1527,9 @@ function activateWorkspace(id: number): void {
   const activated = states.get(id);
   if (activated) {
     // It may have missed zoom steps while it was hidden (applyUiScale only pays for what is on screen).
-    // Setting it here is a no-op when it already matches.
-    applyUiScale(activated.win.webContents);
+    // A fresh view is still about:blank; its first did-finish-load applies the scale without asking Electron
+    // to relayout an uninitialised hidden surface (which can grow the main-process heap until it crashes).
+    if (activated.bootStarted) applyUiScale(activated.win.webContents);
     // What this switch is about to pay for, stamped before it does: the renderer's own stall marks
     // (trackMainThreadStalls in 09-views-update.js) then line up against it by timestamp.
     activated.perf.mark("workspace-activate", {
@@ -1607,7 +1750,9 @@ function sendAgentActivity(): void {
   const activity = Array.from(states.values()).map((state) => {
     const rows = railPanes(state, panes);
     return {
-      id: state.win.webContents.id, busy: state.busy, unread: state.unread,
+      // The hidden session counts as this workspace being busy. It produces no pty output, so without this
+      // the one agent nobody can watch is also the one the rail says nothing about.
+      id: state.win.webContents.id, busy: state.busy || state.asking.length > 0, unread: state.unread,
       running: rows.some((pane) => pane.running), panes: rows,
     };
   });
@@ -2026,7 +2171,7 @@ function createWindow(root: string, deferBoot = false): WinState {
     signature: "",
     refreshing: false,
     bodyDiffs: [],
-    bodyCache: new Map(),
+    bodyCache: new ByteBudgetCache<string>(BODY_CACHE_BYTES, (body) => body.length),
     sourceFiles: new Map(),
     analysis,
     analysisSuspended: false,
@@ -2063,6 +2208,7 @@ function createWindow(root: string, deferBoot = false): WinState {
     },
     unread: preferences.readUnread(options.root), // an answer you never read is still unread tomorrow
     busy: false,
+    asking: [],
     bootStarted: false,
     buildSeq: 0,
     perf,

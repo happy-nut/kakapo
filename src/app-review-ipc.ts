@@ -15,7 +15,7 @@ export type ReviewIpcState = {
   options: { root: string; base?: string; target?: string; staged: boolean };
   signature: string;
   bodyDiffs: string[];
-  bodyCache: Map<number, string>;
+  bodyCache: { get(key: string): string | undefined; set(key: string, value: string): void };
   sourceFiles: Map<string, SourceFile>;
   analysis: ProjectAnalysis;
   perf: ReviewPerformanceTrace;
@@ -52,10 +52,10 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     if (!state) return "";
     const index = Number(request?.index);
     if (!Number.isInteger(index) || index < 0 || index >= state.bodyDiffs.length) return "";
-    const cached = state.bodyCache.get(index);
+    const cached = state.bodyCache.get(String(index));
     if (cached !== undefined) return cached;
     const body = renderLazyDiffBody(state.bodyDiffs[index]);
-    state.bodyCache.set(index, body);
+    state.bodyCache.set(String(index), body);
     return body;
   });
 

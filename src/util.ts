@@ -261,6 +261,11 @@ export class ByteBudgetCache<V> {
   stats(): { entries: number; bytes: number; limit: number } {
     return { entries: this.entries.size, bytes: this.total, limit: this.limitBytes };
   }
+
+  clear(): void {
+    this.entries.clear();
+    this.total = 0;
+  }
 }
 
 // --- Persistent terminals ----------------------------------------------------------------------------
