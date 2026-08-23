@@ -780,10 +780,20 @@ function installProjectIndex(payload) {
   });
   sourceFiles = records;
   sourceByPath = new Map(records.map(function (file) { return [file.path, file]; }));
-  fileStates = Array.isArray(payload.fileStates) && payload.fileStates.length
-    ? payload.fileStates.slice()
-    : records.map(function (file) { return { path: file.path, signature: file.signature || '' }; });
-  fileSignatureByPath = new Map(fileStates.map(function (file) { return [file.path, file.signature]; }));
+  // The project index is SOURCE metadata; ProjectIndexPayload carries no review file states (types.ts), and a
+  // source record's own signature is not the one the review was built with. Rebuilding the map from those
+  // records therefore moved every changed file's signature the moment the Files tree was first opened — and a
+  // viewed mark is stored AS that signature (isFileViewed), so every box the reviewer had ticked silently
+  // came undone. Only a payload that actually brings file states may replace them; otherwise the review's own
+  // remain, and paths the review never knew about are added with no signature of their own.
+  if (Array.isArray(payload.fileStates) && payload.fileStates.length) {
+    fileStates = payload.fileStates.slice();
+    fileSignatureByPath = new Map(fileStates.map(function (file) { return [file.path, file.signature]; }));
+  } else {
+    records.forEach(function (file) {
+      if (!fileSignatureByPath.has(file.path)) fileSignatureByPath.set(file.path, '');
+    });
+  }
   projectIndexLoaded = true;
   projectIndexPayload = payload;
   if (pruneCommentsForMissingFiles()) refreshComments();

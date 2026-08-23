@@ -858,6 +858,49 @@ body.native-app .source-tabs {
 .analysis-status.is-ready .analysis-status-dot { background: var(--token-string); opacity: 1; }
 .analysis-status.is-fallback .analysis-status-dot { background: var(--token-tag); opacity: 1; }
 .analysis-status.is-failed .analysis-status-dot { background: var(--token-keyword); opacity: 1; }
+/* Why a row arrived already ticked (trivialChange, render-tree.ts). Quiet enough that the filename still
+   wins the row, present enough that a pre-viewed file never reads as a bug. */
+.change-trivial {
+  flex: none; margin-left: 6px; padding: 0 5px; border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted);
+  font-size: 9.5px; line-height: 15px; letter-spacing: .02em; white-space: nowrap;
+}
+
+/* ── The hidden session's one place on screen (27-ask.js). Unlike the analysis dot beside it this KEEPS its
+   label: an agent working invisibly on your repository is not a background service, and a bare dot would say
+   the same nothing the absence of a dot says. Hidden entirely while idle, so the header is quiet by default,
+   and clickable when the work belongs to a comment — it goes there. ── */
+.ask-status {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 190px; min-width: 0;
+  padding: 1px 6px 1px 5px; border: 0; border-radius: 999px;
+  background: color-mix(in srgb, var(--active) 12%, transparent); color: var(--active);
+  font: 10.5px/1.5 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden; white-space: nowrap; cursor: default;
+}
+.ask-status.is-anchored { cursor: pointer; }
+.ask-status.is-anchored:hover { background: color-mix(in srgb, var(--active) 20%, transparent); }
+.ask-status-label { overflow: hidden; text-overflow: ellipsis; }
+.ask-status-dot {
+  flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  animation: analysis-dot-pulse 1s ease-in-out infinite;
+}
+/* The card that asked, while it waits. A left edge rather than a tint: the card is still the reviewer's
+   comment and still reads as one — it is just expecting company. */
+.mc-card.mc-asking { border-left: 2px solid color-mix(in srgb, var(--active) 55%, transparent); }
+.mc-ask {
+  flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer;
+  opacity: 0; transition: opacity .12s ease;
+}
+.mc-card:hover .mc-ask, .mc-ask:focus-visible, .mc-card.mc-asking .mc-ask { opacity: 1; }
+.mc-ask:hover { background: color-mix(in srgb, var(--active) 16%, transparent); color: var(--active); }
+.mc-ask[disabled] { cursor: default; color: var(--active); }
+.mc-ask-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  animation: analysis-dot-pulse 1s ease-in-out infinite;
+}
+
 /* ── Header meta cluster (moved up from the footer): analysis indicator + brand mark + version, right-aligned
    before the reveal button. The analysis indicator is now dot-only; its text shows on hover via the title. ── */
 .brand-meta { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
@@ -1661,10 +1704,14 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   font-size: 9px;
   font-weight: 700;
   line-height: 1;
-  color: transparent;
+  /* The row's own text colour, so `currentColor` below means something. The tick is hidden on the ::after
+     instead: colouring the BOX transparent to hide it also made currentColor transparent, which turned the
+     "borrow the row's colour" rule into a transparent border — the box disappeared on exactly the rows that
+     rule exists for (hovered, active, keyboard-focused). */
+  color: inherit;
   cursor: pointer;
 }
-.viewed-box::after { content: '✓'; }
+.viewed-box::after { content: '✓'; color: transparent; }
 /* On any row the eye is on, the box borrows that row's own text colour. --chrome-border and
    --chrome-selected are within a few points of each other, so on the SELECTED row the outline disappeared
    into the highlight and the checkbox was simply not there — invisible exactly when you are about to click
@@ -1673,7 +1720,8 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .file-link.active .viewed-box,
 .change-row.active .viewed-box,
 .tree-focus .viewed-box { border-color: currentColor; }
-.file-link.viewed .viewed-box { background: #6ab04c; border-color: #6ab04c; color: #fff; }
+.file-link.viewed .viewed-box { background: #6ab04c; border-color: #6ab04c; }
+.file-link.viewed .viewed-box::after { color: #fff; }
 .status-added { background: var(--add); color: #1a7f37; }
 .status-deleted { background: var(--del); color: #cf222e; }
 .status-renamed { background: #fff8c5; color: #9a6700; }
@@ -4457,6 +4505,17 @@ body:has(#mc-briefing) .mc-brf-recall { opacity: .45; }
   font: 600 9.5px/1.4 Monaco, ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: .04em; color: var(--chrome-muted); background: var(--chrome-line);
 }
+
+/* Taking a word OUT of the vocabulary. Quiet at the head's right edge — it is a decision the reader makes
+   rarely, and one that must never be a mis-click away from the word they were reading. */
+.mc-term-drop {
+  margin-left: auto; width: 20px; height: 20px; flex: none; border: 0; padding: 0;
+  border-radius: 6px; background: transparent; color: var(--chrome-muted);
+  font: 400 14px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  display: grid; place-items: center; opacity: .55;
+}
+.mc-term-drop:hover { background: var(--chrome-line); color: var(--danger, #e5534b); opacity: 1; }
+.mc-term-drop:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; opacity: 1; }
 
 .mc-map-empty {
   position: absolute; inset: 0; display: flex; flex-direction: column;

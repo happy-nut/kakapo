@@ -108,7 +108,7 @@ test("the xterm island carries the terminal runtime, and links stay optional", a
   const { xtermScript } = await import("../dist/assets.js");
   const island = xtermScript();
   assert.ok(island.length > 100_000, "the island is the real xterm bundle, not an empty fallback");
-  for (const global of ["Terminal", "FitAddon", "WebLinksAddon"]) {
+  for (const global of ["Terminal", "FitAddon", "WebLinksAddon", "WebglAddon"]) {
     assert.ok(island.includes(global), `the island exposes window.${global}`);
   }
 });
@@ -213,7 +213,9 @@ test("a re-flow waits for an in-flight IME composition instead of splitting the 
 // composer — "선택해서 붙여넣기가 안 된다". Wrap it when the pane's app asked for the mode, and only then:
 // a plain shell without it would show the markers as literal "[200~" text.
 test("text sent to a pane is wrapped as a bracketed paste when the app enabled that mode", () => {
-  const write = client.match(/function writeToPane\(p, text\)[\s\S]*?\n  \}/)?.[0];
+  // Signature-agnostic past `text`: the guard is that ONE function frames the bytes, not how many arguments
+  // it takes (it grew a keepFocus flag for the automatic hand-off, which must not steal the keyboard).
+  const write = client.match(/function writeToPane\(p, text[^)]*\)[\s\S]*?\n  \}/)?.[0];
   assert.ok(write, "writeToPane is still the single path prompts reach a pane by");
   assert.match(write, /p\.term\.modes\.bracketedPasteMode/, "the pane's own mode decides, not a guess about the agent");
   assert.match(write, /'\\x1b\[200~' \+ text \+ '\\x1b\[201~'/, "the text goes out framed as a paste");
@@ -263,16 +265,18 @@ test("each pane owns its own connecting overlay, with a way out when nothing pri
   assert.match(setter, /setTimeout\(function \(\) \{ setPaneConnecting\(p, false\); \}, 4000\)/,
     "a session that prints nothing still has a way out");
 
-  // What output MEANS is pinned by its own test below: the first byte ends the wait.
-  assert.match(client, /noteConnectingOutput\(panes\[k\]\); panes\[k\]\.term\.write/,
+  // What output MEANS is pinned by its own test below: the first byte ends the wait. The byte itself may be
+  // held rather than written (a hidden workspace — see terminal-hidden-output.test.mjs); what matters here is
+  // that the pane which produced it is the one told, before anything decides what to do with the bytes.
+  assert.match(client, /noteConnectingOutput\(panes\[k\]\);[\s\S]{0,1200}?panes\[k\]\.term\.write/,
     "and it is the pane that produced the byte which hears about it");
 
   // A pane is waiting from the moment its rectangle exists; the panel-wide overlay only covers the sliver
   // before any pane does, and steps aside as soon as one appears.
   assert.match(client, /setPaneConnecting\(pane, true\);\s*\n\s*setConnecting\(false\);/,
     "a new pane takes the wait over from the panel");
-  assert.match(client, /setConnecting\(true\);\s*\n\s*restorePanes\(\)/,
-    "which the panel raised before the restore started");
+  assert.match(client, /setConnecting\(true\);\s*\n\s*ensurePanes\(\)/,
+    "which the panel raised before the attach started");
 
   // Both halves, on both surfaces, must clear xterm's own layers (z-index up to 10 in xterm.css).
   const placed = (css.match(/is-connecting(?:[^{]*)::(?:before|after) \{[^}]*\}/g) || [])
@@ -423,4 +427,17 @@ test("the first moments of a pane's life do not count as an agent working", () =
   const spawn = ipc.match(/state\.terms\.set\(id, t\);[\s\S]{0,200}/)[0];
   assert.match(spawn, /resizeEchoUntil\.set\(id, Date\.now\(\) \+ SPAWN_ECHO_MS\)/,
     "and it is armed the moment the pty exists, not after the first chunk has already counted");
+});
+
+// xterm's default renderer builds a DOM row per line and measures it, and a measurement after a DOM write is a
+// forced layout of the whole page — behind a 1,352-file review that is milliseconds each. Profiling the panel
+// opening put 2.5 of 2.6 seconds inside those measurements, which is what the GPU renderer removes.
+test("panes draw on the GPU when the machine has it, and still run when it does not", () => {
+  const loader = client.match(/function loadWebglRenderer\(term\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(loader, "the renderer is loaded through one place");
+  assert.match(loader, /window\.WebglAddon && window\.WebglAddon\.WebglAddon/, "absent addon -> no renderer, no throw");
+  assert.match(loader, /onContextLoss[\s\S]{0,60}dispose\(\)/,
+    "a lost GPU context disposes the addon rather than leaving a dead canvas");
+  assert.match(loader, /catch \(e\) \{ \/\* the DOM renderer is still a terminal \*\/ \}/, "and any failure falls back");
+  assert.match(client, /term\.loadAddon\(fit\);\s*\n\s*loadWebglRenderer\(term\)/, "every pane gets it");
 });

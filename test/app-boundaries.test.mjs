@@ -168,8 +168,8 @@ test("a zoom step only re-lays out the views that are on screen", () => {
   assert.doesNotMatch(body, /for \(const state of states\.values\(\)\)/,
     "applyUiScale does not walk every workspace");
   assert.match(body, /activeStateId/, "it zooms the active one");
-  assert.match(main, /activeStateId = id;[\s\S]{0,400}applyUiScale\(activated\.win\.webContents\)/,
-    "and a workspace catches up with the current size when it is activated");
+  assert.match(main, /if \(activated\.bootStarted\) applyUiScale\(activated\.win\.webContents\)/,
+    "and a loaded workspace catches up with the current size when it is activated");
 });
 
 // The scale list exists twice: main steps through it for ⌘+ / ⌘− and the Settings dropdown renders it in the

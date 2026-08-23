@@ -46,6 +46,19 @@ function briefingNote() {
   return null;
 }
 
+// The briefing is NOT a card. It is the same record — one of the run's notes — but the reader meets it in the
+// panel, and meeting it a second time as a note pinned to a line is the explanation saying itself twice. The
+// walk that DEFINES the briefing (annotationWalk) must stay whole, or this would pick a different note every
+// time one is hidden, so the record is filtered where it is READ instead: the cards, the slots they sit in,
+// and the F8 walk. ⌘⇧B is the way back to it.
+function briefingNoteSeq() {
+  var note = briefingNote();
+  return note ? note.seq : -1;
+}
+function isBriefingCard(c) {
+  return !!c && c.replyTo == null && c.seq === briefingNoteSeq();
+}
+
 // One note, three pages, split on its `##` headings — the heading is the page's title. Anything written above
 // the first heading is not dropped: it joins page one, because a note that opens with a sentence before its
 // structure is still saying something.
@@ -306,6 +319,11 @@ function syncBriefing() {
   if (!briefingReady || !note) return;
   if (document.getElementById('mc-briefing')) return;
   if (!isDiffViewVisible() || briefingSeenSeq() === note.seq) return;
+  // The diff can be "visible" and still be behind something. History (⌘9) is a full-view overlay over the
+  // review, and a briefing opening under it is worse than one that never opened: it marks itself seen the
+  // moment it is put up, so the single showing it gets is spent on a panel nobody can see. History's close
+  // calls syncRail, which calls this again — so waiting costs nothing.
+  if (isHistoryOpen()) return;
   // Everything says open it — but not into the middle of a syllable. A panel arriving over a pane being typed
   // at is exactly the DOM change macOS answers by committing a half-built 가 as ㄱ ㅏ, and the moment this
   // fires is the moment the agent finished writing its notes: precisely when someone is still at its prompt.

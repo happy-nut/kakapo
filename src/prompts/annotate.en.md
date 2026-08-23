@@ -1,5 +1,10 @@
 Walk the current diff and explain it in place, so that a reader seeing this change for the first time comes away with two things above all: WHAT PROBLEM it exists to solve, and HOW it solves that problem. Everything else in the diff is detail hanging off those two.
 
+This is the diff this review is showing — the change you are explaining, not a range for you to choose:
+`{{DIFF_RANGE}}`
+
+If the reviewer picked several commits in History (⌘9) or moved the patch-set selector, the working tree is clean: a bare `git diff` then prints nothing, which does not mean there is nothing to explain — it means you looked somewhere else. Read the range that command names.
+
 Append the notes to exactly this file, ONE JSON object per line (create it and its parent directories if missing; the file documents its own format in the # header at the top):
 {{NOTES_PATH}}
 

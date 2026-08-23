@@ -613,6 +613,10 @@ document.addEventListener('click', function (event) {
   // "next" is — both go through gotoComment.
   var step = t.closest('.mc-walk-step');
   if (step) { event.preventDefault(); gotoComment(Number(step.dataset.walk) < 0 ? -1 : 1); return; }
+  // Ask the hidden session about this one comment (27-ask.js). Its answer arrives as a reply on this card,
+  // the same shape an answer from the terminal's agent has always had.
+  var askBtn = t.closest('.mc-ask');
+  if (askBtn) { event.preventDefault(); askComment(parseInt(askBtn.dataset.ask, 10)); return; }
   var del = t.closest('.mc-del');
   if (del) { event.preventDefault(); deleteComment(parseInt(del.dataset.seq, 10)); return; }
   if (t.closest('.mc-save')) { event.preventDefault(); saveComposer(); return; }
@@ -849,6 +853,19 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     function () { return [{ value: 'en', label: 'English' }, { value: 'ko', label: '한국어' }]; },
     function () { return locale; },
     function (next) { applyLocale(next); });
+  // Terminal typography. The values live with the terminal (19-terminal.js) because it is what applies them;
+  // this is only the pair of rows that set them, and every open pane picks the change up at once.
+  if (window.__kakapoTerminal && typeof window.__kakapoTerminal.typography === 'function') {
+    var termType = window.__kakapoTerminal.typography();
+    setupCustomSelect('settings-term-font',
+      function () { return termType.sizes.map(function (v) { return { value: String(v), label: v + 'px' }; }); },
+      function () { return String(window.__kakapoTerminal.typography().size); },
+      function (next) { persistSave(termType.sizeKey, Number(next)); window.__kakapoTerminal.applyTypography(); });
+    setupCustomSelect('settings-term-line',
+      function () { return termType.lines.map(function (v) { return { value: String(v), label: v === 1 ? '1.0×' : v.toFixed(2).replace(/0$/, '') + '×' }; }); },
+      function () { return String(window.__kakapoTerminal.typography().line); },
+      function (next) { persistSave(termType.lineKey, Number(next)); window.__kakapoTerminal.applyTypography(); });
+  }
   uiScaleSelectRef = setupCustomSelect('settings-ui-scale',
     function () { return UI_SCALES.map(function (v) { return { value: String(v), label: Math.round(v * 100) + '%' }; }); },
     function () { return String(uiScale); },

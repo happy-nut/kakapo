@@ -121,3 +121,25 @@ test("a write merges onto whatever the file says now, so an agent's line is not 
   assert.deepEqual(after.map((t) => t.w).sort(), ["지연 로딩", "코멘트"], "the agent's word survived the write");
   assert.equal(after.find((t) => t.w === "코멘트").seen, true, "and the renderer's change landed");
 });
+
+// A vocabulary you cannot take a word out of only ever grows, and the word a reader disagrees with is exactly
+// the one that must not become the language the next explanation is written in. Removal is a TOMBSTONE, not a
+// deletion: the merge is add-or-update, an agent may propose the same word again tomorrow, and a later
+// harvest would offer it back — the kept line is what answers all three.
+test("a word the reader threw out stays thrown out", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kakapo-terms-drop-"));
+  const file = join(dir, "terms.jsonl");
+
+  writeTerms(file, [
+    { w: "말풍선", gloss: "코멘트 카드", dropped: true },
+    { w: "레인", gloss: "세션 안의 통화 하나" },
+  ]);
+  const read = readTerms(file);
+  assert.equal(read.find((t) => t.w === "말풍선").dropped, true, "the tombstone survives a round trip");
+  assert.equal(read.find((t) => t.w === "레인").dropped, undefined, "an ordinary word carries no flag");
+
+  // The agent proposing it again merges ONTO the tombstone rather than resurrecting the word.
+  const merged = mergeTerms(read, [{ w: "말풍선", gloss: "again", proposed: true }]);
+  assert.equal(merged.filter((t) => t.w === "말풍선").length, 1, "no second line for the same word");
+  rmSync(dir, { recursive: true, force: true });
+});

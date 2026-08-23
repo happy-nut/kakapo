@@ -3,6 +3,7 @@
 // the rail push in lockstep with the CSS transition.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { cubicBezierEase, easeRail } from "../dist/rail-animation.js";
 
 test("easeRail pins the endpoints exactly", () => {
@@ -29,4 +30,25 @@ test("cubicBezierEase(0,0,1,1) is the identity (linear)", () => {
   for (const p of [0, 0.25, 0.5, 0.75, 1]) {
     assert.ok(Math.abs(linear(p) - p) < 1e-6, `linear(${p}) ~= ${p} (got ${linear(p)})`);
   }
+});
+
+// `x` is the rail's width, so every frame of the expand/collapse re-bound every workspace view — and a view
+// resize is a full relayout in that renderer. On a big review (1,352 file wrappers, ~17k nodes) twelve frames
+// times N workspaces is seconds of work: the animation drops frames, the review lags behind the rail, and the
+// terminal panel inside it appears to sit ON the expanded rail because its view has not moved yet.
+test("only the view being looked at follows the rail animation", () => {
+  const src = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
+  const layout = src.match(/function layoutWorkspaceViews\([\s\S]*?\n\}/)?.[0];
+  assert.ok(layout, "layoutWorkspaceViews exists");
+  assert.match(layout, /options\?: \{ activeOnly\?: boolean \}/, "it can be asked for the active view alone");
+  assert.match(layout, /if \(options\?\.activeOnly && state\.win\.webContents\.id !== activeStateId\) continue/,
+    "and that is what skips the hidden ones");
+
+  const animate = src.match(/function animateHubWidth\([\s\S]*?\n\}/)?.[0];
+  assert.ok(animate, "animateHubWidth exists");
+  assert.match(animate, /hubWidth = target;\s*\n\s*layoutWorkspaceViews\(\);/,
+    "hidden views take the final width once, before the slide starts");
+  assert.match(animate, /layoutWorkspaceViews\(\{ activeOnly: true \}\)/, "the per-frame pass is the active view only");
+  assert.match(animate, /clearInterval\(hubAnimTimer\);\s*\n\s*hubAnimTimer = undefined;\s*\n\s*layoutWorkspaceViews\(\);/,
+    "and one settled pass at the end, so nothing keeps a mid-animation width");
 });

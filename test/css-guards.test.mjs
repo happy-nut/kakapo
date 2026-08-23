@@ -532,6 +532,16 @@ test("the viewed checkbox keeps an outline on every row the eye is on", () => {
     const rule = ruleBodyContaining(selector);
     assert.match(rule || "", /border-color:\s*currentColor/, `${selector} borrows the row's own colour`);
   }
+  // …and currentColor has to BE a colour. Hiding the tick by colouring the box transparent made every one of
+  // those borders transparent too, so the box disappeared on exactly the rows the rule above exists for. The
+  // tick is hidden on its own pseudo-element instead.
+  const box = ruleBodyContaining(".viewed-box") || "";
+  assert.doesNotMatch(box, /(^|[^-])color:\s*transparent/, "the box itself is never transparent-coloured");
+  assert.match(box, /color:\s*inherit/, "it takes the row's ink, which is what currentColor then resolves to");
+  assert.match(ruleBodyContaining(".viewed-box::after") || "", /color:\s*transparent/,
+    "the unticked mark is what is invisible");
+  assert.match(ruleBodyContaining(".file-link.viewed .viewed-box::after") || "", /color:\s*#fff/,
+    "and a ticked box shows it again");
 });
 
 // An added file's name in the Changes tree was painted with --add-strong, which is the tint an added diff

@@ -761,8 +761,14 @@ function applyDiffUpdate(u) {
   populateHttpEnvSelect();
   initSourceTreeFolds();
   initChangesTreeFolds(); // #changes-panel was just replaced, so its folder listeners must be reattached
+  autoViewTrivial(); // the rebuilt rows carry the marks; a file whose change became trivial folds out now
   remapComments(); // follow/drop comments whose anchor line moved or vanished in the new build
   refreshComments();
+  // #changes-panel was replaced above, and the way back into the briefing lives inside it — rebuilt from the
+  // payload, so it comes back in its default hidden state. Nothing here put it back, so on a review being
+  // watched (an agent writing files is a rebuild every tick) the button vanished within seconds of appearing
+  // and ⌘⇧B was the only way left in. syncRail is what owns that state; it is idempotent and cheap.
+  syncRail();
 
   // 5) Best-effort restore of what the user was looking at. Re-render the source view only when the open file
   // actually changed; an unchanged file stays painted as-is, so an unrelated edit doesn't flicker the pane.

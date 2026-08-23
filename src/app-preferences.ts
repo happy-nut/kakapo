@@ -29,6 +29,10 @@ const GLOBAL_SETTING_KEYS = new Set([
   "kakapo-ui-scale",
   "kakapo-memo",
   "kakapo-memo-migrated-worktree",
+  // Which model kakapo's own agent answers on (askModel, app-main.ts). Global for the same reason the UI
+  // scale above is: the dropdown is in Settings, which is one panel for the whole app, and MAIN is what reads
+  // the value when it spawns the session. Stored per-workspace it would be written where nobody reads it.
+  "kakapo-ask-model",
 ]);
 
 /** Owns persistent preferences without coupling storage rules to Electron. */

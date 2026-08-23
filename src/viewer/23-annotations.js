@@ -202,14 +202,29 @@ function currentAnnotatePromptText() {
 // The two paths every explanation prompt needs: where its notes go, and where the reader's own words are
 // (26-terms.js). The vocabulary is read-only to an agent — it is the reader's language, not a scratchpad —
 // so the prompt only ever hands over the path to read.
+// What this review is actually comparing, in git's own words, so the agent explains the diff the reader is
+// looking at rather than the one `git diff` happens to print. They are frequently not the same: a review can
+// be a patch-set range, an A→B compare picked in History (shift-select), or an incoming change — in every one
+// of those the working tree is clean and an agent left to run `git diff` sees nothing at all and says so.
+function reviewDiffRange() {
+  var data = typeof patchSetData !== 'undefined' ? patchSetData : null;
+  if (!data) return '';
+  var base = data.activeBase && data.activeBase !== 'auto' ? data.activeBase : (data.branchPoint || '');
+  var target = data.activeTarget && data.activeTarget !== 'worktree' ? data.activeTarget : '';
+  if (!base) return '';
+  return target ? base + '..' + target : base + '..HEAD';
+}
+
 function fillPromptPaths(text) {
   // The vocabulary sits beside the repository, not beside the workspace, so its path is the same for every
   // worktree — and naming it is worth doing even before the bridge has answered: an agent handed the
   // conventional location can look, and the prompt already says what an empty file means.
   var terms = (typeof termsState !== 'undefined' && termsState.path) || '.git/kakapo/terms.jsonl';
+  var range = reviewDiffRange();
   return String(text)
     .split('{{NOTES_PATH}}').join(annotationsPath || '')
-    .split('{{TERMS_PATH}}').join(terms);
+    .split('{{TERMS_PATH}}').join(terms)
+    .split('{{DIFF_RANGE}}').join(range ? 'git diff ' + range : 'git diff');
 }
 
 // The other editable prompt: map the WHOLE repository rather than explain one diff. Same storage shape as
@@ -240,9 +255,28 @@ function currentTermsPromptText() {
 // ----- running it (the ⌘⇧P palette, or the Explain rail button with nothing to open yet): stage the
 // prompt in the terminal composer, the same
 // review-before-it-runs step every other prompt hand-off uses (sendPromptToTerminal, 24-prompt-palette.js).
-function runAnnotatePrompt() {
+// Sending an explanation is only worth doing when there is something to explain. A review with no changed
+// files — a clean worktree with nothing unpushed and nothing incoming — used to take the prompt anyway, and
+// the reviewer waited on an agent that would come back with nothing to say. Refuse where it can be said, at
+// the moment of the keystroke, instead of ten seconds later in a terminal.
+//
+// Returns false when it refused, which is what the launcher checks before handing the text over.
+function startExplainRun() {
+  if (!reviewHasChanges()) {
+    showToast(t('annotate.nothingToExplain'));
+    return false;
+  }
   markExplainRunStarting();
-  sendPromptToTerminal(currentAnnotatePromptText(), 'explain-diff.md');
+  return true;
+}
+// Whatever the review is comparing — the working tree, a patch-set range, several commits shift-picked in
+// History — the answer is the same: are there files in the Changes list.
+function reviewHasChanges() {
+  return document.querySelectorAll('#changes-panel .change-row[data-file]').length > 0;
+}
+function runAnnotatePrompt() {
+  if (!startExplainRun()) return;
+  runPrompt(promptEntry('annotate'), currentAnnotatePromptText());
 }
 
 // ----- one explanation at a time -------------------------------------------------------------------------

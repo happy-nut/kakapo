@@ -170,3 +170,128 @@ test("sending Explain from the launcher is what starts a run, and the briefing f
   assert.match(pop.querySelector(".mc-brf-h").textContent, /left the comment off-screen/);
   v.close();
 });
+
+// A briefing must not open behind something. History (⌘9) is a full-view overlay over the review, and the
+// diff underneath still counts as "visible" — so the panel went up under it and marked itself seen, spending
+// the one showing it gets on a panel nobody could see. It waits for History to close instead.
+test("the briefing waits rather than opening behind the History overlay", async () => {
+  const { html } = await makeReviewHtml(FILES);
+  const v = await loadViewer(html);
+  v.window.__kakapoTerminal = { enterSendMode: () => {} };
+  v.window.showDiffView(false);
+  await v.settle(30);
+
+  v.key("P", { metaKey: true, shiftKey: true, code: "KeyP" });
+  await v.settle(20);
+  v.key("Enter");
+  await v.settle(20);
+
+  // Opening History for real needs the git bridge; what the briefing actually reads is the overlay being
+  // up, so put it up.
+  v.$("#history-view").classList.remove("hidden");
+  assert.equal(v.window.isHistoryOpen(), true, "History is up");
+
+  v.agentSays({ kind: "note", role: "problem", group: 1, path: "src/a.ts", line: 1, title: "why", text: BRIEFING });
+  await v.settle(60);
+  assert.equal(v.$("#mc-briefing"), null, "nothing opens underneath it");
+
+  v.window.closeHistory(); // its own close is what calls syncRail, and syncRail is what re-checks this
+  await v.settle(60);
+  assert.ok(v.$("#mc-briefing"), "and it is still there to be shown once History is gone");
+  v.close();
+});
+
+// What the review is comparing is not what `git diff` prints. Shift-picking commits in History, or moving the
+// patch-set selector, leaves the working tree clean — an agent told only "walk the current diff" then runs
+// git diff, sees nothing, and explains nothing. The prompt has to name the range the reader is looking at.
+test("the explain prompt names the range this review is showing", async () => {
+  const { html } = await makeReviewHtml(FILES);
+  const v = await loadViewer(html);
+  const w = v.window;
+
+  assert.doesNotMatch(w.currentAnnotatePromptText(), /\{\{DIFF_RANGE\}\}/, "the placeholder is substituted");
+  assert.match(w.currentAnnotatePromptText(), /git diff/, "and it names a git command either way");
+
+  // A commit range picked in History: base and target are commits, and the working tree is not involved.
+  w.patchSetData = { activeBase: "aaaa111", activeTarget: "bbbb222", commits: [], branchPoint: "aaaa111" };
+  assert.match(w.currentAnnotatePromptText(), /git diff aaaa111\.\.bbbb222/, "the picked commits are what it explains");
+
+  // Back to the working tree as the right side: the range is the branch point up to HEAD.
+  w.patchSetData = { activeBase: "auto", activeTarget: "worktree", commits: [], branchPoint: "cccc333" };
+  assert.match(w.currentAnnotatePromptText(), /git diff cccc333\.\.HEAD/);
+  v.close();
+});
+
+// A review with nothing in it is worth refusing at the keystroke rather than ten seconds later, in a terminal,
+// as an agent reporting it found nothing.
+test("Explain refuses up front when the review has no changed files", async () => {
+  const { html } = await makeReviewHtml(FILES);
+  const v = await loadViewer(html);
+  const sent = [];
+  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text) };
+
+  v.$all("#changes-panel .change-row[data-file]").forEach((row) => row.remove());
+  assert.equal(v.window.reviewHasChanges(), false, "the review is empty now");
+
+  v.key("P", { metaKey: true, shiftKey: true, code: "KeyP" });
+  await v.settle(20);
+  v.key("Enter");
+  await v.settle(30);
+  assert.equal(sent.length, 0, "nothing was sent");
+  assert.match(v.$("#mc-toast, .mc-toast")?.textContent || "", /설명할 변경이 없|Nothing to explain/, "and it says why");
+  v.close();
+});
+
+// The way back into the briefing lives INSIDE #changes-panel, and a watch tick replaces that panel wholesale
+// from the payload — where the button is, correctly, hidden. Nothing put it back, so on a review being
+// watched (an agent writing files rebuilds every tick) the button appeared and then vanished seconds later.
+test("the replay button survives a watch rebuild of the Changes panel", async () => {
+  const { html, build } = await makeReviewHtml(FILES);
+  const v = await loadViewer(html, { menuBridge: true });
+  v.window.markExplainRunStarting();
+  v.agentSays({ kind: "note", role: "problem", group: 1, path: "src/a.ts", line: 1, title: "start here", text: BRIEFING });
+  v.window.showDiffView(false);
+  await v.settle(40);
+  v.window.closeBriefing();
+  assert.equal(v.$("#mc-briefing-recall").classList.contains("hidden"), false, "the button is there to begin with");
+
+  await v.pushDiffUpdate(build.update);
+  await v.settle(60);
+  assert.equal(v.$("#mc-briefing-recall").classList.contains("hidden"), false,
+    "and it is still there after the panel it lives in was rebuilt");
+  v.close();
+});
+
+// The briefing is the panel, not a card. It is the same record as one of the run's notes, so it used to be
+// BOTH — read once in the panel, then met again pinned to a line, saying the same thing twice. It keeps its
+// place in the walk that defines it (annotationWalk) and loses the card, the slot the card sat in, and the
+// F8 stop; ⌘⇧B is the way back to it.
+test("the briefing note is not also an inline comment card", async () => {
+  const { html } = await makeReviewHtml(FILES);
+  const v = await loadViewer(html);
+  v.window.markExplainRunStarting();
+  const briefing = v.agentSays({ kind: "note", role: "problem", group: 1, path: "src/a.ts", line: 1, title: "start here", text: BRIEFING });
+  const ordinary = v.agentSays({ kind: "note", group: 2, path: "src/b.ts", line: 1, title: "a normal note", text: "This one stays a card." });
+  v.window.showDiffView(false);
+  await v.settle(60);
+
+  assert.ok(v.$("#mc-briefing"), "the briefing is up as a panel");
+  v.window.closeBriefing();
+  await v.settle(30);
+
+  const cards = v.$all("#diff2html-container .mc-card.mc-ai .mc-card-body").map((b) => b.textContent);
+  assert.equal(cards.some((text) => text.includes("This one stays a card")), true, "the run's other notes still render inline");
+  assert.equal(cards.some((text) => text.includes("Symptom")), false, "the briefing's own note does not");
+
+  // F8 walks to the note that HAS a card, never to the briefing's empty line.
+  v.key("F8");
+  await v.settle(60);
+  const walked = v.window.sortedNavThread().filter((c) => !v.window.isBriefingCard(c)).map((c) => c.seq);
+  assert.equal(walked.includes(briefing), false, "the walk steps past the briefing");
+  assert.equal(walked.includes(ordinary), true, "and still stops at the ordinary note");
+
+  v.key("B", { metaKey: true, shiftKey: true, code: "KeyB" });
+  await v.settle(40);
+  assert.ok(v.$("#mc-briefing"), "⌘⇧B is still the way back to it");
+  v.close();
+});

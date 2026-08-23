@@ -1,5 +1,5 @@
 import type { DiffFile, DiffTreeNode, SourceFile, SourceTreeNode } from "./types.js";
-import { escapeAttr, escapeHtml } from "./util.js";
+import { escapeAttr, escapeHtml, languageForPath } from "./util.js";
 
 // The two-state (closed/open) folder glyph shared by the Changes and Files trees. CSS toggles which SVG
 // shows based on the parent <details>[open] state, so both are always emitted.
@@ -106,11 +106,15 @@ function renderDiffNode(node: DiffTreeNode, depth: number): string {
     // client's per-file record (data-file/data-hunk). The diff BODY is materialized on demand, so counting
     // rendered +/- rows in the DOM would report nothing for any file nobody has scrolled to yet.
     const { added, deleted } = diffLineTotals(file);
+    const trivial = trivialChange(file);
     return [
-      `<a class="${classes}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" data-added="${added}" data-deleted="${deleted}" style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + file.status)}">`,
+      `<a class="${classes}${trivial ? " is-trivial" : ""}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" data-added="${added}" data-deleted="${deleted}"${trivial ? ` data-trivial="${trivial}"` : ""} style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + file.status)}">`,
       viewedBox(),
       fileTypeIcon(file.displayPath),
       `<span class="change-name"><span class="path">${escapeHtml(node.name)}</span></span>`,
+      // Why this row arrived already ticked. Without it a pre-viewed file reads as a bug — the reviewer is
+      // sure they never marked it — and the box they would untick is the same box, right there.
+      trivial ? `<span class="change-trivial" data-i18n="trivial.${trivial}">${trivial}</span>` : "",
       "</a>",
     ].join("");
   }
@@ -149,6 +153,50 @@ function diffLineTotals(file: DiffFile): { added: number; deleted: number } {
     }
   }
   return { added, deleted };
+}
+
+// A change that is not about the code. In a forty-file review one of these costs the same attention as the
+// two files the change is actually about, which is the whole problem with them — so kakapo says so on the
+// row and the viewer folds it out of the queue the way a reviewer would by hand (autoViewTrivial,
+// 04-source-tree.js).
+//
+// Two rules, both mechanical, because the cost here is asymmetric: a miss shows the reviewer one extra file,
+// a false positive HIDES A REAL CHANGE behind a tick they never made. Nothing is asked of a model.
+//
+//   "spacing" — every added line pairs, in order, with a removed line whose text is the same once the
+//     whitespace either side is gone. This is re-indentation and trailing-space cleanup.
+//   "format"  — the file's added and removed text are the same character sequence once ALL whitespace is
+//     removed. Strictly wider than the first: it also catches a formatter REFLOWING lines, where one
+//     statement becomes three or three become one, so no line pairs with any other line at all. That is what
+//     a prettier/gofmt sweep actually looks like, and the line rule never saw it.
+//
+// The pairing in "spacing" is in order, not as a set. A reformat emits `-a -b +a' +b'` and pairs up; two
+// statements swapped emits `-a -b +b +a` — the same set, a completely different change — and pairs wrong,
+// which is the answer wanted. "format" gets that for free: a swap changes the character sequence.
+//
+// INDENTATION-SENSITIVE LANGUAGES ARE EXCLUDED FROM BOTH, and this is not caution for its own sake. In
+// Python a statement moved out of an `if` block has identical trimmed text and is a completely different
+// program; in YAML and Markdown the leading space IS the structure. Whitespace only means nothing where the
+// language says it means nothing.
+//
+// Not attempted: quote-style sweeps and import reordering. Normalising quotes to compare them is a guess
+// about escaping, and reordering is not distinguishable from moving a line that mattered. Those still show.
+export type TrivialChange = "spacing" | "format";
+const INDENT_SENSITIVE = new Set(["python", "yaml", "markdown"]);
+
+export function trivialChange(file: DiffFile): TrivialChange | undefined {
+  if (file.binary) return undefined; // nothing to compare, so nothing here can be called trivial
+  if (file.status === "added" || file.status === "deleted") return undefined; // a whole file is never trivial
+  if (INDENT_SENSITIVE.has(languageForPath(file.displayPath))) return undefined;
+  const changed = file.hunks.flatMap((hunk) => hunk.lines).filter((line) => line.kind !== "context");
+  const added = changed.filter((line) => line.kind === "add").map((line) => line.text);
+  const removed = changed.filter((line) => line.kind === "delete").map((line) => line.text);
+  if (!added.length || !removed.length) return undefined; // a pure insertion or deletion is a real change
+  if (added.length === removed.length && added.every((text, index) => text.trim() === removed[index].trim())) {
+    return "spacing";
+  }
+  const squeeze = (lines: string[]): string => lines.join("").replace(/\s+/g, "");
+  return squeeze(added) === squeeze(removed) ? "format" : undefined;
 }
 
 // "Reviewed this one" is a thing you DO to a row, so the row shows the control you do it with — an empty box

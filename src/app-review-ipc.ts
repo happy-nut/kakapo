@@ -5,6 +5,7 @@ import { performHttpRequest, renderLazyDiffBody, type HttpSendRequest } from "./
 import { readGitLog, readGitLineLog, readGitBlame, readCommitDiff, readRangeDiff } from "./git-log.js";
 import { readPatchSets } from "./patch-sets.js";
 import { materializeDeferredSourceFile } from "./diff.js";
+import { allReviewBodies, readReviewBody, reviewBodyCount } from "./review-workspace.js";
 import { searchProject } from "./search.js";
 import type { AnalysisRequest, ProjectAnalysis } from "./analysis.js";
 import type { ReviewPerformanceTrace } from "./perf.js";
@@ -14,8 +15,8 @@ import type { ProjectIndexPayload, SourceFile } from "./types.js";
 export type ReviewIpcState = {
   options: { root: string; base?: string; target?: string; staged: boolean };
   signature: string;
-  bodyDiffs: string[];
-  bodyCache: Map<number, string>;
+  bodies: { file: string; offsets: number[] };
+  bodyCache: { get(key: string): string | undefined; set(key: string, value: string): void };
   sourceFiles: Map<string, SourceFile>;
   analysis: ProjectAnalysis;
   perf: ReviewPerformanceTrace;
@@ -51,11 +52,13 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     const state = stateFromEvent(event);
     if (!state) return "";
     const index = Number(request?.index);
-    if (!Number.isInteger(index) || index < 0 || index >= state.bodyDiffs.length) return "";
-    const cached = state.bodyCache.get(index);
+    if (!Number.isInteger(index) || index < 0 || index >= reviewBodyCount(state.bodies)) return "";
+    const cached = state.bodyCache.get(String(index));
     if (cached !== undefined) return cached;
-    const body = renderLazyDiffBody(state.bodyDiffs[index]);
-    state.bodyCache.set(index, body);
+    // One slice off the build's bodies file, rendered, and kept only within the cache's budget. Nothing about
+    // this file is held between requests — that is the point of writing it down (review-workspace.ts).
+    const body = renderLazyDiffBody(readReviewBody(state.bodies, index));
+    state.bodyCache.set(String(index), body);
     return body;
   });
 
@@ -122,7 +125,7 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
       base: state.reviewBase ?? state.options.base,
       target: state.reviewTarget ?? state.options.target,
       staged: state.options.staged,
-      bodyDiffs: state.bodyDiffs,
+      bodyDiffs: allReviewBodies(state.bodies),
       request,
     });
   });

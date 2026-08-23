@@ -107,6 +107,10 @@ function terminalPathLinkProvider(term) {
   // Timestamp of the last keystroke into any pane. The watch refresh reads it (see applyDiffUpdate) so a
   // diff rebuild — a long synchronous DOM swap on this same main thread — never lands mid-keystroke.
   var lastInputAt = 0;
+  // How long a pane has to have been silent before kakapo will press Enter in it (handOff). Long enough that
+  // an agent between tool calls does not read as idle, short enough that a reviewer who just stopped typing
+  // is not made to wait. An agent mid-turn re-arms it with its next byte, ~16ms later.
+  var HANDOFF_QUIET_MS = 1500;
   // Panes with an IME composition in flight (Hangul/Kana/Pinyin mid-syllable). Interrupting one commits the
   // partial input, so a refresh must wait however long the composition takes — no timeout can bound it.
   var composingPanes = new Set();
@@ -348,6 +352,49 @@ function terminalPathLinkProvider(term) {
       }
     };
   }
+  // Terminal typography is its own preference, not the app-wide zoom: a pane full of an agent's prose wants a
+  // bigger glyph and much more room between lines than a diff does. Hangul fills its box top to bottom, so at
+  // xterm's default line height of 1.0 the lines touch and long output reads as a wall of text.
+  var TERM_FONT_KEY = 'kakapo-terminal-font';
+  var TERM_LINE_KEY = 'kakapo-terminal-line';
+  var TERM_FONT_SIZES = [11, 12, 13, 14, 15, 16];
+  var TERM_LINE_HEIGHTS = [1, 1.15, 1.3, 1.45, 1.6];
+  function terminalFontSize() {
+    var stored = Number(persistRead(TERM_FONT_KEY));
+    return TERM_FONT_SIZES.indexOf(stored) >= 0 ? stored : 13;
+  }
+  function terminalLineHeight() {
+    var stored = Number(persistRead(TERM_LINE_KEY));
+    return TERM_LINE_HEIGHTS.indexOf(stored) >= 0 ? stored : 1.45;
+  }
+  // Applied to every open pane at once: the setting is about the terminal, not about the pane that happened to
+  // be focused when it changed. The re-fit is what turns the new metrics into a new row/column count, which is
+  // then sent on to tmux like any other resize.
+  function applyTerminalTypography() {
+    panes.forEach(function (pane) {
+      try {
+        pane.term.options.fontSize = terminalFontSize();
+        pane.term.options.lineHeight = terminalLineHeight();
+      } catch (e) {}
+    });
+    scheduleFitAll();
+  }
+
+  // Draw on the GPU when the machine will have it. xterm's default renderer builds a DOM row per line and
+  // measures it, and every measurement after a DOM write forces a layout of the whole page — behind a big
+  // review that is milliseconds each, and opening the panel spent 2.5 of its 2.6 seconds in exactly that.
+  // Best effort in every direction: no addon, no WebGL context, or a context lost later (a GPU reset, a
+  // display change) and the terminal falls back to the renderer it has always used.
+  function loadWebglRenderer(term) {
+    var Addon = window.WebglAddon && window.WebglAddon.WebglAddon;
+    if (!Addon) return;
+    try {
+      var addon = new Addon();
+      addon.onContextLoss(function () { try { addon.dispose(); } catch (e) {} });
+      term.loadAddon(addon);
+    } catch (e) { /* the DOM renderer is still a terminal */ }
+  }
+
   function makePane(cell, restoreOrdinal) {
     if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw
     var el = document.createElement('div');
@@ -360,13 +407,18 @@ function terminalPathLinkProvider(term) {
     el.appendChild(paneHost);
     (cell || makeCell()).appendChild(el);
     var term = new window.Terminal({
-      fontSize: 12,
-      fontFamily: 'Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+      fontSize: terminalFontSize(),
+      lineHeight: terminalLineHeight(),
+      // ui-monospace first, not Monaco. Monaco carries no Hangul, so Korean fell to a system fallback while
+      // xterm kept sizing the cell grid from Monaco's metrics — every Korean glyph then sat slightly wrong in
+      // a box built for something else, and a double-width character shows that twice over.
+      fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
       theme: themeColors(),
       cursorBlink: true,
     });
     var fit = new window.FitAddon.FitAddon();
     term.loadAddon(fit);
+    loadWebglRenderer(term);
     loadWebLinks(term);
     loadPathLinks(term); // after the URL provider, so a URL is still a URL and not its trailing filename
     term.open(paneHost);
@@ -617,12 +669,59 @@ function terminalPathLinkProvider(term) {
         // What the terminals had just taken, so a renderer stall can say whether it was drowning in output
         // (a tmux repaint after a resize is thousands of bytes) — see trackMainThreadStalls.
         noteKakapoActivity('pty', (msg.data || '').length);
-        noteConnectingOutput(panes[k]); panes[k].term.write(msg.data);
+        // When this pane last SAID anything. An agent between turns is silent; one mid-turn is not. It is the
+        // only signal in the renderer for "is it safe to press Enter at this thing" (handOff below), and
+        // counting bytes here costs a timestamp on a path that is already writing them to xterm.
+        panes[k].lastOutputAt = Date.now();
+        noteConnectingOutput(panes[k]);
+        // A workspace off screen is a hidden PAGE: Chromium throttles this renderer, so every byte written
+        // here queues inside xterm instead of being parsed — an agent mid-turn puts megabytes in that queue,
+        // and switching back pays for all of it in one task. Stop feeding it, remember only that output
+        // happened, and let tmux repaint the current screen on the way back (paneNeedsRepaint below). The
+        // scrollback is tmux's and stays there; what the reader wants on arrival is the last screen.
+        if (document.visibilityState === 'hidden') { holdHiddenOutput(panes[k]); return; }
+        panes[k].term.write(msg.data);
         return;
       }
     }
   });
   window.kakapoPty.onExit(function (msg) { removePane(msg.id); });
+
+  // A workspace off screen is a hidden PAGE, and Chromium throttles a hidden renderer: every byte written to
+  // xterm there sits in its queue unparsed, so an agent mid-turn leaves megabytes of it — all of which the
+  // switch back pays for in one task. That is the terminal half of "switching workspaces freezes".
+  //
+  // So a hidden pane's output is HELD instead of written, and the arrival is ordered the way a reader wants
+  // it: the most recent screenful goes in first, then tmux repaints the pane's true current screen over it.
+  // What is held is bounded — past the cap the oldest is dropped, because a screen you cannot see does not
+  // need every byte of a build log kept twice (tmux has the scrollback and always did).
+  // Nothing is kept, only the FACT that output happened. Holding the bytes and replaying them was tried and
+  // taken out: the held tail was drawn for the width tmux had while the workspace was away, and a pane that
+  // came back to a different width (the rail, a window resize, a zoom step) then had that tail poured into a
+  // grid it was never wrapped for — text broke mid-word at the wrong column and the pane stayed wrong until
+  // the session restarted. tmux holds the real screen and the real scrollback; asking it to repaint is both
+  // cheaper and correct, so that is all this does.
+  function holdHiddenOutput(pane) {
+    pane.hiddenHeld = true;
+  }
+  // Fit FIRST, then repaint: the resize is what tells tmux the grid it must wrap to, and a repaint asked for
+  // before it would draw the old shape into the new pane.
+  function flushHiddenOutput() {
+    scheduleFitAll();
+    requestAnimationFrame(function () {
+      panes.forEach(function (pane) {
+        if (!pane.hiddenHeld) return;
+        pane.hiddenHeld = false;
+        try { pane.term.reset(); } catch (e) {}
+        if (pane.id != null && window.kakapoPty && typeof window.kakapoPty.refresh === 'function') {
+          window.kakapoPty.refresh({ id: pane.id });
+        }
+      });
+    });
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') flushHiddenOutput();
+  });
 
   // Panes are the app's view of tmux sessions, and the sessions outlive the app — so opening the panel after
   // a restart must bring back the panes that are still running, not one. Otherwise two agents came back as
@@ -721,17 +820,53 @@ function terminalPathLinkProvider(term) {
       if (typeof quickOpen !== 'undefined' && quickOpen && !quickOpen.classList.contains('hidden')) closeQuickOpen();
       if (panes.length === 0) {
         setConnecting(true);
-        restorePanes().then(function () {
-          if (panes.length === 0) makePane();
-          scheduleFitAll();
+        ensurePanes().then(function () {
           requestAnimationFrame(function () { focusPane(active); });
         });
       } else {
+        // Opening an existing pane: fit it to the panel it is being shown in, then have tmux repaint what is
+        // actually on that session's screen. Without the repaint the pane shows whatever it last drew — which,
+        // after time away at another width, is a screen wrapped for a grid that no longer exists.
         scheduleFitAll();
-        requestAnimationFrame(function () { focusPane(active); });
+        requestAnimationFrame(function () {
+          focusPane(active);
+          panes.forEach(function (pane) {
+            if (pane.id != null && window.kakapoPty && typeof window.kakapoPty.refresh === 'function') {
+              window.kakapoPty.refresh({ id: pane.id });
+            }
+          });
+        });
       }
     }
   }
+  // Attaching is what the wait is made of: main lists the surviving tmux sessions, a pty is attached per
+  // pane, xterm boots, and tmux only redraws once that lands — several seconds on a workspace whose panes do
+  // not exist yet, all of it spent AFTER ⌃` with an empty rectangle on screen. None of it needs the panel to
+  // be open, and none of it needs to wait for the reader to ask: a workspace you have switched to is one you
+  // are about to work in. So the panes are built the moment this workspace comes on screen, behind the closed
+  // panel, and ⌃` becomes what it looks like — showing something that is already there.
+  //
+  // Only on arrival, never at app boot: a workspace nobody visits should not hold ptys, and a hidden pane's
+  // output is held rather than written (the visibilitychange handler above), so warming one costs a tmux
+  // client and no parsing.
+  // ONE in-flight attach, shared by the warm below and ⌃` — never two. A pane spawned without an ordinal
+  // takes the lowest one this window is not already using, and that bookkeeping only lands when main answers:
+  // two callers racing therefore both got ordinal 1, both attached to the SAME tmux session, and the panel
+  // came back with two panes mirroring each other keystroke for keystroke.
+  var panesReady = null;
+  function ensurePanes() {
+    if (!panesReady) {
+      panesReady = restorePanes().then(function () {
+        if (panes.length === 0) makePane(); // no surviving session: one plain pane, attached and waiting
+        scheduleFitAll();
+      }, function () {});
+    }
+    return panesReady;
+  }
+  // Attaching on ARRIVAL was tried and taken back out: it does not make the wait smaller, it moves it onto the
+  // switch, where it is worse — every workspace you passed through paid an xterm boot before it would draw.
+  // The wait belongs to ⌃`, where the reader asked for it, until the boot itself is made cheap.
+
   function toggle() { setOpen(!isOpen()); }
   // The keyboard shortcut is "focus-first": when the terminal is visible but focus is elsewhere, the first
   // press just moves focus INTO the terminal; only when it already owns focus does another press toggle it
@@ -788,7 +923,11 @@ function terminalPathLinkProvider(term) {
 
   // Hook for the merged-prompt modal: pipe the combined text into a chosen pane (no trailing Enter —
   // the user reviews in the live session, then presses Enter, so multiline prompts stay intact).
-  function writeToPane(p, text) {
+  // `keepFocus` is for the one caller that did not ask for any of this: an automatic hand-off arrives while
+  // the reviewer is reading the diff, and taking the keyboard out of the file they are in the middle of is a
+  // worse interruption than the thing it is announcing. Every deliberate send still focuses, because there
+  // the reviewer is on their way to the terminal anyway.
+  function writeToPane(p, text, keepFocus) {
     if (!p) return;
     setOpen(true);
     // Send it as a PASTE, not as typing, whenever the app in the pane asked for bracketed paste (DECSET 2004
@@ -800,6 +939,7 @@ function terminalPathLinkProvider(term) {
       var bracketed = p.term && p.term.modes && p.term.modes.bracketedPasteMode;
       window.kakapoPty.write({ id: p.id, data: bracketed ? '\x1b[200~' + text + '\x1b[201~' : text });
     }
+    if (keepFocus) return;
     setActive(p);
     requestAnimationFrame(function () { try { p.term.focus(); } catch (e) {} });
   }
@@ -858,6 +998,9 @@ function terminalPathLinkProvider(term) {
   };
   window.__kakapoTerminal = {
     isOpen: isOpen,
+    // The Settings rows (08-dock.js) own the values; the panel owns what they mean on screen.
+    typography: function () { return { size: terminalFontSize(), line: terminalLineHeight(), sizes: TERM_FONT_SIZES, lines: TERM_LINE_HEIGHTS, sizeKey: TERM_FONT_KEY, lineKey: TERM_LINE_KEY }; },
+    applyTypography: applyTerminalTypography,
     // True when keyboard focus is inside the terminal panel (a pane owns it) — Cmd/Ctrl+W uses this to
     // decide between closing a pane and closing a source tab.
     hasFocus: function () { var ae = document.activeElement; return !!(ae && panel.contains(ae)); },
@@ -907,6 +1050,36 @@ function terminalPathLinkProvider(term) {
         split();
         writeWhenReady();
       }, function () { writeWhenReady(); });
+    },
+    // Hand work to the agent the reviewer already has open — and press Enter for it. This is the one place
+    // kakapo types into a pane on its own initiative, so the conditions are strict and it fails CLOSED: any
+    // doubt returns false and the caller stages the text in the composer instead, which is what every other
+    // hand-off has always done.
+    //
+    // "Is it safe" is NOT the question `openAt` asks. There, a running foreground process means "busy, split
+    // a new pane" — but here a running `claude` is exactly what we are delegating TO. What must not happen is
+    // typing into an agent MID-TURN (it lands in its composer and gets swallowed into whatever it is already
+    // doing) or over a reviewer who is mid-keystroke. So the test is silence: nothing typed, nothing composed,
+    // and nothing printed for long enough that the pane is plainly sitting at a prompt.
+    //
+    // The Enter is a SEPARATE write, after the text. Inside a bracketed paste a newline is literal — that is
+    // the whole point of the mode (see writeToPane) — so a "\r" appended to the payload would be typed, not
+    // pressed.
+    handOff: function (text) {
+      var p = active || panes[0];
+      if (!p || p.id == null || !text) return Promise.resolve(false);
+      var quiet = Date.now() - Math.max(lastInputAt, p.lastOutputAt || 0);
+      if (composingPanes.size > 0 || quiet < HANDOFF_QUIET_MS) return Promise.resolve(false);
+      // …and it has to be an AGENT in there. A bare shell takes the same bytes and the same Enter, and then
+      // runs a paragraph of English prose as a command line — which at best prints "command not found" for
+      // every word of it. The pane is asked what it is running, and only claude or codex gets typed at.
+      return Promise.resolve(window.kakapoPty.foreground({ id: p.id })).then(function (fg) {
+        var name = (fg && fg.name ? String(fg.name) : '').replace(/^-/, '').split(/\s+/)[0];
+        if (!(fg && fg.running) || (name !== 'claude' && name !== 'codex')) return false;
+        writeToPane(p, text, true); // keepFocus: the reviewer is reading the diff, not waiting at a terminal
+        window.kakapoPty.write({ id: p.id, data: '\r' });
+        return true;
+      }, function () { return false; });
     },
     send: function (text) { writeToPane(active || panes[0], text); },
     sendToPane: function (i, text) { writeToPane(panes[i] || active || panes[0], text); },
