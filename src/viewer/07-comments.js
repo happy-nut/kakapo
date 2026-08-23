@@ -468,7 +468,7 @@ function commentSide(c) {
 // prompt is handed a NEXT FREE ID rather than "highest in this file + 1".
 function commentsAt(path, line, side) {
   return reviewComments.filter(function (c) {
-    if (typeof isBriefingCard === 'function' && isBriefingCard(c)) return false; // it is the panel, not a card
+    if (isBriefingCard(c)) return false; // it is the panel, not a card
     return c.path === path && c.line === line && (!side || commentSide(c) === side);
   }).sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
 }
@@ -486,7 +486,7 @@ function commentKindHtml() {
 function relevantLines(path, side) {
   var set = {};
   reviewComments.forEach(function (c) {
-    if (typeof isBriefingCard === 'function' && isBriefingCard(c)) return; // no card, so no slot to hold one
+    if (isBriefingCard(c)) return; // no card, so no slot to hold one
     if (c.path === path && (!side || commentSide(c) === side)) set[c.line] = true;
   });
   if (composerState && composerState.path === path && (!side || commentSide(composerState) === side)) set[composerState.line] = true;
@@ -1494,7 +1494,7 @@ function gotoComment(delta) {
   // numbering them. F8 then bounced between whichever two survived, calling them 8/9 and 9/9.
   // The briefing has no card to land on (isBriefingCard), so the walk steps past it — otherwise F8 stopped at
   // a line with nothing on it. Its own note is still reachable: ⌘⇧B.
-  var list = sortedNavThread().filter(function (c) { return !(typeof isBriefingCard === 'function' && isBriefingCard(c)); });
+  var list = sortedNavThread().filter(function (c) { return !isBriefingCard(c); });
   if (!list.length) { showCaretHint(t('comment.nav.none')); return true; }
   revealComment(stepAnchor(delta, list).seq);
   return true;

@@ -108,9 +108,11 @@ export function keepWord(cwd: string, input: Json): { ok: boolean; message: stri
     if (code.length) term.code = code;
   }
   const existing = readTerms(file);
-  if (existing.some((other) => other.w === term.w && other.parent === term.parent)) {
-    return { ok: false, message: `"${w}" is already in the vocabulary — nothing to add` };
-  }
+  const match = existing.find((other) => other.w === term.w && other.parent === term.parent);
+  // A word the reader threw out is not a gap to fill. Offering it again is how a rejected name creeps back
+  // into the vocabulary one session at a time, so the tombstone answers for it (terms-file.ts).
+  if (match?.dropped) return { ok: false, message: `"${w}" was removed from the vocabulary by the reviewer — leave it out` };
+  if (match) return { ok: false, message: `"${w}" is already in the vocabulary — nothing to add` };
   writeTerms(file, mergeTerms(existing, [term]));
   return { ok: true, message: `kept "${w}" — it is on the reviewer's knowledge map now` };
 }
@@ -118,7 +120,7 @@ export function keepWord(cwd: string, input: Json): { ok: boolean; message: stri
 export function listWords(cwd: string): string {
   const file = termsFileFor(cwd);
   if (!file) return "not inside a git repository";
-  const terms = readTerms(file);
+  const terms = readTerms(file).filter((term) => !term.dropped); // a word thrown out is not vocabulary
   if (!terms.length) return "The reviewer has not built up any words yet. Write in plain words anyone knows, and do not coin a name.";
   return terms
     .map((term) => {

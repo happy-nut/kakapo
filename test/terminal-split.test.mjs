@@ -213,7 +213,9 @@ test("a re-flow waits for an in-flight IME composition instead of splitting the 
 // composer — "선택해서 붙여넣기가 안 된다". Wrap it when the pane's app asked for the mode, and only then:
 // a plain shell without it would show the markers as literal "[200~" text.
 test("text sent to a pane is wrapped as a bracketed paste when the app enabled that mode", () => {
-  const write = client.match(/function writeToPane\(p, text\)[\s\S]*?\n  \}/)?.[0];
+  // Signature-agnostic past `text`: the guard is that ONE function frames the bytes, not how many arguments
+  // it takes (it grew a keepFocus flag for the automatic hand-off, which must not steal the keyboard).
+  const write = client.match(/function writeToPane\(p, text[^)]*\)[\s\S]*?\n  \}/)?.[0];
   assert.ok(write, "writeToPane is still the single path prompts reach a pane by");
   assert.match(write, /p\.term\.modes\.bracketedPasteMode/, "the pane's own mode decides, not a guess about the agent");
   assert.match(write, /'\\x1b\[200~' \+ text \+ '\\x1b\[201~'/, "the text goes out framed as a paste");
@@ -263,8 +265,10 @@ test("each pane owns its own connecting overlay, with a way out when nothing pri
   assert.match(setter, /setTimeout\(function \(\) \{ setPaneConnecting\(p, false\); \}, 4000\)/,
     "a session that prints nothing still has a way out");
 
-  // What output MEANS is pinned by its own test below: the first byte ends the wait.
-  assert.match(client, /noteConnectingOutput\(panes\[k\]\); panes\[k\]\.term\.write/,
+  // What output MEANS is pinned by its own test below: the first byte ends the wait. The byte itself may be
+  // held rather than written (a hidden workspace — see terminal-hidden-output.test.mjs); what matters here is
+  // that the pane which produced it is the one told, before anything decides what to do with the bytes.
+  assert.match(client, /noteConnectingOutput\(panes\[k\]\);[\s\S]{0,900}?panes\[k\]\.term\.write/,
     "and it is the pane that produced the byte which hears about it");
 
   // A pane is waiting from the moment its rectangle exists; the panel-wide overlay only covers the sliver

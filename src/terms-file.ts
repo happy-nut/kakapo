@@ -33,6 +33,11 @@ export type TermRecord = {
   // The thread records this was extracted from, so a word can always be traced back to the conversation
   // that produced it.
   from?: number[];
+  // Thrown out by the reader. The line STAYS in the file — that is what makes the removal stick: the merge
+  // (mergeTerms) is add-or-update, an agent may propose the same word again tomorrow, and a later harvest
+  // would offer it back. A tombstone answers all three, and it is the only record of "we decided against
+  // this word" that anything reading the file can see.
+  dropped?: boolean;
   // A concept the AGENT found in the code and is offering — not one the reader has taken up. It is drawn
   // around the outside of the map and joins nothing: an edge would say the reader connected these two ideas,
   // and they have not. It becomes an ordinary word the day the reader uses it themselves.
@@ -92,6 +97,7 @@ export function readTerms(file: string | undefined): TermRecord[] {
     }
     if (record.seen === true) term.seen = true;
     if (record.proposed === true) term.proposed = true;
+    if (record.dropped === true) term.dropped = true;
     if (Array.isArray(record.from)) {
       const from = record.from.map(Number).filter((id) => Number.isFinite(id) && id > 0);
       if (from.length) term.from = from;

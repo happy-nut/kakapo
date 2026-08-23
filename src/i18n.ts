@@ -415,6 +415,47 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "codebasePrompt.when": "When the repository is new to you and you need its shape before its details.",
     "codebasePrompt.desc": "Sent from the Cmd+E launcher's Prompts section: read this repository and leave ONE map note on the entry point - a diagram of its 3-5 core components whose nodes click through to them, plus a short paragraph on each. It deliberately stops at that altitude; Explain the diff is what goes deeper. Saved automatically. {{NOTES_PATH}} is replaced with this workspace's notes file when sent.",
     "annotate.kind": "Why",
+    // kakapo's own agent (ask-session.ts) — the one the reviewer never sees. These strings are the whole of
+    // its visibility, so they say what it is DOING, not that something is happening.
+    "settings.ask": "kakapo's own agent",
+    "settings.askModel": "Model it answers on",
+    "settings.askModel.hint": "kakapo answers your comments in a session of its own, so a question never goes to the agent that wrote the change. Automatic answers comments on Sonnet and leaves Explain runs on whatever your claude is set to; pick a model to pin both.",
+    "settings.askModel.auto": "Automatic",
+    "settings.askModel.sonnet": "Sonnet",
+    "settings.askModel.opus": "Opus",
+    "settings.askModel.fable": "Fable",
+    "settings.askModel.inherit": "Whatever claude is set to",
+    "ask.button": "Ask again",
+    "ask.waiting": "Waiting for an answer",
+    "ask.answering": "Answering",
+    "ask.explaining": "Explaining the diff",
+    "ask.mapping": "Mapping the codebase",
+    "ask.working": "Working",
+    "ask.started": "Sent to kakapo's own agent — the answer lands here when it is ready.",
+    "ask.failed": "The answer came back empty. Nothing was changed.",
+    "ask.noAgent": "No agent CLI found. Install claude or codex, or send the prompt to the terminal instead.",
+    "ask.unavailable": "This build has no agent of its own — use the terminal hand-off.",
+    // The question as the hidden session receives it. It is reading this repository and nothing else, so the
+    // comment has to arrive with its place in the code attached.
+    "ask.prompt.intro": "A reviewer left this comment while reading the diff in kakapo. Answer it.",
+    "ask.prompt.where": "It is on",
+    "ask.prompt.question": "Their comment:",
+    "ask.prompt.thread": "The whole review conversation, if you need what came before:",
+    "ask.prompt.style": "Answer in prose, in the reviewer's language, short enough to read beside the code. Read whatever you need to be sure; do not change any file.",
+    // The one case where answering is the wrong thing to do. The hidden session cannot edit — that is the
+    // rule that makes an invisible agent safe — so a comment asking for a change has to travel to the agent
+    // the reviewer has open in the terminal, and this is how it says so (handOffFromAnswer, app-main.ts).
+    "ask.prompt.handoff": "If the comment is asking for the code to be CHANGED rather than explained, do not answer it and do not attempt the change. Make your entire reply exactly this: a first line of `KAKAPO-HANDOFF`, then the instruction you would give to the engineer who will make it — what to change, where, and what it has to satisfy. Write it to be read on its own, by someone who cannot see this comment.",
+    "ask.handoff.staged": "This one needs a code change — handed to the terminal. Press Enter to send it.",
+    "ask.handoff.sent": "This one needs a code change — sent to the agent in the terminal.",
+    "ask.handoff.note": "Handed to the agent in the terminal:",
+    // Appended to an Explain-style prompt when it runs in the hidden session, which has no write access:
+    // it overrides the one instruction that tells the agent to append its records to a file (app-main.ts).
+    "ask.prompt.notes": "OVERRIDE — you have no write access in this run. Do not create or edit any file, and ignore any instruction above telling you to append to one. Instead, print the JSONL records you would have appended as your ENTIRE final message: one JSON object per line, nothing before or after them, and no code fence. Omit the `id` field — kakapo assigns it.",
+    // Why a changed file arrived already marked viewed (trivialChange, render-tree.ts). One word, beside the
+    // name — enough to explain the tick, small enough not to outshout the filename.
+    "trivial.spacing": "spacing",
+    "trivial.format": "formatting",
     // The two notes that carry the story of a change: where it goes wrong, and where that is beaten. Louder
     // cards, because a reviewer who reads only two notes should read these two.
     // The card's place in the reading order. Without it the order was real but invisible — the cards sit where
@@ -423,6 +464,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "walk.prev": "Previous note",
     "walk.next": "Next note",
     "annotate.role.key": "Key",
+    "annotate.nothingToExplain": "Nothing to explain — this review has no changed files. Pick commits in History (⌘9) or a patch set to review something.",
     "annotate.nav.none": "No Explain notes yet — send the Explain prompt (⌘⇧P) to have an agent write them.",
 
     // The briefing panel (25-briefing.js). The three eyebrows are ours, not the agent's: the shape is fixed,
@@ -443,6 +485,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "terms.close": "Close",
     "terms.code": "In the code",
     "terms.offered": "found by the agent",
+    "terms.drop": "Remove this word from the vocabulary",
     "terms.code.gone": "not found",
     "terms.empty.title": "No words yet",
     "terms.empty.body":
@@ -1051,10 +1094,43 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "codebasePrompt.title": "코드베이스 설명",
     "codebasePrompt.desc": "⌘E 런처의 Prompts 섹션에서 보냅니다. 저장소를 읽고 진입점에 지도 노트 하나를 남깁니다 — 핵심 컴포넌트 3~5개의 다이어그램(노드를 클릭하면 그 위치로 이동)과 각 컴포넌트에 대한 짧은 문단. 일부러 이 높이에서 멈추며, 더 깊이 내려가는 것은 diff 설명이 합니다. 자동 저장됩니다. {{NOTES_PATH}}는 보낼 때 이 워크스페이스의 노트 파일 경로로 치환됩니다.",
     "annotate.kind": "왜",
+    // kakapo 전용 에이전트(ask-session.ts) — 리뷰어에게 보이지 않는 세션. 이 문자열들이 그 세션의 유일한
+    // 존재 증거라, "뭔가 하는 중"이 아니라 "무엇을 하는 중"인지 말한다.
+    "settings.ask": "kakapo 전용 에이전트",
+    "settings.askModel": "답변에 쓸 모델",
+    "settings.askModel.hint": "kakapo는 코멘트를 자기 세션에서 답합니다 — 그 변경을 작성한 에이전트에게 묻지 않기 위해서입니다. 자동은 코멘트를 Sonnet으로 답하고 Explain 실행은 claude에 설정된 모델을 그대로 씁니다. 모델을 고르면 둘 다 고정됩니다.",
+    "settings.askModel.auto": "자동",
+    "settings.askModel.sonnet": "Sonnet",
+    "settings.askModel.opus": "Opus",
+    "settings.askModel.fable": "Fable",
+    "settings.askModel.inherit": "claude 설정 그대로",
+    "ask.button": "다시 물어보기",
+    "ask.waiting": "답변 기다리는 중",
+    "ask.answering": "답하는 중",
+    "ask.explaining": "diff 설명하는 중",
+    "ask.mapping": "코드베이스 훑는 중",
+    "ask.working": "작업 중",
+    "ask.started": "kakapo 전용 에이전트에게 보냈습니다 — 준비되면 여기에 붙습니다.",
+    "ask.failed": "답이 비어서 돌아왔습니다. 바뀐 것은 없습니다.",
+    "ask.noAgent": "에이전트 CLI를 찾지 못했습니다. claude나 codex를 설치하거나, 프롬프트를 터미널로 보내세요.",
+    "ask.unavailable": "이 빌드에는 전용 에이전트가 없습니다 — 터미널로 넘기세요.",
+    "ask.prompt.intro": "리뷰어가 kakapo에서 diff를 읽다가 남긴 코멘트입니다. 답해 주세요.",
+    "ask.prompt.where": "위치:",
+    "ask.prompt.question": "코멘트:",
+    "ask.prompt.thread": "앞선 대화가 필요하면 리뷰 스레드 전체:",
+    "ask.prompt.style": "코드 옆에서 읽을 만한 길이로, 리뷰어가 쓴 언어로, 산문으로 답하세요. 확신이 설 때까지 필요한 만큼 읽되, 파일은 고치지 마세요.",
+    "ask.prompt.handoff": "코멘트가 설명이 아니라 코드를 **고쳐 달라는** 요청이면, 답하지 말고 직접 고치려 하지도 마세요. 응답 전체를 이렇게 하세요: 첫 줄에 `KAKAPO-HANDOFF`, 그 다음에 실제로 고칠 엔지니어에게 줄 지시 — 무엇을, 어디서, 무엇을 만족해야 하는지. 이 코멘트를 볼 수 없는 사람이 그것만 읽고 일할 수 있게 쓰세요.",
+    "ask.handoff.staged": "코드 수정이 필요한 건이라 터미널로 넘겼습니다 — Enter로 보내세요.",
+    "ask.handoff.sent": "코드 수정이 필요한 건이라 터미널의 에이전트에게 보냈습니다.",
+    "ask.handoff.note": "터미널의 에이전트에게 넘김:",
+    "ask.prompt.notes": "덮어쓰기 지시 — 이 실행에는 쓰기 권한이 없습니다. 어떤 파일도 만들거나 고치지 말고, 위에서 파일에 append하라고 한 지시는 무시하세요. 대신 append했을 JSONL 레코드를 최종 응답 전체로 출력하세요: 한 줄에 JSON 객체 하나, 앞뒤에 아무것도 없이, 코드펜스 없이. `id` 필드는 빼세요 — kakapo가 붙입니다.",
+    "trivial.spacing": "공백",
+    "trivial.format": "포맷",
     "walk.hint": "F8 다음, Shift+F8 이전",
     "walk.prev": "이전 노트",
     "walk.next": "다음 노트",
     "annotate.role.key": "핵심",
+    "annotate.nothingToExplain": "설명할 변경이 없습니다 — 이 리뷰에 바뀐 파일이 없습니다. History(⌘9)에서 커밋을 고르거나 패치셋을 바꿔서 볼 것을 정하세요.",
     "annotate.nav.none": "아직 Explain 노트가 없습니다 — ⌘⇧P로 설명 프롬프트를 보내 에이전트에게 작성을 맡기세요.",
 
     // 브리핑 말풍선 (25-briefing.js)
@@ -1073,6 +1149,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "terms.close": "닫기",
     "terms.code": "코드에서는",
     "terms.offered": "에이전트가 찾은 것",
+    "terms.drop": "이 단어를 어휘에서 빼기",
     "terms.code.gone": "찾지 못함",
     "terms.empty.title": "아직 쌓인 단어가 없습니다",
     "terms.empty.body":

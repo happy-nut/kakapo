@@ -107,6 +107,10 @@ function terminalPathLinkProvider(term) {
   // Timestamp of the last keystroke into any pane. The watch refresh reads it (see applyDiffUpdate) so a
   // diff rebuild — a long synchronous DOM swap on this same main thread — never lands mid-keystroke.
   var lastInputAt = 0;
+  // How long a pane has to have been silent before kakapo will press Enter in it (handOff). Long enough that
+  // an agent between tool calls does not read as idle, short enough that a reviewer who just stopped typing
+  // is not made to wait. An agent mid-turn re-arms it with its next byte, ~16ms later.
+  var HANDOFF_QUIET_MS = 1500;
   // Panes with an IME composition in flight (Hangul/Kana/Pinyin mid-syllable). Interrupting one commits the
   // partial input, so a refresh must wait however long the composition takes — no timeout can bound it.
   var composingPanes = new Set();
@@ -617,12 +621,64 @@ function terminalPathLinkProvider(term) {
         // What the terminals had just taken, so a renderer stall can say whether it was drowning in output
         // (a tmux repaint after a resize is thousands of bytes) — see trackMainThreadStalls.
         noteKakapoActivity('pty', (msg.data || '').length);
-        noteConnectingOutput(panes[k]); panes[k].term.write(msg.data);
+        // When this pane last SAID anything. An agent between turns is silent; one mid-turn is not. It is the
+        // only signal in the renderer for "is it safe to press Enter at this thing" (handOff below), and
+        // counting bytes here costs a timestamp on a path that is already writing them to xterm.
+        panes[k].lastOutputAt = Date.now();
+        noteConnectingOutput(panes[k]);
+        // A workspace off screen is a hidden PAGE: Chromium throttles this renderer, so every byte written
+        // here queues inside xterm instead of being parsed — an agent mid-turn puts megabytes in that queue,
+        // and switching back pays for all of it in one task. Stop feeding it, remember only that output
+        // happened, and let tmux repaint the current screen on the way back (paneNeedsRepaint below). The
+        // scrollback is tmux's and stays there; what the reader wants on arrival is the last screen.
+        if (document.visibilityState === 'hidden') { holdHiddenOutput(panes[k], msg.data); return; }
+        panes[k].term.write(msg.data);
         return;
       }
     }
   });
   window.kakapoPty.onExit(function (msg) { removePane(msg.id); });
+
+  // A workspace off screen is a hidden PAGE, and Chromium throttles a hidden renderer: every byte written to
+  // xterm there sits in its queue unparsed, so an agent mid-turn leaves megabytes of it — all of which the
+  // switch back pays for in one task. That is the terminal half of "switching workspaces freezes".
+  //
+  // So a hidden pane's output is HELD instead of written, and the arrival is ordered the way a reader wants
+  // it: the most recent screenful goes in first, then tmux repaints the pane's true current screen over it.
+  // What is held is bounded — past the cap the oldest is dropped, because a screen you cannot see does not
+  // need every byte of a build log kept twice (tmux has the scrollback and always did).
+  var HIDDEN_KEEP_BYTES = 256 * 1024;   // what gets painted the moment you arrive
+  var HIDDEN_CAP_BYTES = 1024 * 1024;   // what is worth holding at all
+  function holdHiddenOutput(pane, data) {
+    pane.hiddenBuf = (pane.hiddenBuf || '') + data;
+    if (pane.hiddenBuf.length > HIDDEN_CAP_BYTES) {
+      pane.hiddenBuf = pane.hiddenBuf.slice(-HIDDEN_KEEP_BYTES);
+      pane.hiddenDropped = true;
+    }
+  }
+  // Escape sequences are a stream: starting mid-way through one paints garbage. A tail that had to be cut
+  // therefore starts from a clean terminal and ends with tmux redrawing the real screen, so what is on the
+  // pane when the writing stops is what tmux says is there — not our guess at it.
+  function flushHiddenOutput() {
+    panes.forEach(function (pane) {
+      var held = pane.hiddenBuf || '';
+      pane.hiddenBuf = '';
+      if (!held) return;
+      var cut = pane.hiddenDropped;
+      pane.hiddenDropped = false;
+      if (cut) {
+        held = held.slice(-HIDDEN_KEEP_BYTES);
+        try { pane.term.reset(); } catch (e) {}
+      }
+      try { pane.term.write(held); } catch (e) {}
+      if (pane.id != null && window.kakapoPty && typeof window.kakapoPty.refresh === 'function') {
+        window.kakapoPty.refresh({ id: pane.id });
+      }
+    });
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') flushHiddenOutput();
+  });
 
   // Panes are the app's view of tmux sessions, and the sessions outlive the app — so opening the panel after
   // a restart must bring back the panes that are still running, not one. Otherwise two agents came back as
@@ -788,7 +844,11 @@ function terminalPathLinkProvider(term) {
 
   // Hook for the merged-prompt modal: pipe the combined text into a chosen pane (no trailing Enter —
   // the user reviews in the live session, then presses Enter, so multiline prompts stay intact).
-  function writeToPane(p, text) {
+  // `keepFocus` is for the one caller that did not ask for any of this: an automatic hand-off arrives while
+  // the reviewer is reading the diff, and taking the keyboard out of the file they are in the middle of is a
+  // worse interruption than the thing it is announcing. Every deliberate send still focuses, because there
+  // the reviewer is on their way to the terminal anyway.
+  function writeToPane(p, text, keepFocus) {
     if (!p) return;
     setOpen(true);
     // Send it as a PASTE, not as typing, whenever the app in the pane asked for bracketed paste (DECSET 2004
@@ -800,6 +860,7 @@ function terminalPathLinkProvider(term) {
       var bracketed = p.term && p.term.modes && p.term.modes.bracketedPasteMode;
       window.kakapoPty.write({ id: p.id, data: bracketed ? '\x1b[200~' + text + '\x1b[201~' : text });
     }
+    if (keepFocus) return;
     setActive(p);
     requestAnimationFrame(function () { try { p.term.focus(); } catch (e) {} });
   }
@@ -907,6 +968,36 @@ function terminalPathLinkProvider(term) {
         split();
         writeWhenReady();
       }, function () { writeWhenReady(); });
+    },
+    // Hand work to the agent the reviewer already has open — and press Enter for it. This is the one place
+    // kakapo types into a pane on its own initiative, so the conditions are strict and it fails CLOSED: any
+    // doubt returns false and the caller stages the text in the composer instead, which is what every other
+    // hand-off has always done.
+    //
+    // "Is it safe" is NOT the question `openAt` asks. There, a running foreground process means "busy, split
+    // a new pane" — but here a running `claude` is exactly what we are delegating TO. What must not happen is
+    // typing into an agent MID-TURN (it lands in its composer and gets swallowed into whatever it is already
+    // doing) or over a reviewer who is mid-keystroke. So the test is silence: nothing typed, nothing composed,
+    // and nothing printed for long enough that the pane is plainly sitting at a prompt.
+    //
+    // The Enter is a SEPARATE write, after the text. Inside a bracketed paste a newline is literal — that is
+    // the whole point of the mode (see writeToPane) — so a "\r" appended to the payload would be typed, not
+    // pressed.
+    handOff: function (text) {
+      var p = active || panes[0];
+      if (!p || p.id == null || !text) return Promise.resolve(false);
+      var quiet = Date.now() - Math.max(lastInputAt, p.lastOutputAt || 0);
+      if (composingPanes.size > 0 || quiet < HANDOFF_QUIET_MS) return Promise.resolve(false);
+      // …and it has to be an AGENT in there. A bare shell takes the same bytes and the same Enter, and then
+      // runs a paragraph of English prose as a command line — which at best prints "command not found" for
+      // every word of it. The pane is asked what it is running, and only claude or codex gets typed at.
+      return Promise.resolve(window.kakapoPty.foreground({ id: p.id })).then(function (fg) {
+        var name = (fg && fg.name ? String(fg.name) : '').replace(/^-/, '').split(/\s+/)[0];
+        if (!(fg && fg.running) || (name !== 'claude' && name !== 'codex')) return false;
+        writeToPane(p, text, true); // keepFocus: the reviewer is reading the diff, not waiting at a terminal
+        window.kakapoPty.write({ id: p.id, data: '\r' });
+        return true;
+      }, function () { return false; });
     },
     send: function (text) { writeToPane(active || panes[0], text); },
     sendToPane: function (i, text) { writeToPane(panes[i] || active || panes[0], text); },

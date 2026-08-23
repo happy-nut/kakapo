@@ -99,6 +99,9 @@ contextBridge.exposeInMainWorld("kakapoPty", {
   write: (msg: { id: number; data: string }): void => ipcRenderer.send("kakapo:pty-write", msg),
   resize: (msg: { id: number; cols: number; rows: number }): void => ipcRenderer.send("kakapo:pty-resize", msg),
   kill: (msg: { id: number }): void => ipcRenderer.send("kakapo:pty-kill", msg),
+  // Ask tmux to repaint this pane's current screen — what a pane that stopped listening while its workspace
+  // was off screen comes back to (see the hidden-pane buffering in 19-terminal.js).
+  refresh: (msg: { id: number }): void => ipcRenderer.send("kakapo:pty-refresh", msg),
   // Is a foreground process (agent/command) running in this pane? Used to confirm before ⌘W closes it.
   foreground: (msg: { id: number }): Promise<{ running: boolean; name: string }> => ipcRenderer.invoke("kakapo:pty-foreground", msg),
   // Live tmux sessions for this workspace, so reopening the panel restores the panes it had.
@@ -134,6 +137,20 @@ contextBridge.exposeInMainWorld("kakapoComments", {
   // The notification about an answer was clicked: go to the comment it was about.
   onReveal: (cb: (payload: { seq: number }) => void): void => {
     ipcRenderer.on("kakapo:comments-reveal", (_event, payload) => cb(payload));
+  },
+});
+
+// kakapo's own agent, which the reviewer never sees (ask-session.ts). The renderer can only send a prompt
+// and a label for it; which agent runs, what it may touch and where the answer lands are all main's.
+contextBridge.exposeInMainWorld("kakapoAsk", {
+  ask: (payload: { prompt: string; label: string; seq?: number }): Promise<{ ok: boolean; reason?: string }> =>
+    ipcRenderer.invoke("kakapo:ask", payload),
+  onStatus: (cb: (payload: { asks: { label: string; seq?: number }[] }) => void): void => {
+    ipcRenderer.on("kakapo:ask-status", (_event, payload) => cb(payload));
+  },
+  // The answer turned out to be a job for the agent the reviewer has open in the terminal, not an answer.
+  onHandoff: (cb: (payload: { text: string; seq: number }) => void): void => {
+    ipcRenderer.on("kakapo:ask-handoff", (_event, payload) => cb(payload));
   },
 });
 

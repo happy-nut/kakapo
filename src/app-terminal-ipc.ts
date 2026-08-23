@@ -5,18 +5,13 @@ import { spawn as spawnPty, type IPty } from "node-pty";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, unreachableSessions, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper, endTmuxSession, tmuxPaneCommand } from "./util.js";
+import { sanitizeTerminalEnv, ensureUtf8Locale, resolveBin, tmuxSessionName, tmuxSessionsForRoot, unreachableSessions, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper, endTmuxSession, tmuxPaneCommand } from "./util.js";
 import { resumeCommandForInput } from "./agent-resume.js";
 
-// A GUI launch (Finder, Dock, Spotlight) inherits a minimal PATH with no Homebrew prefix, so `tmux` is
-// usually invisible to us even when the user's own shell finds it. Check PATH first, then the standard
-// prefixes. Never cached: `brew install tmux` from the settings panel has to take effect without a restart.
+// `brew install tmux` from the settings panel has to take effect without a restart, which is why this asks
+// the filesystem every time rather than caching (resolveBin, util.ts).
 export function resolveTmux(env: NodeJS.ProcessEnv): string | undefined {
-  const fromPath = (env.PATH ?? "").split(":").filter(Boolean).map((dir) => join(dir, "tmux"));
-  for (const candidate of [...fromPath, "/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return undefined;
+  return resolveBin("tmux", env);
 }
 
 // Ordinals in use by this window's live panes. Sessions left behind by a previous run are deliberately not
@@ -32,11 +27,7 @@ function sessionOrdinals(state: TerminalIpcState): number[] {
 }
 
 function resolveBrew(env: NodeJS.ProcessEnv): string | undefined {
-  const fromPath = (env.PATH ?? "").split(":").filter(Boolean).map((dir) => join(dir, "brew"));
-  for (const candidate of [...fromPath, "/opt/homebrew/bin/brew", "/usr/local/bin/brew"]) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return undefined;
+  return resolveBin("brew", env);
 }
 
 // The window state the terminal needs: the BrowserWindow to relay pty output to, the repo root the shell
@@ -245,6 +236,20 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
       t.resize(msg.cols, msg.rows);
     } catch { /* resize can race the pty teardown — ignore */ }
   });
+  // Repaint a pane's CURRENT screen. A workspace off screen is a hidden page, and everything its agent writes
+  // there queues inside xterm until Chromium un-throttles the renderer — megabytes of it on a long turn, all
+  // parsed in one task the moment you switch back. The renderer therefore stops feeding a hidden pane and asks
+  // tmux for the screen instead: one screenful, authoritative, and no half-consumed escape sequence from a
+  // stream that was cut in the middle. The scrollback is not lost — it is tmux's, and it was never ours.
+  ipc.on("kakapo:pty-refresh", (event, msg: { id: number }) => {
+    const state = stateFromEvent(event);
+    const session = state?.termSessions?.get(msg?.id);
+    if (!session) return;
+    const tmux = resolveTmux(process.env);
+    if (!tmux) return;
+    try { spawnSync(tmux, ["refresh-client", "-t", session], { timeout: 3000 }); } catch { /* session gone */ }
+  });
+
   ipc.on("kakapo:pty-kill", (event, msg: { id: number; endSession?: boolean }) => {
     const state = stateFromEvent(event);
     const t = state?.terms.get(msg?.id);

@@ -80,7 +80,13 @@ function termGraph(terms) {
 // Words added since the reader last read them. Opening the map is not reading — only opening a word's own
 // detail is, which is what `seen` records (terms-file.ts).
 function unreadTerms() {
-  return termsState.terms.filter(function (t) { return !t.seen; });
+  return liveTerms().filter(function (t) { return !t.seen; });
+}
+// The vocabulary as it stands. A word the reader threw out keeps its line in the file (that is what makes the
+// removal stick — see `dropped` in terms-file.ts), so everything that DRAWS the vocabulary reads it through
+// here instead: the map, the count, the unread dot, the words a harvest already knows about.
+function liveTerms() {
+  return termsState.terms.filter(function (t) { return !t.dropped; });
 }
 
 function loadTerms() {
@@ -390,7 +396,7 @@ function placeRootTerm(g, W, H) {
 }
 
 function placeProposedTerms(g, W, H) {
-  var offered = termsState.terms.filter(function (t) { return t.proposed; });
+  var offered = liveTerms().filter(function (t) { return t.proposed; });
   if (!offered.length) return;
   var cx = W / 2, cy = (H - 30) / 2;
   var reach = 0;
@@ -417,8 +423,8 @@ function buildTermMap() {
   closeTermCard();
   var empty = document.getElementById('mc-map-empty');
   var count = document.getElementById('mc-map-count');
-  if (count) count.textContent = termsState.terms.length ? String(termsState.terms.length) : '';
-  if (!termsState.terms.length) {
+  if (count) count.textContent = liveTerms().length ? String(liveTerms().length) : '';
+  if (!liveTerms().length) {
     if (empty) {
       empty.classList.toggle('hidden', !termsState.loaded);
       empty.innerHTML = '<p class="mc-map-empty-h">' + escapeHtml(t('terms.empty.title')) + '</p>'
@@ -433,7 +439,7 @@ function buildTermMap() {
   // every node on top of every other one, and the collision pass cannot recover from that.
   var W = Math.max(640, stage.clientWidth || 0);
   var H = Math.max(420, stage.clientHeight || 0);
-  var g = termGraph(termsState.terms);
+  var g = termGraph(liveTerms());
   g.nodes.forEach(function (n) { n.r = termNodeRadius(g.inDeg[n.key], n.deg); });
   layoutTerms(g, W, H);
   // The agent's offerings, ringed around everything the reader owns. Outside, because that is what they are:
@@ -700,6 +706,10 @@ function termCardHtml(node) {
   }).join('');
   return '<div class="mc-term-h">' + head + '<span class="mc-term-w">' + escapeHtml(term.w) + '</span>'
     + (term.proposed ? '<span class="mc-term-offered">' + escapeHtml(t('terms.offered')) + '</span>' : '')
+    // A vocabulary you cannot take a word OUT of is a vocabulary that only grows, and a word the reader
+    // disagrees with is exactly the one that must not be the language the next explanation is written in.
+    + '<button type="button" class="mc-term-drop" data-drop="' + escapeHtml(termKeyOf(term)) + '" aria-label="'
+      + escapeHtml(t('terms.drop')) + '" title="' + escapeHtml(t('terms.drop')) + '">\u00d7</button>'
     + '</div>'
     + '<p class="mc-term-gloss">' + termGlossHtml(node) + '</p>'
     + (code ? '<div class="mc-term-codes"><span class="mc-term-kicker">' + escapeHtml(t('terms.code')) + '</span>' + code + '</div>' : '');
@@ -721,7 +731,23 @@ function termGlossHtml(node) {
   });
 }
 
+function termKeyOf(term) {
+  return term.parent ? term.parent + '\u00b7' + term.w : term.w;
+}
+// Thrown out, not forgotten: the record stays and carries `dropped`, so the merge cannot re-add it, an agent
+// proposing it again is refused (mcp-server.ts), and a later harvest does not offer it back.
+function dropTerm(key) {
+  var term = null;
+  termsState.terms.forEach(function (candidate) { if (termKeyOf(candidate) === key) term = candidate; });
+  if (!term) return;
+  term.dropped = true;
+  closeTermCard();
+  saveTerms();
+  buildTermMap();
+}
 function onTermCardClick(event) {
+  var drop = event.target.closest && event.target.closest('.mc-term-drop');
+  if (drop) { dropTerm(drop.dataset.drop); return; }
   var link = event.target.closest && event.target.closest('.mc-term-link');
   if (link) {
     var scoped = termMap.pinned && termMap.pinned.t.parent
@@ -805,21 +831,6 @@ window.addEventListener('resize', function () { if (termMapOpen()) { buildTermMa
 // The unread dot has to be right before anyone opens the map, so the vocabulary is read once at boot. It is a
 // small file beside the repository and nothing else in the review waits on it.
 requestAnimationFrame(function () { loadTerms(); });
-
-// The sweep-interval row in Settings. Registered here rather than beside the other selects in 08-dock.js
-// because it reads TERM_SWEEP_CHOICES, and a `var` from a later slice is undefined at that point rather than
-// absent — setupCustomSelect renders on the spot, so it threw and took the rest of that boot block with it.
-termsSweepSelectRef = setupCustomSelect('settings-terms-sweep',
-  function () {
-    return TERM_SWEEP_CHOICES.map(function (v) {
-      return {
-        value: String(v),
-        label: v ? t('settings.termsSweep.every').split('{n}').join(String(v)) : t('settings.termsSweep.never'),
-      };
-    });
-  },
-  function () { return String(termSweepEvery()); },
-  function (next) { setTermSweepEvery(Number(next)); });
 
 // ===== Harvest: pulling the concepts out of a conversation that is about to go ====================
 // A thread is deleted when it has served its purpose, and everything the reader learned in it goes with it.
@@ -914,7 +925,7 @@ function termCandidates(batch) {
   var replies = batch.filter(function (c) { return c.by === 'agent'; });
   if (!mine.length || !replies.length) return []; // an agent talking to itself teaches nobody anything
   var known = {};
-  termsState.terms.forEach(function (term) { known[term.w] = 1; });
+  termsState.terms.forEach(function (term) { known[term.w] = 1; }); // a dropped word counts as known: it must not be offered again
 
   // Korean concepts are written with spaces in them — 지연 로딩, 핵심 파일, 지식 베이스 — so a splitter that
   // stops at whitespace can only ever return half of one. Runs of up to three neighbouring chunks are
@@ -1157,3 +1168,29 @@ document.addEventListener('click', function (event) {
     syncMcpAgents();
   }, function () { btn.disabled = false; });
 });
+
+// The sweep-interval row in Settings. Registered at the END of this slice, not beside the other selects in
+// 08-dock.js and not in the middle of this file, because setupCustomSelect RENDERS ON THE SPOT: it calls the
+// options function immediately, and that reads TERM_SWEEP_CHOICES.
+//
+// Half of that was already known — the row was moved out of 08-dock.js for exactly this reason — and the
+// same trap was walked into thirty lines later inside this file, where TERM_SWEEP_CHOICES is declared some
+// two hundred lines BELOW the call. A `var` read before its assignment is undefined rather than missing, so
+// this threw at load and took every statement after it with it: the rest of this slice, and then every slice
+// added after it (27-ask.js, which is how kakapo's own agent came to be wired up correctly and never run).
+//
+// Nothing in the bundle catches this: the DOM fixtures render a review, not the Settings panel, so
+// setupCustomSelect returns early there and the options function is never called. It shows up only in the
+// real app. The rule is therefore about placement — a registration that runs at load goes after the values
+// it reads, and the safe place for that is the bottom of the file.
+termsSweepSelectRef = setupCustomSelect('settings-terms-sweep',
+  function () {
+    return TERM_SWEEP_CHOICES.map(function (v) {
+      return {
+        value: String(v),
+        label: v ? t('settings.termsSweep.every').split('{n}').join(String(v)) : t('settings.termsSweep.never'),
+      };
+    });
+  },
+  function () { return String(termSweepEvery()); },
+  function (next) { setTermSweepEvery(Number(next)); });
