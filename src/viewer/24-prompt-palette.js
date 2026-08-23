@@ -17,11 +17,36 @@ function promptPaletteEntries() {
     // the old briefing, which has already been seen, so the new briefing never opens and F8 steps through two
     // explanations of two different changes. The rail's Explain button did this and the launcher did not —
     // and the launcher is how the prompt is actually sent.
+    // `hidden` sends this prompt to kakapo's own session (27-ask.js) instead of the reviewer's terminal.
+    // Explaining reads the repository and writes notes into kakapo's data directory — nothing the reviewer
+    // has to watch, and nothing that needs the context of the conversation they are having in the terminal.
+    //
+    // The vocabulary prompt is the exception, and it is not an oversight: it is about THAT CONVERSATION —
+    // which words the reviewer took in while talking to their own agent. kakapo cannot read it and neither
+    // can the hidden session; only the agent that held it can. So it still goes to the terminal.
     { id: 'annotate', file: 'explain-diff.md', title: t('annotatePrompt.title'), when: t('annotatePrompt.when'),
-      text: currentAnnotatePromptText, onSend: markExplainRunStarting },
-    { id: 'codebase', file: 'explain-codebase.md', title: t('codebasePrompt.title'), when: t('codebasePrompt.when'), text: currentCodebasePromptText },
+      text: currentAnnotatePromptText, onSend: startExplainRun, hidden: true, label: t('ask.explaining') },
+    { id: 'codebase', file: 'explain-codebase.md', title: t('codebasePrompt.title'), when: t('codebasePrompt.when'),
+      text: currentCodebasePromptText, hidden: true, label: t('ask.mapping') },
     { id: 'terms', file: 'keep-what-i-learned.md', title: t('termsPrompt.title'), when: t('termsPrompt.when'), text: currentTermsPromptText },
   ];
+}
+
+function promptEntry(id) {
+  return promptPaletteEntries().find(function (entry) { return entry.id === id; });
+}
+
+// Where a prompt actually goes. One marked `hidden` is kakapo's own errand — read the repository, write
+// notes into kakapo's own data directory — so it runs in the session nobody sees and the reviewer's terminal
+// is left to the conversation they were having in it. Everything else is staged in the composer as before,
+// and a hidden prompt falls back to that wherever there is no main process to run an agent (the CLI's
+// browser viewer), so nothing here can leave a prompt with nowhere to go.
+function runPrompt(entry, text) {
+  if (entry && entry.hidden && askWholePrompt(text, entry.label || (entry && entry.title) || '')) {
+    showToast(t('ask.started'));
+    return;
+  }
+  sendPromptToTerminal(text, entry && entry.file);
 }
 
 // Hand `text` to the terminal's send mode (the same staging step ⌥⏎ uses everywhere else), so it lands in
