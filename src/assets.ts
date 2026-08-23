@@ -41,7 +41,15 @@ export function xtermScript(): string {
     try {
       webLinks = readFileSync(nodeRequire.resolve("@xterm/addon-web-links/lib/addon-web-links.js"), "utf8");
     } catch { /* links are a nicety; the terminal is not */ }
-    return core + "\n" + fit + (webLinks ? "\n" + webLinks : "");
+    // The GPU renderer. xterm's default draws every row as DOM and MEASURES it, and a measurement after a DOM
+    // write is a forced layout of the whole page — which, behind a review of 1,352 file wrappers, is measured
+    // in milliseconds each. A profile of opening the panel put 2.5 of 2.6 seconds inside those measurements.
+    // Same optional treatment as the links addon: without it the terminal still runs, on the DOM renderer.
+    let webgl = "";
+    try {
+      webgl = readFileSync(nodeRequire.resolve("@xterm/addon-webgl/lib/addon-webgl.js"), "utf8");
+    } catch { /* no GPU renderer here; the DOM one is still a terminal */ }
+    return core + "\n" + fit + (webLinks ? "\n" + webLinks : "") + (webgl ? "\n" + webgl : "");
   } catch {
     return "";
   }

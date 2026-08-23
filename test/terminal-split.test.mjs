@@ -108,7 +108,7 @@ test("the xterm island carries the terminal runtime, and links stay optional", a
   const { xtermScript } = await import("../dist/assets.js");
   const island = xtermScript();
   assert.ok(island.length > 100_000, "the island is the real xterm bundle, not an empty fallback");
-  for (const global of ["Terminal", "FitAddon", "WebLinksAddon"]) {
+  for (const global of ["Terminal", "FitAddon", "WebLinksAddon", "WebglAddon"]) {
     assert.ok(island.includes(global), `the island exposes window.${global}`);
   }
 });
@@ -427,4 +427,17 @@ test("the first moments of a pane's life do not count as an agent working", () =
   const spawn = ipc.match(/state\.terms\.set\(id, t\);[\s\S]{0,200}/)[0];
   assert.match(spawn, /resizeEchoUntil\.set\(id, Date\.now\(\) \+ SPAWN_ECHO_MS\)/,
     "and it is armed the moment the pty exists, not after the first chunk has already counted");
+});
+
+// xterm's default renderer builds a DOM row per line and measures it, and a measurement after a DOM write is a
+// forced layout of the whole page — behind a 1,352-file review that is milliseconds each. Profiling the panel
+// opening put 2.5 of 2.6 seconds inside those measurements, which is what the GPU renderer removes.
+test("panes draw on the GPU when the machine has it, and still run when it does not", () => {
+  const loader = client.match(/function loadWebglRenderer\(term\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(loader, "the renderer is loaded through one place");
+  assert.match(loader, /window\.WebglAddon && window\.WebglAddon\.WebglAddon/, "absent addon -> no renderer, no throw");
+  assert.match(loader, /onContextLoss[\s\S]{0,60}dispose\(\)/,
+    "a lost GPU context disposes the addon rather than leaving a dead canvas");
+  assert.match(loader, /catch \(e\) \{ \/\* the DOM renderer is still a terminal \*\/ \}/, "and any failure falls back");
+  assert.match(client, /term\.loadAddon\(fit\);\s*\n\s*loadWebglRenderer\(term\)/, "every pane gets it");
 });

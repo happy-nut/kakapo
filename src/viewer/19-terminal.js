@@ -380,6 +380,21 @@ function terminalPathLinkProvider(term) {
     scheduleFitAll();
   }
 
+  // Draw on the GPU when the machine will have it. xterm's default renderer builds a DOM row per line and
+  // measures it, and every measurement after a DOM write forces a layout of the whole page — behind a big
+  // review that is milliseconds each, and opening the panel spent 2.5 of its 2.6 seconds in exactly that.
+  // Best effort in every direction: no addon, no WebGL context, or a context lost later (a GPU reset, a
+  // display change) and the terminal falls back to the renderer it has always used.
+  function loadWebglRenderer(term) {
+    var Addon = window.WebglAddon && window.WebglAddon.WebglAddon;
+    if (!Addon) return;
+    try {
+      var addon = new Addon();
+      addon.onContextLoss(function () { try { addon.dispose(); } catch (e) {} });
+      term.loadAddon(addon);
+    } catch (e) { /* the DOM renderer is still a terminal */ }
+  }
+
   function makePane(cell, restoreOrdinal) {
     if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw
     var el = document.createElement('div');
@@ -403,6 +418,7 @@ function terminalPathLinkProvider(term) {
     });
     var fit = new window.FitAddon.FitAddon();
     term.loadAddon(fit);
+    loadWebglRenderer(term);
     loadWebLinks(term);
     loadPathLinks(term); // after the URL provider, so a URL is still a URL and not its trailing filename
     term.open(paneHost);
