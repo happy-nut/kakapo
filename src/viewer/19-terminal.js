@@ -788,6 +788,35 @@ function terminalPathLinkProvider(term) {
       }
     }
   }
+  // Attaching is what the wait is made of: main lists the surviving tmux sessions, a pty is attached per
+  // pane, xterm boots, and tmux only redraws once that lands — several seconds on a workspace whose panes do
+  // not exist yet, all of it spent AFTER ⌃` with an empty rectangle on screen. None of it needs the panel to
+  // be open, and none of it needs to wait for the reader to ask: a workspace you have switched to is one you
+  // are about to work in. So the panes are built the moment this workspace comes on screen, behind the closed
+  // panel, and ⌃` becomes what it looks like — showing something that is already there.
+  //
+  // Only on arrival, never at app boot: a workspace nobody visits should not hold ptys, and a hidden pane's
+  // output is held rather than written (the visibilitychange handler above), so warming one costs a tmux
+  // client and no parsing.
+  var warmed = false;
+  function warmPanes() {
+    if (warmed || panes.length || !window.kakapoPty) return;
+    warmed = true;
+    restorePanes().then(function () {
+      if (panes.length === 0) makePane();  // no surviving session: one plain pane, attached and waiting
+      scheduleFitAll();
+    }, function () {});
+  }
+  function scheduleWarmPanes() {
+    if (document.visibilityState === 'hidden') return;
+    var idle = window.requestIdleCallback || function (fn) { return setTimeout(fn, 400); };
+    idle(function () { warmPanes(); }, { timeout: 2000 });
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') scheduleWarmPanes();
+  });
+  scheduleWarmPanes();
+
   function toggle() { setOpen(!isOpen()); }
   // The keyboard shortcut is "focus-first": when the terminal is visible but focus is elsewhere, the first
   // press just moves focus INTO the terminal; only when it already owns focus does another press toggle it

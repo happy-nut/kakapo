@@ -50,3 +50,22 @@ test("the refresh request reaches tmux", () => {
   assert.match(handler, /termSessions\?\.get\(msg\?\.id\)/, "against that pane's own tmux session");
   assert.match(handler, /"refresh-client", "-t", session/, "with the command that redraws a client's screen");
 });
+
+// Opening the panel used to BE the attach: list the surviving tmux sessions, attach a pty per pane, boot
+// xterm, wait for tmux to redraw — seconds of empty rectangle, every one of them spent after ⌃` was pressed.
+// None of it needs the panel open, so a workspace does it on arrival instead.
+test("a workspace warms its panes when it comes on screen, not when ⌃` is pressed", () => {
+  const warm = client.match(/function warmPanes\(\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(warm, "there is a warm path at all");
+  assert.match(warm, /if \(warmed \|\| panes\.length/, "it runs once, and never over panes that already exist");
+  assert.match(warm, /restorePanes\(\)/, "it is the same restore the panel does");
+  assert.match(warm, /if \(panes\.length === 0\) makePane\(\)/,
+    "a workspace with no surviving session still gets its pane attached and waiting");
+  assert.doesNotMatch(warm, /setOpen\(|focusPane\(/, "warming shows nothing and takes no focus");
+
+  const schedule = client.match(/function scheduleWarmPanes\(\)[\s\S]*?\n  \}/)?.[0];
+  assert.match(schedule, /document\.visibilityState === 'hidden'/,
+    "a workspace nobody is looking at does not hold ptys open on our account");
+  assert.match(schedule, /requestIdleCallback/, "and it waits for a quiet frame rather than racing the first paint");
+  assert.match(client, /visibilitychange[\s\S]{0,140}scheduleWarmPanes\(\)/, "arriving is what triggers it");
+});
