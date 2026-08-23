@@ -256,15 +256,36 @@ function threadFromRecords(records) {
 // moment earlier.
 var reviewThreadPath = ''; // comments.jsonl — the file an agent appends its ANSWERS to (see loadThread)
 var threadSaveTimer = 0;
+// Set from the moment a local change is made until its write has landed. Main polls the thread file on its
+// own timer (syncCommentsFile), and a poll that fell inside this window read the file we had not written
+// yet — then handed it back as "the file is the source of truth", which put the comment just deleted right
+// back on screen. The reviewer saw the first Backspace do nothing and the second one work, because the
+// second one no longer overlapped a poll. Anything an agent appended meanwhile still arrives: the write's
+// own answer carries it (`arrived`).
+var threadSavePending = false;
+var heldThreadUpdate = null; // a file poll that arrived mid-write, replayed once the write lands
 function saveThread() {
   if (!(window.kakapoComments && typeof window.kakapoComments.write === 'function')) return;
   if (threadSaveTimer) clearTimeout(threadSaveTimer);
+  threadSavePending = true;
   threadSaveTimer = setTimeout(function () {
     threadSaveTimer = 0;
+    var settle = function (result) {
+      threadSavePending = false;
+      if (result && result.arrived && result.arrived.length) applyThreadRecords(null, result.arrived);
+      // Our write is the newer truth for what WE changed, and main re-reads the file after it — but a poll we
+      // held is still the only copy of anything that landed in the file meanwhile, so replay it rather than
+      // waiting for a tick that only fires when the signature moves again.
+      if (heldThreadUpdate) {
+        var held = heldThreadUpdate;
+        heldThreadUpdate = null;
+        try { applyThreadRecords(held && held.records, null, true); } catch (e) {}
+      }
+    };
     try {
       window.kakapoComments.write({ records: reviewComments.map(commentToRecord), knownMaxId: commentSeq })
-        .then(function (result) { if (result && result.arrived && result.arrived.length) applyThreadRecords(null, result.arrived); }, function () {});
-    } catch (e) {}
+        .then(settle, function () { threadSavePending = false; heldThreadUpdate = null; });
+    } catch (e) { threadSavePending = false; heldThreadUpdate = null; }
   }, 250);
 }
 // The file is the source of truth: whatever it says replaces what is in memory (a full swap cannot drift the
@@ -352,6 +373,9 @@ function loadThread() {
 }
 if (window.kakapoComments && typeof window.kakapoComments.onUpdate === 'function') {
   window.kakapoComments.onUpdate(function (payload) {
+    // A poll of the file we are still writing (see saveThread) — held, never dropped: whatever an agent put
+    // in it is real, and the only thing wrong with it is the timing.
+    if (threadSavePending) { heldThreadUpdate = payload; return; }
     try { applyThreadRecords(payload && payload.records); } catch (e) {}
   });
 }
@@ -444,6 +468,7 @@ function commentSide(c) {
 // prompt is handed a NEXT FREE ID rather than "highest in this file + 1".
 function commentsAt(path, line, side) {
   return reviewComments.filter(function (c) {
+    if (typeof isBriefingCard === 'function' && isBriefingCard(c)) return false; // it is the panel, not a card
     return c.path === path && c.line === line && (!side || commentSide(c) === side);
   }).sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
 }
@@ -461,6 +486,7 @@ function commentKindHtml() {
 function relevantLines(path, side) {
   var set = {};
   reviewComments.forEach(function (c) {
+    if (typeof isBriefingCard === 'function' && isBriefingCard(c)) return; // no card, so no slot to hold one
     if (c.path === path && (!side || commentSide(c) === side)) set[c.line] = true;
   });
   if (composerState && composerState.path === path && (!side || commentSide(composerState) === side)) set[composerState.line] = true;
@@ -494,6 +520,12 @@ function addComment(kind, path, line, code, text, from, to, side, anchorCode, re
     replyTo: replyTo == null ? null : Number(replyTo),
   });
   saveComments();
+  // …and ask, now, without being told to. The whole point of kakapo keeping its own agent is that leaving a
+  // comment IS the question — walking to the terminal to send it was the step that made a reviewer save the
+  // question up instead of asking it. A follow-up counts too: a reply is the second half of a question.
+  // Quietly skipped where there is no agent to ask (the CLI's browser viewer), rather than toasting about it
+  // on every comment somebody writes.
+  if (askAvailable()) askComment(commentSeq);
 }
 // Every earlier turn of the exchange a comment continues, oldest first — whoever wrote each one. Used to
 // indent a thread on screen. The hand-off document no longer inlines these: it names their ids and lets the
@@ -696,11 +728,19 @@ function replyStubHtml(path, line, side) {
 // (agentCardHtml, 23-annotations.js), which is the only difference between them now.
 function reviewerCardHtml(c) {
   var addressed = !!c.addressed;
-  return '<div class="mc-card mc-' + c.kind + (addressed ? ' mc-addressed' : '') + (c.replyTo != null ? ' mc-reply-card' : '') + '">'
+  // Ask: hand THIS comment to the hidden session and let the answer come back under it (27-ask.js). Only on
+  // a root comment — a follow-up already sits in a thread the session is reading — and only where there is a
+  // main process to run an agent, so the CLI's browser viewer never offers a button that cannot work.
+  var asking = askIsPending(c.seq);
+  var canAsk = c.replyTo == null && askAvailable();
+  return '<div class="mc-card mc-' + c.kind + (addressed ? ' mc-addressed' : '') + (asking ? ' mc-asking' : '') + (c.replyTo != null ? ' mc-reply-card' : '') + '">'
     + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml() + '</span>'
     + commentTargetHeadHtml(c)
     + (addressed ? '<span class="mc-addressed-tag" title="' + escapeHtml(t('comment.addressed.hint')) + '">' + escapeHtml(t('comment.addressed')) + '</span>' : '')
     + (addressed ? '<button type="button" class="mc-reopen" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reopen')) + '" title="' + escapeHtml(t('comment.reopen')) + '">↺</button>' : '')
+    + (canAsk ? '<button type="button" class="mc-ask" data-ask="' + c.seq + '"' + (asking ? ' disabled' : '')
+      + ' aria-label="' + escapeHtml(t(asking ? 'ask.waiting' : 'ask.button')) + '" title="' + escapeHtml(t(asking ? 'ask.waiting' : 'ask.button')) + '">'
+      + (asking ? '<span class="mc-ask-dot" aria-hidden="true"></span>' : '?') + '</button>' : '')
     + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
     + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div></div>';
 }
@@ -1452,7 +1492,9 @@ function gotoComment(delta) {
   // again here read `sourceByPath`, which on a diff-first launch holds only the CHANGED files — so notes on
   // untouched files vanished from the walk while the card badge, counting the unfiltered list, went on
   // numbering them. F8 then bounced between whichever two survived, calling them 8/9 and 9/9.
-  var list = sortedNavThread();
+  // The briefing has no card to land on (isBriefingCard), so the walk steps past it — otherwise F8 stopped at
+  // a line with nothing on it. Its own note is still reachable: ⌘⇧B.
+  var list = sortedNavThread().filter(function (c) { return !(typeof isBriefingCard === 'function' && isBriefingCard(c)); });
   if (!list.length) { showCaretHint(t('comment.nav.none')); return true; }
   revealComment(stepAnchor(delta, list).seq);
   return true;
