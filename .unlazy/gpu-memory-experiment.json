@@ -1,0 +1,51 @@
+{
+ "kind": "experiment",
+ "at": 1787588053295,
+ "baseline": 427819008,
+ "rows": [
+  {
+   "action": "scrollDiff",
+   "result": "short:922",
+   "beforeMB": 408,
+   "afterMB": 408,
+   "deltaMB": 0
+  },
+  {
+   "action": "toggleTerminal",
+   "result": "toggled:false",
+   "beforeMB": 408,
+   "afterMB": 507,
+   "deltaMB": 99
+  },
+  {
+   "action": "switchWorkspaces",
+   "result": "switched:15",
+   "beforeMB": 507,
+   "afterMB": 441,
+   "deltaMB": -66
+  }
+ ],
+ "decay": [
+  {
+   "afterSec": 33,
+   "mb": 408
+  },
+  {
+   "afterSec": 63,
+   "mb": 408
+  },
+  {
+   "afterSec": 93,
+   "mb": 408
+  },
+  {
+   "afterSec": 123,
+   "mb": 408
+  },
+  {
+   "afterSec": 153,
+   "mb": 408
+  }
+ ],
+ "endSurfaces": 76
+}

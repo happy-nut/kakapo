@@ -314,11 +314,15 @@ function marginal(p) {
 function attribute(p) {
   const a = readJson(p);
   if (!a.footprintTotal) fail("no footprint total captured");
+  // "TOTAL" is the footprint table's own sum row, not a consumer. Leaving it in made a gate about attribution
+  // pass by naming the total as the dominant category, which answers nothing.
   const cats = Object.entries(a.categories)
+    .filter(([name]) => name !== "TOTAL")
     .map(([name, v]) => ({ name, ...v }))
     .sort((x, y) => y.bytes - x.bytes);
   console.log(`gpu footprint ${mb(a.footprintTotal)}MB across ${a.renderers} renderers`);
   for (const c of cats.slice(0, 6)) console.log(`  ${mb(c.bytes).toString().padStart(7)}MB  ${String(c.regions).padStart(5)} regions  ${c.name}`);
+  if (cats.some((c) => c.name === "TOTAL")) fail("the table's TOTAL row leaked into the categories");
   const io = a.categories.IOSurface?.bytes ?? 0;
   if (!io) fail("no IOSurface category in the footprint output");
   // The reconciliation that catches the summary-vs-detail double count: individually mapped surfaces must
@@ -353,6 +357,146 @@ function trend(p) {
   console.log(`first quarter ${mb(a0)}MB -> last quarter ${mb(a1)}MB (${deltaMB > 0 ? "+" : ""}${deltaMB}MB, ${perMin.toFixed(1)}MB/min)`);
   console.log(`verdict: ${verdict}`);
   console.log("TREND_OK");
+}
+
+
+// ---------------------------------------------------------------- interaction experiment
+//
+// Renderer count turned out not to be controllable (see the abandoned G3), and at a fixed count the footprint
+// is flat. So vary what the app DOES. Each action runs against a settled baseline and is followed by a settle
+// window, so what is attributed to an action is what survived it rather than a mid-paint spike.
+
+function settledFootprint(samples = 6, gapMs = 1200) {
+  const seen = [];
+  for (let i = 0; i < samples; i++) {
+    const { pid } = gpuPid();
+    if (pid) seen.push(footprintOf(pid).total ?? 0);
+    if (i < samples - 1) execFileSync("sleep", [String(gapMs / 1000)]);
+  }
+  const usable = seen.filter(Boolean).sort((a, b) => a - b);
+  if (!usable.length) return null;
+  return usable[Math.floor(usable.length / 2)]; // median: a repaint spike must not become the reading
+}
+
+async function cdp(expression) {
+  const list = await (await fetch("http://127.0.0.1:9229/json/list")).json();
+  const ws = new WebSocket(list[0].webSocketDebuggerUrl);
+  let id = 0;
+  const pending = new Map();
+  const send = (method, params) => new Promise((res, rej) => {
+    const n = ++id; pending.set(n, { res, rej });
+    ws.send(JSON.stringify({ id: n, method, params }));
+  });
+  ws.addEventListener("message", (e) => {
+    const m = JSON.parse(e.data);
+    if (m.id && pending.has(m.id)) { const p = pending.get(m.id); pending.delete(m.id); m.error ? p.rej(new Error(JSON.stringify(m.error))) : p.res(m.result); }
+  });
+  await new Promise((r) => ws.addEventListener("open", r));
+  await send("Runtime.enable", {});
+  const r = await Promise.race([
+    send("Runtime.evaluate", { expression, returnByValue: true, includeCommandLineAPI: true, awaitPromise: true }),
+    new Promise((res) => setTimeout(() => res({ timeout: true }), 240000)),
+  ]);
+  ws.close();
+  if (r.timeout) throw new Error("cdp evaluate timed out");
+  if (r.exceptionDetails) throw new Error(JSON.stringify(r.exceptionDetails).slice(0, 400));
+  return r.result?.value;
+}
+
+// Run `inner` (a JS string) in every review renderer that has one, from the main process.
+const inVisibleReview = (inner) => `(async () => {
+  const { BrowserWindow } = require('electron');
+  const w = BrowserWindow.getAllWindows()[0];
+  const view = w.contentView.children.find(c => { try { return c.getVisible() && !!c.webContents; } catch (e) { return false; } });
+  if (!view) return 'no-visible-view';
+  try { return String(await view.webContents.executeJavaScript(${JSON.stringify(inner)})); } catch (e) { return 'err:' + e; }
+})()`;
+
+const ACTIONS = {
+  // Scroll the review's diff column end to end. This is the one that rasterises new tiles for a tall layer.
+  scrollDiff: inVisibleReview(`(async function(){
+    var el = document.querySelector('.content') || document.scrollingElement;
+    if (!el) return 'none';
+    var h = el.scrollHeight;
+    if (h < 2000) return 'short:' + h;
+    for (var i = 0; i <= 20; i++) { el.scrollTop = Math.round(h * i / 20); await new Promise(function(r){ setTimeout(r, 90); }); }
+    el.scrollTop = 0;
+    return 'scrolled:' + h;
+  })()`),
+  // Open and close the terminal panel: a full-window surface appearing and going away.
+  toggleTerminal: inVisibleReview(`(async function(){
+    var t = window.__kakapoTerminal;
+    if (!t || typeof t.open !== 'function') return 'none';
+    var was = t.isOpen();
+    t.open(); await new Promise(function(r){ setTimeout(r, 1500); });
+    if (!was && typeof t.close === 'function') { t.close(); await new Promise(function(r){ setTimeout(r, 800); }); }
+    return 'toggled:' + was;
+  })()`),
+  // Switch the active workspace around the rail and back — every switch re-composites a full-window view.
+  switchWorkspaces: `(async () => {
+    const { BrowserWindow } = require('electron');
+    const w = BrowserWindow.getAllWindows()[0];
+    const views = w.contentView.children.filter(c => { try { return !!c.webContents && c.getVisible; } catch (e) { return false; } });
+    const start = views.findIndex(v => v.getVisible());
+    let n = 0;
+    for (let round = 0; round < 3; round++) {
+      for (let i = 0; i < views.length; i++) {
+        views.forEach((v, j) => v.setVisible(j === i));
+        n++;
+        await new Promise(r => setTimeout(r, 450));
+      }
+    }
+    views.forEach((v, j) => v.setVisible(j === start));
+    return 'switched:' + n;
+  })()`,
+};
+
+async function experiment(outPath) {
+  const rows = [];
+  const baseline = settledFootprint();
+  if (!baseline) fail("no GPU process to measure");
+  console.log(`baseline ${mb(baseline)}MB`);
+  let prev = baseline;
+  for (const [name, expr] of Object.entries(ACTIONS)) {
+    let result = "skipped";
+    try { result = await cdp(expr); } catch (e) { result = "error:" + String(e).slice(0, 120); }
+    const after = settledFootprint();
+    const delta = after == null ? null : after - prev;
+    rows.push({ action: name, result: String(result).slice(0, 200), beforeMB: mb(prev), afterMB: mb(after), deltaMB: mb(delta) });
+    console.log(`  ${name.padEnd(18)} ${String(mb(prev)).padStart(7)} -> ${String(mb(after)).padStart(7)} MB  (${mb(delta) > 0 ? "+" : ""}${mb(delta)})  ${String(result).slice(0, 60)}`);
+    prev = after ?? prev;
+  }
+  // Wait it out: a tile cache that Chromium will evict and a permanent gain read the same at one sample.
+  const decay = [];
+  for (let i = 0; i < 5; i++) {
+    execFileSync("sleep", ["30"]);
+    const v = settledFootprint(3, 1000);
+    decay.push({ afterSec: (i + 1) * 30 + 3 * 1, mb: mb(v) });
+    console.log(`  +${(i + 1) * 30}s idle: ${mb(v)}MB`);
+  }
+  const surfaces = (() => { const { pid } = gpuPid(); return pid ? surfacesOf(pid) : []; })();
+  writeFileSync(outPath, JSON.stringify({ kind: "experiment", at: Date.now(), baseline, rows, decay, endSurfaces: surfaces.length }, null, 1));
+  console.log(`wrote ${outPath}`);
+}
+
+function experimentCheck(p) {
+  const e = readJson(p);
+  if (!Array.isArray(e.rows) || e.rows.length < 3) fail(`need >= 3 actions, got ${e.rows?.length}`);
+  const ran = e.rows.filter((r) => !/^(skipped|error:|\[?"?none)/.test(r.result) && r.deltaMB != null);
+  if (ran.length < 2) fail(`need >= 2 actions that actually ran, got ${ran.length}: ${e.rows.map((r) => r.action + "=" + r.result.slice(0, 24)).join(", ")}`);
+  console.log(`baseline ${mb(e.baseline)}MB`);
+  for (const r of e.rows) console.log(`  ${r.action.padEnd(18)} ${String(r.beforeMB).padStart(7)} -> ${String(r.afterMB).padStart(7)} MB  delta ${r.deltaMB}`);
+  const top = ran.slice().sort((a, b) => (b.deltaMB ?? 0) - (a.deltaMB ?? 0))[0];
+  console.log(`largest mover: ${top.action} at ${top.deltaMB > 0 ? "+" : ""}${top.deltaMB} MB`);
+  const total = e.rows.reduce((a, r) => a + (r.deltaMB ?? 0), 0);
+  console.log(`net across all actions: ${total > 0 ? "+" : ""}${total.toFixed(1)} MB (baseline ${mb(e.baseline)}MB -> ${e.rows.at(-1).afterMB}MB)`);
+  if (!Array.isArray(e.decay) || e.decay.length < 3) fail("no idle decay series — a cache and a permanent gain are indistinguishable without one");
+  const peak = e.rows.at(-1).afterMB;
+  const settled = e.decay.at(-1).mb;
+  const returned = peak - settled;
+  console.log(`idle decay over ${e.decay.at(-1).afterSec}s: ${peak}MB -> ${settled}MB (${returned > 0 ? "released " : "kept "}${Math.abs(returned).toFixed(1)}MB)`);
+  console.log(`verdict: ${settled - mb(e.baseline) > 30 ? "RETAINED above baseline" : "returns to baseline"}`);
+  console.log("EXPERIMENT_OK");
 }
 
 // ---------------------------------------------------------------- selftest
@@ -441,7 +585,9 @@ switch (cmd) {
   case "marginal": marginal(rest[0]); break;
   case "attribute": attribute(rest[0]); break;
   case "trend": trend(rest[0]); break;
+  case "experiment": await experiment(rest[0]); break;
+  case "experiment-check": experimentCheck(rest[0]); break;
   default:
-    console.log("usage: gpu-probe.mjs <selftest|verify-install|sample OUT SECS MS|snapshot OUT|series-check F|marginal F|attribute F|trend F>");
+    console.log("usage: gpu-probe.mjs <selftest|verify-install|sample OUT SECS MS|snapshot OUT|series-check F|marginal F|attribute F|trend F|experiment OUT|experiment-check F>");
     process.exit(2);
 }
