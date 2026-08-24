@@ -727,22 +727,39 @@ function termCardHtml(node) {
   }).join('');
   // The \u00d7 in this header CLOSES. It used to be the only button here and it DELETED the word — and a
   // \u00d7 in the corner of an opened panel is read as "close" by everyone, so the reader dismissed a detail
-  // and silently lost the word instead. Throwing one out is a decision, so it is now a decision-shaped
-  // control: named, next to Edit, at the bottom where the actions are.
+  // and silently lost the word instead.
+  //
+  // The card is a thing to READ, so nothing acting on the word stands in it at rest: the two tools appear on
+  // hover (and on keyboard focus, which is the half hover always forgets). They are in the SAME group as the
+  // \u00d7 — one `margin-left: auto` between them and the word, none inside — because two auto margins in one
+  // flex row split the slack between them and push the close button across the card, away from the tools it
+  // belongs beside. A rule divides them: the two icons act on the word, the \u00d7 acts on the card.
   return '<div class="mc-term-h">' + head + '<span class="mc-term-w">' + escapeHtml(term.w) + '</span>'
     + (term.proposed ? '<span class="mc-term-offered">' + escapeHtml(t('terms.offered')) + '</span>' : '')
-    + '<button type="button" class="mc-term-close" aria-label="' + escapeHtml(t('terms.close'))
-      + '" title="' + escapeHtml(t('terms.close')) + '">\u00d7</button>'
-    + '</div>'
-    + '<p class="mc-term-gloss">' + termGlossHtml(node) + '</p>'
-    + (code ? '<div class="mc-term-codes"><span class="mc-term-kicker">' + escapeHtml(t('terms.code')) + '</span>' + code + '</div>' : '')
-    + '<div class="mc-term-actions">'
-    + '<button type="button" class="mc-term-act mc-term-edit">' + escapeHtml(t('terms.edit')) + '</button>'
+    + '<span class="mc-term-tools">'
+    + '<button type="button" class="mc-term-icon mc-term-edit" aria-label="' + escapeHtml(t('terms.edit'))
+      + '" title="' + escapeHtml(t('terms.edit')) + '">' + TERM_ICON_EDIT + '</button>'
     // A vocabulary you cannot take a word OUT of is a vocabulary that only grows, and a word the reader
     // disagrees with is exactly the one that must not be the language the next explanation is written in.
-    + '<button type="button" class="mc-term-act mc-term-drop" data-drop="' + escapeHtml(termKeyOf(term))
-      + '" title="' + escapeHtml(t('terms.drop')) + '">' + escapeHtml(t('terms.drop.short')) + '</button>'
-    + '</div>';
+    + '<button type="button" class="mc-term-icon mc-term-drop" data-drop="' + escapeHtml(termKeyOf(term))
+      + '" aria-label="' + escapeHtml(t('terms.drop')) + '" title="' + escapeHtml(t('terms.drop')) + '">'
+      + TERM_ICON_DROP + '</button>'
+    + '<span class="mc-term-rule" aria-hidden="true"></span>'
+    + termCloseHtml()
+    + '</span>'
+    + '</div>'
+    + '<p class="mc-term-gloss">' + termGlossHtml(node) + '</p>'
+    + (code ? '<div class="mc-term-codes"><span class="mc-term-kicker">' + escapeHtml(t('terms.code')) + '</span>' + code + '</div>' : '');
+}
+
+// Line icons at the same stroke weight as every other glyph in the app's chrome (1.9 on a 24 box) — a pencil
+// for the meaning, a bin for the word. Named constants because both cards draw the header.
+var TERM_ICON_EDIT = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+var TERM_ICON_DROP = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg>';
+
+function termCloseHtml() {
+  return '<button type="button" class="mc-term-close" aria-label="' + escapeHtml(t('terms.close'))
+    + '" title="' + escapeHtml(t('terms.close')) + '">\u00d7</button>';
 }
 
 // The same card with its meaning open for writing. The gloss is what the vocabulary IS — a word is only the
@@ -755,8 +772,7 @@ function termEditHtml(node, isNew) {
     + (isNew
       ? '<input type="text" class="mc-term-input mc-term-w-input" placeholder="' + escapeHtml(t('terms.add.word')) + '" value="' + escapeHtml(term.w) + '">'
       : '<span class="mc-term-w">' + escapeHtml(term.w) + '</span>')
-    + '<button type="button" class="mc-term-close" aria-label="' + escapeHtml(t('terms.close'))
-      + '" title="' + escapeHtml(t('terms.close')) + '">\u00d7</button>'
+    + '<span class="mc-term-tools">' + termCloseHtml() + '</span>'
     + '</div>'
     + '<textarea class="mc-term-input mc-term-gloss-input" rows="3" spellcheck="false" placeholder="'
       + escapeHtml(t('terms.add.gloss')) + '">' + escapeHtml(term.gloss || '') + '</textarea>'

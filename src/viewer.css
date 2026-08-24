@@ -4458,10 +4458,34 @@ body:has(#mc-briefing) .mc-brf-recall { opacity: .45; }
   letter-spacing: .04em; color: var(--chrome-muted); background: var(--chrome-line);
 }
 
-/* The card's own dismiss, at the head's right edge where a × belongs. This position used to hold the DELETE,
-   which is why a reader closing a detail lost the word instead. */
+/* The header's right-hand cluster: what acts on the WORD, then a rule, then what closes the CARD.
+   One margin-left:auto lives here and nowhere inside — two auto margins in the same flex row split the
+   slack between them, which is what pushed the × across the card away from the tools it sits beside. */
+.mc-term-tools { margin-left: auto; display: flex; align-items: center; gap: 1px; flex: none; }
+.mc-term-rule { width: 1px; height: 13px; margin: 0 5px; background: var(--chrome-border); flex: none; }
+/* No rule when the group is only a × (the editor's header) — a divider needs two sides. */
+.mc-term-tools > .mc-term-rule:first-child { display: none; }
+
+/* The card is a thing to read, so nothing that acts on the word stands in it at rest. Focus-within is not
+   politeness: a control revealed only by hover is a control a keyboard can reach and never see. */
+.mc-term-icon {
+  width: 22px; height: 22px; flex: none; border: 0; padding: 0; border-radius: 6px;
+  background: transparent; color: var(--chrome-muted);
+  display: grid; place-items: center; cursor: pointer;
+  opacity: 0; transition: opacity .12s ease, color .12s ease, background .12s ease;
+}
+.mc-term-card:hover .mc-term-icon,
+.mc-term-tools:focus-within .mc-term-icon { opacity: 1; }
+.mc-term-icon:hover { background: var(--chrome-line); color: var(--chrome-text); }
+.mc-term-icon.mc-term-drop:hover { color: var(--danger, #e5534b); }
+.mc-term-icon:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; opacity: 1; }
+/* Nothing hovers on a touch screen, so there the tools simply stand. */
+@media (hover: none) { .mc-term-icon { opacity: 1; } }
+
+/* The card's own dismiss. This position used to hold the DELETE, which is why a reader closing a detail
+   lost the word instead. */
 .mc-term-close {
-  margin-left: auto; width: 20px; height: 20px; flex: none; border: 0; padding: 0;
+  width: 20px; height: 20px; flex: none; border: 0; padding: 0;
   border-radius: 6px; background: transparent; color: var(--chrome-muted);
   font: 400 14px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   display: grid; place-items: center; opacity: .55; cursor: pointer;
@@ -4469,8 +4493,8 @@ body:has(#mc-briefing) .mc-brf-recall { opacity: .45; }
 .mc-term-close:hover { background: var(--chrome-line); color: var(--chrome-text); opacity: 1; }
 .mc-term-close:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; opacity: 1; }
 
-/* Editing and removing are decisions, so they are words at the foot of the card rather than glyphs beside
-   the title — far enough from the reading that neither is a mis-click away from it. */
+/* Saving and cancelling an edit stay words: they are the two ends of a thing the reader is in the middle
+   of doing, and an icon for "cancel" would be a second × on a card that already has one. */
 .mc-term-actions { display: flex; gap: 6px; margin-top: 12px; }
 .mc-term-act {
   padding: 4px 10px; border: 1px solid var(--chrome-border); border-radius: 6px;
@@ -4479,8 +4503,6 @@ body:has(#mc-briefing) .mc-brf-recall { opacity: .45; }
 .mc-term-act:hover { background: var(--chrome-line); color: var(--chrome-text); }
 .mc-term-act.is-primary { background: var(--active); border-color: var(--active); color: #fff; }
 .mc-term-act.is-primary:hover { filter: brightness(1.08); color: #fff; }
-.mc-term-act.mc-term-drop { margin-left: auto; }
-.mc-term-act.mc-term-drop:hover { color: var(--danger, #e5534b); border-color: var(--danger, #e5534b); }
 .mc-term-act:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; }
 
 .mc-term-input {
