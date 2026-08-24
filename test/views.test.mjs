@@ -511,14 +511,16 @@ test("composing toggles body.mc-composing so the file caret is hidden while typi
   v.close();
 });
 
-test("composer head labels the comment target with the canonical source reference", async () => {
+// The reference is prefilled INTO the textarea, not printed above it (openComposer, 07-comments.js). As a
+// header label it was a fact about the comment the writer could not touch, and the thing they most often
+// want to say is that the question is not about this line — so it has to be deletable.
+test("the composer prefills the canonical source reference as editable text", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(1); // line index 1 → display line 2
   await v.openComposer("c");
-  const target = v.$(".mc-composer .mc-target");
-  assert.ok(target, "composer head carries a target label");
-  assert.equal(target.textContent, "@src/app.ts#L2", "shows the repository-relative path and line");
+  assert.equal(v.$(".mc-composer .mc-target"), null, "the head no longer prints it where it cannot be edited");
+  assert.equal(v.$(".mc-composer .mc-input").value, "@src/app.ts#L2 ", "the textarea opens with the repository-relative path and line");
   v.close();
 });
 
