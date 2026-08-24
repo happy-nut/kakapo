@@ -182,7 +182,6 @@ var WINDOW_SHORTCUTS = [
   { code: 'KeyB', shift: true, key: 'b', run: function () { toggleBriefing(); } },
   { code: 'KeyK', shift: true, key: 'k', run: function () { toggleTermMap(); } },
   { code: 'Digit9', key: '9', run: function () { toggleHistory(); } },
-  { code: 'Digit8', key: '8', run: function () { toggleImpact(); } },
   // No ⌘7. Explain used to own it, and all that shortcut did was send a prompt the ⌘⇧P palette already
   // sends — one key reserved for a duplicate. The rail's Explain button still opens the notes (openExplain).
   // Cmd+0/Cmd+1 mean "take me to the tree", so they close the History overlay first — otherwise the view
@@ -673,7 +672,6 @@ document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
   else if (view === 'files') { activateFilesView(); }
   else if (view === 'merged') { toggleMergedRail(); }
   else if (view === 'memo') { openMemoView(); } // openMemoView already toggles
-  else if (view === 'impact') { toggleImpact(); }
   else if (view === 'explain') { openExplain(); }
   else if (view === 'terms') { toggleTermMap(); }
   else if (view === 'history') { toggleHistory(); }

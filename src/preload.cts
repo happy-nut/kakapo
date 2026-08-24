@@ -165,7 +165,7 @@ contextBridge.exposeInMainWorld("kakapoFile", {
   getDiffContext: (request: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:get-diff-context", request),
 });
 
-// LSP-first code intelligence and change-impact analysis. The renderer sends only a location/query and
+// LSP-first code intelligence. The renderer sends only a location/query and
 // receives compact result locations; project sources and language-server processes stay in main.
 contextBridge.exposeInMainWorld("kakapoAnalysis", {
   query: (request: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:analysis", request),

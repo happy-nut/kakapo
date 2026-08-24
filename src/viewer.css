@@ -2667,60 +2667,6 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-btn:hover { filter: brightness(1.1); }
 .mc-btn.mc-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
 
-/* Change Impact is a read-only inspector over the editor. Analysis and indexing happen in Electron's
-   main process; this panel receives only compact locations and relationship labels. */
-.impact-panel {
-  position: fixed; top: 0; right: 0; bottom: 0; z-index: 48;
-  width: min(600px, calc(100vw - var(--rail-width, 36px) - 40px));
-  display: flex; flex-direction: column; min-width: 320px; border-left: 1px solid var(--border);
-  box-shadow: -14px 0 36px rgba(0, 0, 0, 0.34);
-}
-.impact-panel.hidden { display: none; }
-.impact-header { flex: none; display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px 11px; border-bottom: 1px solid var(--border); }
-.impact-header > div:first-child { min-width: 0; flex: 1; }
-.impact-title { font-size: 14px; font-weight: 650; }
-.impact-engine { min-height: 16px; margin-top: 5px; font-size: 10.5px; line-height: 1.45; }
-.impact-target-row, .impact-analyzer-row { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.impact-target-label { flex: none; font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.impact-target-symbol { flex: none; max-width: 34%; overflow: hidden; font: 600 11.5px/1.4 Monaco, ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
-.impact-target-path { min-width: 0; overflow: hidden; font: 10.5px/1.4 Monaco, ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
-.impact-analyzer-row { margin-top: 2px; font: 10px/1.4 Monaco, ui-monospace, monospace; }
-.impact-keyboard-help { margin-left: auto; white-space: nowrap; }
-.impact-header .dock-btn { font-size: 18px; }
-.impact-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 10px 20px; }
-.impact-empty { padding: 32px 18px; font-size: 13px; line-height: 1.55; }
-.impact-loading { display: flex; align-items: center; gap: 10px; }
-.impact-loading .kakapo-loader { flex: none; }
-.impact-tier { margin-bottom: 10px; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; }
-.impact-tier-head { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border-bottom: 1px solid var(--border); }
-.impact-tier-mark { display: grid; flex: none; place-items: center; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; font-size: 10px; font-weight: 800; }
-.impact-tier-confirmed .impact-tier-mark { color: #b8e8c8; background: color-mix(in srgb, #2b9b59 24%, transparent); }
-.impact-tier-candidates .impact-tier-mark { color: var(--muted); background: var(--line); }
-.impact-tier-copy { min-width: 0; flex: 1; }
-.impact-tier-title { display: block; font-size: 12px; font-weight: 700; }
-.impact-tier-desc { display: block; margin-top: 2px; font-size: 10.5px; line-height: 1.4; }
-.impact-tier-count { flex: none; min-width: 22px; padding: 2px 6px; border-radius: 999px; text-align: center; font-size: 10px; }
-.impact-tier-empty { padding: 12px; font-size: 11px; }
-.impact-fallback { display: flex; flex-direction: column; gap: 3px; margin: 9px 10px 2px; padding: 8px 9px; border-radius: 5px; font-size: 10.5px; line-height: 1.35; }
-.impact-fallback strong { font-weight: 650; }
-.impact-section { padding: 7px 7px 9px; border-bottom: 1px solid var(--border); }
-.impact-section:last-of-type { border-bottom: 0; }
-.impact-section-title { display: flex; align-items: center; justify-content: space-between; padding: 3px 5px 6px; font-size: 11px; font-weight: 650; }
-.impact-count { min-width: 20px; padding: 1px 6px; text-align: center; font-size: 10.5px; font-weight: 500; }
-.impact-section-empty { padding: 6px 4px 10px; font-size: 11.5px; }
-.impact-item { position: relative; display: block; width: 100%; padding: 7px 8px 7px 10px; border: 0; background: transparent; text-align: left; cursor: pointer; }
-.impact-item:focus-visible { outline: 1px solid color-mix(in srgb, var(--active) 68%, transparent); outline-offset: -1px; }
-.impact-item-confirmed::before { position: absolute; top: 9px; bottom: 9px; left: 3px; width: 2px; border-radius: 2px; background: #4faa70; content: ''; }
-.impact-item-candidate { opacity: .88; }
-.impact-item-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.impact-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 11.5px/1.4 Monaco, ui-monospace, monospace; }
-.impact-relation { flex: none; padding: 1px 5px; border: 1px solid var(--border); font-size: 9.5px; }
-.impact-item-path { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-.impact-item-code { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: 11px/1.4 Monaco, ui-monospace, monospace; opacity: .84; }
-.impact-candidate-toggle { display: flex; align-items: center; justify-content: center; gap: 8px; width: calc(100% - 16px); margin: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; background: transparent; font-size: 10.5px; cursor: pointer; }
-.impact-candidate-toggle:hover, .impact-candidate-toggle:focus-visible { color: var(--text); background: var(--line); outline: none; border-color: var(--active); }
-.impact-candidate-toggle span { min-width: 20px; padding: 1px 5px; border-radius: 999px; font-size: 9.5px; }
-
 /* Semantic navigation is a caret-local dropdown. It must never cover the code canvas with a second editor:
    arrows move the menu selection, Enter opens the real source, and Escape returns to the original caret. */
 .semantic-peek {
@@ -3575,7 +3521,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 /* ===== Compact high-contrast review chrome =====
    The diff remains visually quiet; interactive chrome gets clearer contrast, consistent radii, and one
    focus language. Motion is reserved for state changes that can otherwise look like a stalled renderer. */
-button, input, select, .sidebar, .impact-panel, .dock-panel {
+button, input, select, .sidebar, .dock-panel {
   transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease,
     box-shadow 120ms ease, opacity 140ms ease, transform 160ms cubic-bezier(.2, .8, .2, 1);
 }
@@ -3755,7 +3701,6 @@ summary.tree-focus,
 .app-info,
 .settings-panel,
 .settings-body,
-.impact-panel,
 .history-view,
 .dock-panel,
 .mc-modal-panel,
@@ -3770,12 +3715,6 @@ summary.tree-focus,
 }
 .settings-h,
 .settings-label,
-.impact-title,
-.impact-section-title,
-.impact-target-symbol,
-.impact-tier-title,
-.impact-fallback strong,
-.impact-item-name,
 .history-title,
 .dock-title { color: var(--chrome-text); }
 .settings-cat { color: var(--chrome-text); }
@@ -3800,16 +3739,7 @@ summary.tree-focus,
 .tab { color: var(--chrome-text); background: var(--chrome-elevated); border-color: var(--chrome-border); }
 .plain-button:hover,
 .tab.active { color: var(--chrome-selected-text); background: var(--chrome-selected); border-color: var(--active-strong); }
-.impact-count { color: var(--chrome-text); background: var(--chrome-line); }
-.impact-item { color: var(--chrome-text); }
-.impact-item:hover,
 .hrow:hover { background: var(--chrome-line); }
-.impact-item:focus-visible { color: var(--chrome-selected-text); background: var(--chrome-selected); }
-.impact-tier { background: var(--chrome-elevated); }
-.impact-tier-mark,
-.impact-tier-count,
-.impact-fallback,
-.impact-candidate-toggle span { background: var(--chrome-line); }
 .hrow { color: var(--chrome-text); }
 .hrow.active { color: var(--chrome-selected-text); background: var(--chrome-selected); }
 .href { border-color: var(--chrome-border); }
@@ -3892,7 +3822,6 @@ body {
 .file-link,
 .change-row,
 .source-link,
-.impact-item,
 .settings-cat,
 .quick-open-item,
 .mc-dropdown-item { border-radius: var(--ui-radius-sm); }
@@ -4003,7 +3932,6 @@ body.native-app .source-tabs {
   border-color: var(--ui-border-soft);
   box-shadow: var(--ui-shadow-popup);
 }
-.impact-panel { border-radius: var(--ui-radius-lg) 0 0 var(--ui-radius-lg); overflow: hidden; }
 .settings-modal,
 .quick-open { backdrop-filter: blur(7px) saturate(.92); }
 .dock-backdrop { backdrop-filter: blur(4px); }
@@ -4012,8 +3940,6 @@ body.native-app .source-tabs {
 .mc-card,
 .http-response { border-radius: var(--ui-radius-lg); }
 .mc-kind,
-.impact-count,
-.impact-relation,
 .href { border-radius: 999px; }
 .mc-del { border-radius: var(--ui-radius-xs); }
 
@@ -4084,7 +4010,7 @@ body.native-app .source-tabs {
 .http-response.loading { display: flex; align-items: center; gap: 8px; }
 .http-loading-copy { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .quick-open-filter.is-loading { display: inline-flex; align-items: center; gap: 5px; }
-.impact-panel:not(.hidden), .dock-panel, .semantic-peek:not(.hidden) { animation: mc-surface-in 150ms cubic-bezier(.2, .8, .2, 1); }
+.dock-panel, .semantic-peek:not(.hidden) { animation: mc-surface-in 150ms cubic-bezier(.2, .8, .2, 1); }
 @keyframes mc-loading-sweep { 0% { transform: translateX(-75%); opacity: .25; } 50% { opacity: 1; } 100% { transform: translateX(75%); opacity: .25; } }
 @keyframes mc-surface-in { from { opacity: 0; transform: translateY(5px) scale(.995); } to { opacity: 1; transform: none; } }
 
