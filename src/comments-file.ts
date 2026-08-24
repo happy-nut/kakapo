@@ -252,13 +252,20 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
 // Polled on an independent timer by app-main.ts (not gated by --watch): an agent writes into this file
 // whether or not the diff itself is being watched. The whole list is pushed — it is small, and a full swap
 // cannot drift the way a delta can.
-export function syncCommentsFile(state: CommentsIpcState): void {
+// `force` re-sends what is on disk even when nothing has changed since the last send, and it exists because
+// the signature is consumed by SENDING rather than by the renderer receiving. A workspace that was off screen
+// when an agent finished — the reviewer walked away, which is exactly what you do while an Explain run goes —
+// got its push into a view that could not use it, and the mark saying "already delivered" was set anyway. On
+// coming back nothing had changed, so nothing was sent, and a codebase map that was sitting complete on disk
+// simply never appeared. Activation forces; the poll does not, because re-sending every second is how a
+// reviewer's own half-typed edits get overwritten by the file underneath them.
+export function syncCommentsFile(state: CommentsIpcState, force = false): void {
   if (!state.commentsFile || state.win.isDestroyed()) return;
   // Either file changing is news: an agent in ANOTHER workspace can add knowledge while this one is open, and
   // that is the whole point of the shared file — it should arrive here without a reload.
   const sig = fileSignature(state.commentsFile);
   const shared = fileSignature(state.knowledgeFile);
-  if (sig === state.commentsSig && shared === state.knowledgeSig) return;
+  if (!force && sig === state.commentsSig && shared === state.knowledgeSig) return;
   if (!sig && !shared) return;
   state.commentsSig = sig;
   state.knowledgeSig = shared;

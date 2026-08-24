@@ -417,6 +417,18 @@ function collectPrintedRecords(state: WinState, output: string): number {
   syncCommentsFile(state); // an Explain run's notes, on screen the moment they land — see appendAgentAnswer
   return parsed.length;
 }
+// What a notes run said when it said it in prose. Filed as a plain note against the thread rather than the
+// shared knowledge file: it is not what that file is for (records the reader can walk), and a run that came
+// back unparseable is a thing about THIS attempt, not something the repository has learned.
+function appendUnparsedNote(state: WinState, text: string): void {
+  if (!state.commentsFile) return;
+  const here = readThread(state.commentsFile);
+  const there = state.knowledgeFile ? readThread(state.knowledgeFile) : [];
+  const id = nextThreadId(here, there);
+  writeThread(state.commentsFile, here.concat({ id, by: "agent", kind: "note", text }), id + 1);
+  syncCommentsFile(state, true);
+}
+
 // An answer is a reply in the thread, written by us. The agent is never asked to format it into a file: a
 // record the app appends cannot be appended wrong, and the reviewer's card is where the answer belongs.
 function appendAgentAnswer(state: WinState, re: number, text: string): void {
@@ -470,7 +482,13 @@ ipcMain.handle("kakapo:ask", async (event, payload: { prompt?: string; label?: s
   try {
     const answer = await ask(state.options.root, prompt, askModel(!!payload?.notes));
     if (entry.seq != null) handOffOrAnswer(state, entry.seq, answer);
-    else if (payload?.notes) collectPrintedRecords(state, answer);
+    // A notes run that produced nothing parseable must not evaporate. The session read the repository for
+    // minutes and said something; if it came back as prose — a model that explained instead of emitting
+    // records, or one that hit its own limit — dropping it leaves the reviewer with a spinner that stopped
+    // and no way to reach a single word of it. Keep it as one note, on the file the run was about.
+    else if (payload?.notes && !collectPrintedRecords(state, answer) && answer.trim()) {
+      appendUnparsedNote(state, answer.trim());
+    }
     // An answer that arrived while you were reading another workspace is exactly what the attention dot is
     // for — and this one made no sound at all on its way in.
     if (answer && !isVisibleWorkspace(state)) {
@@ -1591,7 +1609,10 @@ function activateWorkspace(id: number): void {
       // than up to a tick later, so a switch still lands on the current diff/answers/annotations. The
       // suspended branch above already rebuilds everything, hence the else.
       if (activated.options.watch) void refreshIfChanged(activated);
-      syncCommentsFile(activated);
+      // Forced: what an agent wrote while this workspace was off screen was already "sent" to a view that was
+      // not there to take it, so the unchanged signature would say there is nothing to deliver. See
+      // syncCommentsFile — this is the arrival that has to be unconditional.
+      syncCommentsFile(activated, true);
     }
     if (!activated.bootStarted) {
       activated.bootStarted = true;
