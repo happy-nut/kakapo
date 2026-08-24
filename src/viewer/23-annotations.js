@@ -216,14 +216,14 @@ function reviewDiffRange() {
 }
 
 function fillPromptPaths(text) {
-  // The vocabulary sits beside the repository, not beside the workspace, so its path is the same for every
-  // worktree — and naming it is worth doing even before the bridge has answered: an agent handed the
-  // conventional location can look, and the prompt already says what an empty file means.
-  var terms = (typeof termsState !== 'undefined' && termsState.path) || '.git/kakapo/terms.jsonl';
+  // The vocabulary is no longer one of these. It used to be pasted in as a file path, which put the words
+  // and the rules for using them in two different places — the rules in the prompt, the capability in a
+  // path — and meant every prompt had to re-explain the file. `kakapo_words` carries both: its description
+  // IS the rule, and it travels with the tool into every session, including the ones kakapo never wrote a
+  // prompt for (mcp-server.ts).
   var range = reviewDiffRange();
   return String(text)
     .split('{{NOTES_PATH}}').join(annotationsPath || '')
-    .split('{{TERMS_PATH}}').join(terms)
     .split('{{DIFF_RANGE}}').join(range ? 'git diff ' + range : 'git diff');
 }
 

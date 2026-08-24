@@ -10,16 +10,15 @@ Write it to exactly this file, ONE JSON object per line (create it and its paren
 - "text" is markdown on ONE line - write real line breaks as \n inside the JSON string.
 - Anchor the note to the entry point: whatever actually runs first. That is where a newcomer starts reading, so that is where the map belongs.
 
-**The map is drawn in the reader's words.** The words this repository's reviewer has actually used are in this file, one per line:
-{{TERMS_PATH}}
+**The map is drawn in the reader's words.** Call `kakapo_words` for the words this repository's reviewer has actually used.
 
-Read it; never write to it. A word gets in there only when the reader used it themselves — that the names are theirs and not yours is the entire point of the file. Three rules follow from it.
+Read them; do not add new ones while you are drawing the map. A word gets in there only when the reader used it themselves — that the names are theirs and not yours is the entire point of the file. Three rules follow from it.
 
 1. **Pick the component names from there first.** When you choose the 3-5 core components below, prefer the ones you can call by a word that file already has. A box named in the reader's own word finds its place the moment they look at the map; a box named by you is one more thing to learn. Coin a new name only when that file genuinely cannot say it, and define it on the spot.
 2. **Attach it to what they already know.** Start each paragraph from a word they have - "this is the same place a comment used to hang from" is faster than a fresh paragraph. Where that file shows two words used together, draw that connection as an edge.
 3. **Do not break the "why" chain.** Understanding travels along why. A component stands on "what stops working without it", not on "what it does", and each paragraph starts from the why the previous one answered.
 
-If that file is missing or empty, the reviewer has not built up any words yet. Then it matters even more not to coin one: write in plain words anyone knows — whatever they meet in this explanation is what they will be saying next time.
+If the tool returns nothing, or is not there at all, the reviewer has not built up any words yet. Then it matters even more not to coin one: write in plain words anyone knows — whatever they meet in this explanation is what they will be saying next time.
 
 Once the map is written, leave your **proposals** in that file: one line per domain concept you found to be
 core to this repository, `{"w":"the concept","gloss":"one line","proposed":true,"code":[{"name":"identifier","at":"src/x.ts:12"}]}`.

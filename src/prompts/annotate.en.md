@@ -27,16 +27,15 @@ One line per note:
 One finished note — its LENGTH is part of the standard:
 {"id":12,"by":"agent","kind":"note","group":1,"role":"key","path":"src/app-main.ts","line":1198,"title":"Why the countdown starts here","text":"A workspace you cannot see keeps its language servers running — a couple of gigabytes each. So the moment it goes off screen we start a countdown, and shut them down when it ends. It used to be restarted on every switch, so with three workspaces in rotation it never finished once."}
 
-**Write in the reader's words.** The words this repository's reviewer has actually used are in this file, one per line:
-{{TERMS_PATH}}
+**Write in the reader's words.** Call `kakapo_words` for the words this repository's reviewer has actually used.
 
-Read it; never write to it. A word gets in there only when the reader used it themselves — that the names are theirs and not yours is the entire point of the file. What you do with it is keep three rules.
+Read them; do not call `kakapo_keep_word` from this prompt. A word gets in there only when the reader used it themselves — that the names are theirs and not yours is the entire point of the file. What you do with it is keep three rules.
 
 1. **Do not coin a new name.** If a word in that file says it, use that word. Calling the same thing by a second name makes the reader solve "are these two the same?" before they can read the explanation at all. If you genuinely need a concept that is not in there, pay for it on the spot, as rule 4 says.
 2. **Attach it to what they already know.** A new thing lands fastest when it is hung off a word they have — "this is the same place a comment used to hang from" beats a fresh paragraph. Where that file shows two words used together, keep that connection.
 3. **Do not break the "why" chain.** Understanding travels along why. When one note answers a why, the next note starts from that answer. The place the chain breaks — where you write about something the reader does not know yet as if they did — is the place the explanation fails.
 
-If that file is missing or empty, the reviewer has not built up any words yet. Then it matters even more not to coin one: write in plain words anyone knows — whatever they meet in this explanation is what they will be saying next time.
+If the tool returns nothing, or is not there at all, the reviewer has not built up any words yet. Then it matters even more not to coin one: write in plain words anyone knows — whatever they meet in this explanation is what they will be saying next time.
 
 How to write each note. Nine rules, and they all point the same way — **short, and plain**:
 

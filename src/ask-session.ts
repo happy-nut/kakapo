@@ -49,9 +49,17 @@ const ASK_MAX_OUTPUT = 32 * 1024 * 1024;
 // appends them (collectPrintedRecords, app-main.ts). That is the better shape anyway: the id space spans two
 // files and an agent only ever sees one, which is the mistake the thread file's own header spends four lines
 // warning about. Ours is the only counter that can be right — and "read-only" is now simply true.
+// kakapo's own MCP tools are the exception to "no write rule of any kind", and they are not a hole in it.
+// The server is a separate process that owns one file — the reader's vocabulary — and validates every word
+// against the rules that make it worth reading (mcp-server.ts). Nothing here reaches the working tree.
+//
+// Without them the session cannot see the vocabulary AT ALL: the CLI's allowlist is exhaustive, so an
+// unlisted MCP tool is simply absent. `kakapo_words` says "read this before explaining anything about this
+// repository" — and this is the session that now does most of the explaining.
 const ALLOWED_TOOLS = [
   "Read", "Grep", "Glob",
   "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git status:*)", "Bash(git blame:*)",
+  "mcp__kakapo__kakapo_words", "mcp__kakapo__kakapo_keep_word",
 ].join(",");
 
 // Which agent answers. Not the workspace's own choice: that is recorded as a launch command for a terminal
