@@ -330,6 +330,10 @@ function openTermMap() {
     + '<span class="mc-map-title">' + escapeHtml(t('rail.terms')) + '</span>'
     + '<span class="mc-map-count" id="mc-map-count"></span>'
     + '<span class="mc-map-sp"></span>'
+    // A word the reader wants to write down themselves. Until now the vocabulary could only be added to by
+    // an agent noticing one (mcp-server.ts) — so the reader could remove their own words but never write one.
+    + '<button type="button" class="mc-map-add" id="mc-map-add" title="' + escapeHtml(t('terms.add')) + '">'
+      + '+ ' + escapeHtml(t('terms.add')) + '</button>'
     + '<button type="button" class="mc-map-x" id="mc-map-x" aria-label="' + escapeHtml(t('terms.close')) + '">✕</button>'
     + '</div>'
     + '<div class="mc-map-stage" id="mc-map-stage">'
@@ -338,6 +342,7 @@ function openTermMap() {
     + '</div>';
   document.body.appendChild(host);
   document.getElementById('mc-map-x').addEventListener('click', closeTermMap);
+  document.getElementById('mc-map-add').addEventListener('click', openTermAdd);
   var stage = document.getElementById('mc-map-stage');
   stage.addEventListener('pointerdown', onTermMapPointerDown);
   stage.addEventListener('wheel', onTermMapWheel, { passive: false });
@@ -661,6 +666,20 @@ function termNodeByKey(key) {
 // ── the card ──────────────────────────────────────────────────────────────────────────────────────
 // It hangs under its own node and follows it every frame. Positioning it once was the version that ended up
 // covering the node it belonged to as soon as a link inside it moved the focus somewhere else.
+// A blank card, opened over the map with no node behind it. openTermCard needs a node (it pins, marks seen,
+// and verifies addresses); this one deliberately does none of that — there is no word yet.
+function openTermAdd() {
+  closeTermCard();
+  var stage = document.getElementById('mc-map-stage');
+  if (!stage) return;
+  var card = document.createElement('div');
+  card.className = 'mc-term-card is-adding';
+  card.id = 'mc-term-card';
+  card.addEventListener('click', onTermCardClick);
+  stage.appendChild(card);
+  openTermEditor(null, true);
+}
+
 function openTermCard(node) {
   closeTermCard();
   termMap.pinned = node;
@@ -690,6 +709,8 @@ function openTermCard(node) {
 function closeTermCard() {
   var card = document.getElementById('mc-term-card');
   if (card) card.remove();
+  termCardEditing = null;
+  termCardIsNew = false;
   termMap.pinned = null;
   kickTermMap();
 }
@@ -704,15 +725,45 @@ function termCardHtml(node) {
     return '<button type="button" class="mc-term-code" data-at="' + escapeHtml(entry.at || '') + '">'
       + '<code>' + escapeHtml(entry.name) + '</code>' + at + '</button>';
   }).join('');
+  // The \u00d7 in this header CLOSES. It used to be the only button here and it DELETED the word — and a
+  // \u00d7 in the corner of an opened panel is read as "close" by everyone, so the reader dismissed a detail
+  // and silently lost the word instead. Throwing one out is a decision, so it is now a decision-shaped
+  // control: named, next to Edit, at the bottom where the actions are.
   return '<div class="mc-term-h">' + head + '<span class="mc-term-w">' + escapeHtml(term.w) + '</span>'
     + (term.proposed ? '<span class="mc-term-offered">' + escapeHtml(t('terms.offered')) + '</span>' : '')
-    // A vocabulary you cannot take a word OUT of is a vocabulary that only grows, and a word the reader
-    // disagrees with is exactly the one that must not be the language the next explanation is written in.
-    + '<button type="button" class="mc-term-drop" data-drop="' + escapeHtml(termKeyOf(term)) + '" aria-label="'
-      + escapeHtml(t('terms.drop')) + '" title="' + escapeHtml(t('terms.drop')) + '">\u00d7</button>'
+    + '<button type="button" class="mc-term-close" aria-label="' + escapeHtml(t('terms.close'))
+      + '" title="' + escapeHtml(t('terms.close')) + '">\u00d7</button>'
     + '</div>'
     + '<p class="mc-term-gloss">' + termGlossHtml(node) + '</p>'
-    + (code ? '<div class="mc-term-codes"><span class="mc-term-kicker">' + escapeHtml(t('terms.code')) + '</span>' + code + '</div>' : '');
+    + (code ? '<div class="mc-term-codes"><span class="mc-term-kicker">' + escapeHtml(t('terms.code')) + '</span>' + code + '</div>' : '')
+    + '<div class="mc-term-actions">'
+    + '<button type="button" class="mc-term-act mc-term-edit">' + escapeHtml(t('terms.edit')) + '</button>'
+    // A vocabulary you cannot take a word OUT of is a vocabulary that only grows, and a word the reader
+    // disagrees with is exactly the one that must not be the language the next explanation is written in.
+    + '<button type="button" class="mc-term-act mc-term-drop" data-drop="' + escapeHtml(termKeyOf(term))
+      + '" title="' + escapeHtml(t('terms.drop')) + '">' + escapeHtml(t('terms.drop.short')) + '</button>'
+    + '</div>';
+}
+
+// The same card with its meaning open for writing. The gloss is what the vocabulary IS — a word is only the
+// handle — so that is what can be edited. The WORD itself is deliberately not editable here: it is the key
+// the record is stored under and the thing other glosses are matched against to draw the edges, so renaming
+// one is a graph operation, not a text edit (see termGraph).
+function termEditHtml(node, isNew) {
+  var term = node ? node.t : { w: '', gloss: '' };
+  return '<div class="mc-term-h">'
+    + (isNew
+      ? '<input type="text" class="mc-term-input mc-term-w-input" placeholder="' + escapeHtml(t('terms.add.word')) + '" value="' + escapeHtml(term.w) + '">'
+      : '<span class="mc-term-w">' + escapeHtml(term.w) + '</span>')
+    + '<button type="button" class="mc-term-close" aria-label="' + escapeHtml(t('terms.close'))
+      + '" title="' + escapeHtml(t('terms.close')) + '">\u00d7</button>'
+    + '</div>'
+    + '<textarea class="mc-term-input mc-term-gloss-input" rows="3" spellcheck="false" placeholder="'
+      + escapeHtml(t('terms.add.gloss')) + '">' + escapeHtml(term.gloss || '') + '</textarea>'
+    + '<div class="mc-term-actions">'
+    + '<button type="button" class="mc-term-act is-primary mc-term-save">' + escapeHtml(t('terms.save')) + '</button>'
+    + '<button type="button" class="mc-term-act mc-term-cancel">' + escapeHtml(t('terms.cancel')) + '</button>'
+    + '</div>';
 }
 
 // Every vocabulary word inside the meaning is a way in — the same mentions that drew the edges, so what the
@@ -745,7 +796,61 @@ function dropTerm(key) {
   saveTerms();
   buildTermMap();
 }
+// Editing and adding both happen in the card, because that is where the word already is. `termCardEditing`
+// holds the node being written to — null while a NEW word is being added, which is the only difference
+// between the two: one starts from a record and one starts from nothing.
+var termCardEditing;
+var termCardIsNew = false;
+
+function openTermEditor(node, isNew) {
+  var card = document.getElementById('mc-term-card');
+  if (!card) return;
+  termCardEditing = node || null;
+  termCardIsNew = !!isNew;
+  card.innerHTML = termEditHtml(node, isNew);
+  var first = card.querySelector(isNew ? '.mc-term-w-input' : '.mc-term-gloss-input');
+  if (first) { first.focus(); try { first.setSelectionRange(first.value.length, first.value.length); } catch (e) {} }
+}
+
+// Saving is an upsert by key, which is exactly what the file's own merge does (mergeTerms, terms-file.ts) —
+// so a word the reader writes here and a word an agent kept are the same kind of record, stored the same way.
+function saveTermEditor() {
+  var card = document.getElementById('mc-term-card');
+  if (!card) return;
+  var glossEl = card.querySelector('.mc-term-gloss-input');
+  var gloss = glossEl ? glossEl.value.trim() : '';
+  if (termCardIsNew) {
+    var wEl = card.querySelector('.mc-term-w-input');
+    var w = wEl ? wEl.value.trim() : '';
+    if (!w || !gloss) { showToast(t('terms.add.needBoth')); return; }
+    var clash = null;
+    termsState.terms.forEach(function (x) { if (!x.dropped && termKeyOf(x) === w) clash = x; });
+    if (clash) { showToast(t('terms.add.exists')); return; }
+    // `seen` from the start: the reader did not just meet this word, they wrote it. Leaving it unread would
+    // put an unread dot on the rail for something they typed themselves a second ago.
+    termsState.terms.push({ w: w, gloss: gloss, seen: true });
+  } else {
+    if (!termCardEditing) return;
+    if (!gloss) { showToast(t('terms.add.needBoth')); return; }
+    termCardEditing.t.gloss = gloss;
+    // A word the reader has edited is theirs now, whatever it arrived as. Leaving `proposed` on it would keep
+    // it drawn out at the edge, unconnected, as something still merely offered.
+    delete termCardEditing.t.proposed;
+  }
+  closeTermCard();
+  saveTerms();
+  buildTermMap();
+}
+
 function onTermCardClick(event) {
+  var close = event.target.closest && event.target.closest('.mc-term-close');
+  if (close) { closeTermCard(); return; }
+  var edit = event.target.closest && event.target.closest('.mc-term-edit');
+  if (edit) { openTermEditor(termMap.pinned, false); return; }
+  var save = event.target.closest && event.target.closest('.mc-term-save');
+  if (save) { saveTermEditor(); return; }
+  var cancel = event.target.closest && event.target.closest('.mc-term-cancel');
+  if (cancel) { closeTermCard(); return; }
   var drop = event.target.closest && event.target.closest('.mc-term-drop');
   if (drop) { dropTerm(drop.dataset.drop); return; }
   var link = event.target.closest && event.target.closest('.mc-term-link');

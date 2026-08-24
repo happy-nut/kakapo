@@ -448,3 +448,68 @@ test("a terminal conversation can feed the vocabulary too", async () => {
   assert.match(text, /되묻고 있는|still asking about/, "and not the ones they are still asking about");
   assert.match(text, /남길 것이 없으면|nothing to keep, do nothing/, "most conversations keep nothing");
 });
+
+// The × in a card's header CLOSES it. It used to be the only button up there and it removed the word, so a
+// reader dismissing a detail lost the word instead — the one action in the map that cannot be undone by
+// doing it again. Removing is still possible; it is a named button at the foot of the card now.
+test("closing a word's detail closes it — the word is still there", async () => {
+  const v = await openMap();
+  pick(v, "브리핑");
+  await v.settle(20);
+  assert.ok(v.$("#mc-term-card"), "the detail is up");
+  assert.ok(v.$("#mc-term-card .mc-term-close"), "and it has a way out that is not a deletion");
+
+  v.$("#mc-term-card .mc-term-close").click();
+  await v.settle(20);
+  assert.equal(v.$("#mc-term-card"), null, "the card is gone");
+  const term = v.window.termsState.terms.find((x) => x.w === "브리핑");
+  assert.ok(term && !term.dropped, "and the word it was about is untouched");
+  assert.ok(v.$('#mc-map .mc-node[data-node="브리핑"]'), "still on the map");
+});
+
+// A vocabulary the reader can only remove from is one they cannot correct. Editing writes the gloss, which
+// is the knowledge — the word itself is the key the record is stored under and stays as it is.
+test("a meaning can be rewritten, and the map redraws from what it now says", async () => {
+  const v = await openMap();
+  pick(v, "말풍선");
+  await v.settle(20);
+  v.$("#mc-term-card .mc-term-edit").click();
+  await v.settle(10);
+  const input = v.$("#mc-term-card .mc-term-gloss-input");
+  assert.equal(input.value, "브리핑을 담아서 띄우는 창.", "the editor opens on what is already there");
+
+  input.value = "코멘트를 담아서 띄우는 창.";
+  v.$("#mc-term-card .mc-term-save").click();
+  await v.settle(30);
+  assert.equal(v.window.termsState.terms.find((x) => x.w === "말풍선").gloss, "코멘트를 담아서 띄우는 창.");
+  // The edge followed the sentence: 말풍선 pointed at 브리핑 because its meaning said so, and now it does not.
+  pick(v, "말풍선");
+  await v.settle(20);
+  const links = Array.from(v.$("#mc-term-card").querySelectorAll(".mc-term-link")).map((b) => b.dataset.w);
+  assert.ok(links.includes("코멘트"), "the word it now names is a way in");
+  assert.ok(!links.includes("브리핑"), "the one it no longer names is not");
+});
+
+// Until now the vocabulary could only be added to by an agent noticing a word (mcp-server.ts). The reader
+// could remove their own words and never write one.
+test("the reader can write a word down themselves", async () => {
+  const v = await openMap();
+  const before = v.window.termsState.terms.length;
+  v.$("#mc-map-add").click();
+  await v.settle(10);
+  assert.ok(v.$("#mc-term-card.is-adding"), "a blank card, not one about some other word");
+
+  v.$("#mc-term-card .mc-term-save").click(); // nothing typed
+  await v.settle(10);
+  assert.ok(v.$("#mc-term-card"), "an empty word is refused rather than saved as one");
+
+  v.$("#mc-term-card .mc-term-w-input").value = "숨은 세션";
+  v.$("#mc-term-card .mc-term-gloss-input").value = "코멘트에 답하는, 보이지 않는 에이전트.";
+  v.$("#mc-term-card .mc-term-save").click();
+  await v.settle(30);
+  const added = v.window.termsState.terms.find((x) => x.w === "숨은 세션");
+  assert.ok(added, "it is in the vocabulary");
+  assert.equal(added.seen, true, "and not marked unread — the reader wrote it a second ago");
+  assert.equal(v.window.termsState.terms.length, before + 1);
+  assert.ok(v.$('#mc-map .mc-node[data-node="숨은 세션"]'), "and on the map");
+});
