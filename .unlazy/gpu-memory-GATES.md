@@ -2,6 +2,18 @@
 
 OWNS: .unlazy/gpu-memory-*, scripts/gpu-probe.mjs
 
+NOTE: G4, G5 and G8 read sample files under .unlazy/ that are deliberately NOT committed — they are ~4k lines
+of one-off telemetry. Regenerate them before re-verifying, with the app running:
+
+    node scripts/gpu-probe.mjs sample   .unlazy/gpu-memory-trend.json 300 3000   # G5, needs a FIXED workspace count
+    node scripts/gpu-probe.mjs snapshot .unlazy/gpu-memory-attribution.json      # G4
+    node scripts/gpu-probe.mjs experiment .unlazy/gpu-memory-experiment.json     # G8, ~6 min
+    node <skill>/scripts/gate-check.mjs --reverify --root . --cwd . .unlazy/gpu-memory-GATES.md
+
+The figures each gate produced are recorded in its EVIDENCE line and in gpu-memory-CONCLUSION.md, so the
+conclusion stands on its own; what is lost by not committing the samples is only the ability to re-run the
+oracles against THIS session's exact readings.
+
 Scope: install the four pending commits, then measure the Kakapo GPU process against a controlled
 variable (number of live review renderers) until the 1 GB footprint is attributed to a named consumer
 with a marginal cost per workspace, or the leading candidates are eliminated with evidence.

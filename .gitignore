@@ -6,3 +6,7 @@ dist/
 *.log
 release/
 vendor/language-servers/
+
+# Raw measurement samples: regenerate with scripts/gpu-probe.mjs, do not carry them in the repo.
+.unlazy/*.json
+.unlazy/locks/
