@@ -208,6 +208,27 @@ test("a re-flow waits for an in-flight IME composition instead of splitting the 
     "and so does losing focus mid-syllable, so a deferred fit is never dropped for good");
 });
 
+// xterm's own stylesheet paints the in-progress IME overlay #000 on #FFF with no theme hook, and the overlay
+// is a whole cell tall around a glyph that is only font-size tall — a dark band above and below every Hangul
+// word while it is being composed, which reads as the word lifting off its line.
+test("the IME composition overlay wears the terminal's palette, not xterm's hardcoded black", () => {
+  const theme = client.match(/function applyTerminalTheme\(\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(theme, "one function pushes the palette into the live panes");
+  assert.match(theme, /setProperty\('--terminal-bg', colors\.background\)/, "the background is published for CSS");
+  assert.match(theme, /setProperty\('--terminal-fg', colors\.foreground\)/, "and the foreground with it");
+  // On a theme CHANGE is not enough: until it has run once, the overlay is still xterm's black.
+  assert.match(client, /applyTerminalTheme\(\);\s*\n\s*window\.__kakapoTerminal = \{/,
+    "and it runs once at startup, not only when the theme changes");
+
+  const css = readFileSync(new URL("../src/viewer.css", import.meta.url), "utf8");
+  const rule = css.match(/\.terminal-panel \.xterm \.composition-view \{[^}]*\}/)?.[0];
+  assert.ok(rule, "the overlay is restyled");
+  assert.match(rule, /background: var\(--terminal-bg/, "with the terminal's background, so no band shows around the glyph");
+  assert.match(rule, /color: var\(--terminal-fg/, "and its foreground");
+  assert.doesNotMatch(rule, /top:|height:|line-height:/,
+    "nothing here moves the overlay — its box is where the text lands, only the paint was wrong");
+});
+
 // Each pane's WebGL renderer holds a canvas and a glyph atlas on the GPU, and a window with several
 // workspaces kept every one of them alive off screen — the GPU process sat on hundreds of MB of IOSurface,
 // and past a point the atlas stops allocating and a pane draws background cells with no glyphs on them.
