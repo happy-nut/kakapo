@@ -255,9 +255,21 @@ function terminalPathLinkProvider(term) {
   }
   // The panes read those colors once, when they are constructed, so a theme switch has to be pushed into the
   // live xterm instances — otherwise the app repaints around a terminal still wearing the old palette.
+  //
+  // The theme object does not reach everything xterm draws: the in-progress IME overlay is a DOM element that
+  // xterm's own stylesheet paints #000 on #FFF, unconditionally (.composition-view — the same rule carries a
+  // TODO admitting its position is wrong). On a themed terminal that is a black slab behind the half-built
+  // word, and because the overlay is a whole CELL tall while the glyph is only font-size tall, it shows as a
+  // dark band above and below the letters — which reads as the word being lifted off its own line, the whole
+  // time you are composing Hangul. Publish the two colours the overlay needs as custom properties and let CSS
+  // pick them up (viewer.css, .composition-view).
   function applyTerminalTheme() {
     var colors = themeColors();
     panes.forEach(function (p) { try { p.term.options.theme = colors; } catch (e) {} });
+    try {
+      panel.style.setProperty('--terminal-bg', colors.background);
+      panel.style.setProperty('--terminal-fg', colors.foreground);
+    } catch (e) {}
   }
   // Underline URLs in the scrollback and hand a clicked one to the default browser. The click goes through
   // main (kakapo:open-external), which re-checks the scheme — a command can print any string it likes, so
@@ -1076,6 +1088,9 @@ function terminalPathLinkProvider(term) {
     }
     return true; // every key while picking belongs to the picker
   };
+  // Publish the terminal palette once at startup, not only on a theme CHANGE: the composition overlay reads it
+  // from CSS (see applyTerminalTheme), and until this ran it fell back to xterm's hardcoded black.
+  applyTerminalTheme();
   window.__kakapoTerminal = {
     isOpen: isOpen,
     // The Settings rows (08-dock.js) own the values; the panel owns what they mean on screen.

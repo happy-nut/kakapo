@@ -2939,6 +2939,17 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
   overflow: hidden;
 }
 .terminal-panel.hidden { display: none; }
+/* xterm paints the in-progress IME overlay #000 on #FFF from its own stylesheet, with no theme hook — and the
+   overlay is a whole CELL tall while the glyph inside it is only font-size tall. On a themed terminal that is a
+   dark band above and below the half-built word, which reads as the word floating off its line for as long as
+   you are composing (a macOS Hangul composition runs to the end of the WORD, so that is most of the time you
+   are typing). Wear the terminal's own colours instead; applyTerminalTheme publishes them. Nothing here moves
+   the overlay — its box is where the text will land, and only its paint was ever wrong. */
+.terminal-panel .xterm .composition-view {
+  background: var(--terminal-bg, transparent);
+  color: var(--terminal-fg, inherit);
+}
+
 /* Entrance animation: the panel rises + fades in when it un-hides (display:none -> flex restarts the
    animation on every open), and the freshly-appended backdrop fades with it. transform/opacity only, so the
    layout box is full-size immediately and the rAF fitAll() still measures correct terminal dimensions. */
