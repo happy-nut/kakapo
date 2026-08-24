@@ -427,60 +427,23 @@ function terminalPathLinkProvider(term) {
   // review that is milliseconds each, and opening the panel spent 2.5 of its 2.6 seconds in exactly that.
   // Best effort in every direction: no addon, no WebGL context, or a context lost later (a GPU reset, a
   // display change) and the terminal falls back to the renderer it has always used.
+  //
+  // Releasing these while a workspace is off screen was tried and taken out. It cost the panes their content:
+  // xterm's buffer survives, but re-attaching an addon only sets the renderer — nothing marks the screen dirty
+  // — and the pane you came back to was blank but for whatever cell happened to repaint, which is worse than
+  // any amount of memory. flushHiddenOutput covers only panes that RECEIVED output while away, so the quiet
+  // ones came back empty. It bought nothing either: the GPU process held ~1 GB with the release in place, so
+  // the pane canvases were never where that memory was. Anything attempted here again needs a full repaint on
+  // re-attach AND a measurement showing the GPU process actually shrinks.
   function loadWebglRenderer(term) {
     var Addon = window.WebglAddon && window.WebglAddon.WebglAddon;
-    if (!Addon) return null;
+    if (!Addon) return;
     try {
       var addon = new Addon();
       addon.onContextLoss(function () { try { addon.dispose(); } catch (e) {} });
       term.loadAddon(addon);
-      return addon;
     } catch (e) { /* the DOM renderer is still a terminal */ }
-    return null;
   }
-
-  // A pane's WebGL renderer is not free while nobody is looking at it. Each one holds its canvas plus a glyph
-  // atlas on the GPU — measured on a 4-workspace window, the two canvases of one pane are ~45 MB of backing
-  // store, and the GPU process was sitting on 692 MB of IOSurface with three of the four workspaces off
-  // screen. It is not idle memory either: past a point the atlas simply fails to allocate, and a pane draws
-  // its background cells with no glyphs on them — the terminal that "stops rendering half way".
-  //
-  // So a workspace that goes off screen gives its contexts back. Main already releases this workspace's LSP
-  // and review DOM once it has been idle long enough (reconcileIdleSuspend); the terminal was the one thing
-  // that kept its share of the GPU no matter how long you had been elsewhere. Disposing the addon puts xterm
-  // back on the DOM renderer it shipped with, which is correct — just slower — so nothing breaks if the
-  // re-attach never happens.
-  //
-  // Not immediate: flipping between two workspaces would then rebuild an atlas each way. Held for a grace
-  // period, so only a workspace you actually LEFT pays, and the pane you bounce back to is untouched.
-  var WEBGL_RELEASE_AFTER_HIDDEN_MS = 20_000;
-  var webglReleaseTimer = 0;
-  function releasePaneWebgl() {
-    webglReleaseTimer = 0;
-    panes.forEach(function (p) {
-      if (!p.webgl) return;
-      try { p.webgl.dispose(); } catch (e) {}
-      p.webgl = null;
-      p.webglReleased = true;
-    });
-  }
-  function restorePaneWebgl() {
-    panes.forEach(function (p) {
-      if (!p.webglReleased || p.webgl || !p.term) return;
-      p.webglReleased = false;
-      p.webgl = loadWebglRenderer(p.term);
-    });
-  }
-  document.addEventListener('visibilitychange', function () {
-    if (webglReleaseTimer) { clearTimeout(webglReleaseTimer); webglReleaseTimer = 0; }
-    if (document.visibilityState === 'hidden') {
-      webglReleaseTimer = setTimeout(releasePaneWebgl, WEBGL_RELEASE_AFTER_HIDDEN_MS);
-      return;
-    }
-    // Coming back builds a fresh atlas, which is also the only cheap way out of a corrupted one — a pane that
-    // came back wrong now comes back right.
-    restorePaneWebgl();
-  });
 
   function makePane(cell, restoreOrdinal) {
     if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw
@@ -505,7 +468,7 @@ function terminalPathLinkProvider(term) {
     });
     var fit = new window.FitAddon.FitAddon();
     term.loadAddon(fit);
-    var webgl = loadWebglRenderer(term);
+    loadWebglRenderer(term);
     loadWebLinks(term);
     loadPathLinks(term); // after the URL provider, so a URL is still a URL and not its trailing filename
     term.open(paneHost);
@@ -514,8 +477,7 @@ function terminalPathLinkProvider(term) {
     // the lowest FREE one instead. With sessions 1 and 3 alive (any pane but the last closed), the restore
     // attached to 1, then created a brand-new session 2 — leaving 3 orphaned and running. The next launch saw
     // three sessions and restored three panes, one of them empty, and the count grew again every time.
-    var pane = { id: null, term: term, fit: fit, el: el, host: paneHost, labelEl: labelEl, webgl: webgl,
-      webglReleased: false,
+    var pane = { id: null, term: term, fit: fit, el: el, host: paneHost, labelEl: labelEl,
       restoreOrdinal: restoreOrdinal, name: 'Terminal ' + (panes.length + 1) };
     labelEl.textContent = pane.name;
     // From the moment the rectangle exists it is a rectangle that is waiting. The panel-wide overlay covered
@@ -686,7 +648,6 @@ function terminalPathLinkProvider(term) {
     var i = panes.indexOf(p);
     if (i < 0) return;
     composingPanes.delete(p);
-    p.webgl = null; // term.dispose() takes the addon with it; drop the reference so nothing re-disposes it
     try { p.term.dispose(); } catch (e) {}
     var cell = p.el.parentNode;
     if (cell) {

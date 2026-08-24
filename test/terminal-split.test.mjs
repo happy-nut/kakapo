@@ -229,27 +229,25 @@ test("the IME composition overlay wears the terminal's palette, not xterm's hard
     "nothing here moves the overlay — its box is where the text lands, only the paint was wrong");
 });
 
-// Each pane's WebGL renderer holds a canvas and a glyph atlas on the GPU, and a window with several
-// workspaces kept every one of them alive off screen — the GPU process sat on hundreds of MB of IOSurface,
-// and past a point the atlas stops allocating and a pane draws background cells with no glyphs on them.
-test("a workspace that goes off screen gives its panes' GPU contexts back, and takes them again on return", () => {
-  assert.match(client, /function loadWebglRenderer\(term\)[\s\S]{0,400}return addon;/,
-    "the addon is handed back so there is something to dispose later");
-  assert.match(client, /webgl: webgl/, "and kept on the pane it belongs to");
+// xterm's own stylesheet paints the in-progress IME overlay #000 on #FFF with no theme hook, and the overlay
+// is a whole cell tall around a glyph that is only font-size tall — a dark band above and below every Hangul
+// word while it is being composed, which reads as the word lifting off its line.
+test("the IME composition overlay wears the terminal's palette, not xterm's hardcoded black", () => {
+  const theme = client.match(/function applyTerminalTheme\(\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(theme, "one function pushes the palette into the live panes");
+  assert.match(theme, /setProperty\('--terminal-bg', colors\.background\)/, "the background is published for CSS");
+  assert.match(theme, /setProperty\('--terminal-fg', colors\.foreground\)/, "and the foreground with it");
+  // On a theme CHANGE is not enough: until it has run once, the overlay is still xterm's black.
+  assert.match(client, /applyTerminalTheme\(\);\s*\n\s*window\.__kakapoTerminal = \{/,
+    "and it runs once at startup, not only when the theme changes");
 
-  const release = client.match(/function releasePaneWebgl\(\)[\s\S]*?\n  \}/)?.[0];
-  assert.ok(release, "one function releases them");
-  assert.match(release, /p\.webgl\.dispose\(\)/, "the addon is disposed, which puts xterm back on its DOM renderer");
-  assert.match(release, /p\.webglReleased = true/, "and the pane remembers it is owed one");
-
-  const restore = client.match(/function restorePaneWebgl\(\)[\s\S]*?\n  \}/)?.[0];
-  assert.ok(restore, "and one takes them back");
-  assert.match(restore, /if \(!p\.webglReleased \|\| p\.webgl/, "a pane that never released is left alone");
-
-  // Not on the visibility flip itself: bouncing between two workspaces would rebuild an atlas each way.
-  assert.match(client, /visibilityState === 'hidden'[\s\S]{0,160}setTimeout\(releasePaneWebgl/,
-    "leaving is on a grace timer, so only a workspace you actually left pays");
-  assert.match(client, /clearTimeout\(webglReleaseTimer\)/, "and coming straight back cancels it");
+  const css = readFileSync(new URL("../src/viewer.css", import.meta.url), "utf8");
+  const rule = css.match(/\.terminal-panel \.xterm \.composition-view \{[^}]*\}/)?.[0];
+  assert.ok(rule, "the overlay is restyled");
+  assert.match(rule, /background: var\(--terminal-bg/, "with the terminal's background, so no band shows around the glyph");
+  assert.match(rule, /color: var\(--terminal-fg/, "and its foreground");
+  assert.doesNotMatch(rule, /top:|height:|line-height:/,
+    "nothing here moves the overlay — its box is where the text lands, only the paint was wrong");
 });
 
 // The caret is drawn in the cell the syllable is being built in, so it sat under the composition overlay and
@@ -499,5 +497,5 @@ test("panes draw on the GPU when the machine has it, and still run when it does 
   assert.match(loader, /onContextLoss[\s\S]{0,60}dispose\(\)/,
     "a lost GPU context disposes the addon rather than leaving a dead canvas");
   assert.match(loader, /catch \(e\) \{ \/\* the DOM renderer is still a terminal \*\/ \}/, "and any failure falls back");
-  assert.match(client, /term\.loadAddon\(fit\);\s*\n\s*var webgl = loadWebglRenderer\(term\)/, "every pane gets it");
+  assert.match(client, /term\.loadAddon\(fit\);\s*\n\s*loadWebglRenderer\(term\)/, "every pane gets it");
 });
