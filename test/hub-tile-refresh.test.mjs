@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { git, gitAsync } from "../dist/git.js";
@@ -67,5 +67,38 @@ test("gitAsync leaves the event loop free while git runs — the whole point of 
     assert.equal(blockedTicks, 0, "spawnSync blocks the thread outright — that is the cost being avoided");
   } finally {
     repo.cleanup();
+  }
+});
+
+// The rail's working spinner was pty-driven only: an output chunk arriving in an attached pane set the flag.
+// On the first launch of the day nothing is attached — panes are restored lazily — so every workspace reported
+// "not working" and the rail drew a window full of finished agents while they were all mid-turn. tmux has been
+// watching their output the whole time, and it is already scanned once per tick for the green running dot.
+test("a workspace with no pty attached still reports a working agent, from tmux", () => {
+  const main = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
+
+  assert.ok(main.includes('"list-panes", "-a", "-F", "#{session_name}\\t#{pane_current_command}\\t#{window_activity}"'),
+    "activity rides along on the existing scan — one answer must not cost two subprocesses");
+
+  const busy = main.match(/function tmuxSessionBusy\(session: string\): boolean \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(busy, "one place decides whether a tmux session is mid-turn");
+  assert.match(busy, /Date\.now\(\) - at \* 1000 < TMUX_BUSY_WINDOW_MS/, "seconds from tmux, milliseconds here");
+
+  // tmux stamps in whole seconds and the scan is cached, so the window must clear both or a working agent
+  // blinks off between ticks.
+  const win = Number(main.match(/const TMUX_BUSY_WINDOW_MS = (\d+);/)?.[1]);
+  const ttl = Number(main.match(/const TMUX_SCAN_TTL_MS = (\d+);/)?.[1]);
+  assert.ok(win > ttl + 1000, `busy window ${win}ms must outlast the ${ttl}ms scan cache plus tmux's 1s resolution`);
+
+  assert.match(main, /running: true, busy: tmuxSessionBusy\(session\)/,
+    "the detached-session row asks tmux instead of hardcoding idle");
+
+  // Both pushes have to agree: the full render is the FIRST paint after launch, the activity tick every one
+  // after it. Fixing only the tick would leave the launch itself still lying.
+  const pushes = main.match(/busy: state\.busy(?![A-Za-z])[^,\n]*/g) ?? [];
+  assert.equal(pushes.length, 2, "exactly two places report workspace busy to the rail");
+  for (const p of pushes) {
+    assert.match(p, /paneRows\.some\(\(pane\) => pane\.busy\)|rows\.some\(\(pane\) => pane\.busy\)/,
+      `both fold in the pane rows, got: ${p}`);
   }
 });

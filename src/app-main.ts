@@ -1668,26 +1668,49 @@ function shellBasename(): string {
 // questions the rail asks are answered from it: "is anything but a shell running here" (the green dot) and
 // "which agent is it" (the tile badge). Running the scan twice would be two subprocesses giving one answer,
 // and it is cached for a beat besides, because the rail asks on every activity tick.
-let tmuxPaneCache: { panes: Map<string, string>; at: number } | undefined;
+let tmuxPaneCache: { panes: Map<string, string>; activity: Map<string, number>; at: number } | undefined;
+// Unix seconds of a session's last activity, from the same tmux scan. tmux updates it on OUTPUT, which is the
+// question the rail's working spinner asks and the one nothing else could answer before a pty was attached.
+let tmuxSessionActivity = new Map<string, number>();
 const TMUX_SCAN_TTL_MS = 2000;
 function tmuxPaneCommands(): Map<string, string> {
-  if (tmuxPaneCache && Date.now() - tmuxPaneCache.at < TMUX_SCAN_TTL_MS) return tmuxPaneCache.panes;
+  if (tmuxPaneCache && Date.now() - tmuxPaneCache.at < TMUX_SCAN_TTL_MS) {
+    tmuxSessionActivity = tmuxPaneCache.activity;
+    return tmuxPaneCache.panes;
+  }
   const panes = new Map<string, string>();
+  const activity = new Map<string, number>();
   const tmux = resolveTmux(process.env);
   if (tmux) {
     try {
-      const listed = spawnSync(tmux, ["list-panes", "-a", "-F", "#{session_name}\t#{pane_current_command}"], { encoding: "utf8" });
+      // window_activity rides along on the SAME scan — the comment below is emphatic that one answer must not
+      // cost two subprocesses, and "is this agent working" is answered by the same rows as "what is it running".
+      const listed = spawnSync(tmux, ["list-panes", "-a", "-F", "#{session_name}\t#{pane_current_command}\t#{window_activity}"], { encoding: "utf8" });
       for (const line of String(listed.stdout ?? "").split("\n")) {
-        const [session, command] = line.split("\t");
+        const [session, command, active] = line.split("\t");
         // First non-shell pane wins, so a session whose second pane sits at a prompt still reports its agent.
         const name = (command ?? "").trim();
         if (!session || !name) continue;
-        if (!panes.has(session) || panes.get(session)!.replace(/^-/, "") === shellBasename()) panes.set(session.trim(), name);
+        const key = session.trim();
+        if (!panes.has(session) || panes.get(session)!.replace(/^-/, "") === shellBasename()) panes.set(key, name);
+        // The busiest pane in the session speaks for it: one pane idling at a prompt must not make the session
+        // look idle while another is mid-turn.
+        const at = Number(active);
+        if (Number.isFinite(at)) activity.set(key, Math.max(activity.get(key) ?? 0, at));
       }
     } catch { /* no tmux server -> nothing running that outlived us */ }
   }
-  tmuxPaneCache = { panes, at: Date.now() };
+  tmuxPaneCache = { panes, activity, at: Date.now() };
+  tmuxSessionActivity = activity;
   return panes;
+}
+// tmux stamps window_activity in whole SECONDS, and the scan above is cached for TMUX_SCAN_TTL_MS, so the
+// freshest reading can already be that old before anyone asks. The window has to clear both to avoid blinking
+// a working agent off between ticks — the pty path decays in 1200ms, this one is deliberately slacker.
+const TMUX_BUSY_WINDOW_MS = 4000;
+function tmuxSessionBusy(session: string): boolean {
+  const at = tmuxSessionActivity.get(session);
+  return !!at && Date.now() - at * 1000 < TMUX_BUSY_WINDOW_MS;
 }
 function runningTmuxSessions(): string {
   const shellName = shellBasename();
@@ -1743,7 +1766,10 @@ function panesForWorkspace(state: WinState, panes: Map<string, string>): Workspa
     if (attached.has(session) || !spare.includes(session)) continue;
     const command = (panes.get(session) || "").replace(/^-/, "");
     if (!command || command === shellName) continue;
-    rows.push({ id: next--, command, agent: agentForCommand(command), running: true, busy: false });
+    // busy from tmux, not from a pty we do not have. On the first launch of the day NOTHING here is attached
+    // — panes are restored lazily — so every workspace reported "not working" and the rail drew a window full
+    // of finished agents while they were all mid-turn. tmux has been watching their output the whole time.
+    rows.push({ id: next--, command, agent: agentForCommand(command), running: true, busy: tmuxSessionBusy(session) });
   }
   return rows;
 }
@@ -1794,7 +1820,9 @@ function sendAgentActivity(): void {
     return {
       // The hidden session counts as this workspace being busy. It produces no pty output, so without this
       // the one agent nobody can watch is also the one the rail says nothing about.
-      id: state.win.webContents.id, busy: state.busy || state.asking.length > 0, unread: state.unread,
+      id: state.win.webContents.id,
+      busy: state.busy || state.asking.length > 0 || rows.some((pane) => pane.busy),
+      unread: state.unread,
       running: rows.some((pane) => pane.running), panes: rows,
     };
   });
@@ -2015,7 +2043,10 @@ function renderHub(): void {
       // The full render carries the pane rows too, so a rail rebuilt from scratch (opening it, switching
       // workspaces) already shows them instead of waiting for the next activity tick to fill them in.
       panes: paneRows, running: paneRows.some((pane) => pane.running),
-      unread: state.unread, busy: state.busy, detached: state.win.isDetached() };
+      // Same answer as the activity tick (sendAgentActivity). This render is the FIRST paint after launch,
+      // which is exactly when state.busy is false for every workspace because no pty is attached yet.
+      unread: state.unread, busy: state.busy || paneRows.some((pane) => pane.busy),
+      detached: state.win.isDetached() };
   });
   const disconnected = saved.filter((item) => !existsSync(item.path)).map((item, index) => ({
     ...item, id: -(index + 1), active: false, running: false, unread: false, busy: false, disconnected: true,
