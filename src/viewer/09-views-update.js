@@ -100,11 +100,20 @@ function setRailContentPin(on) {
       railPinTimer = 0;
       document.body.classList.remove('rail-pinning');
       document.body.style.removeProperty('--rail-pin-content');
+      liftRailPin();
     }, 240);
   } else {
     document.body.classList.remove('rail-pinning');
     document.body.style.removeProperty('--rail-pin-content');
+    liftRailPin();
   }
+}
+// The terminal holds its re-flow for the same window (scheduleFitAll in 19-terminal.js): a fit per animation
+// frame re-wraps the panes at a dozen widths none of which survive, which the reviewer sees as the panel
+// juddering. One fit at the settled width instead — this is where "settled" is known.
+function liftRailPin() {
+  var api = window.__kakapoTerminal;
+  if (api && typeof api.flushFit === 'function') { try { api.flushFit(); } catch (e) {} }
 }
 if (window.kakapoMenu && typeof window.kakapoMenu.onRailPushed === 'function') {
   window.kakapoMenu.onRailPushed(function (pushed) {
@@ -185,8 +194,6 @@ function syncRail() {
   setOn('memo', !!document.getElementById('mc-memo-panel'));
   var hv = document.getElementById('history-view');
   setOn('history', !!(hv && !hv.classList.contains('hidden')));
-  var impact = document.getElementById('impact-panel');
-  setOn('impact', !!(impact && !impact.classList.contains('hidden')));
   // Explain opens no view of its own — light its rail icon while the agent's notes are on the diff, so the
   // button doubles as "there are notes to read" (23-annotations.js).
   setOn('explain', annotationList().length > 0);
@@ -784,7 +791,6 @@ function applyDiffUpdate(u) {
     container.scrollTop = activeFilePreserved ? diffScrollTop : 0;
   }
   hydrateVisibleDiffSwaps(deferredVisibleSwaps, diffCursorSnapshot, refreshGeneration);
-  if (isImpactOpen()) openImpact();
   return true;
 }
 

@@ -17,6 +17,16 @@
 var briefingReady = false;
 var briefingPage = 0;
 var briefingWaitTimer = 0; // set while the panel is held back for a terminal being typed into
+// Which note the panel is currently showing. There are two that belong in it and they are not the same
+// thing: the RUN's briefing (what this change is about, offered once, from the Changes panel) and the
+// codebase MAP (what this repository is, always available, from the Files panel). Everything that draws
+// reads this; only the auto-open decision still asks briefingNote() what the run has to say.
+var briefingShown = null;
+// …and whether what it is showing is the MAP. The three eyebrows below are the briefing's own fixed shape
+// ("the problem", "as is → to be", "what to read"), which the Explain prompt writes to. The map has whatever
+// `##` sections it has, and labelling its first page "the problem" says something about the repository that
+// nobody wrote.
+var briefingIsMap = false;
 // The three pages are a fixed structure (the prompt writes exactly these), so the eyebrow is ours to name and
 // the agent only has to write the sentence under it. A note that came back with no `##` headings at all —
 // an old briefing, or a run that ignored the shape — is one page and gets the generic label.
@@ -101,7 +111,7 @@ function briefingRowForPath(path) {
 function briefingAnchorRow() {
   var rows = briefingChangeRows();
   if (!rows.length) return null;
-  var note = briefingNote();
+  var note = briefingShown;
   var row = note && briefingRowForPath(note.path);
   if (row) return row;
   // Only files that HAVE a row can win: the whole point of this fallback is to find something to point at, and
@@ -176,14 +186,15 @@ function markBriefingFiles(lit) {
 
 function renderBriefing() {
   var pop = document.getElementById('mc-briefing');
-  var note = briefingNote();
+  var note = briefingShown;
   if (!pop || !note) return;
   var pages = briefingPages(note);
   if (briefingPage >= pages.length) briefingPage = pages.length - 1;
   if (briefingPage < 0) briefingPage = 0;
   var page = pages[briefingPage];
   var last = briefingPage === pages.length - 1;
-  var kicker = pages.length > 1 && BRIEFING_KICKERS[briefingPage] ? BRIEFING_KICKERS[briefingPage] : 'briefing.kind';
+  var kicker = briefingIsMap ? 'briefing.kindMap'
+    : (pages.length > 1 && BRIEFING_KICKERS[briefingPage] ? BRIEFING_KICKERS[briefingPage] : 'briefing.kind');
   pop.querySelector('.mc-brf-kind').textContent = t(kicker);
   var of = pop.querySelector('.mc-brf-of');
   of.textContent = (briefingPage + 1) + ' / ' + pages.length;
@@ -232,10 +243,32 @@ function markBriefingSeen(seq) {
   persistSave(EXPLAIN_RUNS_KEY, runs);
 }
 
-function openBriefing() {
-  var note = briefingNote();
+// The map of the repository — what the codebase prompt writes, one note, hung on the entry point. It goes in
+// the same panel as the briefing because it is the same shape of thing: a `##`-sectioned note with a Mermaid
+// diagram in it, meant to be read once through rather than found on a line.
+//
+// Told apart from an Explain note by having no `group`. That is not a guess about the text: the Explain
+// prompt requires a group on every note it writes (it is what orders the walk), and the codebase prompt asks
+// for exactly one note and never mentions groups. The newest one wins, so re-running the map replaces it.
+function codebaseMapNote() {
+  var found = null;
+  annotationList().forEach(function (c) {
+    if (c.group != null) return;
+    if (!found || c.seq > found.seq) found = c;
+  });
+  return found;
+}
+
+function openBriefing() { openBriefingPanel(briefingNote(), true, false); }
+// Opened by hand from the Files panel, so it never marks the RUN's briefing as seen — that flag is what stops
+// an explanation being shown twice, and spending it on the map would swallow the next real briefing.
+function openCodebaseMap() { openBriefingPanel(codebaseMapNote(), false, true); }
+
+function openBriefingPanel(note, markSeen, isMap) {
   if (!note) { showCaretHint(t('annotate.nav.none')); return; }
   if (document.getElementById('mc-briefing')) return;
+  briefingShown = note;
+  briefingIsMap = !!isMap;
   var scrim = document.createElement('div');
   scrim.className = 'mc-brf-scrim';
   scrim.id = 'mc-briefing-scrim';
@@ -251,7 +284,7 @@ function openBriefing() {
   document.body.appendChild(pop);
   briefingPage = 0;
   renderBriefing();
-  markBriefingSeen(note.seq);
+  if (markSeen) markBriefingSeen(note.seq);
 }
 
 function closeBriefing() {
@@ -259,7 +292,34 @@ function closeBriefing() {
   var scrim = document.getElementById('mc-briefing-scrim');
   if (pop) pop.remove();
   if (scrim) scrim.remove();
+  briefingShown = null;
+  briefingIsMap = false;
   markBriefingFiles(false);
+}
+
+// The way into the map, in the Files panel — the mirror of the briefing's own button in Changes, and the
+// division is the honest one: the briefing is about this CHANGE, which is what Changes lists; the map is
+// about this REPOSITORY, which is what Files is.
+//
+// Injected rather than rendered into the panel's markup because #files-panel is replaced wholesale (a lazy
+// project index arrives later and swaps it, and a rebuild swaps it again). A detached node is not found by
+// getElementById, so the check below rebuilds it exactly when the panel it lived in went away.
+function syncCodebaseRecall() {
+  var panel = document.getElementById('files-panel');
+  if (!panel) return;
+  var existing = panel.querySelector('#mc-map-recall');
+  if (!codebaseMapNote()) { if (existing) existing.remove(); return; }
+  if (existing) return;
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.id = 'mc-map-recall';
+  btn.className = 'mc-brf-recall';
+  btn.title = t('briefing.recallMap');
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M9 4.5 3.5 6.8v12.7L9 17.2l6 2.3 5.5-2.3V4.5L15 6.8z"/><path d="M9 4.5v12.7"/><path d="M15 6.8v12.7"/></svg>'
+    + '<span class="mc-brf-recall-text">' + escapeHtml(t('briefing.recallMap')) + '</span>';
+  btn.addEventListener('click', openCodebaseMap);
+  panel.insertBefore(btn, panel.firstChild);
 }
 
 function toggleBriefing() {
@@ -268,7 +328,7 @@ function toggleBriefing() {
 }
 
 function briefingStep(delta) {
-  var note = briefingNote();
+  var note = briefingShown;
   if (!note) return;
   var pages = briefingPages(note);
   var next = briefingPage + delta;
@@ -316,6 +376,7 @@ function syncBriefing() {
   var note = briefingNote();
   var recall = document.getElementById('mc-briefing-recall');
   if (recall) recall.classList.toggle('hidden', !note);
+  syncCodebaseRecall(); // the map's own way in, in the other panel — idempotent, so riding this hook is free
   if (!briefingReady || !note) return;
   if (document.getElementById('mc-briefing')) return;
   if (!isDiffViewVisible() || briefingSeenSeq() === note.seq) return;

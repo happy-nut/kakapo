@@ -35,6 +35,23 @@ test("lazy-LOAD build keeps initial diff bodies as raw chunks, not pre-rendered 
   assert.doesNotMatch(r.build.lazyBodyDiffs[0], /d2h-file-wrapper/, "raw chunk is not diff2html markup");
 });
 
+test("lazy-LOAD startup requests only the selected diff body", async () => {
+  const r = await makeReviewHtml([
+    { path: "src/one.ts", before: "export const one = 1;\n", after: "export const one = 11;\n" },
+    { path: "src/two.ts", before: "export const two = 2;\n", after: "export const two = 22;\n" },
+    { path: "src/three.ts", before: "export const three = 3;\n", after: "export const three = 33;\n" },
+  ], { lazyLoad: true });
+  const bodies = await renderLazyBodies(r.build);
+  const asked = [];
+  const v = await loadViewer(r.html, {
+    eagerIntersections: true,
+    getDiffBody: (idx) => { asked.push(idx); return bodies[idx] || ""; },
+  });
+  await v.settle(120);
+  assert.deepEqual(asked, [0], "startup does not materialize every off-screen file");
+  v.close();
+});
+
 test("lazy-LOAD: initial HTML omits unchanged project metadata and loads it on demand", async () => {
   const r = await makeReviewHtml([
     { path: "src/changed.ts", before: "export const changed = 1;\n", after: "export const changed = 2;\n" },

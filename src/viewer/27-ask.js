@@ -51,10 +51,26 @@ function deliverHandoff(payload) {
     });
 }
 
+// The card in the answer's own slot, holding it open while the answer is being written (threadHtml,
+// 07-comments.js). Built as the agent card it is about to become — same tint, same "answer" pill — so what
+// arrives replaces it rather than appearing somewhere else on the thread.
+function askThinkingHtml() {
+  return '<div class="mc-card mc-ai mc-reply-card mc-thinking" aria-live="polite">'
+    + '<div class="mc-card-head"><span class="mc-kind mc-kind-ai">' + annotationKindIcon()
+    + '<span class="mc-kind-text">' + escapeHtml(t('comment.answer')) + '</span></span></div>'
+    + '<div class="mc-card-body mc-thinking-body">'
+    + '<span class="mc-thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>'
+    + '<span class="mc-thinking-text">' + escapeHtml(t('ask.answering')) + '</span>'
+    + '</div></div>';
+}
+
+// The pill carries only the work that has nowhere else to show itself — an Explain run over the whole diff,
+// which belongs to no card. Anything anchored to a comment is announced ON that comment now, and the same
+// thing said twice in two places reads as two things happening.
 function renderAskStatus() {
   var el = document.getElementById('ask-status');
   if (!el) return;
-  var first = askActive[0];
+  var first = askActive.filter(function (a) { return a.seq == null; })[0];
   el.classList.toggle('hidden', !first);
   if (!first) return;
   var label = el.querySelector('.ask-status-label');
@@ -82,12 +98,16 @@ function applyAskStatus(payload) {
 // its place in the code attached to it — and the thread file named, so a follow-up can be read in context
 // rather than arriving as a sentence with no history.
 function askPromptForComment(c) {
-  var where = c.path ? c.path + (c.line ? ':' + c.line : '') : '';
+  // The place is told only while the comment still CLAIMS it. The composer prefills `@path#Lnn` into the text
+  // (openComposer, 07-comments.js) precisely so it can be deleted when the question is about something else,
+  // and a location attached here regardless would put it straight back and make the deletion mean nothing.
+  var claimed = c.path && String(c.text || '').indexOf('@' + c.path) >= 0;
+  var where = claimed ? c.path + (c.line ? ':' + c.line : '') : '';
   var thread = reviewThreadPath || '';
   return [
     t('ask.prompt.intro'),
     where ? t('ask.prompt.where') + ' ' + where : '',
-    c.code ? '\n```\n' + String(c.code) + '\n```\n' : '',
+    claimed && c.code ? '\n```\n' + String(c.code) + '\n```\n' : '', // the line goes with its address
     t('ask.prompt.question') + '\n' + String(c.text || ''),
     thread ? '\n' + t('ask.prompt.thread') + ' ' + thread + ' (id ' + c.seq + ')' : '',
     '\n' + t('ask.prompt.style'),

@@ -342,9 +342,6 @@ export function renderDiffHtml(input: {
     `<span class="rail-label" data-i18n="${labelKey}">${escapeHtml(defaultLabel)}</span>` +
     `<span class="rail-tip"><span data-i18n="${labelKey}">${escapeHtml(defaultLabel)}</span><kbd>${escapeHtml(kbd)}</kbd></span>` +
     "</button>";
-  const impactButton = input.app
-    ? railButton("impact", "rail.impact", "Change Impact", "⌘8", '<circle cx="6" cy="12" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M8.2 11.2l7.6-4.1M8.2 12.8l7.6 4.1"/>')
-    : "";
   const explainButton = input.app
     ? railButton("explain", "rail.explain", "Explain", "⌘⇧P", '<path d="M4 5.5c2.4-1 5.4-1 8 0v13c-2.6-1-5.6-1-8 0z"/><path d="M20 5.5c-2.4-1-5.4-1-8 0v13c2.6-1 5.6-1 8 0z"/>')
     : "";
@@ -370,7 +367,6 @@ export function renderDiffHtml(input: {
     // they ARE the dispatch: openRailView and the shell title bar activate a view by clicking its
     // .rail-btn[data-view], and syncRail marks the active one. Permanently hidden, never opened.
     '<div id="workspace-more-menu" class="workspace-more-menu hidden" role="presentation">',
-    impactButton,
     explainButton,
     termsButton,
     railButton("merged", "rail.reviewComments", "Review comments", "⌘⇧/", '<path d="M5.5 5.5h13c.8 0 1.5.7 1.5 1.5v6.4c0 .8-.7 1.5-1.5 1.5H12l-4.5 3.6V16.4H5.5c-.8 0-1.5-.7-1.5-1.5V7c0-.8.7-1.5 1.5-1.5z"/>'),
@@ -500,13 +496,6 @@ export function renderDiffHtml(input: {
       ? '<div id="terminal-panel" class="terminal-panel hidden"><div class="terminal-resizer" aria-hidden="true"></div><div id="terminal-host" class="terminal-host"></div></div>'
       : "",
     input.app
-      ? '<aside id="impact-panel" class="impact-panel hidden" aria-label="Change Impact">'
-        + '<div class="impact-header"><div><div class="impact-title" data-i18n="impact.title">Change Impact</div><div id="impact-engine" class="impact-engine"></div></div>'
-        + '<button type="button" id="impact-close" class="dock-btn" data-keyhint="Esc" data-i18n-title="impact.close" title="Close" aria-label="Close">&times;</button></div>'
-        + '<div id="impact-body" class="impact-body"><div class="impact-empty" data-i18n="impact.empty">Place the caret on a changed symbol to inspect its impact.</div></div>'
-        + '</aside>'
-      : "",
-    input.app
       ? '<aside id="semantic-peek" class="semantic-peek hidden" aria-label="Semantic Peek">'
         + '<div class="semantic-peek-header"><div class="semantic-peek-heading"><div id="semantic-peek-title" class="semantic-peek-title">Semantic Peek</div><div id="semantic-peek-meta" class="semantic-peek-meta"></div></div>'
         + '</div><div id="semantic-peek-results" class="semantic-peek-results" role="listbox" tabindex="0" aria-label="Semantic locations"></div>'
@@ -523,7 +512,6 @@ export function renderDiffHtml(input: {
     '<div class="quick-open-side-sep" aria-hidden="true"></div>',
     '<button type="button" class="quick-open-side-item" data-section="merged" data-keyhint="⌘⇧/"><span data-i18n="rail.reviewComments">Review comments</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="memo" data-keyhint="⌘⇧N"><span data-i18n="memo.title">Markdown memo</span></button>',
-    '<button type="button" class="quick-open-side-item" data-section="impact" data-keyhint="⌘8"><span data-i18n="rail.impact">Change Impact</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="explain"><span data-i18n="rail.explain">Explain</span></button>',
     // The unread dot lives here rather than on the rail button: the rail's tool buttons are permanently
     // hidden (they are dispatch targets now), so this launcher row is the one place a reader actually sees
@@ -688,7 +676,6 @@ export function renderDiffHtml(input: {
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.review">Review</div>' +
     '<div class="keys-grid">' +
-    '<kbd>⌘8</kbd><span data-i18n="kbd.changeImpact">Change Impact</span>' +
     '<kbd>Space</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed on selected Changes row</span>' +
     '<kbd>?</kbd><span data-i18n="kbd.addComment">Add a review comment</span>' +
     '<kbd>⌘⇧/</kbd><span data-i18n="kbd.allComments">All review comments</span>' +

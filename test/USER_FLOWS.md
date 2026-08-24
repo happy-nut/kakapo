@@ -88,11 +88,10 @@ localStorage라 이 함정을 못 건드린다).
 - 모달 프로젝트 검색이 열리면 파일 안 검색도 함께 dim 처리되고, 모든 스크롤바는 거터 폭을 유지한 채 스크롤 중에만 나타났다가 유휴 상태에서 사라진다
 - Linux x64와 ARM64는 각각 네이티브 Ubuntu runner에서 전체 테스트, Electron 패키징, Xvfb 실제 렌더러 기동을 통과한 동일 산출물만 GitHub Release에 첨부한다
 
-### Flow 5 — 프로젝트 코드 분석과 변경 영향 (`analysis.test.mjs`, `impact.test.mjs`, `monaco.test.mjs`)
+### Flow 5 — 프로젝트 코드 분석 (`analysis.test.mjs`, `monaco.test.mjs`)
 
 - 앱에 내장된 9개 언어군의 language server와 stdio JSON-RPC로 definition/references/implementation/workspace symbol을 조회하며 셸 PATH를 탐색하지 않는다
 - language server가 없거나 언어가 지원되지 않으면 메인 프로세스 정규식 인덱스가 같은 요청을 처리한다
-- Change Impact는 호출자/importer, 호출 대상/의존성, 구현체/상속, 테스트, 타입·API·스키마·설정을 분류한다
 - 검색·인덱싱은 렌더러 밖에서 수행하고, lazy-load 뷰어는 실제로 연 파일의 소스만 요청한다
 - 모든 코드 파일은 하나의 Review 렌더러에서 열리며 검색·폴딩·네비게이션·코멘트가 같은 커서 상태를 공유한다
 - Review 화면의 definition/reference/implementation 요청은 현재 프로젝트 generation의 응답만 받아들인다

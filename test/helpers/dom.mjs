@@ -67,7 +67,10 @@ export async function loadViewer(html, opts = {}) {
           return [];
         }
       };
-      window.IntersectionObserver = noopObserver;
+      window.IntersectionObserver = opts.eagerIntersections ? class extends noopObserver {
+        constructor(callback) { super(); this.callback = callback; }
+        observe(target) { this.callback([{ isIntersecting: true, target }]); }
+      } : noopObserver;
       window.ResizeObserver = noopObserver;
       if (!window.matchMedia) {
         window.matchMedia = () => ({

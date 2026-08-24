@@ -23,7 +23,7 @@ const VIEWER_SLICES = [
   "00-util.js", "00-diff-layers.js", "01-core.js", "01-diff-alignment.js", "01-diff-model.js", "02-diff-nav.js",
   "03-quick-open.js", "04-source-tree.js", "05-keymap.js", "06-diff-caret.js", "07-comments.js",
   "08-dock.js", "09-views-update.js", "10-source-view.js", "11-render-http.js", "12-history.js",
-  "13-goto.js", "14-impact.js", "15-analysis-status.js", "15-semantic-navigation.js", "16-semantic-peek.js",
+  "13-goto.js", "15-analysis-status.js", "15-semantic-navigation.js", "16-semantic-peek.js",
   "17-file-find.js", "18-diagnostics.js", "19-terminal.js", "20-mermaid.js",
   "22-patchset.js", "23-annotations.js", "24-prompt-palette.js", "25-briefing.js", "26-terms.js", "27-ask.js",
 ];

@@ -511,14 +511,16 @@ test("composing toggles body.mc-composing so the file caret is hidden while typi
   v.close();
 });
 
-test("composer head labels the comment target with the canonical source reference", async () => {
+// The reference is prefilled INTO the textarea, not printed above it (openComposer, 07-comments.js). As a
+// header label it was a fact about the comment the writer could not touch, and the thing they most often
+// want to say is that the question is not about this line — so it has to be deletable.
+test("the composer prefills the canonical source reference as editable text", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(1); // line index 1 → display line 2
   await v.openComposer("c");
-  const target = v.$(".mc-composer .mc-target");
-  assert.ok(target, "composer head carries a target label");
-  assert.equal(target.textContent, "@src/app.ts#L2", "shows the repository-relative path and line");
+  assert.equal(v.$(".mc-composer .mc-target"), null, "the head no longer prints it where it cannot be edited");
+  assert.equal(v.$(".mc-composer .mc-input").value, "@src/app.ts#L2 ", "the textarea opens with the repository-relative path and line");
   v.close();
 });
 
@@ -1514,7 +1516,7 @@ test("a sidebar click still keeps the sidebar's own focus", async () => {
   v.close();
 });
 
-// The window-level shortcuts (merged view, memo, prompts, History, Impact, Explain, Changes/Files, undo)
+// The window-level shortcuts (merged view, memo, prompts, History, Explain, Changes/Files, undo)
 // belong to the WINDOW, not to whatever has focus — that is why they fire from a focused dock or terminal
 // too. Scope is decided once (keyboardScope) and each shortcut is a row in one table, so the rule is
 // readable in one place instead of being re-derived per branch: the old chain carried eight hand-written
@@ -1529,7 +1531,7 @@ test("window-level shortcuts are one table with one scope rule, and a modal is w
 
   const table = keymap.match(/var WINDOW_SHORTCUTS = \[[\s\S]*?\n\];/)?.[0];
   assert.ok(table, "the table exists");
-  for (const code of ["Quote", "Slash", "KeyP", "KeyN", "Digit9", "Digit8", "Digit0", "Digit1", "KeyZ"]) {
+  for (const code of ["Quote", "Slash", "KeyP", "KeyN", "Digit9", "Digit0", "Digit1", "KeyZ"]) {
     assert.ok(table.includes(`code: '${code}'`), `${code} is a row, not a branch`);
   }
   // Every row matches by code first, so a non-US layout or an IME can never swallow a combo.

@@ -107,7 +107,7 @@ test("Python heuristic navigation resolves class methods conservatively instead 
   analysis.dispose();
 });
 
-test("main-process fallback answers definition, references, implementation, symbols, and change impact", async () => {
+test("main-process fallback answers definition, references, implementation, and symbols", async () => {
   const root = tempProject();
   const files = [
     {
@@ -152,22 +152,6 @@ test("main-process fallback answers definition, references, implementation, symb
 
   const symbols = await analysis.query({ kind: "workspaceSymbol", path: "src/service.ts", query: "Memory" });
   assert.deepEqual(symbols.locations.map((item) => item.name), ["MemoryStore"]);
-
-  const impact = await analysis.query({ kind: "impact", path: "src/service.ts", line: 3, column: 20, symbol: "process" });
-  assert.equal(impact.impact?.symbol, "process");
-  assert.ok(impact.impact?.callers.some((item) => item.path === "src/caller.ts"), "caller/importer is classified");
-  assert.ok(impact.impact?.dependencies.some((item) => item.name === "helper"), "outgoing call is classified");
-  assert.ok(impact.impact?.tests.some((item) => item.path === "test/service.test.ts"), "related test is classified");
-  assert.ok(impact.impact?.contracts.some((item) => item.name === "Store"), "signature type is classified");
-  assert.ok(impact.impact?.mentions.some((item) => item.path === "docs/process.md"), "plain documentation matches stay review candidates");
-  assert.ok(impact.impact?.callers.every((item) => item.path !== "docs/process.md"), "plain text is not mislabeled as a caller");
-  assert.ok([
-    ...impact.impact.callers,
-    ...impact.impact.dependencies,
-    ...impact.impact.tests,
-    ...impact.impact.contracts,
-    ...impact.impact.mentions,
-  ].every((item) => item.evidence === "heuristic"), "fallback provenance is retained on every impact item");
   analysis.dispose();
 });
 

@@ -21,16 +21,8 @@ import {
   type RegexIndex,
   type SymbolRecord,
 } from "./analysis-index.js";
-import {
-  buildChangeImpact,
-  type ChangeImpact,
-  type ImpactEvidence,
-} from "./analysis-impact.js";
-
 export { buildRegexSymbolIndex } from "./analysis-index.js";
-export type { ChangeImpact, ImpactEvidence, ImpactItem } from "./analysis-impact.js";
-
-export type AnalysisKind = "definition" | "references" | "implementation" | "workspaceSymbol" | "impact";
+export type AnalysisKind = "definition" | "references" | "implementation" | "workspaceSymbol";
 
 export type AnalysisRequest = {
   kind: AnalysisKind;
@@ -52,7 +44,6 @@ export type AnalysisResponse = {
   serverSource?: LanguageServerCommand["source"];
   symbol?: string;
   locations: AnalysisLocation[];
-  impact?: ChangeImpact;
   fallbackReason?: string;
   error?: string;
 };
@@ -206,7 +197,6 @@ export class ProjectAnalysis {
       if (!path) return { ok: false, engine: "index", confidence: "heuristic", locations: [], error: "A project-relative source path is required" };
       const context = await this.symbolContext(path, request.line, request.column, request.symbol);
       if (!context.symbol) return { ok: true, engine: "index", confidence: "heuristic", locations: [], symbol: "" };
-      if (request.kind === "impact") return await this.impact(path, context.lineIndex, context.column, context.symbol);
       const method = request.kind === "definition"
         ? "textDocument/definition"
         : request.kind === "references"
@@ -579,53 +569,6 @@ export class ProjectAnalysis {
     return index.symbols
       .filter((item) => re.test(item.declaration) || (item.name === symbol && ["class", "interface", "object", "trait", "struct"].includes(item.symbolKind)))
       .map((item) => ({ ...item }));
-  }
-
-  private async impact(path: string, line: number, column: number, symbol: string): Promise<AnalysisResult> {
-    const [definitionLsp, referenceLsp, implementationLsp] = await Promise.all([
-      this.lspLocations(path, line, column, "textDocument/definition"),
-      this.lspLocations(path, line, column, "textDocument/references"),
-      this.lspLocations(path, line, column, "textDocument/implementation"),
-    ]);
-    const engine = definitionLsp.locations.length || referenceLsp.locations.length || implementationLsp.locations.length ? "lsp" : "index";
-    const server = definitionLsp.server || referenceLsp.server || implementationLsp.server;
-    const serverSource = definitionLsp.serverSource || referenceLsp.serverSource || implementationLsp.serverSource;
-    const [definitions, references, implementations, index] = await Promise.all([
-      definitionLsp.locations.length ? this.withText(definitionLsp.locations) : this.fallbackDefinitions(symbol, path, line, column),
-      referenceLsp.locations.length ? this.withText(referenceLsp.locations) : this.fallbackReferences(symbol, false, path, line),
-      implementationLsp.locations.length ? this.withText(implementationLsp.locations) : this.fallbackImplementations(symbol),
-      this.getIndex(),
-    ]);
-    const origin = definitions[0] ?? {
-      path,
-      lineIndex: line,
-      column,
-      text: (index.files.get(path) ?? "").split(/\r?\n/)[line] ?? "",
-    };
-    const referenceEvidence: ImpactEvidence = referenceLsp.locations.length ? "semantic" : "heuristic";
-    const implementationEvidence: ImpactEvidence = implementationLsp.locations.length ? "semantic" : "heuristic";
-    const impact = buildChangeImpact({
-      symbol,
-      origin,
-      references,
-      implementations,
-      index,
-      referenceEvidence,
-      implementationEvidence,
-    });
-    return {
-      ok: true,
-      engine,
-      confidence: engine === "lsp" ? "mixed" : "heuristic",
-      server,
-      serverSource,
-      symbol,
-      locations: definitions,
-      impact,
-      fallbackReason: engine === "index"
-        ? definitionLsp.fallbackReason || referenceLsp.fallbackReason || implementationLsp.fallbackReason || "Language server returned no semantic impact data"
-        : undefined,
-    };
   }
 
   // Drop server-reported locations that don't point at code (a comment/string/blank line). This needs the

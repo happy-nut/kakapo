@@ -26,7 +26,7 @@ var diffImportOpenPaths = Object.create(null);
 // read-only code carets) call the same function even though they intentionally do not move native focus.
 var REVIEW_FOCUS_PANEL_SELECTOR = [
   '.activity-rail', '.sidebar', '.content', '#diff2html-container', '.source-body',
-  '.impact-panel', '.semantic-peek', '.history-list',
+  '.semantic-peek', '.history-list',
   '.dock-panel', '.settings-panel', '.quick-open-panel', '.mc-modal-panel',
 ].join(',');
 var reviewFocusedPanel = null;
@@ -562,24 +562,13 @@ function whenFileReady(wrapper, cb) {
   if (bodyPromise[idx]) { bodyPromise[idx].then(function () { cb(); }); return; }
   cb();
 }
-var lazyIO = null; // remembered so each setupLazyDiff (re-run on every watch refresh) disconnects the prior
-                   // observer instead of leaving a new one bound to detached wrappers — otherwise observers
-                   // (and the old DOM they retain) pile up over a long-running session and slowly choke it.
 function setupLazyDiff() {
   var container = document.getElementById('diff2html-container');
   if (!container) return;
-  if (lazyIO) { try { lazyIO.disconnect(); } catch (e) {} lazyIO = null; }
-  var wrappers = Array.prototype.slice.call(container.querySelectorAll('.d2h-file-wrapper'));
-  if (typeof IntersectionObserver !== 'undefined') {
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) { if (e.isIntersecting) { ensureFileReady(e.target); io.unobserve(e.target); } });
-    }, { root: null, rootMargin: '600px 0px' });
-    lazyIO = io; // track this observer so the NEXT setupLazyDiff can disconnect it (callback keeps using local io)
-    wrappers.forEach(function (w) { io.observe(w); });
-  } else {
-    wrappers.forEach(function (w) { ensureFileReady(w); }); // no IntersectionObserver -> materialize all
-  }
-  if (wrappers[0]) ensureFileReady(wrappers[0]); // first file ready so the initial caret has a row to land on
+  // The diff shows one file at a time (showOnlyFile). Observing every empty shell makes them all intersect
+  // before that first file is isolated, so a large review requests every body at once and exhausts V8.
+  // Navigation already calls ensureFileReady for the selected file; only seed the initial one here.
+  ensureFileReady(container.querySelector('.d2h-file-wrapper'));
 }
 if (REVIEW_LAZY) { setupLazyDiff(); setTimeout(function () { diffBootDone = true; }, 0); }
 let links = Array.from(document.querySelectorAll('#changes-panel .file-link')); // re-captured on in-place diff update
