@@ -60,9 +60,14 @@ function jsonExamples(text) {
 }
 
 // Every prompt that hands an agent a JSON shape. The merge handoff's answer line is the same contract.
+//
+// terms.prompt.default is deliberately NOT here any more. It stopped showing a record shape when the
+// vocabulary moved behind kakapo_keep_word: the tool's inputSchema is the shape now, and it is checked
+// where it lives (test/mcp-server.test.mjs). A prompt that teaches a shape the agent no longer types would
+// be a second, drifting copy of it.
 const PROMPT_KEYS = [
   "annotate.prompt.default", "codebase.prompt.default", "mergePrompt.answersFile",
-  "mergePrompt.terms", "terms.prompt.default",
+  "mergePrompt.terms",
 ];
 
 test("every JSON example in the prompts is a record kakapo can read back", () => {

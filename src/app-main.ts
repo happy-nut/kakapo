@@ -1233,7 +1233,24 @@ if (hasSingleInstanceLock) app.on("second-instance", (_event, commandLine, worki
   openOrFocusWorkspace(resolveWorkspaceRoot(suppliedRoot));
 });
 
+// The vocabulary is delivered to every agent by the MCP server now — the prompts no longer paste a file
+// path — so the server being registered is not a preference, it is what makes an explanation readable. It
+// was a Settings button nobody had pressed: shipped, documented, and connected on zero machines.
+//
+// Registered once per machine and re-checked on each launch rather than remembered, because the answer can
+// change underneath us: `claude mcp remove`, a reinstalled CLI, a config that moved. Asking costs one
+// `mcp list` at boot and the add only runs when the answer is no. Failure is silent on purpose — an agent
+// CLI that is not installed is the ordinary case, not an error worth a dialog.
+async function ensureMcpRegistered(): Promise<void> {
+  try {
+    for (const status of mcpStatus()) {
+      if (status.installed && !status.connected) await connectMcp(status.agent);
+    }
+  } catch { /* nothing here is worth interrupting a launch for */ }
+}
+
 if (hasSingleInstanceLock) app.whenReady().then(async () => {
+  void ensureMcpRegistered();
   const assetRoot = resolve(dirname(fileURLToPath(import.meta.url)), "monaco");
   protocol.handle("kakapo-asset", (request) => {
     try {

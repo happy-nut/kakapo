@@ -1,11 +1,8 @@
 Look back over the conversation we have just had, and record any concept I have taken into **my own words**.
 
-{{TERMS_PATH}}
+Call `kakapo_words` first. What it returns is the language I actually use about this repository, and every later explanation of it is written in those words.
 
-Read that file first. What is in it is the language I actually use about this repository, and every later explanation of it is written in those words.
-
-If there is anything to keep, append one line per word. Never rewrite a line already there.
-{"w":"my word, exactly as I wrote it","gloss":"one line saying what it is, in my words","code":[{"name":"the identifier it is","at":"src/x.ts:12"}]}
+If there is anything to keep, put it in with `kakapo_keep_word`, one call per word — do not touch any file. The tool knows where the vocabulary lives, and turns away a word already in it or an identifier passed off as one.
 
 What you keep is the whole job.
 

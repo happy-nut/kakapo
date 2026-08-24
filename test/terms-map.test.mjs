@@ -333,8 +333,12 @@ test("a word near the bottom opens its card above itself instead of off-screen",
 
 // ── the loop closes ──────────────────────────────────────────────────────────────────────────────
 // The vocabulary is only worth keeping if the next explanation is written IN it. Both Explain prompts hand
-// the agent the file's path and the three rules that make it mean something: no new names, hang the new thing
-// off a word they already have, and keep the "why" chain unbroken.
+// the agent the TOOL that returns the words, and the three rules that make them mean something: no new
+// names, hang the new thing off a word they already have, and keep the "why" chain unbroken.
+//
+// It used to hand over a file path. The rules then lived in the prompt while the capability lived in a path,
+// so every prompt had to re-explain the file and a session kakapo never wrote a prompt for got neither.
+// `kakapo_words` carries both — its own description is the rule (mcp-server.ts).
 test("both Explain prompts hand the agent the vocabulary and the rules for using it", async () => {
   const { html } = await makeReviewHtml(FILES);
   const v = await loadViewer(html, { termsBridge: TERMS });
@@ -343,25 +347,28 @@ test("both Explain prompts hand the agent the vocabulary and the rules for using
   const w = v.window;
 
   for (const [label, text] of [["explain-diff", w.currentAnnotatePromptText()], ["explain-codebase", w.currentCodebasePromptText()]]) {
-    assert.ok(text.includes(".git/kakapo/terms.jsonl"), `${label} names the vocabulary file`);
-    assert.ok(!text.includes("{{TERMS_PATH}}"), `${label} substituted the placeholder`);
-    assert.match(text, /읽기만|never write to it/, `${label} keeps the agent out of the reader's words`);
+    assert.match(text, /kakapo_words/, `${label} names the tool that returns the vocabulary`);
+    assert.ok(!text.includes(".git/kakapo/terms.jsonl"), `${label} no longer pastes the file path`);
+    assert.ok(!text.includes("{{TERMS_PATH}}"), `${label} carries no dead placeholder`);
+    assert.match(text, /읽기만|Read them/, `${label} keeps the agent out of the reader's words`);
     assert.match(text, /새 이름|new name/, `${label} forbids coining a term`);
     assert.match(text, /아는 것에 붙이|already know/, `${label} asks it to attach to what the reader has`);
     assert.match(text, /"왜"의 사슬|"why" chain/, `${label} asks for an unbroken why`);
-    assert.match(text, /비어 있으면|missing or empty/, `${label} says what an empty vocabulary means`);
+    assert.match(text, /아무것도 돌려주지|returns nothing/, `${label} says what an empty vocabulary means`);
   }
 });
 
-// The path has to be the SHARED one — a workspace dies with its task, and knowledge that died with it would
-// have to be learned again every time.
-test("the prompt names the vocabulary even before the bridge has answered", async () => {
+// Naming a tool needs nothing from the renderer, which is the point: the prompt used to interpolate a path
+// it could only know once the bridge had answered, and a browser review — which has no bridge — got a
+// fallback guess. There is nothing left to guess.
+test("the prompt names the vocabulary even with no bridge behind it", async () => {
   const { html } = await makeReviewHtml(FILES);
   const v = await loadViewer(html); // no terms bridge at all: a browser review
   opened.push(v);
   await v.settle(20);
-  assert.ok(v.window.currentAnnotatePromptText().includes(".git/kakapo/terms.jsonl"),
-    "it falls back to the conventional location rather than naming nothing");
+  const text = v.window.currentAnnotatePromptText();
+  assert.match(text, /kakapo_words/, "the capability is named, not a location");
+  assert.ok(!text.includes("{{TERMS_PATH}}"), "and nothing was left unsubstituted");
 });
 
 // ── the quieter way in: the agent judges it ──────────────────────────────────────────────────────
@@ -431,8 +438,9 @@ test("an agent's proposals ring the outside and join nothing", async () => {
 });
 
 // A conversation in the terminal teaches as much as a comment thread does, and nothing in kakapo can read it
-// — but the agent holding it can. So the vocabulary is reachable from there too: one prompt, the same file,
-// the same one rule.
+// — but the agent holding it can. So the vocabulary is reachable from there too: one prompt, the same tools,
+// the same one rule. This is the prompt that still goes to the reviewer's OWN terminal session rather than to
+// kakapo's hidden one, because it is about the conversation they had there.
 test("a terminal conversation can feed the vocabulary too", async () => {
   const { html } = await makeReviewHtml(FILES);
   const v = await loadViewer(html, { termsBridge: TERMS });
@@ -443,7 +451,9 @@ test("a terminal conversation can feed the vocabulary too", async () => {
   const entry = w.promptPaletteEntries().find((p) => p.id === "terms");
   assert.ok(entry, "the ⌘E launcher offers it");
   const text = entry.text();
-  assert.ok(text.includes(".git/kakapo/terms.jsonl"), "it names the vocabulary file");
+  assert.match(text, /kakapo_words/, "it names the tool that reads the vocabulary");
+  assert.match(text, /kakapo_keep_word/, "and the one that writes to it");
+  assert.ok(!text.includes(".git/kakapo/terms.jsonl"), "without pasting the file path beside them");
   assert.match(text, /제가 쓴 말만|Only words I wrote/, "only the reader's own words");
   assert.match(text, /되묻고 있는|still asking about/, "and not the ones they are still asking about");
   assert.match(text, /남길 것이 없으면|nothing to keep, do nothing/, "most conversations keep nothing");
