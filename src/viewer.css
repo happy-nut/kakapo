@@ -896,10 +896,19 @@ body.native-app .source-tabs {
 .mc-card:hover .mc-ask, .mc-ask:focus-visible, .mc-card.mc-asking .mc-ask { opacity: 1; }
 .mc-ask:hover { background: color-mix(in srgb, var(--active) 16%, transparent); color: var(--active); }
 .mc-ask[disabled] { cursor: default; color: var(--active); }
-.mc-ask-dot {
-  width: 6px; height: 6px; border-radius: 50%; background: currentColor;
-  animation: analysis-dot-pulse 1s ease-in-out infinite;
+/* The answer's slot, held open. It is the agent card it is about to become, drawn at rest — the body is a
+   line of dots instead of prose, and the card it turns into needs no transition to look like the same card. */
+.mc-card.mc-thinking { opacity: .82; }
+.mc-thinking-body { display: flex; align-items: center; gap: 7px; color: var(--muted); }
+.mc-thinking-text { font-size: 11.5px; }
+.mc-thinking-dots { display: inline-flex; gap: 3px; }
+.mc-thinking-dots i {
+  width: 5px; height: 5px; border-radius: 50%; background: var(--active);
+  animation: mc-thinking-bounce 1.1s ease-in-out infinite;
 }
+.mc-thinking-dots i:nth-child(2) { animation-delay: .16s; }
+.mc-thinking-dots i:nth-child(3) { animation-delay: .32s; }
+@keyframes mc-thinking-bounce { 0%, 60%, 100% { opacity: .28; } 30% { opacity: 1; } }
 
 /* ── Header meta cluster (moved up from the footer): analysis indicator + brand mark + version, right-aligned
    before the reveal button. The analysis indicator is now dot-only; its text shows on hover via the title. ── */

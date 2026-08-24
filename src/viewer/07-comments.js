@@ -738,9 +738,10 @@ function reviewerCardHtml(c) {
     + commentTargetHeadHtml(c)
     + (addressed ? '<span class="mc-addressed-tag" title="' + escapeHtml(t('comment.addressed.hint')) + '">' + escapeHtml(t('comment.addressed')) + '</span>' : '')
     + (addressed ? '<button type="button" class="mc-reopen" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reopen')) + '" title="' + escapeHtml(t('comment.reopen')) + '">↺</button>' : '')
-    + (canAsk ? '<button type="button" class="mc-ask" data-ask="' + c.seq + '"' + (asking ? ' disabled' : '')
-      + ' aria-label="' + escapeHtml(t(asking ? 'ask.waiting' : 'ask.button')) + '" title="' + escapeHtml(t(asking ? 'ask.waiting' : 'ask.button')) + '">'
-      + (asking ? '<span class="mc-ask-dot" aria-hidden="true"></span>' : '?') + '</button>' : '')
+    // No button while one is out: the waiting card below the comment says so, and two marks for one state on
+    // one card is how the header dot came to be the only thing announcing it.
+    + (canAsk && !asking ? '<button type="button" class="mc-ask" data-ask="' + c.seq + '"'
+      + ' aria-label="' + escapeHtml(t('ask.button')) + '" title="' + escapeHtml(t('ask.button')) + '">?</button>' : '')
     + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
     + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div></div>';
 }
@@ -751,15 +752,22 @@ function composerAt(path, line, side) {
 }
 function threadHtml(path, line, side) {
   var html = '';
+  var waiting = false;
   commentsAt(path, line, side).forEach(function (c) {
     if (composerState && composerState.editSeq === c.seq) return; // being edited -> rendered as the composer below
     html += c.by === 'agent' ? agentCardHtml(c) : reviewerCardHtml(c);
+    if (askIsPending(c.seq)) waiting = true;
   });
+  // The waiting mark stands where the ANSWER will stand (27-ask.js) — below the question, in the slot the
+  // reply is about to take. It began as a dot in the card's header, which is both the smallest thing on the
+  // card and nowhere near where anything was going to happen.
+  if (waiting) html += askThinkingHtml();
   html += replyStubHtml(path, line, side);
   if (composerAt(path, line, side)) {
     var ph = composerState.replyTo != null ? t('composer.reply') : t('composer.comment');
     html += '<div class="mc-card mc-' + composerState.kind + ' mc-composer' + (composerState.replyTo != null ? ' mc-reply-card' : '') + '">'
-      + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml() + '</span><span class="mc-target" title="' + escapeHtml(commentTargetLabel(composerState)) + '">' + escapeHtml(commentTargetLabel(composerState)) + '</span></div>'
+      // No target label in the head: it is in the textarea now, where it can be edited or deleted.
+      + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml() + '</span></div>'
       // spellcheck/autocorrect/autocapitalize off: a code-review comment carries identifiers and symbols that
       // macOS/Chromium text substitution mangles (foo_bar -> foo bar, capitalizing names) — and that OS-level
       // autocorrect is the leading suspect for a space being swallowed right after punctuation like "?".
@@ -862,8 +870,12 @@ function renderDiffCommentsForFile(w, commentsByPath, remember) {
   var pathComments = commentsByPath[path] || [];
   var activeComposer = composerState && composerState.path === path ? composerState : null;
   var renderKey = JSON.stringify({
+    // `askIsPending` is part of the key because it is part of what the card DRAWS (the waiting card in
+    // threadHtml). Without it the cache answered "nothing changed" for the two moments that matter most: the
+    // question going out, and the answer coming back. The waiting mark never appeared in the diff pane, and
+    // where it did appear it stayed after the answer had already landed under it.
     comments: pathComments.map(function (comment) {
-      return [comment.seq, comment.kind, comment.by, comment.replyTo, comment.line, comment.from, comment.to, commentSide(comment), comment.text];
+      return [comment.seq, comment.kind, comment.by, comment.replyTo, comment.line, comment.from, comment.to, commentSide(comment), comment.text, askIsPending(comment.seq)];
     }),
     composer: activeComposer
       ? [activeComposer.kind, activeComposer.line, activeComposer.from, activeComposer.to, commentSide(activeComposer), activeComposer.editSeq, activeComposer.editText || '']
@@ -1039,6 +1051,12 @@ function openComposer(kind) {
   var target = currentCommentTarget();
   if (!target) return;
   composerState = { kind: kind, path: target.path, line: target.line, code: target.code, anchorCode: target.anchorCode, from: target.from, to: target.to, side: target.side };
+  // The place, IN the text rather than printed above it. As a label in the header it was a fact about the
+  // comment that the writer could not touch — and the thing they most often want to say is that the question
+  // is not about this line at all ("while I'm here — why does the wiki come into this?"). Prefilled it is
+  // still there by default and a Backspace away when it is wrong, and what the agent is told follows what
+  // the comment actually says (askPromptForComment, 27-ask.js).
+  composerState.editText = commentTargetLabel(composerState) + ' ';
   // Keep the dragged code visibly highlighted via the .mc-sel-line class (applyCommentSelectionHighlight),
   // and clear the native selection so its highlight doesn't bleed into the composer/cards below it.
   try { var psel = window.getSelection(); if (psel) psel.removeAllRanges(); } catch (e) {}

@@ -340,7 +340,9 @@ test("multi-line comments persist and render one canonical range without quoted 
   await v.openComposer("q");
 
   const expected = "@docs/runtime-arrow-wfa-plan.md.ts#L3-6";
-  assert.equal(v.$(".mc-composer .mc-target")?.textContent, expected, "composer shows the complete selected range");
+  // In the textarea, not in the header: the place is text the writer can edit or delete, because the thing
+  // they most often want to say is that the question is not about this line (openComposer, 07-comments.js).
+  assert.equal(v.$(".mc-composer .mc-input")?.value, expected + " ", "composer prefills the complete selected range");
   await v.writeAndSave("explain the selected range");
 
   const stored = v.storedComments()[0];
@@ -991,7 +993,7 @@ test("a saved card drops the location it is already sitting on", async () => {
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(1);
   await v.openComposer("q");
-  assert.ok(v.$(".mc-composer .mc-target"), "the composer still says where this will attach, before it exists");
+  assert.match(v.$(".mc-composer .mc-input").value, /^@src\/app\.ts#L\d+\s/, "the composer still says where this will attach, before it exists — as text you can delete");
 
   await v.writeAndSave("why this line");
   const card = v.$("#source-body .mc-card:not(.mc-composer)");
