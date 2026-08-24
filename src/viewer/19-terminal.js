@@ -296,6 +296,29 @@ function terminalPathLinkProvider(term) {
     host.appendChild(cell);
     return cell;
   }
+  // The composing character must look like the character it is about to become, and brightness is the part
+  // that was wrong. An agent's composer draws its prompt text DIM (SGR 2), which xterm renders as a 50% blend
+  // toward the background — measured off the running app, rgb(120,125,133) where the full foreground is
+  // rgb(216,224,235) on a rgb(24,27,33) background, which is 0.5*fg + 0.5*bg to the pixel. The overlay wore
+  // the FULL foreground, so the one character being typed sat at twice the brightness of the line it was
+  // joining and read as floating above it. Nothing about its position was ever wrong: measured, its glyph
+  // centre is within half a CSS pixel of the committed glyphs beside it.
+  //
+  // So ask the cell. The line's own text is the honest sample — the cell under the cursor is usually still
+  // blank — so read the one before it and fall back to the cursor's own.
+  function matchCompositionDim(term) {
+    var view = term && term.element && term.element.querySelector('.composition-view');
+    if (!view) return;
+    var dim = false;
+    try {
+      var buf = term.buffer.active;
+      var line = buf.getLine(buf.baseY + buf.cursorY);
+      var cell = line && (buf.cursorX > 0 ? line.getCell(buf.cursorX - 1) : null);
+      if (!cell || !cell.getChars()) cell = line && line.getCell(buf.cursorX);
+      dim = !!(cell && typeof cell.isDim === 'function' && cell.isDim());
+    } catch (e) { /* a buffer shape we don't recognise just keeps the full foreground */ }
+    view.classList.toggle('is-dim', dim);
+  }
   // Reaching into xterm's private composition helper is deliberate: the send we need to stand down has no
   // public switch. If a future xterm changes that shape, do nothing — xterm keeps its own commit, which is
   // wrong for Hangul but is never a doubled keystroke, and doubling is the worse failure to ship.
@@ -548,9 +571,11 @@ function terminalPathLinkProvider(term) {
         lastInputAt = Date.now();
         pinCompositionAnchor(term);
         setCursorHiddenForComposition(term, true);
+        matchCompositionDim(term);
         imeNow = { at: Date.now(), writes: 0, bytes: 0, fitsHeld: 0, anchorPins: 0, panes: panes.length, data: '' };
       });
-      term.textarea.addEventListener('compositionupdate', function () { lastInputAt = Date.now(); });
+      // Re-checked on update, not only at the start: the agent can repaint its composer between keystrokes.
+      term.textarea.addEventListener('compositionupdate', function () { lastInputAt = Date.now(); matchCompositionDim(term); });
       // xterm commits a composition by slicing its textarea with offsets recorded while the composition ran
       // (start at compositionstart, end on a setTimeout after each update). A macOS Hangul composition runs
       // to the end of the WORD and rewrites the whole value on every keystroke, so those offsets go stale:

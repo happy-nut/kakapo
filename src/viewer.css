@@ -2949,6 +2949,12 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
   background: var(--terminal-bg, transparent);
   color: var(--terminal-fg, inherit);
 }
+/* The same 50% blend toward the background that xterm gives a DIM cell, so the character being composed joins
+   the agent composer's own dim text instead of shining out of it. Set from the cell it will land on
+   (matchCompositionDim); a line of ordinary bright text keeps the full foreground. */
+.terminal-panel .xterm .composition-view.is-dim {
+  color: color-mix(in srgb, var(--terminal-fg, #d8e0eb) 50%, var(--terminal-bg, #171b21));
+}
 
 /* Entrance animation: the panel rises + fades in when it un-hides (display:none -> flex restarts the
    animation on every open), and the freshly-appended backdrop fades with it. transform/opacity only, so the
@@ -4452,16 +4458,47 @@ body:has(#mc-briefing) .mc-brf-recall { opacity: .45; }
   letter-spacing: .04em; color: var(--chrome-muted); background: var(--chrome-line);
 }
 
-/* Taking a word OUT of the vocabulary. Quiet at the head's right edge — it is a decision the reader makes
-   rarely, and one that must never be a mis-click away from the word they were reading. */
-.mc-term-drop {
+/* The card's own dismiss, at the head's right edge where a × belongs. This position used to hold the DELETE,
+   which is why a reader closing a detail lost the word instead. */
+.mc-term-close {
   margin-left: auto; width: 20px; height: 20px; flex: none; border: 0; padding: 0;
   border-radius: 6px; background: transparent; color: var(--chrome-muted);
   font: 400 14px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  display: grid; place-items: center; opacity: .55;
+  display: grid; place-items: center; opacity: .55; cursor: pointer;
 }
-.mc-term-drop:hover { background: var(--chrome-line); color: var(--danger, #e5534b); opacity: 1; }
-.mc-term-drop:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; opacity: 1; }
+.mc-term-close:hover { background: var(--chrome-line); color: var(--chrome-text); opacity: 1; }
+.mc-term-close:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; opacity: 1; }
+
+/* Editing and removing are decisions, so they are words at the foot of the card rather than glyphs beside
+   the title — far enough from the reading that neither is a mis-click away from it. */
+.mc-term-actions { display: flex; gap: 6px; margin-top: 12px; }
+.mc-term-act {
+  padding: 4px 10px; border: 1px solid var(--chrome-border); border-radius: 6px;
+  background: transparent; color: var(--chrome-muted); font-size: 11.5px; cursor: pointer;
+}
+.mc-term-act:hover { background: var(--chrome-line); color: var(--chrome-text); }
+.mc-term-act.is-primary { background: var(--active); border-color: var(--active); color: #fff; }
+.mc-term-act.is-primary:hover { filter: brightness(1.08); color: #fff; }
+.mc-term-act.mc-term-drop { margin-left: auto; }
+.mc-term-act.mc-term-drop:hover { color: var(--danger, #e5534b); border-color: var(--danger, #e5534b); }
+.mc-term-act:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; }
+
+.mc-term-input {
+  width: 100%; box-sizing: border-box; margin-top: 8px; padding: 7px 9px;
+  border: 1px solid var(--chrome-border); border-radius: 7px;
+  background: var(--chrome-bg, var(--chrome-panel)); color: var(--chrome-text);
+  font: 12.5px/1.6 inherit; resize: vertical;
+}
+.mc-term-input:focus { outline: none; border-color: var(--active); }
+.mc-term-w-input { margin-top: 0; font-size: 14px; font-weight: 640; }
+/* An add card has no node to sit beside, so it is placed rather than anchored (openTermAdd). */
+.mc-term-card.is-adding { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+
+.mc-map-add {
+  flex: none; padding: 3px 9px; border: 1px solid var(--chrome-border); border-radius: 6px;
+  background: transparent; color: var(--chrome-muted); font-size: 11.5px; cursor: pointer;
+}
+.mc-map-add:hover { background: var(--chrome-line); color: var(--chrome-text); }
 
 .mc-map-empty {
   position: absolute; inset: 0; display: flex; flex-direction: column;

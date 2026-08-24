@@ -250,6 +250,28 @@ test("the IME composition overlay wears the terminal's palette, not xterm's hard
     "nothing here moves the overlay — its box is where the text lands, only the paint was wrong");
 });
 
+// Measured off the running app: the composing glyph came out rgb(218,224,234) while the agent composer's own
+// text on the same line was rgb(120,125,133) — that is DIM (SGR 2), which xterm draws as 0.5*fg + 0.5*bg. One
+// character at twice the brightness of its line reads as floating above it, which is the whole complaint. Its
+// position was never wrong; the glyph centre measured within half a CSS pixel of its neighbours.
+test("the composing character is as dim as the line it is joining", () => {
+  const fn = client.match(/function matchCompositionDim\(term\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(fn, "one function matches the overlay to its cell");
+  assert.match(fn, /cell\.isDim\(\)/, "the cell is asked, not guessed at");
+  assert.match(fn, /buf\.cursorX > 0 \? line\.getCell\(buf\.cursorX - 1\)/,
+    "the line's own text is the sample — the cell under the cursor is usually still blank");
+  assert.match(fn, /classList\.toggle\('is-dim', dim\)/, "and a bright line still gets the full foreground");
+  for (const ev of ["compositionstart", "compositionupdate"]) {
+    assert.match(client, new RegExp(`'${ev}'[\\s\\S]{0,320}matchCompositionDim\\(term\\)`),
+      `${ev} re-checks it, because the agent can repaint its composer between keystrokes`);
+  }
+  const css = readFileSync(new URL("../src/viewer.css", import.meta.url), "utf8");
+  const rule = css.match(/\.terminal-panel \.xterm \.composition-view\.is-dim \{[^}]*\}/)?.[0];
+  assert.ok(rule, "the dim variant exists");
+  assert.match(rule, /color-mix\(in srgb, var\(--terminal-fg[^)]*\) 50%, var\(--terminal-bg/,
+    "and reproduces xterm's own 50% blend rather than a hand-picked grey");
+});
+
 // The caret is drawn in the cell the syllable is being built in, so it sat under the composition overlay and
 // the unfinished word looked like it floated off its line. It goes away for the composition — but what comes
 // back is whatever DECTCEM last said, not a caret: a TUI that hid its own must stay hidden.
