@@ -179,10 +179,17 @@ function terminalPathLinkProvider(term) {
       // already-open terminal and start typing, which is how Korean came out as ㄱㅏㄴㅏㄷㅏ there. Held until
       // the syllable commits (compositionend/blur below), never dropped.
       if (composingPanes.size) { fitDeferred = true; if (imeNow) imeNow.fitsHeld++; return; }
+      // The shell animates the workspace rail by re-bounding this whole view every frame for ~180ms, so the
+      // ResizeObserver below fires a dozen times for ONE width change: a dozen xterm re-flows and a dozen pty
+      // resizes, each one re-wrapping the pane's text at a width it will not keep. That is the judder. The
+      // diff column already sits the animation out behind body.rail-pinning (setRailContentPin); the terminal
+      // joins it and takes the settled width once, when the pin lifts.
+      if (document.body.classList.contains('rail-pinning')) { fitDeferred = true; return; }
       fitAll();
     });
   }
-  // The composition finished (or the pane lost focus mid-syllable): run the fit that was waiting on it.
+  // The composition finished, the pane lost focus mid-syllable, or the rail animation settled: run the fit
+  // that was waiting on it.
   function flushDeferredFit() {
     if (!fitDeferred || composingPanes.size) return;
     fitDeferred = false;
@@ -294,6 +301,29 @@ function terminalPathLinkProvider(term) {
     // bought nothing measurable and raced the next composition: type quickly enough and the deferred clear
     // landed after the following composition had already begun, wiping a value only it still held.
   }
+  // The caret is drawn in the very cell the half-built syllable is being assembled in, so it shows UNDER the
+  // composition overlay and the unfinished word reads as floating a pixel above its own line — visible for
+  // every Hangul word, which composes to the end of the WORD rather than the syllable, so it is on screen
+  // most of the time you are typing. Nothing is being typed AT the caret while a composition runs (the
+  // overlay is what the reader is looking at), so take it away for the duration and put it back on commit.
+  //
+  // isCursorHidden is the same flag DECTCEM (\x1b[?25l) sets, which belongs to the program on the other end
+  // of the pty — so remember what it was and restore THAT, never a bare `false`: a TUI that hid its own caret
+  // must not get one back because a syllable ended. Public field on the core service, unlike the composition
+  // reaches below.
+  function setCursorHiddenForComposition(term, hidden) {
+    var service = term && term._core && term._core.coreService;
+    if (!service || typeof service.isCursorHidden !== 'boolean') return;
+    if (hidden) {
+      if (term.__kakapoCursorWas === undefined) term.__kakapoCursorWas = service.isCursorHidden;
+      service.isCursorHidden = true;
+    } else {
+      if (term.__kakapoCursorWas === undefined) return;
+      service.isCursorHidden = term.__kakapoCursorWas;
+      term.__kakapoCursorWas = undefined;
+    }
+    try { var y = term.buffer.active.cursorY; term.refresh(y, y); } catch (e) {}
+  }
   // THE ANCHOR MUST NOT MOVE. While a composition is live, xterm re-points its helper textarea at the buffer
   // cursor on a 0ms loop (CompositionHelper.updateCompositionElements: it writes textarea.style.left/top from
   // buffer.x/buffer.y and re-schedules itself until the composition ends). The textarea is what the macOS
@@ -387,13 +417,58 @@ function terminalPathLinkProvider(term) {
   // display change) and the terminal falls back to the renderer it has always used.
   function loadWebglRenderer(term) {
     var Addon = window.WebglAddon && window.WebglAddon.WebglAddon;
-    if (!Addon) return;
+    if (!Addon) return null;
     try {
       var addon = new Addon();
       addon.onContextLoss(function () { try { addon.dispose(); } catch (e) {} });
       term.loadAddon(addon);
+      return addon;
     } catch (e) { /* the DOM renderer is still a terminal */ }
+    return null;
   }
+
+  // A pane's WebGL renderer is not free while nobody is looking at it. Each one holds its canvas plus a glyph
+  // atlas on the GPU — measured on a 4-workspace window, the two canvases of one pane are ~45 MB of backing
+  // store, and the GPU process was sitting on 692 MB of IOSurface with three of the four workspaces off
+  // screen. It is not idle memory either: past a point the atlas simply fails to allocate, and a pane draws
+  // its background cells with no glyphs on them — the terminal that "stops rendering half way".
+  //
+  // So a workspace that goes off screen gives its contexts back. Main already releases this workspace's LSP
+  // and review DOM once it has been idle long enough (reconcileIdleSuspend); the terminal was the one thing
+  // that kept its share of the GPU no matter how long you had been elsewhere. Disposing the addon puts xterm
+  // back on the DOM renderer it shipped with, which is correct — just slower — so nothing breaks if the
+  // re-attach never happens.
+  //
+  // Not immediate: flipping between two workspaces would then rebuild an atlas each way. Held for a grace
+  // period, so only a workspace you actually LEFT pays, and the pane you bounce back to is untouched.
+  var WEBGL_RELEASE_AFTER_HIDDEN_MS = 20_000;
+  var webglReleaseTimer = 0;
+  function releasePaneWebgl() {
+    webglReleaseTimer = 0;
+    panes.forEach(function (p) {
+      if (!p.webgl) return;
+      try { p.webgl.dispose(); } catch (e) {}
+      p.webgl = null;
+      p.webglReleased = true;
+    });
+  }
+  function restorePaneWebgl() {
+    panes.forEach(function (p) {
+      if (!p.webglReleased || p.webgl || !p.term) return;
+      p.webglReleased = false;
+      p.webgl = loadWebglRenderer(p.term);
+    });
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (webglReleaseTimer) { clearTimeout(webglReleaseTimer); webglReleaseTimer = 0; }
+    if (document.visibilityState === 'hidden') {
+      webglReleaseTimer = setTimeout(releasePaneWebgl, WEBGL_RELEASE_AFTER_HIDDEN_MS);
+      return;
+    }
+    // Coming back builds a fresh atlas, which is also the only cheap way out of a corrupted one — a pane that
+    // came back wrong now comes back right.
+    restorePaneWebgl();
+  });
 
   function makePane(cell, restoreOrdinal) {
     if (!ensureXterm()) return null; // xterm unavailable — leave the panel empty rather than throw
@@ -418,7 +493,7 @@ function terminalPathLinkProvider(term) {
     });
     var fit = new window.FitAddon.FitAddon();
     term.loadAddon(fit);
-    loadWebglRenderer(term);
+    var webgl = loadWebglRenderer(term);
     loadWebLinks(term);
     loadPathLinks(term); // after the URL provider, so a URL is still a URL and not its trailing filename
     term.open(paneHost);
@@ -427,7 +502,8 @@ function terminalPathLinkProvider(term) {
     // the lowest FREE one instead. With sessions 1 and 3 alive (any pane but the last closed), the restore
     // attached to 1, then created a brand-new session 2 — leaving 3 orphaned and running. The next launch saw
     // three sessions and restored three panes, one of them empty, and the count grew again every time.
-    var pane = { id: null, term: term, fit: fit, el: el, host: paneHost, labelEl: labelEl,
+    var pane = { id: null, term: term, fit: fit, el: el, host: paneHost, labelEl: labelEl, webgl: webgl,
+      webglReleased: false,
       restoreOrdinal: restoreOrdinal, name: 'Terminal ' + (panes.length + 1) };
     labelEl.textContent = pane.name;
     // From the moment the rectangle exists it is a rectangle that is waiting. The panel-wide overlay covered
@@ -497,6 +573,7 @@ function terminalPathLinkProvider(term) {
         composingPanes.add(pane);
         lastInputAt = Date.now();
         pinCompositionAnchor(term);
+        setCursorHiddenForComposition(term, true);
         imeNow = { at: Date.now(), writes: 0, bytes: 0, fitsHeld: 0, anchorPins: 0, panes: panes.length, data: '' };
       });
       term.textarea.addEventListener('compositionupdate', function () { lastInputAt = Date.now(); });
@@ -510,6 +587,7 @@ function terminalPathLinkProvider(term) {
       term.textarea.addEventListener('compositionend', function (event) {
         composingPanes.delete(pane);
         lastInputAt = Date.now();
+        setCursorHiddenForComposition(term, false);
         takeCompositionCommit(term, event);
         flushDeferredFit();
         noteCompositionEnd(event);
@@ -518,6 +596,7 @@ function terminalPathLinkProvider(term) {
       // one. Closed out here so the log never shows it as still running.
       term.textarea.addEventListener('blur', function () {
         composingPanes.delete(pane);
+        setCursorHiddenForComposition(term, false); // abandoned mid-syllable — the caret is owed back
         if (imeNow) noteCompositionEnd(null);
         flushDeferredFit();
       });
@@ -595,6 +674,7 @@ function terminalPathLinkProvider(term) {
     var i = panes.indexOf(p);
     if (i < 0) return;
     composingPanes.delete(p);
+    p.webgl = null; // term.dispose() takes the addon with it; drop the reference so nothing re-disposes it
     try { p.term.dispose(); } catch (e) {}
     var cell = p.el.parentNode;
     if (cell) {
@@ -1009,6 +1089,9 @@ function terminalPathLinkProvider(term) {
     typingAt: function () { return lastInputAt; },
     // True while an IME syllable is still being assembled in some pane.
     isComposing: function () { return composingPanes.size > 0; },
+    // Run the fit the rail animation was holding (setRailContentPin, 09-views-update.js). Nothing to do when
+    // no resize arrived while the pin was up.
+    flushFit: flushDeferredFit,
     // The last 30 compositions and what the terminal was doing during each. `split: true` marks one that came
     // out as jamo. Read from the review window's devtools: __kakapoTerminal.imeLog()
     imeLog: function () { return imeLog.slice(); },

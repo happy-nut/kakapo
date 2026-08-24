@@ -202,10 +202,49 @@ test("a re-flow waits for an in-flight IME composition instead of splitting the 
   assert.ok(scheduler, "scheduleFitAll is still the single path every fit runs through");
   assert.match(scheduler, /composingPanes\.size/, "it stands down while a syllable is being assembled");
   assert.match(scheduler, /fitDeferred = true/, "and remembers the fit it owes");
-  assert.match(client, /compositionend'[\s\S]{0,160}flushDeferredFit\(\)/,
+  assert.match(client, /compositionend'[\s\S]{0,300}flushDeferredFit\(\)/,
     "the syllable committing runs the fit that was held back");
-  assert.match(client, /'blur'[\s\S]{0,120}flushDeferredFit\(\)/,
+  assert.match(client, /'blur'[\s\S]{0,300}flushDeferredFit\(\)/,
     "and so does losing focus mid-syllable, so a deferred fit is never dropped for good");
+});
+
+// Each pane's WebGL renderer holds a canvas and a glyph atlas on the GPU, and a window with several
+// workspaces kept every one of them alive off screen — the GPU process sat on hundreds of MB of IOSurface,
+// and past a point the atlas stops allocating and a pane draws background cells with no glyphs on them.
+test("a workspace that goes off screen gives its panes' GPU contexts back, and takes them again on return", () => {
+  assert.match(client, /function loadWebglRenderer\(term\)[\s\S]{0,400}return addon;/,
+    "the addon is handed back so there is something to dispose later");
+  assert.match(client, /webgl: webgl/, "and kept on the pane it belongs to");
+
+  const release = client.match(/function releasePaneWebgl\(\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(release, "one function releases them");
+  assert.match(release, /p\.webgl\.dispose\(\)/, "the addon is disposed, which puts xterm back on its DOM renderer");
+  assert.match(release, /p\.webglReleased = true/, "and the pane remembers it is owed one");
+
+  const restore = client.match(/function restorePaneWebgl\(\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(restore, "and one takes them back");
+  assert.match(restore, /if \(!p\.webglReleased \|\| p\.webgl/, "a pane that never released is left alone");
+
+  // Not on the visibility flip itself: bouncing between two workspaces would rebuild an atlas each way.
+  assert.match(client, /visibilityState === 'hidden'[\s\S]{0,160}setTimeout\(releasePaneWebgl/,
+    "leaving is on a grace timer, so only a workspace you actually left pays");
+  assert.match(client, /clearTimeout\(webglReleaseTimer\)/, "and coming straight back cancels it");
+});
+
+// The caret is drawn in the cell the syllable is being built in, so it sat under the composition overlay and
+// the unfinished word looked like it floated off its line. It goes away for the composition — but what comes
+// back is whatever DECTCEM last said, not a caret: a TUI that hid its own must stay hidden.
+test("the caret stands down for an IME composition and is restored to what the program asked for", () => {
+  const fn = client.match(/function setCursorHiddenForComposition\(term, hidden\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(fn, "one function owns the caret's composition state");
+  assert.match(fn, /term\.__kakapoCursorWas = service\.isCursorHidden/, "the program's own setting is remembered");
+  assert.match(fn, /service\.isCursorHidden = term\.__kakapoCursorWas/, "and restored, rather than reset to visible");
+  assert.doesNotMatch(fn, /isCursorHidden = false/, "nothing hands a caret back to a TUI that hid it");
+  assert.match(client, /compositionstart'[\s\S]{0,300}setCursorHiddenForComposition\(term, true\)/, "hidden when the syllable starts");
+  for (const ev of ["compositionend", "blur"]) {
+    assert.match(client, new RegExp(`'${ev}'[\\s\\S]{0,300}setCursorHiddenForComposition\\(term, false\\)`),
+      `${ev} gives the caret back, so an abandoned composition never leaves the pane without one`);
+  }
 });
 
 // A prompt sent to a pane is a PASTE, not typing. Codex enables bracketed paste (DECSET 2004) and reads a
@@ -439,5 +478,5 @@ test("panes draw on the GPU when the machine has it, and still run when it does 
   assert.match(loader, /onContextLoss[\s\S]{0,60}dispose\(\)/,
     "a lost GPU context disposes the addon rather than leaving a dead canvas");
   assert.match(loader, /catch \(e\) \{ \/\* the DOM renderer is still a terminal \*\/ \}/, "and any failure falls back");
-  assert.match(client, /term\.loadAddon\(fit\);\s*\n\s*loadWebglRenderer\(term\)/, "every pane gets it");
+  assert.match(client, /term\.loadAddon\(fit\);\s*\n\s*var webgl = loadWebglRenderer\(term\)/, "every pane gets it");
 });
