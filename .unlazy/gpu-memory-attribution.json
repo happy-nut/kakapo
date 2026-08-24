@@ -1,0 +1,189 @@
+{
+ "kind": "attribution",
+ "at": 1787588669355,
+ "gpuPid": 48018,
+ "footprintTotal": 311427072,
+ "categories": {
+  "IOSurface": {
+   "bytes": 155189248,
+   "regions": 40
+  },
+  "Owned physical footprint (unmapped) (graphics)": {
+   "bytes": 109051904,
+   "regions": 67
+  },
+  "app-specific tag 14": {
+   "bytes": 19922944,
+   "regions": 908
+  },
+  "IOAccelerator (graphics)": {
+   "bytes": 12582912,
+   "regions": 699
+  },
+  "Owned physical footprint (unmapped)": {
+   "bytes": 6291456,
+   "regions": 24
+  },
+  "__DATA": {
+   "bytes": 1533952,
+   "regions": 975
+  },
+  "stack": {
+   "bytes": 1245184,
+   "regions": 34
+  },
+  "MALLOC metadata": {
+   "bytes": 1114112,
+   "regions": 11
+  },
+  "untagged (VM_ALLOCATE)": {
+   "bytes": 1114112,
+   "regions": 54
+  },
+  "page table": {
+   "bytes": 869376,
+   "regions": 1
+  },
+  "MALLOC_SMALL": {
+   "bytes": 835584,
+   "regions": 3
+  },
+  "__DATA_DIRTY": {
+   "bytes": 801792,
+   "regions": 867
+  },
+  "libdispatch": {
+   "bytes": 294912,
+   "regions": 2
+  },
+  "__DATA_CONST": {
+   "bytes": 294912,
+   "regions": 1031
+  },
+  "Mach message": {
+   "bytes": 229376,
+   "regions": 7
+  },
+  "IOAccelerator": {
+   "bytes": 212992,
+   "regions": 5
+  },
+  "unused dyld shared cache area": {
+   "bytes": 118784,
+   "regions": 2508
+  },
+  "__AUTH_CONST": {
+   "bytes": 114688,
+   "regions": 1016
+  },
+  "MALLOC_TINY": {
+   "bytes": 98304,
+   "regions": 1
+  },
+  "__TPRO_CONST": {
+   "bytes": 98304,
+   "regions": 2
+  },
+  "IOKit": {
+   "bytes": 81920,
+   "regions": 8
+  },
+  "__AUTH": {
+   "bytes": 67584,
+   "regions": 627
+  },
+  "ColorSync": {
+   "bytes": 32768,
+   "regions": 1
+  },
+  "Activity Tracing": {
+   "bytes": 16384,
+   "regions": 1
+  },
+  "tag 22": {
+   "bytes": 16384,
+   "regions": 1
+  },
+  "os_alloc_once": {
+   "bytes": 16384,
+   "regions": 1
+  },
+  "CoreGraphics": {
+   "bytes": 16384,
+   "regions": 1
+  },
+  "__TEXT": {
+   "bytes": 0,
+   "regions": 1053
+  },
+  "mapped file": {
+   "bytes": 0,
+   "regions": 13
+  },
+  "__LINKEDIT": {
+   "bytes": 0,
+   "regions": 11
+  },
+  "__FONT_DATA": {
+   "bytes": 0,
+   "regions": 1
+  },
+  "PROTECTED_MEMORY": {
+   "bytes": 0,
+   "regions": 1
+  },
+  "__CTF": {
+   "bytes": 0,
+   "regions": 1
+  },
+  "TOTAL": {
+   "bytes": 311427072,
+   "regions": 9977
+  }
+ },
+ "surfaceCount": 40,
+ "surfaceBytes": 155077838,
+ "byDim": {
+  "unsized": {
+   "count": 19,
+   "bytes": 311296
+  },
+  "64x256 BGRA": {
+   "count": 1,
+   "bytes": 65536
+  },
+  "2304x128 BGRA": {
+   "count": 1,
+   "bytes": 1179648
+  },
+  "64x51 BGRA": {
+   "count": 1,
+   "bytes": 16384
+  },
+  "2880x512 BGRA": {
+   "count": 4,
+   "bytes": 23592960
+  },
+  "2880x1920 BGRA": {
+   "count": 3,
+   "bytes": 66374862
+  },
+  "64x128 BGRA": {
+   "count": 1,
+   "bytes": 32768
+  },
+  "2816x480 BGRA": {
+   "count": 4,
+   "bytes": 21626880
+  },
+  "1350x1806 BGRA": {
+   "count": 4,
+   "bytes": 39780352
+  },
+  "512x512 BGRA": {
+   "count": 2,
+   "bytes": 2097152
+  }
+ },
+ "renderers": 3
+}
