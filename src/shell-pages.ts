@@ -361,15 +361,20 @@ const tt=document.getElementById('tt');
 function showTip(b){const tip=b.dataset.tip;if(!tip){tt.classList.remove('show');return;}tt.textContent='';const lab=document.createElement('span');lab.textContent=tip;tt.appendChild(lab);if(b.dataset.key){const k=document.createElement('kbd');k.textContent=b.dataset.key;tt.appendChild(k);}tt.classList.add('show');const r=b.getBoundingClientRect(),bb=tt.getBoundingClientRect();
 // Under the button is where a tooltip belongs and the one place this page cannot draw: the review view is
 // laid out from the title bar's bottom edge down (TITLEBAR_H) and covers everything below it, so the bubble
-// was rendering into a strip nobody can see. It lives IN the bar instead, right-aligned to the tools group —
-// so it never sits under the pointer, and never jumps as you sweep across the icons.
-tt.style.left=Math.max(6,tools.getBoundingClientRect().left-bb.width-8)+'px';
-// The rail's own buttons (expand, new workspace, settings) sit BELOW the bar, in a 46px column — the only
-// strip of that row this page owns, so a bubble beside one of them would be cut off at 46px or hidden behind
-// the review view entirely. Clamp every tooltip into the bar, which is the one full-width surface here and
-// already where the toolbar's own tooltips appear. One place for all of them, never under the pointer.
+// was rendering into a strip nobody can see. The bar it is: full width, always ours, never under the pointer.
 const bar=document.getElementById('titlebar').getBoundingClientRect();
-tt.style.top=Math.min(Math.max(2,r.top+r.height/2-bb.height/2),Math.max(2,bar.bottom-bb.height-3))+'px';}
+// ...except in the rail itself, which this page also owns for its full height. Expanded (⌘⇧E) it is wide
+// enough to hold the bubble, so ＋ and the chevron get their hint UNDER the button they name instead of
+// across the window in the top right, where it read as belonging to the toolbar. Collapsed the rail is 46px
+// and nothing fits, so those fall back to the bar — but on the LEFT, over the rail, still the button's side.
+const hub=document.getElementById('hub').getBoundingClientRect();
+const rail=b.closest('#railhead,#railfoot'),inRail=rail&&bb.width+12<=hub.width;
+tt.style.left=(inRail?Math.max(6,Math.min(r.left,hub.width-bb.width-6))
+  :rail?6:Math.max(6,tools.getBoundingClientRect().left-bb.width-8))+'px';
+// Below a head button, above a foot one: the bubble opens away from the edge the button sits against, so the
+// gear at the bottom of the rail does not push it off screen.
+tt.style.top=(inRail?Math.max(bar.bottom+4,Math.min(r.top<innerHeight/2?r.bottom+6:r.top-bb.height-6,innerHeight-bb.height-6))
+  :Math.min(Math.max(2,r.top+r.height/2-bb.height/2),Math.max(2,bar.bottom-bb.height-3)))+'px';}
 // Delegated on the document, not on #tools: the rail buttons are in #railhead/#railfoot, and a shortcut you
 // can only discover from the menu bar is a shortcut nobody finds. Anything carrying data-tip gets the bubble.
 const tipTarget=e=>e.target.closest?e.target.closest('button[data-tip]'):null;
