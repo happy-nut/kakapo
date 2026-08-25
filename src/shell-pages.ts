@@ -8,7 +8,12 @@ import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 // with no Electron/i18n imports of their own, so the caller owns which locale renders.
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
-export function tileMenuHtml(resume: boolean, canDelete: boolean, light: boolean, t: Translate): string {
+// `closed` is a pinned PROJECT tile — a repository the rail remembers, with no window open on it. Its id is a
+// synthetic negative, so none of the workspace actions below would find anything to act on; that is why it used
+// to get no menu at all. But then nothing could take it off the rail either: closing a workspace leaves the
+// project in the recent list, which is what rebuilds the tile on the next launch, and a tile whose kind is
+// "main" is never offered Delete. Closing it again did nothing, forever. Two items it can actually honour.
+export function tileMenuHtml(resume: boolean, canDelete: boolean, light: boolean, t: Translate, closed = false): string {
   const bg = light ? "#ffffff" : "#242529", line = light ? "#e3e3e6" : "#3a3d44", fg = light ? "#242424" : "#e6e8ec";
   const hl = "#4d86d9", danger = light ? "#cf3b38" : "#e5615e", dangerHl = "#d63d3d";
   const item = (action: string, label: string, cls = ""): string => `<div class="mi ${cls}" data-action="${action}">${label}</div>`;
@@ -25,6 +30,7 @@ body{padding:14px;-webkit-user-select:none;user-select:none;cursor:default;font:
 .sep{height:1px;background:${line};margin:5px 9px}
 </style>
 <div class="menu">
+${closed ? item("open", t("tile.open"), "hl") + item("forget", t("tile.forget"), "danger") : `
 ${item("activate", t("tile.switch"), "hl")}
 ${resume ? item("resume", t("tile.resume")) : ""}
 <div class="sep"></div>
@@ -34,6 +40,7 @@ ${item("detach", t("tile.openNewWindow"))}
 <div class="sep"></div>
 ${item("close", t("tile.close"))}
 ${canDelete ? item("delete", t("tile.delete"), "danger") : ""}
+`}
 </div>
 <script>
 const {ipcRenderer}=require('electron');
@@ -661,7 +668,12 @@ if(el.dataset.panesKey===html)continue;
 el.dataset.panesKey=html;
 const old=el.querySelector('.wt-panes');if(old)old.remove();
 if(html)el.insertAdjacentHTML('beforeend',html);}}});
-window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;if(action==='rename'){window.kakapoHub.openModal('rename',{id,name});}else if(action==='memo'){const el=document.querySelector('.wt[data-id="'+id+'"]');window.kakapoHub.openModal('memo',{id,name,memo:el?el.dataset.memo||'':''});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id,name);});
+window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.action;
+// A pinned project tile: open it, or take the project off the rail entirely (which is the only thing that
+// makes a closed tile stay gone — see forgetRecentProject).
+if(action==='open'){window.kakapoHub.openPath(d.path||'');return}
+if(action==='forget'){window.kakapoHub.forgetProject(d.path||'');return}
+if(action==='rename'){window.kakapoHub.openModal('rename',{id,name});}else if(action==='memo'){const el=document.querySelector('.wt[data-id="'+id+'"]');window.kakapoHub.openModal('memo',{id,name,memo:el?el.dataset.memo||'':''});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id,name);});
 async function removeWorkspace(id,name){const r0=await window.kakapoHub.confirm({title:name?T.delTitleNamed.replace('{name}',name):T.delTitle,message:T.delMessage,checkbox:T.delCheckbox,checked:true,buttons:[T.cancel,T.del],danger:true,defaultId:0});if(r0.index!==1)return;const delBranch=r0.checked;let r;
 // Main answers a failed removal with {ok:false,error}, but an invoke can still reject outright (a thrown
 // handler crosses the bridge as a rejection). Unguarded, that rejection skipped the failure dialog below and
@@ -711,7 +723,7 @@ var justDragged=false;
   });
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&lifted){reset();window.kakapoHub.requestState();}});
 })();
-document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.wt');if(card){e.preventDefault();if(card.dataset.closed==='true')return;if(card.dataset.disconnected==='true'){window.kakapoHub.openModal('disconnected',{path:decodeURIComponent(card.dataset.path)});return}window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1',kind:card.dataset.kind||''});}});
+document.addEventListener('contextmenu',e=>{const card=e.target.closest&&e.target.closest('.wt');if(card){e.preventDefault();if(card.dataset.disconnected==='true'){window.kakapoHub.openModal('disconnected',{path:decodeURIComponent(card.dataset.path)});return}window.kakapoHub.tileMenu({id:Number(card.dataset.id),name:card.dataset.name||'',resume:card.dataset.resume==='1',kind:card.dataset.kind||'',path:decodeURIComponent(card.dataset.path||''),closed:card.dataset.closed==='true'});}});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.altKey&&/^[1-9]$/.test(e.key)){e.preventDefault();window.kakapoHub.activateIndex(Number(e.key)-1)}});
 document.addEventListener('click',e=>{if(!railExp&&!e.target.closest('button,input,textarea,dialog,#wsname'))window.kakapoHub.refocusReview()});
 window.kakapoHub.requestState();

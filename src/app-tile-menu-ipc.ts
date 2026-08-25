@@ -14,7 +14,7 @@ type TileMenuDeps = {
 
 export function registerTileMenuIpc(ipc: IpcMain, deps: TileMenuDeps): void {
   let tileMenuWindow: BrowserWindow | undefined;
-  let tileMenuTarget: { id: number; name: string } | undefined;
+  let tileMenuTarget: { id: number; name: string; path: string } | undefined;
   let tileMenuAnchor: { x: number; y: number } | undefined;
   let tileMenuShown = false;
   const close = (): void => {
@@ -23,13 +23,13 @@ export function registerTileMenuIpc(ipc: IpcMain, deps: TileMenuDeps): void {
     if (win && !win.isDestroyed()) win.close();
   };
 
-  ipc.on("kakapo:tile-menu", (_event, info: { id?: unknown; name?: unknown; resume?: unknown; kind?: unknown }) => {
+  ipc.on("kakapo:tile-menu", (_event, info: { id?: unknown; name?: unknown; resume?: unknown; kind?: unknown; path?: unknown; closed?: unknown }) => {
     const shellWindow = deps.getShellWindow();
     if (!shellWindow || shellWindow.isDestroyed()) return;
     const id = Number(info?.id);
     if (!Number.isFinite(id)) return;
     close();
-    tileMenuTarget = { id, name: typeof info?.name === "string" ? info.name : "" };
+    tileMenuTarget = { id, name: typeof info?.name === "string" ? info.name : "", path: typeof info?.path === "string" ? info.path : "" };
     tileMenuAnchor = screen.getCursorScreenPoint();
     const win = new BrowserWindow({
       width: 248, height: 220, show: false, frame: false, transparent: true, resizable: false, movable: false,
@@ -39,7 +39,7 @@ export function registerTileMenuIpc(ipc: IpcMain, deps: TileMenuDeps): void {
     tileMenuWindow = win;
     win.on("blur", () => { if (tileMenuWindow === win && tileMenuShown) close(); });
     win.on("closed", () => { if (tileMenuWindow === win) { tileMenuWindow = undefined; tileMenuTarget = undefined; tileMenuAnchor = undefined; tileMenuShown = false; } });
-    void win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(tileMenuHtml(Boolean(info?.resume), info?.kind !== "main", deps.isLightTheme(), deps.getTranslate())));
+    void win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(tileMenuHtml(Boolean(info?.resume), info?.kind !== "main", deps.isLightTheme(), deps.getTranslate(), Boolean(info?.closed))));
   });
 
   ipc.on("kakapo:menu-size", (event, size: { w?: unknown; h?: unknown }) => {
@@ -63,7 +63,7 @@ export function registerTileMenuIpc(ipc: IpcMain, deps: TileMenuDeps): void {
     close();
     const shellWindow = deps.getShellWindow();
     if (target && shellWindow && !shellWindow.isDestroyed() && typeof action === "string")
-      shellWindow.webContents.send("kakapo:tile-action", { id: target.id, action, name: target.name });
+      shellWindow.webContents.send("kakapo:tile-action", { id: target.id, action, name: target.name, path: target.path });
   });
 
   ipc.on("kakapo:menu-close", (event) => {

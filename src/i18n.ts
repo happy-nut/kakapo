@@ -551,6 +551,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "hub.ago.d": "{n}d ago",
     // --- Workspace tile context menu ---
     "tile.switch": "Switch",
+    "tile.open": "Open",
+    "tile.forget": "Remove from rail",
     "tile.resume": "Resume session",
     "tile.rename": "Rename…",
     "tile.editMemo": "Edit memo…",
@@ -1182,6 +1184,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "hub.ago.d": "{n}일 전",
     // --- Workspace tile context menu ---
     "tile.switch": "전환",
+    "tile.open": "열기",
+    "tile.forget": "레일에서 제거",
     "tile.resume": "세션 이어가기",
     "tile.rename": "이름 변경…",
     "tile.editMemo": "메모 편집…",

@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   activate: (id: number) => ipcRenderer.send("kakapo:hub-activate", id),
   // Open (or focus) a project's main checkout that is pinned in the rail but has no window yet.
   openPath: (path: string) => ipcRenderer.send("kakapo:hub-open", path),
+  // Drop a repository from the remembered-projects list. Closing a workspace does not do this, which is why a
+  // closed tile used to come back on every launch with no way to be rid of it.
+  forgetProject: (path: string) => ipcRenderer.send("kakapo:hub-forget", path),
   activateIndex: (index: number) => ipcRenderer.send("kakapo:hub-activate-index", index),
   chooseRepo: () => ipcRenderer.invoke("kakapo:hub-choose-repo"),
   // Known Git projects (deduped by repo root) for the New-workspace dialog's project dropdown.

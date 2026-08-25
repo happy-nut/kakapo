@@ -728,6 +728,16 @@ ipcMain.on("kakapo:hub-activate", (_event, id: unknown) => {
 });
 // A pinned-but-closed project tile (its main checkout has no open window yet) opens by path — activate() only
 // works for windows that already exist in `states`.
+// Take a project off the rail for good. The pinned tiles are built from knownProjectRoots(), which reads the
+// recent-projects list, so a workspace that was merely CLOSED is rebuilt as a closed tile every launch —
+// forever, and with no Delete offered because its kind is "main". This is the one call that makes it stay
+// gone, and until now only deleting a worktree reached it.
+ipcMain.on("kakapo:hub-forget", (_event, path: unknown) => {
+  if (typeof path !== "string" || !path) return;
+  preferences.forgetRecentProject(path);
+  hubMainTilesCache = undefined; // the pinned-project set just changed
+  renderHub();
+});
 ipcMain.on("kakapo:hub-open", (_event, path: unknown) => {
   if (typeof path === "string" && existsSync(path) && isGitRepository(path)) { openOrFocusWorkspace(path); collapseRailFromReview(); }
 });
