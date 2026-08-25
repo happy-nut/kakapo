@@ -31,7 +31,7 @@ import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, reapUnreachable
 import { registerCommentsIpc, syncCommentsFile, commentsFilePath, knowledgeFilePath, readThread, writeThread, nextThreadId, isKnowledge, type ThreadRecord } from "./comments-file.js";
 import { ask, askAgent } from "./ask-session.js";
 import { registerTermsIpc } from "./terms-file.js";
-import { connectMcp, mcpStatus, type McpAgent } from "./mcp-register.js";
+import { connectMcp, reconnectMcp, mcpStatus, type McpAgent } from "./mcp-register.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
@@ -507,7 +507,9 @@ ipcMain.handle("kakapo:ask", async (event, payload: { prompt?: string; label?: s
 ipcMain.handle("kakapo:mcp-status", () => mcpStatus());
 ipcMain.handle("kakapo:mcp-connect", (_event, payload: { agent?: string }) => {
   const agent = payload?.agent === "codex" ? "codex" : "claude";
-  return connectMcp(agent as McpAgent);
+  // reconnect, not connect: `mcp add` refuses an existing name on both CLIs, so pressing this on a machine
+  // whose registration is merely OUT OF DATE would report a failure and change nothing.
+  return reconnectMcp(agent as McpAgent);
 });
 registerTileMenuIpc(ipcMain, { getShellWindow: () => shellWindow, isLightTheme, getTranslate: tr });
 // Theme + locale are global settings; re-theme the native chrome and broadcast to every window when either changes.
@@ -1244,7 +1246,12 @@ if (hasSingleInstanceLock) app.on("second-instance", (_event, commandLine, worki
 async function ensureMcpRegistered(): Promise<void> {
   try {
     for (const status of mcpStatus()) {
-      if (status.installed && !status.connected) await connectMcp(status.agent);
+      if (!status.installed) continue;
+      if (!status.connected) { await connectMcp(status.agent); continue; }
+      // A registration written before ELECTRON_RUN_AS_NODE spawns the review app instead of the server, and
+      // the running window adopts the agent's repository as a workspace on every session start. It reports
+      // itself as connected, so only rewriting it fixes the machines it is already on.
+      if (status.stale) await reconnectMcp(status.agent);
     }
   } catch { /* nothing here is worth interrupting a launch for */ }
 }
