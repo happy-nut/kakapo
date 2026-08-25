@@ -1719,9 +1719,16 @@ function tmuxPaneCommands(): Map<string, string> {
     try {
       // window_activity rides along on the SAME scan — the comment below is emphatic that one answer must not
       // cost two subprocesses, and "is this agent working" is answered by the same rows as "what is it running".
-      const listed = spawnSync(tmux, ["list-panes", "-a", "-F", "#{session_name}\t#{pane_current_command}\t#{window_activity}"], { encoding: "utf8" });
+      //
+      // The separator is a pipe and must stay printable. tmux replaces CONTROL characters in format output with
+      // "_", so the tab this used to use came back as `session_command`, split into one field, and every row was
+      // dropped for having no command. The rail then showed a shell for panes with an agent working in them —
+      // and it only showed up in the packaged app, because a tmux talking to a terminal does not sanitise.
+      // Measured in the running app: tab and \x1f both yield 1 field, pipe and space both yield 3.
+      const listed = spawnSync(tmux, ["list-panes", "-a", "-F", "#{session_name}|#{pane_current_command}|#{window_activity}"], { encoding: "utf8" });
       for (const line of String(listed.stdout ?? "").split("\n")) {
-        const [session, command, active] = line.split("\t");
+        // A pane command containing a pipe would only spoil its own activity stamp, which degrades to "idle".
+        const [session, command, active] = line.split("|");
         // First non-shell pane wins, so a session whose second pane sits at a prompt still reports its agent.
         const name = (command ?? "").trim();
         if (!session || !name) continue;

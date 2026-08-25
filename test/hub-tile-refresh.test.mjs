@@ -77,8 +77,22 @@ test("gitAsync leaves the event loop free while git runs — the whole point of 
 test("a workspace with no pty attached still reports a working agent, from tmux", () => {
   const main = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
 
-  assert.ok(main.includes('"list-panes", "-a", "-F", "#{session_name}\\t#{pane_current_command}\\t#{window_activity}"'),
+  const scan = main.match(/"list-panes", "-a", "-F", "([^"]*)"/)?.[1];
+  assert.ok(scan, "the scan exists");
+  assert.match(scan, /#\{session_name\}.#\{pane_current_command\}.#\{window_activity\}/,
     "activity rides along on the existing scan — one answer must not cost two subprocesses");
+
+  // tmux replaces CONTROL characters in format output with "_", so a tab separator came back as one
+  // unsplittable field and every pane was dropped for having no command — the rail showed a shell for panes
+  // with an agent working in them. Only in the packaged app: a tmux talking to a terminal does not sanitise.
+  // Measured in the running app: tab and \x1f both yield 1 field, pipe and space both yield 3.
+  const separators = [...scan.matchAll(/\}(.)#/g)].map((m) => m[1]);
+  assert.equal(separators.length, 2, "two separators, three fields");
+  for (const sep of separators) {
+    const code = sep.codePointAt(0);
+    assert.ok(code > 31 && code !== 127, `separator U+${code.toString(16)} must be printable — tmux turns control characters into "_"`);
+  }
+  assert.match(main, /line\.split\("\|"\)/, "and the parse splits on the same character");
 
   const busy = main.match(/function tmuxSessionBusy\(session: string\): boolean \{[\s\S]*?\n\}/)?.[0];
   assert.ok(busy, "one place decides whether a tmux session is mid-turn");
