@@ -697,8 +697,10 @@ function openTermCard(node) {
   // the cache first and corrected a moment later — waiting on ripgrep to show a word would make every
   // click feel like a load.
   verifyTermCode(node.t).then(function (changed) {
-    if (!changed || termMap.pinned !== node) return;
-    saveTerms();
+    if (termMap.pinned !== node) return;
+    if (changed) saveTerms();
+    // Redrawn even when nothing was written: settling "not checked" into an address or into "not found" is
+    // exactly the state the reader opened the card to see, and only one of those two outcomes touches the file.
     var live = document.getElementById('mc-term-card');
     if (live) live.innerHTML = termCardHtml(node);
   });
@@ -721,7 +723,17 @@ function termCardHtml(node) {
     ? '<span class="mc-term-parent">' + escapeHtml(term.parent) + '</span><span class="mc-term-sep">·</span>'
     : '';
   var code = (term.code || []).map(function (entry) {
-    var at = entry.at ? '<span class="mc-term-at">' + escapeHtml(entry.at) + '</span>' : '<span class="mc-term-at is-gone">' + escapeHtml(t('terms.code.gone')) + '</span>';
+    // "not found" is a CLAIM: a search ran and the name was not in the repository. Most address-less entries
+    // have never been searched for at all — the writer stores {name} alone when the agent supplies no address
+    // (mcp-server.ts) — and saying "not found" about a name that is sitting in six files is simply wrong.
+    // `gone` is set only by a search that came back empty, and it is deliberately not persisted (terms-file.ts
+    // serialises {name, at} and nothing else), so a reload goes back to "not checked" rather than inheriting a
+    // verdict from whatever the repository looked like last time.
+    var at = entry.at
+      ? '<span class="mc-term-at">' + escapeHtml(entry.at) + '</span>'
+      : entry.gone
+        ? '<span class="mc-term-at is-gone">' + escapeHtml(t('terms.code.gone')) + '</span>'
+        : '<span class="mc-term-at is-unchecked">' + escapeHtml(t('terms.code.unchecked')) + '</span>';
     return '<button type="button" class="mc-term-code" data-at="' + escapeHtml(entry.at || '') + '">'
       + '<code>' + escapeHtml(entry.name) + '</code>' + at + '</button>';
   }).join('');
@@ -1205,10 +1217,12 @@ function verifyTermCode(term) {
     return chain.then(function (changed) {
       return termSearchFirst(entry.name).then(function (found) {
         if (found === null) {
+          entry.gone = true; // a search ran and came back empty — now "not found" is a thing we know
           if (!('at' in entry)) return changed;
           delete entry.at; // gone from the repository — the reader is told, the name is kept
           return true;
         }
+        delete entry.gone;
         if (entry.at === found) return changed;
         entry.at = found; // moved: the address was the cache, so the cache is simply corrected
         return true;

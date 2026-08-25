@@ -459,6 +459,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "terms.add.needBoth": "A word needs both a name and a line saying what it is.",
     "terms.add.exists": "That word is already on the map.",
     "terms.code.gone": "not found",
+    "terms.code.unchecked": "not checked",
     "terms.empty.title": "No words yet",
     "terms.empty.body":
       "A word lands here once you have used it yourself — ask about something in a comment, and the concept behind your question joins the map with what it turns out to be in the code.",
@@ -551,6 +552,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "hub.ago.d": "{n}d ago",
     // --- Workspace tile context menu ---
     "tile.switch": "Switch",
+    "tile.open": "Open",
+    "tile.forget": "Remove from rail",
     "tile.resume": "Resume session",
     "tile.rename": "Rename…",
     "tile.editMemo": "Edit memo…",
@@ -1095,6 +1098,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "terms.add.needBoth": "단어와 그게 무엇인지 한 줄, 둘 다 필요합니다.",
     "terms.add.exists": "이미 지도에 있는 단어입니다.",
     "terms.code.gone": "찾지 못함",
+    "terms.code.unchecked": "확인 전",
     "terms.empty.title": "아직 쌓인 단어가 없습니다",
     "terms.empty.body":
       "단어는 직접 써야 들어옵니다 — 코멘트로 무언가를 물어보면, 그 질문이 담고 있던 개념이 코드에서 무엇인지와 함께 지도에 올라옵니다.",
@@ -1182,6 +1186,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "hub.ago.d": "{n}일 전",
     // --- Workspace tile context menu ---
     "tile.switch": "전환",
+    "tile.open": "열기",
+    "tile.forget": "레일에서 제거",
     "tile.resume": "세션 이어가기",
     "tile.rename": "이름 변경…",
     "tile.editMemo": "메모 편집…",

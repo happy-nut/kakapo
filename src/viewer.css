@@ -4367,6 +4367,12 @@ body:has(#mc-briefing) .mc-brf-recall { opacity: .45; }
   padding: 0 12px 0 16px; height: var(--native-titlebar-height, 38px);
   border-bottom: 1px solid var(--ui-border-soft); -webkit-app-region: drag;
 }
+/* The head doubles as window chrome, so it drags — and a control inside a drag region is dead to the mouse:
+   macOS takes the press as the start of a window move and the DOM never sees a click. The ✕ opted out by
+   itself and "+ add a word" did not, so it could not be pressed at all, while a synthetic click on it worked
+   perfectly. Every button in here opts out, the way .dock-bar and .history-bar already do, so the next one
+   added does not have to remember. */
+.mc-map-head button { -webkit-app-region: no-drag; }
 .mc-map-title { font-size: 12.5px; font-weight: 620; color: var(--chrome-text); }
 .mc-map-count {
   font: 600 10.5px/1 Monaco, ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -4374,7 +4380,6 @@ body:has(#mc-briefing) .mc-brf-recall { opacity: .45; }
 }
 .mc-map-sp { flex: 1; }
 .mc-map-x {
-  -webkit-app-region: no-drag;
   width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--ui-radius-md);
   background: transparent; color: var(--chrome-muted); cursor: pointer; font-size: 12px;
 }
@@ -4566,6 +4571,8 @@ body:has(#mc-briefing) .mc-brf-recall { opacity: .45; }
 }
 /* `at` is a cache and the name is the truth: a rotten address is reported, never hidden. */
 .mc-term-at.is-gone { color: #e5484d; }
+/* Not an alarm: nobody has looked yet. Red is reserved for the search that actually came back empty. */
+.mc-term-at.is-unchecked { color: var(--muted, #8b909a); font-style: italic; }
 
 /* Unread words, said on the launcher row that lists the map — the rail's own tool buttons are permanently
    hidden, so a dot there would be a dot nobody sees. */

@@ -31,7 +31,7 @@ import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, reapUnreachable
 import { registerCommentsIpc, syncCommentsFile, commentsFilePath, knowledgeFilePath, readThread, writeThread, nextThreadId, isKnowledge, type ThreadRecord } from "./comments-file.js";
 import { ask, askAgent } from "./ask-session.js";
 import { registerTermsIpc } from "./terms-file.js";
-import { connectMcp, mcpStatus, type McpAgent } from "./mcp-register.js";
+import { connectMcp, reconnectMcp, mcpStatus, type McpAgent } from "./mcp-register.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
 import type { IPty } from "node-pty";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
@@ -507,7 +507,9 @@ ipcMain.handle("kakapo:ask", async (event, payload: { prompt?: string; label?: s
 ipcMain.handle("kakapo:mcp-status", () => mcpStatus());
 ipcMain.handle("kakapo:mcp-connect", (_event, payload: { agent?: string }) => {
   const agent = payload?.agent === "codex" ? "codex" : "claude";
-  return connectMcp(agent as McpAgent);
+  // reconnect, not connect: `mcp add` refuses an existing name on both CLIs, so pressing this on a machine
+  // whose registration is merely OUT OF DATE would report a failure and change nothing.
+  return reconnectMcp(agent as McpAgent);
 });
 registerTileMenuIpc(ipcMain, { getShellWindow: () => shellWindow, isLightTheme, getTranslate: tr });
 // Theme + locale are global settings; re-theme the native chrome and broadcast to every window when either changes.
@@ -726,6 +728,16 @@ ipcMain.on("kakapo:hub-activate", (_event, id: unknown) => {
 });
 // A pinned-but-closed project tile (its main checkout has no open window yet) opens by path — activate() only
 // works for windows that already exist in `states`.
+// Take a project off the rail for good. The pinned tiles are built from knownProjectRoots(), which reads the
+// recent-projects list, so a workspace that was merely CLOSED is rebuilt as a closed tile every launch —
+// forever, and with no Delete offered because its kind is "main". This is the one call that makes it stay
+// gone, and until now only deleting a worktree reached it.
+ipcMain.on("kakapo:hub-forget", (_event, path: unknown) => {
+  if (typeof path !== "string" || !path) return;
+  preferences.forgetRecentProject(path);
+  hubMainTilesCache = undefined; // the pinned-project set just changed
+  renderHub();
+});
 ipcMain.on("kakapo:hub-open", (_event, path: unknown) => {
   if (typeof path === "string" && existsSync(path) && isGitRepository(path)) { openOrFocusWorkspace(path); collapseRailFromReview(); }
 });
@@ -1244,7 +1256,12 @@ if (hasSingleInstanceLock) app.on("second-instance", (_event, commandLine, worki
 async function ensureMcpRegistered(): Promise<void> {
   try {
     for (const status of mcpStatus()) {
-      if (status.installed && !status.connected) await connectMcp(status.agent);
+      if (!status.installed) continue;
+      if (!status.connected) { await connectMcp(status.agent); continue; }
+      // A registration written before ELECTRON_RUN_AS_NODE spawns the review app instead of the server, and
+      // the running window adopts the agent's repository as a workspace on every session start. It reports
+      // itself as connected, so only rewriting it fixes the machines it is already on.
+      if (status.stale) await reconnectMcp(status.agent);
     }
   } catch { /* nothing here is worth interrupting a launch for */ }
 }
@@ -1702,9 +1719,16 @@ function tmuxPaneCommands(): Map<string, string> {
     try {
       // window_activity rides along on the SAME scan — the comment below is emphatic that one answer must not
       // cost two subprocesses, and "is this agent working" is answered by the same rows as "what is it running".
-      const listed = spawnSync(tmux, ["list-panes", "-a", "-F", "#{session_name}\t#{pane_current_command}\t#{window_activity}"], { encoding: "utf8" });
+      //
+      // The separator is a pipe and must stay printable. tmux replaces CONTROL characters in format output with
+      // "_", so the tab this used to use came back as `session_command`, split into one field, and every row was
+      // dropped for having no command. The rail then showed a shell for panes with an agent working in them —
+      // and it only showed up in the packaged app, because a tmux talking to a terminal does not sanitise.
+      // Measured in the running app: tab and \x1f both yield 1 field, pipe and space both yield 3.
+      const listed = spawnSync(tmux, ["list-panes", "-a", "-F", "#{session_name}|#{pane_current_command}|#{window_activity}"], { encoding: "utf8" });
       for (const line of String(listed.stdout ?? "").split("\n")) {
-        const [session, command, active] = line.split("\t");
+        // A pane command containing a pipe would only spoil its own activity stamp, which degrades to "idle".
+        const [session, command, active] = line.split("|");
         // First non-shell pane wins, so a session whose second pane sits at a prompt still reports its agent.
         const name = (command ?? "").trim();
         if (!session || !name) continue;
