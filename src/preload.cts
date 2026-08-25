@@ -96,7 +96,20 @@ contextBridge.exposeInMainWorld("kakapoPty", {
   onTmuxInstallDone: (cb: (result: { ok: boolean; reason: string }) => void): void => {
     ipcRenderer.on("kakapo:tmux-install-done", (_event, result: { ok: boolean; reason: string }) => cb(result));
   },
-  write: (msg: { id: number; data: string }): void => ipcRenderer.send("kakapo:pty-write", msg),
+  // Everything the app types into a shell passes through here, and it leaves as NFC.
+  //
+  // macOS hands Hangul to the web layer DECOMPOSED: "지금 캠페인" arrives as ᄌ ᅵ ᄀ ᅳ ᄆ … , each jamo its own
+  // code point. A terminal draws code points, so the agent's composer showed the reader's own sentence spelled
+  // out letter by letter — the "자모 분리" that was blamed on the IME, on the caret, and on xterm's composition
+  // handling in turn. None of those were it: the string was already decomposed before anything of ours touched
+  // it, which is also why a half-syllable could appear in a log with no output, no re-flow and no anchor move
+  // anywhere near it.
+  //
+  // The bridge is the choke point on purpose. Five call sites reach a pty — typed input, the pane picker, a
+  // pasted prompt, a bare Enter — and normalising at each would be four chances to forget. NFC leaves ASCII,
+  // control bytes and the bracketed-paste markers untouched, so nothing else here can notice.
+  write: (msg: { id: number; data: string }): void =>
+    ipcRenderer.send("kakapo:pty-write", { ...msg, data: typeof msg?.data === "string" ? msg.data.normalize("NFC") : msg?.data }),
   resize: (msg: { id: number; cols: number; rows: number }): void => ipcRenderer.send("kakapo:pty-resize", msg),
   kill: (msg: { id: number }): void => ipcRenderer.send("kakapo:pty-kill", msg),
   // Ask tmux to repaint this pane's current screen — what a pane that stopped listening while its workspace
