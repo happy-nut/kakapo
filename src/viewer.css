@@ -4566,6 +4566,8 @@ body:has(#mc-briefing) .mc-brf-recall { opacity: .45; }
 }
 /* `at` is a cache and the name is the truth: a rotten address is reported, never hidden. */
 .mc-term-at.is-gone { color: #e5484d; }
+/* Not an alarm: nobody has looked yet. Red is reserved for the search that actually came back empty. */
+.mc-term-at.is-unchecked { color: var(--muted, #8b909a); font-style: italic; }
 
 /* Unread words, said on the launcher row that lists the map — the rail's own tool buttons are permanently
    hidden, so a dot there would be a dot nobody sees. */

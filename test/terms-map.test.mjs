@@ -8,6 +8,7 @@
 // checked instead: no two words land on top of each other.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
 
@@ -522,4 +523,33 @@ test("the reader can write a word down themselves", async () => {
   assert.equal(added.seen, true, "and not marked unread — the reader wrote it a second ago");
   assert.equal(v.window.termsState.terms.length, before + 1);
   assert.ok(v.$('#mc-map .mc-node[data-node="숨은 세션"]'), "and on the map");
+});
+
+// "not found" is a CLAIM — a search ran and the name was not in the repository. Most address-less entries have
+// never been searched for: the MCP writer stores {name} alone when the agent supplies no address. Measured in
+// the running app: zoobox's map called `resolve_currency_watch_universe` not found while the same window's
+// search returned three matches for it, and ripgrep found it in six files.
+test("an address nobody has looked up yet is not reported as missing", () => {
+  const client = readFileSync(new URL("../src/viewer/26-terms.js", import.meta.url), "utf8");
+
+  const render = client.match(/var code = \(term\.code \|\| \[\]\)\.map\([\s\S]*?\n  \}\)\.join\(''\);/)?.[0];
+  assert.ok(render, "one place renders a code address");
+  assert.match(render, /entry\.at\s*\n?\s*\?[\s\S]{0,200}entry\.gone/, "three states, not two");
+  assert.match(render, /terms\.code\.unchecked/, "and the third one says nobody has looked");
+
+  const verify = client.match(/return termSearchFirst\(entry\.name\)\.then\([\s\S]*?\n      \}\);/)?.[0];
+  assert.ok(verify, "one place decides");
+  assert.match(verify, /entry\.gone = true;/, "only a search that came back empty earns the verdict");
+  assert.match(verify, /delete entry\.gone;/, "and finding it again withdraws it");
+
+  // Deliberately not persisted: terms-file serialises {name, at} and nothing else, so a reload goes back to
+  // "not checked" rather than inheriting a verdict about a repository that has since changed.
+  const file = readFileSync(new URL("../src/terms-file.ts", import.meta.url), "utf8");
+  assert.match(file, /entry\.at \? \{ name: entry\.name, at: entry\.at \} : \{ name: entry\.name \}/,
+    "the file format is unchanged, which is what keeps `gone` in memory");
+
+  // The card has to repaint even when nothing was written — settling "not checked" into an address is exactly
+  // what the reader opened it to see, and that outcome touches no file.
+  assert.match(client, /verifyTermCode\(node\.t\)\.then\(function \(changed\) \{\s*\n\s*if \(termMap\.pinned !== node\) return;\s*\n\s*if \(changed\) saveTerms\(\);/,
+    "the redraw is not conditional on a write");
 });
