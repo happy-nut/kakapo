@@ -553,3 +553,27 @@ test("an address nobody has looked up yet is not reported as missing", () => {
   assert.match(client, /verifyTermCode\(node\.t\)\.then\(function \(changed\) \{\s*\n\s*if \(termMap\.pinned !== node\) return;\s*\n\s*if \(changed\) saveTerms\(\);/,
     "the redraw is not conditional on a write");
 });
+
+// The map head doubles as window chrome, so it carries -webkit-app-region: drag. A control inside a drag
+// region is dead to the mouse — macOS takes the press as the start of a window move and the DOM never sees a
+// click — which is why "+ add a word" could not be pressed while the ✕ beside it could, and why a synthetic
+// click on the same button worked in every window.
+test("every control in the map head opts out of the window-drag region", () => {
+  const css = readFileSync(new URL("../src/viewer.css", import.meta.url), "utf8");
+  const head = css.match(/\.mc-map-head \{[^}]*\}/)?.[0];
+  assert.ok(head, "the head exists");
+  assert.match(head, /-webkit-app-region: drag/, "and it is draggable, which is the hazard");
+
+  assert.match(css, /\.mc-map-head button \{ -webkit-app-region: no-drag; \}/,
+    "so every button in it opts out — not each button remembering for itself");
+
+  // The rule has to cover the buttons the head actually renders.
+  const client = readFileSync(new URL("../src/viewer/26-terms.js", import.meta.url), "utf8");
+  const markup = client.match(/host\.innerHTML = '<div class="mc-map-head">[\s\S]*?'<\/div>'/)?.[0];
+  assert.ok(markup, "the head markup is built in one place");
+  for (const id of ["mc-map-add", "mc-map-x"]) {
+    assert.ok(markup.includes(`id="${id}"`), `${id} is in the head`);
+  }
+  assert.ok(!/mc-map-x \{\s*\n\s*-webkit-app-region: no-drag/.test(css),
+    "and the per-button opt-out is gone, so there is one rule rather than two saying the same thing");
+});
