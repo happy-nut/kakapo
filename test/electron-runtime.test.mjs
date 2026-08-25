@@ -73,11 +73,27 @@ test("launcher tolerates missing or failing branding repair", () => {
   }));
 });
 
+// Comments are prose, not behaviour. This asserted against the raw file and so forbade app-main from
+// EXPLAINING the variable — which it now has reason to, since a registration written without it starts a
+// second copy of the review app (mcp-register.ts). Strip the commentary and judge the code.
+function withoutComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
 test("running Electron main process never mutates its own macOS app bundle", () => {
-  const source = readFileSync(join(repoRoot, "src", "app-main.ts"), "utf8");
+  const source = withoutComments(readFileSync(join(repoRoot, "src", "app-main.ts"), "utf8"));
 
   assert.doesNotMatch(source, /patch-electron-name/, "bundle repair must finish in the launcher before Electron starts");
   assert.doesNotMatch(source, /ELECTRON_RUN_AS_NODE/, "app-main must not spawn a live-bundle repair subprocess");
+
+  // A negative assertion is worth nothing without a control: prove the same check still catches the real
+  // thing, and that stripping comments is all that changed.
+  const planted = 'spawnSync(bin, args, { env: { ELECTRON_RUN_AS_NODE: "1" } }); // repair the bundle';
+  assert.match(withoutComments(planted), /ELECTRON_RUN_AS_NODE/, "code is still seen");
+  assert.doesNotMatch(withoutComments("// mentions ELECTRON_RUN_AS_NODE in passing"), /ELECTRON_RUN_AS_NODE/,
+    "a comment is not");
+  assert.match(withoutComments("const url = 'https://x/y'; const k = 1;"), /https:\/\/x\/y/,
+    "and a URL inside a string survives the stripper");
 });
 
 test("the packaged app preserves --cwd while development skips the app-main entry", () => {
