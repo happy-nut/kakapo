@@ -3,10 +3,12 @@ import type { WebContents } from "electron";
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { spawn as spawnPty, type IPty } from "node-pty";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { sanitizeTerminalEnv, ensureUtf8Locale, resolveBin, tmuxSessionName, tmuxSessionsForRoot, unreachableSessions, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper, endTmuxSession, tmuxPaneCommand } from "./util.js";
+import { sanitizeTerminalEnv, ensureUtf8Locale, resolveBin, tmuxSessionName, tmuxSessionsForRoot, unreachableSessions, unreachableTranscripts, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper, endTmuxSession, tmuxPaneCommand } from "./util.js";
 import { resumeCommandForInput } from "./agent-resume.js";
+import { claudeProjectsDir } from "./ask-session.js";
+import { MANAGED_CONTAINER, managedWorkspacePaths } from "./workspaces.js";
 
 // `brew install tmux` from the settings panel has to take effect without a restart, which is why this asks
 // the filesystem every time rather than caching (resolveBin, util.ts).
@@ -105,6 +107,32 @@ export function reapUnreachableTerminals(knownRoots: Iterable<string>): string[]
     try { spawnSync(tmux, ["kill-session", "-t", session]); } catch { /* already gone */ }
   }
   return doomed;
+}
+
+// The same sweep, one layer down. Ending a tmux session frees the process; it does not touch what the agent
+// INSIDE it wrote down. A `claude` run in a workspace terminal files its history under that workspace's path
+// (transcriptSlug), the workspace is deleted when its task is done, and the history stays — a directory per
+// finished task, growing for as long as kakapo is used, in a place nobody looks.
+//
+// Only worktrees kakapo itself created, only after their folder is gone from disk, only once they have been
+// quiet for a day: the guards are in unreachableTranscripts, and they are the whole reason this is safe to
+// run unattended at launch. Returns the names removed, for the startup log.
+export function reapDeletedWorkspaceTranscripts(): string[] {
+  const projects = claudeProjectsDir();
+  let entries;
+  try { entries = readdirSync(projects, { withFileTypes: true }); } catch { return []; } // no CLI history here
+  const listed = entries.filter((entry) => entry.isDirectory()).map((entry) => {
+    let mtimeMs = 0;
+    try { mtimeMs = statSync(join(projects, entry.name)).mtimeMs; } catch { mtimeMs = Date.now(); } // unreadable: treat as fresh, i.e. keep
+    return { name: entry.name, mtimeMs };
+  });
+  const doomed = unreachableTranscripts(listed, MANAGED_CONTAINER, managedWorkspacePaths(), Date.now());
+  const removed: string[] = [];
+  for (const name of doomed) {
+    try { rmSync(join(projects, name), { recursive: true, force: true }); removed.push(name); }
+    catch { /* a transcript we could not delete is not a startup failure */ }
+  }
+  return removed;
 }
 
 export function killWorkspaceTerminals(state: TerminalIpcState): void {

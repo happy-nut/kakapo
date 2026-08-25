@@ -70,7 +70,7 @@ export function hubHtml(light: boolean, appVersion: string, t: Translate): strin
     uSession: t("usage.session"), uWeekly: t("usage.weekly"), uLeft: t("usage.left"),
     uResets: t("usage.resets"), uAsOf: t("usage.asOf"), uTokensToday: t("usage.tokensToday"),
     uNow: t("usage.now"), uD: t("usage.unit.d"), uH: t("usage.unit.h"), uM: t("usage.unit.m"),
-    workspaces: t("hub.workspaces"), mainWorktree: t("hub.mainWorktree"),
+    workspaces: t("hub.workspaces"), mainWorktree: t("hub.mainWorktree"), offMain: t("hub.offMain"),
     running: t("hub.status.running"), resumable: t("hub.status.resumable"), disconnected: t("hub.status.disconnected"),
     changed: t("hub.tip.changed"),
     ahead: t("hub.tip.ahead"),
@@ -149,6 +149,10 @@ body.rail-exp .cv{display:none}
 .cv .wt .mdot svg{width:7px;height:7px;display:block}
 .wt-home{width:13px;height:13px;flex:none;color:${light ? "#c9862a" : "#d99a3a"};display:grid;place-items:center}
 .wt-home svg{width:13px;height:13px;display:block}
+/* The main checkout has been moved off its default branch. Red rather than the badge's usual amber, on both
+   rails: this is the one thing about a main worktree that is worth interrupting a glance for. */
+.cv .wt .mdot-off{background:${light ? "#c0392b" : "#e0574a"}}
+.wt-home-off{color:${light ? "#c0392b" : "#e0574a"}}
 /* Agent working: a breathing ring around the badge — scales + fades in place rather than rotating, so several
    working worktrees don't make the rail spin. pointer-events:none keeps the badge clickable through it. */
 @keyframes wsbreathe{0%,100%{opacity:.25;transform:scale(.94)}50%{opacity:.9;transform:scale(1.09)}}
@@ -619,7 +623,13 @@ const avStyle=(ws,repo)=>grpAvatar(ws)?'':' style="background:hsl('+projHue(repo
 const chev='<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>';
 const homeIco='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3.1 3.3 10a.6.6 0 0 0 .38 1.06H5v8.4c0 .3.24.54.54.54H9.6v-5.2h4.8v5.2h4.06c.3 0 .54-.24.54-.54v-8.4h1.32A.6.6 0 0 0 20.7 10z"/></svg>';
 const isMain=w=>w.kind==='main';
-const cv='<div class="cv">'+[...groups].map(([repo,ws])=>'<div class="grp"><div class="phav" data-repo="'+esc(repo)+'" title="'+esc(repo)+'"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</div><div class="wts">'+ws.map(w=>'<button class="wt'+wcls(w)+'"'+wattr(w)+'>'+esc(initials(w))+'<span class="rdot"></span><span class="udot"></span>'+(isMain(w)?'<span class="mdot" title="'+esc(T.mainWorktree)+'">'+homeIco+'</span>':'')+'</button>').join('')+'</div></div>').join('')+'</div>';
+// The home badge says "this is the project's own checkout". When that checkout has been moved off its trunk —
+// an agent running git checkout -b in the main workspace's terminal is how it happens — the badge is still
+// true and now incomplete, so it changes colour and says which branch it should have been on. Both rails: the
+// collapsed strip is what is on screen most of the time, and a warning you have to expand to see is not one.
+const offMain=w=>isMain(w)&&!!w.offMain;
+const homeTip=w=>offMain(w)?T.offMain.replace('{b}',w.defaultBranch||''):T.mainWorktree;
+const cv='<div class="cv">'+[...groups].map(([repo,ws])=>'<div class="grp"><div class="phav" data-repo="'+esc(repo)+'" title="'+esc(repo)+'"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</div><div class="wts">'+ws.map(w=>'<button class="wt'+wcls(w)+'"'+wattr(w)+'>'+esc(initials(w))+'<span class="rdot"></span><span class="udot"></span>'+(isMain(w)?'<span class="mdot'+(offMain(w)?' mdot-off':'')+'" title="'+esc(homeTip(w))+'">'+homeIco+'</span>':'')+'</button>').join('')+'</div></div>').join('')+'</div>';
 // No heading here: the rail header above the list already names this (#railtitle), and two "Workspaces"
 // stacked on top of each other was just the same word twice.
 const ev='<div class="ev"><div class="plist">'+[...groups].map(([repo,ws])=>'<div class="proj"><div class="prow" data-repo="'+esc(repo)+'"><span class="pav"'+avStyle(ws,repo)+'>'+avInner(ws,repo)+'</span><span class="pname">'+esc(repo)+'</span><span class="pcount">'+ws.length+'</span>'+chev+'</div><div class="ewts">'+ws.map(w=>{
@@ -630,7 +640,7 @@ const nm=esc(w.alias||(isMain(w)?T.mainWorktree:0)||w.branch);const showBr=w.bra
 // Uncommitted changes and unsent commits are different questions — "have I finished?" and "have I sent it?" —
 // so they are two pills, not one number. The arrow is what tells them apart at a glance; absent means zero,
 // which is the answer for most workspaces most of the time and deserves no ink.
-const aheadTag=w.ahead?'<span class="wt-tag wt-ahead" title="'+esc(T.ahead.replace('{n}',w.ahead))+'">↑'+w.ahead+'</span>':'';const home=isMain(w)?'<span class="wt-home" title="'+esc(T.mainWorktree)+'">'+homeIco+'</span>':'';
+const aheadTag=w.ahead?'<span class="wt-tag wt-ahead" title="'+esc(T.ahead.replace('{n}',w.ahead))+'">↑'+w.ahead+'</span>':'';const home=isMain(w)?'<span class="wt-home'+(offMain(w)?' wt-home-off':'')+'" title="'+esc(homeTip(w))+'">'+homeIco+'</span>':'';
 // Which agent this worktree is running, in its own brand colour. The terminal records it the moment you
 // type claude/codex (agent-resume.ts), so a workspace shows its badge while the agent is live and keeps it
 // afterwards — the same fact the resume action is offered from. Only the expanded rail: the collapsed strip

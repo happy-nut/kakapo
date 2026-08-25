@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, tmuxSessionPrefix, unreachableSessions, nextTerminalOrdinal, tmuxSpawnArgs } from "../dist/util.js";
+import { sanitizeTerminalEnv, ensureUtf8Locale, tmuxSessionName, tmuxSessionsForRoot, tmuxSessionPrefix, unreachableSessions, unreachableTranscripts, transcriptSlug, nextTerminalOrdinal, tmuxSpawnArgs } from "../dist/util.js";
 
 test("strips every npm_*-injected var (incl. the npm_config_prefix nvm rejects)", () => {
   const out = sanitizeTerminalEnv({
@@ -206,4 +206,40 @@ test("unreachable sessions are the ones no workspace can name, and nothing else"
   assert.equal(unreachableSessions(`other-tool-1 0 ${old}`, [], now).length, 0, "nor another tool's session");
   assert.equal(unreachableSessions(`${mine}2 0 ${old}`, ["/repos/acme"], now).length, 0,
     "and a workspace kakapo knows keeps its sessions however long they idle");
+});
+
+test("transcripts of deleted workspaces are swept; every other history is left alone", () => {
+  const HOUR = 3600 * 1000;
+  const now = 1_700_000_000_000;
+  const old = now - 30 * 24 * HOUR;
+  const container = "/Users/me/kakapo/workspaces";
+  const live = `${container}/acme/quiet-warbler`;
+
+  assert.equal(transcriptSlug(live), "-Users-me-kakapo-workspaces-acme-quiet-warbler");
+  // Underscores and dots collapse to dashes exactly like the slashes do, which is why nothing here ever
+  // tries to read a name backwards into a path.
+  assert.equal(transcriptSlug("/a/b_c.d"), "-a-b-c-d");
+
+  const entries = [
+    { name: transcriptSlug(live), mtimeMs: old },                         // its worktree is still on disk
+    { name: transcriptSlug(live) + "-src", mtimeMs: old },                // a session started inside it
+    { name: transcriptSlug(`${container}/acme/olive-quail`), mtimeMs: old },       // worktree deleted
+    { name: transcriptSlug(`${container}/acme/eager-lark`), mtimeMs: now - HOUR }, // deleted, but busy an hour ago
+    { name: transcriptSlug("/Users/me/orca/workspaces/acme/feature-s3"), mtimeMs: old }, // another tool's
+    { name: transcriptSlug("/Users/me/repos/acme"), mtimeMs: old },       // an ordinary checkout
+  ];
+
+  assert.deepEqual(unreachableTranscripts(entries, container, [live], now),
+    [transcriptSlug(`${container}/acme/olive-quail`)], "only the deleted, long-quiet, kakapo-made one");
+
+  // The guards, one at a time, so a future change cannot quietly drop one.
+  const only = (name, mtimeMs, roots = [live]) => unreachableTranscripts([{ name, mtimeMs }], container, roots, now).length;
+  assert.equal(only(transcriptSlug(live), old), 0, "a worktree still on disk keeps its history however long it idles");
+  assert.equal(only(transcriptSlug(live) + "-src", old), 0, "and so does a session started in a subdirectory of it");
+  assert.equal(only(transcriptSlug("/Users/me/orca/workspaces/acme/x"), old), 0, "another tool's worktree is not ours to clean");
+  assert.equal(only(transcriptSlug("/Users/me/repos/acme"), old), 0, "nor is an ordinary checkout");
+  assert.equal(only(transcriptSlug(`${container}/acme/fresh`), now - HOUR), 0, "nor one that was written to today");
+  // A workspace kakapo forgot the tile for is still a folder you can cd into and `claude --continue` in, so
+  // "kakapo has no record of it" must never be what decides this — only the folder being gone.
+  assert.equal(only(transcriptSlug(live), old, []), 1, "but an empty live list means the folders really are gone");
 });
