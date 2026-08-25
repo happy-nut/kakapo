@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createManagedWorkspaceAsync, defaultBase, removalRisk, removeManagedWorkspace, workspaceRecord } from "../dist/workspaces.js";
+import { createManagedWorkspaceAsync, defaultBase, defaultBranch, removalRisk, removeManagedWorkspace, workspaceRecord } from "../dist/workspaces.js";
 
 const sh = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 test("managed worktree creation, risk detection, and safe removal", async () => {
@@ -14,6 +14,13 @@ test("managed worktree creation, risk detection, and safe removal", async () => 
     sh(repo, "init", "-b", "main"); sh(repo, "config", "user.email", "a@b.c"); sh(repo, "config", "user.name", "T");
     writeFileSync(join(repo, "a.txt"), "a\n"); sh(repo, "add", "."); sh(repo, "commit", "-m", "init");
     assert.equal(defaultBase(repo), "main");
+    // What the main checkout is expected to sit on, for the rail's off-trunk warning. The remote prefix comes
+    // off — a worktree is on `main`, never on `origin/main` — and a repository that will not name a default
+    // branch answers with nothing, because a drift you cannot name must not render as a warning.
+    assert.equal(defaultBranch(repo), "main");
+    sh(repo, "branch", "-m", "main", "trunk");
+    assert.equal(defaultBranch(repo), "", "no origin/HEAD and no branch by a usual name -> no opinion");
+    sh(repo, "branch", "-m", "trunk", "main");
     const ws = await createManagedWorkspaceAsync(repo, "My Task", { container: join(tmp, "managed") });
     assert.equal(ws.kind, "worktree");
     // The branch is a random pair, NOT the task name: that name is prose, often not in English, and it used to
@@ -29,7 +36,26 @@ test("managed worktree creation, risk detection, and safe removal", async () => 
     assert.ok(existsSync(ws.path), "a refused removal leaves the worktree on disk");
     assert.match(sh(repo, "worktree", "list"), new RegExp(ws.branch.replace("kakapo/", "")), "and leaves git still tracking it");
 
+    // The hidden ask session's transcript lives outside the repository, keyed by a working directory that is
+    // about to stop existing, and nothing else ever collects it.
+    const config = mkdtempSync(join(tmpdir(), "kakapo-claude-"));
+    const previousConfig = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = config;
+    const id = "0189bf3c-1c2e-4f9a-8b7d-2f0c5a6d4e11";
+    const gitDir = sh(ws.path, "rev-parse", "--absolute-git-dir");
+    mkdirSync(join(gitDir, "kakapo"), { recursive: true });
+    writeFileSync(join(gitDir, "kakapo", "ask-session"), id + "\n");
+    const project = join(config, "projects", "-some-slug");
+    mkdirSync(join(project, id), { recursive: true });
+    writeFileSync(join(project, `${id}.jsonl`), "{}\n");
+    writeFileSync(join(project, "other-session.jsonl"), "{}\n");
+
     removeManagedWorkspace(ws, true, true);
+    assert.equal(existsSync(join(project, `${id}.jsonl`)), false, "the workspace's own transcript goes with it");
+    assert.equal(existsSync(join(project, id)), false, "and so does the session's state directory");
+    assert.ok(existsSync(join(project, "other-session.jsonl")), "but nothing else in that project directory");
+    if (previousConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = previousConfig;
+    rmSync(config, { recursive: true, force: true });
     // Deleting a workspace deletes the code. The tile disappearing is not the point of the action.
     assert.equal(existsSync(ws.path), false, "the worktree directory is gone from disk");
     assert.doesNotMatch(sh(repo, "worktree", "list"), /my-task/, "and git no longer tracks the worktree");

@@ -531,6 +531,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // --- Workspace rail (hub) ---
     "hub.workspaces": "Workspaces",
     "hub.mainWorktree": "Main worktree",
+    // Shown on the home badge instead of the label above, when the project's own checkout is sitting on
+    // something other than its trunk. It names the branch that was expected, because "not on main" is only
+    // useful if you are told what main is called here.
+    "hub.offMain": "Main worktree — not on {b}",
     "hub.moreTools": "More review tools",
     // Label only: the rail buttons carry their shortcut in a data-key kbd beside it, not inside the sentence.
     "hub.newWorkspace": "New workspace",
@@ -1169,6 +1173,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // --- Workspace rail (hub) ---
     "hub.workspaces": "워크스페이스",
     "hub.mainWorktree": "메인 워크트리",
+    "hub.offMain": "메인 워크트리 — {b} 이(가) 아님",
     "hub.moreTools": "더 많은 리뷰 도구",
     "hub.newWorkspace": "새 워크스페이스",
     "hub.settings": "설정 — v{v}",

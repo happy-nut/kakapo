@@ -26,8 +26,9 @@
 // written wrong, and stdout is already exactly the answer.
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import type { AgentKind } from "./agent-resume.js";
 import { kakapoGitDataFile } from "./git.js";
 import { ensureUtf8Locale, resolveBin, sanitizeTerminalEnv } from "./util.js";
@@ -96,6 +97,39 @@ function writeSessionId(root: string, id: string): void {
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, id + "\n");
   } catch { /* the next ask starts a new session; nothing is lost but the cache */ }
+}
+
+// Deleting the workspace deletes this session too. The id FILE needs no help — it sits in the worktree's own
+// git dir and `git worktree remove` takes that directory whole — but the transcript it points at is not in
+// the repository at all: the CLI files sessions under `~/.claude/projects/<cwd-slug>/<id>.jsonl`, keyed by a
+// working directory that is about to stop existing. Nothing ever collects those, so they pile up per deleted
+// worktree for as long as the machine is used.
+//
+// Only ours. The visible terminal's agent files its transcripts in the same directory (same cwd), and those
+// are the CLI's own history — kakapo did not create them and does not know which they are. The one session id
+// we wrote down is the one session we clean up.
+// Where the CLI keeps every session it has ever run, one directory per working directory. Read through
+// CLAUDE_CONFIG_DIR because a reviewer who has moved their config has moved their transcripts with it — and
+// because it is what lets the sweeps below be tested against a temporary directory instead of a real home.
+export function claudeProjectsDir(env: NodeJS.ProcessEnv = process.env): string {
+  return join(env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects");
+}
+
+export function forgetSession(root: string): void {
+  queues.delete(root);
+  const id = readSessionId(root);
+  if (!id) return;
+  const projects = claudeProjectsDir();
+  let dirs: string[] = [];
+  try { dirs = readdirSync(projects); } catch { return; } // no CLI history on this machine — nothing to clean
+  for (const dir of dirs) {
+    const file = join(projects, dir, `${id}.jsonl`);
+    if (!existsSync(file)) continue;
+    // A session is a transcript plus a sibling directory of its own state; both are named for the id.
+    try { rmSync(file, { force: true }); rmSync(join(projects, dir, id), { recursive: true, force: true }); }
+    catch { /* a leftover transcript is not worth failing a workspace deletion over */ }
+    return;
+  }
 }
 
 function runAgent(bin: string, args: string[], root: string): Promise<{ ok: boolean; text: string }> {

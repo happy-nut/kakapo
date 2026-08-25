@@ -325,6 +325,44 @@ export function unreachableSessions(
   return doomed;
 }
 
+// The name the Claude CLI files a working directory's transcripts under: every character that is not a
+// letter or a digit becomes a dash, so `/Users/you/kakapo/workspaces/acme/quiet-warbler` is kept as
+// `~/.claude/projects/-Users-you-kakapo-workspaces-acme-quiet-warbler`. One-way on purpose — `/`, `.` and `_`
+// all collapse to the same dash, so a name can never be turned back into a path. Everything below therefore
+// asks the question forwards: slug the directories that DO exist and see which names they account for.
+export function transcriptSlug(path: string): string {
+  return path.replace(/[^a-zA-Z0-9]/g, "-");
+}
+
+// Transcripts belonging to worktrees that no longer exist. An agent in the integrated terminal is a `claude`
+// (or `codex`) run whose cwd is the workspace, so the CLI keeps its history under that path's name — and
+// deleting the workspace takes the path away without touching the history. Nothing else ever collects those,
+// so they accumulate one directory per finished task, forever.
+//
+// Three guards, mirroring unreachableSessions, because being wrong here deletes a conversation:
+//   - kakapo's OWN container only. A transcript from anywhere else on this machine is somebody else's
+//     history, whatever tool wrote it; we did not create that worktree and do not get to clean up after it.
+//   - the worktree must be GONE FROM DISK — not "kakapo has no tile for it". A folder still on disk is one
+//     you can cd into and `claude --continue` in, whether or not this app remembers it. A live root is
+//     matched as a PREFIX so a session started in a subdirectory of it is kept too.
+//   - QUIET for `idleHours` first, so a workspace created moments ago cannot lose the transcript of the agent
+//     currently working in it to a sweep that ran before its directory was listed.
+export function unreachableTranscripts(
+  entries: { name: string; mtimeMs: number }[],
+  container: string,
+  liveRoots: Iterable<string>,
+  now: number,
+  idleHours = 24,
+): string[] {
+  const ours = transcriptSlug(container) + "-";
+  const live = [...liveRoots].filter(Boolean).map(transcriptSlug);
+  return entries
+    .filter((entry) => entry.name.startsWith(ours))
+    .filter((entry) => now - entry.mtimeMs >= idleHours * 3600 * 1000)
+    .filter((entry) => !live.some((root) => entry.name === root || entry.name.startsWith(root + "-")))
+    .map((entry) => entry.name);
+}
+
 // Ordinals are per-workspace and reused lowest-first: after a restart the first pane you open takes ordinal
 // 1 again and therefore re-attaches to the session the previous pane 1 left running. Panes are not restored
 // automatically — reopening one is what reconnects it.

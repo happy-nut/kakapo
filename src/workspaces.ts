@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { git, resolveWorkspaceRoot } from "./git.js";
+import { forgetSession } from "./ask-session.js";
 
 export type WorkspaceKind = "main" | "worktree";
 export type WorkspaceRecord = {
@@ -58,6 +59,18 @@ export function defaultBase(root: string): string {
   return "HEAD";
 }
 
+// The branch the project's own checkout is expected to sit on. Derived from defaultBase rather than asked for
+// separately, so "what is this repository's trunk" has exactly one answer — and the remote prefix comes off,
+// because the main worktree is on `main`, not on `origin/main`.
+//
+// Empty when the repository will not say (no origin/HEAD, no branch by any of the usual names). "I cannot tell
+// you what the default branch is" must never render as "you have left it": a drift nobody can name is not a
+// warning, it is a guess, and the caller shows nothing.
+export function defaultBranch(root: string): string {
+  const base = defaultBase(root);
+  return base === "HEAD" ? "" : base.replace(/^origin\//, "");
+}
+
 // The name a worktree gets on disk and on its branch. Deliberately NOT derived from the task name: that name
 // is prose, often not in English, and it ended up verbatim in a branch ref and a filesystem path — macOS
 // hands back decomposed Hangul in paths, and a branch called `kakapo/버그-픽스` is awkward everywhere a branch
@@ -75,6 +88,29 @@ const SLUG_NOUNS = [
 export function randomWorkspaceSlug(pick: () => number = Math.random): string {
   const at = (list: string[]) => list[Math.min(list.length - 1, Math.floor(pick() * list.length))];
   return `${at(SLUG_ADJECTIVES)}-${at(SLUG_NOUNS)}`;
+}
+
+// Where kakapo puts the worktrees it creates. Named here rather than inlined below because the transcript
+// sweep (reapDeletedWorkspaceTranscripts, app-terminal-ipc.ts) has to mean the SAME folder: it deletes
+// history for paths under this container and nothing else, so a second spelling of it would either miss
+// everything or reach outside what kakapo made.
+export const MANAGED_CONTAINER = join(homedir(), "kakapo", "workspaces");
+
+// The worktrees kakapo made that are still on disk, as absolute paths. Read from the filesystem, not from
+// kakapo's own list of workspaces: a folder you closed the tile for is still a folder you can cd into.
+export function managedWorkspacePaths(container = MANAGED_CONTAINER): string[] {
+  const paths: string[] = [];
+  let repos: string[] = [];
+  try { repos = readdirSync(container); } catch { return paths; } // nothing created yet
+  for (const repo of repos) {
+    try {
+      for (const slug of readdirSync(join(container, repo))) {
+        const path = join(container, repo, slug);
+        if (statSync(path).isDirectory()) paths.push(path);
+      }
+    } catch { /* not a directory, or unreadable — it accounts for no transcript either way */ }
+  }
+  return paths;
 }
 
 export type StartRef = { ref: string; remote: boolean };
@@ -134,7 +170,7 @@ export async function createManagedWorkspaceAsync(
   const main = workspaceRecord(repo);
   const base = options.base || defaultBase(main.repoRoot);
   const prefix = options.prefix ?? "kakapo";
-  const container = options.container ?? join(homedir(), "kakapo", "workspaces");
+  const container = options.container ?? MANAGED_CONTAINER;
   // The dialog previews a slug and sends that same one back, so what you were shown is what gets created.
   // Without one (a caller that never previewed), pick a fresh pair here.
   const wanted = options.slug ? workspaceSlug(options.slug) : randomWorkspaceSlug();
@@ -177,6 +213,10 @@ export function removeManagedWorkspace(workspace: WorkspaceRecord, force = false
   if (workspace.kind !== "worktree") throw new Error("The main checkout can only be closed, not deleted.");
   const risk = removalRisk(workspace);
   if (!force && (risk.dirty || risk.unpushed)) throw new Error("Workspace has uncommitted or unpushed changes.");
+  // Before the removal, not after: the session id is read out of the worktree's git dir, and that dir is what
+  // `worktree remove` deletes. A removal that then fails has cost one cached conversation, which is what that
+  // session always was — the record of it is the thread file.
+  forgetSession(workspace.path);
   const removed = run(workspace.repoRoot, ["worktree", "remove", ...(force ? ["--force"] : []), workspace.path]);
   if (!removed.ok) throw new Error(removed.output || "Failed to remove worktree.");
   if (deleteBranch && workspace.branch !== "detached") {

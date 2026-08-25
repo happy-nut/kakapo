@@ -27,7 +27,7 @@ import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
-import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, reapUnreachableTerminals, resolveTmux } from "./app-terminal-ipc.js";
+import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, reapUnreachableTerminals, reapDeletedWorkspaceTranscripts, resolveTmux } from "./app-terminal-ipc.js";
 import { registerCommentsIpc, syncCommentsFile, commentsFilePath, knowledgeFilePath, readThread, writeThread, nextThreadId, isKnowledge, type ThreadRecord } from "./comments-file.js";
 import { ask, askAgent } from "./ask-session.js";
 import { registerTermsIpc } from "./terms-file.js";
@@ -39,7 +39,7 @@ import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H, UI_SCALES } from "./constants.js";
 import { collectUsageStats } from "./usage-stats.js";
 import { AGENT_LAUNCH, agentForCommand, type AgentKind } from "./agent-resume.js";
 import { hubHtml, modalOverlayHtml } from "./shell-pages.js";
-import { aheadArgs, aheadCount, createManagedWorkspaceAsync, defaultBase, listStartRefs, randomWorkspaceSlug, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
+import { aheadArgs, aheadCount, createManagedWorkspaceAsync, defaultBase, defaultBranch as defaultBranchOf, listStartRefs, randomWorkspaceSlug, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
 
 type AppOptions = {
   root: string;
@@ -126,7 +126,7 @@ type WinState = {
   // Rail tile data (repo record + working-tree dirty count) is git-derived — ~5 subprocesses/workspace.
   // renderHub fires on every agent-activity event, so cache it per workspace with a short TTL: without this
   // an N-workspace hub render spawns ~5N git processes on the main thread each time an agent turn finishes.
-  hubTile?: { record: WorkspaceRecord; dirtyCount: number; ahead: number; base?: string; computedAt: number };
+  hubTile?: { record: WorkspaceRecord; dirtyCount: number; ahead: number; base?: string; defaultBranch?: string; computedAt: number };
   bootStarted: boolean;
   // Set when activateWorkspace focuses this view while it is still loading, so the "content is ready" hook
   // can hand it the keyboard. Consumed once.
@@ -1956,6 +1956,12 @@ function reapOrphanTerminals(): void {
     const ended = reapUnreachableTerminals(reachableWorkspaceRoots());
     if (ended.length) console.log(`kakapo: ended ${ended.length} terminal session(s) no workspace could reach`);
   } catch { /* best-effort: a missing tmux is not a startup failure */ }
+  try {
+    // The sessions are gone; their transcripts are not. Same moment, same reasoning — a workspace deleted
+    // yesterday left history behind that nothing else will ever collect.
+    const swept = reapDeletedWorkspaceTranscripts();
+    if (swept.length) console.log(`kakapo: removed ${swept.length} transcript(s) of deleted workspaces`);
+  } catch { /* best-effort */ }
 }
 
 function tildePath(path: string): string {
@@ -1963,7 +1969,7 @@ function tildePath(path: string): string {
   return home && path.startsWith(home + "/") ? "~" + path.slice(home.length) : path;
 }
 
-function hubTileFor(state: WinState): { record: WorkspaceRecord; dirtyCount: number; ahead: number } {
+function hubTileFor(state: WinState): { record: WorkspaceRecord; dirtyCount: number; ahead: number; defaultBranch?: string } {
   if (state.hubTile) {
     if (Date.now() - state.hubTile.computedAt >= HUB_TILE_TTL_MS) void refreshHubTile(state);
     return state.hubTile;
@@ -1973,7 +1979,11 @@ function hubTileFor(state: WinState): { record: WorkspaceRecord; dirtyCount: num
   // The base is read once, here, and then rides on the tile: a workspace cannot change what it was branched
   // from, and the refresh below runs far more often than this seed does.
   const base = savedWorkspaceMetadata().find((item) => resolveWorkspaceRoot(item.path) === record.path)?.base;
-  state.hubTile = { record, dirtyCount, ahead: aheadCount(record.path, base), base, computedAt: Date.now() };
+  // Read once, here, and only for the checkout it is a question about: a worktree kakapo made is SUPPOSED to
+  // be on its own branch, so comparing one to the trunk would warn about every workspace in the rail. What a
+  // repository calls its default branch does not change between two refreshes of a tile.
+  const defaultBranch = record.kind === "main" ? defaultBranchOf(record.path) : undefined;
+  state.hubTile = { record, dirtyCount, ahead: aheadCount(record.path, base), base, defaultBranch, computedAt: Date.now() };
   return state.hubTile;
 }
 // Only branch and dirty count can change for a live workspace — repoRoot/repoName/kind are fixed for a given
@@ -1999,7 +2009,7 @@ async function refreshHubTile(state: WinState): Promise<void> {
     const dirtyCount = status.split("\n").filter(Boolean).length;
     const nextBranch = branch || "detached";
     const changed = dirtyCount !== previous.dirtyCount || nextBranch !== previous.record.branch || ahead !== previous.ahead;
-    state.hubTile = { record: { ...previous.record, branch: nextBranch }, dirtyCount, ahead, base: previous.base, computedAt: Date.now() };
+    state.hubTile = { record: { ...previous.record, branch: nextBranch }, dirtyCount, ahead, base: previous.base, defaultBranch: previous.defaultBranch, computedAt: Date.now() };
     if (changed) renderHub();
   } finally {
     hubTileRefreshing.delete(id);
@@ -2020,8 +2030,13 @@ function buildProjectMainTiles() {
     const avatar = owner ? ownerAvatar.get(owner) : undefined;
     if (owner && !avatar) void ensureOwnerAvatar(owner);
     const dirtyCount = git(record.path, ["status", "--porcelain"]).split("\n").filter(Boolean).length;
+    // A pinned project is a main checkout too, so it answers the same question — a warning that appeared only
+    // once you opened a workspace would be one you could not trust when it was absent. One more git call on a
+    // seed that already costs four, and the refresh below carries the answer rather than asking again.
+    const defaultBranch = defaultBranchOf(record.path);
     return { id: -(1000 + index), ...record, alias: metadata?.alias, memo: metadata?.memo, base: metadata?.base,
-      openedAt: metadata?.openedAt, dirtyCount, avatar,
+      openedAt: metadata?.openedAt, dirtyCount, avatar, defaultBranch,
+      offMain: !!defaultBranch && record.branch !== defaultBranch,
       // A closed workspace still shows what is true of it: an agent left running in its tmux session, and an
       // answer nobody has read. Both outlive the window, so neither waits for you to open it to be visible.
       active: false, running: rootHasRunningAgent(record.path), unread: preferences.readUnread(record.path),
@@ -2054,7 +2069,9 @@ async function refreshProjectMainTiles(): Promise<void> {
         gitAsync(tile.path, ["branch", "--show-current"]),
         gitAsync(tile.path, ["status", "--porcelain"]),
       ]);
-      return { ...tile, branch: branch || "detached", dirtyCount: status.split("\n").filter(Boolean).length };
+      const nextBranch = branch || "detached";
+      return { ...tile, branch: nextBranch, dirtyCount: status.split("\n").filter(Boolean).length,
+        offMain: !!tile.defaultBranch && nextBranch !== tile.defaultBranch };
     }));
     const changed = tiles.some((tile, index) =>
       tile.branch !== previous.tiles[index].branch || tile.dirtyCount !== previous.tiles[index].dirtyCount);
@@ -2070,7 +2087,7 @@ function renderHub(): void {
   const saved = savedWorkspaceMetadata();
   const panes = tmuxPaneCommands(); // shared 2s-cached tmux scan; also backs the green running dot
   const live = Array.from(states.values()).map((state) => {
-    const { record: current, dirtyCount, ahead } = hubTileFor(state);
+    const { record: current, dirtyCount, ahead, defaultBranch } = hubTileFor(state);
     const metadata = saved.find((item) => resolveWorkspaceRoot(item.path) === current.path);
     const owner = githubOwnerFor(state.options.root);
     const avatar = owner ? ownerAvatar.get(owner) : undefined;
@@ -2079,6 +2096,12 @@ function renderHub(): void {
     return { id: state.win.webContents.id, ...current, alias: metadata?.alias, memo: metadata?.memo,
       base: metadata?.base, fetchWarning: metadata?.fetchWarning, openedAt: metadata?.openedAt, dirtyCount, ahead, avatar,
       shortPath: tildePath(current.path),
+      // The project's own checkout, sitting on something other than its trunk. An agent given a terminal in
+      // the main workspace does this by typing `git checkout -b` where it should have asked for a worktree,
+      // and until now the rail reported it perfectly and said nothing about it: the home badge claims "this
+      // is main", so that badge is where the claim being false has to show up.
+      offMain: current.kind === "main" && !!defaultBranch && current.branch !== defaultBranch,
+      defaultBranch,
       active: state.win.webContents.id === activeStateId,
       resume: state.resumeCommand, agent: agentForWorkspace(state, panes),
       // The full render carries the pane rows too, so a rail rebuilt from scratch (opening it, switching
