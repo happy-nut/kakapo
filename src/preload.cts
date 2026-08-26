@@ -111,6 +111,9 @@ contextBridge.exposeInMainWorld("kakapoPty", {
   write: (msg: { id: number; data: string }): void =>
     ipcRenderer.send("kakapo:pty-write", { ...msg, data: typeof msg?.data === "string" ? msg.data.normalize("NFC") : msg?.data }),
   resize: (msg: { id: number; cols: number; rows: number }): void => ipcRenderer.send("kakapo:pty-resize", msg),
+  // A syllable that committed as jamo, with the tally of what was happening around it (19-terminal.js).
+  // Sent to main so it survives the window: the in-memory log is gone by the time anyone asks about a split.
+  imeSplit: (entry: unknown): void => ipcRenderer.send("kakapo:ime-split", entry),
   kill: (msg: { id: number }): void => ipcRenderer.send("kakapo:pty-kill", msg),
   // Ask tmux to repaint this pane's current screen — what a pane that stopped listening while its workspace
   // was off screen comes back to (see the hidden-pane buffering in 19-terminal.js).

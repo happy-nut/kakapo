@@ -389,11 +389,22 @@ function terminalPathLinkProvider(term) {
     // Loud on purpose, and only here: this line is the whole point of the tally. It fires when a syllable was
     // actually cut, never on ordinary typing, so a quiet console means the terminal is behaving.
     if (entry.split) {
+      // The one suspect the tally cannot see from here: a renderer stall overlapping the composition. The
+      // stall tracker keeps the worst long task since it last reported (kakapoActivity, 09-views-update.js);
+      // if a composition broke while one ran, its duration and frame land in the record.
+      try {
+        var worst = kakapoActivity && kakapoActivity.longest;
+        if (worst) { entry.longTaskMs = worst.duration; entry.longTaskIn = (worst.containerType || '') + (worst.containerId ? '#' + worst.containerId : ''); }
+      } catch (e) {}
       try {
         console.warn('[kakapo:ime] a syllable was committed as jamo — ' + JSON.stringify(entry)
           + ' (writes = output that arrived mid-composition, anchorPins = anchor drags stopped,'
           + ' fitsHeld = re-flows deferred)');
       } catch (e) {}
+      // The in-memory log dies with the window, and the packaged app has no devtools to read it in anyway —
+      // so a split is also appended to ime-splits.jsonl beside the app's settings, where it can be read
+      // AFTER the session that hit it.
+      try { if (window.kakapoPty && typeof window.kakapoPty.imeSplit === 'function') window.kakapoPty.imeSplit(entry); } catch (e) {}
     }
   }
   function pinCompositionAnchor(term) {

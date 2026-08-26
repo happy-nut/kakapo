@@ -1,4 +1,4 @@
-import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -355,6 +355,18 @@ registerReviewIpc(ipcMain, stateFromEvent);
 registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerTerminalIpc(ipcMain, stateFromEvent);
 registerCommentsIpc(ipcMain, stateFromEvent);
+// A Hangul syllable committed as jamo mid-composition (19-terminal.js). The renderer's own log of these dies
+// with its window and the packaged app has no devtools to read it in, so each one is appended here — with the
+// tally of what was happening while it broke — where it can still be read AFTER the session that hit it.
+ipcMain.on("kakapo:ime-split", (event, entry: unknown) => {
+  const state = stateFromEvent(event);
+  try {
+    appendFileSync(join(app.getPath("userData"), "ime-splits.jsonl"), JSON.stringify({
+      ...(entry && typeof entry === "object" ? entry : { entry }),
+      root: state?.options.root, version: APP_VERSION, loggedAt: new Date().toISOString(),
+    }) + "\n");
+  } catch { /* diagnostics must never be why a write fails loudly */ }
+});
 registerTermsIpc(ipcMain, stateFromEvent);
 
 // ── the hidden session (ask-session.ts) ──────────────────────────────────────────────────────────────────
