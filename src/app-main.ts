@@ -1,4 +1,4 @@
-import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -14,7 +14,7 @@ import { ProjectAnalysis } from "./analysis.js";
 import { ReviewPerformanceTrace } from "./perf.js";
 import { ProjectMarkdownMemo } from "./memos.js";
 import type { SourceFile } from "./types.js";
-import { workspaceReviewFile } from "./workspace-data.js";
+import { workspaceDataDirectory, workspaceReviewFile } from "./workspace-data.js";
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import { reviewBodyCount, reviewDiffSignature } from "./review-workspace.js";
 import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
@@ -963,6 +963,13 @@ ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unk
     hubMainTilesCache = undefined; // the pinned-project set may have changed
   }
   state.win.webContents.close();
+  if (payload.mode === "delete") {
+    // The workspace's userData mirror (review html, state.json with the renderer's comment copy, memo, perf)
+    // must die with the worktree: state.json is what loadThread migrates into a comments.jsonl that does not
+    // exist yet, so a leftover copy resurrects a dead task's comments in the next workspace created at the
+    // same path. After close, so the renderer cannot write the copy back between the wipe and its death.
+    try { rmSync(workspaceDataDirectory(app.getPath("userData"), record.path), { recursive: true, force: true }); } catch { /* best-effort */ }
+  }
   const next = Array.from(states.values()).find((item) => item !== state);
   if (next) activateWorkspace(next.win.webContents.id);
   return { ok: true };
