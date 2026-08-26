@@ -86,10 +86,9 @@ test("the prompt palette lists the saved prompts and sends the selected one to t
   v.close();
 });
 
-// Explain is the annotations, not a panel: the rail button asks for them and F8 walks them with everything
-// else. Guards the regression where it opened a second reading surface beside the diff. ⌘7 no longer exists —
-// the only thing that shortcut did was send a prompt the ⌘⇧P palette already sends.
-test("the Explain rail button runs it in place and opens no view of its own", async () => {
+// Explain has no rail entry any more: sending the prompt is the ⌘⇧P palette's job, and reading the notes is
+// the briefing's (⌘⇧B). Guards that no third door — rail button, launcher row, or the old ⌘7 — comes back.
+test("Explain lives only in the palette: no rail button, launcher row, or ⌘7", async () => {
   const { html } = await makeReviewHtml([
     { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
   ], { app: true }); // the rail only exists in the Electron review
@@ -101,37 +100,9 @@ test("the Explain rail button runs it in place and opens no view of its own", as
   await v.settle(10);
   assert.equal(sent.length, 0, "⌘7 is not a shortcut any more");
 
-  v.click(v.$('.rail-btn[data-view="explain"]'));
-  await v.settle(10);
-  assert.equal(sent.length, 1, "the rail button stages the annotate prompt in the terminal composer");
-  assert.match(sent[0], /"kind":"note"/, "it is the inline-notes prompt, not a content-spec prompt");
+  assert.equal(v.$('.rail-btn[data-view="explain"]'), null, "the rail has no Explain button");
+  assert.equal(v.$('.quick-open-side-item[data-section="explain"]'), null, "the launcher lists no Explain row");
   assert.equal(v.$("#explain-view"), null, "no Explain overlay exists to open");
-  v.close();
-});
-
-// The rail lights Explain up once notes exist — and that lit button used to re-run the generator, so the one
-// control saying "there is an explanation here" was the one control that would not open it. With notes
-// present it goes to the top of the walk (the briefing); only an unexplained diff still sends the prompt.
-test("Explain opens the explanation once there is one, instead of regenerating it", async () => {
-  const { html } = await makeReviewHtml([
-    { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\nconst c = 3;\n", after: "const a = 9;\nconst b = 8;\nconst c = 7;\n" },
-  ], { app: true });
-  const v = await loadViewer(html);
-  await v.openSourceFile("src/app.ts");
-  const sent = [];
-  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text) };
-
-  // Appended out of file order on purpose: the walk follows group then append order, so the briefing is
-  // first even though it sits on the last line — which is exactly what the button has to land on.
-  v.agentSays({ kind: "note", group: 1, role: "problem", path: "src/app.ts", line: 3, text: "the briefing" });
-  v.agentSays({ kind: "note", group: 2, path: "src/app.ts", line: 1, text: "a detail hanging off it" });
-  await v.settle(30);
-
-  v.click(v.$('.rail-btn[data-view="explain"]'));
-  await v.settle(80);
-  assert.equal(sent.length, 0, "nothing is sent to the terminal — the notes are already there");
-  assert.equal(v.caretLine(), 3,
-    "the caret lands on the first note of the walk, not the first note in the file");
   v.close();
 });
 
