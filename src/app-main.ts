@@ -1839,8 +1839,7 @@ function panesForWorkspace(state: WinState, panes: Map<string, string>): Workspa
     // — panes are restored lazily — so every workspace reported "not working" and the rail drew a window full
     // of finished agents while they were all mid-turn. tmux has been watching their output the whole time.
     const agent = agentForCommand(command);
-    rows.push({ id: next--, command, agent, running: true,
-      busy: tmuxSessionBusy(session) || (!!agent && tmuxSessionPendingWork(session)) });
+    rows.push({ id: next--, command, agent, running: true, busy: tmuxSessionBusy(session) || (!!agent && tmuxSessionPendingWork(session)) });
   }
   return rows;
 }
