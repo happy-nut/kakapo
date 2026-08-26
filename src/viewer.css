@@ -3448,7 +3448,10 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .mermaid-zoomable { cursor: zoom-in; }
 .mermaid-zoomable a { cursor: pointer; }
 .mc-lightbox {
-  position: fixed; inset: 0; z-index: 50;
+  /* Above every surface a diagram can be clicked in — the briefing (74), History (75), the floating dock
+     (78) — or the zoom opens UNDER the panel that asked for it and reads as doing nothing. Below .mc-dropdown
+     (90), which must outrank everything with its own explanation. */
+  position: fixed; inset: 0; z-index: 85;
   display: flex; align-items: center; justify-content: center;
   background: rgba(0, 0, 0, 0.82); cursor: zoom-out; padding: 32px;
 }
