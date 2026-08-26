@@ -581,7 +581,13 @@ var I18N = JSON.parse(document.getElementById('i18n-data')?.textContent || '{}')
 // Cross-reopen persistence. Electron persists via the main process (window.kakapoSettings — survives
 // app restart; file:// localStorage doesn't); browser/serve falls back to localStorage. persistRead
 // returns the bridge value (native) if present, else undefined so callers parse localStorage themselves.
+// What THIS page has saved since it loaded. kakapoSettings.all is a snapshot taken in the preload — set()
+// goes to main but never back into it — so a read that prefers the bridge returns the value from before the
+// write, for the rest of the window's life. That is how the briefing reopened on every workspace switch: it
+// marked itself seen, then read the mark back from a snapshot that predates it.
+var persistWrittenHere = {};
 function persistRead(key) {
+  if (key in persistWrittenHere) return persistWrittenHere[key];
   // window.kakapoSettings.all crosses Electron's contextBridge, which DEEP-FREEZES every value it
   // exposes. Returning that frozen object/array directly breaks callers that mutate the result —
   // reviewComments.push(...) and mergePrompts[kind]=... both throw "object is not extensible". Hand
@@ -595,6 +601,7 @@ function persistRead(key) {
   return undefined;
 }
 function persistSave(key, value) {
+  persistWrittenHere[key] = value;
   try { localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value)); } catch (e) {}
   try { if (window.kakapoSettings) window.kakapoSettings.set(key, value); } catch (e2) {}
 }
