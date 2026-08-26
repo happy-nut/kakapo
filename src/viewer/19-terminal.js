@@ -319,6 +319,16 @@ function terminalPathLinkProvider(term) {
     } catch (e) { /* a buffer shape we don't recognise just keeps the full foreground */ }
     view.classList.toggle('is-dim', dim);
   }
+  // Whether THIS terminal has a composition in flight, read where xterm keeps it. composingPanes is close
+  // but not identical: it flips on OUR listeners, which run after xterm's — the key handler below needs the
+  // answer xterm's own state machine is acting on. Private reach, same rules as everything else here: a
+  // future xterm that changes the shape makes this answer false, and the old behaviour is back.
+  function paneIsComposing(term) {
+    try {
+      var helper = term && term._core && term._core._compositionHelper;
+      return !!(helper && helper._isComposing);
+    } catch (e) { return false; }
+  }
   // Reaching into xterm's private composition helper is deliberate: the send we need to stand down has no
   // public switch. If a future xterm changes that shape, do nothing — xterm keeps its own commit, which is
   // wrong for Hangul but is never a doubled keystroke, and doubling is the worse failure to ship.
@@ -538,6 +548,15 @@ function terminalPathLinkProvider(term) {
       // running in it as a bare newline instead: the pick never resolved and the prompt was never written.
       // Returning false makes xterm ignore the key so it reaches the picker.
       if (sendModeText != null) return false;
+      // A keydown that reaches xterm with a REAL keyCode while a composition is live force-commits the
+      // half-built syllable: CompositionHelper.keydown finalizes on any keyCode outside {229, CapsLock,
+      // Shift, Ctrl, Alt} — a bare Cmd press is already enough. And after a workspace switch, macOS +
+      // Chromium can desync far enough that EVERY key arrives that way while the IME still composes: each
+      // keystroke then killed the composition the previous one started, and a word came out one jamo at a
+      // time, in bursts (this is the ime-splits.jsonl signature: composition lifetimes of one inter-key gap,
+      // splits with writes:0 and anchorPins:0). While a composition is live the IME owns the keys — keep
+      // xterm's keydown out entirely; what the keys become arrives through the composition events.
+      if (e.type === 'keydown' && e.keyCode !== 229 && paneIsComposing(term)) return false;
       // Escape is the SHELL'S key, always. It used to close the panel — at once on a plain prompt, and on a
       // second press inside a window in a fullscreen TUI. Both of those took a key that belongs to whatever is
       // running: a prompt in vi mode leaves insert with it, readline treats it as the Meta prefix, and a menu
