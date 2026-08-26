@@ -463,7 +463,12 @@ function terminalPathLinkProvider(term) {
     if (!Addon) return;
     try {
       var addon = new Addon();
-      addon.onContextLoss(function () { try { addon.dispose(); } catch (e) {} });
+      addon.onContextLoss(function () {
+        try { addon.dispose(); } catch (e) {}
+        // Disposal only swaps the renderer; nothing marks the screen dirty, so without this the pane keeps
+        // showing the dead context's last (or garbage) frame until some output happens to touch every row.
+        try { term.refresh(0, term.rows - 1); } catch (e) {}
+      });
       term.loadAddon(addon);
     } catch (e) { /* the DOM renderer is still a terminal */ }
   }
@@ -792,7 +797,15 @@ function terminalPathLinkProvider(term) {
     scheduleFitAll();
     requestAnimationFrame(function () {
       panes.forEach(function (pane) {
-        if (!pane.hiddenHeld) return;
+        if (!pane.hiddenHeld) {
+          // A QUIET pane's canvas is not safe to keep either: while the workspace was off screen its WebGL
+          // context can be reclaimed (closing another workspace's webContents is enough), and a canvas whose
+          // context died shows whatever was left in that memory — another surface's diff, solid color blocks.
+          // Redraw from xterm's buffer; if the context really is gone, the draw is what makes the addon
+          // notice, dispose itself, and hand the repaint to the DOM renderer (loadWebglRenderer).
+          try { pane.term.refresh(0, pane.term.rows - 1); } catch (e) {}
+          return;
+        }
         pane.hiddenHeld = false;
         try { pane.term.reset(); } catch (e) {}
         if (pane.id != null && window.kakapoPty && typeof window.kakapoPty.refresh === 'function') {

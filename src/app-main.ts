@@ -1281,7 +1281,7 @@ if (hasSingleInstanceLock) app.on("second-instance", (_event, commandLine, worki
 // CLI that is not installed is the ordinary case, not an error worth a dialog.
 async function ensureMcpRegistered(): Promise<void> {
   try {
-    for (const status of mcpStatus()) {
+    for (const status of await mcpStatus()) {
       if (!status.installed) continue;
       if (!status.connected) { await connectMcp(status.agent); continue; }
       // A registration written before ELECTRON_RUN_AS_NODE spawns the review app instead of the server, and

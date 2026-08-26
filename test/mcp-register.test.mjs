@@ -52,14 +52,14 @@ test("the env reaches the CLI as flags, before the -- that ends them", () => {
 test("a registration that predates the fix is detected and rewritten, not reported as fine", () => {
   // It answers, it is listed, nothing about it looks broken — only the missing variable distinguishes it.
   assert.match(source, /stale: boolean/, "status carries the distinction");
-  assert.match(source, /stale: connected && !registrationHasEnv\(agent\)/, "and derives it from the CLI's own answer");
+  assert.match(source, /stale: connected && !\(await registrationHasEnv\(agent\)\)/, "and derives it from the CLI's own answer");
 
   const check = source.match(/function registrationHasEnv[\s\S]*?\n\}/)?.[0];
   assert.ok(check, "one function decides");
   assert.match(check, /"mcp", "get", "kakapo"/, "asks the CLI rather than reading its config file");
   assert.match(check, /catch \{\s*\n?\s*return true;/, "an unreadable answer is not stale — re-registering on every launch would be worse");
 
-  const reconnect = source.match(/export function reconnectMcp[\s\S]*?\n\}/)?.[0];
+  const reconnect = source.match(/export async function reconnectMcp[\s\S]*?\n\}/)?.[0];
   assert.ok(reconnect, "and one rewrites it");
   // "connectMcp" is a substring of "reconnectMcp" — match the call, not the name.
   assert.ok(reconnect.indexOf('"mcp", "remove"') < reconnect.indexOf("return connectMcp(agent)"),

@@ -4,7 +4,7 @@
 // asked about from the directory the agent is running in (repoRootFrom), so one user-scoped registration
 // covers every workspace, every worktree and every session — including the ones the reviewer starts in
 // their own shell, which is exactly what a launch flag could never reach.
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,13 +41,19 @@ export function mcpServerCommand(): { command: string; args: string[]; env: Reco
   return { command: "kakapo", args: ["mcp"], env: {} };
 }
 
-function run(command: string, args: string[]): string {
-  return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 10_000 });
+// Async, and it matters: this runs on Electron's MAIN process, and `claude mcp list` takes seconds to boot.
+// The sync version froze every window whenever Settings opened (its status check) and again at launch.
+function run(command: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { encoding: "utf8", timeout: 10_000 }, (error, stdout) => {
+      if (error) reject(error); else resolve(String(stdout));
+    });
+  });
 }
 
-function has(command: string): boolean {
+async function has(command: string): Promise<boolean> {
   try {
-    run("which", [command]);
+    await run("which", [command]);
     return true;
   } catch {
     return false;
@@ -56,27 +62,28 @@ function has(command: string): boolean {
 
 // Asking the CLI itself rather than parsing its config file: where that file lives is the CLI's business and
 // has moved before, and `mcp list` is the one answer that cannot be out of date.
-export function mcpStatus(): McpStatus[] {
-  return (["claude", "codex"] as McpAgent[]).map((agent) => {
-    const installed = has(agent);
+export function mcpStatus(): Promise<McpStatus[]> {
+  return Promise.all((["claude", "codex"] as McpAgent[]).map(async (agent) => {
+    const installed = await has(agent);
     if (!installed) return { agent, installed, connected: false, stale: false };
     try {
-      const connected = /(^|\s)kakapo\b/m.test(run(agent, ["mcp", "list"]));
-      return { agent, installed, connected, stale: connected && !registrationHasEnv(agent) };
+      const connected = /(^|\s)kakapo\b/m.test(await run(agent, ["mcp", "list"]));
+      return { agent, installed, connected, stale: connected && !(await registrationHasEnv(agent)) };
     } catch {
       return { agent, installed, connected: false, stale: false };
     }
-  });
+  }));
 }
 
 // Both CLIs print the server's environment in `mcp get`, so the CLI stays the source of truth here too —
 // the same reason mcpStatus asks `mcp list` instead of reading a config file whose location has moved before.
 // An unreadable answer counts as NOT stale: re-registering on a parse failure would churn the config on
 // every launch, and the cost of missing one stale entry is smaller than that.
-function registrationHasEnv(agent: McpAgent): boolean {
+async function registrationHasEnv(agent: McpAgent): Promise<boolean> {
   if (!Object.keys(mcpServerCommand().env).length) return true;
   try {
-    return Object.keys(MCP_SERVER_ENV).every((key) => run(agent, ["mcp", "get", "kakapo"]).includes(key));
+    const registration = await run(agent, ["mcp", "get", "kakapo"]);
+    return Object.keys(MCP_SERVER_ENV).every((key) => registration.includes(key));
   } catch {
     return true;
   }
@@ -84,9 +91,9 @@ function registrationHasEnv(agent: McpAgent): boolean {
 
 // Rewrite a registration in place. `mcp add` will not overwrite an existing name on either CLI, so the
 // removal is what makes this an update rather than a no-op.
-export function reconnectMcp(agent: McpAgent): Promise<{ ok: boolean; message: string }> {
+export async function reconnectMcp(agent: McpAgent): Promise<{ ok: boolean; message: string }> {
   try {
-    run(agent, ["mcp", "remove", ...(agent === "claude" ? ["-s", "user"] : []), "kakapo"]);
+    await run(agent, ["mcp", "remove", ...(agent === "claude" ? ["-s", "user"] : []), "kakapo"]);
   } catch { /* not there is the state we want anyway */ }
   return connectMcp(agent);
 }
