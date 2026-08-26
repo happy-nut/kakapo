@@ -504,7 +504,7 @@ export function renderDiffHtml(input: {
     // the launcher modes — the file search / Find in Files / symbol layouts keep the plain panel.
     '<nav id="quick-open-side" class="quick-open-side" aria-label="Sections">',
     '<button type="button" class="quick-open-side-item" data-section="recent" data-keyhint="⌘E"><span data-i18n="quickopen.recent">Recent files</span></button>',
-    '<button type="button" class="quick-open-side-item" data-section="prompts" data-keyhint="⌘⇧P"><span data-i18n="promptPalette.title">Prompts</span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="prompts" data-keyhint="⌘⇧P"><span data-i18n="promptPalette.title">Agent tasks</span></button>',
     '<div class="quick-open-side-sep" aria-hidden="true"></div>',
     '<button type="button" class="quick-open-side-item" data-section="merged" data-keyhint="⌘⇧/"><span data-i18n="rail.reviewComments">Review comments</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="memo" data-keyhint="⌘⇧N"><span data-i18n="memo.title">Markdown memo</span></button>',

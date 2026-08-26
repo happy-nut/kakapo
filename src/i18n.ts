@@ -348,7 +348,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.ignoreWhitespace": "Ignore whitespace",
     "kbd.saveComment": "Save comment",
     "kbd.promptMemo": "Prompt memo",
-    "kbd.promptPalette": "Prompt palette (send a prompt to the terminal)",
+    "kbd.promptPalette": "Agent tasks (explain, map, harvest — run by kakapo's own session)",
     "kbd.maximizePanel": "Maximize panel (merged / memo)",
     "kbd.historyNavigate": "Select a commit, open it in the review",
 
@@ -372,7 +372,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "annotatePrompt.when": "When a diff needs explaining — yours to read, or someone else's to review.",
     "codebasePrompt.title": "Explain the codebase",
     "codebasePrompt.when": "When the repository is new to you and you need its shape before its details.",
-    "codebasePrompt.desc": "Sent from the Cmd+E launcher's Prompts section: read this repository and leave ONE map note on the entry point - a diagram of its 3-5 core components whose nodes click through to them, plus a short paragraph on each. It deliberately stops at that altitude; Explain the diff is what goes deeper. Saved automatically. {{NOTES_PATH}} is replaced with this workspace's notes file when sent.",
+    "codebasePrompt.desc": "Sent from the Cmd+E launcher's Agent tasks section: read this repository and leave ONE map note on the entry point - a diagram of its 3-5 core components whose nodes click through to them, plus a short paragraph on each. It deliberately stops at that altitude; Explain the diff is what goes deeper. Saved automatically. {{NOTES_PATH}} is replaced with this workspace's notes file when sent.",
     "annotate.kind": "Why",
     // kakapo's own agent (ask-session.ts) — the one the reviewer never sees. These strings are the whole of
     // its visibility, so they say what it is DOING, not that something is happening.
@@ -484,8 +484,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.termsSweep.never": "only when I open a word",
 
     // Prompt palette (⌘⇧P)
-    "promptPalette.title": "Prompts",
-    "promptPalette.hint": "Enter to send to terminal · edit in Settings",
+    "promptPalette.title": "Agent tasks",
+    "promptPalette.hint": "Enter to run · prompts editable in Settings",
     "settings.saved": "Saved",
     // --- Appearance / theme (redesigned settings) ---
     "theme.system": "System",
@@ -1011,7 +1011,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.ignoreWhitespace": "공백 무시",
     "kbd.saveComment": "코멘트 저장",
     "kbd.promptMemo": "프롬프트 메모",
-    "kbd.promptPalette": "프롬프트 팔레트 (프롬프트를 터미널로 보내기)",
+    "kbd.promptPalette": "에이전트 작업 (설명·코드베이스 맵·배운 말 남기기 — kakapo 세션이 실행)",
     "kbd.maximizePanel": "패널 최대화 (합본 / 메모)",
     "kbd.historyNavigate": "커밋 / 파일 선택·열기",
 
@@ -1032,7 +1032,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "annotatePrompt.when": "diff를 설명해야 할 때 — 내가 읽으려고, 또는 남이 리뷰하도록.",
     "codebasePrompt.when": "저장소가 처음이라, 세부보다 전체 구조를 먼저 알아야 할 때.",
     "codebasePrompt.title": "코드베이스 설명",
-    "codebasePrompt.desc": "⌘E 런처의 Prompts 섹션에서 보냅니다. 저장소를 읽고 진입점에 지도 노트 하나를 남깁니다 — 핵심 컴포넌트 3~5개의 다이어그램(노드를 클릭하면 그 위치로 이동)과 각 컴포넌트에 대한 짧은 문단. 일부러 이 높이에서 멈추며, 더 깊이 내려가는 것은 diff 설명이 합니다. 자동 저장됩니다. {{NOTES_PATH}}는 보낼 때 이 워크스페이스의 노트 파일 경로로 치환됩니다.",
+    "codebasePrompt.desc": "⌘E 런처의 '에이전트 작업' 섹션에서 보냅니다. 저장소를 읽고 진입점에 지도 노트 하나를 남깁니다 — 핵심 컴포넌트 3~5개의 다이어그램(노드를 클릭하면 그 위치로 이동)과 각 컴포넌트에 대한 짧은 문단. 일부러 이 높이에서 멈추며, 더 깊이 내려가는 것은 diff 설명이 합니다. 자동 저장됩니다. {{NOTES_PATH}}는 보낼 때 이 워크스페이스의 노트 파일 경로로 치환됩니다.",
     "annotate.kind": "왜",
     // kakapo 전용 에이전트(ask-session.ts) — 리뷰어에게 보이지 않는 세션. 이 문자열들이 그 세션의 유일한
     // 존재 증거라, "뭔가 하는 중"이 아니라 "무엇을 하는 중"인지 말한다.
@@ -1128,8 +1128,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.termsSweep.never": "단어를 열 때만",
 
     // 프롬프트 팔레트 (⌘⇧P)
-    "promptPalette.title": "프롬프트",
-    "promptPalette.hint": "Enter로 터미널에 보내기 · 편집은 설정에서",
+    "promptPalette.title": "에이전트 작업",
+    "promptPalette.hint": "Enter로 실행 · 프롬프트 편집은 설정에서",
     "settings.saved": "저장됨",
     // --- Appearance / theme (redesigned settings) ---
     "theme.system": "시스템",
