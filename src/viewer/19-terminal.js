@@ -476,11 +476,13 @@ function terminalPathLinkProvider(term) {
       var addon = new Addon();
       addon.onContextLoss(function () {
         try { addon.dispose(); } catch (e) {}
+        if (term.__kakapoWebgl === addon) term.__kakapoWebgl = null;
         // Disposal only swaps the renderer; nothing marks the screen dirty, so without this the pane keeps
         // showing the dead context's last (or garbage) frame until some output happens to touch every row.
         try { term.refresh(0, term.rows - 1); } catch (e) {}
       });
       term.loadAddon(addon);
+      term.__kakapoWebgl = addon; // so a workspace switch can hand the pane a live context (flushHiddenOutput)
     } catch (e) { /* the DOM renderer is still a terminal */ }
   }
 
@@ -808,17 +810,26 @@ function terminalPathLinkProvider(term) {
     scheduleFitAll();
     requestAnimationFrame(function () {
       panes.forEach(function (pane) {
-        if (!pane.hiddenHeld) {
-          // A QUIET pane's canvas is not safe to keep either: while the workspace was off screen its WebGL
-          // context can be reclaimed (closing another workspace's webContents is enough), and a canvas whose
-          // context died shows whatever was left in that memory — another surface's diff, solid color blocks.
-          // Redraw from xterm's buffer; if the context really is gone, the draw is what makes the addon
-          // notice, dispose itself, and hand the repaint to the DOM renderer (loadWebglRenderer).
-          try { pane.term.refresh(0, pane.term.rows - 1); } catch (e) {}
-          return;
+        // While the workspace was off screen this pane's WebGL context can die or its canvas go stale
+        // (closing another workspace's webContents is enough), and what a dead context shows is whatever was
+        // left in that memory — another surface's diff, solid color blocks at the wrong scale. Refreshing
+        // into it was tried first and was not enough: a context that is gone but never fired its loss event
+        // absorbs the redraw and keeps the garbage on screen. So the context is REPLACED, not trusted — a
+        // fresh addon draws the whole screen from the buffer on attach, sized to the pane as it is now.
+        if (pane.term.__kakapoWebgl) {
+          try { pane.term.__kakapoWebgl.dispose(); } catch (e) {}
+          pane.term.__kakapoWebgl = null;
         }
-        pane.hiddenHeld = false;
-        try { pane.term.reset(); } catch (e) {}
+        loadWebglRenderer(pane.term);
+        if (pane.hiddenHeld) {
+          pane.hiddenHeld = false;
+          try { pane.term.reset(); } catch (e) {}
+        } else {
+          try { pane.term.refresh(0, pane.term.rows - 1); } catch (e) {}
+        }
+        // Every pane, not only the held ones: xterm's buffer is a copy of tmux's screen, and a copy that was
+        // wrapped for a stale grid draws a broken layout no local repaint can mend. tmux holds the truth and
+        // repainting from it costs a few KB — the same self-heal the held path has always used.
         if (pane.id != null && window.kakapoPty && typeof window.kakapoPty.refresh === 'function') {
           window.kakapoPty.refresh({ id: pane.id });
         }
