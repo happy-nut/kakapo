@@ -77,6 +77,9 @@ function mountDock(id, titleText) {
   if (window.__kakapoTerminal && typeof window.__kakapoTerminal.close === 'function') {
     try { window.__kakapoTerminal.close(); } catch (e) {}
   }
+  // Full-screen surfaces switch, never stack: the dock floats above History (z78 vs 75), and closing the
+  // dock later must not drop the reviewer back into an overlay they left minutes ago.
+  closeHistoryIfOpen();
   closeMergedMemoDocks();
   var panel = document.createElement('div');
   panel.id = id;

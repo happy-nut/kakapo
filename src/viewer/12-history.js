@@ -386,6 +386,9 @@ function openHistory(scope) {
   var v = document.getElementById('history-view');
   if (!v) return;
   if (!window.kakapoGit) return; // browser/serve mode: no git bridge
+  // The overlay renders UNDER the floating terminal and merged/memo dock (z75 vs 77+), so opening it while
+  // one of those is up looked like the shortcut did nothing. Full-screen surfaces switch, never stack.
+  leaveFullScreenPanels();
   v.classList.remove('history-direct-diff');
   historyScope = scope && scope.path && Number(scope.line) >= 1
     ? { path: String(scope.path), line: Math.trunc(Number(scope.line)) }
