@@ -644,8 +644,10 @@ const aheadTag=w.ahead?'<span class="wt-tag wt-ahead" title="'+esc(T.ahead.repla
 // Which agent this worktree is running, in its own brand colour. The terminal records it the moment you
 // type claude/codex (agent-resume.ts), so a workspace shows its badge while the agent is live and keeps it
 // afterwards — the same fact the resume action is offered from. Only the expanded rail: the collapsed strip
-// is 46px of initials and a status dot, with no room for a second glyph.
-const agent=agentIco(w);
+// is 46px of initials and a status dot, with no room for a second glyph. And only when the pane rows below
+// are absent — a closed workspace still says which agent is resumable there; an open one names its agents a
+// line down, per pane, so the badge beside the title would just repeat one of them.
+const agent=(Array.isArray(w.panes)&&w.panes.length)?'':agentIco(w);
 // The description asked for at create time. It was written to the workspace record and then never read by
 // anything — not shown, and the edit dialog opened blank, so the only thing you could do with it was
 // overwrite it blind. It is the one line saying what this workspace is FOR, which is exactly what a rail of
