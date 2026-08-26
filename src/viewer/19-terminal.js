@@ -682,7 +682,11 @@ function terminalPathLinkProvider(term) {
     }
     panes.splice(i, 1);
     if (active === p) setActive(panes[panes.length - 1] || null);
-    if (panes.length === 0) setOpen(false);
+    // The last pane going away must also forget the settled ensurePanes() promise: it is a single-flight
+    // guard, not a cache of "the panel is populated". Left in place, the next open found it already
+    // resolved, created nothing, and showed an empty white panel — "the terminal is gone" after closing
+    // every pane and coming back to the workspace.
+    if (panes.length === 0) { panesReady = null; setOpen(false); }
     else scheduleFitAll();
   }
   // Cmd/Ctrl+W inside the terminal: close just the FOCUSED pane (kill its pty), not the whole panel. The
