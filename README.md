@@ -52,6 +52,10 @@ tar -xzf Kakapo-<version>-linux-x64.tar.gz
 
 Swap `x64` for `arm64` on ARM. Neither package needs a system Electron, Node.js, language server, JRE, PHP or Go/Rust toolchain.
 
+### Windows (x64)
+
+Download `Kakapo-<version>-windows-x64.zip` from [Releases](https://github.com/happy-nut/kakapo/releases), extract it, and run `Kakapo.exe`. The build is unsigned, so SmartScreen needs **More info → Run anyway** on first launch. TypeScript and Python language servers are bundled; the other seven language families use a server on your `PATH` or fall back to the regex index.
+
 ### From source
 
 Requires Node.js 22.14+.

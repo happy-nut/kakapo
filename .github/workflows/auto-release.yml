@@ -1,7 +1,7 @@
 name: Release on merge to main
 
 # 개발은 develop에서 하고, main에는 PR 머지로만 들어온다. 그 머지가 곧 릴리스다 — 지난 v* 태그 이후
-# 커밋이 있으면 patch(0.0.1)를 올려 태그를 찍고 배포(Linux tarball + macOS dmg)까지 한 번에 끝낸다.
+# 커밋이 있으면 patch(0.0.1)를 올려 태그를 찍고 배포(Linux tarball + macOS dmg + Windows zip)까지 한 번에 끝낸다.
 # 날짜가 아니라 머지가 릴리스를 끊으므로, 고친 것이 다음 주 일요일까지 사용자에게 안 가는 일이 없다.
 # minor/major(예: 0.1.0)는 여전히 사람이 직접 올린다:
 #   npm version <minor|major> && git push --follow-tags   (그 태그 push는 release.yml이 처리)
@@ -110,5 +110,15 @@ jobs:
     permissions:
       contents: write
     uses: ./.github/workflows/macos.yml
+    with:
+      release_tag: ${{ needs.auto-release.outputs.release_tag }}
+
+  # Windows zip은 macOS와 같은 계약: 릴리스가 이미 존재하는 뒤에서 업로드만 얹는다.
+  windows-release:
+    needs: [auto-release, linux-release]
+    if: needs.auto-release.outputs.release_tag != '' && needs.linux-release.result == 'success'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/windows.yml
     with:
       release_tag: ${{ needs.auto-release.outputs.release_tag }}
