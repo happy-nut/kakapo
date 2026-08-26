@@ -402,7 +402,7 @@ test("the launcher rail is reachable and navigable by keyboard", async () => {
   v.key("ArrowLeft"); await v.settle(10);
   v.key("ArrowDown"); await v.settle(10);
   v.key("Enter"); await v.settle(40);
-  assert.equal(v.$("#quick-open-mode").textContent, "Prompts", "Enter switches to the focused section");
+  assert.equal(v.$("#quick-open-mode").textContent, "Agent tasks", "Enter switches to the focused section");
   assert.equal(focused(), undefined, "and the rail gives the keyboard up, exactly as a mouse pick does");
   v.close();
 });
