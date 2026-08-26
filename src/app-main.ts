@@ -831,6 +831,7 @@ ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; la
   // "Create a new worktree" unchecked: open the project's existing checkout instead of adding a branch+folder.
   if (payload.worktree === false) {
     if (!existsSync(payload.repo) || !isGitRepository(payload.repo)) return { ok: false };
+    hubMainTilesCache = undefined; // a repo picked for the first time joins the pinned-project set
     openOrFocusWorkspace(payload.repo);
     return { ok: true };
   }
@@ -851,6 +852,11 @@ ipcMain.handle("kakapo:hub-create", async (_event, payload: { repo?: unknown; la
     const records = savedWorkspaceMetadata().filter((item) => resolveWorkspaceRoot(item.path) !== created.path);
     records.push(created);
     preferences.writeOpenWorkspaces(records, created.path);
+    // The first worktree of a repo kakapo has never seen is also the moment that repo becomes a known project,
+    // and the pinned main-checkout tile is built from a cache that only project-set changes may refresh
+    // (projectMainTiles). Without this the new project's group showed the worktree but no main checkout —
+    // built before the project existed, the cache answered every later render with a set that lacked it.
+    hubMainTilesCache = undefined;
     const state = openOrFocusWorkspace(created.path);
     const openTerminal = () => {
       if (state.win.webContents.isDestroyed()) return;
