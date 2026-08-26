@@ -410,6 +410,21 @@ export function tmuxPaneCommand(tmux: string, session: string): string {
   } catch { return ""; }
 }
 
+// Whether an agent pane's visible screen says work is still pending while its output has gone quiet. An
+// agent waiting on a background shell or a scheduled wake-up redraws nothing for minutes, so every
+// output-based signal (pty chunks, tmux window_activity) reads "idle" the whole wait — the agent's own
+// status footer is the one place that state is visible. Claude Code appends "· 1 shell" to its bottom
+// bar while a background shell runs. Only the last few screen lines count, because the transcript above
+// is full of look-alikes ("Ran 1 shell command"), and the "·" separator is required for the same reason
+// — footer tallies carry it, transcript prose does not. The idle footer's "← 1 agent" is a tab hint
+// shown on finished sessions too, and must not match.
+// ponytail: sniffs Claude Code's footer wording; a scheduled wake-up with NO background shell shows no
+// footer tally we know of yet — add its phrasing here when observed.
+const PENDING_FOOTER = /·\s*\d+\s+(shell|bash)/;
+export function screenShowsPendingWork(screen: string): boolean {
+  return screen.replace(/\s+$/, "").split("\n").slice(-3).some((line) => PENDING_FOOTER.test(line));
+}
+
 type Killable = { kill: (signal?: string) => void };
 
 /**
