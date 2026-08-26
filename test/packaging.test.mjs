@@ -14,6 +14,14 @@ import {
   normalizeLinuxArch,
   SUPPORTED_LINUX_ARCHES,
 } from "../scripts/package-linux.mjs";
+import {
+  assertNativeWindowsTarget,
+  normalizeWindowsArch,
+  SUPPORTED_WINDOWS_ARCHES,
+  windowsArchiveName,
+  windowsBundleName,
+  windowsRipgrepPackageName,
+} from "../scripts/package-win.mjs";
 import { waitForKakapoRenderer } from "../scripts/smoke-linux.mjs";
 import {
   BUNDLED_LANGUAGE_FAMILIES,
@@ -69,6 +77,38 @@ test("Linux packaging exposes deterministic x64 and ARM64 release names", () => 
     () => assertNativeLinuxTarget({ platform: "linux", hostArch: "arm64", targetArch: "x64" }),
     /must be built on native Linux x64/,
   );
+});
+
+test("Windows packaging exposes deterministic release names and refuses cross builds", () => {
+  assert.deepEqual(SUPPORTED_WINDOWS_ARCHES, ["x64", "arm64"]);
+  assert.equal(normalizeWindowsArch(" X64 "), "x64");
+  assert.equal(windowsBundleName("x64"), "Kakapo-win32-x64");
+  assert.equal(windowsArchiveName("1.2.3", "x64"), "Kakapo-1.2.3-windows-x64.zip");
+  assert.equal(windowsRipgrepPackageName("x64"), "@vscode/ripgrep-win32-x64");
+  assert.throws(() => normalizeWindowsArch("ia32"), /Expected x64 or arm64/);
+  assert.equal(
+    assertNativeWindowsTarget({ platform: "win32", hostArch: "x64", targetArch: "x64" }),
+    "x64",
+  );
+  assert.throws(
+    () => assertNativeWindowsTarget({ platform: "darwin", hostArch: "x64", targetArch: "x64" }),
+    /must be built on native Windows x64/,
+  );
+});
+
+test("release workflows attach the Windows zip alongside the other desktop packages", () => {
+  const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+  const windows = readFileSync(join(repoRoot, ".github", "workflows", "windows.yml"), "utf8");
+  const autoRelease = readFileSync(join(repoRoot, ".github", "workflows", "auto-release.yml"), "utf8");
+  const release = readFileSync(join(repoRoot, ".github", "workflows", "release.yml"), "utf8");
+
+  assert.equal(packageJson.scripts["dist:win"], "npm run build && node scripts/package-win.mjs x64");
+  assert.match(windows, /runs-on: windows-latest/);
+  assert.match(windows, /npm run dist:win/);
+  assert.match(windows, /gh release upload "\$RELEASE_TAG" release\/Kakapo-\*-windows-x64\.zip/);
+  assert.match(windows, /ref: \$\{\{ inputs\.release_tag \|\| github\.ref \}\}/);
+  assert.match(release, /windows-release:[\s\S]*needs: linux-release[\s\S]*uses: \.\/\.github\/workflows\/windows\.yml/);
+  assert.match(autoRelease, /windows-release:[\s\S]*needs: \[auto-release, linux-release\][\s\S]*uses: \.\/\.github\/workflows\/windows\.yml/);
 });
 
 test("language-server packaging covers every advertised language family with pinned sidecars", () => {

@@ -47,6 +47,10 @@ tar -xzf Kakapo-<version>-linux-x64.tar.gz
 
 ARM에서는 `x64`를 `arm64`로 바꿉니다. 별도의 Electron, Node.js, language server, JRE, PHP, Go/Rust toolchain을 설치할 필요가 없습니다.
 
+### Windows (x64)
+
+[Releases](https://github.com/happy-nut/kakapo/releases)에서 `Kakapo-<version>-windows-x64.zip`을 받아 풀고 `Kakapo.exe`를 실행합니다. 서명되지 않은 빌드라 첫 실행은 SmartScreen에서 **추가 정보 → 실행**을 눌러야 합니다. TypeScript·Python language server는 번들되어 있고, 나머지 7개 언어는 `PATH`의 서버를 쓰거나 정규식 인덱스로 폴백합니다.
+
 ### 소스에서
 
 Node.js 22.14 이상이 필요합니다.

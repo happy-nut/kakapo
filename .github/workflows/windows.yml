@@ -1,0 +1,55 @@
+name: Windows Desktop
+
+# Windows is a release platform: build the x64 app with electron-packager, zip it, and attach it to
+# the GitHub release. Called by the release workflows on a v* tag. The zip is unsigned (no code-signing
+# cert), so SmartScreen shows "More info → Run anyway" on first launch. Only the Node-hosted language
+# servers (TypeScript, Python) ship on Windows; the native sidecars fall back to PATH or the regex index.
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Tag to check out and attach the zip to when called by a release workflow.
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Windows x64 zip
+    # Only build/attach on a real release (tag push or an explicit release_tag from the weekly workflow).
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.14.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows zip (x64)
+        run: npm run dist:win
+
+      - name: Attach zip to the GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" release/Kakapo-*-windows-x64.zip --clobber
