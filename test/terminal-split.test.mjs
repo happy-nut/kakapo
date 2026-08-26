@@ -491,7 +491,7 @@ test("a pane whose session is not known falls back to what tmux says is running 
   assert.match(body, /command === "tmux"/, '"tmux" — what a tmux-backed pty says about itself — is not an answer');
   assert.match(body, /spare\.shift\(\)/, "an unclaimed session for this workspace is handed to the pane");
   assert.ok(
-    body.indexOf("spare.shift()") < body.indexOf("agent: agentForCommand(command)"),
+    body.indexOf("spare.shift()") < body.indexOf("agentForCommand(command)"),
     "and the fallback happens before the row decides which agent it is",
   );
   // …and a session handed out that way must not ALSO appear as a detached row of its own.
