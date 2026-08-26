@@ -562,6 +562,9 @@ function applyUiScale(target?: WebContents): void {
   set(modalView?.webContents);
   const active = activeStateId === undefined ? undefined : states.get(activeStateId);
   set(active?.win.webContents);
+  // The rail and title bar render inside the zoomed shell page, so their on-screen size is CSS px × factor —
+  // the view bounds must move with them or the views overlap the rail (zoom in) / leave a gap (zoom out).
+  layoutWorkspaceViews();
 }
 registerSettingsIpc(ipcMain, preferences, stateFromEvent, (key) => {
   if (key === "kakapo-theme" || key === "kakapo-locale") refreshChrome();
@@ -1541,13 +1544,16 @@ function ensureShellWindow(light: boolean): BrowserWindow {
 function layoutWorkspaceViews(options?: { activeOnly?: boolean }): void {
   if (!shellWindow || shellWindow.isDestroyed()) return;
   const [width, height] = shellWindow.getContentSize();
+  // hubWidth/TITLEBAR_H are CSS px inside the zoomed shell page; bounds are DIPs, so scale by the zoom factor.
+  const railW = Math.round(hubWidth * uiScale());
+  const barH = Math.round(TITLEBAR_H * uiScale());
   for (const state of states.values()) {
     if (state.win.isDetached()) continue;
     if (options?.activeOnly && state.win.webContents.id !== activeStateId) continue;
     const view = shellWindow.contentView.children.find(
       (child): child is WebContentsView => child instanceof WebContentsView && child.webContents.id === state.win.webContents.id,
     );
-    view?.setBounds({ x: hubWidth, y: TITLEBAR_H, width: Math.max(1, width - hubWidth), height: Math.max(1, height - TITLEBAR_H) });
+    view?.setBounds({ x: railW, y: barH, width: Math.max(1, width - railW), height: Math.max(1, height - barH) });
   }
   layoutModalView();
 }
@@ -1581,7 +1587,8 @@ function ensureModalView(light: boolean): WebContentsView | undefined {
 function layoutModalView(): void {
   if (!shellWindow || shellWindow.isDestroyed() || !modalView || modalView.webContents.isDestroyed()) return;
   const [width, height] = shellWindow.getContentSize();
-  modalView.setBounds({ x: 0, y: TITLEBAR_H, width, height: Math.max(1, height - TITLEBAR_H) });
+  const barH = Math.round(TITLEBAR_H * uiScale());
+  modalView.setBounds({ x: 0, y: barH, width, height: Math.max(1, height - barH) });
 }
 
 function setWorkspaceHubOpen(open: boolean): void {
