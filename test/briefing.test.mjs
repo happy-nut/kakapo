@@ -140,6 +140,32 @@ test("a note from another worktree's explanation is not this workspace's briefin
   v.close();
 });
 
+// The subtler half of the same rule: a workspace that HAS explained something owns a run boundary, and every
+// note another worktree appends to the shared file lands past it — so "seq past my boundary" called foreign
+// notes mine, and an Explain run in a task worktree popped its briefing in the main checkout too. Only the
+// workspace still WAITING on a run it sent (runs.await) may auto-open.
+test("another worktree's later run does not reopen a briefing where one was already shown", async () => {
+  const { html } = await makeReviewHtml(FILES);
+  const v = await loadViewer(html);
+  const w = v.window;
+
+  w.markExplainRunStarting();
+  v.agentSays({ kind: "note", role: "problem", group: 2, path: "src/a.ts", line: 1, title: "mine", text: "## Mine\nOur own run." });
+  w.showDiffView(false);
+  await v.settle(30);
+  assert.ok(v.$("#mc-briefing"), "its own run briefs this workspace");
+  w.closeBriefing();
+
+  // Another worktree explains next: its briefing note arrives through the shared file with a higher seq and
+  // an earlier group, so the walk would put it first — exactly the shape that reopened the panel here.
+  v.agentSays({ kind: "note", role: "problem", group: 1, path: "src/b.ts", line: 1, title: "theirs", text: "## Theirs\nNot ours." });
+  await v.settle(60);
+  w.syncRail();
+  await v.settle(30);
+  assert.equal(v.$("#mc-briefing"), null, "an explanation this workspace did not send stays a note, not a briefing");
+  v.close();
+});
+
 // The launcher is how the Explain prompt is actually sent (⌘⇧P opens it on the Prompts section) — and it
 // used to hand over the text without recording that a run had started. A briefing is only ever a note from
 // the CURRENT run (briefingNote reads that boundary), so with no boundary there was no candidate and the

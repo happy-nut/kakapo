@@ -317,7 +317,10 @@ function markExplainRunStarting() {
   var last = (runs && typeof runs.last === 'number') ? runs.last : high; // first run: keep what is already here
   // `seen` (25-briefing.js) rides along untouched: dropping it here would put the OLD briefing back on screen
   // in the gap between sending the prompt and the new notes arriving.
-  persistSave(EXPLAIN_RUNS_KEY, { prev: last, last: high, seen: runs && runs.seen });
+  // `await` is what makes the briefing auto-open belong to THIS workspace: notes travel in the repository's
+  // shared knowledge file and land in every worktree, but only the one that actually sent the prompt is
+  // waiting for a briefing — everywhere else the same notes are somebody else's explanation arriving.
+  persistSave(EXPLAIN_RUNS_KEY, { prev: last, last: high, seen: runs && runs.seen, await: true });
 }
 // Called as records arrive (applyThreadRecords). The trigger is the first note of the new run, not the send:
 // a run that is cancelled, or never pasted into the terminal, must cost nothing.
@@ -331,6 +334,6 @@ function pruneSupersededNotes() {
   var stale = notes
     .filter(function (c) { return c.seq > runs.prev && c.seq <= runs.last && !replied[c.seq]; })
     .map(function (c) { return c.seq; });
-  persistSave(EXPLAIN_RUNS_KEY, { prev: runs.last, last: runs.last, seen: runs.seen });
+  persistSave(EXPLAIN_RUNS_KEY, { prev: runs.last, last: runs.last, seen: runs.seen, await: runs.await });
   if (stale.length) removeComments(stale); // one batch, so one Cmd+Z brings the old explanation back
 }

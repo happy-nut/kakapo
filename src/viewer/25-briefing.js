@@ -240,6 +240,7 @@ function briefingSeenSeq() {
 function markBriefingSeen(seq) {
   var runs = readExplainRuns() || {};
   runs.seen = seq;
+  runs.await = false; // the run this workspace was waiting on has shown itself
   persistSave(EXPLAIN_RUNS_KEY, runs);
 }
 
@@ -379,6 +380,12 @@ function syncBriefing() {
   syncCodebaseRecall(); // the map's own way in, in the other panel — idempotent, so riding this hook is free
   if (!briefingReady || !note) return;
   if (document.getElementById('mc-briefing')) return;
+  // Only the workspace that SENT the run is owed its briefing. The notes it identifies travel in the shared
+  // knowledge file and arrive in every worktree of the repository — so without this, an Explain run in one
+  // worktree popped its briefing in the main checkout too, over a reader it had nothing to say to.
+  // markExplainRunStarting raises the flag; showing the briefing (markBriefingSeen) lowers it.
+  var runs = readExplainRuns();
+  if (!runs || !runs.await) return;
   if (!isDiffViewVisible() || briefingSeenSeq() === note.seq) return;
   // The diff can be "visible" and still be behind something. History (⌘9) is a full-view overlay over the
   // review, and a briefing opening under it is worse than one that never opened: it marks itself seen the
