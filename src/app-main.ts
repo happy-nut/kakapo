@@ -29,7 +29,7 @@ import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, reapUnreachableTerminals, reapDeletedWorkspaceTranscripts, resolveTmux } from "./app-terminal-ipc.js";
 import { registerCommentsIpc, syncCommentsFile, commentsFilePath, knowledgeFilePath, readThread, writeThread, nextThreadId, isKnowledge, type ThreadRecord } from "./comments-file.js";
-import { ask, askAgent } from "./ask-session.js";
+import { ask, askAgent, harvestTranscripts, markHarvested } from "./ask-session.js";
 import { registerTermsIpc } from "./terms-file.js";
 import { connectMcp, reconnectMcp, mcpStatus, type McpAgent } from "./mcp-register.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
@@ -466,7 +466,7 @@ function handOffOrAnswer(state: WinState, re: number, answer: string): void {
   if (!state.win.isDestroyed()) state.win.webContents.send("kakapo:ask-handoff", { text: instruction, seq: re });
 }
 
-ipcMain.handle("kakapo:ask", async (event, payload: { prompt?: string; label?: string; seq?: number; notes?: boolean }) => {
+ipcMain.handle("kakapo:ask", async (event, payload: { prompt?: string; label?: string; seq?: number; notes?: boolean; transcript?: boolean }) => {
   const state = stateFromEvent(event);
   let prompt = typeof payload?.prompt === "string" ? payload.prompt.trim() : "";
   if (!state || !prompt) return { ok: false, reason: "empty" };
@@ -476,11 +476,27 @@ ipcMain.handle("kakapo:ask", async (event, payload: { prompt?: string; label?: s
   // here rather than edited into the prompt files: those are the reviewer's to change in Settings, and the
   // terminal hand-off still needs them to say exactly what they say now.
   if (payload?.notes) prompt = prompt + "\n\n" + tr()("ask.prompt.notes");
+  // A prompt written for the agent that HELD the conversation ("look back over what we just said"), now run
+  // by one that did not. The preamble redirects it to the record: the terminal agents' own transcript files,
+  // each from the first line the last harvest did not read (harvestTranscripts, ask-session.ts). Prepended,
+  // not edited into the prompt file, for the same reason as the notes override — and because the terminal
+  // fallback below still needs the prompt to mean what it says.
+  const harvest = payload?.transcript ? harvestTranscripts(state.options.root) : undefined;
+  if (harvest) {
+    if (!harvest.found) return { ok: false, reason: "no-transcript" }; // renderer falls back to the terminal
+    if (!harvest.files.length) return { ok: false, reason: "nothing-new" };
+    prompt = tr()("ask.prompt.transcript") + "\n"
+      + harvest.files.map((f) => tr()("ask.prompt.transcriptFile", { path: f.path, n: f.fromLine })).join("\n")
+      + "\n\n" + prompt;
+  }
   const entry = { label: String(payload?.label ?? ""), seq: Number.isFinite(payload?.seq) ? Number(payload?.seq) : undefined };
   state.asking.push(entry);
   sendAskStatus(state);
   try {
     const answer = await ask(state.options.root, prompt, askModel(!!payload?.notes));
+    // Only a run that answered moves the offsets — a killed or empty run reads the same lines again next
+    // time, and the MCP server turns away any word it already has.
+    if (harvest && answer) markHarvested(state.options.root, harvest.files);
     if (entry.seq != null) handOffOrAnswer(state, entry.seq, answer);
     // A notes run that produced nothing parseable must not evaporate. The session read the repository for
     // minutes and said something; if it came back as prose — a model that explained instead of emitting

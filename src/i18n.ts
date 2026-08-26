@@ -34,7 +34,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "rail.branch": "Current branch",
     "brand.revealFile": "Reveal open file in the sidebar (⌥F1)",
     "rail.history": "History",
-    "rail.explain": "Explain",
 
     // Explain: the agent's notes land on the diff itself (23-annotations.js) — these cover the prompt
     // hand-off and the Mermaid diagrams a note can embed.
@@ -336,7 +335,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.defUsages": "Definition / usages",
     "kbd.goToImplementation": "Go to implementation",
     "kbd.workspaceSymbol": "Workspace symbol",
-    "kbd.openExplain": "Explain",
     "kbd.goToDef": "Open symbol / source at caret",
     "kbd.toggleFold": "Toggle code fold",
     "kbd.filesChangesTab": "Focus / toggle Files or Changes sidebar",
@@ -391,6 +389,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "ask.answering": "Answering",
     "ask.explaining": "Explaining the diff",
     "ask.mapping": "Mapping the codebase",
+    "ask.harvesting": "Updating the knowledge graph",
+    "ask.nothingNew": "Nothing new to harvest — no conversation since the last run.",
     "ask.working": "Working",
     "ask.started": "Sent to kakapo's own agent — the answer lands here when it is ready.",
     "ask.failed": "The answer came back empty. Nothing was changed.",
@@ -413,6 +413,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Appended to an Explain-style prompt when it runs in the hidden session, which has no write access:
     // it overrides the one instruction that tells the agent to append its records to a file (app-main.ts).
     "ask.prompt.notes": "OVERRIDE — you have no write access in this run. Do not create or edit any file, and ignore any instruction above telling you to append to one. Instead, print the JSONL records you would have appended as your ENTIRE final message: one JSON object per line, nothing before or after them, and no code fence. Omit the `id` field — kakapo assigns it.",
+    "ask.prompt.transcript": "The conversation to look back over is NOT this session's. The reviewer talked to another agent, and that conversation is recorded in the JSONL transcript file(s) below. Read each file from the marked line to the end — everything before it was already harvested last time. The reviewer's own words are the user-role messages; the rest is the agent they were talking to.",
+    "ask.prompt.transcriptFile": "- {path} — read from line {n}",
     // Why a changed file arrived already marked viewed (trivialChange, render-tree.ts). One word, beside the
     // name — enough to explain the tick, small enough not to outshout the filename.
     "trivial.spacing": "spacing",
@@ -444,11 +446,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // The knowledge map (⌘⇧K). Its nodes are words the reviewer has used, never words an agent chose, so
     // the empty state says how a word gets in rather than offering a button that would add one.
-    "rail.terms": "Knowledge map",
+    "rail.terms": "Knowledge graph",
     "terms.close": "Close",
     "terms.code": "In the code",
     "terms.offered": "found by the agent",
-    "terms.drop": "Remove this word from the vocabulary",
+    "terms.drop": "Remove this word from the knowledge graph",
     "terms.drop.short": "Remove",
     "terms.edit": "Edit",
     "terms.save": "Save",
@@ -675,7 +677,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // The vocabulary (terms-file.ts) is the reader's own words, and whether a reader has taken a word in is a
     // reading problem — so it is judged here, by the agent that just answered them, and not by a regex over
     // their reply. The rule the agent cannot bend: the words are theirs, never yours.
-    "mergePrompt.terms": "After you answer, one more thing — and only if it is true. When one of these threads shows that the reviewer has taken a concept into their own words (they used the word themselves and then wrote back something that was not the same question again), append ONE line for it to the vocabulary file below: {\"w\":\"their word, exactly as they wrote it\",\"gloss\":\"one line saying what it is, in their words\",\"code\":[{\"name\":\"the identifier it is\",\"at\":\"src/x.ts:12\"}]}. Read the file first; never rewrite a line already in it; add nothing for a word that is already there. Only words the REVIEWER wrote — never a name you coined, however much better it is, and never a word from an answer they have not responded to. Add `\"parent\":\"안커\"` when the word only means something inside another word already in the file. If a thread taught nothing, add nothing: most do not, and a vocabulary of words the reviewer never chose is worse than an empty one. This file is what every later explanation of this repository is written in:",
+    "mergePrompt.terms": "After you answer, one more thing — and only if it is true. When one of these threads shows that the reviewer has taken a concept into their own words (they used the word themselves and then wrote back something that was not the same question again), append ONE line for it to the knowledge-graph file below: {\"w\":\"their word, exactly as they wrote it\",\"gloss\":\"one line saying what it is, in their words\",\"code\":[{\"name\":\"the identifier it is\",\"at\":\"src/x.ts:12\"}]}. Read the file first; never rewrite a line already in it; add nothing for a word that is already there. Only words the REVIEWER wrote — never a name you coined, however much better it is, and never a word from an answer they have not responded to. Add `\"parent\":\"안커\"` when the word only means something inside another word already in the file. If a thread taught nothing, add nothing: most do not, and a knowledge graph of words the reviewer never chose is worse than an empty one. This file is what every later explanation of this repository is written in:",
     "mergePrompt.requestFile": "Read this review request file and do everything it asks:",
     // Explain hands its instructions over the same way, but they are not a review REQUEST — nobody is being
     // asked to change anything, only to read the codebase and write notes.
@@ -698,7 +700,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "rail.branch": "현재 브랜치",
     "brand.revealFile": "열린 파일을 사이드바에서 보기 (⌥F1)",
     "rail.history": "히스토리",
-    "rail.explain": "설명",
 
     // Explain: 에이전트의 노트가 diff 위에 직접 붙습니다(23-annotations.js). 아래는 프롬프트 전달과
     // 노트가 품을 수 있는 Mermaid 다이어그램용 문자열입니다.
@@ -997,7 +998,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.defUsages": "정의 / 사용처",
     "kbd.goToImplementation": "구현체로 이동",
     "kbd.workspaceSymbol": "워크스페이스 심볼",
-    "kbd.openExplain": "설명",
     "kbd.goToDef": "커서 위치의 심볼 / 소스 열기",
     "kbd.toggleFold": "현재 코드 블록 접기 / 펼치기",
     "kbd.filesChangesTab": "파일 / 변경 사이드바 포커스·토글",
@@ -1028,7 +1028,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "codebase.prompt.default": readPrompt("codebase", "ko"),
     "terms.prompt.default": readPrompt("terms", "ko"),
     "termsPrompt.title": "배운 말 남기기",
-    "termsPrompt.when": "터미널에서 뭔가 알게 된 대화를 한 뒤 — 그 대화에서 받아들인 말을 단어집에 남깁니다.",
+    "termsPrompt.when": "터미널에서 뭔가 알게 된 대화를 한 뒤 — 그 대화에서 받아들인 말을 지식 그래프에 남깁니다.",
     "annotatePrompt.when": "diff를 설명해야 할 때 — 내가 읽으려고, 또는 남이 리뷰하도록.",
     "codebasePrompt.when": "저장소가 처음이라, 세부보다 전체 구조를 먼저 알아야 할 때.",
     "codebasePrompt.title": "코드베이스 설명",
@@ -1049,6 +1049,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "ask.answering": "답하는 중",
     "ask.explaining": "diff 설명하는 중",
     "ask.mapping": "코드베이스 훑는 중",
+    "ask.harvesting": "지식 그래프 갱신 중",
+    "ask.nothingNew": "수확할 것이 없습니다 — 지난 수확 이후 새 대화가 없습니다.",
     "ask.working": "작업 중",
     "ask.started": "kakapo 전용 에이전트에게 보냈습니다 — 준비되면 여기에 붙습니다.",
     "ask.failed": "답이 비어서 돌아왔습니다. 바뀐 것은 없습니다.",
@@ -1064,6 +1066,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "ask.handoff.sent": "코드 수정이 필요한 건이라 터미널의 에이전트에게 보냈습니다.",
     "ask.handoff.note": "터미널의 에이전트에게 넘김:",
     "ask.prompt.notes": "덮어쓰기 지시 — 이 실행에는 쓰기 권한이 없습니다. 어떤 파일도 만들거나 고치지 말고, 위에서 파일에 append하라고 한 지시는 무시하세요. 대신 append했을 JSONL 레코드를 최종 응답 전체로 출력하세요: 한 줄에 JSON 객체 하나, 앞뒤에 아무것도 없이, 코드펜스 없이. `id` 필드는 빼세요 — kakapo가 붙입니다.",
+    "ask.prompt.transcript": "돌아볼 대화는 이 세션의 대화가 아닙니다. 리뷰어는 다른 에이전트와 대화했고, 그 기록이 아래 JSONL transcript 파일에 있습니다. 각 파일을 표시된 줄부터 끝까지 읽으세요 — 그 앞은 지난 수확에서 이미 읽었습니다. '제가 쓴 말'은 user 역할 메시지의 말이고, 나머지는 리뷰어가 대화하던 에이전트의 말입니다.",
+    "ask.prompt.transcriptFile": "- {path} — {n}번째 줄부터",
     "trivial.spacing": "공백",
     "trivial.format": "포맷",
     "walk.hint": "F8 다음, Shift+F8 이전",
@@ -1300,7 +1304,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "mergePrompt.answersFile": "답변은 여기에 적지 말고 아래 리뷰 스레드 파일에 기록하세요 — 답변 하나당 한 줄씩 append 합니다: {\"id\":<그 파일 맨 위의 NEXT FREE ID. 여러 줄이면 거기서부터 하나씩 올립니다>,\"re\":<답할 요청의 #id>,\"by\":\"agent\",\"text\":\"markdown\"}. 이미 있는 줄은 절대 고치지 마세요. id는 보이는 가장 큰 id가 아니라 그 줄에서 가져오세요 — id는 지금 보고 있지 않은 다른 파일과 공유됩니다. 아래 각 요청 제목에 #id가 붙어 있고, 답변은 그 코드 옆 리뷰에 그대로 표시됩니다. 코드를 건드리기 전에 모든 답변을 그 파일에 먼저 append 하세요. 세션에 답변을 나열하고 승인을 기다리지 마세요 — 여기 적은 것은 답변이 아니고 아무도 읽지 않습니다:",
     // kakapo가 문서를 디스크에 저장할 수 있었을 때 터미널로 가는 내용 전부 — 이 한 줄과 절대 경로.
     // 문서(답변 파일 안내 포함)는 그 파일 안에서 기다린다. sendWholeDocToTerminal 참고.
-    "mergePrompt.terms": "답변을 마친 뒤, 해당될 때만 한 가지 더 하세요. 위 대화 중에 리뷰어가 어떤 개념을 자기 말로 받아들인 것이 보이면(그 말을 직접 썼고, 그 뒤에 같은 질문을 되묻지 않았다면), 아래 단어집 파일에 그 말 하나당 한 줄씩 append 하세요: {\"w\":\"리뷰어가 쓴 그대로의 말\",\"gloss\":\"그게 무엇인지 리뷰어의 말로 한 줄\",\"code\":[{\"name\":\"코드에서의 식별자\",\"at\":\"src/x.ts:12\"}]}. 먼저 파일을 읽으세요. 이미 있는 줄은 절대 고치지 말고, 이미 있는 말은 다시 넣지 마세요. 오직 **리뷰어가 쓴 말**만입니다 — 당신이 지은 이름은 아무리 더 정확해도 안 되고, 리뷰어가 아직 반응하지 않은 답변 속의 말도 안 됩니다. 다른 말 안에서만 뜻이 서는 말이면 `\"parent\":\"말풍선\"`을 붙이세요. 배운 것이 없는 대화면 아무것도 넣지 마세요 — 대부분이 그렇고, 리뷰어가 고르지 않은 말이 쌓인 단어집은 빈 단어집보다 나쁩니다. 이 파일이 앞으로 이 저장소에 대한 모든 설명이 쓰이는 말입니다:",
+    "mergePrompt.terms": "답변을 마친 뒤, 해당될 때만 한 가지 더 하세요. 위 대화 중에 리뷰어가 어떤 개념을 자기 말로 받아들인 것이 보이면(그 말을 직접 썼고, 그 뒤에 같은 질문을 되묻지 않았다면), 아래 지식 그래프 파일에 그 말 하나당 한 줄씩 append 하세요: {\"w\":\"리뷰어가 쓴 그대로의 말\",\"gloss\":\"그게 무엇인지 리뷰어의 말로 한 줄\",\"code\":[{\"name\":\"코드에서의 식별자\",\"at\":\"src/x.ts:12\"}]}. 먼저 파일을 읽으세요. 이미 있는 줄은 절대 고치지 말고, 이미 있는 말은 다시 넣지 마세요. 오직 **리뷰어가 쓴 말**만입니다 — 당신이 지은 이름은 아무리 더 정확해도 안 되고, 리뷰어가 아직 반응하지 않은 답변 속의 말도 안 됩니다. 다른 말 안에서만 뜻이 서는 말이면 `\"parent\":\"말풍선\"`을 붙이세요. 배운 것이 없는 대화면 아무것도 넣지 마세요 — 대부분이 그렇고, 리뷰어가 고르지 않은 말이 쌓인 지식 그래프는 빈 지식 그래프보다 나쁩니다. 이 파일이 앞으로 이 저장소에 대한 모든 설명이 쓰이는 말입니다:",
     "mergePrompt.requestFile": "이 리뷰 요청 파일을 읽고 시키는 대로 전부 처리하세요:",
     "prompt.requestFile": "이 지침 파일을 읽고 그대로 수행하세요:",
     // 후속 코멘트가 이어받는 이전 대화를 대신한다 (mergedItemLines) — 본문이 아니라 id만. 문서 맨 앞에

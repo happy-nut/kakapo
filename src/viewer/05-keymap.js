@@ -194,8 +194,8 @@ var WINDOW_SHORTCUTS = [
   { code: 'KeyB', shift: true, key: 'b', run: function () { toggleBriefing(); } },
   { code: 'KeyK', shift: true, key: 'k', run: function () { toggleTermMap(); } },
   { code: 'Digit9', key: '9', run: function () { toggleHistory(); } },
-  // No ⌘7. Explain used to own it, and all that shortcut did was send a prompt the ⌘⇧P palette already
-  // sends — one key reserved for a duplicate. The rail's Explain button still opens the notes (openExplain).
+  // No ⌘7, and no Explain entry anywhere on the rails: sending the prompt is the ⌘⇧P palette's job, and
+  // reading the notes is the briefing's (⌘⇧B) — a third door to the same two rooms was only a duplicate.
   // Cmd+0/Cmd+1 mean "take me to the tree"; activate* itself puts every full-screen surface away first
   // (leaveFullScreenPanels) — otherwise the view they activate would be switched invisibly underneath one.
   { code: 'Digit0', key: '0', run: function () { activateChangesView(false); } },
@@ -684,7 +684,6 @@ document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
   else if (view === 'files') { activateFilesView(); }
   else if (view === 'merged') { toggleMergedRail(); }
   else if (view === 'memo') { openMemoView(); } // openMemoView already toggles
-  else if (view === 'explain') { openExplain(); }
   else if (view === 'terms') { toggleTermMap(); }
   else if (view === 'history') { toggleHistory(); }
   document.getElementById('workspace-more-menu')?.classList.add('hidden');

@@ -26,7 +26,7 @@
 // written wrong, and stdout is already exactly the answer.
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { AgentKind } from "./agent-resume.js";
@@ -130,6 +130,141 @@ export function forgetSession(root: string): void {
     catch { /* a leftover transcript is not worth failing a workspace deletion over */ }
     return;
   }
+}
+
+// ===== The reviewer's conversations, as files the hidden session can read. The knowledge-graph harvest
+// used to require the terminal: only the agent that HELD the conversation could look back over it. But the
+// conversation is on disk — both CLIs keep a full JSONL transcript of every session — so the hidden session
+// can read the record instead, and the reviewer never has to lend their composer to a harvest again.
+//
+// Two agents, two filing systems. Claude slugs the working directory into one directory name and puts every
+// session of that cwd inside; codex files rollouts by date and stamps the cwd inside each file's first line.
+
+// Where codex keeps its rollouts. CODEX_HOME for the same reason claudeProjectsDir reads CLAUDE_CONFIG_DIR:
+// a moved config moved the transcripts, and tests point it at a temporary directory.
+export function codexSessionsDir(env: NodeJS.ProcessEnv = process.env): string {
+  return join(env.CODEX_HOME || join(homedir(), ".codex"), "sessions");
+}
+
+// The CLI's own encoding of a cwd into a directory name: every non-alphanumeric becomes a dash.
+function claudeSlug(root: string): string {
+  return root.replace(/[^A-Za-z0-9]/g, "-");
+}
+
+// The newest claude session of this workspace that is NOT our own hidden one — newest because that is the
+// conversation the reviewer is having now. ponytail: newest only; a second concurrent claude pane goes
+// unharvested until it is the newest.
+function newestClaudeTranscript(root: string): string | undefined {
+  const dir = join(claudeProjectsDir(), claudeSlug(root));
+  const own = readSessionId(root);
+  let names: string[] = [];
+  try { names = readdirSync(dir); } catch { return undefined; }
+  let best: { path: string; mtime: number } | undefined;
+  for (const name of names) {
+    if (!name.endsWith(".jsonl") || (own && name === `${own}.jsonl`)) continue;
+    const path = join(dir, name);
+    let mtime = 0;
+    try { mtime = statSync(path).mtimeMs; } catch { continue; }
+    if (!best || mtime > best.mtime) best = { path, mtime };
+  }
+  return best?.path;
+}
+
+// First bytes of a file without reading the rest — rollouts run to megabytes and only line one matters.
+function headOf(path: string, bytes: number): string {
+  try {
+    const fd = openSync(path, "r");
+    try {
+      const buffer = Buffer.alloc(bytes);
+      return buffer.toString("utf8", 0, readSync(fd, buffer, 0, bytes, 0));
+    } finally { closeSync(fd); }
+  } catch { return ""; }
+}
+
+// The newest codex rollout whose session_meta names this workspace as its cwd. ponytail: stats every rollout
+// on disk and sniffs the newest 200 — flat and dumb; walk newest day-directories first if a machine with
+// years of rollouts ever makes this measurable.
+function newestCodexTranscript(root: string): string | undefined {
+  const files: { path: string; mtime: number }[] = [];
+  const walk = (dir: string, depth: number): void => {
+    let names: string[] = [];
+    try { names = readdirSync(dir); } catch { return; }
+    for (const name of names) {
+      const path = join(dir, name);
+      if (depth < 3) walk(path, depth + 1);
+      else if (name.endsWith(".jsonl")) {
+        try { files.push({ path, mtime: statSync(path).mtimeMs }); } catch { /* raced away */ }
+      }
+    }
+  };
+  walk(codexSessionsDir(), 0);
+  files.sort((a, b) => b.mtime - a.mtime);
+  const stamp = `"cwd":${JSON.stringify(root)}`;
+  for (const file of files.slice(0, 200)) {
+    const head = headOf(file.path, 4096);
+    // Our own hidden session runs `codex exec` when claude is absent, and its rollouts land here with this
+    // same cwd — a harvest must not read kakapo's own errands back as the reviewer's words. The claude side
+    // excludes by session id; codex gives us only the originator. ponytail: matches codex's current exec
+    // originator string; if codex renames it the cost is one wasted harvest of a machine-generated session.
+    if (head.includes(stamp) && !head.includes('"originator":"codex_exec"')) return file.path;
+  }
+  return undefined;
+}
+
+// Where the last harvest stopped, per transcript: { "<path>": <lines read> }. Beside the session id in the
+// git dir, for the same reasons — never committed, dies with the worktree.
+function harvestStateFile(root: string): string | undefined {
+  return kakapoGitDataFile(root, "terms-harvest");
+}
+function readHarvested(root: string): Record<string, number> {
+  const file = harvestStateFile(root);
+  if (!file || !existsSync(file)) return {};
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, number>) : {};
+  } catch { return {}; }
+}
+
+function countLines(path: string): number {
+  try {
+    const text = readFileSync(path, "utf8");
+    let n = 0;
+    for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) n++;
+    return n;
+  } catch { return 0; }
+}
+
+export type HarvestTranscript = { path: string; fromLine: number; lines: number };
+
+// What the next harvest should read: each agent's current transcript, from the first line the last harvest
+// did not see. `found` distinguishes "no transcript at all" (the caller falls back to the terminal) from
+// "transcripts exist but hold nothing new" (there is nothing to do and nowhere useful to fall back to).
+export function harvestTranscripts(root: string): { files: HarvestTranscript[]; found: boolean } {
+  const done = readHarvested(root);
+  const files: HarvestTranscript[] = [];
+  let found = false;
+  for (const path of [newestClaudeTranscript(root), newestCodexTranscript(root)]) {
+    if (!path) continue;
+    found = true;
+    const lines = countLines(path);
+    const read = Number(done[path]) || 0;
+    if (read < lines) files.push({ path, fromLine: read + 1, lines });
+  }
+  return { files, found };
+}
+
+// After a harvest ran: the next one starts where this one stopped. The line counts were taken before the
+// run, so anything said DURING it stays unread rather than skipped. Old entries are kept — a session the
+// reviewer resumes later becomes the newest again, and its offset is exactly what makes that cheap.
+export function markHarvested(root: string, transcripts: HarvestTranscript[]): void {
+  const file = harvestStateFile(root);
+  if (!file || !transcripts.length) return;
+  const state = readHarvested(root);
+  for (const t of transcripts) state[t.path] = t.lines;
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(state) + "\n");
+  } catch { /* the next harvest re-reads from the old offset; words are deduped by the MCP server anyway */ }
 }
 
 function runAgent(bin: string, args: string[], root: string): Promise<{ ok: boolean; text: string }> {
