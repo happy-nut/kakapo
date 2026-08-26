@@ -70,8 +70,15 @@ test("switching to Changes or Files puts an open terminal away", () => {
   for (const fn of ["activateChangesView", "activateFilesView"]) {
     const body = keymap.match(new RegExp(`function ${fn}\\([^)]*\\) \\{\\n([^\\n]*\\n){0,2}`))?.[0];
     assert.ok(body, `${fn} exists`);
-    assert.match(body, /closeTerminalForViewSwitch\(\)/, `${fn} closes the terminal first`);
+    assert.match(body, /leaveFullScreenPanels\(\)/, `${fn} puts the full-screen surfaces away first`);
   }
+  // ...and that funnel is the one that actually closes the terminal (plus History and the docks — the
+  // full-screen surfaces switch rather than stack).
+  const leave = keymap.match(/function leaveFullScreenPanels\(\)[\s\S]*?\n\}/)?.[0];
+  assert.ok(leave, "leaveFullScreenPanels exists");
+  assert.match(leave, /closeTerminalForViewSwitch\(\)/, "the terminal is closed on any view switch");
+  assert.match(leave, /closeHistoryIfOpen\(\)/, "the History overlay too");
+  assert.match(leave, /closeMergedMemoDocks\(\)/, "and the merged/memo dock");
 });
 
 test("the close never toggles a closed terminal back on", () => {

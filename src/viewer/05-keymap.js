@@ -37,6 +37,18 @@ function closeTerminalForViewSwitch() {
   if (api.isOpen()) api.close();
 }
 
+// The surfaces that cover the whole screen — the History overlay (z75), the floating merged/memo dock
+// (z78), the floating terminal — are exclusive in practice: each renders over (or under) the others, so a
+// shortcut activating one while another was up either looked like it did nothing or switched a view
+// invisibly underneath. Every door into one of them puts the rest away first: the ⌘0/⌘1 activations and
+// the rail's forced opens call this, and openHistory (12-history.js), mountDock (08-dock.js) and the
+// terminal's setOpen (19-terminal.js) each close their counterparts from their side.
+function leaveFullScreenPanels() {
+  closeTerminalForViewSwitch();
+  closeHistoryIfOpen();
+  closeMergedMemoDocks();
+}
+
 // Cmd+0/1 and their rail icons are focus-aware. From content they reveal/focus the matching tree; only a
 // repeated activation while that tree owns the logical focus collapses it. A collapsed tree expands first.
 // The workspace rail, pushed open, force-collapses this sidebar (railPushedCollapse in 09-views-update.js).
@@ -50,7 +62,7 @@ function standDownRailForViewSwitch() {
 }
 
 function activateChangesView(navigateToDiff) {
-  closeTerminalForViewSwitch();
+  leaveFullScreenPanels();
   standDownRailForViewSwitch();
   if (isDiffViewVisible()) {
     if (reviewSidebarCollapsed) { setReviewSidebarCollapsed(false, { focusSidebar: true }); return; }
@@ -69,7 +81,7 @@ function activateChangesView(navigateToDiff) {
 }
 
 function activateFilesView() {
-  closeTerminalForViewSwitch();
+  leaveFullScreenPanels();
   standDownRailForViewSwitch();
   if (isSourceViewerVisible()) {
     if (sourceSidebarCollapsed) { setSourceSidebarCollapsed(false, { focusSidebar: true }); return; }
@@ -182,12 +194,12 @@ var WINDOW_SHORTCUTS = [
   { code: 'KeyB', shift: true, key: 'b', run: function () { toggleBriefing(); } },
   { code: 'KeyK', shift: true, key: 'k', run: function () { toggleTermMap(); } },
   { code: 'Digit9', key: '9', run: function () { toggleHistory(); } },
-  // No ⌘7. Explain used to own it, and all that shortcut did was send a prompt the ⌘⇧P palette already
-  // sends — one key reserved for a duplicate. The rail's Explain button still opens the notes (openExplain).
-  // Cmd+0/Cmd+1 mean "take me to the tree", so they close the History overlay first — otherwise the view
-  // they activate would be switched invisibly underneath it.
-  { code: 'Digit0', key: '0', run: function () { closeHistoryIfOpen(); activateChangesView(false); } },
-  { code: 'Digit1', key: '1', run: function () { closeHistoryIfOpen(); activateFilesView(); } },
+  // No ⌘7, and no Explain entry anywhere on the rails: sending the prompt is the ⌘⇧P palette's job, and
+  // reading the notes is the briefing's (⌘⇧B) — a third door to the same two rooms was only a duplicate.
+  // Cmd+0/Cmd+1 mean "take me to the tree"; activate* itself puts every full-screen surface away first
+  // (leaveFullScreenPanels) — otherwise the view they activate would be switched invisibly underneath one.
+  { code: 'Digit0', key: '0', run: function () { activateChangesView(false); } },
+  { code: 'Digit1', key: '1', run: function () { activateFilesView(); } },
   // Undo the last comment removal — a Backspace on a selected card in the merged dock deletes one, so the
   // safety net has to reach into that dock. Text surfaces keep their own native undo, and the key is only
   // swallowed when there was actually something to restore.
@@ -672,7 +684,6 @@ document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
   else if (view === 'files') { activateFilesView(); }
   else if (view === 'merged') { toggleMergedRail(); }
   else if (view === 'memo') { openMemoView(); } // openMemoView already toggles
-  else if (view === 'explain') { openExplain(); }
   else if (view === 'terms') { toggleTermMap(); }
   else if (view === 'history') { toggleHistory(); }
   document.getElementById('workspace-more-menu')?.classList.add('hidden');
@@ -685,11 +696,13 @@ document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
 // always ends with the view shown and its sidebar expanded, so the shortcut can only open — never close — it.
 function openRailView(view) {
   if (view === 'files') {
+    leaveFullScreenPanels();
     if (!isSourceViewerVisible()) showSourceView();
     setSourceSidebarCollapsed(false);
     setTab('files');
     focusOpenFileInTree();
   } else if (view === 'changes') {
+    leaveFullScreenPanels();
     setSourceSidebarCollapsed(false);
     setReviewSidebarCollapsed(false);
     if (!isDiffViewVisible()) showDiffView(false);

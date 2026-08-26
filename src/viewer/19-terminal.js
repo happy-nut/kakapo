@@ -887,8 +887,11 @@ function terminalPathLinkProvider(term) {
     }
   }
   function setOpen(open) {
-    // The terminal shares the exclusive dock slot with merged/memo — opening it closes those.
+    // The terminal shares the exclusive dock slot with merged/memo — opening it closes those. History goes
+    // too: the panel renders above the overlay (z77+ vs 75), so closing the terminal later would drop the
+    // reviewer back into an overlay they never meant to keep. Full-screen surfaces switch, never stack.
     if (open && typeof window.__kakapoCloseDocks === 'function') { try { window.__kakapoCloseDocks(); } catch (e) {} }
+    if (open && window.__kakapoHistory && typeof window.__kakapoHistory.close === 'function') { try { window.__kakapoHistory.close(); } catch (e) {} }
     panel.classList.toggle('hidden', !open);
     if (!open) setConnecting(false);
     document.body.classList.toggle('terminal-open', open);

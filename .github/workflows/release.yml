@@ -1,7 +1,8 @@
 name: Release
 
 # Push a v* tag (e.g. `npm version patch && git push --follow-tags`) to build the desktop packages and
-# attach them to a GitHub Release: Linux x64/arm64 tarballs and a macOS (Apple Silicon) .dmg.
+# attach them to a GitHub Release: Linux x64/arm64 tarballs, a macOS (Apple Silicon) .dmg, and a
+# Windows x64 .zip.
 # There is no npm publish — the app ships from the GitHub Releases page only.
 on:
   push:
@@ -36,5 +37,14 @@ jobs:
     permissions:
       contents: write
     uses: ./.github/workflows/macos.yml
+    with:
+      release_tag: ${{ inputs.release_tag }}
+
+  # Same ordering contract as macOS: the release exists by now, this only uploads the zip.
+  windows-release:
+    needs: linux-release
+    permissions:
+      contents: write
+    uses: ./.github/workflows/windows.yml
     with:
       release_tag: ${{ inputs.release_tag }}

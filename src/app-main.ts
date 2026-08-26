@@ -1,4 +1,4 @@
-import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -14,7 +14,7 @@ import { ProjectAnalysis } from "./analysis.js";
 import { ReviewPerformanceTrace } from "./perf.js";
 import { ProjectMarkdownMemo } from "./memos.js";
 import type { SourceFile } from "./types.js";
-import { workspaceReviewFile } from "./workspace-data.js";
+import { workspaceDataDirectory, workspaceReviewFile } from "./workspace-data.js";
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import { reviewBodyCount, reviewDiffSignature } from "./review-workspace.js";
 import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
@@ -29,7 +29,7 @@ import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, reapUnreachableTerminals, reapDeletedWorkspaceTranscripts, resolveTmux } from "./app-terminal-ipc.js";
 import { registerCommentsIpc, syncCommentsFile, commentsFilePath, knowledgeFilePath, readThread, writeThread, nextThreadId, isKnowledge, type ThreadRecord } from "./comments-file.js";
-import { ask, askAgent } from "./ask-session.js";
+import { ask, askAgent, harvestTranscripts, markHarvested } from "./ask-session.js";
 import { registerTermsIpc } from "./terms-file.js";
 import { connectMcp, reconnectMcp, mcpStatus, type McpAgent } from "./mcp-register.js";
 import { registerTileMenuIpc } from "./app-tile-menu-ipc.js";
@@ -466,7 +466,7 @@ function handOffOrAnswer(state: WinState, re: number, answer: string): void {
   if (!state.win.isDestroyed()) state.win.webContents.send("kakapo:ask-handoff", { text: instruction, seq: re });
 }
 
-ipcMain.handle("kakapo:ask", async (event, payload: { prompt?: string; label?: string; seq?: number; notes?: boolean }) => {
+ipcMain.handle("kakapo:ask", async (event, payload: { prompt?: string; label?: string; seq?: number; notes?: boolean; transcript?: boolean }) => {
   const state = stateFromEvent(event);
   let prompt = typeof payload?.prompt === "string" ? payload.prompt.trim() : "";
   if (!state || !prompt) return { ok: false, reason: "empty" };
@@ -476,11 +476,27 @@ ipcMain.handle("kakapo:ask", async (event, payload: { prompt?: string; label?: s
   // here rather than edited into the prompt files: those are the reviewer's to change in Settings, and the
   // terminal hand-off still needs them to say exactly what they say now.
   if (payload?.notes) prompt = prompt + "\n\n" + tr()("ask.prompt.notes");
+  // A prompt written for the agent that HELD the conversation ("look back over what we just said"), now run
+  // by one that did not. The preamble redirects it to the record: the terminal agents' own transcript files,
+  // each from the first line the last harvest did not read (harvestTranscripts, ask-session.ts). Prepended,
+  // not edited into the prompt file, for the same reason as the notes override — and because the terminal
+  // fallback below still needs the prompt to mean what it says.
+  const harvest = payload?.transcript ? harvestTranscripts(state.options.root) : undefined;
+  if (harvest) {
+    if (!harvest.found) return { ok: false, reason: "no-transcript" }; // renderer falls back to the terminal
+    if (!harvest.files.length) return { ok: false, reason: "nothing-new" };
+    prompt = tr()("ask.prompt.transcript") + "\n"
+      + harvest.files.map((f) => tr()("ask.prompt.transcriptFile", { path: f.path, n: f.fromLine })).join("\n")
+      + "\n\n" + prompt;
+  }
   const entry = { label: String(payload?.label ?? ""), seq: Number.isFinite(payload?.seq) ? Number(payload?.seq) : undefined };
   state.asking.push(entry);
   sendAskStatus(state);
   try {
     const answer = await ask(state.options.root, prompt, askModel(!!payload?.notes));
+    // Only a run that answered moves the offsets — a killed or empty run reads the same lines again next
+    // time, and the MCP server turns away any word it already has.
+    if (harvest && answer) markHarvested(state.options.root, harvest.files);
     if (entry.seq != null) handOffOrAnswer(state, entry.seq, answer);
     // A notes run that produced nothing parseable must not evaporate. The session read the repository for
     // minutes and said something; if it came back as prose — a model that explained instead of emitting
@@ -562,6 +578,9 @@ function applyUiScale(target?: WebContents): void {
   set(modalView?.webContents);
   const active = activeStateId === undefined ? undefined : states.get(activeStateId);
   set(active?.win.webContents);
+  // The rail and title bar render inside the zoomed shell page, so their on-screen size is CSS px × factor —
+  // the view bounds must move with them or the views overlap the rail (zoom in) / leave a gap (zoom out).
+  layoutWorkspaceViews();
 }
 registerSettingsIpc(ipcMain, preferences, stateFromEvent, (key) => {
   if (key === "kakapo-theme" || key === "kakapo-locale") refreshChrome();
@@ -963,6 +982,13 @@ ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unk
     hubMainTilesCache = undefined; // the pinned-project set may have changed
   }
   state.win.webContents.close();
+  if (payload.mode === "delete") {
+    // The workspace's userData mirror (review html, state.json with the renderer's comment copy, memo, perf)
+    // must die with the worktree: state.json is what loadThread migrates into a comments.jsonl that does not
+    // exist yet, so a leftover copy resurrects a dead task's comments in the next workspace created at the
+    // same path. After close, so the renderer cannot write the copy back between the wipe and its death.
+    try { rmSync(workspaceDataDirectory(app.getPath("userData"), record.path), { recursive: true, force: true }); } catch { /* best-effort */ }
+  }
   const next = Array.from(states.values()).find((item) => item !== state);
   if (next) activateWorkspace(next.win.webContents.id);
   return { ok: true };
@@ -1541,13 +1567,16 @@ function ensureShellWindow(light: boolean): BrowserWindow {
 function layoutWorkspaceViews(options?: { activeOnly?: boolean }): void {
   if (!shellWindow || shellWindow.isDestroyed()) return;
   const [width, height] = shellWindow.getContentSize();
+  // hubWidth/TITLEBAR_H are CSS px inside the zoomed shell page; bounds are DIPs, so scale by the zoom factor.
+  const railW = Math.round(hubWidth * uiScale());
+  const barH = Math.round(TITLEBAR_H * uiScale());
   for (const state of states.values()) {
     if (state.win.isDetached()) continue;
     if (options?.activeOnly && state.win.webContents.id !== activeStateId) continue;
     const view = shellWindow.contentView.children.find(
       (child): child is WebContentsView => child instanceof WebContentsView && child.webContents.id === state.win.webContents.id,
     );
-    view?.setBounds({ x: hubWidth, y: TITLEBAR_H, width: Math.max(1, width - hubWidth), height: Math.max(1, height - TITLEBAR_H) });
+    view?.setBounds({ x: railW, y: barH, width: Math.max(1, width - railW), height: Math.max(1, height - barH) });
   }
   layoutModalView();
 }
@@ -1581,7 +1610,8 @@ function ensureModalView(light: boolean): WebContentsView | undefined {
 function layoutModalView(): void {
   if (!shellWindow || shellWindow.isDestroyed() || !modalView || modalView.webContents.isDestroyed()) return;
   const [width, height] = shellWindow.getContentSize();
-  modalView.setBounds({ x: 0, y: TITLEBAR_H, width, height: Math.max(1, height - TITLEBAR_H) });
+  const barH = Math.round(TITLEBAR_H * uiScale());
+  modalView.setBounds({ x: 0, y: barH, width, height: Math.max(1, height - barH) });
 }
 
 function setWorkspaceHubOpen(open: boolean): void {

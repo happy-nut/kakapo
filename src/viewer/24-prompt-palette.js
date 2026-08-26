@@ -21,14 +21,16 @@ function promptPaletteEntries() {
     // Explaining reads the repository and writes notes into kakapo's data directory — nothing the reviewer
     // has to watch, and nothing that needs the context of the conversation they are having in the terminal.
     //
-    // The vocabulary prompt is the exception, and it is not an oversight: it is about THAT CONVERSATION —
-    // which words the reviewer took in while talking to their own agent. kakapo cannot read it and neither
-    // can the hidden session; only the agent that held it can. So it still goes to the terminal.
+    // The knowledge-graph harvest is about THAT CONVERSATION — which words the reviewer took in while
+    // talking to their own agent — but the conversation is on disk: both CLIs keep a transcript, main knows
+    // where (harvestTranscripts, ask-session.ts), so `transcript` marks the prompt the hidden session runs
+    // against those files. It falls back to the terminal only where no transcript exists to read.
     { id: 'annotate', file: 'explain-diff.md', title: t('annotatePrompt.title'), when: t('annotatePrompt.when'),
       text: currentAnnotatePromptText, onSend: startExplainRun, hidden: true, label: t('ask.explaining') },
     { id: 'codebase', file: 'explain-codebase.md', title: t('codebasePrompt.title'), when: t('codebasePrompt.when'),
       text: currentCodebasePromptText, hidden: true, label: t('ask.mapping') },
-    { id: 'terms', file: 'keep-what-i-learned.md', title: t('termsPrompt.title'), when: t('termsPrompt.when'), text: currentTermsPromptText },
+    { id: 'terms', file: 'keep-what-i-learned.md', title: t('termsPrompt.title'), when: t('termsPrompt.when'),
+      text: currentTermsPromptText, transcript: true, label: t('ask.harvesting') },
   ];
 }
 
@@ -46,7 +48,26 @@ function runPrompt(entry, text) {
     showToast(t('ask.started'));
     return;
   }
+  if (entry && entry.transcript && askTranscriptHarvest(entry, text)) {
+    showToast(t('ask.started'));
+    return;
+  }
   sendPromptToTerminal(text, entry && entry.file);
+}
+
+// The harvest, against the transcript files instead of a live conversation. Main answers 'no-transcript'
+// when there is no record to read at all — a conversation held before this machine had the CLI filing it —
+// and then the composer hand-off below is still the only way the harvest can happen, so it falls back.
+// 'nothing-new' is different: the record exists and holds nothing unread, so there is nothing to do anywhere.
+function askTranscriptHarvest(entry, text) {
+  if (!askAvailable()) return false;
+  Promise.resolve(askBridge().ask({ prompt: text, label: entry.label || entry.title || '', transcript: true })).catch(function () { return null; })
+    .then(function (result) {
+      if (!result || result.ok) return;
+      if (result.reason === 'no-transcript') { sendPromptToTerminal(text, entry.file); return; }
+      showToast(t(result.reason === 'nothing-new' ? 'ask.nothingNew' : result.reason === 'no-agent' ? 'ask.noAgent' : 'ask.failed'));
+    });
+  return true;
 }
 
 // Hand `text` to the terminal's send mode (the same staging step ⌥⏎ uses everywhere else), so it lands in

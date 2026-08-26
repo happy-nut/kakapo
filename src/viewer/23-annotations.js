@@ -334,14 +334,3 @@ function pruneSupersededNotes() {
   persistSave(EXPLAIN_RUNS_KEY, { prev: runs.last, last: runs.last, seen: runs.seen });
   if (stale.length) removeComments(stale); // one batch, so one Cmd+Z brings the old explanation back
 }
-
-// The Explain rail button. It lights up once notes exist (syncRail), and until now it answered
-// that by re-running the generator: the one control saying "there is an explanation here" was the one control
-// that would not open it, so the reader had to hunt down note 1 in the diff themselves. With notes present it
-// now goes to the top of the walk — the briefing — and only an unexplained diff sends the prompt. Re-running
-// on purpose lives in the ⌘⇧P palette, which lists Explain whether or not notes are already there.
-function openExplain() {
-  var walk = annotationWalk();
-  if (walk.length && revealComment(walk[0].seq)) return;
-  runAnnotatePrompt();
-}

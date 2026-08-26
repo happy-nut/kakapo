@@ -194,9 +194,6 @@ function syncRail() {
   setOn('memo', !!document.getElementById('mc-memo-panel'));
   var hv = document.getElementById('history-view');
   setOn('history', !!(hv && !hv.classList.contains('hidden')));
-  // Explain opens no view of its own — light its rail icon while the agent's notes are on the diff, so the
-  // button doubles as "there are notes to read" (23-annotations.js).
-  setOn('explain', annotationList().length > 0);
   // The same two moments the rail cares about are the two the briefing cares about — notes arriving, and the
   // diff coming into view — so it rides this sync rather than growing hooks of its own (25-briefing.js).
   syncBriefing();

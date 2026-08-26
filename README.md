@@ -4,9 +4,9 @@
 
 *[한국어 README](README_KR.md)*
 
-Coding agents are fast. Reading their output is not. Kakapo is built for that half of the loop: a real diff, real language-server navigation, and a review conversation that the agent can read and answer without you copy-pasting anything.
+Coding agents are fast. Reading their output is not. Kakapo is built for that half of the loop: a real diff, real language-server navigation, review comments the agent can answer in place, a shared knowledge graph, and a Markdown memo for each worktree.
 
-![Creating a worktree workspace in Kakapo, reviewing the agent's diff, and getting its answer back on the line](assets/kakapo-core-flow.gif)
+![Creating a worktree in Kakapo, reviewing the agent's diff with inline comments, exploring the knowledge graph, and writing a Markdown memo](assets/kakapo-core-flow.gif)
 
 ## Why Kakapo
 
@@ -14,13 +14,17 @@ Coding agents are fast. Reading their output is not. Kakapo is built for that ha
 
 **Your comments go back to the agent; its answers come back on the line.** Press `?` on any line to ask a question or request a change. `⌘⇧/` merges every open comment into one request, writes it to `.git/kakapo/`, and hands the agent a single line naming that file. The agent appends its replies to the same thread and they appear as replies under your comment — no prompt-assembly, no scrolling walls of pasted text. `F8` walks every thread until nothing is left open.
 
-**`⌘7` makes the agent explain its own diff.** It walks the change and leaves plain-language note cards on the lines that matter, marking where a change goes wrong and where it is fixed. What it learns about the codebase accumulates in `.git/kakapo/knowledge.jsonl`, shared by every worktree of the repository — so the next explanation doesn't start from zero.
+**Agent prompts explain the diff or map an unfamiliar codebase.** Open the prompt palette with `⌘⇧P`. *Explain the diff* leaves plain-language note cards on the lines that matter and opens a short briefing; `F8` walks the cards and `⌘⇧B` replays the briefing. *Explain the codebase* leaves one high-level map. These jobs run in Kakapo's own background agent session, while their notes accumulate in `.git/kakapo/knowledge.jsonl` for every worktree to share.
 
-**One window, one worktree per task.** `⌘N` creates a managed worktree under `~/kakapo/workspaces/<repo>/<task>`, fetches the base branch first, and can start `claude` or `codex` in it right away. Agents keep running in the background when you switch away (tmux-backed, so they survive an app restart); the left rail badges which workspace is working and which is waiting on you, and a finished turn in another workspace sends a native notification. `⌘⌥1–9` switches instantly.
+**Review conversations become a knowledge graph.** *Keep what I learned* in `⌘⇧P` reads only the new part of the current Claude and Codex transcripts and keeps concepts the reviewer actually adopted. `⌘⇧K` opens the graph: words link through their meanings and point back to identifiers and locations in the code. Connecting Kakapo's MCP server in Settings lets a terminal agent read and extend the same graph in any conversation. The graph lives in `.git/kakapo/terms.jsonl`, shared by every worktree.
+
+**Each worktree has its own Markdown memo.** `⌘⇧N` opens a focused writing surface for review decisions and next steps. It autosaves outside the repository in Kakapo's application-data directory.
+
+**One workspace, one worktree per task.** `⌘N` creates a managed worktree under `~/kakapo/workspaces/<repo>/<task>`, fetches the base branch first, and can start `claude` or `codex` in it right away. Agents keep running when you switch away; with tmux installed, they also survive an app restart. The left rail badges which workspace is working and which is waiting on you, and a finished turn in another workspace sends a native notification. `⌘⌥1–9` switches instantly.
 
 **IDE-grade reading with zero setup.** Go to definition, references, implementations and workspace symbols work across the diff via real language servers; Change Impact separates confirmed callers, importers and implementors from candidate tests and types; project search runs on bundled ripgrep. Nine language toolchains ship inside the app — no `PATH` lookup, no installs, no editor plugins.
 
-**It never writes into your project.** Review threads live in `.git/kakapo/` (Git never tracks its own directory, so `git status` stays clean, and a cwd-sandboxed agent can still reach them). Everything else lives in the OS application-data directory, keyed by absolute workspace path. Plain JSONL, Markdown and JSON — fully local, no account, no telemetry, MIT.
+**It never writes into tracked project files.** Review threads, explanation notes and the knowledge graph live in `.git/kakapo/` (Git never tracks its own directory, so `git status` stays clean, and a cwd-sandboxed agent can still reach them). Everything else lives in the OS application-data directory, keyed by absolute workspace path. Plain JSONL, Markdown and JSON — fully local, no account, no telemetry, MIT.
 
 ## The loop
 
@@ -29,6 +33,7 @@ Coding agents are fast. Reading their output is not. Kakapo is built for that ha
 3. `?` on a line to ask a question or request a change.
 4. `⌘⇧/` to merge and send; `⌥Enter` hands it to the agent.
 5. The agent fixes and answers inline; `F8` walks the answers.
+6. Use `⌘⇧P` for agent explanations, `⌘⇧K` for the knowledge graph, and `⌘⇧N` for the worktree memo.
 
 ## Install
 
@@ -46,6 +51,10 @@ tar -xzf Kakapo-<version>-linux-x64.tar.gz
 ```
 
 Swap `x64` for `arm64` on ARM. Neither package needs a system Electron, Node.js, language server, JRE, PHP or Go/Rust toolchain.
+
+### Windows (x64)
+
+Download `Kakapo-<version>-windows-x64.zip` from [Releases](https://github.com/happy-nut/kakapo/releases), extract it, and run `Kakapo.exe`. The build is unsigned, so SmartScreen needs **More info → Run anyway** on first launch. TypeScript and Python language servers are bundled; the other seven language families use a server on your `PATH` or fall back to the regex index.
 
 ### From source
 
@@ -103,12 +112,13 @@ kakapo --staged             # index vs HEAD
 | `?` | Comment on the current line |
 | `⌘⇧/` | All review comments (merged request; `⌥Enter` sends) |
 | `F8` / `⇧F8` | Next / previous comment or Explain note |
-| `⌘7` | Explain — let the agent annotate this diff |
-| `⌘8` / `⌘9` | Change Impact / Git history |
+| `⌘⇧B` | Replay the latest Explain briefing |
+| `⌘⇧K` | Knowledge graph |
+| `⌘9` | Git history |
 | `⇧⇧` / `⌘F` / `⌘⇧F` | Find file / in file / in project |
 | `⌘B` / `⌘⌥B` / `⌘⌥O` | Definition & usages / implementation / workspace symbol |
 | ``⌃` `` / `⌘D` | Toggle terminal / split pane |
-| `⌘⇧P` / `⌘⇧N` | Prompt palette / prompt memo |
+| `⌘⇧P` / `⌘⇧N` | Agent prompt palette / Markdown memo |
 | `⌘,` | Settings |
 
 Settings ▸ Shortcuts lists the rest.
@@ -133,11 +143,12 @@ Semantic quality still depends on project metadata: Maven/Gradle for Java and Ko
 
 ## Where state lives
 
-Review threads and accumulated codebase notes sit in the repository's own Git directory:
+Review threads, accumulated explanation notes and the knowledge graph sit in the repository's own Git directory:
 
 ```text
 .git/worktrees/<name>/kakapo/comments.jsonl   # this workspace's review conversation
-.git/kakapo/knowledge.jsonl                   # codebase notes, shared by all worktrees
+.git/kakapo/knowledge.jsonl                   # agent explanation notes, shared by all worktrees
+.git/kakapo/terms.jsonl                       # knowledge graph, shared by all worktrees
 ```
 
 Everything else is mirrored per absolute workspace path under the OS app-data directory — for `/Users/me/repos/acme/turtle` on macOS:

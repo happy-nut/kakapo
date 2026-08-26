@@ -13,6 +13,7 @@ import { makeTranslator } from "../dist/i18n.js";
 import { HUB_WIDTH, TITLEBAR_H } from "../dist/constants.js";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const appVersion = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")).version;
 
 // The app serves its client script over kakapo-asset:// instead of inlining it (assets.ts), so a demo window
 // that only knows file:// loads a review whose JavaScript never runs. Same scheme, same root as app-main.ts.
@@ -143,10 +144,27 @@ function createDemoRepo(workRoot) {
 }
 
 function demoBridgePrelude() {
+  const terms = [
+    { w: "worktree", gloss: "An isolated workspace where the agent changes the review queue.", seen: true },
+    { w: "review queue", gloss: "The ordered list of open review items before a prompt is handed to the agent.", seen: true, code: [{ name: "buildReviewQueue", at: "src/reviewQueue.ts:10" }] },
+    { w: "stable order", gloss: "The review queue fallback that preserves createdAt when priorities match.", seen: true },
+    { w: "inline review", gloss: "A comment anchored to a diff line and returned through the prompt.", seen: true },
+    { w: "prompt", gloss: "The handoff that collects each inline review with file and line evidence.", seen: true, code: [{ name: "nextPrompt", at: "src/prompt.ts:1" }] },
+    { w: "memo", gloss: "A worktree-scoped Markdown scratchpad for review decisions.", seen: true },
+  ];
   return String.raw`<script>
 window.kakapoClipboard = { write: function (text) { window.__demoClipboard = String(text || ''); } };
 window.kakapoSettings = { all: { 'kakapo-theme': 'dark', 'kakapo-locale': 'en' }, set: function (key, value) { this.all[key] = value; } };
 window.kakapoMenu = {};
+window.kakapoTerms = {
+  read: function () { return Promise.resolve({ path: '.git/kakapo/terms.jsonl', terms: ${JSON.stringify(terms)} }); },
+  write: function (next) { return Promise.resolve({ ok: true, path: '.git/kakapo/terms.jsonl', terms: next }); }
+};
+window.kakapoMemo = {
+  read: function () { return Promise.resolve({ version: 1, worktreePath: '~/kakapo/workspaces/checkout-flow/archived-opt-in', body: '', updatedAt: null }); },
+  write: function (body) { window.__demoMemo = body; return Promise.resolve({ version: 1, body: body, updatedAt: new Date().toISOString() }); },
+  remove: function () { window.__demoMemo = ''; return Promise.resolve({ ok: true }); }
+};
 </script>`;
 }
 
@@ -258,10 +276,10 @@ async function pause(ms) {
 }
 
 // The demo's script, as data. Injected as real thread records (the same shape comments.jsonl holds), so the
-// agent's answer and its Explain note are drawn by the ordinary render path — nothing here fakes UI.
+// agent's answer is drawn by the ordinary render path — nothing here fakes UI.
 const CHANGE_REQUEST = "Archived items shouldn't come back by default, and equal priorities need a stable order.";
 const AGENT_ANSWER = "Done — archived rows are opt-in behind includeArchived, and the sort falls back to createdAt so equal priorities keep the order they came in.";
-const AGENT_NOTE = "This map() returns a new object per item, so a caller holding the old array keeps its own objects — the queue is a copy, not a view.";
+const MEMO = "Next pass checklist\nArchived rows stay opt-in\nStable order uses createdAt";
 
 async function makeWindow(box, options = {}) {
   const win = new BrowserWindow({
@@ -345,6 +363,27 @@ async function typeInto(stage, selector, text, target = "modal") {
   }
 }
 
+async function typeIntoEditor(stage, selector, text) {
+  const insert = (command, value = null) => stage.review.webContents.executeJavaScript(`(function () {
+    var el = document.querySelector(${JSON.stringify(selector)});
+    el.spellcheck = false;
+    el.setAttribute('autocorrect', 'off');
+    if (document.activeElement !== el) el.focus();
+    return document.execCommand(${JSON.stringify(command)}, false, ${JSON.stringify(value)});
+  })()`);
+  let chunk = "";
+  for (const character of text) {
+    if (character !== "\n" && chunk.length < 5) { chunk += character; continue; }
+    if (chunk) { await insert("insertText", chunk); chunk = ""; await frame(stage, 1); }
+    if (character === "\n") { await insert("insertParagraph"); await frame(stage, 1); }
+    else chunk = character;
+  }
+  if (chunk) {
+    await insert("insertText", chunk);
+    await frame(stage, 1);
+  }
+}
+
 const caption = (stage, text) => stage.compositorCaption(text);
 
 // ---- Act 1: a task starts as its own worktree ----
@@ -422,25 +461,35 @@ async function recordReviewFlow(stage) {
   `);
   await waitFor(review, "document.querySelector('.mc-card.mc-ai')");
   await frame(stage, 16);
+}
 
-  caption(stage, "9 \u00b7 \u23187 \u2014 the agent explains its own diff; F8 walks every card");
+// ---- Act 3: review knowledge stays connected ----
+async function recordKnowledgeMap(stage) {
+  const review = stage.review;
+  caption(stage, "9 \u00b7 \u2318\u21e7K \u2014 review vocabulary becomes a reusable knowledge map");
   await review.webContents.executeJavaScript(`
-    var records = reviewComments.map(commentToRecord);
-    var mapRow = Array.prototype.slice.call(document.querySelectorAll('#diff2html-container tr'))
-      .filter(function (r) { return r.textContent.indexOf('.map((item)') >= 0; })[0];
-    var mapLine = mapRow ? Number((mapRow.querySelector('.d2h-code-side-linenumber') || {}).textContent) : 0;
-    var lines = relevantLines('src/reviewQueue.ts', 'new');
-    records.push({
-      id: 901, by: 'agent', kind: 'note', role: 'fix', group: 1,
-      path: 'src/reviewQueue.ts', line: mapLine || lines[Math.floor(lines.length * 0.4)] || lines[0] || 1,
-      title: 'The queue is a copy', text: ${JSON.stringify(AGENT_NOTE)},
-    });
-    applyThreadRecords(records);
+    closeMergedMemoDocks();
+    openTermMap();
   `);
-  await pause(250);
-  await frame(stage, 10);
-  await review.webContents.executeJavaScript("gotoComment(1)");
-  await pause(250);
+  await waitFor(review, "document.querySelectorAll('#mc-map .mc-node').length >= 6");
+  await frame(stage, 16);
+
+  caption(stage, "10 \u00b7 Each concept stays linked to its meaning and code");
+  await review.webContents.executeJavaScript("openTermCard(termNodeByKey('review queue'))");
+  await waitFor(review, "document.querySelector('#mc-term-card')");
+  await frame(stage, 16);
+}
+
+// ---- Act 4: keep the next review step beside the workspace ----
+async function recordMemo(stage) {
+  const review = stage.review;
+  caption(stage, "11 \u00b7 \u2318\u21e7N \u2014 write a Markdown memo without leaving the review");
+  await review.webContents.executeJavaScript("closeTermMap(); openMemoView()");
+  await waitFor(review, "document.querySelector('#mc-memo-panel .mc-inline-editor[contenteditable=true]')");
+  await frame(stage, 8);
+  await typeIntoEditor(stage, "#mc-memo-panel .mc-inline-editor[contenteditable=true]", MEMO);
+  await pause(350);
+  caption(stage, "12 \u00b7 The memo is saved per worktree and ready for the next pass");
   await frame(stage, 16);
 }
 
@@ -451,7 +500,7 @@ async function recordFrames(htmlPath, frameDir) {
   const compositor = await makeCompositor();
 
   await shell.loadURL("data:text/html;charset=utf-8,"
-    + encodeURIComponent(withBridge(hubHtml(false, "0.4.19", t), hubBridge(workspaceTiles(false)))));
+    + encodeURIComponent(withBridge(hubHtml(false, appVersion, t), hubBridge(workspaceTiles(false)))));
   await modal.loadURL("data:text/html;charset=utf-8,"
     + encodeURIComponent(withBridge(modalOverlayHtml(false, t), hubBridge(workspaceTiles(false)))));
   await review.loadURL(`${pathToFileURL(htmlPath).href}#hunk-0`);
@@ -484,6 +533,8 @@ async function recordFrames(htmlPath, frameDir) {
   await pause(400);
   await recordWorktreeCreation(stage);
   await recordReviewFlow(stage);
+  await recordKnowledgeMap(stage);
+  await recordMemo(stage);
 
   [shell, review, modal, compositor].forEach((win) => win.destroy());
   return stage.index;

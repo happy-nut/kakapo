@@ -44,8 +44,11 @@ export const KEEP_WORD_TOOL = {
     "language the next explanation is written in. A word they are still asking about is a misunderstanding, " +
     "not knowledge.\n\n" +
     "Record concepts, not identifiers: a file, function or variable name is not a word, it is what a word " +
-    "turns out to BE in the code, which is what `code` is for. If there is nothing to record, do not call " +
-    "this — most conversations record nothing, and a vocabulary full of words the user never chose is worse " +
+    "turns out to BE in the code, which is what `code` is for. And record only words that say something " +
+    "about this repository: a connective, particle or filler the user happened to type (\"rather\", " +
+    "\"actually\", \"아니라\") is grammar, not knowledge — if the word alone cannot carry one line of meaning " +
+    "about this codebase, it does not go in. If there is nothing to record, do not call " +
+    "this — most conversations record nothing, and a knowledge graph full of words the user never chose is worse " +
     "than an empty one.",
   inputSchema: {
     type: "object",

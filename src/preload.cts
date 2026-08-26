@@ -156,7 +156,7 @@ contextBridge.exposeInMainWorld("kakapoComments", {
 // kakapo's own agent, which the reviewer never sees (ask-session.ts). The renderer can only send a prompt
 // and a label for it; which agent runs, what it may touch and where the answer lands are all main's.
 contextBridge.exposeInMainWorld("kakapoAsk", {
-  ask: (payload: { prompt: string; label: string; seq?: number }): Promise<{ ok: boolean; reason?: string }> =>
+  ask: (payload: { prompt: string; label: string; seq?: number; notes?: boolean; transcript?: boolean }): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke("kakapo:ask", payload),
   onStatus: (cb: (payload: { asks: { label: string; seq?: number }[] }) => void): void => {
     ipcRenderer.on("kakapo:ask-status", (_event, payload) => cb(payload));

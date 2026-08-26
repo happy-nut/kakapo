@@ -342,11 +342,8 @@ export function renderDiffHtml(input: {
     `<span class="rail-label" data-i18n="${labelKey}">${escapeHtml(defaultLabel)}</span>` +
     `<span class="rail-tip"><span data-i18n="${labelKey}">${escapeHtml(defaultLabel)}</span><kbd>${escapeHtml(kbd)}</kbd></span>` +
     "</button>";
-  const explainButton = input.app
-    ? railButton("explain", "rail.explain", "Explain", "⌘⇧P", '<path d="M4 5.5c2.4-1 5.4-1 8 0v13c-2.6-1-5.6-1-8 0z"/><path d="M20 5.5c-2.4-1-5.4-1-8 0v13c2.6-1 5.6-1 8 0z"/>')
-    : "";
   const termsButton = input.app
-    ? railButton("terms", "rail.terms", "Knowledge map", "⌘⇧K", '<circle cx="12" cy="12" r="2.6"/><circle cx="5" cy="6.5" r="1.7"/><circle cx="19" cy="7.5" r="1.7"/><circle cx="7.5" cy="19" r="1.7"/><circle cx="18" cy="17.5" r="1.7"/><path d="M6.4 7.7l3.7 3M17.6 8.6l-3.6 2.4M9.9 13.7l-1.4 3.6M14.3 13.3l2.6 2.9"/>')
+    ? railButton("terms", "rail.terms", "Knowledge graph", "⌘⇧K", '<circle cx="12" cy="12" r="2.6"/><circle cx="5" cy="6.5" r="1.7"/><circle cx="19" cy="7.5" r="1.7"/><circle cx="7.5" cy="19" r="1.7"/><circle cx="18" cy="17.5" r="1.7"/><path d="M6.4 7.7l3.7 3M17.6 8.6l-3.6 2.4M9.9 13.7l-1.4 3.6M14.3 13.3l2.6 2.9"/>')
     : "";
   const activityRail = [
     '<nav class="activity-rail" aria-label="Views">',
@@ -367,7 +364,6 @@ export function renderDiffHtml(input: {
     // they ARE the dispatch: openRailView and the shell title bar activate a view by clicking its
     // .rail-btn[data-view], and syncRail marks the active one. Permanently hidden, never opened.
     '<div id="workspace-more-menu" class="workspace-more-menu hidden" role="presentation">',
-    explainButton,
     termsButton,
     railButton("merged", "rail.reviewComments", "Review comments", "⌘⇧/", '<path d="M5.5 5.5h13c.8 0 1.5.7 1.5 1.5v6.4c0 .8-.7 1.5-1.5 1.5H12l-4.5 3.6V16.4H5.5c-.8 0-1.5-.7-1.5-1.5V7c0-.8.7-1.5 1.5-1.5z"/>'),
     railButton("memo", "memo.title", "Markdown memo", "⌘⇧N", '<rect x="5.5" y="4" width="13" height="16" rx="1.5"/><line x1="8.5" y1="9" x2="15.5" y2="9"/><line x1="8.5" y1="12.5" x2="15.5" y2="12.5"/><line x1="8.5" y1="16" x2="12.5" y2="16"/>'),
@@ -512,11 +508,10 @@ export function renderDiffHtml(input: {
     '<div class="quick-open-side-sep" aria-hidden="true"></div>',
     '<button type="button" class="quick-open-side-item" data-section="merged" data-keyhint="⌘⇧/"><span data-i18n="rail.reviewComments">Review comments</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="memo" data-keyhint="⌘⇧N"><span data-i18n="memo.title">Markdown memo</span></button>',
-    '<button type="button" class="quick-open-side-item" data-section="explain"><span data-i18n="rail.explain">Explain</span></button>',
     // The unread dot lives here rather than on the rail button: the rail's tool buttons are permanently
     // hidden (they are dispatch targets now), so this launcher row is the one place a reader actually sees
     // a tool listed. It clears when every new word has been opened.
-    '<button type="button" class="quick-open-side-item" data-section="terms" data-keyhint="⌘⇧K"><span data-i18n="rail.terms">Knowledge map</span><span id="terms-unread-dot" class="rail-dot hidden" aria-hidden="true"></span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="terms" data-keyhint="⌘⇧K"><span data-i18n="rail.terms">Knowledge graph</span><span id="terms-unread-dot" class="rail-dot hidden" aria-hidden="true"></span></button>',
     '<button type="button" class="quick-open-side-item" data-section="history" data-keyhint="⌘9"><span data-i18n="rail.history">History</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="terminal" data-keyhint="⌃`"><span data-i18n="terminal.title">Terminal</span></button>',
     '</nav>',
@@ -576,7 +571,7 @@ export function renderDiffHtml(input: {
     // and sizing only the code leaves the rest mismatched. Applied by main as a Chromium zoom factor.
     '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.uiScale">Font size</span><span class="settings-row-hint" data-i18n="settings.uiScale.hint">Scales the whole interface, including the terminal.</span></div><button type="button" id="settings-ui-scale" class="settings-select mc-select" data-i18n-aria="settings.uiScale"></button></div>',
     '</div>',
-    // Knowledge map card (Electron only — the check is a ripgrep, which browser/static reviews cannot run).
+    // Knowledge graph card (Electron only — the check is a ripgrep, which browser/static reviews cannot run).
     // kakapo's own agent (ask-session.ts). The only thing about it the reviewer has to decide is what it
     // costs, so that is the only thing offered here.
     input.app
@@ -587,7 +582,7 @@ export function renderDiffHtml(input: {
       + '</div>'
       : "",
     input.app
-      ? '<div class="settings-card"><div class="settings-card-title" data-i18n="rail.terms">Knowledge map</div>'
+      ? '<div class="settings-card"><div class="settings-card-title" data-i18n="rail.terms">Knowledge graph</div>'
       + '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.termsSweep">Re-check where words point</span>'
       + '<span class="settings-row-hint" data-i18n="settings.termsSweep.hint">A word stores the name it is in the code, and where that name last was. The address goes stale on any commit, so it is re-checked when you open the word — and every so many new words, across the whole map.</span></div>'
       + '<button type="button" id="settings-terms-sweep" class="settings-select mc-select" data-i18n-aria="settings.termsSweep"></button></div>'
