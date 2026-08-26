@@ -21,7 +21,7 @@ import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { parseReviewArgs, readOption } from "./cli-args.js";
 import { easeRail } from "./rail-animation.js";
-import { ByteBudgetCache, errorMessage, githubOwnerFromUrl, tmuxSessionsForRoot } from "./util.js";
+import { ByteBudgetCache, errorMessage, githubOwnerFromUrl, screenShowsPendingWork, tmuxSessionsForRoot } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
@@ -1753,6 +1753,30 @@ function tmuxSessionBusy(session: string): boolean {
   const at = tmuxSessionActivity.get(session);
   return !!at && Date.now() - at * 1000 < TMUX_BUSY_WINDOW_MS;
 }
+// Both signals above only say "streaming right now". An agent waiting on work it already started — a
+// background shell, a scheduled wake-up — redraws nothing for minutes, which reads exactly like sitting
+// idle at the prompt, and the spinner went dark on a workspace that was mid-job. The agent's own status
+// footer is the only place that state shows, so when an agent pane fails both output checks, capture its
+// screen and read the footer (screenShowsPendingWork). Cached slacker than the pane scan: this is one
+// subprocess per quiet agent pane rather than one per tick, and the footer only changes on a redraw —
+// which is output, which wakes the fast paths anyway.
+const PENDING_SCREEN_TTL_MS = 5000;
+const pendingScreens = new Map<string, { pending: boolean; at: number }>();
+function tmuxSessionPendingWork(session: string): boolean {
+  const cached = pendingScreens.get(session);
+  if (cached && Date.now() - cached.at < PENDING_SCREEN_TTL_MS) return cached.pending;
+  if (pendingScreens.size > 100) pendingScreens.clear(); // sessions come and go; cheapest possible bound
+  const tmux = resolveTmux(process.env);
+  let pending = false;
+  if (tmux) {
+    try {
+      const out = spawnSync(tmux, ["capture-pane", "-p", "-t", session], { encoding: "utf8", timeout: 3000 });
+      pending = screenShowsPendingWork(String(out.stdout ?? ""));
+    } catch { /* session gone -> nothing pending */ }
+  }
+  pendingScreens.set(session, { pending, at: Date.now() });
+  return pending;
+}
 function runningTmuxSessions(): string {
   const shellName = shellBasename();
   return Array.from(tmuxPaneCommands())
@@ -1785,7 +1809,7 @@ function panesForWorkspace(state: WinState, panes: Map<string, string>): Workspa
   const claimed = new Set(state.termSessions.values());
   const spare = ownSessions.filter((name) => !claimed.has(name));
   for (const [id, t] of state.terms) {
-    const session = state.termSessions.get(id);
+    let session = state.termSessions.get(id);
     let command = "";
     if (session) command = panes.get(session) || "";
     else { try { command = t.process || ""; } catch { /* pty may have exited mid-query */ } }
@@ -1794,9 +1818,13 @@ function panesForWorkspace(state: WinState, panes: Map<string, string>): Workspa
     if (!command || command === "tmux" || command === shellName) {
       const borrowed = spare.shift();
       const inside = borrowed ? (panes.get(borrowed) || "").replace(/^-/, "") : "";
-      if (inside && inside !== shellName) command = inside;
+      if (inside && inside !== shellName) { command = inside; session = borrowed; }
     }
-    rows.push({ id, command, agent: agentForCommand(command), running: !!command && command !== shellName, busy: state.busyPanes.has(id) });
+    const agent = agentForCommand(command);
+    // Output-quiet is not the same as done: an agent whose screen still tallies pending work (a background
+    // shell it launched, a scheduled wake-up it is waiting out) keeps the spinner, from its footer.
+    rows.push({ id, command, agent, running: !!command && command !== shellName,
+      busy: state.busyPanes.has(id) || (!!agent && !!session && tmuxSessionPendingWork(session)) });
   }
   // A session left running detached — from before this app run, or after its pane was closed — has no pty here
   // but is very much still working. It gets a row of its own so the rail says so instead of going quiet.
@@ -1810,7 +1838,9 @@ function panesForWorkspace(state: WinState, panes: Map<string, string>): Workspa
     // busy from tmux, not from a pty we do not have. On the first launch of the day NOTHING here is attached
     // — panes are restored lazily — so every workspace reported "not working" and the rail drew a window full
     // of finished agents while they were all mid-turn. tmux has been watching their output the whole time.
-    rows.push({ id: next--, command, agent: agentForCommand(command), running: true, busy: tmuxSessionBusy(session) });
+    const agent = agentForCommand(command);
+    rows.push({ id: next--, command, agent, running: true,
+      busy: tmuxSessionBusy(session) || (!!agent && tmuxSessionPendingWork(session)) });
   }
   return rows;
 }
