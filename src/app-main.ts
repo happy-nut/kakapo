@@ -748,6 +748,11 @@ ipcMain.on("kakapo:hub-refocus", () => focusActiveReviewView());
 ipcMain.on("kakapo:review-clicked", (event) => {
   if (event.sender.id === activeStateId) collapseRailFromReview();
 });
+// The review asking for the rail — same action as the ⌘⇧E menu item. The renderer sends this when it
+// recognises a ⌘⇧E whose Shift arrived late (⌘E fired first and opened Quick Open by mistake).
+ipcMain.on("kakapo:rail-toggle-expand", () => {
+  shellWindow?.webContents.send("kakapo:hub-toggle-expand");
+});
 // Picking a workspace from the rail — a click or Enter on a tile — is the user saying "this one", so the
 // expanded rail has done its job and gets out of the way. This is the deliberate SELECTION, which is a
 // different thing from the view merely taking focus: the rail must survive a click into a terminal pane

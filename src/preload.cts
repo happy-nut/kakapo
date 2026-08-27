@@ -63,6 +63,9 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
   // One name, not one per caller: both are the same sentence, and the second was a no-op for as long as it
   // was spelled on the wrong bridge (see test/window-layout.test.mjs).
   railStandDown: (): void => ipcRenderer.send("kakapo:review-clicked"),
+  // The ⌘⇧E menu action, reachable from the review: the keymap uses it to complete a chord whose Shift
+  // landed a beat after the E (see handleQuickOpenKey in 03-quick-open.js).
+  railToggleExpand: (): void => ipcRenderer.send("kakapo:rail-toggle-expand"),
   // ⌘K opens a floating quick-switcher rendered over the review (the review stays visible behind it).
   onOpenQuickSwitcher: (cb: () => void): void => {
     ipcRenderer.on("kakapo:open-quick-switcher", () => cb());

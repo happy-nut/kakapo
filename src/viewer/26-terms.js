@@ -988,6 +988,10 @@ var TERM_STOP = [
   '왜냐', '지금', '다시', '그냥', '진짜', '정말', '조금', '이런', '저런', '그런', '경우', '때문', '부분',
   '하는', '되는', '있는', '없는', '같은', '자체', '전부', '모두', '항상', '먼저', '나중', '정도', '가지',
   '생각', '문제', '얘기', '이야기', '이유', '방법', '내용', '사용', '동작', '확인', '수정', '설명',
+  // Generic programming nouns: alone they name the whole profession, not a concept of THIS repository —
+  // a vocabulary entry for "함수" teaches nobody anything. Inside a spaced phrase they still count
+  // ("핵심 파일" is a real word here): the stop check sees the full phrase, not its chunks.
+  '함수', '코드', '파일', '에러', '버그', '로그', '테스트',
   'this', 'that', 'these', 'those', 'there', 'here', 'what', 'which', 'when', 'where', 'why', 'how',
   'the', 'and', 'but', 'for', 'with', 'from', 'into', 'about', 'because', 'just', 'only', 'also', 'then',
   'does', 'doing', 'done', 'have', 'has', 'had', 'was', 'were', 'been', 'being', 'will', 'would', 'should',
@@ -1072,6 +1076,18 @@ function termCandidates(batch) {
     for (var i = 0; i < chunks.length; i++) {
       if (i <= takenTo) continue;
       for (var span = Math.min(3, chunks.length - i); span >= 1; span--) {
+        // Every chunk of a phrase except the last must be a BARE noun. A chunk still carrying its josa
+        // ("캐시를 안") is syntax passing by, not a name — real spaced concepts are noun compounds: 지연
+        // 로딩, 핵심 파일. And one hangul syllable ("이 함수", "안") is a determiner or an adverb, never
+        // half a concept. The last chunk keeps its josa here; termStrip takes it off the phrase edge.
+        if (span > 1) {
+          var bareRun = true;
+          for (var k = i; k < i + span - 1; k++) {
+            var chunk = String(chunks[k] || '').replace(/^[^0-9A-Za-z가-힣]+|[^0-9A-Za-z가-힣]+$/g, '');
+            if (termStrip(chunk) !== chunk || (/[가-힣]/.test(chunk) && chunk.length < 2)) { bareRun = false; break; }
+          }
+          if (!bareRun) continue;
+        }
         var raw = chunks.slice(i, i + span).join(' ');
         var word = termStrip(raw);
         if (!termLooksLikeConcept(word) || known[word]) continue;
