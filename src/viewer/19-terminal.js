@@ -319,6 +319,46 @@ function terminalPathLinkProvider(term) {
     } catch (e) { /* a buffer shape we don't recognise just keeps the full foreground */ }
     view.classList.toggle('is-dim', dim);
   }
+  // The half-built syllable floats one physical pixel above the line it will land on — and the TUI's own
+  // block caret behind the overlay reads as sagging below the text. Two vertical models disagree: the webgl
+  // renderer draws committed ink from a canvas 'ideographic' baseline placed charHeight below char.top,
+  // while the overlay is a DOM line box whose baseline comes from the primary font's strut. How far they
+  // disagree depends on which fallback font the composing script resolves to (measured in the running app:
+  // the whole Hangul glyph 0.5 css px / 1 retina px high at 13px/1.45). Both positions are measurable from
+  // the same engines that place the real pixels, so measure per composition and cancel the difference with
+  // a transform — the one style xterm's own reposition loop never writes, so nothing fights it.
+  // The DOM renderer keeps NO nudge: it draws committed rows with the same line-height model the overlay
+  // uses, so there the overlay is already right and the transform is cleared.
+  function alignCompositionOverlay(term) {
+    try {
+      var view = term.element && term.element.querySelector('.composition-view');
+      if (!view) return;
+      if (!term.__kakapoWebgl) { view.style.transform = ''; return; }
+      var dims = term._core && term._core._renderService && term._core._renderService.dimensions;
+      if (!dims || !dims.device || !dims.device.char) return;
+      var ctx = document.createElement('canvas').getContext('2d');
+      if (!ctx || typeof ctx.measureText !== 'function') return;
+      ctx.font = term.options.fontSize + 'px ' + term.options.fontFamily;
+      var sample = (view.textContent || '').charAt(0) || '가'; // measure the script actually being composed
+      ctx.textBaseline = 'ideographic';
+      var ideo = ctx.measureText(sample);
+      ctx.textBaseline = 'alphabetic';
+      var alpha = ctx.measureText(sample);
+      // An engine without ink metrics (old Chromium, jsdom) keeps the old behaviour rather than guessing.
+      if (!ideo || !alpha || typeof ideo.actualBoundingBoxAscent !== 'number') return;
+      view.style.transform = ''; // measure the un-nudged line box
+      var probe = document.createElement('span');
+      probe.style.cssText = 'display:inline-block;width:0;height:0;padding:0;margin:0;border:0';
+      view.appendChild(probe);
+      var overlayBaseline = probe.offsetTop; // a zero-height inline-block sits ON the line box's baseline
+      view.removeChild(probe);
+      var dpr = window.devicePixelRatio || 1;
+      var committedInkTop = (dims.device.char.top + dims.device.char.height) / dpr - ideo.actualBoundingBoxAscent;
+      var overlayInkTop = overlayBaseline - alpha.actualBoundingBoxAscent;
+      var dy = committedInkTop - overlayInkTop;
+      if (Math.abs(dy) > 0.05) view.style.transform = 'translateY(' + dy.toFixed(2) + 'px)';
+    } catch (e) { /* alignment is cosmetic — never let it break composition itself */ }
+  }
   // Whether THIS terminal has a composition in flight, read where xterm keeps it. composingPanes is close
   // but not identical: it flips on OUR listeners, which run after xterm's — the key handler below needs the
   // answer xterm's own state machine is acting on. Private reach, same rules as everything else here: a
@@ -422,19 +462,23 @@ function terminalPathLinkProvider(term) {
     var helper = core && core._compositionHelper;
     var textarea = term && term.textarea;
     if (!helper || !textarea || typeof helper.updateCompositionElements !== 'function') return;
+    // Every composition pins its OWN anchor. The pin used to be dropped only by a reposition tick that
+    // happened to run while not composing — and between two back-to-back compositions no such tick is
+    // guaranteed (measured: the next composition then inherited the previous one's cell, and macOS drew
+    // its IME UI against a stale rect). The start of a composition clears it, unconditionally.
+    helper.__kakapoPinned = null;
     if (helper.__kakapoAnchorPinned) return;
     helper.__kakapoAnchorPinned = true;
     var reposition = helper.updateCompositionElements.bind(helper);
-    var pinned = null;
     helper.updateCompositionElements = function (dontRecurse) {
       reposition(dontRecurse);
-      if (!helper._isComposing) { pinned = null; return; }
+      if (!helper._isComposing) { helper.__kakapoPinned = null; return; }
       // The first pass of a composition places the anchor; every pass after it is the drag we are here to stop.
-      if (!pinned) { pinned = { left: textarea.style.left, top: textarea.style.top }; return; }
-      if (textarea.style.left !== pinned.left || textarea.style.top !== pinned.top) {
+      if (!helper.__kakapoPinned) { helper.__kakapoPinned = { left: textarea.style.left, top: textarea.style.top }; return; }
+      if (textarea.style.left !== helper.__kakapoPinned.left || textarea.style.top !== helper.__kakapoPinned.top) {
         if (imeNow) imeNow.anchorPins++;
-        textarea.style.left = pinned.left;
-        textarea.style.top = pinned.top;
+        textarea.style.left = helper.__kakapoPinned.left;
+        textarea.style.top = helper.__kakapoPinned.top;
       }
     };
   }
@@ -609,10 +653,11 @@ function terminalPathLinkProvider(term) {
         pinCompositionAnchor(term);
         setCursorHiddenForComposition(term, true);
         matchCompositionDim(term);
+        alignCompositionOverlay(term);
         imeNow = { at: Date.now(), writes: 0, bytes: 0, fitsHeld: 0, anchorPins: 0, panes: panes.length, data: '' };
       });
       // Re-checked on update, not only at the start: the agent can repaint its composer between keystrokes.
-      term.textarea.addEventListener('compositionupdate', function () { lastInputAt = Date.now(); matchCompositionDim(term); });
+      term.textarea.addEventListener('compositionupdate', function () { lastInputAt = Date.now(); matchCompositionDim(term); alignCompositionOverlay(term); });
       // xterm commits a composition by slicing its textarea with offsets recorded while the composition ran
       // (start at compositionstart, end on a setTimeout after each update). A macOS Hangul composition runs
       // to the end of the WORD and rewrites the whole value on every keystroke, so those offsets go stale:
