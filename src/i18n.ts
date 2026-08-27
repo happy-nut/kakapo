@@ -444,6 +444,15 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "briefing.next": "Next",
     "briefing.close": "Done",
 
+    // Shortcut coach (28-shortcut-coach.js) — the top-right nudge that appears when a control with a
+    // keyboard shortcut keeps getting clicked, or when a once-used shortcut has gone unused too long.
+    "coach.observed": "You've done this with the mouse {n} times — there's a key for it",
+    "coach.rusty": "A shortcut you know has been asleep for {w} weeks",
+    "coach.nudgeCount": "reminder {n}/3",
+    "coach.gotIt": "Got it",
+    "coach.mute": "Don't show this tip again",
+    "coach.known": "You already know this one ✓",
+
     // The knowledge map (⌘⇧K). Its nodes are words the reviewer has used, never words an agent chose, so
     // the empty state says how a word gets in rather than offering a button that would add one.
     "rail.terms": "Knowledge graph",
@@ -1089,6 +1098,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "briefing.prev": "이전",
     "briefing.next": "다음",
     "briefing.close": "닫기",
+
+    // 단축키 코치 (28-shortcut-coach.js)
+    "coach.observed": "이 동작을 마우스로 {n}번 하셨어요 — 단축키가 있어요",
+    "coach.rusty": "알고 있는 단축키가 {w}주째 잠들어 있어요",
+    "coach.nudgeCount": "다시 안내 {n}/3",
+    "coach.gotIt": "알겠어요",
+    "coach.mute": "이 팁 그만 보기",
+    "coach.known": "이미 알고 계시네요 ✓",
 
     // 지식 그래프 (⌘⇧K)
     "rail.terms": "지식 그래프",
