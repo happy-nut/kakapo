@@ -446,7 +446,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Shortcut coach (28-shortcut-coach.js) — the top-right nudge that appears when a control with a
     // keyboard shortcut keeps getting clicked, or when a once-used shortcut has gone unused too long.
-    "coach.observed": "You've done this with the mouse {n} times — there's a key for it",
+    "coach.observed": "Here's a useful shortcut for you",
     "coach.rusty": "A shortcut you know has been asleep for {w} weeks",
     "coach.nudgeCount": "reminder {n}/3",
     "coach.gotIt": "Got it",
@@ -1100,7 +1100,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "briefing.close": "닫기",
 
     // 단축키 코치 (28-shortcut-coach.js)
-    "coach.observed": "이 동작을 마우스로 {n}번 하셨어요 — 단축키가 있어요",
+    "coach.observed": "유용한 단축키를 알려드릴게요",
     "coach.rusty": "알고 있는 단축키가 {w}주째 잠들어 있어요",
     "coach.nudgeCount": "다시 안내 {n}/3",
     "coach.gotIt": "알겠어요",

@@ -18,7 +18,7 @@
 //     "don't show again" is forever, and pressing the chord while its nudge is up ends it with a ✓.
 
 var COACH_KEY = 'kakapo-shortcut-coach';
-var COACH_CLICK_THRESHOLD = 5;
+var COACH_CLICK_THRESHOLD = 3;
 var COACH_RUSTY_DAYS = 21;
 var COACH_MAX_NUDGES = 3;
 var COACH_RENUDGE_MS = 3 * 24 * 60 * 60 * 1000;
@@ -121,7 +121,7 @@ function coachShow(hint, kind) {
   var obs = kind === 'rusty'
     ? t('coach.rusty').replace('{w}', String(Math.max(1, Math.round((Date.now() - entry.last) / (7 * 24 * 60 * 60 * 1000)))))
       + ' · ' + t('coach.nudgeCount').replace('{n}', String(entry.nudges + 1))
-    : t('coach.observed').replace('{n}', String(COACH_CLICK_THRESHOLD));
+    : t('coach.observed');
   coachBox.querySelector('.coach-obs').textContent = obs;
   coachBox.querySelector('.coach-keys').innerHTML = coachKeysHtml(hint);
   coachBox.querySelector('.coach-label').textContent = label;

@@ -18,16 +18,16 @@ before(async () => {
 });
 after(cleanupFixtures);
 
-test("5 clicks on a keyhint control raise the nudge; pressing the chord ends it and marks the key known", async () => {
+test("3 clicks on a keyhint control raise the nudge; pressing the chord ends it and marks the key known", async () => {
   const v = await loadViewer(html);
   const toggle = v.$("#diff-sidebar-toggle"); // data-keyhint="⌘0"
   const nudge = v.$("#coach-nudge");
   assert.ok(toggle && nudge);
 
-  for (let i = 0; i < 4; i += 1) v.click(toggle);
-  assert.ok(nudge.classList.contains("hidden"), "4 clicks stay quiet");
+  for (let i = 0; i < 2; i += 1) v.click(toggle);
+  assert.ok(nudge.classList.contains("hidden"), "2 clicks stay quiet");
   v.click(toggle);
-  assert.ok(!nudge.classList.contains("hidden"), "5th click nudges");
+  assert.ok(!nudge.classList.contains("hidden"), "3rd click nudges");
   assert.ok(!nudge.classList.contains("coach-rusty"), "behavior nudge, not the rusty styling");
   assert.equal(v.$("#coach-nudge .coach-keys").textContent, "⌘0");
 
