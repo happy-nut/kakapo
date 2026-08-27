@@ -4637,3 +4637,58 @@ body:has(#mc-briefing) .mc-brf-recall { opacity: .45; }
 .mcp-agent-name { font-weight: 620; }
 .mcp-agent-state { margin-left: auto; font-size: 11px; color: var(--chrome-muted); }
 .mcp-agent.is-on .mcp-agent-state { color: var(--active); font-weight: 620; }
+
+/* ===== Shortcut coach (28-shortcut-coach.js) — the top-right "there's a key for that" nudge. Blue edge
+   for a never-used shortcut spotted through repeated clicks; the commit-accent violet marks the rusty
+   re-introduction, matching what that hue already means elsewhere: "not new, coming back around". Sits
+   below the History overlay (z75) on purpose — a full-screen surface may cover a tip, never the reverse. */
+.coach-nudge {
+  position: fixed;
+  top: 52px;
+  right: 16px;
+  z-index: 74;
+  width: 280px;
+  padding: 11px 13px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--active);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px var(--shadow);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+  opacity: 1;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.coach-nudge.coach-rusty { border-left-color: var(--commit-accent); }
+.coach-nudge.hidden { display: none; }
+.coach-obs { color: var(--muted); font-size: 11.5px; margin-bottom: 6px; }
+.coach-act { display: flex; align-items: center; gap: 8px; }
+.coach-keys { display: inline-flex; gap: 3px; flex: none; }
+.coach-keys kbd {
+  min-width: 20px;
+  padding: 2px 6px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-bottom-color: color-mix(in srgb, var(--border) 55%, black);
+  border-radius: 5px;
+  text-align: center;
+  font: 600 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.coach-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coach-foot { display: flex; gap: 14px; margin-top: 9px; }
+.coach-foot button {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--active);
+}
+.coach-foot .coach-mute-btn { color: var(--muted); font-weight: 500; }
+.coach-foot button:hover { text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) {
+  .coach-nudge { transition: none; }
+}
