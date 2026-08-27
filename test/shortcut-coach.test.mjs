@@ -40,6 +40,7 @@ test("3 clicks on a keyhint control raise the nudge; pressing the chord ends it 
   // Known keys are never nudged again through clicks.
   for (let i = 0; i < 6; i += 1) v.click(toggle);
   assert.equal(entry.clicks, 0);
+  v.close();
 });
 
 test("a used-then-forgotten chord is re-introduced, and a spent 3/3 budget stays silent", async () => {
@@ -63,6 +64,7 @@ test("a used-then-forgotten chord is re-introduced, and a spent 3/3 budget stays
   assert.ok(nudge.classList.contains("hidden"));
   v.window.__kakapoCoach.scan();
   assert.ok(nudge.classList.contains("hidden"), "second scan in the same session stays quiet");
+  v.close();
 });
 
 test("'don't show again' mutes the chord for good", async () => {
@@ -73,4 +75,5 @@ test("'don't show again' mutes the chord for good", async () => {
   assert.equal(v.window.__kakapoCoach.ledger["⌘0"].muted, true);
   const saved = JSON.parse(v.window.localStorage.getItem(COACH_KEY));
   assert.equal(saved["⌘0"].muted, true, "the mute is persisted");
+  v.close();
 });
