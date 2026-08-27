@@ -505,3 +505,23 @@ test("opening the launcher puts the terminal away, and the rail can bring it bac
   assert.equal(toggled, 1, "and brings the terminal back through its own toggle");
   v.close();
 });
+
+// ⌘⇧E is the rail; ⌘E is Recent. Rolled fast, Shift lands after the E and the wrong one opens. The
+// dialog recognises the completing Shift (⌘ still held, right after the open) and hands over to the rail.
+test("a late-Shift ⌘⇧E closes the accidental Recent dialog and expands the rail instead", async () => {
+  const v = await loadViewer(html);
+  let expands = 0;
+  v.window.kakapoMenu = { railToggleExpand: () => { expands += 1; } };
+  v.key("e", { metaKey: true, code: "KeyE" });
+  assert.ok(v.quickOpenVisible(), "the mistyped ⌘E opened Recent");
+  v.key("Shift", { metaKey: true, code: "ShiftLeft" });
+  assert.equal(v.quickOpenVisible(), false, "the accident is closed");
+  assert.equal(expands, 1, "the rail got the chord the reviewer meant");
+
+  v.key("e", { metaKey: true, code: "KeyE" });
+  await v.settle(400);
+  v.key("Shift", { metaKey: true, code: "ShiftLeft" });
+  assert.ok(v.quickOpenVisible(), "past the roll window, ⌘+Shift over Recent means nothing");
+  assert.equal(expands, 1);
+  v.close();
+});

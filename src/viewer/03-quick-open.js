@@ -18,10 +18,13 @@ function setQuickOpenOwnsEditKeys(owns) {
 // dismiss the launcher.
 var QUICK_LAUNCHER_MODES = ['recent', 'prompts'];
 
+// When the Recent panel last opened — the late-Shift ⌘⇧E detection in handleQuickOpenKey reads it.
+var quickRecentOpenedAt = 0;
 function openQuickOpen(mode) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
   setQuickOpenOwnsEditKeys(true);
   quickMode = mode;
+  if (mode === 'recent') quickRecentOpenedAt = Date.now();
   quickModeLabel.textContent = mode === 'recent'
     ? t('quickopen.recent')
     : mode === 'prompts'
@@ -129,6 +132,17 @@ document.addEventListener('mousedown', function (event) {
 }, true);
 
 function handleQuickOpenKey(event) {
+  // A ⌘⇧E rolled too fast: Shift landed a beat after the E, so plain ⌘E fired and opened this dialog the
+  // reviewer never asked for. ⌘ still held plus Shift arriving right after the open IS the chord they
+  // meant — close the accident and hand the gesture to the rail (the ⌘⇧E menu action). The window is kept
+  // tight so a held-down E cannot repeat with Shift and toggle the rail straight back.
+  if (event.key === 'Shift' && (event.metaKey || event.ctrlKey) && quickMode === 'recent'
+    && Date.now() - quickRecentOpenedAt < 350) {
+    event.preventDefault();
+    closeQuickOpen();
+    if (window.kakapoMenu && typeof window.kakapoMenu.railToggleExpand === 'function') window.kakapoMenu.railToggleExpand();
+    return true;
+  }
   var sideItem = focusedQuickSideItem();
   if (sideItem) {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
