@@ -110,7 +110,7 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
 // so the renderer keeps the terminal panel hidden when window.kakapoPty is undefined.
 contextBridge.exposeInMainWorld("kakapoPty", {
   // `ordinal` re-attaches to a specific tmux session — see sessions() below, used to restore the panes.
-  spawn: (size: { cols: number; rows: number; ordinal?: number }): Promise<{ ok: boolean; id: number }> => ipcRenderer.invoke("kakapo:pty-spawn", size),
+  spawn: (size: { cols: number; rows: number; ordinal?: number }): Promise<{ ok: boolean; id: number; ordinal?: number }> => ipcRenderer.invoke("kakapo:pty-spawn", size),
   // Persistent terminals (Settings > Terminal): is tmux available, and can we install it for them?
   tmuxStatus: (): Promise<{ tmux: boolean; brew: boolean }> => ipcRenderer.invoke("kakapo:tmux-status"),
   installTmux: (): void => ipcRenderer.send("kakapo:tmux-install"),

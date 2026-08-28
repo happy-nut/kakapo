@@ -128,6 +128,27 @@ function terminalPathLinkProvider(term) {
   var MAX_PANES = 4;
   var heightKey = 'kakapo-terminal-height';
   var openKey = 'kakapo-terminal-open:' + location.pathname;
+  // Which panes share a cell, as tmux ordinals — `[[1],[2,3]]` is a full-height pane beside a stacked
+  // pair. The sessions survive a restart but this structure lives only in the DOM, so without writing it
+  // down every relaunch flattened 1+(½,½) into three side-by-side columns. Per workspace, like openKey.
+  var layoutKey = 'kakapo-terminal-layout:' + location.pathname;
+  function saveLayout() {
+    try {
+      var cells = [];
+      host.querySelectorAll('.terminal-cell').forEach(function (cell) {
+        var group = [];
+        cell.querySelectorAll('.terminal-pane').forEach(function (el) {
+          for (var k = 0; k < panes.length; k++) {
+            // Only tmux-backed panes are worth writing down: a plain-shell pane does not survive the
+            // restart this memory exists for.
+            if (panes[k].el === el && panes[k].ordinal) group.push(panes[k].ordinal);
+          }
+        });
+        if (group.length) cells.push(group);
+      });
+      localStorage.setItem(layoutKey, JSON.stringify(cells));
+    } catch (e) { /* a layout that fails to persist just restores side by side, as before */ }
+  }
 
   function applyHeight(px) {
     var h = Math.max(120, Math.min(px, window.innerHeight - 120));
@@ -593,7 +614,7 @@ function terminalPathLinkProvider(term) {
     // attached to 1, then created a brand-new session 2 — leaving 3 orphaned and running. The next launch saw
     // three sessions and restored three panes, one of them empty, and the count grew again every time.
     var pane = { id: null, term: term, fit: fit, el: el, host: paneHost, labelEl: labelEl,
-      restoreOrdinal: restoreOrdinal, name: 'Terminal ' + (panes.length + 1) };
+      restoreOrdinal: restoreOrdinal, ordinal: restoreOrdinal || null, name: 'Terminal ' + (panes.length + 1) };
     labelEl.textContent = pane.name;
     // From the moment the rectangle exists it is a rectangle that is waiting. The panel-wide overlay covered
     // the sliver before any pane existed (main still listing the surviving sessions); now that there is a
@@ -725,6 +746,11 @@ function terminalPathLinkProvider(term) {
         // sent, so the next fit tells it even when the grid happens to be unchanged.
         pane.sentCols = pane.sentRows = 0;
         fitPane(pane);
+        // Main is the only one who knows which tmux ordinal a fresh spawn took (a restore asked for one,
+        // but a split just takes the lowest free). It keys the saved layout, so record it and write the
+        // layout as it now stands — this covers open, split and restore alike.
+        pane.ordinal = (r && r.ordinal) || pane.ordinal;
+        saveLayout();
       });
     setActive(pane);
     return pane;
@@ -790,6 +816,7 @@ function terminalPathLinkProvider(term) {
     // every pane and coming back to the workspace.
     if (panes.length === 0) { panesReady = null; setOpen(false); }
     else scheduleFitAll();
+    saveLayout(); // the structure changed; what a restart rebuilds must change with it
   }
   // Cmd/Ctrl+W inside the terminal: close just the FOCUSED pane (kill its pty), not the whole panel. The
   // last pane closing collapses the panel via removePaneRef -> setOpen(false). Remove the pane immediately
@@ -963,8 +990,29 @@ function terminalPathLinkProvider(term) {
     return Promise.resolve(window.kakapoPty.sessions()).then(function (result) {
       var ordinals = (result && result.ordinals) || [];
       if (ordinals.length < 2) return; // one (or none) is what a plain open already does
-      ordinals.slice(0, MAX_PANES).forEach(function (ordinal) {
-        makePane(null, ordinal); // one cell each: side by side, the layout a fresh split would give
+      // Rebuild the cells the panes actually sat in (saveLayout), not one column each: a 1+(½,½) split
+      // used to come back as three side-by-side columns because only the sessions survived the restart.
+      // The saved structure is advisory — ordinals it names that are gone are dropped, survivors it
+      // never met get a cell of their own at the end, and no saved layout at all is the old behaviour.
+      var alive = ordinals.slice(0, MAX_PANES);
+      var saved = [];
+      try { saved = JSON.parse(localStorage.getItem(layoutKey) || '[]'); } catch (e) {}
+      var groups = [];
+      var placed = {};
+      (Array.isArray(saved) ? saved : []).forEach(function (group) {
+        var g = [];
+        (Array.isArray(group) ? group : []).forEach(function (o) {
+          if (alive.indexOf(o) >= 0 && !placed[o]) { placed[o] = true; g.push(o); }
+        });
+        if (g.length) groups.push(g);
+      });
+      alive.forEach(function (o) { if (!placed[o]) groups.push([o]); });
+      groups.forEach(function (group) {
+        var cell = null; // the first pane of a group opens the cell; the rest stack into it
+        group.forEach(function (ordinal) {
+          var pane = makePane(cell, ordinal);
+          if (pane) cell = pane.el.parentNode;
+        });
       });
       scheduleFitAll();
     }, function () { /* no tmux, no sessions — a plain pane is right */ });
