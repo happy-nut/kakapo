@@ -1242,6 +1242,20 @@ function terminalPathLinkProvider(term) {
         return out.join('\n');
       } catch (e) { return ''; }
     },
+    // The active pane's visible screen as plain text — the WebGL renderer leaves no DOM to read, so this is
+    // the one way devtools (and the switch-freeze harness) can ask what the pane actually shows.
+    screenText: function () {
+      var p = active || panes[0];
+      if (!p || !p.term) return '';
+      try {
+        var buffer = p.term.buffer.active, out = [];
+        for (var y = buffer.viewportY; y < buffer.viewportY + p.term.rows; y++) {
+          var line = buffer.getLine(y);
+          if (line) out.push(line.translateToString(true));
+        }
+        return out.join('\n');
+      } catch (e) { return ''; }
+    },
     open: function () { setOpen(true); },
     // Called when the app's theme family changes (see applyTheme in 01-core.js).
     retheme: applyTerminalTheme,
