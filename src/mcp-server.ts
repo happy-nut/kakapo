@@ -18,6 +18,7 @@
 // lines would be the tail wagging the dog.
 import { execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
+import { COMPUTER_TOOLS, handleComputerCall } from "./computer-use.js";
 import { mergeTerms, readTerms, termsFilePath, writeTerms, type TermRecord } from "./terms-file.js";
 
 const PROTOCOL_VERSION = "2024-11-05";
@@ -147,7 +148,7 @@ export function handleRpc(message: Json, cwd: string): Json | undefined {
       serverInfo: { name: "kakapo", version: "1" },
     });
   }
-  if (method === "tools/list") return reply({ tools: [WORDS_TOOL, KEEP_WORD_TOOL] });
+  if (method === "tools/list") return reply({ tools: [WORDS_TOOL, KEEP_WORD_TOOL, ...COMPUTER_TOOLS] });
   if (method === "tools/call") {
     const name = typeof params?.name === "string" ? params.name : "";
     const args = (params?.arguments as Json) ?? {};
@@ -158,6 +159,10 @@ export function handleRpc(message: Json, cwd: string): Json | undefined {
       const outcome = keepWord(cwd, args);
       return reply({ content: [{ type: "text", text: outcome.message }], isError: !outcome.ok });
     }
+    // Computer use (issue #41): seeing and driving the desktop through macOS's own binaries — no external
+    // app, CLI or runtime. The module answers only for its own tool names.
+    const computer = handleComputerCall(name, args);
+    if (computer) return reply({ content: [{ type: "text", text: computer.message }], isError: !computer.ok });
     return reply({ content: [{ type: "text", text: `unknown tool: ${name}` }], isError: true });
   }
   // A notification (no id) is acknowledged by saying nothing at all — answering one is a protocol error.

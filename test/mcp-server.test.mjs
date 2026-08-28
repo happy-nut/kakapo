@@ -32,8 +32,10 @@ test("the handshake lists both tools, and the rules ride in their descriptions",
   assert.equal(init.result.serverInfo.name, "kakapo");
   assert.ok(init.result.capabilities.tools, "it offers tools");
 
+  // Containment, not equality: the server has grown past the vocabulary pair (computer use, and more in
+  // flight), and this test is about the pair riding first — the exact roster belongs to each tool's own suite.
   const list = handleRpc({ jsonrpc: "2.0", id: 2, method: "tools/list" }, process.cwd());
-  assert.deepEqual(list.result.tools.map((tool) => tool.name), ["kakapo_words", "kakapo_keep_word"]);
+  assert.deepEqual(list.result.tools.map((tool) => tool.name).slice(0, 2), ["kakapo_words", "kakapo_keep_word"]);
 
   // These sentences are the whole reason a tool beats a note left in a file: they are in front of the agent
   // every turn, so they are the contract.
