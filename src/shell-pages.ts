@@ -299,6 +299,9 @@ body.rail-exp #railfoot{flex-direction:row;justify-content:space-between;padding
    download in flight: then the mark is a gauge, and a gauge earns its pixels. */
 body:not(.rail-exp) #railver{display:none}
 body:not(.rail-exp) #railver.is-updating{display:flex}
+/* …and the gauge alone: the version text next to it is what made 46px overflow, shoving half the mark out
+   of the rail while the download ran. Collapsed means no text, downloading or not. */
+body:not(.rail-exp) #railver.is-updating span:not(.kakapo-mark){display:none}
 /* Downloading a release: the mark becomes the gauge — a conic ring sweeping around it, logo greyed under it.
    No bar, no dialog, no layout: whatever you were doing keeps its pixels. Sized off --mark, never px, so it
    cannot end up drawn at some other placement's diameter and spill over the text beside it. */

@@ -54,6 +54,10 @@ test("visible product labels and wait states reuse the real Kakapo icon", async 
   // In the static export there is no rail, so the review's sidebar header keeps it there instead.
   const shellPage = readFileSync(join(root, "src", "shell-pages.ts"), "utf8");
   assert.match(shellPage, /id="railver"[^>]*>\$\{kakapoIconHtml\("kakapo-mark"\)\}/, "the rail's version is an icon plus number");
+  // Collapsed (46px) the download gauge re-shows #railver — but only the mark: with the version text along,
+  // the row overflowed the rail and shoved half the mark out of view for the whole download.
+  assert.match(shellPage, /body:not\(\.rail-exp\) #railver\.is-updating span:not\(\.kakapo-mark\)\{display:none\}/,
+    "the collapsed download gauge hides the version text beside the mark");
   const exported = (await makeReviewHtml([
     { path: "src/app.ts", before: "export const value = 1;\n", after: "export const value = 2;\n" },
   ], { app: false })).html;
