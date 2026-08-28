@@ -289,10 +289,12 @@ export function readTree(input: Record<string, unknown>, exec: Exec = realExec):
 }
 
 export function captureScreen(input: Record<string, unknown>, exec: Exec = realExec): Outcome {
-  if (process.platform !== "darwin") return { ok: false, message: "computer use is macOS-only for now" };
+  // Arguments before platform, same order as every other tool here: a bad call gets the same answer on any
+  // OS — which is also what lets the validation tests run on the Linux CI at all.
   if (input.windowId !== undefined && (typeof input.windowId !== "number" || !Number.isFinite(input.windowId))) {
     return { ok: false, message: "`windowId` must be a number from kakapo_apps" };
   }
+  if (process.platform !== "darwin") return { ok: false, message: "computer use is macOS-only for now" };
   const file = join(mkdtempSync(join(tmpdir(), "kakapo-capture-")), "screen.png");
   // -x no sound, -o no window shadow; the window id comes from CGWindowList so tmux-quoting never applies.
   const args = input.windowId !== undefined ? ["-x", "-o", "-l", String(input.windowId), file] : ["-x", file];
