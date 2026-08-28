@@ -251,10 +251,12 @@ function markBriefingSeen(seq) {
 // Told apart from an Explain note by having no `group`. That is not a guess about the text: the Explain
 // prompt requires a group on every note it writes (it is what orders the walk), and the codebase prompt asks
 // for exactly one note and never mentions groups. The newest one wins, so re-running the map replaces it.
+// "No group" is group 0 by the time it gets here — recordToComment (07-comments.js) normalizes an absent
+// group to 0, never null, so a null-check would skip every note there is.
 function codebaseMapNote() {
   var found = null;
   annotationList().forEach(function (c) {
-    if (c.group != null) return;
+    if (c.group > 0) return;
     if (!found || c.seq > found.seq) found = c;
   });
   return found;
@@ -264,6 +266,17 @@ function openBriefing() { openBriefingPanel(briefingNote(), true, false); }
 // Opened by hand from the Files panel, so it never marks the RUN's briefing as seen — that flag is what stops
 // an explanation being shown twice, and spending it on the map would swallow the next real briefing.
 function openCodebaseMap() { openBriefingPanel(codebaseMapNote(), false, true); }
+
+// Where the rendered map lives, if the codebase prompt's agent has drawn one: map.html next to the shared
+// knowledge file (kakapo_map, mcp-server.ts). Derived rather than asked for — annotationsPath IS that file's
+// sibling — so no IPC exists just to say a path. A workspace still on the legacy per-worktree comments file
+// has no shared directory to look in, and answers null.
+function codebaseMapUrl() {
+  var p = String(typeof annotationsPath === 'string' ? annotationsPath : '');
+  if (!/knowledge\.jsonl$/.test(p)) return null;
+  var file = p.replace(/knowledge\.jsonl$/, 'map.html').replace(/\\/g, '/');
+  return encodeURI('file://' + (file[0] === '/' ? '' : '/') + file).replace(/#/g, '%23');
+}
 
 function openBriefingPanel(note, markSeen, isMap) {
   if (!note) { showCaretHint(t('annotate.nav.none')); return; }
@@ -281,6 +294,21 @@ function openBriefingPanel(note, markSeen, isMap) {
   pop.setAttribute('aria-label', t('briefing.title'));
   pop.innerHTML = briefingPanelHtml();
   pop.addEventListener('click', onBriefingClick);
+  // The map panel carries the rendered diagram above the note's pages, in an iframe so its own scripts and
+  // styles stay its own. It starts collapsed: only the file itself announcing kakapoMapReady (the bridge
+  // script kakapo_map injected) opens it up, so a repository whose map has never been drawn — or a stale
+  // note whose map.html does not exist — shows exactly what it showed before, the note alone.
+  if (isMap) {
+    var mapUrl = codebaseMapUrl();
+    if (mapUrl) {
+      var frame = document.createElement('iframe');
+      frame.className = 'mc-brf-map';
+      frame.id = 'mc-briefing-map';
+      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.src = mapUrl;
+      pop.insertBefore(frame, pop.querySelector('.mc-brf-body'));
+    }
+  }
   document.body.appendChild(scrim);
   document.body.appendChild(pop);
   briefingPage = 0;
@@ -409,6 +437,25 @@ function syncBriefing() {
 
 window.addEventListener('resize', function () {
   if (document.getElementById('mc-briefing')) placeBriefing();
+});
+// The map iframe's only two words, both said with postMessage because a sandboxed frame has no other voice:
+// "I loaded" (widen the panel and show the diagram) and "the reader clicked a node" (open that file at that
+// line — and get out of the way first, same as clicking a path in the prose does).
+window.addEventListener('message', function (event) {
+  var frame = document.getElementById('mc-briefing-map');
+  var data = event.data;
+  if (!frame || !data || event.source !== frame.contentWindow) return;
+  if (data.kakapoMapReady) {
+    frame.classList.add('mc-brf-map-live');
+    var pop = document.getElementById('mc-briefing');
+    if (pop) { pop.classList.add('mc-brf-has-map'); placeBriefing(); }
+    return;
+  }
+  var nav = data.kakapoNav;
+  if (nav && typeof nav.path === 'string') {
+    closeBriefing();
+    navigateToLine(nav.path, Number(nav.line) || 1);
+  }
 });
 document.getElementById('mc-briefing-recall')?.addEventListener('click', toggleBriefing);
 briefingReady = true;

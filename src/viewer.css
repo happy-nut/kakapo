@@ -4285,6 +4285,12 @@ body.workspace-view.sidebar-collapsed .content { grid-column: 3; grid-row: 1; }
 .mc-brf-scrim { position: fixed; inset: 0; z-index: 72; background: color-mix(in srgb, #000 45%, transparent); }
 body:has(#mc-briefing) .sidebar { z-index: 73; }
 
+/* The rendered codebase map (kakapo_map), above the note's pages. Zero-height until its own bridge script
+   says it loaded — a missing map.html must leave the panel exactly as it always was. */
+.mc-brf-map { display: block; flex: none; width: 100%; height: 0; border: 0; background: transparent; }
+.mc-brf-map.mc-brf-map-live { height: 340px; border-bottom: 1px solid var(--ui-border-soft); }
+.mc-brf.mc-brf-has-map { width: min(76vw, 1000px); max-height: 780px; }
+
 .mc-brf-top { flex: none; padding: 15px 20px 14px; border-bottom: 1px solid var(--ui-border-soft); }
 .mc-brf-kicker {
   display: flex; align-items: center; gap: 8px;

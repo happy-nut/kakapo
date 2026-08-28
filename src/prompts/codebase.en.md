@@ -28,14 +28,13 @@ Never propose a word the file already has. Five at most, and domain concepts —
 
 The map has two halves and both are required.
 
-1. A Mermaid diagram of the 3-5 components this codebase is actually built out of - not every directory, the handful you cannot explain the system without. In it:
-   - each node NAMES the component and states its job in a few words, so the diagram reads on its own
-   - the edges say what flows between them and in which direction - the relationships are the point
-   - every node links to where that component lives:
-       click A "#kakapo:src/app-main.ts:1198"
-     kakapo turns those into navigation: clicking the node opens that file at that line.
+1. The diagram, drawn through the `kakapo_map` tool - NOT drawn in the note. Pick the 3-5 components this codebase is actually built out of - not every directory, the handful you cannot explain the system without. Call `kakapo_map` once with:
+   - one component per box: `label` NAMES the component and `sublabel` states its job in a few words, so the diagram reads on its own
+   - `connections` that say what flows between them and in which direction - the relationships are the point
+   - `sources` giving every component the place it lives, as `"src/app-main.ts:1198"` - kakapo turns those into navigation: clicking the node opens that file at that line.
+   The tool validates the diagram before rendering anything. If it answers with diagnostics, fix exactly what they name and call it again - the map does not exist until the call succeeds.
 
-2. Under the diagram, one short paragraph per component - three or four sentences, in the same order as the diagram. Each paragraph must carry all three of:
+2. In the note, one short paragraph per component - three or four sentences, in the same order as the diagram. Each paragraph must carry all three of:
    - what it is responsible for, and what it deliberately is NOT.
    - AN EXAMPLE. One concrete thing that actually passes through it, named. "Handles review requests" is not an example. "`kakapo:get-file` arrives carrying a file index and leaves as HTML" is. Every paragraph needs at least one real identifier, message name, path or number in it - an abstraction the reader cannot land on a case is an abstraction they will agree with and not remember.
    - A LINK ONWARD. Write file references as inline code with a line number - `src/app-review-ipc.ts:50` - and kakapo turns them into a click that jumps there. Name the seam where this component meets the next one and link it. When two components meet, both paragraphs should point at that same place from their own side, so the prose is a mesh and not a list.
