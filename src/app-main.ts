@@ -235,7 +235,14 @@ function tr(): (key: string, vars?: Record<string, string | number>) => string {
 app.setName(APP_NAME);
 if (DEV_BUILD) app.setPath("userData", join(app.getPath("userData"), "dev"));
 // Opt-in local CDP endpoint for automated verification (never on in normal runs).
-if (process.env.KAKAPO_REMOTE_DEBUG) app.commandLine.appendSwitch("remote-debugging-port", process.env.KAKAPO_REMOTE_DEBUG);
+if (process.env.KAKAPO_REMOTE_DEBUG) {
+  app.commandLine.appendSwitch("remote-debugging-port", process.env.KAKAPO_REMOTE_DEBUG);
+  // A harness-driven window is usually behind the operator's own windows, and macOS marks an occluded
+  // page `hidden` — which holds terminal output and parks rAF, so the very paths under test never run.
+  // Verification needs the page to behave as if watched; normal runs keep the occlusion savings.
+  app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+  app.commandLine.appendSwitch("disable-renderer-backgrounding");
+}
 // The lazy Markdown editor cannot reliably load from the repository's file:// review. A narrow, read-only
 // standard scheme serves only production assets copied under the historical dist/monaco directory.
 protocol.registerSchemesAsPrivileged([{

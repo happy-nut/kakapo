@@ -275,7 +275,17 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     if (!session) return;
     const tmux = resolveTmux(process.env);
     if (!tmux) return;
-    try { spawnSync(tmux, ["refresh-client", "-t", session], { timeout: 3000 }); } catch { /* session gone */ }
+    // refresh-client's -t names a CLIENT, not a session — passing the session name here failed with
+    // "can't find client" on every call, silently, so the pane a switch had reset stayed BLANK until the
+    // next byte happened to arrive. Resolve the session's attached client(s) first and refresh those.
+    try {
+      const listed = spawnSync(tmux, ["list-clients", "-F", "#{client_name} #{client_session}"], { encoding: "utf8", timeout: 3000 });
+      for (const line of String(listed.stdout ?? "").split("\n")) {
+        const space = line.indexOf(" ");
+        if (space < 0 || line.slice(space + 1).trim() !== session) continue;
+        spawnSync(tmux, ["refresh-client", "-t", line.slice(0, space)], { timeout: 3000 });
+      }
+    } catch { /* session gone */ }
   });
 
   ipc.on("kakapo:pty-kill", (event, msg: { id: number; endSession?: boolean }) => {

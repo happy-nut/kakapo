@@ -47,7 +47,13 @@ test("the refresh request reaches tmux", () => {
   const handler = terminalIpc.match(/ipc\.on\("kakapo:pty-refresh"[\s\S]*?\n  \}\);/)?.[0];
   assert.ok(handler, "main handles it");
   assert.match(handler, /termSessions\?\.get\(msg\?\.id\)/, "against that pane's own tmux session");
-  assert.match(handler, /"refresh-client", "-t", session/, "with the command that redraws a client's screen");
+  // -t names a CLIENT: the session name went here once and every call failed with "can't find client",
+  // silently — the reset pane stayed blank until the next byte arrived. The session's clients are resolved
+  // first, and each one is refreshed.
+  assert.match(handler, /"list-clients", "-F", "#\{client_name\} #\{client_session\}"/,
+    "the session's attached clients are looked up");
+  assert.match(handler, /"refresh-client", "-t", line\.slice\(0, space\)/,
+    "and the redraw goes to a client, which is what -t names");
 });
 
 // Attaching on ARRIVAL was tried and reverted: it does not make the wait smaller, it moves it onto the
