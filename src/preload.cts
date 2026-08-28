@@ -7,6 +7,27 @@ contextBridge.exposeInMainWorld("kakapoHttp", {
   send: (request: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:http-send", request),
 });
 
+// Hangul arriving from a pty as conjoining jamo (NFD) must reach xterm composed. xterm joins a zero-width
+// jamo into the cell before it only while the parser's precedingJoinState is intact, and ANY escape sequence
+// resets it — an SGR as bare as \x1b[m is enough. tmux and ink-style TUIs emit one between styled spans as a
+// matter of course, so a syllable whose jamo straddle such a span lands as ㅈ ㅗ in two cells and STAYS that
+// way (issue #34; a workspace switch only healed it because tmux repainted the whole screen). String.normalize
+// cannot see across the escape either, so first pull each conjoining-jamo run (U+1160–U+11FF, the zero-width
+// class) in front of the SGR run separating it from its syllable — the join keeps the earlier cell's
+// attributes anyway, so the move changes nothing an eye can see — then compose. Repeated until stable, so
+// ᄌ SGR ᅩ SGR ᆸ closes over both gaps. Cursor-move escapes are left alone: text must not travel across a
+// relocation. Column arithmetic survives NFC untouched — L+V is wide+zero, the syllable is wide, same cells.
+// The jamo probe keeps the hot path cheap: ASCII and NFC-Hangul chunks (the overwhelming traffic) fall
+// through on one regex test.
+const CONJOINING_JAMO = /[\u1160-\u11FF]/;
+const SGR_BEFORE_JAMO = /((?:\x1b\[[0-9;:]*m)+)([\u1160-\u11FF]+)/g;
+function composeTerminalOutput(data: string): string {
+  if (!CONJOINING_JAMO.test(data)) return data;
+  let out = data, prev;
+  do { prev = out; out = out.replace(SGR_BEFORE_JAMO, "$2$1"); } while (out !== prev);
+  return out.normalize("NFC");
+}
+
 // Lets the Review menu's Cmd/Ctrl+Shift+/ accelerator open the merged review-comments view in
 // the renderer (the key macOS would otherwise reserve for its Help search).
 contextBridge.exposeInMainWorld("kakapoMenu", {
@@ -101,6 +122,13 @@ contextBridge.exposeInMainWorld("kakapoPty", {
   },
   // Everything the app types into a shell passes through here, and it leaves as NFC.
   //
+  // The same normalisation guards the way BACK (onData below, composeTerminalOutput above): output is where
+  // issue #34's 자모 분리 actually lives, because xterm only joins a conjoining jamo into the cell before it
+  // while its precedingJoinState is intact — and ANY escape sequence resets that state. tmux and ink-style
+  // TUIs put an SGR between styled spans as a matter of course, so NFD text crossing one comes out as ㅈ ㅗ
+  // in two cells, permanently: no later repaint of those cells happens until tmux redraws the whole screen,
+  // which is why leaving the workspace and coming back "fixed" it (flushHiddenOutput resets + repaints).
+  //
   // macOS hands Hangul to the web layer DECOMPOSED: "지금 캠페인" arrives as ᄌ ᅵ ᄀ ᅳ ᄆ … , each jamo its own
   // code point. A terminal draws code points, so the agent's composer showed the reader's own sentence spelled
   // out letter by letter — the "자모 분리" that was blamed on the IME, on the caret, and on xterm's composition
@@ -131,7 +159,8 @@ contextBridge.exposeInMainWorld("kakapoPty", {
   // about, so clicking it lands on that thread instead of merely raising the window.
   bell: (msg: { title: string; body: string; seq?: number }): void => ipcRenderer.send("kakapo:bell", msg),
   onData: (cb: (msg: { id: number; data: string }) => void): void => {
-    ipcRenderer.on("kakapo:pty-data", (_event, msg: { id: number; data: string }) => cb(msg));
+    ipcRenderer.on("kakapo:pty-data", (_event, msg: { id: number; data: string }) =>
+      cb(typeof msg?.data === "string" ? { ...msg, data: composeTerminalOutput(msg.data) } : msg));
   },
   onExit: (cb: (msg: { id: number }) => void): void => {
     ipcRenderer.on("kakapo:pty-exit", (_event, msg: { id: number }) => cb(msg));
