@@ -454,7 +454,10 @@ window.addEventListener('message', function (event) {
   var nav = data.kakapoNav;
   if (nav && typeof nav.path === 'string') {
     closeBriefing();
-    navigateToLine(nav.path, Number(nav.line) || 1);
+    // openPathReference, not navigateToLine: the sources map is agent-written, so the path needs the same
+    // treatment as a path named in prose — fuzzy-resolved against the project index, and retried when that
+    // index has not lazily arrived yet (navigateToLine silently no-ops on a path the index does not have).
+    openPathReference(nav.path + ':' + (Number(nav.line) || 1));
   }
 });
 document.getElementById('mc-briefing-recall')?.addEventListener('click', toggleBriefing);

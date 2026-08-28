@@ -351,7 +351,7 @@ test("the map panel embeds map.html and routes a node click to the code", async 
   assert.ok(v.$("#mc-briefing").classList.contains("mc-brf-has-map"), "…and widens the panel around it");
 
   const opened = [];
-  w.navigateToLine = (path, line) => opened.push(path + ":" + line);
+  w.openPathReference = (ref) => opened.push(ref);
   w.dispatchEvent(new w.MessageEvent("message", { data: { kakapoNav: { path: "src/app-main.ts", line: 42 } }, source: frame.contentWindow }));
   assert.deepEqual(opened, ["src/app-main.ts:42"], "a node click opens that file at that line");
   assert.equal(v.$("#mc-briefing"), null, "and the panel gets out of the way first");
