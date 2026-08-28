@@ -325,15 +325,21 @@ function terminalPathLinkProvider(term) {
   // while the overlay is a DOM line box whose baseline comes from the primary font's strut. How far they
   // disagree depends on which fallback font the composing script resolves to (measured in the running app:
   // the whole Hangul glyph 0.5 css px / 1 retina px high at 13px/1.45). Both positions are measurable from
-  // the same engines that place the real pixels, so measure per composition and cancel the difference with
-  // a transform — the one style xterm's own reposition loop never writes, so nothing fights it.
+  // the same engines that place the real pixels, so measure per composition and cancel the difference —
+  // with padding-top when the ink must move DOWN (the measured webgl case), and a transform when it must
+  // move up. Neither style is one xterm's own reposition loop ever writes, so nothing fights it. The split
+  // matters: translateY moved the whole BOX down, opening a sliver of the cell above the overlay, and
+  // through it the agent composer's full-cell reverse-video block showed as a caret floating on top of the
+  // very glyph being composed ("이젠 캐럿이 글자 위에 뜨네"). Padding moves the ink the same distance while
+  // the box — and its opaque --terminal-bg background, which is what hides that block for the duration —
+  // stays anchored at the cell's top.
   // The DOM renderer keeps NO nudge: it draws committed rows with the same line-height model the overlay
-  // uses, so there the overlay is already right and the transform is cleared.
+  // uses, so there the overlay is already right and both styles are cleared.
   function alignCompositionOverlay(term) {
     try {
       var view = term.element && term.element.querySelector('.composition-view');
       if (!view) return;
-      if (!term.__kakapoWebgl) { view.style.transform = ''; return; }
+      if (!term.__kakapoWebgl) { view.style.transform = ''; view.style.paddingTop = ''; return; }
       var dims = term._core && term._core._renderService && term._core._renderService.dimensions;
       if (!dims || !dims.device || !dims.device.char) return;
       var ctx = document.createElement('canvas').getContext('2d');
@@ -346,7 +352,7 @@ function terminalPathLinkProvider(term) {
       var alpha = ctx.measureText(sample);
       // An engine without ink metrics (old Chromium, jsdom) keeps the old behaviour rather than guessing.
       if (!ideo || !alpha || typeof ideo.actualBoundingBoxAscent !== 'number') return;
-      view.style.transform = ''; // measure the un-nudged line box
+      view.style.transform = ''; view.style.paddingTop = ''; // measure the un-nudged line box
       var probe = document.createElement('span');
       probe.style.cssText = 'display:inline-block;width:0;height:0;padding:0;margin:0;border:0';
       view.appendChild(probe);
@@ -356,7 +362,8 @@ function terminalPathLinkProvider(term) {
       var committedInkTop = (dims.device.char.top + dims.device.char.height) / dpr - ideo.actualBoundingBoxAscent;
       var overlayInkTop = overlayBaseline - alpha.actualBoundingBoxAscent;
       var dy = committedInkTop - overlayInkTop;
-      if (Math.abs(dy) > 0.05) view.style.transform = 'translateY(' + dy.toFixed(2) + 'px)';
+      if (dy > 0.05) view.style.paddingTop = dy.toFixed(2) + 'px';
+      else if (dy < -0.05) view.style.transform = 'translateY(' + dy.toFixed(2) + 'px)';
     } catch (e) { /* alignment is cosmetic — never let it break composition itself */ }
   }
   // Whether THIS terminal has a composition in flight, read where xterm keeps it. composingPanes is close
@@ -401,9 +408,22 @@ function terminalPathLinkProvider(term) {
     if (!service || typeof service.isCursorHidden !== 'boolean') return;
     if (hidden) {
       if (term.__kakapoCursorWas === undefined) term.__kakapoCursorWas = service.isCursorHidden;
-      service.isCursorHidden = true;
+      // Hiding once is not enough for a whole composition: a TUI redraw re-shows its cursor with \x1b[?25h
+      // between any two keystrokes — an animated status line does it every frame — and that write landed
+      // straight on this flag, putting the caret back over the half-built syllable. So while the composition
+      // runs, the program's writes go to the SAVED value instead of the screen: what it last asked for is
+      // exactly what comes back at commit. configurable:true keeps it reversible; an xterm that seals the
+      // property throws here and keeps the single-shot hide (the catch).
+      try {
+        Object.defineProperty(service, 'isCursorHidden', {
+          configurable: true,
+          get: function () { return true; },
+          set: function (value) { term.__kakapoCursorWas = value; },
+        });
+      } catch (e) { service.isCursorHidden = true; }
     } else {
       if (term.__kakapoCursorWas === undefined) return;
+      try { delete service.isCursorHidden; } catch (e) {} // drop the interceptor; a plain field again
       service.isCursorHidden = term.__kakapoCursorWas;
       term.__kakapoCursorWas = undefined;
     }

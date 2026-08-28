@@ -295,6 +295,29 @@ test("the caret stands down for an IME composition and is restored to what the p
   }
 });
 
+// Hiding once was not enough: a TUI redraw re-shows its cursor with \x1b[?25h between any two keystrokes —
+// an animated status line does it every frame — and that write landed on the flag mid-composition, putting
+// the caret back over the half-built syllable ("입력하는 동안" it kept coming back). The whole composition
+// must absorb the program's writes, and the program's LAST word must be what returns at commit.
+test("a TUI re-showing its cursor mid-composition is absorbed; its last setting returns at commit", () => {
+  const fn = client.match(/function setCursorHiddenForComposition\(term, hidden\)[\s\S]*?\n  \}/)?.[0];
+  const setCursorHidden = new Function(`${fn}; return setCursorHiddenForComposition;`)();
+  const service = { isCursorHidden: false };
+  const term = { _core: { coreService: service }, buffer: { active: { cursorY: 0 } }, refresh() {} };
+  setCursorHidden(term, true);
+  assert.equal(service.isCursorHidden, true, "hidden for the composition");
+  service.isCursorHidden = false; // the TUI's \x1b[?25h, mid-composition
+  assert.equal(service.isCursorHidden, true, "…and hidden it stays, through the redraw");
+  setCursorHidden(term, false);
+  assert.equal(service.isCursorHidden, false, "the show the TUI asked for arrives at commit");
+  assert.ok(Object.getOwnPropertyDescriptor(service, "isCursorHidden").set === undefined, "the interceptor is gone");
+
+  setCursorHidden(term, true);
+  service.isCursorHidden = true; // the TUI hides its OWN caret while we compose
+  setCursorHidden(term, false);
+  assert.equal(service.isCursorHidden, true, "a TUI that hid its caret does not get one back");
+});
+
 // A prompt sent to a pane is a PASTE, not typing. Codex enables bracketed paste (DECSET 2004) and reads a
 // bare newline as Enter, so a raw multi-line write submitted the first line and typed the rest into a busy
 // composer — "선택해서 붙여넣기가 안 된다". Wrap it when the pane's app asked for the mode, and only then:
