@@ -43,7 +43,7 @@ function appTerm(view) {
 function makeView(text) {
   return {
     textContent: text,
-    style: { transform: "" },
+    style: { transform: "", paddingTop: "" },
     children: [],
     appendChild() {},
     removeChild() {},
@@ -62,7 +62,27 @@ test("the measured app metrics produce the measured nudge: overlay pushed DOWN b
   const view = makeView("갓");
   align(appTerm(view));
   // committed ink top = (7+30)/2 - 13.45 = 5.05 ; overlay ink top = 15 - 10.45 = 4.55 ; dy = +0.50
-  assert.equal(view.style.transform, "translateY(0.50px)");
+  // Down goes in as PADDING, not a transform: translateY moved the whole box and opened a sliver of the
+  // cell above the overlay, through which the composer's own full-cell block showed as a caret floating on
+  // top of the glyph. Padding moves the ink while the box (and its opaque background) stays on the cell.
+  assert.equal(view.style.paddingTop, "0.50px");
+  assert.equal(view.style.transform, "", "no transform in the downward direction");
+});
+
+test("ink that must move UP keeps the transform — padding cannot be negative", () => {
+  const ctx = {
+    textBaseline: "alphabetic",
+    set font(v) {},
+    measureText() {
+      // overlay ink top = 15 - 9.45 = 5.55 ; committed = 5.05 ; dy = -0.50
+      return { actualBoundingBoxAscent: this.textBaseline === "ideographic" ? 13.45 : 9.45 };
+    },
+  };
+  const { align } = makeAligner({ ctx, probeBaseline: 15 });
+  const view = makeView("갓");
+  align(appTerm(view));
+  assert.equal(view.style.transform, "translateY(-0.50px)");
+  assert.equal(view.style.paddingTop, "", "no padding in the upward direction");
 });
 
 test("an already-aligned overlay gets no transform, and the DOM renderer clears any leftover nudge", () => {
@@ -78,13 +98,16 @@ test("an already-aligned overlay gets no transform, and the DOM renderer clears 
   const view = makeView("갓");
   align(appTerm(view));
   assert.equal(view.style.transform, "", "sub-0.05px disagreement leaves the overlay alone");
+  assert.equal(view.style.paddingTop, "", "and no padding either");
 
   const domView = makeView("갓");
   domView.style.transform = "translateY(0.50px)";
+  domView.style.paddingTop = "0.50px";
   const term = appTerm(domView);
   term.__kakapoWebgl = null; // context lost -> DOM renderer
   align(term);
   assert.equal(domView.style.transform, "", "DOM renderer shares the overlay's model — nudge removed");
+  assert.equal(domView.style.paddingTop, "", "padding removed with it");
 });
 
 test("engines without ink metrics (jsdom-class) leave the overlay untouched instead of guessing", () => {
