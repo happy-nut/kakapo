@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Kakapo",
+    "subtitle": "Review workspace for agent diffs",
+    "output": "kakapo-rendered.html"
+  },
+  "components": [
+    {
+      "id": "viewer",
+      "type": "frontend",
+      "label": "Viewer",
+      "sublabel": "Diff window (src/viewer)",
+      "pos": [40, 200],
+      "size": [150, 64]
+    },
+    {
+      "id": "main",
+      "type": "backend",
+      "label": "Main process",
+      "sublabel": "app-main.ts",
+      "pos": [300, 200],
+      "size": [150, 64]
+    },
+    {
+      "id": "lsp",
+      "type": "backend",
+      "label": "LSP pool",
+      "sublabel": "lsp.ts",
+      "pos": [560, 90],
+      "size": [150, 64]
+    },
+    {
+      "id": "knowledge",
+      "type": "database",
+      "label": "Knowledge graph",
+      "sublabel": ".git/kakapo/*.jsonl",
+      "pos": [560, 200],
+      "size": [150, 64]
+    },
+    {
+      "id": "agent",
+      "type": "external",
+      "label": "Review agent",
+      "sublabel": "ask-session.ts",
+      "pos": [560, 310],
+      "size": [150, 64]
+    }
+  ],
+  "connections": [
+    { "id": "c1", "from": "viewer", "to": "main", "label": "IPC" },
+    { "id": "c2", "from": "main", "to": "lsp", "label": "definitions / references", "labelDy": 8 },
+    { "id": "c3", "from": "main", "to": "knowledge", "label": "terms.jsonl append" },
+    { "id": "c4", "from": "main", "to": "agent", "label": "comment threads" },
+    { "id": "c5", "from": "agent", "to": "knowledge", "label": "MCP kakapo_words" }
+  ]
+}
