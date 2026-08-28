@@ -163,7 +163,8 @@ test("reopening after a restart restores one pane per live session, by ordinal",
   assert.ok(client.includes("restoreOrdinal: restoreOrdinal")
     && client.indexOf("restoreOrdinal: restoreOrdinal") < client.indexOf("ordinal: pane.restoreOrdinal"),
     "…and sets it on the pane before spawning, not after");
-  assert.match(client, /makePane\(null, ordinal\)/, "restorePanes passes the session it is re-attaching to");
+  assert.match(client, /makePane\(cell, ordinal\)/,
+    "restorePanes passes the session it is re-attaching to (into the saved cell — see terminal-layout-restore)");
 });
 
 

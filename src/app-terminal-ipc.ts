@@ -205,6 +205,9 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     state.terms.set(id, t);
     resizeEchoUntil.set(id, Date.now() + SPAWN_ECHO_MS); // the prompt (and tmux's redraw) is not work
     if (session) state.termSessions?.set(id, session);
+    // The ordinal is what survives a restart (it names the tmux session), so it is what the renderer's
+    // pane-layout memory has to be keyed by — the pty id below is new every run. Only main knows which
+    // ordinal a fresh spawn actually took, so it rides back on the answer.
     state.commandBuffers?.set(id, "");
     // Guard every relay with isDestroyed(): a pty can outlive its window (close races pty teardown), and
     // sending to a closed window's webContents throws "Object has been destroyed".
@@ -237,7 +240,7 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
         deliver("kakapo:pty-exit", { id });
       } catch { /* teardown race — ignore */ }
     });
-    return { ok: true, id };
+    return { ok: true, id, ordinal: session ? ordinal : undefined };
   });
 
   ipc.on("kakapo:pty-write", (event, msg: { id: number; data: string }) => {
