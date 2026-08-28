@@ -868,6 +868,21 @@ function terminalPathLinkProvider(term) {
   function holdHiddenOutput(pane) {
     pane.hiddenHeld = true;
   }
+  // Whether this pane's WebGL context is actually DEAD — the question the re-show path below acts on. The
+  // addon being absent means the loss event already fired (onContextLoss nulls it); otherwise ask the
+  // context itself: isContextLost() is set by the same GPU-channel signal whether or not the DOM event ever
+  // dispatched, which is exactly the "gone but never fired its loss event" case the replace was added for.
+  // The reach into addon internals is the house style here (see takeCompositionCommit); a future addon that
+  // changes the shape makes this answer "lost", and the old replace-always behaviour is back — never a throw.
+  function paneWebglLost(term) {
+    var addon = term.__kakapoWebgl;
+    if (!addon) return true;
+    try {
+      var gl = addon._renderer && addon._renderer._gl;
+      if (!gl || typeof gl.isContextLost !== 'function') return true;
+      return gl.isContextLost();
+    } catch (e) { return true; }
+  }
   // Fit FIRST, then repaint: the resize is what tells tmux the grid it must wrap to, and a repaint asked for
   // before it would draw the old shape into the new pane.
   function flushHiddenOutput() {
@@ -878,13 +893,24 @@ function terminalPathLinkProvider(term) {
         // (closing another workspace's webContents is enough), and what a dead context shows is whatever was
         // left in that memory — another surface's diff, solid color blocks at the wrong scale. Refreshing
         // into it was tried first and was not enough: a context that is gone but never fired its loss event
-        // absorbs the redraw and keeps the garbage on screen. So the context is REPLACED, not trusted — a
-        // fresh addon draws the whole screen from the buffer on attach, sized to the pane as it is now.
-        if (pane.term.__kakapoWebgl) {
-          try { pane.term.__kakapoWebgl.dispose(); } catch (e) {}
-          pane.term.__kakapoWebgl = null;
+        // absorbs the redraw and keeps the garbage on screen. So a DEAD context is REPLACED — a fresh addon
+        // draws the whole screen from the buffer on attach, sized to the pane as it is now.
+        //
+        // Only a dead one. This used to replace the context on EVERY switch, and that unconditional replace
+        // was the workspace-switch freeze (issue: ~4s hangs after long uptime): getContext + shader compile +
+        // glyph-atlas rebuild are synchronous round-trips to the GPU process from this thread, and once the
+        // GPU process is carrying a session's worth of surfaces they run seconds, not milliseconds — the
+        // field traces show 1.5–3.6s renderer stalls starting ~25ms after every workspace-activate, always
+        // with the terminal open. A healthy context repaints correctly from the refresh below and pays none
+        // of that; the garbage-frame case the replace was for is precisely the lost-context case, so asking
+        // isContextLost() keeps that fix intact.
+        if (paneWebglLost(pane.term)) {
+          if (pane.term.__kakapoWebgl) {
+            try { pane.term.__kakapoWebgl.dispose(); } catch (e) {}
+            pane.term.__kakapoWebgl = null;
+          }
+          loadWebglRenderer(pane.term);
         }
-        loadWebglRenderer(pane.term);
         if (pane.hiddenHeld) {
           pane.hiddenHeld = false;
           try { pane.term.reset(); } catch (e) {}
@@ -1202,6 +1228,20 @@ function terminalPathLinkProvider(term) {
     // The last 30 compositions and what the terminal was doing during each. `split: true` marks one that came
     // out as jamo. Read from the review window's devtools: __kakapoTerminal.imeLog()
     imeLog: function () { return imeLog.slice(); },
+    // The active pane's visible screen as plain text — the WebGL renderer leaves no DOM to read, so this is
+    // the one way devtools (and the switch-freeze harness) can ask what the pane actually shows.
+    screenText: function () {
+      var p = active || panes[0];
+      if (!p || !p.term) return '';
+      try {
+        var buffer = p.term.buffer.active, out = [];
+        for (var y = buffer.viewportY; y < buffer.viewportY + p.term.rows; y++) {
+          var line = buffer.getLine(y);
+          if (line) out.push(line.translateToString(true));
+        }
+        return out.join('\n');
+      } catch (e) { return ''; }
+    },
     open: function () { setOpen(true); },
     // Called when the app's theme family changes (see applyTheme in 01-core.js).
     retheme: applyTerminalTheme,
