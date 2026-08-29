@@ -287,6 +287,8 @@ contextBridge.exposeInMainWorld("kakapoApp", {
   openTerminal: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:open-terminal", { path }),
   // A link clicked in the integrated terminal. Main re-checks the scheme — terminal output is untrusted.
   openExternal: (url: string): Promise<unknown> => ipcRenderer.invoke("kakapo:open-external", { url }),
+  // An image path clicked there. Main re-checks everything (viewableFilePath in app-path-ipc.ts).
+  openViewable: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:open-viewable", { path }),
   // Lets the merged-prompt dock claim Cmd+A/Cmd+C for its own whole-document select-all/copy-all while it's
   // open, instead of racing the app menu's identical native accelerators (role: "editMenu" in app-main.ts).
   setIgnoreMenuShortcuts: (ignore: boolean): void => ipcRenderer.send("kakapo:set-ignore-menu-shortcuts", { ignore }),

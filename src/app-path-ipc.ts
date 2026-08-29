@@ -32,6 +32,20 @@ export function externalUrl(requested: unknown): string | undefined {
   }
 }
 
+/**
+ * A file path from terminal output is as untrusted as a URL there, so handing one to the OS is confined
+ * twice: only extensions a viewer app renders (an .app, .sh or .command must never launch off a printed
+ * line), and only a file that actually exists. Absolute on purpose — the paths worth opening are agent
+ * screenshots in scratchpads OUTSIDE the workspace, exactly where resolveProjectPath refuses to go.
+ */
+const VIEWABLE_EXT = /\.(png|jpe?g|gif|webp|bmp|heic|pdf)$/i;
+export function viewableFilePath(requested: unknown): string | undefined {
+  if (typeof requested !== "string" || requested.length > 1024 || !isAbsolute(requested)) return;
+  if (!VIEWABLE_EXT.test(requested)) return;
+  try { return existsSync(requested) && statSync(requested).isFile() ? requested : undefined; }
+  catch { return undefined; }
+}
+
 /** Registers filesystem-adjacent actions behind one confined workspace-path policy. */
 export function registerProjectPathIpc(
   ipc: IpcMain,
@@ -66,6 +80,15 @@ export function registerProjectPathIpc(
     const url = externalUrl(request?.url);
     if (!url) return { ok: false };
     try { void shell.openExternal(url); return { ok: true }; }
+    catch (error) { return { ok: false, error: String(error) }; }
+  });
+
+  // An image an agent printed into the terminal (19-terminal.js) — screenshots land as absolute scratchpad
+  // paths. Viewer-safe extensions only; viewableFilePath above is the whole policy.
+  ipc.handle("kakapo:open-viewable", (_event, request: { path?: string }) => {
+    const path = viewableFilePath(request?.path);
+    if (!path) return { ok: false };
+    try { void shell.openPath(path); return { ok: true }; }
     catch (error) { return { ok: false, error: String(error) }; }
   });
 

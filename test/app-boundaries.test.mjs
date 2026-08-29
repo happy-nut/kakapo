@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AppPreferences } from "../dist/app-preferences.js";
-import { externalUrl, resolveProjectPath } from "../dist/app-path-ipc.js";
+import { externalUrl, resolveProjectPath, viewableFilePath } from "../dist/app-path-ipc.js";
 
 test("application preferences separate global and per-worktree state", () => {
   const base = mkdtempSync(join(tmpdir(), "kakapo-preferences-"));
@@ -131,6 +131,27 @@ test("external-link boundary opens only http(s) URLs from terminal output", () =
   assert.equal(externalUrl(""), undefined);
   assert.equal(externalUrl(null), undefined);
   assert.equal(externalUrl("https://x.test/" + "a".repeat(2048)), undefined, "an absurdly long URL is refused outright");
+});
+
+// The same untrusted-terminal rule for file paths: a click may open a file with the OS viewer only when it
+// is an absolute path to an existing file with a viewer-rendered extension — never anything executable.
+test("viewable-file boundary opens only existing image/pdf files by absolute path", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kakapo-viewable-"));
+  try {
+    const png = join(dir, "shot.png");
+    writeFileSync(png, "not-really-a-png");
+    assert.equal(viewableFilePath(png), png, "an existing image opens");
+    assert.equal(viewableFilePath(join(dir, "missing.png")), undefined, "a file that does not exist stays inert");
+    assert.equal(viewableFilePath("shot.png"), undefined, "a relative path never reaches the OS");
+    assert.equal(viewableFilePath(dir), undefined, "a directory is not a viewable file");
+    for (const name of ["run.sh", "Evil.app", "x.command", "a.html", "b.js"]) {
+      writeFileSync(join(dir, name), "");
+      assert.equal(viewableFilePath(join(dir, name)), undefined, `${name} is not viewer-safe`);
+    }
+    assert.equal(viewableFilePath(null), undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("main process is a composition root for extracted persistence and IPC adapters", () => {

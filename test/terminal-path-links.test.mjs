@@ -81,6 +81,21 @@ test("a wide-glyph line does not shift the underline off the path", async () => 
   v.close();
 });
 
+test("an image path opens in the OS viewer, even wearing a render tag and a wrap", async () => {
+  const v = await loadViewer(html);
+  const term = fakeTerm([["[image]/private/tmp/claude-501/scr", false], ["atchpad/memo-design-crop.png (31KB)", true]], 34);
+  const links = linksOn(v, term, 1);
+  assert.equal(links.length, 1, "the size tag is not a link, and the [image] tag joins nothing");
+  assert.equal(links[0].text, "/private/tmp/claude-501/scratchpad/memo-design-crop.png", "the tag is stripped, the wrap is joined");
+  assert.equal(rangeOf(links[0]), '{"start":{"x":8,"y":1},"end":{"x":28,"y":2}}', "the underline starts after the tag");
+
+  const opened = [];
+  v.window.kakapoApp = { openViewable: (path) => { opened.push(path); return Promise.resolve({ ok: true }); } };
+  links[0].activate({ button: 0 }, links[0].text);
+  assert.deepEqual([...opened], ["/private/tmp/claude-501/scratchpad/memo-design-crop.png"], "a click hands it to the viewer IPC, not the source pane");
+  v.close();
+});
+
 test("things that only look like paths are left alone", async () => {
   const v = await loadViewer(html);
   const term = fakeTerm([["ok https://example.com/a.js done 3.14 ...", false]]);
