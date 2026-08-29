@@ -770,9 +770,6 @@ function hangulFeed(state, ch) {
       // xterm ignores the key and it bubbles to the document handler. We DON'T blur — both are JS-cursor
       // nav, so they run while the terminal keeps focus.
       if (e.type === 'keydown' && e.key === 'F7' && !e.altKey) return false;
-      // Cmd+Shift+M opens this pane's session memo for editing — before the generic Cmd branch below, which
-      // would blur the terminal and swallow the key.
-      if (e.type === 'keydown' && e.metaKey && e.shiftKey && e.code === 'KeyM') { editPaneMemo(pane); return false; }
       if (e.type === 'keydown' && e.metaKey) {
         var k = (e.key || '').toLowerCase();
         // The bare modifier press (Cmd goes down BEFORE the letter on macOS) must not blur — blurring
@@ -1348,6 +1345,9 @@ function hangulFeed(state, ch) {
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalSplit === 'function') window.kakapoMenu.onTerminalSplit(split);
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalPaneFocus === 'function') window.kakapoMenu.onTerminalPaneFocus(focusPaneByDelta);
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalPaneRename === 'function') window.kakapoMenu.onTerminalPaneRename(function () { renamePane(active); });
+  // The memo arrives as a menu accelerator, not an xterm key handler: a raw Cmd+Shift+M collided with
+  // macOS's man-page service the moment the editor's select-all gave that service a selection to act on.
+  if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalPaneMemo === 'function') window.kakapoMenu.onTerminalPaneMemo(function () { editPaneMemo(active); });
   if (window.kakapoMenu && typeof window.kakapoMenu.onAgentResume === 'function') window.kakapoMenu.onAgentResume(function (command) {
     setOpen(true);
     var tries = 0, send = function () {

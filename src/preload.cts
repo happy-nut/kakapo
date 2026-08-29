@@ -70,6 +70,9 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
   onTerminalPaneRename: (cb: () => void): void => {
     ipcRenderer.on("kakapo:terminal-pane-rename", () => cb());
   },
+  onTerminalPaneMemo: (cb: () => void): void => {
+    ipcRenderer.on("kakapo:terminal-pane-memo", () => cb());
+  },
   onAgentResume: (cb: (command: string) => void): void => {
     ipcRenderer.on("kakapo:agent-resume", (_event, command: string) => cb(command));
   },
