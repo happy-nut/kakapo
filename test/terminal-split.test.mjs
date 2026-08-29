@@ -212,7 +212,7 @@ test("a re-flow waits for an in-flight IME composition instead of splitting the 
   assert.match(scheduler, /fitDeferred = true/, "and remembers the fit it owes");
   assert.match(client, /compositionend'[\s\S]{0,300}flushDeferredFit\(\)/,
     "the syllable committing runs the fit that was held back");
-  assert.match(client, /'blur'[\s\S]{0,300}flushDeferredFit\(\)/,
+  assert.match(client, /'blur'[\s\S]{0,450}flushDeferredFit\(\)/,
     "and so does losing focus mid-syllable, so a deferred fit is never dropped for good");
 });
 
@@ -435,7 +435,10 @@ test("the bell notifies for a workspace you are not looking at", () => {
 test("a Hangul composition commits whole, and exactly once", async () => {
   const src = client.match(/function takeCompositionCommit\(term, event\)[\s\S]*?\n  \}/)?.[0];
   assert.ok(src, "the composition commit takeover is still in the client");
-  const takeCommit = new Function(`${src}; return takeCompositionCommit;`)();
+  // The commit path now consults the jamo-repair hold (ime-jamo-recompose.test.mjs owns that behaviour);
+  // stub its lookups to "no pane, no jamo" so this test keeps exercising the healthy path in isolation.
+  const stubs = "var HANGUL_BARE_JAMO = /[ㄱ-ㅣ]/; function paneFor() { return null; }";
+  const takeCommit = new Function(`${stubs}; ${src}; return takeCompositionCommit;`)();
 
   const sent = [];
   const helper = { _isSendingComposition: true, _isComposing: true, _dataAlreadySent: "해" };
