@@ -51,3 +51,25 @@ test("real spaced concepts still come through, including ones containing a gener
   ]);
   assert.ok(core.includes("핵심 파일"), "'파일' is stopped alone, but '핵심 파일' is this repo's own word");
 });
+
+// The dialog once offered 그리고, 조용히, 애초, 데이터, 복잡한 안전장치 and 기존 봉 from one thread — glue
+// words, inflected modifiers, and generic nouns, three of them sharing the exact same gloss sentence.
+test("conjunctions, adverbs, modifier forms and generic nouns never become words", () => {
+  const out = words([
+    { by: "user", text: "기존 봉 데이터가 조용히 재작성돼? 그리고 복잡한 안전장치 애초에 왜 얹은 거야?" },
+    { by: "agent", text: "이게 필요한 이유는 봉인된 WFA 창의 기존 봉 데이터가 조용히 재작성되는 걸 막기 위해서예요. 그리고 이게 의도된 동작이기도 합니다. 복잡한 안전장치를 새로 얹었다기보다 이미 있는 복구 경로를 연결한 것에 가깝고, 애초에 누락이 안 나게는 이미 하고 있습니다." },
+  ]);
+  ["그리고", "애초", "데이터", "조용히", "복잡한", "복잡한 안전장치", "기존 봉", "봉인된"].forEach((bad) => {
+    assert.ok(!out.includes(bad), `'${bad}' is grammar or generic dressing, not a concept`);
+  });
+});
+
+test("one gloss sentence names at most one word — the most specific one", () => {
+  const out = words([
+    { by: "user", text: "워크트리 격리 그리고 브리핑 다 설명해줘" },
+    { by: "agent", text: "워크트리는 격리된 체크아웃이에요. 브리핑은 창을 열 때 나오는 시작 안내예요." },
+  ]);
+  assert.ok(out.includes("워크트리"), "the word the first sentence is about survives");
+  assert.ok(out.includes("브리핑"), "a word with its own sentence survives");
+  assert.ok(!out.includes("격리"), "a word that merely appears inside another word's gloss is not explained");
+});
