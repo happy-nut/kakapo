@@ -75,7 +75,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Shown while the panel waits for tmux to redraw a session that outlived the app. A spinner alone says
     // "something is happening"; this says WHAT, which is the difference between waiting and wondering.
     "terminal.connecting": "Connecting to your session…",
-    "terminal.memo.placeholder": "Note to this session — for the you who comes back",
+    "terminal.memo.placeholder": "Note to this session",
     "terminal.memo.hint": "What is this terminal doing? Click or press Cmd/Ctrl+Alt+M to note it — the note stays with the session.",
     "terminal.title": "Terminal",
     "terminal.toggle": "Toggle terminal (⌃`)",
@@ -751,7 +751,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // 메뉴가 이미 답해줬어야 할 질문을 남기기 때문이다.
     "menu.clearComments": "이 파일의 코멘트 {n}개 지우기",
     "terminal.connecting": "세션 연결 중…",
-    "terminal.memo.placeholder": "이 세션에 메모 — 돌아왔을 때의 나에게",
+    "terminal.memo.placeholder": "이 세션에 메모",
     "terminal.memo.hint": "이 터미널이 뭘 하는 중인지 적어두세요 — 클릭 또는 ⌘⌥M, 메모는 세션과 함께 남습니다.",
     "terminal.title": "터미널",
     "terminal.toggle": "터미널 토글 (⌃`)",
