@@ -44,13 +44,30 @@ test("transcript prose about shell commands above the input box does not match",
   assert.equal(screenShowsPendingWork(screen), false);
 });
 
-test("trailing blank rows of a short session do not push the footer out of reach", () => {
+// A background shell outlives the turn that launched it, so the footer tally alone must NOT read as
+// pending: an agent idle at its prompt with a leftover dev server kept its spinner forever — three idle
+// panes all showed "working" (the live capture this screen is verbatim from). Only a tally accompanied
+// by the active-turn status line counts.
+test("an idle prompt with a leftover background shell is not pending work", () => {
   const screen = [
+    "────────────────────────────────",
+    "❯ ",
+    "────────────────────────────────",
+    "  ⏵⏵ bypass permissions on · 1 shell · ← 1 agent",
+    "", "", "", "", "",
+  ].join("\n");
+  assert.equal(screenShowsPendingWork(screen), false);
+});
+
+test("mid-turn, esc-to-interrupt plus the tally still reads as pending", () => {
+  const screen = [
+    "✳ Puzzling… (2m 13s · esc to interrupt)",
+    "",
     "────────────────────────────────",
     "› ",
     "────────────────────────────────",
     "  ⏵⏵ bypass permissions on · 2 shells",
-    "", "", "", "", "",
+    "", "", "",
   ].join("\n");
   assert.equal(screenShowsPendingWork(screen), true);
 });

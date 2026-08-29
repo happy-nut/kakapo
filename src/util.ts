@@ -418,11 +418,22 @@ export function tmuxPaneCommand(tmux: string, session: string): string {
 // is full of look-alikes ("Ran 1 shell command"), and the "·" separator is required for the same reason
 // — footer tallies carry it, transcript prose does not. The idle footer's "← 1 agent" is a tab hint
 // shown on finished sessions too, and must not match.
+//
+// The tally alone is not enough. A background shell OUTLIVES the turn that launched it (a dev server, a
+// watcher left running), so an agent sitting idle at its prompt still carries "· 1 shell" in the footer —
+// and three idle panes all spun as "working" off exactly that (captured live: `❯` prompt, footer
+// "⏵⏵ bypass permissions on · 1 shell · ← 1 agent", nothing running). What separates waiting-mid-turn
+// from finished is the ACTIVE status line Claude Code draws only while a turn is open: the spinner line
+// ("✳ Brewed for 5m 21s · 1 shell still running") or its "esc to interrupt" tail. Both must show.
 // ponytail: sniffs Claude Code's footer wording; a scheduled wake-up with NO background shell shows no
 // footer tally we know of yet — add its phrasing here when observed.
 const PENDING_FOOTER = /·\s*\d+\s+(shell|bash)/;
+const ACTIVE_STATUS = /esc to interrupt|\d+\s+shells? still running/;
 export function screenShowsPendingWork(screen: string): boolean {
-  return screen.replace(/\s+$/, "").split("\n").slice(-3).some((line) => PENDING_FOOTER.test(line));
+  const lines = screen.replace(/\s+$/, "").split("\n");
+  if (!lines.slice(-3).some((line) => PENDING_FOOTER.test(line))) return false;
+  // The status line sits just above the input box; a dozen lines covers it with the box and footer.
+  return lines.slice(-12).some((line) => ACTIVE_STATUS.test(line));
 }
 
 type Killable = { kill: (signal?: string) => void };
