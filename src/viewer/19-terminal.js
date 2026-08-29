@@ -78,6 +78,69 @@ function terminalPathLinkProvider(term) {
   };
 }
 
+// ---- Hangul recomposition for commits macOS aborted mid-syllable -----------------------------------
+// The IME sometimes desyncs from a busy renderer and commits a composition EARLY, as bare compatibility
+// jamo — 저 arrives as "ㅈ" then "ㅓ", each its own commit (ime-splits.jsonl is full of exactly these).
+// The abort happens on the macOS side, so no amount of holding anchors or swallowing keydowns can prevent
+// it; what CAN be done is refusing to pass a broken syllable downstream. A commit containing bare jamo is
+// broken by definition (a healthy macOS Hangul commit is composed syllables), so its pieces are fed
+// through a standard 두벌식 automaton and handed to the pty as the syllables they were meant to be. The
+// last, still-open syllable is held briefly (HANGUL_REPAIR_FLUSH_MS) in case the next commit continues it
+// — 했 needs the ㅆ that arrives one commit later — and healthy commits pass through untouched, undelayed.
+var HANGUL_CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+var HANGUL_JUNG = 'ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ';
+var HANGUL_JONG = 'ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ';
+var HANGUL_JUNG_PAIRS = { 'ㅗㅏ': 'ㅘ', 'ㅗㅐ': 'ㅙ', 'ㅗㅣ': 'ㅚ', 'ㅜㅓ': 'ㅝ', 'ㅜㅔ': 'ㅞ', 'ㅜㅣ': 'ㅟ', 'ㅡㅣ': 'ㅢ' };
+var HANGUL_JONG_PAIRS = { 'ㄱㅅ': 'ㄳ', 'ㄴㅈ': 'ㄵ', 'ㄴㅎ': 'ㄶ', 'ㄹㄱ': 'ㄺ', 'ㄹㅁ': 'ㄻ', 'ㄹㅂ': 'ㄼ', 'ㄹㅅ': 'ㄽ', 'ㄹㅌ': 'ㄾ', 'ㄹㅍ': 'ㄿ', 'ㄹㅎ': 'ㅀ', 'ㅂㅅ': 'ㅄ' };
+var HANGUL_JONG_SPLIT = { 'ㄳ': 'ㄱㅅ', 'ㄵ': 'ㄴㅈ', 'ㄶ': 'ㄴㅎ', 'ㄺ': 'ㄹㄱ', 'ㄻ': 'ㄹㅁ', 'ㄼ': 'ㄹㅂ', 'ㄽ': 'ㄹㅅ', 'ㄾ': 'ㄹㅌ', 'ㄿ': 'ㄹㅍ', 'ㅀ': 'ㄹㅎ', 'ㅄ': 'ㅂㅅ' };
+var HANGUL_BARE_JAMO = /[ㄱ-ㅣ]/; // compatibility jamo — what an aborted commit is made of
+function hangulSyllableParts(ch) {
+  var code = ch.charCodeAt(0) - 0xac00;
+  if (code < 0 || code > 11171) return null;
+  var jong = code % 28;
+  var jung = ((code - jong) / 28) % 21;
+  var cho = Math.floor(code / (21 * 28));
+  return { cho: HANGUL_CHO[cho], jung: HANGUL_JUNG[jung], jong: jong ? HANGUL_JONG[jong - 1] : '' };
+}
+function hangulJoin(cur) {
+  if (!cur.cho && !cur.jung) return '';
+  if (!cur.jung) return cur.cho; // a consonant that never met a vowel stays what it is (ㅋㅋ…)
+  if (!cur.cho) return cur.jung;
+  var jong = cur.jong ? HANGUL_JONG.indexOf(cur.jong) + 1 : 0;
+  return String.fromCharCode(0xac00 + (HANGUL_CHO.indexOf(cur.cho) * 21 + HANGUL_JUNG.indexOf(cur.jung)) * 28 + jong);
+}
+// One character into the automaton. state = { out: closed text, cur: { cho, jung, jong } } — cur is the
+// still-open syllable a later jamo may extend, which is why it is held rather than emitted.
+function hangulFeed(state, ch) {
+  var cur = state.cur;
+  var flush = function () { state.out += hangulJoin(cur); state.cur = cur = { cho: '', jung: '', jong: '' }; };
+  var parts = hangulSyllableParts(ch);
+  if (parts) { flush(); state.cur = cur = parts; return state; } // an open syllable can still grow a 받침
+  if (!HANGUL_BARE_JAMO.test(ch)) { flush(); state.out += ch; return state; }
+  var vowel = ch >= 'ㅏ';
+  if (!vowel) {
+    if (!cur.cho && !cur.jung) cur.cho = ch;
+    else if (!cur.jung) { flush(); cur = state.cur; cur.cho = ch; } // two lone consonants never join
+    else if (!cur.jong && HANGUL_JONG.indexOf(ch) >= 0) cur.jong = ch;
+    else if (cur.jong && HANGUL_JONG_PAIRS[cur.jong + ch]) cur.jong = HANGUL_JONG_PAIRS[cur.jong + ch];
+    else { flush(); cur = state.cur; cur.cho = ch; }
+  } else {
+    if (cur.jong) {
+      // 도깨비불: the (last) trailing consonant leaves its 받침 to open the next syllable — 값+ㅏ = 갑사.
+      var split = HANGUL_JONG_SPLIT[cur.jong];
+      var carry = split ? split[1] : cur.jong;
+      cur.jong = split ? split[0] : '';
+      flush();
+      cur = state.cur;
+      cur.cho = carry;
+      cur.jung = ch;
+    } else if (cur.cho && !cur.jung) cur.jung = ch;
+    else if (cur.jung && HANGUL_JUNG_PAIRS[cur.jung + ch]) cur.jung = HANGUL_JUNG_PAIRS[cur.jung + ch];
+    else { flush(); cur = state.cur; cur.jung = ch; }
+  }
+  return state;
+}
+
 (function setupTerminal() {
   if (!window.kakapoPty) return; // xterm (window.Terminal) is loaded lazily on first open
   var panel = document.getElementById('terminal-panel');
@@ -400,6 +463,27 @@ function terminalPathLinkProvider(term) {
   // Reaching into xterm's private composition helper is deliberate: the send we need to stand down has no
   // public switch. If a future xterm changes that shape, do nothing — xterm keeps its own commit, which is
   // wrong for Hangul but is never a doubled keystroke, and doubling is the worse failure to ship.
+  // How long the repair holds the still-open syllable of a broken commit for the next commit to extend.
+  // Long enough to bridge ordinary inter-keystroke gaps, short enough that a deliberately typed lone jamo
+  // (ㅋㅋ…) is not noticeably late — and only ever paid while the IME is actually committing bare jamo.
+  var HANGUL_REPAIR_FLUSH_MS = 500;
+  function paneFor(term) {
+    for (var k = 0; k < panes.length; k++) if (panes[k].term === term) return panes[k];
+    return null;
+  }
+  // Repair emissions go straight to the pty, not through triggerDataEvent: the onData wrapper below flushes
+  // the hold before it forwards ordinary input, and routing the flush through xterm again would recurse.
+  function emitRepaired(pane, text) {
+    if (!text) return;
+    lastInputAt = Date.now();
+    if (pane.id != null) window.kakapoPty.write({ id: pane.id, data: text });
+  }
+  function flushHangulRepair(pane) {
+    if (pane.__hangulTimer) { clearTimeout(pane.__hangulTimer); pane.__hangulTimer = 0; }
+    var state = pane.__hangul;
+    pane.__hangul = null;
+    if (state) emitRepaired(pane, state.out + hangulJoin(state.cur));
+  }
   function takeCompositionCommit(term, event) {
     var core = term && term._core;
     var helper = core && core._compositionHelper;
@@ -409,7 +493,28 @@ function terminalPathLinkProvider(term) {
     helper._isSendingComposition = false; // the send xterm queued for the next tick finds this false and stands down
     helper._isComposing = false;
     helper._dataAlreadySent = '';
-    if (event && event.data) service.triggerDataEvent(event.data, true);
+    if (event && event.data) {
+      // A commit carrying bare jamo is a composition macOS aborted (a healthy Hangul commit is composed
+      // syllables); reassemble it — and everything the burst commits after it — through the automaton.
+      // The still-open syllable is held for the next commit; the closed part leaves immediately.
+      var pane = paneFor(term);
+      if (pane && (pane.__hangul || HANGUL_BARE_JAMO.test(event.data))) {
+        if (pane.__hangulTimer) { clearTimeout(pane.__hangulTimer); pane.__hangulTimer = 0; }
+        var state = pane.__hangul || { out: '', cur: { cho: '', jung: '', jong: '' } };
+        for (var i = 0; i < event.data.length; i++) hangulFeed(state, event.data[i]);
+        emitRepaired(pane, state.out);
+        state.out = '';
+        if (state.cur.cho || state.cur.jung) {
+          pane.__hangul = state;
+          pane.__hangulTimer = setTimeout(function () { pane.__hangulTimer = 0; flushHangulRepair(pane); }, HANGUL_REPAIR_FLUSH_MS);
+          if (imeNow) imeNow.repaired = true;
+        } else {
+          pane.__hangul = null;
+        }
+      } else {
+        service.triggerDataEvent(event.data, true);
+      }
+    }
     // The textarea is xterm's to manage (it clears on blur, Enter and Ctrl+C). Clearing it here as well
     // bought nothing measurable and raced the next composition: type quickly enough and the deferred clear
     // landed after the following composition had already begun, wiping a value only it still held.
@@ -680,7 +785,13 @@ function terminalPathLinkProvider(term) {
       }
       return true;
     });
-    term.onData(function (d) { lastInputAt = Date.now(); if (pane.id != null) window.kakapoPty.write({ id: pane.id, data: d }); });
+    term.onData(function (d) {
+      lastInputAt = Date.now();
+      // Anything typed while a repaired syllable is still held (Enter, punctuation, a Latin keystroke)
+      // must land AFTER it — flush the hold first so the pty sees the same order the user typed.
+      if (pane.__hangul) flushHangulRepair(pane);
+      if (pane.id != null) window.kakapoPty.write({ id: pane.id, data: d });
+    });
     // onData fires only on COMMITTED input, so under an IME it stays silent for the whole time a syllable is
     // being assembled — several keystrokes during which nothing marked the terminal busy. Watch the helper
     // textarea directly: keydown covers composing keystrokes, and composing/composed brackets the window in
@@ -719,6 +830,7 @@ function terminalPathLinkProvider(term) {
       term.textarea.addEventListener('blur', function () {
         composingPanes.delete(pane);
         setCursorHiddenForComposition(term, false); // abandoned mid-syllable — the caret is owed back
+        if (pane.__hangul) flushHangulRepair(pane); // focus is leaving; a held syllable must not outwait it
         if (imeNow) noteCompositionEnd(null);
         flushDeferredFit();
       });
@@ -1207,6 +1319,7 @@ function terminalPathLinkProvider(term) {
   // the reviewer is on their way to the terminal anyway.
   function writeToPane(p, text, keepFocus) {
     if (!p) return;
+    if (p.__hangul) flushHangulRepair(p); // a staged prompt lands after whatever the user was mid-typing
     setOpen(true);
     // Send it as a PASTE, not as typing, whenever the app in the pane asked for bracketed paste (DECSET 2004
     // — Codex, Claude Code, vim, a modern shell). Raw text makes every newline an Enter: Codex submitted the
