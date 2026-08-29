@@ -321,3 +321,43 @@ test("the briefing note is not also an inline comment card", async () => {
   assert.ok(v.$("#mc-briefing"), "⌘⇧B is still the way back to it");
   v.close();
 });
+
+// The codebase map's rendered diagram (kakapo_map, mcp-server.ts) arrives as map.html next to the shared
+// knowledge file, and the panel embeds it in a sandboxed iframe. The iframe has exactly two words, both
+// postMessage: "I loaded" opens the collapsed frame, and "a node was clicked" becomes navigateToLine.
+test("the map panel embeds map.html and routes a node click to the code", async () => {
+  const { html } = await makeReviewHtml(FILES);
+  const v = await loadViewer(html);
+  const w = v.window;
+
+  w.annotationsPath = "/repo/.git/kakapo/knowledge.jsonl";
+  assert.equal(w.codebaseMapUrl(), "file:///repo/.git/kakapo/map.html", "map.html is the knowledge file's sibling");
+
+  v.agentSays({ kind: "note", path: "src/a.ts", line: 1, title: "the map", text: "One paragraph per component." });
+  await v.settle(30);
+  w.openCodebaseMap();
+
+  const frame = v.$("#mc-briefing-map");
+  assert.ok(frame, "the map panel carries the iframe");
+  assert.equal(frame.getAttribute("sandbox"), "allow-scripts", "…sandboxed: the map runs scripts and nothing else");
+  assert.ok(!v.$("#mc-briefing").classList.contains("mc-brf-has-map"), "and stays collapsed until the file itself speaks");
+
+  // A message from anywhere else is not the map speaking.
+  w.dispatchEvent(new w.MessageEvent("message", { data: { kakapoMapReady: true }, source: w }));
+  assert.ok(!v.$("#mc-briefing").classList.contains("mc-brf-has-map"), "a stranger's ready ping opens nothing");
+
+  w.dispatchEvent(new w.MessageEvent("message", { data: { kakapoMapReady: true }, source: frame.contentWindow }));
+  assert.ok(frame.classList.contains("mc-brf-map-live"), "the map's own ready ping shows the diagram");
+  assert.ok(v.$("#mc-briefing").classList.contains("mc-brf-has-map"), "…and widens the panel around it");
+
+  const opened = [];
+  w.openPathReference = (ref) => opened.push(ref);
+  w.dispatchEvent(new w.MessageEvent("message", { data: { kakapoNav: { path: "src/app-main.ts", line: 42 } }, source: frame.contentWindow }));
+  assert.deepEqual(opened, ["src/app-main.ts:42"], "a node click opens that file at that line");
+  assert.equal(v.$("#mc-briefing"), null, "and the panel gets out of the way first");
+
+  // A workspace still on the legacy per-worktree comments file has no shared directory to look in.
+  w.annotationsPath = "/repo/.git/kakapo/comments.jsonl";
+  assert.equal(w.codebaseMapUrl(), null, "no shared knowledge file, no map");
+  v.close();
+});

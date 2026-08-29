@@ -16,9 +16,14 @@
 // It speaks JSON-RPC over stdio (the MCP stdio transport) directly rather than through the SDK: initialize,
 // tools/list, tools/call and notifications are about eighty lines, and a dependency that large for eighty
 // lines would be the tail wagging the dog.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 import { COMPUTER_TOOLS, handleComputerCall } from "./computer-use.js";
+import { kakapoSharedDataFile } from "./git.js";
 import { mergeTerms, readTerms, termsFilePath, writeTerms, type TermRecord } from "./terms-file.js";
 
 const PROTOCOL_VERSION = "2024-11-05";
@@ -84,6 +89,110 @@ export const WORDS_TOOL = {
   inputSchema: { type: "object", properties: {} },
 } as const;
 
+export const MAP_TOOL = {
+  name: "kakapo_map",
+  description:
+    "Render the codebase map for this repository from an archify architecture IR, and place it where kakapo " +
+    "shows it to the reviewer. Call this INSTEAD of drawing a diagram in text: the IR is validated (schema and " +
+    "layout) before anything is rendered, and a failure comes back as diagnostics with concrete fixes — repair " +
+    "the IR and call again until it passes.\n\n" +
+    "`ir` is archify architecture JSON: schema_version 1, diagram_type \"architecture\", components " +
+    "[{id,type,label,sublabel,pos:[x,y],size:[w,h]}] with type one of frontend|backend|database|cloud|security|" +
+    "messagebus|external, and connections [{id,from,to,label}]. Lay components out left to right in reading " +
+    "order (pos is in pixels; 150×64 boxes with ~110px gaps work well). Do NOT use meta.repository or " +
+    "component sources — code locations go in `sources`.\n\n" +
+    "`sources` maps each component id to the repo-relative \"path:line\" where that component lives; clicking " +
+    "the node in kakapo opens that file at that line. Every component must have an entry.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      ir: { type: "object", description: "The archify architecture IR, as a JSON object." },
+      sources: {
+        type: "object",
+        description: 'Component id -> repo-relative "path:line", one entry per component.',
+        additionalProperties: { type: "string" },
+      },
+    },
+    required: ["ir", "sources"],
+  },
+} as const;
+
+// The map is an artifact of the repository, not of one worktree — it lands next to knowledge.jsonl and
+// terms.jsonl in the shared kakapo directory, where every worktree's briefing panel looks for it.
+export function mapFilePath(root: string): string | undefined {
+  return kakapoSharedDataFile(root, "map.html");
+}
+
+// The rendered page runs inside an iframe in the briefing panel. This script is the whole bridge: a ready
+// ping so the panel knows the file is alive, and a capture-phase click listener that turns a node click into
+// a postMessage the panel routes to navigateToLine. Capture-phase so archify's own focus handlers cannot
+// swallow the click first.
+function mapBridgeScript(sources: Record<string, string>): string {
+  return (
+    "\n<script>\n" +
+    `const KAKAPO_MAP_SOURCES = ${JSON.stringify(sources)};\n` +
+    'window.parent.postMessage({ kakapoMapReady: true }, "*");\n' +
+    "document.addEventListener(\"click\", (e) => {\n" +
+    "  const node = e.target.closest(\"[data-node-id]\");\n" +
+    "  if (!node) return;\n" +
+    "  const loc = KAKAPO_MAP_SOURCES[node.getAttribute(\"data-node-id\")];\n" +
+    "  if (!loc) return;\n" +
+    "  const i = loc.lastIndexOf(\":\");\n" +
+    '  window.parent.postMessage({ kakapoNav: { path: loc.slice(0, i), line: Number(loc.slice(i + 1)) || 1 } }, "*");\n' +
+    "}, true);\n" +
+    "</script>\n"
+  );
+}
+
+const ARCHIFY_BIN = join(fileURLToPath(new URL("..", import.meta.url)), "vendor", "archify", "bin", "archify.mjs");
+
+export function renderMap(cwd: string, input: Json): { ok: boolean; message: string } {
+  const root = repoRootFrom(cwd);
+  const mapFile = root ? mapFilePath(root) : undefined;
+  if (!mapFile) return { ok: false, message: "not inside a git repository, so there is nowhere to put the map" };
+  const ir = input.ir;
+  if (!ir || typeof ir !== "object" || Array.isArray(ir)) return { ok: false, message: "`ir` must be the architecture IR as a JSON object" };
+  const sources: Record<string, string> = {};
+  if (input.sources && typeof input.sources === "object" && !Array.isArray(input.sources)) {
+    for (const [id, at] of Object.entries(input.sources as Record<string, unknown>)) {
+      if (typeof at === "string" && /^[^:]+.*:\d+$/.test(at.trim())) sources[id] = at.trim();
+    }
+  }
+  const ids = Array.isArray((ir as { components?: unknown }).components)
+    ? ((ir as { components: { id?: unknown }[] }).components.map((c) => c?.id).filter((id): id is string => typeof id === "string"))
+    : [];
+  const missing = ids.filter((id) => !sources[id]);
+  if (missing.length) {
+    return { ok: false, message: `every component needs a "path:line" entry in \`sources\` — missing: ${missing.join(", ")}` };
+  }
+
+  const dir = mkdtempSync(join(tmpdir(), "kakapo-map-"));
+  try {
+    const irFile = join(dir, "map.architecture.json");
+    const outFile = join(dir, "map.html");
+    writeFileSync(irFile, JSON.stringify(ir));
+    const result = spawnSync(process.execPath, [ARCHIFY_BIN, "render", "architecture", irFile, outFile], {
+      encoding: "utf8",
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      timeout: 30_000,
+    });
+    if (result.status !== 0) {
+      // The diagnostics ARE the repair loop — pass them through whole, minus the stack frames underneath.
+      const diagnostics = `${result.stderr || ""}\n${result.stdout || ""}`
+        .split("\n")
+        .filter((line) => line.trim() && !/^\s+at /.test(line) && !line.startsWith("Node.js v"))
+        .join("\n");
+      return { ok: false, message: `the IR did not validate — fix and call kakapo_map again:\n${diagnostics}` };
+    }
+    const html = readFileSync(outFile, "utf8");
+    mkdirSync(dirname(mapFile), { recursive: true });
+    writeFileSync(mapFile, html.replace("</body>", `${mapBridgeScript(sources)}</body>`));
+    return { ok: true, message: "map rendered — the reviewer will see it in kakapo's codebase map panel" };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 type Json = Record<string, unknown>;
 
 function termsFileFor(cwd: string): string | undefined {
@@ -148,7 +257,7 @@ export function handleRpc(message: Json, cwd: string): Json | undefined {
       serverInfo: { name: "kakapo", version: "1" },
     });
   }
-  if (method === "tools/list") return reply({ tools: [WORDS_TOOL, KEEP_WORD_TOOL, ...COMPUTER_TOOLS] });
+  if (method === "tools/list") return reply({ tools: [WORDS_TOOL, KEEP_WORD_TOOL, MAP_TOOL, ...COMPUTER_TOOLS] });
   if (method === "tools/call") {
     const name = typeof params?.name === "string" ? params.name : "";
     const args = (params?.arguments as Json) ?? {};
@@ -157,6 +266,10 @@ export function handleRpc(message: Json, cwd: string): Json | undefined {
     }
     if (name === KEEP_WORD_TOOL.name) {
       const outcome = keepWord(cwd, args);
+      return reply({ content: [{ type: "text", text: outcome.message }], isError: !outcome.ok });
+    }
+    if (name === MAP_TOOL.name) {
+      const outcome = renderMap(cwd, args);
       return reply({ content: [{ type: "text", text: outcome.message }], isError: !outcome.ok });
     }
     // Computer use (issue #41): seeing and driving the desktop through macOS's own binaries — no external

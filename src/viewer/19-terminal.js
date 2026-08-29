@@ -307,6 +307,7 @@ function hangulFeed(state, ch) {
     if (p) requestAnimationFrame(function () {
       try {
         if (p.labelEl && p.labelEl.getAttribute('contenteditable') === 'true') return;
+        if (p.memoEl && p.memoEl.getAttribute('contenteditable') === 'true') return;
         p.term.focus();
       } catch (e) {}
     });
@@ -692,9 +693,17 @@ function hangulFeed(state, ch) {
     el.className = 'terminal-pane';
     var labelEl = document.createElement('div');
     labelEl.className = 'terminal-pane-label';
+    // The session memo, beside the name: the one line that answers "what was this terminal doing" when the
+    // session comes back after a restart (it is keyed to the tmux session, not to this pane — main holds it).
+    var memoEl = document.createElement('div');
+    memoEl.className = 'terminal-pane-memo';
+    var headEl = document.createElement('div');
+    headEl.className = 'terminal-pane-head';
+    headEl.appendChild(labelEl);
+    headEl.appendChild(memoEl);
     var paneHost = document.createElement('div');
     paneHost.className = 'terminal-pane-host';
-    el.appendChild(labelEl);
+    el.appendChild(headEl);
     el.appendChild(paneHost);
     (cell || makeCell()).appendChild(el);
     var term = new window.Terminal({
@@ -718,9 +727,11 @@ function hangulFeed(state, ch) {
     // the lowest FREE one instead. With sessions 1 and 3 alive (any pane but the last closed), the restore
     // attached to 1, then created a brand-new session 2 — leaving 3 orphaned and running. The next launch saw
     // three sessions and restored three panes, one of them empty, and the count grew again every time.
-    var pane = { id: null, term: term, fit: fit, el: el, host: paneHost, labelEl: labelEl,
-      restoreOrdinal: restoreOrdinal, ordinal: restoreOrdinal || null, name: 'Terminal ' + (panes.length + 1) };
+    var pane = { id: null, term: term, fit: fit, el: el, host: paneHost, labelEl: labelEl, memoEl: memoEl,
+      restoreOrdinal: restoreOrdinal, ordinal: restoreOrdinal || null, name: 'Terminal ' + (panes.length + 1), memo: '' };
     labelEl.textContent = pane.name;
+    setPaneMemo(pane, '');
+    memoEl.addEventListener('click', function () { editPaneMemo(pane); });
     // From the moment the rectangle exists it is a rectangle that is waiting. The panel-wide overlay covered
     // the sliver before any pane existed (main still listing the surviving sessions); now that there is a
     // pane to draw on, it hands over rather than sitting behind this one.
@@ -759,6 +770,9 @@ function hangulFeed(state, ch) {
       // xterm ignores the key and it bubbles to the document handler. We DON'T blur — both are JS-cursor
       // nav, so they run while the terminal keeps focus.
       if (e.type === 'keydown' && e.key === 'F7' && !e.altKey) return false;
+      // Cmd+Shift+M opens this pane's session memo for editing — before the generic Cmd branch below, which
+      // would blur the terminal and swallow the key.
+      if (e.type === 'keydown' && e.metaKey && e.shiftKey && e.code === 'KeyM') { editPaneMemo(pane); return false; }
       if (e.type === 'keydown' && e.metaKey) {
         var k = (e.key || '').toLowerCase();
         // The bare modifier press (Cmd goes down BEFORE the letter on macOS) must not blur — blurring
@@ -863,9 +877,68 @@ function hangulFeed(state, ch) {
         // layout as it now stands — this covers open, split and restore alike.
         pane.ordinal = (r && r.ordinal) || pane.ordinal;
         saveLayout();
+        // The session this pane attached to may already carry a memo from a previous run — the whole point.
+        if (pane.id != null && typeof window.kakapoPty.memo === 'function') {
+          Promise.resolve(window.kakapoPty.memo({ id: pane.id })).then(function (result) {
+            if (result && result.text) setPaneMemo(pane, result.text);
+          }, function () { /* no memo is a normal answer */ });
+        }
       });
     setActive(pane);
     return pane;
+  }
+  // Paint a pane's session memo: the memo itself, or a localized ghost inviting one. The ghost is the whole
+  // affordance — a memo feature with no visible handle is a shortcut only its author knows.
+  function setPaneMemo(pane, text) {
+    pane.memo = (text || '').trim();
+    pane.memoEl.classList.toggle('is-ghost', !pane.memo);
+    pane.memoEl.textContent = pane.memo || t('terminal.memo.placeholder');
+    pane.memoEl.title = t('terminal.memo.hint');
+  }
+  // Edit it in place, the same shape as renamePane below: contenteditable, Enter commits, Esc reverts,
+  // blur commits — and the keyboard goes straight back to the pty either way. Enter is judged only after
+  // the IME is done with it (isComposing), or committing would cut a Hangul syllable in half.
+  function editPaneMemo(pane) {
+    if (!pane) pane = active;
+    if (!pane || sendModeText != null) return;
+    var el = pane.memoEl;
+    if (el.getAttribute('contenteditable') === 'true') return;
+    setActive(pane);
+    el.classList.remove('is-ghost');
+    el.textContent = pane.memo; // never edit the placeholder as if it were content
+    el.contentEditable = 'true';
+    var tries = 0;
+    var focusMemo = function () {
+      if (el.getAttribute('contenteditable') !== 'true') return true; // finished/cancelled meanwhile
+      try { el.focus(); } catch (e) {}
+      if (document.activeElement !== el) return false;
+      try { var range = document.createRange(); range.selectNodeContents(el); var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range); } catch (e) {}
+      return true;
+    };
+    if (!focusMemo()) { var iv = setInterval(function () { if (focusMemo() || ++tries > 12) clearInterval(iv); }, 25); }
+    function finish(commit) {
+      el.removeEventListener('keydown', onKey);
+      el.removeEventListener('blur', onBlur);
+      el.contentEditable = 'false';
+      if (commit) {
+        setPaneMemo(pane, el.textContent || '');
+        if (pane.id != null && typeof window.kakapoPty.memoSet === 'function') {
+          try { window.kakapoPty.memoSet({ id: pane.id, text: pane.memo }); } catch (e) {}
+        }
+      } else {
+        setPaneMemo(pane, pane.memo);
+      }
+      try { if (pane.term) pane.term.focus(); } catch (e) {}
+    }
+    function onKey(e) {
+      e.stopPropagation();
+      if (e.isComposing) return;
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    }
+    function onBlur() { finish(true); }
+    el.addEventListener('keydown', onKey);
+    el.addEventListener('blur', onBlur);
   }
   // Rename a pane inline: the label becomes editable, Enter commits, Esc/blur reverts to the last name.
   function renamePane(pane) {
