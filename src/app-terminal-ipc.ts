@@ -6,6 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { sanitizeTerminalEnv, ensureUtf8Locale, resolveBin, tmuxSessionName, tmuxSessionsForRoot, unreachableSessions, unreachableTranscripts, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper, endTmuxSession, tmuxPaneCommand } from "./util.js";
+import { readTerminalMemos, sweepTerminalMemos, writeTerminalMemo } from "./terminal-memos.js";
 import { resumeCommandForInput } from "./agent-resume.js";
 import { claudeProjectsDir } from "./ask-session.js";
 import { MANAGED_CONTAINER, managedWorkspacePaths } from "./workspaces.js";
@@ -64,6 +65,15 @@ type TerminalStateResolver = (event: TerminalEvent) => TerminalIpcState | undefi
 
 let nextPtyId = 0; // global so pty ids never collide across windows; each window holds only its own in state.terms
 
+// pty id -> the session-memo key its pane reads and writes (terminal-memos.ts). The key is the tmux session
+// NAME even when tmux is absent and no session exists: it is a pure function of root+ordinal, so a memo left
+// without tmux still lands somewhere stable enough for this app run. Keyed by the globally unique pty id, so
+// one map serves every window; entries drop when the pty exits.
+const ptyMemoKeys = new Map<number, string>();
+function terminalMemoFile(): string {
+  return join(app.getPath("userData"), "terminal-memos.json");
+}
+
 // pty id -> the moment its post-resize echo stops counting as agent activity (see kakapo:pty-resize). Keyed by
 // the globally unique pty id, so one map serves every window; entries are dropped when the pty exits.
 const resizeEchoUntil = new Map<number, number>();
@@ -106,6 +116,7 @@ export function reapUnreachableTerminals(knownRoots: Iterable<string>): string[]
   for (const session of doomed) {
     try { spawnSync(tmux, ["kill-session", "-t", session]); } catch { /* already gone */ }
   }
+  try { sweepTerminalMemos(terminalMemoFile(), doomed); } catch { /* a memo outliving its session is clutter, not a failure */ }
   return doomed;
 }
 
@@ -143,12 +154,14 @@ export function killWorkspaceTerminals(state: TerminalIpcState): void {
       const list = spawnSync(tmux, ["list-sessions", "-F", "#{session_name}"], { encoding: "utf8" });
       listed = String(list.stdout ?? ""); // no server running -> non-zero exit, empty stdout, nothing to kill
     } catch { /* tmux unusable — the ptys below still go */ }
-    for (const session of tmuxSessionsForRoot(state.options.root, listed)) {
+    const doomed = tmuxSessionsForRoot(state.options.root, listed);
+    for (const session of doomed) {
       try { spawnSync(tmux, ["kill-session", "-t", session]); } catch { /* already gone */ }
     }
+    try { sweepTerminalMemos(terminalMemoFile(), doomed); } catch { /* clutter, not a failure */ }
   }
   state.termSessions?.clear();
-  for (const [id, term] of state.terms) { ptyReaper.kill(term); state.terms.delete(id); }
+  for (const [id, term] of state.terms) { ptyReaper.kill(term); state.terms.delete(id); ptyMemoKeys.delete(id); }
   state.commandBuffers?.clear();
 }
 
@@ -188,6 +201,7 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
       ? Number(size?.ordinal)
       : nextTerminalOrdinal(sessionOrdinals(state));
     const session = tmux ? tmuxSessionName(state.options.root, ordinal) : undefined;
+    ptyMemoKeys.set(id, tmuxSessionName(state.options.root, ordinal));
     const t = spawnPty(tmux ?? shell, session ? tmuxSpawnArgs(session, state.options.root, answersEnv) : [], {
       // 256-color terminfo + COLORTERM=truecolor so TUIs (e.g. Claude Code's coral logo) emit 24-bit color and
       // xterm.js renders the exact hue. "xterm-color" is 8-color, which downgraded the orange logo to ANSI red.
@@ -236,6 +250,7 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
         state.terms.delete(id);
         state.commandBuffers?.delete(id);
         resizeEchoUntil.delete(id);
+        ptyMemoKeys.delete(id); // the pty is gone; the memo itself stays for the session to come back to
         state.onAgentFinished?.();
         deliver("kakapo:pty-exit", { id });
       } catch { /* teardown race — ignore */ }
@@ -303,9 +318,28 @@ export function registerTerminalIpc(ipc: IpcMain, stateFromEvent: TerminalStateR
     // out silently.
     const tmux = msg?.endSession && session ? resolveTmux(process.env) : undefined;
     if (tmux && session) endTmuxSession(tmux, session);
+    // ⌘W is a decision about the terminal, and the memo was ABOUT that terminal — it goes too. Detaching
+    // (quit, window close) never lands here, so a memo on a surviving session survives with it.
+    if (msg?.endSession) {
+      const key = ptyMemoKeys.get(msg.id);
+      if (key) { try { sweepTerminalMemos(terminalMemoFile(), [key]); } catch { /* clutter, not a failure */ } }
+    }
+    ptyMemoKeys.delete(msg?.id);
     state?.termSessions?.delete(msg?.id);
     if (t) { ptyReaper.kill(t); state!.terms.delete(msg.id); }
     state?.commandBuffers?.delete(msg.id);
+  });
+
+  // The pane-head memo (terminal-memos.ts): one line per session, read when a pane attaches and written when
+  // the reviewer commits an edit. Keyed main-side from the pty id — the renderer never learns session names.
+  ipc.handle("kakapo:term-memo", (_event, msg: { id?: number }) => {
+    const key = typeof msg?.id === "number" ? ptyMemoKeys.get(msg.id) : undefined;
+    return { text: (key && readTerminalMemos(terminalMemoFile())[key]) || "" };
+  });
+  ipc.on("kakapo:term-memo-set", (_event, msg: { id?: number; text?: string }) => {
+    const key = typeof msg?.id === "number" ? ptyMemoKeys.get(msg.id) : undefined;
+    if (!key) return;
+    try { writeTerminalMemo(terminalMemoFile(), key, String(msg?.text ?? "")); } catch { /* disk said no — the pane still shows what was typed */ }
   });
 
   // Whether a pane is running a foreground process (an agent/command) rather than sitting idle at the shell
