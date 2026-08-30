@@ -404,18 +404,19 @@ test("F8 steps to an agent note, not only to the reviewer's own comments", async
 });
 
 
-// The codebase prompt writes the SAME notes file the diff prompt does — its map and its per-component notes
-// are ordinary notes on the code, navigable with F8 and answerable like any other card. What differs is what
-// the agent is asked to look at. Its diagram nodes carry `#kakapo:path:line` links, which the viewer turns
-// into navigation rather than handing to mermaid's script callback (securityLevel is strict for a reason:
-// the diagram source is agent-written).
+// The codebase prompt writes the SAME notes file the diff prompt does — its per-component notes are ordinary
+// notes on the code, navigable with F8 and answerable like any other card. What differs is what the agent is
+// asked to look at, and where the diagram goes: not into the note as text, but through the kakapo_map tool
+// (mcp-server.ts), which validates the IR and renders map.html for the briefing panel's iframe. The node
+// clicks come back as postMessage, never as script running in the review page.
 test("the codebase prompt is a second editable prompt writing the same notes contract", async () => {
   const { MESSAGES } = await import("../dist/i18n.js");
   for (const locale of ["en", "ko"]) {
     const prompt = MESSAGES[locale]["codebase.prompt.default"];
     assert.ok(prompt, `${locale} has the prompt`);
     assert.ok(prompt.includes("{{NOTES_PATH}}"), "it writes to this workspace's notes file");
-    assert.ok(prompt.includes("#kakapo:"), "its diagram nodes link into the code");
+    assert.ok(prompt.includes("kakapo_map"), "its diagram is drawn through the kakapo_map tool");
+    assert.ok(!prompt.includes("```mermaid") && !prompt.includes("Mermaid"), "and no longer as mermaid in the note");
     assert.match(prompt, /3-5|3~5/, "it asks for a handful of components, not every directory");
   }
 

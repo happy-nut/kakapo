@@ -60,7 +60,7 @@ const ASK_MAX_OUTPUT = 32 * 1024 * 1024;
 const ALLOWED_TOOLS = [
   "Read", "Grep", "Glob",
   "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git status:*)", "Bash(git blame:*)",
-  "mcp__kakapo__kakapo_words", "mcp__kakapo__kakapo_keep_word",
+  "mcp__kakapo__kakapo_words", "mcp__kakapo__kakapo_keep_word", "mcp__kakapo__kakapo_map",
 ].join(",");
 
 // Which agent answers. Not the workspace's own choice: that is recorded as a launch command for a terminal

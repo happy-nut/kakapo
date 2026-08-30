@@ -3013,17 +3013,42 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
    stack the focused pane without re-orienting every other pane (see split() in 19-terminal.js). */
 .terminal-cell { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 1px; background: var(--border); }
 .terminal-pane { flex: 1 1 0; min-width: 0; min-height: 0; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
-/* Per-pane name strip at the top; double-click or Cmd/Ctrl+Alt+R to rename inline. */
+/* Per-pane head: the name row (double-click or Cmd/Ctrl+Alt+R to rename), and the session memo as its own
+   full-width band underneath — the memo is the pane's caption, and a caption deserves a line, not a corner. */
+.terminal-pane-head {
+  flex: none; display: flex; flex-direction: column; align-items: stretch; min-width: 0;
+  background: var(--sidebar); border-bottom: 1px solid var(--border);
+}
 .terminal-pane-label {
   flex: none; padding: 2px 10px; font-size: 10px; letter-spacing: 0.04em;
-  color: var(--muted); background: var(--sidebar); border-bottom: 1px solid var(--border);
+  color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text;
 }
 .terminal-pane-label:hover { color: var(--text); }
-/* Only the label the close button overlaps has to keep clear of it — the top pane of the rightmost cell. */
+/* Only the row the close button overlaps has to keep clear of it — the top pane of the rightmost cell. */
 .terminal-cell:last-child .terminal-pane:first-child .terminal-pane-label { padding-right: 34px; }
 .terminal-pane-label[contenteditable="true"] { color: var(--text); background: var(--bg); outline: none; }
 .terminal-pane.is-active .terminal-pane-label { color: var(--text); }
+/* The session memo: one line that says what this terminal is FOR. Click (or Cmd/Ctrl+Alt+M) to edit in
+   place; the ghost is the empty state and the whole visible affordance. It survives with the tmux session
+   (terminal-memos.ts), so it is the first thing a reopened session says for itself.
+   A written memo is the pane's caption and reads like one: body-sized text on an accent rail and tint. The
+   ghost stays quiet — muted, no rail — so an unused strip costs a hint, not a highlight. */
+.terminal-pane-memo {
+  flex: none; min-width: 0; padding: 4px 12px 5px; font-size: 12.5px; line-height: 1.5; font-weight: 500;
+  color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text;
+  border-left: 3px solid var(--active);
+  background: color-mix(in srgb, var(--active) 11%, transparent);
+}
+.terminal-pane-memo.is-ghost {
+  color: var(--muted); font-weight: 400;
+  border-left-color: var(--border); background: transparent;
+}
+.terminal-pane-memo.is-ghost:hover { color: var(--text); }
+.terminal-pane-memo[contenteditable="true"] {
+  color: var(--text); background: var(--bg); outline: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--active) 55%, transparent);
+}
 .terminal-pane-host { flex: 1 1 auto; min-width: 0; min-height: 0; padding: 4px 8px; } /* right padding too, so xterm's last column isn't clipped against the pane edge */
 /* Bell badge: a small dot on a pane's label when its TUI rang the bell while you were looking elsewhere. */
 .terminal-pane-label.has-bell::after { content: "\25CF"; margin-left: 6px; color: var(--active); font-size: 9px; vertical-align: middle; }
@@ -4284,6 +4309,14 @@ body.workspace-view.sidebar-collapsed .content { grid-column: 3; grid-row: 1; }
    dimming them by 45% would answer "look here" in a whisper. */
 .mc-brf-scrim { position: fixed; inset: 0; z-index: 72; background: color-mix(in srgb, #000 45%, transparent); }
 body:has(#mc-briefing) .sidebar { z-index: 73; }
+
+/* The rendered codebase map (kakapo_map), above the note's pages. Zero-height until its own bridge script
+   says it loaded — a missing map.html must leave the panel exactly as it always was. */
+.mc-brf-map { display: block; flex: none; width: 100%; height: 0; border: 0; background: transparent; }
+/* Tall enough that the diagram itself is on screen — archify's own header takes the first ~250px, and a
+   340px frame showed the header and asked the reader to scroll for the map. */
+.mc-brf-map.mc-brf-map-live { height: min(52vh, 520px); border-bottom: 1px solid var(--ui-border-soft); }
+.mc-brf.mc-brf-has-map { width: min(76vw, 1000px); max-height: min(92vh, 900px); }
 
 .mc-brf-top { flex: none; padding: 15px 20px 14px; border-bottom: 1px solid var(--ui-border-soft); }
 .mc-brf-kicker {
