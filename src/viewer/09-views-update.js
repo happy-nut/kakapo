@@ -935,7 +935,7 @@ async function checkForLiveUpdate() {
         return '<div data-id="' + w.id + '" style="display:grid;grid-template-columns:26px 1fr auto;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;cursor:pointer;' + (k === qsHi ? 'background:color-mix(in srgb,var(--accent) 22%,transparent)' : '') + '">'
           + '<span style="width:24px;height:24px;border-radius:7px;background:var(--sidebar);color:var(--muted);font-weight:700;font-size:11px;display:grid;place-items:center">' + qsEsc(qsInitials(w)) + '</span>'
           + '<span style="min-width:0"><b style="font-weight:600">' + qsEsc(w.alias || w.branch || '') + '</b><small style="display:block;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + qsEsc(w.repoName || '') + (w.dirtyCount ? ' · ' + w.dirtyCount + ' changed' : '') + '</small></span>'
-          + (w.id === qsCurrentId ? '<span style="color:var(--accent);font-size:11px">current</span>' : (w.running ? '<span style="color:#4d9a51;font-size:11px">● running</span>' : '<span></span>'))
+          + (w.id === qsCurrentId ? '<span style="color:var(--accent);font-size:11px">current</span>' : (w.running ? '<span style="color:#4d9a51;font-size:11px">● running</span>' : (w.closed ? '<span style="color:var(--muted);font-size:11px">parked</span>' : '<span></span>')))
           + '</div>';
       }).join('') : '<div style="padding:12px;color:var(--muted);font-size:12px">No matching workspace</div>';
     }
@@ -950,7 +950,14 @@ async function checkForLiveUpdate() {
       setTimeout(function () { qsInput.focus(); }, 0);
     }
     function qsClose() { if (qsRoot) qsRoot.style.display = 'none'; }
-    function qsChoose(w) { if (!w) return; qsClose(); if (w.id !== qsCurrentId) bridge.activateWorkspace(w.id); }
+    function qsChoose(w) {
+      if (!w) return;
+      qsClose();
+      // A deep-parked workspace is a closed tile with no live id: reopen it by path, the same road the
+      // rail's closed tiles ride (kakapo:hub-open re-validates before opening anything).
+      if (w.closed && w.path && typeof bridge.openWorkspacePath === 'function') { bridge.openWorkspacePath(w.path); return; }
+      if (w.id !== qsCurrentId) bridge.activateWorkspace(w.id);
+    }
     bridge.onOpenQuickSwitcher(qsOpen);
   }
 })();

@@ -34,3 +34,12 @@ test("a parked workspace stays a tile, stays in the restore session, and un-park
   assert.match(appMain, /setInterval\(\(\) => \{ watchLspWeight\(\); parkLongHidden\(\); \}, LSP_WATCHDOG_MS\)/,
     "and the sweep is actually armed");
 });
+
+test("the ⌘K quick-switcher reopens a parked workspace by path", () => {
+  const preload = readFileSync(new URL("../src/preload.cts", import.meta.url), "utf8");
+  const views = readFileSync(new URL("../src/viewer/09-views-update.js", import.meta.url), "utf8");
+  assert.match(preload, /openWorkspacePath: \(path: string\): void => ipcRenderer\.send\("kakapo:hub-open", path\)/,
+    "the bridge sends the path to the same validated hub-open the rail's closed tiles use");
+  assert.match(views, /if \(w\.closed && w\.path && typeof bridge\.openWorkspacePath === 'function'\) \{ bridge\.openWorkspacePath\(w\.path\); return; \}/,
+    "a closed item routes by path instead of a dead negative id");
+});
