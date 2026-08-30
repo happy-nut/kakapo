@@ -128,6 +128,10 @@ type WinState = {
   // an N-workspace hub render spawns ~5N git processes on the main thread each time an agent turn finishes.
   hubTile?: { record: WorkspaceRecord; dirtyCount: number; ahead: number; base?: string; defaultBranch?: string; computedAt: number };
   bootStarted: boolean;
+  // When this workspace left the screen (reconcileIdleSuspend), or undefined while it is on it. The deep
+  // park (parkLongHidden) reads it: a workspace hidden past PARK_AFTER_MS with nothing running gives its
+  // whole view back — renderer process, GPU surfaces and all.
+  hiddenAt?: number;
   // Set when activateWorkspace focuses this view while it is still loading, so the "content is ready" hook
   // can hand it the keyboard. Consumed once.
   wantsFocusOnReady?: boolean;
@@ -1388,7 +1392,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // its sessions right now, and from here on a deletion is seen the moment it happens (the parent watch).
   reapVanishedWorkspaces();
   watchWorkspaceParents();
-  setInterval(watchLspWeight, LSP_WATCHDOG_MS);
+  setInterval(() => { watchLspWeight(); parkLongHidden(); }, LSP_WATCHDOG_MS);
 }).catch((error: unknown) => {
   console.error(errorMessage(error));
   app.quit();
@@ -2152,6 +2156,38 @@ function watchLspWeight(): void {
   }
 }
 
+// ---- deep park: a long-hidden workspace gives its whole view back ---------------------------------------
+// The 30-minute suspend returns caches and language servers, but the renderer process and its compositor
+// surfaces stay: measured, every hidden-but-alive view holds ~70 MB in the GPU process alone (IOSurfaces
+// survive both setVisible(false) and removeChildView — only destroying the webContents returns them), plus
+// its 100-340 MB renderer. So after PARK_AFTER_MS off screen with nothing running, the view is closed
+// outright. The workspace stays a tile: parkedWorkspaces feeds renderHub a `closed` tile, whose click
+// reopens through kakapo:hub-open — the exact path a closed main checkout already rides — and the session's
+// terminals live in tmux, which is the one part of a workspace built to survive its window.
+const PARK_AFTER_MS = 2 * 60 * 60_000;
+const parkedWorkspaces = new Map<string, WorkspaceRecord & { alias?: string; memo?: string; base?: string; fetchWarning?: string }>();
+function parkLongHidden(): void {
+  const panes = tmuxPaneCommands();
+  for (const state of states.values()) {
+    if (state.win.isDestroyed() || state.win.isDetached()) continue; // a detached window is its own surface
+    if (state.win.webContents.id === activeStateId) continue;        // never the one a switch would land on
+    if (!state.bootStarted || !state.hiddenAt || Date.now() - state.hiddenAt < PARK_AFTER_MS) continue;
+    // An agent mid-run or an unread answer needs the window's plumbing (bells, unread badges) — skip until
+    // the workspace is genuinely idle. state.busy covers output arriving right now; the pane scan covers a
+    // long-running foreground process that has been quiet.
+    if (state.busy || state.unread || state.asking.length) continue;
+    if (railPanes(state, panes).some((pane) => pane.running || pane.busy)) continue;
+    const root = state.options.root;
+    const saved = savedWorkspaceMetadata().find((item) => resolveWorkspaceRoot(item.path) === resolveWorkspaceRoot(root));
+    const record = workspaceRecord(root, Date.now());
+    parkedWorkspaces.set(resolveWorkspaceRoot(root), {
+      ...record, alias: saved?.alias, memo: saved?.memo, base: saved?.base, fetchWarning: saved?.fetchWarning,
+    });
+    console.log(`kakapo: deep-parking ${tildePath(root)} — hidden ${Math.round((Date.now() - state.hiddenAt) / 60000)}min, nothing running`);
+    state.win.webContents.close(); // the destroyed handler tears the state down; renderHub then paints the closed tile
+  }
+}
+
 function tildePath(path: string): string {
   const home = homedir();
   return home && path.startsWith(home + "/") ? "~" + path.slice(home.length) : path;
@@ -2303,13 +2339,22 @@ function renderHub(): void {
   const disconnected = saved.filter((item) => !existsSync(item.path)).map((item, index) => ({
     ...item, id: -(index + 1), active: false, running: false, unread: false, busy: false, disconnected: true,
   }));
+  // Deep-parked workspaces: the view is gone (parkLongHidden) but the workspace is not. A `closed` tile keeps
+  // it on the rail, and its click reopens by path — the same ride a closed main checkout takes.
+  const liveRoots = new Set(live.map((w) => resolveWorkspaceRoot(w.path)));
+  const parked = Array.from(parkedWorkspaces.values())
+    .filter((item) => existsSync(item.path) && !liveRoots.has(resolveWorkspaceRoot(item.path)))
+    .map((item, index) => ({
+      ...item, id: -(1000 + index), active: false, running: false, unread: false, busy: false, closed: true,
+      shortPath: tildePath(item.path),
+    }));
   // Pin every known project's main checkout, dropping any whose root already has an open or disconnected tile so
   // the main never double-lists (an open main is a live tile; only its closed state needs synthesizing here).
-  const shownRoots = new Set([...live, ...disconnected].map((w) => resolveWorkspaceRoot(w.path)));
+  const shownRoots = new Set([...live, ...disconnected, ...parked].map((w) => resolveWorkspaceRoot(w.path)));
   const closedMains = projectMainTiles().filter((tile) => !shownRoots.has(resolveWorkspaceRoot(tile.path)));
   // Drop any tile whose repo identity couldn't be resolved: the rail groups by repoName, so an empty one renders
   // as an unidentifiable "?" project. Valid workspaces always carry a repoName, so this only strips junk.
-  const workspaces = [...live, ...disconnected, ...closedMains].filter((w) => typeof w.repoName === "string" && w.repoName.trim());
+  const workspaces = [...live, ...parked, ...disconnected, ...closedMains].filter((w) => typeof w.repoName === "string" && w.repoName.trim());
   // Apply the reviewer's own order. Projects keep the order they first appear in (a stable sort on the repo's
   // first index), and inside each one the dragged order wins; anything never dragged keeps its place after
   // what was, which is what makes a freshly created workspace show up at the bottom rather than in the middle.
@@ -2599,6 +2644,7 @@ function createWindow(root: string, deferBoot = false): WinState {
 // inside the same Electron instance until the hub view replaces this presentation layer.
 function openOrFocusWorkspace(root: string): WinState {
   const canonicalRoot = resolveWorkspaceRoot(root);
+  parkedWorkspaces.delete(canonicalRoot); // reopening un-parks: the live tile takes over from the closed one
   const existing = Array.from(states.values()).find(
     (state) => resolveWorkspaceRoot(state.options.root) === canonicalRoot,
   );
@@ -2625,6 +2671,11 @@ function persistWorkspaceSession(activeRoot?: string): void {
       return { ...current, alias: prior?.alias, memo: prior?.memo, base: prior?.base, fetchWarning: prior?.fetchWarning };
     });
   records.push(...saved.filter((item) => !existsSync(item.path)));
+  // Deep-parked workspaces are closed views, not closed workspaces: they must survive into the next launch's
+  // restore exactly like the open ones they were two hours ago.
+  for (const parked of parkedWorkspaces.values()) {
+    if (existsSync(parked.path) && !records.some((item) => resolveWorkspaceRoot(item.path) === resolveWorkspaceRoot(parked.path))) records.push(parked);
+  }
   const active = activeRoot ?? focusedState()?.options.root ?? preferences.readActiveWorkspace();
   preferences.writeOpenWorkspaces(records, active);
 }
@@ -2675,6 +2726,8 @@ function isVisibleWorkspace(state: WinState): boolean {
 // Every way a workspace can leave the screen routes here, so a detached or minimized one is reclaimed too.
 function reconcileIdleSuspend(state: WinState): void {
   if (state.win.isDestroyed()) return;
+  if (isVisibleWorkspace(state)) state.hiddenAt = undefined;
+  else state.hiddenAt ??= Date.now(); // first observation of "off screen" — the deep-park clock starts here
   if (isVisibleWorkspace(state)) {
     if (state.idleTimer) { clearTimeout(state.idleTimer); state.idleTimer = undefined; }
     return;

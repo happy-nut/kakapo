@@ -29,5 +29,6 @@ test("an over-budget fleet is recycled through the same paths the idle suspend u
     "a visible workspace gets a fresh fleet immediately — a hover warmup, not a dead code-nav");
   assert.match(appMain, /state\.analysisSuspended = true; \/\/ the next activation rebuilds it/,
     "a hidden workspace resumes exactly like the idle suspend");
-  assert.match(appMain, /setInterval\(watchLspWeight, LSP_WATCHDOG_MS\)/, "and the watchdog is actually armed");
+  assert.match(appMain, /setInterval\(\(\) => \{ watchLspWeight\(\); parkLongHidden\(\); \}, LSP_WATCHDOG_MS\)/,
+    "and the watchdog is actually armed (sharing its tick with the deep park)");
 });
