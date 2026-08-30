@@ -138,6 +138,18 @@ export class ProjectAnalysis {
     this.clients.clear();
   }
 
+  /** Every live language-server process this analysis has spawned, with its family — the memory watchdog
+   *  (app-main.ts) weighs fleets by pid and exempts families whose bulk is by design (the JVM Kotlin server
+   *  is 1.3 GB when healthy; trading its restart for memory is a known bad deal). */
+  serverPids(): { pid: number; family: string }[] {
+    const out: { pid: number; family: string }[] = [];
+    for (const client of this.clients.values()) {
+      const pid = client.serverPid();
+      if (pid) out.push({ pid, family: client.server.family });
+    }
+    return out;
+  }
+
   // Start at most one process per resolved language-server command and open one changed document. The app
   // schedules this only after its review page loads, so semantic navigation is warm without delaying paint.
   async prewarm(paths: string[]): Promise<void> {

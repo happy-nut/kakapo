@@ -1,5 +1,5 @@
 import { appendFileSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch as watchFs, writeFileSync } from "node:fs";
-import { spawn, spawnSync } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1388,6 +1388,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // its sessions right now, and from here on a deletion is seen the moment it happens (the parent watch).
   reapVanishedWorkspaces();
   watchWorkspaceParents();
+  setInterval(watchLspWeight, LSP_WATCHDOG_MS);
 }).catch((error: unknown) => {
   console.error(errorMessage(error));
   app.quit();
@@ -2114,6 +2115,40 @@ function watchWorkspaceParents(): void {
       watcher.on("error", () => { try { watcher.close(); } catch { /* already closed */ } worktreeWatchers.delete(dir); });
       worktreeWatchers.set(dir, watcher);
     } catch { /* parent unreadable or gone — the startup sweep still covers it */ }
+  }
+}
+
+// pyright's cost is "how much of the repo it has been asked about", and nothing but a restart returns it —
+// measured: 12 files touched → 313 MB, 500 → 1331 MB; heap caps and didClose do nothing (see the memory
+// profile note). The 30-minute suspend reclaims a PARKED workspace, but a workspace in active rotation never
+// sits still that long: two zoobox pyrights at ~1 GB each outlived an afternoon of switching. So fleets are
+// also recycled by WEIGHT. Over budget and hidden → disposed on the spot, resumed by the same path the idle
+// suspend uses. Over budget and visible → a fresh fleet immediately: the next hover pays a warmup instead of
+// the machine paying a gigabyte. JVM families are exempt — the Kotlin server is 1.3 GB when HEALTHY, and
+// trading its restart for memory is a known bad deal (75s startup grace in lsp.ts).
+const LSP_FLEET_BUDGET_MB = 900;
+const LSP_WATCHDOG_MS = 5 * 60_000;
+const LSP_WEIGHT_EXEMPT_FAMILIES = new Set(["kotlin"]);
+function watchLspWeight(): void {
+  for (const state of states.values()) {
+    if (state.win.isDestroyed() || state.analysisSuspended) continue;
+    const pids = state.analysis.serverPids()
+      .filter(({ family }) => !LSP_WEIGHT_EXEMPT_FAMILIES.has(family))
+      .map(({ pid }) => pid);
+    if (!pids.length) continue;
+    execFile("ps", ["-o", "rss=", "-p", pids.join(",")], { encoding: "utf8" }, (error, stdout) => {
+      if (error && !stdout) return; // ps exits non-zero when some pids are already gone; partial output still counts
+      const mb = String(stdout ?? "").split("\n").reduce((sum, line) => sum + (Number(line.trim()) || 0), 0) / 1024;
+      if (mb < LSP_FLEET_BUDGET_MB) return;
+      console.log(`kakapo: language servers for ${tildePath(state.options.root)} hit ${Math.round(mb)}MB — recycling the fleet`);
+      state.analysis.dispose();
+      if (isVisibleWorkspace(state)) {
+        state.analysis = makeAnalysis(state.options.root, () => state);
+        scheduleAnalysisPrewarm(state);
+      } else {
+        state.analysisSuspended = true; // the next activation rebuilds it, exactly like the idle suspend
+      }
+    });
   }
 }
 

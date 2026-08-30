@@ -512,6 +512,12 @@ export class LspClient {
     readonly server: LanguageServerCommand,
   ) {}
 
+  /** PID of the live server process, if any — the memory watchdog (app-main.ts) weighs fleets by these. */
+  serverPid(): number | undefined {
+    const child = this.child;
+    return child && child.pid && child.exitCode === null && child.signalCode === null ? child.pid : undefined;
+  }
+
   async locations(
     method: "textDocument/definition" | "textDocument/references" | "textDocument/implementation",
     path: string,
