@@ -538,8 +538,12 @@ function hangulFeed(state, ch) {
         } else {
           pane.__hangul = null;
         }
+        pane.__lastCommit = { data: event.data, at: Date.now() };
       } else {
+        // Remember the commit AFTER handing it over — triggerDataEvent fires onData synchronously, and
+        // recording first would make the guard there eat this very write.
         service.triggerDataEvent(event.data, true);
+        if (pane) pane.__lastCommit = { data: event.data, at: Date.now() };
       }
     }
     // The textarea is xterm's to manage (it clears on blur, Enter and Ctrl+C). Clearing it here as well
@@ -814,6 +818,17 @@ function hangulFeed(state, ch) {
     });
     term.onData(function (d) {
       lastInputAt = Date.now();
+      // A composition commit never arrives here — takeCompositionCommit writes it and stands xterm's
+      // own send down. So input IDENTICAL to the last commit, moments after it, is xterm's other input
+      // paths (the insertText handler, the keydown-229 textarea diff) re-delivering the same commit —
+      // macOS re-offers one the desynced IME believes was lost — and writing it is how "전략에서도"
+      // landed twice. Drop the echo once. A human cannot re-type a whole committed word inside 300ms.
+      // ponytail: exact-match heuristic — pasting the identical text within 300ms of committing it is
+      // also eaten; tighten to event-source tracking only if that ever bites.
+      if (pane.__lastCommit && d === pane.__lastCommit.data && Date.now() - pane.__lastCommit.at < 300) {
+        pane.__lastCommit = null;
+        return;
+      }
       // Anything typed while a repaired syllable is still held (Enter, punctuation, a Latin keystroke)
       // must land AFTER it — flush the hold first so the pty sees the same order the user typed.
       if (pane.__hangul) flushHangulRepair(pane);
