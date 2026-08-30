@@ -146,20 +146,29 @@ export function reapDeletedWorkspaceTranscripts(): string[] {
   return removed;
 }
 
-export function killWorkspaceTerminals(state: TerminalIpcState): void {
+// The tmux half of killWorkspaceTerminals, addressable by root alone: ends every session named for `root`,
+// whether or not any window is open on it. This is what a deletion observed from OUTSIDE the app runs
+// (reapVanishedWorkspaces in app-main.ts) — there is no state and no ptys then, only the sessions the
+// worktree left behind. No idle grace: the caller has already proven the root is gone from disk, and a
+// session whose cwd no longer exists has nothing to resume.
+export function killTerminalsForRoot(root: string): string[] {
   const tmux = resolveTmux(process.env);
-  if (tmux) {
-    let listed = "";
-    try {
-      const list = spawnSync(tmux, ["list-sessions", "-F", "#{session_name}"], { encoding: "utf8" });
-      listed = String(list.stdout ?? ""); // no server running -> non-zero exit, empty stdout, nothing to kill
-    } catch { /* tmux unusable — the ptys below still go */ }
-    const doomed = tmuxSessionsForRoot(state.options.root, listed);
-    for (const session of doomed) {
-      try { spawnSync(tmux, ["kill-session", "-t", session]); } catch { /* already gone */ }
-    }
-    try { sweepTerminalMemos(terminalMemoFile(), doomed); } catch { /* clutter, not a failure */ }
+  if (!tmux) return [];
+  let listed = "";
+  try {
+    const list = spawnSync(tmux, ["list-sessions", "-F", "#{session_name}"], { encoding: "utf8" });
+    listed = String(list.stdout ?? ""); // no server running -> non-zero exit, empty stdout, nothing to kill
+  } catch { return []; }
+  const doomed = tmuxSessionsForRoot(root, listed);
+  for (const session of doomed) {
+    try { spawnSync(tmux, ["kill-session", "-t", session]); } catch { /* already gone */ }
   }
+  try { sweepTerminalMemos(terminalMemoFile(), doomed); } catch { /* clutter, not a failure */ }
+  return doomed;
+}
+
+export function killWorkspaceTerminals(state: TerminalIpcState): void {
+  killTerminalsForRoot(state.options.root);
   state.termSessions?.clear();
   for (const [id, term] of state.terms) { ptyReaper.kill(term); state.terms.delete(id); ptyMemoKeys.delete(id); }
   state.commandBuffers?.clear();

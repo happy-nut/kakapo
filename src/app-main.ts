@@ -1,4 +1,4 @@
-import { appendFileSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch as watchFs, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -27,7 +27,7 @@ import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { registerMemoIpc } from "./app-memo-ipc.js";
 import { registerProjectPathIpc } from "./app-path-ipc.js";
-import { registerTerminalIpc, ptyReaper, killWorkspaceTerminals, reapUnreachableTerminals, reapDeletedWorkspaceTranscripts, resolveTmux } from "./app-terminal-ipc.js";
+import { registerTerminalIpc, ptyReaper, killTerminalsForRoot, killWorkspaceTerminals, reapUnreachableTerminals, reapDeletedWorkspaceTranscripts, resolveTmux } from "./app-terminal-ipc.js";
 import { registerCommentsIpc, syncCommentsFile, commentsFilePath, knowledgeFilePath, readThread, writeThread, nextThreadId, isKnowledge, type ThreadRecord } from "./comments-file.js";
 import { ask, askAgent, harvestTranscripts, markHarvested } from "./ask-session.js";
 import { registerTermsIpc } from "./terms-file.js";
@@ -998,8 +998,10 @@ ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unk
     killWorkspaceTerminals(state);
   }
   // Removing one workspace can strand another's sessions (a folder moved, a worktree pruned outside the app),
-  // so take the same look here that startup takes.
+  // so take the same look here that startup takes — and re-aim the parent watches at the set that remains.
   reapOrphanTerminals();
+  reapVanishedWorkspaces();
+  watchWorkspaceParents();
   const metadataIndex = startupWorkspaceMetadata.findIndex((item) => resolveWorkspaceRoot(item.path) === record.path);
   if (metadataIndex >= 0) startupWorkspaceMetadata.splice(metadataIndex, 1);
   if (payload.mode === "delete") {
@@ -1382,6 +1384,10 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // AFTER the restore, so every workspace this launch brought back counts as reachable. Doing it earlier
   // would look at a list of sessions whose owners had not registered yet and end the ones being restored.
   reapOrphanTerminals();
+  // Deletions that happened while the app was closed: every still-known root that is gone from disk loses
+  // its sessions right now, and from here on a deletion is seen the moment it happens (the parent watch).
+  reapVanishedWorkspaces();
+  watchWorkspaceParents();
 }).catch((error: unknown) => {
   console.error(errorMessage(error));
   app.quit();
@@ -2039,12 +2045,21 @@ const hubTileRefreshing = new Set<number>();
 // Every root a session could still be reached from: the workspaces kakapo has open or saved, and the main
 // checkout of every project it knows. A kakapo session whose name matches none of these has no tile to click
 // and no window to come back to (reapUnreachableTerminals).
-function reachableWorkspaceRoots(): string[] {
+function allKnownWorkspacePaths(): string[] {
   const roots = new Set<string>();
   for (const state of states.values()) roots.add(state.options.root);
-  for (const item of savedWorkspaceMetadata()) roots.add(item.path);
+  for (const item of savedWorkspaceMetadata()) {
+    roots.add(item.path);
+    try { roots.add(resolveWorkspaceRoot(item.path)); } catch { /* a gone path may not resolve; the raw one still names its sessions */ }
+  }
   for (const { root } of knownProjectRoots()) roots.add(root);
   return [...roots];
+}
+// Only roots that are actually ON DISK protect their sessions from the sweep. A saved entry whose folder is
+// gone used to count as reachable, which made its "disconnected" tile a permanent shield for sessions
+// nothing could ever reattach to.
+function reachableWorkspaceRoots(): string[] {
+  return allKnownWorkspacePaths().filter((root) => existsSync(root));
 }
 
 // Sessions outlive the app on purpose — that is what resume is — so nothing ever ended the ones belonging to
@@ -2061,6 +2076,44 @@ function reapOrphanTerminals(): void {
     const swept = reapDeletedWorkspaceTranscripts();
     if (swept.length) console.log(`kakapo: removed ${swept.length} transcript(s) of deleted workspaces`);
   } catch { /* best-effort */ }
+}
+
+// The root cause of every stranded session: cleanup used to fire only on APP events — the delete button,
+// the next launch — but a worktree's death is not always an app event. `git worktree remove` from another
+// agent's terminal deletes the directory and presses no button. The sessions are keyed to the root, so the
+// root's own existence is the signal: a known root that is gone from disk has provably nothing left to
+// resume, and its sessions die the moment that is observed — no idle grace, unlike the hash-only sweep,
+// because here the path is still known and its absence has been checked, not inferred.
+function reapVanishedWorkspaces(): void {
+  for (const root of allKnownWorkspacePaths()) {
+    if (!root || existsSync(root)) continue;
+    const ended = killTerminalsForRoot(root);
+    if (ended.length) console.log(`kakapo: ended ${ended.length} session(s) of deleted worktree ${tildePath(root)}`);
+  }
+}
+// How a deletion is observed while the app runs: one fs.watch per unique PARENT directory of the known
+// roots — a parent watch fires when a direct child is created or removed, which is exactly the grain
+// "a worktree was deleted" arrives at. Rebuilt whenever the known set changes (startup, a workspace
+// registered, a removal); debounced because one `git worktree remove` is many fs events.
+const worktreeWatchers = new Map<string, ReturnType<typeof watchFs>>();
+let vanishSweepTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleVanishSweep(): void {
+  if (vanishSweepTimer) return;
+  vanishSweepTimer = setTimeout(() => { vanishSweepTimer = undefined; reapVanishedWorkspaces(); }, 500);
+}
+function watchWorkspaceParents(): void {
+  const parents = new Set(allKnownWorkspacePaths().filter(Boolean).map((root) => dirname(root)));
+  for (const [dir, watcher] of worktreeWatchers) {
+    if (!parents.has(dir)) { try { watcher.close(); } catch { /* already closed */ } worktreeWatchers.delete(dir); }
+  }
+  for (const dir of parents) {
+    if (worktreeWatchers.has(dir)) continue;
+    try {
+      const watcher = watchFs(dir, scheduleVanishSweep);
+      watcher.on("error", () => { try { watcher.close(); } catch { /* already closed */ } worktreeWatchers.delete(dir); });
+      worktreeWatchers.set(dir, watcher);
+    } catch { /* parent unreadable or gone — the startup sweep still covers it */ }
+  }
 }
 
 function tildePath(path: string): string {
@@ -2458,6 +2511,7 @@ function createWindow(root: string, deferBoot = false): WinState {
   states.set(id, state);
   layoutWorkspaceViews();
   persistWorkspaceSession(resolvedRoot);
+  watchWorkspaceParents(); // a new root may live under a parent nothing was watching yet
 
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   // Dev-only: surface renderer console output in the terminal that launched `npm run dev`, so viewer-side

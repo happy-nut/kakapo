@@ -560,6 +560,24 @@ test("panes draw on the GPU when the machine has it, and still run when it does 
 // nothing until a click. Main announces the switch to the activated view only (never on app re-focus, so a
 // composer focused before ⌘Tab away is not stolen from), and the renderer takes focus only while the panel
 // is actually open.
+// A worktree deleted outside the app (git worktree remove, an agent cleaning up) used to strand its tmux
+// session: cleanup fired only on app events (the delete button, the next launch), and even at launch a
+// still-saved "disconnected" tile counted its dead path as reachable, shielding the sessions forever.
+// The root's existence on disk is now the signal: gone root -> sessions killed, observed live by a watch
+// on each root's parent directory, and once more at startup for deletions that happened while the app was
+// closed.
+test("a worktree deleted outside the app loses its sessions the moment the deletion is seen", () => {
+  assert.match(appMain, /function reapVanishedWorkspaces[\s\S]{0,400}?existsSync\(root\)[\s\S]{0,200}?killTerminalsForRoot\(root\)/,
+    "a known root that is gone from disk has its sessions ended, no idle grace");
+  assert.match(appMain, /reachableWorkspaceRoots[\s\S]{0,200}?allKnownWorkspacePaths\(\)\.filter\(\(root\) => existsSync\(root\)\)/,
+    "a saved-but-deleted path no longer shields its sessions from the hash sweep");
+  assert.match(appMain, /watchFs\(dir, scheduleVanishSweep\)/,
+    "each root's parent directory is watched, so the deletion is an event again, not a poll");
+  assert.match(appMain, /reapVanishedWorkspaces\(\);\s*\n\s*watchWorkspaceParents\(\);/,
+    "startup sweeps what died while the app was closed, then starts watching");
+  assert.ok(!/setInterval\(reapOrphanTerminals/.test(appMain), "and the hourly poll workaround is gone");
+});
+
 test("a workspace switch focuses the open terminal panel without a click", () => {
   assert.match(appMain, /focusActiveReviewView\(\);\s*\n[\s\S]{0,400}?webContents\.send\("kakapo:workspace-activated"\)/,
     "activateWorkspace announces the landing to the view it just focused");
