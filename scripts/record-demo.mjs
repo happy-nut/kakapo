@@ -146,10 +146,10 @@ function createDemoRepo(workRoot) {
 function demoBridgePrelude() {
   const terms = [
     { w: "worktree", gloss: "An isolated workspace where the agent changes the review queue.", seen: true },
-    { w: "review queue", gloss: "The ordered list of open review items before a prompt is handed to the agent.", seen: true, code: [{ name: "buildReviewQueue", at: "src/reviewQueue.ts:10" }] },
+    { w: "review queue", gloss: "The ordered list of open review items that an inline review checks.", seen: true, code: [{ name: "buildReviewQueue", at: "src/reviewQueue.ts:10" }] },
     { w: "stable order", gloss: "The review queue fallback that preserves createdAt when priorities match.", seen: true },
-    { w: "inline review", gloss: "A comment anchored to a diff line and returned through the prompt.", seen: true },
-    { w: "prompt", gloss: "The handoff that collects each inline review with file and line evidence.", seen: true, code: [{ name: "nextPrompt", at: "src/prompt.ts:1" }] },
+    { w: "inline review", gloss: "A comment anchored to a diff line and answered automatically.", seen: true, code: [{ name: "nextPrompt", at: "src/prompt.ts:1" }] },
+    { w: "answer", gloss: "The background review agent's reply to an inline review.", seen: true },
     { w: "memo", gloss: "A worktree-scoped Markdown scratchpad for review decisions.", seen: true },
   ];
   return String.raw`<script>
@@ -164,6 +164,11 @@ window.kakapoMemo = {
   read: function () { return Promise.resolve({ version: 1, worktreePath: '~/kakapo/workspaces/checkout-flow/archived-opt-in', body: '', updatedAt: null }); },
   write: function (body) { window.__demoMemo = body; return Promise.resolve({ version: 1, body: body, updatedAt: new Date().toISOString() }); },
   remove: function () { window.__demoMemo = ''; return Promise.resolve({ ok: true }); }
+};
+window.kakapoAsk = {
+  ask: function (payload) { window.__demoAsk = payload; return new Promise(function () {}); },
+  onStatus: function (callback) { window.__demoAskStatus = callback; },
+  onHandoff: function () {}
 };
 </script>`;
 }
@@ -442,22 +447,19 @@ async function recordReviewFlow(stage) {
   await waitFor(review, "document.querySelector('.mc-composer .mc-input')");
   await frame(stage, 4);
   await typeInto(stage, ".mc-composer .mc-input", CHANGE_REQUEST, "review");
-  await review.webContents.executeJavaScript("saveComposer()");
-  await waitFor(review, "document.querySelector('.mc-card')");
-  await frame(stage, 8);
 
-  caption(stage, "7 \u00b7 \u2318\u21e7/ \u2014 every open comment as one request, with file:line evidence");
-  await review.webContents.executeJavaScript("openMergedView()");
-  await waitFor(review, "document.querySelector('#mc-merged-panel .mc-inline-editor[contenteditable=true]')");
+  caption(stage, "7 \u00b7 Save once \u2014 kakapo asks its own review agent automatically");
+  await review.webContents.executeJavaScript("saveComposer()");
+  await waitFor(review, "document.querySelector('.mc-thinking')");
   await frame(stage, 14);
 
-  caption(stage, "8 \u00b7 The agent answers on the line, not in a chat log");
+  caption(stage, "8 \u00b7 The answer returns to the same line, without a handoff step");
   await review.webContents.executeJavaScript(`
-    closeMergedMemoDocks();
     var records = reviewComments.map(commentToRecord);
     var question = records[records.length - 1];
     records.push({ id: 900, re: question.id, by: 'agent', text: ${JSON.stringify(AGENT_ANSWER)} });
     applyThreadRecords(records);
+    applyAskStatus({ asks: [] });
   `);
   await waitFor(review, "document.querySelector('.mc-card.mc-ai')");
   await frame(stage, 16);
@@ -466,7 +468,7 @@ async function recordReviewFlow(stage) {
 // ---- Act 3: review knowledge stays connected ----
 async function recordKnowledgeMap(stage) {
   const review = stage.review;
-  caption(stage, "9 \u00b7 \u2318\u21e7K \u2014 review vocabulary becomes a reusable knowledge map");
+  caption(stage, "9 \u00b7 \u2318\u21e7K \u2014 review vocabulary becomes a reusable knowledge graph");
   await review.webContents.executeJavaScript(`
     closeMergedMemoDocks();
     openTermMap();

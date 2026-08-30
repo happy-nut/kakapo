@@ -381,12 +381,14 @@ export function nextTerminalOrdinal(used: Iterable<number>): number {
 //   -e          per-session env; a session attached to a pre-existing server would otherwise see the env of
 //               whichever kakapo window happened to start the server first
 //   set …       status bar off (the pane should look like a plain shell) and truecolor passed through, so
-//               Claude Code's coral logo keeps its exact hue instead of degrading to 256-color
+//               Claude Code's coral logo keeps its exact hue instead of degrading to 256-color; mouse mode
+//               lets the wheel enter tmux copy mode for fullscreen agents whose history belongs to tmux
 export function tmuxSpawnArgs(session: string, cwd: string, env: { [key: string]: string } = {}): string[] {
   const args = ["new-session", "-A", "-s", session, "-c", cwd];
   for (const [key, value] of Object.entries(env)) args.push("-e", `${key}=${value}`);
   return args.concat([
     ";", "set", "-g", "status", "off",
+    ";", "set", "-g", "mouse", "on",
     ";", "set", "-g", "default-terminal", "tmux-256color",
     ";", "set", "-ga", "terminal-overrides", ",*256col*:Tc",
   ]);

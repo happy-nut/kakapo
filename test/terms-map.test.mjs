@@ -18,6 +18,13 @@ after(cleanupFixtures);
 
 const FILES = [{ path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" }];
 
+test("opening the terminal replaces the knowledge map", () => {
+  const terminal = readFileSync(new URL("../src/viewer/19-terminal.js", import.meta.url), "utf8");
+  const setOpen = terminal.match(/function setOpen\(open\) \{[\s\S]*?panel\.classList\.toggle\('hidden'/)?.[0];
+  assert.match(setOpen, /if \(open && termMapOpen\(\)\) closeTermMap\(\)/,
+    "every terminal entry point closes the map before showing the terminal");
+});
+
 // A small vocabulary with everything the graph has to get right in it: a word that carries two others, a
 // detail scoped under its concept, and the same detail word scoped under a different concept.
 const TERMS = [

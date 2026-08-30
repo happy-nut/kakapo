@@ -12,7 +12,7 @@ Coding agents are fast. Reading their output is not. Kakapo is built for that ha
 
 **The diff is the source of truth, not the chat log.** An agent's "done ✅" is a claim. Kakapo opens the actual Git diff in an IntelliJ-style side-by-side view, with folded context you can expand, hunk navigation (`F7`), and per-file *Viewed* state — so you review what landed, not what was reported.
 
-**Your comments go back to the agent; its answers come back on the line.** Press `?` on any line to ask a question or request a change. `⌘⇧/` merges every open comment into one request, writes it to `.git/kakapo/`, and hands the agent a single line naming that file. The agent appends its replies to the same thread and they appear as replies under your comment — no prompt-assembly, no scrolling walls of pasted text. `F8` walks every thread until nothing is left open.
+**Write a comment; the answer comes back on the line automatically.** Press `?` on any line to ask a question or request a change. Saving the comment immediately asks Kakapo's own read-only review agent, shows its progress beneath the comment, and appends the answer to the same thread. There is no merged prompt to assemble or send. `F8` walks every thread until nothing is left open.
 
 **Agent prompts explain the diff or map an unfamiliar codebase.** Open the prompt palette with `⌘⇧P`. *Explain the diff* leaves plain-language note cards on the lines that matter and opens a short briefing; `F8` walks the cards and `⌘⇧B` replays the briefing. *Explain the codebase* leaves one high-level map. These jobs run in Kakapo's own background agent session, while their notes accumulate in `.git/kakapo/knowledge.jsonl` for every worktree to share.
 
@@ -30,10 +30,9 @@ Coding agents are fast. Reading their output is not. Kakapo is built for that ha
 
 1. The agent works in the workspace terminal (``⌃` ``).
 2. You read the real diff — `F7` between hunks, `Space` to mark a file reviewed.
-3. `?` on a line to ask a question or request a change.
-4. `⌘⇧/` to merge and send; `⌥Enter` hands it to the agent.
-5. The agent fixes and answers inline; `F8` walks the answers.
-6. Use `⌘⇧P` for agent explanations, `⌘⇧K` for the knowledge graph, and `⌘⇧N` for the worktree memo.
+3. `?` on a line to ask a question or request a change; saving asks the review agent automatically.
+4. The answer appears in the same thread; `F8` walks the answers.
+5. Use `⌘⇧P` for agent explanations, `⌘⇧K` for the knowledge graph, and `⌘⇧N` for the worktree memo.
 
 ## Install
 
@@ -110,7 +109,6 @@ kakapo --staged             # index vs HEAD
 | `F7` / `⇧F7` | Next / previous changed hunk |
 | `Space` | Toggle *Viewed* on the selected changed file |
 | `?` | Comment on the current line |
-| `⌘⇧/` | All review comments (merged request; `⌥Enter` sends) |
 | `F8` / `⇧F8` | Next / previous comment or Explain note |
 | `⌘⇧B` | Replay the latest Explain briefing |
 | `⌘⇧K` | Knowledge graph |

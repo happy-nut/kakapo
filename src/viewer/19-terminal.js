@@ -1079,11 +1079,11 @@ function terminalPathLinkProvider(term) {
     }
   }
   function setOpen(open) {
-    // The terminal shares the exclusive dock slot with merged/memo — opening it closes those. History goes
-    // too: the panel renders above the overlay (z77+ vs 75), so closing the terminal later would drop the
-    // reviewer back into an overlay they never meant to keep. Full-screen surfaces switch, never stack.
+    // The terminal shares the exclusive full-screen slot with the docks, History, and the knowledge map.
+    // Close them before showing it so the surface underneath cannot keep owning the keyboard.
     if (open && typeof window.__kakapoCloseDocks === 'function') { try { window.__kakapoCloseDocks(); } catch (e) {} }
     if (open && window.__kakapoHistory && typeof window.__kakapoHistory.close === 'function') { try { window.__kakapoHistory.close(); } catch (e) {} }
+    if (open && termMapOpen()) closeTermMap();
     panel.classList.toggle('hidden', !open);
     if (!open) setConnecting(false);
     document.body.classList.toggle('terminal-open', open);
@@ -1296,6 +1296,14 @@ function terminalPathLinkProvider(term) {
     // out as jamo. Read from the review window's devtools: __kakapoTerminal.imeLog()
     imeLog: function () { return imeLog.slice(); },
     open: function () { setOpen(true); },
+    // Cmd+Shift+M from ANYWHERE in the window (WINDOW_SHORTCUTS, 05-keymap.js) — the xterm handler above
+    // only hears the key while a pane owns focus, which made the shortcut work only for whoever was
+    // already typing in the terminal. false = nothing to edit; the keymap lets the key fall through.
+    editActiveMemo: function () {
+      if (!isOpen() || !active || sendModeText != null) return false;
+      editPaneMemo(active);
+      return true;
+    },
     // Called when the app's theme family changes (see applyTheme in 01-core.js).
     retheme: applyTerminalTheme,
     paneCount: function () { return panes.length; },

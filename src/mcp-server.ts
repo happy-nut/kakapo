@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { COMPUTER_TOOLS, handleComputerCall } from "./computer-use.js";
 import { kakapoSharedDataFile } from "./git.js";
 import { mergeTerms, readTerms, termsFilePath, writeTerms, type TermRecord } from "./terms-file.js";
 
@@ -256,7 +257,7 @@ export function handleRpc(message: Json, cwd: string): Json | undefined {
       serverInfo: { name: "kakapo", version: "1" },
     });
   }
-  if (method === "tools/list") return reply({ tools: [WORDS_TOOL, KEEP_WORD_TOOL, MAP_TOOL] });
+  if (method === "tools/list") return reply({ tools: [WORDS_TOOL, KEEP_WORD_TOOL, MAP_TOOL, ...COMPUTER_TOOLS] });
   if (method === "tools/call") {
     const name = typeof params?.name === "string" ? params.name : "";
     const args = (params?.arguments as Json) ?? {};
@@ -273,6 +274,8 @@ export function handleRpc(message: Json, cwd: string): Json | undefined {
     }
     // Computer use (issue #41): seeing and driving the desktop through macOS's own binaries — no external
     // app, CLI or runtime. The module answers only for its own tool names.
+    const computer = handleComputerCall(name, args);
+    if (computer) return reply({ content: [{ type: "text", text: computer.message }], isError: !computer.ok });
     return reply({ content: [{ type: "text", text: `unknown tool: ${name}` }], isError: true });
   }
   // A notification (no id) is acknowledged by saying nothing at all — answering one is a protocol error.

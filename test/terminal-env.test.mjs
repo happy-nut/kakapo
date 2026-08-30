@@ -114,6 +114,8 @@ test("the tmux session is created in the workspace, with per-session env", () =>
   const env = args.indexOf("-e");
   assert.equal(args[env + 1], "KAKAPO_ANSWERS_FILE=/tmp/a.json", "a session on a pre-existing server would miss it otherwise");
   assert.ok(args.includes("status") && args.includes("off"), "the pane should look like a plain shell");
+  const mouse = args.indexOf("mouse");
+  assert.equal(args[mouse + 1], "on", "the wheel enters tmux copy mode so fullscreen agent history remains scrollable");
   assert.ok(args.join(" ").includes("Tc"), "truecolor stays on inside tmux (Claude Code's logo)");
 });
 
