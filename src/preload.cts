@@ -100,6 +100,9 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
     ipcRenderer.on("kakapo:open-quick-switcher", () => cb());
   },
   activateWorkspace: (id: number): void => ipcRenderer.send("kakapo:hub-activate", id),
+  // A deep-parked workspace has no live id — the ⌘K switcher reopens it by path. Main re-validates
+  // (kakapo:hub-open: must exist and be a git repository), so the renderer's copy is a request, not a grant.
+  openWorkspacePath: (path: string): void => ipcRenderer.send("kakapo:hub-open", path),
   // The shell title-bar mirrors the activity rail: main relays a title-bar tool click here so the viewer
   // replays it through its own rail dispatcher, and the viewer reports view/terminal state back for highlight.
   onRailAction: (cb: (action: string) => void): void => {
