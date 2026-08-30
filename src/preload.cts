@@ -79,6 +79,11 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
   onWorkspaceState: (cb: (state: unknown) => void): void => {
     ipcRenderer.on("kakapo:workspace-state", (_event, state: unknown) => cb(state));
   },
+  // A workspace switch just landed on this view (never fired by app re-focus or clicks). The terminal
+  // panel uses it to take the keyboard when it is open — see 19-terminal.js.
+  onWorkspaceActivated: (cb: () => void): void => {
+    ipcRenderer.on("kakapo:workspace-activated", () => cb());
+  },
   toggleWorkspaceHub: (): void => ipcRenderer.send("kakapo:workspace-hub-toggle"),
   // Put an expanded rail away, because the review is taking over. Reported from here rather than inferred
   // from the view's focus event in main, which cannot tell a click in the diff from one in the terminal

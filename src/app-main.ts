@@ -1747,6 +1747,11 @@ function activateWorkspace(id: number): void {
   const activating = states.get(id);
   if (activating) activating.wantsFocusOnReady = true; // the view may still be loading; see did-finish-load
   focusActiveReviewView();
+  // The switch has landed; if this view's terminal panel is open, typing should work without a click first.
+  // The renderer decides — only it knows whether the panel is open — main just says whose turn it is.
+  if (!modalOpen && activating && activating.bootStarted && !activating.win.isDestroyed()) {
+    activating.win.webContents.send("kakapo:workspace-activated");
+  }
   persistWorkspaceSession(states.get(id)?.options.root);
   sendRailPushed(); // the newly active view collapses its sidebar too while the rail is expanded
   renderHub();

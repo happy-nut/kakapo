@@ -555,3 +555,17 @@ test("panes draw on the GPU when the machine has it, and still run when it does 
   assert.match(loader, /catch \(e\) \{ \/\* the DOM renderer is still a terminal \*\/ \}/, "and any failure falls back");
   assert.match(client, /term\.loadAddon\(fit\);\s*\n\s*loadWebglRenderer\(term\)/, "every pane gets it");
 });
+
+// Switching to a workspace whose terminal panel is open used to land the keyboard on <body>: typing did
+// nothing until a click. Main announces the switch to the activated view only (never on app re-focus, so a
+// composer focused before ⌘Tab away is not stolen from), and the renderer takes focus only while the panel
+// is actually open.
+test("a workspace switch focuses the open terminal panel without a click", () => {
+  assert.match(appMain, /focusActiveReviewView\(\);\s*\n[\s\S]{0,400}?webContents\.send\("kakapo:workspace-activated"\)/,
+    "activateWorkspace announces the landing to the view it just focused");
+  const bridge = preload.match(/onWorkspaceActivated:[\s\S]*?\n  \},/)?.[0];
+  assert.ok(bridge, "onWorkspaceActivated bridge exists");
+  assert.match(bridge, /kakapo:workspace-activated/, "and listens on the same channel main sends on");
+  assert.match(client, /onWorkspaceActivated\(function \(\) \{ if \(isOpen\(\) && active\) focusPane\(active\); \}\)/,
+    "the panel takes the keyboard only while open, and only into the active pane");
+});

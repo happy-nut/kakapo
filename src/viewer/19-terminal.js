@@ -1384,6 +1384,12 @@ function hangulFeed(state, ch) {
   // Toggle (Ctrl+`/Alt+F12) and split (Cmd+D) arrive from the Terminal menu accelerators (app-main),
   // because Chromium swallows Cmd+D before a renderer keydown would ever see it.
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalToggle === 'function') window.kakapoMenu.onTerminalToggle(toggleOrFocus);
+  // A workspace switch landed here with the panel open: the terminal is almost certainly what the reader
+  // came back for, so it takes the keyboard without a click. A closed panel changes nothing — the review
+  // keeps the keys. focusPane retries, because main's own webContents.focus() lands a beat before this.
+  if (window.kakapoMenu && typeof window.kakapoMenu.onWorkspaceActivated === 'function') {
+    window.kakapoMenu.onWorkspaceActivated(function () { if (isOpen() && active) focusPane(active); });
+  }
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalSplit === 'function') window.kakapoMenu.onTerminalSplit(split);
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalPaneFocus === 'function') window.kakapoMenu.onTerminalPaneFocus(focusPaneByDelta);
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalPaneRename === 'function') window.kakapoMenu.onTerminalPaneRename(function () { renamePane(active); });
