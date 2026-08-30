@@ -2087,8 +2087,9 @@ function reapOrphanTerminals(): void {
 function reapVanishedWorkspaces(): void {
   for (const root of allKnownWorkspacePaths()) {
     if (!root || existsSync(root)) continue;
-    const ended = killTerminalsForRoot(root);
-    if (ended.length) console.log(`kakapo: ended ${ended.length} session(s) of deleted worktree ${tildePath(root)}`);
+    void killTerminalsForRoot(root).then((ended) => {
+      if (ended.length) console.log(`kakapo: ended ${ended.length} session(s) of deleted worktree ${tildePath(root)}`);
+    });
   }
 }
 // How a deletion is observed while the app runs: one fs.watch per unique PARENT directory of the known
