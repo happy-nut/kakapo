@@ -500,13 +500,15 @@ export function renderDiffHtml(input: {
     '<div id="quick-open" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="quickopen.aria" aria-label="Quick open">',
     '<div class="quick-open-panel">',
     // ⌘E is the one launcher: its left rail switches between the sections that live in this dialog (recent
-    // files, prompts) and opens the ones that don't (the review-comments and memo docks). Only rendered for
-    // the launcher modes — the file search / Find in Files / symbol layouts keep the plain panel.
+    // files, prompts) and opens the ones that don't (the memo dock and friends). Only rendered for the
+    // launcher modes — the file search / Find in Files / symbol layouts keep the plain panel.
+    // The review-comments dock is deliberately NOT listed: commenting moved into the code itself (inline
+    // comments answered by the dedicated session), so the merged view is a legacy surface — reachable by
+    // ⌘⇧/ and its rail dispatch for whoever still wants it, but not advertised by the launcher.
     '<nav id="quick-open-side" class="quick-open-side" aria-label="Sections">',
     '<button type="button" class="quick-open-side-item" data-section="recent" data-keyhint="⌘E"><span data-i18n="quickopen.recent">Recent files</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="prompts" data-keyhint="⌘⇧P"><span data-i18n="promptPalette.title">Agent tasks</span></button>',
     '<div class="quick-open-side-sep" aria-hidden="true"></div>',
-    '<button type="button" class="quick-open-side-item" data-section="merged" data-keyhint="⌘⇧/"><span data-i18n="rail.reviewComments">Review comments</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="memo" data-keyhint="⌘⇧N"><span data-i18n="memo.title">Markdown memo</span></button>',
     // The unread dot lives here rather than on the rail button: the rail's tool buttons are permanently
     // hidden (they are dispatch targets now), so this launcher row is the one place a reader actually sees

@@ -80,8 +80,7 @@ document.getElementById('quick-open-side')?.addEventListener('click', function (
     return;
   }
   closeQuickOpen();
-  if (section === 'merged') openMergedView();
-  else if (section === 'memo') openMemoView();
+  if (section === 'memo') openMemoView();
   // The terminal is toggled by id, not by a data-view button like the rest.
   else if (section === 'terminal') document.getElementById('terminal-toggle')?.click();
   // Everything else is a view with a rail button behind it: click that, so the launcher opens it by exactly
