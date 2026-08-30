@@ -988,10 +988,14 @@ var TERM_STOP = [
   '왜냐', '지금', '다시', '그냥', '진짜', '정말', '조금', '이런', '저런', '그런', '경우', '때문', '부분',
   '하는', '되는', '있는', '없는', '같은', '자체', '전부', '모두', '항상', '먼저', '나중', '정도', '가지',
   '생각', '문제', '얘기', '이야기', '이유', '방법', '내용', '사용', '동작', '확인', '수정', '설명',
+  // Conjunctions and discourse adverbs: they glue any conversation together, which is exactly why they
+  // appear in every reply — and why one showing up in a gloss sentence proves nothing about it.
+  '그리고', '그래서', '그런데', '하지만', '그러나', '그러면', '그러니까', '또한', '아니면', '어차피',
+  '애초', '결국', '사실', '일단', '이미', '아직', '거의', '계속', '바로', '원래', '기존', '전체', '일부',
   // Generic programming nouns: alone they name the whole profession, not a concept of THIS repository —
   // a vocabulary entry for "함수" teaches nobody anything. Inside a spaced phrase they still count
   // ("핵심 파일" is a real word here): the stop check sees the full phrase, not its chunks.
-  '함수', '코드', '파일', '에러', '버그', '로그', '테스트',
+  '함수', '코드', '파일', '에러', '버그', '로그', '테스트', '데이터', '결과', '상태', '방식',
   'this', 'that', 'these', 'those', 'there', 'here', 'what', 'which', 'when', 'where', 'why', 'how',
   'the', 'and', 'but', 'for', 'with', 'from', 'into', 'about', 'because', 'just', 'only', 'also', 'then',
   'does', 'doing', 'done', 'have', 'has', 'had', 'was', 'were', 'been', 'being', 'will', 'would', 'should',
@@ -1017,6 +1021,10 @@ function termLooksLikeConcept(word) {
   if (/[a-z][A-Z]/.test(word)) return false;         // camelCase
   if (/[0-9]/.test(word) && !/[가-힣]/.test(word)) return false;
   if (TERM_STOP.indexOf(word.toLowerCase()) >= 0) return false;
+  // A word still wearing its grammar is not a name. 조용히 is an adverb by its 히; 복잡한 / 봉인된 are a
+  // verb mid-modification — three syllables ending that way is inflection, while the two-syllable nouns
+  // that share the ending (제한, 역할) stay words.
+  if (/[가-힣]/.test(word) && (/히$/.test(word) || (word.length >= 3 && /[한된는던할될]$/.test(word)))) return false;
   // Korean concepts are short — 앵커, 걷기 — so two syllables is a word. Latin needs three letters before it
   // is one, which also drops the "of/in/is" that survive any stopword list.
   if (/[가-힣]/.test(word)) return word.length >= 2 && word.length <= 16;
@@ -1076,15 +1084,17 @@ function termCandidates(batch) {
     for (var i = 0; i < chunks.length; i++) {
       if (i <= takenTo) continue;
       for (var span = Math.min(3, chunks.length - i); span >= 1; span--) {
-        // Every chunk of a phrase except the last must be a BARE noun. A chunk still carrying its josa
-        // ("캐시를 안") is syntax passing by, not a name — real spaced concepts are noun compounds: 지연
-        // 로딩, 핵심 파일. And one hangul syllable ("이 함수", "안") is a determiner or an adverb, never
-        // half a concept. The last chunk keeps its josa here; termStrip takes it off the phrase edge.
+        // Every chunk of a phrase except the last must be a BARE noun — and a plausible word on its own.
+        // A chunk still carrying its josa ("캐시를 안") is syntax passing by; a modifier form ("복잡한
+        // 안전장치") is a description, not a name; a stopword modifier ("기존 봉") is generic dressing on
+        // the real noun. Real spaced concepts are noun compounds: 지연 로딩, 핵심 파일 — the head chunk may
+        // be generic (파일), the modifiers may not. The last chunk keeps its josa; termStrip takes it off
+        // the phrase edge.
         if (span > 1) {
           var bareRun = true;
           for (var k = i; k < i + span - 1; k++) {
             var chunk = String(chunks[k] || '').replace(/^[^0-9A-Za-z가-힣]+|[^0-9A-Za-z가-힣]+$/g, '');
-            if (termStrip(chunk) !== chunk || (/[가-힣]/.test(chunk) && chunk.length < 2)) { bareRun = false; break; }
+            if (termStrip(chunk) !== chunk || !termLooksLikeConcept(chunk)) { bareRun = false; break; }
           }
           if (!bareRun) continue;
         }
@@ -1116,9 +1126,12 @@ function termCandidates(batch) {
     });
   });
   // Longer words are the more specific ones and the ones a reader actually chose; a two-syllable fragment of
-  // one of them is usually the same idea, said shorter.
+  // one of them is usually the same idea, said shorter. And one sentence explains at most ONE word: when
+  // several candidates all point at the same gloss line, that sentence is about the most specific of them,
+  // and the rest merely happened to be written in it.
   return out.filter(function (cand) {
-    return !out.some(function (other) { return other !== cand && other.w.indexOf(cand.w) >= 0; });
+    if (out.some(function (other) { return other !== cand && other.w.indexOf(cand.w) >= 0; })) return false;
+    return !out.some(function (other) { return other !== cand && other.gloss === cand.gloss && other.w.length > cand.w.length; });
   }).slice(0, 6);
 }
 

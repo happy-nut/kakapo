@@ -76,3 +76,17 @@ test("the commit path routes bare-jamo commits through the automaton and holds t
   assert.match(client, /if \(pane\.__hangul\) flushHangulRepair\(pane\);\s*\n\s*if \(pane\.id != null\) window\.kakapoPty\.write/,
     "ordinary input (Enter, Latin) flushes the hold first, so the pty sees the typed order");
 });
+
+// A desynced IME can re-offer a commit it believes was lost; xterm's other input paths (the insertText
+// handler, the keydown-229 textarea diff) forward it to onData, and the word lands twice — the
+// "전략에서도 전략에서도" regression. The commit was already written by takeCompositionCommit, so onData
+// drops an identical arrival straight after it.
+test("a commit re-delivered through xterm's other input paths is dropped, not written twice", () => {
+  const take = extract(/function takeCompositionCommit\([\s\S]*?\n  \}/);
+  assert.match(take, /service\.triggerDataEvent\(event\.data, true\);\s*\n\s*if \(pane\) pane\.__lastCommit/,
+    "the commit is remembered AFTER the healthy hand-over — recording first would eat the write itself");
+  assert.match(take, /pane\.__lastCommit = \{ data: event\.data, at: Date\.now\(\) \}/,
+    "the raw commit is what echoes back, so the raw commit is what is remembered — not the repaired form");
+  assert.match(client, /pane\.__lastCommit && d === pane\.__lastCommit\.data && Date\.now\(\) - pane\.__lastCommit\.at < 300/,
+    "onData drops input identical to the just-written commit, once, inside a human-impossible window");
+});

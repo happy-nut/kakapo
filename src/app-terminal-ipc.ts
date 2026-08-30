@@ -2,7 +2,7 @@ import { app, BrowserWindow, Notification } from "electron";
 import type { WebContents } from "electron";
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { spawn as spawnPty, type IPty } from "node-pty";
-import { spawn, spawnSync } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { sanitizeTerminalEnv, ensureUtf8Locale, resolveBin, tmuxSessionName, tmuxSessionsForRoot, unreachableSessions, unreachableTranscripts, nextTerminalOrdinal, tmuxSpawnArgs, createPtyReaper, endTmuxSession, tmuxPaneCommand } from "./util.js";
@@ -146,20 +146,32 @@ export function reapDeletedWorkspaceTranscripts(): string[] {
   return removed;
 }
 
-export function killWorkspaceTerminals(state: TerminalIpcState): void {
+// The tmux half of killWorkspaceTerminals, addressable by root alone: ends every session named for `root`,
+// whether or not any window is open on it. This is what a deletion observed from OUTSIDE the app runs
+// (reapVanishedWorkspaces in app-main.ts) — there is no state and no ptys then, only the sessions the
+// worktree left behind. No idle grace: the caller has already proven the root is gone from disk, and a
+// session whose cwd no longer exists has nothing to resume.
+//
+// Async on purpose: nobody awaits a background sweep, and a watch event must never buy the main loop a
+// spawnSync stall — main routes every pane's pty traffic, so a stall here is felt as typing latency.
+export async function killTerminalsForRoot(root: string): Promise<string[]> {
   const tmux = resolveTmux(process.env);
-  if (tmux) {
-    let listed = "";
-    try {
-      const list = spawnSync(tmux, ["list-sessions", "-F", "#{session_name}"], { encoding: "utf8" });
-      listed = String(list.stdout ?? ""); // no server running -> non-zero exit, empty stdout, nothing to kill
-    } catch { /* tmux unusable — the ptys below still go */ }
-    const doomed = tmuxSessionsForRoot(state.options.root, listed);
-    for (const session of doomed) {
-      try { spawnSync(tmux, ["kill-session", "-t", session]); } catch { /* already gone */ }
-    }
-    try { sweepTerminalMemos(terminalMemoFile(), doomed); } catch { /* clutter, not a failure */ }
-  }
+  if (!tmux) return [];
+  const run = (args: string[]) => new Promise<string>((resolve) => {
+    try { execFile(tmux, args, { encoding: "utf8", timeout: 3000 }, (_error, stdout) => resolve(String(stdout ?? ""))); }
+    catch { resolve(""); } // no server running / tmux unusable -> nothing to kill
+  });
+  const listed = await run(["list-sessions", "-F", "#{session_name}"]);
+  const doomed = tmuxSessionsForRoot(root, listed);
+  for (const session of doomed) await run(["kill-session", "-t", session]);
+  try { sweepTerminalMemos(terminalMemoFile(), doomed); } catch { /* clutter, not a failure */ }
+  return doomed;
+}
+
+export function killWorkspaceTerminals(state: TerminalIpcState): void {
+  // Fire-and-forget: the delete flow's reply never carried "sessions are gone" — the worktree removal did —
+  // and the sessions die milliseconds later without the handler paying tmux's spawn on the main loop.
+  void killTerminalsForRoot(state.options.root);
   state.termSessions?.clear();
   for (const [id, term] of state.terms) { ptyReaper.kill(term); state.terms.delete(id); ptyMemoKeys.delete(id); }
   state.commandBuffers?.clear();

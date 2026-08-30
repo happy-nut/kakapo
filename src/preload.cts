@@ -79,6 +79,11 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
   onWorkspaceState: (cb: (state: unknown) => void): void => {
     ipcRenderer.on("kakapo:workspace-state", (_event, state: unknown) => cb(state));
   },
+  // A workspace switch just landed on this view (never fired by app re-focus or clicks). The terminal
+  // panel uses it to take the keyboard when it is open — see 19-terminal.js.
+  onWorkspaceActivated: (cb: () => void): void => {
+    ipcRenderer.on("kakapo:workspace-activated", () => cb());
+  },
   toggleWorkspaceHub: (): void => ipcRenderer.send("kakapo:workspace-hub-toggle"),
   // Put an expanded rail away, because the review is taking over. Reported from here rather than inferred
   // from the view's focus event in main, which cannot tell a click in the diff from one in the terminal
@@ -293,6 +298,8 @@ contextBridge.exposeInMainWorld("kakapoApp", {
   openTerminal: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:open-terminal", { path }),
   // A link clicked in the integrated terminal. Main re-checks the scheme — terminal output is untrusted.
   openExternal: (url: string): Promise<unknown> => ipcRenderer.invoke("kakapo:open-external", { url }),
+  // An image path clicked there. Main re-checks everything (viewableFilePath in app-path-ipc.ts).
+  openViewable: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:open-viewable", { path }),
   // Lets the merged-prompt dock claim Cmd+A/Cmd+C for its own whole-document select-all/copy-all while it's
   // open, instead of racing the app menu's identical native accelerators (role: "editMenu" in app-main.ts).
   setIgnoreMenuShortcuts: (ignore: boolean): void => ipcRenderer.send("kakapo:set-ignore-menu-shortcuts", { ignore }),

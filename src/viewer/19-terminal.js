@@ -11,9 +11,30 @@ var handleTerminalSendModeKey;
 // suffix match — so an absolute path inside the workspace works too. A path this workspace does not have
 // stays inert and says so: terminal output is untrusted, and app-path-ipc.ts deliberately refuses to hand it
 // to the OS (see externalUrl there, which rejects file:// for exactly this reason).
+//
+// The one exception is a VIEWABLE file — the screenshots agents print as absolute scratchpad paths, outside
+// any workspace. Those open in the OS viewer instead, through kakapo:open-viewable, whose main-side check
+// (viewableFilePath, same file) is the policy: image/pdf extensions only, and the file must exist.
 function terminalPathToken(text) {
   var bare = text.replace(/:\d+$/, '');
   return text.length < 200 && /^[A-Za-z0-9_@.\-/]+$/.test(bare) && PATH_CODE_EXT.test(bare);
+}
+var TERMINAL_VIEWABLE_EXT = /\.(png|jpe?g|gif|webp|bmp|heic|pdf)$/i;
+function terminalViewableToken(text) {
+  return text.length < 200 && /^[A-Za-z0-9_@.\-/]+$/.test(text) && TERMINAL_VIEWABLE_EXT.test(text);
+}
+// Absolute paths go straight to main; a workspace-relative one is resolved there first. Both are re-checked
+// on the main side — the renderer's extension test only decides what gets an underline.
+function terminalOpenViewable(path) {
+  var app = window.kakapoApp;
+  if (!app || typeof app.openViewable !== 'function') return;
+  var open = function (abs) {
+    if (!abs) { showCaretHint(t('comment.pathMissing')); return; }
+    app.openViewable(abs).then(function (r) { if (!r || !r.ok) showCaretHint(t('comment.pathMissing')); }, function () {});
+  };
+  if (path.charAt(0) === '/') { open(path); return; }
+  if (typeof app.absolutePath !== 'function') { open(null); return; }
+  app.absolutePath(path).then(function (r) { open(r && r.ok ? r.path : null); }, function () { open(null); });
 }
 // A wrapped row is a continuation, not a line of its own, and half a path resolves to nothing. Rebuild the
 // whole logical line the hovered row belongs to, the way the web-links addon does before matching URLs.
@@ -57,16 +78,22 @@ function terminalPathLinkProvider(term) {
       var logical = terminalLogicalLine(term, row - 1); // provideLinks counts rows from 1, the buffer from 0
       var links = [];
       logical.text.split(/(\s+)/).reduce(function (index, token) {
-        if (token.trim() && terminalPathToken(token)) {
-          var from = terminalCellForIndex(term, logical.start, 0, index);
-          var to = from && terminalCellForIndex(term, from.y, from.x, token.length);
+        // "[image]/tmp/x.png" — a render tag glued onto the front of the path it labels. The tag is not
+        // part of the path, so the link starts after it.
+        var lead = (token.match(/^\[[A-Za-z]+\]/) || [''])[0];
+        var path = token.slice(lead.length);
+        var viewable = terminalViewableToken(path);
+        if (path.trim() && (viewable || terminalPathToken(path))) {
+          var from = terminalCellForIndex(term, logical.start, 0, index + lead.length);
+          var to = from && terminalCellForIndex(term, from.y, from.x, path.length);
           if (from && to) {
             links.push({
               range: { start: { x: from.x + 1, y: from.y + 1 }, end: { x: to.x, y: to.y + 1 } },
-              text: token,
-              activate: function (event, path) {
+              text: path,
+              activate: function (event, clicked) {
                 if (event && event.button !== 0) return; // a middle/right click keeps its native meaning
-                openPathReference(path);
+                if (viewable) terminalOpenViewable(clicked);
+                else openPathReference(clicked);
               },
             });
           }
@@ -512,8 +539,12 @@ function hangulFeed(state, ch) {
         } else {
           pane.__hangul = null;
         }
+        pane.__lastCommit = { data: event.data, at: Date.now() };
       } else {
+        // Remember the commit AFTER handing it over — triggerDataEvent fires onData synchronously, and
+        // recording first would make the guard there eat this very write.
         service.triggerDataEvent(event.data, true);
+        if (pane) pane.__lastCommit = { data: event.data, at: Date.now() };
       }
     }
     // The textarea is xterm's to manage (it clears on blur, Enter and Ctrl+C). Clearing it here as well
@@ -798,6 +829,17 @@ function hangulFeed(state, ch) {
     });
     term.onData(function (d) {
       lastInputAt = Date.now();
+      // A composition commit never arrives here — takeCompositionCommit writes it and stands xterm's
+      // own send down. So input IDENTICAL to the last commit, moments after it, is xterm's other input
+      // paths (the insertText handler, the keydown-229 textarea diff) re-delivering the same commit —
+      // macOS re-offers one the desynced IME believes was lost — and writing it is how "전략에서도"
+      // landed twice. Drop the echo once. A human cannot re-type a whole committed word inside 300ms.
+      // ponytail: exact-match heuristic — pasting the identical text within 300ms of committing it is
+      // also eaten; tighten to event-source tracking only if that ever bites.
+      if (pane.__lastCommit && d === pane.__lastCommit.data && Date.now() - pane.__lastCommit.at < 300) {
+        pane.__lastCommit = null;
+        return;
+      }
       // Anything typed while a repaired syllable is still held (Enter, punctuation, a Latin keystroke)
       // must land AFTER it — flush the hold first so the pty sees the same order the user typed.
       if (pane.__hangul) flushHangulRepair(pane);
@@ -1342,6 +1384,12 @@ function hangulFeed(state, ch) {
   // Toggle (Ctrl+`/Alt+F12) and split (Cmd+D) arrive from the Terminal menu accelerators (app-main),
   // because Chromium swallows Cmd+D before a renderer keydown would ever see it.
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalToggle === 'function') window.kakapoMenu.onTerminalToggle(toggleOrFocus);
+  // A workspace switch landed here with the panel open: the terminal is almost certainly what the reader
+  // came back for, so it takes the keyboard without a click. A closed panel changes nothing — the review
+  // keeps the keys. focusPane retries, because main's own webContents.focus() lands a beat before this.
+  if (window.kakapoMenu && typeof window.kakapoMenu.onWorkspaceActivated === 'function') {
+    window.kakapoMenu.onWorkspaceActivated(function () { if (isOpen() && active) focusPane(active); });
+  }
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalSplit === 'function') window.kakapoMenu.onTerminalSplit(split);
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalPaneFocus === 'function') window.kakapoMenu.onTerminalPaneFocus(focusPaneByDelta);
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalPaneRename === 'function') window.kakapoMenu.onTerminalPaneRename(function () { renamePane(active); });
