@@ -506,6 +506,19 @@ test("opening the launcher puts the terminal away, and the rail can bring it bac
   v.close();
 });
 
+// Commenting moved into the code itself — inline comments answered by the dedicated session — so the merged
+// review-comments dock is a legacy surface the launcher no longer advertises. ⌘⇧/ and the rail dispatch
+// still reach it for whoever wants it; only the ⌘E row is gone.
+test("the launcher no longer lists the review-comments dock", async () => {
+  const v = await loadViewer(html);
+  v.key("e", { metaKey: true, code: "KeyE" });
+  await v.settle(20);
+  assert.equal(v.$('#quick-open-side .quick-open-side-item[data-section="merged"]'), null,
+    "no merged row in the ⌘E rail");
+  assert.ok(v.$('#quick-open-side .quick-open-side-item[data-section="memo"]'), "the memo row survives");
+  v.close();
+});
+
 // ⌘⇧E is the rail; ⌘E is Recent. Rolled fast, Shift lands after the E and the wrong one opens. The
 // dialog recognises the completing Shift (⌘ still held, right after the open) and hands over to the rail.
 test("a late-Shift ⌘⇧E closes the accidental Recent dialog and expands the rail instead", async () => {
