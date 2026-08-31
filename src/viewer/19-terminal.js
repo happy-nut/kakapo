@@ -1190,7 +1190,8 @@ function hangulFeed(state, ch) {
       }
     }
   });
-  window.kakapoPty.onExit(function (msg) { removePane(msg.id); });
+  var unloading = false;
+  window.kakapoPty.onExit(function (msg) { if (!unloading) removePane(msg.id); });
 
   // A workspace off screen is a hidden PAGE, and Chromium throttles a hidden renderer: every byte written to
   // xterm there sits in its queue unparsed, so an agent mid-turn leaves megabytes of it — all of which the
@@ -1374,11 +1375,11 @@ function hangulFeed(state, ch) {
     }
   }
   function setOpen(open) {
-    // The terminal shares the exclusive dock slot with merged/memo — opening it closes those. History goes
-    // too: the panel renders above the overlay (z77+ vs 75), so closing the terminal later would drop the
-    // reviewer back into an overlay they never meant to keep. Full-screen surfaces switch, never stack.
+    // The terminal shares the exclusive full-screen slot with the docks, History, and the knowledge map.
+    // Close them before showing it so the surface underneath cannot keep owning the keyboard.
     if (open && typeof window.__kakapoCloseDocks === 'function') { try { window.__kakapoCloseDocks(); } catch (e) {} }
     if (open && window.__kakapoHistory && typeof window.__kakapoHistory.close === 'function') { try { window.__kakapoHistory.close(); } catch (e) {} }
+    if (open && termMapOpen()) closeTermMap();
     panel.classList.toggle('hidden', !open);
     if (!open) setConnecting(false);
     document.body.classList.toggle('terminal-open', open);
@@ -1477,6 +1478,15 @@ function hangulFeed(state, ch) {
   var ro = (typeof ResizeObserver === 'function') ? new ResizeObserver(function () { if (isOpen()) scheduleFitAll(); }) : null;
   if (ro) ro.observe(host);
   window.addEventListener('resize', function () { if (isOpen()) scheduleFitAll(); });
+  var refocusTerminal = false;
+  window.addEventListener('blur', function () {
+    var ae = document.activeElement;
+    refocusTerminal = !!(isOpen() && active && ae && panel.contains(ae));
+  });
+  window.addEventListener('focus', function () {
+    if (refocusTerminal && isOpen() && active) focusPane(active);
+    refocusTerminal = false;
+  });
 
   if (resizer) {
     resizer.addEventListener('mousedown', function (e) {
@@ -1498,6 +1508,7 @@ function hangulFeed(state, ch) {
 
   // Kill this window's ptys on unload so a reload/close doesn't leak them in the main process.
   window.addEventListener('beforeunload', function () {
+    unloading = true;
     panes.forEach(function (p) { if (p.id != null) { try { window.kakapoPty.kill({ id: p.id }); } catch (e) {} } });
   });
 

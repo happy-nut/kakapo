@@ -32,11 +32,11 @@ contextBridge.exposeInMainWorld("kakapoHub", {
   // disconnected workspace, neither of which has a window and therefore neither of which has an id.
   reorder: (repo: string, paths: string[]) => ipcRenderer.invoke("kakapo:hub-reorder", { repo, paths }),
   // Native workspace-tile context menu (drawn above the review views, so it doesn't blank the main panel).
-  tileMenu: (info: { id: number; name: string; resume: boolean; kind?: string }) => ipcRenderer.send("kakapo:tile-menu", info),
-  onTileAction: (callback: (data: { id: number; action: string; name: string }) => void) =>
+  tileMenu: (info: { id: number; name: string; resume: boolean; kind?: string; path?: string; closed?: boolean }) => ipcRenderer.send("kakapo:tile-menu", info),
+  onTileAction: (callback: (data: { id: number; action: string; name: string; path?: string }) => void) =>
     ipcRenderer.on("kakapo:tile-action", (_event, data) => callback(data)),
-  remove: (id: number, mode: "close" | "delete", force = false, deleteBranch = false) =>
-    ipcRenderer.invoke("kakapo:hub-remove", { id, mode, force, deleteBranch }),
+  remove: (id: number, mode: "close" | "delete", force = false, deleteBranch = false, path?: string) =>
+    ipcRenderer.invoke("kakapo:hub-remove", { id, mode, force, deleteBranch, path }),
   resume: (id: number) => ipcRenderer.send("kakapo:hub-resume", id),
   settings: () => ipcRenderer.send("kakapo:hub-settings"),
   // The New-workspace / rename / memo dialogs live in a transparent overlay WebContentsView layered ABOVE the

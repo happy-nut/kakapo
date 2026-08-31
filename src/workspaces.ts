@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "node
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
-import { git, resolveWorkspaceRoot } from "./git.js";
+import { defaultBaseRef, git, isGitRepository, resolveWorkspaceRoot } from "./git.js";
 import { forgetSession } from "./ask-session.js";
 
 export type WorkspaceKind = "main" | "worktree";
@@ -50,13 +50,33 @@ export function workspaceRecord(path: string, openedAt = Date.now()): WorkspaceR
   };
 }
 
-export function defaultBase(root: string): string {
-  const remoteHead = git(root, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
-  if (remoteHead) return remoteHead;
-  for (const candidate of ["origin/main", "origin/master", "main", "master"]) {
-    if (git(root, ["rev-parse", "--verify", "--quiet", `${candidate}^{commit}`])) return candidate;
+// `git worktree list --porcelain -z` is Git's stable, NUL-delimited inventory. Keep this parser small and
+// path-safe so worktrees created by an agent or another Git client can join Kakapo without having been created
+// by Kakapo first. The main checkout is already represented by the project's pinned home tile.
+export function parseWorktreeList(output: string, repoRoot: string, openedAt = Date.now()): WorkspaceRecord[] {
+  const root = resolve(repoRoot);
+  const records: WorkspaceRecord[] = [];
+  let path = "", branch = "detached", prunable = false;
+  const flush = () => {
+    const resolved = path ? resolve(path) : "";
+    if (resolved && resolved !== root && !prunable) {
+      records.push({ path: resolved, repoRoot: root, repoName: basename(root), branch, kind: "worktree", openedAt });
+    }
+    path = ""; branch = "detached"; prunable = false;
+  };
+  for (const field of output.split("\0")) {
+    if (field.startsWith("worktree ")) { flush(); path = field.slice("worktree ".length); }
+    else if (field.startsWith("branch ")) branch = field.slice("branch ".length).replace(/^refs\/heads\//, "");
+    else if (field === "detached") branch = "detached";
+    else if (field.startsWith("prunable")) prunable = true;
+    else if (!field) flush();
   }
-  return "HEAD";
+  flush();
+  return records;
+}
+
+export function defaultBase(root: string): string {
+  return defaultBaseRef(root) || "HEAD";
 }
 
 // The branch the project's own checkout is expected to sit on. Derived from defaultBase rather than asked for
@@ -205,12 +225,16 @@ export function aheadCount(path: string, base?: string): number {
 }
 
 export function removalRisk(workspace: WorkspaceRecord, runningProcesses = false): WorkspaceRemovalRisk {
+  if (!isGitRepository(workspace.path)) return { dirty: false, unpushed: 0, runningProcesses };
   const status = git(workspace.path, ["status", "--porcelain"]);
   return { dirty: !!status, unpushed: aheadCount(workspace.path, workspace.base), runningProcesses };
 }
 
 export function removeManagedWorkspace(workspace: WorkspaceRecord, force = false, deleteBranch = false): void {
   if (workspace.kind !== "worktree") throw new Error("The main checkout can only be closed, not deleted.");
+  // A stale/non-git workspace has no Git checkout to remove. Returning lets the caller forget the tile while
+  // preserving an ordinary directory that Kakapo must never mistake for disposable worktree contents.
+  if (!isGitRepository(workspace.path)) return;
   const risk = removalRisk(workspace);
   if (!force && (risk.dirty || risk.unpushed)) throw new Error("Workspace has uncommitted or unpushed changes.");
   // Before the removal, not after: the session id is read out of the worktree's git dir, and that dir is what

@@ -465,7 +465,8 @@ test("an expanded tile lists what each terminal pane is running, with its own st
   const rows = [...document.querySelectorAll(".ev .wt .wt-pane")];
   assert.equal(rows.length, 3, "one row per pane, including the one that is only a shell");
   assert.match(rows[0].className, /pane-busy/, "the agent mid-turn spins on its own row");
-  assert.match(rows[0].textContent, /Claude/, "…and is named by its agent, not by the process");
+  assert.ok(rows[0].querySelector(".usage-ico"), "…and the agent icon identifies it without repeated text");
+  assert.doesNotMatch(rows[0].textContent, /Claude/, "the icon makes an agent-name label redundant");
   assert.match(rows[1].className, /pane-running/, "a plain command is alive but not mid-turn");
   assert.match(rows[1].textContent, /npm/, "…and says which command it is");
   assert.match(rows[2].className, /pane-idle/, "a bare shell is neither");

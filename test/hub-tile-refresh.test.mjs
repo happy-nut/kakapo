@@ -81,13 +81,14 @@ test("a workspace with no pty attached still reports a working agent, from tmux"
   assert.ok(scan, "the scan exists");
   assert.match(scan, /#\{session_name\}.#\{pane_current_command\}.#\{window_activity\}/,
     "activity rides along on the existing scan — one answer must not cost two subprocesses");
+  assert.match(scan, /#\{pane_title\}/, "Claude's own task title rides on that same scan");
 
   // tmux replaces CONTROL characters in format output with "_", so a tab separator came back as one
   // unsplittable field and every pane was dropped for having no command — the rail showed a shell for panes
   // with an agent working in them. Only in the packaged app: a tmux talking to a terminal does not sanitise.
   // Measured in the running app: tab and \x1f both yield 1 field, pipe and space both yield 3.
   const separators = [...scan.matchAll(/\}(.)#/g)].map((m) => m[1]);
-  assert.equal(separators.length, 2, "two separators, three fields");
+  assert.equal(separators.length, 3, "three separators, four fields (session, command, activity, pane title)");
   for (const sep of separators) {
     const code = sep.codePointAt(0);
     assert.ok(code > 31 && code !== 127, `separator U+${code.toString(16)} must be printable — tmux turns control characters into "_"`);
@@ -115,4 +116,19 @@ test("a workspace with no pty attached still reports a working agent, from tmux"
     assert.match(p, /paneRows\.some\(\(pane\) => pane\.busy\)|rows\.some\(\(pane\) => pane\.busy\)/,
       `both fold in the pane rows, got: ${p}`);
   }
+});
+
+test("pane rows let the icon identify the agent without repeating its name", () => {
+  const shell = readFileSync(new URL("../src/shell-pages.ts", import.meta.url), "utf8");
+  assert.match(shell, /const title=p\.task\|\|\(!p\.agent\?paneWhat\(p\):''\)/);
+  assert.doesNotMatch(shell, /AGENT_NAME\[p\.agent\]\+' · '\+p\.task/);
+  assert.match(shell, /\.wt-pane>\.usage-ico\{width:11px;height:11px;margin-top:2px\}/);
+});
+
+test("an empty startup capture does not permanently discard the pane task", () => {
+  const main = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
+  const task = main.match(/function paneTask\([\s\S]*?\n\}/)?.[0];
+  assert.ok(task);
+  assert.match(task, /if \(screen\.trim\(\)\) scannedSessionTasks\.add\(session\)/);
+  assert.doesNotMatch(task, /if \(!scannedSessionTasks\.has\(session\)\) \{\s*scannedSessionTasks\.add/);
 });

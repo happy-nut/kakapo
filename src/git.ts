@@ -48,14 +48,17 @@ export type AutomaticReviewBase = {
   behind?: number;
 };
 
-// The ref a branch was cut from when it has no tracking branch — a feature branch nobody has pushed yet.
+// The ref a branch was cut from when it has no tracking branch — prefer the remote default so a stale local
+// main does not keep showing a feature branch after that branch has already been merged remotely.
 // Without this the automatic base gave up on such a branch entirely, the review fell back to
 // HEAD-vs-worktree, and the moment an agent committed its work that diff went empty: every review comment
 // lost the line it hangs on and the whole review looked wiped (the comments were safe on disk the whole
 // time — there was simply no diff left to draw them on). Same fallback the patch-set selector already uses.
-function defaultBranchRef(root: string): string {
-  for (const candidate of ["main", "master"]) {
-    if (git(root, ["rev-parse", "--verify", "--quiet", candidate])) return candidate;
+export function defaultBaseRef(root: string): string {
+  const remoteHead = git(root, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
+  if (remoteHead) return remoteHead;
+  for (const candidate of ["origin/main", "origin/master", "main", "master"]) {
+    if (git(root, ["rev-parse", "--verify", "--quiet", `${candidate}^{commit}`])) return candidate;
   }
   return "";
 }
@@ -80,7 +83,7 @@ export function resolveAutomaticReviewBase(root: string, includeUntracked = true
   if (status) return undefined;
 
   const tracking = git(canonicalRoot, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
-  const upstream = tracking || defaultBranchRef(canonicalRoot);
+  const upstream = tracking || defaultBaseRef(canonicalRoot);
   if (!upstream) return undefined;
   const counts = git(canonicalRoot, ["rev-list", "--left-right", "--count", `${upstream}...HEAD`])
     .split(/\s+/)

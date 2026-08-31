@@ -4,9 +4,22 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createManagedWorkspaceAsync, defaultBase, defaultBranch, removalRisk, removeManagedWorkspace, workspaceRecord } from "../dist/workspaces.js";
+import { createManagedWorkspaceAsync, defaultBase, defaultBranch, parseWorktreeList, removalRisk, removeManagedWorkspace, workspaceRecord } from "../dist/workspaces.js";
 
 const sh = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+test("porcelain worktree inventory discovers external linked checkouts", () => {
+  const output = [
+    "worktree /repo", "HEAD a", "branch refs/heads/main", "",
+    "worktree /tmp/agent tree", "HEAD b", "branch refs/heads/agent/task", "",
+    "worktree /tmp/detached", "HEAD c", "detached", "",
+    "worktree /tmp/gone", "HEAD d", "branch refs/heads/gone", "prunable gitdir file points to non-existent location", "",
+  ].join("\0");
+  assert.deepEqual(parseWorktreeList(output, "/repo", 123), [
+    { path: "/tmp/agent tree", repoRoot: "/repo", repoName: "repo", branch: "agent/task", kind: "worktree", openedAt: 123 },
+    { path: "/tmp/detached", repoRoot: "/repo", repoName: "repo", branch: "detached", kind: "worktree", openedAt: 123 },
+  ]);
+});
+
 test("managed worktree creation, risk detection, and safe removal", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "kakapo-workspaces-"));
   try {
@@ -79,7 +92,14 @@ test("a workspace whose folder is gone is not mistaken for the project's main ch
     rmSync(ws.path, { recursive: true, force: true }); // deleted behind kakapo's back
     const record = workspaceRecord(ws.path);
     assert.notEqual(record.kind, "main", "an unreadable path claims nothing about being a main checkout");
+    assert.doesNotThrow(() => removeManagedWorkspace(record, true), "a dead tile can be forgotten without asking Git to remove it again");
     assert.equal(workspaceRecord(repo).kind, "main", "while the real main checkout still says so");
+
+    const plain = join(tmp, "plain-folder"); mkdirSync(plain);
+    assert.deepEqual(removalRisk(workspaceRecord(plain)), { dirty: false, unpushed: 0, runningProcesses: false },
+      "a non-git tile does not turn Git's fatal message into deletion risk");
+    removeManagedWorkspace(workspaceRecord(plain), true);
+    assert.ok(existsSync(plain), "forgetting a non-git tile never deletes an ordinary folder");
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 

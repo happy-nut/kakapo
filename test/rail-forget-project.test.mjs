@@ -26,6 +26,19 @@ test("a closed project tile offers the two things it can actually honour", () =>
   }
 });
 
+test("a discovered closed worktree can be opened or deleted by path", () => {
+  assert.deepEqual(actions(tileMenuHtml(false, true, false, t, true)), ["open", "delete"]);
+  const shell = read("src/shell-pages.ts");
+  assert.match(shell, /removeWorkspace\(id,name,d\.path\|\|''\)/, "the context-menu path reaches deletion");
+  assert.match(shell, /removeWorkspace\(Number\(el\.dataset\.id\),el\.dataset\.name\|\|'',decodeURIComponent\(el\.dataset\.path\|\|''\)\)/,
+    "keyboard deletion carries the same path");
+  assert.match(read("src/hub-preload.cts"), /kakapo:hub-remove[^\n]*\{ id, mode, force, deleteBranch, path \}/,
+    "the bridge forwards the path");
+  const main = read("src/app-main.ts");
+  assert.match(main, /discoveredWorktrees\.find[\s\S]{0,400}state\?\.options\.root \?\? discovered!\.path/,
+    "main accepts only a path from its own discovered-worktree inventory");
+});
+
 test("an open workspace's menu is unchanged", () => {
   assert.deepEqual(actions(tileMenuHtml(true, true, false, t, false)),
     ["activate", "resume", "rename", "memo", "detach", "close", "delete"]);
