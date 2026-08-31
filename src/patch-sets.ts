@@ -1,4 +1,4 @@
-import { git } from "./git.js";
+import { defaultBaseRef, git } from "./git.js";
 
 // One selectable patch set: a commit on the branch under review. The reviewer picks one as the diff
 // base and always compares it against the latest state (working tree). "remote보다 앞선 로컬 커밋
@@ -44,11 +44,9 @@ function resolveBranchPoint(root: string): { sha: string; label: string; upstrea
     const mergeBase = git(root, ["merge-base", upstream, "HEAD"]);
     if (mergeBase) return { sha: mergeBase, label: upstream, upstream };
   }
-  for (const candidate of ["main", "master"]) {
-    if (!git(root, ["rev-parse", "--verify", "--quiet", candidate])) continue;
-    const mergeBase = git(root, ["merge-base", candidate, "HEAD"]);
-    if (mergeBase) return { sha: mergeBase, label: candidate };
-  }
+  const base = defaultBaseRef(root);
+  const mergeBase = base && git(root, ["merge-base", base, "HEAD"]);
+  if (mergeBase) return { sha: mergeBase, label: base };
   return undefined;
 }
 

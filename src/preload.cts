@@ -153,9 +153,6 @@ contextBridge.exposeInMainWorld("kakapoPty", {
   foreground: (msg: { id: number }): Promise<{ running: boolean; name: string }> => ipcRenderer.invoke("kakapo:pty-foreground", msg),
   // Live tmux sessions for this workspace, so reopening the panel restores the panes it had.
   sessions: (): Promise<{ ordinals: number[] }> => ipcRenderer.invoke("kakapo:pty-sessions"),
-  // The pane-head session memo: one line that survives with the tmux session (terminal-memos.ts).
-  memo: (msg: { id: number }): Promise<{ text: string }> => ipcRenderer.invoke("kakapo:term-memo", msg),
-  memoSet: (msg: { id: number; text: string }): void => ipcRenderer.send("kakapo:term-memo-set", msg),
   // A TUI in the pane rang the terminal bell (e.g. Claude Code finished a turn / needs input), or an agent
   // answered a review comment (07-comments.js). The renderer passes a pre-localized title+body; the main
   // process decides whether to raise a native notification. `seq` names the comment the notification is

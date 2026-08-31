@@ -4,7 +4,7 @@
 // separator that footer tallies carry and transcript prose does not, and (2) only the bottom lines count.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { screenShowsPendingWork } from "../dist/util.js";
+import { screenAgentActivity, screenShowsPendingWork } from "../dist/util.js";
 
 test("footer tallying a background shell reads as pending", () => {
   const screen = [
@@ -53,4 +53,18 @@ test("trailing blank rows of a short session do not push the footer out of reach
     "", "", "", "", "",
   ].join("\n");
   assert.equal(screenShowsPendingWork(screen), true);
+});
+
+test("pane-local Codex and Claude screens expose task plus live action without an agent call", () => {
+  assert.deepEqual(screenAgentActivity([
+    "› D 해줘. 이건 클로드도 마찬가지로 되는 거지 ?",
+    "• Ran 11 commands · ctrl + t to view transcript",
+    "• Working (2m 31s • esc to interrupt)",
+    "› Ask Codex to do anything",
+  ].join("\n")), { task: "D 해줘. 이건 클로드도 마찬가지로 되는 거지 ?", action: "commands", count: 11 });
+  assert.deepEqual(screenAgentActivity([
+    "❯ 트레이스 빼고 커밋해줘",
+    "✻ Brewed for 1m 33s · 1 shell still running",
+    "⏵⏵ bypass permissions on · 1 shell · ← 1 agent",
+  ].join("\n")), { task: "트레이스 빼고 커밋해줘", action: "shell", count: 1 });
 });

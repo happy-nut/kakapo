@@ -389,6 +389,10 @@ export function tmuxSpawnArgs(session: string, cwd: string, env: { [key: string]
   return args.concat([
     ";", "set", "-g", "status", "off",
     ";", "set", "-g", "mouse", "on",
+    // A fullscreen TUI may request mouse tracking. tmux's default then forwards WheelUp to the TUI, and Codex
+    // treats it as composer navigation instead of history scrolling. Kakapo terminals reserve WheelUp for
+    // tmux copy mode; once there, tmux's existing copy-mode bindings handle both directions.
+    ";", "bind-key", "-T", "root", "WheelUpPane", "if-shell", "-F", "#{pane_in_mode}", "send-keys -M", "copy-mode -e",
     ";", "set", "-g", "default-terminal", "tmux-256color",
     ";", "set", "-ga", "terminal-overrides", ",*256col*:Tc",
   ]);
@@ -425,6 +429,43 @@ export function tmuxPaneCommand(tmux: string, session: string): string {
 const PENDING_FOOTER = /·\s*\d+\s+(shell|bash)/;
 export function screenShowsPendingWork(screen: string): boolean {
   return screen.replace(/\s+$/, "").split("\n").slice(-3).some((line) => PENDING_FOOTER.test(line));
+}
+
+export type ScreenAgentActivity = {
+  task?: string;
+  action?: "commands" | "edit" | "explore" | "view" | "generate" | "shell" | "work";
+  detail?: string;
+  count?: number;
+};
+
+// Both Codex and Claude leave the current turn on their tmux screen. Reading that screen is pane-specific,
+// local, and free: unlike a generated summary it neither spends tokens nor guesses which of two agents in
+// one workspace owns a transcript. Keep the parser to stable visible markers and fall back to "working".
+export function screenAgentActivity(screen: string): ScreenAgentActivity {
+  const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split("\n");
+  let task: string | undefined;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const match = /^\s*[›❯]\s*(.+?)\s*$/.exec(lines[i].replace(/\u00a0/g, " "));
+    const title = match?.[1].trim();
+    if (!title || /^Ask (Codex|Claude) to do anything$/i.test(title)) continue;
+    task = title;
+    break;
+  }
+  const recent = lines.slice(-50);
+  const footer = recent.slice(-12).join("\n");
+  const shell = /(\d+)\s+(?:shells?|bash)(?:\s+still running)?/i.exec(footer);
+  if (shell) return { task, action: "shell", count: Number(shell[1]) };
+  for (let i = recent.length - 1; i >= 0; i--) {
+    const line = recent[i].trim();
+    const ran = /^•\s*Ran\s+(\d+)\s+commands?/i.exec(line);
+    if (ran) return { task, action: "commands", count: Number(ran[1]) };
+    const edited = /^•\s*Edited\s+(.+?)(?:\s+\(|$)/i.exec(line);
+    if (edited) return { task, action: "edit", detail: edited[1].split(/[\\/]/).pop() };
+    if (/^•\s*Explored\b/i.test(line)) return { task, action: "explore" };
+    if (/^•\s*Viewed\b/i.test(line)) return { task, action: "view" };
+    if (/^•\s*Generated\b/i.test(line)) return { task, action: "generate" };
+  }
+  return { task, action: /Working\s*\(|esc to interrupt|still running/i.test(footer) ? "work" : undefined };
 }
 
 type Killable = { kill: (signal?: string) => void };

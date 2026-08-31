@@ -30,7 +30,7 @@ body{padding:14px;-webkit-user-select:none;user-select:none;cursor:default;font:
 .sep{height:1px;background:${line};margin:5px 9px}
 </style>
 <div class="menu">
-${closed ? item("open", t("tile.open"), "hl") + item("forget", t("tile.forget"), "danger") : `
+${closed ? item("open", t("tile.open"), "hl") + (canDelete ? item("delete", t("tile.delete"), "danger") : item("forget", t("tile.forget"), "danger")) : `
 ${item("activate", t("tile.switch"), "hl")}
 ${resume ? item("resume", t("tile.resume")) : ""}
 <div class="sep"></div>
@@ -230,13 +230,16 @@ body.wt-reordering .ev .wt:not(.wt-lifted){transition:transform 120ms ease}
    summarize all of them into one glyph — which is both less than you need and, when the summary was wrong,
    actively misleading. Each row carries its own state so the summary above it is checkable at a glance. */
 .wt-panes{display:flex;flex-direction:column;gap:1px;margin:4px 0 0 16px}
-.wt-pane{display:flex;align-items:center;gap:7px;font-size:11.5px;color:${light ? "#8b909a" : "#7b818b"};min-width:0;padding:1px 0;text-align:left}
-.wt-pane .pw{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.wt-pane{display:flex;align-items:flex-start;gap:7px;font-size:11.5px;color:${light ? "#8b909a" : "#7b818b"};min-width:0;padding:2px 0;text-align:left}
+.wt-pane .pw{display:flex;flex-direction:column;min-width:0;flex:1;line-height:1.35}
+.wt-pane .pt,.wt-pane .pa{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wt-pane .pa{font-size:10.5px;color:${light ? "#9aa0aa" : "#666d77"}}
 .wt-pane.pane-busy .pw{color:${fg}}
+.wt-pane.pane-busy .pa{color:${light ? "#6f7680" : "#9aa0aa"}}
 .wt-pane.pane-attn .pw{color:#e5484d}
-.wt-pane .usage-ico{width:11px;height:11px}
+.wt-pane>.usage-ico{width:11px;height:11px;margin-top:2px}
 /* Same three states as the tile dot, at 6px. border-box again, so a pane starting work shifts nothing. */
-.pdot{width:6px;height:6px;border-radius:50%;flex:none;background:${light ? "#b7bcc4" : "#5b616b"}}
+.pdot{width:6px;height:6px;border-radius:50%;flex:none;margin-top:5px;background:${light ? "#b7bcc4" : "#5b616b"}}
 .wt-pane.pane-running .pdot{background:#4cc38a}
 .wt-pane.pane-busy .pdot{background:transparent;box-sizing:border-box;border:1.25px solid #4cc38a44;border-top-color:#4cc38a;animation:wtspin .8s linear infinite}
 .wt-pane.pane-attn .pdot{background:#e5484d;border:0;animation:none}
@@ -568,7 +571,7 @@ document.addEventListener('keydown',e=>{
   // ⌫/Delete opens the same delete-confirm flow as the tile menu's "Delete worktree…". A disconnected tile has no
   // worktree to remove, so it routes to the reconnect/forget dialog; the main checkout can't be deleted (the
   // context menu hides Delete for it), so leave it alone.
-  else if(e.key==='Backspace'||e.key==='Delete'){const t=railTiles();const el=railSel>=0?t[railSel]:null;if(el){e.preventDefault();if(el.dataset.disconnected==='true')window.kakapoHub.openModal('disconnected',{path:decodeURIComponent(el.dataset.path)});else if(el.dataset.kind!=='main')removeWorkspace(Number(el.dataset.id),el.dataset.name||'');}}
+  else if(e.key==='Backspace'||e.key==='Delete'){const t=railTiles();const el=railSel>=0?t[railSel]:null;if(el){e.preventDefault();if(el.dataset.disconnected==='true')window.kakapoHub.openModal('disconnected',{path:decodeURIComponent(el.dataset.path)});else if(el.dataset.kind!=='main')removeWorkspace(Number(el.dataset.id),el.dataset.name||'',decodeURIComponent(el.dataset.path||''));}}
 });
 pinBtn.onclick=toggleRail;
 window.kakapoHub.onToggleExpand(toggleRail);
@@ -594,7 +597,8 @@ const panesHtml=w=>{const list=Array.isArray(w.panes)?w.panes:[];if(!list.length
   // thing three times and stop meaning "look here".
   let claimed=!w.unread;
   return '<div class="wt-panes">'+list.map(p=>{let st=paneState(p,!claimed);if(st==='attn')claimed=true;
-    return '<div class="wt-pane pane-'+st+'"><span class="pdot"></span>'+paneIco(p)+'<span class="pw">'+esc(paneWhat(p))+(st==='busy'?' · '+T.paneWorking:st==='attn'?' · '+T.paneWaiting:'')+'</span></div>';}).join('')+'</div>';};
+    const title=p.task||(!p.agent?paneWhat(p):'');const action=st==='busy'?(p.action||T.paneWorking):st==='attn'?T.paneWaiting:(p.running?T.paneWaiting:'');
+    return '<div class="wt-pane pane-'+st+'"><span class="pdot"></span>'+paneIco(p)+'<span class="pw">'+(title?'<span class="pt">'+esc(title)+'</span>':'')+(action?'<span class="pa">'+esc(action)+'</span>':'')+'</span></div>';}).join('')+'</div>';};
 window.kakapoHub.onState(items=>{const groups=new Map;for(const w of items){if(!groups.has(w.repoName))groups.set(w.repoName,[]);groups.get(w.repoName).push(w)}
 // Left: which checkout this is — project and the branch it is on, the two things you cannot rename away.
 // Centre: the alias, the title you CAN edit (blank when you never gave it one; the pair on the left already
@@ -688,15 +692,15 @@ window.kakapoHub.onTileAction(d=>{const id=d.id,name=d.name||'';const action=d.a
 // makes a closed tile stay gone — see forgetRecentProject).
 if(action==='open'){window.kakapoHub.openPath(d.path||'');return}
 if(action==='forget'){window.kakapoHub.forgetProject(d.path||'');return}
-if(action==='rename'){window.kakapoHub.openModal('rename',{id,name});}else if(action==='memo'){const el=document.querySelector('.wt[data-id="'+id+'"]');window.kakapoHub.openModal('memo',{id,name,memo:el?el.dataset.memo||'':''});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id,name);});
-async function removeWorkspace(id,name){const r0=await window.kakapoHub.confirm({title:name?T.delTitleNamed.replace('{name}',name):T.delTitle,message:T.delMessage,checkbox:T.delCheckbox,checked:true,buttons:[T.cancel,T.del],danger:true,defaultId:0});if(r0.index!==1)return;const delBranch=r0.checked;let r;
+if(action==='rename'){window.kakapoHub.openModal('rename',{id,name});}else if(action==='memo'){const el=document.querySelector('.wt[data-id="'+id+'"]');window.kakapoHub.openModal('memo',{id,name,memo:el?el.dataset.memo||'':''});}else if(action==='activate')window.kakapoHub.activate(id);else if(action==='resume')window.kakapoHub.resume(id);else if(action==='detach')window.kakapoHub.detach(id);else if(action==='close')window.kakapoHub.remove(id,'close');else if(action==='delete')removeWorkspace(id,name,d.path||'');});
+async function removeWorkspace(id,name,path){const r0=await window.kakapoHub.confirm({title:name?T.delTitleNamed.replace('{name}',name):T.delTitle,message:T.delMessage,checkbox:T.delCheckbox,checked:true,buttons:[T.cancel,T.del],danger:true,defaultId:0});if(r0.index!==1)return;const delBranch=r0.checked;let r;
 // Main answers a failed removal with {ok:false,error}, but an invoke can still reject outright (a thrown
 // handler crosses the bridge as a rejection). Unguarded, that rejection skipped the failure dialog below and
 // the delete reported nothing at all — the loudest possible silence for the one action that destroys work.
 // Dimmed + "deleting…" for exactly as long as main is actually working, and NOT while a confirm dialog is
 // up in between — the tile marks itself before each call and clears in finally, so the risk-check round trip
 // and the real removal both show, and a cancelled second dialog leaves the tile untouched.
-const rm=async(...a)=>{markDeleting(id,true);try{return await window.kakapoHub.remove(id,'delete',...a)}finally{markDeleting(id,false)}};
+const rm=async(...a)=>{markDeleting(id,true);try{return await window.kakapoHub.remove(id,'delete',...a,path)}finally{markDeleting(id,false)}};
 try{r=await rm(false,delBranch);if(r.needsConfirmation){const x=r.risk;const detail=[x.dirty&&T.dirty,x.unpushed&&T.unpushed.replace('{n}',x.unpushed).replace('{s}',x.unpushed===1?'':'s'),x.runningProcesses&&T.runningProc].filter(Boolean).join('\\n');const r2=await window.kakapoHub.confirm({title:T.anywayTitle,message:T.hasWork,detail,buttons:[T.cancel,T.anyway],danger:true,defaultId:0});if(r2.index!==1)return;r=await rm(true,delBranch);}}catch(err){r={ok:false,error:(err&&err.message)||String(err)};}
 if(!r.ok)await window.kakapoHub.confirm({title:T.failedTitle,message:r.error||T.failedMsg,buttons:[T.ok]});}
 // Press and HOLD a workspace to lift it, then drag to reorder it inside its project. A press that moves

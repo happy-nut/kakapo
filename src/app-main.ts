@@ -21,7 +21,7 @@ import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { parseReviewArgs, readOption } from "./cli-args.js";
 import { easeRail } from "./rail-animation.js";
-import { ByteBudgetCache, errorMessage, githubOwnerFromUrl, screenShowsPendingWork, tmuxSessionsForRoot } from "./util.js";
+import { ByteBudgetCache, errorMessage, githubOwnerFromUrl, screenAgentActivity, screenShowsPendingWork, tmuxSessionsForRoot, type ScreenAgentActivity } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
@@ -39,7 +39,7 @@ import { HUB_WIDTH, HUB_EXPANDED, TITLEBAR_H, UI_SCALES } from "./constants.js";
 import { collectUsageStats } from "./usage-stats.js";
 import { AGENT_LAUNCH, agentForCommand, type AgentKind } from "./agent-resume.js";
 import { hubHtml, modalOverlayHtml } from "./shell-pages.js";
-import { aheadArgs, aheadCount, createManagedWorkspaceAsync, defaultBase, defaultBranch as defaultBranchOf, listStartRefs, randomWorkspaceSlug, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
+import { aheadArgs, aheadCount, createManagedWorkspaceAsync, defaultBase, defaultBranch as defaultBranchOf, listStartRefs, parseWorktreeList, randomWorkspaceSlug, removalRisk, removeManagedWorkspace, workspaceRecord, workspaceSlug, type WorkspaceRecord } from "./workspaces.js";
 
 type AppOptions = {
   root: string;
@@ -962,14 +962,17 @@ ipcMain.handle("kakapo:hub-reorder", (_event, payload: { repo?: unknown; paths?:
   renderHub();
   return { ok: true };
 });
-ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unknown; force?: unknown; deleteBranch?: unknown }) => {
+ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unknown; force?: unknown; deleteBranch?: unknown; path?: unknown }) => {
   if (typeof payload?.id !== "number" || (payload.mode !== "close" && payload.mode !== "delete")) return { ok: false };
   const state = states.get(payload.id);
-  if (!state) return { ok: false };
-  const record = workspaceRecord(state.options.root);
+  const discovered = !state && payload.mode === "delete" && typeof payload.path === "string"
+    ? discoveredWorktrees.find((item) => resolveWorkspaceRoot(item.path) === resolveWorkspaceRoot(payload.path as string))
+    : undefined;
+  if (!state && !discovered) return { ok: false };
+  const record = workspaceRecord(state?.options.root ?? discovered!.path);
   const metadata = savedWorkspaceMetadata().find((item) => resolveWorkspaceRoot(item.path) === record.path);
   record.base = metadata?.base;
-  const risk = removalRisk(record, state.terms.size > 0);
+  const risk = removalRisk(record, (state?.terms.size ?? 0) > 0);
   if (payload.mode === "delete") {
     if (record.kind === "main") return { ok: false, error: "The main checkout can only be closed.", risk };
     if (!payload.force && (risk.dirty || risk.unpushed || risk.runningProcesses)) return { ok: false, needsConfirmation: true, risk };
@@ -988,7 +991,7 @@ ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unk
     }
     // tmux sessions die with the workspace too: killing only the ptys DETACHES a persistent pane, leaving
     // its session (and whatever agent is in it) running forever, invisible, with its worktree deleted.
-    killWorkspaceTerminals(state);
+    if (state) killWorkspaceTerminals(state);
   }
   // Removing one workspace can strand another's sessions (a folder moved, a worktree pruned outside the app),
   // so take the same look here that startup takes.
@@ -1004,7 +1007,7 @@ ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unk
     preferences.forgetRecentProject(record.path);
     hubMainTilesCache = undefined; // the pinned-project set may have changed
   }
-  state.win.webContents.close();
+  state?.win.webContents.close();
   if (payload.mode === "delete") {
     // The workspace's userData mirror (review html, state.json with the renderer's comment copy, memo, perf)
     // must die with the worktree: state.json is what loadThread migrates into a comments.jsonl that does not
@@ -1012,8 +1015,9 @@ ipcMain.handle("kakapo:hub-remove", (_event, payload: { id?: unknown; mode?: unk
     // same path. After close, so the renderer cannot write the copy back between the wipe and its death.
     try { rmSync(workspaceDataDirectory(app.getPath("userData"), record.path), { recursive: true, force: true }); } catch { /* best-effort */ }
   }
-  const next = Array.from(states.values()).find((item) => item !== state);
+  const next = Array.from(states.values()).find((item) => !state || item !== state);
   if (next) activateWorkspace(next.win.webContents.id);
+  renderHub();
   return { ok: true };
 });
 
@@ -1357,24 +1361,24 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   const restored = preferences.readOpenWorkspaces()
     .filter((workspace) => existsSync(workspace.path) && isGitRepository(workspace.path));
   const activePath = preferences.readActiveWorkspace();
-  const restoreActive = app.isPackaged && !isGitRepository(options.root) && activePath;
-  const requested = createWindow(options.root, !!restoreActive);
+  // Finder launches a packaged app from an arbitrary cwd (often the user's home). If saved repos exist,
+  // start with one of them instead of registering that non-git cwd as a fake "detached" workspace.
+  const restoreRoot = app.isPackaged && !isGitRepository(options.root)
+    ? restored.find((workspace) => activePath && resolveWorkspaceRoot(workspace.path) === resolveWorkspaceRoot(activePath))?.path
+      ?? restored[0]?.path
+    : undefined;
+  const requestedRoot = restoreRoot ?? options.root;
+  createWindow(requestedRoot);
   for (const workspace of restored) {
-    if (resolveWorkspaceRoot(workspace.path) !== resolveWorkspaceRoot(options.root)) {
-      createWindow(workspace.path, !restoreActive || resolveWorkspaceRoot(workspace.path) !== resolveWorkspaceRoot(restoreActive));
+    if (resolveWorkspaceRoot(workspace.path) !== resolveWorkspaceRoot(requestedRoot)) {
+      createWindow(workspace.path, !!restoreRoot);
     }
-  }
-  const active = restoreActive && Array.from(states.values()).find(
-    (state) => resolveWorkspaceRoot(state.options.root) === resolveWorkspaceRoot(restoreActive),
-  );
-  if (active && active !== requested) {
-    requested.win.hide();
-    active.win.show();
-    active.win.focus();
   }
   // AFTER the restore, so every workspace this launch brought back counts as reachable. Doing it earlier
   // would look at a list of sessions whose owners had not registered yet and end the ones being restored.
   reapOrphanTerminals();
+  void refreshDiscoveredWorktrees();
+  setInterval(() => { void refreshDiscoveredWorktrees(); sendAgentActivity(); }, 2000);
 }).catch((error: unknown) => {
   console.error(errorMessage(error));
   app.quit();
@@ -1755,18 +1759,21 @@ function shellBasename(): string {
 // questions the rail asks are answered from it: "is anything but a shell running here" (the green dot) and
 // "which agent is it" (the tile badge). Running the scan twice would be two subprocesses giving one answer,
 // and it is cached for a beat besides, because the rail asks on every activity tick.
-let tmuxPaneCache: { panes: Map<string, string>; activity: Map<string, number>; at: number } | undefined;
+let tmuxPaneCache: { panes: Map<string, string>; activity: Map<string, number>; titles: Map<string, string>; at: number } | undefined;
 // Unix seconds of a session's last activity, from the same tmux scan. tmux updates it on OUTPUT, which is the
 // question the rail's working spinner asks and the one nothing else could answer before a pty was attached.
 let tmuxSessionActivity = new Map<string, number>();
+let tmuxSessionTitles = new Map<string, string>();
 const TMUX_SCAN_TTL_MS = 2000;
 function tmuxPaneCommands(): Map<string, string> {
   if (tmuxPaneCache && Date.now() - tmuxPaneCache.at < TMUX_SCAN_TTL_MS) {
     tmuxSessionActivity = tmuxPaneCache.activity;
+    tmuxSessionTitles = tmuxPaneCache.titles;
     return tmuxPaneCache.panes;
   }
   const panes = new Map<string, string>();
   const activity = new Map<string, number>();
+  const titles = new Map<string, string>();
   const tmux = resolveTmux(process.env);
   if (tmux) {
     try {
@@ -1778,10 +1785,10 @@ function tmuxPaneCommands(): Map<string, string> {
       // dropped for having no command. The rail then showed a shell for panes with an agent working in them —
       // and it only showed up in the packaged app, because a tmux talking to a terminal does not sanitise.
       // Measured in the running app: tab and \x1f both yield 1 field, pipe and space both yield 3.
-      const listed = spawnSync(tmux, ["list-panes", "-a", "-F", "#{session_name}|#{pane_current_command}|#{window_activity}"], { encoding: "utf8" });
+      const listed = spawnSync(tmux, ["list-panes", "-a", "-F", "#{session_name}|#{pane_current_command}|#{window_activity}|#{pane_title}"], { encoding: "utf8" });
       for (const line of String(listed.stdout ?? "").split("\n")) {
         // A pane command containing a pipe would only spoil its own activity stamp, which degrades to "idle".
-        const [session, command, active] = line.split("|");
+        const [session, command, active, title] = line.split("|");
         // First non-shell pane wins, so a session whose second pane sits at a prompt still reports its agent.
         const name = (command ?? "").trim();
         if (!session || !name) continue;
@@ -1791,11 +1798,13 @@ function tmuxPaneCommands(): Map<string, string> {
         // look idle while another is mid-turn.
         const at = Number(active);
         if (Number.isFinite(at)) activity.set(key, Math.max(activity.get(key) ?? 0, at));
+        if (title?.trim()) titles.set(key, title.trim());
       }
     } catch { /* no tmux server -> nothing running that outlived us */ }
   }
-  tmuxPaneCache = { panes, activity, at: Date.now() };
+  tmuxPaneCache = { panes, activity, titles, at: Date.now() };
   tmuxSessionActivity = activity;
+  tmuxSessionTitles = titles;
   return panes;
 }
 // tmux stamps window_activity in whole SECONDS, and the scan above is cached for TMUX_SCAN_TTL_MS, so the
@@ -1814,21 +1823,26 @@ function tmuxSessionBusy(session: string): boolean {
 // subprocess per quiet agent pane rather than one per tick, and the footer only changes on a redraw —
 // which is output, which wakes the fast paths anyway.
 const PENDING_SCREEN_TTL_MS = 5000;
-const pendingScreens = new Map<string, { pending: boolean; at: number }>();
-function tmuxSessionPendingWork(session: string): boolean {
+const pendingScreens = new Map<string, { pending: boolean; activity: ScreenAgentActivity; at: number }>();
+const tmuxSessionTasks = new Map<string, string>();
+const scannedSessionTasks = new Set<string>();
+function tmuxSessionScreen(session: string): { pending: boolean; activity: ScreenAgentActivity } {
   const cached = pendingScreens.get(session);
-  if (cached && Date.now() - cached.at < PENDING_SCREEN_TTL_MS) return cached.pending;
+  if (cached && Date.now() - cached.at < PENDING_SCREEN_TTL_MS) return cached;
   if (pendingScreens.size > 100) pendingScreens.clear(); // sessions come and go; cheapest possible bound
   const tmux = resolveTmux(process.env);
-  let pending = false;
+  let screen = "";
   if (tmux) {
     try {
-      const out = spawnSync(tmux, ["capture-pane", "-p", "-t", session], { encoding: "utf8", timeout: 3000 });
-      pending = screenShowsPendingWork(String(out.stdout ?? ""));
+      // A bounded slice keeps the latest submitted prompt alongside the visible footer without making a long
+      // agent transcript a 5-second main-process tax. The title is cached with this session between reads.
+      const out = spawnSync(tmux, ["capture-pane", "-p", "-S", "-200", "-t", session], { encoding: "utf8", timeout: 3000 });
+      screen = String(out.stdout ?? "");
     } catch { /* session gone -> nothing pending */ }
   }
-  pendingScreens.set(session, { pending, at: Date.now() });
-  return pending;
+  const result = { pending: screenShowsPendingWork(screen), activity: screenAgentActivity(screen) };
+  pendingScreens.set(session, { ...result, at: Date.now() });
+  return result;
 }
 function runningTmuxSessions(): string {
   const shellName = shellBasename();
@@ -1848,7 +1862,39 @@ function rootHasRunningAgent(root: string): boolean {
 // other than the shell?") answered yes the moment a persistent pane existed and could never answer no again.
 // The green "running" dot stayed lit on a workspace whose agents had all finished. tmux already tells us the
 // real command per session (tmuxPaneCommands), so ask it instead of trusting the pty.
-type WorkspacePane = { id: number; command: string; agent?: AgentKind; running: boolean; busy: boolean };
+type WorkspacePane = { id: number; command: string; agent?: AgentKind; running: boolean; busy: boolean; task?: string; action?: string };
+function paneAction(activity: ScreenAgentActivity): string | undefined {
+  const t = tr();
+  switch (activity.action) {
+    case "commands": return t("hub.pane.commands", { n: activity.count ?? 0 });
+    case "edit": return t("hub.pane.edit", { name: activity.detail || "file" });
+    case "explore": return t("hub.pane.explore");
+    case "view": return t("hub.pane.view");
+    case "generate": return t("hub.pane.generate");
+    case "shell": return t("hub.pane.shellRunning", { n: activity.count ?? 0 });
+    case "work": return t("hub.pane.working");
+  }
+}
+function paneTask(agent: AgentKind | undefined, session: string | undefined, activity?: ScreenAgentActivity): string | undefined {
+  if (!session) return activity?.task;
+  if (activity?.task) { tmuxSessionTasks.set(session, activity.task); return activity.task; }
+  if (!scannedSessionTasks.has(session)) {
+    const tmux = resolveTmux(process.env);
+    if (tmux) {
+      try {
+        const out = spawnSync(tmux, ["capture-pane", "-p", "-S", "-", "-t", session], { encoding: "utf8", timeout: 3000 });
+        const screen = String(out.stdout ?? "");
+        const task = screenAgentActivity(screen).task;
+        if (task) tmuxSessionTasks.set(session, task);
+        if (screen.trim()) scannedSessionTasks.add(session);
+      } catch { /* no history -> keep the agent-only fallback */ }
+    }
+  }
+  const task = tmuxSessionTasks.get(session);
+  if (task) return task;
+  const title = agent === "claude" ? (tmuxSessionTitles.get(session) || "").replace(/^[^\p{L}\p{N}]+/u, "").trim() : "";
+  return title && !/^(claude|shell|zsh)$/i.test(title) ? title : undefined;
+}
 function panesForWorkspace(state: WinState, panes: Map<string, string>): WorkspacePane[] {
   const shellName = shellBasename();
   const rows: WorkspacePane[] = [];
@@ -1874,10 +1920,11 @@ function panesForWorkspace(state: WinState, panes: Map<string, string>): Workspa
       if (inside && inside !== shellName) { command = inside; session = borrowed; }
     }
     const agent = agentForCommand(command);
+    const status = agent && session ? tmuxSessionScreen(session) : undefined;
     // Output-quiet is not the same as done: an agent whose screen still tallies pending work (a background
     // shell it launched, a scheduled wake-up it is waiting out) keeps the spinner, from its footer.
     rows.push({ id, command, agent, running: !!command && command !== shellName,
-      busy: state.busyPanes.has(id) || (!!agent && !!session && tmuxSessionPendingWork(session)) });
+      busy: state.busyPanes.has(id) || !!status?.pending, task: paneTask(agent, session, status?.activity), action: status ? paneAction(status.activity) : undefined });
   }
   // A session left running detached — from before this app run, or after its pane was closed — has no pty here
   // but is very much still working. It gets a row of its own so the rail says so instead of going quiet.
@@ -1892,7 +1939,9 @@ function panesForWorkspace(state: WinState, panes: Map<string, string>): Workspa
     // — panes are restored lazily — so every workspace reported "not working" and the rail drew a window full
     // of finished agents while they were all mid-turn. tmux has been watching their output the whole time.
     const agent = agentForCommand(command);
-    rows.push({ id: next--, command, agent, running: true, busy: tmuxSessionBusy(session) || (!!agent && tmuxSessionPendingWork(session)) });
+    const status = agent ? tmuxSessionScreen(session) : undefined;
+    rows.push({ id: next--, command, agent, running: true, busy: tmuxSessionBusy(session) || !!status?.pending,
+      task: paneTask(agent, session, status?.activity), action: status ? paneAction(status.activity) : undefined });
   }
   return rows;
 }
@@ -1933,6 +1982,7 @@ function agentForWorkspace(state: WinState, panes: Map<string, string>): AgentKi
 function railPanes(state: WinState, panes: Map<string, string>) {
   return panesForWorkspace(state, panes).map((pane) => ({
     id: pane.id, command: pane.command, agent: pane.agent, running: pane.running, busy: pane.busy,
+    task: pane.task, action: pane.action,
   }));
 }
 function sendAgentActivity(): void {
@@ -2164,6 +2214,29 @@ async function refreshProjectMainTiles(): Promise<void> {
   }
 }
 
+// Agents and other Git clients are allowed to create linked worktrees directly. Poll Git's own registry rather
+// than watching one vendor's folder: one async command per known project, and a rail rebuild only when the
+// inventory actually changes. Opening a discovered tile then follows the ordinary openPath path.
+let discoveredWorktrees: WorkspaceRecord[] = [];
+let discoveredWorktreeSignature = "";
+let discoveringWorktrees = false;
+async function refreshDiscoveredWorktrees(): Promise<void> {
+  if (discoveringWorktrees) return;
+  discoveringWorktrees = true;
+  try {
+    const projects = projectMainTiles();
+    const outputs = await Promise.all(projects.map((tile) => gitAsync(tile.path, ["worktree", "list", "--porcelain", "-z"])));
+    const next = projects.flatMap((tile, index) => parseWorktreeList(outputs[index], tile.path)).filter((record) => existsSync(record.path));
+    const signature = next.map((record) => `${record.path}\0${record.branch}`).join("\0");
+    if (signature === discoveredWorktreeSignature) return;
+    discoveredWorktreeSignature = signature;
+    discoveredWorktrees = next;
+    renderHub();
+  } finally {
+    discoveringWorktrees = false;
+  }
+}
+
 function renderHub(): void {
   if (!shellWindow || shellWindow.isDestroyed()) return;
   const saved = savedWorkspaceMetadata();
@@ -2200,10 +2273,15 @@ function renderHub(): void {
   // Pin every known project's main checkout, dropping any whose root already has an open or disconnected tile so
   // the main never double-lists (an open main is a live tile; only its closed state needs synthesizing here).
   const shownRoots = new Set([...live, ...disconnected].map((w) => resolveWorkspaceRoot(w.path)));
+  const discovered = discoveredWorktrees.filter((record) => !shownRoots.has(resolveWorkspaceRoot(record.path))).map((record, index) => ({
+    ...record, id: -(1_000_000 + index), dirtyCount: 0, ahead: 0, shortPath: tildePath(record.path),
+    active: false, running: rootHasRunningAgent(record.path), unread: preferences.readUnread(record.path), busy: false, closed: true,
+  }));
+  for (const tile of discovered) shownRoots.add(resolveWorkspaceRoot(tile.path));
   const closedMains = projectMainTiles().filter((tile) => !shownRoots.has(resolveWorkspaceRoot(tile.path)));
   // Drop any tile whose repo identity couldn't be resolved: the rail groups by repoName, so an empty one renders
   // as an unidentifiable "?" project. Valid workspaces always carry a repoName, so this only strips junk.
-  const workspaces = [...live, ...disconnected, ...closedMains].filter((w) => typeof w.repoName === "string" && w.repoName.trim());
+  const workspaces = [...live, ...disconnected, ...discovered, ...closedMains].filter((w) => typeof w.repoName === "string" && w.repoName.trim());
   // Apply the reviewer's own order. Projects keep the order they first appear in (a stable sort on the repo's
   // first index), and inside each one the dragged order wins; anything never dragged keeps its place after
   // what was, which is what makes a freshly created workspace show up at the bottom rather than in the middle.

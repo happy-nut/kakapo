@@ -193,13 +193,6 @@ var WINDOW_SHORTCUTS = [
   // be somewhere. Two of them: the sidebar button above the changed files, and this.
   { code: 'KeyB', shift: true, key: 'b', run: function () { toggleBriefing(); } },
   { code: 'KeyK', shift: true, key: 'k', run: function () { toggleTermMap(); } },
-  // The active terminal pane's session memo. The terminal binds this itself while a pane has focus
-  // (attachCustomKeyEventHandler, 19-terminal.js); this row is what makes the hint's "press Cmd+Shift+M"
-  // true from every other focus too. Closed terminal / no pane -> the key falls through untouched.
-  { code: 'KeyM', shift: true, key: 'm', run: function () {
-    var tm = window.__kakapoTerminal;
-    if (!tm || typeof tm.editActiveMemo !== 'function' || !tm.editActiveMemo()) return false;
-  } },
   { code: 'Digit9', key: '9', run: function () { toggleHistory(); } },
   // No ⌘7, and no Explain entry anywhere on the rails: sending the prompt is the ⌘⇧P palette's job, and
   // reading the notes is the briefing's (⌘⇧B) — a third door to the same two rooms was only a duplicate.

@@ -22,3 +22,15 @@ test("ensurePanes still creates a pane when none survived", () => {
   assert.match(ensure, /if \(panes\.length === 0\) makePane\(\)/,
     "an empty panel gets one plain pane rather than staying blank");
 });
+
+test("Cmd-Tab restores the pane that owned keyboard focus", () => {
+  assert.match(client, /window\.addEventListener\('blur'[\s\S]{0,220}panel\.contains\(ae\)/,
+    "deactivation remembers whether the terminal owned focus");
+  assert.match(client, /window\.addEventListener\('focus'[\s\S]{0,180}focusPane\(active\)/,
+    "reactivation returns focus to that pane without a click");
+});
+
+test("pty exits racing window teardown do not rewrite terminal UI state", () => {
+  assert.match(client, /var unloading = false;[\s\S]{0,100}onExit\(function \(msg\) \{ if \(!unloading\) removePane\(msg\.id\); \}\)/);
+  assert.match(client, /beforeunload[\s\S]{0,100}unloading = true;/);
+});

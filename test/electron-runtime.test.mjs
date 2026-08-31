@@ -103,6 +103,14 @@ test("the packaged app preserves --cwd while development skips the app-main entr
   assert.match(source, /parseArgs\(runtimeArgs\)/);
 });
 
+test("a packaged launch restores a saved repo instead of adding its non-git cwd as detached", () => {
+  const source = readFileSync(join(repoRoot, "src", "app-main.ts"), "utf8");
+  assert.match(source, /const restoreRoot = app\.isPackaged && !isGitRepository\(options\.root\)[\s\S]{0,300}\?\? restored\[0\]\?\.path/,
+    "the active saved repo, or the first valid one, replaces Finder's arbitrary cwd");
+  assert.match(source, /const requestedRoot = restoreRoot \?\? options\.root;\s*createWindow\(requestedRoot\)/,
+    "only the selected valid restore root becomes the first workspace");
+});
+
 test("macOS app integrates the review toolbar into the native title bar", () => {
   const source = readFileSync(join(repoRoot, "src", "app-main.ts"), "utf8");
 
