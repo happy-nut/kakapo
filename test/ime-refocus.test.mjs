@@ -102,7 +102,7 @@ test("the IME anchor is pinned for the life of a composition, and holds nothing 
   assert.match(pin, /helper\._isComposing/, "and only acts while a composition is actually live");
   assert.match(pin, /textarea\.style\.left = helper\.__kakapoPinned\.left/, "putting the anchor back where the composition started");
   assert.doesNotMatch(pin, /term\.write|msg\.data/, "it touches no output — pinning is not queueing");
-  assert.match(client, /compositionstart'[\s\S]{0,240}pinCompositionAnchor\(term\)/, "armed as the composition starts");
+  assert.match(client, /compositionstart'[\s\S]{0,600}pinCompositionAnchor\(term\)/, "armed as the composition starts");
   // A shape change in a future xterm must degrade to the old behaviour, never throw into node-pty's callback.
   assert.match(pin, /typeof helper\.updateCompositionElements !== 'function'\) return/, "absent internals are a no-op");
 });

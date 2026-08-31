@@ -3029,26 +3029,6 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
 .terminal-cell:last-child .terminal-pane:first-child .terminal-pane-label { padding-right: 34px; }
 .terminal-pane-label[contenteditable="true"] { color: var(--text); background: var(--bg); outline: none; }
 .terminal-pane.is-active .terminal-pane-label { color: var(--text); }
-/* The session memo: one line that says what this terminal is FOR. Click (or Cmd/Ctrl+Alt+M) to edit in
-   place; the ghost is the empty state and the whole visible affordance. It survives with the tmux session
-   (terminal-memos.ts), so it is the first thing a reopened session says for itself.
-   A written memo is the pane's caption and reads like one: body-sized text on an accent rail and tint. The
-   ghost stays quiet — muted, no rail — so an unused strip costs a hint, not a highlight. */
-.terminal-pane-memo {
-  flex: none; min-width: 0; padding: 4px 12px 5px; font-size: 12.5px; line-height: 1.5; font-weight: 500;
-  color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text;
-  border-left: 3px solid var(--active);
-  background: color-mix(in srgb, var(--active) 11%, transparent);
-}
-.terminal-pane-memo.is-ghost {
-  color: var(--muted); font-weight: 400;
-  border-left-color: var(--border); background: transparent;
-}
-.terminal-pane-memo.is-ghost:hover { color: var(--text); }
-.terminal-pane-memo[contenteditable="true"] {
-  color: var(--text); background: var(--bg); outline: none;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--active) 55%, transparent);
-}
 .terminal-pane-host { flex: 1 1 auto; min-width: 0; min-height: 0; padding: 4px 8px; } /* right padding too, so xterm's last column isn't clipped against the pane edge */
 /* Bell badge: a small dot on a pane's label when its TUI rang the bell while you were looking elsewhere. */
 .terminal-pane-label.has-bell::after { content: "\25CF"; margin-left: 6px; color: var(--active); font-size: 9px; vertical-align: middle; }

@@ -136,13 +136,33 @@ function hangulJoin(cur) {
   var jong = cur.jong ? HANGUL_JONG.indexOf(cur.jong) + 1 : 0;
   return String.fromCharCode(0xac00 + (HANGUL_CHO.indexOf(cur.cho) * 21 + HANGUL_JUNG.indexOf(cur.jung)) * 28 + jong);
 }
+// When macOS aborts a composition it does not merely lose the syllable — it commits the fragment it had AND
+// then re-composes the same keystrokes, delivering the finished syllable a moment later. Both reach the pty,
+// which is why the two complaints have always arrived together: 아 landing on a held ㅇ was written out as
+// "ㅇ아" — a jamo split and a duplicate, from one abort. The exact-match echo guard in onData cannot see it,
+// because "ㅇ" and "아" are not the same string.
+//
+// A fragment is superseded when the syllable arriving is the one it was on its way to becoming: same 초성 for
+// a lone consonant, same 초성+중성 for a syllable that has just gained a 받침. Anything else — 고 then 고, ㅇ
+// then 어 — is two real syllables and both stay. Applied ONLY to a fragment that came from an aborted commit
+// (state.fromAbort), so ordinary held syllables are never second-guessed.
+function hangulSupersedes(cur, parts) {
+  if (cur.jong) return false;                       // already closed; nothing is still on its way
+  if (cur.cho && !cur.jung) return cur.cho === parts.cho;                    // ㅇ  ->  아
+  if (cur.cho && cur.jung) return cur.cho === parts.cho && cur.jung === parts.jung && !!parts.jong; // 고 -> 곤
+  return false;
+}
 // One character into the automaton. state = { out: closed text, cur: { cho, jung, jong } } — cur is the
 // still-open syllable a later jamo may extend, which is why it is held rather than emitted.
 function hangulFeed(state, ch) {
   var cur = state.cur;
   var flush = function () { state.out += hangulJoin(cur); state.cur = cur = { cho: '', jung: '', jong: '' }; };
   var parts = hangulSyllableParts(ch);
-  if (parts) { flush(); state.cur = cur = parts; return state; } // an open syllable can still grow a 받침
+  if (parts) {
+    // The re-delivery after an abort replaces what it was becoming; everything else closes and moves on.
+    if (state.fromAbort && hangulSupersedes(cur, parts)) { state.cur = cur = parts; return state; }
+    flush(); state.cur = cur = parts; return state; // an open syllable can still grow a 받침
+  }
   if (!HANGUL_BARE_JAMO.test(ch)) { flush(); state.out += ch; return state; }
   var vowel = ch >= 'ㅏ';
   if (!vowel) {
@@ -212,6 +232,21 @@ function hangulFeed(state, ch) {
   // commit lands in) is a syllable that was cut in half, and nothing else produces one.
   // Read it with `__kakapoTerminal.imeLog()` in the review window's devtools; the last split also warns.
   var JAMO_CODEPOINTS = /[\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uD7B0-\uD7FF]/;
+  // ---- temporary: where each byte the pty receives actually came from ------------------------------------
+  // Two guesses have now been made about which of xterm's input paths re-delivers a commit, and one of them
+  // was wrong. Every path ends at the same two places — onData (anything routed through triggerDataEvent) and
+  // emitRepaired (the automaton's own write) — so tag both, plus the composition events that bracket them,
+  // and read the actual sequence instead of reasoning about it. Rides the ime-split channel because that file
+  // is already read after the session that produced it. Remove once the duplicate has a name.
+  // The control run (KAKAPO_IME_RAW=1, preload.cts). True = stand every kakapo reach into xterm's composition
+  // machinery down and leave plain xterm.js behind, so "does kakapo cause the splits" has an answer that is
+  // measured rather than argued.
+  var IME_RAW = !!(window.kakapoPty && window.kakapoPty.imeRaw);
+  function imeTrace(t, d) {
+    if (!window.__kakapoImeTrace) return;
+    try { window.kakapoPty.imeSplit({ trace: t, d: String(d == null ? '' : d).slice(0, 60), at: Date.now() }); } catch (e) {}
+  }
+  window.__kakapoImeTrace = true;
   var imeLog = [];        // newest last, capped — a session's worth of compositions is not worth keeping
   var imeNow = null;      // the composition in flight, or null
   // Double-Esc window for closing the panel out of a fullscreen TUI (see the key handler below).
@@ -334,7 +369,6 @@ function hangulFeed(state, ch) {
     if (p) requestAnimationFrame(function () {
       try {
         if (p.labelEl && p.labelEl.getAttribute('contenteditable') === 'true') return;
-        if (p.memoEl && p.memoEl.getAttribute('contenteditable') === 'true') return;
         p.term.focus();
       } catch (e) {}
     });
@@ -503,6 +537,7 @@ function hangulFeed(state, ch) {
   // the hold before it forwards ordinary input, and routing the flush through xterm again would recurse.
   function emitRepaired(pane, text) {
     if (!text) return;
+    imeTrace('repair', text);
     lastInputAt = Date.now();
     if (pane.id != null) window.kakapoPty.write({ id: pane.id, data: text });
   }
@@ -511,6 +546,87 @@ function hangulFeed(state, ch) {
     var state = pane.__hangul;
     pane.__hangul = null;
     if (state) emitRepaired(pane, state.out + hangulJoin(state.cur));
+  }
+  // ---- the whole prompt, sent again -------------------------------------------------------------------
+  // xterm's helper textarea is an ACCUMULATOR. It is cleared on exactly three events (blur, Enter, Ctrl+C —
+  // CoreBrowserTerminal), so everything typed into a TUI composer before the first Enter piles up in it: a
+  // long Korean prompt sits there in full, one value, growing.
+  //
+  // CompositionHelper._handleAnyTextareaChanges is the path a keyCode-229 keydown takes when no composition
+  // is running — the one that carries digits and punctuation typed while the IME is active. It works out
+  // what to send with `newValue.replace(oldValue, '')`, and that is a SUBSTRING replace, not a prefix strip.
+  // Latin input only ever appends, so oldValue is found at position 0 and the difference comes out right.
+  // Hangul does not append: macOS rewrites the syllable in place on every jamo, so oldValue ("추가 확인해보ㅈ")
+  // is nowhere to be found inside newValue ("추가 확인해보자"), replace() matches nothing, and the "difference"
+  // comes back as the ENTIRE accumulated value — which is then sent. That is the screenshot: the whole
+  // prompt, appended to itself, again and again as the run of keystrokes continues.
+  //
+  // It also explains the other half of the report. onData flushes any half-repaired syllable being held
+  // (flushHangulRepair, below) before it writes, so one of these re-sends landing mid-word cuts the syllable
+  // it interrupts — a jamo split with writes:0 and anchorPins:0, which is most of what ime-splits.jsonl has
+  // been recording. The re-send and the split are the same bug seen from two ends.
+  //
+  // So: only an append is an append. Anything else was a rewrite, and a rewrite's text reaches the pty
+  // through the composition path, which kakapo already owns end to end (takeCompositionCommit).
+  var TEXTAREA_DEL = '\x7f'; // C0.DEL, what xterm sends for a shortened textarea
+  function textareaAppend(oldValue, newValue) {
+    if (newValue === oldValue) return null;                 // nothing changed
+    if (newValue.length < oldValue.length) return TEXTAREA_DEL;
+    if (newValue.indexOf(oldValue) !== 0) return null;      // rewritten in place — not ours to send
+    return newValue.slice(oldValue.length) || null;
+  }
+  // Same reach as takeCompositionCommit, same rule: a future xterm without this method is left alone and its
+  // own behaviour is back.
+  function guardTextareaDiff(term) {
+    var core = term && term._core;
+    var helper = core && core._compositionHelper;
+    var service = core && core.coreService;
+    var textarea = term && term.textarea;
+    if (!helper || !service || !textarea) return;
+    if (typeof helper._handleAnyTextareaChanges !== 'function' || helper.__kakapoDiffGuarded) return;
+    helper.__kakapoDiffGuarded = true;
+    helper._handleAnyTextareaChanges = function () {
+      var oldValue = textarea.value;
+      setTimeout(function () {
+        if (helper._isComposing) return; // a composition started meanwhile; it owns this input
+        var send = textareaAppend(oldValue, textarea.value);
+        if (send === null) return;
+        if (send === TEXTAREA_DEL) imeTrace('guardDel', 'from the textarea diff, not the keyboard');
+        else helper._dataAlreadySent = send;
+        service.triggerDataEvent(send, true);
+      }, 0);
+    };
+  }
+  // A note for whoever considers clearing the helper textarea again. It IS an append-only log between blur,
+  // Enter and Ctrl+C, and that accumulation did feed the whole-buffer re-send — but guardTextareaDiff fixes
+  // that at the point of use, and clearing the field is not free. Measured over 2116 compositions: emptying
+  // it at compositionstart took the abort rate from 4.7% to 6.4% AND introduced a class of failure that did
+  // not exist before it — 9 compositions that died in under 60ms, which is a composition CANCELLED rather
+  // than ended. Writing .value on the element the macOS input context is attached to is what cancels it.
+  // The buffer is harmless as long as nothing differences it wrongly. Leave it alone.
+  // ---- the 받침 that arrives after its syllable has already left ------------------------------------------
+  // The traces show this shape: `end "겨"` — a healthy syllable, sent at once — then `end "ㅇ"`, the 받침 as a
+  // commit of its own. By then 겨 is down the pty and 경 can never be assembled; the automaton is left holding
+  // a lone ㅇ with nothing to attach to, and out it goes as jamo.
+  //
+  // Fixing it means holding healthy syllables too, which the design deliberately refused: "healthy commits
+  // pass through untouched, undelayed", and making every Hangul keystroke wait on a maybe is a bad trade for
+  // the 94% of compositions that are fine.
+  //
+  // So hold conditionally. A pane that has just had a composition aborted into bare jamo is a pane whose IME
+  // is misbehaving RIGHT NOW, and only there is the next syllable worth waiting on — and then only when a
+  // 받침 could actually attach to it: a syllable that already has one, or a commit ending in a space or
+  // punctuation, is finished and leaves immediately as before. A pane that never sees a broken commit never
+  // pays a millisecond.
+  var HANGUL_BROKEN_WINDOW_MS = 5000;
+  function paneImeIsBroken(pane) {
+    return !!(pane && pane.__jamoAt && Date.now() - pane.__jamoAt < HANGUL_BROKEN_WINDOW_MS);
+  }
+  // Whether the last character could still grow a 받침 — a composed syllable with no 종성 yet.
+  function endsOpenSyllable(text) {
+    if (!text) return false;
+    var parts = hangulSyllableParts(text[text.length - 1]);
+    return !!parts && !parts.jong;
   }
   function takeCompositionCommit(term, event) {
     var core = term && term._core;
@@ -526,9 +642,12 @@ function hangulFeed(state, ch) {
       // syllables); reassemble it — and everything the burst commits after it — through the automaton.
       // The still-open syllable is held for the next commit; the closed part leaves immediately.
       var pane = paneFor(term);
-      if (pane && (pane.__hangul || HANGUL_BARE_JAMO.test(event.data))) {
+      var broken = HANGUL_BARE_JAMO.test(event.data);
+      if (broken) pane && (pane.__jamoAt = Date.now()); // this pane's IME is coming apart; the next syllable waits
+      if (pane && (pane.__hangul || broken || (paneImeIsBroken(pane) && endsOpenSyllable(event.data)))) {
         if (pane.__hangulTimer) { clearTimeout(pane.__hangulTimer); pane.__hangulTimer = 0; }
-        var state = pane.__hangul || { out: '', cur: { cho: '', jung: '', jong: '' } };
+        var state = pane.__hangul || { out: '', cur: { cho: '', jung: '', jong: '' }, fromAbort: false };
+        if (broken) state.fromAbort = true; // only a fragment macOS aborted may be superseded by a re-delivery
         for (var i = 0; i < event.data.length; i++) hangulFeed(state, event.data[i]);
         emitRepaired(pane, state.out);
         state.out = '';
@@ -612,6 +731,7 @@ function hangulFeed(state, ch) {
     entry.abandoned = !event;
     entry.ms = Date.now() - entry.at;
     entry.split = JAMO_CODEPOINTS.test(entry.data);
+    entry.raw = IME_RAW; // which run this came from — the whole point of the control
     imeLog.push(entry);
     if (imeLog.length > 30) imeLog.shift();
     // Loud on purpose, and only here: this line is the whole point of the tally. It fires when a syllable was
@@ -724,14 +844,9 @@ function hangulFeed(state, ch) {
     el.className = 'terminal-pane';
     var labelEl = document.createElement('div');
     labelEl.className = 'terminal-pane-label';
-    // The session memo, beside the name: the one line that answers "what was this terminal doing" when the
-    // session comes back after a restart (it is keyed to the tmux session, not to this pane — main holds it).
-    var memoEl = document.createElement('div');
-    memoEl.className = 'terminal-pane-memo';
     var headEl = document.createElement('div');
     headEl.className = 'terminal-pane-head';
     headEl.appendChild(labelEl);
-    headEl.appendChild(memoEl);
     var paneHost = document.createElement('div');
     paneHost.className = 'terminal-pane-host';
     el.appendChild(headEl);
@@ -753,16 +868,16 @@ function hangulFeed(state, ch) {
     loadWebLinks(term);
     loadPathLinks(term); // after the URL provider, so a URL is still a URL and not its trailing filename
     term.open(paneHost);
+    if (!IME_RAW) guardTextareaDiff(term); // the textarea is an accumulator; only an append may be sent from it
+
     // restoreOrdinal has to be on the pane BEFORE the spawn below: this used to be assigned by restorePanes()
     // after makePane() returned, so every restored pane spawned with `ordinal: undefined` and main handed out
     // the lowest FREE one instead. With sessions 1 and 3 alive (any pane but the last closed), the restore
     // attached to 1, then created a brand-new session 2 — leaving 3 orphaned and running. The next launch saw
     // three sessions and restored three panes, one of them empty, and the count grew again every time.
-    var pane = { id: null, term: term, fit: fit, el: el, host: paneHost, labelEl: labelEl, memoEl: memoEl,
-      restoreOrdinal: restoreOrdinal, ordinal: restoreOrdinal || null, name: 'Terminal ' + (panes.length + 1), memo: '' };
+    var pane = { id: null, term: term, fit: fit, el: el, host: paneHost, labelEl: labelEl,
+      restoreOrdinal: restoreOrdinal, ordinal: restoreOrdinal || null, name: 'Terminal ' + (panes.length + 1) };
     labelEl.textContent = pane.name;
-    setPaneMemo(pane, '');
-    memoEl.addEventListener('click', function () { editPaneMemo(pane); });
     // From the moment the rectangle exists it is a rectangle that is waiting. The panel-wide overlay covered
     // the sliver before any pane existed (main still listing the surviving sessions); now that there is a
     // pane to draw on, it hands over rather than sitting behind this one.
@@ -788,7 +903,7 @@ function hangulFeed(state, ch) {
       // time, in bursts (this is the ime-splits.jsonl signature: composition lifetimes of one inter-key gap,
       // splits with writes:0 and anchorPins:0). While a composition is live the IME owns the keys — keep
       // xterm's keydown out entirely; what the keys become arrives through the composition events.
-      if (e.type === 'keydown' && e.keyCode !== 229 && paneIsComposing(term)) return false;
+      if (!IME_RAW && e.type === 'keydown' && e.keyCode !== 229 && paneIsComposing(term)) return false;
       // Escape is the SHELL'S key, always. It used to close the panel — at once on a plain prompt, and on a
       // second press inside a window in a fullscreen TUI. Both of those took a key that belongs to whatever is
       // running: a prompt in vi mode leaves insert with it, readline treats it as the Meta prefix, and a menu
@@ -828,6 +943,12 @@ function hangulFeed(state, ch) {
       return true;
     });
     term.onData(function (d) {
+      // An empty run is not input. xterm's _finalizeComposition sends `value.substring(start, end)` and those
+      // offsets can land equal — a zero-length "keystroke" that carries no intent, needs no ordering, and has
+      // nothing to write. It arrived here anyway, and the line below it flushes a half-repaired syllable
+      // before every write: the traces show `end "ㅇ"` → `data ""` → the bare jamo emitted at +0ms, three
+      // times over. The hold that exists to wait for the next jamo was being destroyed by nothing at all.
+      if (!d) return;
       lastInputAt = Date.now();
       // A composition commit never arrives here — takeCompositionCommit writes it and stands xterm's
       // own send down. So input IDENTICAL to the last commit, moments after it, is xterm's other input
@@ -837,12 +958,18 @@ function hangulFeed(state, ch) {
       // ponytail: exact-match heuristic — pasting the identical text within 300ms of committing it is
       // also eaten; tighten to event-source tracking only if that ever bites.
       if (pane.__lastCommit && d === pane.__lastCommit.data && Date.now() - pane.__lastCommit.at < 300) {
+        imeTrace('drop', d);
         pane.__lastCommit = null;
         return;
       }
-      // Anything typed while a repaired syllable is still held (Enter, punctuation, a Latin keystroke)
-      // must land AFTER it — flush the hold first so the pty sees the same order the user typed.
-      if (pane.__hangul) flushHangulRepair(pane);
+      imeTrace('data', d);
+      // Anything TYPED while a repaired syllable is still held (Enter, punctuation, a Latin keystroke) must
+      // land after it — flush the hold first so the pty sees the same order the user typed. But most of what
+      // arrives here was never typed: a TUI asks the terminal what colours it has and how it identifies, and
+      // xterm answers, and the mouse reports every wheel notch. Those are protocol, they carry no position in
+      // the user's text, and letting them flush the hold is how a syllable waiting 250ms for its vowel was cut
+      // by a colour query. An answer always begins with ESC; nothing typed at a prompt does.
+      if (pane.__hangul && d.charCodeAt(0) !== 0x1b) flushHangulRepair(pane);
       if (pane.id != null) window.kakapoPty.write({ id: pane.id, data: d });
     });
     // onData fires only on COMMITTED input, so under an IME it stays silent for the whole time a syllable is
@@ -853,16 +980,18 @@ function hangulFeed(state, ch) {
     if (term.textarea) {
       term.textarea.addEventListener('keydown', function () { lastInputAt = Date.now(); }, true);
       term.textarea.addEventListener('compositionstart', function () {
-        composingPanes.add(pane);
+        imeTrace('start', term.textarea.value);
+        composingPanes.add(pane); // kakapo's own refresh-deferral, not a reach into xterm — both runs keep it
         lastInputAt = Date.now();
+        imeNow = { at: Date.now(), writes: 0, bytes: 0, fitsHeld: 0, anchorPins: 0, panes: panes.length, data: '' };
+        if (IME_RAW) return; // the control run stops here: everything below is a reach into xterm's own path
         pinCompositionAnchor(term);
         setCursorHiddenForComposition(term, true);
         matchCompositionDim(term);
         alignCompositionOverlay(term);
-        imeNow = { at: Date.now(), writes: 0, bytes: 0, fitsHeld: 0, anchorPins: 0, panes: panes.length, data: '' };
       });
       // Re-checked on update, not only at the start: the agent can repaint its composer between keystrokes.
-      term.textarea.addEventListener('compositionupdate', function () { lastInputAt = Date.now(); matchCompositionDim(term); alignCompositionOverlay(term); });
+      term.textarea.addEventListener('compositionupdate', function () { lastInputAt = Date.now(); if (IME_RAW) return; matchCompositionDim(term); alignCompositionOverlay(term); });
       // xterm commits a composition by slicing its textarea with offsets recorded while the composition ran
       // (start at compositionstart, end on a setTimeout after each update). A macOS Hangul composition runs
       // to the end of the WORD and rewrites the whole value on every keystroke, so those offsets go stale:
@@ -871,18 +1000,18 @@ function hangulFeed(state, ch) {
       // cancel xterm's deferred send and write event.data ourselves. Nothing then depends on an offset
       // surviving the composition, which is the part macOS Hangul breaks.
       term.textarea.addEventListener('compositionend', function (event) {
+        imeTrace('end', event && event.data);
         composingPanes.delete(pane);
         lastInputAt = Date.now();
-        setCursorHiddenForComposition(term, false);
-        takeCompositionCommit(term, event);
+        if (!IME_RAW) { setCursorHiddenForComposition(term, false); takeCompositionCommit(term, event); }
         flushDeferredFit();
-        noteCompositionEnd(event);
+        noteCompositionEnd(event); // the measurement runs in BOTH modes, or there is nothing to compare
       });
       // A composition the pane never got to finish — focus left mid-syllable, which is itself a way to split
       // one. Closed out here so the log never shows it as still running.
       term.textarea.addEventListener('blur', function () {
         composingPanes.delete(pane);
-        setCursorHiddenForComposition(term, false); // abandoned mid-syllable — the caret is owed back
+        if (!IME_RAW) setCursorHiddenForComposition(term, false); // abandoned mid-syllable — the caret is owed back
         if (pane.__hangul) flushHangulRepair(pane); // focus is leaving; a held syllable must not outwait it
         if (imeNow) noteCompositionEnd(null);
         flushDeferredFit();
@@ -916,68 +1045,9 @@ function hangulFeed(state, ch) {
         // layout as it now stands — this covers open, split and restore alike.
         pane.ordinal = (r && r.ordinal) || pane.ordinal;
         saveLayout();
-        // The session this pane attached to may already carry a memo from a previous run — the whole point.
-        if (pane.id != null && typeof window.kakapoPty.memo === 'function') {
-          Promise.resolve(window.kakapoPty.memo({ id: pane.id })).then(function (result) {
-            if (result && result.text) setPaneMemo(pane, result.text);
-          }, function () { /* no memo is a normal answer */ });
-        }
       });
     setActive(pane);
     return pane;
-  }
-  // Paint a pane's session memo: the memo itself, or a localized ghost inviting one. The ghost is the whole
-  // affordance — a memo feature with no visible handle is a shortcut only its author knows.
-  function setPaneMemo(pane, text) {
-    pane.memo = (text || '').trim();
-    pane.memoEl.classList.toggle('is-ghost', !pane.memo);
-    pane.memoEl.textContent = pane.memo || t('terminal.memo.placeholder');
-    pane.memoEl.title = t('terminal.memo.hint');
-  }
-  // Edit it in place, the same shape as renamePane below: contenteditable, Enter commits, Esc reverts,
-  // blur commits — and the keyboard goes straight back to the pty either way. Enter is judged only after
-  // the IME is done with it (isComposing), or committing would cut a Hangul syllable in half.
-  function editPaneMemo(pane) {
-    if (!pane) pane = active;
-    if (!pane || sendModeText != null) return;
-    var el = pane.memoEl;
-    if (el.getAttribute('contenteditable') === 'true') return;
-    setActive(pane);
-    el.classList.remove('is-ghost');
-    el.textContent = pane.memo; // never edit the placeholder as if it were content
-    el.contentEditable = 'true';
-    var tries = 0;
-    var focusMemo = function () {
-      if (el.getAttribute('contenteditable') !== 'true') return true; // finished/cancelled meanwhile
-      try { el.focus(); } catch (e) {}
-      if (document.activeElement !== el) return false;
-      try { var range = document.createRange(); range.selectNodeContents(el); var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range); } catch (e) {}
-      return true;
-    };
-    if (!focusMemo()) { var iv = setInterval(function () { if (focusMemo() || ++tries > 12) clearInterval(iv); }, 25); }
-    function finish(commit) {
-      el.removeEventListener('keydown', onKey);
-      el.removeEventListener('blur', onBlur);
-      el.contentEditable = 'false';
-      if (commit) {
-        setPaneMemo(pane, el.textContent || '');
-        if (pane.id != null && typeof window.kakapoPty.memoSet === 'function') {
-          try { window.kakapoPty.memoSet({ id: pane.id, text: pane.memo }); } catch (e) {}
-        }
-      } else {
-        setPaneMemo(pane, pane.memo);
-      }
-      try { if (pane.term) pane.term.focus(); } catch (e) {}
-    }
-    function onKey(e) {
-      e.stopPropagation();
-      if (e.isComposing) return;
-      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
-      else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
-    }
-    function onBlur() { finish(true); }
-    el.addEventListener('keydown', onKey);
-    el.addEventListener('blur', onBlur);
   }
   // Rename a pane inline: the label becomes editable, Enter commits, Esc/blur reverts to the last name.
   function renamePane(pane) {
@@ -989,7 +1059,7 @@ function hangulFeed(state, ch) {
     el.contentEditable = 'true';
     // Electron asynchronously restores focus to <body> after the keydown, so a one-shot focus loses the
     // race and the label turns editable but never gets the caret — retry until it sticks, then select all
-    // (same pattern as the composer/memo). This is why rename "did nothing" before.
+    // (same pattern as the composer). This is why rename "did nothing" before.
     var renameTries = 0;
     var focusLabel = function () {
       if (el.getAttribute('contenteditable') !== 'true') return true; // finished/cancelled meanwhile
@@ -1395,7 +1465,6 @@ function hangulFeed(state, ch) {
   if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalPaneRename === 'function') window.kakapoMenu.onTerminalPaneRename(function () { renamePane(active); });
   // The memo arrives as a menu accelerator, not an xterm key handler: a raw Cmd+Shift+M collided with
   // macOS's man-page service the moment the editor's select-all gave that service a selection to act on.
-  if (window.kakapoMenu && typeof window.kakapoMenu.onTerminalPaneMemo === 'function') window.kakapoMenu.onTerminalPaneMemo(function () { editPaneMemo(active); });
   if (window.kakapoMenu && typeof window.kakapoMenu.onAgentResume === 'function') window.kakapoMenu.onAgentResume(function (command) {
     setOpen(true);
     var tries = 0, send = function () {

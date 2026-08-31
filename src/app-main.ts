@@ -1548,7 +1548,6 @@ function buildApplicationMenu(): void {
       // that fires whenever the app lets the keystroke through with text selected — which the memo editor
       // guarantees, since opening it selects the memo. A menu item consumes its key before services see it,
       // the same reason renamePane above never had the problem.
-      { label: t("menu.sessionMemo"), accelerator: "CommandOrControl+Alt+M", click: () => sendToFocused("kakapo:terminal-pane-memo") },
     ],
   });
   // Cmd/Ctrl+W closes the active Files-mode tab (routed to the renderer) instead of the window, matching

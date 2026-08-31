@@ -66,14 +66,25 @@ test("syllables and other characters flow through, and an open syllable still gr
 
 test("the commit path routes bare-jamo commits through the automaton and holds the open syllable", () => {
   const take = extract(/function takeCompositionCommit\([\s\S]*?\n  \}/);
-  assert.match(take, /pane\.__hangul \|\| HANGUL_BARE_JAMO\.test\(event\.data\)/,
-    "repair engages on bare jamo, or while a burst already holds state — healthy commits pass through");
+  assert.match(take, /var broken = HANGUL_BARE_JAMO\.test\(event\.data\)/,
+    "a commit carrying bare jamo is what a broken composition looks like");
+  assert.match(take, /pane\.__hangul \|\| broken \|\|/,
+    "repair engages on bare jamo, or while a burst already holds state");
+  // A third route was added after the traces showed the 받침 arriving as its own commit AFTER its syllable
+  // had already been sent (겨 then ㅇ, which can never become 경). A healthy commit is held only when the
+  // pane has JUST had a composition aborted and a 받침 could still attach — see ime-conditional-hold.
+  assert.match(take, /paneImeIsBroken\(pane\) && endsOpenSyllable\(event\.data\)/,
+    "…and, on a pane whose IME is currently coming apart, on a syllable still open to a 받침");
   assert.match(take, /service\.triggerDataEvent\(event\.data, true\)/,
     "…and the healthy path is still the old one, untouched and undelayed");
   assert.match(take, /HANGUL_REPAIR_FLUSH_MS/, "the open syllable is held only briefly");
   const flush = extract(/function flushHangulRepair\([\s\S]*?\n  \}/);
   assert.match(flush, /state\.out \+ hangulJoin\(state\.cur\)/, "a flush emits everything still held");
-  assert.match(client, /if \(pane\.__hangul\) flushHangulRepair\(pane\);\s*\n\s*if \(pane\.id != null\) window\.kakapoPty\.write/,
+  // TYPED input still flushes first, so the pty sees the order the user typed. What changed: most of what
+  // reaches onData was never typed — a TUI asks the terminal for its colours and identity, xterm answers, the
+  // mouse reports every wheel notch — and those were cutting a syllable that was waiting for its vowel. An
+  // answer always begins with ESC; nothing typed at a prompt does. See ime-abort-redelivery.
+  assert.match(client, /if \(pane\.__hangul && d\.charCodeAt\(0\) !== 0x1b\) flushHangulRepair\(pane\);\s*\n\s*if \(pane\.id != null\) window\.kakapoPty\.write/,
     "ordinary input (Enter, Latin) flushes the hold first, so the pty sees the typed order");
 });
 

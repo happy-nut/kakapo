@@ -70,9 +70,6 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
   onTerminalPaneRename: (cb: () => void): void => {
     ipcRenderer.on("kakapo:terminal-pane-rename", () => cb());
   },
-  onTerminalPaneMemo: (cb: () => void): void => {
-    ipcRenderer.on("kakapo:terminal-pane-memo", () => cb());
-  },
   onAgentResume: (cb: (command: string) => void): void => {
     ipcRenderer.on("kakapo:agent-resume", (_event, command: string) => cb(command));
   },
@@ -120,6 +117,14 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
 // sandboxed renderer can't spawn a pty). Only present in the Electron app; browser/serve mode lacks it,
 // so the renderer keeps the terminal panel hidden when window.kakapoPty is undefined.
 contextBridge.exposeInMainWorld("kakapoPty", {
+  // The IME control run. Everything kakapo does to xterm's composition machinery — taking the commit,
+  // swallowing keydowns, pinning the anchor, hiding the caret, aligning the overlay — is a reach into an
+  // input path no other terminal touches, and 32% of the jamo splits on record happened with the terminal
+  // completely idle, which the documented cause (output dragging the anchor) does not explain. Reading more
+  // log cannot separate "macOS does this" from "we do this"; only a control can. KAKAPO_IME_RAW=1 stands
+  // every one of those reaches down and leaves plain xterm.js behind. Off unless the env var is set, so a
+  // normal launch is untouched.
+  imeRaw: process.env.KAKAPO_IME_RAW === "1",
   // `ordinal` re-attaches to a specific tmux session — see sessions() below, used to restore the panes.
   spawn: (size: { cols: number; rows: number; ordinal?: number }): Promise<{ ok: boolean; id: number; ordinal?: number }> => ipcRenderer.invoke("kakapo:pty-spawn", size),
   // Persistent terminals (Settings > Terminal): is tmux available, and can we install it for them?
@@ -164,9 +169,6 @@ contextBridge.exposeInMainWorld("kakapoPty", {
   foreground: (msg: { id: number }): Promise<{ running: boolean; name: string }> => ipcRenderer.invoke("kakapo:pty-foreground", msg),
   // Live tmux sessions for this workspace, so reopening the panel restores the panes it had.
   sessions: (): Promise<{ ordinals: number[] }> => ipcRenderer.invoke("kakapo:pty-sessions"),
-  // The pane-head session memo: one line that survives with the tmux session (terminal-memos.ts).
-  memo: (msg: { id: number }): Promise<{ text: string }> => ipcRenderer.invoke("kakapo:term-memo", msg),
-  memoSet: (msg: { id: number; text: string }): void => ipcRenderer.send("kakapo:term-memo-set", msg),
   // A TUI in the pane rang the terminal bell (e.g. Claude Code finished a turn / needs input), or an agent
   // answered a review comment (07-comments.js). The renderer passes a pre-localized title+body; the main
   // process decides whether to raise a native notification. `seq` names the comment the notification is

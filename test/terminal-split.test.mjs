@@ -270,7 +270,7 @@ test("the composing character is as dim as the line it is joining", () => {
     "the line's own text is the sample — the cell under the cursor is usually still blank");
   assert.match(fn, /classList\.toggle\('is-dim', dim\)/, "and a bright line still gets the full foreground");
   for (const ev of ["compositionstart", "compositionupdate"]) {
-    assert.match(client, new RegExp(`'${ev}'[\\s\\S]{0,320}matchCompositionDim\\(term\\)`),
+    assert.match(client, new RegExp(`'${ev}'[\\s\\S]{0,600}matchCompositionDim\\(term\\)`),
       `${ev} re-checks it, because the agent can repaint its composer between keystrokes`);
   }
   const css = readFileSync(new URL("../src/viewer.css", import.meta.url), "utf8");
@@ -289,7 +289,7 @@ test("the caret stands down for an IME composition and is restored to what the p
   assert.match(fn, /term\.__kakapoCursorWas = service\.isCursorHidden/, "the program's own setting is remembered");
   assert.match(fn, /service\.isCursorHidden = term\.__kakapoCursorWas/, "and restored, rather than reset to visible");
   assert.doesNotMatch(fn, /isCursorHidden = false/, "nothing hands a caret back to a TUI that hid it");
-  assert.match(client, /compositionstart'[\s\S]{0,300}setCursorHiddenForComposition\(term, true\)/, "hidden when the syllable starts");
+  assert.match(client, /compositionstart'[\s\S]{0,600}setCursorHiddenForComposition\(term, true\)/, "hidden when the syllable starts");
   for (const ev of ["compositionend", "blur"]) {
     assert.match(client, new RegExp(`'${ev}'[\\s\\S]{0,300}setCursorHiddenForComposition\\(term, false\\)`),
       `${ev} gives the caret back, so an abandoned composition never leaves the pane without one`);

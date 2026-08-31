@@ -123,7 +123,9 @@ test("engines without ink metrics (jsdom-class) leave the overlay untouched inst
 });
 
 test("the overlay is aligned at composition start and on every update", () => {
-  assert.match(client, /matchCompositionDim\(term\);\n\s*alignCompositionOverlay\(term\);\n\s*imeNow =/,
+  // The tally is armed ABOVE the control-run gate (KAKAPO_IME_RAW) so both runs are measurable; the reaches,
+  // this one included, sit below it. So the order is now imeNow → gate → dim → align.
+  assert.match(client, /imeNow = \{[\s\S]{0,500}?matchCompositionDim\(term\);\n\s*alignCompositionOverlay\(term\);/,
     "compositionstart aligns after the dim match");
   assert.match(client, /compositionupdate.*matchCompositionDim\(term\); alignCompositionOverlay\(term\);/,
     "compositionupdate re-aligns (the composed script can change what font run is measured)");
