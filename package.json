@@ -72,7 +72,7 @@
   "license": "MIT",
   "devDependencies": {
     "@electron/packager": "^20.0.1",
-    "@tiptap/core": "3.27.4",
+    "@tiptap/core": "3.30.4",
     "@tiptap/extension-details": "3.27.4",
     "@tiptap/extension-task-item": "3.27.4",
     "@tiptap/extension-task-list": "3.27.4",
