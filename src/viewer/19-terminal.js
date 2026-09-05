@@ -628,6 +628,39 @@ function hangulFeed(state, ch) {
     var parts = hangulSyllableParts(text[text.length - 1]);
     return !!parts && !parts.jong;
   }
+  // ---- the input context that stays broken until the user leaves the window --------------------------------
+  // The incident trace (2026-09-06, ime-splits.jsonl) shows two acts. First a composition split under output
+  // pressure — 9 writes landed inside one 615ms composition and macOS committed the half-built syllable. Then
+  // the STUCK state: with the terminal near-idle (1 write, 0 anchor pins), every following composition died
+  // ~100-200ms in, one bare jamo per keystroke, minutes on end — macOS' input context had stopped composing
+  // into the field altogether. The only thing that healed it was leaving the window and coming back, because
+  // the window-focus round trip in 01-core re-binds the input method with a real element focus change — and
+  // that round trip runs on window focus alone, so mid-typing breakage stayed broken until the user happened
+  // to switch apps. Same cure, self-administered: two split commits in a row are the stuck signature (a lone
+  // split is the output-pressure case and heals by itself), so blur the field and hand it back a frame later.
+  // Between compositions only — never mid-syllable — only while the keyboard is actually ours, and on a
+  // cooldown so a state this cure cannot fix is not fought frame after frame.
+  var IME_REBIND_COOLDOWN_MS = 2000;
+  function scheduleImeRebind(pane, term) {
+    var now = Date.now();
+    if (pane.__imeRebindAt && now - pane.__imeRebindAt < IME_REBIND_COOLDOWN_MS) return;
+    pane.__imeRebindAt = now;
+    setTimeout(function () {
+      var ta = term.textarea;
+      // Conditions gone stale — keyboard elsewhere, or a syllable in flight? Stand down, and give the
+      // cooldown back so the NEXT broken commit may try again rather than waiting out a spent window.
+      var core = term._core;
+      var helper = core && core._compositionHelper;
+      if (!ta || document.activeElement !== ta || (helper && helper._isComposing)) { pane.__imeRebindAt = 0; return; }
+      imeTrace('rebind', '');
+      try { ta.blur(); } catch (e) {}
+      requestAnimationFrame(function () {
+        var landed = document.activeElement;
+        if (landed && landed !== document.body) return; // something else claimed the keyboard meanwhile
+        try { ta.focus({ preventScroll: true }); } catch (e) { try { ta.focus(); } catch (x) {} }
+      });
+    }, 250);
+  }
   function takeCompositionCommit(term, event) {
     var core = term && term._core;
     var helper = core && core._compositionHelper;
@@ -644,6 +677,8 @@ function hangulFeed(state, ch) {
       var pane = paneFor(term);
       var broken = HANGUL_BARE_JAMO.test(event.data);
       if (broken) pane && (pane.__jamoAt = Date.now()); // this pane's IME is coming apart; the next syllable waits
+      // Two split commits in a row are the stuck input context (scheduleImeRebind); one heals by itself.
+      if (pane && (pane.__jamoRun = broken ? (pane.__jamoRun || 0) + 1 : 0) >= 2) scheduleImeRebind(pane, term);
       if (pane && (pane.__hangul || broken || (paneImeIsBroken(pane) && endsOpenSyllable(event.data)))) {
         if (pane.__hangulTimer) { clearTimeout(pane.__hangulTimer); pane.__hangulTimer = 0; }
         var state = pane.__hangul || { out: '', cur: { cho: '', jung: '', jong: '' }, fromAbort: false };
@@ -861,6 +896,11 @@ function hangulFeed(state, ch) {
       fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
       theme: themeColors(),
       cursorBlink: true,
+      // tmux keeps mouse tracking on for every pane, so a plain drag never forms an xterm selection — it
+      // goes to tmux (and in an agent pane, on to a TUI with no selection of its own). Option+drag is
+      // xterm's designed bypass on macOS, but only behind this flag (default false): with it, the drag
+      // selects locally and the Cmd+C handler below has something to read.
+      macOptionClickForcesSelection: true,
     });
     var fit = new window.FitAddon.FitAddon();
     term.loadAddon(fit);
@@ -1255,7 +1295,13 @@ function hangulFeed(state, ch) {
         }
         if (pane.hiddenHeld) {
           pane.hiddenHeld = false;
-          try { pane.term.reset(); } catch (e) {}
+          // Clear, never reset(): a full reset also returns xterm's mouse tracking to NONE, and nothing puts
+          // it back — tmux believes the mouse mode it enabled at attach never changed, so the refresh below
+          // repaints content only. The wheel then scrolls this freshly-emptied local buffer instead of
+          // reaching tmux copy mode: "scroll stopped working after I came back to this workspace". ED 3 +
+          // ED 2 + CUP drop the stale-width content — the part reset() was here for — and leave every DEC
+          // mode exactly as tmux left it.
+          try { pane.term.write('\x1b[3J\x1b[2J\x1b[H'); } catch (e) {}
         } else {
           try { pane.term.refresh(0, pane.term.rows - 1); } catch (e) {}
         }
@@ -1484,7 +1530,18 @@ function hangulFeed(state, ch) {
     refocusTerminal = !!(isOpen() && active && ae && panel.contains(ae));
   });
   window.addEventListener('focus', function () {
-    if (refocusTerminal && isOpen() && active) focusPane(active);
+    // A frame later, not now. The IME round trip in 01-core has just let go of the pane's textarea on this
+    // same event and will hand it back on the next frame — re-grabbing it synchronously put the blur and
+    // the focus in the SAME frame, where the renderer's input state ends as it began and macOS never
+    // re-binds the field: the round trip found focus already claimed and stood down, and 한글 kept arriving
+    // as separated jamo in the one place people type the most. Scheduled here, this rAF runs AFTER the
+    // round trip's (01-core registers first, so its callback is queued first): a no-op when the round trip
+    // already put focus back, and still the recovery when it didn't (focus sat elsewhere in the panel, or
+    // the field it would restore is gone).
+    if (refocusTerminal && isOpen() && active) {
+      var comeback = active;
+      requestAnimationFrame(function () { focusPane(comeback); });
+    }
     refocusTerminal = false;
   });
 

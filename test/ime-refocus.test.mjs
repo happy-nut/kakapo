@@ -70,6 +70,42 @@ test("a contenteditable is left alone — the terminal's rename label commits on
   v.close();
 });
 
+// The round trip can be defeated from inside the house. The terminal panel re-takes the keyboard on the
+// same window `focus` event (its refocusTerminal path), and doing that SYNCHRONOUSLY landed the blur and
+// the re-focus in one frame — the renderer published no input-state change, the round trip's own frame
+// callback found focus already claimed and stood down, and 한글 stayed broken exactly where people type
+// the most: an open terminal pane. The panel's re-grab must wait a frame; 01-core registers first, so its
+// callback runs first and the panel's lands as a no-op when the round trip already put focus back.
+test("the terminal panel's own window-focus re-grab waits a frame, so the round trip survives it", () => {
+  const client = readFileSync(new URL("../src/viewer/19-terminal.js", import.meta.url), "utf8");
+  const handler = client.match(/var refocusTerminal[\s\S]*?window\.addEventListener\('focus'[\s\S]*?\n  \}\);/)?.[0];
+  assert.ok(handler, "the panel still re-takes the keyboard on window focus");
+  assert.match(handler, /requestAnimationFrame\(function \(\) \{ focusPane\(/,
+    "…but a frame later — synchronous focusPane() here is how the IME round trip was being cancelled");
+  assert.doesNotMatch(handler, /\n\s*if \(refocusTerminal && isOpen\(\) && active\) focusPane\(active\);/,
+    "the same-frame re-grab must not come back");
+});
+
+// The round trip runs on window focus alone — so an input context that broke MID-typing stayed broken until
+// the user happened to leave the window. The incident trace shows the shape: one composition split under
+// output pressure, then every following one died ~100-200ms in, a bare jamo per keystroke, with the terminal
+// near-idle — the stuck state. Two split commits in a row are that signature, and the cure is the same round
+// trip, self-administered: blur between compositions, focus back a frame later, never mid-syllable, on a
+// cooldown.
+test("two split commits in a row trigger the round trip without waiting for a window switch", () => {
+  const client = readFileSync(new URL("../src/viewer/19-terminal.js", import.meta.url), "utf8");
+  const rebind = client.match(/function scheduleImeRebind\(pane, term\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(rebind, "the self-administered round trip exists");
+  assert.match(rebind, /helper\._isComposing\)/, "it never cuts a syllable in flight to fix the next one");
+  assert.match(rebind, /document\.activeElement !== ta/, "and only acts while the keyboard is actually the pane's");
+  assert.match(rebind, /ta\.blur\(\)[\s\S]*?requestAnimationFrame/, "blur now, focus a frame later — the same two-frame shape 01-core uses");
+  assert.match(rebind, /landed !== document\.body\) return/, "focus claimed by something else meanwhile is left alone");
+  assert.match(client, /pane\.__jamoRun = broken \? \(pane\.__jamoRun \|\| 0\) \+ 1 : 0/,
+    "the run of split commits is counted where commits land");
+  assert.match(client, />= 2\) scheduleImeRebind/,
+    "…and two in a row is what fires it — a lone split is output pressure and heals by itself");
+});
+
 // A composition-aware HOLD on the agent's output shipped in 0.4.18 and was pulled straight back out: a macOS
 // Hangul composition runs to the end of the WORD, not the end of a syllable, so holding output "until
 // compositionend" swallowed the echo of everything typed until the space bar. This pins the retraction — the
