@@ -70,6 +70,22 @@ test("a contenteditable is left alone — the terminal's rename label commits on
   v.close();
 });
 
+// The round trip can be defeated from inside the house. The terminal panel re-takes the keyboard on the
+// same window `focus` event (its refocusTerminal path), and doing that SYNCHRONOUSLY landed the blur and
+// the re-focus in one frame — the renderer published no input-state change, the round trip's own frame
+// callback found focus already claimed and stood down, and 한글 stayed broken exactly where people type
+// the most: an open terminal pane. The panel's re-grab must wait a frame; 01-core registers first, so its
+// callback runs first and the panel's lands as a no-op when the round trip already put focus back.
+test("the terminal panel's own window-focus re-grab waits a frame, so the round trip survives it", () => {
+  const client = readFileSync(new URL("../src/viewer/19-terminal.js", import.meta.url), "utf8");
+  const handler = client.match(/var refocusTerminal[\s\S]*?window\.addEventListener\('focus'[\s\S]*?\n  \}\);/)?.[0];
+  assert.ok(handler, "the panel still re-takes the keyboard on window focus");
+  assert.match(handler, /requestAnimationFrame\(function \(\) \{ focusPane\(/,
+    "…but a frame later — synchronous focusPane() here is how the IME round trip was being cancelled");
+  assert.doesNotMatch(handler, /\n\s*if \(refocusTerminal && isOpen\(\) && active\) focusPane\(active\);/,
+    "the same-frame re-grab must not come back");
+});
+
 // A composition-aware HOLD on the agent's output shipped in 0.4.18 and was pulled straight back out: a macOS
 // Hangul composition runs to the end of the WORD, not the end of a syllable, so holding output "until
 // compositionend" swallowed the echo of everything typed until the space bar. This pins the retraction — the

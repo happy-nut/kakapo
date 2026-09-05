@@ -1495,7 +1495,18 @@ function hangulFeed(state, ch) {
     refocusTerminal = !!(isOpen() && active && ae && panel.contains(ae));
   });
   window.addEventListener('focus', function () {
-    if (refocusTerminal && isOpen() && active) focusPane(active);
+    // A frame later, not now. The IME round trip in 01-core has just let go of the pane's textarea on this
+    // same event and will hand it back on the next frame — re-grabbing it synchronously put the blur and
+    // the focus in the SAME frame, where the renderer's input state ends as it began and macOS never
+    // re-binds the field: the round trip found focus already claimed and stood down, and 한글 kept arriving
+    // as separated jamo in the one place people type the most. Scheduled here, this rAF runs AFTER the
+    // round trip's (01-core registers first, so its callback is queued first): a no-op when the round trip
+    // already put focus back, and still the recovery when it didn't (focus sat elsewhere in the panel, or
+    // the field it would restore is gone).
+    if (refocusTerminal && isOpen() && active) {
+      var comeback = active;
+      requestAnimationFrame(function () { focusPane(comeback); });
+    }
     refocusTerminal = false;
   });
 
