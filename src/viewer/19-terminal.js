@@ -861,6 +861,11 @@ function hangulFeed(state, ch) {
       fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
       theme: themeColors(),
       cursorBlink: true,
+      // tmux keeps mouse tracking on for every pane, so a plain drag never forms an xterm selection — it
+      // goes to tmux (and in an agent pane, on to a TUI with no selection of its own). Option+drag is
+      // xterm's designed bypass on macOS, but only behind this flag (default false): with it, the drag
+      // selects locally and the Cmd+C handler below has something to read.
+      macOptionClickForcesSelection: true,
     });
     var fit = new window.FitAddon.FitAddon();
     term.loadAddon(fit);
