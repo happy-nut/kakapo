@@ -389,10 +389,14 @@ export function tmuxSpawnArgs(session: string, cwd: string, env: { [key: string]
   return args.concat([
     ";", "set", "-g", "status", "off",
     ";", "set", "-g", "mouse", "on",
-    // A fullscreen TUI may request mouse tracking. tmux's default then forwards WheelUp to the TUI, and Codex
-    // treats it as composer navigation instead of history scrolling. Kakapo terminals reserve WheelUp for
-    // tmux copy mode; once there, tmux's existing copy-mode bindings handle both directions.
-    ";", "bind-key", "-T", "root", "WheelUpPane", "if-shell", "-F", "#{pane_in_mode}", "send-keys -M", "copy-mode -e",
+    // A fullscreen TUI that asks for mouse tracking gets the wheel. Claude Code lives on the alternate
+    // screen, where tmux holds no history at all — forcing copy-mode there (the previous binding) scrolled
+    // the pre-launch shell screen while the conversation stayed unreachable, so the transcript scrolls only
+    // if the app itself sees the wheel. A plain shell (no mouse tracking) still wheels into tmux copy mode,
+    // whose existing bindings handle both directions. The cost, known and accepted: a TUI that mishandles
+    // the wheel (Codex once turned it into composer navigation) shows that mishandling again — the app's
+    // bug to fix, no longer tmux's to hide at the price of hiding Claude Code's transcript.
+    ";", "bind-key", "-T", "root", "WheelUpPane", "if-shell", "-F", "#{||:#{pane_in_mode},#{mouse_any_flag}}", "send-keys -M", "copy-mode -e",
     ";", "set", "-g", "default-terminal", "tmux-256color",
     ";", "set", "-ga", "terminal-overrides", ",*256col*:Tc",
   ]);

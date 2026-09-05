@@ -117,7 +117,9 @@ test("the tmux session is created in the workspace, with per-session env", () =>
   const mouse = args.indexOf("mouse");
   assert.equal(args[mouse + 1], "on", "the wheel enters tmux copy mode so fullscreen agent history remains scrollable");
   const wheel = args.indexOf("WheelUpPane");
-  assert.ok(wheel > 0 && args.slice(wheel).includes("copy-mode -e"), "a mouse-aware Codex TUI cannot turn wheel scroll into caret movement");
+  assert.ok(wheel > 0 && args.slice(wheel).includes("copy-mode -e"), "a plain shell still wheels into tmux copy mode");
+  assert.ok(args.slice(wheel).some((a) => a.includes("mouse_any_flag")),
+    "an app that asked for the mouse gets the wheel — Claude Code's transcript lives on the alternate screen, which tmux history never holds");
   assert.ok(args.join(" ").includes("Tc"), "truecolor stays on inside tmux (Claude Code's logo)");
 });
 
