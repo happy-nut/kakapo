@@ -38,7 +38,8 @@ test("a dead context is still detected and replaced — the garbage-frame fix st
 
 test("the repaint still runs for every pane, replaced or kept", () => {
   const flush = client.match(/function flushHiddenOutput\(\)[\s\S]*?\n  \}\n/)?.[0];
-  assert.match(flush, /term\.reset\(\)/, "a held pane is cleared for tmux's authoritative repaint");
+  assert.match(flush, /term\.write\('\\x1b\[3J\\x1b\[2J\\x1b\[H'\)/,
+    "a held pane is cleared for tmux's authoritative repaint — cleared, not reset(), which would drop mouse tracking");
   assert.match(flush, /term\.refresh\(0, pane\.term\.rows - 1\)/, "a quiet pane redraws from its own buffer");
   assert.match(flush, /kakapoPty\.refresh\(\{ id: pane\.id \}\)/, "and tmux repaints the true screen either way");
 });

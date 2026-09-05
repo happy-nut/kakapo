@@ -1255,7 +1255,13 @@ function hangulFeed(state, ch) {
         }
         if (pane.hiddenHeld) {
           pane.hiddenHeld = false;
-          try { pane.term.reset(); } catch (e) {}
+          // Clear, never reset(): a full reset also returns xterm's mouse tracking to NONE, and nothing puts
+          // it back — tmux believes the mouse mode it enabled at attach never changed, so the refresh below
+          // repaints content only. The wheel then scrolls this freshly-emptied local buffer instead of
+          // reaching tmux copy mode: "scroll stopped working after I came back to this workspace". ED 3 +
+          // ED 2 + CUP drop the stale-width content — the part reset() was here for — and leave every DEC
+          // mode exactly as tmux left it.
+          try { pane.term.write('\x1b[3J\x1b[2J\x1b[H'); } catch (e) {}
         } else {
           try { pane.term.refresh(0, pane.term.rows - 1); } catch (e) {}
         }

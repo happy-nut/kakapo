@@ -36,7 +36,12 @@ test("arriving fits the grid first, then has tmux repaint the real screen", () =
   assert.ok(flush, "flushHiddenOutput exists");
   assert.match(flush, /scheduleFitAll\(\);[\s\S]{0,200}requestAnimationFrame/,
     "the resize goes first — it is what tells tmux the grid to wrap to");
-  assert.match(flush, /term\.reset\(\)/, "the pane is cleared rather than left holding a screen drawn for another size");
+  assert.match(flush, /term\.write\('\\x1b\[3J\\x1b\[2J\\x1b\[H'\)/,
+    "the pane is cleared rather than left holding a screen drawn for another size");
+  assert.doesNotMatch(flush, /term\.reset\(\)/,
+    "…but not with reset(): a full reset drops xterm's mouse tracking back to NONE, tmux never re-sends the "
+    + "enable sequence (it believes the mode never changed), and the wheel stops reaching copy mode — scroll "
+    + "went dead in every pane that came back from a hidden workspace");
   assert.match(flush, /kakapoPty\.refresh\(\{ id: pane\.id \}\)/, "and tmux paints what is actually there");
   assert.match(client, /visibilitychange[\s\S]{0,120}flushHiddenOutput\(\)/, "becoming visible is what runs it");
 });
