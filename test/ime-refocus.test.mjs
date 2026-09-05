@@ -86,6 +86,26 @@ test("the terminal panel's own window-focus re-grab waits a frame, so the round 
     "the same-frame re-grab must not come back");
 });
 
+// The round trip runs on window focus alone — so an input context that broke MID-typing stayed broken until
+// the user happened to leave the window. The incident trace shows the shape: one composition split under
+// output pressure, then every following one died ~100-200ms in, a bare jamo per keystroke, with the terminal
+// near-idle — the stuck state. Two split commits in a row are that signature, and the cure is the same round
+// trip, self-administered: blur between compositions, focus back a frame later, never mid-syllable, on a
+// cooldown.
+test("two split commits in a row trigger the round trip without waiting for a window switch", () => {
+  const client = readFileSync(new URL("../src/viewer/19-terminal.js", import.meta.url), "utf8");
+  const rebind = client.match(/function scheduleImeRebind\(pane, term\)[\s\S]*?\n  \}/)?.[0];
+  assert.ok(rebind, "the self-administered round trip exists");
+  assert.match(rebind, /helper\._isComposing\)/, "it never cuts a syllable in flight to fix the next one");
+  assert.match(rebind, /document\.activeElement !== ta/, "and only acts while the keyboard is actually the pane's");
+  assert.match(rebind, /ta\.blur\(\)[\s\S]*?requestAnimationFrame/, "blur now, focus a frame later — the same two-frame shape 01-core uses");
+  assert.match(rebind, /landed !== document\.body\) return/, "focus claimed by something else meanwhile is left alone");
+  assert.match(client, /pane\.__jamoRun = broken \? \(pane\.__jamoRun \|\| 0\) \+ 1 : 0/,
+    "the run of split commits is counted where commits land");
+  assert.match(client, />= 2\) scheduleImeRebind/,
+    "…and two in a row is what fires it — a lone split is output pressure and heals by itself");
+});
+
 // A composition-aware HOLD on the agent's output shipped in 0.4.18 and was pulled straight back out: a macOS
 // Hangul composition runs to the end of the WORD, not the end of a syllable, so holding output "until
 // compositionend" swallowed the echo of everything typed until the space bar. This pins the retraction — the

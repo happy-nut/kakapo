@@ -80,7 +80,7 @@ test("the traced failure now assembles instead of splitting", () => {
 });
 
 test("the branch that routes a healthy commit into the hold is wired to both conditions", () => {
-  const branch = client.match(/var broken = HANGUL_BARE_JAMO[\s\S]{0,400}?endsOpenSyllable\(event\.data\)[\s\S]{0,20}?\{/)?.[0];
+  const branch = client.match(/var broken = HANGUL_BARE_JAMO[\s\S]{0,600}?endsOpenSyllable\(event\.data\)[\s\S]{0,20}?\{/)?.[0];
   assert.ok(branch, "the commit branch is still where the routing happens");
   assert.match(branch, /pane\.__jamoAt = Date\.now\(\)/, "a bare-jamo commit arms the window");
   assert.match(branch, /paneImeIsBroken\(pane\) && endsOpenSyllable\(event\.data\)/,
