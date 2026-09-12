@@ -76,29 +76,18 @@ document.addEventListener('keydown', function () { reviewFocusInputModality = 'k
 document.addEventListener('mousedown', function (event) {
   reviewFocusInputModality = 'pointer';
   clearReviewPanelFocusFlash();
-  // Tell main a click landed in the review CONTENT, which dismisses an expanded workspace rail. The terminal
-  // panel is exempt: it lives inside this same view, so main's "the view took focus" signal could not tell
-  // the two apart and clicking into a shell closed the rail the user had just opened.
-  var inTerminal = event.target && event.target.closest && event.target.closest('.terminal-panel');
-  // kakapoMenu, not kakapoApp. It has always been on the menu bridge, and the typeof guard turned the
-  // mistake into silence: clicking the review never dismissed the rail, and nothing said so.
-  if (!inTerminal && window.kakapoMenu && typeof window.kakapoMenu.railStandDown === 'function') {
-    window.kakapoMenu.railStandDown();
-  }
 }, true);
 document.addEventListener('focusin', function (event) { flashReviewPanelFocus(event.target); }, true);
 
-// One window hosts every workspace view, and main hands keyboard focus back to the active one with
-// webContents.focus() — collapsing the rail, closing a dialog, switching workspace, re-activating the app.
-// That restores the PAGE's focus while the focused ELEMENT never changes, so the renderer has no new input
-// state to publish, and macOS' input method — which dropped this field when the view lost focus — stops
-// composing into it: every keystroke commits on its own and 한글 arrives as ㅎ ㅏ ㄴ instead of 한. Only a
-// real element focus change re-binds it, which is exactly why clicking another pane and back fixed it by
-// hand. Do that round trip here instead, for the terminal's xterm textarea and every composer alike.
+// Main hands keyboard focus back to the page with webContents.focus() — closing a dialog, re-activating
+// the app. That restores the PAGE's focus while the focused ELEMENT never changes, so the renderer has no
+// new input state to publish, and macOS' input method — which dropped this field when the window lost
+// focus — stops composing into it: every keystroke commits on its own and 한글 arrives as ㅎ ㅏ ㄴ instead
+// of 한. Only a real element focus change re-binds it, which is exactly why clicking another field and back
+// fixed it by hand. Do that round trip here instead, for every composer alike.
 // The blur and the focus must land in DIFFERENT frames: within one, the state at frame end is the state it
 // started with and nothing is published — the whole point of the round trip.
-// Inputs and textareas only. The one contenteditable that can hold focus is the terminal's pane-rename
-// label, and its blur commits the rename — a re-activation must not do that behind the user's back.
+// Inputs and textareas only — a contenteditable's blur can commit an edit behind the user's back.
 window.addEventListener('focus', function () {
   var refocusEl = document.activeElement;
   if (!refocusEl || (refocusEl.tagName !== 'TEXTAREA' && refocusEl.tagName !== 'INPUT')) return;
@@ -583,8 +572,8 @@ var I18N = JSON.parse(document.getElementById('i18n-data')?.textContent || '{}')
 // returns the bridge value (native) if present, else undefined so callers parse localStorage themselves.
 // What THIS page has saved since it loaded. kakapoSettings.all is a snapshot taken in the preload — set()
 // goes to main but never back into it — so a read that prefers the bridge returns the value from before the
-// write, for the rest of the window's life. That is how the briefing reopened on every workspace switch: it
-// marked itself seen, then read the mark back from a snapshot that predates it.
+// write, for the rest of the window's life — a panel that marks itself seen would read the mark back from
+// a snapshot that predates it.
 var persistWrittenHere = {};
 function persistRead(key) {
   if (key in persistWrittenHere) return persistWrittenHere[key];
@@ -676,21 +665,12 @@ function applyTheme() {
   beginDiffViewportChurn(); // every row's computed style is about to change at once — settle, don't thrash
   document.documentElement.setAttribute('data-theme', resolvedTheme());
   if (themeSelectRef) themeSelectRef.render();
-  // Theme families own both app chrome and Review code colors.
-  retheme();
-}
-// Everything styled by CSS follows data-theme on its own. The terminal does not: each xterm pane is
-// constructed with a colour object read from the variables at that moment, so switching to a light family
-// left the panes dark until they were re-created. Push the new colours into the live panes instead.
-function retheme() {
-  var api = window.__kakapoTerminal;
-  if (api && typeof api.retheme === 'function') { try { api.retheme(); } catch (e) {} }
 }
 applyTheme();
 // The persisted syntax choice is a complete theme family rather than a code-only palette. `theme` selects
 // the family's dark/light member, keeping navigation chrome, diff, raw source, and HTTP coherent.
 // Whole-interface scale. Persisted here; the Electron main process reads it and applies a Chromium zoom
-// factor to every surface (rail, review views, modal overlay) — see applyUiScale in app-main.ts. Outside
+// factor to every review window — see applyUiScale in app-main.ts. Outside
 // Electron there is no main process, so the page scales itself with CSS zoom instead.
 var UI_SCALE_KEY = 'kakapo-ui-scale';
 var UI_SCALES = [0.9, 1, 1.1, 1.25, 1.5];
@@ -743,7 +723,6 @@ function applySyntaxTheme() {
   beginDiffViewportChurn(); // a syntax family repaints every token in the diff — same story as the theme
   document.documentElement.setAttribute('data-syntax-theme', syntaxTheme);
   if (syntaxThemeSelectRef) syntaxThemeSelectRef.render();
-  retheme(); // a syntax family carries its own --panel/--text, which the panes are painted from
 }
 applySyntaxTheme();
 let fileStates = JSON.parse(document.getElementById('file-state-data')?.textContent || '[]');
@@ -900,8 +879,6 @@ const quickExtensionInput = document.getElementById('quick-open-extensions');
 const quickExcludeNoiseButton = document.getElementById('quick-open-exclude-noise');
 let current = -1;
 let checkingForUpdates = false;
-let lastShiftAt = 0;
-let lastShiftSide = 0;
 let quickMode = 'all';
 let quickItems = [];
 let quickActive = 0;

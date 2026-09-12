@@ -31,31 +31,14 @@ test("workspace identity normalizes nested folders but keeps worktrees distinct"
   }
 });
 
-test("desktop composition uses one shell BrowserWindow, isolated views, and explicit detached windows", () => {
+test("desktop composition is one BrowserWindow per repository", () => {
   const source = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
   assert.match(source, /requestSingleInstanceLock\(\{ workspaceRoot: options\.root \}\)/);
-  assert.match(source, /new WebContentsView/);
-  assert.match(source, /host\.contentView\.addChildView\(view\)/);
-  assert.match(source, /function activateWorkspace/);
-  assert.match(source, /kakapo:hub-create/);
-  assert.match(source, /kakapo:workspace-state/);
-  assert.match(source, /setWorkspaceHubOpen/);
-  assert.match(source, /isDetached: \(\)/);
-  // Two BrowserWindows in app-main: the shell and the detached-host window. The third — the transient tile
-  // context-menu popup (a frameless child window so the custom design-system menu can float above the review
-  // views) — lives in its own adapter, app-tile-menu-ipc.ts. Workspaces themselves are always WebContentsViews,
-  // never windows — that per-workspace invariant is what this guards.
-  assert.equal((source.match(/new BrowserWindow\(/g) || []).length, 2);
-  const tileMenu = readFileSync(new URL("../src/app-tile-menu-ipc.ts", import.meta.url), "utf8");
-  assert.equal((tileMenu.match(/new BrowserWindow\(/g) || []).length, 1, "the tile-menu popup is the only window its adapter creates");
-});
-
-test("shutdown teardown does not erase the restore-on-launch workspace session", () => {
-  const source = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
-  // The shell "close" event is the one point that precedes every review-view teardown; it must latch the flag.
-  assert.match(source, /shellWindow\.on\("close",\s*\(\)\s*=>\s*\{\s*appQuitting = true;/);
-  // The per-view teardown persist must be gated on that flag, otherwise quitting rewrites the saved list empty.
-  assert.match(source, /if \(!appQuitting\) persistWorkspaceSession\(\);/);
-  // A fresh shell window means we are running again, so the flag must reset (guards shell recreation).
-  assert.match(source, /appQuitting = false;[^\n]*\n\s*shellWindow = new BrowserWindow\(/);
+  // A second launch in the SAME repository focuses the window already reviewing it; another repository gets
+  // its own. That is the whole of the multi-window story now — no shell, no views, no detached hosts.
+  assert.match(source, /function openOrFocusWorkspace/);
+  assert.doesNotMatch(source, /new WebContentsView/, "a review is a window, not a view inside a shell");
+  assert.doesNotMatch(source, /function activateWorkspace/, "there is no workspace to activate");
+  assert.equal((source.match(/new BrowserWindow\(/g) || []).length, 1,
+    "exactly one place makes a window, and it makes the review's own");
 });

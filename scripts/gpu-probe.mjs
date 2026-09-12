@@ -423,15 +423,6 @@ const ACTIONS = {
     el.scrollTop = 0;
     return 'scrolled:' + h;
   })()`),
-  // Open and close the terminal panel: a full-window surface appearing and going away.
-  toggleTerminal: inVisibleReview(`(async function(){
-    var t = window.__kakapoTerminal;
-    if (!t || typeof t.open !== 'function') return 'none';
-    var was = t.isOpen();
-    t.open(); await new Promise(function(r){ setTimeout(r, 1500); });
-    if (!was && typeof t.close === 'function') { t.close(); await new Promise(function(r){ setTimeout(r, 800); }); }
-    return 'toggled:' + was;
-  })()`),
   // Switch the active workspace around the rail and back — every switch re-composites a full-window view.
   switchWorkspaces: `(async () => {
     const { BrowserWindow } = require('electron');

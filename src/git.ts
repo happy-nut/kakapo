@@ -194,11 +194,17 @@ export function resolveWorkspaceRoot(cwd: string = process.cwd()): string {
   return canonicalWorkspaceRoot(repoRoot(canonicalWorkspaceRoot(cwd)));
 }
 
-export function readGitSnapshot(root: string): GitSnapshot {
-  return {
-    branch: git(root, ["branch", "--show-current"]),
-    status: git(root, ["status", "--short"]),
-    diffStat: git(root, ["diff", "--stat"]),
-    recentCommits: git(root, ["log", "--oneline", "-5"]),
-  };
+// Branch names for the compare-target picker: local branches first (the ones you switch between), then the
+// remote-tracking ones. `main` and `origin/main` both stay — they are different commits the moment either
+// side moves, and collapsing them would silently pick one, which is the whole question being asked here.
+// Sorted by most recent commit: the branch you last touched is the likeliest comparison, alphabetical buries it.
+export function listBranches(root: string): string[] {
+  const refs = (scope: string): string[] =>
+    git(root, ["for-each-ref", "--sort=-committerdate", "--count=300", "--format=%(refname:short)", scope])
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  // `refs/remotes/origin/HEAD` shortens to a bare `origin`, which is not a branch and cannot be diffed
+  // against. Every real remote-tracking ref is `<remote>/<branch>`, so the slash is the whole test.
+  return refs("refs/heads").concat(refs("refs/remotes").filter((name) => name.includes("/")));
 }

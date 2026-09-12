@@ -32,11 +32,9 @@ test("real Chromium keeps every full-viewport title surface clear of macOS traff
   const layout = JSON.parse(marker.slice("KAKAPO_NATIVE_TITLE_LAYOUT=".length));
   assert.equal(layout.safeWidth, 76, "the measured native control reservation matches BrowserWindow traffic lights");
   assert.equal(layout.titlebarHeight, 40, "all custom title rows share the native titlebar height");
-  assert.equal(layout.railDisplay, "none", "the in-view activity rail is hidden — its tools moved to the shell title bar");
   assert.equal(layout.sidebarBrandTop, 0, "the project header sits flush at the top — the shell window owns the title bar above this view");
   assert.equal(layout.sidebarFocusTop, layout.titlebarHeight, "the sidebar keyboard cue begins below the traffic-light row");
   assert.equal(layout.sidebarFocusOutline, "none", "the sidebar does not draw a full-box outline through native controls");
-  assert.equal(layout.railFocusOutline, "none", "the activity rail does not outline the traffic-light corner");
   assert.ok(layout.reviewTitleLeft >= layout.safeWidth + 8, `collapsed review title starts at ${layout.reviewTitleLeft}px`);
   assert.ok(layout.historyTitleLeft >= layout.safeWidth + 8, `History title starts at ${layout.historyTitleLeft}px`);
   assert.ok(layout.historyBarHeight >= layout.titlebarHeight - 0.5, "History preserves the shared titlebar height within Chromium subpixel rounding");

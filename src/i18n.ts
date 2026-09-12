@@ -9,19 +9,6 @@
 // paths, syntax-language names, the "kakapo" brand, version strings, and literal <kbd> key names
 // (F7, Cmd/Ctrl+B, …). Korean is written for Korean developers — natural, with common technical
 // terms left readable (커밋, 탭, 인덱스 …) rather than force-translated.
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-// The agent prompts (Explain, the codebase map) are thousands of characters each, so they live as
-// Markdown next to this file instead of as one string literal per locale: a wording change shows up as a
-// readable diff, en/ko sit side by side so they cannot drift unnoticed, and the prompt is edited as a
-// prompt (real line breaks, no \n escapes). Copied to dist/prompts/ by scripts/copy-viewer-assets.mjs.
-// Read once at module load — this module is main-process only; the viewer gets MESSAGES as a JSON island.
-function readPrompt(name: string, locale: string): string {
-  return readFileSync(join(dirname(fileURLToPath(import.meta.url)), "prompts", `${name}.${locale}.md`), "utf8").replace(/\n$/, "");
-}
-
 export const MESSAGES: Record<string, Record<string, string>> = {
   en: {
     // Tabs (sidebar)
@@ -30,14 +17,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "tab.changes.title": "Changes (⌘0)",
     "tab.files.title": "Files (⌘1)",
     "tree.markViewed": "Reviewed this file (Space)",
-    "rail.reviewComments": "Review comments",
     "rail.branch": "Current branch",
     "brand.revealFile": "Reveal open file in the sidebar (⌥F1)",
     "rail.history": "History",
 
-    // Explain: the agent's notes land on the diff itself (23-annotations.js) — these cover the prompt
-    // hand-off and the Mermaid diagrams a note can embed.
-    "explain.copied": "Copied",
+    // Mermaid diagrams a Markdown body can embed (20-mermaid.js).
     "explain.diagramLoading": "Loading diagram…",
     "diagram.zoom": "Click to enlarge",
     "explain.diagramInvalid": "This diagram could not be rendered.",
@@ -64,7 +48,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "find.next": "Next match (Enter)",
     "find.close": "Close (Esc)",
     "find.noResults": "No matches",
-    "menu.copyPath": "Copy path",
     "menu.copyRelativePath": "Copy relative path",
     "menu.copyAbsolutePath": "Copy absolute path",
     "menu.revealFinder": "Show in File Manager",
@@ -74,49 +57,16 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.clearComments": "Clear {n} comments in this file",
     // Shown while the panel waits for tmux to redraw a session that outlived the app. A spinner alone says
     // "something is happening"; this says WHAT, which is the difference between waiting and wondering.
-    "terminal.connecting": "Connecting to your session…",
-    "terminal.title": "Terminal",
-    "terminal.toggle": "Toggle terminal (⌃`)",
-    "terminal.closeRunningConfirm": "“{name}” is still running in this terminal. Closing the pane stops it. Close anyway?",
-    "settings.termFont": "Terminal text size",
-    "settings.termLine": "Line spacing",
-    "settings.termLine.hint": "More room between lines makes long agent output — Korean especially — far easier to read.",
-    "settings.bellNotify": "Notify when an agent finishes — a terminal bell, or an answer in the review",
-    "settings.persistTerminal.hint": "Terminals belong to their workspace: quitting kakapo leaves them running, and only deleting the workspace ends them.",
-    "settings.installTmux": "Install tmux",
-    "settings.tmuxReady": "tmux is installed — terminals survive quitting kakapo.",
-    "settings.tmuxMissing": "tmux is not installed, so terminals still close with kakapo.",
-    "settings.tmuxNoBrew": "tmux is not installed, and Homebrew wasn't found. Install tmux yourself, then reopen this panel.",
-    "settings.tmuxInstalling": "Installing tmux…",
-    "settings.tmuxInstallFailed": "The install didn't finish. See the log below.",
-    "notify.bellBody": "a task finished or needs your input",
     "notify.agentReplied": "The agent answered a review comment",
     "notify.agentReplies": "The agent answered your review comments",
-    "settings.kbd.cat.terminal": "Terminal",
-    "kbd.toggleTerminal": "Toggle terminal",
-    "kbd.splitPane": "Split pane",
-    "kbd.focusPane": "Focus prev / next pane",
-    "kbd.renamePane": "Rename pane",
-    "kbd.closeTerminal": "Close terminal (when focused)",
-    "merged.sendToTerminal": "Send to terminal",
     "menu.showLineHistory": "Show date and author",
     "menu.hideLineHistory": "Hide date and author",
-
-    // Rail: gear-badge tooltip / About
-    "sidebar.updateAvailable": "update available",
     // Title on the brand mark while the release image streams down (applyUpdateProgress). The ring on the
     // mark is the report; this is for anyone who wants the number.
     "update.downloading": "Downloading update… {n}%",
-    "about.title": "About kakapo",
-    "about.tip": "Settings (⌘,)",
     "dock.maximize": "Maximize panel (⌘⇧')",
-    "dock.restore": "Restore panel (⌘⇧')",
 
     // Review status (toolbar) — units; the numeric count stays dynamic and is prepended at runtime.
-    "status.files": "files",
-    "status.hunks": "hunks",
-    "status.wsIgnored": "ws ignored",
-    "status.wsIgnored.title": "Whitespace ignored — ⌘⇧W",
     "status.watching": "watching",
     "status.live.updated": "Live: updated",
     "status.live.waiting": "Live: waiting for diff server",
@@ -126,7 +76,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "analysis.fallback": "Heuristic analysis",
     "analysis.failed": "Analysis failed",
     "monaco.peek": "Semantic Peek",
-    "monaco.openSource": "Open source",
     "monaco.peekHint": "↑/↓ Select · Enter Open · Esc Close",
     "monaco.noResults": "No semantic locations found.",
     "monaco.noSymbol": "No symbol under the caret.",
@@ -157,7 +106,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.restoredMany": "Comments restored",
     "comment.clearedMany": "Cleared {n} comments",
     // Every pane is running something, so there is nowhere to cd without interrupting an agent.
-    "terminal.openHere.busy": "Every pane is busy — close one, or open a pane yourself first",
     "diff.previous": "Previous change (Shift+F7)",
     "diff.next": "Next change (F7)",
     "diff.hideSidebar": "Hide changed files",
@@ -181,6 +129,15 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "compare.openHistory": "History",
     // The breadcrumb, while the review shows commits: the newest one is named, the rest are counted.
     "compare.andMore": "+{n} more",
+    // Compare dropdown on the toolbar pill.
+    "compare.menu.aria": "Compare options",
+    "compare.menu.all": "All changes",
+    "compare.menu.against": "vs {ref}",
+    "compare.menu.uncommitted": "Uncommitted changes",
+    "compare.menu.target": "Compare against",
+    "compare.menu.searchBranch": "Search branches",
+    "compare.menu.default": "default",
+    "compare.menu.noBranch": "No branch matches",
     "patchset.bar": "Compare base",
     "patchset.base": "Base",
     "patchset.pick": "Choose a patch set to compare against",
@@ -192,9 +149,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "patchset.workingTree": "Working tree",
     "patchset.latest": "latest",
     "patchset.allChanges": "All changes",
-    "patchset.branchPoint": "Branch point",
-    "patchset.set": "Patch set",
-    "diff.noChange": "No change selected",
     "diff.contextFold": "{count} unchanged lines · expand",
     "diff.contextLoading": "Loading context…",
     "diff.contextUnavailable": "Context could not be loaded.",
@@ -237,22 +191,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "usages.title": "Usages",
 
     // Agent quota footer
-    "usage.session": "5h",
-    "usage.weekly": "weekly",
-    "usage.left": "left",
-    "usage.resets": "resets in",
-    "usage.asOf": "as of {age} ago",
-    "usage.tokensToday": "tokens today",
-    "usage.now": "now",
-    "usage.unit.d": "d",
-    "usage.unit.h": "h",
-    "usage.unit.m": "m",
 
     // Settings — nav
     "settings.aria": "Settings",
     "settings.title": "Settings",
     "settings.cat.general": "General",
-    "settings.cat.prompts": "Prompts",
 
     // Settings — General
     "settings.language": "Language",
@@ -261,10 +204,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.uiScale.hint": "Scales the whole interface, including the terminal.",
     "theme.dark": "Dark",
     "theme.light": "Light",
-    "settings.syntaxTheme": "Theme family",
-    "syntaxTheme.default": "Kakapo",
-    "syntaxTheme.darcula": "Darcula",
-    "syntaxTheme.github": "GitHub",
     // Theme grid: a theme is one named palette that is already light or dark (see renderThemeGrid).
     // "System" is the only automatic entry — it follows the OS with whichever family is currently chosen.
     "theme.name.default-dark": "Kakapo Dark",
@@ -296,12 +235,13 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Settings — keyboard-shortcut labels (descriptions only; <kbd> key names stay literal)
     "kbd.gotoLine": "Go to line",
-    "kbd.copyLocation": "Copy file:line",
     "kbd.rowActions": "Sidebar file actions (path / file manager / terminal)",
     "kbd.openFolder": "Open folder",
     "kbd.openNewWindow": "Open in new window",
     "kbd.openSettings": "Settings",
     "kbd.openHistory": "Open / close Git history",
+    "kbd.compareMode": "All changes / uncommitted changes",
+    "kbd.compareRef": "Choose the branch to compare against",
     "kbd.closeDialog": "Close dialog / cancel",
     "kbd.sidebarNavigate": "Navigate / open sidebar row",
     "kbd.findNextPrev": "Next / previous match",
@@ -317,21 +257,16 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.reviewStops": "Step through comments / folded context",
     "kbd.stepComments": "Step between comments (merged)",
     "kbd.mergedSend": "Comment actions (merged)",
-    "kbd.explainSend": "Send Explain prompt to terminal",
     "kbd.nextChange": "Next change",
     "kbd.prevChange": "Previous change",
     "kbd.nextComment": "Next / previous comment",
-    "kbd.briefing": "Explain briefing",
-    "kbd.nextNote": "Next / previous Explain note",
     "kbd.closeTab": "Close tab",
     "kbd.prevNextTab": "Prev / next tab",
     "kbd.cursorBackForward": "Cursor back / forward",
-    "kbd.findFile": "Find file",
     "kbd.findInFile": "Find in current file",
     "kbd.findInFiles": "Find in files",
     "kbd.searchExtensions": "Focus extension filter",
     "kbd.excludeSearchNoise": "Exclude comments / tests",
-    "kbd.recentFiles": "Recent files",
     "kbd.defUsages": "Definition / usages",
     "kbd.goToImplementation": "Go to implementation",
     "kbd.workspaceSymbol": "Workspace symbol",
@@ -347,102 +282,20 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.allComments": "All review comments",
     "kbd.ignoreWhitespace": "Ignore whitespace",
     "kbd.saveComment": "Save comment",
-    "kbd.promptMemo": "Prompt memo",
-    "kbd.promptPalette": "Agent tasks (explain, map, harvest — run by kakapo's own session)",
     "kbd.maximizePanel": "Maximize panel (merged / memo)",
     "kbd.historyNavigate": "Select a commit, open it in the review",
 
     // Settings — Merge prompts
-    "mergePrompts.title": "Merge prompts",
-    "mergePrompts.desc": "These editable defaults are prepended to prompts sent to the agent and are saved automatically. The plan contract is prepended to review comments (⌘⇧/) and to the prompt memo.",
-    "mergePrompts.planHeading": "Plan contract (review comments + memo)",
-    "mergePrompts.cHeading": "Review-comment instructions",
-    "mergePrompts.reset": "Reset to defaults",
 
-    // Settings — the Explain prompt (the ⌘⇧P palette sends it; the agent appends notes to the thread file)
-    "annotatePrompt.title": "Explain the diff",
-    "annotatePrompt.desc": "Sent to an AI agent from the ⌘⇧P palette to walk the diff and drop plain-language note cards on the lines that matter. F8 steps through them alongside your own comments. Saved automatically. {{NOTES_PATH}} is replaced with this workspace's annotations file when sent.",
-    "codebase.prompt.default": readPrompt("codebase", "en"),
-    // The vocabulary can be fed from an ordinary terminal conversation too — the agent in there is in the
-    // conversation and can judge what landed, and the file merges appends safely. All it lacks is knowing
-    // the file exists, which is what this prompt hands it.
-    "terms.prompt.default": readPrompt("terms", "en"),
-    "termsPrompt.title": "Keep what I learned",
-    "termsPrompt.when": "After a conversation in the terminal that taught you something — it records the words you took in.",
-    "annotatePrompt.when": "When a diff needs explaining — yours to read, or someone else's to review.",
-    "codebasePrompt.title": "Explain the codebase",
-    "codebasePrompt.when": "When the repository is new to you and you need its shape before its details.",
-    "codebasePrompt.desc": "Sent from the Cmd+E launcher's Agent tasks section: read this repository and leave ONE map note on the entry point - a diagram of its 3-5 core components whose nodes click through to them, plus a short paragraph on each. It deliberately stops at that altitude; Explain the diff is what goes deeper. Saved automatically. {{NOTES_PATH}} is replaced with this workspace's notes file when sent.",
-    "annotate.kind": "Why",
-    // kakapo's own agent (ask-session.ts) — the one the reviewer never sees. These strings are the whole of
-    // its visibility, so they say what it is DOING, not that something is happening.
-    "settings.ask": "kakapo's own agent",
-    "settings.askModel": "Model it answers on",
-    "settings.askModel.hint": "kakapo answers your comments in a session of its own, so a question never goes to the agent that wrote the change. Automatic answers comments on Sonnet and leaves Explain runs on whatever your claude is set to; pick a model to pin both.",
-    "settings.askModel.auto": "Automatic",
-    "settings.askModel.sonnet": "Sonnet",
-    "settings.askModel.opus": "Opus",
-    "settings.askModel.fable": "Fable",
-    "settings.askModel.inherit": "Whatever claude is set to",
-    "ask.button": "Ask again",
-    "ask.waiting": "Waiting for an answer",
-    "ask.answering": "Answering",
-    "ask.explaining": "Explaining the diff",
-    "ask.mapping": "Mapping the codebase",
-    "ask.harvesting": "Updating the knowledge graph",
-    "ask.nothingNew": "Nothing new to harvest — no conversation since the last run.",
-    "ask.working": "Working",
-    "ask.started": "Sent to kakapo's own agent — the answer lands here when it is ready.",
-    "ask.failed": "The answer came back empty. Nothing was changed.",
-    "ask.noAgent": "No agent CLI found. Install claude or codex, or send the prompt to the terminal instead.",
-    "ask.unavailable": "This build has no agent of its own — use the terminal hand-off.",
-    // The question as the hidden session receives it. It is reading this repository and nothing else, so the
-    // comment has to arrive with its place in the code attached.
-    "ask.prompt.intro": "A reviewer left this comment while reading the diff in kakapo. Answer it.",
-    "ask.prompt.where": "It is on",
-    "ask.prompt.question": "Their comment:",
-    "ask.prompt.thread": "The whole review conversation, if you need what came before:",
-    "ask.prompt.style": "Answer in prose, in the reviewer's language, short enough to read beside the code. Read whatever you need to be sure; do not change any file.",
-    // The one case where answering is the wrong thing to do. The hidden session cannot edit — that is the
-    // rule that makes an invisible agent safe — so a comment asking for a change has to travel to the agent
-    // the reviewer has open in the terminal, and this is how it says so (handOffFromAnswer, app-main.ts).
-    "ask.prompt.handoff": "If the comment is asking for the code to be CHANGED rather than explained, do not answer it and do not attempt the change. Make your entire reply exactly this: a first line of `KAKAPO-HANDOFF`, then the instruction you would give to the engineer who will make it — what to change, where, and what it has to satisfy. Write it to be read on its own, by someone who cannot see this comment.",
-    "ask.handoff.staged": "This one needs a code change — handed to the terminal. Press Enter to send it.",
-    "ask.handoff.sent": "This one needs a code change — sent to the agent in the terminal.",
-    "ask.handoff.note": "Handed to the agent in the terminal:",
-    // Appended to an Explain-style prompt when it runs in the hidden session, which has no write access:
-    // it overrides the one instruction that tells the agent to append its records to a file (app-main.ts).
-    "ask.prompt.notes": "OVERRIDE — you have no write access in this run. Do not create or edit any file, and ignore any instruction above telling you to append to one. Instead, print the JSONL records you would have appended as your ENTIRE final message: one JSON object per line, nothing before or after them, and no code fence. Omit the `id` field — kakapo assigns it.",
-    "ask.prompt.transcript": "The conversation to look back over is NOT this session's. The reviewer talked to another agent, and that conversation is recorded in the JSONL transcript file(s) below. Read each file from the marked line to the end — everything before it was already harvested last time. The reviewer's own words are the user-role messages; the rest is the agent they were talking to.",
-    "ask.prompt.transcriptFile": "- {path} — read from line {n}",
-    // Why a changed file arrived already marked viewed (trivialChange, render-tree.ts). One word, beside the
-    // name — enough to explain the tick, small enough not to outshout the filename.
     "trivial.spacing": "spacing",
     "trivial.format": "formatting",
     // The two notes that carry the story of a change: where it goes wrong, and where that is beaten. Louder
     // cards, because a reviewer who reads only two notes should read these two.
     // The card's place in the reading order. Without it the order was real but invisible — the cards sit where
     // the code does, so nothing said which one to open first.
-    "walk.hint": "F8 for the next one, Shift+F8 to go back",
-    "walk.prev": "Previous note",
-    "walk.next": "Next note",
-    "annotate.role.key": "Key",
-    "annotate.nothingToExplain": "Nothing to explain — this review has no changed files. Pick commits in History (⌘9) or a patch set to review something.",
-    "annotate.nav.none": "No Explain notes yet — send the Explain prompt (⌘⇧P) to have an agent write them.",
 
     // The briefing panel (25-briefing.js). The three eyebrows are ours, not the agent's: the shape is fixed,
     // so the note only has to carry the sentence that goes under each one.
-    "briefing.title": "This change, at a glance",
-    "briefing.kind": "Briefing",
-    "briefing.p1": "The problem",
-    "briefing.p2": "As is · To be",
-    "briefing.p3": "What to read · what to watch",
-    "briefing.recall": "Replay the briefing",
-    "briefing.recallMap": "What this repository is",
-    "briefing.kindMap": "Map",
-    "briefing.prev": "Back",
-    "briefing.next": "Next",
-    "briefing.close": "Done",
 
     // Shortcut coach (28-shortcut-coach.js) — the top-right nudge that appears when a control with a
     // keyboard shortcut keeps getting clicked, or when a once-used shortcut has gone unused too long.
@@ -455,191 +308,29 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // The knowledge map (⌘⇧K). Its nodes are words the reviewer has used, never words an agent chose, so
     // the empty state says how a word gets in rather than offering a button that would add one.
-    "rail.terms": "Knowledge graph",
-    "terms.close": "Close",
-    "terms.code": "In the code",
-    "terms.offered": "found by the agent",
-    "terms.drop": "Remove this word from the knowledge graph",
-    "terms.drop.short": "Remove",
-    "terms.edit": "Edit",
-    "terms.save": "Save",
-    "terms.cancel": "Cancel",
-    "terms.add": "Add a word",
-    "terms.add.word": "The word, as you say it",
-    "terms.add.gloss": "One line: what it means to you",
-    "terms.add.needBoth": "A word needs both a name and a line saying what it is.",
-    "terms.add.exists": "That word is already on the map.",
-    "terms.code.gone": "not found",
-    "terms.code.unchecked": "not checked",
-    "terms.empty.title": "No words yet",
-    "terms.empty.body":
-      "A word lands here once you have used it yourself — ask about something in a comment, and the concept behind your question joins the map with what it turns out to be in the code.",
-    "terms.harvest.title": "Keep what this conversation taught you?",
-    "terms.harvest.body":
-      "The thread is gone. These are the words you used in it, with the line from the answer that explains each one.",
-    "terms.harvest.save": "Keep these",
-    "terms.harvest.skip": "Nothing to keep",
-    "terms.harvest.saved": "added to the knowledge map",
-    "settings.mcp": "MCP server for building the knowledge map",
-    "settings.mcp.hint":
-      "Lets the agent in the terminal read the words you use and add the ones you take up — in any conversation, not just the ones sent from kakapo. Registered once per machine.",
-    "settings.mcp.connect": "Connect",
-    "settings.mcp.connected": "Connected",
-    "settings.mcp.missing": "not installed",
-    "settings.termsSweep": "Re-check where words point",
-    "settings.termsSweep.hint":
-      "A word stores the name it is in the code, and where that name last was. The address goes stale on any commit, so it is re-checked when you open the word — and every so many new words, across the whole map.",
-    "settings.termsSweep.every": "every {n} new words",
-    "settings.termsSweep.never": "only when I open a word",
 
     // Prompt palette (⌘⇧P)
-    "promptPalette.title": "Agent tasks",
-    "promptPalette.hint": "Enter to run · prompts editable in Settings",
-    "settings.saved": "Saved",
     // --- Appearance / theme (redesigned settings) ---
-    "theme.system": "System",
     "settings.appearance": "Appearance",
-    "settings.terminal": "Terminal",
     "settings.cat.shortcuts": "Shortcuts",
     // --- Native application menu ---
     "menu.file": "File",
     "menu.openFolder": "Open Folder…",
     "menu.openNewWindow": "Open in New Window…",
-    "menu.workspace": "Workspace",
-    "menu.switchWorkspace": "Switch Workspace",
     "menu.view": "View",
     "menu.zoomIn": "Zoom In",
     "menu.zoomOut": "Zoom Out",
     "menu.zoomReset": "Actual Size",
-    "menu.newWorkspace": "New Workspace",
-    "menu.expandRail": "Expand Workspace Rail",
-    "menu.workspaceNumbered": "Workspace",
     "menu.review": "Review",
     "menu.allReviewComments": "All review comments",
-    "menu.markdownMemo": "Markdown memo",
     "menu.ignoreWhitespace": "Ignore whitespace",
-    "menu.terminal": "Terminal",
-    "menu.toggleTerminal": "Toggle Terminal",
-    "menu.toggleTerminalF12": "Toggle Terminal (F12)",
-    "menu.splitTerminal": "Split Terminal Right",
-    "menu.splitTerminalDown": "Split Terminal Down",
-    "menu.focusPrevPane": "Focus Previous Pane",
-    "menu.focusNextPane": "Focus Next Pane",
-    "menu.renamePane": "Rename Pane",
     "menu.window": "Window",
     "menu.closeTab": "Close Tab",
     "menu.closeWindow": "Close Window",
     // --- Native dialogs (quit warning, folder picker, not-a-repo) ---
-    "dialog.ok": "OK",
-    "dialog.agentsRunning.title": "Agents are still running",
-    "dialog.agentsRunning.message": "{n} workspace{s} still has a running terminal or agent.",
-    "dialog.agentsRunning.detail": "Quitting stops these processes. Resume metadata will be kept when the agent can be identified.",
-    "dialog.agentsRunning.keepOpen": "Keep Kakapo Open",
-    "dialog.agentsRunning.quit": "Quit and Stop Agents",
     "dialog.openRepo.title": "Open a Git repository",
     "dialog.notGit.title": "Not a Git repository",
     "dialog.notGit.message": "{path} is not a Git repository.",
-    // --- Workspace rail (hub) ---
-    "hub.workspaces": "Workspaces",
-    "hub.mainWorktree": "Main worktree",
-    // Shown on the home badge instead of the label above, when the project's own checkout is sitting on
-    // something other than its trunk. It names the branch that was expected, because "not on main" is only
-    // useful if you are told what main is called here.
-    "hub.offMain": "Main worktree — not on {b}",
-    "hub.moreTools": "More review tools",
-    // Label only: the rail buttons carry their shortcut in a data-key kbd beside it, not inside the sentence.
-    "hub.newWorkspace": "New workspace",
-    "hub.settings": "Settings — v{v}",
-    "hub.status.running": "running",
-    "hub.status.resumable": "resumable",
-    "hub.status.disconnected": "disconnected",
-    "hub.tip.changed": "{n} changed",
-    // Commits this workspace has that its upstream — or, for a task worktree nobody has pushed, the ref it was
-    // branched from — does not. The number that answers "is there anything in here I have not sent anywhere?"
-    "hub.tip.ahead": "{n} ahead",
-    // One row per terminal pane on an expanded tile: what is in it, and what that thing is doing.
-    "hub.pane.shell": "Shell",
-    "hub.pane.working": "working",
-    "hub.pane.waiting": "waiting for you",
-    "hub.pane.commands": "{n} commands run · reviewing",
-    "hub.pane.edit": "Editing {name}",
-    "hub.pane.explore": "Inspecting code",
-    "hub.pane.view": "Inspecting output",
-    "hub.pane.generate": "Generating preview",
-    "hub.pane.shellRunning": "{n} shell jobs running",
-    "hub.ago.now": "now",
-    "hub.ago.m": "{n}m ago",
-    "hub.ago.h": "{n}h ago",
-    "hub.ago.d": "{n}d ago",
-    // --- Workspace tile context menu ---
-    "tile.switch": "Switch",
-    "tile.open": "Open",
-    "tile.forget": "Remove from rail",
-    "tile.resume": "Resume session",
-    "tile.rename": "Rename…",
-    "tile.editMemo": "Edit memo…",
-    "tile.openNewWindow": "Open in new window",
-    "tile.close": "Close workspace",
-    "tile.delete": "Delete worktree…",
-    // --- New-workspace / rename / memo / disconnected dialogs ---
-    "newws.title": "New workspace",
-    "newws.close": "Close",
-    "newws.project": "Project",
-    "newws.selectProject": "Select a project…",
-    "newws.taskName": "Task name",
-    "newws.taskPlaceholder": "e.g. fix-login-crash",
-    // The ref the new worktree branches FROM. Prefilled with origin/HEAD, which is right for a repo whose
-    // work lands on the default branch and wrong for one that develops on another — there, every new
-    // workspace would start life behind, and the reviewer would find out by missing commits.
-    // Optional, and stored as the workspace's memo — the same field the rename dialog edits, so a description
-    // written here is not a second thing to keep in sync.
-    "newws.desc": "Description",
-    "newws.desc.placeholder": "optional — what this workspace is for",
-    // The agent row: a workspace is made to give an agent something to do, so the terminal it already opens
-    // may as well already be running one.
-    "newws.agent": "Start an agent in the terminal",
-    "newws.agent.hint": "The new workspace opens with this agent already running.",
-    "newws.base": "Start from",
-    "newws.base.hint": "The branch this worktree starts from.",
-    "newws.base.select": "Select a branch…",
-    "newws.base.local": "Local branch",
-    "newws.base.remote": "Remote-tracking branch",
-    "newws.cancel": "Cancel",
-    "newws.create": "Fetch & create",
-    "newws.creating": "Fetching base…",
-    "newws.chooseFirst": "Choose a repository first.",
-    "newws.createFailed": "Could not create workspace",
-    "newws.newWorktree": "Create a new worktree",
-    "newws.newWorktree.hint": "On: a new branch and folder under ~/kakapo/workspaces. Off: just open the project's existing checkout.",
-    "newws.open": "Open",
-    "newws.opening": "Opening…",
-    "newws.browse": "Browse for a folder…",
-    "newws.renameTitle": "Rename workspace",
-    "newws.memoTitle": "One-line memo",
-    "newws.ok": "OK",
-    "disc.message": "This workspace's folder is no longer on disk.",
-    "disc.reconnect": "Reconnect…",
-    "disc.remove": "Remove from List",
-    "disc.cancel": "Cancel",
-    // --- Delete-worktree confirm flow (rail) ---
-    "hubdel.title": "Delete worktree?",
-    "hubdel.titleNamed": "Delete worktree “{name}”?",
-    "hubdel.message": "This removes the worktree folder from disk.",
-    "hubdel.checkbox": "Also delete the local branch",
-    "hubdel.cancel": "Cancel",
-    "hubdel.delete": "Delete",
-    "hubdel.anywayTitle": "Delete anyway?",
-    "hubdel.hasWork": "This worktree has unsaved work:",
-    "hubdel.dirty": "• uncommitted changes",
-    "hubdel.unpushed": "• {n} unpushed commit{s}",
-    "hubdel.runningProc": "• running terminal / agent",
-    "hubdel.anyway": "Delete anyway",
-    "hubdel.failedTitle": "Delete failed",
-    "hubdel.failedMsg": "Could not delete the worktree.",
-    // Shown on the tile itself while the removal runs. Inlined into a CSS content: string (shell-pages.ts),
-    // so it must not contain a double quote or a backslash.
-    "hubdel.deleting": "deleting…",
-    // --- Welcome screen (packaged launch with no repo) ---
     "welcome.heading": "Review a Git repository",
     "welcome.subtitle": "Pick a folder under Git version control to review its changes.",
     "welcome.openFolder": "Open Folder…",
@@ -650,7 +341,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Composer (one per-line review comment — ask, request a change, or both)
     "composer.comment": "Comment on this line — ask or request a change",
-    "composer.reply": "Continue this thread",
     "composer.save": "Comment",
     "composer.cancel": "Cancel",
     "composer.hint": "⌘Enter to save, Esc to cancel",
@@ -669,56 +359,21 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "merged.close": "Close",
 
     // One worktree memo (Cmd/Ctrl+Shift+N) — Markdown shortcuts become rich blocks in place.
-    "memo.title": "Markdown memo",
-    "memo.placeholder": "Type # + Space for a heading, - + Space for a list…",
-    "memo.clear": "Clear memo",
-    "memo.clearConfirm": "Clear this worktree's memo? This cannot be undone.",
-    "memo.loading": "Loading this worktree's memo…",
-    "memo.saving": "Saving…",
-    "memo.saved": "Saved",
-    "memo.saveFailed": "Could not save the memo.",
-    "memo.deleteFailed": "Could not clear the memo.",
-    "memo.loadFailed": "Could not load this worktree's memo.",
 
     // Merge-prompt default agent contracts (these follow the locale — a Korean user gets Korean defaults)
-    "mergePrompt.default.c": "The following are review comments on code you just wrote. Answer what each one asks — explain the intent, rationale, or context — and where it asks for a change, edit the code at the quoted location to satisfy it. Work in small units that a human can review independently: complete and verify one independently reviewable unit at a time before moving to the next. Keep changes minimal and focused; do not combine unrelated changes. If a comment only asks a question, answer it and change nothing.",
     // Plan contract — prepended to review comments and the prompt memo so every task starts with a small, verifiable plan written to a file.
-    "plan.contract": "Before changing any code, write a short implementation PLAN in your response. Break the work into small, independently verifiable steps — each with a one-line check for how you'll confirm it works. Then carry it out yourself, one step at a time, without waiting for approval — the plan is there to be reviewed alongside the work, not before it. Answering review comments is never gated on the plan: write every answer first, then start on the code. Do not add kakapo state files to the repository.",
-    // Sent once at the top of a terminal hand-off (sendWholeDocToTerminal, 08-dock.js) whenever kakapo wrote
-    // an answers checklist for the items below — the absolute path is appended right after this line.
-    "mergePrompt.answersFile": "Answer in the review thread file below instead of replying here — append ONE line per answer, {\"id\":<the NEXT FREE ID given at the top of that file, counting up if you append more than one>,\"re\":<the #id of the request you are answering>,\"by\":\"agent\",\"text\":\"markdown\"}, and never rewrite a line already there. Take the id from that line, NOT from the highest id you can see: the ids are shared with a second file you are not looking at. Each request below is headed with its #id, and your answer lands in the review beside the code it is about. Append every answer to that file BEFORE you touch any code, and do not list them here for approval first — a listing in this session is not an answer and nobody is reading it:",
-    // The ENTIRE terminal hand-off when kakapo could park the document on disk: this line plus its absolute
-    // path. The document (answers-file instructions included) waits in the file — see sendWholeDocToTerminal.
-    // The vocabulary (terms-file.ts) is the reader's own words, and whether a reader has taken a word in is a
-    // reading problem — so it is judged here, by the agent that just answered them, and not by a regex over
-    // their reply. The rule the agent cannot bend: the words are theirs, never yours.
-    "mergePrompt.terms": "After you answer, one more thing — and only if it is true. When one of these threads shows that the reviewer has taken a concept into their own words (they used the word themselves and then wrote back something that was not the same question again), append ONE line for it to the knowledge-graph file below: {\"w\":\"their word, exactly as they wrote it\",\"gloss\":\"one line saying what it is, in their words\",\"code\":[{\"name\":\"the identifier it is\",\"at\":\"src/x.ts:12\"}]}. Read the file first; never rewrite a line already in it; add nothing for a word that is already there. Only words the REVIEWER wrote — never a name you coined, however much better it is, and never a word from an answer they have not responded to. Add `\"parent\":\"안커\"` when the word only means something inside another word already in the file. If a thread taught nothing, add nothing: most do not, and a knowledge graph of words the reviewer never chose is worse than an empty one. This file is what every later explanation of this repository is written in:",
-    "mergePrompt.requestFile": "Read this review request file and do everything it asks:",
-    // Explain hands its instructions over the same way, but they are not a review REQUEST — nobody is being
-    // asked to change anything, only to read the codebase and write notes.
-    "prompt.requestFile": "Read this instruction file and do what it asks:",
-    // Stands in for the earlier turns a follow-up continues (mergedItemLines) — the ids, not the text, since
-    // the thread file named at the top of the document holds all of them.
-    "mergePrompt.continues": "Continues; read these ids in the thread file first:",
     "comment.answer": "Answer",
 
-    // The Explain prompt — the agent-written note cards. {{NOTES_PATH}} is substituted client-side
-    // with this workspace's annotations file before sending (Korean default for Korean users below).
-    "annotate.prompt.default": readPrompt("annotate", "en"),
   },
   ko: {
     // Tabs (sidebar)
     "tab.changes": "변경사항",
     "tab.files": "파일",
     "tree.markViewed": "이 파일 확인함 (Space)",
-    "rail.reviewComments": "리뷰 코멘트",
     "rail.branch": "현재 브랜치",
     "brand.revealFile": "열린 파일을 사이드바에서 보기 (⌥F1)",
     "rail.history": "히스토리",
 
-    // Explain: 에이전트의 노트가 diff 위에 직접 붙습니다(23-annotations.js). 아래는 프롬프트 전달과
-    // 노트가 품을 수 있는 Mermaid 다이어그램용 문자열입니다.
-    "explain.copied": "복사됨",
     "explain.diagramLoading": "다이어그램을 불러오는 중…",
     "diagram.zoom": "클릭하면 크게 봅니다",
     "explain.diagramInvalid": "이 다이어그램을 그릴 수 없습니다.",
@@ -745,7 +400,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "find.next": "다음 결과 (Enter)",
     "find.close": "닫기 (Esc)",
     "find.noResults": "검색 결과 없음",
-    "menu.copyPath": "경로 복사",
     "menu.copyRelativePath": "상대 경로 복사",
     "menu.copyAbsolutePath": "절대 경로 복사",
     "menu.revealFinder": "파일 관리자에서 열기",
@@ -753,51 +407,20 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // 한 파일에 달린 코멘트를 한 번에 지운다. 개수를 붙이는 이유는, 숫자 없는 "코멘트 지우기"는
     // 메뉴가 이미 답해줬어야 할 질문을 남기기 때문이다.
     "menu.clearComments": "이 파일의 코멘트 {n}개 지우기",
-    "terminal.connecting": "세션 연결 중…",
-    "terminal.title": "터미널",
-    "terminal.toggle": "터미널 토글 (⌃`)",
-    "terminal.closeRunningConfirm": "이 터미널에서 “{name}” 이(가) 실행 중입니다. 닫으면 종료됩니다. 그래도 닫을까요?",
-    "settings.termFont": "터미널 글자 크기",
-    "settings.termLine": "줄 간격",
-    "settings.termLine.hint": "줄 사이가 넓을수록 에이전트의 긴 출력이 — 특히 한글이 — 훨씬 읽기 편하다.",
-    "settings.bellNotify": "에이전트 작업이 끝나면 알림 — 터미널 벨 또는 리뷰 답변",
-    "settings.persistTerminal.hint": "터미널은 워크스페이스에 속합니다. kakapo를 종료해도 계속 실행되고, 워크스페이스를 삭제할 때만 정리됩니다.",
-    "settings.installTmux": "tmux 설치",
-    "settings.tmuxReady": "tmux가 설치돼 있습니다 — kakapo를 종료해도 터미널이 살아남습니다.",
-    "settings.tmuxMissing": "tmux가 설치돼 있지 않아 터미널이 kakapo와 함께 종료됩니다.",
-    "settings.tmuxNoBrew": "tmux가 없고 Homebrew도 찾지 못했습니다. tmux를 직접 설치한 뒤 이 패널을 다시 열어주세요.",
-    "settings.tmuxInstalling": "tmux 설치 중…",
-    "settings.tmuxInstallFailed": "설치가 끝나지 않았습니다. 아래 로그를 확인하세요.",
-    "notify.bellBody": "작업이 끝났거나 입력이 필요합니다",
     "notify.agentReplied": "에이전트가 리뷰 코멘트에 답변했습니다",
     "notify.agentReplies": "에이전트가 리뷰 코멘트들에 답변했습니다",
-    "settings.kbd.cat.terminal": "터미널",
-    "kbd.toggleTerminal": "터미널 토글",
-    "kbd.splitPane": "패널 분할",
-    "kbd.focusPane": "이전 / 다음 패널로 이동",
-    "kbd.renamePane": "패널 이름 변경",
-    "kbd.closeTerminal": "터미널 닫기 (포커스 시)",
-    "merged.sendToTerminal": "터미널로 전송",
     "menu.showLineHistory": "날짜와 작성자 표시",
     "menu.hideLineHistory": "날짜와 작성자 숨기기",
     "tab.changes.title": "변경사항 (⌘0)",
     "tab.files.title": "파일 (⌘1)",
 
     // 레일: 톱니바퀴 배지 툴팁 / 정보
-    "sidebar.updateAvailable": "업데이트 있음",
     // 릴리스 이미지를 내려받는 동안 브랜드 마크에 붙는 title (applyUpdateProgress). 링이 곧 보고이고,
     // 이건 숫자를 보고 싶은 사람을 위한 것이다.
     "update.downloading": "업데이트 내려받는 중… {n}%",
-    "about.title": "kakapo 정보",
-    "about.tip": "설정 (⌘,)",
     "dock.maximize": "패널 최대화 (⌘⇧')",
-    "dock.restore": "패널 복원 (⌘⇧')",
 
     // Review status (toolbar)
-    "status.files": "개 파일",
-    "status.hunks": "개 변경 묶음",
-    "status.wsIgnored": "공백 무시",
-    "status.wsIgnored.title": "공백 무시 — ⌘⇧W",
     "status.watching": "감시 중",
     "status.live.updated": "실시간: 업데이트됨",
     "status.live.waiting": "실시간: diff 서버 대기 중",
@@ -807,7 +430,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "analysis.fallback": "heuristic 분석",
     "analysis.failed": "분석 실패",
     "monaco.peek": "Semantic Peek",
-    "monaco.openSource": "소스 열기",
     "monaco.peekHint": "↑/↓ 선택 · Enter 열기 · Esc 닫기",
     "monaco.noResults": "semantic 위치를 찾지 못했습니다.",
     "monaco.noSymbol": "커서 위치에서 심볼을 찾지 못했습니다.",
@@ -838,7 +460,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.restoredMany": "코멘트들을 복원했습니다",
     "comment.clearedMany": "코멘트 {n}개를 지웠습니다",
     // 모든 pane에서 뭔가 돌고 있어서, 에이전트를 방해하지 않고 cd 할 자리가 없다.
-    "terminal.openHere.busy": "모든 pane이 사용 중입니다 — 하나를 닫거나 pane을 먼저 열어주세요",
     "diff.previous": "이전 변경 (Shift+F7)",
     "diff.next": "다음 변경 (F7)",
     "diff.hideSidebar": "변경 파일 패널 숨기기",
@@ -860,6 +481,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "compare.incoming.why": "로컬에 볼 것이 없어, 리모트가 앞서 있는 커밋을 대신 보여주는 중입니다.",
     "compare.openHistory": "히스토리",
     "compare.andMore": "외 {n}개",
+    "compare.menu.aria": "비교 옵션",
+    "compare.menu.all": "모든 변경사항",
+    "compare.menu.against": "{ref} 대비",
+    "compare.menu.uncommitted": "커밋되지 않은 변경사항",
+    "compare.menu.target": "비교 대상",
+    "compare.menu.searchBranch": "브랜치 검색",
+    "compare.menu.default": "기본값",
+    "compare.menu.noBranch": "일치하는 브랜치 없음",
     "patchset.bar": "기준 비교",
     "patchset.base": "기준",
     "patchset.pick": "비교 기준으로 삼을 patch set 선택",
@@ -871,9 +500,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "patchset.workingTree": "작업 트리",
     "patchset.latest": "최신",
     "patchset.allChanges": "전체 변경",
-    "patchset.branchPoint": "브랜치 분기점",
-    "patchset.set": "Patch set",
-    "diff.noChange": "선택된 변경 없음",
     "diff.contextFold": "변경 없는 {count}줄 · 펼치기",
     "diff.contextLoading": "주변 코드를 불러오는 중…",
     "diff.contextUnavailable": "접힌 코드를 불러오지 못했습니다.",
@@ -916,22 +542,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "usages.title": "사용처",
 
     // Agent quota footer
-    "usage.session": "5시간",
-    "usage.weekly": "주간",
-    "usage.left": "남음",
-    "usage.resets": "초기화까지",
-    "usage.asOf": "{age} 전 기준",
-    "usage.tokensToday": "오늘 토큰",
-    "usage.now": "지금",
-    "usage.unit.d": "일",
-    "usage.unit.h": "시간",
-    "usage.unit.m": "분",
 
     // Settings — nav
     "settings.aria": "설정",
     "settings.title": "설정",
     "settings.cat.general": "일반",
-    "settings.cat.prompts": "프롬프트",
 
     // Settings — General
     "settings.language": "언어",
@@ -940,10 +555,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.uiScale.hint": "터미널을 포함한 인터페이스 전체 크기를 조절합니다.",
     "theme.dark": "다크",
     "theme.light": "라이트",
-    "settings.syntaxTheme": "테마 계열",
-    "syntaxTheme.default": "Kakapo",
-    "syntaxTheme.darcula": "Darcula",
-    "syntaxTheme.github": "GitHub",
     // 테마 그리드 — 테마 이름은 고유명사라 번역하지 않고, 밝기 수식어만 한국어로 둡니다.
     "theme.name.default-dark": "Kakapo 다크",
     "theme.name.default-light": "Kakapo 라이트",
@@ -974,12 +585,13 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Settings — keyboard-shortcut labels
     "kbd.gotoLine": "줄로 이동",
-    "kbd.copyLocation": "파일:줄 복사",
     "kbd.rowActions": "사이드바 파일 작업 (경로 / 파일 관리자 / 터미널)",
     "kbd.openFolder": "폴더 열기",
     "kbd.openNewWindow": "새 창에서 열기",
     "kbd.openSettings": "설정",
     "kbd.openHistory": "Git 히스토리 열기 / 닫기",
+    "kbd.compareMode": "모든 변경사항 / 커밋되지 않은 변경사항",
+    "kbd.compareRef": "비교할 브랜치 고르기",
     "kbd.closeDialog": "대화상자 닫기 / 취소",
     "kbd.sidebarNavigate": "사이드바 행 이동 / 열기",
     "kbd.findNextPrev": "다음 / 이전 검색 결과",
@@ -995,21 +607,16 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.reviewStops": "코멘트 / 접힌 구간 단위 이동",
     "kbd.stepComments": "코멘트 단위 이동 (합본)",
     "kbd.mergedSend": "코멘트 작업 (합본)",
-    "kbd.explainSend": "설명 프롬프트를 터미널로 보내기",
     "kbd.nextChange": "다음 변경",
     "kbd.prevChange": "이전 변경",
     "kbd.nextComment": "다음 / 이전 코멘트",
-    "kbd.briefing": "설명 브리핑",
-    "kbd.nextNote": "다음 / 이전 Explain 노트",
     "kbd.closeTab": "탭 닫기",
     "kbd.prevNextTab": "이전 / 다음 탭",
     "kbd.cursorBackForward": "커서 뒤로 / 앞으로",
-    "kbd.findFile": "파일 찾기",
     "kbd.findInFile": "현재 파일에서 찾기",
     "kbd.findInFiles": "파일 내용 찾기",
     "kbd.searchExtensions": "확장자 필터로 이동",
     "kbd.excludeSearchNoise": "주석 / 테스트 검색 결과 제외",
-    "kbd.recentFiles": "최근 파일",
     "kbd.defUsages": "정의 / 사용처",
     "kbd.goToImplementation": "구현체로 이동",
     "kbd.workspaceSymbol": "워크스페이스 심볼",
@@ -1025,85 +632,15 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.allComments": "전체 리뷰 코멘트",
     "kbd.ignoreWhitespace": "공백 무시",
     "kbd.saveComment": "코멘트 저장",
-    "kbd.promptMemo": "프롬프트 메모",
-    "kbd.promptPalette": "에이전트 작업 (설명·코드베이스 맵·배운 말 남기기 — kakapo 세션이 실행)",
     "kbd.maximizePanel": "패널 최대화 (합본 / 메모)",
     "kbd.historyNavigate": "커밋 / 파일 선택·열기",
 
     // Settings — Merge prompts
-    "mergePrompts.title": "병합 프롬프트",
-    "mergePrompts.desc": "에이전트에게 보내는 프롬프트 앞에 붙는 편집 가능한 기본값이며 수정 내용은 자동 저장됩니다. 플랜 계약문은 리뷰 코멘트(⌘⇧/)와 프롬프트 메모 앞에 붙습니다.",
-    "mergePrompts.planHeading": "플랜 계약문 (리뷰 코멘트 + 메모)",
-    "mergePrompts.cHeading": "리뷰 코멘트 작업 지침",
-    "mergePrompts.reset": "기본값으로 초기화",
 
-    // Settings — Explain 프롬프트 (⌘⇧P 팔레트로 보내면 에이전트가 스레드 파일에 노트를 append)
-    "annotatePrompt.title": "diff 설명",
-    "annotatePrompt.desc": "⌘⇧P 팔레트에서 AI 에이전트에게 보내, diff를 훑으며 중요한 줄마다 쉬운 말로 설명 카드를 달게 하는 프롬프트입니다. F8로 내 코멘트와 함께 노트 사이를 이동합니다. 자동 저장됩니다. {{NOTES_PATH}}는 보낼 때 이 워크스페이스의 주석 파일 경로로 치환됩니다.",
-    "codebase.prompt.default": readPrompt("codebase", "ko"),
-    "terms.prompt.default": readPrompt("terms", "ko"),
-    "termsPrompt.title": "배운 말 남기기",
-    "termsPrompt.when": "터미널에서 뭔가 알게 된 대화를 한 뒤 — 그 대화에서 받아들인 말을 지식 그래프에 남깁니다.",
-    "annotatePrompt.when": "diff를 설명해야 할 때 — 내가 읽으려고, 또는 남이 리뷰하도록.",
-    "codebasePrompt.when": "저장소가 처음이라, 세부보다 전체 구조를 먼저 알아야 할 때.",
-    "codebasePrompt.title": "코드베이스 설명",
-    "codebasePrompt.desc": "⌘E 런처의 '에이전트 작업' 섹션에서 보냅니다. 저장소를 읽고 진입점에 지도 노트 하나를 남깁니다 — 핵심 컴포넌트 3~5개의 다이어그램(노드를 클릭하면 그 위치로 이동)과 각 컴포넌트에 대한 짧은 문단. 일부러 이 높이에서 멈추며, 더 깊이 내려가는 것은 diff 설명이 합니다. 자동 저장됩니다. {{NOTES_PATH}}는 보낼 때 이 워크스페이스의 노트 파일 경로로 치환됩니다.",
-    "annotate.kind": "왜",
-    // kakapo 전용 에이전트(ask-session.ts) — 리뷰어에게 보이지 않는 세션. 이 문자열들이 그 세션의 유일한
-    // 존재 증거라, "뭔가 하는 중"이 아니라 "무엇을 하는 중"인지 말한다.
-    "settings.ask": "kakapo 전용 에이전트",
-    "settings.askModel": "답변에 쓸 모델",
-    "settings.askModel.hint": "kakapo는 코멘트를 자기 세션에서 답합니다 — 그 변경을 작성한 에이전트에게 묻지 않기 위해서입니다. 자동은 코멘트를 Sonnet으로 답하고 Explain 실행은 claude에 설정된 모델을 그대로 씁니다. 모델을 고르면 둘 다 고정됩니다.",
-    "settings.askModel.auto": "자동",
-    "settings.askModel.sonnet": "Sonnet",
-    "settings.askModel.opus": "Opus",
-    "settings.askModel.fable": "Fable",
-    "settings.askModel.inherit": "claude 설정 그대로",
-    "ask.button": "다시 물어보기",
-    "ask.waiting": "답변 기다리는 중",
-    "ask.answering": "답하는 중",
-    "ask.explaining": "diff 설명하는 중",
-    "ask.mapping": "코드베이스 훑는 중",
-    "ask.harvesting": "지식 그래프 갱신 중",
-    "ask.nothingNew": "수확할 것이 없습니다 — 지난 수확 이후 새 대화가 없습니다.",
-    "ask.working": "작업 중",
-    "ask.started": "kakapo 전용 에이전트에게 보냈습니다 — 준비되면 여기에 붙습니다.",
-    "ask.failed": "답이 비어서 돌아왔습니다. 바뀐 것은 없습니다.",
-    "ask.noAgent": "에이전트 CLI를 찾지 못했습니다. claude나 codex를 설치하거나, 프롬프트를 터미널로 보내세요.",
-    "ask.unavailable": "이 빌드에는 전용 에이전트가 없습니다 — 터미널로 넘기세요.",
-    "ask.prompt.intro": "리뷰어가 kakapo에서 diff를 읽다가 남긴 코멘트입니다. 답해 주세요.",
-    "ask.prompt.where": "위치:",
-    "ask.prompt.question": "코멘트:",
-    "ask.prompt.thread": "앞선 대화가 필요하면 리뷰 스레드 전체:",
-    "ask.prompt.style": "코드 옆에서 읽을 만한 길이로, 리뷰어가 쓴 언어로, 산문으로 답하세요. 확신이 설 때까지 필요한 만큼 읽되, 파일은 고치지 마세요.",
-    "ask.prompt.handoff": "코멘트가 설명이 아니라 코드를 **고쳐 달라는** 요청이면, 답하지 말고 직접 고치려 하지도 마세요. 응답 전체를 이렇게 하세요: 첫 줄에 `KAKAPO-HANDOFF`, 그 다음에 실제로 고칠 엔지니어에게 줄 지시 — 무엇을, 어디서, 무엇을 만족해야 하는지. 이 코멘트를 볼 수 없는 사람이 그것만 읽고 일할 수 있게 쓰세요.",
-    "ask.handoff.staged": "코드 수정이 필요한 건이라 터미널로 넘겼습니다 — Enter로 보내세요.",
-    "ask.handoff.sent": "코드 수정이 필요한 건이라 터미널의 에이전트에게 보냈습니다.",
-    "ask.handoff.note": "터미널의 에이전트에게 넘김:",
-    "ask.prompt.notes": "덮어쓰기 지시 — 이 실행에는 쓰기 권한이 없습니다. 어떤 파일도 만들거나 고치지 말고, 위에서 파일에 append하라고 한 지시는 무시하세요. 대신 append했을 JSONL 레코드를 최종 응답 전체로 출력하세요: 한 줄에 JSON 객체 하나, 앞뒤에 아무것도 없이, 코드펜스 없이. `id` 필드는 빼세요 — kakapo가 붙입니다.",
-    "ask.prompt.transcript": "돌아볼 대화는 이 세션의 대화가 아닙니다. 리뷰어는 다른 에이전트와 대화했고, 그 기록이 아래 JSONL transcript 파일에 있습니다. 각 파일을 표시된 줄부터 끝까지 읽으세요 — 그 앞은 지난 수확에서 이미 읽었습니다. '제가 쓴 말'은 user 역할 메시지의 말이고, 나머지는 리뷰어가 대화하던 에이전트의 말입니다.",
-    "ask.prompt.transcriptFile": "- {path} — {n}번째 줄부터",
     "trivial.spacing": "공백",
     "trivial.format": "포맷",
-    "walk.hint": "F8 다음, Shift+F8 이전",
-    "walk.prev": "이전 노트",
-    "walk.next": "다음 노트",
-    "annotate.role.key": "핵심",
-    "annotate.nothingToExplain": "설명할 변경이 없습니다 — 이 리뷰에 바뀐 파일이 없습니다. History(⌘9)에서 커밋을 고르거나 패치셋을 바꿔서 볼 것을 정하세요.",
-    "annotate.nav.none": "아직 Explain 노트가 없습니다 — ⌘⇧P로 설명 프롬프트를 보내 에이전트에게 작성을 맡기세요.",
 
     // 브리핑 말풍선 (25-briefing.js)
-    "briefing.title": "이 변경, 한눈에",
-    "briefing.kind": "브리핑",
-    "briefing.p1": "문제",
-    "briefing.p2": "AS IS · TO BE",
-    "briefing.p3": "볼 것 · 모니터링",
-    "briefing.recall": "브리핑 다시 보기",
-    "briefing.recallMap": "이 저장소는 무엇인가",
-    "briefing.kindMap": "지도",
-    "briefing.prev": "이전",
-    "briefing.next": "다음",
-    "briefing.close": "닫기",
 
     // 단축키 코치 (28-shortcut-coach.js)
     "coach.observed": "유용한 단축키를 알려드릴게요",
@@ -1114,176 +651,29 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "coach.known": "이미 알고 계시네요 ✓",
 
     // 지식 그래프 (⌘⇧K)
-    "rail.terms": "지식 그래프",
-    "terms.close": "닫기",
-    "terms.code": "코드에서는",
-    "terms.offered": "에이전트가 찾은 것",
-    "terms.drop": "이 단어를 어휘에서 빼기",
-    "terms.drop.short": "삭제",
-    "terms.edit": "편집",
-    "terms.save": "저장",
-    "terms.cancel": "취소",
-    "terms.add": "단어 추가",
-    "terms.add.word": "단어 — 당신이 부르는 그대로",
-    "terms.add.gloss": "한 줄: 당신에게 이게 무엇인지",
-    "terms.add.needBoth": "단어와 그게 무엇인지 한 줄, 둘 다 필요합니다.",
-    "terms.add.exists": "이미 지도에 있는 단어입니다.",
-    "terms.code.gone": "찾지 못함",
-    "terms.code.unchecked": "확인 전",
-    "terms.empty.title": "아직 쌓인 단어가 없습니다",
-    "terms.empty.body":
-      "단어는 직접 써야 들어옵니다 — 코멘트로 무언가를 물어보면, 그 질문이 담고 있던 개념이 코드에서 무엇인지와 함께 지도에 올라옵니다.",
-    "terms.harvest.title": "이 대화에서 알게 된 것을 남길까요?",
-    "terms.harvest.body": "대화는 지워졌습니다. 아래는 그 대화에서 직접 쓴 말과, 답변에서 그 말을 설명한 문장입니다.",
-    "terms.harvest.save": "남기기",
-    "terms.harvest.skip": "남길 것 없음",
-    "terms.harvest.saved": "지식 그래프에 추가됨",
-    "settings.mcp": "지식 그래프 생성을 위한 MCP 서버 연결",
-    "settings.mcp.hint":
-      "터미널의 에이전트가 내가 쓰는 말을 읽고, 내가 받아들인 말을 직접 넣을 수 있게 합니다 — kakapo에서 보낸 대화뿐 아니라 그냥 나눈 대화에서도. 컴퓨터당 한 번만 연결하면 됩니다.",
-    "settings.mcp.connect": "연결",
-    "settings.mcp.connected": "연결됨",
-    "settings.mcp.missing": "설치되어 있지 않음",
-    "settings.termsSweep": "단어가 가리키는 곳 다시 확인",
-    "settings.termsSweep.hint":
-      "단어는 자기가 코드에서 어떤 이름인지와, 그 이름이 마지막으로 있던 자리를 함께 들고 있습니다. 자리는 커밋 한 번에 어긋나므로, 단어를 열 때마다 다시 확인하고, 새 단어가 몇 개 쌓일 때마다 전체를 한 번 훑습니다.",
-    "settings.termsSweep.every": "새 단어 {n}개마다",
-    "settings.termsSweep.never": "단어를 열 때만",
 
     // 프롬프트 팔레트 (⌘⇧P)
-    "promptPalette.title": "에이전트 작업",
-    "promptPalette.hint": "Enter로 실행 · 프롬프트 편집은 설정에서",
-    "settings.saved": "저장됨",
     // --- Appearance / theme (redesigned settings) ---
-    "theme.system": "시스템",
     "settings.appearance": "화면",
-    "settings.terminal": "터미널",
     "settings.cat.shortcuts": "단축키",
     // --- Native application menu ---
     "menu.file": "파일",
     "menu.openFolder": "폴더 열기…",
     "menu.openNewWindow": "새 창에서 열기…",
-    "menu.workspace": "워크스페이스",
-    "menu.switchWorkspace": "워크스페이스 전환",
     "menu.view": "보기",
     "menu.zoomIn": "확대",
     "menu.zoomOut": "축소",
     "menu.zoomReset": "실제 크기",
-    "menu.newWorkspace": "새 워크스페이스",
-    "menu.expandRail": "워크스페이스 레일 펼치기",
-    "menu.workspaceNumbered": "워크스페이스",
     "menu.review": "리뷰",
     "menu.allReviewComments": "모든 리뷰 코멘트",
-    "menu.markdownMemo": "마크다운 메모",
     "menu.ignoreWhitespace": "공백 무시",
-    "menu.terminal": "터미널",
-    "menu.toggleTerminal": "터미널 토글",
-    "menu.toggleTerminalF12": "터미널 토글 (F12)",
-    "menu.splitTerminal": "터미널 좌우 분할",
-    "menu.splitTerminalDown": "터미널 상하 분할",
-    "menu.focusPrevPane": "이전 패널 포커스",
-    "menu.focusNextPane": "다음 패널 포커스",
-    "menu.renamePane": "패널 이름 변경",
     "menu.window": "창",
     "menu.closeTab": "탭 닫기",
     "menu.closeWindow": "창 닫기",
     // --- Native dialogs (quit warning, folder picker, not-a-repo) ---
-    "dialog.ok": "확인",
-    "dialog.agentsRunning.title": "에이전트가 아직 실행 중입니다",
-    "dialog.agentsRunning.message": "실행 중인 터미널 또는 에이전트가 있는 워크스페이스가 {n}개 있습니다.",
-    "dialog.agentsRunning.detail": "종료하면 이 프로세스들이 중지됩니다. 에이전트를 식별할 수 있으면 이어가기 정보는 보존됩니다.",
-    "dialog.agentsRunning.keepOpen": "Kakapo 계속 실행",
-    "dialog.agentsRunning.quit": "종료하고 에이전트 중지",
     "dialog.openRepo.title": "Git 저장소 열기",
     "dialog.notGit.title": "Git 저장소가 아닙니다",
     "dialog.notGit.message": "{path} 은(는) Git 저장소가 아닙니다.",
-    // --- Workspace rail (hub) ---
-    "hub.workspaces": "워크스페이스",
-    "hub.mainWorktree": "메인 워크트리",
-    "hub.offMain": "메인 워크트리 — {b} 이(가) 아님",
-    "hub.moreTools": "더 많은 리뷰 도구",
-    "hub.newWorkspace": "새 워크스페이스",
-    "hub.settings": "설정 — v{v}",
-    "hub.status.running": "실행 중",
-    "hub.status.resumable": "이어가기 가능",
-    "hub.status.disconnected": "연결 끊김",
-    "hub.tip.changed": "{n}개 변경",
-    "hub.tip.ahead": "{n}커밋 앞섬",
-    "hub.pane.shell": "쉘",
-    "hub.pane.working": "작업 중",
-    "hub.pane.waiting": "대기 중",
-    "hub.pane.commands": "명령 {n}개 실행 · 검토 중",
-    "hub.pane.edit": "{name} 수정 중",
-    "hub.pane.explore": "코드 확인 중",
-    "hub.pane.view": "결과 확인 중",
-    "hub.pane.generate": "시안 생성 중",
-    "hub.pane.shellRunning": "쉘 작업 {n}개 실행 중",
-    "hub.ago.now": "방금",
-    "hub.ago.m": "{n}분 전",
-    "hub.ago.h": "{n}시간 전",
-    "hub.ago.d": "{n}일 전",
-    // --- Workspace tile context menu ---
-    "tile.switch": "전환",
-    "tile.open": "열기",
-    "tile.forget": "레일에서 제거",
-    "tile.resume": "세션 이어가기",
-    "tile.rename": "이름 변경…",
-    "tile.editMemo": "메모 편집…",
-    "tile.openNewWindow": "새 창에서 열기",
-    "tile.close": "워크스페이스 닫기",
-    "tile.delete": "워크트리 삭제…",
-    // --- New-workspace / rename / memo / disconnected dialogs ---
-    "newws.title": "새 워크스페이스",
-    "newws.close": "닫기",
-    "newws.project": "프로젝트",
-    "newws.selectProject": "프로젝트 선택…",
-    "newws.taskName": "작업 이름",
-    "newws.taskPlaceholder": "예: fix-login-crash",
-    "newws.desc": "설명",
-    "newws.desc.placeholder": "선택 — 이 워크스페이스가 무엇을 위한 것인지",
-    "newws.agent": "터미널에서 에이전트 실행",
-    "newws.agent.hint": "새 워크스페이스가 이 에이전트를 띄운 채로 열립니다.",
-    "newws.base": "시작 지점",
-    "newws.base.hint": "이 워크트리가 시작할 브랜치입니다.",
-    "newws.base.select": "브랜치 선택…",
-    "newws.base.local": "로컬 브랜치",
-    "newws.base.remote": "원격 추적 브랜치",
-    "newws.cancel": "취소",
-    "newws.create": "가져와서 생성",
-    "newws.creating": "베이스 가져오는 중…",
-    "newws.chooseFirst": "먼저 저장소를 선택하세요.",
-    "newws.createFailed": "워크스페이스를 생성하지 못했습니다",
-    "newws.newWorktree": "새 워크트리 만들기",
-    "newws.newWorktree.hint": "켜면 ~/kakapo/workspaces 아래에 새 브랜치와 폴더를 만듭니다. 끄면 프로젝트의 기존 체크아웃을 그대로 엽니다.",
-    "newws.open": "열기",
-    "newws.opening": "여는 중…",
-    "newws.browse": "폴더 찾아보기…",
-    "newws.renameTitle": "워크스페이스 이름 변경",
-    "newws.memoTitle": "한 줄 메모",
-    "newws.ok": "확인",
-    "disc.message": "이 워크스페이스의 폴더가 디스크에 더 이상 없습니다.",
-    "disc.reconnect": "다시 연결…",
-    "disc.remove": "목록에서 제거",
-    "disc.cancel": "취소",
-    // --- Delete-worktree confirm flow (rail) ---
-    "hubdel.title": "워크트리를 삭제할까요?",
-    "hubdel.titleNamed": "워크트리 “{name}” 을(를) 삭제할까요?",
-    "hubdel.message": "워크트리 폴더를 디스크에서 제거합니다.",
-    "hubdel.checkbox": "로컬 브랜치도 삭제",
-    "hubdel.cancel": "취소",
-    "hubdel.delete": "삭제",
-    "hubdel.anywayTitle": "그래도 삭제할까요?",
-    "hubdel.hasWork": "이 워크트리에 저장되지 않은 작업이 있습니다:",
-    "hubdel.dirty": "• 커밋되지 않은 변경사항",
-    "hubdel.unpushed": "• 푸시되지 않은 커밋 {n}개",
-    "hubdel.runningProc": "• 실행 중인 터미널 / 에이전트",
-    "hubdel.anyway": "그래도 삭제",
-    "hubdel.failedTitle": "삭제 실패",
-    "hubdel.failedMsg": "워크트리를 삭제하지 못했습니다.",
-    // 삭제가 진행되는 동안 타일에 직접 표시된다. CSS content: 문자열로 인라인되므로 (shell-pages.ts)
-    // 큰따옴표와 백슬래시는 넣지 말 것.
-    "hubdel.deleting": "삭제 중…",
-    // --- Welcome screen (packaged launch with no repo) ---
     "welcome.heading": "Git 저장소 리뷰",
     "welcome.subtitle": "Git 버전 관리 중인 폴더를 선택해 변경사항을 리뷰하세요.",
     "welcome.openFolder": "폴더 열기…",
@@ -1294,7 +684,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Composer
     "composer.comment": "이 줄에 코멘트 남기기 — 질문도 수정 요청도 여기서",
-    "composer.reply": "이 대화 이어가기",
     "composer.save": "코멘트",
     "composer.cancel": "취소",
     "composer.hint": "⌘Enter로 저장, Esc로 취소",
@@ -1313,37 +702,19 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "merged.close": "닫기",
 
     // 워크트리 메모 한 장 (Cmd/Ctrl+Shift+N) — 마크다운 단축 문법이 그 자리에서 서식 블록으로 바뀐다.
-    "memo.title": "마크다운 메모",
-    "memo.placeholder": "# 다음에 Space를 누르면 제목, - 다음에 Space를 누르면 목록이 됩니다…",
-    "memo.clear": "메모 비우기",
-    "memo.clearConfirm": "이 워크트리의 메모를 비울까요? 되돌릴 수 없습니다.",
-    "memo.loading": "이 워크트리의 메모를 불러오는 중…",
-    "memo.saving": "저장 중…",
-    "memo.saved": "저장됨",
-    "memo.saveFailed": "메모를 저장하지 못했습니다.",
-    "memo.deleteFailed": "메모를 비우지 못했습니다.",
-    "memo.loadFailed": "이 워크트리의 메모를 불러오지 못했습니다.",
 
     // Merge-prompt default agent contracts (Korean default for Korean users)
-    "mergePrompt.default.c": "다음은 방금 작성한 코드에 대한 리뷰 코멘트입니다. 각 코멘트가 묻는 것에 답하면서 의도, 근거, 맥락을 설명하고, 수정을 요청하는 코멘트는 인용된 위치의 코드를 고쳐서 충족하세요. 작업은 사람이 독립적으로 리뷰할 수 있는 작은 단위로 나누고, 각 단위를 구현하고 검증한 뒤 다음 단위로 진행하세요. 변경은 최소한으로 집중해서 하고, 관련 없는 변경을 한 작업에 섞지 마세요. 질문만 하는 코멘트라면 답만 하고 코드는 건드리지 마세요.",
     // 플랜 계약문 — 모든 작업이 파일로 작성된 작고 검증 가능한 플랜에서 시작하도록 리뷰 코멘트와 프롬프트 메모 앞에 붙는다.
-    "plan.contract": "코드를 변경하기 전에, 먼저 응답에 짧은 구현 플랜을 작성하세요. 작업을 독립적으로 검증 가능한 작은 단계로 쪼개고, 각 단계마다 어떻게 확인할지 한 줄짜리 검증 기준을 적으세요. 그리고 승인을 기다리지 말고 그대로 한 단계씩 직접 진행하세요 — 플랜은 작업과 함께 리뷰받으라고 쓰는 것이지, 작업 전에 허락받으라고 쓰는 것이 아닙니다. 리뷰 코멘트 답변은 플랜과 무관합니다: 답변을 전부 먼저 기록한 다음 코드 작업을 시작하세요. 저장소에는 kakapo 상태 파일을 추가하지 마세요.",
     // 터미널로 보내는 합본 프롬프트(sendWholeDocToTerminal, 08-dock.js) 맨 앞에 한 번 붙는다 — kakapo가 아래
     // 항목들에 대한 답변 체크리스트를 이미 써둔 경우에만 붙으며, 바로 다음 줄에 절대 경로가 이어진다.
-    "mergePrompt.answersFile": "답변은 여기에 적지 말고 아래 리뷰 스레드 파일에 기록하세요 — 답변 하나당 한 줄씩 append 합니다: {\"id\":<그 파일 맨 위의 NEXT FREE ID. 여러 줄이면 거기서부터 하나씩 올립니다>,\"re\":<답할 요청의 #id>,\"by\":\"agent\",\"text\":\"markdown\"}. 이미 있는 줄은 절대 고치지 마세요. id는 보이는 가장 큰 id가 아니라 그 줄에서 가져오세요 — id는 지금 보고 있지 않은 다른 파일과 공유됩니다. 아래 각 요청 제목에 #id가 붙어 있고, 답변은 그 코드 옆 리뷰에 그대로 표시됩니다. 코드를 건드리기 전에 모든 답변을 그 파일에 먼저 append 하세요. 세션에 답변을 나열하고 승인을 기다리지 마세요 — 여기 적은 것은 답변이 아니고 아무도 읽지 않습니다:",
     // kakapo가 문서를 디스크에 저장할 수 있었을 때 터미널로 가는 내용 전부 — 이 한 줄과 절대 경로.
     // 문서(답변 파일 안내 포함)는 그 파일 안에서 기다린다. sendWholeDocToTerminal 참고.
-    "mergePrompt.terms": "답변을 마친 뒤, 해당될 때만 한 가지 더 하세요. 위 대화 중에 리뷰어가 어떤 개념을 자기 말로 받아들인 것이 보이면(그 말을 직접 썼고, 그 뒤에 같은 질문을 되묻지 않았다면), 아래 지식 그래프 파일에 그 말 하나당 한 줄씩 append 하세요: {\"w\":\"리뷰어가 쓴 그대로의 말\",\"gloss\":\"그게 무엇인지 리뷰어의 말로 한 줄\",\"code\":[{\"name\":\"코드에서의 식별자\",\"at\":\"src/x.ts:12\"}]}. 먼저 파일을 읽으세요. 이미 있는 줄은 절대 고치지 말고, 이미 있는 말은 다시 넣지 마세요. 오직 **리뷰어가 쓴 말**만입니다 — 당신이 지은 이름은 아무리 더 정확해도 안 되고, 리뷰어가 아직 반응하지 않은 답변 속의 말도 안 됩니다. 다른 말 안에서만 뜻이 서는 말이면 `\"parent\":\"말풍선\"`을 붙이세요. 배운 것이 없는 대화면 아무것도 넣지 마세요 — 대부분이 그렇고, 리뷰어가 고르지 않은 말이 쌓인 지식 그래프는 빈 지식 그래프보다 나쁩니다. 이 파일이 앞으로 이 저장소에 대한 모든 설명이 쓰이는 말입니다:",
-    "mergePrompt.requestFile": "이 리뷰 요청 파일을 읽고 시키는 대로 전부 처리하세요:",
-    "prompt.requestFile": "이 지침 파일을 읽고 그대로 수행하세요:",
     // 후속 코멘트가 이어받는 이전 대화를 대신한다 (mergedItemLines) — 본문이 아니라 id만. 문서 맨 앞에
     // 적힌 스레드 파일에 전부 들어 있기 때문이다.
-    "mergePrompt.continues": "이어지는 대화입니다. 스레드 파일에서 다음 id를 먼저 읽으세요:",
     "comment.answer": "답변",
 
     // Explain 기본 프롬프트 — 에이전트가 diff 위에 붙일 노트 카드를 작성한다. {{NOTES_PATH}}는
     // 보내는 시점에 이 워크스페이스의 주석 파일 경로로 클라이언트에서 치환된다.
-    "annotate.prompt.default": readPrompt("annotate", "ko"),
   },
 };
 

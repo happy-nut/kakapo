@@ -1,38 +1,27 @@
 # Kakapo
 
-**A desktop workspace for reviewing what the AI actually changed — and handing the review straight back to it.**
+**A desktop diff reader for what the AI actually changed. Run it from your terminal, in the repository you are working in.**
 
 *[한국어 README](README_KR.md)*
 
-Coding agents are fast. Reading their output is not. Kakapo is built for that half of the loop: a real diff, real language-server navigation, review comments the agent can answer in place, a shared knowledge graph, and a Markdown memo for each worktree.
-
-![Creating a worktree in Kakapo, reviewing the agent's diff with inline comments, exploring the knowledge graph, and writing a Markdown memo](assets/kakapo-core-flow.gif)
+Coding agents are fast. Reading their output is not. Kakapo is built for that half of the loop: a real diff, real language-server navigation, and review comments that live beside the code.
 
 ## Why Kakapo
 
 **The diff is the source of truth, not the chat log.** An agent's "done ✅" is a claim. Kakapo opens the actual Git diff in an IntelliJ-style side-by-side view, with folded context you can expand, hunk navigation (`F7`), and per-file *Viewed* state — so you review what landed, not what was reported.
 
-**Write a comment; the answer comes back on the line automatically.** Press `?` on any line to ask a question or request a change. Saving the comment immediately asks Kakapo's own read-only review agent, shows its progress beneath the comment, and appends the answer to the same thread. There is no merged prompt to assemble or send. `F8` walks every thread until nothing is left open.
-
-**Agent prompts explain the diff or map an unfamiliar codebase.** Open the prompt palette with `⌘⇧P`. *Explain the diff* leaves plain-language note cards on the lines that matter and opens a short briefing; `F8` walks the cards and `⌘⇧B` replays the briefing. *Explain the codebase* leaves one high-level map. These jobs run in Kakapo's own background agent session, while their notes accumulate in `.git/kakapo/knowledge.jsonl` for every worktree to share.
-
-**Review conversations become a knowledge graph.** *Keep what I learned* in `⌘⇧P` reads only the new part of the current Claude and Codex transcripts and keeps concepts the reviewer actually adopted. `⌘⇧K` opens the graph: words link through their meanings and point back to identifiers and locations in the code. Connecting Kakapo's MCP server in Settings lets a terminal agent read and extend the same graph in any conversation. The graph lives in `.git/kakapo/terms.jsonl`, shared by every worktree.
-
-**Each worktree has its own Markdown memo.** `⌘⇧N` opens a focused writing surface for review decisions and next steps. It autosaves outside the repository in Kakapo's application-data directory.
-
-**One workspace, one worktree per task.** `⌘N` creates a managed worktree under `~/kakapo/workspaces/<repo>/<task>`, fetches the base branch first, and can start `claude` or `codex` in it right away. Agents keep running when you switch away; with tmux installed, they also survive an app restart. The left rail badges which workspace is working and which is waiting on you, and a finished turn in another workspace sends a native notification. `⌘⌥1–9` switches instantly.
+**Comment on a line; the thread stays with the code.** Press `?` on any line to ask a question or request a change. `F8` walks every thread until nothing is left open. `⌘⇧/` assembles every open comment into one document and copies it — just your comments, nothing prepended — to paste wherever the agent is. The thread itself is a plain file, so an agent told its path can append answers back onto the cards that asked.
 
 **IDE-grade reading with zero setup.** Go to definition, references, implementations and workspace symbols work across the diff via real language servers; Change Impact separates confirmed callers, importers and implementors from candidate tests and types; project search runs on bundled ripgrep. Nine language toolchains ship inside the app — no `PATH` lookup, no installs, no editor plugins.
 
-**It never writes into tracked project files.** Review threads, explanation notes and the knowledge graph live in `.git/kakapo/` (Git never tracks its own directory, so `git status` stays clean, and a cwd-sandboxed agent can still reach them). Everything else lives in the OS application-data directory, keyed by absolute workspace path. Plain JSONL, Markdown and JSON — fully local, no account, no telemetry, MIT.
+**It never writes into tracked project files.** Review threads live under `.git/` (Git never tracks its own directory, so `git status` stays clean, and a cwd-sandboxed agent can still reach them). Everything else lives in the OS application-data directory, keyed by absolute workspace path. Plain JSONL, Markdown and JSON — fully local, no account, no telemetry, MIT.
 
 ## The loop
 
-1. The agent works in the workspace terminal (``⌃` ``).
-2. You read the real diff — `F7` between hunks, `Space` to mark a file reviewed.
-3. `?` on a line to ask a question or request a change; saving asks the review agent automatically.
-4. The answer appears in the same thread; `F8` walks the answers.
-5. Use `⌘⇧P` for agent explanations, `⌘⇧K` for the knowledge graph, and `⌘⇧N` for the worktree memo.
+1. The agent works in your own terminal.
+2. `kakapo` in that repository opens its diff — `F7` between hunks, `Space` to mark a file reviewed.
+3. `?` on a line to ask a question or request a change.
+4. `⌘⇧/` copies every open comment out as one document; paste it wherever the agent is.
 
 ## Install
 
@@ -76,15 +65,7 @@ kakapo
 kakapo --cwd /path/to/repository/package
 ```
 
-Kakapo runs as a single instance. Running `kakapo` again from another repository or worktree joins the existing app and opens that workspace; if the path is already open it just focuses it. Subfolders are normalised to the Git top level, so the same checkout never opens twice, while separate worktrees stay separate workspaces.
-
-### Workspaces
-
-The left rail is always there: the selector at the top shows the current repo, branch and activity, and `⌘K` (or clicking it) opens the workspace list.
-
-`⌘N` (or **New**) picks a local clone and a task name and creates `<prefix>/<slug>` in `~/kakapo/workspaces/<repo>/<slug>`. The base is resolved in order — `origin/HEAD`, `origin/main`, `origin/master`, `main`, `master` — and fetched first; offline, it continues from the local base with a warning. The fetch never blocks the UI and can be cancelled. You can have the new workspace start an agent immediately, or open a plain terminal and start one yourself.
-
-Each workspace's `⋯` menu renames it, detaches it into its own window, or closes it. Deleting a generated worktree warns separately about uncommitted changes, unpushed commits and running terminals or agents, and keeps the branch by default. The main checkout can only be closed, never deleted. Reopening the app restores the list and the last active workspace; a workspace whose path is gone stays as `disconnected` rather than disappearing quietly. Sessions where a Claude or Codex run was detected can be resumed from the rail.
+Kakapo runs as a single instance. Running `kakapo` again from the same repository or worktree focuses the window already reviewing it; another repository opens its own window. Subfolders are normalised to the Git top level, so the same checkout never opens twice, while separate worktrees stay separate windows.
 
 ### Choosing what to compare
 
@@ -103,20 +84,17 @@ kakapo --staged             # index vs HEAD
 
 | Key | Action |
 | --- | --- |
-| `⌘K` / `⌘N` | Switch workspace / create a managed worktree |
-| `⌘⌥1–9` | Jump to a workspace |
 | `⌘0` / `⌘1` | Changes / Files panel |
 | `F7` / `⇧F7` | Next / previous changed hunk |
 | `Space` | Toggle *Viewed* on the selected changed file |
 | `?` | Comment on the current line |
-| `F8` / `⇧F8` | Next / previous comment or Explain note |
-| `⌘⇧B` | Replay the latest Explain briefing |
-| `⌘⇧K` | Knowledge graph |
+| `F8` / `⇧F8` | Next / previous comment |
+| `⌘⇧/` | All review comments (one hand-off document) |
 | `⌘9` | Git history |
-| `⇧⇧` / `⌘F` / `⌘⇧F` | Find file / in file / in project |
+| `⌘F` / `⌘⇧F` | Find in file / in project (the ⌘⇧F rail also holds file search & recent files) |
+| `⌥A` / `⌥U` | All changes on the branch / only what is not committed yet |
+| `⌥C` | Choose the branch "all changes" is measured against |
 | `⌘B` / `⌘⌥B` / `⌘⌥O` | Definition & usages / implementation / workspace symbol |
-| ``⌃` `` / `⌘D` | Toggle terminal / split pane |
-| `⌘⇧P` / `⌘⇧N` | Agent prompt palette / Markdown memo |
 | `⌘,` | Settings |
 
 Settings ▸ Shortcuts lists the rest.
@@ -141,19 +119,16 @@ Semantic quality still depends on project metadata: Maven/Gradle for Java and Ko
 
 ## Where state lives
 
-Review threads, accumulated explanation notes and the knowledge graph sit in the repository's own Git directory:
+Review threads sit in the repository's own Git directory:
 
 ```text
-.git/worktrees/<name>/kakapo/comments.jsonl   # this workspace's review conversation
-.git/kakapo/knowledge.jsonl                   # agent explanation notes, shared by all worktrees
-.git/kakapo/terms.jsonl                       # knowledge graph, shared by all worktrees
+.git/worktrees/<name>/kakapo/comments.jsonl   # this worktree's review conversation
 ```
 
 Everything else is mirrored per absolute workspace path under the OS app-data directory — for `/Users/me/repos/acme/turtle` on macOS:
 
 ```text
 ~/Library/Application Support/Kakapo/workspaces/Users/me/repos/acme/turtle/
-├── memo.json
 ├── state.json
 ├── perf/
 └── review/app-review.html
@@ -187,9 +162,9 @@ npm run smoke:linux
 
 Linux packages are only produced on a Linux host of the same architecture, so a cross build can't ship missing platform-specific optional dependencies; running the command on macOS fails immediately instead of producing an incomplete artifact. macOS builds come from `npm run dist:mac:dmg`.
 
-Regenerate the README GIF with `npm run demo:gif`, and measure performance with `npm run benchmark` (`-- --files 5000 --changed 200 --lines 120` for a larger synthetic repo).
+Measure performance with `npm run benchmark` (`-- --files 5000 --changed 200 --lines 120` for a larger synthetic repo).
 
-Tests run against real temporary Git repositories and the built `dist/`, covering diff, search, comments, memos, history, LSP fallback, state persistence and the Electron layout. The user-visible flows are listed in [test/USER_FLOWS.md](test/USER_FLOWS.md).
+Tests run against real temporary Git repositories and the built `dist/`, covering diff, search, comments, history, LSP fallback, state persistence and the Electron layout. The user-visible flows are listed in [test/USER_FLOWS.md](test/USER_FLOWS.md).
 
 ## Design principles
 

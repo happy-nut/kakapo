@@ -257,10 +257,6 @@ export function identifierSpanAt(text: string, column: number): { name: string; 
   return undefined;
 }
 
-export function identifierAt(text: string, column: number): string | undefined {
-  return identifierSpanAt(text, column)?.name;
-}
-
 export function documentPath(path: string): boolean {
   return /\.(?:md|mdx|txt|rst|adoc)$/i.test(path) || /(^|\/)(docs?|documentation|notes?|release-notes)(\/|$)/i.test(path);
 }

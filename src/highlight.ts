@@ -32,9 +32,52 @@ function highlightDiffWrapper(wrapper: string): string {
   if (!language) {
     return wrapper;
   }
-  return wrapper.replace(
+  // A side-by-side wrapper holds the old file's lines then the new file's, each in its own block and each
+  // starting again at that file's first line. The block state below (which language a line is in) has to
+  // restart with them, or the right-hand side inherits whatever the left-hand side ended inside.
+  if (language !== "xml") {
+    return highlightSideLines(wrapper, () => language);
+  }
+  return wrapper
+    .split(/(?=<div [^>]*class="[^"]*d2h-file-side-diff)/)
+    .map((side) => highlightSideLines(side, blockLanguageScanner()))
+    .join("");
+}
+
+// One code line at a time is all diff2html gives us, and hljs cannot see a <script> block from inside it —
+// which is why a .svelte or .html diff came back with its tags coloured and its actual code plain. Track the
+// block a line is in as the lines go past, and hand each one the language it is really written in.
+//
+// The diff shows hunks, not whole files: a run of script lines whose opening <script> is not in the diff is
+// read as markup, exactly as before. That is the floor, not a regression — and the common case (a hunk that
+// includes its own block header, or a file small enough to show whole) lands right.
+function blockLanguageScanner(): (text: string) => string {
+  let mode = "xml";
+  return (text: string): string => {
+    const current = mode;
+    const opener = /<\s*(script|style)\b([^>]*)>/i.exec(text);
+    if (opener && !/\/\s*>\s*$/.test(opener[0])) {
+      // `lang="ts"` / `type="text/typescript"` is worth honouring: TS syntax in a plain-javascript grammar
+      // reads as an illegal sequence, and ignoreIllegals then drops the tokens we came for.
+      mode = opener[1].toLowerCase() === "style"
+        ? "css"
+        : /\b(?:lang|type)\s*=\s*["']?[^"'>]*\b(?:ts|typescript)\b/i.test(opener[2]) ? "typescript" : "javascript";
+      return current; // the line carrying the opening tag is still markup
+    }
+    if (/<\s*\/\s*(script|style)\s*>/i.test(text)) {
+      mode = "xml";
+      return "xml";
+    }
+    return current;
+  };
+}
+
+function highlightSideLines(side: string, languageFor: (text: string) => string): string {
+  return side.replace(
     /(<span class="d2h-code-line-ctn">)([\s\S]*?)(<\/span>\s*<\/div>)/g,
     (whole: string, open: string, content: string, close: string) => {
+      const language = languageFor(decodeEntities(stripHtmlTags(content)));
+      if (!hljs.getLanguage(language)) return whole;
       const highlighted = highlightCtnSegments(content, language);
       return highlighted === null ? whole : `${open}${highlighted}${close}`;
     },

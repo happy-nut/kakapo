@@ -1,7 +1,6 @@
-// ===== Mermaid: lazy-loaded diagram rendering for the agent-written explain notes (23-annotations.js)
-// and any other Markdown body that embeds a ```mermaid fence. =====
+// ===== Mermaid: lazy-loaded diagram rendering for any Markdown body that embeds a ```mermaid fence. =====
 //
-// Lazy-loads Mermaid the same way 08-dock.js lazy-loads the Tiptap memo editor: a <script> pointed at the
+// Lazy-loads Mermaid through a <script> pointed at the
 // narrow kakapo-asset:// scheme, so ordinary diff review (which never renders a diagram) pays no parse cost
 // for a multi-MB library. Cached after the first successful load.
 var mermaidLoad = null;

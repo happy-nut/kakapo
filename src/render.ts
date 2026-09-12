@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import type { CompareState, DiffFile, ReviewFileState, SourceFile } from "./types.js";
 import { escapeAttr, escapeHtml, jsonForScript } from "./util.js";
-import { diff2HtmlCss, diffClientAsset, diffCss, diffScript, xtermCss, xtermScript } from "./assets.js";
+import { diff2HtmlCss, diffClientAsset, diffCss, diffScript } from "./assets.js";
 import { MESSAGES, makeTranslator } from "./i18n.js";
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
@@ -258,14 +258,22 @@ function compareRightSide(state: CompareState): string {
 //
 // (It replaces the file/hunk counts that used to live here and were removed for duplicating the Changes tab —
 // which is why the slot was sitting empty, collapsed by `.review-status:empty`, ready for this.)
-export function renderReviewStatus(input: { compare?: CompareState }): string {
+export function renderReviewStatus(input: { compare?: CompareState; app?: boolean }): string {
   const state = input.compare;
   if (!state) return "";
   const count = typeof state.count === "number" && state.count > 0
     ? `<span class="compare-count">${state.count}</span>`
     : "";
+  // In the app the pill is the handle for the compare dropdown, so it has to be a real button — a <span>
+  // with a click handler is unreachable by keyboard and announces nothing. A static export has no git
+  // process behind it and keeps the plain, inert pill.
+  const tag = input.app ? "button" : "span";
+  const open = input.app
+    ? '<button type="button" id="compare-pill" class="compare-pill compare-' + state.mode + '" aria-haspopup="menu" aria-expanded="false"'
+      + ' data-i18n-title="compare.title" title="What this diff is comparing">'
+    : `<span class="compare-pill compare-${state.mode}" data-i18n-title="compare.title" title="What this diff is comparing">`;
   return [
-    `<span class="compare-pill compare-${state.mode}" data-i18n-title="compare.title" title="What this diff is comparing">`,
+    open,
     '<span class="compare-dot" aria-hidden="true"></span>',
     `<span class="compare-name" data-i18n="compare.${state.mode}">${COMPARE_NAMES[state.mode]}</span>`,
     count,
@@ -274,7 +282,8 @@ export function renderReviewStatus(input: { compare?: CompareState }): string {
     '<span class="compare-arrow" aria-hidden="true">→</span>',
     compareRightSide(state),
     "</span>",
-    "</span>",
+    input.app ? '<span class="compare-caret" aria-hidden="true">⌄</span>' : "",
+    `</${tag}>`,
   ].join("");
 }
 
@@ -325,55 +334,13 @@ export function renderDiffHtml(input: {
   const initialFileStates = input.lazyLoad
     ? input.fileStates.filter((file) => initialSourcePaths.has(file.path))
     : input.fileStates;
-  const integratedTitleBar = input.app && process.platform === "darwin";
   const brandMark = kakapoIconHtml("kakapo-mark");
+  const analysisStatus = input.app
+    ? `<span id="analysis-status" class="analysis-status is-idle" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-label">Analysis idle</span></span>`
+    : `<span class="app-version" id="app-version" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}${packageVersion ? '<span class="app-version-text">v' + escapeHtml(packageVersion) + "</span>" : ""}</span>`;
+  const settingsButton = '<button type="button" id="app-info-btn" class="brand-reveal brand-settings" aria-haspopup="dialog" data-i18n-aria="settings.title" aria-label="Settings" data-keyhint="⌘," data-i18n-title="settings.title" title="Settings"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.7 3.2h4.6l.5 2.1c.6.2 1.1.5 1.6.9l2-.7 2.3 4-1.6 1.4a7 7 0 0 1 0 2.2l1.6 1.4-2.3 4-2-.7c-.5.4-1 .7-1.6.9l-.5 2.1H9.7l-.5-2.1c-.6-.2-1.1-.5-1.6-.9l-2 .7-2.3-4 1.6-1.4a7 7 0 0 1 0-2.2L3.3 9.5l2.3-4 2 .7c.5-.4 1-.7 1.6-.9z"/><circle cx="12" cy="12" r="3"/></svg></button>';
+  const revealButton = '<button type="button" class="brand-reveal" id="brand-reveal" data-keyhint="⌥F1" data-i18n-title="brand.revealFile" title="Reveal open file in the sidebar" aria-label="Reveal open file in the sidebar"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3.2"/><path d="M12 17.8V21"/><path d="M3 12h3.2"/><path d="M17.8 12H21"/></svg></button>';
   const brandLoader = `<span class="kakapo-loader kakapo-loader-boot" role="status" aria-label="Kakapo is loading">${brandMark}</span>`;
-  const workspaceSelector = input.app
-    ? `<button type="button" id="workspace-selector" class="workspace-selector rail-btn" aria-haspopup="listbox" aria-expanded="false" title="Switch workspace (⌘K)"><svg class="workspace-selector-icon" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4.5" width="16" height="15" rx="2"/><path d="M4 9h16M9 9v10"/></svg><span id="workspace-selector-activity" class="workspace-selector-activity" aria-hidden="true"></span><span class="workspace-selector-label"><span id="workspace-selector-name" class="workspace-selector-name">${escapeHtml(input.branch || input.projectName)}</span><span id="workspace-selector-meta" class="workspace-selector-meta">${escapeHtml(input.projectName)}</span></span><span id="workspace-selector-running" class="workspace-selector-running hidden" title="Background workspaces running"></span><span id="workspace-selector-unread" class="workspace-selector-unread hidden" title="Unread workspace activity"></span><span class="rail-tip"><span>Workspaces</span><kbd>⌘K</kbd></span></button>`
-    : "";
-
-  // IntelliJ-style activity rail: an icon per view; click navigates, hover shows a tooltip with the
-  // shortcut. data-view drives both the click handler and the active-state highlight (see syncRail).
-  const railButton = (view: string, labelKey: string, defaultLabel: string, kbd: string, svg: string): string =>
-    `<button type="button" class="rail-btn" data-view="${view}" data-i18n-aria="${labelKey}" aria-label="${escapeAttr(defaultLabel)}">` +
-    `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${svg}</svg>` +
-    // The label is the visible text of an overflow-menu row (it is hidden on the rail itself), so it needs
-    // the same data-i18n the tooltip has — without it a Korean menu listed every tool in English.
-    `<span class="rail-label" data-i18n="${labelKey}">${escapeHtml(defaultLabel)}</span>` +
-    `<span class="rail-tip"><span data-i18n="${labelKey}">${escapeHtml(defaultLabel)}</span><kbd>${escapeHtml(kbd)}</kbd></span>` +
-    "</button>";
-  const termsButton = input.app
-    ? railButton("terms", "rail.terms", "Knowledge graph", "⌘⇧K", '<circle cx="12" cy="12" r="2.6"/><circle cx="5" cy="6.5" r="1.7"/><circle cx="19" cy="7.5" r="1.7"/><circle cx="7.5" cy="19" r="1.7"/><circle cx="18" cy="17.5" r="1.7"/><path d="M6.4 7.7l3.7 3M17.6 8.6l-3.6 2.4M9.9 13.7l-1.4 3.6M14.3 13.3l2.6 2.9"/>')
-    : "";
-  const activityRail = [
-    '<nav class="activity-rail" aria-label="Views">',
-    workspaceSelector,
-    '<span class="rail-separator" aria-hidden="true"></span>',
-    '<div class="rail-group rail-primary">',
-    railButton("changes", "tab.changes", "Changes", "⌘0", '<circle cx="12" cy="12" r="3.2"/><line x1="3.5" y1="12" x2="8.8" y2="12"/><line x1="15.2" y1="12" x2="20.5" y2="12"/>'),
-    railButton("files", "tab.files", "Files", "⌘1", '<path d="M4 7.5C4 6.7 4.7 6 5.5 6h3.2c.5 0 .9.2 1.2.6L11 8h7.3c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-13C4.7 19 4 18.3 4 17.5z"/>'),
-    "</div>",
-    '<div class="rail-group rail-actions">',
-    // Terminal (Electron only; #terminal-toggle stays hidden until a pty exists). Keeps its own id-based
-    // handler in the terminal client slice rather than the data-view rail dispatcher.
-    input.app
-      ? '<button type="button" id="terminal-toggle" class="rail-btn terminal-toggle hidden" data-i18n-aria="terminal.title" aria-label="Terminal"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l4 5-4 5"/><path d="M13 17h6"/></svg><span class="rail-label">Terminal</span><span class="rail-tip"><span data-i18n="terminal.title">Terminal</span><kbd>⌃`</kbd></span></button>'
-      : "",
-    "</div>",
-    // Not a menu any more — the Cmd+E launcher lists these tools now. The buttons stay in the DOM because
-    // they ARE the dispatch: openRailView and the shell title bar activate a view by clicking its
-    // .rail-btn[data-view], and syncRail marks the active one. Permanently hidden, never opened.
-    '<div id="workspace-more-menu" class="workspace-more-menu hidden" role="presentation">',
-    termsButton,
-    railButton("merged", "rail.reviewComments", "Review comments", "⌘⇧/", '<path d="M5.5 5.5h13c.8 0 1.5.7 1.5 1.5v6.4c0 .8-.7 1.5-1.5 1.5H12l-4.5 3.6V16.4H5.5c-.8 0-1.5-.7-1.5-1.5V7c0-.8.7-1.5 1.5-1.5z"/>'),
-    railButton("memo", "memo.title", "Markdown memo", "⌘⇧N", '<rect x="5.5" y="4" width="13" height="16" rx="1.5"/><line x1="8.5" y1="9" x2="15.5" y2="9"/><line x1="8.5" y1="12.5" x2="15.5" y2="12.5"/><line x1="8.5" y1="16" x2="12.5" y2="16"/>'),
-    // Always rendered (its data-view button is the anchor the history view + shell mirror the active state on);
-    // in the single-instance app it's hidden from the menu via CSS since the title-bar clock owns History there.
-    input.app ? railButton("history", "rail.history", "History", "⌘9", '<circle cx="12" cy="12" r="8.3"/><path d="M12 7.4v5l3.2 1.9"/>') : "",
-    '<button type="button" id="app-info-btn" class="rail-btn" role="menuitem" aria-haspopup="dialog" data-i18n-aria="settings.title" aria-label="Settings"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.7 3.2h4.6l.5 2.1c.6.2 1.1.5 1.6.9l2-.7 2.3 4-1.6 1.4a7 7 0 0 1 0 2.2l1.6 1.4-2.3 4-2-.7c-.5.4-1 .7-1.6.9l-.5 2.1H9.7l-.5-2.1c-.6-.2-1.1-.5-1.6-.9l-2 .7-2.3-4 1.6-1.4a7 7 0 0 1 0-2.2L3.3 9.5l2.3-4 2 .7c.5-.4 1-.7 1.6-.9z"/><circle cx="12" cy="12" r="3"/></svg><span class="rail-label">Settings</span></button>',
-    "</div>",
-    "</nav>",
-  ].join("");
   return [
     "<!doctype html>",
     '<html lang="en">',
@@ -386,23 +353,22 @@ export function renderDiffHtml(input: {
     `:root { ${kakapoIconCssVariable()}; }`,
     diff2HtmlCss(),
     diffCss(),
-    input.app ? xtermCss() : "",
+
     "</style>",
     "</head>",
-    `<body${integratedTitleBar ? ' class="native-app workspace-view"' : ""}>`,
+    // No `native-app` class: that layout hid the in-view activity rail because the shell window's title
+    // bar mirrored its icons. The shell is gone, so this rail is the only one and the window keeps a
+    // standard title bar above it.
+    "<body>",
     // Boot overlay (removed by the renderer once bootstrap has painted) covers the blank gap after loadFile.
     `<div id="boot-overlay">${brandLoader}</div>`,
-    activityRail,
     '<aside class="sidebar" aria-label="Review navigation">',
-    `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name">${escapeHtml(input.branch || "")}</span></span><span class="brand-meta">${input.app ? `<span id="analysis-status" class="analysis-status is-idle" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-label">Analysis idle</span></span><button type="button" id="ask-status" class="ask-status hidden" aria-live="polite"><span class="ask-status-dot" aria-hidden="true"></span><span class="ask-status-label"></span></button>` : `<span class="app-version" id="app-version" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}${packageVersion ? '<span class="app-version-text">v' + escapeHtml(packageVersion) + "</span>" : ""}</span>`}</span><button type="button" class="brand-reveal" id="brand-reveal" data-keyhint="⌥F1" data-i18n-title="brand.revealFile" title="Reveal open file in the sidebar" aria-label="Reveal open file in the sidebar"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3.2"/><path d="M12 17.8V21"/><path d="M3 12h3.2"/><path d="M17.8 12H21"/></svg></button></div>`,
+    `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name">${escapeHtml(input.branch || "")}</span></span></div>`,
     '<div class="sidebar-scroll">',
     input.lazy
       ? '<div class="tabs"><button type="button" class="tab active" data-tab="changes" data-i18n="tab.changes" data-i18n-title="tab.changes.title" title="Changes (⌘0)">Changes</button><button type="button" class="tab" data-tab="files" data-i18n="tab.files" data-i18n-title="tab.files.title" title="Files (⌘1)">Files</button></div>'
       : '<div class="tabs"><button type="button" class="tab" data-tab="changes" data-i18n="tab.changes" data-i18n-title="tab.changes.title" title="Changes (⌘0)">Changes</button><button type="button" class="tab active" data-tab="files" data-i18n="tab.files" data-i18n-title="tab.files.title" title="Files (⌘1)">Files</button></div>',
-    // The way back into the briefing (25-briefing.js), directly above the files it is about. Hidden until an
-    // explanation exists, and it carries kakapo's own note lightbulb — the same glyph annotationKindIcon()
-    // stamps on every card the briefing is the first of.
-    `<div class="tab-panel${input.lazy ? "" : " hidden"}" id="changes-panel"><button type="button" class="mc-brf-recall hidden" id="mc-briefing-recall" data-keyhint="⌘⇧B" data-i18n-title="briefing.recall" title="Replay the briefing"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.4.3.5.7.5 1.1V16h6v-1c0-.4.1-.8.5-1.1A6 6 0 0 0 12 3z"/></svg><span class="mc-brf-recall-text" data-i18n="briefing.recall">Replay the briefing</span><span class="mc-brf-recall-key">⌘⇧B</span></button>${fileNav}</div>`,
+    `<div class="tab-panel${input.lazy ? "" : " hidden"}" id="changes-panel">${fileNav}</div>`,
     // Transport-backed reviews do not even embed an inert tree island: parsing its multi-megabyte text was
     // the dominant startup cost. Static lazy reviews retain the self-contained island fallback.
     input.lazy
@@ -416,6 +382,9 @@ export function renderDiffHtml(input: {
     // "update available" flag that was the last thing left is now one dot on the rail's Settings gear. In the
     // static export there is no rail, so the header above keeps the version there and only there.
     "",
+    // The sidebar's bottom toolbar. It holds the status/actions that used to sit in the header beside the
+    // project name (and, before that, on the activity rail): analysis state on the left, the actions right.
+    `<div class="sidebar-tools">${analysisStatus}<span class="sidebar-tools-spacer"></span>${settingsButton}${revealButton}</div>`,
     "</aside>",
     '<div class="sidebar-resizer" aria-hidden="true"></div>',
     '<main class="content">',
@@ -423,7 +392,40 @@ export function renderDiffHtml(input: {
     '<div class="toolbar diff-toolbar">',
     '<div class="diff-toolbar-file"><span class="diff-file-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M3.5 1.75h5l4 4v8.5h-9z"/><path d="M8.5 1.75v4h4"/></svg></span><div class="breadcrumb" id="diff-breadcrumb"></div></div>',
     '<div class="diff-toolbar-meta">',
-    `<div class="review-status">${renderReviewStatus({ compare: input.compare })}</div>`,
+    `<div class="review-status">${renderReviewStatus({ compare: input.compare, app: input.app })}</div>`,
+    // The compare dropdown the pill above opens (Electron only). Static markup, filled by 21-compare-menu.js
+    // from kakapoGit.compareMenu() each time it opens — the branch list goes stale the moment anyone commits,
+    // so it is fetched on open rather than baked into the page.
+    input.app
+      ? '<div id="compare-menu" class="compare-menu hidden" role="menu" data-i18n-aria="compare.menu.aria" aria-label="Compare options">'
+        + '<div class="compare-menu-main">'
+        // The key rides INSIDE the row. data-keyhint would have been the house style, but that attribute is
+        // what the hover tooltip reads, and a tooltip that covers the menu it describes is worse than no hint.
+        + '<button type="button" class="compare-menu-row" role="menuitemradio" aria-checked="false" data-mode="all">'
+        + '<span class="compare-menu-label" data-i18n="compare.menu.all">All changes</span>'
+        + '<span class="compare-menu-note" id="compare-menu-against"></span>'
+        + '<kbd class="compare-menu-key">\u2325A</kbd>'
+        + '<span class="compare-menu-check" aria-hidden="true"></span>'
+        + '</button>'
+        + '<button type="button" class="compare-menu-row" role="menuitemradio" aria-checked="false" data-mode="uncommitted">'
+        + '<span class="compare-menu-label" data-i18n="compare.menu.uncommitted">Uncommitted changes</span>'
+        + '<kbd class="compare-menu-key">\u2325U</kbd>'
+        + '<span class="compare-menu-check" aria-hidden="true"></span>'
+        + '</button>'
+        + '<div class="compare-menu-sep" role="separator"></div>'
+        + '<button type="button" class="compare-menu-row compare-menu-branch-open" data-panel="branches" aria-haspopup="menu" aria-expanded="false">'
+        + '<span class="compare-menu-label" data-i18n="compare.menu.target">Compare against</span>'
+        + '<span class="compare-menu-note" id="compare-menu-ref"></span>'
+        + '<kbd class="compare-menu-key">\u2325C</kbd>'
+        + '<span class="compare-menu-chevron" aria-hidden="true">\u203a</span>'
+        + '</button>'
+        + '</div>'
+        + '<div id="compare-menu-branches" class="compare-menu-branches hidden">'
+        + '<input id="compare-branch-search" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="compare.menu.searchBranch" placeholder="Search branches">'
+        + '<div id="compare-branch-list" class="compare-branch-list" role="listbox" data-i18n-aria="compare.menu.target" aria-label="Compare against"></div>'
+        + '</div>'
+        + '</div>'
+      : '',
     '<button type="button" id="diff-line-wrap-toggle" class="source-line-wrap-toggle diff-line-wrap-toggle" role="checkbox" aria-checked="false" data-keyhint="⌥W" data-i18n="source.lineWrap" data-i18n-title="source.lineWrap.title" title="Toggle line wrap (Option+W)">Line wrap</button>',
     '</div>',
     '<div class="diff-review-controls" role="group" data-i18n-aria="diff.navigation" aria-label="Change navigation">',
@@ -480,17 +482,6 @@ export function renderDiffHtml(input: {
     '<button type="button" id="file-find-close" class="file-find-button file-find-close" data-keyhint="Esc" data-i18n-title="find.close" data-i18n-aria="find.close" title="Close (Esc)" aria-label="Close">&times;</button>',
     '</div>',
     "</main>",
-    // Integrated terminal (Electron only): a floating xterm overlay with split panes, revealed by the rail
-    // toggle / Ctrl+`. A direct body child (NOT inside .content) so send-mode dimming of .content can't make
-    // this fixed panel see-through. Hidden until first opened; the client mounts xterm into #terminal-host.
-    //
-    // No title strip of its own. It carried the word "Terminal" over a row of panes each already labelled
-    // "Terminal 1", "Terminal 2" — the same word twice, in two strips, costing two rows of chrome on a panel
-    // whose whole point is the rows below them. The close button moved onto the pane-label row (viewer.css),
-    // which is now the panel's only chrome.
-    input.app
-      ? '<div id="terminal-panel" class="terminal-panel hidden"><div class="terminal-resizer" aria-hidden="true"></div><div id="terminal-host" class="terminal-host"></div></div>'
-      : "",
     input.app
       ? '<aside id="semantic-peek" class="semantic-peek hidden" aria-label="Semantic Peek">'
         + '<div class="semantic-peek-header"><div class="semantic-peek-heading"><div id="semantic-peek-title" class="semantic-peek-title">Semantic Peek</div><div id="semantic-peek-meta" class="semantic-peek-meta"></div></div>'
@@ -499,23 +490,17 @@ export function renderDiffHtml(input: {
       : "",
     '<div id="quick-open" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="quickopen.aria" aria-label="Quick open">',
     '<div class="quick-open-panel">',
-    // ⌘E is the one launcher: its left rail switches between the sections that live in this dialog (recent
-    // files, prompts) and opens the ones that don't (the memo dock and friends). Only rendered for the
-    // launcher modes — the file search / Find in Files / symbol layouts keep the plain panel.
-    // The review-comments dock is deliberately NOT listed: commenting moved into the code itself (inline
-    // comments answered by the dedicated session), so the merged view is a legacy surface — reachable by
-    // ⌘⇧/ and its rail dispatch for whoever still wants it, but not advertised by the launcher.
+    // The rail: one dialog, several searches, and a list of them down the left so none of them depends on
+    // remembering a chord. It used to appear only in the ⌘E launcher; ⌘E and double-Shift are gone, so the
+    // rail now rides along in every search mode and ⌘⇧F is the single door into all of them.
+    // The review-comments dock is deliberately NOT listed: commenting happens in the code itself, so the
+    // merged view is a legacy surface — reachable by ⌘⇧/ and its rail dispatch, but not advertised here.
     '<nav id="quick-open-side" class="quick-open-side" aria-label="Sections">',
-    '<button type="button" class="quick-open-side-item" data-section="recent" data-keyhint="⌘E"><span data-i18n="quickopen.recent">Recent files</span></button>',
-    '<button type="button" class="quick-open-side-item" data-section="prompts" data-keyhint="⌘⇧P"><span data-i18n="promptPalette.title">Agent tasks</span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="content" data-keyhint="⌘⇧F"><span data-i18n="quickopen.findInFiles">Find in Files</span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="all"><span data-i18n="quickopen.searchFiles">Search files</span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="recent"><span data-i18n="quickopen.recent">Recent files</span></button>',
     '<div class="quick-open-side-sep" aria-hidden="true"></div>',
-    '<button type="button" class="quick-open-side-item" data-section="memo" data-keyhint="⌘⇧N"><span data-i18n="memo.title">Markdown memo</span></button>',
-    // The unread dot lives here rather than on the rail button: the rail's tool buttons are permanently
-    // hidden (they are dispatch targets now), so this launcher row is the one place a reader actually sees
-    // a tool listed. It clears when every new word has been opened.
-    '<button type="button" class="quick-open-side-item" data-section="terms" data-keyhint="⌘⇧K"><span data-i18n="rail.terms">Knowledge graph</span><span id="terms-unread-dot" class="rail-dot hidden" aria-hidden="true"></span></button>',
     '<button type="button" class="quick-open-side-item" data-section="history" data-keyhint="⌘9"><span data-i18n="rail.history">History</span></button>',
-    '<button type="button" class="quick-open-side-item" data-section="terminal" data-keyhint="⌃`"><span data-i18n="terminal.title">Terminal</span></button>',
     '</nav>',
     '<div class="quick-open-title"><span id="quick-open-mode" data-i18n="quickopen.searchFiles">Search files</span><span id="quick-open-filter" class="quick-open-filter"></span></div>',
     '<input id="quick-open-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.searchFiles" placeholder="Search files">',
@@ -527,8 +512,6 @@ export function renderDiffHtml(input: {
     '<div id="quick-open-preview" class="quick-open-preview"></div>',
     "</div>",
     "</div>",
-    // ⌘⇧P has no dialog of its own: it opens the launcher above on its Prompts section. Editing the prompts
-    // themselves stays in Settings ▸ Prompts (see 24-prompt-palette.js).
     '<div id="usages" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="usages.aria" aria-label="Usages">',
     '<div class="quick-open-panel">',
     '<div class="quick-open-title"><span id="usages-title" data-i18n="usages.title">Usages</span></div>',
@@ -542,7 +525,6 @@ export function renderDiffHtml(input: {
     `<div class="settings-nav-brand" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}<div class="settings-nav-brand-meta"><span class="settings-nav-brand-name">Kakapo</span><span class="settings-ver">${packageVersion ? "v" + escapeHtml(packageVersion) : ""}</span></div></div>`,
     '<div class="settings-nav-title" data-i18n="settings.title">Settings</div>',
     '<button type="button" class="settings-cat active" data-cat="general" data-i18n="settings.cat.general">General</button>',
-    '<button type="button" class="settings-cat" data-cat="prompts" data-i18n="settings.cat.prompts">Prompts</button>',
     '<button type="button" class="settings-cat" data-cat="shortcuts" data-i18n="settings.cat.shortcuts">Shortcuts</button>',
     '</aside>',
     '<div class="settings-body">',
@@ -569,53 +551,10 @@ export function renderDiffHtml(input: {
     // each previewing its own canvas and accent — the choice is visible, not described.
     '<div class="settings-row settings-row-stacked"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.theme">Theme</span></div>',
     '<div id="settings-theme-grid" class="theme-grid" role="radiogroup" data-i18n-aria="settings.theme"></div></div>',
-    // One scale for the whole app rather than a code-font size: the review is chrome + tree + diff + terminal,
-    // and sizing only the code leaves the rest mismatched. Applied by main as a Chromium zoom factor.
-    '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.uiScale">Font size</span><span class="settings-row-hint" data-i18n="settings.uiScale.hint">Scales the whole interface, including the terminal.</span></div><button type="button" id="settings-ui-scale" class="settings-select mc-select" data-i18n-aria="settings.uiScale"></button></div>',
+    // One scale for the whole app rather than a code-font size: the review is chrome + tree + diff, and
+    // sizing only the code leaves the rest mismatched. Applied by main as a Chromium zoom factor.
+    '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.uiScale">Font size</span><span class="settings-row-hint" data-i18n="settings.uiScale.hint">Scales the whole interface.</span></div><button type="button" id="settings-ui-scale" class="settings-select mc-select" data-i18n-aria="settings.uiScale"></button></div>',
     '</div>',
-    // Knowledge graph card (Electron only — the check is a ripgrep, which browser/static reviews cannot run).
-    // kakapo's own agent (ask-session.ts). The only thing about it the reviewer has to decide is what it
-    // costs, so that is the only thing offered here.
-    input.app
-      ? '<div class="settings-card"><div class="settings-card-title" data-i18n="settings.ask">kakapo\'s own agent</div>'
-      + '<div class="settings-row settings-row-stacked"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.askModel">Model it answers on</span>'
-      + '<span class="settings-row-hint" data-i18n="settings.askModel.hint">kakapo answers your comments in a session of its own, so a question never goes to the agent that wrote the change. Automatic answers comments on Sonnet and leaves Explain runs on whatever your claude is set to; pick a model to pin both.</span></div>'
-      + '<button type="button" id="settings-ask-model" class="settings-select mc-select" data-i18n-aria="settings.askModel"></button></div>'
-      + '</div>'
-      : "",
-    input.app
-      ? '<div class="settings-card"><div class="settings-card-title" data-i18n="rail.terms">Knowledge graph</div>'
-      + '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.termsSweep">Re-check where words point</span>'
-      + '<span class="settings-row-hint" data-i18n="settings.termsSweep.hint">A word stores the name it is in the code, and where that name last was. The address goes stale on any commit, so it is re-checked when you open the word — and every so many new words, across the whole map.</span></div>'
-      + '<button type="button" id="settings-terms-sweep" class="settings-select mc-select" data-i18n-aria="settings.termsSweep"></button></div>'
-      // Connecting the terminal's agent to the vocabulary. Without this the agent only learns the words exist
-      // when a kakapo prompt tells it; with it, reading and adding to them is a tool it can always see.
-      + '<div class="settings-row settings-row-stacked"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.mcp">MCP server for building the knowledge map</span>'
-      + '<span class="settings-row-hint" data-i18n="settings.mcp.hint">Lets the agent in the terminal read the words you use and add the ones you take up — in any conversation, not just the ones sent from kakapo. Registered once per machine.</span></div>'
-      + '<div id="mcp-agents" class="mcp-agents"></div></div>'
-      + '</div>'
-      : "",
-    // Terminal card (Electron only): integrated-terminal bell → native notification opt-out.
-    input.app
-      ? '<div class="settings-card"><div class="settings-card-title" data-i18n="settings.terminal">Terminal</div>'
-      + '<label class="settings-check"><input type="checkbox" id="set-bell-notify"><span data-i18n="settings.bellNotify">Notify when an agent finishes</span></label>'
-      // Typography, not scale: the app-wide zoom above sizes everything at once, but a terminal full of an
-      // agent's Korean prose wants a bigger glyph and far more room between the lines than a diff does —
-      // Hangul fills its box top to bottom, so at the default 1.0 the lines touch and the text reads as a wall.
-      + '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.termFont">Terminal text size</span></div>'
-      + '<button type="button" id="settings-term-font" class="settings-select mc-select" data-i18n-aria="settings.termFont"></button></div>'
-      + '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.termLine">Line spacing</span>'
-      + '<span class="settings-row-hint" data-i18n="settings.termLine.hint">More room between lines makes long agent output — Korean especially — far easier to read.</span></div>'
-      + '<button type="button" id="settings-term-line" class="settings-select mc-select" data-i18n-aria="settings.termLine"></button></div>'
-      // Terminal sessions are always tmux-backed when tmux is installed, so this is a status row rather than a
-      // switch: it says whether persistence is actually in effect, and offers the install when it isn't.
-      + '<div class="settings-row-hint" data-i18n="settings.persistTerminal.hint">Terminals belong to their workspace: quitting kakapo leaves them running, and only deleting the workspace ends them.</div>'
-      + '<div id="tmux-setup" class="tmux-setup">'
-      + '<div class="tmux-setup-row"><span id="tmux-setup-status" class="settings-row-hint"></span>'
-      + '<button type="button" id="tmux-install" class="plain-button hidden" data-i18n="settings.installTmux">Install tmux</button></div>'
-      + '<pre id="tmux-setup-log" class="tmux-setup-log hidden" aria-live="polite"></pre>'
-      + '</div></div>'
-      : "",
     '</section>',
     // Keyboard shortcuts moved to their own category so General stays a short, scannable preferences page.
     '<section class="settings-section hidden" data-cat="shortcuts">',
@@ -626,11 +565,11 @@ export function renderDiffHtml(input: {
     '<kbd>⌘O</kbd><span data-i18n="kbd.openFolder">Open folder</span>' +
     '<kbd>⌘⇧O</kbd><span data-i18n="kbd.openNewWindow">Open in new window</span>' +
     '<kbd>⌘,</kbd><span data-i18n="kbd.openSettings">Settings</span>' +
-    '<kbd>⌘K</kbd><span>Switch workspace</span>' +
-    '<kbd>⌘⌥1–9</kbd><span>Switch directly to workspace</span>' +
     '<kbd>⌘9</kbd><span data-i18n="kbd.openHistory">Git history</span>' +
+    '<kbd>⌥A / ⌥U</kbd><span data-i18n="kbd.compareMode">All changes / uncommitted changes</span>' +
+    '<kbd>⌥C</kbd><span data-i18n="kbd.compareRef">Choose the branch to compare against</span>' +
     '<kbd>⌘L</kbd><span data-i18n="kbd.gotoLine">Go to line</span>' +
-    '<kbd>⌥Enter</kbd><span data-i18n="kbd.rowActions">Sidebar file actions (path / file manager / terminal)</span>' +
+    '<kbd>⌥Enter</kbd><span data-i18n="kbd.rowActions">Sidebar file actions (path / file manager)</span>' +
     '<kbd>Esc</kbd><span data-i18n="kbd.closeDialog">Close dialog / cancel</span>' +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.nav">Navigation</div>' +
@@ -638,17 +577,14 @@ export function renderDiffHtml(input: {
     '<kbd>F7</kbd><span data-i18n="kbd.nextChange">Next change</span>' +
     '<kbd>⇧F7</kbd><span data-i18n="kbd.prevChange">Previous change</span>' +
     '<kbd>F8 / ⇧F8</kbd><span data-i18n="kbd.nextComment">Next / previous comment</span>' +
-    '<kbd>⌘⇧B</kbd><span data-i18n="kbd.briefing">Explain briefing</span>' +
     '<kbd>⌘1 / ⌘0</kbd><span data-i18n="kbd.filesChangesTab">Files / Changes tab</span>' +
     '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.sidebarNavigate">Navigate / open sidebar row</span>' +
     '<kbd>Tab / ⇧Tab</kbd><span data-i18n="kbd.sidebarContent">Sidebar &harr; content / diff pane</span>' +
-    '<kbd>⇧ ⇧</kbd><span data-i18n="kbd.findFile">Find file</span>' +
     '<kbd>⌘F</kbd><span data-i18n="kbd.findInFile">Find in current file</span>' +
     '<kbd>⌘G / ⌘⇧G</kbd><span data-i18n="kbd.findNextPrev">Next / previous match</span>' +
     '<kbd>⌘⇧F</kbd><span data-i18n="kbd.findInFiles">Find in files</span>' +
     '<kbd>⌥E</kbd><span data-i18n="kbd.searchExtensions">Focus extension filter</span>' +
     '<kbd>⌥P</kbd><span data-i18n="kbd.excludeSearchNoise">Exclude comments / tests</span>' +
-    '<kbd>⌘E</kbd><span data-i18n="kbd.recentFiles">Recent files</span>' +
     '<kbd>⌘B</kbd><span data-i18n="kbd.defUsages">Definition / usages</span>' +
     '<kbd>⌘⌥B</kbd><span data-i18n="kbd.goToImplementation">Go to implementation</span>' +
     '<kbd>⌘⌥O</kbd><span data-i18n="kbd.workspaceSymbol">Workspace symbol</span>' +
@@ -683,8 +619,6 @@ export function renderDiffHtml(input: {
     '<kbd>Backspace / Delete</kbd><span data-i18n="kbd.deleteComment">Delete comment (when selected)</span>' +
     '<kbd>⌥&uarr;/&darr;</kbd><span data-i18n="kbd.stepComments">Step between comments (merged)</span>' +
     '<kbd>⌥Enter</kbd><span data-i18n="kbd.mergedSend">Comment actions (merged)</span>' +
-    '<kbd>⌘⇧N</kbd><span data-i18n="kbd.promptMemo">Prompt memo</span>' +
-    '<kbd>⌘⇧P</kbd><span data-i18n="kbd.promptPalette">Prompt palette (send a prompt to the terminal)</span>' +
     '<kbd>⌘⇧&#39;</kbd><span data-i18n="kbd.maximizePanel">Maximize panel</span>' +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.history">History</div>' +
@@ -693,40 +627,8 @@ export function renderDiffHtml(input: {
     '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.historyNavigate">Select a commit, open it in the review</span>' +
     '<kbd>PageUp / PageDown</kbd><span data-i18n="kbd.pageUpDown">Page up / down</span>' +
     '</div>' +
-    (input.app
-      ? '<div class="keys-cat" data-i18n="settings.kbd.cat.terminal">Terminal</div>' +
-        '<div class="keys-grid">' +
-        '<kbd>⌃` / ⌥F12</kbd><span data-i18n="kbd.toggleTerminal">Toggle terminal</span>' +
-        '<kbd>⌘D</kbd><span data-i18n="kbd.splitPane">Split pane</span>' +
-        '<kbd>⌘⌥← / →</kbd><span data-i18n="kbd.focusPane">Focus prev / next pane</span>' +
-        '<kbd>⌘⌥R</kbd><span data-i18n="kbd.renamePane">Rename pane</span>' +
-        '<kbd>⌘W</kbd><span data-i18n="kbd.closeTerminal">Close terminal (when focused)</span>' +
-        '</div>'
-      : '') +
     '</div>',
     "</section>",
-    '<section class="settings-section hidden" data-cat="prompts">',
-    '<div class="settings-h" data-i18n="mergePrompts.title">Merge prompts</div>',
-    '<div class="settings-desc" data-i18n="mergePrompts.desc">These editable defaults are prepended to prompts sent to the agent and are saved automatically. The plan contract is prepended to review comments (⌘⇧/) and to the prompt memo.</div>',
-    '<label class="settings-label" for="settings-prompt-plan" data-i18n="mergePrompts.planHeading">Plan contract (review comments + memo)</label>',
-    '<textarea id="settings-prompt-plan" class="settings-textarea" rows="5" spellcheck="false"></textarea>',
-    '<label class="settings-label" for="settings-prompt-c" data-i18n="mergePrompts.cHeading">Review-comment instructions</label>',
-    '<textarea id="settings-prompt-c" class="settings-textarea" rows="4" spellcheck="false"></textarea>',
-    '<div class="settings-subsection">',
-    '<div class="settings-h" data-i18n="annotatePrompt.title">Explain the diff</div>',
-    '<div class="settings-desc" data-i18n="annotatePrompt.desc">Sent to an AI agent (⌘⇧P) to walk this diff and drop plain-language note cards on the lines that matter. Saved automatically. {{NOTES_PATH}} is replaced with this workspace\'s annotations file when sent.</div>',
-    '<textarea id="settings-prompt-annotate" class="settings-textarea" rows="10" spellcheck="false"></textarea>',
-    '</div>',
-    '<div class="settings-subsection">',
-    '<div class="settings-h" data-i18n="codebasePrompt.title">Explain the codebase</div>',
-    '<div class="settings-desc" data-i18n="codebasePrompt.desc">Sent from the Cmd+E launcher\'s Prompts section: read this repository and leave a map on the code itself. Saved automatically.</div>',
-    '<textarea id="settings-prompt-codebase" class="settings-textarea" rows="10" spellcheck="false"></textarea>',
-    '</div>',
-    '<div class="settings-actions"><button type="button" id="settings-reset" class="plain-button" data-i18n="mergePrompts.reset">Reset to defaults</button><span id="settings-saved" class="settings-saved"></span></div>',
-    "</section>",
-    "</div>",
-    "</div>",
-    "</div>",
     // Git history (Cmd+9): the commit graph owns the full canvas. Enter opens the selected commit's
     // message + diff in a large floating workspace instead of squeezing both views side by side.
     '<div id="history-view" class="history-view hidden" role="dialog" aria-modal="true" data-i18n-aria="history.title" aria-label="Git history">',
@@ -751,9 +653,6 @@ export function renderDiffHtml(input: {
     `<script type="application/json" id="${REVIEW_ISLAND.fileStates}">${jsonForScript(initialFileStates)}</script>`,
     `<script type="application/json" id="${REVIEW_ISLAND.httpEnv}">${jsonForScript(input.httpEnvironments)}</script>`,
     `<script>window.__KAKAPO_VERSION__=${JSON.stringify(packageVersion)};</script>`,
-    // xterm ships as an inert island (type=text/html, not parsed at startup) and is injected into a real
-    // <script> by the terminal client on first open, so the ~490 KB bundle never costs a cold launch.
-    input.app ? `<script type="text/html" id="${REVIEW_ISLAND.xterm}">${xtermScript()}</script>` : "",
     // The Electron app serves the ~514KB client as an external, immutably-cached kakapo-asset:// script
     // (loaded from the file:// review page, the same scheme the lazy Markdown editor already uses) so the
     // review doc is ~40% smaller and the client is parsed/cached once across windows. serve/standalone have

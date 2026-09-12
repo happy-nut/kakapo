@@ -217,25 +217,14 @@ test("the update installs from a DMG already on disk, and the download reports p
   assert.match(main, /downloadUpdateDmg\(asset\.url\)[\s\S]{0,600}installPackagedUpdate\(\{ dmgPath/,
     "download first, then install what it produced");
 
-  // The report has to cost no layout: the reviewer is mid-review, and the update is not what they are doing.
-  // It draws on the rail's mark, which is one per app — the review view's was one per open workspace.
-  const shell = readFileSync(new URL("../src/shell-pages.ts", import.meta.url), "utf8");
-  assert.match(shell, /classList\.toggle\('is-updating',on\)/, "the rail's brand mark carries the progress");
-  assert.match(shell, /setProperty\('--update-progress',pct\+'%'\)/, "as one percentage custom property");
-  assert.match(shell, /#railver\.is-updating::before[\s\S]{0,400}conic-gradient\(#4d86d9 var\(--update-progress/,
-    "drawn as a ring that sweeps around the mark");
-  assert.match(shell, /mask:radial-gradient\(circle closest-side,transparent 0 64%/,
-    "a ring sized off the mark, so the logo stays readable under it and it cannot spill onto the version text");
-  assert.match(main, /shellWindow\.webContents\.send\("kakapo:update-progress"/, "and only the rail is told");
 });
 
 // One new version, one indicator. It used to be three — a titlebar chip, a sidebar-footer flag, and the
-// Settings line — all saying the same two words in the same window at the same time.
-test("an available update shows in exactly one place: a dot on the rail's gear", () => {
-  const shell = readFileSync(new URL("../src/shell-pages.ts", import.meta.url), "utf8");
+// Settings line — all saying the same two words in the same window at the same time. Settings is the one
+// that survived the rail.
+test("an available update shows in exactly one place: the Settings panel", () => {
   const render = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
-  assert.match(shell, /id="settings-dot" class="hidden"/, "the badge starts hidden");
-  assert.match(shell, /dot\.classList\.remove\("hidden"\)/, "and only a newer release reveals it");
-  assert.doesNotMatch(shell, /update-chip/, "no titlebar chip");
+  assert.match(render, /id="app-info-update"/, "Settings carries the Update & Restart action");
+  assert.doesNotMatch(render, /update-chip/, "no titlebar chip");
   assert.doesNotMatch(render, /app-update-flag/, "no sidebar-footer flag");
 });

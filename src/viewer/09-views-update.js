@@ -1,7 +1,3 @@
-// Assigned when the workspace selector is wired; read by the KEY_OWNERS table in 05-keymap.js, which loads
-// first and so tests it with `typeof`.
-var handleWorkspaceHubKey;
-
 function setTab(name) {
   if (name === 'files') ensureTreeRendered();
   document.querySelectorAll('.tab').forEach((button) => {
@@ -9,7 +5,6 @@ function setTab(name) {
   });
   document.getElementById('changes-panel')?.classList.toggle('hidden', name !== 'changes');
   document.getElementById('files-panel')?.classList.toggle('hidden', name !== 'files');
-  syncRail();
 }
 
 // Each primary review surface owns its sidebar preference: Cmd+0 toggles Changes while the diff is open,
@@ -18,12 +13,8 @@ function setTab(name) {
 // logical tree cursor to the open file.
 var reviewSidebarCollapsed = false;
 var sourceSidebarCollapsed = false;
-// Forced by the shell when the workspace rail is expanded — collapses the in-view file tree without touching
-// the user's own collapse preference, so it restores exactly when the rail collapses again.
-var railPushedCollapse = false;
-// A collapsed navigation column is a temporary focus mode, not a durable workspace preference.
-// Always reopen with workspace identity and review navigation visible so a previous session cannot
-// make the app appear contextless or broken.
+// A collapsed navigation column is a temporary focus mode, not a durable preference. Always reopen with
+// review navigation visible so a previous session cannot make the app appear contextless or broken.
 var sidebarLayoutRefreshTimer = 0;
 var sidebarLayoutRefreshRaf = 0;
 function refreshViewerAfterSidebarLayout() {
@@ -58,9 +49,14 @@ document.body.addEventListener('transitionend', function (event) {
   }
 });
 function syncReviewSidebarVisibility() {
-  var diffCollapsed = reviewSidebarCollapsed && isDiffViewVisible();
-  var sourceCollapsed = sourceSidebarCollapsed && isSourceViewerVisible();
-  var collapsed = railPushedCollapse || diffCollapsed || sourceCollapsed;
+  // REGRESSION: the two flags below are `var`s in THIS slice, and 05-keymap (an earlier slice) calls
+  // showDiffView() at boot — so the very first sync reads them hoisted-but-unassigned, i.e. `undefined`.
+  // classList.toggle(name, undefined) treats the second argument as absent and FLIPS, which switched the
+  // class on and left every cold start with the file tree collapsed until something toggled it back.
+  // Coercing here fixes it for every caller and every read order; do not drop the `!!`.
+  var diffCollapsed = !!reviewSidebarCollapsed && isDiffViewVisible();
+  var sourceCollapsed = !!sourceSidebarCollapsed && isSourceViewerVisible();
+  var collapsed = !!(diffCollapsed || sourceCollapsed);
   var changed = document.body.classList.contains('sidebar-collapsed') !== collapsed;
   document.body.classList.toggle('sidebar-collapsed', collapsed);
   if (changed) scheduleViewerAfterSidebarLayout();
@@ -80,47 +76,6 @@ function syncReviewSidebarVisibility() {
     button.setAttribute('data-tooltip', label);
     button.title = label + ' (⌘0)';
   }
-  syncRail();
-}
-// Pin the diff column against reflow while the shell animates the workspace rail (see body.rail-pinning in the
-// CSS). Measured just before the collapse/expand starts, so the pinned width is the settled diff width; the
-// sidebar column absorbs the shell's per-frame view resize instead, and the main panel stays rock-steady.
-var railPinTimer = 0;
-function setRailContentPin(on) {
-  if (railPinTimer) { clearTimeout(railPinTimer); railPinTimer = 0; }
-  if (on) {
-    var content = document.querySelector('.content');
-    var w = content ? Math.round(content.getBoundingClientRect().width) : 0;
-    if (w <= 0) return;
-    document.body.style.setProperty('--rail-pin-content', w + 'px');
-    document.body.classList.add('rail-pinning');
-    // Lift the pin once the shell's ~180ms rail animation has settled (plus slack), so later window resizes flow
-    // back into the diff. The settled width matches the pin, so this is a no-op reflow.
-    railPinTimer = setTimeout(function () {
-      railPinTimer = 0;
-      document.body.classList.remove('rail-pinning');
-      document.body.style.removeProperty('--rail-pin-content');
-      liftRailPin();
-    }, 240);
-  } else {
-    document.body.classList.remove('rail-pinning');
-    document.body.style.removeProperty('--rail-pin-content');
-    liftRailPin();
-  }
-}
-// The terminal holds its re-flow for the same window (scheduleFitAll in 19-terminal.js): a fit per animation
-// frame re-wraps the panes at a dozen widths none of which survive, which the reviewer sees as the panel
-// juddering. One fit at the settled width instead — this is where "settled" is known.
-function liftRailPin() {
-  var api = window.__kakapoTerminal;
-  if (api && typeof api.flushFit === 'function') { try { api.flushFit(); } catch (e) {} }
-}
-if (window.kakapoMenu && typeof window.kakapoMenu.onRailPushed === 'function') {
-  window.kakapoMenu.onRailPushed(function (pushed) {
-    setRailContentPin(true); // freeze the diff before the shell begins resizing the view this frame
-    railPushedCollapse = !!pushed;
-    syncReviewSidebarVisibility();
-  });
 }
 function focusDiffAfterSidebarCollapse() {
   clearTreeFocus();
@@ -179,35 +134,6 @@ function toggleSourceSidebar() {
   return true;
 }
 // Reflect the current view and dock state on the activity rail icons.
-function syncRail() {
-  var rail = document.querySelector('.activity-rail');
-  var active = [];
-  var setOn = function (view, on) {
-    if (on) active.push(view);
-    if (!rail) return;
-    var btn = rail.querySelector('[data-view="' + view + '"]');
-    if (btn) btn.classList.toggle('is-active', !!on);
-  };
-  setOn('changes', !document.getElementById('changes-panel')?.classList.contains('hidden'));
-  setOn('files', !document.getElementById('files-panel')?.classList.contains('hidden'));
-  setOn('merged', !!document.getElementById('mc-merged-panel'));
-  setOn('memo', !!document.getElementById('mc-memo-panel'));
-  var hv = document.getElementById('history-view');
-  setOn('history', !!(hv && !hv.classList.contains('hidden')));
-  // The same two moments the rail cares about are the two the briefing cares about — notes arriving, and the
-  // diff coming into view — so it rides this sync rather than growing hooks of its own (25-briefing.js).
-  syncBriefing();
-  // Mirror the same state onto the shell title-bar tools (single-instance app only).
-  var term = document.getElementById('terminal-toggle');
-  if (window.kakapoMenu && window.kakapoMenu.sendRailState) {
-    try { window.kakapoMenu.sendRailState({ active: active, terminal: !!(term && !term.classList.contains('hidden')) }); } catch (e) {}
-  }
-}
-// Rail click for the merged view toggles: a 2nd click closes it (memo already toggles the same way).
-function toggleMergedRail() {
-  if (document.getElementById('mc-merged-panel')) { closeMergedMemoDocks(); return; }
-  openMergedView();
-}
 // Big repos ship the source tree as an inert island (see render.ts); build it the first time the Files
 // tab is opened so the (potentially huge) tree never blocks startup. No-op for inline (small) trees.
 function ensureTreeRendered() {
@@ -347,32 +273,19 @@ function restoreUiState() {
 // Live watch refreshes are HELD while a comment composer is open. applyDiffUpdate rebuilds the diff DOM, so
 // applying it mid-compose would destroy the composer textarea every watch tick — input stalls and characters
 // arrive in bursts — and flicker the page. Keep only the latest pending payload; flush it on close/save.
-// The terminal is held the same way, for the same reason: applyDiffUpdate is one long SYNCHRONOUS DOM swap
-// (measured in the hundreds of ms for a 20-file diff) and xterm shares this main thread, so a refresh landing
-// between keystrokes is exactly the "typing stutters, then arrives in a burst" the composer hold above fixes.
-// An agent editing files makes this fire every watch tick — precisely while you're typing at its prompt.
-// Unlike the composer this is time-based, not modal: the diff keeps refreshing live while you merely WATCH a
-// pane, and only defers around actual typing.
-var TERMINAL_TYPING_IDLE_MS = 450;
-// The terminal guards its own composition (composingPanes, 19-terminal.js), but it is not the only place a
-// syllable gets assembled: a comment composer is a textarea too, and refreshComments() RE-CREATES it. So the
-// poll that pulls in an agent's answers would land mid-syllable and macOS would commit the half-built 가 as
-// ㄱ ㅏ — in the comment box, while the terminal check said "nobody is typing", because nobody was typing
-// THERE. One pair of document-level listeners covers every field in the page instead of one guard per
-// textarea, and keeps covering the next one somebody adds.
+// A comment composer is a textarea, and refreshComments() RE-CREATES it — so a refresh landing mid-syllable
+// makes macOS commit the half-built 가 as ㄱ ㅏ. One pair of document-level listeners covers every field in
+// the page instead of one guard per textarea, and keeps covering the next one somebody adds. An IME
+// composition has no bounded duration — the user may sit mid-syllable indefinitely — and breaking one
+// corrupts the input rather than merely delaying it, so it counts as "typing right now".
+var TYPING_IDLE_MS = 450;
 var pageComposing = false;
 if (typeof document !== 'undefined') {
   document.addEventListener('compositionstart', function () { pageComposing = true; }, true);
   document.addEventListener('compositionend', function () { pageComposing = false; }, true);
 }
-function terminalTypingAgeMs() {
-  if (pageComposing) return 0;
-  var api = window.__kakapoTerminal;
-  // An IME composition has no bounded duration — the user may sit mid-syllable indefinitely — and breaking one
-  // corrupts the input rather than merely delaying it (가 arrives as ㄱ ㅏ). Treat it as always "just typed".
-  if (api && typeof api.isComposing === 'function' && api.isComposing()) return 0;
-  var at = api && typeof api.typingAt === 'function' ? api.typingAt() : 0;
-  return at ? Date.now() - at : Infinity;
+function pageTypingAgeMs() {
+  return pageComposing ? 0 : Infinity;
 }
 // The same rule, for the other thing an agent's own output triggers: refreshComments() re-renders every
 // thread in the diff, synchronously, on this shared thread. Answers and annotations are pushed from the
@@ -382,8 +295,8 @@ function terminalTypingAgeMs() {
 // and one queued render covers every change that arrived while waiting.
 var refreshCommentsTimer = null;
 function refreshCommentsWhenNotTyping() {
-  var age = terminalTypingAgeMs();
-  if (age >= TERMINAL_TYPING_IDLE_MS) {
+  var age = pageTypingAgeMs();
+  if (age >= TYPING_IDLE_MS) {
     if (refreshCommentsTimer) { clearTimeout(refreshCommentsTimer); refreshCommentsTimer = null; }
     refreshComments();
     return;
@@ -392,7 +305,7 @@ function refreshCommentsWhenNotTyping() {
   refreshCommentsTimer = setTimeout(function () {
     refreshCommentsTimer = null;
     refreshCommentsWhenNotTyping();
-  }, TERMINAL_TYPING_IDLE_MS - age + 20);
+  }, TYPING_IDLE_MS - age + 20);
 }
 var pendingDiffUpdate = null;
 var pendingDiffTimer = null;
@@ -596,8 +509,8 @@ function requestDiffViewOnNextCompare() { forceDiffViewOnNextCompare = true; }
 function applyDiffUpdate(u) {
   if (!u || !u.signature || u.signature === currentSignature) return false; // unchanged — nothing to do
   if (composerState) { pendingDiffUpdate = u; return false; } // composing a comment — hold the refresh until close/save
-  var typingAge = terminalTypingAgeMs(); // mid-keystroke in a terminal pane — hold until the typing pauses
-  if (typingAge < TERMINAL_TYPING_IDLE_MS) { holdDiffUpdateFor(u, TERMINAL_TYPING_IDLE_MS - typingAge + 20); return false; }
+  var typingAge = pageTypingAgeMs(); // mid-syllable in a page field — hold until the composition ends
+  if (typingAge < TYPING_IDLE_MS) { holdDiffUpdateFor(u, TYPING_IDLE_MS - typingAge + 20); return false; }
 
   // Remember what to restore after the swap (comments/viewed persist on their own; these don't).
   var sv = document.getElementById('source-viewer');
@@ -768,11 +681,6 @@ function applyDiffUpdate(u) {
   autoViewTrivial(); // the rebuilt rows carry the marks; a file whose change became trivial folds out now
   remapComments(); // follow/drop comments whose anchor line moved or vanished in the new build
   refreshComments();
-  // #changes-panel was replaced above, and the way back into the briefing lives inside it — rebuilt from the
-  // payload, so it comes back in its default hidden state. Nothing here put it back, so on a review being
-  // watched (an agent writing files is a rebuild every tick) the button vanished within seconds of appearing
-  // and ⌘⇧B was the only way left in. syncRail is what owns that state; it is idempotent and cheap.
-  syncRail();
 
   // 5) Best-effort restore of what the user was looking at. Re-render the source view only when the open file
   // actually changed; an unchanged file stays painted as-is, so an unrelated edit doesn't flicker the pane.
@@ -791,18 +699,17 @@ function applyDiffUpdate(u) {
   return true;
 }
 
-// A workspace parked off screen holds its whole diff in the DOM for as long as the app runs: measured at
-// 169 MB for a 130-file review, 77 MB of it still resident after the body strings are dropped. Chromium
-// purges what it can behind a hidden view, but live DOM is not purgeable — only we know it is disposable.
-// Main asks for it back once the workspace has been idle long enough (see reconcileIdleSuspend), and pays
-// for it with the rebuild it already runs on the way back in, which repaints through applyDiffUpdate's
-// full-swap path (an empty container fails reconcileDiffWrappers' first guard). The page itself stays: the
-// terminals, their ptys and scrollback, the comment drafts and the source tabs are all untouched.
+// A minimized window holds its whole diff in the DOM for as long as the app runs: measured at 169 MB for a
+// 130-file review, 77 MB of it still resident after the body strings are dropped. Chromium purges what it
+// can behind a hidden window, but live DOM is not purgeable — only we know it is disposable. Main asks for
+// it back once the window has been idle long enough (see reconcileIdleSuspend), and pays for it with the
+// rebuild it already runs on the way back, which repaints through applyDiffUpdate's full-swap path (an empty
+// container fails reconcileDiffWrappers' first guard). The comment drafts and source tabs are untouched.
 function releaseDiffView() {
   var container = document.getElementById('diff2html-container');
   if (!container || !container.querySelector('.d2h-file-wrapper')) return false;
   // A half-written comment lives in the diff DOM, and its composer would be dropped with it. Leave the
-  // review alone; main re-arms on the next time this workspace goes off screen.
+  // review alone; main re-arms the next time this window goes off screen.
   if (typeof composerState !== 'undefined' && composerState) return false;
   container.innerHTML = '';
   bodyCache = {};
@@ -811,7 +718,7 @@ function releaseDiffView() {
   diffCursor = null;
   diffBootDone = false;
   // No build is painted any more, so no build is current. Without this the rebuild on the way back in is
-  // discarded as "unchanged" whenever nothing in the repo moved while the workspace was parked — which is
+  // discarded as "unchanged" whenever nothing in the repo moved while the window was minimized — which is
   // the common case — and the review would stay empty until something edited the tree.
   currentSignature = '';
   refreshHunkIndex(); // hunk metadata is derived from the DOM that just went away
@@ -844,144 +751,19 @@ async function checkForLiveUpdate() {
   }
 }
 
-// The app-level workspace picker and the review tree share one physical left slot. The selector keeps
-// current/background activity visible while the picker is closed; opening it replaces this sidebar.
-(function initWorkspaceSelector() {
-  var bridge = window.kakapoMenu;
-  var selector = document.getElementById('workspace-selector');
-  if (!bridge || !selector || typeof bridge.onWorkspaceState !== 'function') return;
-  var qsItems = [], qsCurrentId = null;
-  selector.addEventListener('click', function () {
-    if (typeof bridge.toggleWorkspaceHub === 'function') bridge.toggleWorkspaceHub();
-  });
-  // The last KEY_OWNERS row (05-keymap.js): the hub overlay is dismissible, but every other surface above it
-  // in that table is layered on top of it, so it takes Esc only once they have all declined.
-  handleWorkspaceHubKey = function (event) {
-    if (event.key !== 'Escape' || !document.body.classList.contains('workspace-hub-open')) return false;
-    event.preventDefault();
-    if (typeof bridge.toggleWorkspaceHub === 'function') bridge.toggleWorkspaceHub();
-    return true;
-  };
-  bridge.onWorkspaceState(function (payload) {
-    var items = payload && Array.isArray(payload.items) ? payload.items : [];
-    qsItems = items; qsCurrentId = payload && payload.currentId;
-    var current = items.find(function (item) { return item.id === payload.currentId; });
-    var unread = items.reduce(function (count, item) { return count + (item.unread ? 1 : 0); }, 0);
-    var backgroundRunning = items.some(function (item) { return item.id !== payload.currentId && item.running; });
-    var name = document.getElementById('workspace-selector-name');
-    var meta = document.getElementById('workspace-selector-meta');
-    var activity = document.getElementById('workspace-selector-activity');
-    var running = document.getElementById('workspace-selector-running');
-    var badge = document.getElementById('workspace-selector-unread');
-    if (current) {
-      if (name) name.textContent = current.alias || current.branch || '';
-      if (meta) meta.textContent = current.alias && current.alias !== current.branch
-        ? (current.repoName || '') + ' · ' + (current.branch || '')
-        : (current.repoName || '');
-      selector.title = (current.repoName || '') + ' / ' + (current.alias || current.branch || '') + ' — Switch workspace (⌘K)';
-      if (activity) activity.classList.toggle('running', !!current.running);
-    }
-    if (running) running.classList.toggle('hidden', !backgroundRunning);
-    if (badge) {
-      badge.classList.toggle('hidden', unread === 0);
-      badge.textContent = unread > 9 ? '9+' : String(unread);
-    }
-    selector.setAttribute('aria-expanded', payload && payload.open ? 'true' : 'false');
-    document.body.classList.toggle('workspace-hub-open', !!(payload && payload.open));
-  });
-
-  // ⌘K quick-switcher: a floating command-palette rendered over the diff (the review stays visible behind
-  // it). Filters the workspaces the rail already knows about; Enter/click switches, Esc closes.
-  if (typeof bridge.onOpenQuickSwitcher === 'function' && typeof bridge.activateWorkspace === 'function') {
-    var qsRoot = null, qsInput = null, qsList = null, qsHi = 0, qsFiltered = [];
-    function qsEsc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
-    function qsInitials(w) {
-      var s = String(w.alias || w.branch || w.repoName || '?').replace(/^(feature|fix|chore|bugfix|hotfix|release)[/-]/i, '');
-      var p = s.split(/[^a-z0-9]+/i).filter(Boolean);
-      return ((p[0] ? p[0][0] : '?') + (p[1] ? p[1][0] : (p[0] && p[0][1] ? p[0][1] : ''))).toUpperCase();
-    }
-    function qsBuild() {
-      if (qsRoot) return;
-      qsRoot = document.createElement('div');
-      qsRoot.style.cssText = 'position:fixed;inset:0;z-index:2147482000;display:none;justify-content:center;align-items:flex-start;padding-top:12vh;background:color-mix(in srgb,#000 45%,transparent)';
-      qsRoot.innerHTML = '<div style="width:460px;max-width:88vw;background:var(--elevated);border:1px solid var(--border);border-radius:12px;box-shadow:0 24px 60px var(--shadow);overflow:hidden">'
-        + '<input class="kk-qs-input" placeholder="Switch workspace…" spellcheck="false" autocomplete="off" style="width:100%;border:0;background:transparent;color:var(--fg);font-size:15px;padding:14px 16px;outline:none;font-family:inherit">'
-        + '<div class="kk-qs-list" style="max-height:46vh;overflow:auto;padding:5px;border-top:1px solid var(--border)"></div></div>';
-      document.body.appendChild(qsRoot);
-      qsInput = qsRoot.querySelector('.kk-qs-input');
-      qsList = qsRoot.querySelector('.kk-qs-list');
-      qsInput.addEventListener('input', function () { qsHi = 0; qsRender(); });
-      qsInput.addEventListener('keydown', function (e) {
-        if (e.key === 'ArrowDown') { e.preventDefault(); qsHi = Math.min(qsFiltered.length - 1, qsHi + 1); qsRender(); }
-        else if (e.key === 'ArrowUp') { e.preventDefault(); qsHi = Math.max(0, qsHi - 1); qsRender(); }
-        else if (e.key === 'Enter') { e.preventDefault(); qsChoose(qsFiltered[qsHi]); }
-        else if (e.key === 'Escape') { e.preventDefault(); qsClose(); }
-      });
-      qsRoot.addEventListener('mousedown', function (e) { if (e.target === qsRoot) qsClose(); });
-      qsList.addEventListener('click', function (e) {
-        var row = e.target.closest('[data-id]');
-        if (row) qsChoose(qsItems.find(function (w) { return String(w.id) === row.getAttribute('data-id'); }));
-      });
-    }
-    function qsRender() {
-      var q = (qsInput.value || '').trim().toLowerCase();
-      qsFiltered = qsItems.filter(function (w) {
-        if (w.disconnected) return false;
-        var hay = ((w.alias || '') + ' ' + (w.branch || '') + ' ' + (w.repoName || '')).toLowerCase();
-        return !q || hay.indexOf(q) >= 0;
-      });
-      if (qsHi >= qsFiltered.length) qsHi = Math.max(0, qsFiltered.length - 1);
-      qsList.innerHTML = qsFiltered.length ? qsFiltered.map(function (w, k) {
-        return '<div data-id="' + w.id + '" style="display:grid;grid-template-columns:26px 1fr auto;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;cursor:pointer;' + (k === qsHi ? 'background:color-mix(in srgb,var(--accent) 22%,transparent)' : '') + '">'
-          + '<span style="width:24px;height:24px;border-radius:7px;background:var(--sidebar);color:var(--muted);font-weight:700;font-size:11px;display:grid;place-items:center">' + qsEsc(qsInitials(w)) + '</span>'
-          + '<span style="min-width:0"><b style="font-weight:600">' + qsEsc(w.alias || w.branch || '') + '</b><small style="display:block;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + qsEsc(w.repoName || '') + (w.dirtyCount ? ' · ' + w.dirtyCount + ' changed' : '') + '</small></span>'
-          + (w.id === qsCurrentId ? '<span style="color:var(--accent);font-size:11px">current</span>' : (w.running ? '<span style="color:#4d9a51;font-size:11px">● running</span>' : (w.closed ? '<span style="color:var(--muted);font-size:11px">parked</span>' : '<span></span>')))
-          + '</div>';
-      }).join('') : '<div style="padding:12px;color:var(--muted);font-size:12px">No matching workspace</div>';
-    }
-    function qsOpen() {
-      qsBuild();
-      if (!qsItems.length) return;
-      qsRoot.style.display = 'flex';
-      qsInput.value = '';
-      qsHi = 0; qsRender();
-      var ci = qsFiltered.findIndex(function (w) { return w.id === qsCurrentId; });
-      if (ci >= 0) { qsHi = ci; qsRender(); }
-      setTimeout(function () { qsInput.focus(); }, 0);
-    }
-    function qsClose() { if (qsRoot) qsRoot.style.display = 'none'; }
-    function qsChoose(w) {
-      if (!w) return;
-      qsClose();
-      // A deep-parked workspace is a closed tile with no live id: reopen it by path, the same road the
-      // rail's closed tiles ride (kakapo:hub-open re-validates before opening anything).
-      if (w.closed && w.path && typeof bridge.openWorkspacePath === 'function') { bridge.openWorkspacePath(w.path); return; }
-      if (w.id !== qsCurrentId) bridge.activateWorkspace(w.id);
-    }
-    bridge.onOpenQuickSwitcher(qsOpen);
-  }
-})();
-
 // "Switching workspaces freezes the screen for a few seconds." The main process is not the one blocking —
 // its own trace says the switch costs it ~1-2ms (mainBlockMs) — so the stall is in this renderer, and the
 // only way to tell which of the several things a switch kicks off (rebuild repaint, terminal re-fit, LSP
 // churn) is holding the thread is to measure it where it happens. A 1s heartbeat that reports how late it
 // ran: anything past 1.5s is a stretch where this page answered nothing, and it lands in the same perf trace
 // as review-build-complete, so the two line up by timestamp.
-// A stall used to record only its own length, which says a freeze happened and nothing about what did it —
-// "13.7s, terminal open, 53 files" fits half a dozen suspects, and the next question was always the same one
-// we could not answer. So each mark now carries what was going on immediately before it: what the browser
-// itself blames the long task on, when the last zoom step was (a zoom relayouts the document and refits every
-// terminal), and how many bytes the terminals had just taken. One occurrence should be enough to name it.
-var kakapoActivity = { zoomAt: 0, ptyBytes: 0, ptyAt: 0, longest: null };
-function noteKakapoActivity(kind, amount) {
-  var now = performance.now();
-  if (kind === 'zoom') { kakapoActivity.zoomAt = now; return; }
-  if (kind === 'pty') {
-    if (now - kakapoActivity.ptyAt > 5000) kakapoActivity.ptyBytes = 0;
-    kakapoActivity.ptyAt = now;
-    kakapoActivity.ptyBytes += amount || 0;
-  }
+// A stall used to record only its own length, which says a freeze happened and nothing about what did it.
+// So each mark now carries what was going on immediately before it: what the browser itself blames the long
+// task on, and when the last zoom step was (a zoom relayouts the whole document). One occurrence should be
+// enough to name it.
+var kakapoActivity = { zoomAt: 0, longest: null };
+function noteKakapoActivity(kind) {
+  if (kind === 'zoom') kakapoActivity.zoomAt = performance.now();
 }
 (function trackMainThreadStalls() {
   var perf = window.kakapoPerf;
@@ -1018,24 +800,20 @@ function noteKakapoActivity(kind, amount) {
     var wasHidden = hiddenSinceLastTick;
     hiddenSinceLastTick = document.visibilityState === 'hidden';
     last = now;
-    // A workspace off screen is a hidden page, and Chromium throttles a hidden page's timers to about one
-    // tick a minute — so every parked workspace was filing 60-second "stalls", and the first tick after it
-    // came back filed the throttled gap as one too. Neither is the renderer failing to answer; they were
-    // noise on top of the real stalls, which is what this exists to find.
+    // A minimized window is a hidden page, and Chromium throttles a hidden page's timers to about one tick
+    // a minute — so a parked window filed 60-second "stalls", and the first tick after it came back filed
+    // the throttled gap as one too. Neither is the renderer failing to answer; they were noise on top of
+    // the real stalls, which is what this exists to find.
     if (late >= STALL_MS - TICK_MS && !wasHidden && !hiddenSinceLastTick) {
       var worst = kakapoActivity.longest || {};
       perf.mark('renderer-stall', {
         blockedMs: Math.round(late + TICK_MS),
         hidden: document.visibilityState === 'hidden',
-        terminalOpen: !!(window.__kakapoTerminal && typeof window.__kakapoTerminal.isOpen === 'function' && window.__kakapoTerminal.isOpen()),
         diffFiles: document.querySelectorAll('#diff2html-container .d2h-file-wrapper').length,
         // Everything below is "what had just happened", so one occurrence names the cause.
         sinceZoomMs: kakapoActivity.zoomAt ? Math.round(now - kakapoActivity.zoomAt) : -1,
-        ptyBytes: kakapoActivity.ptyBytes,
-        sincePtyMs: kakapoActivity.ptyAt ? Math.round(now - kakapoActivity.ptyAt) : -1,
         longTaskMs: worst.duration || 0,
         longTaskIn: (worst.containerType || '') + (worst.containerId ? '#' + worst.containerId : ''),
-        panes: (window.__kakapoTerminal && typeof window.__kakapoTerminal.paneCount === 'function') ? window.__kakapoTerminal.paneCount() : 0,
       });
       kakapoActivity.longest = null;
     }

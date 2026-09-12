@@ -18,43 +18,6 @@ export function readViewerAsset(name: string): string {
   return cached;
 }
 
-// xterm.js (terminal renderer) for the integrated terminal panel. UMD bundles that expose
-// window.Terminal + window.FitAddon + window.WebLinksAddon when inlined. Resolved from node_modules like
-// diff2HtmlCss(); pure JS, no native binding — the pty itself lives in the main process via node-pty.
-export function xtermCss(): string {
-  try {
-    return readFileSync(nodeRequire.resolve("@xterm/xterm/css/xterm.css"), "utf8");
-  } catch {
-    return "";
-  }
-}
-
-export function xtermScript(): string {
-  try {
-    const core = readFileSync(nodeRequire.resolve("@xterm/xterm/lib/xterm.js"), "utf8");
-    const fit = readFileSync(nodeRequire.resolve("@xterm/addon-fit/lib/addon-fit.js"), "utf8");
-    // Link detection is the addon's job, not a regex of ours: it has to survive xterm's wrapped lines and
-    // reflow, which is exactly where a hand-rolled scan gets a URL wrong. Read separately: without a shell
-    // there is no terminal at all, but without clickable links there is still a terminal — and the renderer
-    // already skips the addon when the global is missing (loadWebLinks), so match that here.
-    let webLinks = "";
-    try {
-      webLinks = readFileSync(nodeRequire.resolve("@xterm/addon-web-links/lib/addon-web-links.js"), "utf8");
-    } catch { /* links are a nicety; the terminal is not */ }
-    // The GPU renderer. xterm's default draws every row as DOM and MEASURES it, and a measurement after a DOM
-    // write is a forced layout of the whole page — which, behind a review of 1,352 file wrappers, is measured
-    // in milliseconds each. A profile of opening the panel put 2.5 of 2.6 seconds inside those measurements.
-    // Same optional treatment as the links addon: without it the terminal still runs, on the DOM renderer.
-    let webgl = "";
-    try {
-      webgl = readFileSync(nodeRequire.resolve("@xterm/addon-webgl/lib/addon-webgl.js"), "utf8");
-    } catch { /* no GPU renderer here; the DOM one is still a terminal */ }
-    return core + "\n" + fit + (webLinks ? "\n" + webLinks : "") + (webgl ? "\n" + webgl : "");
-  } catch {
-    return "";
-  }
-}
-
 export function diff2HtmlCss(): string {
   try {
     return readFileSync(nodeRequire.resolve("diff2html/bundles/css/diff2html.min.css"), "utf8");

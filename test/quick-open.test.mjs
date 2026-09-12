@@ -1,11 +1,10 @@
-// CORE USER FLOW: double-Shift opens the quick-open (file search). The sequence must require TWO Shifts in
-// a row — any keystroke between them cancels it. Guards the regression where "Shift → type → Shift" within
-// 300ms still popped the search, so it fired on nearly every other keystroke (maddening while typing).
+// CORE USER FLOW: reaching the project searches. ⌘⇧F opens Find in Files, and its section rail is the way
+// to the file-name search and Recent files. The two gestures that used to open them — double-Shift and ⌘E —
+// were removed on request; the tests below hold that line so neither creeps back in by accident.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
-import { readFileSync } from "node:fs";
 
 let html;
 before(async () => {
@@ -15,41 +14,27 @@ before(async () => {
 });
 after(cleanupFixtures);
 
-test("double-Shift (same side, in quick succession) opens quick-open", async () => {
+test("double-Shift and Cmd+E open nothing — both gestures were removed", async () => {
   const v = await loadViewer(html);
   v.key("Shift", { location: 1 });
   v.key("Shift", { location: 1 });
   await v.settle(10);
-  assert.ok(v.quickOpenVisible(), "Shift Shift opened quick-open");
+  assert.equal(v.quickOpenVisible(), false, "double-Shift no longer opens the file search");
+  v.key("e", { metaKey: true, code: "KeyE" });
+  await v.settle(10);
+  assert.equal(v.quickOpenVisible(), false, "Cmd+E no longer opens Recent files");
   v.close();
 });
 
-test("a plain keystroke between the two Shifts cancels quick-open", async () => {
+test("Cmd+Shift+F reaches every search section through the rail", async () => {
   const v = await loadViewer(html);
-  v.key("Shift", { location: 1 });
-  v.key("k"); // a stray keystroke between the Shifts
-  v.key("Shift", { location: 1 });
+  await v.openQuickOpenSection("all");
+  assert.ok(v.quickOpenVisible(), "the file-name search is reachable");
+  assert.equal(v.$("#quick-open-mode").textContent, "Search files");
+  v.key("Escape");
   await v.settle(10);
-  assert.equal(v.quickOpenVisible(), false, "the in-between key cancelled the double-Shift sequence");
-  v.close();
-});
-
-test("an arrow key between the two Shifts also cancels it", async () => {
-  const v = await loadViewer(html);
-  v.key("Shift", { location: 1 });
-  v.key("ArrowDown"); // arrows are swallowed by the caret handlers — the reset must run before them
-  v.key("Shift", { location: 1 });
-  await v.settle(10);
-  assert.equal(v.quickOpenVisible(), false, "arrow between Shifts cancelled the sequence");
-  v.close();
-});
-
-test("two Shifts on DIFFERENT sides do not open quick-open", async () => {
-  const v = await loadViewer(html);
-  v.key("Shift", { location: 1 }); // left
-  v.key("Shift", { location: 2 }); // right
-  await v.settle(10);
-  assert.equal(v.quickOpenVisible(), false, "left+right Shift must not trigger");
+  await v.openQuickOpenSection("recent");
+  assert.ok(v.$("#quick-open").classList.contains("quick-recent"), "so is Recent files");
   v.close();
 });
 
@@ -68,9 +53,7 @@ test("file quick-open waits for a query and hydrates the selected lazy preview",
   ], { lazyLoad: true });
   const v = await loadViewer(lazyHtml, { lazySourceData: build.lazySourceData });
 
-  v.key("Shift", { location: 1 });
-  v.key("Shift", { location: 1 });
-  await v.settle(20);
+  await v.openQuickOpenSection("all");
   assert.equal(v.$all("#quick-open-results .quick-open-item").length, 0, "an empty file query does not dump the project file list");
   assert.match(v.$("#quick-open-results").textContent, /Type a file name to search/);
   assert.equal(v.$("#quick-open-preview").textContent, "", "there is no arbitrary preview before a query");
@@ -90,7 +73,7 @@ test("file quick-open waits for a query and hydrates the selected lazy preview",
   v.close();
 });
 
-// Recent files (Cmd/Ctrl+E) is just the latest files — no search box. IntelliJ-style speed search: typed
+// Recent files is just the latest files — no search box. IntelliJ-style speed search: typed
 // letters narrow the list in place, Backspace deletes, Esc clears the filter (then closes).
 test("Recent files hides the search box and filters by typed letters (speed search)", async () => {
   const { html: multi } = await makeReviewHtml([
@@ -104,8 +87,7 @@ test("Recent files hides the search box and filters by typed letters (speed sear
   await v.openSourceFile("src/bravo.ts");
   await v.openSourceFile("src/alpha.ts");
 
-  v.key("e", { metaKey: true }); // Cmd/Ctrl+E → Recent files
-  await v.settle(20);
+  await v.openQuickOpenSection("recent");
   assert.ok(v.quickOpenVisible(), "recent opened");
   assert.ok(v.$("#quick-open").classList.contains("quick-recent"), "recent mode marks the overlay");
   assert.equal(v.window.getComputedStyle(v.$("#quick-open-input")).display, "none", "the search box is hidden");
@@ -327,46 +309,6 @@ test("Find in Files preview incrementally reveals surrounding code while scrolli
   v.close();
 });
 
-test("Cmd+E opens the Recent panel and a second Cmd+E toggles it closed", async () => {
-  const v = await loadViewer(html);
-  v.key("e", { metaKey: true, code: "KeyE" });
-  await v.settle(10);
-  assert.ok(v.quickOpenVisible(), "Cmd+E opened Quick Open (Recent)");
-  v.key("e", { metaKey: true, code: "KeyE" }); // second press should toggle it closed, not re-open it
-  await v.settle(10);
-  assert.equal(v.quickOpenVisible(), false, "a second Cmd+E closed the Recent panel");
-  v.close();
-});
-
-// REGRESSION: typing in the terminal, Cmd+E dropped the Recent-files dialog over the shell — and quick-open
-// is a modal keyboard scope, so from then on it swallowed every key until dismissed. Panel-focused keys
-// belong to the panel; the shortcuts deliberately placed above the keymap's focus guard are unaffected.
-test("terminal focus: Cmd+E belongs to the shell, not to the Recent-files dialog", async () => {
-  // The terminal only exists in the Electron layout, so this case needs an app-mode fixture.
-  const { html: appHtml } = await makeReviewHtml([
-    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
-  ], { app: true });
-  const v = await loadViewer(appHtml);
-  const panel = v.$("#terminal-panel");
-  assert.ok(panel, "the app layout has a terminal panel");
-  panel.classList.remove("hidden");
-  const shellInput = v.document.createElement("textarea"); // stands in for xterm's focused helper textarea
-  panel.appendChild(shellInput);
-  shellInput.focus();
-
-  v.key("e", { metaKey: true, code: "KeyE" });
-  await v.settle(20);
-  assert.equal(v.quickOpenVisible(), false, "no dialog opens over a shell that is being typed into");
-
-  // Focus back in the review content and the shortcut works exactly as before.
-  shellInput.blur();
-  v.document.body.focus();
-  v.key("e", { metaKey: true, code: "KeyE" });
-  await v.settle(20);
-  assert.equal(v.quickOpenVisible(), true, "Cmd+E still opens Recent files from the review");
-  v.close();
-});
-
 // The launcher's section rail is part of the keyboard flow, not a mouse-only strip: ArrowLeft steps into it,
 // the arrows move within it, Enter picks, and ArrowRight hands the keyboard back to the results.
 test("the launcher rail is reachable and navigable by keyboard", async () => {
@@ -375,8 +317,7 @@ test("the launcher rail is reachable and navigable by keyboard", async () => {
   ], { app: true });
   const v = await loadViewer(appHtml);
 
-  v.key("e", { metaKey: true, code: "KeyE" });
-  await v.settle(20);
+  await v.openQuickOpenSection("recent");
   assert.equal(v.quickOpenVisible(), true, "the launcher opens");
 
   v.key("ArrowLeft");
@@ -386,7 +327,7 @@ test("the launcher rail is reachable and navigable by keyboard", async () => {
 
   v.key("ArrowDown");
   await v.settle(10);
-  assert.equal(focused(), "prompts", "ArrowDown steps down the rail");
+  assert.equal(focused(), "history", "ArrowDown steps down the rail");
 
   v.key("ArrowUp");
   await v.settle(10);
@@ -396,145 +337,38 @@ test("the launcher rail is reachable and navigable by keyboard", async () => {
   await v.settle(10);
   assert.notEqual(focused(), "recent", "ArrowRight gives the keyboard back to the results");
 
-  // Enter on a rail section picks it and HANDS THE KEYBOARD to that section's panel — the rail keeps focus
-  // only while you are still choosing (the arrows). It used to stay on the rail after Enter, which left the
-  // pick looking unfinished: the section on the right was showing but the keyboard was still on the left.
+  // Enter on a rail section hands the keyboard to that section — the rail keeps focus only while you are
+  // still choosing (the arrows). History is a panel of its own, so Enter on it dismisses the launcher
+  // entirely; either way the rail does not keep the keyboard.
   v.key("ArrowLeft"); await v.settle(10);
   v.key("ArrowDown"); await v.settle(10);
   v.key("Enter"); await v.settle(40);
-  assert.equal(v.$("#quick-open-mode").textContent, "Agent tasks", "Enter switches to the focused section");
-  assert.equal(focused(), undefined, "and the rail gives the keyboard up, exactly as a mouse pick does");
+  assert.equal(focused(), undefined, "the rail gives the keyboard up, exactly as a mouse pick does");
   v.close();
 });
 
-// REGRESSION, and the reason Cmd+Shift+E and even the space bar stopped working: quick-open is a modal
-// keyboard scope (every key goes to it, menu accelerators are suspended while it is up) with no
-// outside-click dismissal — and the terminal panel renders ABOVE it. Opening a terminal over an open
-// launcher therefore left an invisible dialog owning the keyboard: letters and spaces went into its
-// speed-search instead of the shell, and every accelerator stayed dead until it was dismissed.
+// quick-open is a modal keyboard scope: every key goes to it and menu accelerators are suspended while it
+// is up. Without a dismissal it can be left owning the keyboard invisibly, with every accelerator dead.
 test("the launcher cannot keep the keyboard once it is not the thing on screen", async () => {
   const { html: appHtml } = await makeReviewHtml([
     { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
   ], { app: true });
   const v = await loadViewer(appHtml);
 
-  v.key("e", { metaKey: true, code: "KeyE" });
-  await v.settle(20);
+  await v.openQuickOpenSection("recent");
   assert.equal(v.quickOpenVisible(), true, "the launcher is up");
 
   // A click anywhere outside its own panel dismisses it.
   v.document.body.dispatchEvent(new v.window.MouseEvent("mousedown", { bubbles: true }));
   await v.settle(20);
   assert.equal(v.quickOpenVisible(), false, "an outside click closes it");
-
-  // And the terminal, which paints over it, closes it as it opens.
-  const client = readFileSync(new URL("../src/viewer/19-terminal.js", import.meta.url), "utf8");
-  assert.match(client, /quickOpen && !quickOpen\.classList\.contains\('hidden'\)\) closeQuickOpen\(\)/,
-    "opening the terminal dismisses a launcher it would cover");
   v.close();
 });
 
-// Picking a prompt is a choice between two or three of them, so the card has to answer "which one do I
-// want", not "what does it say". The text is long, editable in Settings, and shaped the same in every
-// prompt — leading with its first line made the list impossible to choose from. Tab crosses from the
-// section rail to the cards, where the arrows select and Enter sends the one you picked to the terminal.
-test("prompts are pickable cards that say when to use them", async () => {
-  const { html: appHtml } = await makeReviewHtml([
-    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
-  ], { app: true });
-  const v = await loadViewer(appHtml);
-  const sent = [];
-  v.window.__kakapoTerminal = { enterSendMode: (text) => sent.push(text) };
-
-  v.key("P", { metaKey: true, shiftKey: true, code: "KeyP" });
-  await v.settle(30);
-  const cards = v.$all("#quick-open-results .quick-open-prompt");
-  assert.equal(cards.length, 3, "every send-on-purpose prompt renders as a card");
-  const when = cards[0].querySelector(".quick-open-prompt-when");
-  assert.ok(when && when.textContent.trim(), "the card says when to reach for it");
-  assert.doesNotMatch(cards[0].textContent, /NOTES_PATH|JSON/,
-    "and not what the prompt says — that is Settings' job");
-
-  // Tab from the rail hands the keyboard to the cards; arrows pick; Enter sends.
-  v.key("ArrowLeft");
-  await v.settle(10);
-  assert.ok(v.document.activeElement?.dataset?.section, "the rail has the keyboard");
-  v.key("Tab");
-  await v.settle(10);
-  assert.ok(!v.document.activeElement?.dataset?.section, "Tab hands it to the cards");
-
-  v.key("ArrowDown");
-  await v.settle(10);
-  assert.ok(v.$all("#quick-open-results .quick-open-prompt")[1].classList.contains("active"),
-    "the arrows move the selection through the cards");
-  // A prompt has no file behind it, so the preview pane must stay out of the way — it was rendering the
-  // prompt's id as though it were a path, which read as a stray filename under the cards.
-  assert.equal(v.$("#quick-open-preview").innerHTML, "", "no file preview for a prompt");
-
-  v.key("Enter");
-  await v.settle(20);
-  assert.equal(sent.length, 1, "Enter sends the selected prompt to the terminal");
-  assert.match(sent[0], /codebase|저장소|repository/i, "the one that was selected, not the first");
-  v.close();
-});
-
-// One surface at a time. The launcher covers the whole view, so a terminal left open underneath it is a
-// shell you are still typing into but cannot see — it gets put away when the launcher opens, and the rail
-// carries a Terminal row that brings it straight back.
-test("opening the launcher puts the terminal away, and the rail can bring it back", async () => {
-  const { html: appHtml } = await makeReviewHtml([
-    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
-  ], { app: true });
-  const v = await loadViewer(appHtml);
-
-  let closed = 0;
-  let toggled = 0;
-  v.window.__kakapoTerminal = { isOpen: () => true, close: () => { closed += 1; } };
-  v.$("#terminal-toggle")?.addEventListener("click", () => { toggled += 1; });
-
-  v.key("e", { metaKey: true, code: "KeyE" });
-  await v.settle(20);
-  assert.equal(closed, 1, "the terminal is put away as the launcher comes up");
-
-  const terminalRow = v.$('#quick-open-side .quick-open-side-item[data-section="terminal"]');
-  assert.ok(terminalRow, "the rail lists the terminal");
-  assert.equal(terminalRow.dataset.keyhint, "⌃`", "with the shortcut that also opens it");
-  v.click(terminalRow);
-  await v.settle(20);
-  assert.equal(v.quickOpenVisible(), false, "picking it closes the launcher");
-  assert.equal(toggled, 1, "and brings the terminal back through its own toggle");
-  v.close();
-});
-
-// Commenting moved into the code itself — inline comments answered by the dedicated session — so the merged
-// review-comments dock is a legacy surface the launcher no longer advertises. ⌘⇧/ and the rail dispatch
-// still reach it for whoever wants it; only the ⌘E row is gone.
-test("the launcher no longer lists the review-comments dock", async () => {
+test("the launcher lists only the surfaces that still exist", async () => {
   const v = await loadViewer(html);
-  v.key("e", { metaKey: true, code: "KeyE" });
-  await v.settle(20);
-  assert.equal(v.$('#quick-open-side .quick-open-side-item[data-section="merged"]'), null,
-    "no merged row in the ⌘E rail");
-  assert.ok(v.$('#quick-open-side .quick-open-side-item[data-section="memo"]'), "the memo row survives");
-  v.close();
-});
-
-// ⌘⇧E is the rail; ⌘E is Recent. Rolled fast, Shift lands after the E and the wrong one opens. The
-// dialog recognises the completing Shift (⌘ still held, right after the open) and hands over to the rail.
-test("a late-Shift ⌘⇧E closes the accidental Recent dialog and expands the rail instead", async () => {
-  const v = await loadViewer(html);
-  let expands = 0;
-  v.window.kakapoMenu = { railToggleExpand: () => { expands += 1; } };
-  v.key("e", { metaKey: true, code: "KeyE" });
-  assert.ok(v.quickOpenVisible(), "the mistyped ⌘E opened Recent");
-  v.key("Shift", { metaKey: true, code: "ShiftLeft" });
-  assert.equal(v.quickOpenVisible(), false, "the accident is closed");
-  assert.equal(expands, 1, "the rail got the chord the reviewer meant");
-
-  v.key("e", { metaKey: true, code: "KeyE" });
-  await v.settle(400);
-  v.key("Shift", { metaKey: true, code: "ShiftLeft" });
-  assert.ok(v.quickOpenVisible(), "past the roll window, ⌘+Shift over Recent means nothing");
-  assert.equal(expands, 1);
+  await v.openQuickOpenSection("content");
+  const sections = v.$all("#quick-open-side .quick-open-side-item").map((b) => b.dataset.section);
+  assert.deepEqual(sections, ["content", "all", "recent", "history"], "the three searches and history, nothing removed");
   v.close();
 });

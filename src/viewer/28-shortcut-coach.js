@@ -193,5 +193,5 @@ function coachRustyScan() {
   if (pick && coachShow(pick, 'rusty')) coachSession.rusty = true;
 }
 setTimeout(coachRustyScan, COACH_RUSTY_SCAN_DELAY_MS);
-// Deliberate debug/test seam, same pattern as window.__kakapoTerminal.
+// Deliberate debug/test seam.
 window.__kakapoCoach = { scan: coachRustyScan, ledger: coachLedger };

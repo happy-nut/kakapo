@@ -369,7 +369,6 @@ function closeHistory() {
   historyLoadSeq += 1;
   var v = document.getElementById('history-view');
   if (v) { v.classList.add('hidden'); v.classList.remove('history-direct-diff'); }
-  syncRail();
 }
 function updateHistoryScopeChrome() {
   var title = document.querySelector('#history-view .history-title');
@@ -386,8 +385,8 @@ function openHistory(scope) {
   var v = document.getElementById('history-view');
   if (!v) return;
   if (!window.kakapoGit) return; // browser/serve mode: no git bridge
-  // The overlay renders UNDER the floating terminal and merged/memo dock (z75 vs 77+), so opening it while
-  // one of those is up looked like the shortcut did nothing. Full-screen surfaces switch, never stack.
+  // The overlay renders UNDER the merged dock (z75 vs 77+), so opening it while that is up looked like the
+  // shortcut did nothing. Full-screen surfaces switch, never stack.
   leaveFullScreenPanels();
   v.classList.remove('history-direct-diff');
   historyScope = scope && scope.path && Number(scope.line) >= 1
@@ -395,7 +394,6 @@ function openHistory(scope) {
     : null;
   updateHistoryScopeChrome();
   v.classList.remove('hidden');
-  syncRail();
   var search = document.getElementById('history-search');
   if (search) { search.value = ''; }
   applyHistoryFilter();
@@ -450,12 +448,10 @@ function handleHistoryKey(e) {
   var ae = document.activeElement;
   var inSearch = ae && ae.id === 'history-search';
   // This also runs from a CAPTURE listener (see wireHistory), i.e. before the focused element sees the key at
-  // all. So it has to stand down for anything genuinely being typed into outside History's own chrome — above
-  // all the integrated terminal, whose xterm keeps a hidden textarea focused: with History open, its Enter
-  // never reached the shell. History's own search box is inside #history-view and keeps its keys.
+  // all. So it has to stand down for anything genuinely being typed into outside History's own chrome.
+  // History's own search box is inside #history-view and keeps its keys.
   if (ae && !inSearch
-    && ((ae.closest && ae.closest('.terminal-panel'))
-      || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable)
+    && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable)
     && !(ae.closest && ae.closest('#history-view'))) return false;
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.code === 'Digit9' || e.key === '9')) {
     e.preventDefault(); e.stopPropagation(); closeHistory(); return true;

@@ -49,7 +49,6 @@ test("diff: ArrowUp from the line below the comment re-selects the box", async (
   const v = await loadViewer(html);
   await diffCommentOnFirstLine(v, "q1");
   v.key("ArrowDown"); await v.settle(20); // onto the box
-  v.key("ArrowDown"); await v.settle(20); // onto the waiting reply box under it — still inside the thread
   v.key("ArrowDown"); await v.settle(20); // step off, caret on the next code line
   assert.equal(v.selectedCommentBox(), null, "stepped off the box");
   v.key("ArrowUp"); await v.settle(20); // back up onto the box from below
@@ -62,7 +61,6 @@ test("diff: stepping off the box re-shows the caret and deselects", async () => 
   await diffCommentOnFirstLine(v, "q1");
   v.key("ArrowDown"); await v.settle(20);
   assert.ok(v.selectedCommentBox());
-  v.key("ArrowDown"); await v.settle(20); // the thread's own reply box is a stop too
   v.key("ArrowDown"); await v.settle(20);
   assert.equal(v.selectedCommentBox(), null, "deselected after stepping off");
   assert.ok(v.diffCaretRow(), "caret is visible again on a code line");
@@ -107,17 +105,16 @@ test("diff: e opens the editor prefilled with the existing comment text", async 
 // the row's LAST card — the "Continue this thread" stub, which is an affordance, not a turn — so Backspace
 // and `e` hit a card with nothing to delete or edit: the first press did nothing and the comment only went
 // away on the second.
-test("diff: ArrowUp onto a comment selects the comment, not the reply stub, so one Backspace deletes it", async () => {
+test("diff: ArrowUp onto a comment selects the comment itself, so one Backspace deletes it", async () => {
   const v = await loadViewer(html);
   await diffCommentOnFirstLine(v, "delete me from below");
   v.key("ArrowDown"); await v.settle(20); // onto the comment
-  v.key("ArrowDown"); await v.settle(20); // onto the reply stub
   v.key("ArrowDown"); await v.settle(20); // off the row, onto the next code line
   assert.equal(v.selectedCommentBox(), null, "stepped off the row");
 
   v.key("ArrowUp"); await v.settle(20);
   const selected = v.selectedCommentBox().querySelector(".mc-card-selected");
-  assert.equal(selected.classList.contains("mc-reply-stub"), false, "entering from below selects a written turn");
+  assert.ok(selected, "entering from below selects the written turn");
   v.key("Backspace"); await v.settle(40);
   assert.equal(v.storedComments().length, 0, "one Backspace is enough");
   v.close();
@@ -271,19 +268,26 @@ test("stepping keeps working through notes in files the diff does not contain", 
     "and stepping uses it, so the current file is rankable too");
 });
 
-// The box for the next turn is part of the thread, so the keyboard has to reach it: arrow down past the last
-// card and Enter opens it. Before this it was mouse-only — the arrows skipped straight off the row, and the
-// only keyboard route to a reply was the ↩ button in a card header.
-test("diff: ArrowDown reaches the waiting reply box and Enter opens it", async () => {
+// One comment per thread. The "Continue this thread" box that used to sit under the last card is gone, so a
+// thread holds exactly one turn of the reviewer's — and asking for a comment on a line that already has one
+// re-opens THAT comment rather than starting a second beside it.
+test("diff: a thread holds one comment; asking again edits it instead of adding another", async () => {
   const v = await loadViewer(html);
   await diffCommentOnFirstLine(v, "q1");
-  v.key("ArrowDown"); await v.settle(20); // the comment
-  v.key("ArrowDown"); await v.settle(20); // the box waiting for the reply
-  const selected = v.selectedCommentBox()?.querySelector(".mc-card-selected");
-  assert.ok(selected?.classList.contains("mc-reply-stub"), "the arrows land on the waiting box, not past it");
+  assert.equal(v.storedComments().length, 1);
 
-  v.key("Enter"); await v.settle(60);
-  assert.ok(v.visibleComposerInput(), "Enter opens the composer there, without reaching for the ↩ button");
+  // The caret is still on the commented line: ask again there.
+  await v.openComposer("q");
+  const box = v.visibleComposerInput();
+  assert.ok(box, "the composer opened");
+  assert.equal(box.value, "q1", "on the comment that is already there, not on an empty second one");
+  await v.writeAndSave("q1 revised");
+  assert.equal(v.storedComments().length, 1, "still one comment on this thread");
+  assert.equal(v.storedComments()[0].text, "q1 revised", "the existing one was edited");
+
+  v.key("ArrowDown"); await v.settle(20); // the comment
+  v.key("ArrowDown"); await v.settle(20); // straight off the row: there is nothing else in the thread
+  assert.equal(v.selectedCommentBox(), null, "the thread has one card and the arrows step past it");
   v.close();
 });
 

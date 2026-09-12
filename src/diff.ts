@@ -28,11 +28,6 @@ type SourceContentEntry = { mtimeMs: number; size: number; content: string; sign
 // is what the watch path needs; per-root budgets only if alternating two huge repos shows up as re-read cost.
 const sourceContentCache = new ByteBudgetCache<SourceContentEntry>(64_000_000, (entry) => entry.content.length);
 
-// Diagnostics for the cache above, so the budget is observable rather than a claim in a comment.
-export function sourceContentCacheStats(): { entries: number; bytes: number; limit: number } {
-  return sourceContentCache.stats();
-}
-
 export function readUnifiedDiff(options: {
   base?: string;
   // Right/new side. When set, the review compares two revisions A..B (base vs target) instead of

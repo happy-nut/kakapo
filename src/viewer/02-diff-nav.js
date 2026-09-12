@@ -131,26 +131,6 @@ function appendBreadcrumbStat(container, path) {
   container.appendChild(stat);
 }
 
-// IntelliJ-style diff chrome follows the keyboard caret, not merely the selected file. A unified hunk
-// can contain several separated edit blocks, so the counter is derived from contiguous change rows in
-// the active pane — the same review stops F7 uses inside a file.
-function diffReviewAnchors(wrapper, side) {
-  if (!wrapper) return [];
-  var cacheKey = side === 'old' ? '__reviewAnchorsOld' : '__reviewAnchorsNew';
-  if (wrapper[cacheKey]) return wrapper[cacheKey];
-  var rows = diffRowsOf(diffSideTable(wrapper, side));
-  if (!rows.length) return [];
-  var anchors = [];
-  var previousWasChange = false;
-  for (var i = 0; i < rows.length; i++) {
-    var changed = isChangeCodeRow(rows[i]);
-    if (changed && !previousWasChange) anchors.push(i);
-    previousWasChange = changed;
-  }
-  wrapper[cacheKey] = anchors;
-  return anchors;
-}
-
 function syncDiffReviewChrome(path) {
   var activePath = path || (diffCursor && diffCursor.path) || hunkPathAt(current) || '';
   var beforePath = document.getElementById('diff-before-path');

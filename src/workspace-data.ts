@@ -33,9 +33,6 @@ export function workspacePerformanceDirectory(userData: string, root: string): s
   return join(workspaceDataDirectory(userData, root), "perf");
 }
 
-export function workspaceMemoFile(userData: string, root: string): string {
-  return join(workspaceDataDirectory(userData, root), "memo.json");
-}
 
 // CLI-only utilities (for example the benchmark command) do not have Electron's app.getPath(). Mirror
 // Electron's conventional userData location so they still never write into the reviewed repository.

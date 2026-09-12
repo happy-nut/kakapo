@@ -24,12 +24,17 @@ import {
 // pick, which arrives as the same options) is the reviewer's own choice and outranks anything automatic.
 function resolveCompareState(input: {
   base?: string;
+  baseLabel?: string;
   target?: string;
   staged: boolean;
 }, automaticBase: AutomaticReviewBase | undefined): CompareState {
-  if (input.staged) return { mode: "staged", left: input.base ?? "HEAD", right: "" };
+  if (input.staged) return { mode: "staged", left: input.baseLabel ?? input.base ?? "HEAD", right: "" };
+  // HEAD against the working tree IS "local changes", however it was arrived at. The compare dropdown asks
+  // for it by name (base "HEAD"), and without this the pill called that pick "Comparing HEAD → Working tree"
+  // — the coordinates of the state instead of its name, for the one state that already has a good name.
+  if (input.base === "HEAD" && !input.target) return { mode: "local", left: "HEAD", right: "" };
   if (input.base || input.target) {
-    return { mode: "manual", left: input.base ?? "HEAD", right: input.target ?? "" };
+    return { mode: "manual", left: input.baseLabel ?? input.base ?? "HEAD", right: input.target ?? "" };
   }
   if (automaticBase?.target) {
     // Nothing of yours to read: the right side is the tracking branch, and `behind` is what it is ahead by.
@@ -45,6 +50,9 @@ export function renderLazyDiffBody(diffText: string): string {
 
 export function buildDiffReview(input: {
   base?: string;
+  // Display name for `base` when it was resolved from something the reader named (a branch, via the compare
+  // dropdown). Affects the toolbar pill only — the diff itself always uses `base`.
+  baseLabel?: string;
   // Right/new side revision (A→B compare). undefined → compare against the working tree (default).
   target?: string;
   staged: boolean;
@@ -181,7 +189,7 @@ export function buildDiffReview(input: {
     // Transport-backed reviews build folder children incrementally from sourceFilesMeta in the renderer;
     // avoid generating/transferring a multi-megabyte all-files HTML tree on every build/update.
     filesTree: lazyLoad ? "" : renderSourceTree(sourceFiles),
-    reviewStatus: renderReviewStatus({ compare }),
+    reviewStatus: renderReviewStatus({ compare, app: Boolean(input.app) }),
     compareBanner: renderCompareBanner(compare),
     fileStates,
     sourceFilesMeta: lazyLoad ? sourceFiles.map((file) => ({ ...file, content: "", image: "" })) : sourceFiles,

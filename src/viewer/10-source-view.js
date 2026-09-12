@@ -1,34 +1,3 @@
-function filterNavigation(rawQuery) {
-  const query = rawQuery.trim().toLowerCase();
-  if (query && document.querySelector('.mc-virtual-source-tree')) materializeAllVirtualSourceFolders();
-  links.forEach((link) => {
-    const path = link.dataset.file || '';
-    const source = sourceByPath.get(path);
-    const haystack = (path + '\n' + (source?.content || '')).toLowerCase();
-    link.hidden = query.length > 0 && !haystack.includes(query);
-  });
-  sourceLinks.forEach((link) => {
-    const path = link.dataset.sourceFile || '';
-    const source = sourceByPath.get(path);
-    const haystack = (path + '\n' + (source?.content || '')).toLowerCase();
-    link.hidden = query.length > 0 && !haystack.includes(query);
-  });
-  updateTreeVisibility(document.getElementById('changes-panel'), query);
-  updateTreeVisibility(document.getElementById('files-panel'), query);
-}
-
-function updateTreeVisibility(root, query) {
-  if (!root) return;
-  Array.from(root.querySelectorAll('details')).reverse().forEach((details) => {
-    const hasVisibleLeaf = Array.from(details.children).some((child) => {
-      if (child.tagName === 'SUMMARY') return false;
-      return !child.hidden;
-    });
-    details.hidden = query.length > 0 && !hasVisibleLeaf;
-    if (query.length > 0 && hasVisibleLeaf) details.open = true;
-  });
-}
-
 function openDefaultSourceFile() {
   const isReadme = (candidate) => /^readme(\.|$)/i.test(candidate.name || '');
   const depthOf = (candidate) => (candidate.path || '').split('/').length;
@@ -617,14 +586,10 @@ function commentCardsIn(row) {
     return !card.classList.contains('mc-composer');
   });
 }
-// Enter on the waiting box opens it — the same composer its click opens, so the keyboard reaches the reply
-// without hunting for the ↩ button. Anything else the arrows land on is a written card: Enter does nothing.
+// Every card the arrows can land on is now a written turn — the "Continue this thread" box that Enter used
+// to open is gone, and with it the only thing Enter had to do inside a thread.
 function enterSelectedCommentCard() {
-  var card = selectedCommentCard();
-  if (!card || !card.classList.contains('mc-reply-stub')) return false;
-  clearCommentRowSelection();
-  card.click();
-  return true;
+  return false;
 }
 function markSelectedCard(card) {
   document.querySelectorAll('.mc-card-selected').forEach(function (el) { el.classList.remove('mc-card-selected'); });
@@ -652,11 +617,8 @@ function selectCommentRow(row, fromBelow) {
   if (!selectedCommentRow) { markSelectedCard(null); return; }
   selectedCommentRow.classList.add('mc-row-selected');
   // Entering from below (ArrowUp off the line under the thread) lands on the last turn, so the walk through a
-  // thread reads in the same direction the caret is travelling. The last CARD there is the "Continue this
-  // thread" stub, which is an affordance and not a turn: parking the selection on it made the first Backspace
-  // (and `e`) silently do nothing, so deleting a comment you had arrowed up to took two presses. Arrows still
-  // step onto the stub — Enter opens the reply there — it is just never what entering the row selects.
-  var cards = commentCardsIn(selectedCommentRow).filter(function (card) { return !card.classList.contains('mc-reply-stub'); });
+  // thread reads in the same direction the caret is travelling.
+  var cards = commentCardsIn(selectedCommentRow);
   markSelectedCard(fromBelow ? cards[cards.length - 1] : cards[0]);
   // Keep the caret visible: the box's active outline (.mc-row-selected) already shows the selection, and the
   // caret must never be hidden ("어떤 경우에도 커서는 가려지면 안 됨"). Previously this removed cursor-line +

@@ -10,11 +10,6 @@ export const SOURCE_MAX_FILES = 20000;
 // "Source preview unavailable".
 export const IMAGE_MAX_BYTES = 10_000_000;
 
-// Workspace-rail layout. HUB_WIDTH is the collapsed activity-bar width; HUB_EXPANDED (Cmd+Shift+E) widens it to
-// the collapsed width plus the review sidebar's default, so the expanded rail reaches exactly where the file
-// tree's right edge was. TITLEBAR_H is the full-width title strip above the review views.
-export const HUB_WIDTH = 46;
-export const HUB_EXPANDED = HUB_WIDTH + 264;
 export const TITLEBAR_H = 38;
 
 // Every UI scale the app offers, smallest first. One list: the Settings dropdown renders it (01-core.js keeps

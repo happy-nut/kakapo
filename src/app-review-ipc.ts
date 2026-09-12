@@ -1,11 +1,18 @@
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { readFileSync, statSync } from "node:fs";
 import { resolve, relative, isAbsolute, extname } from "node:path";
-import { performHttpRequest, renderLazyDiffBody, type HttpSendRequest } from "./cli.js";
+import type { HttpSendRequest } from "./cli.js";
+
+// diff2html + highlight.js, reached through cli.js, cost ~100ms to parse — and the main process needs them
+// for exactly two things, both of which happen long after first paint: rendering one lazily-fetched diff body,
+// and running a .http request. Importing them when the first such request arrives keeps that off cold start.
+// Node caches the module, so only the first call pays anything at all.
+const buildTools = (): Promise<typeof import("./cli.js")> => import("./cli.js");
 import { readGitLog, readGitLineLog, readGitBlame, readCommitDiff, readRangeDiff } from "./git-log.js";
+import { defaultBaseRef, git, listBranches } from "./git.js";
 import { readPatchSets } from "./patch-sets.js";
 import { materializeDeferredSourceFile } from "./diff.js";
-import { allReviewBodies, readReviewBody, reviewBodyCount } from "./review-workspace.js";
+import { allReviewBodies, readReviewBody, reviewBodyCount } from "./review-bodies.js";
 import { searchProject } from "./search.js";
 import type { AnalysisRequest, ProjectAnalysis } from "./analysis.js";
 import type { ReviewPerformanceTrace } from "./perf.js";
@@ -23,6 +30,7 @@ export type ReviewIpcState = {
   reviewBase?: string;
   reviewTarget?: string;
   compareScope?: { sha: string; shortSha: string; subject: string; date: string }[];
+  compareRef?: string; // branch the "All changes" mode measures against (compare-menu pick, else the default)
   // Diff-first startup: the first paint indexed only the changed files. This materializes the full project
   // index into sourceFiles on demand (idempotent, deduped) so the pull handlers below see every file. It runs
   // the enumeration in the build worker, so it returns a promise the handlers await.
@@ -46,9 +54,9 @@ const MAX_REVIEW_ASSET_BYTES = 10 * 1024 * 1024; // 10 MiB — covers larger REA
 
 /** Registers read-only review, analysis, search, and history adapters. */
 export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResolver): void {
-  ipc.handle("kakapo:http-send", (_event, request: HttpSendRequest) => performHttpRequest(request));
+  ipc.handle("kakapo:http-send", async (_event, request: HttpSendRequest) => (await buildTools()).performHttpRequest(request));
 
-  ipc.handle("kakapo:get-file", (event, request: { index?: number }) => {
+  ipc.handle("kakapo:get-file", async (event, request: { index?: number }) => {
     const state = stateFromEvent(event);
     if (!state) return "";
     const index = Number(request?.index);
@@ -56,8 +64,8 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     const cached = state.bodyCache.get(String(index));
     if (cached !== undefined) return cached;
     // One slice off the build's bodies file, rendered, and kept only within the cache's budget. Nothing about
-    // this file is held between requests — that is the point of writing it down (review-workspace.ts).
-    const body = renderLazyDiffBody(readReviewBody(state.bodies, index));
+    // this file is held between requests — that is the point of writing it down (review-bodies.ts).
+    const body = (await buildTools()).renderLazyDiffBody(readReviewBody(state.bodies, index));
     state.bodyCache.set(String(index), body);
     return body;
   });
@@ -210,17 +218,41 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     try { return readGitBlame(state.options.root, path, revision); } catch { return []; }
   });
 
-  ipc.handle("kakapo:git-commit-diff", (event, request: { sha?: string }) => {
+  ipc.handle("kakapo:git-commit-diff", async (event, request: { sha?: string }) => {
     const state = stateFromEvent(event);
     if (!state || !request?.sha) return null;
-    try { return readCommitDiff(state.options.root, request.sha); } catch { return null; }
+    try { return await readCommitDiff(state.options.root, request.sha); } catch { return null; }
   });
 
   // Combined diff between two commits shift-selected in the history view (readRangeDiff validates the SHAs).
-  ipc.handle("kakapo:git-range-diff", (event, request: { oldSha?: string; newSha?: string }) => {
+  ipc.handle("kakapo:git-range-diff", async (event, request: { oldSha?: string; newSha?: string }) => {
     const state = stateFromEvent(event);
     if (!state || !request?.oldSha || !request?.newSha) return null;
-    try { return readRangeDiff(state.options.root, request.oldSha, request.newSha); } catch { return null; }
+    try { return await readRangeDiff(state.options.root, request.oldSha, request.newSha); } catch { return null; }
+  });
+
+  // Everything the compare dropdown needs, in one round-trip: which of the two modes the review is in, the
+  // branch "All changes" is measured against, and the branch list its target submenu offers. Read-only —
+  // kakapo:set-compare-mode (app-main) is the half that rebuilds.
+  //
+  // The mode is DERIVED rather than remembered. A patch-set pick or a Cmd+9 range moves the review somewhere
+  // neither menu row describes, and a remembered flag would then tick a row that is not what is on screen.
+  ipc.handle("kakapo:compare-menu", (event) => {
+    const state = stateFromEvent(event);
+    if (!state) return null;
+    try {
+      const root = state.options.root;
+      const defaultRef = compareDefaultRef(root);
+      const ref = state.compareRef || defaultRef;
+      // No explicit base AND no resolved one means the build fell through to HEAD-vs-worktree (build.ts's
+      // "local" compare state) — which is the uncommitted row, arrived at automatically rather than picked.
+      const mode = state.compareScope?.length || state.options.target
+        ? "other"
+        : state.options.staged || state.options.base === "HEAD" || (!state.options.base && !state.reviewBase)
+          ? "uncommitted"
+          : "all";
+      return { mode, ref, defaultRef, branches: listBranches(root) };
+    } catch { return null; }
   });
 
   // Patch sets available as diff bases for the compare bar. activeBase reflects the live review options
@@ -250,4 +282,11 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
       return list;
     } catch { return null; }
   });
+}
+
+// The branch "All changes" falls back to when nothing has been picked: the tracking branch if there is one
+// (the honest answer to "what am I ahead of"), otherwise the repository's default branch. Shared by the
+// compare menu's read side and app-main's set-compare-mode, which is why it lives here rather than inline.
+export function compareDefaultRef(root: string): string {
+  return git(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]) || defaultBaseRef(root);
 }

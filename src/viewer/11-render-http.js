@@ -310,8 +310,7 @@ function lightboxOpen() {
   return !!(lb && !lb.classList.contains('hidden'));
 }
 
-// One open-source Markdown engine is shared by source previews and merged prompts. The editable memo uses
-// a lazy Tiptap surface but persists ordinary Markdown and shares the document typography below.
+// One open-source Markdown engine is shared by source previews and agent answers.
 // markdown-it gives CommonMark-compatible parsing plus top-level token source maps; DOMPurify sanitizes the
 // final HTML, including raw HTML blocks. Both audited browser bundles are prepended at build time.
 var markdownEngine = null;
@@ -769,6 +768,9 @@ function renderSourceTable(file, query) {
   // ~4.5ms/1000 lines) and blocks the renderer, while plain escaped rows keep the exact same line structure
   // comments/caret/search/find anchor on — only color is lost, the way editors drop highlighting past a size.
   const renderLanguage = lines.length > 10000 ? 'text' : (file.language || 'text');
+  // Markup files carry two other languages inside them; everything else is one language for every line.
+  const lineLanguages = renderLanguage === 'markup' ? markupBlockLanguages(lines) : null;
+  const languageAt = (index) => (lineLanguages ? lineLanguages[index] : renderLanguage);
   const cursor = viewerCursor && viewerCursor.path === file.path ? viewerCursor : null;
   const changedSet = new Set(file.changedLines || []);
   const folds = normalizedQuery ? [] : sourceFoldRanges(file);
@@ -807,7 +809,7 @@ function renderSourceTable(file, query) {
     rows.push([
       '<tr class="' + classes + '" data-line-index="' + index + '">',
       '<td class="num">' + String(index + 1) + '</td>',
-      '<td class="source-code">' + highlightLine(line, renderLanguage) + foldButton + '</td>',
+      '<td class="source-code">' + highlightLine(line, languageAt(index)) + foldButton + '</td>',
       '</tr>',
     ].join(''));
     if (fold?.kind === 'block') index = fold.end;
@@ -815,15 +817,51 @@ function renderSourceTable(file, query) {
   return '<table class="source-table"><tbody>' + rows.join('') + '</tbody></table>';
 }
 
-function renderLineWithCursor(text, language, column) {
-  const boundedColumn = Math.max(0, Math.min(column, text.length));
-  const before = text.slice(0, boundedColumn);
-  const after = text.slice(boundedColumn);
-  return highlightLine(before, language) + '<span class="code-cursor" aria-hidden="true"></span>' + highlightLine(after, language);
+// A .svelte/.vue/.html file is markup wrapping a <script> and a <style>, and highlighting it as one
+// language leaves whichever part is not markup completely plain. The renderer has every line in order, so
+// walk them once and record which block each line is in; highlightLine is then handed the language the line
+// is actually written in. Mirrors blockLanguageScanner in highlight.ts, which does the same for the diff.
+function markupBlockLanguages(lines) {
+  var out = new Array(lines.length);
+  var mode = 'markup';
+  for (var i = 0; i < lines.length; i += 1) {
+    var text = lines[i];
+    var opener = /<\s*(script|style)\b([^>]*)>/i.exec(text);
+    if (opener && !/\/\s*>\s*$/.test(opener[0])) {
+      out[i] = 'markup'; // the line carrying the opening tag is still markup
+      mode = opener[1].toLowerCase() === 'style' ? 'css' : 'typescript';
+      continue;
+    }
+    if (/<\s*\/\s*(script|style)\s*>/i.test(text)) { out[i] = 'markup'; mode = 'markup'; continue; }
+    out[i] = mode;
+  }
+  return out;
 }
 
 function highlightLine(text, language) {
   if (language === 'text') return escapeHtml(text);
+  // CSS has none of the generic tokenizer's shapes — no keywords, no // comments, and `8px` is not a number
+  // to a \b-anchored match — so a <style> block came out entirely plain. Property names and selectors are
+  // what carry the structure when you are skimming, so colour those two and leave values alone.
+  if (language === 'css') {
+    var commentAt = text.indexOf('/*');
+    if (commentAt >= 0) {
+      return highlightLine(text.slice(0, commentAt), 'css')
+        + '<span class="tok-comment">' + escapeHtml(text.slice(commentAt)) + '</span>';
+    }
+    // A line is a selector up to its opening brace, then declarations. Both halves appear on one line as
+    // often as on three, so split on the brace rather than matching whole-line shapes.
+    var braceAt = text.indexOf('{');
+    var head = braceAt >= 0 ? text.slice(0, braceAt) : '';
+    var body = braceAt >= 0 ? text.slice(braceAt) : text;
+    var out = '';
+    var selector = head.match(/^(\s*)(.*?)(\s*)$/);
+    out += selector && selector[2]
+      ? selector[1] + '<span class="tok-tag">' + escapeHtml(selector[2]) + '</span>' + selector[3]
+      : escapeHtml(head);
+    out += escapeHtml(body).replace(/([-\w]+)(\s*:)/g, '<span class="tok-type">$1</span>$2');
+    return out;
+  }
   if (language === 'markup') {
     return escapeHtml(text).replace(/(&lt;\/?)([\w:-]+)([^&]*?)(\/?&gt;)/g, '$1<span class="tok-tag">$2</span>$3$4');
   }
