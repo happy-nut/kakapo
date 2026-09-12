@@ -116,6 +116,18 @@ function printHelp(): void {
 Usage:
   kakapo            open the review app for the current repository
 
+Options:
+  --cwd <path>      repository (or package inside one) to review; default: current directory
+  --base <rev>      compare the working tree against a branch, tag or commit
+                    default: the upstream merge-base when the branch has unpushed
+                    commits, otherwise HEAD. Changeable in the app — see Alt+A/U/C.
+  --staged          compare the index against HEAD instead (not with --base)
+  --include-untracked  count files git does not track yet as additions
+  --ignore-whitespace  hide changes that are only whitespace
+  --context <n>     unchanged lines kept around each hunk; default: 12
+  --no-watch        stop refreshing the review when the working tree changes
+  -h, --help        this text
+
 Diff review keys:
   F7 / Shift+F7     next / previous changed hunk
   Cmd/Ctrl+0        focus the Changes panel (arrows + Enter to open a file)

@@ -10,9 +10,9 @@ Coding agents are fast. Reading their output is not. Kakapo is built for that ha
 
 **The diff is the source of truth, not the chat log.** An agent's "done ✅" is a claim. Kakapo opens the actual Git diff in an IntelliJ-style side-by-side view, with folded context you can expand, hunk navigation (`F7`), and per-file *Viewed* state — so you review what landed, not what was reported.
 
-**Comment on a line; the thread stays with the code.** Press `?` on any line to ask a question or request a change. `F8` walks every thread until nothing is left open. `⌘⇧/` assembles every open comment into one document and copies it — just your comments, nothing prepended — to paste wherever the agent is. The thread itself is a plain file, so an agent told its path can append answers back onto the cards that asked.
+**Comment on a line; the thread stays with the code.** Press `?` on any line to ask a question or request a change — one comment per line, so asking again on a line you have already commented on reopens that comment instead of stacking a second beside it. `F8` walks every thread until nothing is left open. `⌘⇧/` assembles every open comment into one document to copy — just your comments, nothing prepended — to paste wherever the agent is. The thread itself is a plain file, so an agent told its path can append answers back onto the cards that asked.
 
-**IDE-grade reading with zero setup.** Go to definition, references, implementations and workspace symbols work across the diff via real language servers; Change Impact separates confirmed callers, importers and implementors from candidate tests and types; project search runs on bundled ripgrep. Nine language toolchains ship inside the app — no `PATH` lookup, no installs, no editor plugins.
+**IDE-grade reading with zero setup.** Go to definition, references, implementations and workspace symbols work across the diff via real language servers, and Semantic Peek answers them inline instead of taking you out of the review. Project search runs on bundled ripgrep. Nine language toolchains ship inside the app — no `PATH` lookup, no installs, no editor plugins.
 
 **It never writes into tracked project files.** Review threads live under `.git/` (Git never tracks its own directory, so `git status` stays clean, and a cwd-sandboxed agent can still reach them). Everything else lives in the OS application-data directory, keyed by absolute workspace path. Plain JSONL, Markdown and JSON — fully local, no account, no telemetry, MIT.
 
@@ -21,7 +21,7 @@ Coding agents are fast. Reading their output is not. Kakapo is built for that ha
 1. The agent works in your own terminal.
 2. `kakapo` in that repository opens its diff — `F7` between hunks, `Space` to mark a file reviewed.
 3. `?` on a line to ask a question or request a change.
-4. `⌘⇧/` copies every open comment out as one document; paste it wherever the agent is.
+4. `⌘⇧/` gathers every open comment into one document; copy it and paste it wherever the agent is.
 
 ## Install
 
@@ -69,7 +69,17 @@ Kakapo runs as a single instance. Running `kakapo` again from the same repositor
 
 ### Choosing what to compare
 
-By default the working tree is compared against an automatic base: the upstream merge-base when the branch has unpushed commits, otherwise `HEAD`. When the agent's work is already committed, pick the base yourself — from the toolbar, or up front:
+The toolbar pill says what the diff is comparing, and opens the two states you switch between all day:
+
+| Key | |
+| --- | --- |
+| `⌥A` | Everything on this branch, measured against its merge-base with the branch you pick |
+| `⌥U` | Only what is not committed yet |
+| `⌥C` | Pick that branch — search the list, or take the repository default |
+
+"All changes" uses the **merge-base**, not the branch tip: `git diff main` against a `main` that has moved on shows other people's commits as your deletions.
+
+Opened with no flags, kakapo picks for you: the upstream merge-base when the branch has unpushed commits, otherwise `HEAD`. You can also say it up front:
 
 ```bash
 kakapo --base main          # working tree vs main (review a whole AI feature branch)
@@ -78,7 +88,7 @@ kakapo --base 9f3c1a2       # vs a commit
 kakapo --staged             # index vs HEAD
 ```
 
-`--base` takes any revision and validates it at startup; `--staged` and `--base` are mutually exclusive. The review status bar always says what is being compared. Inside the app, the patch-set selector lets you diff against any single commit on the branch, and `⌘9` opens the commit graph — Enter on a commit opens it in the main review.
+`kakapo --help` lists every flag; `--base` takes any revision and validates it at startup, and `--staged` and `--base` are mutually exclusive. For a narrower slice than the dropdown offers, the patch-set bar under the toolbar diffs any single commit on the branch against any other, and `⌘9` opens the commit graph — Enter on a commit opens it in the main review.
 
 ## Shortcuts
 
