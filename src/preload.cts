@@ -7,42 +7,17 @@ contextBridge.exposeInMainWorld("kakapoHttp", {
   send: (request: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:http-send", request),
 });
 
-// Hangul arriving from a pty as conjoining jamo (NFD) must reach xterm composed. xterm joins a zero-width
-// jamo into the cell before it only while the parser's precedingJoinState is intact, and ANY escape sequence
-// resets it — an SGR as bare as \x1b[m is enough. tmux and ink-style TUIs emit one between styled spans as a
-// matter of course, so a syllable whose jamo straddle such a span lands as ㅈ ㅗ in two cells and STAYS that
-// way (issue #34; a workspace switch only healed it because tmux repainted the whole screen). String.normalize
-// cannot see across the escape either, so first pull each conjoining-jamo run (U+1160–U+11FF, the zero-width
-// class) in front of the SGR run separating it from its syllable — the join keeps the earlier cell's
-// attributes anyway, so the move changes nothing an eye can see — then compose. Repeated until stable, so
-// ᄌ SGR ᅩ SGR ᆸ closes over both gaps. Cursor-move escapes are left alone: text must not travel across a
-// relocation. Column arithmetic survives NFC untouched — L+V is wide+zero, the syllable is wide, same cells.
-// The jamo probe keeps the hot path cheap: ASCII and NFC-Hangul chunks (the overwhelming traffic) fall
-// through on one regex test.
-const CONJOINING_JAMO = /[\u1160-\u11FF]/;
-const SGR_BEFORE_JAMO = /((?:\x1b\[[0-9;:]*m)+)([\u1160-\u11FF]+)/g;
-function composeTerminalOutput(data: string): string {
-  if (!CONJOINING_JAMO.test(data)) return data;
-  let out = data, prev;
-  do { prev = out; out = out.replace(SGR_BEFORE_JAMO, "$2$1"); } while (out !== prev);
-  return out.normalize("NFC");
-}
-
 // Lets the Review menu's Cmd/Ctrl+Shift+/ accelerator open the merged review-comments view in
 // the renderer (the key macOS would otherwise reserve for its Help search).
 contextBridge.exposeInMainWorld("kakapoMenu", {
   onMergedView: (cb: () => void): void => {
     ipcRenderer.on("kakapo:merged-view", () => cb());
   },
-  // Review menu's Cmd/Ctrl+Shift+N -> open/close the prompt memo in the renderer.
-  onOpenMemo: (cb: () => void): void => {
-    ipcRenderer.on("kakapo:open-memo", () => cb());
-  },
   // Electron watch: main pushes rebuilt review data so the renderer refreshes the diff in place.
   onDiffUpdate: (cb: (html: string) => void): void => {
     ipcRenderer.on("kakapo:diff-update", (_event, html: string) => cb(html));
   },
-  // A long-parked workspace is asked to drop its diff DOM; the rebuild on the way back in repaints it.
+  // A long-minimized window is asked to drop its diff DOM; the rebuild on the way back repaints it.
   onReleaseView: (cb: () => void): void => {
     ipcRenderer.on("kakapo:release-view", () => cb());
   },
@@ -50,136 +25,10 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
   onCloseTab: (cb: () => void): void => {
     ipcRenderer.on("kakapo:close-tab", () => cb());
   },
-  // Terminal menu accelerators (Ctrl+` / Cmd+D / Cmd+Alt+[ etc.) that Chromium swallows before renderer
-  // keydown, routed via the app menu to the focused window's terminal client.
   // ⌘+ / ⌘− change the zoom in main (Chromium never lets these reach a renderer keydown). This is main
   // telling the page what the new size is, so the Settings dropdown can show it.
   onUiScale: (cb: (scale: number) => void): void => {
     ipcRenderer.on("kakapo:ui-scale", (_event, scale: number) => cb(Number(scale)));
-  },
-  onTerminalToggle: (cb: () => void): void => {
-    ipcRenderer.on("kakapo:terminal-toggle", () => cb());
-  },
-  // "row" splits side by side (Cmd+D), "column" stacks top/bottom (Cmd+Shift+D).
-  onTerminalSplit: (cb: (direction: "row" | "column") => void): void => {
-    ipcRenderer.on("kakapo:terminal-split", (_event, direction) => cb(direction === "column" ? "column" : "row"));
-  },
-  onTerminalPaneFocus: (cb: (delta: number) => void): void => {
-    ipcRenderer.on("kakapo:terminal-pane-focus", (_event, delta: number) => cb(delta));
-  },
-  onTerminalPaneRename: (cb: () => void): void => {
-    ipcRenderer.on("kakapo:terminal-pane-rename", () => cb());
-  },
-  onAgentResume: (cb: (command: string) => void): void => {
-    ipcRenderer.on("kakapo:agent-resume", (_event, command: string) => cb(command));
-  },
-  onWorkspaceState: (cb: (state: unknown) => void): void => {
-    ipcRenderer.on("kakapo:workspace-state", (_event, state: unknown) => cb(state));
-  },
-  // A workspace switch just landed on this view (never fired by app re-focus or clicks). The terminal
-  // panel uses it to take the keyboard when it is open — see 19-terminal.js.
-  onWorkspaceActivated: (cb: () => void): void => {
-    ipcRenderer.on("kakapo:workspace-activated", () => cb());
-  },
-  toggleWorkspaceHub: (): void => ipcRenderer.send("kakapo:workspace-hub-toggle"),
-  // Put an expanded rail away, because the review is taking over. Reported from here rather than inferred
-  // from the view's focus event in main, which cannot tell a click in the diff from one in the terminal
-  // panel. Two callers: a click in the review CONTENT, and ⌘0/⌘1 — while the rail is pushed open it
-  // force-collapses the in-view tree, so a shortcut that means "take me to that tree" has to ask first.
-  // One name, not one per caller: both are the same sentence, and the second was a no-op for as long as it
-  // was spelled on the wrong bridge (see test/window-layout.test.mjs).
-  railStandDown: (): void => ipcRenderer.send("kakapo:review-clicked"),
-  // The ⌘⇧E menu action, reachable from the review: the keymap uses it to complete a chord whose Shift
-  // landed a beat after the E (see handleQuickOpenKey in 03-quick-open.js).
-  railToggleExpand: (): void => ipcRenderer.send("kakapo:rail-toggle-expand"),
-  // ⌘K opens a floating quick-switcher rendered over the review (the review stays visible behind it).
-  onOpenQuickSwitcher: (cb: () => void): void => {
-    ipcRenderer.on("kakapo:open-quick-switcher", () => cb());
-  },
-  activateWorkspace: (id: number): void => ipcRenderer.send("kakapo:hub-activate", id),
-  // A deep-parked workspace has no live id — the ⌘K switcher reopens it by path. Main re-validates
-  // (kakapo:hub-open: must exist and be a git repository), so the renderer's copy is a request, not a grant.
-  openWorkspacePath: (path: string): void => ipcRenderer.send("kakapo:hub-open", path),
-  // The shell title-bar mirrors the activity rail: main relays a title-bar tool click here so the viewer
-  // replays it through its own rail dispatcher, and the viewer reports view/terminal state back for highlight.
-  onRailAction: (cb: (action: string) => void): void => {
-    ipcRenderer.on("kakapo:rail-action", (_event, action: string) => cb(action));
-  },
-  sendRailState: (state: { active: string[]; terminal: boolean }): void => ipcRenderer.send("kakapo:rail-state", state),
-  // While the workspace rail is expanded (pushing this view right), collapse the in-view file tree so the two
-  // panels don't compete; restore it when the rail collapses.
-  onRailPushed: (cb: (pushed: boolean) => void): void => {
-    ipcRenderer.on("kakapo:rail-pushed", (_event, pushed: boolean) => cb(pushed));
-  },
-});
-
-// Integrated terminal: bridge the renderer's xterm view to a node-pty owned by the main process (the
-// sandboxed renderer can't spawn a pty). Only present in the Electron app; browser/serve mode lacks it,
-// so the renderer keeps the terminal panel hidden when window.kakapoPty is undefined.
-contextBridge.exposeInMainWorld("kakapoPty", {
-  // The IME control run. Everything kakapo does to xterm's composition machinery — taking the commit,
-  // swallowing keydowns, pinning the anchor, hiding the caret, aligning the overlay — is a reach into an
-  // input path no other terminal touches, and 32% of the jamo splits on record happened with the terminal
-  // completely idle, which the documented cause (output dragging the anchor) does not explain. Reading more
-  // log cannot separate "macOS does this" from "we do this"; only a control can. KAKAPO_IME_RAW=1 stands
-  // every one of those reaches down and leaves plain xterm.js behind. Off unless the env var is set, so a
-  // normal launch is untouched.
-  imeRaw: process.env.KAKAPO_IME_RAW === "1",
-  // `ordinal` re-attaches to a specific tmux session — see sessions() below, used to restore the panes.
-  spawn: (size: { cols: number; rows: number; ordinal?: number }): Promise<{ ok: boolean; id: number; ordinal?: number }> => ipcRenderer.invoke("kakapo:pty-spawn", size),
-  // Persistent terminals (Settings > Terminal): is tmux available, and can we install it for them?
-  tmuxStatus: (): Promise<{ tmux: boolean; brew: boolean }> => ipcRenderer.invoke("kakapo:tmux-status"),
-  installTmux: (): void => ipcRenderer.send("kakapo:tmux-install"),
-  onTmuxInstallOutput: (cb: (chunk: string) => void): void => {
-    ipcRenderer.on("kakapo:tmux-install-output", (_event, chunk: string) => cb(chunk));
-  },
-  onTmuxInstallDone: (cb: (result: { ok: boolean; reason: string }) => void): void => {
-    ipcRenderer.on("kakapo:tmux-install-done", (_event, result: { ok: boolean; reason: string }) => cb(result));
-  },
-  // Everything the app types into a shell passes through here, and it leaves as NFC.
-  //
-  // The same normalisation guards the way BACK (onData below, composeTerminalOutput above): output is where
-  // issue #34's 자모 분리 actually lives, because xterm only joins a conjoining jamo into the cell before it
-  // while its precedingJoinState is intact — and ANY escape sequence resets that state. tmux and ink-style
-  // TUIs put an SGR between styled spans as a matter of course, so NFD text crossing one comes out as ㅈ ㅗ
-  // in two cells, permanently: no later repaint of those cells happens until tmux redraws the whole screen,
-  // which is why leaving the workspace and coming back "fixed" it (flushHiddenOutput resets + repaints).
-  //
-  // macOS hands Hangul to the web layer DECOMPOSED: "지금 캠페인" arrives as ᄌ ᅵ ᄀ ᅳ ᄆ … , each jamo its own
-  // code point. A terminal draws code points, so the agent's composer showed the reader's own sentence spelled
-  // out letter by letter — the "자모 분리" that was blamed on the IME, on the caret, and on xterm's composition
-  // handling in turn. None of those were it: the string was already decomposed before anything of ours touched
-  // it, which is also why a half-syllable could appear in a log with no output, no re-flow and no anchor move
-  // anywhere near it.
-  //
-  // The bridge is the choke point on purpose. Five call sites reach a pty — typed input, the pane picker, a
-  // pasted prompt, a bare Enter — and normalising at each would be four chances to forget. NFC leaves ASCII,
-  // control bytes and the bracketed-paste markers untouched, so nothing else here can notice.
-  write: (msg: { id: number; data: string }): void =>
-    ipcRenderer.send("kakapo:pty-write", { ...msg, data: typeof msg?.data === "string" ? msg.data.normalize("NFC") : msg?.data }),
-  resize: (msg: { id: number; cols: number; rows: number }): void => ipcRenderer.send("kakapo:pty-resize", msg),
-  // A syllable that committed as jamo, with the tally of what was happening around it (19-terminal.js).
-  // Sent to main so it survives the window: the in-memory log is gone by the time anyone asks about a split.
-  imeSplit: (entry: unknown): void => ipcRenderer.send("kakapo:ime-split", entry),
-  kill: (msg: { id: number }): void => ipcRenderer.send("kakapo:pty-kill", msg),
-  // Ask tmux to repaint this pane's current screen — what a pane that stopped listening while its workspace
-  // was off screen comes back to (see the hidden-pane buffering in 19-terminal.js).
-  refresh: (msg: { id: number }): void => ipcRenderer.send("kakapo:pty-refresh", msg),
-  // Is a foreground process (agent/command) running in this pane? Used to confirm before ⌘W closes it.
-  foreground: (msg: { id: number }): Promise<{ running: boolean; name: string }> => ipcRenderer.invoke("kakapo:pty-foreground", msg),
-  // Live tmux sessions for this workspace, so reopening the panel restores the panes it had.
-  sessions: (): Promise<{ ordinals: number[] }> => ipcRenderer.invoke("kakapo:pty-sessions"),
-  // A TUI in the pane rang the terminal bell (e.g. Claude Code finished a turn / needs input), or an agent
-  // answered a review comment (07-comments.js). The renderer passes a pre-localized title+body; the main
-  // process decides whether to raise a native notification. `seq` names the comment the notification is
-  // about, so clicking it lands on that thread instead of merely raising the window.
-  bell: (msg: { title: string; body: string; seq?: number }): void => ipcRenderer.send("kakapo:bell", msg),
-  onData: (cb: (msg: { id: number; data: string }) => void): void => {
-    ipcRenderer.on("kakapo:pty-data", (_event, msg: { id: number; data: string }) =>
-      cb(typeof msg?.data === "string" ? { ...msg, data: composeTerminalOutput(msg.data) } : msg));
-  },
-  onExit: (cb: (msg: { id: number }) => void): void => {
-    ipcRenderer.on("kakapo:pty-exit", (_event, msg: { id: number }) => cb(msg));
   },
 });
 
@@ -191,30 +40,12 @@ contextBridge.exposeInMainWorld("kakapoComments", {
     ipcRenderer.invoke("kakapo:comments-read"),
   write: (payload: { records: unknown[]; knownMaxId: number }): Promise<{ ok: boolean; path?: string; arrived?: unknown[] }> =>
     ipcRenderer.invoke("kakapo:comments-write", payload),
-  // Park the merged hand-off document next to the thread file and return its path — what the terminal gets is
-  // that one path, not the document.
-  writeRequest: (text: string, name?: string): Promise<{ ok: boolean; path?: string }> =>
-    ipcRenderer.invoke("kakapo:comments-request-write", { text, name }),
   onUpdate: (cb: (payload: { records: unknown[] }) => void): void => {
     ipcRenderer.on("kakapo:comments-update", (_event, payload) => cb(payload));
   },
   // The notification about an answer was clicked: go to the comment it was about.
   onReveal: (cb: (payload: { seq: number }) => void): void => {
     ipcRenderer.on("kakapo:comments-reveal", (_event, payload) => cb(payload));
-  },
-});
-
-// kakapo's own agent, which the reviewer never sees (ask-session.ts). The renderer can only send a prompt
-// and a label for it; which agent runs, what it may touch and where the answer lands are all main's.
-contextBridge.exposeInMainWorld("kakapoAsk", {
-  ask: (payload: { prompt: string; label: string; seq?: number; notes?: boolean; transcript?: boolean }): Promise<{ ok: boolean; reason?: string }> =>
-    ipcRenderer.invoke("kakapo:ask", payload),
-  onStatus: (cb: (payload: { asks: { label: string; seq?: number }[] }) => void): void => {
-    ipcRenderer.on("kakapo:ask-status", (_event, payload) => cb(payload));
-  },
-  // The answer turned out to be a job for the agent the reviewer has open in the terminal, not an answer.
-  onHandoff: (cb: (payload: { text: string; seq: number }) => void): void => {
-    ipcRenderer.on("kakapo:ask-handoff", (_event, payload) => cb(payload));
   },
 });
 
@@ -267,28 +98,20 @@ contextBridge.exposeInMainWorld("kakapoGit", {
   // Open a two-commit range from the history view as the main review's A→B compare (both sides at once).
   // `scope` (optional) is the pickable commit list, so the compare bar's dropdowns can select any B..D in it.
   setReviewCompare: (base: string, target: string, scope?: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-compare", { base, target, scope }),
+  // Compare dropdown on the toolbar pill: read the current mode + branch list, and switch between
+  // "all changes vs <branch>" and "uncommitted changes".
+  compareMenu: (): Promise<unknown> => ipcRenderer.invoke("kakapo:compare-menu"),
+  setCompareMode: (mode: string, ref?: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-compare-mode", { mode, ref }),
 });
 
 // Self-update: ask the main process to install the latest version globally and relaunch. Only present
 // in the Electron app (not browser/watch mode), so the renderer hides the in-app update button there.
 contextBridge.exposeInMainWorld("kakapoUpdate", {
   run: (): Promise<unknown> => ipcRenderer.invoke("kakapo:self-update"),
-  // Download progress is not reported here: it draws on the rail's kakapo mark (hub-preload's
-  // onUpdateProgress), which is one per app rather than one per open workspace.
-});
-
-// Connecting the terminal's agents to kakapo's vocabulary server (mcp-register.ts). A one-off per machine:
-// the server works out which repository it is being asked about from where the agent is running.
-contextBridge.exposeInMainWorld("kakapoMcp", {
-  status: (): Promise<unknown> => ipcRenderer.invoke("kakapo:mcp-status"),
-  connect: (agent: string): Promise<unknown> => ipcRenderer.invoke("kakapo:mcp-connect", { agent }),
-});
-
-// The vocabulary the reviewer built (terms-file.ts). Read once when the map opens, written back when a word
-// is added, corrected, or marked read — there is no merge because nothing else writes to it.
-contextBridge.exposeInMainWorld("kakapoTerms", {
-  read: (): Promise<unknown> => ipcRenderer.invoke("kakapo:terms-read"),
-  write: (terms: unknown[]): Promise<unknown> => ipcRenderer.invoke("kakapo:terms-write", { terms }),
+  // A packaged update streams a ~200MB DMG; the Settings row counts it up so the wait is legible.
+  onProgress: (cb: (payload: { percent: number; done?: boolean }) => void): void => {
+    ipcRenderer.on("kakapo:update-progress", (_event, payload) => cb(payload));
+  },
 });
 
 // Packaged .app (double-clicked, no cwd repo): the welcome screen's "Open Folder" button asks the main
@@ -300,8 +123,9 @@ contextBridge.exposeInMainWorld("kakapoApp", {
   // Sidebar Opt+Enter menu: path actions stay in main so the sandboxed renderer never receives the root.
   absolutePath: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:absolute-file-path", { path }),
   revealInFinder: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:reveal-in-finder", { path }),
+  // Open the OS terminal in the folder holding this file.
   openTerminal: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:open-terminal", { path }),
-  // A link clicked in the integrated terminal. Main re-checks the scheme — terminal output is untrusted.
+  // A link clicked in a review. Main re-checks the scheme before anything is opened.
   openExternal: (url: string): Promise<unknown> => ipcRenderer.invoke("kakapo:open-external", { url }),
   // An image path clicked there. Main re-checks everything (viewableFilePath in app-path-ipc.ts).
   openViewable: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:open-viewable", { path }),
@@ -314,14 +138,6 @@ contextBridge.exposeInMainWorld("kakapoApp", {
 // even when navigator.clipboard is unavailable for a local file.
 contextBridge.exposeInMainWorld("kakapoClipboard", {
   write: (text: string): void => clipboard.writeText(typeof text === "string" ? text : String(text)),
-});
-
-// One worktree-scoped Markdown memo. Main owns the file under Electron userData; the sandboxed renderer
-// receives document operations and can never choose a filesystem path inside or outside the repository.
-contextBridge.exposeInMainWorld("kakapoMemo", {
-  read: (): Promise<unknown> => ipcRenderer.invoke("kakapo:memo-read"),
-  write: (body: string): Promise<unknown> => ipcRenderer.invoke("kakapo:memo-write", { body }),
-  remove: (): Promise<unknown> => ipcRenderer.invoke("kakapo:memo-delete"),
 });
 
 // Global settings (locale, …) persisted by the main process under userData so they survive app
@@ -337,7 +153,7 @@ const persistedSettings: Record<string, unknown> = (() => {
 })();
 // Live theme/locale sync. Theme + locale are global settings; when one review window changes them (or the OS
 // switches while the theme follows "system"), the main process broadcasts the resolved preference here so every
-// open review re-applies it without a reload — keeping windows, the rail, and native chrome all in one theme.
+// open review re-applies it without a reload — keeping every window and the native chrome in one theme.
 contextBridge.exposeInMainWorld("kakapoChrome", {
   onChange: (cb: (payload: { theme?: string; resolved?: string; locale?: string }) => void): void => {
     ipcRenderer.on("kakapo:chrome", (_event, payload) => cb(payload));

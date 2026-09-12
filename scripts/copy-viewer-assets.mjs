@@ -5,7 +5,6 @@
 import { readdirSync, readFileSync, writeFileSync, copyFileSync, cpSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { build } from "esbuild";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = join(root, "dist");
@@ -24,9 +23,8 @@ const VIEWER_SLICES = [
   "03-quick-open.js", "04-source-tree.js", "05-keymap.js", "06-diff-caret.js", "07-comments.js",
   "08-dock.js", "09-views-update.js", "10-source-view.js", "11-render-http.js", "12-history.js",
   "13-goto.js", "15-analysis-status.js", "15-semantic-navigation.js", "16-semantic-peek.js",
-  "17-file-find.js", "18-diagnostics.js", "19-terminal.js", "20-mermaid.js",
-  "22-patchset.js", "23-annotations.js", "24-prompt-palette.js", "25-briefing.js", "26-terms.js", "27-ask.js",
-  "28-shortcut-coach.js",
+  "17-file-find.js", "18-diagnostics.js", "20-mermaid.js", "21-compare-menu.js",
+  "22-patchset.js", "23-agent-cards.js", "28-shortcut-coach.js",
 ];
 const onDisk = readdirSync(viewerDir).filter((f) => f.endsWith(".js")).sort();
 const listed = [...VIEWER_SLICES].sort();
@@ -34,26 +32,12 @@ if (onDisk.length !== listed.length || onDisk.some((f, i) => f !== listed[i])) {
   throw new Error(`VIEWER_SLICES is out of sync with src/viewer/*.js — update scripts/copy-viewer-assets.mjs.\n  on disk: ${onDisk.join(", ")}\n  listed:  ${listed.join(", ")}`);
 }
 const parts = VIEWER_SLICES;
-// One audited read-only Markdown stack is embedded ahead of the app slices, so source previews and merged
-// prompts execute the exact same parser + sanitizer in Electron and static/browser reviews.
+// One audited read-only Markdown stack is embedded ahead of the app slices, so source previews and agent
+// answers execute the exact same parser + sanitizer in Electron and static/browser reviews.
 const markdownVendors = [
   join(root, "node_modules", "markdown-it", "dist", "markdown-it.min.js"),
   join(root, "node_modules", "dompurify", "dist", "purify.min.js"),
 ];
-// Tiptap provides the Notion-style, single-surface Markdown editor used by the worktree memo. Bundle its
-// ESM graph into the same browser script; dependencies remain development-only and are pruned from the app.
-const editorBuild = await build({
-  entryPoints: [join(root, "scripts", "markdown-editor-entry.ts")],
-  bundle: true,
-  write: false,
-  format: "iife",
-  platform: "browser",
-  target: "chrome120",
-  minify: true,
-  legalComments: "inline",
-});
-const editorBundle = editorBuild.outputFiles[0]?.text;
-if (!editorBundle) throw new Error("Failed to bundle the inline Markdown editor");
 const vendorBundle = markdownVendors.map((file) => readFileSync(file, "utf8") + "\n").join("");
 const bundle = vendorBundle + parts.map((f) => readFileSync(join(viewerDir, f), "utf8")).join("");
 writeFileSync(join(distDir, "viewer.client.js"), bundle); // readable concat — tests + debugging read this
@@ -75,21 +59,14 @@ try {
 
 copyFileSync(join(root, "src", "viewer.css"), join(distDir, "viewer.css"));
 
-// The agent prompts are authored as Markdown (src/prompts/*.md) and read at runtime by i18n.ts, which
-// resolves them relative to its own dist location — so they have to land beside it.
-cpSync(join(root, "src", "prompts"), join(distDir, "prompts"), { recursive: true });
-
-// The rich Markdown editor is loaded lazily through Electron's narrow kakapo-asset:// scheme. The
-// directory keeps its historical name for protocol compatibility, but no code-editor runtime is shipped.
+// Lazy assets are served through Electron's narrow kakapo-asset:// scheme. The directory keeps its
+// historical name for protocol compatibility; no code-editor runtime is shipped.
 rmSync(join(distDir, "monaco"), { recursive: true, force: true });
 mkdirSync(join(distDir, "monaco"), { recursive: true });
-// The rich editor is needed only when the memo opens. Keep it out of the startup script and serve it from
-// the narrow asset scheme so ordinary diff review pays no parse/evaluation cost.
-writeFileSync(join(distDir, "monaco", "markdown-editor.js"), editorBundle);
-// Mermaid renders the Explain view's context/swimlane/flowchart diagrams (proper graph layout instead of a
-// hand-rolled one — see 20-explain.js's loadMermaid). It's several MB even minified, so it rides the same
-// lazy kakapo-asset:// path as the Markdown editor: fetched only the first time an Explain doc actually
-// contains one of those diagram kinds, never part of the eagerly-parsed startup script.
+// Mermaid renders ```mermaid fences inside a Markdown memo (proper graph layout instead of a hand-rolled
+// one — see 20-mermaid.js's loadMermaid). It's several MB even minified, so it rides the same lazy
+// kakapo-asset:// path as the Markdown editor: fetched only the first time a document actually contains a
+// diagram, never part of the eagerly-parsed startup script.
 copyFileSync(join(root, "node_modules", "mermaid", "dist", "mermaid.min.js"), join(distDir, "monaco", "mermaid.js"));
 // The Electron review references the client as an external kakapo-asset:// script (render.ts diffClientAsset)
 // instead of inlining ~514KB into every window; the handler serves this dir, so mirror the client here too.
@@ -97,4 +74,4 @@ for (const client of ["viewer.client.min.js", "viewer.client.js"]) {
   const from = join(distDir, client);
   if (existsSync(from)) copyFileSync(from, join(distDir, "monaco", client));
 }
-console.log(`bundled ${parts.length} viewer slices -> dist/viewer.client.js (${bundle.length} bytes); copied viewer.css + lazy Markdown editor + lazy Mermaid`);
+console.log(`bundled ${parts.length} viewer slices -> dist/viewer.client.js (${bundle.length} bytes); copied viewer.css + lazy Mermaid`);

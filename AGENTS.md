@@ -4,9 +4,12 @@ Guidance for AI coding agents working in this repository.
 
 ## Project
 
-`kakapo` is a small TypeScript CLI. Its job is to validate AI-generated code changes by running verification commands, creating diff review artifacts, and preserving compact evidence.
+`kakapo` is a small TypeScript CLI that opens a desktop diff reader for the repository it is run in. Its job
+is to let a human read AI-generated changes: a real diff, language-server navigation, and review comments
+that live beside the code.
 
-It is not an autonomous coding agent or orchestration layer. Keep the core simple, local, and validation-oriented.
+It is not an agent, an orchestration layer, a terminal or a workspace manager. Run it from your own terminal,
+in the repository you are working in. Keep the core simple, local, and reading-oriented.
 
 ## Development
 
@@ -23,8 +26,9 @@ npm run smoke
 - Keep generated validation artifacts under the application's canonical workspace-path mirror in its
   user-data directory; never create or write application state inside a reviewed project.
 - Prefer plain Markdown and JSON artifacts so users can inspect and edit everything.
-- Do not introduce git worktree, terminal multiplexer, editor, or agent-specific requirements.
-- Treat AI tools as producers of changes; kakapo is the verifier of those changes.
+- Do not introduce git worktree, terminal multiplexer, editor, or agent-specific requirements. kakapo does
+  not run agents, embed a terminal, or manage workspaces — those were deliberately removed.
+- Treat AI tools as producers of changes; kakapo is where a human reads those changes.
 
 ## Quality Bar
 

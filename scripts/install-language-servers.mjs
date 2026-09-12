@@ -35,6 +35,12 @@ export const SERVER_VERSIONS = Object.freeze({
   go: "1.26.5",
   gopls: "0.23.0",
   rustAnalyzer: "2026-07-13",
+  // rustup was fetched from static.rust-lang.org/rustup/dist/<target>/rustup-init — the "latest stable"
+  // path, whose bytes change on every rustup release. A checksum pinned against a moving URL is a build
+  // that breaks the next time upstream ships, and it did: every Linux/macOS package job failed on a
+  // SHA-256 mismatch until someone noticed and re-pinned. The archive path below is immutable, so the
+  // pin now guards what it is supposed to guard — that we got the bytes we meant to.
+  rustup: "1.29.1",
   clangd: "22.1.6",
   jdtls: "1.60.0-202606262232",
   java: "21.0.11+10",
@@ -65,11 +71,12 @@ const RUST_ARCHIVES = Object.freeze({
   "linux-arm64": ["rust-analyzer-aarch64-unknown-linux-gnu.gz", "d30c3ac726f93ae7cb57c6e16cd2d2b5460c9893ccdd38b6d3ae9300c72852ab"],
 });
 
+// Checksums are upstream's own, from the .sha256 published beside each file in the same archive directory.
 const RUSTUP_ARCHIVES = Object.freeze({
-  "darwin-x64": ["x86_64-apple-darwin", "33cf85df9142bc6d29cbc62fa5ca1d4c29622cddb55213a4c1a43c457fb9b2d7"],
-  "darwin-arm64": ["aarch64-apple-darwin", "aeb4105778ca1bd3c6b0e75768f581c656633cd51368fa61289b6a71696ac7e1"],
-  "linux-x64": ["x86_64-unknown-linux-gnu", "4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10"],
-  "linux-arm64": ["aarch64-unknown-linux-gnu", "9732d6c5e2a098d3521fca8145d826ae0aaa067ef2385ead08e6feac88fa5792"],
+  "darwin-x64": ["x86_64-apple-darwin", "259e2b84274434085163fe8d556510571772cda2aa6d87ca6aa664f57bc644e3"],
+  "darwin-arm64": ["aarch64-apple-darwin", "ec1b9233e7f72990ecd8e62063fa7f6c3dfc2bec8e97f88bff165f9100ac696a"],
+  "linux-x64": ["x86_64-unknown-linux-gnu", "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"],
+  "linux-arm64": ["aarch64-unknown-linux-gnu", "15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433"],
 });
 
 const CLANG_ARCHIVES = Object.freeze({
@@ -206,7 +213,7 @@ async function installRust(target, output, cache) {
   chmodSync(join(output, "rust-analyzer"), 0o755);
   const [rustTarget, rustupChecksum] = RUSTUP_ARCHIVES[target];
   const rustup = await download(
-    `https://static.rust-lang.org/rustup/dist/${rustTarget}/rustup-init`,
+    `https://static.rust-lang.org/rustup/archive/${SERVER_VERSIONS.rustup}/${rustTarget}/rustup-init`,
     rustupChecksum,
     cache,
   );

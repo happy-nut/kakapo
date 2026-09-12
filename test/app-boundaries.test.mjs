@@ -28,31 +28,6 @@ test("application preferences separate global and per-worktree state", () => {
   }
 });
 
-// The dot says "something is waiting here and you have not seen it". Quitting for the night is not reading
-// it, so the flag has to outlive the app run — in memory, every morning started by telling you the opposite.
-test("an unread workspace is still unread after a restart", () => {
-  const base = mkdtempSync(join(tmpdir(), "kakapo-unread-"));
-  try {
-    const userData = join(base, "app-data");
-    const work = join(base, "repos", "feature");
-    mkdirSync(work, { recursive: true });
-
-    const before = new AppPreferences(userData);
-    assert.equal(before.readUnread(work), false, "nothing waiting to begin with");
-    before.writeUnread(work, true);
-
-    // A fresh instance is what the next launch actually gets.
-    assert.equal(new AppPreferences(userData).readUnread(work), true, "the flag survives the process");
-    // …and it is per workspace, not per app.
-    assert.equal(new AppPreferences(userData).readUnread(join(base, "repos", "other")), false);
-
-    before.writeUnread(work, false); // opening the workspace clears it
-    assert.equal(new AppPreferences(userData).readUnread(work), false, "and clearing it sticks too");
-  } finally {
-    rmSync(base, { recursive: true, force: true });
-  }
-});
-
 test("recent projects are validated, deduplicated, and bounded", () => {
   const base = mkdtempSync(join(tmpdir(), "kakapo-recents-"));
   try {
@@ -93,22 +68,6 @@ test("pruneRecentProjects drops recent entries whose folder is gone (deleted-wor
   }
 });
 
-test("open workspace session and active path round-trip independently of recent projects", () => {
-  const base = mkdtempSync(join(tmpdir(), "kakapo-session-"));
-  try {
-    const preferences = new AppPreferences(join(base, "app-data"));
-    const record = {
-      path: join(base, "repo"), repoRoot: join(base, "repo"), repoName: "repo",
-      branch: "feature/hub", kind: "worktree", alias: "Hub", openedAt: 123,
-    };
-    preferences.writeOpenWorkspaces([record], record.path);
-    assert.deepEqual(preferences.readOpenWorkspaces(), [record]);
-    assert.equal(preferences.readActiveWorkspace(), record.path);
-  } finally {
-    rmSync(base, { recursive: true, force: true });
-  }
-});
-
 test("project path boundary accepts only relative paths contained by the opened folder", () => {
   const root = resolve("/tmp/kakapo-workspace/packages/reviewer");
   assert.equal(resolveProjectPath(root, "src/main.ts"), join(root, "src", "main.ts"));
@@ -118,10 +77,10 @@ test("project path boundary accepts only relative paths contained by the opened 
   assert.equal(resolveProjectPath(root, ""), undefined);
 });
 
-// Anything a command prints in the integrated terminal becomes a clickable link, so the URL a click hands
-// to the OS is an untrusted input. Only plain http(s) may reach shell.openExternal — a file:// or custom
-// scheme would be dispatched by the OS to whatever app claims it.
-test("external-link boundary opens only http(s) URLs from terminal output", () => {
+// A URL an agent wrote into the review thread becomes a clickable link, so the URL a click hands to the OS
+// is an untrusted input. Only plain http(s) may reach shell.openExternal — a file:// or custom scheme would
+// be dispatched by the OS to whatever app claims it.
+test("external-link boundary opens only http(s) URLs from untrusted text", () => {
   assert.equal(externalUrl("https://github.com/happy-nut/kakapo"), "https://github.com/happy-nut/kakapo");
   assert.equal(externalUrl("http://localhost:3000/health"), "http://localhost:3000/health");
   assert.equal(externalUrl("file:///Users/me/.ssh/id_rsa"), undefined);
@@ -133,7 +92,7 @@ test("external-link boundary opens only http(s) URLs from terminal output", () =
   assert.equal(externalUrl("https://x.test/" + "a".repeat(2048)), undefined, "an absurdly long URL is refused outright");
 });
 
-// The same untrusted-terminal rule for file paths: a click may open a file with the OS viewer only when it
+// The same untrusted-text rule for file paths: a click may open a file with the OS viewer only when it
 // is an absolute path to an existing file with a viewer-rendered extension — never anything executable.
 test("viewable-file boundary opens only existing image/pdf files by absolute path", () => {
   const dir = mkdtempSync(join(tmpdir(), "kakapo-viewable-"));
@@ -160,37 +119,25 @@ test("main process is a composition root for extracted persistence and IPC adapt
   assert.match(main, /registerReviewIpc\(ipcMain, stateFromEvent\)/);
   assert.match(main, /registerProjectPathIpc\(ipcMain, shell, stateFromEvent\)/);
   assert.match(main, /registerSettingsIpc\(ipcMain, preferences, stateFromEvent[,)]/);
-  assert.match(main, /registerMemoIpc\(ipcMain, \{/);
-  assert.doesNotMatch(main, /function readSettings|function resolveProjectRowPath|kakapo:get-file|"kakapo:get-settings"|"kakapo:memo-read"/);
+  assert.doesNotMatch(main, /function readSettings|function resolveProjectRowPath|kakapo:get-file|"kakapo:get-settings"/);
+  assert.doesNotMatch(main, /registerMemoIpc|ProjectMarkdownMemo/, "the worktree memo is gone, adapter and all");
 });
 
-// The review surface wraps TWO objects: the view (its webContents) and the host window it is shown in. Its
-// isDestroyed() speaks only for the first, and on quit the host goes first — so a caller that dutifully
-// checked isDestroyed() went on to ask a destroyed BrowserWindow whether it was minimized, and took the main
-// process down with "Object has been destroyed" from a one-second timer. Anything touching the host has to
-// answer for the host.
-test("every use of the host window answers for the host being gone", () => {
-  const source = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
-  const uses = source.split("\n")
-    .map((line, i) => ({ line: line.trim(), n: i + 1 }))
-    .filter(({ line }) => line.includes("surfaceHost.") && !line.startsWith("//") && !line.startsWith("*"));
-  assert.ok(uses.length >= 3, "the wrapper still delegates to a host window");
-  const unguarded = uses.filter(({ line }) => !line.includes("isDestroyed"));
-  assert.deepEqual(unguarded, [], "a host method is only called after asking whether the host is still there");
-});
-
-// A zoom step re-lays out a whole document, and a review document is every changed file plus its terminals.
-// Doing that to every open workspace at once — while the reviewer is looking at one of them — is a freeze
-// measured in tens of seconds, and the terminals refitting inside hidden views told tmux to redraw at sizes
-// nobody could see. Only what is on screen pays; a hidden workspace takes the new size when it is activated.
-test("a zoom step only re-lays out the views that are on screen", () => {
+// A window that is gone cannot be zoomed, resized or asked anything: Electron's webContents getter returns
+// undefined once it is destroyed, and a timer firing after a close is exactly when that happens. Every
+// surface method has to answer for its window being gone before it touches it.
+test("the review surface answers for its window being gone", () => {
   const main = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
-  const body = main.match(/function applyUiScale\([\s\S]*?\n\}/)[0];
-  assert.doesNotMatch(body, /for \(const state of states\.values\(\)\)/,
-    "applyUiScale does not walk every workspace");
-  assert.match(body, /activeStateId/, "it zooms the active one");
-  assert.match(main, /if \(activated\.bootStarted\) applyUiScale\(activated\.win\.webContents\)/,
-    "and a loaded workspace catches up with the current size when it is activated");
+  const surface = main.match(/const surface: ReviewSurface = \{[\s\S]*?\n  \};/)[0];
+  const delegating = surface.split("\n")
+    .map((line, i) => ({ line: line.trim(), n: i + 1 }))
+    .filter(({ line }) => /\bwin\.(show|focus|restore|isMinimized)\(\)/.test(line));
+  assert.ok(delegating.length >= 3, "the surface still delegates to a window");
+  assert.deepEqual(delegating.filter(({ line }) => !line.includes("isDestroyed")), [],
+    "a window method is only called after asking whether the window is still there");
+  // And the broadcast helpers skip a destroyed one rather than throwing mid-loop.
+  const zoom = main.match(/function applyUiScale\([\s\S]*?\n\}/)[0];
+  assert.match(zoom, /isDestroyed\(\)/, "applyUiScale skips a window that has gone");
 });
 
 // The scale list exists twice: main steps through it for ⌘+ / ⌘− and the Settings dropdown renders it in the
@@ -219,34 +166,13 @@ test("the UI scale is stored globally, not per workspace", () => {
   }
 });
 
-// Every quit path has to go through finishQuit: it kills the ptys and waits for their exits while the Node
-// environment is still alive. Setting quitConfirmed by hand is what makes before-quit stand aside, so a caller
-// that did that (the packaged self-update) quit with live ptys, and node-pty delivered their exits into the
-// middle of the teardown — abort(), and a macOS crash dialog, every time the app updated itself.
+// Every quit path goes through finishQuit, which is what sets the flag before-quit reads. Setting
+// quitConfirmed by hand is how a caller (the packaged self-update) once bypassed the whole shutdown path.
 test("quitConfirmed is only ever set by finishQuit", () => {
   const source = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
   const assignments = source.split("\n")
     .map((line, i) => ({ line: line.trim(), n: i + 1 }))
     .filter(({ line }) => /(^|[^.\w])quitConfirmed\s*=\s*true/.test(line) && !line.startsWith("//") && !line.startsWith("*"));
   assert.equal(assignments.length, 1, `quitConfirmed is set outside finishQuit: ${JSON.stringify(assignments)}`);
-  assert.match(source, /async function finishQuit\(\): Promise<void> \{\n\s*quitConfirmed = true;/);
-});
-
-// A modal dialog owns the keyboard until it is dismissed. The overlay is a WebContentsView layered over the
-// review, so DOM keys go to it — but application-menu ACCELERATORS are window-level and fired straight
-// through to the review behind it: ⌘D split a terminal and ⌘0 moved the rail while the New-workspace dialog
-// sat waiting for an answer. presentModal/hideModal are the one pair that knows a modal is up, so the claim
-// belongs there — not in each dialog, which is how one gets forgotten.
-test("showing a modal claims the menu accelerators, and hiding it gives them back", () => {
-  const source = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
-  const between = (from, to) => source.slice(source.indexOf(from), source.indexOf(to));
-  const present = between("function presentModal(", "function hideModal(");
-  const hide = between("function hideModal(", "ipcMain.on(\"kakapo:hub-open-modal\"");
-  assert.match(present, /setIgnoreMenuShortcuts\(true\)/, "the overlay takes the accelerators while it is up");
-  assert.match(hide, /setIgnoreMenuShortcuts\(false\)/, "and releases them, or the app goes deaf after one dialog");
-  // The release runs on the way out, while the view is still around to hear it.
-  assert.ok(hide.indexOf("setIgnoreMenuShortcuts(false)") < hide.indexOf("focusActiveReviewView()"),
-    "released before focus goes back to the review");
-  assert.match(hide, /modalView && !modalView\.webContents\.isDestroyed\(\)/,
-    "a torn-down overlay is not asked to release anything");
+  assert.match(source, /function finishQuit\(\): void \{\n\s*quitConfirmed = true;/);
 });

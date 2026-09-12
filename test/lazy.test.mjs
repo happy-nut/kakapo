@@ -62,7 +62,9 @@ test("lazy-LOAD: initial HTML omits unchanged project metadata and loads it on d
   assert.doesNotMatch(r.html, /id="files-tree-html"/, "transport reviews do not embed a multi-megabyte inert tree");
 
   const v = await loadViewer(r.html, { lazySourceData: r.build.lazySourceData });
-  v.click(v.$('[data-tab="files"]'));
+  // setTab, not a tab click: the click also activates the Files view (it opens a file), and what this pins
+  // is which DOM rows the deferred tree materializes.
+  v.window.setTab("files");
   await v.settle(100);
   assert.equal(v.window.__projectIndexRequests, 1, "Files requests the project index once");
   assert.equal(v.$('[data-source-file="src/unchanged.ts"]'), null, "collapsed folders do not create all descendant DOM rows");
@@ -370,8 +372,10 @@ test("lazy: changed active diff is hydrated off-DOM and swapped without a blank 
 // Same hazard as the composer hold above, on the terminal: applyDiffUpdate is one long SYNCHRONOUS DOM swap
 // and xterm shares the renderer's main thread, so a watch refresh landing between keystrokes stalls typing
 // (the reported "글자가 가끔 끊긴다"). An agent editing files fires a refresh every watch tick — exactly while
-// you type at its prompt. The refresh is deferred around active typing and applied once it pauses.
-test("lazy-LOAD: a watch refresh is deferred while typing in the terminal, then applied on pause", async () => {
+// A comment composer assembles syllables, and refreshComments() re-creates it — so the poll that pulls in an
+// agent's answers would land mid-syllable in the COMMENT box and macOS would commit the half-built 가 as
+// ㄱ ㅏ. One pair of document-level listeners covers every field in the page.
+test("lazy-LOAD: a watch refresh waits out a composition anywhere in the page", async () => {
   const b1 = await makeReviewHtml(
     [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 111;\n" }],
     { lazyLoad: true },
@@ -385,110 +389,7 @@ test("lazy-LOAD: a watch refresh is deferred while typing in the terminal, then 
   await v.openDiffFor("src/live.ts");
   await v.settle(120);
 
-  // The terminal bundle doesn't boot in jsdom (no xterm), so stand in for its public surface — the refresh
-  // only ever asks it one question: when did the reviewer last type?
-  let typedAt = v.window.Date.now();
-  v.window.__kakapoTerminal = { typingAt: () => typedAt };
-
-  const b2 = await makeReviewHtml(
-    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 222;\n" }],
-    { lazyLoad: true },
-  );
-  bodies = await renderLazyBodies(b2.build);
-  await v.pushDiffUpdate(b2.build.update);
-  await v.settle(120);
-  assert.doesNotMatch(v.$("#diff2html-container").textContent, /222/, "diff is NOT rebuilt mid-keystroke");
-
-  await v.settle(600); // typing pauses past the idle window — the held refresh retries on its own
-  assert.match(v.$("#diff2html-container").textContent, /222/, "the held watch refresh lands once typing stops");
-  v.close();
-});
-
-// The hold must be time-based, not modal: watching an agent work in a pane (no typing) has to keep the diff
-// refreshing live. Only actual keystrokes defer it.
-test("lazy-LOAD: an idle terminal never defers the watch refresh", async () => {
-  const b1 = await makeReviewHtml(
-    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 111;\n" }],
-    { lazyLoad: true },
-  );
-  let bodies = await renderLazyBodies(b1.build);
-  const v = await loadViewer(b1.html, {
-    menuBridge: true,
-    lazySourceData: b1.build.lazySourceData,
-    getDiffBody: (idx) => bodies[idx] || "",
-  });
-  await v.openDiffFor("src/live.ts");
-  await v.settle(120);
-  v.window.__kakapoTerminal = { typingAt: () => v.window.Date.now() - 5000 }; // open, but idle for 5s
-
-  const b2 = await makeReviewHtml(
-    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 222;\n" }],
-    { lazyLoad: true },
-  );
-  bodies = await renderLazyBodies(b2.build);
-  await v.pushDiffUpdate(b2.build.update);
-  await v.settle(120);
-  assert.match(v.$("#diff2html-container").textContent, /222/, "refresh applied immediately while merely watching");
-  v.close();
-});
-
-// An IME composition is the one case a timeout cannot cover: onData fires only on COMMITTED input, so while a
-// Hangul syllable is being assembled nothing marks the terminal busy, and a refresh landing mid-syllable makes
-// macOS commit the half-built input — 가 arrives as ㄱ ㅏ. Composition has no bounded duration either, so the
-// refresh must wait for compositionend, not for a timer.
-test("lazy-LOAD: a watch refresh waits out an IME composition, however long it takes", async () => {
-  const b1 = await makeReviewHtml(
-    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 111;\n" }],
-    { lazyLoad: true },
-  );
-  let bodies = await renderLazyBodies(b1.build);
-  const v = await loadViewer(b1.html, {
-    menuBridge: true,
-    lazySourceData: b1.build.lazySourceData,
-    getDiffBody: (idx) => bodies[idx] || "",
-  });
-  await v.openDiffFor("src/live.ts");
-  await v.settle(120);
-
-  // Mid-syllable: the last COMMITTED keystroke is already ancient, which is exactly the gap — only the
-  // composition flag says the terminal is busy.
-  let composing = true;
-  v.window.__kakapoTerminal = { typingAt: () => v.window.Date.now() - 60000, isComposing: () => composing };
-
-  const b2 = await makeReviewHtml(
-    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 222;\n" }],
-    { lazyLoad: true },
-  );
-  bodies = await renderLazyBodies(b2.build);
-  await v.pushDiffUpdate(b2.build.update);
-  await v.settle(700); // well past the typing-idle window — a timer-only hold would have fired by now
-  assert.doesNotMatch(v.$("#diff2html-container").textContent, /222/, "no rebuild while a syllable is unfinished");
-
-  composing = false; // compositionend
-  await v.settle(700);
-  assert.match(v.$("#diff2html-container").textContent, /222/, "the held refresh lands once the syllable commits");
-  v.close();
-});
-
-// The terminal is not the only textarea. A comment composer assembles syllables too, and refreshComments()
-// re-creates it — so the poll that pulls in an agent's answers used to land mid-syllable in the COMMENT box
-// while the terminal check happily reported that nobody was typing, because nobody was typing there.
-test("lazy-LOAD: a watch refresh waits out a composition anywhere in the page, not just the terminal", async () => {
-  const b1 = await makeReviewHtml(
-    [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 111;\n" }],
-    { lazyLoad: true },
-  );
-  let bodies = await renderLazyBodies(b1.build);
-  const v = await loadViewer(b1.html, {
-    menuBridge: true,
-    lazySourceData: b1.build.lazySourceData,
-    getDiffBody: (idx) => bodies[idx] || "",
-  });
-  await v.openDiffFor("src/live.ts");
-  await v.settle(120);
-
-  // No terminal at all: this is a reviewer typing a comment, so every terminal-based signal says "idle".
-  v.window.__kakapoTerminal = undefined;
+  // A reviewer typing a comment: nothing but the composition events says anybody is busy.
   v.window.document.dispatchEvent(new v.window.Event("compositionstart", { bubbles: true }));
 
   const b2 = await makeReviewHtml(

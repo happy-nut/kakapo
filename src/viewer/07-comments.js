@@ -100,7 +100,7 @@ function moveCommentToBaseSide(c) {
   return false;
 }
 // A reply has no anchor of its own: it lives wherever the comment it continues lives, which is why
-// openReplyComposer copies the parent's and commentToRecord omits path/line whenever they still match.
+// an agent's answer copies the parent's, and commentToRecord omits path/line whenever they still match.
 // Nothing kept that true once the parent MOVED. remapComments follows a root to its new line after the agent
 // edits the file, but a reply carries no anchor text to follow with — so it stayed on the line the question
 // used to be on, and the answer showed up as a card of its own, in a thread of its own, somewhere else in the
@@ -207,9 +207,7 @@ function recordToComment(record, byId) {
     path: path, line: line, code: anchor, anchorCode: anchor,
     from: Number(record.from) || line, to: Number(record.to) || line, side: record.side || null,
     title: record.title ? String(record.title) : '',
-    // Only a role the card knows how to draw survives the trip: anything else an agent invents would otherwise
-    // reach agentCardHtml as a class name and a missing translation. "key" is the one written now; the older
-    // "problem"/"fix" still read back as the same single mark (NOTE_ROLES, 23-annotations.js).
+    // Only a role the card knows how to draw survives the trip (NOTE_ROLES, 23-agent-cards.js).
     role: NOTE_ROLES[record.role] ? record.role : null,
     group: Number(record.group) > 0 ? Number(record.group) : 0,
     addressed: !!record.addressed, anchorPresent: anchorLinePresent(path, anchor, anchor),
@@ -300,22 +298,14 @@ function applyThreadRecords(records, extra, silent) {
   reviewComments = next;
   reanchorReplies(); // an answer that named its own line lands in its question's thread, not beside it
   commentSeq = reviewComments.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
-  // A fresh explanation retires the one it replaces (23-annotations.js). Here, because this is where the
-  // agent's first new note actually lands — and its own write-back merges anything the agent appended in the
-  // meantime, so pruning cannot race the run that triggered it.
-  pruneSupersededNotes();
   persistSave(COMMENTS_KEY, reviewComments);
   if (silent) seenAgentSeq = maxAgentSeq(); else notifyAgentTurns();
-  // Agent-driven, so the re-render yields to a terminal being typed into (see refreshCommentsWhenNotTyping).
+  // Agent-driven, so the re-render yields to a field being typed into (see refreshCommentsWhenNotTyping).
   refreshCommentsWhenNotTyping();
-  try { syncRail(); } catch (e) {} // the Explain rail lights up on notes
 }
-// An agent finishing its work is worth knowing about when you are not watching, and answering a review
-// comment is the most precise form of that signal kakapo has — far better than guessing from terminal output.
-// It rides the same path the terminal bell already uses (kakapo:bell in app-terminal-ipc.ts): the tile's
-// attention dot always, a native notification only while the window is unfocused, and one shared setting.
-// `seenAgentSeq` is the high-water mark of turns already accounted for, so a reload or a workspace switch
-// re-reads the whole file without announcing answers you have long since read.
+// An answer appended to the thread by an agent running in the reader's own terminal is worth knowing about
+// when the review is not the window in front. `seenAgentSeq` is the high-water mark of turns already
+// accounted for, so a reload re-reads the whole file without announcing answers long since read.
 var seenAgentSeq = maxAgentSeq();
 function maxAgentSeq() {
   return reviewComments.reduce(function (max, c) { return c.by === 'agent' ? Math.max(max, c.seq || 0) : max; }, 0);
@@ -325,13 +315,17 @@ function notifyAgentTurns() {
   if (high <= seenAgentSeq) { seenAgentSeq = high; return; } // nothing new (a deletion can lower the mark)
   var fresh = reviewComments.filter(function (c) { return c.by === 'agent' && c.seq > seenAgentSeq; });
   seenAgentSeq = high;
-  if (!fresh.length || persistRead('kakapo-terminal-bell-notify') === false) return;
-  if (!(window.kakapoPty && typeof window.kakapoPty.bell === 'function')) return;
+  if (!fresh.length || persistRead('kakapo-answer-notify') === false) return;
+  if (typeof Notification !== 'function' || document.hasFocus()) return; // it is already on screen
   var first = String(fresh[0].text || '').split('\n').filter(function (line) { return line.trim(); })[0] || '';
   var body = t(fresh.length > 1 ? 'notify.agentReplies' : 'notify.agentReplied');
-  // The seq rides along so clicking the notification lands on this exchange rather than merely raising the
-  // window — in a review with fifty comments, "an answer arrived" is not much use without "here".
-  try { window.kakapoPty.bell({ title: 'kakapo', body: first ? body + ' — ' + first.slice(0, 140) : body, seq: fresh[0].seq }); } catch (e) {}
+  // Clicking it lands on the exchange rather than merely raising the window — in a review with fifty
+  // comments, "an answer arrived" is not much use without "here".
+  try {
+    var seq = fresh[0].seq;
+    var note = new Notification('kakapo', { body: first ? body + ' \u2014 ' + first.slice(0, 140) : body });
+    note.onclick = function () { try { window.focus(); revealComment(seq); } catch (e) {} };
+  } catch (e) {}
 }
 // Startup. The file wins when it exists; when it does not, this workspace's existing comments (app settings)
 // and Explain notes (annotations.json) are folded into it once, so unifying the stores loses nothing.
@@ -339,13 +333,8 @@ function loadThread() {
   if (!(window.kakapoComments && typeof window.kakapoComments.read === 'function')) return;
   window.kakapoComments.read().then(function (result) {
     if (!result) return;
-    // The Explain prompts write NOTES, which belong to the repository rather than to this worktree — main
-    // hands back both paths and this is the one {{NOTES_PATH}} means.
-    annotationsPath = result.notesPath || result.path || '';
-    // …and the CONVERSATION file, which is a different file. Answers to review comments belong here, beside
-    // the comments they answer; knowledge.jsonl is where what-was-learned-about-the-codebase outlives the
-    // worktree. The hand-off used to name the notes file for both, so an agent answering #19 appended to a
-    // store that has never heard of #19 — the answer landed nowhere the review could show it.
+    // The CONVERSATION file: the path an agent is handed so its answers land beside the comments they
+    // answer, rather than existing only as output in somebody's scrollback.
     reviewThreadPath = result.path || '';
     if (result.exists) { applyThreadRecords(result.records, null, true); return; } // a load is not news
     var migrated = reviewComments.slice();
@@ -468,7 +457,6 @@ function commentSide(c) {
 // prompt is handed a NEXT FREE ID rather than "highest in this file + 1".
 function commentsAt(path, line, side) {
   return reviewComments.filter(function (c) {
-    if (isBriefingCard(c)) return false; // it is the panel, not a card
     return c.path === path && c.line === line && (!side || commentSide(c) === side);
   }).sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
 }
@@ -486,7 +474,6 @@ function commentKindHtml() {
 function relevantLines(path, side) {
   var set = {};
   reviewComments.forEach(function (c) {
-    if (isBriefingCard(c)) return; // no card, so no slot to hold one
     if (c.path === path && (!side || commentSide(c) === side)) set[c.line] = true;
   });
   if (composerState && composerState.path === path && (!side || commentSide(composerState) === side)) set[composerState.line] = true;
@@ -520,32 +507,6 @@ function addComment(kind, path, line, code, text, from, to, side, anchorCode, re
     replyTo: replyTo == null ? null : Number(replyTo),
   });
   saveComments();
-  // …and ask, now, without being told to. The whole point of kakapo keeping its own agent is that leaving a
-  // comment IS the question — walking to the terminal to send it was the step that made a reviewer save the
-  // question up instead of asking it. A follow-up counts too: a reply is the second half of a question.
-  // Quietly skipped where there is no agent to ask (the CLI's browser viewer), rather than toasting about it
-  // on every comment somebody writes.
-  if (askAvailable()) askComment(commentSeq);
-}
-// Every earlier turn of the exchange a comment continues, oldest first — whoever wrote each one. Used to
-// indent a thread on screen. The hand-off document no longer inlines these: it names their ids and lets the
-// agent read them out of the thread file (mergedItemLines).
-function commentThreadContext(comment) {
-  return commentAncestry(comment).map(function (parent) {
-    return { by: parent.by === 'agent' ? 'agent' : 'me', kind: parent.kind, text: parent.text };
-  });
-}
-// Walk a comment's reply chain back to its root, oldest exchange first. Used to give an agent the
-// conversation a follow-up belongs to (see the answers payload in 08-dock.js) and to indent the thread.
-function commentAncestry(comment) {
-  var chain = [], guard = 0, node = comment;
-  while (node && node.replyTo != null && ++guard < 50) {
-    var parent = reviewComments.find(function (x) { return x.seq === node.replyTo; });
-    if (!parent) break;
-    chain.unshift(parent);
-    node = parent;
-  }
-  return chain;
 }
 // The reviewer disagrees with the "possibly addressed" heuristic: reopen the comment. Clear anchorPresent too
 // so it only becomes addressed again if its anchor first reappears and then disappears in a future round.
@@ -580,7 +541,6 @@ function removeComments(seqs) {
   // Everything the reader worked out in that conversation is going with it, so this is where the vocabulary
   // asks to keep the concepts (26-terms.js). After the delete, never in front of it: the delete already has
   // an undo, and nothing should have to wait on a dialog. A batch with nothing to learn puts up no dialog.
-  offerTermHarvest(removed);
 }
 // This card and every card that continues from it. A thread hangs off its first comment — a reply carries no
 // anchor of its own, only its parent's — so removing that comment without its replies leaves them pointing at
@@ -711,37 +671,15 @@ function commentTargetLabel(s) {
   if (from > to) { var swap = from; from = to; to = swap; }
   return '@' + String(s && s.path || '') + '#L' + from + (to !== from ? '-' + to : '');
 }
-// Every thread ends in the box for its next turn, attached under the last card — GitHub's "Write a reply".
-// It used to appear only once a thread was already an exchange (the agent answered, or someone followed up),
-// so a comment you had just written offered no way onward except finding the ↩ button in its header. Clicking
-// it opens the real composer (one shared composerState), on the last card in the thread so the conversation
-// keeps going in a line rather than branching.
-function replyStubHtml(path, line, side) {
-  if (composerAt(path, line, side)) return ''; // already open here
-  var cards = commentsAt(path, line, side);
-  if (!cards.length) return '';
-  var last = cards[cards.length - 1];
-  return '<button type="button" class="mc-card mc-reply-stub" data-path="' + escapeHtml(path) + '" data-line="' + line + '"'
-    + ' data-seq="' + last.seq + '">' + escapeHtml(t('composer.reply')) + '</button>';
-}
-// One card per turn, in the order they were written — the reviewer's own (below) and the agent's
-// (agentCardHtml, 23-annotations.js), which is the only difference between them now.
+// One card per turn, in the order they were written — the reviewer's own (below) and an agent's
+// (agentCardHtml, 23-agent-cards.js), which is the only difference between them now.
 function reviewerCardHtml(c) {
   var addressed = !!c.addressed;
-  // Ask: hand THIS comment to the hidden session and let the answer come back under it (27-ask.js). Only on
-  // a root comment — a follow-up already sits in a thread the session is reading — and only where there is a
-  // main process to run an agent, so the CLI's browser viewer never offers a button that cannot work.
-  var asking = askIsPending(c.seq);
-  var canAsk = c.replyTo == null && askAvailable();
-  return '<div class="mc-card mc-' + c.kind + (addressed ? ' mc-addressed' : '') + (asking ? ' mc-asking' : '') + (c.replyTo != null ? ' mc-reply-card' : '') + '">'
+  return '<div class="mc-card mc-' + c.kind + (addressed ? ' mc-addressed' : '') + (c.replyTo != null ? ' mc-reply-card' : '') + '">'
     + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml() + '</span>'
     + commentTargetHeadHtml(c)
     + (addressed ? '<span class="mc-addressed-tag" title="' + escapeHtml(t('comment.addressed.hint')) + '">' + escapeHtml(t('comment.addressed')) + '</span>' : '')
     + (addressed ? '<button type="button" class="mc-reopen" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reopen')) + '" title="' + escapeHtml(t('comment.reopen')) + '">↺</button>' : '')
-    // No button while one is out: the waiting card below the comment says so, and two marks for one state on
-    // one card is how the header dot came to be the only thing announcing it.
-    + (canAsk && !asking ? '<button type="button" class="mc-ask" data-ask="' + c.seq + '"'
-      + ' aria-label="' + escapeHtml(t('ask.button')) + '" title="' + escapeHtml(t('ask.button')) + '">?</button>' : '')
     + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
     + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div></div>';
 }
@@ -752,19 +690,12 @@ function composerAt(path, line, side) {
 }
 function threadHtml(path, line, side) {
   var html = '';
-  var waiting = false;
   commentsAt(path, line, side).forEach(function (c) {
     if (composerState && composerState.editSeq === c.seq) return; // being edited -> rendered as the composer below
     html += c.by === 'agent' ? agentCardHtml(c) : reviewerCardHtml(c);
-    if (askIsPending(c.seq)) waiting = true;
   });
-  // The waiting mark stands where the ANSWER will stand (27-ask.js) — below the question, in the slot the
-  // reply is about to take. It began as a dot in the card's header, which is both the smallest thing on the
-  // card and nowhere near where anything was going to happen.
-  if (waiting) html += askThinkingHtml();
-  html += replyStubHtml(path, line, side);
   if (composerAt(path, line, side)) {
-    var ph = composerState.replyTo != null ? t('composer.reply') : t('composer.comment');
+    var ph = t('composer.comment');
     html += '<div class="mc-card mc-' + composerState.kind + ' mc-composer' + (composerState.replyTo != null ? ' mc-reply-card' : '') + '">'
       // No target label in the head: it is in the textarea now, where it can be edited or deleted.
       + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml() + '</span></div>'
@@ -870,12 +801,8 @@ function renderDiffCommentsForFile(w, commentsByPath, remember) {
   var pathComments = commentsByPath[path] || [];
   var activeComposer = composerState && composerState.path === path ? composerState : null;
   var renderKey = JSON.stringify({
-    // `askIsPending` is part of the key because it is part of what the card DRAWS (the waiting card in
-    // threadHtml). Without it the cache answered "nothing changed" for the two moments that matter most: the
-    // question going out, and the answer coming back. The waiting mark never appeared in the diff pane, and
-    // where it did appear it stayed after the answer had already landed under it.
     comments: pathComments.map(function (comment) {
-      return [comment.seq, comment.kind, comment.by, comment.replyTo, comment.line, comment.from, comment.to, commentSide(comment), comment.text, askIsPending(comment.seq)];
+      return [comment.seq, comment.kind, comment.by, comment.replyTo, comment.line, comment.from, comment.to, commentSide(comment), comment.text];
     }),
     composer: activeComposer
       ? [activeComposer.kind, activeComposer.line, activeComposer.from, activeComposer.to, commentSide(activeComposer), activeComposer.editSeq, activeComposer.editText || '']
@@ -1047,37 +974,38 @@ function refreshComments() {
   }
 }
 
+// One comment per thread. A line that already carries one is answered, not re-asked: opening a second
+// composer there produced a pile of turns on one anchor, which is the shape the "Continue this thread" box
+// used to encourage and which was removed with it. An agent's answer is still appended to the thread (it is
+// a reply in the data, not something written here), so a thread can still be an exchange — it just cannot be
+// a monologue.
 function openComposer(kind) {
   var target = currentCommentTarget();
   if (!target) return;
+  var existing = commentsAt(target.path, target.line, target.side)
+    .filter(function (c) { return c.by !== 'agent'; });
+  if (existing.length) {
+    // Not silence: open the one that is already there for editing. Saying more about this line means saying
+    // it in that comment, which is the whole point of one-per-thread.
+    var mine = existing[0];
+    composerState = {
+      kind: mine.kind, path: mine.path, line: mine.line, code: mine.code, anchorCode: mine.anchorCode,
+      from: mine.from, to: mine.to, side: mine.side, editSeq: mine.seq, editText: mine.text,
+    };
+    refreshComments();
+    return;
+  }
   composerState = { kind: kind, path: target.path, line: target.line, code: target.code, anchorCode: target.anchorCode, from: target.from, to: target.to, side: target.side };
   // The place, IN the text rather than printed above it. As a label in the header it was a fact about the
   // comment that the writer could not touch — and the thing they most often want to say is that the question
   // is not about this line at all ("while I'm here — why does the wiki come into this?"). Prefilled it is
-  // still there by default and a Backspace away when it is wrong, and what the agent is told follows what
-  // the comment actually says (askPromptForComment, 27-ask.js).
+  // still there by default and a Backspace away when it is wrong.
   composerState.editText = commentTargetLabel(composerState) + ' ';
   // Keep the dragged code visibly highlighted via the .mc-sel-line class (applyCommentSelectionHighlight),
   // and clear the native selection so its highlight doesn't bleed into the composer/cards below it.
   try { var psel = window.getSelection(); if (psel) psel.removeAllRanges(); } catch (e) {}
   refreshComments(); // refreshComments syncs body.mc-composing from the on-screen composer
 
-}
-// Continue an exchange from the card itself (the Reply button), instead of hunting the code line down again
-// and writing what reads as an unrelated new comment. The reply inherits the parent's anchor, so it lives in
-// the same thread and travels with it; kind is inherited too (a follow-up to a question is still a question).
-function openReplyComposer(seq) {
-  var parent = reviewComments.find(function (x) { return x.seq === seq; });
-  if (!parent) return;
-  composerState = {
-    // Inheriting `note` would make the reviewer's own words read as the agent's and keep them out of the
-    // hand-off entirely, so a follow-up to an explanation is a plain review comment like any other.
-    kind: 'c',
-    path: parent.path, line: parent.line, code: parent.code, anchorCode: parent.anchorCode,
-    from: parent.from, to: parent.to, side: parent.side, replyTo: parent.seq,
-  };
-  try { var rsel = window.getSelection(); if (rsel) rsel.removeAllRanges(); } catch (e) {}
-  refreshComments();
 }
 function closeComposer() {
   if (!composerState) return;
@@ -1122,25 +1050,6 @@ function saveComposer(ta) {
   flushPendingDiffUpdate(); // apply any live watch refresh that was held while composing
 }
 
-// Default merge-prompt headings, localized: a Korean user gets Korean defaults. Editable in
-// Settings → Merge prompts (stored per browser in localStorage); buildMergedText + the textarea
-// placeholders fall back to these when the stored value is empty.
-function defaultMergePrompt(kind) {
-  return t(kind === 'plan' ? 'plan.contract' : 'mergePrompt.default.c');
-}
-var mergePromptsKey = 'kakapo-merge-prompts';
-function loadMergePrompts() {
-  var b = persistRead(mergePromptsKey); if (b && typeof b === 'object') return b; try { var v = JSON.parse(localStorage.getItem(mergePromptsKey) || '{}'); return (v && typeof v === 'object') ? v : {}; } catch (e) { return {}; }
-}
-function mergePromptFor(kind) {
-  var v = loadMergePrompts()[kind];
-  return (typeof v === 'string' && v.trim()) ? v : defaultMergePrompt(kind);
-}
-function saveMergePrompt(kind, text) {
-  var saved = loadMergePrompts();
-  if (text && text.trim()) saved[kind] = text; else delete saved[kind];
-  persistSave(mergePromptsKey, saved);
-}
 
 // Reusable custom dropdown (keyboard + mouse). options: [{ label, onSelect }]. First item is pre-selected;
 // Arrow keys move, Enter chooses, Esc / click-outside dismiss. Replaces native <select>/menus everywhere.
@@ -1510,9 +1419,7 @@ function gotoComment(delta) {
   // again here read `sourceByPath`, which on a diff-first launch holds only the CHANGED files — so notes on
   // untouched files vanished from the walk while the card badge, counting the unfiltered list, went on
   // numbering them. F8 then bounced between whichever two survived, calling them 8/9 and 9/9.
-  // The briefing has no card to land on (isBriefingCard), so the walk steps past it — otherwise F8 stopped at
-  // a line with nothing on it. Its own note is still reachable: ⌘⇧B.
-  var list = sortedNavThread().filter(function (c) { return !isBriefingCard(c); });
+  var list = sortedNavThread();
   if (!list.length) { showCaretHint(t('comment.nav.none')); return true; }
   revealComment(stepAnchor(delta, list).seq);
   return true;
@@ -1560,14 +1467,13 @@ function mergedBlocks() {
     if (c.by === 'agent' || c.addressed) return false;
     return !(lastAgentTurn[commentThreadRoot(c, byId)] > c.seq);
   });
-  // The plan contract leads: a comment can ask for work, so plan first and decompose into verifiable steps
-  // without asking the agent to add an application-state file to the repository.
-  return [{ prose: open.length ? mergePromptFor('plan') + '\n\n' + mergePromptFor('c') : '', items: open }];
+  // No prose, no instructions: the document is the reviewer's own comments. What should be done with them
+  // is said wherever it is pasted, not prepended here on the reviewer's behalf.
+  return [{ items: open }];
 }
 
-// One unified hand-off document as a single string (Copy all's default, "Send to terminal", and tests).
-// The live merged dock instead renders each block as its own small editable surface plus one non-editable
-// card per comment (see openMergedView/currentMergedText in 08-dock.js) — this stays the static/default view.
+// One unified hand-off document as a single string (Copy all's default, and tests). The live merged dock
+// renders the same comments as non-editable cards (see openMergedView/currentMergedText in 08-dock.js).
 // One comment's lines in the hand-off document — shared with the live panel's currentMergedText (08-dock.js)
 // so the two can't drift. The id leads the heading because that is what an agent replies to: it appends a
 // line with `"re": <id>` to the thread file.
@@ -1577,23 +1483,33 @@ function mergedBlocks() {
 // for every comment in the review — and all of it was already in the thread file this document points at,
 // under exactly these ids. So the reviewer's own words (the request) stay inline, and the history is a
 // lookup. `id` here is the record's `id` in the file: commentToRecord writes `seq` as `id`.
+// One heading per comment, and the heading is WHERE it is — no "#3". The sequence number is an internal id
+// (it counts every card ever written, agent answers included), so the third comment in the document was
+// routinely "#7" and the numbering said nothing true about the list it appeared in. The anchor already
+// identifies the comment, and uniquely.
+//
+// The "continues #N" line went with it: a reviewer comment has no ancestry any more — one comment per thread,
+// and only an agent's answer is ever a reply.
 function mergedItemLines(c) {
-  var lines = ['### #' + c.seq + ' ' + commentTargetLabel(c)];
-  var ancestry = commentAncestry(c);
-  if (ancestry.length) {
-    lines.push(t('mergePrompt.continues') + ' ' + ancestry.map(function (p) { return '#' + p.seq; }).join(', '));
-    lines.push('');
-  }
-  lines.push(c.text);
-  lines.push('');
-  return lines;
+  var anchor = commentTargetLabel(c);
+  return ['### ' + anchor, commentBodyWithoutAnchor(c), ''];
+}
+
+// The composer prefills the anchor into the comment body (openComposer), so the same reference came out
+// twice in the hand-off: once as the heading above, once as the first thing the comment says. Strip it from
+// the body — but ONLY while it still matches the anchor this heading prints. Editing that prefix is the
+// documented way to say "the question is not about this line", and a reference the writer changed on purpose
+// is part of what they wrote, not a duplicate of anything.
+function commentBodyWithoutAnchor(c) {
+  var anchor = commentTargetLabel(c);
+  var text = String(c.text || '');
+  if (text.slice(0, anchor.length) !== anchor) return text;
+  return text.slice(anchor.length).replace(/^[ \t]+/, '');
 }
 function buildMergedText() {
   var nl = String.fromCharCode(10);
   var lines = [];
   mergedBlocks().forEach(function (block) {
-    if (!block.prose && !block.items.length) return; // the empty scratch-pad block prints nothing
-    if (block.prose) { lines.push(block.prose); lines.push(''); }
     block.items.forEach(function (c) { lines.push.apply(lines, mergedItemLines(c)); });
   });
   return lines.join(nl);
@@ -1612,5 +1528,5 @@ function mergedCardHtml(comment) {
     + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml() + '</span>'
     + '<span class="mc-target">' + escapeHtml(commentTargetLabel(comment)) + '</span>'
     + '</div>'
-    + '<div class="mc-card-body">' + escapeHtml(comment.text) + '</div></div>';
+    + '<div class="mc-card-body">' + escapeHtml(commentBodyWithoutAnchor(comment)) + '</div></div>';
 }

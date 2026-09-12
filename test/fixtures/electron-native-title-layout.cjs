@@ -10,7 +10,6 @@ ${css}
 html, body { width: 1000px; height: 640px; overflow: hidden; }
 * { transition: none !important; }
 </style></head><body class="native-app sidebar-collapsed">
-  <nav class="activity-rail"><button id="rail-action" class="rail-btn" type="button">R</button></nav>
   <aside class="sidebar"><div id="sidebar-brand" class="sidebar-brand">Project</div><div class="sidebar-scroll"></div></aside>
   <main class="content">
     <section id="diff-view">
@@ -42,15 +41,9 @@ app.whenReady().then(async () => {
     const sidebarFocusTop = px(getComputedStyle(sidebar, '::after').top);
     const sidebarFocusOutline = getComputedStyle(sidebar).outlineStyle;
     sidebar.classList.remove('mc-panel-focus-flash');
-    const rail = document.querySelector('.activity-rail');
-    const railDisplay = getComputedStyle(rail).display;
-    rail.classList.add('mc-panel-focus-flash');
-    const railFocusOutline = getComputedStyle(rail).outlineStyle;
-    rail.classList.remove('mc-panel-focus-flash');
     document.body.classList.add('sidebar-collapsed');
     void document.body.offsetWidth;
     const reviewTitleLeft = document.getElementById('review-title').getBoundingClientRect().left;
-    const railActionTop = document.getElementById('rail-action').getBoundingClientRect().top;
 
     document.getElementById('history-view').classList.remove('hidden');
     const historyTitleLeft = document.getElementById('history-title').getBoundingClientRect().left;
@@ -68,10 +61,7 @@ app.whenReady().then(async () => {
       sidebarBrandTop,
       sidebarFocusTop,
       sidebarFocusOutline,
-      railFocusOutline,
-      railDisplay,
       reviewTitleLeft,
-      railActionTop,
       historyTitleLeft,
       historyBarHeight,
       dockTitleLeft,

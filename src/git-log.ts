@@ -1,5 +1,8 @@
 import { git, isCommitSha } from "./git.js";
-import { renderDiff2Html } from "./highlight.js";
+// diff2html + highlight.js are ~100ms of parse and are reached ONLY by the two commit-diff readers below,
+// which fire when the reader opens history (⌘9) — never on the way to first paint. Loading them on the first
+// such call is what keeps them out of the main process's cold start; Node caches the module after that.
+const renderDiff2Html = async (diffText: string): Promise<string> => (await import("./highlight.js")).renderDiff2Html(diffText);
 import { parseUnifiedDiff } from "./diff.js";
 
 // Per-file status map (displayPath -> "added"/"modified"/…) parsed from a unified diff, for the history
@@ -165,7 +168,7 @@ export function readGitBlame(root: string, requestedPath: string, revision?: str
 
 // Full detail for one commit: metadata, full message body, and the rendered diff (diff2html HTML).
 // Merge commits show no diff under plain `git show`; the renderer notes that case.
-export function readCommitDiff(root: string, sha: string): {
+export async function readCommitDiff(root: string, sha: string): Promise<{
   hash: string;
   author: string;
   email: string;
@@ -179,7 +182,7 @@ export function readCommitDiff(root: string, sha: string): {
   // back to "modified" client-side; that is a known, acceptable gap rather than a lookup crash.
   fileStatus: Record<string, string>;
   isMerge: boolean;
-} | null {
+} | null> {
   if (!sha || !isCommitSha(sha)) return null; // guard: only a hash reaches `git`
   const meta = git(root, ["show", "-s", "--decorate=full", `--pretty=format:%H${FS}%an${FS}%ae${FS}%ad${FS}%D${FS}%P${FS}%B`, "--date=iso-strict", sha]);
   if (!meta) return null;
@@ -194,7 +197,7 @@ export function readCommitDiff(root: string, sha: string): {
     date: f[3] || "",
     refs: f[4] || "",
     message: (f[6] || "").trim(),
-    diffHtml: renderDiff2Html(diffText),
+    diffHtml: await renderDiff2Html(diffText),
     fileStatus,
     isMerge: parents.length > 1,
   };
@@ -206,7 +209,7 @@ export function readCommitDiff(root: string, sha: string): {
 // work is already committed/merged and there is no working tree to compare against. Both args are commit
 // SHAs owned by the history snapshot; validate them before they reach git. Returns the same shape as
 // readCommitDiff (plus range fields) so the renderer can reuse the history diff workspace.
-export function readRangeDiff(root: string, oldSha: string, newSha: string): {
+export async function readRangeDiff(root: string, oldSha: string, newSha: string): Promise<{
   range: true;
   oldHash: string;
   newHash: string;
@@ -218,7 +221,7 @@ export function readRangeDiff(root: string, oldSha: string, newSha: string): {
   diffHtml: string;
   fileStatus: Record<string, string>;
   isMerge: false;
-} | null {
+} | null> {
   if (!isCommitSha(oldSha) || !isCommitSha(newSha)) return null;
   const oldMeta = git(root, ["show", "-s", `--pretty=format:%h${FS}%s`, oldSha]);
   const newMeta = git(root, ["show", "-s", `--pretty=format:%h${FS}%s`, newSha]);
@@ -238,7 +241,7 @@ export function readRangeDiff(root: string, oldSha: string, newSha: string): {
     oldSubject: oldFields[1] || "",
     newSubject: newFields[1] || "",
     count,
-    diffHtml: renderDiff2Html(diffText),
+    diffHtml: await renderDiff2Html(diffText),
     fileStatus,
     isMerge: false,
   };

@@ -4,7 +4,6 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { errorMessage, readOption } from "./util.js";
-import { runMcpServer } from "./mcp-server.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -16,12 +15,6 @@ export function main(): void {
   try {
     if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
       printHelp();
-      return;
-    }
-    // `kakapo mcp` is not a review — it is the stdio server an agent CLI spawns and talks JSON-RPC to
-    // (mcp-server.ts). It must print nothing but protocol on stdout, so it returns before anything else runs.
-    if (rawArgs[0] === "mcp") {
-      runMcpServer();
       return;
     }
     launchReviewApp(rawArgs);
@@ -122,19 +115,14 @@ function printHelp(): void {
 
 Usage:
   kakapo            open the review app for the current repository
-                    reuse the running app; focus the same worktree or open another
-  kakapo mcp        speak MCP on stdio, offering this review's vocabulary to an agent
-                    (what the Connect button in the ⌘⇧K map registers for you)
 
 Diff review keys:
   F7 / Shift+F7     next / previous changed hunk
   Cmd/Ctrl+0        focus the Changes panel (arrows + Enter to open a file)
-  Cmd/Ctrl+K / +N   toggle the workspace hub / create a managed worktree
-  Cmd/Ctrl+Alt+1–9  switch workspace
-  Shift Shift       file search across project files
   Cmd/Ctrl+F        search the open file (Enter / Shift+Enter to navigate)
-  Cmd/Ctrl+Shift+F  project-wide content search (file:line:column)
-  Cmd/Ctrl+E        recent files
+  Cmd/Ctrl+Shift+F  project search — its section rail also holds file search + recent files
+  Alt/Option+A / +U all changes on the branch / only what is not committed yet
+  Alt/Option+C      choose the branch those "all changes" are measured against
   Cmd/Ctrl+B        definition / usages (LSP first, regex fallback)
   Cmd/Ctrl+Down     jump to symbol under cursor
   Cmd/Ctrl+Alt+B    go to implementation

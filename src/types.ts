@@ -1,15 +1,3 @@
-export type FlowConfig = {
-  version: 1;
-  projectName: string;
-  verification: {
-    commands: string[];
-  };
-  diff: {
-    context: number;
-    includeUntracked: boolean;
-  };
-};
-
 export type GitSnapshot = {
   branch: string;
   status: string;
@@ -179,13 +167,6 @@ export type DiffReviewBuild = {
   // Diff-first startup: true when this build indexed ONLY the changed files (deferFullIndex was honored),
   // so the caller knows a second full-index pass is still owed to the renderer. False for a full build.
   fullIndexDeferred?: boolean;
-};
-
-export type VerificationRun = {
-  commands: string[];
-  failed: boolean;
-  skipped: boolean;
-  logPath?: string;
 };
 
 export type ReviewFileState = {

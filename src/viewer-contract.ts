@@ -12,7 +12,6 @@ export const REVIEW_ISLAND = {
   sourceFiles: "source-files-data",
   fileStates: "file-state-data",
   httpEnv: "http-env-data",
-  xterm: "xterm-code",
 } as const;
 
 export type ReviewIslandId = (typeof REVIEW_ISLAND)[keyof typeof REVIEW_ISLAND];

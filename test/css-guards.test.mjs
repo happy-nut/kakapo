@@ -39,21 +39,16 @@ test("diff stays scrollable for a single big file: .d2h-file-wrapper keeps flex-
 });
 
 test("a focused dock / settings overlay hides the file's blinking caret beneath it (single visible caret)", () => {
-  // A focused merged/memo dock (or the settings overlay) owns the only caret. jsdom has no :has() and no
+  // A focused merged dock (or the settings overlay) owns the only caret. jsdom has no :has() and no
   // layout, so guard the rule as text: the file's .code-cursor must be display:none while the dock has focus
   // (or settings is up), so two carets can never blink across visible panels ("커서는 보이는 패널 통틀어 하나만").
   assert.match(css, /body:has\(\.dock-panel:focus-within\)\s*\.code-cursor[\s\S]{0,200}display:\s*none/, "a focused dock hides the file caret");
   assert.match(css, /body:has\(#settings-modal:not\(\.hidden\)\)\s*\.code-cursor/, "settings overlay covered");
 });
 
-test("merged prompts and memo keep compact 24px content insets and clickable header controls", () => {
-  const host = ruleBodyForExactSelector(".mc-inline-editor-host");
-  assert.match(css, /\.dock-panel\s*\{\s*position:\s*fixed;[^}]*width:\s*min\(1048px,\s*calc\(100vw\s*-\s*48px\)\)/s, "the floating panel wraps the 920px document with 64px of padding per side");
-  assert.match(css, /\.dock-panel\s*\{\s*position:\s*fixed;[^}]*left:\s*50%/s, "the narrower writing panel stays centred");
-  assert.match(host || "", /width:\s*min\(920px,\s*calc\(100%\s*-\s*48px\)\)/, "the shared editor preserves its readable max width while leaving 24px on each side when constrained");
-  assert.match(host || "", /padding:\s*24px\s+0\s+64px/, "the shared editor starts 24px below the header");
-  const empty = ruleBodyForExactSelector('.mc-inline-editor-host[data-empty="true"]::before');
-  assert.match(empty || "", /top:\s*24px/, "an empty memo placeholder follows the same compact top inset");
+test("the merged dock is a centred floating panel with clickable header controls", () => {
+  assert.match(css, /\.dock-panel\s*\{\s*position:\s*fixed;[^}]*width:\s*min\(1048px,\s*calc\(100vw\s*-\s*48px\)\)/s, "the floating panel wraps the document with padding per side");
+  assert.match(css, /\.dock-panel\s*\{\s*position:\s*fixed;[^}]*left:\s*50%/s, "the panel stays centred");
   const dockButtons = ruleBodyForExactSelector(".dock-bar button");
   const activeDockButtons = ruleBodyForExactSelector(".dock-bar button:not(:disabled)");
   assert.match(dockButtons || "", /-webkit-app-region:\s*no-drag/, "every dock-header button remains interactive in Electron chrome");
@@ -61,9 +56,8 @@ test("merged prompts and memo keep compact 24px content insets and clickable hea
 });
 
 // The launcher is a modal keyboard scope: while it is up every key goes to it and menu accelerators are
-// suspended. So it has to be ABOVE everything it can be opened over — it sat below the terminal panel, and
-// Cmd+E with a terminal open produced an invisible modal that ate every keystroke (spaces included) and
-// killed every accelerator, with nothing on screen to explain why. Pin the ordering, not the numbers.
+// suspended. So it has to be ABOVE everything it can be opened over, or Cmd+E produces an invisible modal
+// that eats every keystroke with nothing on screen to explain why. Pin the ordering, not the numbers.
 test("the modal launcher paints above the surfaces it can be opened over", () => {
   // Not ruleBodyForExactSelector: it anchors on the previous rule's brace, and these rules are introduced by
   // a comment rather than by one.
@@ -76,7 +70,6 @@ test("the modal launcher paints above the surfaces it can be opened over", () =>
   };
   const quickOpen = zIndexOf(".quick-open");
   assert.ok(zIndexOf(".file-find") < quickOpen, "the current-file search is editor chrome, not a modal");
-  assert.ok(zIndexOf(".terminal-panel") < quickOpen, "a terminal never covers the dialog that owns the keyboard");
 });
 
 test("scrollbar thumbs remain layout-stable but only paint while scrolling", () => {
@@ -243,26 +236,10 @@ test("shared Markdown typography preserves readable paragraph rhythm", () => {
   assert.doesNotMatch(css, /\.md-cell\s*>\s*:last-child\s*\{[^}]*margin-bottom:\s*0/, "source block rows no longer erase every block's bottom margin");
 });
 
-test("packaged app reuses its top toolbars as compact draggable window chrome", () => {
-  assert.match(css, /body\s*\{[^}]*--rail-width:\s*36px/, "the activity rail uses the compact desktop width");
-  assert.match(css, /body\.native-app\s*\{[^}]*--native-titlebar-height:\s*40px/, "native title bar has one compact shared height");
-  assert.match(css, /body\.native-app\s*\{[^}]*--native-traffic-safe-width:\s*76px/, "native window buttons expose their occupied width");
-  assert.match(css, /body\.native-app\s*\{[^}]*--native-title-safe-left:\s*calc\(var\(--native-traffic-safe-width\)\s*\+\s*8px\)/, "full-viewport headers share one traffic-light safe inset");
-  assert.match(css, /body\.native-app\s*\{[^}]*--native-title-safe-after-rail:\s*calc\(var\(--native-traffic-safe-width\)\s*-\s*var\(--rail-width\)\s*\+\s*8px\)/, "headers beside the activity rail share the corresponding safe inset");
-  assert.match(css, /body\.native-app\s+\.activity-rail\s*\{[^}]*padding-top:\s*calc\(var\(--native-titlebar-height\)/, "traffic lights do not cover activity buttons");
-  assert.match(css, /body\.native-app\s+\.activity-rail\s*\{[^}]*border-right:\s*0/, "the full-height divider does not cross the traffic lights");
-  assert.match(css, /body\.native-app\s+\.activity-rail::after\s*\{[^}]*top:\s*var\(--native-titlebar-height\)/, "the rail divider starts below the native controls");
-  assert.match(css, /body\.native-app\s+\.activity-rail::before,[\s\S]{0,260}top:\s*calc\(var\(--native-titlebar-height\)\s*-\s*1px\)/, "the traffic-light divider shares the toolbar border's exact pixel");
-  assert.match(css, /\.rail-btn\s*\{[^}]*width:\s*28px;\s*height:\s*28px/, "activity buttons stay compact while retaining a click target");
-  assert.match(css, /\.rail-btn\s*>\s*svg\s*\{[^}]*width:\s*16px;\s*height:\s*16px/, "view icons match the smaller settings glyph");
-  assert.match(css, /body\.native-app\s+\.sidebar\s*\{[^}]*padding-top:\s*0/, "the sidebar no longer reserves a title-strip row — the shell window owns the title bar above this view");
-  assert.match(css, /body\.native-app\s+\.sidebar-scroll\s*\{[^}]*padding-top:\s*8px/, "the project tree keeps only its compact internal spacing");
-  assert.match(css, /body\.native-app\s+\.diff-toolbar,[\s\S]{0,180}-webkit-app-region:\s*drag/, "the existing review toolbar moves the window");
-  assert.match(css, /body\.native-app\s+\.diff-toolbar\s+button,[\s\S]{0,500}-webkit-app-region:\s*no-drag/, "toolbar actions remain clickable inside the drag region");
-  assert.match(css, /body\.native-app\.sidebar-collapsed\s+\.diff-toolbar,[\s\S]{0,240}padding-left:\s*var\(--native-title-safe-after-rail\)/, "a collapsed sidebar keeps breadcrumbs clear of traffic lights");
-  assert.match(css, /body\.native-app\s+\.history-bar\s*\{[^}]*padding-left:\s*var\(--native-title-safe-after-rail\)/, "History uses the shared traffic-light safe inset");
-  assert.match(css, /body\.native-app\.dock-maximized\s+\.dock-bar\s*\{[^}]*min-height:\s*var\(--native-titlebar-height\)[^}]*padding-left:\s*var\(--native-title-safe-left\)/, "maximized memo and merged-prompt headers reserve the native controls");
-  assert.match(css, /body\.native-app\.dock-maximized\s+\.dock-bar\s+button,[\s\S]{0,180}-webkit-app-region:\s*no-drag/, "maximized writing-panel actions stay clickable inside the draggable title row");
+// The activity rail and the integrated native title bar are gone; the window keeps a standard title bar and
+// the sidebar is the left-most column. What still has to hold is how that sidebar collapses.
+test("the sidebar collapses without blanking its contents or jumping its divider", () => {
+  assert.match(css, /body\s*\{[^}]*--rail-width:\s*0px/, "no rail column is reserved");
   assert.match(css, /\.sidebar-brand,\s*\.sidebar-scroll\s*\{[^}]*width:\s*var\(--sidebar-width,\s*264px\)/, "fixed header and scrolling contents keep their layout while the grid track closes");
   assert.doesNotMatch(css, /body\.sidebar-collapsed\s+\.sidebar\s*\{[^}]*visibility:\s*hidden/, "sidebar content is not blanked before the close animation finishes");
   assert.match(css, /\.sidebar-resizer\s*\{[^}]*transition:\s*left\s+180ms/, "the resize divider follows the collapsing track instead of jumping");
@@ -302,15 +279,6 @@ test("modern chrome uses one compact radius and elevation system without roundin
   assert.match(css, /\.source-tabs\s*\{[^}]*overflow:\s*hidden/, "overflowing file tabs are collected instead of exposing a horizontal scroller");
   assert.match(css, /\.source-tab-overflow\s*\{[^}]*flex:\s*0\s+0\s+44px/, "the N+ group reserves one stable compact tab width");
   assert.match(css, /\.settings-cat\.active\s*\{[^}]*box-shadow:\s*none/, "settings navigation follows the same full-surface selection language");
-});
-
-test("activity rail shortcut bubbles disappear when hover ends even if the button keeps focus", () => {
-  assert.match(css, /\.rail-btn:hover\s+\.rail-tip\s*\{[^}]*opacity:\s*1/, "pointer hover reveals the rail shortcut bubble");
-  assert.doesNotMatch(
-    css,
-    /\.rail-btn:focus-visible\s+\.rail-tip\s*\{[^}]*opacity:\s*1/,
-    "retained keyboard focus must not leave a shortcut bubble stuck over the project tree",
-  );
 });
 
 test("panel focus is a brief shared flash instead of a persistent native outline", () => {
@@ -387,73 +355,6 @@ test("diff comment composers stay pinned inside the working-tree viewport", () =
   assert.match(css, /\.mc-comment-spacer\s*\{[^}]*pointer-events:\s*none/, "the invisible paired slot never steals review input");
 });
 
-test("merged panel: a per-block prose region never inherits the memo's near-full-viewport min-height", () => {
-  // The bug: .mc-inline-editor (the base class every editor surface gets, including the memo's single
-  // full-page one) sets min-height: calc(90vh - 150px). The merged panel now mounts several SMALL per-block
-  // prose regions (each also carrying .mc-inline-editor) interleaved with comment cards — without an
-  // explicit override, every region was forced to ~90vh tall, blowing a huge blank gap between each
-  // contract heading and its first card (and pushing the rest of the document far below the fold).
-  const preview = ruleBodyContaining(".mc-merged-editor-host .mc-merged-preview");
-  assert.ok(preview, ".mc-merged-editor-host .mc-merged-preview rule must exist");
-  assert.match(preview, /min-height:\s*0\b/, "the fix: each merged-panel prose region must reset min-height to 0, not inherit ~90vh from .mc-inline-editor");
-});
-
-test("merged panel: the editor host itself never inherits the memo's full-panel min-height", () => {
-  // The bug: .mc-inline-editor-host (shared with the single full-page memo editor) sets min-height: 100%,
-  // forcing the merged panel's host to the full panel height even once its actual (much shorter) content
-  // fits comfortably. The extra space is invisible until scrollIntoView/arrow navigation scrolls down far
-  // enough to reveal it as a sudden gap below the real content.
-  const host = ruleBodyContaining(".mc-inline-editor-host.mc-merged-editor-host");
-  assert.ok(host, ".mc-inline-editor-host.mc-merged-editor-host rule must exist");
-  assert.match(host, /min-height:\s*0\b/, "the fix: the merged panel's host must reset min-height to 0, not inherit 100% from .mc-inline-editor-host");
-});
-
-// The shell window owns the title bar and traffic lights ABOVE this view (workspace views are inset at
-// TITLEBAR_H, app-main.ts), so a title-strip reservation here reserved nothing — it only left the review's
-// own brand + breadcrumb row peeking over the open terminal.
-test("the integrated terminal covers this view edge to edge", () => {
-  const panel = ruleBodyContaining(".terminal-panel");
-  assert.ok(panel, ".terminal-panel rule must exist");
-  assert.match(panel, /inset:\s*0\b/, "the panel fills the viewport");
-  assert.doesNotMatch(
-    css,
-    /body\.native-app\s+\.terminal-panel/,
-    "no native-app override may push the terminal below a title strip this view does not own",
-  );
-});
-
-// A memo is a page you write on, not an article you publish. .markdown-body's article rhythm (1.75 line
-// height, a blank line under every paragraph) turned a page of short notes into islands with more gap than
-// text. The memo tightens both — and has to do it with enough specificity to win: at equal specificity the
-// later rule wins, and .markdown-body's own paragraph margins are declared further down the file.
-test("the memo writes tighter than an article, and its rules actually win", () => {
-  // Introduced by a comment rather than a preceding brace, so read it directly.
-  const at = css.indexOf("\n.mc-memo-body .mc-inline-editor {");
-  assert.ok(at >= 0, "the memo scopes its own typography");
-  const editor = css.slice(at, css.indexOf("}", at));
-  assert.match(editor, /line-height:\s*1\.5/, "consecutive lines read as one thought");
-
-  const paragraphRule = css.slice(css.indexOf(".mc-memo-body .mc-inline-editor p"));
-  const margin = /margin-bottom:\s*\.?(\d*\.?\d+)em/.exec(paragraphRule.slice(0, 400));
-  assert.ok(margin, "paragraphs declare their own bottom margin");
-  assert.ok(Number("0" + margin[0].replace(/[^\d.]/g, "")) < 1.1,
-    "and it is tighter than the article rhythm it overrides");
-  // The override only works because it carries a second class; .markdown-body p would otherwise win on order.
-  assert.ok(css.includes(".mc-memo-body .mc-inline-editor p"), "scoped by the memo, not by .mc-inline-editor alone");
-});
-
-// One rule per property per selector — the cascade must not be where a visual decision hides (issue #30).
-//
-// viewer.css grew two global layers on top of its original rules: the --chrome-* application palette and the
-// --ui-* radius/shadow pass. Neither is conditional, so wherever they name a selector the ORIGINAL rule's
-// declaration for that property was already dead — it just still looked live. Editing the first one you find
-// then changes nothing, silently, and only in the surfaces the later layer claimed: exactly how a status chip
-// kept its blue background in the packaged app after the web rule was fixed.
-//
-// So: a top-level declaration may not be re-set by a LATER rule with the same selector. Same selector means
-// the same elements and the same specificity, so the later one always wins and the earlier one is a lie.
-// (A later rule inside @media, or one whose selector list only partly overlaps, is a real override and is
-// not counted here — those are the cases a human is meant to see and comment.)
 test("no rule sets a property that a later rule with the same selector sets again", () => {
   const blanked = css.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "));
   const rules = [];

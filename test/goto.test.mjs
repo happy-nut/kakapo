@@ -85,8 +85,10 @@ test("the tree's terminal row cds the integrated terminal, and clears a file's c
   await v.settle(40);
 
   const opened = [];
-  v.window.__kakapoTerminal = { openAt: (dir) => opened.push(dir) };
-  v.window.kakapoApp = { absolutePath: async (p) => ({ ok: true, path: `/repo/${p}` }) };
+  v.window.kakapoApp = {
+    absolutePath: async (p) => ({ ok: true, path: `/repo/${p}` }),
+    openTerminal: (p) => opened.push(p),
+  };
 
   const row = v.$('.file-link[data-source-file="src/app.ts"]') || v.$(".file-link[data-source-file]");
   v.window.openTreeRowMenu(row);
@@ -94,7 +96,7 @@ test("the tree's terminal row cds the integrated terminal, and clears a file's c
   const terminalItem = Array.from(v.$("#mc-dropdown").querySelectorAll("button")).find((b) => /Terminal/.test(b.textContent));
   terminalItem.click();
   await v.settle(30);
-  assert.deepEqual(opened, ["/repo/src"], "it cds to the folder holding the file, not to the file");
+  assert.deepEqual(opened, ["src/app.ts"], "the OS terminal is asked to open where that file lives");
 
   // Clearing rides removeComments, so one Cmd/Ctrl+Z brings the whole batch back — which is why it asks
   // nothing first. The row is offered only when the file actually has comments.

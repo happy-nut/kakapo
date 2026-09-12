@@ -13,7 +13,6 @@ test("package, launcher, documentation, and source use the Kakapo identity exclu
   assert.equal(pkg.name, "@happy-nut/kakapo");
   assert.deepEqual(pkg.bin, { kakapo: "bin/kakapo.js" });
   assert.equal(existsSync(join(root, "bin", "kakapo.js")), true);
-  assert.equal(existsSync(join(root, "assets", "kakapo-core-flow.gif")), true);
   assert.equal(existsSync(join(root, "assets", "icon-ui-source.png")), true, "the isolated Kakapo glyph source is shipped");
   assert.equal(existsSync(join(root, "assets", "icon-ui.png")), true, "the UI derivative of the app icon is shipped");
 
@@ -50,14 +49,8 @@ test("visible product labels and wait states reuse the real Kakapo icon", async 
   ], { app: true });
   assert.match(html, /id="boot-overlay"[^>]*>.*kakapo-loader-boot.*kakapo-mark/s, "review boot uses the animated parrot");
   assert.match(html, /class="settings-nav-brand"[^>]*>.*kakapo-mark/s, "settings nav header reuses the same icon");
-  // The app's own version lives once, at the foot of the workspace rail — see #railver in shell-pages.ts.
-  // In the static export there is no rail, so the review's sidebar header keeps it there instead.
-  const shellPage = readFileSync(join(root, "src", "shell-pages.ts"), "utf8");
-  assert.match(shellPage, /id="railver"[^>]*>\$\{kakapoIconHtml\("kakapo-mark"\)\}/, "the rail's version is an icon plus number");
-  // Collapsed (46px) the download gauge re-shows #railver — but only the mark: with the version text along,
-  // the row overflowed the rail and shoved half the mark out of view for the whole download.
-  assert.match(shellPage, /body:not\(\.rail-exp\) #railver\.is-updating span:not\(\.kakapo-mark\)\{display:none\}/,
-    "the collapsed download gauge hides the version text beside the mark");
+  // In the app the version lives in Settings' About card; the static export puts it in the sidebar header.
+  assert.match(html, /class="settings-row-label">Kakapo v/, "the app states its version in Settings");
   const exported = (await makeReviewHtml([
     { path: "src/app.ts", before: "export const value = 1;\n", after: "export const value = 2;\n" },
   ], { app: false })).html;

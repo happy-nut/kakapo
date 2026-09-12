@@ -27,95 +27,6 @@ test("merged view opens as a focused floating panel (.dock-panel + backdrop), no
   v.close();
 });
 
-test("memo toggles open then closed with its shortcut", async () => {
-  const v = await loadViewer(html);
-  await v.openMemo();
-  assert.ok(v.$("#mc-memo-panel.dock-panel"), "memo dock open");
-  await v.openMemo();
-  assert.equal(v.$("#mc-memo-panel"), null, "a second press closes it (toggle)");
-  v.close();
-});
-
-test("opening one dock closes the other (exclusive slot)", async () => {
-  const v = await loadViewer(html);
-  await v.openMergedView();
-  assert.ok(v.$("#mc-merged-panel"), "merged open");
-  await v.openMemo();
-  assert.ok(v.$("#mc-memo-panel"), "memo open");
-  assert.equal(v.$("#mc-merged-panel"), null, "merged closed when the memo took the slot");
-  v.close();
-});
-
-test("the worktree memo restores as one inline-rendered Markdown document and autosaves", async () => {
-  const now = new Date().toISOString();
-  const v = await loadViewer(html, {
-    memoBridge: {
-      version: 1,
-      worktreePath: "/repo/worktrees/feature-a",
-      body: "# Plan\n\nA real paragraph.",
-      updatedAt: now,
-    },
-  });
-  await v.openMemo();
-  const editor = v.$("#mc-memo-panel .mc-inline-editor.markdown-body");
-  assert.equal(editor.querySelector("h1")?.textContent, "Plan", "stored Markdown opens already rendered in the editable surface");
-  assert.equal(v.$("#mc-memo-panel .mc-memo-preview"), null, "there is no side preview pane");
-  assert.equal(v.$("#mc-memo-panel .mc-memo-sidebar"), null, "a single memo needs no note list");
-
-  v.typeInto(editor, "Updated inline memo");
-  await v.settle(260);
-  assert.ok(v.window.__memoOperations.some((op) => op.kind === "write" && /Updated inline memo/.test(op.body)), "the edit autosaves through the app-data bridge");
-  v.close();
-});
-
-test("opening and closing an unchanged note does not rewrite or reorder it", async () => {
-  const now = new Date().toISOString();
-  const v = await loadViewer(html, {
-    memoBridge: { version: 1, worktreePath: "/repo/wt", body: "No edit", updatedAt: now },
-  });
-  await v.openMemo();
-  await v.openMemo();
-  await v.settle(30);
-  assert.equal(v.window.__memoOperations.length, 0, "no CRUD call is made when content did not change");
-  v.close();
-});
-
-test("the single Markdown memo can be cleared without a note-list workflow", async () => {
-  const v = await loadViewer(html, { memoBridge: { version: 1, worktreePath: "/repo/wt", body: "Delete me", updatedAt: new Date().toISOString() } });
-  await v.openMemo();
-  v.$(".mc-memo-delete").click();
-  await v.settle(20);
-  assert.equal(v.$(".mc-inline-editor").textContent.trim(), "");
-  assert.deepEqual(v.window.__memoOperations.map((op) => op.kind), ["delete"]);
-  v.close();
-});
-
-test("merged prompts render as one sanitized Markdown document instead of a side-by-side preview", async () => {
-  const v = await loadViewer(html);
-  v.window.addComment("q", "src/app.ts", 1, "", "why this change?"); // a section with no open comments renders no heading at all
-  await v.openMergedView();
-  const preview = v.$("#mc-merged-panel .mc-merged-preview.markdown-body");
-  assert.ok(preview, "the merged prompt has one rendered document");
-  assert.ok(preview.querySelector("p"), "the question contract is rendered as Markdown, not raw text");
-  assert.equal(preview.querySelector("script"), null, "the shared sanitizer remains active");
-  assert.equal(v.$("#mc-merged-panel textarea"), null, "no raw source pane competes with the rendered document");
-  v.close();
-});
-
-test("the merged prompt reuses the inline Markdown editor and Copy all reflects live edits", async () => {
-  const v = await loadViewer(html);
-  let copied = null;
-  v.window.kakapoClipboard = { write: (text) => { copied = text; } };
-  await v.openMergedView();
-  const editor = v.$("#mc-merged-panel .mc-inline-editor.mc-merged-preview[contenteditable='true']");
-  assert.ok(editor, "the merged prompt is the same inline-editable surface as the memo");
-  v.typeInto(editor, "Edited handoff prompt");
-  v.$("#mc-merged-panel .mc-copy-all").click();
-  await v.settle(20);
-  assert.match(copied, /Edited handoff prompt/, "Copy all uses the current edited document, not the initial snapshot");
-  v.close();
-});
-
 test("Cmd/Ctrl+Shift+' maximizes the active dock and restores it (toggle)", async () => {
   const v = await loadViewer(html);
   await v.openMergedView();
@@ -156,17 +67,18 @@ test("closing a maximized dock clears the maximized state", async () => {
 // A key the dock claimed is the dock's alone. ⌥⏎ closes the panel synchronously on its way out, so by the
 // time it reached the window keymap "a dock is focused" was already false — and a file left selected in the
 // ⌘0 Changes tree answered the same keystroke by popping its row menu.
-test("⌥⏎ in the merged dock hands off the document without also opening the focused tree row's menu", async () => {
+test("the merged dock copies the document without also opening the focused tree row's menu", async () => {
   const v = await loadViewer(html);
-  v.window.__kakapoTerminal = { enterSendMode() {} };
+  let copied = null;
+  v.window.kakapoClipboard = { write: (text) => { copied = text; return true; } };
+  v.window.addComment("q", "src/app.ts", 1, "", "why this change?");
   await v.openDiffFor("src/app.ts");
   v.window.focusTree(v.window.treeRows().findIndex((row) => row.dataset.file)); // a FILE selected in the ⌘0 Changes panel
   await v.openMergedView();
   await v.settle(20);
-  v.$("#mc-merged-panel").dispatchEvent(new v.window.KeyboardEvent("keydown", {
-    key: "Enter", altKey: true, bubbles: true, cancelable: true,
-  }));
+  v.$("#mc-merged-panel .mc-copy-all").click();
   await v.settle(30);
-  assert.equal(v.$("#mc-dropdown"), null, "no tree row menu behind the hand-off");
+  assert.match(copied || "", /why this change\?/, "the comment leaves the panel");
+  assert.equal(v.$("#mc-dropdown"), null, "and no tree row menu opens behind it");
   v.close();
 });

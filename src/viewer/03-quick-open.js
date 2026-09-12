@@ -13,40 +13,27 @@ function setQuickOpenOwnsEditKeys(owns) {
     window.kakapoApp.setIgnoreMenuShortcuts(!!owns);
   }
 }
-// The sections that live INSIDE this dialog. The rail's other two entries (review comments, memo) are docks
-// with their own panels — the user asked for them to be reachable here, not embedded — so they just open and
-// dismiss the launcher.
-var QUICK_LAUNCHER_MODES = ['recent', 'prompts'];
-
-// When the Recent panel last opened — the late-Shift ⌘⇧E detection in handleQuickOpenKey reads it.
-var quickRecentOpenedAt = 0;
+// The sections that live INSIDE this dialog. The other entries (review comments, history) are panels of
+// their own — reachable here, not embedded — so they just open and dismiss the launcher.
+var QUICK_LAUNCHER_MODES = ['recent', 'all', 'content'];
 function openQuickOpen(mode) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
   setQuickOpenOwnsEditKeys(true);
   quickMode = mode;
-  if (mode === 'recent') quickRecentOpenedAt = Date.now();
   quickModeLabel.textContent = mode === 'recent'
     ? t('quickopen.recent')
-    : mode === 'prompts'
-      ? t('promptPalette.title')
-      : mode === 'content'
-        ? t('quickopen.findInFiles')
-        : mode === 'symbol'
-          ? t('quickopen.workspaceSymbols')
-          : t('quickopen.searchFiles');
+    : mode === 'content'
+      ? t('quickopen.findInFiles')
+      : mode === 'symbol'
+        ? t('quickopen.workspaceSymbols')
+        : t('quickopen.searchFiles');
   quickInput.setAttribute('placeholder', mode === 'symbol' ? t('quickopen.workspaceSymbols') : mode === 'content' ? t('quickopen.findInFiles') : t('quickopen.searchFiles'));
   quickOpen.classList.remove('hidden');
   // Recent files needs no search box — it's just the latest files. Hide the input and let typed letters
   // narrow the list (IntelliJ-style speed search); the global keydown routes keys to handleQuickOpenKey.
-  // Prompts has no search box either, so it borrows quick-recent's "input hidden, letters filter" chrome.
-  quickOpen.classList.toggle('quick-recent', mode === 'recent' || mode === 'prompts');
+  quickOpen.classList.toggle('quick-recent', mode === 'recent');
   quickOpen.classList.toggle('quick-content', mode === 'content');
   quickOpen.classList.toggle('quick-launcher', QUICK_LAUNCHER_MODES.indexOf(mode) >= 0);
-  // One surface at a time: the launcher covers the whole view, and a terminal left open underneath it is a
-  // shell you are still typing into but cannot see. Put it away — the rail's Terminal row brings it back,
-  // as does Ctrl+`, and the panes are untouched either way.
-  var terminalApi = window.__kakapoTerminal;
-  if (terminalApi && typeof terminalApi.isOpen === 'function' && terminalApi.isOpen()) terminalApi.close();
   syncQuickLauncherRail();
   syncContentSearchControls();
   recentFilter = '';
@@ -58,7 +45,7 @@ function openQuickOpen(mode) {
   // The first real file-name query requests the deferred index in renderQuickOpenResults().
   // Picking a section is done with the rail: focus goes to the section's own panel, whether the pick came from
   // a click or from Enter on the rail. Arrows then move in the list, ArrowLeft steps back to the rail.
-  if (mode === 'recent' || mode === 'prompts') { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
+  if (mode === 'recent') { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
   else setTimeout(() => quickInput.focus(), 0);
 }
 
@@ -80,12 +67,11 @@ document.getElementById('quick-open-side')?.addEventListener('click', function (
     return;
   }
   closeQuickOpen();
-  if (section === 'memo') openMemoView();
-  // The terminal is toggled by id, not by a data-view button like the rest.
-  else if (section === 'terminal') document.getElementById('terminal-toggle')?.click();
-  // Everything else is a view with a rail button behind it: click that, so the launcher opens it by exactly
-  // the path the shortcut and the title bar already use rather than by a second copy of the same logic.
-  else document.querySelector('.rail-btn[data-view="' + section + '"]')?.click();
+  // Every other row owns a panel of its own. These used to be dispatched by clicking the matching activity-rail
+  // button; the rail is gone, so the row calls the panel directly — a row that quietly opened nothing is worse
+  // than no row at all. Blur first: the launcher is closing, and its own row must not keep the keyboard.
+  if (button.blur) button.blur();
+  if (section === 'history') openHistory();
 });
 // Title-row indicator for the Recent speed-search: the typed letters, or a muted "type to filter" hint.
 function updateRecentFilterDisplay() {
@@ -131,17 +117,6 @@ document.addEventListener('mousedown', function (event) {
 }, true);
 
 function handleQuickOpenKey(event) {
-  // A ⌘⇧E rolled too fast: Shift landed a beat after the E, so plain ⌘E fired and opened this dialog the
-  // reviewer never asked for. ⌘ still held plus Shift arriving right after the open IS the chord they
-  // meant — close the accident and hand the gesture to the rail (the ⌘⇧E menu action). The window is kept
-  // tight so a held-down E cannot repeat with Shift and toggle the rail straight back.
-  if (event.key === 'Shift' && (event.metaKey || event.ctrlKey) && quickMode === 'recent'
-    && Date.now() - quickRecentOpenedAt < 350) {
-    event.preventDefault();
-    closeQuickOpen();
-    if (window.kakapoMenu && typeof window.kakapoMenu.railToggleExpand === 'function') window.kakapoMenu.railToggleExpand();
-    return true;
-  }
   var sideItem = focusedQuickSideItem();
   if (sideItem) {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -232,7 +207,6 @@ function renderQuickOpenResults() {
   // Recent mode filters its own list by the typed speed-search string; other modes use the search box.
   const isRecent = quickMode === 'recent';
   const rawQuery = (isRecent ? recentFilter : (quickInput?.value || '')).trim();
-  if (quickMode === 'prompts') { renderPromptSection(); return; }
   if (quickMode === 'content') { renderContentSearchResults(rawQuery); return; }
   if (quickMode === 'symbol') { renderWorkspaceSymbolResults(rawQuery); return; }
   if (!isRecent && !rawQuery) {
@@ -570,9 +544,7 @@ function renderQuickPreview(item) {
   if (!preview) return;
   const previewSeq = ++quickPreviewSeq;
   quickPreviewState = null;
-  // A prompt is not a file: it has no path to preview, and the pane was rendering its id ("codebase") as
-  // though it were one. The card already says everything there is to say about a prompt.
-  if (!item || item.kind === 'prompt') { preview.innerHTML = ''; return; }
+  if (!item) { preview.innerHTML = ''; return; }
   const file = sourceByPath.get(item.path);
   if (!file || !file.embedded) {
     preview.innerHTML = item.kind === 'search'
@@ -688,45 +660,8 @@ function handleQuickPreviewScroll(event) {
 
 document.getElementById('quick-open-preview')?.addEventListener('scroll', handleQuickPreviewScroll, { passive: true });
 
-// Prompts section: the saved agent prompts, sent to the terminal composer on Enter. The list itself comes
-// from promptPaletteEntries() (24-prompt-palette.js), which stays the one definition of what a prompt is.
-function renderPromptSection() {
-  // The card says WHEN to reach for a prompt, not what it says. You are picking between two or three of
-  // them; the first line of the prompt text is the least useful thing to compare — they all open the same
-  // way. The text itself is editable in Settings, which is where reading it belongs.
-  quickItems = promptPaletteEntries().map(function (entry) {
-    return { kind: 'prompt', path: entry.id, name: entry.title, detail: entry.when || '', prompt: entry };
-  });
-  quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
-  if (!quickItems.length) {
-    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('promptPalette.title')) + '</div>';
-    renderQuickPreview(null);
-    return;
-  }
-  quickResults.innerHTML = quickItems.map(function (item, index) {
-    return '<button type="button" class="quick-open-item quick-open-prompt' + (index === quickActive ? ' active' : '') + '" data-index="' + index + '">'
-      + '<span class="quick-open-prompt-name">' + escapeHtml(item.name) + '</span>'
-      + '<span class="quick-open-prompt-when">' + escapeHtml(item.detail) + '</span>'
-      + '<span class="quick-open-prompt-go">' + escapeHtml(t('promptPalette.hint')) + '</span></button>';
-  }).join('');
-  renderQuickPreview(null);
-}
-
 function openQuickItem(item) {
   if (!item) return;
-  // A prompt is not a file: hand it to the terminal's send mode (staged in the composer, never executed
-  // behind the user's back) exactly as the standalone ⌘⇧P palette used to.
-  if (item.kind === 'prompt') {
-    closeQuickOpen();
-    var text = item.prompt && typeof item.prompt.text === 'function' ? item.prompt.text() : (item.prompt && item.prompt.text);
-    // Before the text goes: a prompt that starts something (an explain run) says so here, so the receiving
-    // side can tell this run's notes from the last one's (promptPaletteEntries, 24-prompt-palette.js).
-    // A prompt that starts something says so here — and may refuse. Explain refuses when the review has no
-    // changed files: better a line saying so now than an agent coming back with nothing in ten seconds.
-    if (text && item.prompt && typeof item.prompt.onSend === 'function' && item.prompt.onSend() === false) return;
-    if (text) runPrompt(item.prompt, text);
-    return;
-  }
   closeQuickOpen();
   rememberRecent(item.path, item.kind);
   if ((item.kind === 'search' || item.kind === 'symbol') && sourceByPath.has(item.path)) {

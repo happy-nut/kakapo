@@ -66,12 +66,18 @@ test("the Changes list groups files into a collapsible folder tree", async () =>
   v.close();
 });
 
-test("macOS Electron review markup opts into integrated native window chrome", async () => {
+// The activity rail is gone and `native-app` (which reserved room for an integrated title bar the shell
+// window used to draw) goes with it: the window keeps a standard title bar, and the sidebar — with its own
+// Changes/Files tabs and a bottom toolbar — is the left-most column.
+test("the review has no activity rail and no native title-bar layout", async () => {
   const { html: appHtml } = await makeReviewHtml([
     { path: "src/app.ts", before: "export const x = 1;\n", after: "export const x = 2;\n" },
   ], { app: true });
   const v = await loadViewer(appHtml);
-  assert.equal(v.document.body.classList.contains("native-app"), process.platform === "darwin");
+  assert.equal(v.document.body.classList.contains("native-app"), false);
+  assert.equal(v.$(".activity-rail"), null, "no rail is rendered");
+  assert.ok(v.$(".tabs .tab[data-tab=\"changes\"]"), "the sidebar carries the Changes/Files switch instead");
+  assert.ok(v.$(".sidebar-tools #app-info-btn"), "and the bottom toolbar carries Settings");
   v.close();
 });
 
@@ -223,12 +229,11 @@ test("markdown opens rendered as sparse, line-numbered blocks", async () => {
   v.close();
 });
 
-test("source documents and merged prompts ship one audited Markdown renderer", () => {
+test("source documents and agent answers ship one audited Markdown renderer", () => {
   const js = readFileSync(new URL("../dist/viewer.client.js", import.meta.url), "utf8");
   assert.match(js, /markdown-it 14\.3\.0/, "the open-source parser is embedded in the viewer bundle");
   assert.match(js, /DOMPurify 3\.\d+\.\d+/, "the audited sanitizer is embedded beside the parser");
   assert.match(js, /function renderMarkdownHtml\(/, "read-only document surfaces share the common rendering entry point");
-  assert.match(js, /kakapo-asset:\/\/app\/markdown-editor\.js/, "the inline memo editor is loaded only on demand");
   assert.doesNotMatch(js, /function renderInlineMd\(/, "the old regex-only Markdown renderer is gone");
 });
 
@@ -627,6 +632,20 @@ test("F7/F8 hand the sidebar's focus back to the code, including the DOM focus a
   }
 });
 
+// REGRESSION: the file tree was collapsed on every cold start. 05-keymap calls showDiffView() at boot, which
+// syncs the sidebar — and the two collapse flags are `var`s declared in the LATER 09-views-update slice, so
+// that first sync read them hoisted-but-unassigned. classList.toggle(name, undefined) treats the second
+// argument as absent and FLIPS, switching the class on. Nothing turned it back until something toggled the
+// sidebar, so kakapo opened with no tree and no explanation.
+test("the file tree is open on the first paint, not collapsed by the boot sync", async () => {
+  const v = await loadViewer(html);
+  assert.equal(v.window.document.body.classList.contains("sidebar-collapsed"), false,
+    "a freshly loaded review shows its sidebar");
+  const sidebar = v.$(".sidebar");
+  assert.ok(sidebar && !sidebar.hasAttribute("inert"), "and it is reachable, not inert");
+  v.close();
+});
+
 test("Cmd+0 focuses Changes from content, then toggles its sidebar without losing the diff", async () => {
   const v = await loadViewer(html);
   await v.openDiffFor("src/app.ts");
@@ -740,7 +759,7 @@ test("merged view: Enter navigates to that exact location and an edit there pers
   v.close();
 });
 
-test("merged view: ArrowDown/ArrowUp step between comment cards, and out of the prose editor above them", async () => {
+test("merged view: ArrowDown/ArrowUp step between comment cards", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(0);
@@ -754,17 +773,7 @@ test("merged view: ArrowDown/ArrowUp step between comment cards, and out of the 
 
   const cards = v.$all(".mc-merged-card");
   assert.equal(cards.length, 2, "both comments render as cards");
-  const proseEditor = v.$(".mc-merged-preview");
-  // Place the caret at the true end of the prose editor's content — only from there does ArrowDown have
-  // nowhere left to go within the editor itself, matching a real "last line of the contract text" caret.
-  const endRange = v.document.createRange();
-  endRange.selectNodeContents(proseEditor);
-  endRange.collapse(false);
-  const proseSelection = v.window.getSelection();
-  proseSelection.removeAllRanges();
-  proseSelection.addRange(endRange);
-  proseEditor.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-  assert.ok(cards[0].classList.contains("selected"), "ArrowDown out of the prose editor selects the first card");
+  assert.ok(cards[0].classList.contains("selected"), "the first card is selected when the panel opens");
 
   cards[0].dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
   assert.ok(cards[1].classList.contains("selected"), "ArrowDown moves to the next card");
@@ -960,45 +969,22 @@ test("after a commit removes the open diff file, a watch update lands on the new
   v.close();
 });
 
-test("activity rail: icons navigate views, show shortcut tooltips, and reflect the active view", async () => {
+test("the sidebar tabs navigate views and reflect the active one", async () => {
   const v = await loadViewer(html, { menuBridge: true });
-  const rail = v.$(".activity-rail");
-  assert.ok(rail, "the activity rail is rendered");
-  // Every navigable icon carries a shortcut in its hover tooltip (the IntelliJ-style nudge).
-  const views = v.$all(".activity-rail .rail-btn[data-view]").map((b) => b.dataset.view);
-  for (const view of ["changes", "files", "merged", "memo"]) {
-    assert.ok(views.includes(view), `rail has a ${view} icon`);
-  }
-  assert.ok(
-    v.$all(".activity-rail .rail-btn .rail-tip kbd").every((k) => k.textContent.trim().length > 0),
-    "each rail tooltip names a shortcut",
-  );
-  assert.ok(v.$("#app-info-btn > svg"), "Settings uses the same SVG icon system as every other rail action");
-  assert.equal(v.$("#app-info-btn .rail-gear"), null, "the optically smaller Unicode gear is gone");
+  assert.ok(v.$(".tabs"), "the sidebar carries the view switch");
+  assert.ok(v.$(".sidebar-tools #app-info-btn > svg"), "Settings sits in the bottom toolbar with an SVG icon");
 
-  // Click navigates and the clicked icon becomes the active one.
-  v.click(v.$('.activity-rail [data-view="changes"]'));
+  v.click(v.$('.tabs .tab[data-tab="changes"]'));
   await v.settle(60);
-  assert.equal(v.visibleView(), "diff", "Changes icon shows the diff view");
-  assert.ok(v.$('.activity-rail [data-view="changes"]').classList.contains("is-active"), "Changes icon is active");
+  assert.equal(v.visibleView(), "diff", "Changes shows the diff view");
+  assert.ok(v.$('.tabs .tab[data-tab="changes"]').classList.contains("active"), "Changes is active");
 
-  v.click(v.$('.activity-rail [data-view="files"]'));
+  v.click(v.$('.tabs .tab[data-tab="files"]'));
   await v.settle(60);
-  assert.equal(v.$("#files-panel").classList.contains("hidden"), false, "Files icon reveals the files panel");
-  assert.ok(v.$('.activity-rail [data-view="files"]').classList.contains("is-active"), "Files icon is active");
-
-  // Memo icon toggles the dock and lights/clears its own icon.
-  v.click(v.$('.activity-rail [data-view="memo"]'));
-  await v.settle(60);
-  assert.ok(v.$("#mc-memo-panel"), "Memo icon opens the memo dock");
-  assert.ok(v.$('.activity-rail [data-view="memo"]').classList.contains("is-active"), "Memo icon is active while open");
-  v.click(v.$('.activity-rail [data-view="memo"]'));
-  await v.settle(60);
-  assert.equal(v.$("#mc-memo-panel"), null, "clicking Memo again closes the dock");
-  assert.equal(v.$('.activity-rail [data-view="memo"]').classList.contains("is-active"), false, "Memo icon clears");
+  assert.equal(v.$("#files-panel").classList.contains("hidden"), false, "Files reveals the files panel");
+  assert.ok(v.$('.tabs .tab[data-tab="files"]').classList.contains("active"), "Files is active");
   v.close();
 });
-
 test("sidebar shows the current git branch", async () => {
   const v = await loadViewer(html);
   const chip = v.$(".brand-branch");
@@ -1104,12 +1090,13 @@ test("Cmd+1 focuses Files from content, then toggles its sidebar while preservin
   assert.ok(v.$(".source-link.tree-focus"), "expanding restores Files keyboard navigation");
   assert.equal(v.$("#source-viewer").dataset.openPath, "src/app.ts", "toggling never replaces the open file");
 
-  v.click(v.$('.activity-rail [data-view="files"]'));
+  // The sidebar tab is the pointer half of this key, so it collapses and expands the same way.
+  v.click(v.$('.tabs .tab[data-tab="files"]'));
   await v.settle(60);
-  assert.ok(v.window.document.body.classList.contains("sidebar-collapsed"), "Files icon uses the same collapse behavior");
-  v.click(v.$('.activity-rail [data-view="files"]'));
+  assert.ok(v.window.document.body.classList.contains("sidebar-collapsed"), "the Files tab uses the same collapse behavior");
+  v.click(v.$('.tabs .tab[data-tab="files"]'));
   await v.settle(60);
-  assert.equal(v.window.document.body.classList.contains("sidebar-collapsed"), false, "Files icon expands it again");
+  assert.equal(v.window.document.body.classList.contains("sidebar-collapsed"), false, "the Files tab expands it again");
   v.close();
 });
 
@@ -1316,7 +1303,7 @@ test("merged view copies grounded evidence via Copy all", async () => {
   await v.writeAndSave("shipit");
   v.key("?", { metaKey: true }); // Cmd+? → merged view
   await v.settle(80);
-  assert.ok(v.$(".mc-merged-preview"), "merged view renders");
+  assert.ok(v.$("#mc-merged-panel"), "merged view renders");
   const copyAll = v.$(".mc-copy-all");
   assert.ok(copyAll, "the review handoff exposes a Copy all action");
   copyAll.click();
@@ -1517,8 +1504,7 @@ test("a sidebar click still keeps the sidebar's own focus", async () => {
 });
 
 // The window-level shortcuts (merged view, memo, prompts, History, Explain, Changes/Files, undo)
-// belong to the WINDOW, not to whatever has focus — that is why they fire from a focused dock or terminal
-// too. Scope is decided once (keyboardScope) and each shortcut is a row in one table, so the rule is
+// belong to the WINDOW, not to whatever has focus — that is why they fire from a focused dock too. Scope is decided once (keyboardScope) and each shortcut is a row in one table, so the rule is
 // readable in one place instead of being re-derived per branch: the old chain carried eight hand-written
 // `!settingsUp &&` guards, and whether a new shortcut landed above or below the focus guard was a coin toss.
 test("window-level shortcuts are one table with one scope rule, and a modal is what stands them down", () => {
@@ -1531,16 +1517,15 @@ test("window-level shortcuts are one table with one scope rule, and a modal is w
 
   const table = keymap.match(/var WINDOW_SHORTCUTS = \[[\s\S]*?\n\];/)?.[0];
   assert.ok(table, "the table exists");
-  for (const code of ["Quote", "Slash", "KeyP", "KeyN", "Digit9", "Digit0", "Digit1", "KeyZ"]) {
+  for (const code of ["Quote", "Slash", "Digit9", "Digit0", "Digit1", "KeyZ"]) {
     assert.ok(table.includes(`code: '${code}'`), `${code} is a row, not a branch`);
   }
   // Every row matches by code first, so a non-US layout or an IME can never swallow a combo.
   assert.match(keymap, /function matchesChord[\s\S]{0,200}event\.code === sc\.code/, "code is the primary match");
 
-  // The scope names the keymap works in are the ones the dock helper feeds it: a focused terminal pane is a
-  // panel, exactly like the merged/memo dock, which is what keeps Cmd+E out of a shell being typed into.
+  // The scope names the keymap works in are the ones the dock helper feeds it.
   const dock = readFileSync(new URL("../src/viewer/08-dock.js", import.meta.url), "utf8");
-  assert.match(dock, /function isDockFocused[\s\S]{0,200}terminal-panel/, "the terminal counts as a focused panel");
+  assert.match(dock, /function isDockFocused[\s\S]{0,200}dock-panel/, "a focused merged/memo dock is a panel");
 });
 
 // The caret is an inline-block 1.25em tall, aligned to text-bottom. An empty line has no text box for that to

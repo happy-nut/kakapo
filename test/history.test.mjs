@@ -122,11 +122,12 @@ test("history keyboard: Cmd+9 then ArrowDown navigates commits before opening a 
   v.key("9", { metaKey: true, code: "Digit9" });
   await v.settle(80);
   assert.equal(v.$("#history-view").classList.contains("hidden"), false, "history overlay opens");
-  assert.equal(v.window.getComputedStyle(v.$(".activity-rail")).display, "none", "the in-view rail is hidden — workspace navigation lives in the shell title bar");
-  assert.ok(v.$('.rail-btn[data-view="history"]').classList.contains("is-active"), "History is still tracked by its (now shell-mirrored) rail icon state");
+  // The activity rail is gone; History covers the window from the left edge, which is what --rail-width: 0
+  // now resolves to. The inset stays expressed against the variable so the two cannot drift apart.
+  assert.equal(v.$(".activity-rail"), null, "no activity rail is rendered");
   const css = Array.from(v.document.querySelectorAll("style"), (style) => style.textContent || "").join("\n");
-  assert.match(css, /\.history-view\s*\{[^}]*inset:\s*0 0 0 var\(--rail-width\)/, "History starts after the desktop rail");
-  assert.match(css, /body\.native-app\s+\.history-bar\s*\{[^}]*padding-left:\s*var\(--native-title-safe-after-rail\)/, "History title uses the shared macOS traffic-light safe inset");
+  assert.match(css, /\.history-view\s*\{[^}]*inset:\s*0 0 0 var\(--rail-width\)/, "History is inset against the rail width");
+  assert.match(css, /body\s*\{[^}]*--rail-width:\s*0px/, "and that width is zero");
   // The dialog itself holds keyboard focus on open, so its default :focus ring would hug the window's top
   // edge (across the macOS traffic lights) and never fade. It must be suppressed; the active row is the cue.
   assert.equal(v.document.activeElement, v.$("#history-view"), "the History dialog holds keyboard focus on open");

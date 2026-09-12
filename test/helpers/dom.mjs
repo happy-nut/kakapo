@@ -165,10 +165,17 @@ export async function loadViewer(html, opts = {}) {
           },
         };
       }
-      // Electron's diff-update bridge: capture the listener so a test can push a watch-refresh payload.
+      // Electron's diff-update bridge: capture the listeners so a test can push a watch-refresh payload.
+      // Several slices subscribe (the view updater, the compare dropdown, the patch-set bar), and the real
+      // bridge is ipcRenderer.on — every listener gets the event. Keeping only the last one silently
+      // unsubscribed the view updater as soon as a second slice registered, and a watch refresh then
+      // painted nothing.
       if (opts.menuBridge) {
+        const diffUpdateListeners = [];
+        window.__diffUpdateListeners = diffUpdateListeners;
+        window.__diffUpdateCb = (payload) => { for (const cb of diffUpdateListeners) cb(payload); };
         window.kakapoMenu = {
-          onDiffUpdate: (cb) => { window.__diffUpdateCb = cb; },
+          onDiffUpdate: (cb) => { diffUpdateListeners.push(cb); },
           onReleaseView: (cb) => { window.__releaseViewCb = cb; },
         };
       }
@@ -350,7 +357,17 @@ class Viewer {
     const link = this.$("#changes-panel .file-link.active");
     return link ? link.dataset.file || null : null;
   }
-  /** Is the quick-open (Shift Shift / Cmd+E / find-in-files) overlay visible? */
+  /** Open the quick-open dialog at one of its sections, the way a user reaches it now: ⌘⇧F, then the rail
+   *  row for the section. ⌘E and double-Shift are gone; the rail is the only door to the other sections. */
+  async openQuickOpenSection(section) {
+    this.key("f", { metaKey: true, shiftKey: true, code: "KeyF" });
+    await this.settle(20);
+    if (section === "content") return;
+    const row = this.$(`#quick-open-side .quick-open-side-item[data-section="${section}"]`);
+    row.dispatchEvent(new this.window.MouseEvent("click", { bubbles: true }));
+    await this.settle(20);
+  }
+  /** Is the quick-open (⌘⇧F / find-in-files) overlay visible? */
   quickOpenVisible() {
     const qo = this.$("#quick-open");
     return !!(qo && !qo.classList.contains("hidden"));
@@ -439,10 +456,11 @@ class Viewer {
   // ---- viewer vocabulary -----------------------------------------------------------------------
   async openSourceFile(path) {
     // lazy-LOAD keeps the Files tree as an inert island until its tab is shown — materialize it first.
+    // setTab, not a click on the tab: clicking it is a navigation (it activates the Files VIEW, opening a
+    // file), and this helper only wants the tree to exist before it picks a row.
     if (!this.document.querySelector(".source-link")) {
-      const filesTab = this.document.querySelector('.tab[data-tab="files"]');
-      if (filesTab) {
-        this.click(filesTab);
+      if (typeof this.window.setTab === "function") {
+        this.window.setTab("files");
         await this.settle(40);
       }
     }

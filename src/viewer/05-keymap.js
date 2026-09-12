@@ -4,7 +4,7 @@
 //
 //   modal    a surface that owns the keyboard outright — settings, go-to-line. Nothing else fires.
 //   history  the History overlay: its own keys, and the window-level ones (it is a view, not a text box).
-//   panel    a focused dock or terminal pane. Every key is going INTO it; only window-level ones survive.
+//   panel    a focused dock. Every key is going INTO it; only window-level ones survive.
 //   field    a focused input/textarea/contenteditable anywhere else. Same rule as `panel`.
 //   content  the diff/source review itself. Everything is available.
 //
@@ -20,7 +20,7 @@ function keyboardScope() {
   if (document.getElementById('goto-line')) return 'modal'; // owns the keys until Enter/Esc
   var history = document.getElementById('history-view');
   if (history && !history.classList.contains('hidden')) return 'history';
-  if (isDockFocused()) return 'panel'; // merged/memo dock, or a terminal pane (see 08-dock.js)
+  if (isDockFocused()) return 'panel'; // the merged dock (see 08-dock.js)
   if (inTextField()) return 'field';
   return 'content';
 }
@@ -28,42 +28,21 @@ function keyboardScope() {
 // below the stand-down point is review navigation, which belongs to the review only.
 function isFloatingModalOpen() { return keyboardScope() !== 'content'; }
 
-// Cmd+0/Cmd+1 mean "take me to the tree", and the floating terminal sits on top of exactly what they reveal.
-// Leaving it parked there made the shortcut look like it had done nothing, so opening either view puts the
-// terminal away. Only when it is actually open — this must never toggle it back on.
-function closeTerminalForViewSwitch() {
-  var api = window.__kakapoTerminal;
-  if (!api || typeof api.isOpen !== 'function' || typeof api.close !== 'function') return;
-  if (api.isOpen()) api.close();
-}
-
-// The surfaces that cover the whole screen — the History overlay (z75), the floating merged/memo dock
-// (z78), the floating terminal — are exclusive in practice: each renders over (or under) the others, so a
-// shortcut activating one while another was up either looked like it did nothing or switched a view
-// invisibly underneath. Every door into one of them puts the rest away first: the ⌘0/⌘1 activations and
-// the rail's forced opens call this, and openHistory (12-history.js), mountDock (08-dock.js) and the
-// terminal's setOpen (19-terminal.js) each close their counterparts from their side.
+// The surfaces that cover the whole screen — the History overlay (z75) and the floating merged dock (z78)
+// — are exclusive in practice: each renders over (or under) the other, so a shortcut activating one while
+// the other was up either looked like it did nothing or switched a view invisibly underneath. Every door
+// into one of them puts the rest away first: the ⌘0/⌘1 activations call this, and openHistory
+// (12-history.js) and mountDock (08-dock.js) do it from their side.
 function leaveFullScreenPanels() {
-  closeTerminalForViewSwitch();
   closeHistoryIfOpen();
-  closeMergedMemoDocks();
+  closeMergedDock();
 }
 
 // Cmd+0/1 and their rail icons are focus-aware. From content they reveal/focus the matching tree; only a
 // repeated activation while that tree owns the logical focus collapses it. A collapsed tree expands first.
-// The workspace rail, pushed open, force-collapses this sidebar (railPushedCollapse in 09-views-update.js).
-// So while it is open, ⌘0/⌘1 could set the review's own collapse flag all they liked and nothing moved: the
-// tree stayed hidden because something else was holding it shut. The rail's own handler covers the case where
-// the SHELL has the keyboard, which is why this worked right after opening the rail and stopped working once
-// you clicked into the diff — the key reached the review instead, and the review had no way to say "let go".
-function standDownRailForViewSwitch() {
-  if (!railPushedCollapse) return;
-  if (window.kakapoMenu && typeof window.kakapoMenu.railStandDown === 'function') window.kakapoMenu.railStandDown();
-}
 
 function activateChangesView(navigateToDiff) {
   leaveFullScreenPanels();
-  standDownRailForViewSwitch();
   if (isDiffViewVisible()) {
     if (reviewSidebarCollapsed) { setReviewSidebarCollapsed(false, { focusSidebar: true }); return; }
     if (treeFocusIndex >= 0) { toggleReviewSidebar(); return; }
@@ -82,7 +61,6 @@ function activateChangesView(navigateToDiff) {
 
 function activateFilesView() {
   leaveFullScreenPanels();
-  standDownRailForViewSwitch();
   if (isSourceViewerVisible()) {
     if (sourceSidebarCollapsed) { setSourceSidebarCollapsed(false, { focusSidebar: true }); return; }
     if (treeFocusIndex >= 0) { toggleSourceSidebar(); return; }
@@ -124,30 +102,21 @@ function activateFilesView() {
 // move a file in a build script. It is a row order now — the same treatment WINDOW_SHORTCUTS gave the
 // chords, for the same reason: adding a surface should be a row, not a fourth thing to get right.
 //
-// The four owners whose handler is a `var` a later slice ASSIGNS (settings, terminal send-mode, note tour,
-// workspace hub) are still looked up through `typeof`: unlike a function declaration, that binding is
-// undefined until its slice runs. Everything else here is a plain call — see test/viewer-slices.test.mjs.
+// The owner whose handler is a `var` a later slice ASSIGNS (settings) is looked up through `typeof`:
+// unlike a function declaration, that binding is undefined until its slice runs. Everything else here is a plain call — see test/viewer-slices.test.mjs.
 // NOT here, and correctly so: the go-to-line prompt (13-goto.js) and the comment composer (08-dock.js)
 // both scope their listener to their own lifetime or target, so they never race anything.
 var KEY_OWNERS = [
   // Settings is the top-most overlay: its Esc beats the lightbox and the composer, and its Cmd+, toggle
   // has to work while it is itself up (keyboardScope reports 'modal' then, standing down everything below).
   { name: 'settings', handle: function (event) { return typeof handleSettingsKey === 'function' && handleSettingsKey(event); } },
-  // While a terminal send-mode pick is on screen every key belongs to it, handled or not.
-  { name: 'terminal-send-mode', handle: function (event) { return typeof handleTerminalSendModeKey === 'function' && handleTerminalSendModeKey(event); } },
-  // A playing note walkthrough (23-annotations.js) owns the arrows — they are how you step it, and the caret
-  // they would otherwise move is being driven by the tour anyway. It claims nothing else, so every other key
-  // reaches the surfaces below exactly as before.
   // Semantic navigation is a caret-local dropdown. It must own arrows/Enter before the persistent sidebar's
   // logical tree focus gets a chance to consume them; otherwise Enter opens the tree row instead of the
   // selected definition when Cmd+B was invoked after Cmd+0/Cmd+1.
-  // The briefing panel is up over the whole review: while it is, the arrows page it rather than moving a
-  // caret nobody can see behind it (25-briefing.js). It claims Esc/arrows/Enter and nothing else.
-  { name: 'briefing', handle: function (event) { return handleBriefingKey(event); } },
-  // The knowledge map covers the window too, and Cmd+0/Cmd+- mean zoom while it is up rather than "take me
-  // to the tree" behind it (26-terms.js). Esc closes the open word first, then the map.
-  { name: 'terms', handle: function (event) { return handleTermsKey(event); } },
   { name: 'semantic-peek', handle: function (event) { return handleSemanticPeekKey(event); } },
+  // A small popover anchored to the toolbar pill. Above Quick Open only because it can be open while nothing
+  // else is; it stands down the moment it is hidden, so the order below it never matters.
+  { name: 'compare-menu', handle: function (event) { return handleCompareMenuKey(event); } },
   // Quick Open / Find in Files is a true modal keyboard scope. Its own handler consumes navigation and
   // dismissal keys, then every other key is stopped from reaching the shortcut router (or later document
   // listeners). Do NOT prevent an unhandled key's default: native input editing such as Cmd/Ctrl+Left/Right,
@@ -174,7 +143,6 @@ var KEY_OWNERS = [
     closeLightbox();
     return true;
   } },
-  { name: 'workspace-hub', handle: function (event) { return typeof handleWorkspaceHubKey === 'function' && handleWorkspaceHubKey(event); } },
 ];
 
 // The window-level shortcut table (see the dispatch loop inside the keydown listener). A handler returning
@@ -182,20 +150,7 @@ var KEY_OWNERS = [
 var WINDOW_SHORTCUTS = [
   { code: 'Quote', shift: true, run: function () { toggleDockMaximized(); } },
   { code: 'Slash', shift: true, key: '?', run: function () { openMergedView(); } },
-  // ⌘⇧P has no dialog of its own: it opens the ⌘E launcher on its Prompts section, so every
-  // "pick something and go" surface is one window. A second press closes it.
-  { code: 'KeyP', shift: true, key: 'p', run: function () {
-    if (quickMode === 'prompts' && quickOpen && !quickOpen.classList.contains('hidden')) closeQuickOpen();
-    else openQuickOpen('prompts');
-  } },
-  { code: 'KeyN', shift: true, key: 'n', run: function () { openMemoView(); } },
-  // The briefing shows itself once per explanation and then stays out of the way, so the way BACK to it has to
-  // be somewhere. Two of them: the sidebar button above the changed files, and this.
-  { code: 'KeyB', shift: true, key: 'b', run: function () { toggleBriefing(); } },
-  { code: 'KeyK', shift: true, key: 'k', run: function () { toggleTermMap(); } },
   { code: 'Digit9', key: '9', run: function () { toggleHistory(); } },
-  // No ⌘7, and no Explain entry anywhere on the rails: sending the prompt is the ⌘⇧P palette's job, and
-  // reading the notes is the briefing's (⌘⇧B) — a third door to the same two rooms was only a duplicate.
   // Cmd+0/Cmd+1 mean "take me to the tree"; activate* itself puts every full-screen surface away first
   // (leaveFullScreenPanels) — otherwise the view they activate would be switched invisibly underneath one.
   { code: 'Digit0', key: '0', run: function () { activateChangesView(false); } },
@@ -231,8 +186,8 @@ document.addEventListener('keydown', (event) => {
   }
 
   // ---- window-level shortcuts -------------------------------------------------------------------
-  // These belong to the window, not to whatever has focus, so they fire from a focused dock, a terminal
-  // pane or the History overlay too. A true modal (settings, go-to-line) is the one thing that stands them
+  // These belong to the window, not to whatever has focus, so they fire from a focused dock or the
+  // History overlay too. A true modal (settings, go-to-line) is the one thing that stands them
   // down — it owns the keyboard while it is up. Adding one is a row in this table, not another branch with
   // its own hand-written guard; the eight `!settingsUp &&` conditions this replaces were where the "above
   // or below the focus guard?" mistakes kept happening.
@@ -249,7 +204,7 @@ document.addEventListener('keydown', (event) => {
   // The bare navigation F-keys sit just above the content stand-down: they move a cursor and never insert
   // text, so a focused text field — a comment composer, which is exactly where you are when the note you
   // want to step to is the reason you are typing — must not swallow them. A focused PANEL still does: the
-  // dock and the terminal own their keys outright, and F7 inside the merged dock has always meant nothing.
+  // dock owns its keys outright, and F7 inside the merged dock has always meant nothing.
   if (scope === 'content' || scope === 'field') {
   if (event.key === 'F7' && !event.metaKey && !event.ctrlKey && !event.altKey) {
     event.preventDefault();
@@ -292,7 +247,7 @@ document.addEventListener('keydown', (event) => {
   }
 
   // ⌥F1 reveals the open file in the tree from ANY view — it runs BEFORE the isFloatingModalOpen stand-down
-  // below so History (and merged/memo docks), which otherwise own the keys, don't swallow it. Only a
+  // below so History (and the merged dock), which otherwise own the keys, don't swallow it. Only a
   // genuine text-input modal (settings, go-to-line) still keeps it; there the "main panel" isn't focused.
   if (event.key === 'F1' && event.altKey && !event.metaKey && !event.ctrlKey) {
     // "Anything but a true modal" is `scope !== 'modal'` — which is already in hand. This used to re-read the
@@ -301,7 +256,7 @@ document.addEventListener('keydown', (event) => {
     if (scope !== 'modal') { event.preventDefault(); revealOpenFileInTree(); return; }
   }
 
-  // Settings overlay (or a focused merged/memo dock) captures keys: stand down the rest of the global
+  // Settings overlay (or a focused merged dock) captures keys: stand down the rest of the global
   // shortcuts (F7, Cmd+[/], Cmd+B, …). Each has its own Esc + editing handlers.
   if (isFloatingModalOpen()) return;
 
@@ -372,7 +327,7 @@ document.addEventListener('keydown', (event) => {
     }
   }
 
-  // (Merged views Cmd/Ctrl+Shift+/ +. and the memo Cmd/Ctrl+Shift+N are handled above the focus guard so
+  // (The merged view's Cmd/Ctrl+Shift+/ is handled above the focus guard so
   // they work from inside a dock too.)
   // "?" (Shift+/) opens the comment composer on the current line/selection (no modifier). There used to be a
   // second key (">") for change requests; asking and asking-for-a-change are the same thread, so there is one.
@@ -404,32 +359,9 @@ document.addEventListener('keydown', (event) => {
     var psc = isDiffViewVisible() ? document.getElementById('diff2html-container') : (isSourceViewerVisible() ? document.getElementById('source-body') : null);
     if (psc) { event.preventDefault(); psc.scrollTop += (event.key === 'PageDown' ? 0.9 : -0.9) * psc.clientHeight; return; }
   }
-  // A non-Shift keystroke between the two Shifts cancels the pending double-Shift quick-open. Without this,
-  // "Shift → type something → Shift" within 300ms still popped the search, so it fired on nearly every other
-  // keystroke. Reset BEFORE the caret handlers below (they swallow arrows) so arrow keys break it too.
-  if (event.key !== 'Shift') { lastShiftAt = 0; lastShiftSide = 0; }
   if (treeFocusIndex >= 0 && handleTreeKey(event)) return;
   if (treeFocusIndex < 0 && !event.metaKey && !event.ctrlKey && !event.altKey && isSourceViewerVisible() && handleSourceCaretKey(event)) return;
   if (treeFocusIndex < 0 && !event.metaKey && !event.ctrlKey && !event.altKey && isDiffViewVisible() && handleDiffCaretKey(event)) return;
-
-  if (event.key === 'Shift' && !event.repeat) {
-    const now = performance.now();
-    // event.location: 1 = left Shift, 2 = right Shift, 0 = unspecified.
-    // Require the SAME physical side twice (left+right never counts) within a
-    // tight 300ms window so quick-open doesn't fire on accidental or mixed
-    // Shift presses. The side !== 0 guard keeps an unknown location from ever
-    // matching itself and triggering.
-    const side = event.location;
-    if (side !== 0 && side === lastShiftSide && now - lastShiftAt < 300) {
-      event.preventDefault();
-      lastShiftAt = 0;
-      lastShiftSide = 0;
-      openQuickOpen('all');
-      return;
-    }
-    lastShiftAt = now;
-    lastShiftSide = side;
-  }
 
   if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && (event.code === 'KeyF' || event.key.toLowerCase() === 'f')) {
     event.preventDefault();
@@ -448,9 +380,23 @@ document.addEventListener('keydown', (event) => {
     toggleContentSearchNoise();
     return;
   }
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyE' || event.key.toLowerCase() === 'e')) {
+  // The compare dropdown, by key. ⌥A and ⌥U name the two states outright instead of toggling between them:
+  // a toggle is only usable if you already know which one you are on, and not knowing that is the reason you
+  // reached for the key. ⌥C opens the third row, the branch picker, with its filter focused.
+  // Matched on `code` first — ⌥U is a dead key on macOS (it composes an umlaut), so `event.key` is "Dead".
+  if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && (event.code === 'KeyA' || event.key.toLowerCase() === 'a')) {
     event.preventDefault();
-    openQuickOpen('recent');
+    pickCompareMode('all');
+    return;
+  }
+  if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.code === 'KeyU') {
+    event.preventDefault();
+    pickCompareMode('uncommitted');
+    return;
+  }
+  if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && (event.code === 'KeyC' || event.key.toLowerCase() === 'c')) {
+    event.preventDefault();
+    openCompareBranchPicker();
     return;
   }
 
@@ -481,17 +427,8 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
-  // Go-to-definition belongs to the code you are reading, and while the terminal is up you are not reading it:
-  // the panel covers the review entirely. The existing guard only skipped a focused INPUT/TEXTAREA, which
-  // catches typing INTO a pane but not the moment after clicking the panel's chrome — and then ⌘B jumped the
-  // hidden view underneath to a definition nobody could see it reach. The terminal deliberately releases ⌘
-  // combos to this handler (attachCustomKeyEventHandler, 19-terminal.js) so ⌘1/⌘0 still work; this is the one
-  // that has nothing to do while it is open.
-  var terminalUp = document.body.classList.contains('terminal-open');
-
   if ((event.metaKey || event.ctrlKey) && event.altKey && !event.shiftKey && (event.code === 'KeyB' || event.key.toLowerCase() === 'b')) {
     var aeImpl = document.activeElement;
-    if (terminalUp) return;
     if (aeImpl && (aeImpl.tagName === 'INPUT' || aeImpl.tagName === 'TEXTAREA' || aeImpl.tagName === 'SELECT')) return;
     event.preventDefault();
     goToImplementation();
@@ -500,7 +437,6 @@ document.addEventListener('keydown', (event) => {
 
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyB' || event.key === 'b' || event.key === 'B')) {
     var aeB = document.activeElement;
-    if (terminalUp) return;
     if (aeB && (aeB.tagName === 'INPUT' || aeB.tagName === 'TEXTAREA' || aeB.tagName === 'SELECT')) return;
     event.preventDefault();
     if (isSourceViewerVisible()) goToSymbolUnderCursor();
@@ -670,82 +606,15 @@ document.getElementById('files-panel')?.addEventListener('click', (event) => {
   if (pointerSelection) focusTreeRowFromPointer(link);
 });
 
+// The sidebar tabs are the pointer half of ⌘0/⌘1 now that the activity rail is gone, so they do what those
+// keys do — bring the matching view forward, not just swap which tree the sidebar shows. Clicking "Changes"
+// while reading a source file used to leave the file on screen with the Changes tree beside it.
 document.querySelectorAll('.tab').forEach((button) => {
-  button.addEventListener('click', () => setTab(button.dataset.tab || 'changes'));
-});
-
-// Activity rail (IntelliJ-style): click an icon to navigate/toggle its view. The settings button carries
-// no data-view and keeps its own id-based handler.
-document.querySelector('.activity-rail')?.addEventListener('click', (event) => {
-  const btn = event.target.closest && event.target.closest('.rail-btn[data-view]');
-  if (!btn) return;
-  const view = btn.dataset.view;
-  if (view === 'changes') { activateChangesView(true); }
-  else if (view === 'files') { activateFilesView(); }
-  else if (view === 'merged') { toggleMergedRail(); }
-  else if (view === 'memo') { openMemoView(); } // openMemoView already toggles
-  else if (view === 'terms') { toggleTermMap(); }
-  else if (view === 'history') { toggleHistory(); }
-  document.getElementById('workspace-more-menu')?.classList.add('hidden');
-  document.getElementById('workspace-more-toggle')?.setAttribute('aria-expanded', 'false');
-  syncRail();
-});
-
-// Force-open (never toggle) a review view. Used when a review shortcut (⌘0/⌘1/⌘9/Ctrl+`) is pressed while the
-// workspace rail is expanded: the shell forwards e.g. 'files:open'. Unlike a toolbar click (which toggles), this
-// always ends with the view shown and its sidebar expanded, so the shortcut can only open — never close — it.
-function openRailView(view) {
-  if (view === 'files') {
-    leaveFullScreenPanels();
-    if (!isSourceViewerVisible()) showSourceView();
-    setSourceSidebarCollapsed(false);
-    setTab('files');
-    focusOpenFileInTree();
-  } else if (view === 'changes') {
-    leaveFullScreenPanels();
-    setSourceSidebarCollapsed(false);
-    setReviewSidebarCollapsed(false);
-    if (!isDiffViewVisible()) showDiffView(false);
-    setTab('changes');
-    focusOpenFileInTree();
-  } else if (view === 'history') {
-    if (!isHistoryOpen()) openHistory();
-  } else if (view === 'terminal') {
-    var tp = document.getElementById('terminal-panel');
-    if (tp && tp.classList.contains('hidden')) document.getElementById('terminal-toggle')?.click();
-  } else {
-    document.querySelector('.rail-btn[data-view="' + view + '"]')?.click();
-  }
-  syncRail();
-}
-// The shell title-bar mirrors these tools (single-instance app). A title-bar click is relayed here as a rail
-// action; replay it by clicking the matching (possibly CSS-hidden) rail control so every existing handler and
-// syncRail run unchanged. An ':open' suffix (from a shortcut fired while the rail is expanded) force-opens
-// instead of toggling. Terminal and More carry id-based handlers, not data-view.
-if (window.kakapoMenu && window.kakapoMenu.onRailAction) {
-  window.kakapoMenu.onRailAction((action) => {
-    if (typeof action === 'string' && action.slice(-5) === ':open') { openRailView(action.slice(0, -5)); return; }
-    // F7 forwarded from the expanded rail. Replay the key rather than re-implement the handler: F7 is not a
-    // rail button, and its logic (enter the diff at the open file's own hunk, skip viewed files, announce the
-    // last change) lives in the keydown branch above and must not be duplicated here.
-    if (action === 'nextChange' || action === 'prevChange') {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F7', shiftKey: action === 'prevChange', bubbles: true }));
-      return;
-    }
-    // Settings, forwarded from the expanded rail (⌘,). Replayed as the key rather than called: the toggle,
-    // and the rule that a floating merged/memo panel must be dismissed before Settings can take the keyboard,
-    // both live in handleSettingsKey — and the gear button is the only other way in, so there is no function
-    // here to call. Same reasoning as F7 above.
-    if (action === 'settings') {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: ',', metaKey: true, bubbles: true }));
-      return;
-    }
-    if (action === 'terminal') { document.getElementById('terminal-toggle')?.click(); return; }
-    document.querySelector('.rail-btn[data-view="' + action + '"]')?.click();
+  button.addEventListener('click', () => {
+    if ((button.dataset.tab || 'changes') === 'files') activateFilesView();
+    else activateChangesView(true);
   });
-}
-
-
+});
 
 document.getElementById('back-to-diff')?.addEventListener('click', () => showDiffView(true));
 document.getElementById('source-tabs')?.addEventListener('click', function (event) {
@@ -875,7 +744,6 @@ if (!restored) {
 }
 initSourceTreeFolds();
 initChangesTreeFolds();
-syncRail(); // reflect the initial view on the activity rail
 // Electron receives live updates over IPC (kakapoMenu.onDiffUpdate); only serve/browser needs the HTTP
 // poller. Under file:// its fetch just fails every 1.5s for the app's whole life, so skip it in Electron.
 if (watchEnabled && !(window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function')) {

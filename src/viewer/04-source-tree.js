@@ -160,17 +160,6 @@ function openVirtualSourceDirectory(path) {
   setTimeout(function () { treeRevealing = false; }, 0);
 }
 
-function materializeAllVirtualSourceFolders() {
-  var pending = Array.from(virtualSourceDetailsByPath.values());
-  var seen = new Set(pending);
-  for (var i = 0; i < pending.length; i++) {
-    materializeVirtualSourceDirectory(pending[i]);
-    virtualSourceDetailsByPath.forEach(function (details) {
-      if (!seen.has(details)) { seen.add(details); pending.push(details); }
-    });
-  }
-}
-
 function renderDeferredSourceTree(files) {
   var panel = document.getElementById('files-panel');
   if (!panel) return;
@@ -345,12 +334,12 @@ function focusOpenFileInTree() {
 // Reveal the currently-open file in the sidebar tree, scrolled to the CENTER of the panel (the header button
 // and ⌥F1). Expands the sidebar and ancestor folders first, then centers and flashes the row.
 function revealOpenFileInTree() {
-  // Reveal must work from ANY panel. History/merged/memo render OVER the diff/source view, so close
+  // Reveal must work from ANY panel. History and the merged dock render OVER the diff/source view, so close
   // whichever is open to uncover the tree, then bring the Files tree forward (never toggling it closed)
   // and center + flash the open file. Previously this bailed unless the diff or source view already owned the
   // screen, so it silently did nothing while another panel was up.
   if (isHistoryOpen()) closeHistory();
-  closeMergedMemoDocks();
+  closeMergedDock();
 
   var srcOn = isSourceViewerVisible();
   var diffOn = isDiffViewVisible();
@@ -503,10 +492,9 @@ function handleTreeKey(event) {
   if (treeFocusIndex >= rows.length) treeFocusIndex = rows.length - 1;
   const row = rows[treeFocusIndex];
   const isFolder = row && row.tagName === 'SUMMARY';
-  // Tree navigation ignores Cmd/Ctrl-modified arrows so they fall through to their owners — notably
-  // Cmd+Opt+Left/Right, which cycles terminal panes (Focus Previous/Next Pane). Without this the tree, once
-  // focused via Cmd+1, swallowed the arrow and toggled the focused folder open/closed instead. Shift is still
-  // honoured (multi-select), and bare Alt+Arrow keeps its folder collapse/expand.
+  // Tree navigation ignores Cmd/Ctrl-modified arrows so they fall through to their owners. Without this the
+  // tree, once focused via Cmd+1, swallowed the arrow and toggled the focused folder open/closed instead.
+  // Shift is still honoured (multi-select), and bare Alt+Arrow keeps its folder collapse/expand.
   const treeNav = !event.metaKey && !event.ctrlKey;
   // Shift+Arrow / Shift+PageUp/Down extend a contiguous multi-selection from the anchor.
   if (treeNav && event.key === 'ArrowDown') { event.preventDefault(); focusTree(treeFocusIndex + 1, event.shiftKey); return true; }
@@ -565,7 +553,7 @@ function handleTreeKey(event) {
     }
   }, { passive: false });
 })();
-// A floating, focus-grabbing overlay (merged-comments, prompt memo, settings) is open. While one is up it
+// A floating, focus-grabbing overlay (merged comments, settings) is open. While one is up it
 // owns focus AND the only caret, so global shortcuts stand down until Esc/close — we must not navigate a
 // panel the user can't even see behind the overlay (nor leave a second blinking caret in it).
 

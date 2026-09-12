@@ -1,38 +1,22 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { workspaceDataDirectory } from "./workspace-data.js";
-import type { WorkspaceRecord } from "./workspaces.js";
 
 export type RecentProject = { path: string; name: string; openedAt: number };
 
 const RECENT_KEY = "kakapo-recent-projects";
 const RECENT_MAX = 12;
-const OPEN_WORKSPACES_KEY = "kakapo-open-workspaces";
-const WORKSPACE_ORDER_KEY = "kakapo-workspace-order";
-const LAST_AGENT_KEY = "kakapo-last-agent";
-const ACTIVE_WORKSPACE_KEY = "kakapo-active-workspace";
 const GLOBAL_SETTING_KEYS = new Set([
   "kakapo-locale",
   "kakapo-theme",
   "kakapo-syntax-theme",
-  "kakapo-merge-prompts",
-  "kakapo-annotate-prompt",
-  "kakapo-codebase-prompt",
   RECENT_KEY,
-  OPEN_WORKSPACES_KEY,
-  ACTIVE_WORKSPACE_KEY,
   "kakapo-dock-height",
   // The UI scale is one setting for the whole app — main applies it as a Chromium zoom factor to the shell,
   // the modal overlay and every review view. Left out of this list it was written per-WORKSPACE, while main
   // went on reading the global file: the dropdown moved, the number was stored, and nothing on screen ever
   // changed size.
   "kakapo-ui-scale",
-  "kakapo-memo",
-  "kakapo-memo-migrated-worktree",
-  // Which model kakapo's own agent answers on (askModel, app-main.ts). Global for the same reason the UI
-  // scale above is: the dropdown is in Settings, which is one panel for the whole app, and MAIN is what reads
-  // the value when it spawns the session. Stored per-workspace it would be written where nobody reads it.
-  "kakapo-ask-model",
 ]);
 
 /** Owns persistent preferences without coupling storage rules to Electron. */
@@ -117,75 +101,6 @@ export class AppPreferences {
     const settings = this.readGlobal();
     settings[RECENT_KEY] = this.readRecentProjects().filter((project) => project.path !== path);
     this.writeGlobal(settings);
-  }
-
-  readOpenWorkspaces(): WorkspaceRecord[] {
-    const raw = this.readGlobal()[OPEN_WORKSPACES_KEY];
-    if (!Array.isArray(raw)) return [];
-    return raw.filter((entry): entry is WorkspaceRecord => !!entry && typeof entry === "object"
-      && typeof entry.path === "string" && typeof entry.repoRoot === "string"
-      && typeof entry.branch === "string" && (entry.kind === "main" || entry.kind === "worktree"));
-  }
-
-  writeOpenWorkspaces(workspaces: WorkspaceRecord[], activePath?: string): void {
-    const settings = this.readGlobal();
-    settings[OPEN_WORKSPACES_KEY] = workspaces;
-    settings[ACTIVE_WORKSPACE_KEY] = activePath;
-    this.writeGlobal(settings);
-  }
-
-  // Rail order, per project: the paths of one repo's workspaces in the order the reviewer dragged them into.
-  // Keyed by repoName because reordering only means anything inside a group — a worktree belongs to its
-  // repository. Paths rather than ids: a closed main and a disconnected workspace have no window and no id.
-  // The agent the New-workspace dialog offers next time. A preference, not per-workspace state: you reach for
-  // the same one most days, and the dialog should already be on it.
-  readLastAgent(): string {
-    const value = this.readGlobal()[LAST_AGENT_KEY];
-    return typeof value === "string" ? value : "";
-  }
-
-  writeLastAgent(agent: string): void {
-    const settings = this.readGlobal();
-    settings[LAST_AGENT_KEY] = agent;
-    this.writeGlobal(settings);
-  }
-
-  readWorkspaceOrder(): Record<string, string[]> {
-    const raw = this.readGlobal()[WORKSPACE_ORDER_KEY];
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-    const out: Record<string, string[]> = {};
-    for (const [repo, paths] of Object.entries(raw as Record<string, unknown>)) {
-      if (Array.isArray(paths)) out[repo] = paths.filter((p): p is string => typeof p === "string");
-    }
-    return out;
-  }
-
-  writeWorkspaceOrder(repo: string, paths: string[]): void {
-    const settings = this.readGlobal();
-    settings[WORKSPACE_ORDER_KEY] = { ...this.readWorkspaceOrder(), [repo]: paths };
-    this.writeGlobal(settings);
-  }
-
-  readActiveWorkspace(): string | undefined {
-    const value = this.readGlobal()[ACTIVE_WORKSPACE_KEY];
-    return typeof value === "string" ? value : undefined;
-  }
-
-  /**
-   * Something is waiting in this workspace and nobody has looked yet. Persisted, because the whole point of
-   * the dot is that you have NOT seen it: quitting for the night was not you reading the answer, and a flag
-   * that lives only in memory quietly told you the opposite every morning.
-   */
-  readUnread(root: string): boolean {
-    return this.readWorkspace(root)["kakapo-unread"] === true;
-  }
-
-  writeUnread(root: string, unread: boolean): void {
-    const settings = this.readWorkspace(root);
-    if (unread === (settings["kakapo-unread"] === true)) return; // a bell per turn must not be a write per turn
-    if (unread) settings["kakapo-unread"] = true;
-    else delete settings["kakapo-unread"];
-    this.writeJson(this.workspaceFile(root), settings, true);
   }
 
   private workspaceFile(root: string): string {

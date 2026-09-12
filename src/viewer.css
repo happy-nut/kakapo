@@ -605,7 +605,9 @@ html, body { margin: 0; min-height: 100%; }
 /* Reserve the scrollbar gutter so collapsing/expanding a file does not shift the layout. */
 html { scrollbar-gutter: stable; }
 body {
-  --rail-width: 36px;
+  /* The activity rail is gone: the sidebar's own Changes/Files tabs and the keyboard own navigation now.
+     The variable stays at 0 because several full-viewport surfaces (History) are still inset against it. */
+  --rail-width: 0px;
   display: grid;
   grid-template-columns: var(--rail-width) var(--sidebar-width, 264px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
@@ -632,12 +634,7 @@ body.native-app {
    hidden and its grid column collapses to 0 — the project sidebar becomes the left-most viewer column. Every
    rail control stays in the DOM (only CSS-hidden), so the title-bar mirror can still click it via IPC. */
 body.native-app { --rail-width: 0px; }
-body.native-app .activity-rail { display: none; }
-body.native-app .activity-rail {
-  position: relative;
-  padding-top: calc(var(--native-titlebar-height) + 6px);
-  border-right: 0;
-}
+
 /* A quiet horizontal rule closes the macOS traffic-light strip across both navigation columns. */
 body.native-app .activity-rail::before,
 body.native-app .sidebar::before {
@@ -652,18 +649,7 @@ body.native-app .sidebar::before {
   pointer-events: none;
   z-index: 2;
 }
-/* Keep the rail/sidebar divider out of the native traffic-light strip. A full-height border visually ran
-   through the green window control; starting it below the shared title bar leaves that corner unbroken. */
-body.native-app .activity-rail::after {
-  content: "";
-  position: absolute;
-  top: var(--native-titlebar-height);
-  right: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--chrome-border);
-  pointer-events: none;
-}
+
 /* Reserve the native controls outside the scrolling element. Padding the scroll contents themselves
    looked correct only at scrollTop=0; once the tree moved, that padding scrolled away and the project
    heading slid underneath the traffic lights. The sidebar frame keeps this inset permanently. */
@@ -776,21 +762,37 @@ body.native-app .source-tabs {
   cursor: pointer;
 }
 .brand-reveal:hover { color: var(--active); background: color-mix(in srgb, var(--active) 15%, transparent); }
-.tabs { display: none; }
-/* ===== IntelliJ-style activity rail: icon-per-view column, hover tooltip with the shortcut. ===== */
-.activity-rail {
-  grid-row: 1 / -1;
-  grid-column: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 8px 0;
-  border-right: 1px solid var(--border);
-  overflow: visible; /* let tooltips escape to the right, over the sidebar */
-  z-index: 32;
+/* Changes / Files. These were hidden while the activity rail carried the same two icons; the rail is gone,
+   so they are the only pointer affordance for the switch again (⌘0/⌘1 remain the keyboard one). */
+.tabs { display: flex; gap: 2px; padding: 6px 8px 0; }
+.tabs .tab {
+  flex: 1 1 0;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
 }
-.rail-group { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.rail-bottom { margin-top: auto; } /* pin settings to the bottom */
+.tabs .tab:hover { color: var(--text); background: color-mix(in srgb, var(--active) 12%, transparent); }
+.tabs .tab.active { color: var(--active); background: color-mix(in srgb, var(--active) 18%, transparent); }
+
+/* The sidebar's bottom toolbar: analysis state on the left, actions on the right. */
+.sidebar-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-top: 1px solid var(--border);
+  min-height: 30px;
+}
+.sidebar-tools-spacer { flex: 1 1 auto; }
+.sidebar-tools .brand-reveal { margin-left: 0; }
+ /* pin settings to the bottom */
 .rail-btn {
   position: relative;
   flex: none;
@@ -799,25 +801,6 @@ body.native-app .source-tabs {
   border: 0;
   background: transparent;
   cursor: pointer; padding: 0;
-}
-.rail-gear { font-size: 16px; line-height: 1; }
-.rail-tip {
-  position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
-  display: flex; align-items: center; gap: 12px; white-space: nowrap;
-  border: 1px solid var(--border);
-  padding: 6px 8px 6px 11px; font-size: 12.5px;
-  opacity: 0; pointer-events: none; transition: opacity .12s ease;
-  z-index: 90;
-}
-/* A rail button can retain keyboard focus after navigation. Keep that focus ring for orientation, but
-   only show the shortcut bubble while the pointer is actually over the button; otherwise the bubble
-   looks like a hover state that became stuck after the pointer left. */
-.rail-btn:hover .rail-tip { opacity: 1; }
-.rail-tip kbd {
-  /* System font + letter-spacing so ⌘⇧N reads clearly and the glyphs aren't cramped together. */
-  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  font-size: 11.5px; font-weight: 500; letter-spacing: 1px;
-  border: 1px solid var(--border); padding: 2px 6px;
 }
 
 /* Current branch chip under the project name in the sidebar header. */
@@ -866,71 +849,10 @@ body.native-app .source-tabs {
   font-size: 9.5px; line-height: 15px; letter-spacing: .02em; white-space: nowrap;
 }
 
-/* ── The hidden session's one place on screen (27-ask.js). Unlike the analysis dot beside it this KEEPS its
-   label: an agent working invisibly on your repository is not a background service, and a bare dot would say
-   the same nothing the absence of a dot says. Hidden entirely while idle, so the header is quiet by default,
-   and clickable when the work belongs to a comment — it goes there. ── */
-.ask-status {
-  display: inline-flex; align-items: center; gap: 5px; max-width: 190px; min-width: 0;
-  padding: 1px 6px 1px 5px; border: 0; border-radius: 999px;
-  background: color-mix(in srgb, var(--active) 12%, transparent); color: var(--active);
-  font: 10.5px/1.5 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  overflow: hidden; white-space: nowrap; cursor: default;
-}
-.ask-status.is-anchored { cursor: pointer; }
-.ask-status.is-anchored:hover { background: color-mix(in srgb, var(--active) 20%, transparent); }
-.ask-status-label { overflow: hidden; text-overflow: ellipsis; }
-.ask-status-dot {
-  flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
-  animation: analysis-dot-pulse 1s ease-in-out infinite;
-}
-/* The card that asked, while it waits. A left edge rather than a tint: the card is still the reviewer's
-   comment and still reads as one — it is just expecting company. */
-.mc-card.mc-asking { border-left: 2px solid color-mix(in srgb, var(--active) 55%, transparent); }
-.mc-ask {
-  flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px;
-  display: inline-flex; align-items: center; justify-content: center;
-  background: transparent; color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer;
-  opacity: 0; transition: opacity .12s ease;
-}
-.mc-card:hover .mc-ask, .mc-ask:focus-visible, .mc-card.mc-asking .mc-ask { opacity: 1; }
-.mc-ask:hover { background: color-mix(in srgb, var(--active) 16%, transparent); color: var(--active); }
-.mc-ask[disabled] { cursor: default; color: var(--active); }
-/* The answer's slot, held open. It is the agent card it is about to become, drawn at rest — the body is a
-   line of dots instead of prose, and the card it turns into needs no transition to look like the same card. */
-.mc-card.mc-thinking { opacity: .82; }
-.mc-thinking-body { display: flex; align-items: center; gap: 7px; color: var(--muted); }
-.mc-thinking-text { font-size: 11.5px; }
-.mc-thinking-dots { display: inline-flex; gap: 3px; }
-.mc-thinking-dots i {
-  width: 5px; height: 5px; border-radius: 50%; background: var(--active);
-  animation: mc-thinking-bounce 1.1s ease-in-out infinite;
-}
-.mc-thinking-dots i:nth-child(2) { animation-delay: .16s; }
-.mc-thinking-dots i:nth-child(3) { animation-delay: .32s; }
 @keyframes mc-thinking-bounce { 0%, 60%, 100% { opacity: .28; } 30% { opacity: 1; } }
 
-/* ── Header meta cluster (moved up from the footer): analysis indicator + brand mark + version, right-aligned
-   before the reveal button. The analysis indicator is now dot-only; its text shows on hover via the title. ── */
-.brand-meta { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
-.sidebar-brand .brand-reveal { margin-left: 8px; }
-.brand-meta .app-version { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; white-space: nowrap; }
-.brand-meta .app-version-text { font-variant-numeric: tabular-nums; }
-.brand-meta .analysis-status { gap: 0; }
-.brand-meta .analysis-status .analysis-status-label { display: none; }
-.brand-meta .analysis-status .analysis-status-dot { width: 8px; height: 8px; opacity: .9; }
 @keyframes analysis-pulse { 50% { opacity: .25; transform: scale(.78); } }
-.settings-btn {
-  flex: none;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1;
-  padding: 3px 6px;
-  cursor: pointer;
-}
-.settings-btn:hover { color: var(--text); background: color-mix(in srgb, var(--active) 12%, transparent); }
+
 .app-info {
   position: fixed;
   left: 12px;
@@ -944,8 +866,7 @@ body.native-app .source-tabs {
   border: 1px solid var(--border);
   font-size: 12px;
 }
-.app-info-head { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
-.app-info-head .app-info-ver { color: var(--muted); font-weight: 500; }
+
 .app-info-status.is-loading { display: flex; align-items: center; gap: 6px; }
 /* A 22px bird beside an 11.5px line of text is a mark, not a spinner: it out-weighed the sentence it was
    waiting on. Scaled to the line it sits in. */
@@ -996,7 +917,7 @@ body.native-app .source-tabs {
 .settings-body { flex: 1 1 auto; min-width: 0; padding: 26px 30px; overflow: auto; }
 .settings-h { font-size: 15px; font-weight: 650; margin-bottom: 6px; }
 .settings-ver { font-weight: 500; font-size: 11px; letter-spacing: 0.02em; }
-.settings-desc { font-size: 12px; line-height: 1.6; margin-bottom: 18px; }
+
 /* Grouped preference cards (Appearance, Terminal): one card per topic, each a stack of label/control rows so the
    General page reads as organized groups instead of a flat run of label-over-control fields. */
 .settings-card { border: 1px solid var(--border); border-radius: var(--ui-radius-lg, 12px); background: color-mix(in srgb, var(--bg) 50%, transparent); padding: 2px 16px; margin: 0 0 18px; max-width: 600px; }
@@ -1034,20 +955,11 @@ body.native-app .source-tabs {
 .theme-swatch[data-swatch="dracula-light"] { background: linear-gradient(135deg, #fffbeb 0 62%, #644ac9 62%); }
 .theme-swatch[data-swatch="contrast-dark"] { background: linear-gradient(135deg, #000000 0 62%, #ffe58a 62%); }
 .theme-swatch[data-swatch="contrast-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0000d4 62%); }
-.settings-card .settings-check { margin: 0; padding: 13px 2px; }
-.settings-card .settings-check + .settings-row-hint { padding: 0 2px 4px 24px; }
-/* Persistent-terminal setup: tmux status + install button, with brew's output streamed underneath so the
-   install stays inside Settings instead of sending you to a terminal pane. */
-.tmux-setup { padding: 4px 2px 12px 24px; }
-.tmux-setup-row { display: flex; align-items: center; gap: 10px; }
-.tmux-setup-log { margin: 8px 0 0; padding: 8px 10px; max-height: 160px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+
 /* The shortcuts reference is now its own category, so drop the divider/offset it carried as a General sub-block. */
 .settings-section[data-cat="shortcuts"] .app-info-keys { margin-top: 0; border-top: 0; padding-top: 0; }
 .settings-section[data-cat="shortcuts"] .app-info-keys .keys-cat:first-of-type { margin-top: 0; }
-/* Groups two or more distinct prompt fields under one settings-cat tab (e.g. merge prompts + Explain
-   prompt) — a divider + top margin so the second .settings-h reads as a new group, not a continuation. */
-.settings-subsection { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border); }
-.settings-label { display: block; font-size: 12px; font-weight: 600; margin: 14px 0 6px; }
+
 .settings-textarea {
   width: 100%; box-sizing: border-box; resize: vertical; min-height: 70px;
   border: 1px solid var(--border); padding: 10px 12px;
@@ -1064,8 +976,7 @@ body.native-app .source-tabs {
 .settings-select.mc-select { text-align: left; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; min-width: 150px; flex: none; }
 .settings-select.mc-select::after { content: '▾'; margin-left: auto; opacity: 0.55; }
 .settings-select.mc-select:hover { border-color: var(--active); }
-.settings-actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
-.settings-saved { font-size: 12px; color: var(--active); }
+
 .app-info-keys-h { font-weight: 600; color: var(--text); margin-bottom: 8px; }
 .keys-cat { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin: 14px 0 6px; }
 .app-info-keys .keys-cat:first-of-type { margin-top: 4px; }
@@ -1151,21 +1062,7 @@ body.native-app .source-tabs {
   background: color-mix(in srgb, var(--active) 16%, transparent);
 }
 .patchset-kind { flex: none; color: var(--muted); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }
-.patchset-base-btn {
-  display: inline-flex; align-items: center; gap: 7px; flex: none; max-width: 60%;
-  padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px;
-  color: var(--text); background: var(--panel); font-size: 11.5px; line-height: 1; cursor: pointer;
-}
-.patchset-base-btn:hover { border-color: var(--active); }
-.patchset-base-btn[aria-expanded="true"] { border-color: var(--active); box-shadow: 0 0 0 2px color-mix(in srgb, var(--active) 28%, transparent); }
-.patchset-current { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.patchset-chev { flex: none; opacity: 0.7; }
-.patchset-arrow { flex: none; display: inline-flex; color: var(--muted); }
-.patchset-latest { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
-.patchset-latest-tag {
-  padding: 1.5px 7px; border-radius: 999px; font-size: 10px; font-weight: 650;
-  color: var(--active); background: color-mix(in srgb, var(--active) 16%, transparent);
-}
+
 .patchset-gap {
   color: var(--muted); font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace;
   padding: 0 2px; align-self: center; user-select: none;
@@ -1178,23 +1075,6 @@ body.native-app .source-tabs {
 .patchset-reset:hover { border-color: var(--active); color: var(--text); }
 .patchset-reset.hidden { display: none; }
 
-/* Floating base picker, appended to <body> and positioned under the button. */
-.patchset-popover {
-  position: fixed; z-index: 80; max-width: 460px; max-height: 60vh; overflow-y: auto;
-  padding: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
-}
-.patchset-popover.hidden { display: none; }
-.patchset-option {
-  display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left;
-  padding: 6px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); cursor: pointer;
-}
-.patchset-option:hover { background: color-mix(in srgb, var(--active) 12%, transparent); }
-.patchset-option.active { background: color-mix(in srgb, var(--active) 18%, transparent); }
-.patchset-option-check { flex: none; width: 12px; color: var(--active); font-size: 11px; line-height: 1.4; }
-.patchset-option-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.patchset-option-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
-.patchset-option-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 10.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .source-line-wrap-toggle {
   display: inline-flex;
   align-items: center;
@@ -1962,6 +1842,116 @@ h1 { margin: 0; font-size: 18px; }
 .compare-ahead { color: var(--diag-warning); }
 .compare-incoming { color: var(--active); }
 .compare-staged { color: var(--muted); }
+
+/* ===== Compare dropdown ==========================================================================
+   The pill is a button in the app, so it needs the button reset the toolbar's other controls get, plus a
+   hover that says it opens something. In a static export it is still a <span> and none of this applies. */
+button.compare-pill {
+  border: 1px solid transparent;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+}
+button.compare-pill:hover { border-color: color-mix(in srgb, currentColor 40%, transparent); }
+button.compare-pill:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; }
+button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, currentColor 55%, transparent); }
+.compare-caret { font-size: 12px; line-height: 1; opacity: 0.75; margin-top: -3px; }
+
+/* Anchored to the toolbar's meta group rather than the pill: the pill is replaced wholesale on every watch
+   tick, and a popover parented to it would be destroyed mid-interaction. */
+.diff-toolbar-meta { position: relative; }
+.compare-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.compare-menu.hidden { display: none; }
+.compare-menu-main,
+.compare-menu-branches {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--elevated);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 28%);
+  padding: 5px;
+}
+.compare-menu-main { min-width: 264px; }
+.compare-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.compare-menu-row:hover { background: var(--bg); }
+.compare-menu-row:focus-visible,
+.compare-menu-row:focus { outline: 2px solid var(--active); outline-offset: -2px; }
+.compare-menu-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.compare-menu-note { flex: none; color: var(--muted); font-size: 11.5px; }
+.compare-menu-chevron { flex: none; color: var(--muted); }
+/* The chord, printed in the row rather than hidden behind a hover: this menu exists to teach the two states,
+   and the key that flips them belongs next to their names. */
+.compare-menu-key {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--muted);
+  font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.5px;
+}
+/* The tick is a fixed-width slot on every row, checked or not, so the notes beside it stay in one column
+   instead of shifting sideways as the selection moves. */
+.compare-menu-check { flex: none; width: 12px; text-align: center; color: var(--active); }
+.compare-menu-row.active .compare-menu-check::before,
+.compare-branch-item.active .compare-menu-check::before { content: "\2713"; }
+.compare-menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }
+
+.compare-menu-branches { display: flex; flex-direction: column; gap: 5px; width: 320px; }
+.compare-menu-branches.hidden { display: none; }
+#compare-branch-search {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  padding: 6px 9px;
+}
+#compare-branch-search:focus-visible { outline: 2px solid var(--active); outline-offset: -1px; }
+.compare-branch-list { max-height: 320px; overflow-y: auto; }
+.compare-branch-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.compare-branch-item:hover { background: var(--bg); }
+.compare-branch-item:focus-visible,
+.compare-branch-item:focus { outline: 2px solid var(--active); outline-offset: -2px; }
+.compare-branch-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compare-branch-note { flex: none; color: var(--muted); font-size: 11px; }
+.compare-branch-empty { padding: 10px; color: var(--muted); }
 .compare-manual { color: var(--muted); }
 /* The one thing the pill cannot say: WHY the review moved to the remote. Only the `incoming` state fills it,
    so `:empty` keeps the strip out of the layout every other time. */
@@ -2557,13 +2547,6 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-composer.mc-reply-card { padding-top: 10px; }
 /* The waiting box at the end of an ongoing thread: a card-shaped, empty input the next turn can be typed
    into, rather than a button you must first find. Dashed and muted so it reads as "not yet written". */
-.mc-reply-stub {
-  display: block; width: 100%; max-width: 760px; text-align: left; cursor: text;
-  margin: 0 0 8px; padding: 9px 12px;
-  border: 1px dashed var(--border); background: var(--bg); color: var(--muted);
-  box-shadow: none;
-}
-.mc-reply-stub:hover, .mc-reply-stub:focus-visible { color: var(--text); border-color: color-mix(in srgb, var(--active) 55%, transparent); }
 /* Arrow-key selection addresses ONE turn inside a thread, so the outline has to be on the card, not the row —
    otherwise a three-turn thread lights up whole while `e` and Backspace act on a single card in it. */
 .mc-comment-row.mc-row-selected .mc-card { box-shadow: none; }
@@ -2614,13 +2597,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    is a left border rather than a tint or a glow: it survives being read at a glance down a long thread, and
    it costs no layout, so a marked note is not a differently-sized note. Deliberately only two colours — the
    red is where it hurts, the green is where it stops hurting, and a third would make the pair a palette. */
-/* The card's place in the reading order: 1/8. Monospace and tabular so a column of them does not jitter, and
-   the first is filled in — "start here" is the one thing a set of cards scattered down the file cannot say. */
-/* Prev/next for the ordered walk, at the head's right edge. Quiet until the card is hovered — a control that
-   shouts on every card in a nine-note review is nine shouts — and each reveals the KEY it stands for on the
-   way past, so one use with the mouse teaches the keyboard. */
-.mc-walk-nav { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 120ms ease; }
-.mc-card:hover .mc-walk-nav, .mc-walk-nav:focus-within { opacity: 1; }
+
 .mc-walk-step {
   display: inline-flex; align-items: center; gap: 4px; border: 1px solid transparent; border-radius: 5px;
   background: transparent; color: var(--muted); font-size: 13px; line-height: 1; padding: 2px 6px; cursor: pointer;
@@ -2634,8 +2611,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
   font-size: 9.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
   padding: 1px 6px; border-radius: 4px; border: 1px solid currentColor; white-space: nowrap;
 }
-.mc-card.mc-role-key { border-left: 3px solid var(--active); }
-.mc-card.mc-role-key .mc-role { color: var(--active); }
+
 /* Prose, not a code snippet: undo .mc-card-body's pre-wrap (markdown supplies its own block structure) and
    let .markdown-body typography take over. */
 .mc-ai-body { white-space: normal; font: 12.5px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -2792,10 +2768,7 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .mc-modal { position: fixed; inset: 0; z-index: 60; display: grid; place-items: start center; padding-top: min(10vh, 80px); background: color-mix(in srgb, #000 32%, transparent); }
 .mc-modal.hidden { display: none; }
 .mc-modal-panel { width: min(900px, calc(100vw - 40px)); height: 80vh; max-height: 80vh; display: grid; grid-template-rows: auto minmax(0, 1fr); border: 1px solid var(--border); overflow: hidden; }
-.mc-modal-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-weight: 650; }
-.mc-modal-head span { margin-right: auto; }
-.mc-modal-text { width: 100%; height: 100%; box-sizing: border-box; resize: none; border: 0; padding: 12px; background: var(--bg); color: var(--text); caret-color: var(--text); font: 12px/1.55 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.mc-modal-text:focus { outline: none; }
+
 /* Above EVERY overlay, including Settings (z-index 80, and an `isolation: isolate` stacking context). The
    dropdown is appended to <body>, so anything that outranks it renders on top of it — which read as "the
    Language / Theme selects do nothing": the menu opened behind the modal, and the click that should have
@@ -2818,7 +2791,7 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
    enough to reveal it as a sudden gap. Reset it here so the merged panel host only ever takes the height its
    own content needs. */
 .mc-inline-editor-host.mc-merged-editor-host { min-height: 0; }
-.mc-merged-editor-host .mc-merged-editor-region:not(:last-child) { margin-bottom: 8px; }
+
 /* .mc-inline-editor's own base rule sets min-height: calc(90vh - 150px) for the memo's single full-page
    editor — every one of these several smaller per-block regions inherits that class too, so it must be
    overridden here explicitly (a higher-specificity selector with no value at all does NOT win; the lone
@@ -2844,8 +2817,6 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .mc-merged-select-all .mc-merged-preview,
 .mc-merged-select-all.mc-merged-editor-host .mc-merged-preview { background: color-mix(in srgb, var(--active) 20%, transparent); }
 
-/* One worktree-scoped, Notion-style inline Markdown document (Tiptap -> persisted Markdown). */
-.mc-memo-body { min-width: 0; min-height: 0; height: 100%; overflow: auto; }
 .mc-inline-editor-host { position: relative; width: min(920px, calc(100% - 48px)); min-height: 100%; margin: 0 auto; padding: 24px 0 64px; }
 .mc-inline-editor-host[data-empty="true"]::before {
   content: attr(data-placeholder); position: absolute; top: 24px; left: 0; color: var(--muted);
@@ -2856,20 +2827,9 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
    islands, with more gap than text. Tighten both here: still comfortable prose, but consecutive lines read
    as one thought. The rendered-markdown surfaces (source preview, note cards) keep the article rhythm. */
 .mc-inline-editor { min-height: calc(90vh - 150px); outline: none; caret-color: var(--text); }
-/* Scoped to the memo and written with a class more than .markdown-body's own rules carry: at equal
-   specificity the later rule wins, and .markdown-body's paragraph margins are declared further down. */
-.mc-memo-body .mc-inline-editor { line-height: 1.55; }
-.mc-memo-body .mc-inline-editor p, .mc-memo-body .mc-inline-editor ul, .mc-memo-body .mc-inline-editor ol,
-.mc-memo-body .mc-inline-editor blockquote, .mc-memo-body .mc-inline-editor pre,
-.mc-memo-body .mc-inline-editor table { margin-bottom: .5em; }
-.mc-memo-body .mc-inline-editor h1, .mc-memo-body .mc-inline-editor h2, .mc-memo-body .mc-inline-editor h3,
-.mc-memo-body .mc-inline-editor h4, .mc-memo-body .mc-inline-editor h5,
-.mc-memo-body .mc-inline-editor h6 { margin: 1.05em 0 .4em; }
-.mc-memo-body .mc-inline-editor li + li { margin-top: .12em; }
+
 .mc-inline-editor > :first-child { margin-top: 0; }
-.mc-memo-save-state { flex: none; min-width: 48px; font-size: 10px; text-align: right; font-weight: 500; }
-.mc-memo-delete { flex: none; }
-.mc-memo-empty { font-size: 12px; font-style: italic; }
+
 /* Shown instead of a silently blank hand-off document when every comment got auto-flagged as addressed. */
 .mc-merged-empty-note { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 10px 12px; color: var(--muted); font-size: 12px; }
 .mc-merged-reopen-all { background: transparent; color: var(--active); border: 1px solid color-mix(in srgb, var(--active) 45%, transparent); border-radius: 7px; padding: 3px 9px; font-size: 12px; cursor: pointer; }
@@ -2912,49 +2872,11 @@ body:not(.dock-maximized) .dock-panel { animation: dock-in 165ms cubic-bezier(.2
 .dock-bar button:disabled { cursor: default; }
 .dock-max { font-size: 14px; line-height: 1; }
 .dock-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-.dock-body > .mc-modal-text { flex: 1 1 auto; height: auto; }
+
 .dock-body > .mc-merged-body { flex: 1 1 auto; height: auto; }
-.dock-body > .mc-memo-body { flex: 1 1 auto; height: auto; }
+
 /* Maximize the floating merged/memo panel to fill the viewport. */
 body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border-radius: 0; }
-/* --- Integrated terminal panel (Electron only): fills this view edge to edge, dimmed backdrop behind it.
-   The active toggle marks it as the merged-prompt send target while open. It reserves no title strip: the
-   shell window owns the title bar and traffic lights ABOVE this view (workspace views are inset at
-   TITLEBAR_H, see app-main.ts), so a 40px inset here only left the review's own brand + breadcrumb row
-   peeking over the terminal. --- */
-.terminal-panel {
-  position: fixed;
-  inset: 0;
-  /* Same reasoning as .dock-panel above: Send to Terminal (enterSendMode) can open this from inside the
-     Explain/History full-view overlays (z-index: 75) — it must render on top of them, not behind. */
-  z-index: 78;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 0;
-  border-width: 1px 0 0;
-  box-shadow: var(--ui-shadow-float, 0 24px 72px rgba(0, 0, 0, 0.42));
-  overflow: hidden;
-}
-.terminal-panel.hidden { display: none; }
-/* xterm paints the in-progress IME overlay #000 on #FFF from its own stylesheet, with no theme hook — and the
-   overlay is a whole CELL tall while the glyph inside it is only font-size tall. On a themed terminal that is a
-   dark band above and below the half-built word, which reads as the word floating off its line for as long as
-   you are composing (a macOS Hangul composition runs to the end of the WORD, so that is most of the time you
-   are typing). Wear the terminal's own colours instead; applyTerminalTheme publishes them. Nothing here moves
-   the overlay — its box is where the text will land, and only its paint was ever wrong. */
-.terminal-panel .xterm .composition-view {
-  background: var(--terminal-bg, transparent);
-  color: var(--terminal-fg, inherit);
-}
-/* The same 50% blend toward the background that xterm gives a DIM cell, so the character being composed joins
-   the agent composer's own dim text instead of shining out of it. Set from the cell it will land on
-   (matchCompositionDim); a line of ordinary bright text keeps the full foreground. */
-.terminal-panel .xterm .composition-view.is-dim {
-  color: color-mix(in srgb, var(--terminal-fg, #d8e0eb) 50%, var(--terminal-bg, #171b21));
-}
 
 /* Entrance animation: the panel rises + fades in when it un-hides (display:none -> flex restarts the
    animation on every open), and the freshly-appended backdrop fades with it. transform/opacity only, so the
@@ -2962,96 +2884,7 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
 /* Opacity only. The rise-and-scale read as a floating card entering; now that the panel fills the window that
    same 14px/1.5% move is the WHOLE screen jumping, which looks like a flicker rather than a transition. */
 @keyframes terminalPanelIn { from { opacity: 0; } to { opacity: 1; } }
-.terminal-panel:not(.hidden) { animation: terminalPanelIn 170ms cubic-bezier(0.16, 0.84, 0.44, 1); }
-.terminal-backdrop { position: fixed; inset: 0; z-index: 77; background: color-mix(in srgb, #000 40%, transparent); }
-@media (prefers-reduced-motion: reduce) { .terminal-panel:not(.hidden), .terminal-backdrop { animation: none; } }
-.terminal-resizer { display: none; } /* a centered ~90% floating panel has no edge to drag */
-/* Split panes sit side by side (no tabs); the 1px gap shows the --border underneath as a divider. */
-.terminal-host { flex: 1 1 auto; min-height: 0; display: flex; gap: 1px; overflow: hidden; background: var(--border); }
-/* Reattaching to the tmux sessions that outlived the app is not instant — ask main which ones survived, attach
-   a pty to each, wait for tmux to redraw its screen — and until the first byte lands the panel is an empty
-   rectangle, which reads as a hang rather than as work in progress. One arc while that is happening, in the
-   same shape the workspace selector uses for a running agent. */
-/* The wait belongs to a PANE, not to the panel: a split can have one pane still attaching while the one
-   beside it is already printing, and a single arc in the middle described neither. Each waiting rectangle
-   wears its own.
-   Above xterm, or invisible: xterm's own layers carry z-index up to 10 (xterm.css), so a pseudo-element at
-   z-index auto is painted UNDER the terminal screen — which is every moment this overlay is wanted. */
-.terminal-pane.is-connecting { position: relative; }
-.terminal-pane.is-connecting::after {
-  content: ""; position: absolute; inset: 0; margin: auto; width: 22px; height: 22px; border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--active) 28%, transparent); border-top-color: var(--active);
-  animation: workspace-selector-spin .8s linear infinite; pointer-events: none; z-index: 11;
-}
-/* And what it is waiting FOR, under the arc. An arc says something is happening; the sentence says what,
-   which is the difference between waiting and wondering whether the pane is broken. The text arrives as a
-   custom property (setPaneConnecting) because a pseudo-element cannot read a translation itself. */
-.terminal-pane.is-connecting::before {
-  content: var(--terminal-connecting, "");
-  position: absolute; left: 0; right: 0; top: 50%; margin-top: 24px;
-  text-align: center; color: var(--muted); font-size: 12px; pointer-events: none; z-index: 11;
-}
-/* Before any pane exists at all — main is still listing the sessions that survived — the panel carries it,
-   and hands over as soon as there is a rectangle to draw on. */
-.terminal-panel.is-connecting .terminal-host { position: relative; }
-.terminal-panel.is-connecting .terminal-host::after {
-  content: ""; position: absolute; inset: 0; margin: auto; width: 22px; height: 22px; border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--active) 28%, transparent); border-top-color: var(--active);
-  animation: workspace-selector-spin .8s linear infinite; pointer-events: none; z-index: 11;
-}
-.terminal-panel.is-connecting .terminal-host::before {
-  content: var(--terminal-connecting, "");
-  position: absolute; left: 0; right: 0; top: 50%; margin-top: 24px;
-  text-align: center; color: var(--muted); font-size: 12px; pointer-events: none; z-index: 11;
-}
-@media (prefers-reduced-motion: reduce) {
-  .terminal-pane.is-connecting::after,
-  .terminal-panel.is-connecting .terminal-host::after { animation: none; opacity: .65; }
-}
-/* Cmd+Shift+D stacks the panes instead (top/bottom); the same 1px gap becomes the horizontal divider. */
-/* The panel is a row of CELLS; a cell is a column of panes. One nesting level is what lets Cmd+Shift+D
-   stack the focused pane without re-orienting every other pane (see split() in 19-terminal.js). */
-.terminal-cell { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 1px; background: var(--border); }
-.terminal-pane { flex: 1 1 0; min-width: 0; min-height: 0; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
-/* Per-pane head strip: the pane name (double-click or Cmd/Ctrl+Alt+R to rename). */
-.terminal-pane-head {
-  flex: none; display: flex; align-items: center; min-width: 0;
-  background: var(--sidebar); border-bottom: 1px solid var(--border);
-}
-.terminal-pane-label {
-  flex: 1 1 auto; min-width: 0; padding: 2px 10px; font-size: 10px; letter-spacing: 0.04em;
-  color: var(--muted);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text;
-}
-.terminal-pane-label:hover { color: var(--text); }
-/* Only the head the close button overlaps has to keep clear of it — the top pane of the rightmost cell. */
-.terminal-cell:last-child .terminal-pane:first-child .terminal-pane-label { padding-right: 34px; }
-.terminal-pane-label[contenteditable="true"] { color: var(--text); background: var(--bg); outline: none; }
-.terminal-pane.is-active .terminal-pane-label { color: var(--text); }
-.terminal-pane-host { flex: 1 1 auto; min-width: 0; min-height: 0; padding: 4px 8px; } /* right padding too, so xterm's last column isn't clipped against the pane edge */
-/* Bell badge: a small dot on a pane's label when its TUI rang the bell while you were looking elsewhere. */
-.terminal-pane-label.has-bell::after { content: "\25CF"; margin-left: 6px; color: var(--active); font-size: 9px; vertical-align: middle; }
-/* Settings on/off row (terminal-bell notification toggle). */
-.settings-check { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--text); font-size: 13px; cursor: pointer; }
-.settings-check input { accent-color: var(--active); margin: 0; }
-/* No border on the active pane — the inactive panes dim back instead. Only applies with 2+ panes. */
-.terminal-pane { transition: opacity 120ms ease; }
-.terminal-panel:not(.send-mode) .terminal-pane.is-inactive { opacity: 0.4; }
-/* Pane-pick mode (merged "Send to terminal"): chosen pane ringed + full opacity, the rest dimmed. */
-.terminal-pane.is-dimmed { opacity: 0.3; }
-.terminal-pane.is-send-target { box-shadow: inset 0 0 0 2px var(--active); opacity: 1; position: relative; }
-/* Faint ⏎ hint floating over the chosen pane; it vanishes the instant Enter exits send mode. */
-.terminal-pane.is-send-target::after {
-  content: "⏎";
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  font-size: 56px; color: var(--active); opacity: 0.32; pointer-events: none; z-index: 5;
-}
-/* Send mode dims the rest of the app (sidebar + file/diff view) so only the terminal pops. */
-body.terminal-send-mode .sidebar,
-body.terminal-send-mode .content,
-body.terminal-send-mode .sidebar-resizer,
-body.terminal-send-mode .history-view { opacity: 0.25; pointer-events: none; }
-.terminal-toggle.is-active { color: var(--active); }
+
 /* A maximized writing panel becomes the window's topmost full-viewport surface. Its title therefore needs
    the same native-control reservation as History and the collapsed review toolbar. Normal writing panels are
    already inset from every window edge and deliberately keep their compact bar. */
@@ -3117,8 +2950,15 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   background: var(--bg);
 }
 #quick-open.quick-launcher .quick-open-title,
+#quick-open.quick-launcher #quick-open-input,
+#quick-open.quick-launcher #quick-open-search-options,
 #quick-open.quick-launcher #quick-open-results,
 #quick-open.quick-launcher #quick-open-preview { grid-column: 2; }
+/* Find in Files carries two rows the other modes don't (its input and its options strip). The rail's own
+   three-row template would fold them into one, so this restores the count for the one mode that has them. */
+#quick-open.quick-launcher.quick-content .quick-open-panel { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
+/* File-name search has an input; Recent does not (it speed-searches). One row more for the mode that shows it. */
+#quick-open.quick-launcher:not(.quick-recent):not(.quick-content) .quick-open-panel { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .quick-open-side-item {
   display: flex;
   align-items: center;
@@ -3148,22 +2988,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   font-size: 10.5px;
   letter-spacing: 1px;
 }
-/* A prompt is picked, not read: the card leads with its name and says WHEN to reach for it. The prompt text
-   is long, editable in Settings, and identical in shape between prompts — showing its first line made the
-   list impossible to choose from. Enter sends the selected one to the terminal composer. */
-.quick-open-item.quick-open-prompt {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 12px;
-  align-items: baseline;
-  padding: 10px 12px;
-}
-.quick-open-prompt-name { grid-column: 1; font-size: 13px; font-weight: 600; color: var(--text); }
-.quick-open-prompt-when { grid-column: 1; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
-.quick-open-prompt-go { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: 10.5px; color: var(--muted); opacity: 0; transition: opacity 120ms ease; }
-.quick-open-item.quick-open-prompt.active .quick-open-prompt-go { opacity: 1; }
-.quick-open-item.quick-open-prompt.active .quick-open-prompt-when,
-.quick-open-item.quick-open-prompt:hover .quick-open-prompt-when { color: inherit; opacity: .85; }
+
 .quick-open-side-sep { height: 1px; margin: 6px 4px; background: var(--border); }
 .quick-open-title {
   display: flex;
@@ -3173,7 +2998,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   border-bottom: 1px solid var(--border);
   font-size: 12px;
 }
-.quick-open-hint { font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
 /* Recent files: no search box — typed letters filter the list (speed search). */
 .quick-open.quick-recent #quick-open-input { display: none; }
 .quick-open-filter { font-size: 12px; }
@@ -3302,18 +3127,15 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 @media (max-width: 900px) {
   body { grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr); }
   body.native-app { padding-top: var(--native-titlebar-height); }
-  body.native-app .activity-rail { padding-top: 4px; }
+
   body.native-app .sidebar { padding-top: 0; }
   body.native-app .sidebar-scroll { padding-top: 10px; }
   body.native-app .diff-toolbar,
   body.native-app .source-tabs,
   body.native-app .source-toolbar { -webkit-app-region: no-drag; }
-  /* Rail becomes a horizontal strip at the top; tooltips drop below the icon. */
-  .activity-rail { grid-row: 1; grid-column: 1; width: auto; height: auto; flex-direction: row; padding: 4px 8px; border-right: 0; border-bottom: 1px solid var(--border); }
-  .activity-rail .rail-group { flex-direction: row; }
-  .activity-rail .rail-bottom { margin-left: auto; margin-top: 0; }
+
   .history-view { inset: var(--rail-width) 0 0 0; }
-  .rail-tip { left: 50%; top: calc(100% + 8px); transform: translateX(-50%); }
+
   .sidebar { grid-row: 2; grid-column: 1; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
   .content { grid-row: 3; grid-column: 1; padding: 16px; }
   .toolbar { margin: -16px -16px 16px; padding: 12px 16px; }
@@ -3509,11 +3331,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .markdown-body ul[data-type="taskList"] > li[data-checked] > div { flex: 1 1 auto; min-width: 0; min-height: 1.65em; cursor: text; }
 .markdown-body ul[data-type="taskList"] > li[data-checked] > div > :last-child { margin-bottom: 0; }
 .markdown-body div[data-type="details"] { position: relative; margin: .45em 0 1.1em; padding-left: 25px; }
-.markdown-body div[data-type="details"] > .mc-details-toggle {
-  position: absolute; top: .18em; left: 0; width: 21px; height: 25px; padding: 0; border: 0;
-  background: transparent; color: var(--muted); font: 17px/1 ui-sans-serif, system-ui, sans-serif; cursor: pointer;
-}
-.markdown-body div[data-type="details"] > .mc-details-toggle:hover { color: var(--text); background: color-mix(in srgb, var(--active) 10%, transparent); }
+
 .markdown-body div[data-type="details"] summary { display: block; min-height: 1.75em; font-weight: 620; cursor: text; }
 .markdown-body div[data-type="details"] div[data-type="detailsContent"] { margin-top: .45em; padding-left: 12px; border-left: 1px solid var(--border); }
 .markdown-body hr { height: 1px; margin: 1.8em 0; border: 0; background: var(--border); }
@@ -4085,570 +3903,13 @@ body.native-app .source-tabs {
 }
 .csv-empty { color: var(--muted); font-style: italic; padding: 16px; }
 
-/* The review tools moved to the shell title bar, so the in-view activity rail is gone: its track collapses
-   to 0 and the project tree becomes the left-most column, flush against the shell's workspace rail. (This
-   rule redefines the grid for the workspace view, so its --rail-width is what actually wins here.) */
-body.workspace-view {
-  --rail-width: 0px;
-  grid-template-columns: var(--rail-width) var(--sidebar-width, 264px) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-}
-body.workspace-view .activity-rail {
-  grid-column: 1;
-  grid-row: 1;
-  width: var(--rail-width);
-  height: auto;
-  padding: 30px 6px 7px;
-  flex-direction: column;
-  border-right: 1px solid var(--border);
-  border-bottom: 0;
-  overflow: visible;
-}
-body.workspace-view .activity-rail::before,
-body.workspace-view .activity-rail::after,
-body.workspace-view .sidebar::before { display: none; }
-body.workspace-view .activity-rail .rail-group { flex-direction: column; }
-body.workspace-view .activity-rail .rail-actions { margin-top: auto; margin-left: 0; }
-body.workspace-view .activity-rail .rail-btn {
-  flex: 0 0 36px;
-  width: 36px;
-  height: 36px;
-}
-body.workspace-view .activity-rail .rail-label { display: none; }
-body.workspace-view .activity-rail .rail-tip {
-  left: calc(100% + 9px);
-  top: 50%;
-  transform: translateY(-50%);
-}
-.rail-separator { width: 24px; height: 1px; margin: 5px 0 7px; background: var(--border); }
-body.workspace-view .workspace-selector {
-  position: relative;
-  display: flex;
-  color: var(--muted);
-}
-body.workspace-view .workspace-selector:hover { color: var(--text); }
-.workspace-selector-icon { width: 18px; height: 18px; }
-.workspace-selector-label { display: none; }
-.workspace-selector-activity {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 7px;
-  height: 7px;
-  border: 1px solid var(--sidebar);
-  border-radius: 50%;
-  background: var(--muted);
-}
-.workspace-selector-activity.running {
-  right: 3px;
-  bottom: 3px;
-  width: 9px;
-  height: 9px;
-  border: 2px solid color-mix(in srgb, var(--active) 35%, transparent);
-  border-top-color: var(--active);
-  background: transparent;
-  animation: workspace-selector-spin .8s linear infinite;
-}
 @keyframes workspace-selector-spin { to { transform: rotate(360deg); } }
-.workspace-selector-running {
-  position: absolute; right: -2px; top: -2px; width: 9px; height: 9px; border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--active) 40%, transparent);
-  border-top-color: var(--active);
-  animation: workspace-selector-spin .8s linear infinite;
-}
-.workspace-selector-unread {
-  position: absolute; right: -5px; top: -5px; min-width: 16px; height: 16px; padding: 0 3px;
-  border: 2px solid var(--sidebar); border-radius: 9px;
-  color: white; background: var(--active); text-align: center; font: 600 9px/12px ui-sans-serif, system-ui;
-}
-body.workspace-view .sidebar { grid-column: 2; grid-row: 1; }
-/* Brand header = one row aligned with the content toolbar (the shell draws the title bar, so no extra
-   title-strip reservation). The branch already shows in the shell title bar, so drop it here — that also
-   frees the row for the full project name instead of squeezing it to an ellipsis. */
-body.workspace-view .sidebar-brand { display: flex; align-items: center; min-height: var(--native-titlebar-height); padding-top: 0; padding-bottom: 0; }
-body.workspace-view .sidebar-brand .brand-branch { display: none; }
-body.workspace-view .content { grid-column: 3; grid-row: 1; }
-body.workspace-view .sidebar-resizer { left: calc(var(--rail-width) + var(--sidebar-width, 264px) - 2px); }
-.workspace-more-menu {
-  position: fixed;
-  left: 45px;
-  bottom: 8px;
-  top: auto;
-  z-index: 190;
-  width: 224px; /* fits the longest label beside its shortcut hint ("Review comments" + ⌘⇧/) */
-  padding: 5px;
-  background: var(--elevated);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 12px 32px var(--shadow);
-}
-/* The overflow ("More") menu (z-index: 190) is a child of .activity-rail, which is its own stacking
-   context (z-index: 32) — so the popup was trapped BELOW full-view overlays like History/Explain
-   (z-index: 75) that it pops out over. While the menu is open, lift the rail's context above them. */
-body.workspace-view .activity-rail:has(.workspace-more-menu:not(.hidden)) { z-index: 80; }
-/* The review tools moved to the shell title bar, but this overflow ("More") menu still lives in the activity
-   rail — which is display:none in the packaged app (body.native-app), so the shell's "…" button toggled a menu
-   that could never paint (its parent was display:none). When the menu is open, make the rail renderable again
-   but keep ONLY the menu visible, and anchor it top-right beneath the shell's "…" button instead of the old
-   bottom-left rail position. */
-body.native-app .activity-rail:has(.workspace-more-menu:not(.hidden)) { display: block; }
-body.native-app .activity-rail:has(.workspace-more-menu:not(.hidden)) > *:not(.workspace-more-menu) { display: none; }
-body.native-app .workspace-more-menu { top: 8px; right: 12px; left: auto; bottom: auto; }
-/* History + Settings live in the shell title bar / rail footer in the single-instance app, so hide those two
-   overflow-menu items here (the History button stays in the DOM — hidden — as the active-state anchor). */
-body.native-app .workspace-more-menu .rail-btn[data-view="history"],
-body.native-app .workspace-more-menu #app-info-btn { display: none; }
-body.workspace-view .activity-rail .workspace-more-menu .rail-btn {
-  width: 100%;
-  height: 31px;
-  display: flex;
-  justify-content: flex-start;
-  gap: 9px;
-  padding: 0 9px;
-  color: var(--text);
-}
-body.workspace-view .activity-rail .workspace-more-menu .rail-label { display: inline; font-size: 12px; white-space: nowrap; }
-/* On the rail the shortcut rides in the hover bubble, but a menu row has no bubble — hiding the whole tip
-   hid the shortcut with it. Let the tip's children flow into the row instead (display: contents drops the
-   bubble box, and with it the absolute positioning and opacity: 0) and keep only the kbd: the tip's label
-   would just duplicate .rail-label. */
-body.workspace-view .activity-rail .workspace-more-menu .rail-tip { display: contents; }
-body.workspace-view .activity-rail .workspace-more-menu .rail-tip > span { display: none; }
-body.workspace-view .activity-rail .workspace-more-menu .rail-tip kbd {
-  margin-left: auto; font-size: 10.5px; padding: 1px 5px; color: var(--muted); background: transparent;
-}
-body.workspace-view.workspace-hub-open {
-  grid-template-columns: 0 0 minmax(0, 1fr);
-}
-body.workspace-view.workspace-hub-open .activity-rail,
-body.workspace-view.workspace-hub-open .sidebar,
-body.workspace-view.workspace-hub-open .sidebar-resizer { display: none; }
-body.workspace-view.workspace-hub-open .content { grid-column: 3; grid-row: 1; }
-@media (prefers-reduced-motion: reduce) {
-  .workspace-selector-activity.running,
-  .workspace-selector-running { animation: none; border-color: var(--active); }
-}
-body.workspace-view.sidebar-collapsed {
-  grid-template-columns: var(--rail-width) 0 minmax(0, 1fr);
-}
-body.workspace-view.sidebar-collapsed .sidebar,
-body.workspace-view.sidebar-collapsed .sidebar-resizer { display: none; }
-body.workspace-view.sidebar-collapsed .content { grid-column: 3; grid-row: 1; }
 
-/* ===== Note walkthrough (23-annotations.js): a note whose explanation is a path through the code ===== */
-/* The ▶ inside a note card. Sits at the end of the note's prose, because that is where the reader has just
-   finished the setup and is ready to be walked through it. */
-/* The player floats over the code rather than living in the card: a step can open another file, which
-   unmounts the card it was started from. Bottom-right, clear of the caret hint and the terminal panel. */
-/* The step's lines, in whichever view is showing them. A left bar carries the "you are here" — a background
-   tint alone is lost against a diff row that already has one (added/removed green and red). */
-
-/* ===== The Explain briefing (25-briefing.js) ==============================================================
-   A panel with a beak, not a balloon: it is 52vw wide because page two carries two AS IS / TO BE diagrams and
-   they need the room. The beak is what makes it worth pointing — it says which file to start in without a
-   sentence having to spell out a path.
-
-   HEIGHT IS FIXED, and that is load-bearing. A panel sized by its content grows on the diagram page, walks
-   off the row it is pointing at, and the reader has to work out what it was ever about; the cap also keeps it
-   inside the window, without which the position clamp goes negative and the beak points at nothing. Short
-   pages leave air. That is the cheaper cost. */
-.mc-brf {
-  position: fixed;
-  z-index: 74;
-  width: min(52vw, 648px);
-  height: calc(100vh - 40px);
-  max-height: 648px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--chrome-panel);
-  color: var(--chrome-text);
-  border: 1px solid var(--chrome-border);
-  border-radius: var(--ui-radius-xl);
-  box-shadow: var(--ui-shadow-float);
-}
-/* No row to point at (sidebar collapsed, or the Files tab is open): centre it and drop the beak rather than
-   aim it at nothing. */
-.mc-brf.mc-brf-nobeak { left: 50%; top: 50%; transform: translate(-50%, -50%); }
-.mc-brf::before,
-.mc-brf::after {
-  content: "";
-  position: absolute;
-  width: 0;
-  height: 0;
-  border-top: 10px solid transparent;
-  border-bottom: 10px solid transparent;
-  top: calc(var(--mc-brf-beak, 50%) - 10px);
-}
-.mc-brf::before { left: -9px; border-right: 9px solid var(--chrome-border); }
-.mc-brf::after { left: -8px; border-right: 8px solid var(--chrome-panel); }
-.mc-brf.mc-brf-nobeak::before,
-.mc-brf.mc-brf-nobeak::after { display: none; }
-/* The scrim stops at the sidebar: the rows the last page lights up are the thing being pointed at, and
-   dimming them by 45% would answer "look here" in a whisper. */
-.mc-brf-scrim { position: fixed; inset: 0; z-index: 72; background: color-mix(in srgb, #000 45%, transparent); }
 body:has(#mc-briefing) .sidebar { z-index: 73; }
 
-/* The rendered codebase map (kakapo_map), above the note's pages. Zero-height until its own bridge script
-   says it loaded — a missing map.html must leave the panel exactly as it always was. */
-.mc-brf-map { display: block; flex: none; width: 100%; height: 0; border: 0; background: transparent; }
-/* Tall enough that the diagram itself is on screen — archify's own header takes the first ~250px, and a
-   340px frame showed the header and asked the reader to scroll for the map. */
-.mc-brf-map.mc-brf-map-live { height: min(52vh, 520px); border-bottom: 1px solid var(--ui-border-soft); }
-.mc-brf.mc-brf-has-map { width: min(76vw, 1000px); max-height: min(92vh, 900px); }
-
-.mc-brf-top { flex: none; padding: 15px 20px 14px; border-bottom: 1px solid var(--ui-border-soft); }
-.mc-brf-kicker {
-  display: flex; align-items: center; gap: 8px;
-  font: 700 10.5px/1 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  letter-spacing: .11em; text-transform: uppercase; color: var(--chrome-muted);
-}
-.mc-brf-of { margin-left: auto; letter-spacing: .04em; }
-.mc-brf-h { margin: 7px 0 0; font-size: 16.5px; font-weight: 650; line-height: 1.4; letter-spacing: -.01em; text-wrap: balance; }
-/* Three pages exist so that none of them scrolls — the split IS the budget. `auto` rather than `hidden` so a
-   note that overruns degrades to a scroll instead of being silently cut; but a page that needs the scrollbar
-   has too much on it, and what wants fixing then is the prompt, not this box. */
-.mc-brf-body { flex: 1; min-height: 0; overflow: auto; padding: 15px 20px 12px; font-size: 13.5px; line-height: 1.68; }
-.mc-brf-body h3 { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--chrome-muted); }
-.mc-brf-foot {
-  flex: none; display: flex; align-items: center; gap: 10px;
-  padding: 11px 16px 11px 20px; border-top: 1px solid var(--ui-border-soft);
-}
-.mc-brf-sp { flex: 1; }
-.mc-brf-dots { display: flex; align-items: center; gap: 6px; }
-.mc-brf-dot {
-  width: 22px; height: 5px; padding: 0; border: 0; border-radius: 3px; cursor: pointer;
-  background: var(--chrome-border); transition: background 130ms ease, width 130ms ease;
-}
-.mc-brf-dot:hover { background: var(--chrome-muted); }
-.mc-brf-dot[aria-current="true"] { width: 30px; background: var(--active); }
-.mc-brf-dot:focus-visible { outline: 2px solid var(--active); outline-offset: 2px; }
-.mc-brf-go {
-  font: inherit; font-size: 12.5px; font-weight: 620; cursor: pointer;
-  border-radius: var(--ui-radius-md); padding: 6px 13px;
-  border: 1px solid color-mix(in srgb, var(--active) 55%, transparent);
-  background: color-mix(in srgb, var(--active) 18%, transparent); color: var(--chrome-text);
-}
-.mc-brf-go:hover { background: color-mix(in srgb, var(--active) 28%, transparent); }
-.mc-brf-go:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; }
-.mc-brf-go.mc-brf-quiet { border-color: var(--chrome-border); background: transparent; color: var(--chrome-muted); font-weight: 520; }
-.mc-brf-go:disabled { opacity: .32; cursor: default; background: transparent; }
-
-/* Two strengths, never one. The beak points at ONE file and its row is lit hard with a ring; the files the
-   page merely names are lit faintly and underlined, and only the one under the cursor comes up to meet it.
-   Equal strength would leave "where do I look?" with two answers. */
-.change-row.mc-brf-mark { background: color-mix(in srgb, var(--active) 9%, transparent); }
-.change-row.mc-brf-mark .change-name { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, var(--active) 55%, transparent); }
-.change-row.mc-brf-hot { background: color-mix(in srgb, var(--active) 24%, transparent); }
-.change-row.mc-brf-hot .change-name { text-decoration-color: var(--active); }
-.change-row.mc-brf-aim { background: color-mix(in srgb, var(--active) 18%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--active) 60%, transparent); }
-
-/* The way back in, directly above the files it is about. Always there once an explanation exists — a control
-   you have to already know about is not a control, which is how the walk went unmet in the first place. */
-.mc-brf-recall {
-  display: flex; align-items: center; gap: 8px; width: calc(100% - 12px);
-  margin: 2px 6px 6px; padding: 7px 9px; border-radius: var(--ui-radius-sm);
-  background: color-mix(in srgb, var(--active) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--active) 34%, transparent);
-  color: var(--chrome-text); font: inherit; font-size: 11.5px; font-weight: 600;
-  text-align: left; cursor: pointer;
-}
-.mc-brf-recall:hover { background: color-mix(in srgb, var(--active) 20%, transparent); }
-.mc-brf-recall:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; }
-.mc-brf-recall > svg { flex: none; color: var(--active); }
-.mc-brf-recall-text { flex: 1; }
-.mc-brf-recall-key {
-  font: 10px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--chrome-muted); background: color-mix(in srgb, #000 22%, transparent);
-  border-radius: var(--ui-radius-xs); padding: 1px 5px;
-}
-body:has(#mc-briefing) .mc-brf-recall { opacity: .45; }
-
-/* ===== The knowledge map (⌘⇧K, 26-terms.js) =======================================================
-   Obsidian's shape, and for the same reason: a vocabulary is only legible when the words that carry
-   others sit in the middle and the rest fade outward. Everything here is either the world (which the
-   pan/zoom transform moves as one) or screen furniture that must NOT scale — the open card, the head. */
-.mc-map {
-  position: fixed; inset: 0;
-  /* Above the terminal panel (78) and Settings (80). At 76 the map drew BEHIND an open terminal, so every
-     click on a word or on a code link went to the terminal instead and the map looked dead. Below the ⌘E
-     launcher (94), which is allowed to open over it. */
-  z-index: 93;
-  display: flex; flex-direction: column;
-  background: var(--chrome-bg);
-}
-.mc-map-head {
-  flex: none; display: flex; align-items: center; gap: 10px;
-  padding: 0 12px 0 16px; height: var(--native-titlebar-height, 38px);
-  border-bottom: 1px solid var(--ui-border-soft); -webkit-app-region: drag;
-}
-/* The head doubles as window chrome, so it drags — and a control inside a drag region is dead to the mouse:
-   macOS takes the press as the start of a window move and the DOM never sees a click. The ✕ opted out by
-   itself and "+ add a word" did not, so it could not be pressed at all, while a synthetic click on it worked
-   perfectly. Every button in here opts out, the way .dock-bar and .history-bar already do, so the next one
-   added does not have to remember. */
-.mc-map-head button { -webkit-app-region: no-drag; }
-.mc-map-title { font-size: 12.5px; font-weight: 620; color: var(--chrome-text); }
-.mc-map-count {
-  font: 600 10.5px/1 Monaco, ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--chrome-muted); padding: 3px 6px; border-radius: 999px; background: var(--chrome-line);
-}
-.mc-map-sp { flex: 1; }
-.mc-map-x {
-  width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--ui-radius-md);
-  background: transparent; color: var(--chrome-muted); cursor: pointer; font-size: 12px;
-}
-.mc-map-x:hover { background: var(--chrome-line); color: var(--chrome-text); }
-
-.mc-map-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; cursor: grab; }
-.mc-map-stage:active { cursor: grabbing; }
-.mc-map-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
-.mc-map-edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
-.mc-edge {
-  stroke: var(--chrome-border); stroke-width: 1.1; opacity: .55;
-  transition: opacity 260ms ease, stroke 260ms ease;
-}
-.mc-edge.is-lit { stroke: var(--active); opacity: .95; stroke-width: 1.5; }
-.mc-edge.is-dim { opacity: .1; }
-
-.mc-node {
-  position: absolute;
-  /* One radius up, not half the box: the circle's centre must sit exactly on the point the edges are drawn
-     to, and the label hangs below it. --r is set per node from its own radius. */
-  transform: translate(-50%, calc(-1 * var(--r, 6px)));
-  display: flex; flex-direction: column; align-items: center; gap: 5px;
-  padding: 0; border: 0; background: transparent; cursor: pointer;
-  transition: opacity 300ms ease;
-}
-.mc-node-dot {
-  display: block; border-radius: 50%;
-  background: var(--chrome-muted);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--chrome-bg) 88%, transparent);
-  transition: background 220ms ease, box-shadow 220ms ease;
-}
-/* The label is never hidden — a word you cannot read is not on the map. Distance is expressed as fade
-   (set per node from its radius out of the middle), not as a disappearing name. */
-.mc-node-t {
-  max-width: 168px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font-size: 11.5px; font-weight: 560; letter-spacing: -.01em; color: var(--chrome-text);
-  text-shadow: 0 0 4px var(--chrome-bg), 0 0 4px var(--chrome-bg);
-}
-.mc-node.is-lit .mc-node-dot { background: color-mix(in srgb, var(--active) 70%, var(--chrome-muted)); }
-.mc-node.is-focus .mc-node-dot {
-  background: var(--active);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--active) 22%, transparent);
-}
-.mc-node.is-focus .mc-node-t { font-weight: 680; }
-.mc-node:focus-visible { outline: 2px solid var(--active); outline-offset: 3px; border-radius: 4px; }
-/* A word that arrived since it was last read. Cleared by opening THAT word — not by opening the map. */
-/* Sits on the shoulder of the circle, whatever the circle's size — the dots got smaller, so a fixed offset
-   left the pip floating away from its own word. */
-.mc-node-new {
-  position: absolute; top: -1px; right: 50%;
-  margin-right: calc(-1 * var(--r, 6px) - 4px);
-  width: 5px; height: 5px; border-radius: 50%; background: #e5484d;
-}
-
-/* The repository itself, in the middle. Not a word — it opens nothing — so it is drawn as a place rather
-   than a term: filled, ringed, and the only label on the map that is not somebody's vocabulary. */
-.mc-node.is-root { pointer-events: auto; }
-.mc-node.is-root .mc-node-dot {
-  background: var(--chrome-text);
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--chrome-text) 12%, transparent);
-}
-.mc-node.is-root .mc-node-t {
-  font-size: 13px; font-weight: 720; letter-spacing: -.015em; max-width: 260px;
-}
-.mc-node.is-root .mc-node-new { display: none; }
-/* Structural lines: the project to its leading concepts. Quieter than a mention, which is a thing the
-   reader actually said. */
-.mc-edge.is-structural { stroke-dasharray: 2 4; opacity: .35; }
-
-/* The agent's offerings: concepts it found in the code that the reader has not taken up. Hollow, because
-   they are not filled in yet — nothing about them is the reader's, and they join nothing on the map. */
-.mc-node.is-offered .mc-node-dot {
-  background: transparent;
-  border: 1.5px dashed var(--chrome-muted);
-  box-shadow: none;
-}
-.mc-node.is-offered .mc-node-t { font-weight: 480; font-style: italic; }
-.mc-term-offered {
-  margin-left: 7px; padding: 2px 6px; border-radius: 999px;
-  font: 600 9.5px/1.4 Monaco, ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: .04em; color: var(--chrome-muted); background: var(--chrome-line);
-}
-
-/* The header's right-hand cluster: what acts on the WORD, then a rule, then what closes the CARD.
-   One margin-left:auto lives here and nowhere inside — two auto margins in the same flex row split the
-   slack between them, which is what pushed the × across the card away from the tools it sits beside. */
-.mc-term-tools { margin-left: auto; display: flex; align-items: center; gap: 1px; flex: none; }
-.mc-term-rule { width: 1px; height: 13px; margin: 0 5px; background: var(--chrome-border); flex: none; }
-/* No rule when the group is only a × (the editor's header) — a divider needs two sides. */
-.mc-term-tools > .mc-term-rule:first-child { display: none; }
-
-/* The card is a thing to read, so nothing that acts on the word stands in it at rest. Focus-within is not
-   politeness: a control revealed only by hover is a control a keyboard can reach and never see. */
-.mc-term-icon {
-  width: 22px; height: 22px; flex: none; border: 0; padding: 0; border-radius: 6px;
-  background: transparent; color: var(--chrome-muted);
-  display: grid; place-items: center; cursor: pointer;
-  opacity: 0; transition: opacity .12s ease, color .12s ease, background .12s ease;
-}
-.mc-term-card:hover .mc-term-icon,
-.mc-term-tools:focus-within .mc-term-icon { opacity: 1; }
-.mc-term-icon:hover { background: var(--chrome-line); color: var(--chrome-text); }
-.mc-term-icon.mc-term-drop:hover { color: var(--danger, #e5534b); }
-.mc-term-icon:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; opacity: 1; }
-/* Nothing hovers on a touch screen, so there the tools simply stand. */
-@media (hover: none) { .mc-term-icon { opacity: 1; } }
-
-/* The card's own dismiss. This position used to hold the DELETE, which is why a reader closing a detail
-   lost the word instead. */
-.mc-term-close {
-  width: 20px; height: 20px; flex: none; border: 0; padding: 0;
-  border-radius: 6px; background: transparent; color: var(--chrome-muted);
-  font: 400 14px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  display: grid; place-items: center; opacity: .55; cursor: pointer;
-}
-.mc-term-close:hover { background: var(--chrome-line); color: var(--chrome-text); opacity: 1; }
-.mc-term-close:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; opacity: 1; }
-
-/* Saving and cancelling an edit stay words: they are the two ends of a thing the reader is in the middle
-   of doing, and an icon for "cancel" would be a second × on a card that already has one. */
-.mc-term-actions { display: flex; gap: 6px; margin-top: 12px; }
-.mc-term-act {
-  padding: 4px 10px; border: 1px solid var(--chrome-border); border-radius: 6px;
-  background: transparent; color: var(--chrome-muted); font-size: 11.5px; cursor: pointer;
-}
-.mc-term-act:hover { background: var(--chrome-line); color: var(--chrome-text); }
-.mc-term-act.is-primary { background: var(--active); border-color: var(--active); color: #fff; }
-.mc-term-act.is-primary:hover { filter: brightness(1.08); color: #fff; }
-.mc-term-act:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; }
-
-.mc-term-input {
-  width: 100%; box-sizing: border-box; margin-top: 8px; padding: 7px 9px;
-  border: 1px solid var(--chrome-border); border-radius: 7px;
-  background: var(--chrome-bg, var(--chrome-panel)); color: var(--chrome-text);
-  font: 12.5px/1.6 inherit; resize: vertical;
-}
-.mc-term-input:focus { outline: none; border-color: var(--active); }
-.mc-term-w-input { margin-top: 0; font-size: 14px; font-weight: 640; }
-/* An add card has no node to sit beside, so it is placed rather than anchored (openTermAdd). */
-.mc-term-card.is-adding { top: 50%; left: 50%; transform: translate(-50%, -50%); }
-
-.mc-map-add {
-  flex: none; padding: 3px 9px; border: 1px solid var(--chrome-border); border-radius: 6px;
-  background: transparent; color: var(--chrome-muted); font-size: 11.5px; cursor: pointer;
-}
-.mc-map-add:hover { background: var(--chrome-line); color: var(--chrome-text); }
-
-.mc-map-empty {
-  position: absolute; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 8px; padding: 0 40px; text-align: center;
-}
-.mc-map-empty-h { margin: 0; font-size: 14px; font-weight: 620; color: var(--chrome-text); }
-.mc-map-empty-p { margin: 0; max-width: 46ch; font-size: 12.5px; line-height: 1.7; color: var(--chrome-muted); }
-
-/* Screen space, not world space: it stays the same size at every zoom, and it is clamped against the
-   window rather than the graph. It is re-placed every frame, so it can never be left covering its node. */
-.mc-term-card {
-  position: absolute; z-index: 3; width: 300px; max-height: 340px; overflow: auto;
-  padding: 13px 15px 14px;
-  border: 1px solid var(--chrome-border); border-radius: var(--ui-radius-lg, 10px);
-  background: var(--chrome-panel); box-shadow: var(--ui-shadow-popup);
-  animation: mc-term-in 150ms ease;
-}
 @keyframes mc-term-in { from { opacity: 0; transform: translateY(-6px); } }
-.mc-term-h { display: flex; align-items: baseline; gap: 4px; }
-.mc-term-parent, .mc-term-sep { font-size: 11.5px; color: var(--chrome-muted); }
-.mc-term-w { font-size: 14.5px; font-weight: 680; letter-spacing: -.01em; color: var(--chrome-text); }
-.mc-term-gloss { margin: 8px 0 0; font-size: 12.5px; line-height: 1.72; color: var(--chrome-text); }
-.mc-term-link {
-  font: inherit; padding: 0; border: 0; background: transparent; cursor: pointer;
-  color: var(--active); border-bottom: 1px dotted color-mix(in srgb, var(--active) 60%, transparent);
-}
-.mc-term-link:hover { border-bottom-style: solid; }
-.mc-term-codes { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
-.mc-term-kicker {
-  font: 700 9.5px/1 Monaco, ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: .11em; text-transform: uppercase; color: var(--chrome-muted); margin-bottom: 2px;
-}
-.mc-term-code {
-  display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; cursor: pointer;
-  padding: 5px 7px; border: 0; border-radius: var(--ui-radius-sm, 5px); background: var(--chrome-line);
-  font: inherit;
-}
-.mc-term-code:hover { background: color-mix(in srgb, var(--active) 14%, var(--chrome-line)); }
-.mc-term-code code { font-size: 11.5px; color: var(--chrome-text); }
-.mc-term-at {
-  margin-left: auto; font-size: 10.5px; color: var(--chrome-muted);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%;
-}
-/* `at` is a cache and the name is the truth: a rotten address is reported, never hidden. */
-.mc-term-at.is-gone { color: #e5484d; }
-/* Not an alarm: nobody has looked yet. Red is reserved for the search that actually came back empty. */
-.mc-term-at.is-unchecked { color: var(--muted, #8b909a); font-style: italic; }
 
-/* Unread words, said on the launcher row that lists the map — the rail's own tool buttons are permanently
-   hidden, so a dot there would be a dot nobody sees. */
-.rail-dot {
-  flex: none; margin-left: 6px; margin-right: auto; /* hug the label; the shortcut keeps the right edge */
-  width: 6px; height: 6px; border-radius: 50%; background: #e5484d;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mc-term-card { animation: none; }
-  .mc-node, .mc-edge { transition: none; }
-}
-
-/* The harvest offer (26-terms.js): shown after a thread is deleted, when there is something in it the reader
-   worked out. Bottom-right, out of the way of the code the deletion just uncovered — it is an offer, not a
-   confirmation, and the delete has already happened. */
-.mc-harvest {
-  /* Same reasoning as the map: an offer you cannot see or click is not an offer. */
-  position: fixed; right: 18px; bottom: 18px; z-index: 95; width: 380px; max-height: 60vh;
-  display: flex; flex-direction: column;
-  padding: 14px 16px 12px;
-  border: 1px solid var(--chrome-border); border-radius: var(--ui-radius-lg);
-  background: var(--chrome-panel); box-shadow: var(--ui-shadow-float);
-  animation: mc-harvest-in 160ms ease;
-}
 @keyframes mc-harvest-in { from { opacity: 0; transform: translateY(10px); } }
-.mc-harvest-h { font-size: 13px; font-weight: 650; color: var(--chrome-text); }
-.mc-harvest-p { margin: 5px 0 10px; font-size: 11.5px; line-height: 1.6; color: var(--chrome-muted); }
-.mc-harvest-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
-.mc-harvest-row {
-  display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: baseline;
-  padding: 6px 8px; border-radius: var(--ui-radius-sm); cursor: pointer;
-}
-.mc-harvest-row:hover { background: var(--chrome-line); }
-.mc-harvest-row input { grid-row: span 2; margin: 0; accent-color: var(--active); }
-.mc-harvest-w { font-size: 12.5px; font-weight: 620; color: var(--chrome-text); }
-.mc-harvest-g {
-  grid-column: 2; font-size: 11px; line-height: 1.55; color: var(--chrome-muted);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
-.mc-harvest-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 11px; }
-.mc-harvest-skip, .mc-harvest-save {
-  font: inherit; font-size: 12px; font-weight: 620; cursor: pointer;
-  padding: 6px 13px; border-radius: var(--ui-radius-md);
-}
-.mc-harvest-skip { border: 1px solid var(--chrome-border); background: transparent; color: var(--chrome-muted); }
-.mc-harvest-skip:hover { color: var(--chrome-text); background: var(--chrome-line); }
-.mc-harvest-save { border: 1px solid color-mix(in srgb, var(--active) 55%, transparent); background: var(--active); color: #fff; }
-.mc-harvest-save:hover { filter: brightness(1.08); }
-@media (prefers-reduced-motion: reduce) { .mc-harvest { animation: none; } }
-
-/* One row per agent CLI on this machine: connected, or one click from it. */
-.mcp-agents { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
-.mcp-agent {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 9px; border-radius: var(--ui-radius-sm); background: var(--chrome-line);
-  font-size: 12px; color: var(--chrome-text);
-}
-.mcp-agent-name { font-weight: 620; }
-.mcp-agent-state { margin-left: auto; font-size: 11px; color: var(--chrome-muted); }
-.mcp-agent.is-on .mcp-agent-state { color: var(--active); font-weight: 620; }
 
 /* ===== Shortcut coach (28-shortcut-coach.js) — the top-right "there's a key for that" nudge. Blue edge
    for a never-used shortcut spotted through repeated clicks; the commit-accent violet marks the rusty

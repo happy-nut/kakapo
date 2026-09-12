@@ -40,7 +40,7 @@ order.forEach((file, index) => {
 });
 
 // Provided by the browser/host, not by a slice: a `typeof` on these is a genuine capability check.
-const HOST_GLOBALS = new Set(["window", "document", "fetch", "ResizeObserver", "IntersectionObserver"]);
+const HOST_GLOBALS = new Set(["window", "document", "fetch", "Notification", "ResizeObserver", "IntersectionObserver"]);
 
 // The one slice that is also executed OUTSIDE the bundle: the real-Chromium layout fixtures
 // (test/fixtures/electron-{diff-layout,window-resize,comment-layout}.cjs) load it alone against a bare

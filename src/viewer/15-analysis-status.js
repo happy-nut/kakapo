@@ -36,7 +36,3 @@ function renderAnalysisStatus(status) {
 
 if (typeof window !== 'undefined') window.__kakapoAnalysisStatus = { render: renderAnalysisStatus };
 
-
-// Update download progress used to draw a ring on this view's brand mark. It draws on the rail's mark now
-// (#railver in shell-pages.ts): the version being installed is the app's, so one indicator for the app beats
-// one per open workspace — see sendUpdateProgress in app-main.ts.
