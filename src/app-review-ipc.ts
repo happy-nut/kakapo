@@ -12,6 +12,7 @@ import { readGitLog, readGitLineLog, readGitBlame, readCommitDiff, readRangeDiff
 import { defaultBaseRef, git, listBranches } from "./git.js";
 import { readPatchSets } from "./patch-sets.js";
 import { materializeDeferredSourceFile } from "./diff.js";
+import { languageForPath } from "./util.js";
 import { allReviewBodies, readReviewBody, reviewBodyCount } from "./review-bodies.js";
 import { searchProject } from "./search.js";
 import type { AnalysisRequest, ProjectAnalysis } from "./analysis.js";
@@ -65,7 +66,10 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     if (cached !== undefined) return cached;
     // One slice off the build's bodies file, rendered, and kept only within the cache's budget. Nothing about
     // this file is held between requests — that is the point of writing it down (review-bodies.ts).
-    const body = (await buildTools()).renderLazyDiffBody(readReviewBody(state.bodies, index));
+    const body = (await buildTools()).renderLazyDiffBody(
+      readReviewBody(state.bodies, index),
+      (path) => sourceTextForHighlight(state, path),
+    );
     state.bodyCache.set(String(index), body);
     return body;
   });
@@ -289,4 +293,22 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
 // compare menu's read side and app-main's set-compare-mode, which is why it lives here rather than inline.
 export function compareDefaultRef(root: string): string {
   return git(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]) || defaultBaseRef(root);
+}
+
+// A single-file component's diff cannot be highlighted from its hunks alone: which block a line is in is a
+// property of the whole file (highlight.ts's markupLanguageByLine). Hand the highlighter that file.
+//
+// Gated on the language so nothing else pays for it. A .ts diff needs no file, and on the lazy path the
+// content is deliberately not in memory — materializing it for every body fetch would undo the deferral this
+// path exists for. One .svelte file being opened is a read the reader already asked for.
+function sourceTextForHighlight(state: ReviewIpcState, path: string): string | undefined {
+  if (languageForPath(path) !== "markup") return undefined;
+  const record = state.sourceFiles.get(path);
+  if (!record) return undefined;
+  if (typeof record.content === "string" && record.content) return record.content;
+  if (!record.deferred) return undefined;
+  try {
+    const filled = materializeDeferredSourceFile(state.options.root, record, state.reviewTarget ?? state.options.target);
+    return typeof filled?.content === "string" && filled.content ? filled.content : undefined;
+  } catch { return undefined; }
 }

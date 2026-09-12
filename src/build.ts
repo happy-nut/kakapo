@@ -4,7 +4,7 @@ import type { AutomaticReviewBase } from "./git.js";
 import type { CompareState, DiffReviewBuild } from "./types.js";
 import { isGitRepository, git, resolveAutomaticReviewBase } from "./git.js";
 import { collectHttpEnvironments, collectReviewFileStates, collectSourceFiles, parseUnifiedDiff, readUnifiedDiff } from "./diff.js";
-import { renderDiff2Html } from "./highlight.js";
+import { renderDiff2Html, type SourceTextLookup } from "./highlight.js";
 import {
   diffSubtitle,
   extractLazyDiffBody,
@@ -44,8 +44,8 @@ function resolveCompareState(input: {
   return { mode: "local", left: "HEAD", right: "" };
 }
 
-export function renderLazyDiffBody(diffText: string): string {
-  return extractLazyDiffBody(renderDiff2Html(diffText));
+export function renderLazyDiffBody(diffText: string, sourceText?: SourceTextLookup): string {
+  return extractLazyDiffBody(renderDiff2Html(diffText, sourceText));
 }
 
 export function buildDiffReview(input: {
@@ -142,7 +142,9 @@ export function buildDiffReview(input: {
   const diffSplit = lazyLoad
     ? { container: renderLazyDiffShells(files), islands: "", bodies: [] as string[] }
     : (() => {
-        const diffHtml = renderDiff2Html(diffText);
+        // Highlighting a single-file component needs the file, not just its hunks — see markupLanguageByLine.
+        const byPath = new Map(sourceFiles.map((file) => [file.path, file.content]));
+        const diffHtml = renderDiff2Html(diffText, (path) => byPath.get(path) || undefined);
         return lazy ? splitDiffForLazy(diffHtml, files) : { container: diffHtml, islands: "", bodies: [] as string[] };
       })();
   const signature = createHash("sha1")

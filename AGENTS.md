@@ -38,4 +38,5 @@ Every behavior change should include:
 - a smoke test or command-level verification
 - documentation updates when CLI behavior changes
 
-When adding commands, update both `src/cli.ts` help output and `README.md`.
+When adding commands or shortcuts, update `printHelp` in `src/commands.ts`, the Settings ▸ Shortcuts sheet
+in `src/render.ts`, and both READMEs.
