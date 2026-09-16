@@ -112,6 +112,7 @@ kakapo --staged             # index vs HEAD
 | `⌘⇧/` | All review comments (one hand-off document) |
 | `⌘9` | Git history |
 | `⌘F` / `⌘⇧F` | Find in file / in project (the ⌘⇧F rail also holds file search & recent files) |
+| `⌘E` | Recent files — the list on its own, press again to close |
 | `⌥A` / `⌥U` | All changes on the branch / only what is not committed yet |
 | `⌥C` | Choose the branch "all changes" is measured against |
 | `⌘B` / `⌘⌥B` / `⌘⌥O` | Definition & usages / implementation / workspace symbol |

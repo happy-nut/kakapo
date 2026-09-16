@@ -295,6 +295,17 @@ document.addEventListener('keydown', (event) => {
       return;
     }
   }
+  // ⌘E — the file you were just in. Straight to the recent-files list, no section rail: this key knows
+  // which section it wants, unlike ⌘⇧F, which is the door to all of them.
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyE' || event.key === 'e' || event.key === 'E')) {
+    var ekae = document.activeElement;
+    if (!(ekae && (ekae.tagName === 'INPUT' || ekae.tagName === 'TEXTAREA' || ekae.tagName === 'SELECT'))) {
+      event.preventDefault();
+      if (document.getElementById('quick-open') && !document.getElementById('quick-open').classList.contains('hidden') && quickMode === 'recent') closeQuickOpen();
+      else openQuickOpen('recent', true);
+      return;
+    }
+  }
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyK' || event.key === 'k' || event.key === 'K')) {
     var kkae = document.activeElement;
     if (!(kkae && (kkae.tagName === 'INPUT' || kkae.tagName === 'TEXTAREA' || kkae.tagName === 'SELECT'))) {

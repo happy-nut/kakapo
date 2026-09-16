@@ -16,7 +16,9 @@ function setQuickOpenOwnsEditKeys(owns) {
 // The sections that live INSIDE this dialog. The other entries (review comments, history) are panels of
 // their own — reachable here, not embedded — so they just open and dismiss the launcher.
 var QUICK_LAUNCHER_MODES = ['recent', 'all', 'content'];
-function openQuickOpen(mode) {
+// hideRail: open this section on its own, with no rail beside it. ⌘E asks for that — it names the section
+// it wants, so a column of the other sections beside a short list of recent files is all frame and no list.
+function openQuickOpen(mode, hideRail) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
   setQuickOpenOwnsEditKeys(true);
   quickMode = mode;
@@ -33,7 +35,7 @@ function openQuickOpen(mode) {
   // narrow the list (IntelliJ-style speed search); the global keydown routes keys to handleQuickOpenKey.
   quickOpen.classList.toggle('quick-recent', mode === 'recent');
   quickOpen.classList.toggle('quick-content', mode === 'content');
-  quickOpen.classList.toggle('quick-launcher', QUICK_LAUNCHER_MODES.indexOf(mode) >= 0);
+  quickOpen.classList.toggle('quick-launcher', !hideRail && QUICK_LAUNCHER_MODES.indexOf(mode) >= 0);
   syncQuickLauncherRail();
   syncContentSearchControls();
   recentFilter = '';

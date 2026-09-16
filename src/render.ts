@@ -577,6 +577,7 @@ export function renderDiffHtml(input: {
     '<kbd>⌘F</kbd><span data-i18n="kbd.findInFile">Find in current file</span>' +
     '<kbd>⌘G / ⌘⇧G</kbd><span data-i18n="kbd.findNextPrev">Next / previous match</span>' +
     '<kbd>⌘⇧F</kbd><span data-i18n="kbd.findInFiles">Find in files</span>' +
+    '<kbd>⌘E</kbd><span data-i18n="kbd.recentFiles">Recent files</span>' +
     '<kbd>⌥E</kbd><span data-i18n="kbd.searchExtensions">Focus extension filter</span>' +
     '<kbd>⌥P</kbd><span data-i18n="kbd.excludeSearchNoise">Exclude comments / tests</span>' +
     '<kbd>⌘B</kbd><span data-i18n="kbd.defUsages">Definition / usages</span>' +
