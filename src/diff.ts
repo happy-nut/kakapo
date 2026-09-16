@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, readFileSync, readlinkSync, statSync, type Stats } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, statSync, type Stats } from "node:fs";
 import { basename, join, relative } from "node:path";
 import type { DiffFile, DiffHunk, DiffLine, ReviewFileState, SourceFile } from "./types.js";
 import {
@@ -10,7 +10,7 @@ import {
   SOURCE_MAX_TOTAL_BYTES,
 } from "./constants.js";
 import { ByteBudgetCache, formatBytes, hashText, isLikelyBinary, languageForPath, stripDiffPath } from "./util.js";
-import { canonicalWorkspaceRoot, git, repoRoot } from "./git.js";
+import { canonicalWorkspaceRoot, git, isGitRepository, repoRoot } from "./git.js";
 
 // File content + signature cache, keyed by path and validated on (mtime, size). Under `watch` the app
 // rebuilds every second; without this, collectSourceFiles re-reads + re-hashes EVERY tracked source
@@ -43,6 +43,10 @@ export function readUnifiedDiff(options: {
   // the enclosing repository/index, but a monorepo package now behaves as an independent review
   // workspace: sibling changes are excluded and UI paths start at the selected folder.
   const root = canonicalWorkspaceRoot(options.root ?? process.cwd());
+  // A folder that is not a repository has no diff — that is an answer, not a failure. kakapo opens plain
+  // folders and single files too (a design note under ~/.claude, a scratch directory), and those reviews are
+  // the source tree with an empty diff. Throwing here left the window on its loading mark, silently.
+  if (!isGitRepository(root)) return "";
   const args = ["diff", "--no-ext-diff", "--find-renames", "--relative", `--unified=${options.context}`];
   if (options.ignoreWhitespace) args.push("--ignore-all-space");
   if (options.target) {
@@ -321,10 +325,41 @@ export function computeChangeSet(diffFiles: DiffFile[]): { changed: Set<string>;
 // Enumerate the source paths to index: the project's tracked + untracked source candidates plus any changed
 // path (review evidence must stay openable even under a filtered directory), sorted for stable output. This
 // tree walk is the piece a cached project index would own across ticks — it rarely changes tick-to-tick.
+// Directories a filesystem walk must not descend into. `git ls-files` gets this from .gitignore; outside a
+// repository there is nothing to ask, and a single node_modules would turn opening a folder into a crawl.
+const UNWALKED_DIRECTORIES = new Set([".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", "target", ".next", ".cache", ".gradle", ".idea", "vendor"]);
+const WALK_FILE_LIMIT = 20_000;
+
+// The fallback for a root with no git behind it: walk the tree. Bounded on both axes — the skip list above
+// and a hard file cap — because this runs on the way to first paint and an accidentally-opened home
+// directory must not hang the app.
+function walkProjectPaths(root: string): string[] {
+  const out: string[] = [];
+  const queue: string[] = [""];
+  while (queue.length && out.length < WALK_FILE_LIMIT) {
+    const relativeDir = queue.shift() as string;
+    let entries;
+    try { entries = readdirSync(join(root, relativeDir), { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") && entry.name !== ".claude") continue; // dotfiles are noise in a browse tree
+      const path = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (!UNWALKED_DIRECTORIES.has(entry.name)) queue.push(path);
+      } else if (entry.isFile() && isSourceCandidate(path)) {
+        out.push(path);
+        if (out.length >= WALK_FILE_LIMIT) break;
+      }
+    }
+  }
+  return out;
+}
+
 export function enumerateProjectPaths(root: string, changed: Set<string>): string[] {
   const paths = new Set<string>();
-  const gitFiles = git(root, ["ls-files", "--cached", "--others", "--exclude-standard", "--", "."]);
-  for (const file of gitFiles.split(/\r?\n/)) {
+  const gitFiles = isGitRepository(root)
+    ? git(root, ["ls-files", "--cached", "--others", "--exclude-standard", "--", "."]).split(/\r?\n/)
+    : walkProjectPaths(root);
+  for (const file of gitFiles) {
     const path = file.trim();
     if (path && isSourceCandidate(path)) paths.add(path);
   }

@@ -10,6 +10,10 @@ export { parsePositiveInteger, readOption };
 
 export type ParsedReviewArgs = {
   requestedCwd: string | undefined; // raw --cwd (unresolved); caller resolves + checks it's a git repo
+  openPath: string | undefined; // absolute file to land on (`kakapo <file>`); caller relativises it to the root
+  // The launch NAMED a path (`kakapo <path>` / `--cwd`), rather than inheriting whatever cwd it started in.
+  // A GUI launch inherits "/", which must reach the welcome screen and not a review of the whole disk.
+  openedExplicitly: boolean;
   staged: boolean;
   baseValue: string | undefined; // raw --base ref; caller validates it against the repo
   includeUntracked: boolean;
@@ -28,6 +32,8 @@ export function parseReviewArgs(args: string[]): ParsedReviewArgs {
   const contextValue = readOption(args, "--context");
   return {
     requestedCwd: readOption(args, "--cwd"),
+    openPath: readOption(args, "--open"),
+    openedExplicitly: args.includes("--opened"),
     staged,
     baseValue,
     includeUntracked: args.includes("--include-untracked"),

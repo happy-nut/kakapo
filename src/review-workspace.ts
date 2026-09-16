@@ -41,6 +41,7 @@ export function writeReviewWorkspace(
   const build = buildDiffReview({
     base: options.base,
     baseLabel: options.baseLabel,
+    openPath: options.openPath,
     target: options.target,
     staged: options.staged,
     includeUntracked: options.includeUntracked,

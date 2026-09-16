@@ -1,9 +1,10 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { errorMessage, readOption } from "./util.js";
+import { applicationsBundlePath, installApp, uninstallApp } from "./install-app.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -17,6 +18,8 @@ export function main(): void {
       printHelp();
       return;
     }
+    if (rawArgs[0] === "install-app") { runInstallApp(); return; }
+    if (rawArgs[0] === "uninstall-app") { runUninstallApp(); return; }
     launchReviewApp(rawArgs);
   } catch (error) {
     const message = errorMessage(error);
@@ -25,28 +28,80 @@ export function main(): void {
   }
 }
 
+function packageVersion(): string {
+  try {
+    const pkg = nodeRequire(join(dirname(dirname(fileURLToPath(import.meta.url))), "package.json")) as { version?: unknown };
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch { return "0.0.0"; }
+}
+
+function runInstallApp(): void {
+  const { path, replaced } = installApp({ version: packageVersion() });
+  process.stdout.write(`${replaced ? "Updated" : "Installed"} ${path}\n`);
+  process.stdout.write("Kakapo is now in Spotlight and Launchpad. Opening it with no repository shows the folder picker.\n");
+  // The icon is cached per bundle path, and a rewritten bundle at the same path keeps the stale one until
+  // Finder is nudged. Cheap, best-effort, and never worth failing the install over.
+  spawnSync("touch", [path], { stdio: "ignore" });
+}
+
+function runUninstallApp(): void {
+  const path = applicationsBundlePath();
+  process.stdout.write(uninstallApp(path) ? `Removed ${path}\n` : `Nothing to remove at ${path}\n`);
+}
+
 // Keep the initial diff DOM compact. Omitted ranges can be expanded in-place from the reviewed revisions,
 // so shipping whole files up front only makes startup and caret navigation slower on large changes.
 export const DEFAULT_DIFF_CONTEXT = 12;
 
-function launchReviewApp(args: string[]): void {
-  // Review the directory given by --cwd (defaults to the current one), so `npm run dev -- --cwd <path>` can
-  // open ANY repo from anywhere. chdir up front so the flow state and the launched app resolve to one repo.
-  const targetCwd = resolve(readOption(args, "--cwd") ?? process.cwd());
-  if (!existsSync(targetCwd)) {
-    throw new Error(`Directory does not exist: ${targetCwd}`);
+// Options whose value is the NEXT argument. A positional path has to skip over those values, or
+// `kakapo --base main` would read `main` as the thing to open.
+const VALUE_OPTIONS = new Set(["--cwd", "--base", "--context"]);
+
+/** The first bare argument: the file or folder to open. `kakapo <path>` is the short form of `--cwd <path>`. */
+function positionalPath(args: string[]): string | undefined {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (VALUE_OPTIONS.has(arg)) { index += 1; continue; }
+    if (arg.startsWith("-")) continue;
+    return arg;
   }
+  return undefined;
+}
+
+function launchReviewApp(args: string[]): void {
+  // What to open: `--cwd <path>`, a bare path, or the current directory. A FILE is legal — kakapo opens the
+  // folder around it and lands on the file, which is how you read a design note that lives outside any repo
+  // (`kakapo ~/.claude/projects/…/PLAN.md`). chdir up front so the launched app resolves to one place.
+  // Did the user name a place, or are we just inheriting a cwd? A GUI launch (Launchpad, Spotlight, the
+  // Applications icon) inherits "/" — and --cwd is passed inward either way, so without this marker the app
+  // reads "/" as a deliberate choice and tries to index the whole filesystem instead of showing the picker.
+  const named = readOption(args, "--cwd") ?? positionalPath(args);
+  const requested = resolve(named ?? process.cwd());
+  if (!existsSync(requested)) {
+    throw new Error(`Path does not exist: ${requested}`);
+  }
+  const openFile = statSync(requested).isFile() ? requested : undefined;
+  const targetCwd = openFile ? dirname(openFile) : requested;
   process.chdir(targetCwd);
 
   const appArgs = [
     appMainPath(),
     "--cwd",
     process.cwd(),
-    "--context",
-    String(DEFAULT_DIFF_CONTEXT),
     "--include-untracked", // new AI-created files are visible by default
   ];
-  if (args.includes("--no-watch")) appArgs.push("--no-watch");
+  if (named !== undefined) appArgs.push("--opened");
+  if (openFile) appArgs.push("--open", openFile);
+  // Forward the review flags. They used to stop here: `--help` and the README documented --base/--staged/
+  // --ignore-whitespace, and the app never saw any of them — only --cwd and the default context were passed
+  // on, so `kakapo --base main` silently reviewed the working tree instead.
+  const base = readOption(args, "--base");
+  if (base !== undefined) appArgs.push("--base", base);
+  const context = readOption(args, "--context");
+  appArgs.push("--context", context ?? String(DEFAULT_DIFF_CONTEXT));
+  for (const flag of ["--staged", "--ignore-whitespace", "--no-watch"]) {
+    if (args.includes(flag)) appArgs.push(flag);
+  }
 
   ensureElectronRuntimeBranded();
   const electronBinary = resolveElectronBinary();
@@ -115,9 +170,16 @@ function printHelp(): void {
 
 Usage:
   kakapo            open the review app for the current repository
+  kakapo <path>     open a folder, or a single file (lands on it). Git is optional —
+                    a folder without a repository opens as its source tree.
+
+Commands:
+  install-app       add a Kakapo icon to Applications (Spotlight, Launchpad, Dock).
+                    npm installs a CLI only; this is the opt-in that gives it an icon.
+  uninstall-app     remove that icon again
 
 Options:
-  --cwd <path>      repository (or package inside one) to review; default: current directory
+  --cwd <path>      same as the bare <path> form, for a folder
   --base <rev>      compare the working tree against a branch, tag or commit
                     default: the upstream merge-base when the branch has unpushed
                     commits, otherwise HEAD. Changeable in the app — see Alt+A/U/C.

@@ -54,7 +54,12 @@ cd kakapo
 npm install
 npm run lsp:install
 npm link
+kakapo install-app   # optional: adds a Kakapo icon to Applications
 ```
+
+`npm` installs a command, not an application, so kakapo lives in your terminal and nowhere else. `kakapo
+install-app` adds an icon to Applications for Spotlight, Launchpad and the Dock; it launches the very CLI you
+installed, so there is no second copy to go stale, and `kakapo uninstall-app` takes it away again.
 
 ## Running it
 
@@ -62,8 +67,13 @@ Run `kakapo` inside any Git repository or a package folder inside a monorepo:
 
 ```bash
 kakapo
-kakapo --cwd /path/to/repository/package
+kakapo /path/to/repository/package     # or any folder
+kakapo path/to/file.ts                 # open the folder around it, landing on the file
 ```
+
+Git is optional. A folder with no repository in it opens as its source tree with an empty diff, which is how
+you read a file that was never going to be committed — a design note under `~/.claude`, a scratch directory,
+an unpacked tarball.
 
 Kakapo runs as a single instance. Running `kakapo` again from the same repository or worktree focuses the window already reviewing it; another repository opens its own window. Subfolders are normalised to the Git top level, so the same checkout never opens twice, while separate worktrees stay separate windows.
 

@@ -13,9 +13,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
   en: {
     // Tabs (sidebar)
     "tab.changes": "Changes",
-    "tab.files": "Files",
+    "tab.files": "All files",
+    "sidebar.switch": "Sidebar tree",
     "tab.changes.title": "Changes (⌘0)",
-    "tab.files.title": "Files (⌘1)",
+    "tab.files.title": "All files (⌘1)",
     "tree.markViewed": "Reviewed this file (Space)",
     "rail.branch": "Current branch",
     "brand.revealFile": "Reveal open file in the sidebar (⌥F1)",
@@ -368,7 +369,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
   ko: {
     // Tabs (sidebar)
     "tab.changes": "변경사항",
-    "tab.files": "파일",
+    "tab.files": "전체 파일",
+    "sidebar.switch": "사이드바 트리",
     "tree.markViewed": "이 파일 확인함 (Space)",
     "rail.branch": "현재 브랜치",
     "brand.revealFile": "열린 파일을 사이드바에서 보기 (⌥F1)",
@@ -412,7 +414,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.showLineHistory": "날짜와 작성자 표시",
     "menu.hideLineHistory": "날짜와 작성자 숨기기",
     "tab.changes.title": "변경사항 (⌘0)",
-    "tab.files.title": "파일 (⌘1)",
+    "tab.files.title": "전체 파일 (⌘1)",
 
     // 레일: 톱니바퀴 배지 툴팁 / 정보
     // 릴리스 이미지를 내려받는 동안 브랜드 마크에 붙는 title (applyUpdateProgress). 링이 곧 보고이고,

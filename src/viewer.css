@@ -764,21 +764,25 @@ body.native-app .source-tabs {
 .brand-reveal:hover { color: var(--active); background: color-mix(in srgb, var(--active) 15%, transparent); }
 /* Changes / Files. These were hidden while the activity rail carried the same two icons; the rail is gone,
    so they are the only pointer affordance for the switch again (⌘0/⌘1 remain the keyboard one). */
-.tabs { display: flex; gap: 2px; padding: 6px 8px 0; }
-.tabs .tab {
-  flex: 1 1 0;
-  padding: 5px 10px;
+/* Which tree the sidebar shows: two icons in the header row, not a pair of full-width text tabs. The tabs
+   were sized like the main navigation of the app, for a choice made once a session. */
+.sidebar-switch { display: flex; gap: 1px; flex: none; margin-left: auto; padding: 1px; border-radius: 7px; background: var(--bg); }
+.sidebar-switch-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
   cursor: pointer;
 }
-.tabs .tab:hover { color: var(--text); background: color-mix(in srgb, var(--active) 12%, transparent); }
-.tabs .tab.active { color: var(--active); background: color-mix(in srgb, var(--active) 18%, transparent); }
+.sidebar-switch-item:hover { color: var(--text); }
+.sidebar-switch-item:focus-visible { outline: 2px solid var(--active); outline-offset: -2px; }
+.sidebar-switch-item.active { color: var(--chrome-selected-text); background: var(--chrome-selected); }
 
 /* The sidebar's bottom toolbar: analysis state on the left, actions on the right. */
 .sidebar-tools {

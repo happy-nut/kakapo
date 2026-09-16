@@ -38,14 +38,19 @@ function leaveFullScreenPanels() {
   closeMergedDock();
 }
 
-// Cmd+0/1 and their rail icons are focus-aware. From content they reveal/focus the matching tree; only a
+// Cmd+0/1 and their header icons are focus-aware. From content they reveal/focus the matching tree; only a
 // repeated activation while that tree owns the logical focus collapses it. A collapsed tree expands first.
+//
+// "That tree", not "a tree": the guard used to be `treeFocusIndex >= 0` alone, which is true whenever ANY
+// tree holds the logical cursor — including the other one. So ⌘0 (focus Changes) followed by ⌘1 read as a
+// repeat and collapsed the sidebar instead of switching to Files, and the same in reverse. The first press
+// of either key must always be "take me to my tree".
 
 function activateChangesView(navigateToDiff) {
   leaveFullScreenPanels();
   if (isDiffViewVisible()) {
     if (reviewSidebarCollapsed) { setReviewSidebarCollapsed(false, { focusSidebar: true }); return; }
-    if (treeFocusIndex >= 0) { toggleReviewSidebar(); return; }
+    if (treeFocusIndex >= 0 && activeSidebarTab() === 'changes') { toggleReviewSidebar(); return; }
     setTab('changes');
     focusOpenFileInTree();
     return;
@@ -63,7 +68,7 @@ function activateFilesView() {
   leaveFullScreenPanels();
   if (isSourceViewerVisible()) {
     if (sourceSidebarCollapsed) { setSourceSidebarCollapsed(false, { focusSidebar: true }); return; }
-    if (treeFocusIndex >= 0) { toggleSourceSidebar(); return; }
+    if (treeFocusIndex >= 0 && activeSidebarTab() === 'files') { toggleSourceSidebar(); return; }
     setTab('files');
     focusOpenFileInTree();
     return;
@@ -606,10 +611,10 @@ document.getElementById('files-panel')?.addEventListener('click', (event) => {
   if (pointerSelection) focusTreeRowFromPointer(link);
 });
 
-// The sidebar tabs are the pointer half of ⌘0/⌘1 now that the activity rail is gone, so they do what those
+// The header icons are the pointer half of ⌘0/⌘1 now that the activity rail is gone, so they do what those
 // keys do — bring the matching view forward, not just swap which tree the sidebar shows. Clicking "Changes"
 // while reading a source file used to leave the file on screen with the Changes tree beside it.
-document.querySelectorAll('.tab').forEach((button) => {
+document.querySelectorAll('.sidebar-switch-item').forEach((button) => {
   button.addEventListener('click', () => {
     if ((button.dataset.tab || 'changes') === 'files') activateFilesView();
     else activateChangesView(true);
@@ -732,7 +737,9 @@ document.addEventListener('copy', handleSourceCopy);
 
 applyI18n(); // first paint already shows English (inline); this swaps to the saved locale before the rest of init renders dynamic text
 populateHttpEnvSelect();
-const restored = restoreUiState();
+// A named file beats the restored tabs: the reader just asked for it on the command line, and that is a
+// more recent statement of intent than wherever they were when they last closed this repo.
+const restored = REVIEW_OPEN_PATH ? (openSourceFile(REVIEW_OPEN_PATH), true) : restoreUiState();
 if (!restored) {
   const initial = location.hash.match(/^#hunk-(\d+)$/);
   const hasDiff = Boolean(document.querySelector('#diff2html-container .d2h-file-wrapper'));

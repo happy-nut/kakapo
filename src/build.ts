@@ -12,7 +12,6 @@ import {
   renderDiffHtml,
   renderDiffTree,
   renderLazyDiffShells,
-  renderNotGitRepoHtml,
   renderReviewStatus,
   renderSourceTree,
   shouldLazyRender,
@@ -53,6 +52,8 @@ export function buildDiffReview(input: {
   // Display name for `base` when it was resolved from something the reader named (a branch, via the compare
   // dropdown). Affects the toolbar pill only — the diff itself always uses `base`.
   baseLabel?: string;
+  // `kakapo <file>`: the file the first paint should land on, relative to root.
+  openPath?: string;
   // Right/new side revision (A→B compare). undefined → compare against the working tree (default).
   target?: string;
   staged: boolean;
@@ -70,16 +71,11 @@ export function buildDiffReview(input: {
   // ensureFullProjectIndex, pulled via kakapo:get-project-index). Honored only on the app's lazy path.
   deferFullIndex?: boolean;
 }): DiffReviewBuild {
+  // No early exit for a folder without git. A review of one is simply a review with an empty diff: the source
+  // tree, and whatever file was asked for. That is worth having — a design note under ~/.claude, a scratch
+  // directory, a downloaded tarball — and every git call below already answers "" rather than throwing when
+  // there is no repository (git.ts's git(), and readUnifiedDiff's own guard).
   const root = input.root ?? process.cwd();
-  if (!isGitRepository(root)) {
-    return {
-      html: renderNotGitRepoHtml(root),
-      files: 0,
-      hunks: 0,
-      signature: "not-a-git-repo",
-      generatedAt: new Date().toISOString(),
-    };
-  }
   // A→B compare pins both sides to revisions, so the automatic (clean-branch merge-base) resolution and the
   // working-tree/index sides don't apply.
   const automaticBase = !input.base && !input.staged && !input.target
@@ -176,6 +172,7 @@ export function buildDiffReview(input: {
     ignoreWhitespace: Boolean(input.ignoreWhitespace),
     app: Boolean(input.app),
     compare,
+    openPath: input.openPath,
     signature,
     generatedAt,
   });

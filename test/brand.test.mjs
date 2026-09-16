@@ -38,11 +38,12 @@ test("macOS app icon keeps a restrained inset and softened system-style corners"
 });
 
 test("visible product labels and wait states reuse the real Kakapo icon", async () => {
-  const { renderNotGitRepoHtml, renderWelcomeHtml } = await import("../dist/render.js");
-  for (const html of [renderNotGitRepoHtml("/tmp/project"), renderWelcomeHtml(false)]) {
-    assert.match(html, /class="brand-mark"[^>]*role="img"[^>]*aria-label="Kakapo"/, "standalone screens show the icon as the accessible brand");
-    assert.doesNotMatch(html, /class="badge">kakapo</i, "the old visible wordmark is gone");
-  }
+  // The welcome screen is the only standalone screen left: a folder without git no longer gets a
+  // "not a git repository" page, it gets a review whose diff is empty.
+  const { renderWelcomeHtml } = await import("../dist/render.js");
+  const welcome = renderWelcomeHtml(false);
+  assert.match(welcome, /class="brand-mark"[^>]*role="img"[^>]*aria-label="Kakapo"/, "standalone screens show the icon as the accessible brand");
+  assert.doesNotMatch(welcome, /class="badge">kakapo</i, "the old visible wordmark is gone");
 
   const { html } = await makeReviewHtml([
     { path: "src/app.ts", before: "export const value = 1;\n", after: "export const value = 2;\n" },
