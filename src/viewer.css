@@ -1,6 +1,10 @@
 
 :root {
   color-scheme: dark;
+  /* The header band: the sidebar's project row and the content pane's tab strip form one horizontal band
+     across the window, so they share a height — their bottom rules meet at the seam between the two
+     columns, and deriving that height from paddings on each side left them a fraction of a pixel apart. */
+  --header-band: 38px;
   --bg: #101318;
   --panel: #171b21;
   --text: #d8e0eb;
@@ -735,7 +739,10 @@ body.native-app .source-tabs {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 10px 12px;
+  /* Tight to the 24px switch it holds: this band carries a project name and two icons, and the 22px of
+     vertical padding it used to have made the window's top-left corner read as empty. */
+  height: var(--header-band);
+  padding: 0 10px;
   border-bottom: 1px solid var(--border);
   min-width: 0;
 }
@@ -2030,8 +2037,10 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
      ABOVE the strip. The 6px that used to sit below pushed this bar's bottom rule 6px higher than the
      sidebar header's, so the line arriving from the left hit the pane and jumped. Both rules now land at
      the same y (the header band is 47px in either column). No side margin either: the rule has to reach
-     both pane edges, and the first tab has to start where the pane starts. */
-  margin: 12px 0 0;
+     both pane edges, and the first tab has to start where the pane starts. The exact top margin is what
+     keeps this bar's rule level with the sidebar header's. */
+  height: var(--header-band);
+  margin: 0;
   border: 1px solid var(--border);
 }
 .source-tab {
@@ -3605,6 +3614,9 @@ summary.tree-focus,
 
 .quick-open-results { background: var(--chrome-panel); }
 .quick-open-item { color: var(--chrome-text); }
+/* The name is what is being picked; the path only says which of the same-named files it is, so it reads
+   under the name rather than beside it at the same weight. */
+.quick-open-item .quick-open-path { color: var(--chrome-muted); }
 .quick-open-item.active,
 .quick-open-item:hover { color: var(--chrome-selected-text); background: var(--chrome-selected); border-color: var(--active-strong); }
 .quick-open-item.active .quick-open-path,
@@ -3621,18 +3633,21 @@ summary.tree-focus,
 .semantic-peek-item.active .semantic-peek-item-path,
 .semantic-peek-item.active .semantic-peek-item-line,
 .semantic-peek-item.active .semantic-peek-item-code { color: var(--chrome-selected-text); }
+/* "This usage is in a test" is a hint about a row, not a state of it: at 78% green the tests dominated the
+   list and the production hits — the ones being looked for — read as the exception. A tint and a thin edge
+   are enough to group them at a glance. */
 .semantic-peek-item.is-test,
 .quick-open-item.usage-item.is-test {
   color: var(--chrome-text);
-  background: color-mix(in srgb, var(--diff-added) 78%, var(--chrome-elevated));
-  box-shadow: inset 3px 0 color-mix(in srgb, var(--diff-added-strong) 82%, var(--chrome-text));
+  background: color-mix(in srgb, var(--diff-added) 22%, var(--chrome-elevated));
+  box-shadow: inset 2px 0 color-mix(in srgb, var(--diff-added-strong) 45%, var(--chrome-elevated));
 }
 .semantic-peek-item.is-test:hover,
 .semantic-peek-item.is-test.active,
 .quick-open-item.usage-item.is-test:hover,
 .quick-open-item.usage-item.is-test.active {
   color: var(--chrome-selected-text);
-  background: color-mix(in srgb, var(--diff-added-strong) 72%, var(--chrome-selected));
+  background: color-mix(in srgb, var(--diff-added-strong) 30%, var(--chrome-selected));
 }
 .semantic-peek-item.is-test .semantic-peek-item-path,
 .semantic-peek-item.is-test.active .semantic-peek-item-path,
@@ -3717,7 +3732,7 @@ body.native-app .source-tabs {
   gap: 1px;
   /* No left padding: the first tab starts at the pane's left edge, so its left border continues the
      sidebar divider instead of leaving a 6px stub of the strip's bottom rule hanging beside it. */
-  padding: 4px 6px 0 0;
+  padding: 0 6px 0 0;
   border-width: 0 0 1px;
   border-radius: 0;
 }
