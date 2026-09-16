@@ -11,8 +11,15 @@ export function isGitRepository(root: string): boolean {
   return result.status === 0 && (result.stdout ?? "").trim() === "true";
 }
 
+// Git escapes any non-ASCII byte in the paths it PRINTS (status, ls-files, diff headers) as C octal —
+// "과제 안내.md" comes out as "\352\263\274\354\240\234 \354\225\210\353\202\264.md". kakapo then
+// shows that literal string as the filename, splits the stray quote into a phantom directory, and cannot
+// find the file on disk. Every git read in the app goes through these two helpers plus the diff/status
+// spawns in diff.ts, so ask git for raw UTF-8 at the source instead of un-escaping downstream.
+export const RAW_PATHS = ["-c", "core.quotePath=false"];
+
 export function git(root: string, args: string[]): string {
-  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  const result = spawnSync("git", [...RAW_PATHS, ...args], { cwd: root, encoding: "utf8" });
   if (result.status !== 0) {
     return "";
   }
@@ -27,7 +34,7 @@ export function gitAsync(root: string, args: string[]): Promise<string> {
   return new Promise((resolveOutput) => {
     let stdout = "";
     try {
-      const child = spawn("git", args, { cwd: root });
+      const child = spawn("git", [...RAW_PATHS, ...args], { cwd: root });
       child.stdout.on("data", (chunk) => { stdout += chunk; });
       child.on("error", () => resolveOutput(""));
       child.on("close", (code) => resolveOutput(code === 0 ? stdout.trim() : ""));

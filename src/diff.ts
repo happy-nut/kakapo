@@ -10,7 +10,7 @@ import {
   SOURCE_MAX_TOTAL_BYTES,
 } from "./constants.js";
 import { ByteBudgetCache, formatBytes, hashText, isLikelyBinary, languageForPath, stripDiffPath } from "./util.js";
-import { canonicalWorkspaceRoot, git, isGitRepository, repoRoot } from "./git.js";
+import { canonicalWorkspaceRoot, git, isGitRepository, repoRoot, RAW_PATHS } from "./git.js";
 
 // File content + signature cache, keyed by path and validated on (mtime, size). Under `watch` the app
 // rebuilds every second; without this, collectSourceFiles re-reads + re-hashes EVERY tracked source
@@ -59,7 +59,7 @@ export function readUnifiedDiff(options: {
   }
   args.push("--", ".");
 
-  const result = spawnSync("git", args, {
+  const result = spawnSync("git", [...RAW_PATHS, ...args], {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 1024 * 1024 * 100,
@@ -266,7 +266,7 @@ function gitStatusMap(cwd: string): Map<string, "new" | "edited" | "staged"> {
   try {
     // Porcelain's leading index/worktree columns are significant. The general git() helper trims stdout,
     // which removes the first line's leading space and corrupts its status/path; preserve raw output here.
-    const result = spawnSync("git", ["status", "--porcelain", "--", "."], { cwd, encoding: "utf8" });
+    const result = spawnSync("git", [...RAW_PATHS, "status", "--porcelain", "--", "."], { cwd, encoding: "utf8" });
     if (result.status !== 0) return map;
     out = result.stdout ?? "";
   } catch {
