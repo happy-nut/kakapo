@@ -838,6 +838,22 @@ function markupBlockLanguages(lines) {
   return out;
 }
 
+// Built once, not per line: highlightLine runs on every rendered line of every file.
+var BASE_KEYWORDS = new Set(['as','async','await','break','case','catch','class','const','continue','def','default','defer','do','else','enum','export','extends','final','finally','fn','for','from','func','function','go','if','impl','import','in','interface','let','match','module','new','package','private','protected','public','return','select','static','struct','switch','throw','try','type','val','var','while','yield']);
+var LITERALS = new Set(['False','None','True','false','nil','null','self','this','true','undefined']);
+// BASE_KEYWORDS is the union across languages, so a language whose vocabulary is not in it reads as plain
+// text — Kotlin lost `fun`, `override`, `companion object` and `when`, while `type` (an ordinary Kotlin
+// parameter name) came out coloured as a keyword. These stay per-language rather than joining the union:
+// `data`, `object`, `init`, `is`, `by` and `out` are everyday identifiers in every other language here.
+var KOTLIN_KEYWORDS = new Set(Array.from(BASE_KEYWORDS).filter(function (word) { return word !== 'type'; }).concat([
+  'abstract','actual','annotation','by','companion','constructor','crossinline','data','expect','external',
+  'fun','infix','init','inline','inner','internal','is','lateinit','noinline','object','open','operator',
+  'out','override','reified','sealed','suspend','tailrec','typealias','vararg','when','where'
+]));
+function keywordsFor(language) {
+  return language === 'kotlin' ? KOTLIN_KEYWORDS : BASE_KEYWORDS;
+}
+
 function highlightLine(text, language) {
   if (language === 'text') return escapeHtml(text);
   // CSS has none of the generic tokenizer's shapes — no keywords, no // comments, and `8px` is not a number
@@ -870,8 +886,7 @@ function highlightLine(text, language) {
     if (/^\s{0,3}#{1,6}\s/.test(text)) return '<span class="tok-keyword">' + escaped + '</span>';
     return escaped.replace(new RegExp(String.fromCharCode(96) + '[^' + String.fromCharCode(96) + ']+' + String.fromCharCode(96), 'g'), '<span class="tok-string">$&</span>');
   }
-  const keywords = new Set(['as','async','await','break','case','catch','class','const','continue','def','default','defer','do','else','enum','export','extends','final','finally','fn','for','from','func','function','go','if','impl','import','in','interface','let','match','module','new','package','private','protected','public','return','select','static','struct','switch','throw','try','type','val','var','while','yield']);
-  const literals = new Set(['False','None','True','false','nil','null','self','this','true','undefined']);
+  const keywords = keywordsFor(language);
   const commentPrefixes = ['python','ruby','shell','yaml','toml'].includes(language) ? ['#'] : ['//'];
   let output = '';
   let index = 0;
@@ -920,7 +935,7 @@ function highlightLine(text, language) {
       const value = identifier[0];
       const trailing = text.slice(index + value.length);
       if (keywords.has(value)) output += '<span class="tok-keyword">' + escapeHtml(value) + '</span>';
-      else if (literals.has(value)) output += '<span class="tok-literal">' + escapeHtml(value) + '</span>';
+      else if (LITERALS.has(value)) output += '<span class="tok-literal">' + escapeHtml(value) + '</span>';
       else if (/^\s*\(/.test(trailing)) output += '<span class="tok-function">' + escapeHtml(value) + '</span>';
       else if (/^[A-Z]/.test(value) && /[a-z]/.test(value)) output += '<span class="tok-type">' + escapeHtml(value) + '</span>';
       else output += escapeHtml(value);

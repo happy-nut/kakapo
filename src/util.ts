@@ -44,7 +44,11 @@ export function languageForPath(path: string): string {
   if (lower.endsWith(".php")) return "php";
   if (lower.endsWith(".go")) return "go";
   if (lower.endsWith(".rs")) return "rust";
-  if (lower.endsWith(".java") || lower.endsWith(".kt") || lower.endsWith(".kts")) return "java";
+  if (lower.endsWith(".java")) return "java";
+  // Kotlin used to ride along as "java", which cost it its own vocabulary everywhere this value is read:
+  // the source view painted `fun`, `override` and `companion object` as plain text (and `type`, an ordinary
+  // Kotlin parameter name, as a keyword), and hljs needed a special case here to reach its kotlin grammar.
+  if (lower.endsWith(".kt") || lower.endsWith(".kts")) return "kotlin";
   if (lower.endsWith(".sh") || lower.endsWith(".bash") || lower.endsWith(".zsh")) return "shell";
   if (lower.endsWith(".yml") || lower.endsWith(".yaml")) return "yaml";
   if (lower.endsWith(".toml")) return "toml";

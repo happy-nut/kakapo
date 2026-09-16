@@ -181,10 +181,6 @@ function hljsLanguageForPath(path: string): string {
   if (!path) {
     return "";
   }
-  const lower = path.toLowerCase();
-  if (lower.endsWith(".kt") || lower.endsWith(".kts")) {
-    return "kotlin";
-  }
   const base = languageForPath(path);
   const mapped = base === "markup" ? "xml" : base === "text" ? "" : base;
   return mapped && hljs.getLanguage(mapped) ? mapped : "";
