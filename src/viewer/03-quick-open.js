@@ -204,6 +204,48 @@ function handleQuickOpenKey(event) {
   return false;
 }
 
+// Typing a file name with the keyboard still in Korean produces the Hangul those keys compose, not the
+// letters — "Transfer" comes out "ㅆ뭬ㄴ랙". The keystrokes are recoverable: every syllable decomposes into
+// the jamo that made it, and each jamo has one dubeolsik key. So a Hangul query also searches as what it
+// would have typed in English, and a query that IS Korean (this project has 과제 안내.md) still matches
+// itself — both variants are tried.
+var DUBEOLSIK_CHO = ['r','R','s','e','E','f','a','q','Q','t','T','d','w','W','c','z','x','v','g'];
+var DUBEOLSIK_JUNG = ['k','o','i','O','j','p','u','P','h','hk','ho','hl','y','n','nj','np','nl','b','m','ml','l'];
+var DUBEOLSIK_JONG = ['','r','R','rt','s','sw','sg','e','f','fr','fa','fq','ft','fx','fv','fg','a','q','qt','t','T','d','w','c','z','x','v','g'];
+// U+3131..U+3163: the jamo on their own, which is what a half-typed syllable leaves behind.
+var DUBEOLSIK_JAMO = ['r','R','rt','s','sw','sg','e','E','f','fr','fa','fq','ft','fx','fv','fg','a','q','Q','qt','t','T','d','w','W','c','z','x','v','g',
+  'k','o','i','O','j','p','u','P','h','hk','ho','hl','y','n','nj','np','nl','b','m','ml','l'];
+function qwertyFromHangul(text) {
+  var out = '';
+  for (var i = 0; i < text.length; i += 1) {
+    var code = text.charCodeAt(i);
+    if (code >= 0xac00 && code <= 0xd7a3) {
+      var n = code - 0xac00;
+      out += DUBEOLSIK_CHO[Math.floor(n / 588)] + DUBEOLSIK_JUNG[Math.floor((n % 588) / 28)] + DUBEOLSIK_JONG[n % 28];
+    } else if (code >= 0x3131 && code <= 0x3163) {
+      out += DUBEOLSIK_JAMO[code - 0x3131];
+    } else {
+      out += text[i];
+    }
+  }
+  return out.toLowerCase();
+}
+// The strings a query should be tried as: what was typed, and — when it holds Hangul — the keys that typed it.
+function queryVariants(query) {
+  if (!/[\uac00-\ud7a3\u3131-\u3163]/.test(query)) return [query];
+  var latin = qwertyFromHangul(query);
+  return latin === query ? [query] : [query, latin];
+}
+function quickItemHaystack(item) {
+  return (item.path + '\n' + item.name + '\n' + item.detail).toLowerCase();
+}
+// Rank on the variant that actually matched, so a Korean-typed query is scored like the English one it means.
+function matchedQuery(item, queries) {
+  var hay = quickItemHaystack(item);
+  for (var i = 0; i < queries.length; i += 1) if (hay.indexOf(queries[i]) >= 0) return queries[i];
+  return queries[0];
+}
+
 function renderQuickOpenResults() {
   if (!quickResults) return;
   // Recent mode filters its own list by the typed speed-search string; other modes use the search box.
@@ -225,6 +267,7 @@ function renderQuickOpenResults() {
     });
   }
   const query = rawQuery.toLowerCase();
+  const queries = queryVariants(query);
   const candidates = isRecent ? recentItems() : allQuickItems();
   quickItems = candidates
     .filter((item) => {
@@ -233,9 +276,10 @@ function renderQuickOpenResults() {
         const file = sourceByPath.get(item.path);
         return Boolean(file && file.embedded && file.content.toLowerCase().includes(query));
       }
-      return (item.path + '\n' + item.name + '\n' + item.detail).toLowerCase().includes(query);
+      const hay = quickItemHaystack(item);
+      return queries.some((variant) => hay.includes(variant));
     })
-    .sort((a, b) => scoreQuickItem(a, query) - scoreQuickItem(b, query) || a.path.localeCompare(b.path))
+    .sort((a, b) => scoreQuickItem(a, matchedQuery(a, queries)) - scoreQuickItem(b, matchedQuery(b, queries)) || a.path.localeCompare(b.path))
     .slice(0, 80);
   quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
   if (quickItems.length === 0) {
@@ -713,7 +757,12 @@ function allQuickItems() {
 function recentItems() {
   const all = allQuickItems();
   const byPath = new Map(all.map((item) => [item.path, item]));
+  // A stored path the project does not have cannot be opened — a file since deleted or renamed, or (before
+  // core.quotePath was turned off) a git-escaped name that never existed on disk. Those rows do nothing when
+  // picked, so drop them. Only once the index is complete: until then `all` is partial and every row would go.
+  const indexReady = !REVIEW_LAZY_LOAD || projectIndexLoaded;
   const items = loadRecent()
+    .filter((item) => !indexReady || byPath.has(item.path))
     .map((item) => byPath.get(item.path) || {
       path: item.path,
       name: baseName(item.path),

@@ -3614,9 +3614,10 @@ summary.tree-focus,
 
 .quick-open-results { background: var(--chrome-panel); }
 .quick-open-item { color: var(--chrome-text); }
-/* The name is what is being picked; the path only says which of the same-named files it is, so it reads
-   under the name rather than beside it at the same weight. */
-.quick-open-item .quick-open-path { color: var(--chrome-muted); }
+/* The name is what is being picked; the path only says WHICH of the same-named files it is. Even at
+   --chrome-muted it still pulled the eye across the row, so it sits most of the way to the panel behind it —
+   readable when looked at, invisible when scanning names. */
+.quick-open-item .quick-open-path { color: color-mix(in srgb, var(--chrome-muted) 55%, var(--chrome-elevated)); }
 .quick-open-item.active,
 .quick-open-item:hover { color: var(--chrome-selected-text); background: var(--chrome-selected); border-color: var(--active-strong); }
 .quick-open-item.active .quick-open-path,
