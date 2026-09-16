@@ -2026,8 +2026,10 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
      half). flex:none keeps the bar at its natural height; the body absorbs the overflow and scrolls. */
   flex: none;
   overflow: hidden;
-  /* Breathing room from the window's top edge so the first row of tabs isn't flush against it. */
-  margin: 6px 8px 6px;
+  /* Breathing room from the window's top edge so the first row of tabs isn't flush against it. No side
+     margin: the strip's bottom rule has to reach both pane edges, or it stops short of the sidebar divider
+     and the two lines read as broken — and the first tab has to start where the pane starts. */
+  margin: 6px 0;
   border: 1px solid var(--border);
 }
 .source-tab {
@@ -3723,8 +3725,7 @@ body.native-app .source-tabs {
   border-radius: var(--ui-radius-md) var(--ui-radius-md) 0 0;
   padding: 5px 7px 6px 10px;
 }
-/* Square where it meets the pane edge — a rounded corner there is what left the join looking broken. */
-.source-tab:first-child { border-radius: 0 var(--ui-radius-md) 0 0; }
+.source-tab:first-child { border-radius: var(--ui-radius-md) var(--ui-radius-md) 0 0; }
 .source-tab.active {
   color: var(--chrome-selected-text);
   position: relative;

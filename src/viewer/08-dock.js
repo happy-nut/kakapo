@@ -314,7 +314,22 @@ function openMergedView() {
     note.className = 'mc-merged-empty-note';
     var label = document.createElement('span');
     if (!flagged.length) {
-      if (!reviewComments.some(function (c) { return c.by !== 'agent'; })) return; // a review with nothing in it
+      // A review with nothing in it. The panel's whole job is to hand comments off, so an empty one has to
+      // say where comments come from — a blank sheet with a Copy-all button reads like something is broken.
+      if (!reviewComments.some(function (c) { return c.by !== 'agent'; })) {
+        var parts = t('merged.empty').split('{key}');
+        label.appendChild(document.createTextNode(parts[0]));
+        var keys = document.createElement('span');
+        keys.className = 'coach-keys'; // the shortcut-coach key chip, so one kind of key looks one way
+        var key = document.createElement('kbd');
+        key.textContent = '?';
+        keys.appendChild(key);
+        label.appendChild(keys);
+        label.appendChild(document.createTextNode(parts[1] || ''));
+        note.appendChild(label);
+        host.appendChild(note);
+        return;
+      }
       label.textContent = t('merged.allAnswered');
       note.appendChild(label);
       host.appendChild(note);
