@@ -845,7 +845,8 @@ var LITERALS = new Set(['False','None','True','false','nil','null','self','this'
 // text — Kotlin lost `fun`, `override`, `companion object` and `when`, while `type` (an ordinary Kotlin
 // parameter name) came out coloured as a keyword. These stay per-language rather than joining the union:
 // `data`, `object`, `init`, `is`, `by` and `out` are everyday identifiers in every other language here.
-var KOTLIN_KEYWORDS = new Set(Array.from(BASE_KEYWORDS).filter(function (word) { return word !== 'type'; }).concat([
+// Dropped for Kotlin in turn: `type` and `let` are a parameter name and a stdlib call there, not keywords.
+var KOTLIN_KEYWORDS = new Set(Array.from(BASE_KEYWORDS).filter(function (word) { return word !== 'type' && word !== 'let'; }).concat([
   'abstract','actual','annotation','by','companion','constructor','crossinline','data','expect','external',
   'fun','infix','init','inline','inner','internal','is','lateinit','noinline','object','open','operator',
   'out','override','reified','sealed','suspend','tailrec','typealias','vararg','when','where'

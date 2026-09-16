@@ -2780,11 +2780,11 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .mc-dropdown { position: fixed; z-index: 90; min-width: 0; border: 1px solid var(--border); padding: 3px; }
 .mc-dropdown-item { display: block; width: 100%; text-align: left; padding: 4px 10px; border: 0; background: transparent; font-size: 12px; line-height: 1.5; cursor: pointer; white-space: nowrap; }
 #mc-toasts { position: fixed; left: 16px; bottom: 16px; z-index: 80; display: flex; flex-direction: column; gap: 8px; max-width: 360px; pointer-events: none; }
-.mc-toast { border: 1px solid var(--border); border-left: 3px solid var(--active); padding: 10px 14px; font-size: 13px; line-height: 1.45; opacity: 0; transform: translateY(8px); transition: opacity .25s ease, transform .25s ease; }
+.mc-toast { overflow-wrap: anywhere; border: 1px solid var(--border); border-left: 3px solid var(--active); padding: 10px 14px; font-size: 13px; line-height: 1.45; opacity: 0; transform: translateY(8px); transition: opacity .25s ease, transform .25s ease; }
 .mc-toast.show { opacity: 1; transform: translateY(0); }
 .mc-toast.hide { opacity: 0; transform: translateY(8px); }
 /* Inline hint anchored just under the diff caret (F7 "last change" boundary announcement); fades on its own. */
-.mc-caret-hint { position: fixed; z-index: 75; max-width: 460px; border: 1px solid var(--border); border-left: 3px solid var(--active); padding: 5px 10px; font-size: 12px; line-height: 1.4; opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
+.mc-caret-hint { position: fixed; z-index: 75; max-width: 460px; overflow-wrap: anywhere; border: 1px solid var(--border); border-left: 3px solid var(--active); padding: 5px 10px; font-size: 12px; line-height: 1.4; opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
 .mc-caret-hint.show { opacity: 1; transform: translateY(0); }
 /* Merged prompts render as several small editable prose regions (agent-contract text) interleaved with
    read-only comment cards — not one continuous editable document (see openMergedView in 08-dock.js). */

@@ -645,7 +645,6 @@ document.getElementById('source-body')?.addEventListener('click', function (even
   var img = event.target && event.target.closest && event.target.closest('.image-preview');
   if (img) openLightbox(img.getAttribute('src'), img.getAttribute('alt'));
 });
-document.addEventListener('copy', handleSourceCopy);
 
 // One consistent tooltip for controls that have an explicit application shortcut, including controls
 // created after startup. Do not synthesize an Enter tooltip for ordinary buttons: list rows, tabs and menu

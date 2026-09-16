@@ -17,19 +17,23 @@ function openDefaultSourceFile() {
   if (hunkTotal() > 0) setActive(0, false);
 }
 
-function handleSourceCopy(event) {
+// The selected lines of the open source file as a citation an agent can act on: "path:12-18" followed by the
+// code in a fenced block. Cmd+K's payload — plain Cmd+C used to be rewritten into this, which meant copying
+// two words out of a file to paste them in a comment silently produced a reference and a code fence instead.
+// null when the selection is not inside the painted source file.
+function sourceSelectionCitation() {
   const selection = window.getSelection();
   const sourceBody = document.getElementById('source-body');
   const viewer = document.getElementById('source-viewer');
-  if (!selection || selection.isCollapsed || !sourceBody || !viewer || viewer.classList.contains('hidden')) return;
-  if (!selection.anchorNode || !selection.focusNode) return;
-  if (!sourceBody.contains(selection.anchorNode) || !sourceBody.contains(selection.focusNode)) return;
+  if (!selection || selection.isCollapsed || !sourceBody || !viewer || viewer.classList.contains('hidden')) return null;
+  if (!selection.anchorNode || !selection.focusNode) return null;
+  if (!sourceBody.contains(selection.anchorNode) || !sourceBody.contains(selection.focusNode)) return null;
 
   const path = viewer.dataset.openPath || '';
   const file = sourceByPath.get(path);
-  if (!file || !file.embedded) return;
+  if (!file || !file.embedded) return null;
   const rows = selectedSourceRows(selection);
-  if (rows.length === 0) return;
+  if (rows.length === 0) return null;
 
   const lineNumbers = rows
     .map((row) => Number(row.dataset.lineIndex || 0) + 1)
@@ -37,18 +41,16 @@ function handleSourceCopy(event) {
     .sort((a, b) => a - b);
   const startLine = lineNumbers[0];
   const endLine = lineNumbers[lineNumbers.length - 1];
-  if (!startLine || !endLine) return;
+  if (!startLine || !endLine) return null;
 
   const selectedText = cleanSelectedSourceText(selection.toString(), rows);
   const code = selectedText || sourceLinesForRows(file, rows);
-  if (!code.trim()) return;
+  if (!code.trim()) return null;
 
   const reference = path + ':' + (startLine === endLine ? String(startLine) : startLine + '-' + endLine);
   const language = file.language && file.language !== 'text' ? file.language : '';
   const fence = String.fromCharCode(96).repeat(3);
-  const payload = reference + '\n\n' + fence + language + '\n' + code.replace(/\s+$/g, '') + '\n' + fence;
-  event.clipboardData?.setData('text/plain', payload);
-  event.preventDefault();
+  return { reference, payload: reference + '\n\n' + fence + language + '\n' + code.replace(/\s+$/g, '') + '\n' + fence };
 }
 
 function selectedSourceRows(selection) {
