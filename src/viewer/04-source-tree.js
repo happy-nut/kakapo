@@ -129,6 +129,32 @@ function virtualSourceNodeHtml(node, depth) {
     + '<div class="mc-virtual-children" data-depth="' + (depth + 1) + '"></div></details>';
 }
 
+// A folder holding nothing but folders has nothing to read, so stopping there just costs another click —
+// and Java/Kotlin package paths (src/main/kotlin/com/<org>/<app>) are six of them in a row. Opening one
+// therefore keeps descending until a level actually has files. Mouse and keyboard both land here: every
+// expansion path sets details.open, which fires this `toggle`.
+function expandUntilFiles(details, budget) {
+  if (!details) return;
+  materializeVirtualSourceDirectory(details); // no-op on the eager tree, whose children are already in the DOM
+  var scope = details.querySelector(':scope > .mc-virtual-children') || details;
+  if (scope.querySelector(':scope > .tree-file')) return; // real content here — stop, this is what they opened
+  var dirs = Array.prototype.slice.call(scope.querySelectorAll(':scope > .tree-dir'));
+  // ponytail: a flat cap, not a per-branch one — a folder-only subtree is tiny in practice, and the cap only
+  // exists so a pathological one cannot expand the whole tree from a single click.
+  for (var i = 0; i < dirs.length && budget > 0; i++) {
+    budget -= 1;
+    dirs[i].open = true;
+    expandUntilFiles(dirs[i], budget);
+  }
+}
+// Auto-opened folders are transient like the revealed path: they are the app walking the user to the files,
+// not a fold the user chose, so they must not be written to the persisted open-folder set.
+function expandUntilFilesTransient(details) {
+  if (treeRevealing) return;
+  treeRevealing = true;
+  try { expandUntilFiles(details, 50); } finally { setTimeout(function () { treeRevealing = false; }, 0); }
+}
+
 function materializeVirtualSourceChildren(container, node, depth) {
   if (!container || container.dataset.materialized === 'true') return;
   container.innerHTML = virtualSourceChildren(node).map(function (child) { return virtualSourceNodeHtml(child, depth); }).join('');
@@ -174,6 +200,7 @@ function renderDeferredSourceTree(files) {
     if (!details || !details.classList || !details.classList.contains('mc-virtual-dir')) return;
     if (details.open) materializeVirtualSourceDirectory(details);
     if (!treeRevealing) persistTreeToggle(details);
+    if (details.open) expandUntilFilesTransient(details);
   }, true);
   var saved = loadTreeOpen();
   saved.forEach(openVirtualSourceDirectory);
@@ -417,7 +444,11 @@ function initSourceTreeFolds() {
   // Only USER toggles persist; the initial state below is applied under treeRevealing so the open
   // file's revealed path stays transient (folders stay "collapsed by default" on the next load).
   dirs.forEach(function (d) {
-    d.addEventListener('toggle', function () { if (!treeRevealing) persistTreeToggle(d); });
+    d.addEventListener('toggle', function () {
+      if (treeRevealing) return;
+      persistTreeToggle(d);
+      if (d.open) expandUntilFilesTransient(d);
+    });
   });
   treeRevealing = true;
   dirs.forEach(function (d) {
