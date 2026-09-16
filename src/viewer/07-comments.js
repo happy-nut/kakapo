@@ -1490,14 +1490,18 @@ function mergedBlocks() {
 //
 // The "continues #N" line went with it: a reviewer comment has no ancestry any more — one comment per thread,
 // and only an agent's answer is ever a reply.
+// One comment: where it is, then what it says, then a blank line. No `###` — the reference is not a heading,
+// it is the comment's first fact, and a heading whose text is `@path#L52` was markdown syntax standing in
+// front of it for no reader's benefit. The blank line between items is what separates them, and it already
+// did that work while the hashes were there. (No `#N` either: that number counted agent cards too, so the
+// third comment in the document was routinely "#7".)
 function mergedItemLines(c) {
-  var anchor = commentTargetLabel(c);
-  return ['### ' + anchor, commentBodyWithoutAnchor(c), ''];
+  return [commentTargetLabel(c), commentBodyWithoutAnchor(c), ''];
 }
 
 // The composer prefills the anchor into the comment body (openComposer), so the same reference came out
-// twice in the hand-off: once as the heading above, once as the first thing the comment says. Strip it from
-// the body — but ONLY while it still matches the anchor this heading prints. Editing that prefix is the
+// twice in the hand-off: once as the line above, once as the first thing the comment says. Strip it from
+// the body — but ONLY while it still matches the anchor printed above it. Editing that prefix is the
 // documented way to say "the question is not about this line", and a reference the writer changed on purpose
 // is part of what they wrote, not a duplicate of anything.
 function commentBodyWithoutAnchor(c) {

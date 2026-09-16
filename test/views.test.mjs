@@ -76,7 +76,7 @@ test("the review has no activity rail and no native title-bar layout", async () 
   const v = await loadViewer(appHtml);
   assert.equal(v.document.body.classList.contains("native-app"), false);
   assert.equal(v.$(".activity-rail"), null, "no rail is rendered");
-  assert.ok(v.$(".tabs .tab[data-tab=\"changes\"]"), "the sidebar carries the Changes/Files switch instead");
+  assert.ok(v.$('.sidebar-brand .sidebar-switch-item[data-tab="changes"]'), "the sidebar header carries the Changes/Files switch instead");
   assert.ok(v.$(".sidebar-tools #app-info-btn"), "and the bottom toolbar carries Settings");
   v.close();
 });
@@ -580,7 +580,7 @@ test("Cmd+0 focuses the Changes panel; arrow + Enter opens that file in the diff
 
 test("mouse file selection keeps the sidebar still and leaves keyboard focus on the clicked row", async () => {
   const v = await loadViewer(html);
-  const filesTab = v.$('.tab[data-tab="files"]');
+  const filesTab = v.$('.sidebar-switch-item[data-tab="files"]');
   v.click(filesTab);
   await v.settle(40);
 
@@ -969,20 +969,21 @@ test("after a commit removes the open diff file, a watch update lands on the new
   v.close();
 });
 
-test("the sidebar tabs navigate views and reflect the active one", async () => {
+test("the sidebar switch navigates views and reflects the active one", async () => {
   const v = await loadViewer(html, { menuBridge: true });
-  assert.ok(v.$(".tabs"), "the sidebar carries the view switch");
+  assert.ok(v.$(".sidebar-brand .sidebar-switch"), "the view switch rides in the header row, not a row of its own");
+  assert.equal(v.$(".tabs"), null, "and the old full-width text tabs are gone");
   assert.ok(v.$(".sidebar-tools #app-info-btn > svg"), "Settings sits in the bottom toolbar with an SVG icon");
 
-  v.click(v.$('.tabs .tab[data-tab="changes"]'));
+  v.click(v.$('.sidebar-switch-item[data-tab="changes"]'));
   await v.settle(60);
   assert.equal(v.visibleView(), "diff", "Changes shows the diff view");
-  assert.ok(v.$('.tabs .tab[data-tab="changes"]').classList.contains("active"), "Changes is active");
+  assert.ok(v.$('.sidebar-switch-item[data-tab="changes"]').classList.contains("active"), "Changes is active");
 
-  v.click(v.$('.tabs .tab[data-tab="files"]'));
+  v.click(v.$('.sidebar-switch-item[data-tab="files"]'));
   await v.settle(60);
   assert.equal(v.$("#files-panel").classList.contains("hidden"), false, "Files reveals the files panel");
-  assert.ok(v.$('.tabs .tab[data-tab="files"]').classList.contains("active"), "Files is active");
+  assert.ok(v.$('.sidebar-switch-item[data-tab="files"]').classList.contains("active"), "Files is active");
   v.close();
 });
 test("sidebar shows the current git branch", async () => {
@@ -1068,6 +1069,31 @@ test("Cmd+1 from the diff opens the file you were viewing as source (not a stale
   v.close();
 });
 
+// REGRESSION: the "second press collapses" guard was `treeFocusIndex >= 0` — true whenever ANY tree held the
+// logical cursor, the other one included. So ⌘0 (focus Changes) then ⌘1 read as a repeat of ⌘1 and folded the
+// sidebar away instead of switching to Files. The first press of either key is always "take me to my tree".
+test("Cmd+0 then Cmd+1 switches trees; only a real repeat collapses", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/app.ts");
+  const tab = () => v.window.activeSidebarTab();
+  const collapsed = () => v.window.document.body.classList.contains("sidebar-collapsed");
+
+  v.key("0", { metaKey: true, code: "Digit0" });
+  await v.settle(60);
+  assert.equal(tab(), "changes", "Cmd+0 moves the sidebar to Changes");
+  assert.equal(collapsed(), false);
+
+  v.key("1", { metaKey: true, code: "Digit1" });
+  await v.settle(60);
+  assert.equal(tab(), "files", "Cmd+1 then switches to Files…");
+  assert.equal(collapsed(), false, "…instead of collapsing a sidebar that was showing the other tree");
+
+  v.key("1", { metaKey: true, code: "Digit1" });
+  await v.settle(60);
+  assert.equal(collapsed(), true, "pressing it again, on its own tree, does collapse");
+  v.close();
+});
+
 test("Cmd+1 focuses Files from content, then toggles its sidebar while preserving the source file", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
@@ -1091,10 +1117,10 @@ test("Cmd+1 focuses Files from content, then toggles its sidebar while preservin
   assert.equal(v.$("#source-viewer").dataset.openPath, "src/app.ts", "toggling never replaces the open file");
 
   // The sidebar tab is the pointer half of this key, so it collapses and expands the same way.
-  v.click(v.$('.tabs .tab[data-tab="files"]'));
+  v.click(v.$('.sidebar-switch-item[data-tab="files"]'));
   await v.settle(60);
   assert.ok(v.window.document.body.classList.contains("sidebar-collapsed"), "the Files tab uses the same collapse behavior");
-  v.click(v.$('.tabs .tab[data-tab="files"]'));
+  v.click(v.$('.sidebar-switch-item[data-tab="files"]'));
   await v.settle(60);
   assert.equal(v.window.document.body.classList.contains("sidebar-collapsed"), false, "the Files tab expands it again");
   v.close();

@@ -54,7 +54,12 @@ cd kakapo
 npm install
 npm run lsp:install
 npm link
+kakapo install-app   # 선택: Applications에 Kakapo 아이콘 추가
 ```
+
+`npm`이 설치하는 건 명령어이지 애플리케이션이 아니라서, kakapo는 터미널에만 있고 Spotlight·Launchpad에는
+뜨지 않습니다. `kakapo install-app`이 Applications에 아이콘을 만들어 줍니다 — 방금 설치한 그 CLI를 그대로
+실행하는 런처라 따로 관리할 사본이 생기지 않고, `kakapo uninstall-app`으로 지웁니다.
 
 ## 실행
 
@@ -62,8 +67,12 @@ Git 저장소나 모노레포 내부 패키지 폴더에서 실행합니다.
 
 ```bash
 kakapo
-kakapo --cwd /path/to/repository/package
+kakapo /path/to/repository/package     # 또는 아무 폴더나
+kakapo path/to/file.ts                 # 그 파일이 있는 폴더를 열고 파일에 바로 안착
 ```
+
+Git은 선택입니다. 저장소가 아닌 폴더는 diff가 빈 소스 트리로 열립니다 — 커밋할 생각이 없던 파일을 읽을
+때가 그렇습니다. `~/.claude` 밑의 설계 메모, 임시 폴더, 풀어 놓은 tarball 같은 것들.
 
 Kakapo는 한 번만 실행됩니다. 같은 저장소나 worktree에서 다시 실행하면 이미 그것을 리뷰 중인 창으로 이동하고, 다른 저장소는 자기 창을 엽니다. 하위 폴더는 Git top-level로 정규화되므로 같은 checkout이 두 번 열리지 않고, 서로 다른 worktree는 각각 독립된 창으로 남습니다.
 

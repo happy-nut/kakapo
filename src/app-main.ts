@@ -32,6 +32,12 @@ type AppOptions = {
   root: string;
   base?: string;
   baseLabel?: string; // what the toolbar pill calls `base` — set when the reader picked a branch by name
+  // `kakapo <file>`: the file to land on, relative to root. First paint only — once the reader opens
+  // something else the saved UI state takes over, and a rebuild must not yank them back here.
+  openPath?: string;
+  // Did the launch NAME a place to open (a path on the command line), or did it just inherit a cwd? Only the
+  // second can meaningfully fall through to the welcome screen — see bootWindow.
+  explicitRoot: boolean;
   target?: string; // A→B compare: right/new side revision (undefined = working tree)
   staged: boolean;
   includeUntracked: boolean;
@@ -688,14 +694,15 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // double-clicked from Finder has no useful cwd; bootWindow answers that with the welcome screen.
   // Start the first review NOW, not after the window exists — see pendingFirstBuild. A packaged .app with no
   // repo in cwd shows the welcome screen instead, and has nothing to build.
-  if (!app.isPackaged || isGitRepository(options.root)) {
+  if (options.explicitRoot || isGitRepository(options.root)) {
     pendingFirstBuild = reviewBuilder.build(reviewPath(options.root), options, APP_TITLE, true);
     // The window that claims it reports the failure; this only stops an unhandled rejection in the gap before
     // anyone is awaiting it.
     pendingFirstBuild.catch(() => {});
   }
 
-  createWindow(options.root);
+  const first = createWindow(options.root, options.explicitRoot);
+  first.options.openPath = options.openPath; // `kakapo <file>` — makeOptions clears it for every other window
   setInterval(watchLspWeight, LSP_WATCHDOG_MS);
 }).catch((error: unknown) => {
   console.error(errorMessage(error));
@@ -849,7 +856,7 @@ function makeAnalysis(root: string, getState: () => WinState | undefined): Proje
 
 // Create the window for `root`, register its WinState, wire teardown, and boot it (animated mark ->
 // first build, or the welcome screen for a packaged launch with no repo).
-function createWindow(root: string): WinState {
+function createWindow(root: string, explicitRoot = true): WinState {
   const themeLight = isLightTheme();
   const win = new BrowserWindow({
     width: 1440, height: 960, minWidth: 960, minHeight: 640, show: false, title: APP_TITLE,
@@ -889,7 +896,7 @@ function createWindow(root: string): WinState {
   const analysis = makeAnalysis(resolvedRoot, () => state);
   state = {
     win: surface,
-    options: makeOptions(root),
+    options: makeOptions(root, explicitRoot),
     signature: "",
     refreshing: false,
     bodies: { file: "", offsets: [] },
@@ -1039,9 +1046,11 @@ function claimPendingBuild(root: string): Promise<BuildSnapshot> | undefined {
 async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
   const compact = firstWindowBooted;
   firstWindowBooted = true;
-  // A packaged .app (double-clicked) can launch with no useful cwd repo. Show the welcome screen (an Open
-  // Folder button) instead of an empty diff. New windows always get a validated repo.
-  const welcome = app.isPackaged && !isGitRepository(state.options.root);
+  // A folder without git is a perfectly good thing to open now — its review is the source tree with an empty
+  // diff — so the welcome screen is for one case only: a launch that was never told where to go. Launchpad,
+  // Spotlight and the Applications icon all start in "/" and name no path; that, and nothing else, is what
+  // the Open Folder button is for.
+  const welcome = !state.options.explicitRoot && !isGitRepository(state.options.root);
   // Start the build BEFORE the loading document, not after it. It runs in the worker and needs nothing from
   // the window, so the ~75ms Chromium spends loading and painting the mark is build time that was previously
   // spent waiting — and the 60ms "let the animation get a few frames" delay that used to sit between them
@@ -1147,6 +1156,9 @@ async function buildReview(state: WinState, deferFullIndex = false, inFlight?: P
   let snapshot: BuildSnapshot;
   try {
     snapshot = await (inFlight ?? reviewBuilder.build(reviewPath(state.options.root), state.options, APP_TITLE, deferFullIndex));
+    // `kakapo <file>` lands on that file ONCE. A watch rebuild reloads nothing, but switching this window to
+    // another repo does — and being thrown back to a file from the previous launch would be a haunting.
+    state.options.openPath = undefined;
   } catch (error) {
     console.error(errorMessage(error));
     return null;
@@ -1294,8 +1306,12 @@ async function pickRepo(parent: BrowserWindow | undefined, defaultPath?: string)
 
 // Clone the CLI-resolved flags for a new window, overriding only the repo root. root + ignoreWhitespace are
 // then mutated per window without affecting other windows or the template.
-function makeOptions(root: string): AppOptions {
-  return { ...options, root: resolveWorkspaceRoot(root) };
+// `explicitRoot` defaults to true because every OTHER caller is a repo the reader picked — File > Open, a
+// recent project, a second window. The FIRST window is the exception: it inherits whatever the launch had,
+// and a GUI launch (Launchpad, Spotlight, the Applications icon) inherits "/". Hardcoding true here sent
+// that straight past the welcome screen into a review of the whole filesystem.
+function makeOptions(root: string, explicitRoot = true): AppOptions {
+  return { ...options, root: resolveWorkspaceRoot(root), openPath: undefined, explicitRoot };
 }
 
 function parseArgs(args: string[]): AppOptions {
@@ -1308,6 +1324,9 @@ function parseArgs(args: string[]): AppOptions {
   const base = parsed.baseValue !== undefined && isGitRepository(root)
     ? validateReviewBase(root, parsed.baseValue)
     : parsed.baseValue;
+  // The CLI hands over an absolute file; the review speaks in paths relative to its root. A file outside the
+  // resolved root (root climbed to a repo top level above it) still relativises cleanly.
+  const openPath = parsed.openPath ? relative(root, resolve(parsed.openPath)).replace(/\\/g, "/") : undefined;
   return {
     root,
     base,
@@ -1316,5 +1335,7 @@ function parseArgs(args: string[]): AppOptions {
     context: parsed.context,
     watch: parsed.watch,
     ignoreWhitespace: parsed.ignoreWhitespace,
+    openPath: openPath && !openPath.startsWith("..") ? openPath : undefined,
+    explicitRoot: parsed.openedExplicitly || parsed.openPath !== undefined,
   };
 }

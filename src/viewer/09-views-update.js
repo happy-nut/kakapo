@@ -1,7 +1,15 @@
+// Which tree the sidebar is showing. The switch icons carry it (setTab keeps them in sync), so this reads
+// the one place that always knows rather than a second flag that can drift out of step with what is drawn.
+function activeSidebarTab() {
+  return document.querySelector('.sidebar-switch-item.active')?.dataset.tab || 'changes';
+}
+
 function setTab(name) {
   if (name === 'files') ensureTreeRendered();
-  document.querySelectorAll('.tab').forEach((button) => {
-    button.classList.toggle('active', button.dataset.tab === name);
+  document.querySelectorAll('.sidebar-switch-item').forEach((button) => {
+    var on = button.dataset.tab === name;
+    button.classList.toggle('active', on);
+    button.setAttribute('aria-selected', on ? 'true' : 'false');
   });
   document.getElementById('changes-panel')?.classList.toggle('hidden', name !== 'changes');
   document.getElementById('files-panel')?.classList.toggle('hidden', name !== 'files');
@@ -197,7 +205,7 @@ function showSourceView() {
 }
 
 function saveUiState() {
-  const activeTab = document.querySelector('.tab.active')?.dataset.tab || 'changes';
+  const activeTab = document.querySelector('.sidebar-switch-item.active')?.dataset.tab || 'changes';
   const sourcePath = document.getElementById('source-viewer')?.dataset.openPath || '';
   var state = {
     tab: activeTab,

@@ -14,7 +14,13 @@ export function sourceFileMetadata(file: SourceFile): SourceFile {
 
 // Changed files are sufficient for the initial diff/source transition. A clean tree gets one inexpensive
 // default record so it can still open a README/source immediately; everything else arrives on demand.
-export function initialReviewSources(diffFiles: DiffFile[], sourceFiles: SourceFile[]): SourceFile[] {
+export function initialReviewSources(diffFiles: DiffFile[], sourceFiles: SourceFile[], openPath?: string): SourceFile[] {
+  // `kakapo <file>` named one. It leads the set whatever else is in the review: on the lazy path this is the
+  // only content the first paint receives, so a file left out of it opens empty.
+  if (openPath) {
+    const requested = sourceFiles.find((file) => file.path === openPath);
+    if (requested) return [requested, ...sourceFiles.filter((file) => file !== requested).filter((file) => file.changed)];
+  }
   const changedPaths = new Set<string>();
   for (const file of diffFiles) {
     if (file.oldPath && file.oldPath !== "/dev/null") changedPaths.add(file.oldPath);

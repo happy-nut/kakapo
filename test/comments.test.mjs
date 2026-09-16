@@ -282,7 +282,7 @@ test("the copied document is the comments and nothing else", async () => {
   assert.match(copied[0], /rename this to something honest/, "the review itself is in it");
   assert.doesNotMatch(copied[0], /append ONE line per answer/, "no answer instructions are prepended");
   assert.doesNotMatch(copied[0], /comments\.jsonl/, "and no file path either");
-  assert.ok(copied[0].startsWith("### @"), "it opens on the first comment's anchor, not on a contract");
+  assert.ok(copied[0].startsWith("@AGENTS.md#L"), "it opens on the first comment's anchor, not on a contract");
   v.close();
 });
 
@@ -507,7 +507,6 @@ test("Backspace on the first card in a thread takes the conversation with it, an
   v.close();
 });
 
-
 // Arrow keys used to step off the whole row, so the second turn of a thread could be neither selected nor
 // edited: `e` always reopened the first comment on the line. A thread is two turns at most now — the
 // reviewer's one comment and the agent's answer to it — and the walk still has to reach both.
@@ -554,9 +553,10 @@ test("the merged hand-off prints a comment's reference once, not twice", async (
 
   const merged = v.window.buildMergedText();
   assert.equal((merged.match(/@AGENTS\.md#L5/g) || []).length, 1, "the reference appears exactly once");
-  assert.match(merged, /^### @AGENTS\.md#L5$/m, "as the heading");
+  assert.match(merged, /^@AGENTS\.md#L5$/m, "on its own line above the comment");
+  assert.doesNotMatch(merged, /^#/m, "no markdown heading syntax in front of it");
   assert.match(merged, /^why is this a CLI\?$/m, "with the body left as what the writer actually said");
-  assert.doesNotMatch(merged, /^### #\d/m, "and no #N numbering on the heading");
+
   v.close();
 });
 
@@ -572,7 +572,7 @@ test("an edited reference in the body survives into the hand-off", async () => {
   await v.settle(60);
 
   const merged = v.window.buildMergedText();
-  assert.match(merged, /^### @AGENTS\.md#L5$/m, "the heading is where the comment hangs");
+  assert.match(merged, /^@AGENTS\.md#L5$/m, "the line above says where the comment hangs");
   assert.match(merged, /@AGENTS\.md#L99 while I am here/, "and the body keeps the reference the writer chose");
   v.close();
 });
@@ -607,7 +607,7 @@ test("unified merged document: every open comment shares one document, in review
   const askAt = merged.indexOf("why this wording?");
   const changeAt = merged.indexOf("simplify this");
   assert.ok(askAt >= 0 && askAt < changeAt, "the comments are there, in review order");
-  assert.ok(merged.startsWith("### @"), "and nothing leads them");
+  assert.ok(merged.startsWith("@AGENTS.md#L"), "and nothing leads them");
   v.close();
 });
 

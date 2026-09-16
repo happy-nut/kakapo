@@ -26,40 +26,6 @@ const packageVersion: string = (() => {
   }
 })();
 
-export function renderNotGitRepoHtml(root: string): string {
-  const brandMark = kakapoIconHtml("brand-mark", "Kakapo");
-  return [
-    "<!doctype html>",
-    '<html lang="en">',
-    "<head>",
-    '<meta charset="utf-8">',
-    '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    "<title>kakapo</title>",
-    "<style>",
-    `:root { ${kakapoIconCssVariable()}; }`,
-    "* { box-sizing: border-box; }",
-    "body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #2b2b2b; color: #a9b7c6; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }",
-    ".card { max-width: 560px; padding: 40px; text-align: center; }",
-    ".brand-mark { display: inline-block; width: 42px; height: 42px; background: var(--kakapo-ui-icon) center/contain no-repeat; }",
-    ".card h1 { font-size: 22px; margin: 10px 0 16px; color: #ffc66d; }",
-    ".card p { font-size: 14px; line-height: 1.7; margin: 10px 0; }",
-    ".card code { background: #3c3f41; padding: 3px 9px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #6a8759; }",
-    ".card .path { color: #808080; font-size: 12px; word-break: break-all; margin-top: 22px; }",
-    "</style>",
-    "</head>",
-    "<body>",
-    '<div class="card">',
-    brandMark,
-    "<h1>Not a Git repository</h1>",
-    "<p>This app reviews changes tracked by Git, but this folder isn't a Git repository yet.</p>",
-    "<p>Run <code>git init</code> in this folder, then reopen the app.</p>",
-    `<p class="path">${escapeHtml(root)}</p>`,
-    "</div>",
-    "</body>",
-    "</html>",
-  ].join("\n");
-}
-
 // Welcome screen for the packaged .app (double-clicked, no cwd): an "Open Folder" button that asks the main
 // process (window.kakapoApp.openFolder, exposed via preload) to pick a git repo and load its review.
 export function renderWelcomeHtml(
@@ -304,6 +270,32 @@ export function renderCompareBanner(state: CompareState | undefined): string {
   ].join("");
 }
 
+// Which tree the sidebar is showing, as two icons in the header row beside the project name. It replaces a
+// pair of full-width text tabs: those came from the era when the activity rail did the switching, and turned
+// back on when the rail was removed. Two big buttons across the top gave the same billing to the thing you
+// read constantly and the thing you open occasionally, and ate the space where file names should start.
+// Icons, in a row that already exists, keep the switch reachable without spending a row on it.
+const SWITCH_ICONS: Record<string, string> = {
+  // The side-by-side diff itself: two panes with a gutter between them. It names the thing the button opens
+  // rather than symbolising it, which is what makes it readable at 14px without the tooltip.
+  changes: '<rect x="1.75" y="2.75" width="5" height="10.5" rx="1"/><rect x="9.25" y="2.75" width="5" height="10.5" rx="1"/>',
+  // A tree: one branch turning down and out, with the rows it holds. Deliberately NOT a folder — the tree
+  // this opens is full of folder glyphs, and an icon that repeats its own contents says nothing.
+  files: '<path d="M3 2.5v8.5a1 1 0 0 0 1 1h2"/><path d="M3 6.5h3"/><path d="M8 4.5h5M8 8.5h5M8 12.5h5"/>',
+};
+function sidebarSwitch(active: string): string {
+  const item = (id: string, label: string, hint: string): string => [
+    `<button type="button" class="sidebar-switch-item${id === active ? " active" : ""}" data-tab="${id}"`,
+    ` role="tab" aria-selected="${id === active ? "true" : "false"}" aria-controls="${id}-panel"`,
+    ` data-i18n-title="tab.${id}.title" data-i18n-aria="tab.${id}" title="${escapeAttr(label)} (${hint})" aria-label="${escapeAttr(label)}">`,
+    '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"',
+    ` stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SWITCH_ICONS[id]}</svg>`,
+    "</button>",
+  ].join("");
+  return '<div class="sidebar-switch" role="tablist" data-i18n-aria="sidebar.switch" aria-label="Sidebar tree">'
+    + item("changes", "Changes", "⌘0") + item("files", "All files", "⌘1") + "</div>";
+}
+
 export function renderDiffHtml(input: {
   files: DiffFile[];
   diffHtml: string;
@@ -322,6 +314,7 @@ export function renderDiffHtml(input: {
   ignoreWhitespace?: boolean;
   app?: boolean; // Electron app — enable app-only review features such as Git history
   compare?: CompareState; // what this diff compares — the toolbar pill and, for `incoming`, the banner
+  openPath?: string; // `kakapo <file>`: the file the first paint lands on, relative to the review root
   signature?: string;
   generatedAt?: string;
 }): string {
@@ -329,7 +322,9 @@ export function renderDiffHtml(input: {
   // A transport-backed review asks the host for the project tree only when the user opens Files. Keeping
   // this empty here removes several megabytes of repeated tree markup from large-project startup.
   const sourceNav = input.lazyLoad ? "" : renderSourceTree(input.sourceFiles);
-  const initialSourceFiles = input.lazyLoad ? initialReviewSources(input.files, input.sourceFiles) : input.sourceFiles;
+  const initialSourceFiles = input.lazyLoad
+    ? initialReviewSources(input.files, input.sourceFiles, input.openPath)
+    : input.sourceFiles;
   const initialSourcePaths = new Set(initialSourceFiles.map((file) => file.path));
   const initialFileStates = input.lazyLoad
     ? input.fileStates.filter((file) => initialSourcePaths.has(file.path))
@@ -363,11 +358,8 @@ export function renderDiffHtml(input: {
     // Boot overlay (removed by the renderer once bootstrap has painted) covers the blank gap after loadFile.
     `<div id="boot-overlay">${brandLoader}</div>`,
     '<aside class="sidebar" aria-label="Review navigation">',
-    `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name">${escapeHtml(input.branch || "")}</span></span></div>`,
+    `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name">${escapeHtml(input.branch || "")}</span></span>${sidebarSwitch(input.lazy ? "changes" : "files")}</div>`,
     '<div class="sidebar-scroll">',
-    input.lazy
-      ? '<div class="tabs"><button type="button" class="tab active" data-tab="changes" data-i18n="tab.changes" data-i18n-title="tab.changes.title" title="Changes (⌘0)">Changes</button><button type="button" class="tab" data-tab="files" data-i18n="tab.files" data-i18n-title="tab.files.title" title="Files (⌘1)">Files</button></div>'
-      : '<div class="tabs"><button type="button" class="tab" data-tab="changes" data-i18n="tab.changes" data-i18n-title="tab.changes.title" title="Changes (⌘0)">Changes</button><button type="button" class="tab active" data-tab="files" data-i18n="tab.files" data-i18n-title="tab.files.title" title="Files (⌘1)">Files</button></div>',
     `<div class="tab-panel${input.lazy ? "" : " hidden"}" id="changes-panel">${fileNav}</div>`,
     // Transport-backed reviews do not even embed an inert tree island: parsing its multi-megabyte text was
     // the dominant startup cost. Static lazy reviews retain the self-contained island fallback.
@@ -647,7 +639,7 @@ export function renderDiffHtml(input: {
     "</div>",
     "</div>",
     input.diffIslands || "",
-    `<script type="application/json" id="${REVIEW_ISLAND.meta}" data-watch="${input.watch ? "true" : "false"}" data-signature="${escapeAttr(input.signature ?? "")}" data-generated-at="${escapeAttr(input.generatedAt ?? "")}" data-lazy="${input.lazy ? "true" : "false"}" data-lazy-load="${input.lazyLoad ? "true" : "false"}">{}</script>`,
+    `<script type="application/json" id="${REVIEW_ISLAND.meta}" data-watch="${input.watch ? "true" : "false"}" data-signature="${escapeAttr(input.signature ?? "")}" data-generated-at="${escapeAttr(input.generatedAt ?? "")}" data-lazy="${input.lazy ? "true" : "false"}" data-lazy-load="${input.lazyLoad ? "true" : "false"}" data-open-path="${escapeAttr(input.openPath ?? "")}">{}</script>`,
     `<script type="application/json" id="${REVIEW_ISLAND.i18n}">${jsonForScript(MESSAGES)}</script>`,
     `<script type="application/json" id="${REVIEW_ISLAND.sourceFiles}">${jsonForScript(input.lazyLoad ? initialSourceFiles.map(sourceFileMetadata) : initialSourceFiles)}</script>`,
     `<script type="application/json" id="${REVIEW_ISLAND.fileStates}">${jsonForScript(initialFileStates)}</script>`,

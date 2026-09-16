@@ -15,6 +15,8 @@ export type ReviewWorkspaceOptions = {
   // before diffing (see app-main's set-compare-mode), and a 7-char SHA on the pill answers a question nobody
   // asked — the reader picked "main", so the pill says main.
   baseLabel?: string;
+  // `kakapo <file>`: the file the first paint should land on, relative to root.
+  openPath?: string;
   target?: string; // A→B compare: right/new side revision (undefined = working tree)
   staged: boolean;
   includeUntracked: boolean;

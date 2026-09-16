@@ -19,6 +19,8 @@ const REVIEW_LAZY = document.getElementById('review-meta')?.dataset.lazy === 'tr
 // lazy-LOAD (Phase 2): file bodies are NOT embedded; they are fetched on demand (serve: GET /file,
 // Electron: window.kakapoFile.get) so the initial HTML stays small. Implies REVIEW_LAZY (shells).
 const REVIEW_LAZY_LOAD = document.getElementById('review-meta')?.dataset.lazyLoad === 'true';
+// `kakapo <file>`: the file this launch was asked to land on, relative to the review root ('' when none).
+const REVIEW_OPEN_PATH = document.getElementById('review-meta')?.dataset.openPath || '';
 var diffImportOpenPaths = Object.create(null);
 
 // Focus belongs to a review panel, not permanently to whichever scroll container happened to receive DOM

@@ -27,14 +27,16 @@ test("parsePositiveInteger accepts non-negative integers and rejects the rest", 
 
 test("parseReviewArgs: defaults", () => {
   assert.deepEqual(parseReviewArgs([]), {
-    requestedCwd: undefined, staged: false, baseValue: undefined,
+    requestedCwd: undefined,
+    openPath: undefined,
+    openedExplicitly: false, staged: false, baseValue: undefined,
     includeUntracked: false, context: 12, watch: true, ignoreWhitespace: false,
   });
 });
 
 test("parseReviewArgs: flags are read through", () => {
   assert.deepEqual(parseReviewArgs(["--cwd", "/repo", "--base", "main", "--context", "5", "--include-untracked", "--no-watch", "--ignore-whitespace"]), {
-    requestedCwd: "/repo", staged: false, baseValue: "main",
+    requestedCwd: "/repo", openPath: undefined, openedExplicitly: false, staged: false, baseValue: "main",
     includeUntracked: true, context: 5, watch: false, ignoreWhitespace: true,
   });
 });
@@ -54,7 +56,10 @@ test("parseReviewArgs: --no-watch flips the default watch on", () => {
 // help to name each one; adding a flag now fails here until it is documented.
 test("every flag the parser understands is named in --help", () => {
   const parser = readFileSync(fileURLToPath(new URL("../dist/cli-args.js", import.meta.url)), "utf8");
-  const flags = new Set(Array.from(parser.matchAll(/"(--[a-z][a-z-]*)"/g), (m) => m[1]));
+  // Flags the CLI derives and passes inward; nobody types them, and documenting them would advertise
+  // plumbing. The `kakapo <path>` form they implement IS in the help.
+  const INTERNAL = new Set(["--open", "--opened"]);
+  const flags = new Set(Array.from(parser.matchAll(/"(--[a-z][a-z-]*)"/g), (m) => m[1]).filter((f) => !INTERNAL.has(f)));
   assert.ok(flags.size >= 6, `expected the parser to declare flags, found ${[...flags].join(", ") || "none"}`);
 
   const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
