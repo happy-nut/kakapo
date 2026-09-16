@@ -19,10 +19,32 @@ function wordAtCursor() {
   return null;
 }
 
-function goToSymbolUnderCursor() {
-  const symbol = wordAtCursor();
+// The symbol the caret is on, in whichever view is up.
+function symbolUnderCursor() {
+  return isSourceViewerVisible() ? wordAtCursor() : symbolAtDiffCaret();
+}
+// ⌘↓ and ⌘-click: go to the definition. Landing on the declaration itself is the one case where the
+// definition is not the answer, so that shows who uses it instead (same as IntelliJ).
+function goToDefinitionUnderCursor() {
+  const symbol = symbolUnderCursor();
   if (symbol) goToDefOrUsages(symbol.name, symbol);
   else showSemanticNavigationFailure('symbol');
+}
+// ⌘B: who uses this, always — never a jump to the declaration.
+function findUsagesUnderCursor() {
+  const symbol = symbolUnderCursor();
+  if (symbol) findUsagesOf(symbol.name, symbol);
+  else showSemanticNavigationFailure('symbol');
+}
+async function findUsagesOf(name, explicitLoc) {
+  if (!name) { showSemanticNavigationFailure('symbol'); return; }
+  var loc = explicitLoc || caretSourceLoc();
+  var response = await queryProjectAnalysis('references', name, loc);
+  var items = (response && response.locations) || [];
+  if (items.length) { openAnalysisUsages(name, items, response, 'references'); return; }
+  // Standalone HTML has no analyzer; the in-memory scan answers the same question over the embedded files.
+  var def = findSymbolDefinition(name) || { path: (loc && loc.path) || '', lineIndex: -1 };
+  openUsages(name, def);
 }
 function showSemanticNavigationFailure(kind, name) {
   var key = kind === 'references' ? 'monaco.referencesNotFound'
@@ -250,11 +272,7 @@ function symbolAtDiffCaret() {
   }
   return null;
 }
-function goToSymbolFromDiff() {
-  var symbol = symbolAtDiffCaret();
-  if (!symbol) { showSemanticNavigationFailure('symbol'); return; }
-  goToDefOrUsages(symbol.name, symbol);
-}
+
 function findSymbolDefinition(name) {
   const matchers = definitionMatchers(name);
   const currentPath = viewerCursor?.path || '';
@@ -280,7 +298,13 @@ function definitionMatchers(name) {
   const escaped = escapeRegExp(name);
   const mod = '(?:(?:public|private|protected|internal|abstract|final|open|sealed|data|inner|enum|annotation|static|export|default|expect|actual|value)\\s+)*';
   const funMod = '(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\\s+)*';
-  return [
+  // An enum entry declares itself by standing alone on a line — `DONE,` — which matches none of the shapes
+  // below, so Cmd+B on one used to dead-end ("Definition not found") even though its usages are right there.
+  // Only for SCREAMING_SNAKE names: in any other casing a bare `name(` line is far more likely to be a call.
+  const enumEntry = /^[A-Z][A-Z0-9_$]*$/.test(name)
+    ? [new RegExp('^\\s*' + escaped + '\\s*(?:[,;(]|\\{|$)')]
+    : [];
+  return enumEntry.concat([
     new RegExp('^\\s*(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?function\\s+' + escaped + '\\b'),
     new RegExp('^\\s*' + mod + '(?:class|interface|object|enum|trait|struct)\\s+' + escaped + '\\b'),
     new RegExp('^\\s*(?:export\\s+)?(?:interface|type|enum)\\s+' + escaped + '\\b'),
@@ -288,7 +312,7 @@ function definitionMatchers(name) {
     new RegExp('^\\s*' + funMod + '(?:fun|def|fn|func)\\s+' + escaped + '\\b'),
     new RegExp('^\\s*' + funMod + escaped + '\\s*\\([^)]*\\)\\s*(?::\\s*[^=]+)?\\s*(?:\\{|=>)'),
     new RegExp('^\\s*' + escaped + '\\s*[:=]\\s*(?:async\\s*)?(?:function\\b|\\([^)]*\\)\\s*=>)'),
-  ];
+  ]);
 }
 
 function escapeRegExp(value) {

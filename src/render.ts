@@ -580,10 +580,10 @@ export function renderDiffHtml(input: {
     '<kbd>⌘E</kbd><span data-i18n="kbd.recentFiles">Recent files</span>' +
     '<kbd>⌥E</kbd><span data-i18n="kbd.searchExtensions">Focus extension filter</span>' +
     '<kbd>⌥P</kbd><span data-i18n="kbd.excludeSearchNoise">Exclude comments / tests</span>' +
-    '<kbd>⌘B</kbd><span data-i18n="kbd.defUsages">Definition / usages</span>' +
+    '<kbd>⌘B</kbd><span data-i18n="kbd.defUsages">Find usages</span>' +
     '<kbd>⌘⌥B</kbd><span data-i18n="kbd.goToImplementation">Go to implementation</span>' +
     '<kbd>⌘⌥O</kbd><span data-i18n="kbd.workspaceSymbol">Workspace symbol</span>' +
-    '<kbd>⌘&darr;</kbd><span data-i18n="kbd.goToDef">Go to definition</span>' +
+    '<kbd>⌘&darr;</kbd><span data-i18n="kbd.goToDef">Go to definition (or ⌘-click)</span>' +
     '<kbd>⌘.</kbd><span data-i18n="kbd.toggleFold">Toggle code fold</span>' +
     '<kbd>⌘⇧[ / ]</kbd><span data-i18n="kbd.prevNextTab">Prev / next tab</span>' +
     '<kbd>⌘[ / ]</kbd><span data-i18n="kbd.cursorBackForward">Cursor back / forward</span>' +

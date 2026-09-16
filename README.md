@@ -115,7 +115,8 @@ kakapo --staged             # index vs HEAD
 | `⌘E` | Recent files — the list on its own, press again to close. Type to filter (Korean typing is read as the QWERTY keys that made it) |
 | `⌥A` / `⌥U` | All changes on the branch / only what is not committed yet |
 | `⌥C` | Choose the branch "all changes" is measured against |
-| `⌘B` / `⌘⌥B` / `⌘⌥O` | Definition & usages / implementation / workspace symbol |
+| `⌘B` / `⌘⌥B` / `⌘⌥O` | Find usages / implementation / workspace symbol |
+| `⌘↓` / `⌘`-click | Go to definition |
 | `⌘,` | Settings |
 
 Settings ▸ Shortcuts lists the rest.

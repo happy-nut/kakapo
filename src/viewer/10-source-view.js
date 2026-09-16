@@ -280,6 +280,8 @@ function handleSourceClick(event) {
   const codeCell = row.querySelector('.source-code');
   const column = estimateColumnFromClick(codeCell, event, line);
   setSourceCursor(path, lineIndex, column, false, -1);
+  // ⌘-click is the mouse half of ⌘↓: the caret has just landed on the token, so ask for its definition.
+  if (event.metaKey || event.ctrlKey) { event.preventDefault(); goToDefinitionUnderCursor(); }
 }
 
 function handleSourceDoubleClick(event) {
@@ -741,12 +743,13 @@ function moveSourceCursor(dLine, dColumn, extend) {
   setSourceCursor(viewerCursor.path, line, col, true, -1);
   applySourceSelection();
 }
-// Word boundary in text from col in direction dir (+1 next, -1 prev): skip non-word, then word.
+// Word boundary in text from col in direction dir (+1 next, -1 prev).
 function nextWordBoundary(text, col, dir) {
-  // Classify like vim's word motions: 0 = whitespace, 1 = word char, 2 = punctuation.
-  // A run of word chars and a run of punctuation are each their own "word", so the
-  // caret lands on the START of the next word/punctuation run (vim 'w'), or the start
-  // of the previous one (vim 'b') -- never stranded in the middle of whitespace.
+  // 0 = whitespace, 1 = word char, 2 = punctuation; a run of each is its own "word".
+  // Forward stops at the END of the run it is in or the next one — ⌥→ on `recoverableTransfers` lands right
+  // after the `s`, which is where macOS puts it and where you want to start typing or extend a selection.
+  // (It used to run on to the START of the next word, vim 'w', which left the caret out in the whitespace.)
+  // Backward stops at the START of the previous run, which is already the same convention from the other side.
   var classOf = function (ch) {
     if (ch === '' || /\s/.test(ch)) return 0;
     if (/[A-Za-z0-9_$]/.test(ch)) return 1;
@@ -754,9 +757,9 @@ function nextWordBoundary(text, col, dir) {
   };
   var i = col;
   if (dir > 0) {
+    while (i < text.length && classOf(text.charAt(i)) === 0) i++;
     var cf = classOf(text.charAt(i));
     if (cf !== 0) { while (i < text.length && classOf(text.charAt(i)) === cf) i++; }
-    while (i < text.length && classOf(text.charAt(i)) === 0) i++;
   } else {
     i--;
     while (i > 0 && classOf(text.charAt(i)) === 0) i--;
@@ -775,8 +778,10 @@ function moveSourceWord(dir, extend) {
   var text = lines[line] || '';
   if (dir > 0) {
     var fwd = nextWordBoundary(text, col, 1);
-    if (fwd < text.length || line >= lines.length - 1) { col = fwd; }
-    else { line += 1; var nt = lines[line] || ''; var m = nt.search(/\S/); col = m < 0 ? 0 : m; }
+    if (fwd > col) { col = fwd; }
+    // Nothing left on this line: the next stop is the end of the next line's first word.
+    else if (line < lines.length - 1) { line += 1; var nt = lines[line] || ''; col = nextWordBoundary(nt, 0, 1); }
+    else { col = text.length; }
   } else {
     var back = nextWordBoundary(text, col, -1);
     if (back < col && /\S/.test(text.charAt(back))) { col = back; }

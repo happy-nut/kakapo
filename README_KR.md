@@ -114,7 +114,8 @@ kakapo --staged             # 인덱스 vs HEAD
 | `⌘E` | 최근 파일 — 목록만 단독으로, 다시 누르면 닫힘. 타이핑하면 필터되고, 한글로 쳐도 두벌식 영타로 바꿔 함께 검색 |
 | `⌥A` / `⌥U` | 모든 변경사항 / 커밋되지 않은 변경사항 |
 | `⌥C` | "모든 변경사항"의 비교 대상 브랜치 고르기 |
-| `⌘B` / `⌘⌥B` / `⌘⌥O` | definition·usages / implementation / workspace symbol |
+| `⌘B` / `⌘⌥B` / `⌘⌥O` | 사용처 찾기 / implementation / workspace symbol |
+| `⌘↓` / `⌘`+클릭 | 정의로 이동 |
 | `⌘,` | 설정 |
 
 나머지는 설정 ▸ 단축키에 있습니다.

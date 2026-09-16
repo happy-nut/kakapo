@@ -1,6 +1,6 @@
 // CORE USER FLOW: reaching the project searches. ⌘⇧F opens Find in Files, and its section rail is the way
-// to the file-name search and Recent files. The two gestures that used to open them — double-Shift and ⌘E —
-// were removed on request; the tests below hold that line so neither creeps back in by accident.
+// to the file-name search and Recent files. ⌘E is the one direct key, straight to Recent files with no rail
+// beside it; double-Shift was removed on request, and the first test holds that line.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -14,7 +14,7 @@ before(async () => {
 });
 after(cleanupFixtures);
 
-test("double-Shift and Cmd+E open nothing — both gestures were removed", async () => {
+test("double-Shift opens nothing; Cmd+E opens Recent files on its own and toggles closed", async () => {
   const v = await loadViewer(html);
   v.key("Shift", { location: 1 });
   v.key("Shift", { location: 1 });
@@ -22,7 +22,16 @@ test("double-Shift and Cmd+E open nothing — both gestures were removed", async
   assert.equal(v.quickOpenVisible(), false, "double-Shift no longer opens the file search");
   v.key("e", { metaKey: true, code: "KeyE" });
   await v.settle(10);
-  assert.equal(v.quickOpenVisible(), false, "Cmd+E no longer opens Recent files");
+  assert.ok(v.quickOpenVisible(), "Cmd+E opens Recent files");
+  assert.ok(v.$("#quick-open").classList.contains("quick-recent"), "…in the recent-files section");
+  assert.equal(
+    v.$("#quick-open").classList.contains("quick-launcher"),
+    false,
+    "…without the section rail: the key already names the section it wants",
+  );
+  v.key("e", { metaKey: true, code: "KeyE" });
+  await v.settle(10);
+  assert.equal(v.quickOpenVisible(), false, "a second Cmd+E closes it");
   v.close();
 });
 

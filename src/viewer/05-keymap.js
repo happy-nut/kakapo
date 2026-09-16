@@ -432,7 +432,7 @@ document.addEventListener('keydown', (event) => {
 
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === 'ArrowDown') {
     event.preventDefault();
-    if (isSourceViewerVisible()) goToSymbolUnderCursor();
+    if (isSourceViewerVisible()) goToDefinitionUnderCursor();
     else openDiffFileAtCaret();
     return;
   }
@@ -455,8 +455,7 @@ document.addEventListener('keydown', (event) => {
     var aeB = document.activeElement;
     if (aeB && (aeB.tagName === 'INPUT' || aeB.tagName === 'TEXTAREA' || aeB.tagName === 'SELECT')) return;
     event.preventDefault();
-    if (isSourceViewerVisible()) goToSymbolUnderCursor();
-    else if (isDiffViewVisible()) goToSymbolFromDiff();
+    findUsagesUnderCursor();
     return;
   }
 

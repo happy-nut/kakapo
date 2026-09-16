@@ -57,7 +57,7 @@ const MAX_INDEX_FILE_BYTES = 1_000_000;
 
 const DECLARATION_PATTERNS: Array<{ kind: string; re: RegExp }> = [
   { kind: "function", re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
-  { kind: "class", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|sealed|data|inner|annotation|static|export|default|expect|actual|value)\s+)*(class|interface|object|enum|trait|struct)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
+  { kind: "class", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|sealed|data|inner|enum|annotation|static|export|default|expect|actual|value)\s+)*(class|interface|object|enum|trait|struct)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
   { kind: "type", re: /^\s*(?:export\s+)?(interface|type|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
   { kind: "variable", re: /^\s*(?:export\s+)?(?:const|let|var|val)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
   { kind: "function", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\s+)*(?:fun|def|fn|func)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
@@ -133,7 +133,27 @@ export function maskNonCode(content: string, path: string): string[] {
   });
 }
 
-function declarationFromLine(path: string, line: string, lineIndex: number, sourceLine = line): SymbolRecord | undefined {
+// An enum entry declares itself by standing alone on its line — `DONE,` — which matches none of the shapes
+// above, so Cmd+B on one used to dead-end ("Definition not found") even though its usages were indexed. The
+// shape is too weak to trust on its own (a bare name in a `setOf(...)` list looks identical), so it only
+// counts inside an enum body, and only in the SCREAMING_SNAKE the convention uses.
+const ENUM_ENTRY = /^\s*([A-Z][A-Z0-9_$]*)\s*(?:[,;(]|\{|$)/;
+
+function declarationFromLine(path: string, line: string, lineIndex: number, sourceLine = line, inEnumBody = false): SymbolRecord | undefined {
+  if (inEnumBody) {
+    const entry = ENUM_ENTRY.exec(line);
+    if (entry) {
+      return {
+        path,
+        lineIndex,
+        column: Math.max(0, line.indexOf(entry[1])),
+        name: entry[1],
+        symbolKind: "constant",
+        declaration: sourceLine,
+        text: sourceLine,
+      };
+    }
+  }
   for (const pattern of DECLARATION_PATTERNS) {
     const match = pattern.re.exec(line);
     if (!match) continue;
@@ -164,6 +184,9 @@ export function buildRegexSymbolIndex(files: IndexedFile[]): RegexIndex {
     const masked = maskNonCode(file.content, path);
     const python = extname(path).toLowerCase() === ".py";
     const pythonClasses: Array<{ name: string; indent: number }> = [];
+    // Indent of the `enum class`/`enum` line whose body we are inside, or -1. Entries live at a deeper
+    // indent than it, and end at the body's closing brace or at the `;` that separates them from members.
+    let enumIndent = -1;
     // `masked` is scanned for declarations below and then dropped — CodeLines re-derives it per file on demand.
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
       const code = masked[lineIndex];
@@ -172,8 +195,11 @@ export function buildRegexSymbolIndex(files: IndexedFile[]): RegexIndex {
       if (python && trimmed && !trimmed.startsWith("@")) {
         while (pythonClasses.length && indent <= pythonClasses[pythonClasses.length - 1].indent) pythonClasses.pop();
       }
-      const record = declarationFromLine(path, code, lineIndex, lines[lineIndex]);
+      if (enumIndent >= 0 && trimmed && indent <= enumIndent && trimmed.startsWith("}")) enumIndent = -1;
+      const record = declarationFromLine(path, code, lineIndex, lines[lineIndex], enumIndent >= 0 && indent > enumIndent);
+      if (enumIndent >= 0 && trimmed === ";") enumIndent = -1; // Java/Kotlin: entries end, members begin
       if (!record) continue;
+      if (record.symbolKind === "enum" || /\benum\s+(class\s+)?[A-Za-z_$]/.test(trimmed)) enumIndent = indent;
       if (python && pythonClasses.length && indent > pythonClasses[pythonClasses.length - 1].indent) {
         record.container = pythonClasses[pythonClasses.length - 1].name;
         if (record.symbolKind === "function") record.symbolKind = "method";

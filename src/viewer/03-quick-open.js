@@ -293,7 +293,10 @@ function renderQuickOpenResults() {
     '<span class="quick-open-name">' + escapeHtml(item.name) + '</span>',
     '<span class="quick-open-path">' + escapeHtml(item.path) + '</span>',
     '</span>',
-    '<span class="quick-open-badge">' + escapeHtml(item.detail) + '</span>',
+    // The type as its icon, not as the words "file - kotlin": the row is scanned, not read, and the icon is
+    // the same glyph the file tree uses for that type. The words stay as the tooltip.
+    '<span class="quick-open-badge' + (item.kind === 'change' ? ' is-changed' : '') + '" title="' + escapeHtml(item.detail) + '">'
+      + virtualTypeIcon(item.path) + '</span>',
     '</button>',
   ].join('')).join('');
   renderQuickPreview(quickItems[quickActive]);

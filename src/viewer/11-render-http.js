@@ -838,21 +838,26 @@ function markupBlockLanguages(lines) {
   return out;
 }
 
-// Built once, not per line: highlightLine runs on every rendered line of every file.
-var BASE_KEYWORDS = new Set(['as','async','await','break','case','catch','class','const','continue','def','default','defer','do','else','enum','export','extends','final','finally','fn','for','from','func','function','go','if','impl','import','in','interface','let','match','module','new','package','private','protected','public','return','select','static','struct','switch','throw','try','type','val','var','while','yield']);
-var LITERALS = new Set(['False','None','True','false','nil','null','self','this','true','undefined']);
-// BASE_KEYWORDS is the union across languages, so a language whose vocabulary is not in it reads as plain
-// text — Kotlin lost `fun`, `override`, `companion object` and `when`, while `type` (an ordinary Kotlin
-// parameter name) came out coloured as a keyword. These stay per-language rather than joining the union:
-// `data`, `object`, `init`, `is`, `by` and `out` are everyday identifiers in every other language here.
-// Dropped for Kotlin in turn: `type` and `let` are a parameter name and a stdlib call there, not keywords.
-var KOTLIN_KEYWORDS = new Set(Array.from(BASE_KEYWORDS).filter(function (word) { return word !== 'type' && word !== 'let'; }).concat([
-  'abstract','actual','annotation','by','companion','constructor','crossinline','data','expect','external',
-  'fun','infix','init','inline','inner','internal','is','lateinit','noinline','object','open','operator',
-  'out','override','reified','sealed','suspend','tailrec','typealias','vararg','when','where'
-]));
-function keywordsFor(language) {
-  return language === 'kotlin' ? KOTLIN_KEYWORDS : BASE_KEYWORDS;
+// Built once, on FIRST USE rather than at load: this file is one slice of a concatenated bundle, and the
+// boot path in an earlier slice already renders a source table — so a plain `var` here is still unassigned
+// when the first line is highlighted, and highlightLine threw on it.
+var TOKEN_SETS = null;
+function tokenSets() {
+  if (TOKEN_SETS) return TOKEN_SETS;
+  var base = new Set(['as','async','await','break','case','catch','class','const','continue','def','default','defer','do','else','enum','export','extends','final','finally','fn','for','from','func','function','go','if','impl','import','in','interface','let','match','module','new','package','private','protected','public','return','select','static','struct','switch','throw','try','type','val','var','while','yield']);
+  var literals = new Set(['False','None','True','false','nil','null','self','this','true','undefined']);
+  // `base` is the union across languages, so a language whose vocabulary is not in it reads as plain text —
+  // Kotlin lost `fun`, `override`, `companion object` and `when`, while `type` (an ordinary Kotlin parameter
+  // name) came out coloured as a keyword. These stay per-language rather than joining the union: `data`,
+  // `object`, `init`, `is`, `by` and `out` are everyday identifiers in every other language here, and
+  // `type`/`let` go the other way — a parameter name and a stdlib call in Kotlin, not keywords.
+  var kotlin = new Set(Array.from(base).filter(function (word) { return word !== 'type' && word !== 'let'; }).concat([
+    'abstract','actual','annotation','by','companion','constructor','crossinline','data','expect','external',
+    'fun','infix','init','inline','inner','internal','is','lateinit','noinline','object','open','operator',
+    'out','override','reified','sealed','suspend','tailrec','typealias','vararg','when','where'
+  ]));
+  TOKEN_SETS = { base: base, literals: literals, kotlin: kotlin };
+  return TOKEN_SETS;
 }
 
 function highlightLine(text, language) {
@@ -887,7 +892,8 @@ function highlightLine(text, language) {
     if (/^\s{0,3}#{1,6}\s/.test(text)) return '<span class="tok-keyword">' + escaped + '</span>';
     return escaped.replace(new RegExp(String.fromCharCode(96) + '[^' + String.fromCharCode(96) + ']+' + String.fromCharCode(96), 'g'), '<span class="tok-string">$&</span>');
   }
-  const keywords = keywordsFor(language);
+  const sets = tokenSets();
+  const keywords = language === 'kotlin' ? sets.kotlin : sets.base;
   const commentPrefixes = ['python','ruby','shell','yaml','toml'].includes(language) ? ['#'] : ['//'];
   let output = '';
   let index = 0;
@@ -936,8 +942,13 @@ function highlightLine(text, language) {
       const value = identifier[0];
       const trailing = text.slice(index + value.length);
       if (keywords.has(value)) output += '<span class="tok-keyword">' + escapeHtml(value) + '</span>';
-      else if (LITERALS.has(value)) output += '<span class="tok-literal">' + escapeHtml(value) + '</span>';
+      else if (sets.literals.has(value)) output += '<span class="tok-literal">' + escapeHtml(value) + '</span>';
       else if (/^\s*\(/.test(trailing)) output += '<span class="tok-function">' + escapeHtml(value) + '</span>';
+      // SCREAMING_SNAKE is a constant in every language here — enum entries above all, which is most of what
+      // a `when` over an enum is made of and all of it read as plain text. They are values, so they take the
+      // colour the other literals take. (An all-caps acronym type like UUID lands here too; telling those
+      // apart needs the compiler, not a tokenizer.)
+      else if (/^[A-Z][A-Z0-9_$]+$/.test(value)) output += '<span class="tok-constant">' + escapeHtml(value) + '</span>';
       else if (/^[A-Z]/.test(value) && /[a-z]/.test(value)) output += '<span class="tok-type">' + escapeHtml(value) + '</span>';
       else output += escapeHtml(value);
       index += value.length;

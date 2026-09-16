@@ -52,6 +52,7 @@
   --token-string: #8ccf7e;
   --token-number: #78b9ee;
   --token-literal: #ff9a56;
+  --token-constant: #c792ea;
   --token-tag: #f4cb73;
   --token-function: #ffd580;
   --token-type: #66d9c2;
@@ -117,6 +118,7 @@
   --token-string: #0a3069;
   --token-number: #0550ae;
   --token-literal: #cf222e;
+  --token-constant: #6f42c1;
   --token-tag: #116329;
   --token-function: #8250df;
   --token-type: #953800;
@@ -169,6 +171,7 @@
   --token-string: #a5d6ff;
   --token-number: #79c0ff;
   --token-literal: #79c0ff;
+  --token-constant: #bc8cff;
   --token-tag: #7ee787;
   --token-function: #d2a8ff;
   --token-type: #ffa657;
@@ -215,6 +218,7 @@
   --token-string: #0a3069;
   --token-number: #0550ae;
   --token-literal: #0550ae;
+  --token-constant: #8250df;
   --token-tag: #116329;
   --token-function: #8250df;
   --token-type: #953800;
@@ -262,6 +266,7 @@
   --token-string: #6a8759;
   --token-number: #6897bb;
   --token-literal: #cc7832;
+  --token-constant: #9876aa;
   --token-tag: #e8bf6a;
   --token-function: #ffc66d;
   --token-type: #a9b7c6;
@@ -308,6 +313,7 @@
   --token-string: #067d17;
   --token-number: #1750eb;
   --token-literal: #0033b3;
+  --token-constant: #871094;
   --token-tag: #0033b3;
   --token-function: #00627a;
   --token-type: #000000;
@@ -365,6 +371,7 @@
   --token-string: #2aa198;
   --token-number: #de68a1;
   --token-literal: #de68a1;
+  --token-constant: #6c71c4;
   --token-tag: #3295da;
   --token-function: #3295da;
   --token-type: #b58900;
@@ -411,6 +418,7 @@
   --token-string: #1f7972;
   --token-number: #c92c78;
   --token-literal: #c92c78;
+  --token-constant: #6c71c4;
   --token-tag: #2074af;
   --token-function: #2074af;
   --token-type: #8c6a00;
@@ -459,6 +467,7 @@
   --token-string: #f1fa8c;
   --token-number: #bd93f9;
   --token-literal: #bd93f9;
+  --token-constant: #bd93f9;
   --token-tag: #ff79c6;
   --token-function: #50fa7b;
   --token-type: #8be9fd;
@@ -505,6 +514,7 @@
   --token-string: #846e15;
   --token-number: #644ac9;
   --token-literal: #644ac9;
+  --token-constant: #7d3fc4;
   --token-tag: #a3144d;
   --token-function: #14710a;
   --token-type: #036a96;
@@ -553,6 +563,7 @@
   --token-string: #ffb38a;
   --token-number: #b8f0a0;
   --token-literal: #b8f0a0;
+  --token-constant: #d7a3ff;
   --token-tag: #6ab7ff;
   --token-function: #ffe58a;
   --token-type: #6ff0d8;
@@ -599,6 +610,7 @@
   --token-string: #96000f;
   --token-number: #0a6b3d;
   --token-literal: #0a6b3d;
+  --token-constant: #6b21a8;
   --token-tag: #0000d4;
   --token-function: #6b4a00;
   --token-type: #005f6b;
@@ -2917,6 +2929,9 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .tok-string { color: var(--token-string); }
 .tok-number { color: var(--token-number); }
 .tok-literal { color: var(--token-literal); }
+/* Enum entries and other SCREAMING_SNAKE constants: their own colour, so a `when` over an enum does not read
+   as the same thing as `true` and `null` sitting next to it. */
+.tok-constant { color: var(--token-constant, var(--token-literal)); }
 .tok-tag { color: var(--token-tag); font-weight: 650; }
 .tok-function { color: var(--token-function); }
 .tok-type { color: var(--token-type); }
@@ -3009,7 +3024,10 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .quick-open-side-sep { height: 1px; margin: 6px 4px; background: var(--border); }
 .quick-open-title {
   display: flex;
-  justify-content: space-between;
+  /* The typed filter follows the section name instead of being pinned to the right edge, where each new
+     character pushed the string left and typing looked like it ran backwards. The idle hint keeps the right
+     edge to itself (margin-left: auto, below). */
+  align-items: center;
   gap: 12px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
@@ -3019,7 +3037,7 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 /* Recent files: no search box — typed letters filter the list (speed search). */
 .quick-open.quick-recent #quick-open-input { display: none; }
 .quick-open-filter { font-size: 12px; }
-.quick-open-filter.is-hint { opacity: 0.7; font-style: italic; }
+.quick-open-filter.is-hint { margin-left: auto; opacity: 0.7; font-style: italic; }
 .quick-open-filter.has-filter { color: var(--active); font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .quick-open-filter.has-filter::after { content: "\258F"; opacity: 0.7; animation: mc-caret-blink 1.1s steps(1) infinite; }
 @keyframes mc-caret-blink { 50% { opacity: 0; } }
@@ -3140,6 +3158,9 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   margin-top: 2px;
 }
 .quick-open-badge { align-self: center; font-size: 12px; }
+.quick-open-badge .ftype { width: 16px; height: 16px; display: block; }
+/* A changed file is worth spotting in a list of files: the icon takes the sidebar's "edited" colour. */
+.quick-open-badge.is-changed .ftype { color: var(--chrome-vcs-edited); }
 .quick-open-empty { padding: 28px 14px; font-size: 13px; }
 @media (max-width: 900px) {
   body { grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr); }
@@ -3444,7 +3465,11 @@ body.native-app .sidebar.mc-panel-focus-flash::after {
   .mc-panel-focus-flash,
   body.native-app .sidebar.mc-panel-focus-flash::after { animation-duration: 120ms; }
 }
-.diff-toolbar { min-height: 34px; padding: 3px 7px; gap: 7px; }
+/* Both are the first row of the content pane whenever the tab strip is not there (one open file hides it,
+   and the diff view has no tabs at all) — so they carry the header band, and the sidebar's rule crosses the
+   seam into theirs at the same height. With tabs above them they simply sit below that band. */
+.diff-toolbar { min-height: var(--header-band); padding: 3px 7px; gap: 7px; }
+.source-toolbar { min-height: var(--header-band); }
 .diff-tool-button { width: 27px; height: 27px; }
 .plain-button { padding: 5px 9px; }
 .http-run { border-radius: 4px; }
