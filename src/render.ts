@@ -343,7 +343,9 @@ export function renderDiffHtml(input: {
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<link rel="icon" href="data:,">',
-    `<title>${escapeHtml(input.title)} - ${escapeHtml(input.projectName)}</title>`,
+    // The macOS title bar, where the app's name is already the first menu-bar item — "Kakapo - foo" spent
+    // half the strip repeating it. Only the dev marker survives: it is how a dev instance is told apart.
+    `<title>${escapeHtml(input.projectName)}${input.title.endsWith("(dev)") ? " (dev)" : ""}</title>`,
     "<style>",
     `:root { ${kakapoIconCssVariable()}; }`,
     diff2HtmlCss(),
