@@ -48,8 +48,9 @@ export const SERVER_VERSIONS = Object.freeze({
   // binary refuses to start ("This build of intellij-server has expired", exit 7) and Kotlin navigation
   // silently degrades to the regex index. Bump this pin (and KOTLIN_ARCHIVES below) whenever
   // test/language-server-bundles.test.mjs stops resolving Kotlin definitions; releases and their published
-  // .sha256 files live at https://github.com/Kotlin/kotlin-lsp/releases.
-  kotlin: "262.9593.0",
+  // .sha256 files live at https://github.com/Kotlin/kotlin-lsp/releases. 262.9593.0 expired around
+  // 2026-09-16 — roughly seven weeks after its release, which is the cadence to expect.
+  kotlin: "263.4702.0",
   sorbet: "0.6.13342.20260716135343-aafce23c1",
   php: "8.4.23",
   phpactor: "2026.06.25.0",
@@ -86,10 +87,10 @@ const CLANG_ARCHIVES = Object.freeze({
 });
 
 const KOTLIN_ARCHIVES = Object.freeze({
-  "darwin-x64": ["kotlin-server-262.9593.0.sit", "17369fda97c85418ac24ab38a9df56b21522a3468dfe193832fe455c13920745"],
-  "darwin-arm64": ["kotlin-server-262.9593.0-aarch64.sit", "6ba6021a706b21e64cef33f7e2b79f187c0910320722bb2d3ed05ad1115ec43f"],
-  "linux-x64": ["kotlin-server-262.9593.0.tar.gz", "2d99d8e198fbe4aa8f4481e37799724ce94803b4ea12a60b416040e3fcd7cc5e"],
-  "linux-arm64": ["kotlin-server-262.9593.0-aarch64.tar.gz", "2317831c6e5607d05b7ebc1da655330125ce0e3d66fbf24517dfce442debc14e"],
+  "darwin-x64": ["kotlin-server-263.4702.0.sit", "62ab735947b1c855b505f64f5db8fbd7ff0b52a35ab1897938c6dbfc7b24c8a3"],
+  "darwin-arm64": ["kotlin-server-263.4702.0-aarch64.sit", "95da3fc6d3b9092c7616345044a05edb85e5408dc648d081e4e433595c892bec"],
+  "linux-x64": ["kotlin-server-263.4702.0.tar.gz", "1e11d2e5fefbf9ea215ad8dd6be95f2222897cd086e8cb7a661a52084a590405"],
+  "linux-arm64": ["kotlin-server-263.4702.0-aarch64.tar.gz", "ec7cb254a6662a07fff9f10e4365226afab6c40008f8a974c10ac5e785d6510f"],
 });
 
 const JAVA_ARCHIVES = Object.freeze({
