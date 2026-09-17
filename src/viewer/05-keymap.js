@@ -649,6 +649,12 @@ document.getElementById('diff-prev-change')?.addEventListener('click', function 
 document.getElementById('diff-next-change')?.addEventListener('click', function () { next(1); });
 document.getElementById('diff-open-source')?.addEventListener('click', function () { openDiffFileAtCaret(); });
 document.getElementById('diff-sidebar-toggle')?.addEventListener('click', function () { toggleReviewSidebar(); });
+document.getElementById('source-body')?.addEventListener('mousemove', updateCmdLink);
+document.getElementById('source-body')?.addEventListener('mouseleave', hideCmdLink);
+// The modifier can be released without the mouse moving, and a scroll moves the code out from under a
+// measured rectangle — both leave the underline pointing at nothing.
+document.addEventListener('keyup', function (event) { if (event.key === 'Meta' || event.key === 'Control') hideCmdLink(); });
+document.getElementById('source-body')?.addEventListener('scroll', hideCmdLink, true);
 document.getElementById('source-body')?.addEventListener('click', handleSourceClick);
 document.getElementById('source-body')?.addEventListener('dblclick', handleSourceDoubleClick);
 document.getElementById('source-body')?.addEventListener('click', function (event) {

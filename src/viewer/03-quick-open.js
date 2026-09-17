@@ -13,6 +13,16 @@ function setQuickOpenOwnsEditKeys(owns) {
     window.kakapoApp.setIgnoreMenuShortcuts(!!owns);
   }
 }
+// Claim the app menu's edit accelerators only while nothing in this dialog is being typed into. Claiming
+// them for as long as the dialog was open took Cmd+V and Cmd+C away from the search box along with Cmd+A —
+// in an Electron window those keys ARE the menu's roles, so pasting a query stopped working entirely. The
+// case the claim exists for is Recent files, which has no input and leaves nothing focused: there the
+// menu's selectAll would run against the whole review page behind the dialog.
+function syncQuickOpenEditKeys() {
+  var focused = document.activeElement;
+  var typing = !!focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.isContentEditable);
+  setQuickOpenOwnsEditKeys(!typing);
+}
 // The sections that live INSIDE this dialog. The other entries (review comments, history) are panels of
 // their own — reachable here, not embedded — so they just open and dismiss the launcher.
 var QUICK_LAUNCHER_MODES = ['recent', 'all', 'content'];
@@ -20,7 +30,6 @@ var QUICK_LAUNCHER_MODES = ['recent', 'all', 'content'];
 // it wants, so a column of the other sections beside a short list of recent files is all frame and no list.
 function openQuickOpen(mode, hideRail) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
-  setQuickOpenOwnsEditKeys(true);
   quickMode = mode;
   quickModeLabel.textContent = mode === 'recent'
     ? t('quickopen.recent')
@@ -47,8 +56,8 @@ function openQuickOpen(mode, hideRail) {
   // The first real file-name query requests the deferred index in renderQuickOpenResults().
   // Picking a section is done with the rail: focus goes to the section's own panel, whether the pick came from
   // a click or from Enter on the rail. Arrows then move in the list, ArrowLeft steps back to the rail.
-  if (mode === 'recent') { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
-  else setTimeout(() => quickInput.focus(), 0);
+  if (mode === 'recent') { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); syncQuickOpenEditKeys(); }
+  else setTimeout(() => { quickInput.focus(); syncQuickOpenEditKeys(); }, 0);
 }
 
 // Mark the rail entry for the section on screen. The dock entries never mark: they close this dialog.
@@ -117,6 +126,14 @@ document.addEventListener('mousedown', function (event) {
   if (event.target && event.target.closest && event.target.closest('.quick-open-panel')) return;
   closeQuickOpen();
 }, true);
+
+// Focus moves between the search box, the extension filter and the rail while the dialog is up, and each
+// move changes whether the menu's edit keys belong to the page or to the field (see syncQuickOpenEditKeys).
+document.addEventListener('focusin', function () { if (quickOpen && !quickOpen.classList.contains('hidden')) syncQuickOpenEditKeys(); });
+document.addEventListener('focusout', function () {
+  if (!quickOpen || quickOpen.classList.contains('hidden')) return;
+  setTimeout(syncQuickOpenEditKeys, 0); // after the browser has settled on the next focus target
+});
 
 function handleQuickOpenKey(event) {
   var sideItem = focusedQuickSideItem();

@@ -2349,6 +2349,18 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
   position: relative;
 }
 .code-cursor-empty { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); margin: 0; }
+/* ⌘-hover over a token: the underline that says a click will navigate. Positioned over the code, never
+   inside it — see updateCmdLink. */
+.mc-cmd-link {
+  position: fixed;
+  z-index: 60;
+  height: 1px;
+  pointer-events: none;
+  opacity: 0;
+  background: var(--active);
+}
+.mc-cmd-link.show { opacity: 1; }
+body.cmd-link-active .source-code { cursor: pointer; }
 .code-cursor {
   display: inline-block;
   width: 2px;

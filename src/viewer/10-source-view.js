@@ -284,6 +284,55 @@ function handleSourceClick(event) {
   if (event.metaKey || event.ctrlKey) { event.preventDefault(); goToDefinitionUnderCursor(); }
 }
 
+// ⌘-hover: underline the token the pointer is on, the way an editor shows that a click will navigate. The
+// underline is a positioned overlay measured from a Range, not a wrapper span — mutating the code's DOM on
+// every mouse move would re-split the text nodes the caret and the selection live in.
+var cmdLinkEl = null;
+var cmdLinkKey = '';
+function hideCmdLink() {
+  cmdLinkKey = '';
+  if (cmdLinkEl) cmdLinkEl.classList.remove('show');
+  document.body.classList.remove('cmd-link-active');
+}
+function wordRangeFromPoint(x, y) {
+  var caret = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
+  var node = caret && caret.startContainer;
+  if (!node || node.nodeType !== 3) return null;
+  var text = node.data || '';
+  var isWord = function (ch) { return /[A-Za-z0-9_$]/.test(ch); };
+  var start = Math.min(caret.startOffset, text.length);
+  var end = start;
+  while (start > 0 && isWord(text.charAt(start - 1))) start -= 1;
+  while (end < text.length && isWord(text.charAt(end))) end += 1;
+  if (end <= start) return null;
+  var range = document.createRange();
+  range.setStart(node, start);
+  range.setEnd(node, end);
+  return range;
+}
+function updateCmdLink(event) {
+  if (!(event.metaKey || event.ctrlKey) || !isSourceViewerVisible()) { hideCmdLink(); return; }
+  var cell = event.target && event.target.closest ? event.target.closest('.source-code') : null;
+  if (!cell) { hideCmdLink(); return; }
+  var range = wordRangeFromPoint(event.clientX, event.clientY);
+  if (!range) { hideCmdLink(); return; }
+  var rect = range.getBoundingClientRect();
+  if (!rect.width) { hideCmdLink(); return; }
+  var key = Math.round(rect.left) + ':' + Math.round(rect.top) + ':' + Math.round(rect.width);
+  document.body.classList.add('cmd-link-active');
+  if (key === cmdLinkKey) return;
+  cmdLinkKey = key;
+  if (!cmdLinkEl) {
+    cmdLinkEl = document.createElement('div');
+    cmdLinkEl.className = 'mc-cmd-link';
+    document.body.appendChild(cmdLinkEl);
+  }
+  cmdLinkEl.style.left = Math.round(rect.left) + 'px';
+  cmdLinkEl.style.top = Math.round(rect.bottom) + 'px';
+  cmdLinkEl.style.width = Math.round(rect.width) + 'px';
+  cmdLinkEl.classList.add('show');
+}
+
 function handleSourceDoubleClick(event) {
   const target = event.target;
   const codeCell = target?.closest?.('.source-code');
