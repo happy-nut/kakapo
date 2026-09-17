@@ -1379,35 +1379,42 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
    +/- prefixes add horizontal noise and make the panes read like a patch rather than two editors. */
 .d2h-code-line-prefix { display: none; -webkit-user-select: none; user-select: none; }
 .d2h-code-side-linenumber, .d2h-code-linenumber { -webkit-user-select: none; user-select: none; }
+/* The diff is highlighted by highlight.js and the source view by the viewer's own tokenizer, so the two
+   surfaces speak different class vocabularies — but they must not look like two different editors. These
+   colours were hard-coded Darcula hexes, which meant the diff ignored the chosen syntax theme entirely and
+   coloured its types and fields by rules the source view does not share. Map hljs's classes onto the same
+   --token-* palette instead, matched by meaning, so one theme drives both. */
 .d2h-code-line-ctn .hljs-keyword,
-.d2h-code-line-ctn .hljs-built_in,
-.d2h-code-line-ctn .hljs-literal,
 .d2h-code-line-ctn .hljs-selector-tag,
-.d2h-code-line-ctn .hljs-section { color: #cc7832; }
+.d2h-code-line-ctn .hljs-section { color: var(--token-keyword); font-weight: 650; }
+.d2h-code-line-ctn .hljs-literal { color: var(--token-literal); }
 .d2h-code-line-ctn .hljs-string,
 .d2h-code-line-ctn .hljs-regexp,
-.d2h-code-line-ctn .hljs-char.escape_ { color: #6a8759; }
-.d2h-code-line-ctn .hljs-number { color: #6897bb; }
+.d2h-code-line-ctn .hljs-char.escape_ { color: var(--token-string); }
+.d2h-code-line-ctn .hljs-number { color: var(--token-number); }
 .d2h-code-line-ctn .hljs-comment,
-.d2h-code-line-ctn .hljs-quote { color: #808080; font-style: italic; }
+.d2h-code-line-ctn .hljs-quote { color: var(--token-comment); font-style: italic; }
 .d2h-code-line-ctn .hljs-meta,
-.d2h-code-line-ctn .hljs-doctag { color: #bbb529; }
+.d2h-code-line-ctn .hljs-doctag { color: var(--token-decorator); font-style: italic; }
 .d2h-code-line-ctn .hljs-title,
 .d2h-code-line-ctn .hljs-title.function_,
-.d2h-code-line-ctn .hljs-function .hljs-title { color: #ffc66d; }
+.d2h-code-line-ctn .hljs-function .hljs-title { color: var(--token-function); }
+.d2h-code-line-ctn .hljs-built_in,
 .d2h-code-line-ctn .hljs-title.class_,
 .d2h-code-line-ctn .hljs-class .hljs-title,
-.d2h-code-line-ctn .hljs-type { color: #a9b7c6; }
+.d2h-code-line-ctn .hljs-attribute,
+.d2h-code-line-ctn .hljs-type { color: var(--token-type); }
+/* Fields, properties and SCREAMING_SNAKE constants — the source view's own constant colour. */
 .d2h-code-line-ctn .hljs-attr,
 .d2h-code-line-ctn .hljs-variable,
 .d2h-code-line-ctn .hljs-template-variable,
-.d2h-code-line-ctn .hljs-property { color: #9876aa; }
-.d2h-code-line-ctn .hljs-attribute { color: #a9b7c6; }
+.d2h-code-line-ctn .hljs-variable.constant_,
+.d2h-code-line-ctn .hljs-property { color: var(--token-constant, var(--token-literal)); }
 .d2h-code-line-ctn .hljs-tag,
-.d2h-code-line-ctn .hljs-name { color: #e8bf6a; }
+.d2h-code-line-ctn .hljs-name { color: var(--token-tag); font-weight: 650; }
 .d2h-code-line-ctn .hljs-symbol,
 .d2h-code-line-ctn .hljs-bullet,
-.d2h-code-line-ctn .hljs-link { color: #6897bb; }
+.d2h-code-line-ctn .hljs-link { color: var(--token-number); }
 .d2h-code-line-ctn .hljs-emphasis { font-style: italic; }
 .d2h-code-line-ctn .hljs-strong { font-weight: 700; }
 .d2h-info { background: var(--line); color: var(--muted); border-color: var(--border); }
