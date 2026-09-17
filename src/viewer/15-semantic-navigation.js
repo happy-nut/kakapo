@@ -217,7 +217,7 @@ function renderUsages() {
     var isTest = item.isTest || semanticTestPath(item.path);
     return '<button type="button" class="quick-open-item usage-item' + (isTest ? ' is-test' : '') + (index === usageActive ? ' active' : '') + '" data-index="' + index + '" title="' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '">'
       + '<span class="usage-loc">' + escapeHtml(fname) + ':' + (item.lineIndex + 1) + '</span>'
-      + '<span class="usage-code">' + escapeHtml(item.text.replace(/^\s+/, '').slice(0, 160)) + '</span>'
+      + '<span class="usage-code">' + semanticCodeHtml(item.path, item.text.replace(/^\s+/, '').slice(0, 160)) + '</span>'
       + '</button>';
   }).join('');
   updateUsageActive();

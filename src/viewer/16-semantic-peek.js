@@ -115,6 +115,15 @@ function positionSemanticPeekAtCaret() {
   }
 }
 
+// A usage row shows a line of code, so it reads like code: the same tokenizer the source view uses, keyed
+// off the language of the file the line came from. A path the review has no entry for stays plain text.
+function semanticCodeHtml(path, code) {
+  var file = typeof sourceByPath !== 'undefined' ? sourceByPath.get(path) : null;
+  var language = (file && file.language) || '';
+  if (!language || language === 'text' || typeof highlightLine !== 'function') return escapeHtml(code);
+  try { return highlightLine(code, language); } catch (e) { return escapeHtml(code); }
+}
+
 function renderSemanticPeekResults() {
   var results = document.getElementById('semantic-peek-results');
   if (!results) return;
@@ -123,7 +132,7 @@ function renderSemanticPeekResults() {
     return '<button type="button" role="option" aria-selected="' + (index === semanticPeekActive ? 'true' : 'false')
       + '" class="semantic-peek-item' + (item.isTest ? ' is-test' : '') + (index === semanticPeekActive ? ' active' : '') + '" data-index="' + index + '" title="' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '">'
       + '<span class="semantic-peek-item-path">' + escapeHtml(semanticFileLabel(item.path, item.lineIndex)) + '</span>'
-      + '<span class="semantic-peek-item-code">' + escapeHtml(item.text.trim().slice(0, 180)) + '</span></button>';
+      + '<span class="semantic-peek-item-code">' + semanticCodeHtml(item.path, item.text.trim().slice(0, 180)) + '</span></button>';
   }).join('') + '<div class="semantic-peek-list-hint">' + escapeHtml(t('monaco.peekHint')) + '</div>';
 }
 
