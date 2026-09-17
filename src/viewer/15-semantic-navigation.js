@@ -39,8 +39,17 @@ function findUsagesUnderCursor() {
 async function findUsagesOf(name, explicitLoc) {
   if (!name) { showSemanticNavigationFailure('symbol'); return; }
   var loc = explicitLoc || caretSourceLoc();
+  // A cold language server answers its first question only after it has read the project — up to a minute
+  // for a Gradle/Kotlin workspace. Silence for that long reads as a dead key, so say what is happening as
+  // soon as the answer is not immediate. Anything that arrives later replaces the hint on its own.
+  var pending = setTimeout(function () { showCaretHint(t('monaco.searching').replace('{symbol}', name)); }, 250);
   var response = await queryProjectAnalysis('references', name, loc);
-  var items = (response && response.locations) || [];
+  clearTimeout(pending);
+  // The declaration the caret is sitting on is not one of its usages. Some servers report it, and a lone
+  // self-hit then "navigated" to the line the caret was already on, which looks exactly like nothing.
+  var items = ((response && response.locations) || []).filter(function (item) {
+    return !(loc && item && item.path === loc.path && Number(item.lineIndex) === Number(loc.lineIndex));
+  });
   if (items.length) { openAnalysisUsages(name, items, response, 'references'); return; }
   // Standalone HTML has no analyzer; the in-memory scan answers the same question over the embedded files.
   var def = findSymbolDefinition(name) || { path: (loc && loc.path) || '', lineIndex: -1 };
@@ -58,7 +67,9 @@ function showSemanticNavigationFailure(kind, name) {
 async function goToDefOrUsages(name, explicitLoc) {
   if (!name) { showSemanticNavigationFailure('symbol'); return; }
   var loc = explicitLoc || caretSourceLoc();
+  var pending = setTimeout(function () { showCaretHint(t('monaco.searching').replace('{symbol}', name)); }, 250);
   var response = await queryProjectAnalysis('definition', name, loc);
+  clearTimeout(pending);
   if (response && response.ok) {
     var defs = response.locations || [];
     if (defs.length > 1) {
