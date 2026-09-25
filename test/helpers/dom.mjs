@@ -12,12 +12,29 @@
 // DOM order — so a test that "types and saves" exercises the same wrong-textarea hazard the
 // regression came from, instead of papering over it.
 import { JSDOM } from "jsdom";
+import { after } from "node:test";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { materializeDeferredSourceFile } from "../../dist/diff.js";
 
 const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Every window this helper opens, closed again when the file that opened it ends.
+//
+// A jsdom window's timers are Node timers, and the viewer starts a 6-hour update-check interval at load
+// (08-dock.js). So a single window a test forgets to close does not leak a little memory — it keeps the test
+// process alive forever. On CI that is not a slow suite: `npm test` runs every file in one process, the
+// runner finishes its last test and then sits there until the job hits GitHub's 6-hour ceiling and is
+// cancelled, with no failing test to point at. comments.test.mjs and monaco.test.mjs were doing exactly that.
+//
+// Tests still call v.close() themselves — that is the normal path and it keeps each test's windows from
+// piling up while the file runs. This is only the net underneath it, so one missed close costs nothing.
+const openWindows = new Set();
+after(() => {
+  for (const window of openWindows) { try { window.close(); } catch { /* already torn down */ } }
+  openWindows.clear();
+});
 
 const DIST_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist");
 
@@ -285,6 +302,7 @@ export async function loadViewer(html, opts = {}) {
   // refreshComments, the composer focus retry interval which caps at ~300ms).
   await tick(60);
 
+  openWindows.add(window);
   const api = new Viewer(dom, window, document);
   return api;
 }
@@ -298,6 +316,7 @@ class Viewer {
 
   // ---- lifecycle -------------------------------------------------------------------------------
   close() {
+    openWindows.delete(this.window);
     this.window.close();
   }
   /** Wait for the viewer's async work (focus retry interval, in-place re-renders) to settle. */

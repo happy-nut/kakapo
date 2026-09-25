@@ -890,10 +890,18 @@ test("a merged panel emptied by the addressed heuristic explains itself and can 
   v.close();
 });
 
-test("a genuinely empty review shows no addressed-comments notice", async () => {
+// A review with nothing in it does get a note now — 2454dda: a blank sheet with a Copy-all button reads like
+// something is broken, so the panel says where comments come from instead. What it must still never do is
+// claim comments were addressed, which is the OTHER reason this panel comes up blank, and the one that comes
+// with an undo. The two are told apart by what the note carries, not by the shared class: only the empty-state
+// note names a key, and only the addressed note offers a way to reopen.
+test("a genuinely empty review says how to write a comment, and claims nothing was addressed", async () => {
   const v = await loadViewer(html);
   await v.openMergedView();
-  assert.equal(v.$(".mc-merged-empty-note"), null, "nothing to explain when there are no comments at all");
+  const note = v.$(".mc-merged-empty-note");
+  assert.ok(note, "the blank panel says where comments come from");
+  assert.ok(note.querySelector("kbd"), "naming the key that writes one");
+  assert.equal(v.$(".mc-merged-reopen-all"), null, "and offers nothing to reopen, because nothing was written");
   v.close();
 });
 

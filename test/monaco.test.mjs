@@ -174,7 +174,7 @@ test("Cmd+B resolves the token at the active diff caret on both working and base
   assert.deepEqual(
     JSON.parse(JSON.stringify(requests.at(-1))),
     {
-      kind: "definition",
+      kind: "references",
       symbol: "target",
       path: "src/app.ts",
       line: v.window.diffLineNumber(working.row) - 1,
@@ -182,10 +182,12 @@ test("Cmd+B resolves the token at the active diff caret on both working and base
     },
     "the working-tree caret supplies its exact token and source coordinates",
   );
-  assert.ok(!v.$("#semantic-peek").classList.contains("hidden"), "multiple definitions open the caret-local result dropdown");
-  v.key("Enter");
+  // The declaration the caret is sitting on is not one of its own usages, so the hit on this very line is
+  // dropped and a single usage is left. Cmd+B goes straight there: a dropdown holding one row would be a
+  // menu asking the reader to confirm the only answer.
   await v.settle(40);
-  assert.equal(v.$("#source-viewer").dataset.openPath, "src/app.ts", "Enter opens the selected definition from diff navigation");
+  assert.ok(v.$("#semantic-peek").classList.contains("hidden"), "one remaining usage needs no dropdown");
+  assert.equal(v.$("#source-viewer").dataset.openPath, "src/target.ts", "Cmd+B lands on the one usage it found");
 
   await v.openDiffFor("src/app.ts");
   const base = placeCaret("old", "oldValue");
@@ -194,7 +196,7 @@ test("Cmd+B resolves the token at the active diff caret on both working and base
   assert.deepEqual(
     JSON.parse(JSON.stringify(requests.at(-1))),
     {
-      kind: "definition",
+      kind: "references",
       symbol: "oldValue",
       path: "src/app.ts",
       line: v.window.diffLineNumber(base.row) - 1,
@@ -227,7 +229,10 @@ test("semantic results show compact white file labels, omit docs/comments, and d
   v.close();
 });
 
-test("Cmd+B failure shows a short caret hint and does not open an empty result panel", async () => {
+// Cmd+B stopped being the definition key in c73a13a — it finds usages now, and when the analyzer returns
+// nothing it falls back to the in-memory scan rather than reporting a failure. The key that still asks for a
+// definition, and so still has a failure to report, is Cmd+Down.
+test("a failed definition lookup shows a short caret hint and does not open an empty result panel", async () => {
   const v = await loadViewer(html, {
     monacoBridge: true,
     analysisBridge(request) {
@@ -237,7 +242,7 @@ test("Cmd+B failure shows a short caret hint and does not open an empty result p
   });
   await v.openSourceFile("src/app.ts");
   v.window.setSourceCursor("src/app.ts", 1, 26, false, -1); // `return`, which has no definition
-  v.key("b", { metaKey: true, code: "KeyB" });
+  v.key("ArrowDown", { metaKey: true });
   await v.settle(60);
 
   const hint = v.$(".mc-caret-hint");
