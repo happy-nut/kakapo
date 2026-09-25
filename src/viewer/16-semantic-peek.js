@@ -120,7 +120,7 @@ function positionSemanticPeekAtCaret() {
 function semanticCodeHtml(path, code) {
   var file = typeof sourceByPath !== 'undefined' ? sourceByPath.get(path) : null;
   var language = (file && file.language) || '';
-  if (!language || language === 'text' || typeof highlightLine !== 'function') return escapeHtml(code);
+  if (!language || language === 'text') return escapeHtml(code);
   try { return highlightLine(code, language); } catch (e) { return escapeHtml(code); }
 }
 

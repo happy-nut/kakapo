@@ -24,6 +24,13 @@ async function availablePort() {
   });
 }
 
+// app-main.ts's REVIEW_FILE. The renderer is identified by the document it loads rather than by its title:
+// b2c4441 made the title the project name, so this repo's own folder — "kakapo", lowercase — stopped matching
+// a check for a title starting with "Kakapo", and a perfectly healthy app failed this smoke for four weeks.
+// The document name also tells the review page apart from the data: URL splash shown while it loads, which is
+// the distinction this smoke exists to make.
+const REVIEW_PAGE = "app-review.html";
+
 export async function waitForKakapoRenderer({
   port,
   timeoutMs = 20_000,
@@ -32,6 +39,7 @@ export async function waitForKakapoRenderer({
 } = {}) {
   const deadline = Date.now() + timeoutMs;
   let lastError;
+  let lastPages;
 
   while (Date.now() < deadline) {
     const state = processState();
@@ -43,13 +51,13 @@ export async function waitForKakapoRenderer({
       const response = await fetchImpl(`http://127.0.0.1:${port}/json/list`);
       if (response.ok) {
         const pages = await response.json();
-        const page = Array.isArray(pages)
-          ? pages.find((candidate) => (
-            candidate?.type === "page"
-            && String(candidate?.title || "").startsWith("Kakapo")
-            && String(candidate?.url || "").startsWith("file:")
-          ))
-          : undefined;
+        lastPages = Array.isArray(pages) ? pages : [];
+        lastError = undefined;
+        const page = lastPages.find((candidate) => (
+          candidate?.type === "page"
+          && String(candidate?.url || "").startsWith("file:")
+          && String(candidate?.url || "").endsWith(REVIEW_PAGE)
+        ));
         if (page) return page;
       }
     } catch (error) {
@@ -58,7 +66,9 @@ export async function waitForKakapoRenderer({
     await delay(250);
   }
 
-  const detail = lastError instanceof Error ? ` Last error: ${lastError.message}` : "";
+  const detail = lastPages
+    ? ` The debugger answered but held no ${REVIEW_PAGE}; it listed: ${JSON.stringify(lastPages.map((p) => ({ type: p?.type, title: p?.title, url: p?.url })))}`
+    : lastError instanceof Error ? ` Last error: ${lastError.message}` : "";
   throw new Error(`Kakapo Linux renderer was not ready within ${timeoutMs}ms.${detail}`);
 }
 

@@ -482,6 +482,9 @@ function scheduleSourceReveal(prev) {
         var vTop = sb.scrollTop;
         if (caretTop < vTop + margin) sb.scrollTop = Math.max(0, caretTop - margin);
         else if (caretTop + rowH > vTop + ch - margin) sb.scrollTop = caretTop + rowH - ch + margin;
+        // The arithmetic above is vertical only — lineIndex*rowH knows nothing about the column. The caret's
+        // own box is the only thing that does, so the horizontal half reads it even on this cheap path.
+        revealCaretColumn(sb.querySelector('.code-cursor'));
       }
     } else {
       revealSourceCursorWithMargin();
@@ -498,6 +501,7 @@ function revealSourceCursorWithMargin() {
   var row = body.querySelector('.source-row[data-line-index="' + viewerCursor.lineIndex + '"]')
     || body.querySelector('.source-row.cursor-line');
   scrolloffReveal(row, body, 0.15);
+  revealCaretColumn(body.querySelector('.code-cursor'));
 }
 
 // Move the caret by patching only the affected line cells, never the whole <table>. This keeps

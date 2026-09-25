@@ -336,7 +336,7 @@ test("the launcher rail is reachable and navigable by keyboard", async () => {
 
   v.key("ArrowDown");
   await v.settle(10);
-  assert.equal(focused(), "history", "ArrowDown steps down the rail");
+  assert.equal(focused(), "worktree", "ArrowDown steps down the rail");
 
   v.key("ArrowUp");
   await v.settle(10);
@@ -350,7 +350,8 @@ test("the launcher rail is reachable and navigable by keyboard", async () => {
   // still choosing (the arrows). History is a panel of its own, so Enter on it dismisses the launcher
   // entirely; either way the rail does not keep the keyboard.
   v.key("ArrowLeft"); await v.settle(10);
-  v.key("ArrowDown"); await v.settle(10);
+  v.key("ArrowDown"); await v.settle(10); // worktrees
+  v.key("ArrowDown"); await v.settle(10); // history
   v.key("Enter"); await v.settle(40);
   assert.equal(focused(), undefined, "the rail gives the keyboard up, exactly as a mouse pick does");
   v.close();
@@ -374,10 +375,129 @@ test("the launcher cannot keep the keyboard once it is not the thing on screen",
   v.close();
 });
 
+// ⌘8 is the Worktrees section's own key, the sibling of ⌘9's history. The rows come from the main process,
+// so the renderer is exercised here against a stub: what it must get right is asking once, rendering what it
+// is handed, and — the case an ordinary single-clone repository hits every time — saying so when the answer
+// is just this one checkout.
+test("Cmd+8 opens the worktree list, renders what git reports, and toggles closed", async () => {
+  const { html: appHtml } = await makeReviewHtml([
+    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+  ], { app: true });
+  const v = await loadViewer(appHtml);
+
+  let opened = "";
+  let prCalls = 0;
+  const LONG = "/Users/dev/repos/app/.claude/worktrees/github-issue-1731-c87b33";
+  v.window.kakapoGit = {
+    worktrees: async () => [
+      { path: "/Users/dev/repos/app", displayPath: "~/repos/app", branch: "main", head: "a".repeat(40), shortHead: "aaaaaaaa", current: true, detached: false, bare: false, locked: false, prunable: false, subject: "root commit", date: "2026-01-02T00:00:00Z", dirty: false },
+      { path: LONG, displayPath: "~/repos/…/worktrees/github-issue-1731-c87b33", branch: "claude/entry-cadence-review", head: "b".repeat(40), shortHead: "bbbbbbbb", current: false, detached: false, bare: false, locked: false, prunable: false, subject: "stop the crash", date: "2026-01-03T00:00:00Z", dirty: true, ahead: 2, behind: 1 },
+    ],
+    worktreePullRequests: async () => { prCalls += 1; return { "claude/entry-cadence-review": { number: 42, title: "Stop the crash", isDraft: false, url: "https://example.test/42" } }; },
+    openWorktree: async (path) => { opened = path; return { ok: true }; },
+  };
+
+  v.key("8", { metaKey: true, code: "Digit8" });
+  await v.settle(40);
+  assert.equal(v.quickOpenVisible(), true, "the launcher is up on the worktree section");
+
+  const rows = v.$all("#quick-open-results .quick-open-item");
+  assert.equal(rows.length, 2, "one row per checkout");
+
+  // The branch IS the row. It lives in its own element on its own line precisely so a long path can never
+  // squeeze it down to an ellipsis, which is what the shared file-row layout did.
+  const branches = rows.map((r) => r.querySelector(".wt-branch").textContent);
+  assert.deepEqual(branches, ["main", "claude/entry-cadence-review"], "spelled out, not elided");
+  assert.ok(rows[0].querySelector(".wt-icon svg"), "each row is marked with what kind of checkout it is");
+
+  // The path gives up its middle so its tail — the part that tells two worktrees apart — survives.
+  assert.match(rows[1].querySelector(".wt-path").textContent, /github-issue-1731-c87b33$/);
+
+  // State as marks rather than sentences: the words cost more width than the branch name had. Each keeps
+  // its word as the tooltip, so nothing is lost.
+  assert.match(rows[1].querySelector(".wt-flags").textContent, /↑2/, "drift ahead of upstream");
+  assert.match(rows[1].querySelector(".wt-flags").textContent, /↓1/, "and behind it");
+  assert.ok(rows[1].querySelector(".wt-dirty"), "uncommitted work is a mark on the row");
+  assert.ok(rows[1].querySelector(".wt-dirty").getAttribute("title"), "…that still says what it means on hover");
+  assert.equal(rows[0].querySelector(".wt-dirty"), null, "a clean checkout carries no mark");
+  assert.ok(rows[0].classList.contains("is-current"), "the checkout you are in is the one marked without a word");
+  assert.match(rows[1].textContent, /stop the crash/, "what that checkout was last doing");
+
+  // The PR badge is a second, independent read: local commits that have since become a pull request say so.
+  assert.equal(prCalls, 1);
+  assert.equal(rows[1].querySelector(".wt-pr").textContent, "#42", "the open PR behind that branch");
+  assert.equal(rows[0].querySelector(".wt-pr"), null, "a branch with no PR carries no badge");
+
+  // Whatever the row had to shorten, the selected row spells out underneath.
+  v.key("ArrowDown"); await v.settle(20);
+  assert.match(v.$("#quick-open-preview").textContent, /\/Users\/dev\/repos\/app\/\.claude\/worktrees\/github-issue-1731-c87b33/, "the full path, untruncated");
+  assert.match(v.$("#quick-open-preview").textContent, /Stop the crash/, "and the PR it belongs to");
+
+  v.key("Enter"); await v.settle(20);
+  assert.equal(opened, LONG, "Enter on another checkout opens it");
+  assert.equal(v.quickOpenVisible(), false, "and the launcher gets out of the way");
+
+  // Enter on the current checkout is a no-op — it is the window you are already in.
+  opened = "";
+  v.key("8", { metaKey: true, code: "Digit8" });
+  await v.settle(40);
+  v.key("Enter"); await v.settle(20);
+  assert.equal(opened, "", "the current worktree is not reopened");
+  v.close();
+});
+
+// A detached checkout has no branch, and the commit sha names nothing a reader recognises. The directory
+// these get made in is named after the task, which is how they are actually referred to.
+test("a detached worktree is named by its directory, with the commit as a flag", async () => {
+  const { html: appHtml } = await makeReviewHtml([
+    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+  ], { app: true });
+  const v = await loadViewer(appHtml);
+  v.window.kakapoGit = {
+    worktrees: async () => [
+      { path: "/Users/dev/repos/app/.claude/worktrees/data-audit-2852ee", displayPath: "~/repos/…/worktrees/data-audit-2852ee", branch: "", head: "d".repeat(40), shortHead: "dddddddd", detached: true, current: false, bare: false, locked: false, prunable: false, subject: "audit the data", date: "2026-01-01T00:00:00Z", dirty: false },
+      { path: "/Users/dev/repos/app/.claude/worktrees/gone-1666", displayPath: "~/repos/…/worktrees/gone-1666", branch: "", head: "e".repeat(40), shortHead: "eeeeeeee", detached: true, current: false, bare: false, locked: false, prunable: true, subject: "", date: "2025-12-01T00:00:00Z", dirty: false },
+    ],
+    worktreePullRequests: async () => ({}),
+    openWorktree: async () => ({ ok: true }),
+  };
+
+  v.key("8", { metaKey: true, code: "Digit8" });
+  await v.settle(40);
+  const rows = v.$all("#quick-open-results .quick-open-item");
+  assert.equal(rows[0].querySelector(".wt-branch").textContent, "data-audit-2852ee", "the task, not the sha");
+  assert.equal(rows[0].querySelector(".wt-sha").textContent, "dddddddd", "the sha is still there, as a flag");
+
+  // The icon carries the reason, so the flags do not repeat it — a warning triangle next to a bare "!" said
+  // one thing twice and neither of them said which problem it was.
+  const warn = rows[1].querySelector(".wt-icon.is-warn");
+  assert.ok(warn, "a checkout whose directory is gone is marked as such");
+  assert.ok(warn.getAttribute("title"), "and the mark says what it means on hover");
+  assert.equal(rows[1].querySelector(".wt-flags").textContent.includes("!"), false, "without repeating itself");
+  assert.equal(rows[0].querySelector(".wt-icon.is-warn"), null, "a healthy checkout is not flagged");
+  v.close();
+});
+
+// Every other repository in the world is a single clone. That answer has to read as an answer, not as a
+// list that failed to load.
+test("the worktree section says so when there is only this checkout", async () => {
+  const { html: appHtml } = await makeReviewHtml([
+    { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+  ], { app: true });
+  const v = await loadViewer(appHtml);
+  v.window.kakapoGit = { worktrees: async () => [], worktreePullRequests: async () => ({}), openWorktree: async () => ({ ok: true }) };
+
+  v.key("8", { metaKey: true, code: "Digit8" });
+  await v.settle(40);
+  assert.equal(v.$all("#quick-open-results .quick-open-item").length, 0);
+  assert.match(v.$("#quick-open-results").textContent, /worktree/i, "an empty state, not an empty box");
+  v.close();
+});
+
 test("the launcher lists only the surfaces that still exist", async () => {
   const v = await loadViewer(html);
   await v.openQuickOpenSection("content");
   const sections = v.$all("#quick-open-side .quick-open-side-item").map((b) => b.dataset.section);
-  assert.deepEqual(sections, ["content", "all", "recent", "history"], "the three searches and history, nothing removed");
+  assert.deepEqual(sections, ["content", "all", "recent", "worktree", "history"], "the three searches, worktrees and history, nothing removed");
   v.close();
 });

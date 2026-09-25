@@ -11,6 +11,7 @@ const buildTools = (): Promise<typeof import("./cli.js")> => import("./cli.js");
 import { readGitLog, readGitLineLog, readGitBlame, readCommitDiff, readRangeDiff } from "./git-log.js";
 import { defaultBaseRef, git, listBranches } from "./git.js";
 import { readPatchSets } from "./patch-sets.js";
+import { readBranchPullRequests, readWorktrees } from "./worktrees.js";
 import { materializeDeferredSourceFile } from "./diff.js";
 import { languageForPath } from "./util.js";
 import { allReviewBodies, readReviewBody, reviewBodyCount } from "./review-bodies.js";
@@ -285,6 +286,28 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
       list.activeTarget = state.reviewTarget ?? state.options.target ?? "worktree";
       return list;
     } catch { return null; }
+  });
+
+  // Every checkout sharing this repository, for the launcher's Worktrees section. Async throughout (each
+  // worktree costs a `status`), and read-only — opening one is kakapo:open-worktree in app-main, which owns
+  // windows.
+  ipc.handle("kakapo:git-worktrees", async (event) => {
+    const state = stateFromEvent(event);
+    if (!state) return null;
+    try {
+      return await readWorktrees(state.options.root);
+    } catch { return null; }
+  });
+
+  // Branch -> open pull request, so a worktree that was local-only when you started shows its PR once one
+  // exists. Deliberately a second call: it shells out to `gh` over the network, and the worktree list must
+  // not wait on it. Absent `gh`, no GitHub remote or no network all return {} — the rows simply carry no badge.
+  ipc.handle("kakapo:worktree-pull-requests", async (event) => {
+    const state = stateFromEvent(event);
+    if (!state) return {};
+    try {
+      return await readBranchPullRequests(state.options.root);
+    } catch { return {}; }
   });
 }
 

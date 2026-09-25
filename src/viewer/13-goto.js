@@ -28,7 +28,7 @@ function caretLocation() {
 function copyCaretLocation() {
   // With lines selected, the reference is worth more with the lines themselves attached — that is the
   // citation plain Cmd+C used to force on every copy. Without a selection it stays just the caret's file:line.
-  var cite = typeof sourceSelectionCitation === 'function' ? sourceSelectionCitation() : null;
+  var cite = sourceSelectionCitation();
   if (cite) { if (copyTextToClipboard(cite.payload)) showToast(t('goto.copied') + ' ' + cite.reference); return; }
   var loc = caretLocation();
   if (!loc) return;

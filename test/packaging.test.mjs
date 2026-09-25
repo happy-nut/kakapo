@@ -183,7 +183,10 @@ test("language-server downloads retry transient server failures without weakenin
   }
 });
 
-test("Linux GUI smoke requires an actual Kakapo renderer page", async () => {
+// The smoke opens the repository it is run in, so the page it must find is the review document — and its
+// title is the project's name, which is whatever folder the app was pointed at. Matching on the title is what
+// broke: "kakapo" does not start with "Kakapo". The document does not move, so that is what identifies it.
+test("Linux GUI smoke holds out for the review document, whatever the page is titled", async () => {
   const page = await waitForKakapoRenderer({
     port: 9222,
     timeoutMs: 1_000,
@@ -191,15 +194,48 @@ test("Linux GUI smoke requires an actual Kakapo renderer page", async () => {
       ok: true,
       json: async () => [
         { type: "page", title: "Kakapo is loading", url: "data:text/html,Kakapo" },
-        { type: "page", title: "Kakapo", url: "file:///tmp/welcome.html" },
+        { type: "page", title: "kakapo", url: "file:///home/runner/.config/Kakapo/workspaces/home/runner/kakapo/app-review.html" },
       ],
     }),
     processState: () => ({ exited: false }),
   });
 
   assert.equal(page.type, "page");
-  assert.equal(page.title, "Kakapo");
-  assert.match(page.url, /^file:/);
+  assert.match(page.url, /^file:.*app-review\.html$/, "the review document, not the data: splash in front of it");
+});
+
+// The old message said "Last error: fetch failed" even when the debugger had answered perfectly and simply
+// held no review page — which sent a reader looking at the network for a problem that was in the matcher.
+test("a debugger that answers without a review page says so, instead of blaming the fetch", async () => {
+  await assert.rejects(
+    waitForKakapoRenderer({
+      port: 9222,
+      timeoutMs: 300,
+      fetchImpl: async () => ({
+        ok: true,
+        json: async () => [{ type: "page", title: "Kakapo is loading", url: "data:text/html,Kakapo" }],
+      }),
+      processState: () => ({ exited: false }),
+    }),
+    (error) => {
+      assert.match(error.message, /answered but held no app-review\.html/);
+      assert.match(error.message, /data:text\/html/, "and shows what it did hold");
+      return true;
+    },
+  );
+});
+
+// Nothing listening at all is a different failure and still reads as one.
+test("an unreachable debugger still reports the fetch that failed", async () => {
+  await assert.rejects(
+    waitForKakapoRenderer({
+      port: 9222,
+      timeoutMs: 300,
+      fetchImpl: async () => { throw new Error("fetch failed"); },
+      processState: () => ({ exited: false }),
+    }),
+    /Last error: fetch failed/,
+  );
 });
 
 test("release workflow tests, packages, and attaches Linux tarballs + a macOS dmg (no npm publish)", () => {

@@ -156,6 +156,7 @@ var WINDOW_SHORTCUTS = [
   { code: 'Quote', shift: true, run: function () { toggleDockMaximized(); } },
   { code: 'Slash', shift: true, key: '?', run: function () { openMergedView(); } },
   { code: 'Digit9', key: '9', run: function () { toggleHistory(); } },
+  { code: 'Digit8', key: '8', run: function () { toggleWorktrees(); } },
   // Cmd+0/Cmd+1 mean "take me to the tree"; activate* itself puts every full-screen surface away first
   // (leaveFullScreenPanels) — otherwise the view they activate would be switched invisibly underneath one.
   { code: 'Digit0', key: '0', run: function () { activateChangesView(false); } },

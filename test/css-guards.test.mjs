@@ -273,7 +273,18 @@ test("modern chrome uses one compact radius and elevation system without roundin
   assert.doesNotMatch(css, /\.rail-btn\.is-active::before/, "activity selection uses a complete surface rather than a partial blue rail");
   assert.match(css, /\.rail-btn\.is-active\s*\{[^}]*background:\s*var\(--chrome-selected\)/, "the active rail button is one filled surface");
   assert.match(css, /\.tree-focus,[\s\S]{0,220}box-shadow:\s*none/, "sidebar selections use a complete neutral surface without an inset accent");
-  assert.match(css, /\.source-tabs,[\s\S]{0,180}align-items:\s*flex-end[^}]*padding:\s*4px 6px 0/, "file tabs sit on the strip divider instead of floating above it");
+  // The tabs used to float on a padded strip (align-items:flex-end + padding:4px 6px 0). 7ccdd8f replaced
+  // that: the 6px under the tabs pushed this bar's bottom rule above the sidebar header's, so the divider
+  // arriving from the left jumped where it met the pane. The strip is now exactly the shared header band
+  // with nothing beneath the tabs, which is what holds the two rules on one line — so that, not the old
+  // padding, is what must not regress.
+  // Its own rule, not the grouped `.source-tabs,` theme selectors and not `body.native-app .source-tabs`.
+  // ruleBodyForExactSelector cannot reach it: a comment sits between it and the previous rule's brace.
+  const tabStrip = css.match(/^\.source-tabs\s*\{([^}]*)\}/m)?.[1];
+  assert.ok(tabStrip, "the file tab strip has a rule of its own");
+  assert.match(tabStrip, /height:\s*var\(--header-band\)/, "the tab strip is exactly the shared header band");
+  assert.match(tabStrip, /margin:\s*0/, "and adds no outer spacing that would lift its bottom rule");
+  assert.doesNotMatch(tabStrip, /padding/, "nothing sits under the tabs: the strip's rule meets the sidebar header's");
   assert.match(css, /\.source-tab\s*\{[^}]*border-radius:\s*var\(--ui-radius-md\) var\(--ui-radius-md\) 0 0/, "file tabs only round their attached top corners");
   assert.match(css, /\.source-tab\.active\s*\{[^}]*margin-bottom:\s*-1px[^}]*background:\s*var\(--chrome-bg\)[^}]*box-shadow:\s*none/, "the active tab joins the content surface without a floating shadow");
   assert.match(css, /\.source-tabs\s*\{[^}]*overflow:\s*hidden/, "overflowing file tabs are collected instead of exposing a horizontal scroller");

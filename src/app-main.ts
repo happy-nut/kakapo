@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell } from "electron";
 import type { WebContents } from "electron";
 import { git, gitAsync, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
+import { worktreePaths } from "./worktrees.js";
 import { renderWelcomeHtml } from "./render.js";
 import { makeTranslator, normalizeLocale, type Locale } from "./i18n.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
@@ -498,6 +499,22 @@ ipcMain.handle("kakapo:open-recent", async (event, payload: { path?: string }) =
     return { ok: false, error: "missing" };
   }
   await openReview(state, path);
+  return { ok: true };
+});
+
+// Launcher's Worktrees section: open a sibling checkout. A worktree gets its own window rather than replacing
+// this one — the reason to keep several is to read them against each other — and openOrFocusWorkspace already
+// answers a path that is on screen by focusing it instead of opening a duplicate.
+// The path is only trusted after it is found in THIS repository's own worktree list: the renderer supplies it,
+// and "open whatever absolute path arrives over IPC" is a wider door than this feature needs.
+ipcMain.handle("kakapo:open-worktree", async (event, payload: { path?: unknown }) => {
+  const state = stateFromEvent(event);
+  const path = typeof payload?.path === "string" ? payload.path : "";
+  if (!state || state.win.isDestroyed() || !path) return { ok: false };
+  const known = await worktreePaths(state.options.root);
+  if (!known.includes(path)) return { ok: false, error: "unknown" };
+  if (!existsSync(path) || !isGitRepository(path)) return { ok: false, error: "missing" };
+  openOrFocusWorkspace(path);
   return { ok: true };
 });
 
