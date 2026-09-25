@@ -25,7 +25,7 @@ function syncQuickOpenEditKeys() {
 }
 // The sections that live INSIDE this dialog. The other entries (review comments, history) are panels of
 // their own — reachable here, not embedded — so they just open and dismiss the launcher.
-var QUICK_LAUNCHER_MODES = ['recent', 'all', 'content'];
+var QUICK_LAUNCHER_MODES = ['recent', 'all', 'content', 'worktree'];
 // hideRail: open this section on its own, with no rail beside it. ⌘E asks for that — it names the section
 // it wants, so a column of the other sections beside a short list of recent files is all frame and no list.
 function openQuickOpen(mode, hideRail) {
@@ -37,8 +37,10 @@ function openQuickOpen(mode, hideRail) {
       ? t('quickopen.findInFiles')
       : mode === 'symbol'
         ? t('quickopen.workspaceSymbols')
-        : t('quickopen.searchFiles');
-  quickInput.setAttribute('placeholder', mode === 'symbol' ? t('quickopen.workspaceSymbols') : mode === 'content' ? t('quickopen.findInFiles') : t('quickopen.searchFiles'));
+        : mode === 'worktree'
+          ? t('quickopen.worktrees')
+          : t('quickopen.searchFiles');
+  quickInput.setAttribute('placeholder', mode === 'symbol' ? t('quickopen.workspaceSymbols') : mode === 'content' ? t('quickopen.findInFiles') : mode === 'worktree' ? t('quickopen.filterWorktrees') : t('quickopen.searchFiles'));
   quickOpen.classList.remove('hidden');
   // Recent files needs no search box — it's just the latest files. Hide the input and let typed letters
   // narrow the list (IntelliJ-style speed search); the global keydown routes keys to handleQuickOpenKey.
@@ -50,6 +52,12 @@ function openQuickOpen(mode, hideRail) {
   recentFilter = '';
   quickInput.value = '';
   updateRecentFilterDisplay();
+  // Cheap enough to re-read on every open (local git, no network), so the list is never a stale snapshot of
+  // worktrees added or removed from a terminal since last time. Cached rows render first; this refills them.
+  // The selection goes back to the top with it: the list is re-sorted by commit date on every read, so a
+  // carried-over index does not point at the row it pointed at last time — it points at whichever checkout
+  // has since moved into that slot. Row 0 is always the checkout you are in.
+  if (mode === 'worktree') { quickActive = 0; refreshWorktrees(); }
   renderQuickOpenResults();
   // File search intentionally stays empty until the user types. Loading the whole project index on open
   // made an untouched dialog look like an arbitrary file browser and spent work before there was a query.
@@ -270,6 +278,7 @@ function renderQuickOpenResults() {
   const rawQuery = (isRecent ? recentFilter : (quickInput?.value || '')).trim();
   if (quickMode === 'content') { renderContentSearchResults(rawQuery); return; }
   if (quickMode === 'symbol') { renderWorkspaceSymbolResults(rawQuery); return; }
+  if (quickMode === 'worktree') { renderWorktreeResults(rawQuery); return; }
   if (!isRecent && !rawQuery) {
     quickItems = [];
     quickActive = 0;
@@ -317,6 +326,148 @@ function renderQuickOpenResults() {
     '</button>',
   ].join('')).join('');
   renderQuickPreview(quickItems[quickActive]);
+}
+
+// ── Worktrees ──────────────────────────────────────────────────────────────────────────────────────────
+// Every checkout that shares this repository. Two independent reads: the rows themselves come from git and
+// are local and immediate, while the pull-request badge comes from `gh` over the network and only decorates
+// rows that are already on screen. Nothing here writes: kakapo lists worktrees, it does not manage them.
+var worktreeRows = [];
+var worktreePrs = {};
+var worktreeLoading = false;
+var worktreeSeq = 0;
+
+function refreshWorktrees() {
+  if (!window.kakapoGit || !window.kakapoGit.worktrees) return;
+  worktreeSeq += 1;
+  var seq = worktreeSeq;
+  worktreeLoading = worktreeRows.length === 0; // only the very first read shows a spinner-ish line
+  Promise.resolve(window.kakapoGit.worktrees()).then(function (rows) {
+    if (seq !== worktreeSeq) return;
+    worktreeRows = Array.isArray(rows) ? rows : [];
+    worktreeLoading = false;
+    if (quickMode === 'worktree' && quickOpen && !quickOpen.classList.contains('hidden')) renderQuickOpenResults();
+  }).catch(function () {
+    if (seq !== worktreeSeq) return;
+    worktreeRows = [];
+    worktreeLoading = false;
+    if (quickMode === 'worktree' && quickOpen && !quickOpen.classList.contains('hidden')) renderQuickOpenResults();
+  });
+  if (!window.kakapoGit.worktreePullRequests) return;
+  Promise.resolve(window.kakapoGit.worktreePullRequests()).then(function (prs) {
+    if (seq !== worktreeSeq) return;
+    worktreePrs = prs && typeof prs === 'object' ? prs : {};
+    if (quickMode === 'worktree' && quickOpen && !quickOpen.classList.contains('hidden')) renderQuickOpenResults();
+  }).catch(function () { /* no `gh`, no GitHub remote, no network — the rows simply carry no badge */ });
+}
+
+// A detached worktree has no branch to name it by. The commit sha was the obvious fallback and the wrong one:
+// "dddddddd" identifies nothing a reader recognises, while the directory these are made in is named after the
+// task ("data-audit-2852ee") — which is how they get talked about. The sha moves to a flag.
+function worktreeName(row) {
+  if (row.branch) return row.branch;
+  if (row.bare) return t('worktrees.bare');
+  var dir = String(row.path || '').split('/').filter(Boolean).pop();
+  return dir || row.shortHead || t('worktrees.detached');
+}
+
+var WORKTREE_ICONS = {
+  // The history view's branch glyph, so a branch reads as the same thing in both lists.
+  branch: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="3.2" r="1.7"/><circle cx="4" cy="12.8" r="1.7"/><circle cx="12" cy="5.8" r="1.7"/><path d="M4 4.9v6.2M5.7 11.1c3.3-.5 5.2-1.7 6-3.6"/></svg>',
+  // A detached HEAD is a commit, not a branch: one node on the line, nothing branching off it.
+  detached: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.6"/><path d="M1.6 8h3.8M10.6 8h3.8"/></svg>',
+  // Locked, pruned or bare — a row you can see but cannot review.
+  warn: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2 14.6 13.4H1.4Z"/><path class="wt-warn-mark" d="M8 6.4v3.1M8 11.3v.9"/></svg>',
+};
+
+// The icon carries the "this one is broken" word, so the flag row does not repeat it: a warning triangle
+// beside a bare "!" said one thing twice and left neither of them saying which problem it was.
+function worktreeIconHtml(row) {
+  var reason = row.prunable ? t('worktrees.prunable') : row.locked ? t('worktrees.locked') : row.bare ? t('worktrees.bare') : '';
+  var glyph = reason ? WORKTREE_ICONS.warn : row.branch ? WORKTREE_ICONS.branch : WORKTREE_ICONS.detached;
+  if (!reason && !row.branch) reason = t('worktrees.detached');
+  return '<span class="wt-icon' + (glyph === WORKTREE_ICONS.warn ? ' is-warn' : '') + '"'
+    + (reason ? ' title="' + escapeHtml(reason) + '"' : ' aria-hidden="true"') + '>' + glyph + '</span>';
+}
+
+// Compact marks, not sentences. The words were costing more width than the branch name had — and the branch
+// name is the thing being read. Each mark keeps its word as the tooltip, so nothing is lost, only moved.
+function worktreeFlagsHtml(row) {
+  var out = '';
+  // A detached checkout is the one case where the commit is worth showing: nothing else names what it is on.
+  if (!row.branch && !row.bare && row.shortHead) out += '<span class="wt-flag wt-sha">' + escapeHtml(row.shortHead) + '</span>';
+  if (row.dirty) out += '<span class="wt-flag wt-dirty" title="' + escapeHtml(t('worktrees.dirty')) + '" aria-label="' + escapeHtml(t('worktrees.dirty')) + '">\u25cf</span>';
+  if (row.ahead) out += '<span class="wt-flag wt-drift">\u2191' + row.ahead + '</span>';
+  if (row.behind) out += '<span class="wt-flag wt-drift">\u2193' + row.behind + '</span>';
+  return out;
+}
+
+function worktreeItems() {
+  return worktreeRows.map(function (row) {
+    var pr = row.branch ? worktreePrs[row.branch] : null;
+    return {
+      kind: 'worktree',
+      path: row.path,
+      name: worktreeName(row),
+      // What the second line shows AND what typing filters against (quickItemHaystack reads name/path/detail).
+      // The PR title is in here so a few words of it find the checkout — the branch name is often the thing
+      // you cannot remember.
+      detail: [(row.displayPath || row.path), row.subject, pr ? '#' + pr.number + ' ' + pr.title : ''].filter(Boolean).join('  \u00b7  '),
+      subject: row.subject || '',
+      shortPath: row.displayPath || row.path,
+      current: !!row.current,
+      row: row,
+      pr: pr || null,
+    };
+  });
+}
+
+function renderWorktreeResults(query) {
+  if (!quickResults) return;
+  var items = worktreeItems();
+  if (query) {
+    var queries = queryVariants(query.toLowerCase());
+    items = items.filter(function (item) {
+      var hay = quickItemHaystack(item);
+      return queries.some(function (variant) { return hay.indexOf(variant) >= 0; });
+    });
+  }
+  quickItems = items;
+  quickActive = Math.min(quickActive, Math.max(items.length - 1, 0));
+  if (items.length === 0) {
+    quickResults.innerHTML = '<div class="quick-open-empty">'
+      + escapeHtml(worktreeLoading ? t('worktrees.loading') : t('worktrees.none')) + '</div>';
+    renderQuickPreview(null);
+    return;
+  }
+  quickResults.innerHTML = items.map(function (item, index) {
+    var badge = item.pr
+      ? '<span class="quick-open-badge wt-pr' + (item.pr.isDraft ? ' is-draft' : '') + '" title="' + escapeHtml(item.pr.title) + '">#' + item.pr.number + '</span>'
+      : '';
+    return [
+      '<button type="button" class="quick-open-item worktree-item' + (index === quickActive ? ' active' : '')
+        + (item.current ? ' is-current' : '') + '" data-index="' + index + '">',
+      '<span class="quick-open-main">',
+      '<span class="wt-head">',
+      worktreeIconHtml(item.row),
+      // The branch is the identity of the row, so it is the only part allowed to take the leftover width.
+      '<span class="wt-branch"' + (item.current ? ' title="' + escapeHtml(t('worktrees.current')) + '"' : '') + '>'
+        + escapeHtml(item.name) + '</span>',
+      '<span class="wt-flags">' + worktreeFlagsHtml(item.row) + '</span>',
+      '</span>',
+      '<span class="quick-open-path"><span class="wt-path">' + escapeHtml(item.shortPath) + '</span>'
+        + (item.subject ? '<span class="wt-subject">' + escapeHtml(item.subject) + '</span>' : '') + '</span>',
+      '</span>',
+      badge,
+      '</button>',
+    ].join('');
+  }).join('');
+  renderQuickPreview(items[quickActive]);
+}
+
+function toggleWorktrees() {
+  if (quickOpen && !quickOpen.classList.contains('hidden') && quickMode === 'worktree') { closeQuickOpen(); return; }
+  openQuickOpen('worktree');
 }
 
 function openWorkspaceSymbols() {
@@ -611,6 +762,16 @@ function renderQuickPreview(item) {
   const previewSeq = ++quickPreviewSeq;
   quickPreviewState = null;
   if (!item) { preview.innerHTML = ''; return; }
+  // A worktree is not a file, so there is no body to preview — but the row had to give up the full path to
+  // stay readable, and this is where it goes back. Whatever the row elided or cut, the selected row spells out.
+  if (item.kind === 'worktree') {
+    preview.innerHTML = '<div class="qp-head">' + escapeHtml(item.path) + '</div>'
+      + '<div class="qp-empty wt-preview">'
+      + (item.subject ? '<div class="wt-preview-subject">' + escapeHtml(item.subject) + '</div>' : '')
+      + (item.pr ? '<div class="wt-preview-pr">#' + item.pr.number + ' ' + escapeHtml(item.pr.title) + '</div>' : '')
+      + '</div>';
+    return;
+  }
   const file = sourceByPath.get(item.path);
   if (!file || !file.embedded) {
     preview.innerHTML = item.kind === 'search'
@@ -728,6 +889,12 @@ document.getElementById('quick-open-preview')?.addEventListener('scroll', handle
 
 function openQuickItem(item) {
   if (!item) return;
+  if (item.kind === 'worktree') {
+    closeQuickOpen();
+    if (item.current) return; // already the window you are in
+    if (window.kakapoGit && window.kakapoGit.openWorktree) window.kakapoGit.openWorktree(item.path);
+    return;
+  }
   closeQuickOpen();
   rememberRecent(item.path, item.kind);
   if ((item.kind === 'search' || item.kind === 'symbol') && sourceByPath.has(item.path)) {

@@ -494,6 +494,7 @@ export function renderDiffHtml(input: {
     '<button type="button" class="quick-open-side-item" data-section="all"><span data-i18n="quickopen.searchFiles">Search files</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="recent"><span data-i18n="quickopen.recent">Recent files</span></button>',
     '<div class="quick-open-side-sep" aria-hidden="true"></div>',
+    '<button type="button" class="quick-open-side-item" data-section="worktree" data-keyhint="⌘8"><span data-i18n="quickopen.worktrees">Worktrees</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="history" data-keyhint="⌘9"><span data-i18n="rail.history">History</span></button>',
     '</nav>',
     '<div class="quick-open-title"><span id="quick-open-mode" data-i18n="quickopen.searchFiles">Search files</span><span id="quick-open-filter" class="quick-open-filter"></span></div>',
@@ -560,6 +561,7 @@ export function renderDiffHtml(input: {
     '<kbd>⌘⇧O</kbd><span data-i18n="kbd.openNewWindow">Open in new window</span>' +
     '<kbd>⌘,</kbd><span data-i18n="kbd.openSettings">Settings</span>' +
     '<kbd>⌘9</kbd><span data-i18n="kbd.openHistory">Git history</span>' +
+    '<kbd>⌘8</kbd><span data-i18n="kbd.openWorktrees">Worktrees</span>' +
     '<kbd>⌥A / ⌥U</kbd><span data-i18n="kbd.compareMode">All changes / uncommitted changes</span>' +
     '<kbd>⌥C</kbd><span data-i18n="kbd.compareRef">Choose the branch to compare against</span>' +
     '<kbd>⌘L</kbd><span data-i18n="kbd.gotoLine">Go to line</span>' +
