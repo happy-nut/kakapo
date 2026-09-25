@@ -371,7 +371,10 @@
   --token-string: #2aa198;
   --token-number: #de68a1;
   --token-literal: #de68a1;
-  --token-constant: #6c71c4;
+  /* Solarized's own violet (#6c71c4) is 3.43:1 on base03 — below AA, and the one token in this palette that
+     was. Lifted toward the same washed violet the decorator already uses (4.79:1), so the hue survives and
+     the text is readable. */
+  --token-constant: #868bd8;
   --token-tag: #3295da;
   --token-function: #3295da;
   --token-type: #b58900;
@@ -418,7 +421,9 @@
   --token-string: #1f7972;
   --token-number: #c92c78;
   --token-literal: #c92c78;
-  --token-constant: #6c71c4;
+  /* Same story as the dark palette: Solarized's violet is 4.06:1 on base3. Deepened rather than lifted,
+     which is the same distance from the decorator's violet, just on the other side. */
+  --token-constant: #5b60b8;
   --token-tag: #2074af;
   --token-function: #2074af;
   --token-type: #8c6a00;
