@@ -179,6 +179,46 @@ function scrolloffReveal(el, scroller, marginFrac) {
   if (top < margin) scroller.scrollTop += top - margin;
   else if (top + rowH > ch - margin) scroller.scrollTop += (top + rowH) - (ch - margin);
 }
+// scrolloffReveal keeps the caret's ROW on screen, which says nothing about where the caret sits along it:
+// past the right edge of a long line the caret simply disappeared while the keys kept working. This is the
+// horizontal half. The scroller is found by walking up from the caret rather than passed in, because the two
+// views hang it in different places — one .d2h-file-side-diff per diff side, .source-body for source — and
+// both put a .code-cursor span in the same place relative to it.
+function revealCaretColumn(caret) {
+  if (!caret || !caret.getBoundingClientRect) return;
+  var scroller = caret.parentNode;
+  while (scroller && scroller.nodeType === 1 && scroller !== document.body) {
+    // scrollWidth > clientWidth alone is also true of a clipped container: scrollLeft would move it, and the
+    // reader would watch a wrapped pane slide sideways for no reason. Only an element that actually scrolls
+    // horizontally counts, which is what the computed overflow says.
+    if (scroller.scrollWidth > scroller.clientWidth + 1) {
+      var overflowX = '';
+      try { overflowX = window.getComputedStyle(scroller).overflowX; } catch (e) { overflowX = ''; }
+      if (overflowX === 'auto' || overflowX === 'scroll') break;
+    }
+    scroller = scroller.parentNode;
+  }
+  if (!scroller || scroller.nodeType !== 1 || scroller === document.body) return;
+  var width = scroller.clientWidth;
+  if (!width) return;
+  // A caret one pixel inside the edge reads as already gone. Keep about ten characters of lead so holding
+  // ArrowRight scrolls ahead of the caret instead of dragging it along the rim, but never more than a third
+  // of a narrow pane, where that lead would be most of the view.
+  var margin = Math.min(80, Math.round(width / 3));
+  var origin = scroller.getBoundingClientRect().left;
+  var rect = caret.getBoundingClientRect();
+  var left = rect.left - origin;
+  var right = rect.right - origin;
+  var delta = 0;
+  if (left < margin) delta = left - margin;
+  else if (right > width - margin) delta = right - (width - margin);
+  if (!delta) return;
+  // Clamped rather than left to the browser: a caret at column 0 asks to scroll a full margin past the start
+  // of the line, and "whatever the platform does with an out-of-range scrollLeft" is not a thing to depend on.
+  var max = Math.max(0, scroller.scrollWidth - width);
+  scroller.scrollLeft = Math.max(0, Math.min(scroller.scrollLeft + delta, max));
+}
+
 function scheduleScrollIntoView(el, scroller, marginFrac) {
   pendingScrollEl = el || null;
   pendingScrollContainer = scroller || null;

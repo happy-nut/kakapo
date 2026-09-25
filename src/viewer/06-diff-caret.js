@@ -241,6 +241,7 @@ function scheduleDiffReveal(wrapper, side, ri) {
     if (!t) return;
     var row = diffRowAt(t.wrapper, t.side, t.ri);
     scrolloffReveal(row, document.getElementById('diff2html-container'), 0.15);
+    revealCaretColumn(diffCaretSpan);
   });
 }
 function navEntryOf(kind) {
