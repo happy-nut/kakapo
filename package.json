@@ -82,7 +82,7 @@
   "dependencies": {
     "@vscode/ripgrep": "1.18.0",
     "diff2html": "^3.4.56",
-    "electron": "42.5.1",
+    "electron": "42.10.0",
     "highlight.js": "^11.11.1",
     "pyright": "1.1.411",
     "typescript": "^6.0.3",
