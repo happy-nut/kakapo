@@ -1,6 +1,14 @@
 function openSourceFile(path, shouldSwitch = true, options) {
   const file = sourceByPath.get(path);
-  if (!file) return;
+  // Not in the project index: this is either a library file a definition just pointed at, or nothing at all.
+  // Ask main once; it answers only for a path a language server actually reported, or one inside the repo.
+  if (!file) {
+    loadLibrarySourceFile(path).then(function (record) {
+      if (record) openSourceFile(path, shouldSwitch, options);
+      else showCaretHint(t('source.libraryUnavailable').replace('{file}', sourceTabLabel(path)));
+    });
+    return;
+  }
   const shouldScrollTree = !(options && options.scrollTree === false);
   if (shouldSwitch) flashReviewPanelFocus(document.getElementById('source-body'));
   // Switching to another file abandons any in-progress comment elsewhere; closeComposer() clears
@@ -45,9 +53,10 @@ function openSourceFile(path, shouldSwitch = true, options) {
   renderBreadcrumb(document.getElementById('source-title'), path);
   setSourceTypeIcon(path);
   revealTreeFor(path, shouldScrollTree);
-  const meta = file.embedded
-    ? formatBytes(file.size || 0)
-    : formatBytes(file.size || 0) + ' · ' + (file.skippedReason || 'not embedded');
+  const meta = (file.library ? t('source.library') + ' · ' : '')
+    + (file.embedded
+      ? formatBytes(file.size || 0)
+      : formatBytes(file.size || 0) + ' · ' + (file.skippedReason || 'not embedded'));
   document.getElementById('source-meta').textContent = meta;
   const body = document.getElementById('source-body');
   const httpEnvSelect = document.getElementById('http-env-select');
