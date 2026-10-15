@@ -1,6 +1,6 @@
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { readFileSync, statSync } from "node:fs";
-import { resolve, relative, isAbsolute, extname } from "node:path";
+import { extname, isAbsolute } from "node:path";
 import type { HttpSendRequest } from "./cli.js";
 
 // diff2html + highlight.js, reached through cli.js, cost ~100ms to parse — and the main process needs them
@@ -13,7 +13,9 @@ import { defaultBaseRef, git, listBranches } from "./git.js";
 import { readPatchSets } from "./patch-sets.js";
 import { readBranchPullRequests, readWorktrees } from "./worktrees.js";
 import { materializeDeferredSourceFile } from "./diff.js";
-import { languageForPath } from "./util.js";
+import { containedRealPath, languageForPath } from "./util.js";
+import { isKnownLibraryPath } from "./lsp.js";
+import { readLibrarySourceFile } from "./library-source.js";
 import { allReviewBodies, readReviewBody, reviewBodyCount } from "./review-bodies.js";
 import { searchProject } from "./search.js";
 import type { AnalysisRequest, ProjectAnalysis } from "./analysis.js";
@@ -55,6 +57,23 @@ const REVIEW_ASSET_MIME: Record<string, string> = {
 const MAX_REVIEW_ASSET_BYTES = 10 * 1024 * 1024; // 10 MiB — covers larger README GIFs/screenshots, rejects accidents
 
 /** Registers read-only review, analysis, search, and history adapters. */
+// Library navigation: following a definition can land on a file the project index does not hold — inside
+// node_modules, which the index deliberately skips, or outside the review root entirely (a stdlib module, a
+// bundled type stub). Those are read on demand, as their own read-only record, and never enter the index:
+// quick-open and the file tree stay the project's own files, which is also what IntelliJ does with library
+// sources.
+//
+// An ABSOLUTE path is served only when a language server actually reported it in this session
+// (isKnownLibraryPath). Following a definition is unrestricted — that is the feature — but the renderer
+// never gets to name a file on its own, so this is not a "read any path" IPC for a compromised renderer.
+function librarySource(root: string, requested: string): SourceFile | null {
+  if (isAbsolute(requested)) {
+    return isKnownLibraryPath(requested) ? readLibrarySourceFile(requested) : null;
+  }
+  const target = containedRealPath(root, requested);
+  return target ? readLibrarySourceFile(target, requested) : null;
+}
+
 export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResolver): void {
   ipc.handle("kakapo:http-send", async (_event, request: HttpSendRequest) => (await buildTools()).performHttpRequest(request));
 
@@ -86,7 +105,7 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
       await state.ensureFullIndex?.();
       record = state.sourceFiles.get(path);
     }
-    if (!record) return null;
+    if (!record) return librarySource(state.options.root, path);
     if (!record.deferred) return record;
     const materialized = materializeDeferredSourceFile(state.options.root, record, state.reviewTarget ?? state.options.target);
     state.sourceFiles.set(path, materialized);
@@ -102,10 +121,12 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     if (!state || !rel || rel.startsWith("../")) return null;
     const mime = REVIEW_ASSET_MIME[extname(rel).toLowerCase()];
     if (!mime) return null; // only known image types are inlineable by design
-    const root = resolve(state.options.root);
-    const target = resolve(root, rel);
-    const within = relative(root, target);
-    if (within === ".." || within.startsWith("../") || within.startsWith("..\\") || isAbsolute(within)) return null;
+    // Canonical containment, not lexical: a tracked symlink (`leak.png -> ../../../.ssh/id_rsa`) keeps the
+    // link itself inside the root, and readFileSync follows it. This handler is reached with no gesture
+    // beyond opening a markdown file — the preview fetches every img src it finds — so a crafted repo must
+    // not be able to read a byte outside the review root through it.
+    const target = containedRealPath(state.options.root, rel);
+    if (!target) return null;
     try {
       const stats = statSync(target);
       if (!stats.isFile() || stats.size > MAX_REVIEW_ASSET_BYTES) return null;

@@ -24,7 +24,7 @@ import { ByteBudgetCache, errorMessage } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { compareDefaultRef, registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
-import { registerProjectPathIpc } from "./app-path-ipc.js";
+import { externalUrl, registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerCommentsIpc, syncCommentsFile, commentsFilePath } from "./comments-file.js";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 import { UI_SCALES } from "./constants.js";
@@ -494,6 +494,12 @@ ipcMain.handle("kakapo:open-recent", async (event, payload: { path?: string }) =
   const state = stateFromEvent(event);
   const path = typeof payload?.path === "string" ? payload.path : "";
   if (!state || state.win.isDestroyed() || !path) return { ok: false };
+  // Only a path that is actually ON the recent list, same as open-worktree checks its own list: the renderer
+  // supplies this, and "open whatever absolute path arrives over IPC" would let a compromised renderer point
+  // the window at an unrelated private repository and then read it out through get-index/get-source.
+  if (!preferences.readRecentProjects().some((project) => project.path === resolve(path))) {
+    return { ok: false, error: "unknown" };
+  }
   if (!existsSync(path) || !isGitRepository(path)) {
     preferences.forgetRecentProject(path);
     return { ok: false, error: "missing" };
@@ -934,7 +940,28 @@ function createWindow(root: string, explicitRoot = true): WinState {
   const id = win.webContents.id;
   states.set(id, state);
 
-  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  // A link in reviewed content opens in the user's browser, never as a second app window. The URL comes
+  // from the repository, so only http(s) survives externalUrl — a `file://`, `javascript:` or custom-scheme
+  // link must never reach the OS, which would hand it to whatever app claims that scheme.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    const external = externalUrl(url);
+    if (external) void shell.openExternal(external);
+    return { action: "deny" };
+  });
+  // Denying new windows is not enough: Electron injects the preload into EVERY document a webContents
+  // loads, and `states` is keyed by webContents id, which navigation does not change. So a top-level
+  // navigation to a remote origin would hand that origin the whole contextBridge surface — the project
+  // index, every source file, the comments file — against the repository the window still has open.
+  // The review page is only ever a local file (loadFile) or the data: loading screen, so nothing else is a
+  // legitimate destination. A link in reviewed content that wants a browser gets one from the OS, via the
+  // deny handler above; it never moves this window.
+  const allowedNavigation = (url: string): boolean =>
+    url.startsWith("file://") || url.startsWith("data:text/html") || url.startsWith("kakapo-asset://");
+  const blockForeignNavigation = (event: { preventDefault(): void }, url: string): void => {
+    if (!allowedNavigation(url)) event.preventDefault();
+  };
+  win.webContents.on("will-navigate", blockForeignNavigation);
+  win.webContents.on("will-redirect", blockForeignNavigation);
   // Dev-only: surface renderer console output in the terminal that launched `npm run dev`, so viewer-side
   // logs/errors are visible without opening DevTools.
   if (DEV_BUILD) {

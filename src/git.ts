@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import type { GitSnapshot } from "./types.js";
 
 export function isGitRepository(root: string): boolean {
-  const result = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
+  const result = spawnSync("git", [...RAW_PATHS, "rev-parse", "--is-inside-work-tree"], {
     cwd: root,
     encoding: "utf8",
   });
@@ -16,7 +16,18 @@ export function isGitRepository(root: string): boolean {
 // shows that literal string as the filename, splits the stray quote into a phantom directory, and cannot
 // find the file on disk. Every git read in the app goes through these two helpers plus the diff/status
 // spawns in diff.ts, so ask git for raw UTF-8 at the source instead of un-escaping downstream.
-export const RAW_PATHS = ["-c", "core.quotePath=false"];
+// The rest of this list is not about paths at all: it is what keeps `git` from running a command the
+// REVIEWED repository chose. `core.fsmonitor` is executed during the index refresh that `diff` and `status`
+// both do, and `core.hooksPath` points at hooks; both are ordinary config, so a repo that arrives as an
+// archive or a copied directory (its own .git/config included) picks them. kakapo runs `git diff` and
+// `git status` before the first paint, so neither needs a click. Together with `--no-ext-diff` and
+// `--no-textconv` on the diff/show argv, this is the full set of config-driven exec vectors in the
+// read-only commands this app runs.
+export const RAW_PATHS = [
+  "-c", "core.quotePath=false",
+  "-c", "core.fsmonitor=false",
+  "-c", "core.hooksPath=/dev/null",
+];
 
 export function git(root: string, args: string[]): string {
   const result = spawnSync("git", [...RAW_PATHS, ...args], { cwd: root, encoding: "utf8" });

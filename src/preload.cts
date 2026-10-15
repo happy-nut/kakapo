@@ -38,7 +38,7 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
 contextBridge.exposeInMainWorld("kakapoComments", {
   read: (): Promise<{ path: string; exists: boolean; records: unknown[]; legacyNotes: unknown[] }> =>
     ipcRenderer.invoke("kakapo:comments-read"),
-  write: (payload: { records: unknown[]; knownMaxId: number }): Promise<{ ok: boolean; path?: string; arrived?: unknown[] }> =>
+  write: (payload: { records: unknown[] }): Promise<{ ok: boolean; path?: string; arrived?: unknown[] }> =>
     ipcRenderer.invoke("kakapo:comments-write", payload),
   onUpdate: (cb: (payload: { records: unknown[] }) => void): void => {
     ipcRenderer.on("kakapo:comments-update", (_event, payload) => cb(payload));
@@ -130,10 +130,6 @@ contextBridge.exposeInMainWorld("kakapoApp", {
   revealInFinder: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:reveal-in-finder", { path }),
   // Open the OS terminal in the folder holding this file.
   openTerminal: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:open-terminal", { path }),
-  // A link clicked in a review. Main re-checks the scheme before anything is opened.
-  openExternal: (url: string): Promise<unknown> => ipcRenderer.invoke("kakapo:open-external", { url }),
-  // An image path clicked there. Main re-checks everything (viewableFilePath in app-path-ipc.ts).
-  openViewable: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:open-viewable", { path }),
   // Lets the merged-prompt dock claim Cmd+A/Cmd+C for its own whole-document select-all/copy-all while it's
   // open, instead of racing the app menu's identical native accelerators (role: "editMenu" in app-main.ts).
   setIgnoreMenuShortcuts: (ignore: boolean): void => ipcRenderer.send("kakapo:set-ignore-menu-shortcuts", { ignore }),

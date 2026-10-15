@@ -188,7 +188,7 @@ export async function readCommitDiff(root: string, sha: string): Promise<{
   if (!meta) return null;
   const f = meta.split(FS);
   const parents = (f[5] || "").trim() ? (f[5] as string).trim().split(/\s+/) : [];
-  const diffText = git(root, ["show", "--relative", "--no-color", "--pretty=format:", sha, "--", "."]).replace(/^\n+/, "");
+  const diffText = git(root, ["show", "--no-textconv", "--relative", "--no-color", "--pretty=format:", sha, "--", "."]).replace(/^\n+/, "");
   const fileStatus = fileStatusFromDiff(diffText);
   return {
     hash: f[0] || sha,
@@ -230,7 +230,7 @@ export async function readRangeDiff(root: string, oldSha: string, newSha: string
   const newFields = newMeta.split(FS);
   // Commits introduced between the two endpoints (for the "N commits" header). Empty/0 for unrelated refs.
   const count = Number(git(root, ["rev-list", "--count", `${oldSha}..${newSha}`])) || 0;
-  const diffText = git(root, ["diff", "--relative", "--no-color", "--find-renames", oldSha, newSha, "--", "."]).replace(/^\n+/, "");
+  const diffText = git(root, ["diff", "--no-ext-diff", "--no-textconv", "--relative", "--no-color", "--find-renames", oldSha, newSha, "--", "."]).replace(/^\n+/, "");
   const fileStatus = fileStatusFromDiff(diffText);
   return {
     range: true,
