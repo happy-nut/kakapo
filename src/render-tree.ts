@@ -187,12 +187,17 @@ function diffLineTotals(file: DiffFile): { added: number; deleted: number } {
 //
 // Not attempted: quote-style sweeps and import reordering. Normalising quotes to compare them is a guess
 // about escaping, and reordering is not distinguishable from moving a line that mattered. Those still show.
-export type TrivialChange = "spacing" | "format";
+export type TrivialChange = "spacing" | "format" | "moved";
 const INDENT_SENSITIVE = new Set(["python", "yaml", "markdown"]);
 
 export function trivialChange(file: DiffFile): TrivialChange | undefined {
   if (file.binary) return undefined; // nothing to compare, so nothing here can be called trivial
   if (file.status === "added" || file.status === "deleted") return undefined; // a whole file is never trivial
+  // A 100%-similarity rename has no content to read: git reports it with no hunks at all. It used to be
+  // dropped from the diff outright, which is worse than trivial — the reviewer could not see that the file
+  // had moved. It belongs in the review, marked. A mode-only change (`chmod +x`) is deliberately NOT here:
+  // making a file executable is a real change even though it has no hunks.
+  if (file.status === "renamed" && !file.hunks.length && !file.modeChanged) return "moved";
   if (INDENT_SENSITIVE.has(languageForPath(file.displayPath))) return undefined;
   const changed = file.hunks.flatMap((hunk) => hunk.lines).filter((line) => line.kind !== "context");
   const added = changed.filter((line) => line.kind === "add").map((line) => line.text);
