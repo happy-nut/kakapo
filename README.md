@@ -109,7 +109,7 @@ kakapo --staged             # index vs HEAD
 | `Space` | Toggle *Viewed* on the selected changed file |
 | `?` | Comment on the current line |
 | `F8` / `⇧F8` | Next / previous comment |
-| `⌘⇧/` | All review comments (one hand-off document) |
+| `⌘⇧/` | All review comments (one hand-off document). Copying hands it over and clears it — `⌘Z` undoes |
 | `⌘9` | Git history |
 | `⌘8` | Worktrees — every checkout of this repository |
 | `⌘F` / `⌘⇧F` | Find in file / in project (the ⌘⇧F rail also holds file search & recent files) |
@@ -117,7 +117,7 @@ kakapo --staged             # index vs HEAD
 | `⌥A` / `⌥U` | All changes on the branch / only what is not committed yet |
 | `⌥C` | Choose the branch "all changes" is measured against |
 | `⌘B` / `⌘⌥B` / `⌘⌥O` | Find usages / implementation / workspace symbol |
-| `⌘↓` / `⌘`-click | Go to definition |
+| `⌘↓` / `⌘`-click | Go to definition — including into library code (a dependency, a stdlib module, a bundled type stub), which opens read-only |
 | `⌘,` | Settings |
 
 Settings ▸ Shortcuts lists the rest.
@@ -152,7 +152,7 @@ kakapo lists worktrees; it does not create, move or remove them. `git worktree a
 | Ruby | Sorbet | Platform-native Sorbet |
 | PHP | Phpactor | Static PHP 8.4 runtime |
 
-A packaged build always prefers its own bundle and never searches your shell `PATH`; only an explicit `KAKAPO_LSP_<LANGUAGE>` executable overrides it, and a repository-local binary is accepted only in a source checkout that hasn't installed the bundle yet. Packaging fails unless all nine bundles exist *and* return real cross-file definitions. Unsupported languages, or a server that can't answer, fall back to a regex index that says so in the results.
+A packaged build always prefers its own bundle and never searches your shell `PATH`; only an explicit `KAKAPO_LSP_<LANGUAGE>` executable overrides it. A binary from inside the repository you are reading is **not** a candidate unless you set `KAKAPO_LSP_PROJECT_SERVERS=1` — reviewing a repository should not run that repository's code, and the analysis prewarm starts a server without being asked. Packaging fails unless all nine bundles exist *and* return real cross-file definitions. Unsupported languages, or a server that can't answer, fall back to a regex index that says so in the results.
 
 Semantic quality still depends on project metadata: Maven/Gradle for Java and Kotlin, `Cargo.toml` for Rust, `go.mod` for Go, `compile_commands.json` for large C/C++, Composer autoload for PHP. Analysis caches and the JDT/Kotlin workspaces are kept in temp/app-data, never inside your repository.
 

@@ -2861,7 +2861,7 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .mc-merged-card:focus-visible { outline: 1px solid var(--active); outline-offset: 2px; }
 /* Cmd+A in the merged panel selects the WHOLE hand-off document at once, cards included (native ProseMirror
    selectAll only ever covers the one prose region that happens to be focused). Cmd+C while this state is
-   active copies the same assembled text the "Copy all" button does (see copyMergedText in 08-dock.js), so
+   active copies the same assembled text the hand-off button does (see copyMergedText in 08-dock.js), so
    the visual state below just needs to make every region and card read as selected together. */
 .mc-merged-select-all .mc-merged-card { box-shadow: 0 0 0 2px var(--active); }
 /* Doubled up as .mc-merged-select-all.mc-merged-editor-host (both classes land on the same host element) so

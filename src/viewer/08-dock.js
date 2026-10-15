@@ -189,11 +189,38 @@ function openMergedView() {
     });
     return lines.join(nl);
   }
-  // Shared by the Copy-all button and Cmd+C-after-Cmd+A (see handleMergedKeydown) so both paths copy the
-  // exact same assembled text.
+  // Cmd+C-after-Cmd+A: a plain copy. Asking for the text is not the same act as finishing with it, so this
+  // path leaves the review alone; the button below is the one that hands it over.
   function copyMergedText() {
     var copied = copyTextToClipboard(currentMergedText());
     showToast(t(copied ? 'merged.copied' : 'merged.copyFailed'));
+  }
+  // The button is copy AND clear. A review that has been handed to an agent is spent: leaving it behind
+  // means the next hand-off carries it again, and the reviewer has to remember which cards they already
+  // sent. So what goes into the clipboard leaves the thread with it.
+  //
+  // Whole threads, not just the cards that were in the document: a copied card's replies would otherwise be
+  // left pointing at a parent that is gone — answers to a question nobody can read, which is the same
+  // reason deleting a card deletes its subtree (commentSubtreeSeqs). And nothing is cleared unless the
+  // clipboard write actually succeeded, because emptying a review that was never captured destroys work
+  // outright. It goes through removeComments, so Cmd+Z brings the whole batch back.
+  function copyAndClearMerged() {
+    if (!copyTextToClipboard(currentMergedText())) { showToast(t('merged.copyFailed')); return; }
+    var byId = {};
+    reviewComments.forEach(function (c) { byId[c.seq] = c; });
+    var seqs = [];
+    blocks.forEach(function (block) {
+      block.items.forEach(function (item) {
+        if (!item || item.seq == null) return;
+        commentSubtreeSeqs(commentThreadRoot(item, byId)).forEach(function (seq) {
+          if (seqs.indexOf(seq) < 0) seqs.push(seq);
+        });
+      });
+    });
+    removeComments(seqs);
+    refreshComments();
+    closeMergedDock(); // what the panel was showing is gone; an empty dock is nothing to look at
+    showToast(t('merged.copiedAndCleared').replace('{count}', String(seqs.length)));
   }
   // The app menu keeps the standard Edit role so real text fields still get native Cut/Paste/Undo (see
   // app-main.ts) — but that means Cmd+C is ALSO a native accelerator that fires webContents.copy()
@@ -270,10 +297,10 @@ function openMergedView() {
   var copyBtn = document.createElement('button');
   copyBtn.type = 'button';
   copyBtn.className = 'dock-btn mc-copy-all';
-  copyBtn.setAttribute('data-i18n', 'merged.copyAll');
-  copyBtn.textContent = t('merged.copyAll');
+  copyBtn.setAttribute('data-i18n', 'merged.copyAndClear');
+  copyBtn.textContent = t('merged.copyAndClear');
   copyBtn.disabled = true;
-  copyBtn.addEventListener('click', copyMergedText);
+  copyBtn.addEventListener('click', copyAndClearMerged);
   dock.bar.insertBefore(copyBtn, dock.bar.querySelector('.dock-max'));
   // Registered once (not per-rebuild inside initializeMergedEditor) so a Backspace-delete rebuild never
   // stacks a second copy of either listener.

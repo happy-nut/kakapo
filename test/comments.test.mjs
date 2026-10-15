@@ -256,7 +256,7 @@ test("saved comments roll up into the merged agent prompt", async () => {
   v.close();
 });
 
-// The loop only closes if what leaves the panel tells the agent WHERE to answer. Copy all is the one way
+// The loop only closes if what leaves the panel tells the agent WHERE to answer. The hand-off is the one way
 // out now (kakapo runs no agent of its own), so the thread file's path and the append rule travel with it —
 // kakapo does not write the reader's instructions for them: what leaves the panel is the review itself,
 // and what should be done with it is said wherever it is pasted.
@@ -274,7 +274,7 @@ test("the copied document is the comments and nothing else", async () => {
 
   await v.openMergedView();
   const button = v.$("#mc-merged-panel .mc-copy-all");
-  assert.ok(button && !button.disabled, "the merged panel offers Copy all");
+  assert.ok(button && !button.disabled, "the merged panel offers its hand-off action");
   button.click();
   await v.settle(20);
 

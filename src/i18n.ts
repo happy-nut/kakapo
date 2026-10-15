@@ -164,6 +164,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "btn.diff": "Diff",
     "btn.diff.title": "Back to diff (F7)",
     "source.loading": "Loading source…",
+    "source.library": "library",
+    "source.libraryUnavailable": "“{file}” could not be opened.",
+    "source.libraryReadOnly": "Library code — read-only, no comments.",
     "source.previewUnavailable": "Source preview unavailable.",
     "source.viewRaw": "Raw",
     "source.viewRendered": "Rendered",
@@ -294,7 +297,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.extendSelection": "Extend selection",
     "kbd.toggleViewed": "Toggle viewed on selected Changes row",
     "kbd.addComment": "Add a review comment",
-    "kbd.allComments": "All review comments",
+    "kbd.allComments": "All review comments (copy hands them over and clears)",
     "kbd.ignoreWhitespace": "Ignore whitespace",
     "kbd.saveComment": "Save comment",
     "kbd.maximizePanel": "Maximize panel (merged / memo)",
@@ -304,6 +307,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     "trivial.spacing": "spacing",
     "trivial.format": "formatting",
+    "trivial.moved": "moved",
     // The two notes that carry the story of a change: where it goes wrong, and where that is beaten. Louder
     // cards, because a reviewer who reads only two notes should read these two.
     // The card's place in the reading order. Without it the order was real but invisible — the cards sit where
@@ -365,12 +369,13 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Merged comments modal
     "merged.title": "Review comments",
-    "merged.copyAll": "Copy all",
+    "merged.copyAndClear": "Copy and clear",
     "merged.allAddressed": "All {n} comments are flagged as possibly addressed, so nothing is left to hand off.",
     "merged.allAnswered": "The agent has answered every open thread. Reply to one of its answers and the reply comes back here.",
     "merged.empty": "No comments yet. Put the caret on a line — in the diff or in a file — and press {key} to write the first one.",
     "merged.reopenAll": "Reopen them",
     "merged.copied": "Copied",
+    "merged.copiedAndCleared": "Copied — {count} cleared (⌘Z to undo)",
     "merged.copyFailed": "Copy failed",
     "merged.close": "Close",
 
@@ -531,6 +536,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "btn.diff": "Diff",
     "btn.diff.title": "Diff로 돌아가기 (F7)",
     "source.loading": "소스 불러오는 중…",
+    "source.library": "라이브러리",
+    "source.libraryUnavailable": "“{file}”을 열 수 없습니다.",
+    "source.libraryReadOnly": "라이브러리 코드 — 읽기 전용, 코멘트를 달 수 없습니다.",
     "source.previewUnavailable": "소스 미리보기를 사용할 수 없습니다.",
     "source.viewRaw": "원문",
     "source.viewRendered": "렌더링",
@@ -660,7 +668,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.extendSelection": "선택 영역 확장",
     "kbd.toggleViewed": "선택한 변경 파일의 확인 표시 토글",
     "kbd.addComment": "리뷰 코멘트 달기",
-    "kbd.allComments": "전체 리뷰 코멘트",
+    "kbd.allComments": "전체 리뷰 코멘트 (복사하면 넘기고 비움)",
     "kbd.ignoreWhitespace": "공백 무시",
     "kbd.saveComment": "코멘트 저장",
     "kbd.maximizePanel": "패널 최대화 (합본 / 메모)",
@@ -670,6 +678,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     "trivial.spacing": "공백",
     "trivial.format": "포맷",
+    "trivial.moved": "이동",
 
     // 브리핑 말풍선 (25-briefing.js)
 
@@ -724,12 +733,13 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Merged comments modal
     "merged.title": "리뷰 코멘트",
-    "merged.copyAll": "전체 복사",
+    "merged.copyAndClear": "복사하고 비우기",
     "merged.allAddressed": "코멘트 {n}개가 모두 반영된 듯으로 표시되어 전달할 내용이 없습니다.",
     "merged.allAnswered": "열린 스레드에 에이전트가 모두 답했습니다. 답변에 답글을 달면 그 답글이 여기로 옵니다.",
     "merged.empty": "아직 코멘트가 없습니다. diff나 파일에서 줄에 커서를 두고 {key} 를 누르면 첫 코멘트를 남길 수 있습니다.",
     "merged.reopenAll": "다시 열기",
     "merged.copied": "복사됨",
+    "merged.copiedAndCleared": "복사했고 {count}개를 비웠습니다 (⌘Z로 되돌리기)",
     "merged.copyFailed": "복사 실패",
     "merged.close": "닫기",
 
