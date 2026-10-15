@@ -168,7 +168,17 @@ export type CommentsIpcState = {
   commentsSig?: string;
   knowledgeFile?: string;
   knowledgeSig?: string;
+  // Every record this window has actually been handed, serialized. A write may only drop a record the
+  // renderer had the chance to delete, and this is the only place that knows which those are.
+  delivered?: Set<string>;
 };
+
+// Records on their way to the renderer. Returned as-is so call sites read as the send they already were.
+function deliver(state: CommentsIpcState, records: ThreadRecord[]): ThreadRecord[] {
+  const delivered = (state.delivered ??= new Set<string>());
+  for (const record of records) delivered.add(JSON.stringify(record));
+  return records;
+}
 
 type CommentsEvent = IpcMainEvent | IpcMainInvokeEvent;
 type CommentsStateResolver = (event: CommentsEvent) => CommentsIpcState | undefined;
@@ -186,18 +196,40 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
       path: state.commentsFile,
       notesPath: state.knowledgeFile ?? state.commentsFile,
       exists: exists || existsSync(state.knowledgeFile ?? ""),
-      records: readThread(state.commentsFile).concat(notesForWorkspace(readThread(state.knowledgeFile), state.options.root)),
+      records: deliver(state, readThread(state.commentsFile).concat(notesForWorkspace(readThread(state.knowledgeFile), state.options.root))),
       legacyNotes: exists ? [] : legacyNotes(state.options.root),
     };
   });
 
-  // The renderer owns editing and sends the whole list it knows about. Anything on disk with a HIGHER id than
-  // the renderer has seen is a turn an agent appended in the meantime — keep it, or saving an unrelated
-  // comment would silently swallow the answer that arrived a moment earlier.
-  ipc.handle("kakapo:comments-write", (event, payload: { records?: ThreadRecord[]; knownMaxId?: number }) => {
+  // The renderer owns editing and sends the whole list it holds. Anything on disk that this window was never
+  // HANDED is a record the renderer had no chance to delete — a turn an agent appended, or a shared note
+  // another workspace owns and this one filtered out on read — so it is kept.
+  //
+  // This used to be inferred from id ORDER (`id > knownMaxId`), and that was wrong twice over. The number the
+  // renderer sent was its own ALLOCATION counter, already bumped for the comment being saved, while main read
+  // it as "the highest id on disk" — so when an agent followed the file header's NEXT FREE ID and the
+  // reviewer's next comment claimed the same number, which is the ordinary case because both allocate from
+  // one counter, the agent's answer was neither kept nor returned: it was deleted and never shown. And
+  // because `comments-read` filters the shared notes file down to the paths this workspace has, every note
+  // about another worktree's files sat below that same threshold and was erased by the next unrelated save.
+  // Ids cannot answer "has the renderer seen this" at all, because two different records legitimately share
+  // one id; what main delivered can, and main is the only process that knows it.
+  ipc.handle("kakapo:comments-write", (event, payload: { records?: ThreadRecord[] }) => {
     const state = stateFromEvent(event);
     if (!state || !state.commentsFile || !Array.isArray(payload?.records)) return { ok: false };
-    const knownMaxId = Number(payload.knownMaxId) || 0;
+    const delivered = state.delivered ?? new Set<string>();
+    const undelivered = (file: string | undefined): ThreadRecord[] =>
+      readThread(file).filter((record) => !delivered.has(JSON.stringify(record)));
+    const sentIds = new Set(payload.records.map((record) => Number(record.id)));
+    const keptHere = undelivered(state.commentsFile);
+    const keptShared = state.knowledgeFile ? undelivered(state.knowledgeFile) : [];
+    let nextFree = [payload.records, keptHere, keptShared]
+      .reduce((max, list) => list.reduce((m, r) => Math.max(m, Number(r.id) || 0), max), 0) + 1;
+    // A record the renderer never saw can hold an id the renderer has since allocated for something else.
+    // Both are real, so the one nobody is pointing at yet is renumbered rather than dropped: `re:` is only
+    // ever written by the renderer, which by definition has not seen this record.
+    const renumberCollisions = (records: ThreadRecord[]): ThreadRecord[] =>
+      records.map((record) => (sentIds.has(Number(record.id)) ? { ...record, id: nextFree++ } : record));
     // Split on the way out, exactly as they were merged on the way in: what the agent learned about the code
     // goes to the shared file, the conversation stays with this workspace. Each file keeps whatever arrived in
     // it since the renderer last looked.
@@ -206,24 +238,33 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
     const shared = state.knowledgeFile;
     const mine = shared ? payload.records.filter((record) => !isKnowledge(record)) : payload.records;
     const learned = shared ? payload.records.filter(isKnowledge) : [];
-    const arrivedHere = readThread(state.commentsFile).filter((record) => record.id > knownMaxId);
+    const arrivedHere = renumberCollisions(keptHere);
     const here = mine.concat(arrivedHere);
     let arrivedShared: ThreadRecord[] = [];
     let there: ThreadRecord[] = [];
     if (shared) {
-      arrivedShared = readThread(shared).filter((record) => record.id > knownMaxId);
+      arrivedShared = renumberCollisions(keptShared);
       there = learned.concat(arrivedShared);
     }
     // Both files carry the SAME next free id, computed across both — that is what makes them one id space to
     // an agent, which only ever sees the one it was pointed at.
     const nextId = nextThreadId(here, there);
-    writeThread(state.commentsFile, here, nextId);
+    // Everything written is now in the renderer's hands: it sent `mine`/`learned`, and `arrived*` goes back
+    // in the reply below. Marking them delivered is what keeps the NEXT save from reading them back as
+    // records this window never saw and duplicating the whole conversation.
+    writeThread(state.commentsFile, deliver(state, here), nextId);
     state.commentsSig = fileSignature(state.commentsFile); // our own write must not come back as a change
     if (shared) {
-      writeThread(shared, there, nextId);
+      writeThread(shared, deliver(state, there), nextId);
       state.knowledgeSig = fileSignature(shared);
     }
-    return { ok: true, path: state.commentsFile, arrived: arrivedHere.concat(arrivedShared) };
+    // Kept on disk is not the same as shown here: a shared note about a file this workspace does not have is
+    // preserved above but filtered out of the reply, exactly as comments-read filters it.
+    return {
+      ok: true,
+      path: state.commentsFile,
+      arrived: arrivedHere.concat(notesForWorkspace(arrivedShared, state.options.root)),
+    };
   });
 
   // The hand-off document goes to disk beside the thread file, so the terminal only has to carry the line that
@@ -270,6 +311,6 @@ export function syncCommentsFile(state: CommentsIpcState, force = false): void {
   state.commentsSig = sig;
   state.knowledgeSig = shared;
   state.win.webContents.send("kakapo:comments-update", {
-    records: readThread(state.commentsFile).concat(notesForWorkspace(readThread(state.knowledgeFile), state.options.root)),
+    records: deliver(state, readThread(state.commentsFile).concat(notesForWorkspace(readThread(state.knowledgeFile), state.options.root))),
   });
 }

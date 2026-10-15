@@ -249,9 +249,9 @@ function threadFromRecords(records) {
   });
   return out;
 }
-// Debounced because one rebuild can remap many comments at once. Main keeps anything an agent appended since
-// this renderer last read the file (knownMaxId), so saving a comment never swallows an answer that landed a
-// moment earlier.
+// Debounced because one rebuild can remap many comments at once. Main keeps any record on disk it never
+// handed this renderer — a turn an agent appended, or a shared note another workspace owns — so saving a
+// comment never swallows an answer that landed a moment earlier.
 var reviewThreadPath = ''; // comments.jsonl — the file an agent appends its ANSWERS to (see loadThread)
 var threadSaveTimer = 0;
 // Set from the moment a local change is made until its write has landed. Main polls the thread file on its
@@ -261,7 +261,6 @@ var threadSaveTimer = 0;
 // second one no longer overlapped a poll. Anything an agent appended meanwhile still arrives: the write's
 // own answer carries it (`arrived`).
 var threadSavePending = false;
-var heldThreadUpdate = null; // a file poll that arrived mid-write, replayed once the write lands
 function saveThread() {
   if (!(window.kakapoComments && typeof window.kakapoComments.write === 'function')) return;
   if (threadSaveTimer) clearTimeout(threadSaveTimer);
@@ -270,20 +269,20 @@ function saveThread() {
     threadSaveTimer = 0;
     var settle = function (result) {
       threadSavePending = false;
+      // `arrived` is the whole answer. Main re-reads the file as part of the write and hands back every
+      // record it kept that this renderer had not been given, so anything an agent appended during the save
+      // window comes through here.
+      //
+      // A poll that arrived mid-write used to be REPLAYED instead, and that was a way to lose a comment: the
+      // held payload is the file as it was BEFORE our write, so applying it replaced the just-saved comment
+      // with a snapshot that never had it — and dropped commentSeq with it. It could not be merged in
+      // either, because the same snapshot still holds anything the reviewer had just deleted.
       if (result && result.arrived && result.arrived.length) applyThreadRecords(null, result.arrived);
-      // Our write is the newer truth for what WE changed, and main re-reads the file after it — but a poll we
-      // held is still the only copy of anything that landed in the file meanwhile, so replay it rather than
-      // waiting for a tick that only fires when the signature moves again.
-      if (heldThreadUpdate) {
-        var held = heldThreadUpdate;
-        heldThreadUpdate = null;
-        try { applyThreadRecords(held && held.records, null, true); } catch (e) {}
-      }
     };
     try {
-      window.kakapoComments.write({ records: reviewComments.map(commentToRecord), knownMaxId: commentSeq })
-        .then(settle, function () { threadSavePending = false; heldThreadUpdate = null; });
-    } catch (e) { threadSavePending = false; heldThreadUpdate = null; }
+      window.kakapoComments.write({ records: reviewComments.map(commentToRecord) })
+        .then(settle, function () { threadSavePending = false; });
+    } catch (e) { threadSavePending = false; }
   }, 250);
 }
 // The file is the source of truth: whatever it says replaces what is in memory (a full swap cannot drift the
@@ -360,13 +359,17 @@ function loadThread() {
     refreshComments();
   }, function () {});
 }
+// Main pushed the thread file (syncCommentsFile). The file is the source of truth, with one exception:
+// a tick that arrives while a save is in flight is a snapshot from BEFORE that write, so it is stale by
+// construction and gets dropped. It is not held for replay either — replaying it was how a comment that had
+// just been saved got replaced by a snapshot that never had it. The write's own reply (`arrived`) carries
+// anything an agent appended during the window.
+function onThreadFilePush(payload) {
+  if (threadSavePending) return;
+  try { applyThreadRecords(payload && payload.records); } catch (e) {}
+}
 if (window.kakapoComments && typeof window.kakapoComments.onUpdate === 'function') {
-  window.kakapoComments.onUpdate(function (payload) {
-    // A poll of the file we are still writing (see saveThread) — held, never dropped: whatever an agent put
-    // in it is real, and the only thing wrong with it is the timing.
-    if (threadSavePending) { heldThreadUpdate = payload; return; }
-    try { applyThreadRecords(payload && payload.records); } catch (e) {}
-  });
+  window.kakapoComments.onUpdate(onThreadFilePush);
 }
 if (window.kakapoComments && typeof window.kakapoComments.onReveal === 'function') {
   // The notification about an answer was clicked. The record may not have arrived in this renderer yet (the
@@ -422,6 +425,9 @@ function pruneCommentsForMissingFiles() {
   return removeCommentsForPaths(missing);
 }
 function verifyCommentFilesExist() {
+  // A `false` from main deletes the comment and saves, so the question main answers has to be "is this file
+  // part of the review", not "is it in the working tree" — see kakapo:existing-project-paths, which asks the
+  // review's right side. This renderer deliberately holds no opinion of its own about that.
   var paths = [];
   // Never ask about an empty path. It means "we do not know where this belongs" — a reply whose parent did
   // not resolve used to come out that way — and the question below is "has this file been deleted?", to which
@@ -982,6 +988,9 @@ function refreshComments() {
 function openComposer(kind) {
   var target = currentCommentTarget();
   if (!target) return;
+  // A library file is somebody else's code, read on demand and not part of this review: a comment there has
+  // no changed line to anchor to and nothing to say to the agent that wrote the change.
+  if (isLibrarySourcePath(target.path)) { showCaretHint(t('source.libraryReadOnly')); return; }
   var existing = commentsAt(target.path, target.line, target.side)
     .filter(function (c) { return c.by !== 'agent'; });
   if (existing.length) {
@@ -1472,7 +1481,7 @@ function mergedBlocks() {
   return [{ items: open }];
 }
 
-// One unified hand-off document as a single string (Copy all's default, and tests). The live merged dock
+// One unified hand-off document as a single string (the hand-off button's default, and tests). The live merged dock
 // renders the same comments as non-editable cards (see openMergedView/currentMergedText in 08-dock.js).
 // One comment's lines in the hand-off document — shared with the live panel's currentMergedText (08-dock.js)
 // so the two can't drift. The id leads the heading because that is what an agent replies to: it appends a
