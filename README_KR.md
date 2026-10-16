@@ -27,7 +27,15 @@
 
 ### macOS (Apple Silicon)
 
-[Releases](https://github.com/happy-nut/kakapo/releases)에서 `Kakapo-<version>-arm64.dmg`를 받습니다. 서명되지 않은 빌드라 첫 실행은 우클릭 → **열기**로 Gatekeeper를 통과해야 합니다.
+```bash
+brew install --cask happy-nut/tap/kakapo
+```
+
+앱과 함께 `kakapo` 명령어까지 설치되므로, 저장소에서 바로 `kakapo .`을 쓸 수 있습니다. 서명되지 않은
+빌드인데 cask가 quarantine 플래그를 떼어 줍니다 — [Releases](https://github.com/happy-nut/kakapo/releases)에서
+`.dmg`를 직접 받으면 그 처리가 없으니 첫 실행은 우클릭 → **열기**가 필요합니다.
+
+`brew upgrade --cask kakapo`로 이후 릴리스를 따라갑니다.
 
 ### Linux (x64 / ARM64)
 

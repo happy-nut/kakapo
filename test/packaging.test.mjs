@@ -281,3 +281,38 @@ test("release workflow tests, packages, and attaches Linux tarballs + a macOS dm
   assert.equal(packageJson.scripts["dist:mac:dmg:ci"], "npm run dist:mac:ci && node scripts/create-dmg.mjs");
   assert.doesNotMatch(packageJson.scripts["dist:mac:ci"], /lsp:smoke/);
 });
+
+// A .dmg install — and so the Homebrew cask — has to give a working `kakapo`, not just an icon. The npm
+// package's bin/kakapo.js needs a `node` on PATH and a node_modules/electron, and a packaged bundle has
+// neither: it IS Electron. The shim runs the same CLI with the bundle's own binary hosted as node.
+test("the packaged bundle ships a kakapo command that can launch the app", () => {
+  const shim = readFileSync(join(repoRoot, "bin", "kakapo-bundled.sh"), "utf8");
+  assert.match(shim, /ELECTRON_RUN_AS_NODE=1/, "the bundle's binary is hosted as node to run the CLI");
+  assert.match(shim, /kakapo\.js/, "and it runs the same CLI the npm install does");
+  assert.doesNotMatch(shim, /\bnode\b\s+"/, "never a bare `node` — a packaged install has none");
+
+  const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+  assert.ok(packageJson.files.includes("bin"), "bin/ ships, so the shim reaches the bundle");
+
+  // resolveElectronBinary's packaged fallback, and the one variable that must not reach the app process:
+  // inherited, ELECTRON_RUN_AS_NODE would make the child run app-main.js as a bare script with no window.
+  const commands = readFileSync(join(repoRoot, "src", "commands.ts"), "utf8");
+  assert.match(commands, /process\.versions\.electron/, "a packaged CLI falls back to its own executable");
+  assert.match(commands, /delete appEnv\.ELECTRON_RUN_AS_NODE/, "the app child is not started as node");
+
+  // chmod where the shipping bundle is in hand: a cask links this file, and an unexecutable link is useless.
+  const createDmg = readFileSync(join(repoRoot, "scripts", "create-dmg.mjs"), "utf8");
+  assert.match(createDmg, /kakapo-bundled\.sh[\s\S]*chmodSync/, "the shim is executable in the shipped bundle");
+});
+
+// The cask points at one URL that never changes, so a release needs no edit in the tap repository and no
+// token out of this one.
+test("every release publishes the dmg under a stable name for the Homebrew cask", () => {
+  const macos = readFileSync(join(repoRoot, ".github", "workflows", "macos.yml"), "utf8");
+  assert.match(macos, /Kakapo-arm64\.dmg/, "a fixed-name copy is uploaded");
+  assert.match(
+    macos,
+    /cp release\/Kakapo-\*-arm64\.dmg "\$RUNNER_TEMP\/Kakapo-arm64\.dmg"/,
+    "staged outside release/ so the versioned glob cannot pick it up",
+  );
+});
