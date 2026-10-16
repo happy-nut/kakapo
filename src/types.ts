@@ -27,6 +27,8 @@ export type DiffFile = {
   status: string;
   binary: boolean;
   hunks: DiffHunk[];
+  // `old mode`/`new mode` in the header with no content change: the file is in the diff and has no hunks.
+  modeChanged?: boolean;
   vcs?: "new" | "edited" | "staged";
 };
 
@@ -49,6 +51,9 @@ export type SourceFile = {
   image?: string;
   // Working-tree git status for sidebar coloring: untracked(new)=red, modified=blue, staged(git add)=green.
   vcs?: "new" | "edited" | "staged";
+  // Read on demand for library navigation (a dependency, a stdlib module, a bundled type stub) rather than
+  // taken from the project index. Opens read-only and carries no comments; see library-source.ts.
+  library?: true;
 };
 
 export type HttpSendRequest = {

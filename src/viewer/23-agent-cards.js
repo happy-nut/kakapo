@@ -17,9 +17,14 @@ var PATH_CODE_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|json|jsonl|css|scss|sass|less|html
 // about the file. Everything before the last slash folds into a (…) that unfolds on click, so the prose keeps
 // its rhythm and the full path stays one click (or one hover — it is the title) away.
 //
-// The characters are restricted to [A-Za-z0-9_@.-/] plus a trailing :42 by the caller, so the text is safe in
-// an attribute as-is. `data-path` carries the whole thing because textContent no longer does: the folded
-// directory is still in the DOM, and the (…) is in there with it.
+// `data-path` carries the whole thing because textContent no longer does: the folded directory is still in
+// the DOM, and the (…) is in there with it.
+//
+// Everything interpolated here is escaped at this one chokepoint rather than trusted from the caller. The
+// caller's charset check ([A-Za-z0-9_@.-/] plus a trailing :42) covers the token it FOUND, but not the path
+// resolveBareFileName swaps in below: that comes from the project index, i.e. from the reviewed repository,
+// where a directory may legally be named `<img src=x onerror=…>`. Both of these splice into the card after
+// DOMPurify has run on the markdown, so nothing downstream re-checks them.
 function pathCodeHtml(text, tag) {
   var el = tag || 'code';
   // A mention with no directory in it — `chart.py`, `chart.py:106` — is a reference to a file whose path this
@@ -30,14 +35,15 @@ function pathCodeHtml(text, tag) {
     var resolved = resolveBareFileName(bare);
     if (resolved) text = resolved + text.slice(bare.length);
   }
-  var open = '<' + el + ' class="mc-path-code" data-path="' + text + '" title="' + text + '">';
+  var safe = escapeHtml(text);
+  var open = '<' + el + ' class="mc-path-code" data-path="' + safe + '" title="' + safe + '">';
   var cut = text.lastIndexOf('/');
   // One directory deep is already short: folding `src/build.ts` saves no room and costs a click.
-  if (cut < 0 || text.slice(0, cut).split('/').length < 2) return open + text + '</' + el + '>';
+  if (cut < 0 || text.slice(0, cut).split('/').length < 2) return open + safe + '</' + el + '>';
   return open
-    + '<span class="mc-path-dir">' + text.slice(0, cut) + '</span>'
+    + '<span class="mc-path-dir">' + escapeHtml(text.slice(0, cut)) + '</span>'
     + '<button type="button" class="mc-path-ell" title="' + escapeHtml(t('comment.expandPath')) + '">(&hellip;)</button>'
-    + text.slice(cut) + '</' + el + '>';
+    + escapeHtml(text.slice(cut)) + '</' + el + '>';
 }
 function isPathCodeText(text) {
   var bare = String(text).replace(/:\d+$/, ''); // a trailing :42 is a line number, not part of the name

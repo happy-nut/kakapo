@@ -2,7 +2,7 @@ import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ProjectAnalysis, buildRegexSymbolIndex } from "../dist/analysis.js";
 import { LspClient, mapLspDiagnostics, normalizeLocationResult, resolveLanguageServer } from "../dist/lsp.js";
@@ -298,20 +298,39 @@ process.stdin.on('data', (chunk) => {
   }
 });
 
-test("language-server resolution uses a project-local executable only when no bundle exists", () => {
+// A server found INSIDE the repository being reviewed is code the reviewer has not read yet, and the analysis
+// prewarm starts one without being asked — so running it takes an explicit say-so. Without the opt-in the
+// answer is "no server", which is what a reader of untrusted code should get; with it, a source checkout can
+// still use its own binaries.
+test("a project-local language server runs only when the reviewer opted in", () => {
   const root = tempProject();
   const executable = join(root, "node_modules", ".bin", "gopls");
   write(root, "node_modules/.bin/gopls", "#!/bin/sh\nexit 0\n");
   chmodSync(executable, 0o755);
-  const resolved = resolveLanguageServer(root, "src/app.go", { PATH: "", KAKAPO_LSP_BUNDLE_ROOT: join(root, "missing") }, process.platform);
-  assert.equal(resolved?.command, executable);
-  assert.equal(resolved?.source, "project");
+  const noBundle = { PATH: "", KAKAPO_LSP_BUNDLE_ROOT: join(root, "missing") };
 
+  assert.equal(
+    resolveLanguageServer(root, "src/app.go", noBundle, process.platform),
+    undefined,
+    "a binary the reviewed repository supplies is not a resolution candidate by default",
+  );
+
+  const optedIn = resolveLanguageServer(root, "src/app.go", { ...noBundle, KAKAPO_LSP_PROJECT_SERVERS: "1" }, process.platform);
+  assert.equal(optedIn?.command, executable);
+  assert.equal(optedIn?.source, "project");
+});
+
+// A definition outside the review root is a library location: it keeps its absolute path and opens read-only,
+// rather than being dropped as it used to be.
+test("a definition outside the review root comes back as a library location", () => {
+  const root = tempProject();
   const outside = normalizeLocationResult({
     uri: pathToFileURL(join(root, "..", "outside.ts")).href,
     range: { start: { line: 1, character: 2 } },
   }, root);
-  assert.deepEqual(outside, []);
+  assert.equal(outside.length, 1);
+  assert.equal(outside[0].library, true);
+  assert.equal(isAbsolute(outside[0].path), true, "a library location is addressed absolutely");
 });
 
 test("TypeScript resolution uses the packaged sidecar before PATH", () => {

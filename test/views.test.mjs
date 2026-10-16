@@ -795,7 +795,7 @@ test("merged view: typing inside a comment card is impossible — it is not a co
   v.close();
 });
 
-test("merged view: Cmd+A visually selects the whole document (cards included), and Cmd+C then copies exactly what Copy all copies", async () => {
+test("merged view: Cmd+A visually selects the whole document (cards included), and Cmd+C then copies exactly what the hand-off button copies", async () => {
   const v = await loadViewer(html);
   v.window.addComment("q", "src/app.ts", 1, "", "first comment");
   v.window.addComment("c", "src/app.ts", 2, "", "second comment");
@@ -818,7 +818,7 @@ test("merged view: Cmd+A visually selects the whole document (cards included), a
   v.window.kakapoClipboard = { write: (text) => { copiedViaButton = text; } };
   v.$(".mc-copy-all").click();
   await v.settle(20);
-  assert.equal(copiedViaCmdC, copiedViaButton, "Cmd+C after Cmd+A copies exactly what the Copy all button copies");
+  assert.equal(copiedViaCmdC, copiedViaButton, "Cmd+C after Cmd+A copies exactly what the hand-off button copies");
   v.close();
 });
 
@@ -1319,7 +1319,7 @@ test("remapComments never drops a comment, even one anchored to a deleted/old-si
   v.close();
 });
 
-test("merged view copies grounded evidence via Copy all", async () => {
+test("merged view hands grounded evidence over and then empties itself", async () => {
   const v = await loadViewer(html);
   let copied = null;
   v.window.kakapoClipboard = { write: (text) => { copied = text; } };
@@ -1330,12 +1330,16 @@ test("merged view copies grounded evidence via Copy all", async () => {
   v.key("?", { metaKey: true }); // Cmd+? → merged view
   await v.settle(80);
   assert.ok(v.$("#mc-merged-panel"), "merged view renders");
-  const copyAll = v.$(".mc-copy-all");
-  assert.ok(copyAll, "the review handoff exposes a Copy all action");
-  copyAll.click();
-  await v.settle(20);
-  assert.match(copied, /shipit/, "Copy all writes the complete grounded review text");
-  assert.ok(v.$("#mc-merged-panel"), "copying keeps the evidence visible for inspection");
+  const handOff = v.$(".mc-copy-all");
+  assert.ok(handOff, "the review handoff exposes its copy-and-clear action");
+  handOff.click();
+  await v.settle(40);
+  assert.match(copied, /shipit/, "the complete grounded review text reached the clipboard");
+  // This used to assert the panel stayed open "to keep the evidence visible for inspection". A handed-over
+  // review is spent: it leaves the thread with the clipboard, so there is nothing left to keep visible —
+  // and Cmd+Z is the way back if it went too early (see merged-copy-clear.test.mjs).
+  assert.equal(v.$("#mc-merged-panel"), null, "the panel closes once the review has been handed over");
+  assert.equal(v.window.reviewComments.length, 0, "and the review is empty");
   v.close();
 });
 

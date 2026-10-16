@@ -9,7 +9,7 @@ import {
   SOURCE_MAX_LAZY_FILE_BYTES,
   SOURCE_MAX_TOTAL_BYTES,
 } from "./constants.js";
-import { ByteBudgetCache, formatBytes, hashText, isLikelyBinary, languageForPath, stripDiffPath } from "./util.js";
+import { ByteBudgetCache, formatBytes, hashText, isLikelyBinary, languageForPath, stripDiffPath, unquoteGitPath } from "./util.js";
 import { canonicalWorkspaceRoot, git, isGitRepository, repoRoot, RAW_PATHS } from "./git.js";
 
 // File content + signature cache, keyed by path and validated on (mtime, size). Under `watch` the app
@@ -47,7 +47,9 @@ export function readUnifiedDiff(options: {
   // folders and single files too (a design note under ~/.claude, a scratch directory), and those reviews are
   // the source tree with an empty diff. Throwing here left the window on its loading mark, silently.
   if (!isGitRepository(root)) return "";
-  const args = ["diff", "--no-ext-diff", "--find-renames", "--relative", `--unified=${options.context}`];
+  // --no-ext-diff and --no-textconv: both `diff.<driver>.command` and `diff.<driver>.textconv` are config
+  // the reviewed repository can set (.gitattributes picks the driver), and git runs them as commands.
+  const args = ["diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--relative", `--unified=${options.context}`];
   if (options.ignoreWhitespace) args.push("--ignore-all-space");
   if (options.target) {
     // Two-revision compare: no working tree/index side, so no --cached and no untracked append.
@@ -148,8 +150,12 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
   for (const line of content.split(/\r?\n/)) {
     if (line.startsWith("diff --git ")) {
       const match = line.match(/^diff --git a\/(.+) b\/(.+)$/);
-      const oldPath = match?.[1] ?? "unknown";
-      const newPath = match?.[2] ?? oldPath;
+      // A path git had to quote puts the `a/`…`b/` pair INSIDE the quotes — `diff --git "a/quo\"te.ts"
+      // "b/quo\"te.ts"` — so the plain pattern misses it entirely and the file was named "unknown" until a
+      // later `+++` line happened to correct it. Binary files have no such line.
+      const quoted = match ? null : line.slice("diff --git ".length).match(/^("(?:[^"\\]|\\.)*"|\S+) ("(?:[^"\\]|\\.)*"|\S+)$/);
+      const oldPath = match?.[1] ?? (quoted ? stripDiffPath(quoted[1]) : "unknown");
+      const newPath = match?.[2] ?? (quoted ? stripDiffPath(quoted[2]) : oldPath);
       current = {
         oldPath,
         newPath,
@@ -175,13 +181,17 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
       current.status = "deleted";
       continue;
     }
+    if (line.startsWith("old mode ") || line.startsWith("new mode ")) {
+      current.modeChanged = true;
+      continue;
+    }
     if (line.startsWith("rename from ")) {
       current.status = "renamed";
-      current.oldPath = line.slice("rename from ".length);
+      current.oldPath = unquoteGitPath(line.slice("rename from ".length));
       continue;
     }
     if (line.startsWith("rename to ")) {
-      current.newPath = line.slice("rename to ".length);
+      current.newPath = unquoteGitPath(line.slice("rename to ".length));
       current.displayPath = current.newPath;
       continue;
     }
@@ -231,7 +241,13 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
     }
   }
 
-  return files.filter((file) => file.binary || file.hunks.length > 0);
+  // A file git bothered to name is in the review even when it has no hunks, because several ordinary
+  // changes produce none: a 100%-similarity rename, a mode-only change (`chmod +x`), and an added or
+  // deleted empty file. Dropping those meant `git mv a.ts b.ts` plus `chmod +x m.sh` painted "No diff to
+  // review" — the reviewer's conclusion being that the agent had done nothing at all.
+  return files.filter((file) => (
+    file.binary || file.hunks.length > 0 || file.modeChanged || file.status !== "modified"
+  ));
 }
 
 // Files that get an inline base64 preview instead of source text: raster images, and PDFs — Chromium renders
@@ -284,7 +300,9 @@ function gitStatusMap(cwd: string): Map<string, "new" | "edited" | "staged"> {
     let path = line.slice(3);
     const arrow = path.indexOf(" -> ");
     if (arrow >= 0) path = path.slice(arrow + 4); // rename: color the new path
-    if (path.startsWith('"') && path.endsWith('"')) path = path.slice(1, -1);
+    // Porcelain quotes the same paths `diff` does, escapes included: stripping the quotes without decoding
+    // the escapes left `quo\"te.ts`, which matched no diff path, so the file never got its vcs colour.
+    path = unquoteGitPath(path);
     path = statusPathRelativeToPrefix(statusPrefix, path);
     if (!path) continue;
     let kind: "new" | "edited" | "staged";
@@ -574,7 +592,7 @@ function readTargetBlobSource(root: string, file: SourceFile, target: string): S
   const spec = `${target}:${prefix ? prefix + "/" : ""}${file.path}`;
   const previewMime = previewMimeForPath(file.path);
   if (previewMime) {
-    const out = spawnSync("git", ["show", spec], { cwd: root, encoding: "buffer", maxBuffer: 1024 * 1024 * 50 });
+    const out = spawnSync("git", [...RAW_PATHS, "show", "--no-textconv", spec], { cwd: root, encoding: "buffer", maxBuffer: 1024 * 1024 * 50 });
     if (out.status !== 0) {
       const skippedReason = "file is not present in this revision";
       return { ...file, content: "", embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0missing-target\0${target}`) };
@@ -586,7 +604,7 @@ function readTargetBlobSource(root: string, file: SourceFile, target: string): S
     }
     return { ...file, content: "", size: data.length, deferred: false, image: `data:${previewMime};base64,${data.toString("base64")}`, signature: hashText(`${file.path}\0image-target\0${data.length}`) };
   }
-  const out = spawnSync("git", ["show", spec], { cwd: root, encoding: "utf8", maxBuffer: 1024 * 1024 * 50 });
+  const out = spawnSync("git", [...RAW_PATHS, "show", "--no-textconv", spec], { cwd: root, encoding: "utf8", maxBuffer: 1024 * 1024 * 50 });
   if (out.status !== 0) {
     const skippedReason = "file is not present in this revision";
     return { ...file, content: "", embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0missing-target\0${target}`) };

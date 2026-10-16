@@ -15,7 +15,26 @@ export type AnalysisLocation = {
   name?: string;
   kind?: number;
   text?: string;
+  // The definition lives outside the review root — a dependency, a stdlib, a bundled type stub. `path` is
+  // then an absolute filesystem path instead of a repo-relative one, and the file opens read-only.
+  library?: true;
 };
+
+// Every path a language server has pointed at outside the review root. Following a definition into library
+// code reads a file the review root does not contain, so the renderer is never allowed to name one itself:
+// it may only ask for a path a server already returned in this session. Navigation stays unrestricted —
+// this only keeps the library reader from becoming a general "read any absolute path" IPC.
+const libraryPaths = new Set<string>();
+
+/** True for a path some language server reported as a definition outside the review root. */
+export function isKnownLibraryPath(path: string): boolean {
+  return libraryPaths.has(path.replace(/\\/g, "/"));
+}
+
+/** Test seam: forget the session's library paths. */
+export function resetKnownLibraryPaths(): void {
+  libraryPaths.clear();
+}
 
 export type DiagnosticSeverity = "error" | "warning" | "info" | "hint";
 
@@ -211,7 +230,17 @@ const SERVER_SPECS: Record<string, ServerSpec[]> = {
 // that npm-installs @types packages and watches node_modules for changes — a background download and a pile
 // of fs watchers in aid of a read-only review. A whole process gone is a real saving, unlike a heap flag.
 const INIT_OPTIONS: Record<string, Record<string, unknown>> = {
-  typescript: { disableAutomaticTypingAcquisition: true },
+  typescript: {
+    disableAutomaticTypingAcquisition: true,
+    // Pin tsserver to the copy kakapo ships. Without this, typescript-language-server resolves the
+    // WORKSPACE TypeScript first — `<root>/node_modules/typescript/lib/tsserver.js` — and forks it. The
+    // reviewed repository supplies that file, kakapo hosts language servers as Electron-as-node, and the
+    // analysis prewarm starts a server on its own after the review paints: a repo that ships a file at that
+    // path would run code on the reviewer's machine with no click at all. A valid user setting
+    // short-circuits the workspace lookup entirely (findTypescriptVersion), so the repo's copy is never
+    // consulted.
+    tsserver: { path: join(APP_ROOT, "node_modules", "typescript", "lib", "tsserver.js") },
+  },
 };
 
 const NODE_SERVER_ENTRIES: Record<string, { name: string; entry: string; args: string[] }> = {
@@ -410,8 +439,16 @@ export function resolveBundledLanguageServer(
 }
 
 // An explicit developer override wins. Normal app execution is bundle-first so semantic analysis never
-// depends on the shell PATH inherited by a GUI process. A project-local server is retained only as a
-// development fallback when a source checkout has not installed its platform sidecar bundle yet.
+// depends on the shell PATH inherited by a GUI process.
+//
+// The project-local fallback below — `<root>/node_modules/.bin`, `<root>/.venv/bin`, `<root>/bin` — is a
+// developer convenience for a source checkout whose platform sidecar bundle is not installed yet, and it
+// resolves an executable from INSIDE the repository being reviewed. kakapo's whole premise is reading code
+// you have not read yet, and the analysis prewarm starts a server on its own after the review paints, so a
+// repo shipping `bin/gopls` would have run with no click at all. It now takes an explicit opt-in: a
+// reviewer who means to run a checkout's own servers says so once, in the environment, the same way the
+// per-family KAKAPO_LSP_* overrides work. Without it, "no server available" is the answer.
+const PROJECT_SERVERS_OPT_IN = "KAKAPO_LSP_PROJECT_SERVERS";
 export function resolveLanguageServer(
   root: string,
   path: string,
@@ -435,6 +472,7 @@ export function resolveLanguageServer(
   }
   const bundled = resolveBundledLanguageServer(path, root, env, platform, arch);
   if (bundled) return bundled;
+  if (!env[PROJECT_SERVERS_OPT_IN]) return undefined;
   for (const spec of SERVER_SPECS[family] ?? []) {
     const command = projectDirs
       .map((dir) => join(dir, spec.binary + suffix))
@@ -651,6 +689,13 @@ export class LspClient {
         this.notify("textDocument/didOpen", { textDocument: { uri, languageId: lspLanguageId(path), version, text } });
       } else {
         this.notify("textDocument/didChange", { textDocument: { uri, version }, contentChanges: [{ text }] });
+        // The diagnostics held for this uri describe the version that just stopped existing, at ITS line
+        // numbers. Keeping them — and keeping the uri in publishedUris, which is what tells diagnosticsFor
+        // not to wait — meant the next read answered from the previous version: an agent fixed a type error,
+        // the watch rebuild re-read the file, and the squiggle stayed, parked on whatever line had moved
+        // into its place. Forget both, so the next read waits for the server's fresh publish.
+        this.diagnostics.delete(uri);
+        this.publishedUris.delete(uri);
       }
       this.opened.set(uri, { mtimeMs: stat.mtimeMs, version });
     });
@@ -906,20 +951,27 @@ export function normalizeLocationResult(result: unknown, root: string): Analysis
     let absolute: string;
     try { absolute = uri.startsWith("file:") ? fileURLToPath(uri) : uri; } catch { continue; }
     // Language servers commonly canonicalize symlinks (macOS also reports /private/var for /var).
-    // Compare canonical paths so valid in-workspace results are not discarded, while still rejecting
-    // every location that escapes the review root.
+    // Compare canonical paths so an in-workspace result is reported relative to the root, and anything
+    // outside it is kept as a library location — an absolute path the reviewer can read but not edit.
     let canonicalRoot: string;
     let canonicalAbsolute: string;
     try { canonicalRoot = realpathSync(root); } catch { canonicalRoot = resolve(root); }
     try { canonicalAbsolute = realpathSync(absolute); } catch { canonicalAbsolute = resolve(absolute); }
+    if (canonicalAbsolute === canonicalRoot) continue; // the root directory itself is not a location
     const rel = relative(canonicalRoot, canonicalAbsolute).replace(/\\/g, "/");
-    if (!rel || rel.startsWith("../") || resolve(canonicalRoot, rel) !== canonicalAbsolute) continue;
+    const inside = Boolean(rel) && !rel.startsWith("../") && resolve(canonicalRoot, rel) === canonicalAbsolute;
+    const libraryPath = canonicalAbsolute.replace(/\\/g, "/"); // one spelling, so a renderer round-trip still matches
+    if (!inside) libraryPaths.add(libraryPath);
     out.push({
-      path: rel,
-      lineIndex: Math.max(0, Number(range.start.line) || 0),
-      column: Math.max(0, Number(range.start.character) || 0),
-      endLineIndex: Math.max(0, Number(range.end?.line) || Number(range.start.line) || 0),
-      endColumn: Math.max(0, Number(range.end?.character) || Number(range.start.character) || 0),
+      path: inside ? rel : libraryPath,
+      ...(inside ? {} : { library: true as const }),
+      lineIndex: nonNegativeInt(range.start.line) ?? 0,
+      column: nonNegativeInt(range.start.character) ?? 0,
+      // `?? fallback`, not `|| fallback`: a range legitimately ENDS at character 0 of the next line, and
+      // treating that 0 as missing reported the end at the start's column instead, overshooting the
+      // highlight by however far into the line the symbol began.
+      endLineIndex: nonNegativeInt(range.end?.line) ?? nonNegativeInt(range.start.line) ?? 0,
+      endColumn: nonNegativeInt(range.end?.character) ?? nonNegativeInt(range.start.character) ?? 0,
       name: value.name,
       kind: value.kind,
     });

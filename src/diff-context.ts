@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { isAbsolute, relative, resolve } from "node:path";
 import { parseUnifiedDiff } from "./diff.js";
-import { canonicalWorkspaceRoot, repoRoot } from "./git.js";
+import { canonicalWorkspaceRoot, repoRoot, RAW_PATHS } from "./git.js";
 
 export type DiffContextRequest = {
   path?: unknown;
@@ -95,7 +95,7 @@ function boundedRange(startValue: unknown, endValue: unknown): { start: number; 
 }
 
 function readGitBlob(root: string, spec: string): string | null {
-  const result = spawnSync("git", ["show", spec], {
+  const result = spawnSync("git", [...RAW_PATHS, "show", "--no-textconv", spec], {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 1024 * 1024 * 50,

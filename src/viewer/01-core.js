@@ -825,6 +825,35 @@ function mergeSourceRecord(record) {
   file.__loaded = true;
   return file;
 }
+// Library navigation. A definition can point at a file the project index does not hold — inside
+// node_modules, which the index skips on purpose, or outside the review root altogether (a stdlib module, a
+// bundled type stub). Main reads those on demand (librarySource in app-review-ipc.ts); here they join
+// sourceByPath, so the ordinary source view can paint one, but they never join sourceFiles, so the file tree
+// and quick-open stay the project's own files. That is how IntelliJ treats library sources too: you can read
+// them, you did not add them to the project.
+var libraryLoadPromises = Object.create(null);
+function loadLibrarySourceFile(path) {
+  if (sourceByPath.has(path)) return Promise.resolve(sourceByPath.get(path));
+  if (libraryLoadPromises[path]) return libraryLoadPromises[path];
+  if (!(typeof window !== 'undefined' && window.kakapoFile && typeof window.kakapoFile.getSource === 'function')) {
+    return Promise.resolve(null);
+  }
+  var promise = Promise.resolve()
+    .then(function () { return window.kakapoFile.getSource(path); })
+    .then(function (record) {
+      if (!record || !record.path) return null;
+      record.__loaded = true;
+      sourceByPath.set(record.path, record);
+      return sourceByPath.get(path) || null;
+    }, function () { return null; });
+  libraryLoadPromises[path] = promise;
+  return promise;
+}
+function isLibrarySourcePath(path) {
+  var file = sourceByPath.get(path);
+  return Boolean(file && file.library);
+}
+
 function loadSourceFile(path) {
   var file = sourceByPath.get(path);
   if (!file || sourceContentLoaded(file)) return Promise.resolve(file || null);

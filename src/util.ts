@@ -1,5 +1,32 @@
-import { closeSync, openSync, readFileSync, readSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { isAbsolute, relative, resolve } from "node:path";
+
+/**
+ * Resolve a path the renderer asked for, inside `root`, or undefined if it leaves the root.
+ *
+ * A lexical check alone (resolve + relative + "../") is not enough, because the reviewed repository can
+ * track a symlink: `leak.png -> ../../../../.ssh/id_rsa` keeps the LINK inside the root, and every reader in
+ * node_fs follows it. So the containment question is asked about the canonical path, and the canonical path
+ * is what gets returned and read. Returns undefined for anything that does not resolve (a dangling link,
+ * a missing file), which every caller already treats as "nothing to show".
+ */
+export function containedRealPath(root: string, requested: string): string | undefined {
+  if (!requested || isAbsolute(requested)) return undefined;
+  let realRoot: string;
+  let realTarget: string;
+  try {
+    realRoot = realpathSync(resolve(root));
+    realTarget = realpathSync(resolve(realRoot, requested));
+  } catch {
+    return undefined;
+  }
+  const within = relative(realRoot, realTarget);
+  if (!within || within === ".." || within.startsWith("../") || within.startsWith("..\\") || isAbsolute(within)) {
+    return undefined;
+  }
+  return realTarget;
+}
 
 export function stripHtmlTags(value: string): string {
   return value.replace(/<[^>]*>/g, "");
@@ -20,11 +47,49 @@ export function decodeEntities(value: string): string {
     .replace(/&amp;/g, "&");
 }
 
+/**
+ * Undo git's C-style quoting of a path it prints.
+ *
+ * `core.quotePath=false` (RAW_PATHS in git.ts) stops git escaping non-ASCII bytes, but it does NOT stop the
+ * quoting of a path containing `"`, `\`, a tab or a newline — git wraps those in double quotes and escapes
+ * the offending bytes whatever quotePath says. Left raw, a file named `quo"te.ts` arrived as the literal
+ * `"b/quo\"te.ts"`: the leading quote hid the `b/` prefix from stripDiffPath, the tree grew a phantom `"b`
+ * directory, nothing could stat the file, and the record came back "file is not present in the working
+ * tree" — which is the exact string commentFileIsKnownMissing matches, so every comment on that file was
+ * deleted and saved away.
+ */
+export function unquoteGitPath(value: string): string {
+  if (value.length < 2 || !value.startsWith('"') || !value.endsWith('"')) return value;
+  const body = value.slice(1, -1);
+  let out = "";
+  for (let i = 0; i < body.length; i += 1) {
+    if (body[i] !== "\\") { out += body[i]; continue; }
+    const next = body[i + 1];
+    if (next === undefined) break;
+    const octal = body.slice(i + 1, i + 4);
+    if (/^[0-7]{3}$/.test(octal)) {
+      // Non-ASCII bytes come through as one escape per BYTE, so collect the whole run and decode it as
+      // UTF-8 in one go — decoding each byte on its own would mangle every multi-byte character.
+      const bytes: number[] = [];
+      while (/^\\[0-7]{3}/.test(body.slice(i, i + 4))) {
+        bytes.push(parseInt(body.slice(i + 1, i + 4), 8));
+        i += 4;
+      }
+      i -= 1;
+      out += Buffer.from(bytes).toString("utf8");
+      continue;
+    }
+    out += next === "t" ? "\t" : next === "n" ? "\n" : next === "r" ? "\r" : next;
+    i += 1;
+  }
+  return out;
+}
+
 export function stripDiffPath(value: string): string {
   if (value === "/dev/null") {
     return value;
   }
-  return value.replace(/^[ab]\//, "");
+  return unquoteGitPath(value).replace(/^[ab]\//, "");
 }
 
 export function languageForPath(path: string): string {
