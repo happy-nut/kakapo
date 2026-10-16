@@ -24,13 +24,42 @@ function write(root, path, content) {
   writeFileSync(absolute, content);
 }
 
+// `prewarm` gets a server past `initialize`; it does not get it past INDEXING. A cold JDT LS on a Maven
+// project, or rust-analyzer on a fresh cargo tree, can still be building its model when the first definition
+// request arrives, and the client's 8s request timeout then rejects — correctly, because interactively that
+// is exactly what should happen: fail fast and show the regex index rather than freeze the navigation.
+//
+// The budget is deliberately below every test's own timeout below, so a bundle that really is broken fails
+// with the reason the server gave rather than with a bare "test timed out", which says nothing.
+const WARM_BUDGET_MS = 90_000;
+const BUNDLE_TEST_TIMEOUT_MS = 150_000;
+
+// So the first answer being "index" does not mean the bundle is broken, and asserting on it made this suite
+// fail on whichever runner happened to be slowest that day (Linux arm64, Java, on a release that had passed
+// the identical job on the PR — and it took the release down with it). Ask again until the server is warm,
+// inside the test's own budget. A bundle that never answers still fails, with the last reason it gave.
+async function queryUntilWarm(analysis, request, family, budgetMs = WARM_BUDGET_MS) {
+  const deadline = Date.now() + budgetMs;
+  let result = await analysis.query(request);
+  while (result.engine !== "lsp" && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    result = await analysis.query(request);
+  }
+  assert.equal(
+    result.engine,
+    "lsp",
+    `${family} never answered semantically within ${budgetMs}ms: ${result.fallbackReason ?? "no reason"}`,
+  );
+  return result;
+}
+
 async function expectSemanticDefinition({ family, path, line, column, symbol, expectedPath, server, prepare }) {
   const root = project();
   prepare(root);
   const analysis = new ProjectAnalysis(root);
   try {
     await analysis.prewarm([path]);
-    const result = await analysis.query({ kind: "definition", path, line, column, symbol });
+    const result = await queryUntilWarm(analysis, { kind: "definition", path, line, column, symbol }, family);
     assert.equal(result.engine, "lsp", `${family} must use semantic analysis: ${result.fallbackReason ?? "no reason"}`);
     assert.equal(result.confidence, "semantic");
     assert.equal(result.server, server);
@@ -45,7 +74,7 @@ afterEach(() => {
   while (dirs.length) rmSync(dirs.pop(), { recursive: true, force: true });
 });
 
-test("bundled TypeScript server resolves a cross-file definition", { timeout: 30_000 }, async () => expectSemanticDefinition({
+test("bundled TypeScript server resolves a cross-file definition", { timeout: BUNDLE_TEST_TIMEOUT_MS }, async () => expectSemanticDefinition({
   family: "typescript", path: "src/app.ts", line: 1, column: 23, symbol: "target", expectedPath: "src/target.ts", server: "typescript-language-server",
   prepare(root) {
     write(root, "tsconfig.json", JSON.stringify({ compilerOptions: { module: "commonjs", target: "es2022" }, include: ["src"] }));
@@ -54,7 +83,7 @@ test("bundled TypeScript server resolves a cross-file definition", { timeout: 30
   },
 }));
 
-test("bundled Pyright resolves a cross-file definition", { timeout: 30_000 }, async () => expectSemanticDefinition({
+test("bundled Pyright resolves a cross-file definition", { timeout: BUNDLE_TEST_TIMEOUT_MS }, async () => expectSemanticDefinition({
   family: "python", path: "src/app.py", line: 1, column: 10, symbol: "target", expectedPath: "src/target.py", server: "pyright-langserver",
   prepare(root) {
     write(root, "pyrightconfig.json", JSON.stringify({ include: ["src"] }));
@@ -64,7 +93,7 @@ test("bundled Pyright resolves a cross-file definition", { timeout: 30_000 }, as
 }));
 
 test("bundled gopls resolves a cross-file definition", {
-  timeout: 45_000,
+  timeout: BUNDLE_TEST_TIMEOUT_MS,
   skip: !bundled.go || !existsSync(bundled.go),
 }, async () => expectSemanticDefinition({
   family: "go", path: "app.go", line: 2, column: 13, symbol: "Target", expectedPath: "target.go", server: "gopls",
@@ -76,7 +105,7 @@ test("bundled gopls resolves a cross-file definition", {
 }));
 
 test("bundled rust-analyzer resolves a cross-file definition", {
-  timeout: 45_000,
+  timeout: BUNDLE_TEST_TIMEOUT_MS,
   skip: !bundled.rust || !existsSync(bundled.rust),
 }, async () => expectSemanticDefinition({
   family: "rust", path: "src/lib.rs", line: 2, column: 25, symbol: "target", expectedPath: "src/target.rs", server: "rust-analyzer",
@@ -88,7 +117,7 @@ test("bundled rust-analyzer resolves a cross-file definition", {
 }));
 
 test("bundled clangd resolves a header definition", {
-  timeout: 30_000,
+  timeout: BUNDLE_TEST_TIMEOUT_MS,
   skip: !bundled.clang || !existsSync(bundled.clang),
 }, async () => expectSemanticDefinition({
   family: "clang", path: "main.c", line: 1, column: 25, symbol: "target", expectedPath: "target.h", server: "clangd",
@@ -99,7 +128,7 @@ test("bundled clangd resolves a header definition", {
 }));
 
 test("bundled JDT LS and JRE resolve a Java definition", {
-  timeout: 45_000,
+  timeout: BUNDLE_TEST_TIMEOUT_MS,
   skip: !bundled.java || !existsSync(bundled.java),
 }, async () => expectSemanticDefinition({
   family: "java", path: "src/main/java/sample/App.java", line: 3, column: 17, symbol: "Target", expectedPath: "src/main/java/sample/Target.java", server: "eclipse-jdtls",
@@ -111,7 +140,7 @@ test("bundled JDT LS and JRE resolve a Java definition", {
 }));
 
 test("bundled official Kotlin LSP resolves a Gradle project definition", {
-  timeout: 120_000,
+  timeout: BUNDLE_TEST_TIMEOUT_MS,
   // The bundled Kotlin intellij-server intermittently fails to register on the Linux release runner (resolves
   // to the regex index instead of the LSP) even though the runner image, the checksum-pinned Kotlin artifact,
   // and this code are all identical to releases where it passed. Until that Linux CI/LSP issue is root-caused,
@@ -129,7 +158,7 @@ test("bundled official Kotlin LSP resolves a Gradle project definition", {
 }));
 
 test("bundled Sorbet resolves a typed Ruby definition", {
-  timeout: 30_000,
+  timeout: BUNDLE_TEST_TIMEOUT_MS,
   skip: !bundled.ruby || !existsSync(bundled.ruby),
 }, async () => expectSemanticDefinition({
   family: "ruby", path: "app.rb", line: 2, column: 2, symbol: "Target", expectedPath: "target.rb", server: "sorbet",
@@ -140,7 +169,7 @@ test("bundled Sorbet resolves a typed Ruby definition", {
 }));
 
 test("bundled static PHP runtime and Phpactor resolve a definition", {
-  timeout: 30_000,
+  timeout: BUNDLE_TEST_TIMEOUT_MS,
   skip: !bundled.php || !existsSync(bundled.php),
 }, async () => expectSemanticDefinition({
   family: "php", path: "src/App.php", line: 2, column: 16, symbol: "Target", expectedPath: "src/Target.php", server: "phpactor",
