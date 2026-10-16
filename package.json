@@ -73,7 +73,7 @@
     "dompurify": "3.4.13",
     "jsdom": "^29.1.1",
     "markdown-it": "14.3.0",
-    "mermaid": "^11.16.1",
+    "mermaid": "^12.2.0",
     "terser": "^5.48.0"
   },
   "engines": {
