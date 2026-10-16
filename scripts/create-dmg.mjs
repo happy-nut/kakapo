@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +33,12 @@ export function createMacDmg({
 
   mkdirSync(dirname(dmgPath), { recursive: true });
   rmSync(dmgPath, { force: true });
+
+  // The bundle's own `kakapo` command. electron-packager copies bin/ verbatim, and a copy that lost its
+  // exec bit would be a Homebrew cask linking a file nobody can run — so set it here, where the bundle that
+  // actually ships is in hand, rather than trusting the copy.
+  const bundledCli = join(resolve(appPath), "Contents", "Resources", "app", "bin", "kakapo-bundled.sh");
+  if (existsSync(bundledCli)) chmodSync(bundledCli, 0o755);
 
   try {
     run("ditto", [resolve(appPath), join(stagingDir, basename(appPath))]);

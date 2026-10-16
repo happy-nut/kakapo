@@ -27,7 +27,16 @@ Coding agents are fast. Reading their output is not. Kakapo is built for that ha
 
 ### macOS (Apple Silicon)
 
-Download `Kakapo-<version>-arm64.dmg` from [Releases](https://github.com/happy-nut/kakapo/releases). The build is unsigned, so the first launch needs right-click → **Open** to get past Gatekeeper.
+```bash
+brew install --cask happy-nut/tap/kakapo
+```
+
+That installs the app *and* the `kakapo` command, so `kakapo .` in a repository works straight away. The
+build is unsigned — the cask clears the quarantine flag for you, which a manual download does not, so a
+`.dmg` taken from [Releases](https://github.com/happy-nut/kakapo/releases) still needs right-click →
+**Open** on first launch.
+
+`brew upgrade --cask kakapo` follows every release.
 
 ### Linux (x64 / ARM64)
 

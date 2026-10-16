@@ -110,12 +110,17 @@ function launchReviewApp(args: string[]): void {
   if (process.env.KAKAPO_DEV === "1") {
     console.error(`kakapo: launching ${appMainPath()}`);
   }
+  // The child is the APP, not another node process. When this CLI is itself running as Electron-hosted node
+  // — which is how the packaged bundle's `kakapo` runs — that variable is in our own environment, and the
+  // child would execute app-main.js as a bare script and open no window at all.
+  const appEnv = { ...process.env };
+  delete appEnv.ELECTRON_RUN_AS_NODE;
   if (args.includes("--foreground")) {
-    const result = spawnSync(electronBinary, appArgs, { stdio: "inherit" });
+    const result = spawnSync(electronBinary, appArgs, { stdio: "inherit", env: appEnv });
     process.exit(result.status ?? 0);
   }
 
-  const child = spawn(electronBinary, appArgs, { detached: true, stdio: "ignore" });
+  const child = spawn(electronBinary, appArgs, { detached: true, stdio: "ignore", env: appEnv });
   child.unref();
   console.log("Opened kakapo review app.");
 }
@@ -148,7 +153,9 @@ export function ensureElectronRuntimeBranded(deps: ElectronBrandDeps = {}): void
 }
 
 function resolveElectronBinary(): string {
-  const electronModule = nodeRequire("electron") as unknown;
+  // The npm install asks the electron package where its binary is.
+  let electronModule: unknown;
+  try { electronModule = nodeRequire("electron"); } catch { electronModule = undefined; }
   if (typeof electronModule === "string") {
     return electronModule;
   }
@@ -157,6 +164,13 @@ function resolveElectronBinary(): string {
     if (typeof value === "string") {
       return value;
     }
+  }
+  // The packaged app has no node_modules/electron to ask — pack:mac leaves it out, because the bundle IS
+  // Electron. A CLI running out of that bundle is that same binary hosted as node, so its own executable is
+  // the runtime to launch the window with. Without this, `kakapo .` from a .dmg install (and so from the
+  // Homebrew cask) could print its help and nothing else.
+  if (process.versions.electron) {
+    return process.execPath;
   }
   throw new Error("Electron runtime is not available. Run `npm install` and try again.");
 }

@@ -56,3 +56,9 @@ jobs:
             gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --generate-notes
           fi
           gh release upload "$RELEASE_TAG" release/Kakapo-*.dmg --clobber
+          # A second copy under a name that never changes. The Homebrew cask points at
+          # releases/latest/download/Kakapo-arm64.dmg, so `brew upgrade --cask kakapo` follows every release
+          # with no formula edit and no token into the tap repository. Staged outside release/ so the glob
+          # above cannot pick it up on a re-run.
+          cp release/Kakapo-*-arm64.dmg "$RUNNER_TEMP/Kakapo-arm64.dmg"
+          gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/Kakapo-arm64.dmg" --clobber
