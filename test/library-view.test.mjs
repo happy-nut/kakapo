@@ -56,6 +56,15 @@ test("a library file opens in the source view and says what it is", async () => 
       v.$("#source-tabs").querySelector(`.source-tab[data-tab-path="${LIBRARY_PATH}"]`),
       "it gets an ordinary tab, so it can be closed like any other",
     );
+    // Its absolute path is not a tree inside this project. Split into crumbs it read as one —
+    // `opt › ts › lib › lib.es2022.d.ts` — which invents a structure the reviewer does not have.
+    const crumbs = v.$("#source-title");
+    assert.ok(crumbs.querySelector(".crumb-library"), "the breadcrumb says the file is from outside the review");
+    assert.equal(
+      crumbs.querySelector(".crumb-leaf").textContent,
+      LIBRARY_PATH,
+      "and shows the path whole, instead of pretending its segments are project directories",
+    );
   } finally {
     v.close();
   }
