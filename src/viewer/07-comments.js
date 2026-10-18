@@ -19,7 +19,11 @@ function showToast(message) {
 // message appears where the user is looking and fades on its own (unlike the corner toast). Falls back to the
 // corner toast when there's no on-screen caret (e.g. source view).
 var caretHintEl = null, caretHintTimer = 0;
-function showCaretHint(message, anchor) {
+// `sticky` keeps the hint up until something replaces or hides it, instead of fading after two seconds.
+// A "looking for X…" that disappears while the answer is still coming is worse than no hint at all: a cold
+// language server has eight seconds to reply (REQUEST_TIMEOUT_MS), so the reviewer got the message for two
+// of them and then six seconds of a screen that looks like the key was never pressed.
+function showCaretHint(message, anchor, sticky) {
   // Anchor to the caret in the VISIBLE view. Both the source and diff carets persist in the DOM, so the
   // hidden view's .code-cursor is still queryable — and while it is display:none its rect is all-zero, which
   // would pin the hint at the window's top-left, over the macOS traffic lights. Gate candidates by which view
@@ -39,7 +43,17 @@ function showCaretHint(message, anchor) {
   var row = null;
   for (var i = 0; i < candidates.length; i++) { if (candidates[i]) { row = candidates[i]; break; } }
   if (!row || (!row.getBoundingClientRect && !Number.isFinite(Number(row.bottom)))) { showToast(message); return; }
-  if (!caretHintEl) { caretHintEl = document.createElement('div'); caretHintEl.className = 'mc-caret-hint'; document.body.appendChild(caretHintEl); }
+  if (!caretHintEl) {
+    caretHintEl = document.createElement('div');
+    caretHintEl.className = 'mc-caret-hint';
+    // This is the app's whole answer to a navigation key — "looking for X…", "definition not found",
+    // "still reading the project". Without a live region a screen reader never hears any of it, so the key
+    // press has no outcome at all for anyone not watching that corner of the window. Polite, not assertive:
+    // it is informational, and it should not cut across whatever is being read.
+    caretHintEl.setAttribute('role', 'status');
+    caretHintEl.setAttribute('aria-live', 'polite');
+    document.body.appendChild(caretHintEl);
+  }
   caretHintEl.textContent = message;
   var r = row.getBoundingClientRect ? row.getBoundingClientRect() : row;
   caretHintEl.style.left = Math.round(Math.max(8, r.left)) + 'px';
@@ -48,7 +62,7 @@ function showCaretHint(message, anchor) {
   void caretHintEl.offsetWidth; // reflow so the fade-in re-triggers on rapid repeat presses
   caretHintEl.classList.add('show');
   if (caretHintTimer) clearTimeout(caretHintTimer);
-  caretHintTimer = setTimeout(function () { if (caretHintEl) caretHintEl.classList.remove('show'); }, 2000);
+  if (!sticky) caretHintTimer = setTimeout(function () { if (caretHintEl) caretHintEl.classList.remove('show'); }, 2000);
 }
 function hideCaretHint() {
   if (caretHintTimer) { clearTimeout(caretHintTimer); caretHintTimer = 0; }
@@ -1350,6 +1364,7 @@ function sortedNavThread() {
 var centerThreadTarget = 0;
 function centerThreadRow(path, line, side, tries, token) {
   var mine = token === undefined ? ++centerThreadTarget : token;
+  flushSourceRows(); // the thread can be anchored anywhere, not only in a big file's painted window
   requestAnimationFrame(function () {
     if (mine !== centerThreadTarget) return;
     var row = null;

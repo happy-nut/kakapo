@@ -89,6 +89,25 @@ function renderBreadcrumb(container, path) {
     sep.textContent = '›';
     container.appendChild(sep);
   }
+  // A library file is addressed absolutely, because no path relative to this project can name it. Splitting
+  // it into crumbs read as a project structure that does not exist — `opt › ts › lib › lib.es2022.d.ts` —
+  // so it keeps its own shape: the containing directory, then the file, marked as from outside the review.
+  if (isLibrarySourcePath(path)) {
+    const away = document.createElement('span');
+    away.className = 'crumb crumb-library';
+    away.textContent = t('source.library');
+    container.appendChild(away);
+    const sep = document.createElement('span');
+    sep.className = 'crumb-sep';
+    sep.textContent = '›';
+    container.appendChild(sep);
+    const leaf = document.createElement('span');
+    leaf.className = 'crumb crumb-leaf';
+    leaf.textContent = String(path || '');
+    leaf.title = String(path || '');
+    container.appendChild(leaf);
+    return;
+  }
   const parts = (path || '').split('/').filter(Boolean);
   parts.forEach((seg, i) => {
     if (i > 0) {
