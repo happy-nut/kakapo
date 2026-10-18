@@ -1350,6 +1350,7 @@ function sortedNavThread() {
 var centerThreadTarget = 0;
 function centerThreadRow(path, line, side, tries, token) {
   var mine = token === undefined ? ++centerThreadTarget : token;
+  flushSourceRows(); // the thread can be anchored anywhere, not only in a big file's painted window
   requestAnimationFrame(function () {
     if (mine !== centerThreadTarget) return;
     var row = null;

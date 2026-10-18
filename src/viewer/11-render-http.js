@@ -770,6 +770,115 @@ function populateHttpEnvSelect() {
   }
 }
 
+// Painting a big file is 85-93% of what a reviewer waits through when they follow a definition: measured in
+// the real app, a 30k-line destination took 782ms end to end, of which the language server was 62ms and the
+// rest was building every line into the DOM. So a big file paints the rows around the caret first and fills
+// the rest in afterwards, with exact-height spacers standing in for what is not there yet — nothing shifts
+// under the reader when a spacer becomes real rows, because source rows are a fixed monospace height
+// (the same assumption scheduleSourceReveal already computes scroll from).
+//
+// Anything that needs a row that has not been built yet calls flushSourceRows() first, which finishes the
+// job synchronously — so the worst case is exactly today's behaviour, and no caller has to learn about a
+// row that might not exist.
+// A FUNCTION, not module-level constants: this file is one slice of a concatenated bundle, and a session
+// restored into the source view renders a table from an earlier slice during load — before anything
+// declared here has been assigned. As `let` that read throws; as `var` it reads `undefined`, which silently
+// produced a NaN window and painted zero rows. Function declarations hoist, so this is readable from the
+// first render on. (TOKEN_SETS below is the same hazard, found the same way.)
+function sourceProgressiveLimits() {
+  return {
+    minRows: 2000,   // below this a single-shot render is already fast — 74ms at 1k lines, measured
+    windowRows: 400, // painted immediately, around the caret
+    chunkRows: 2000, // appended per frame afterwards
+  };
+}
+// Declared WITHOUT initialisers on purpose. `var` hoists the declaration but runs the assignment when the
+// statement is reached — and a session restored into the source view renders a table from an earlier slice
+// during script load, so `= null` here would run AFTER that render and wipe the fill it had just set up.
+// The file stayed at its first window forever, and the chunk timer's id was lost with it. Undefined reads
+// as "no fill outstanding", which is the same thing null meant.
+var sourceFill;      // { path, rowStarts, build } while a fill is outstanding
+var sourceFillTimer; // the outstanding chunk timer, if any
+
+function sourceRowSpacerHtml(fromRow, toRow, height) {
+  return '<tr class="source-spacer" data-spacer-from="' + fromRow + '" data-spacer-to="' + toRow
+    + '" style="height:' + height + 'px"><td colspan="2"></td></tr>';
+}
+
+// Replace one spacer with the rows it stands for. Splitting rather than doing the whole spacer keeps a
+// single frame short; `limit` of 0 means "all of it".
+function expandSourceSpacer(spacer, limit) {
+  if (!sourceFill || !spacer) return false;
+  const from = Number(spacer.dataset.spacerFrom);
+  const to = Number(spacer.dataset.spacerTo);
+  if (!(to > from)) { spacer.remove(); return false; }
+  // Fill from the END of a leading spacer and the START of a trailing one, so growth always happens next
+  // to the rows already on screen and the reader's viewport never moves.
+  const leading = spacer.nextElementSibling && spacer.nextElementSibling.classList.contains('source-row');
+  const count = limit > 0 ? Math.min(limit, to - from) : to - from;
+  const start = leading ? to - count : from;
+  const end = start + count;
+  const html = sourceFill.build(start, end);
+  const rest = leading ? [from, start] : [end, to];
+  const frag = document.createElement('tbody');
+  frag.innerHTML = html;
+  const rows = Array.prototype.slice.call(frag.children);
+  const parent = spacer.parentNode;
+  if (!parent) return false;
+  rows.forEach(function (row) { parent.insertBefore(row, spacer); });
+  if (rest[1] > rest[0]) {
+    spacer.dataset.spacerFrom = String(rest[0]);
+    spacer.dataset.spacerTo = String(rest[1]);
+    spacer.style.height = ((rest[1] - rest[0]) * (sourceRowHeight() || 18)) + 'px';
+    if (leading) parent.insertBefore(spacer, rows[0]);
+  } else {
+    spacer.remove();
+  }
+  return true;
+}
+
+/** Finish every outstanding row of the open file, now. Cheap when there is nothing left to do. */
+function flushSourceRows() {
+  const body = document.getElementById('source-body');
+  if (!sourceFill || !body) return;
+  let spacer;
+  let guard = 0;
+  while ((spacer = body.querySelector('.source-spacer')) && guard++ < 500) expandSourceSpacer(spacer, 0);
+  const filled = sourceFill.path;
+  sourceFill = undefined;
+  sourceRowsCompleted(filled);
+}
+
+// Comments and the blame gutter decorate rows, and they ran when only the window existed. Re-run them once
+// the rest has arrived rather than teaching each one to wait.
+function sourceRowsCompleted(path) {
+  const viewer = document.getElementById('source-viewer');
+  if (!viewer || viewer.dataset.openPath !== path) return;
+  try { renderSourceComments(); } catch (e) {}
+  try { refreshSourceBlamePaint(path); } catch (e) {}
+  try { refreshSourceDiagnostics(path); } catch (e) {}
+}
+
+// A timer, not requestAnimationFrame. The first fill is scheduled from the render itself, and a session
+// restored into the source view renders during script load — an rAF asked for at that point never fired
+// under jsdom, so the file stayed at its first window forever and only the tests noticed. Chunk work does
+// not need frame alignment anyway; it needs to not be in the way of the first paint.
+function scheduleSourceFill() {
+  if (sourceFillTimer || !sourceFill) return;
+  sourceFillTimer = setTimeout(function () {
+    sourceFillTimer = undefined;
+    const body = document.getElementById('source-body');
+    if (!sourceFill || !body) return;
+    const spacer = body.querySelector('.source-spacer');
+    if (!spacer) { sourceFill = undefined; return; }
+    expandSourceSpacer(spacer, sourceProgressiveLimits().chunkRows);
+    if (body.querySelector('.source-spacer')) { scheduleSourceFill(); return; }
+    const filled = sourceFill.path;
+    sourceFill = undefined;
+    sourceRowsCompleted(filled);
+  }, 16);
+}
+
 function renderSourceTable(file, query) {
   const normalizedQuery = query.trim().toLowerCase();
   const lines = file.content.split(/\r?\n/);
@@ -784,8 +893,18 @@ function renderSourceTable(file, query) {
   const changedSet = new Set(file.changedLines || []);
   const folds = normalizedQuery ? [] : sourceFoldRanges(file);
   const foldAt = new Map(folds.map((fold) => [fold.start, fold]));
-  const rows = [];
+
+  // One entry per VISUAL row — a collapsed fold occupies a single row — which is the unit every window
+  // index and spacer height below is counted in. Building it is a cheap walk; what costs is highlighting,
+  // and that only happens for rows actually built.
+  const rowStarts = [];
   for (let index = 0; index < lines.length; index += 1) {
+    rowStarts.push(index);
+    const fold = foldAt.get(index);
+    if (fold) index = fold.end;
+  }
+
+  const rowHtml = (index) => {
     const line = lines[index];
     const fold = foldAt.get(index);
     const hit = normalizedQuery.length > 0 && line.toLowerCase().includes(normalizedQuery);
@@ -803,27 +922,64 @@ function renderSourceTable(file, query) {
     ].filter(Boolean).join(' ');
     if (fold?.kind === 'imports') {
       const count = fold.end - fold.start + 1;
-      rows.push([
+      return [
         '<tr class="' + classes + '" data-line-index="' + index + '" data-fold-end="' + fold.end + '">',
         '<td class="num">' + String(index + 1) + (fold.end > index ? '–' + String(fold.end + 1) : '') + '</td>',
         '<td class="source-code">' + sourceFoldButtonHtml('imports', count, index, fold.end) + '</td>',
         '</tr>',
-      ].join(''));
-      index = fold.end;
-      continue;
+      ].join('');
     }
     const foldButton = fold?.kind === 'block'
       ? sourceFoldButtonHtml('block', fold.end - fold.start, fold.start, fold.end)
       : '';
-    rows.push([
+    return [
       '<tr class="' + classes + '" data-line-index="' + index + '">',
       '<td class="num">' + String(index + 1) + '</td>',
       '<td class="source-code">' + highlightLine(line, languageAt(index)) + foldButton + '</td>',
       '</tr>',
-    ].join(''));
-    if (fold?.kind === 'block') index = fold.end;
+    ].join('');
+  };
+  const build = (fromRow, toRow) => {
+    let out = '';
+    for (let row = Math.max(0, fromRow); row < Math.min(rowStarts.length, toRow); row += 1) {
+      out += rowHtml(rowStarts[row]);
+    }
+    return out;
+  };
+
+  // A search paints hit classes across the whole file, and a small file is already fast, so both render in
+  // one shot and leave no fill outstanding.
+  const limits = sourceProgressiveLimits();
+  sourceFill = undefined;
+  if (normalizedQuery || rowStarts.length < limits.minRows) {
+    return '<table class="source-table"><tbody>' + build(0, rowStarts.length) + '</tbody></table>';
   }
-  return '<table class="source-table"><tbody>' + rows.join('') + '</tbody></table>';
+
+  // The window goes around the caret, because following a definition lands there and that is the only part
+  // the reader is looking at.
+  let cursorRow = 0;
+  if (cursor) {
+    let lo = 0;
+    let hi = rowStarts.length - 1;
+    while (lo < hi) { // last row whose start line is <= the caret, so a folded caret lands on its fold row
+      const mid = (lo + hi + 1) >> 1;
+      if (rowStarts[mid] <= cursor.lineIndex) lo = mid; else hi = mid - 1;
+    }
+    cursorRow = lo;
+  }
+  const half = Math.floor(limits.windowRows / 2);
+  const windowStart = Math.max(0, Math.min(cursorRow - half, rowStarts.length - limits.windowRows));
+  const windowEnd = Math.min(rowStarts.length, windowStart + limits.windowRows);
+  const rowPx = sourceRowHeight() || 18;
+  let html = '';
+  if (windowStart > 0) html += sourceRowSpacerHtml(0, windowStart, windowStart * rowPx);
+  html += build(windowStart, windowEnd);
+  if (windowEnd < rowStarts.length) {
+    html += sourceRowSpacerHtml(windowEnd, rowStarts.length, (rowStarts.length - windowEnd) * rowPx);
+  }
+  sourceFill = { path: file.path, rowStarts: rowStarts, build: build };
+  scheduleSourceFill();
+  return '<table class="source-table"><tbody>' + html + '</tbody></table>';
 }
 
 // A .svelte/.vue/.html file is markup wrapping a <script> and a <style>, and highlighting it as one

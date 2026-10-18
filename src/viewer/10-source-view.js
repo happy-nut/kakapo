@@ -55,6 +55,7 @@ function sourceSelectionCitation() {
 
 function selectedSourceRows(selection) {
   if (!selection.rangeCount) return [];
+  flushSourceRows(); // a selection may reach rows a big file has not painted yet
   const ranges = Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index));
   return Array.from(document.querySelectorAll('#source-body .source-row'))
     .filter((row) => ranges.some((range) => {
@@ -217,7 +218,11 @@ function toggleCurrentSourceFold() {
 function sourceVisibleLineIndex(lineIndex, direction) {
   var body = document.getElementById('source-body');
   if (!body) return lineIndex;
-  var indices = Array.prototype.map.call(body.querySelectorAll('.source-row[data-line-index]'), function (row) {
+  // While a big file is still filling in (renderSourceTable), the authoritative row order is the model, not
+  // the DOM — asking the DOM would step only within the painted window. It is also the cheaper answer: this
+  // runs on every arrow key, and scanning every row of a 30k-line file to move one line never made sense.
+  var model = typeof sourceFill !== 'undefined' && sourceFill ? sourceFill.rowStarts : null;
+  var indices = model || Array.prototype.map.call(body.querySelectorAll('.source-row[data-line-index]'), function (row) {
     return Number(row.dataset.lineIndex);
   }).filter(function (line) { return Number.isFinite(line); });
   if (!indices.length) return lineIndex;

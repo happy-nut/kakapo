@@ -91,6 +91,7 @@ function fileFindRange(container, start, length) {
 function sourceFindRow(lineIndex) {
   var body = document.getElementById('source-body');
   if (!body) return null;
+  flushSourceRows(); // a match can be anywhere in the file, not only in the painted window
   var exact = body.querySelector('.source-row[data-line-index="' + lineIndex + '"]');
   if (exact) return exact;
   return Array.prototype.find.call(body.querySelectorAll('.source-row[data-line-index]'), function (row) {
