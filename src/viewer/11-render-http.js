@@ -801,7 +801,10 @@ var sourceFill;      // { path, rowStarts, build } while a fill is outstanding
 var sourceFillTimer; // the outstanding chunk timer, if any
 
 function sourceRowSpacerHtml(fromRow, toRow, height) {
-  return '<tr class="source-spacer" data-spacer-from="' + fromRow + '" data-spacer-to="' + toRow
+  // aria-hidden: this is one empty row standing in for thousands that have not been built yet. It is a
+  // scrollbar-honesty device, not content, and a screen reader walking the table should step from the last
+  // real row to the next one rather than into a blank cell claiming to be 29,600 lines.
+  return '<tr class="source-spacer" aria-hidden="true" data-spacer-from="' + fromRow + '" data-spacer-to="' + toRow
     + '" style="height:' + height + 'px"><td colspan="2"></td></tr>';
 }
 

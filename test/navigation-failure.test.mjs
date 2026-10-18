@@ -31,8 +31,12 @@ function installAnalysis(v, response) {
 }
 
 const hintText = (v) => {
-  const hint = v.$(".mc-caret-hint") || v.$("[class*='caret-hint']");
+  const hint = v.$(".mc-caret-hint");
   return hint ? (hint.textContent || "").trim() : "";
+};
+const hintShown = (v) => {
+  const hint = v.$(".mc-caret-hint");
+  return Boolean(hint && hint.classList.contains("show"));
 };
 
 async function jump(v) {
@@ -73,6 +77,39 @@ test("a symbol that really has no definition still says so", async () => {
       /찾지 못했|not found/i,
       "a real dead end is still named as one",
     );
+  } finally {
+    v.close();
+  }
+});
+
+// A cold language server has eight seconds to answer (REQUEST_TIMEOUT_MS). The "looking for X…" hint faded
+// after two of them, so the reviewer got six seconds of a screen that looked like the key was never
+// pressed — on the first jump after opening a project, which is exactly when the server is cold.
+test("the searching hint stays up for as long as the answer takes", async () => {
+  const v = await loadViewer(html);
+  try {
+    let answer;
+    v.window.kakapoAnalysis = {
+      query: () => new Promise((resolve) => { answer = resolve; }), // never resolves on its own
+      diagnostics: () => Promise.resolve({ ok: true, generation: 0, diagnostics: [] }),
+      status: () => Promise.resolve({ phase: "starting", generation: 0 }),
+      onStatus: () => {},
+    };
+    await v.openSourceFile(FILE);
+    await v.clickSourceLine(1);
+    v.key("ArrowDown", { metaKey: true, code: "ArrowDown" });
+
+    await v.settle(400); // past the 250ms delay that puts the hint up
+    assert.ok(hintShown(v), "the hint appears while the answer is outstanding");
+    assert.match(hintText(v), /찾는 중|Looking for/i, "and it says what is being looked for");
+
+    await v.settle(2600); // past the 2s fade that used to take it away mid-request
+    assert.ok(hintShown(v), `the hint is still up while the request is still out (got: ${hintText(v)})`);
+
+    // …and it comes down when the answer finally arrives, rather than sitting over the destination.
+    answer({ ok: true, generation: 0, engine: "lsp", confidence: "semantic", locations: [] });
+    await v.settle(80);
+    assert.match(hintText(v), /찾지 못했|not found/i, "the outcome replaces the wait");
   } finally {
     v.close();
   }

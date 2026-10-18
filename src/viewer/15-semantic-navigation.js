@@ -42,9 +42,10 @@ async function findUsagesOf(name, explicitLoc) {
   // A cold language server answers its first question only after it has read the project — up to a minute
   // for a Gradle/Kotlin workspace. Silence for that long reads as a dead key, so say what is happening as
   // soon as the answer is not immediate. Anything that arrives later replaces the hint on its own.
-  var pending = setTimeout(function () { showCaretHint(t('monaco.searching').replace('{symbol}', name)); }, 250);
+  var pending = setTimeout(function () { showCaretHint(t('monaco.searching').replace('{symbol}', name), null, true); }, 250);
   var response = await queryProjectAnalysis('references', name, loc);
   clearTimeout(pending);
+  hideCaretHint();
   // The declaration the caret is sitting on is not one of its usages. Some servers report it, and a lone
   // self-hit then "navigated" to the line the caret was already on, which looks exactly like nothing.
   var items = ((response && response.locations) || []).filter(function (item) {
@@ -76,9 +77,10 @@ function showSemanticNavigationFailure(kind, name, response) {
 async function goToDefOrUsages(name, explicitLoc) {
   if (!name) { showSemanticNavigationFailure('symbol'); return; }
   var loc = explicitLoc || caretSourceLoc();
-  var pending = setTimeout(function () { showCaretHint(t('monaco.searching').replace('{symbol}', name)); }, 250);
+  var pending = setTimeout(function () { showCaretHint(t('monaco.searching').replace('{symbol}', name), null, true); }, 250);
   var response = await queryProjectAnalysis('definition', name, loc);
   clearTimeout(pending);
+  hideCaretHint(); // the wait is over, whatever the answer is; failures put their own message up below
   if (response && response.ok) {
     var defs = response.locations || [];
     if (defs.length > 1) {
