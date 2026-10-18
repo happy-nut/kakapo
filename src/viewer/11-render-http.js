@@ -141,9 +141,21 @@ function isRenderToggleable(p) { return isMarkdownPath(p) || isCsvPath(p); }
 // Long code lines stay on one editor row by default. Line wrap is an explicit, persisted display choice
 // shared by side-by-side Diff and raw source (including Raw Markdown/CSV), never rendered documents/images.
 var lineWrapKey = 'kakapo-line-wrap';
+// ON unless the reviewer turned it off. Measured on a real four-file review at an ordinary window size:
+// 95% of lines (36 of 38) reached past their pane, by up to 251px — a side-by-side pane is about 78
+// characters wide, and this is a tool for reading code whose comments are prose. Off by default meant the
+// normal case was "the end of almost every line is somewhere to the right", and the reader either scrolled
+// horizontally to read a sentence or never saw it.
+//
+// Wrapping holds the two halves together: a wrapped line takes more rows on one side than the other, and
+// the alignment connectors (01-diff-alignment.js) already draw that correspondence — checked on an
+// asymmetric change. It also puts the vertical space to use, since the text was hiding sideways.
+//
+// An explicit choice still wins, in both directions: only an unset preference defaults to on.
 var lineWrapEnabled = (function () {
   var saved = persistRead(lineWrapKey);
   if (saved == null) { try { saved = localStorage.getItem(lineWrapKey); } catch (e) {} }
+  if (saved == null) return true;
   return saved === true || saved === 'true' || saved === '1';
 })();
 function sourceLineWrapAvailable(path) {

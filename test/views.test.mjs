@@ -271,11 +271,19 @@ test("line wrap is a checkbox-style Option+W toggle for raw file views", async (
   assert.ok(toggle && !toggle.classList.contains("hidden"), "raw code exposes the line-wrap checkbox");
   assert.equal(toggle.dataset.keyhint, "⌥W", "the checkbox advertises Option+W");
   assert.equal(toggle.getAttribute("role"), "checkbox");
+  // Wrapping is the default now. Measured on a real review, 95% of lines reached past their pane, so off
+  // by default meant the end of almost every line was somewhere to the right of the window.
+  assert.equal(toggle.getAttribute("aria-checked"), "true", "wrapping is on unless the reviewer turns it off");
+  assert.ok(body.classList.contains("line-wrap"), "and the body is wrapped from the first paint");
+
+  v.key("w", { altKey: true, code: "KeyW" });
+  await v.settle();
+  assert.equal(body.classList.contains("line-wrap"), false, "Option+W turns wrapping off");
   assert.equal(toggle.getAttribute("aria-checked"), "false");
 
   v.key("w", { altKey: true, code: "KeyW" });
   await v.settle();
-  assert.ok(body.classList.contains("line-wrap"), "Option+W enables wrapping on the raw source body");
+  assert.ok(body.classList.contains("line-wrap"), "and back on");
   assert.equal(toggle.getAttribute("aria-checked"), "true");
   assert.ok(toggle.classList.contains("is-checked"), "the toolbar checkbox visibly reflects the state");
 
@@ -305,6 +313,12 @@ test("line wrap is available in side-by-side diff and shares the Option+W state"
   assert.ok(toggle, "the diff toolbar exposes line wrapping without leaving review mode");
   assert.equal(toggle.dataset.keyhint, "⌥W");
   assert.equal(toggle.getAttribute("role"), "checkbox");
+  assert.equal(toggle.getAttribute("aria-checked"), "true", "the side-by-side diff wraps by default too");
+  assert.ok(diff.classList.contains("line-wrap"), "so no line of a diff starts out hidden to the right");
+
+  v.key("w", { altKey: true, code: "KeyW" });
+  await v.settle();
+  assert.equal(diff.classList.contains("line-wrap"), false, "Option+W releases the panes to scroll horizontally");
   assert.equal(toggle.getAttribute("aria-checked"), "false");
 
   v.key("w", { altKey: true, code: "KeyW" });
