@@ -59,7 +59,11 @@ export type DiagnosticsResponse = {
   error?: string;
 };
 
-export type AnalysisPhase = "idle" | "starting" | "ready" | "fallback" | "failed";
+// `indexing` is the window this app used to have no name for: the server has answered `initialize` and is
+// building its model, so navigation works but answers from the regex index rather than semantically. It is
+// the state a reviewer hits on their first keystroke after opening a project, and the one worth saying out
+// loud — both while it lasts and when it ends.
+export type AnalysisPhase = "idle" | "starting" | "indexing" | "ready" | "fallback" | "failed";
 
 export type AnalysisStatus = {
   generation: number;
@@ -69,6 +73,9 @@ export type AnalysisStatus = {
   serverSource?: LanguageServerCommand["source"];
   fallbackReason?: string;
   error?: string;
+  // Did the server confirm it had analysed the warm-up file, or did the index budget simply run out? The
+  // chip reads the same either way; this is here so a reviewer who asks can be told which it was.
+  indexed?: boolean;
   updatedAt: string;
 };
 
@@ -76,6 +83,7 @@ type AnalysisResult = Omit<AnalysisResponse, "generation" | "durationMs">;
 
 type AnalysisOptions = {
   resolveServer?: (root: string, path: string) => LanguageServerCommand | undefined;
+  indexBudgetMs?: number;
   files?: IndexedFile[];
   onStatus?: (status: AnalysisStatus) => void;
 };
@@ -106,6 +114,10 @@ export class ProjectAnalysis {
   private clients = new Map<string, LspClient>();
   private failedServers = new Set<string>();
   private readonly resolveServer: (root: string, path: string) => LanguageServerCommand | undefined;
+  // How long the background warm-up waits for a server to confirm it has analysed the file. Generous
+  // because nothing is waiting on it, bounded because a server that never diagnoses must not leave the
+  // status chip saying "indexing" forever. Overridable so tests do not spend a minute on it.
+  private readonly indexBudgetMs: number;
   private readonly fixedFiles?: IndexedFile[];
   private readonly onStatus?: (status: AnalysisStatus) => void;
   private generation = 0;
@@ -113,6 +125,7 @@ export class ProjectAnalysis {
 
   constructor(readonly root: string, options: AnalysisOptions = {}) {
     this.resolveServer = options.resolveServer ?? resolveLanguageServer;
+    this.indexBudgetMs = options.indexBudgetMs ?? 90_000;
     this.fixedFiles = options.files;
     this.onStatus = options.onStatus;
   }
@@ -340,7 +353,13 @@ export class ProjectAnalysis {
       attempted.add(key);
       try {
         await client.warmup(path);
-        this.setStatus("ready", serverFields(client.server));
+        // Up and talking, not yet useful: say so, then get the indexing over with here rather than under
+        // the reviewer's first keystroke. Nothing waits on this — prewarm is called after the review paints.
+        this.setStatus("indexing", serverFields(client.server));
+        const analysed = await client.awaitAnalysed(path, this.indexBudgetMs);
+        // Budget expiry is not a failure: the server is up and answering, and some servers never diagnose
+        // some files. Either way this is as ready as it is going to say it is.
+        this.setStatus("ready", { ...serverFields(client.server), indexed: analysed });
         return;
       } catch (error) {
         this.quarantine(client, error);

@@ -866,6 +866,9 @@ body.native-app .source-tabs {
 }
 .empty-nav.changes-empty .empty-nav-icon { opacity: .45; }
 .empty-nav.changes-empty .empty-nav-text { font-size: 12px; }
+/* Indexing looks like starting, because it is the same "wait, it is coming" state to a reader — the chip's
+   label is what distinguishes them. Without this rule the dot went dark mid-warm-up, reading as idle. */
+.analysis-status.is-indexing .analysis-status-dot { background: var(--active); opacity: 1; animation: analysis-dot-pulse 1s ease-in-out infinite; }
 .analysis-status.is-ready .analysis-status-dot { background: var(--token-string); opacity: 1; }
 .analysis-status.is-fallback .analysis-status-dot { background: var(--token-tag); opacity: 1; }
 .analysis-status.is-failed .analysis-status-dot { background: var(--token-keyword); opacity: 1; }
@@ -3976,6 +3979,7 @@ body.native-app .source-tabs {
 
 @media (prefers-reduced-motion: reduce) {
   .kakapo-loader .kakapo-mark,
+  .analysis-status.is-indexing .analysis-status-dot,
   .analysis-status.is-starting .analysis-status-loader .kakapo-mark,
   .mc-context-fold-row[data-context-loading="1"] .mc-context-fold-icon {
     animation: kakapo-breathe 1.6s ease-in-out infinite;

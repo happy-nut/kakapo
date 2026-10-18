@@ -610,6 +610,39 @@ export class LspClient {
     await this.waitForWorkspaceReady();
   }
 
+  /**
+   * Resolves true once the server has PUBLISHED diagnostics for `path` — which it only does after actually
+   * analysing the file, so it is the honest signal that the project index exists. `warmup` above gets a
+   * server as far as acknowledging `initialize`, and that is a different thing: a cold JDT or rust-analyzer
+   * answers the handshake in milliseconds and then spends a long time building its model, during which a
+   * definition request either times out or comes back empty.
+   *
+   * The budget is generous because nothing is waiting on this — it runs after the review has painted, to
+   * get the indexing over with before the reviewer's first keystroke rather than during it. False means the
+   * budget ran out, not that the server is broken: some servers never diagnose some files.
+   */
+  async awaitAnalysed(path: string, budgetMs: number): Promise<boolean> {
+    await this.ensureDocument(path);
+    const uri = pathToFileURL(resolve(this.root, path)).href;
+    if (this.publishedUris.has(uri)) return true;
+    return new Promise<boolean>((resolveWait) => {
+      let settled = false;
+      const finish = (analysed: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.diagnosticWaiters.get(uri)?.delete(onPublish);
+        resolveWait(analysed);
+      };
+      const onPublish = () => finish(true);
+      const timer = setTimeout(() => finish(false), Math.max(0, budgetMs));
+      timer.unref?.();
+      let waiters = this.diagnosticWaiters.get(uri);
+      if (!waiters) { waiters = new Set(); this.diagnosticWaiters.set(uri, waiters); }
+      waiters.add(onPublish);
+    });
+  }
+
   // Return the latest diagnostics for a document. Opening it triggers the server's first publish; on the very
   // first read we wait (bounded) for that publish so the reviewer isn't shown "no problems" prematurely.
   async diagnosticsFor(path: string): Promise<LspDiagnostic[]> {

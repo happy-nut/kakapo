@@ -61,6 +61,16 @@ async function findUsagesOf(name, explicitLoc) {
 // later — a cold server is not hypothetical, it is slow enough on a big project to take a release down.
 // The analysis status chip already carries the reason, but the reviewer is looking at the caret, which is
 // where the key they pressed just failed.
+// True when the answer did NOT come from a language server although one is being brought up: during the
+// indexing window the regex index answers instead, and that is a different quality of answer.
+function isPartialAnalysisAnswer(response) {
+  if (!response || response.engine === 'lsp') return false;
+  var phase = (document.getElementById('analysis-status') || { dataset: {} }).dataset.phase;
+  return phase === 'indexing' || phase === 'starting' || Boolean(response.fallbackReason);
+}
+function showPartialAnalysisHint(name) {
+  showCaretHint(t('monaco.analysisPartial').replace('{symbol}', String(name || '')));
+}
 function showSemanticNavigationFailure(kind, name, response) {
   // `fallbackReason` is only set when the semantic answer could not be obtained, so this is "could not
   // ask", not "asked and there is nothing". Standalone HTML has no server at all and no reason either.
@@ -83,6 +93,11 @@ async function goToDefOrUsages(name, explicitLoc) {
   hideCaretHint(); // the wait is over, whatever the answer is; failures put their own message up below
   if (response && response.ok) {
     var defs = response.locations || [];
+    // An answer from the regex index while a language server exists is a guess at what the server would
+    // have said. It is worth having — it is usually right, and it is immediate — but the reviewer should
+    // know they are looking at the partial version, not conclude the project has only one definition of
+    // this name. Said here, where they pressed the key, because the status chip is not where they looked.
+    if (defs.length && isPartialAnalysisAnswer(response)) showPartialAnalysisHint(name);
     if (defs.length > 1) {
       openSemanticPeek(name, defs, response, 'definition');
       return;
