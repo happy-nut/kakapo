@@ -114,3 +114,80 @@ test("the searching hint stays up for as long as the answer takes", async () => 
     v.close();
   }
 });
+
+// The indexing window, named. Opening a project starts a language server that answers `initialize` in
+// milliseconds and then spends real time building its model; until it has one, the regex index answers
+// instead. Three things follow from that, and all three used to be silent.
+test("an answer from the regex index during indexing is marked as partial", async () => {
+  const v = await loadViewer(html);
+  try {
+    // The status chip is what says a server is still coming up.
+    const chip = v.document.createElement("span");
+    chip.id = "analysis-status";
+    chip.dataset.phase = "indexing";
+    v.document.body.appendChild(chip);
+
+    installAnalysis(v, {
+      engine: "index",
+      confidence: "heuristic",
+      fallbackReason: "typescript-language-server is still indexing",
+      locations: [{ path: FILE, lineIndex: 0, column: 16 }],
+    });
+    await jump(v);
+
+    assert.match(
+      hintText(v),
+      /부분적인 결과|partial answer/i,
+      `a heuristic answer during indexing says it is partial (got: ${hintText(v)})`,
+    );
+  } finally {
+    v.close();
+  }
+});
+
+test("a semantic answer is not labelled partial", async () => {
+  const v = await loadViewer(html);
+  try {
+    const chip = v.document.createElement("span");
+    chip.id = "analysis-status";
+    chip.dataset.phase = "ready";
+    v.document.body.appendChild(chip);
+
+    installAnalysis(v, {
+      engine: "lsp",
+      confidence: "semantic",
+      server: "typescript-language-server",
+      locations: [{ path: FILE, lineIndex: 0, column: 16 }],
+    });
+    await jump(v);
+    assert.doesNotMatch(hintText(v), /부분적인 결과|partial answer/i, "the real thing is not hedged");
+  } finally {
+    v.close();
+  }
+});
+
+test("finishing the indexing is announced, and only on the transition", async () => {
+  const v = await loadViewer(html);
+  try {
+    const chip = v.document.createElement("span");
+    chip.id = "analysis-status";
+    chip.dataset.phase = "indexing";
+    v.document.body.appendChild(chip);
+    const toasts = () => v.$all("#mc-toasts .mc-toast").map((el) => (el.textContent || "").trim());
+
+    v.window.renderAnalysisStatus({ phase: "ready", generation: 0, updatedAt: new Date().toISOString() });
+    await v.settle(40);
+    assert.ok(
+      toasts().some((text) => /준비됐습니다|is ready/i.test(text)),
+      `becoming ready is said out loud (got: ${JSON.stringify(toasts())})`,
+    );
+
+    // A second ready push is not news — the reviewer was already told.
+    const before = toasts().length;
+    v.window.renderAnalysisStatus({ phase: "ready", generation: 0, updatedAt: new Date().toISOString() });
+    await v.settle(40);
+    assert.equal(toasts().length, before, "a project that was already ready says nothing");
+  } finally {
+    v.close();
+  }
+});

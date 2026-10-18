@@ -6,9 +6,14 @@ function renderAnalysisStatus(status) {
   var updatedAt = typeof status.updatedAt === 'string' ? status.updatedAt : '';
   if (updatedAt && analysisStatusUpdatedAt && updatedAt < analysisStatusUpdatedAt) return;
   analysisStatusUpdatedAt = updatedAt || analysisStatusUpdatedAt;
-  var allowed = ['idle', 'starting', 'ready', 'fallback', 'failed'];
+  var allowed = ['idle', 'starting', 'indexing', 'ready', 'fallback', 'failed'];
   var phase = allowed.indexOf(status.phase) >= 0 ? status.phase : 'failed';
   var generation = Math.max(0, Number(status.generation) || 0);
+  // Finishing the indexing is worth being TOLD about, not just worth a chip changing colour: the reviewer
+  // was given partial answers until this moment and has no other way to know that stopped. Announced on the
+  // transition out of indexing only — a project whose server was ready before anyone looked says nothing.
+  var wasIndexing = el.dataset.phase === 'indexing' || el.dataset.phase === 'starting';
+  if (phase === 'ready' && wasIndexing) showToast(t('analysis.readyToast'));
   el.className = 'analysis-status is-' + phase;
   el.dataset.phase = phase;
   el.dataset.generation = String(generation);
