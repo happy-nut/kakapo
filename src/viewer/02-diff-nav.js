@@ -324,6 +324,43 @@ function applySetActive(idx, shouldScroll) {
   });
 }
 
+// Keep the two halves of a side-by-side diff showing the SAME columns. Each `.d2h-file-side-diff` is its
+// own horizontal scroller, so reading past the right edge of a long line moved one side and left the other
+// where it was — the two panes stopped lining up exactly when the line was long enough to need comparing,
+// which is the one thing a side-by-side view is for. (Measured on a real diff: scrolling Base to 120px left
+// Working tree at 0.)
+//
+// Mirrored on scroll rather than locked with CSS, because each side still has to be able to reach the end
+// of its own longest line, which is not the same length on both sides. The guard is a plain re-entry flag:
+// setting scrollLeft fires `scroll` again, and without it the two sides push each other.
+var diffScrollSyncing = false;
+function syncDiffSideScroll(wrapper) {
+  if (!wrapper) return;
+  var sides = wrapper.querySelectorAll('.d2h-file-side-diff');
+  if (sides.length < 2) return;
+  sides.forEach(function (side) {
+    if (side.dataset.scrollSynced === '1') return;
+    side.dataset.scrollSynced = '1';
+    side.addEventListener('scroll', function () {
+      if (diffScrollSyncing) return;
+      diffScrollSyncing = true;
+      try {
+        var left = side.scrollLeft;
+        sides.forEach(function (other) {
+          if (other === side) return;
+          // Clamp to what the other side can actually reach: its longest line may be shorter, and asking
+          // for more would silently park it at its own end while this one keeps going.
+          var max = Math.max(0, other.scrollWidth - other.clientWidth);
+          var next = Math.max(0, Math.min(left, max));
+          if (Math.abs(other.scrollLeft - next) > 1) other.scrollLeft = next;
+        });
+      } finally {
+        diffScrollSyncing = false;
+      }
+    }, { passive: true });
+  });
+}
+
 function showOnlyFile(fileName, skipCursor) {
   if (REVIEW_LAZY) ensureFileReady(diffWrapperByPath(fileName));
   var activeWrapper = null;
@@ -335,6 +372,7 @@ function showOnlyFile(fileName, skipCursor) {
     wrapper.classList.toggle('mc-active-diff', active);
     if (active) activeWrapper = wrapper;
   });
+  syncDiffSideScroll(activeWrapper);
   // Inactive observers deliberately defer gutter projection. Refresh only the newly visible editor; this
   // also ensures its line numbers are ready in the same animation frame as asymmetric scroll alignment.
   if (activeWrapper) scheduleLayeredDiffGutters(activeWrapper);

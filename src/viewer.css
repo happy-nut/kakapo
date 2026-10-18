@@ -1812,6 +1812,14 @@ h1 { margin: 0; font-size: 18px; }
    already defines, so it needs no per-theme override — the thing viewer.css keeps having to be reminded of. */
 .crumb-stat { margin-left: 10px; display: inline-flex; gap: 7px; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
 .crumb-stat-add { color: var(--add-strong); font-weight: 600; }
+/* Change magnitude on the sidebar row. Right-aligned and tabular so the numbers form a column the eye can
+   run down — the question it answers ("which of these is the big one") is asked of the whole list at once,
+   not of one row. Dimmer than the filename: it qualifies the row, it is not what you are looking for. */
+.change-row .change-stat { margin-left: auto; padding-left: 8px; display: inline-flex; gap: 5px; flex: none;
+  font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; opacity: 0.75; }
+.change-row .change-stat-add { color: var(--add-strong); }
+.change-row .change-stat-del { color: var(--del-strong); }
+.change-row.active .change-stat, .change-row:hover .change-stat { opacity: 1; }
 .crumb-stat-del { color: var(--del-strong); font-weight: 600; }
 .crumb-sep { opacity: 0.55; }
 /* While the review is pointed at commits, the breadcrumb leads with the one it is showing. Its own accent —
