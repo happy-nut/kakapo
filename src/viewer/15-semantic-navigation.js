@@ -55,10 +55,19 @@ async function findUsagesOf(name, explicitLoc) {
   var def = findSymbolDefinition(name) || { path: (loc && loc.path) || '', lineIndex: -1 };
   openUsages(name, def);
 }
-function showSemanticNavigationFailure(kind, name) {
-  var key = kind === 'references' ? 'monaco.referencesNotFound'
-    : kind === 'implementation' ? 'monaco.implementationNotFound'
-      : kind === 'symbol' ? 'monaco.noSymbol' : 'monaco.definitionNotFound';
+// A dead end has to say WHICH dead end. "No definition" and "the language server has not finished reading
+// the project yet" are different situations, and only one of them is worth pressing the key again a second
+// later — a cold server is not hypothetical, it is slow enough on a big project to take a release down.
+// The analysis status chip already carries the reason, but the reviewer is looking at the caret, which is
+// where the key they pressed just failed.
+function showSemanticNavigationFailure(kind, name, response) {
+  // `fallbackReason` is only set when the semantic answer could not be obtained, so this is "could not
+  // ask", not "asked and there is nothing". Standalone HTML has no server at all and no reason either.
+  var pending = Boolean(response && response.engine !== 'lsp' && response.fallbackReason);
+  var key = pending ? 'monaco.analysisPending'
+    : kind === 'references' ? 'monaco.referencesNotFound'
+      : kind === 'implementation' ? 'monaco.implementationNotFound'
+        : kind === 'symbol' ? 'monaco.noSymbol' : 'monaco.definitionNotFound';
   var message = t(key).replace('{symbol}', String(name || ''));
   closeSemanticPeek();
   showCaretHint(message);
@@ -91,7 +100,7 @@ async function goToDefOrUsages(name, explicitLoc) {
     return;
   }
   if (def) { openSourceAt(def.path, def.lineIndex, def.column); return; }
-  showSemanticNavigationFailure('definition', name);
+  showSemanticNavigationFailure('definition', name, response);
 }
 async function goToImplementation() {
   var symbol = isSourceViewerVisible() ? wordAtCursor() : null;
@@ -153,14 +162,14 @@ function findUsages(name, defPath, defLine) {
 function openUsages(name, def) {
   var items = findUsages(name, def.path, def.lineIndex);
   if (items.length === 1) { openSourceAt(items[0].path, items[0].lineIndex, items[0].column); return; }
-  if (!items.length) { showSemanticNavigationFailure('references', name); return; }
+  if (!items.length) { showSemanticNavigationFailure('references', name, response); return; }
   usageItems = items;
   usageActive = 0;
   showUsages(name, items.length);
 }
 function openAnalysisUsages(name, locations, response, kind) {
   locations = semanticNavigationLocations(locations);
-  if (!(locations || []).length) { showSemanticNavigationFailure(kind || 'references', name); return; }
+  if (!(locations || []).length) { showSemanticNavigationFailure(kind || 'references', name, response); return; }
   if (locations.length > 1) {
     openSemanticPeek(name, locations, response, kind || 'references');
     return;
