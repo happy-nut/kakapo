@@ -370,6 +370,10 @@ export function renderDiffHtml(input: {
         ? '<div class="tab-panel hidden" id="files-panel" data-project-index="deferred"></div>'
         : `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
       : `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
+    // Handed-over reviews. Outside the tab panels on purpose: a watch rebuild replaces #changes-panel
+    // wholesale, and the archive is client state that must survive that. Hidden until there is something
+    // in it, so a review nobody has handed over yet shows no empty drawer.
+    '<div id="archive-panel" class="archive-panel hidden" aria-label="Archived reviews"></div>',
     "</div>",
     // No sidebar footer any more: the usage quota moved to the rail (per-account, not per-workspace), the
     // version and its update-download ring moved to the rail's foot (per-app, not per-workspace), and the

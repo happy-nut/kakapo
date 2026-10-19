@@ -957,6 +957,11 @@ var COMMENTS_KEY = 'kakapo-comments:' + location.pathname;
 var reviewComments = [];
 reviewComments = (function () { var b = persistRead(COMMENTS_KEY); if (Array.isArray(b)) return b; try { return JSON.parse(localStorage.getItem(COMMENTS_KEY) || '[]'); } catch (commentsErr) { return []; } })();
 if (!Array.isArray(reviewComments)) reviewComments = [];
+// Handed-over comments. They are kept, not deleted — copying a review archives it — but they are held OUT
+// of `reviewComments` so that every reader of that list (the cards beside the code, F8, the hand-off
+// document, the counts) keeps working without learning what an archive is. Only saving, loading and the
+// sidebar's archive list know this array exists.
+var archivedComments = [];
 // Questions ("q") and change requests ("c") were unified into one review comment; anything persisted under
 // the old split reads back as the one kind, so a card saved last week doesn't render with a dead label.
 reviewComments.forEach(function (c) { if (c && c.kind !== 'note') c.kind = 'c'; });

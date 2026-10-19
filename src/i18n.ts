@@ -289,7 +289,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.extendSelection": "Extend selection",
     "kbd.toggleViewed": "Toggle viewed on selected Changes row",
     "kbd.addComment": "Add a review comment",
-    "kbd.allComments": "All review comments (copy hands them over and clears)",
+    "kbd.allComments": "All review comments (copy hands them over and archives)",
     "kbd.ignoreWhitespace": "Ignore whitespace",
     "kbd.saveComment": "Save comment",
     "kbd.maximizePanel": "Maximize panel (merged / memo)",
@@ -361,13 +361,15 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Merged comments modal
     "merged.title": "Review comments",
-    "merged.copyAndClear": "Copy and clear",
+    "merged.copyAndArchive": "Copy and archive",
+    "archive.title": "Handed over",
+    "archive.restore": "Put this back in the review",
     "merged.allAddressed": "All {n} comments are flagged as possibly addressed, so nothing is left to hand off.",
     "merged.allAnswered": "The agent has answered every open thread. Reply to one of its answers and the reply comes back here.",
     "merged.empty": "No comments yet. Put the caret on a line — in the diff or in a file — and press {key} to write the first one.",
     "merged.reopenAll": "Reopen them",
     "merged.copied": "Copied",
-    "merged.copiedAndCleared": "Copied — {count} cleared (⌘Z to undo)",
+    "merged.copiedAndArchived": "Copied — {count} archived (⌘Z to undo)",
     "merged.copyFailed": "Copy failed",
     "merged.close": "Close",
 
@@ -652,7 +654,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.extendSelection": "선택 영역 확장",
     "kbd.toggleViewed": "선택한 변경 파일의 확인 표시 토글",
     "kbd.addComment": "리뷰 코멘트 달기",
-    "kbd.allComments": "전체 리뷰 코멘트 (복사하면 넘기고 비움)",
+    "kbd.allComments": "전체 리뷰 코멘트 (복사하면 넘기고 보관)",
     "kbd.ignoreWhitespace": "공백 무시",
     "kbd.saveComment": "코멘트 저장",
     "kbd.maximizePanel": "패널 최대화 (합본 / 메모)",
@@ -717,13 +719,15 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Merged comments modal
     "merged.title": "리뷰 코멘트",
-    "merged.copyAndClear": "복사하고 비우기",
+    "merged.copyAndArchive": "복사하고 보관",
+    "archive.title": "넘긴 리뷰",
+    "archive.restore": "리뷰로 되돌리기",
     "merged.allAddressed": "코멘트 {n}개가 모두 반영된 듯으로 표시되어 전달할 내용이 없습니다.",
     "merged.allAnswered": "열린 스레드에 에이전트가 모두 답했습니다. 답변에 답글을 달면 그 답글이 여기로 옵니다.",
     "merged.empty": "아직 코멘트가 없습니다. diff나 파일에서 줄에 커서를 두고 {key} 를 누르면 첫 코멘트를 남길 수 있습니다.",
     "merged.reopenAll": "다시 열기",
     "merged.copied": "복사됨",
-    "merged.copiedAndCleared": "복사했고 {count}개를 비웠습니다 (⌘Z로 되돌리기)",
+    "merged.copiedAndArchived": "복사했고 {count}개를 보관했습니다 (⌘Z로 되돌리기)",
     "merged.copyFailed": "복사 실패",
     "merged.close": "닫기",
 

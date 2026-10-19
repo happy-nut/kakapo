@@ -3195,6 +3195,18 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
   font-size: 12px;
   margin-top: 2px;
 }
+/* Handed-over reviews. A drawer under the file tree, quiet enough that it never competes with the review
+   itself — it is a record, not a queue of work. Each row is one thread; clicking puts it back. */
+.archive-panel { border-top: 1px solid var(--chrome-border); margin-top: 6px; padding: 6px 0 8px; }
+.archive-head { display: flex; align-items: center; gap: 6px; padding: 2px 12px 6px;
+  font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--chrome-muted); }
+.archive-count { font-variant-numeric: tabular-nums; opacity: 0.8; }
+.archive-row { display: grid; gap: 1px; width: 100%; padding: 4px 12px; border: 0; background: none;
+  text-align: left; cursor: pointer; color: var(--chrome-muted); }
+.archive-row:hover, .archive-row:focus-visible { background: var(--chrome-selected); color: var(--chrome-text); }
+.archive-where { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; opacity: 0.75; }
+.archive-text { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .quick-open-badge { align-self: center; font-size: 12px; }
 .quick-open-badge .ftype { width: 16px; height: 16px; display: block; }
 /* A changed file is worth spotting in a list of files: the icon takes the sidebar's "edited" colour. */
