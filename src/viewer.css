@@ -113,7 +113,7 @@
   --chrome-vcs-new: #b42318;
   --chrome-vcs-edited: #175cd3;
   --chrome-vcs-staged: #2f7d32;
-  --token-comment: #6e7781;
+  --token-comment: #676f79;
   --token-keyword: #cf222e;
   --token-string: #0a3069;
   --token-number: #0550ae;
@@ -261,12 +261,12 @@
   --chrome-vcs-new: #ef8b8b;
   --chrome-vcs-edited: #88b8ec;
   --chrome-vcs-staged: #9aca83;
-  --token-comment: #808080;
-  --token-keyword: #cc7832;
-  --token-string: #6a8759;
-  --token-number: #6897bb;
-  --token-literal: #cc7832;
-  --token-constant: #9876aa;
+  --token-comment: #9c9c9c;
+  --token-keyword: #d58d52;
+  --token-string: #89a678;
+  --token-number: #76a1c1;
+  --token-literal: #d58d52;
+  --token-constant: #ad92bc;
   --token-tag: #e8bf6a;
   --token-function: #ffc66d;
   --token-type: #a9b7c6;
@@ -308,7 +308,7 @@
   --chrome-vcs-new: #b42318;
   --chrome-vcs-edited: #175cd3;
   --chrome-vcs-staged: #2f7d32;
-  --token-comment: #8c8c8c;
+  --token-comment: #707070;
   --token-keyword: #0033b3;
   --token-string: #067d17;
   --token-number: #1750eb;
@@ -317,7 +317,7 @@
   --token-tag: #0033b3;
   --token-function: #00627a;
   --token-type: #000000;
-  --token-decorator: #9e880d;
+  --token-decorator: #82700b;
 }
 /* ---- The three families below exist because the first four did not differ enough to be worth choosing
    between: two near-black greys and two near-whites, all accented the same blue. These commit to a hue
