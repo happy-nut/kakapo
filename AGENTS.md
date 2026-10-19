@@ -38,5 +38,11 @@ Every behavior change should include:
 - a smoke test or command-level verification
 - documentation updates when CLI behavior changes
 
-When adding commands or shortcuts, update `printHelp` in `src/commands.ts`, the Settings ▸ Shortcuts sheet
-in `src/render.ts`, and both READMEs.
+When adding a command, update `printHelp` in `src/commands.ts` and both READMEs.
+
+A keyboard shortcut is a row in `src/shortcuts.ts` and nothing else — the Settings sheet renders that
+table, the viewer dispatches from it, and a control advertises one with `data-keyhint-id`, so a chord
+written anywhere else is a copy that will drift. Give the row its label in `src/i18n.ts` (both locales)
+and, if it is dispatched, an entry in `SHORTCUT_ACTIONS` (`src/viewer/05-keymap.js`); a handler returning
+false declines the key. Mark a row `fixed` only when the page genuinely cannot rebind it — a menu
+accelerator, or a standard key of the surface. Mention it in the READMEs when it is worth knowing about.

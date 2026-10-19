@@ -10,12 +10,19 @@ const nodeRequire = createRequire(import.meta.url);
 
 // Kakapo is a single command: open the desktop review app for the current repository. `--cwd <path>`
 // reviews another repo (used by `npm run dev -- --cwd <path>`); `--no-watch` / `--foreground` are
-// development/internal knobs. `--help` prints help.
+// development/internal knobs. `--help` prints help, `--version` the version.
 export function main(): void {
   const rawArgs = process.argv.slice(2);
   try {
     if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
       printHelp();
+      return;
+    }
+    // An unknown flag opens the review app rather than complaining, which is right for a command whose
+    // whole job is "open this repo" — but it made `kakapo --version` launch the app instead of answering,
+    // the one question you ask when you are checking what you just installed.
+    if (rawArgs.includes("--version") || rawArgs.includes("-v")) {
+      console.log(packageVersion());
       return;
     }
     if (rawArgs[0] === "install-app") { runInstallApp(); return; }
@@ -193,6 +200,7 @@ Commands:
   uninstall-app     remove that icon again
 
 Options:
+  --version, -v     print the version and exit
   --cwd <path>      same as the bare <path> form, for a folder
   --base <rev>      compare the working tree against a branch, tag or commit
                     default: the upstream merge-base when the branch has unpushed

@@ -66,7 +66,15 @@ test("asking for an unpainted row completes the file synchronously", async () =>
   const v = await loadViewer(html, {
     seedSession: { [UI_KEY]: JSON.stringify({ view: "source", sourcePath: "src/big.ts", tabs: ["src/big.ts"], hash: "" }) },
   });
+  // Paint the window here rather than inheriting whatever the open above has already filled in. Asserting
+  // on THAT was a race: the fill is a chain of 16ms timers, and how many of them have run by the time
+  // loadViewer resolves is a property of the host, not of this code — Node 24 on CI drained the whole
+  // 4200-row file before the first assertion while Node 22 did not. Rendering the table in this turn and
+  // asserting in the same one cannot be outrun; there is no await for a timer to slip through.
+  v.window.flushSourceRows(); // nothing outstanding from the open
+  v.window.openSourceFile("src/big.ts"); // repaints the table in THIS turn, window first
   assert.ok(v.$("#source-body .source-spacer"), "the file starts windowed");
+
   v.window.flushSourceRows();
   assert.equal(v.$("#source-body .source-spacer"), null, "one flush and there is nothing outstanding");
   assert.ok(

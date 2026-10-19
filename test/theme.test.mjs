@@ -96,7 +96,10 @@ test("the Darcula family follows interface appearance across chrome and Review t
   assert.equal(v.window.localStorage.getItem("kakapo-syntax-theme"), "darcula");
   assert.equal(
     v.window.getComputedStyle(v.document.documentElement).getPropertyValue("--token-keyword").trim().toLowerCase(),
-    "#cc7832",
+    // Darcula's keyword, lifted in lightness until it cleared WCAG AA against Darcula's own background
+    // (#cc7832 was 3.81:1). Hue and saturation are the theme's; the floor is owned by
+    // test/token-contrast.test.mjs, which is what will catch the next palette that drifts under it.
+    "#d58d52",
     "raw source and diff token classes receive the Darcula keyword color",
   );
 

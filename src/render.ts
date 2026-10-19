@@ -7,6 +7,19 @@ import { MESSAGES, makeTranslator } from "./i18n.js";
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import { REVIEW_ISLAND } from "./viewer-contract.js";
+import { SHORTCUTS, SHORTCUT_GROUPS } from "./shortcuts.js";
+
+// A control that does the same thing as a shortcut advertises it by ID. The chord rendered here is the
+// table's; applyI18n (01-core.js) refreshes it from the table on every locale change, which is also what
+// keeps it honest once the key has been rebound. `id:n` picks one combination of a pair — ⌘1 is the Files
+// half of filesChangesTab, ⌘0 the Changes half.
+function keyHint(ref: string): string {
+  const [id, index] = ref.split(":");
+  const def = SHORTCUTS.find((s) => s.id === id);
+  const chord = def?.keys[Number(index || 0)];
+  if (!chord) throw new Error(`keyHint: no combination "${ref}"`);
+  return ` data-keyhint-id="${escapeAttr(ref)}" data-keyhint="${escapeAttr(chord)}"`;
+}
 import {
   initialReviewSources,
   renderDiffTree,
@@ -28,6 +41,58 @@ const packageVersion: string = (() => {
 
 // Welcome screen for the packaged .app (double-clicked, no cwd): an "Open Folder" button that asks the main
 // process (window.kakapoApp.openFolder, exposed via preload) to pick a git repo and load its review.
+// One shortcut row: what it does on the left, the keys on the right, each key its own chip — the way a
+// macOS menu or a system Keyboard pane spells a combination out. A single `<kbd>⌘⇧O</kbd>` made the whole
+// combination one lump, so the eye had to parse the glyph run itself; three chips read as three keys.
+// `⌥A / ⌥U` is two combinations for one action and stays two groups with the slash between them.
+const MODIFIER_GLYPHS = new Set(["⌘", "⇧", "⌥", "⌃"]);
+function keyChips(combo: string): string {
+  return combo.split(" / ").map((group) => {
+    const chips: string[] = [];
+    let rest = group.trim();
+    while (rest.length && MODIFIER_GLYPHS.has(rest[0])) {
+      chips.push(rest[0]);
+      rest = rest.slice(1);
+    }
+    // The key itself: a letter, a word like Enter / Space / F7 — or an arrow cluster, which is four keys
+    // rather than one label and so splits the same way the modifiers do.
+    if (/^[←↑↓→]+$/.test(rest)) chips.push(...rest.split(""));
+    else if (rest.length) chips.push(rest);
+    return `<span class="keys-combo">${chips.map((c) => `<kbd>${escapeHtml(c)}</kbd>`).join("")}</span>`;
+  }).join('<span class="keys-or">/</span>');
+}
+function shortcutRow(combo: string, i18nKey: string, label: string, id = "", fixed = ""): string {
+  // `data-shortcut` is what the rebinding UI clicks on; a fixed row says why it is not up for grabs instead
+  // of quietly ignoring the click.
+  const attrs = id ? ` data-shortcut="${escapeAttr(id)}"${fixed ? ` data-fixed="${escapeAttr(fixed)}"` : ""}` : "";
+  return `<div class="keys-row"${attrs}><span class="keys-label" data-i18n="${i18nKey}">${escapeHtml(label)}</span>`
+    + `<span class="keys-keys">${keyChips(combo)}</span></div>`;
+}
+
+// The sheet's own English, read from the same message catalogue every other string comes from — a second
+// copy beside `data-i18n` is how the two came to disagree ("Files / Changes tab" vs "Focus / toggle Files
+// or Changes sidebar") with nothing to notice.
+function enLabel(key: string): string {
+  const text = (MESSAGES.en as Record<string, string>)[key];
+  if (!text) throw new Error(`shortcut sheet: no English string for "${key}"`);
+  return text;
+}
+
+// The Settings sheet is the table, rendered. It used to be 53 hand-written rows beside a dispatcher that
+// spelled the same chords again in its own `if`s — which is how five working shortcuts (⌘K, ⌥F1, ⌘Z, F2,
+// ⌘F7) came to be undocumented and nothing noticed.
+function shortcutSheetHtml(): string {
+  return SHORTCUT_GROUPS.map((group) => {
+    const rows = group.ids.map((id) => {
+      const def = SHORTCUTS.find((s) => s.id === id);
+      if (!def) throw new Error(`shortcut group "${group.i18n}" references unknown id "${id}"`);
+      return shortcutRow(def.keys.join(" / "), def.i18n, enLabel(def.i18n), def.id, def.fixed ?? "");
+    }).join("");
+    return `<div class="keys-cat" data-i18n="${group.i18n}">${escapeHtml(enLabel(group.i18n))}</div>`
+      + `<div class="keys-grid">${rows}</div>`;
+  }).join("");
+}
+
 export function renderWelcomeHtml(
   light = false,
   recent: { path: string; name: string }[] = [],
@@ -265,7 +330,7 @@ export function renderCompareBanner(state: CompareState | undefined): string {
     '<span class="compare-why-text" data-i18n="compare.incoming.why">',
     "Nothing local to review — showing what the remote is ahead by.",
     "</span>",
-    '<button type="button" id="compare-open-history" class="compare-why-link" data-keyhint="⌘9"',
+    '<button type="button" id="compare-open-history" class="compare-why-link"' + keyHint('openHistory') + '',
     ' data-i18n="compare.openHistory">History</button>',
   ].join("");
 }
@@ -333,8 +398,8 @@ export function renderDiffHtml(input: {
   const analysisStatus = input.app
     ? `<span id="analysis-status" class="analysis-status is-idle" role="status" aria-live="polite" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-label">Analysis idle</span></span>`
     : `<span class="app-version" id="app-version" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}${packageVersion ? '<span class="app-version-text">v' + escapeHtml(packageVersion) + "</span>" : ""}</span>`;
-  const settingsButton = '<button type="button" id="app-info-btn" class="brand-reveal brand-settings" aria-haspopup="dialog" data-i18n-aria="settings.title" aria-label="Settings" data-keyhint="⌘," data-i18n-title="settings.title" title="Settings"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.7 3.2h4.6l.5 2.1c.6.2 1.1.5 1.6.9l2-.7 2.3 4-1.6 1.4a7 7 0 0 1 0 2.2l1.6 1.4-2.3 4-2-.7c-.5.4-1 .7-1.6.9l-.5 2.1H9.7l-.5-2.1c-.6-.2-1.1-.5-1.6-.9l-2 .7-2.3-4 1.6-1.4a7 7 0 0 1 0-2.2L3.3 9.5l2.3-4 2 .7c.5-.4 1-.7 1.6-.9z"/><circle cx="12" cy="12" r="3"/></svg></button>';
-  const revealButton = '<button type="button" class="brand-reveal" id="brand-reveal" data-keyhint="⌥F1" data-i18n-title="brand.revealFile" title="Reveal open file in the sidebar" aria-label="Reveal open file in the sidebar"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3.2"/><path d="M12 17.8V21"/><path d="M3 12h3.2"/><path d="M17.8 12H21"/></svg></button>';
+  const settingsButton = '<button type="button" id="app-info-btn" class="brand-reveal brand-settings" aria-haspopup="dialog" data-i18n-aria="settings.title" aria-label="Settings" ' + keyHint('openSettings') + ' data-i18n-title="settings.title" title="Settings"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.7 3.2h4.6l.5 2.1c.6.2 1.1.5 1.6.9l2-.7 2.3 4-1.6 1.4a7 7 0 0 1 0 2.2l1.6 1.4-2.3 4-2-.7c-.5.4-1 .7-1.6.9l-.5 2.1H9.7l-.5-2.1c-.6-.2-1.1-.5-1.6-.9l-2 .7-2.3-4 1.6-1.4a7 7 0 0 1 0-2.2L3.3 9.5l2.3-4 2 .7c.5-.4 1-.7 1.6-.9z"/><circle cx="12" cy="12" r="3"/></svg></button>';
+  const revealButton = '<button type="button" class="brand-reveal" id="brand-reveal"' + keyHint('revealInTree') + ' data-i18n-title="brand.revealFile" title="Reveal open file in the sidebar" aria-label="Reveal open file in the sidebar"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3.2"/><path d="M12 17.8V21"/><path d="M3 12h3.2"/><path d="M17.8 12H21"/></svg></button>';
   const brandLoader = `<span class="kakapo-loader kakapo-loader-boot" role="status" aria-label="Kakapo is loading">${brandMark}</span>`;
   return [
     "<!doctype html>",
@@ -370,6 +435,10 @@ export function renderDiffHtml(input: {
         ? '<div class="tab-panel hidden" id="files-panel" data-project-index="deferred"></div>'
         : `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
       : `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
+    // Handed-over reviews. Outside the tab panels on purpose: a watch rebuild replaces #changes-panel
+    // wholesale, and the archive is client state that must survive that. Hidden until there is something
+    // in it, so a review nobody has handed over yet shows no empty drawer.
+    '<div id="archive-panel" class="archive-panel hidden" aria-label="Archived reviews"></div>',
     "</div>",
     // No sidebar footer any more: the usage quota moved to the rail (per-account, not per-workspace), the
     // version and its update-download ring moved to the rail's foot (per-app, not per-workspace), and the
@@ -420,15 +489,15 @@ export function renderDiffHtml(input: {
         + '</div>'
         + '</div>'
       : '',
-    '<button type="button" id="diff-line-wrap-toggle" class="source-line-wrap-toggle diff-line-wrap-toggle" role="checkbox" aria-checked="false" data-keyhint="⌥W" data-i18n="source.lineWrap" data-i18n-title="source.lineWrap.title" title="Toggle line wrap (Option+W)">Line wrap</button>',
+    '<button type="button" id="diff-line-wrap-toggle" class="source-line-wrap-toggle diff-line-wrap-toggle" role="checkbox" aria-checked="false"' + keyHint('toggleLineWrap') + ' data-i18n="source.lineWrap" data-i18n-title="source.lineWrap.title" title="Toggle line wrap (Option+W)">Line wrap</button>',
     '</div>',
     '<div class="diff-review-controls" role="group" data-i18n-aria="diff.navigation" aria-label="Change navigation">',
-    '<button type="button" id="diff-sidebar-toggle" class="diff-tool-button" data-keyhint="⌘0" data-tooltip="Hide changed files" aria-pressed="false" title="Hide changed files (⌘0)" aria-label="Hide changed files"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.25"/><path d="M5.25 2.5v11"/></svg></button>',
+    '<button type="button" id="diff-sidebar-toggle" class="diff-tool-button"' + keyHint('filesChangesTab:1') + ' data-tooltip="Hide changed files" aria-pressed="false" title="Hide changed files (⌘0)" aria-label="Hide changed files"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.25"/><path d="M5.25 2.5v11"/></svg></button>',
     '<span class="diff-tool-separator" aria-hidden="true"></span>',
-    '<button type="button" id="diff-prev-change" class="diff-tool-button" data-keyhint="⇧F7" data-i18n-title="diff.previous" data-i18n-aria="diff.previous" title="Previous change (Shift+F7)" aria-label="Previous change"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 10 4-4 4 4"/></svg></button>',
-    '<button type="button" id="diff-next-change" class="diff-tool-button" data-keyhint="F7" data-i18n-title="diff.next" data-i18n-aria="diff.next" title="Next change (F7)" aria-label="Next change"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>',
+    '<button type="button" id="diff-prev-change" class="diff-tool-button"' + keyHint('prevChange') + ' data-i18n-title="diff.previous" data-i18n-aria="diff.previous" title="Previous change (Shift+F7)" aria-label="Previous change"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 10 4-4 4 4"/></svg></button>',
+    '<button type="button" id="diff-next-change" class="diff-tool-button"' + keyHint('nextChange') + ' data-i18n-title="diff.next" data-i18n-aria="diff.next" title="Next change (F7)" aria-label="Next change"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>',
     '<span class="diff-tool-separator" aria-hidden="true"></span>',
-    '<button type="button" id="diff-open-source" class="diff-tool-button" data-keyhint="⌘↓" data-i18n-title="diff.openSource" data-i18n-aria="diff.openSource" title="Open source (Cmd/Ctrl+Down)" aria-label="Open source"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5h4l1.5 2h5.5v9h-11z"/><path d="m6 10 2 2 2-2M8 7v5"/></svg></button>',
+    '<button type="button" id="diff-open-source" class="diff-tool-button"' + keyHint('goToDef') + ' data-i18n-title="diff.openSource" data-i18n-aria="diff.openSource" title="Open source (Cmd/Ctrl+Down)" aria-label="Open source"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5h4l1.5 2h5.5v9h-11z"/><path d="m6 10 2 2 2-2M8 7v5"/></svg></button>',
     '</div>',
     "</div>",
     // Why the review moved to the remote. Empty (and collapsed by :empty) in every other state, so this is a
@@ -462,9 +531,9 @@ export function renderDiffHtml(input: {
     '<div class="toolbar source-toolbar">',
     '<div class="source-file-meta"><span id="source-type-icon" class="source-type-icon" aria-hidden="true"></span><span id="source-title" data-i18n="source.title">Source</span><span id="source-meta" data-i18n="source.selectFile">Select a file from the Files tab.</span></div>',
     '<select id="http-env-select" class="http-env-select hidden" data-i18n-title="http.env.title" data-i18n-aria="http.env.aria" title="HTTP Client environment" aria-label="HTTP environment"></select>',
-    '<button type="button" id="render-toggle" class="plain-button hidden" data-keyhint="⌥R" title="Rendered / raw Markdown or CSV (Option+R)" aria-pressed="false">Raw</button>',
-    '<button type="button" id="line-wrap-toggle" class="source-line-wrap-toggle hidden" role="checkbox" aria-checked="false" data-keyhint="⌥W" data-i18n="source.lineWrap" data-i18n-title="source.lineWrap.title" title="Toggle line wrap (Option+W)">Line wrap</button>',
-    '<button type="button" id="back-to-diff" class="plain-button" data-keyhint="F7" data-i18n="btn.diff" data-i18n-title="btn.diff.title" title="Back to diff (F7)">Diff</button>',
+    '<button type="button" id="render-toggle" class="plain-button hidden"' + keyHint('toggleRendered') + ' title="Rendered / raw Markdown or CSV (Option+R)" aria-pressed="false">Raw</button>',
+    '<button type="button" id="line-wrap-toggle" class="source-line-wrap-toggle hidden" role="checkbox" aria-checked="false"' + keyHint('toggleLineWrap') + ' data-i18n="source.lineWrap" data-i18n-title="source.lineWrap.title" title="Toggle line wrap (Option+W)">Line wrap</button>',
+    '<button type="button" id="back-to-diff" class="plain-button"' + keyHint('nextChange') + ' data-i18n="btn.diff" data-i18n-title="btn.diff.title" title="Back to diff (F7)">Diff</button>',
     "</div>",
     '<div id="source-body" class="source-body empty" data-i18n="source.selectFile">Select a file from the Files tab.</div>',
     "</section>",
@@ -490,18 +559,17 @@ export function renderDiffHtml(input: {
     // The review-comments dock is deliberately NOT listed: commenting happens in the code itself, so the
     // merged view is a legacy surface — reachable by ⌘⇧/ and its rail dispatch, but not advertised here.
     '<nav id="quick-open-side" class="quick-open-side" aria-label="Sections">',
-    '<button type="button" class="quick-open-side-item" data-section="content" data-keyhint="⌘⇧F"><span data-i18n="quickopen.findInFiles">Find in Files</span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="content"' + keyHint('findInFiles') + '><span data-i18n="quickopen.findInFiles">Find in Files</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="all"><span data-i18n="quickopen.searchFiles">Search files</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="recent"><span data-i18n="quickopen.recent">Recent files</span></button>',
     '<div class="quick-open-side-sep" aria-hidden="true"></div>',
-    '<button type="button" class="quick-open-side-item" data-section="worktree" data-keyhint="⌘8"><span data-i18n="quickopen.worktrees">Worktrees</span></button>',
-    '<button type="button" class="quick-open-side-item" data-section="history" data-keyhint="⌘9"><span data-i18n="rail.history">History</span></button>',
+    '<button type="button" class="quick-open-side-item" data-section="history"' + keyHint('openHistory') + '><span data-i18n="rail.history">History</span></button>',
     '</nav>',
     '<div class="quick-open-title"><span id="quick-open-mode" data-i18n="quickopen.searchFiles">Search files</span><span id="quick-open-filter" class="quick-open-filter"></span></div>',
     '<input id="quick-open-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.searchFiles" placeholder="Search files">',
     '<div id="quick-open-search-options" class="quick-open-search-options">',
     '<label class="quick-open-extension-field" for="quick-open-extensions"><span data-i18n="quickopen.extensions">Extensions</span><input id="quick-open-extensions" type="text" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.extensionsPlaceholder" placeholder="All · .py, .ts" title="Filter extensions (Option+E)"></label>',
-    '<button type="button" id="quick-open-exclude-noise" class="quick-open-option-toggle" aria-pressed="false" data-keyhint="⌥P"><span class="quick-open-option-check" aria-hidden="true"></span><span data-i18n="quickopen.excludeNoise">Exclude comments &amp; tests</span></button>',
+    '<button type="button" id="quick-open-exclude-noise" class="quick-open-option-toggle" aria-pressed="false"' + keyHint('excludeSearchNoise') + '><span class="quick-open-option-check" aria-hidden="true"></span><span data-i18n="quickopen.excludeNoise">Exclude comments &amp; tests</span></button>',
     '</div>',
     '<div id="quick-open-results" class="quick-open-results"></div>',
     '<div id="quick-open-preview" class="quick-open-preview"></div>',
@@ -555,75 +623,7 @@ export function renderDiffHtml(input: {
     '<section class="settings-section hidden" data-cat="shortcuts">',
     '<div class="app-info-keys">' +
     '<div class="app-info-keys-h" data-i18n="settings.kbd.title">Keyboard shortcuts</div>' +
-    '<div class="keys-cat" data-i18n="settings.kbd.cat.app">App</div>' +
-    '<div class="keys-grid">' +
-    '<kbd>⌘O</kbd><span data-i18n="kbd.openFolder">Open folder</span>' +
-    '<kbd>⌘⇧O</kbd><span data-i18n="kbd.openNewWindow">Open in new window</span>' +
-    '<kbd>⌘,</kbd><span data-i18n="kbd.openSettings">Settings</span>' +
-    '<kbd>⌘9</kbd><span data-i18n="kbd.openHistory">Git history</span>' +
-    '<kbd>⌘8</kbd><span data-i18n="kbd.openWorktrees">Worktrees</span>' +
-    '<kbd>⌥A / ⌥U</kbd><span data-i18n="kbd.compareMode">All changes / uncommitted changes</span>' +
-    '<kbd>⌥C</kbd><span data-i18n="kbd.compareRef">Choose the branch to compare against</span>' +
-    '<kbd>⌘L</kbd><span data-i18n="kbd.gotoLine">Go to line</span>' +
-    '<kbd>⌥Enter</kbd><span data-i18n="kbd.rowActions">Sidebar file actions (path / file manager)</span>' +
-    '<kbd>Esc</kbd><span data-i18n="kbd.closeDialog">Close dialog / cancel</span>' +
-    '</div>' +
-    '<div class="keys-cat" data-i18n="settings.kbd.cat.nav">Navigation</div>' +
-    '<div class="keys-grid">' +
-    '<kbd>F7</kbd><span data-i18n="kbd.nextChange">Next change</span>' +
-    '<kbd>⇧F7</kbd><span data-i18n="kbd.prevChange">Previous change</span>' +
-    '<kbd>F8 / ⇧F8</kbd><span data-i18n="kbd.nextComment">Next / previous comment</span>' +
-    '<kbd>⌘1 / ⌘0</kbd><span data-i18n="kbd.filesChangesTab">Files / Changes tab</span>' +
-    '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.sidebarNavigate">Navigate / open sidebar row</span>' +
-    '<kbd>Tab / ⇧Tab</kbd><span data-i18n="kbd.sidebarContent">Sidebar &harr; content / diff pane</span>' +
-    '<kbd>⌘F</kbd><span data-i18n="kbd.findInFile">Find in current file</span>' +
-    '<kbd>⌘G / ⌘⇧G</kbd><span data-i18n="kbd.findNextPrev">Next / previous match</span>' +
-    '<kbd>⌘⇧F</kbd><span data-i18n="kbd.findInFiles">Find in files</span>' +
-    '<kbd>⌘E</kbd><span data-i18n="kbd.recentFiles">Recent files</span>' +
-    '<kbd>⌥E</kbd><span data-i18n="kbd.searchExtensions">Focus extension filter</span>' +
-    '<kbd>⌥P</kbd><span data-i18n="kbd.excludeSearchNoise">Exclude comments / tests</span>' +
-    '<kbd>⌘B</kbd><span data-i18n="kbd.defUsages">Find usages</span>' +
-    '<kbd>⌘⌥B</kbd><span data-i18n="kbd.goToImplementation">Go to implementation</span>' +
-    '<kbd>⌘⌥O</kbd><span data-i18n="kbd.workspaceSymbol">Workspace symbol</span>' +
-    '<kbd>⌘&darr;</kbd><span data-i18n="kbd.goToDef">Go to definition (or ⌘-click)</span>' +
-    '<kbd>⌘.</kbd><span data-i18n="kbd.toggleFold">Toggle code fold</span>' +
-    '<kbd>⌘⇧[ / ]</kbd><span data-i18n="kbd.prevNextTab">Prev / next tab</span>' +
-    '<kbd>⌘[ / ]</kbd><span data-i18n="kbd.cursorBackForward">Cursor back / forward</span>' +
-    '</div>' +
-    '<div class="keys-cat" data-i18n="settings.kbd.cat.editor">Editor</div>' +
-    '<div class="keys-grid">' +
-    '<kbd>&larr;&uarr;&darr;&rarr;</kbd><span data-i18n="kbd.moveCaret">Move caret</span>' +
-    '<kbd>⌥&larr;/&rarr;</kbd><span data-i18n="kbd.wordJump">Word jump (vim w)</span>' +
-    '<kbd>⌘&larr;/&rarr;</kbd><span data-i18n="kbd.lineStartEnd">Line start / end</span>' +
-    '<kbd>⇧&larr;&uarr;&darr;&rarr;</kbd><span data-i18n="kbd.extendSelection">Extend selection</span>' +
-    '<kbd>⌘A</kbd><span data-i18n="kbd.selectEditor">Select editor content</span>' +
-    '<kbd>PageUp / PageDown</kbd><span data-i18n="kbd.pageUpDown">Page up / down</span>' +
-    '<kbd>Space</kbd><span data-i18n="kbd.expandDiffFold">Expand selected diff context</span>' +
-    '<kbd>⌘Enter / ⌥Enter</kbd><span data-i18n="kbd.runHttp">Run HTTP request (.http)</span>' +
-    '<kbd>⌥R</kbd><span data-i18n="kbd.toggleRendered">Rendered / raw Markdown or CSV</span>' +
-    '<kbd>⌥W</kbd><span data-i18n="kbd.toggleLineWrap">Toggle line wrap</span>' +
-    '<kbd>⌘W</kbd><span data-i18n="kbd.closeTab">Close tab</span>' +
-    '</div>' +
-    '<div class="keys-cat" data-i18n="settings.kbd.cat.review">Review</div>' +
-    '<div class="keys-grid">' +
-    '<kbd>Space</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed on selected Changes row</span>' +
-    '<kbd>?</kbd><span data-i18n="kbd.addComment">Add a review comment</span>' +
-    '<kbd>⌘⇧/</kbd><span data-i18n="kbd.allComments">All review comments</span>' +
-    '<kbd>⌘⇧W</kbd><span data-i18n="kbd.ignoreWhitespace">Ignore whitespace</span>' +
-    '<kbd>⌘Enter</kbd><span data-i18n="kbd.saveComment">Save comment</span>' +
-    '<kbd>&uarr; / &darr;</kbd><span data-i18n="kbd.reviewStops">Step through comments / folded context</span>' +
-    '<kbd>e</kbd><span data-i18n="kbd.editComment">Edit comment (when selected)</span>' +
-    '<kbd>Backspace / Delete</kbd><span data-i18n="kbd.deleteComment">Delete comment (when selected)</span>' +
-    '<kbd>⌥&uarr;/&darr;</kbd><span data-i18n="kbd.stepComments">Step between comments (merged)</span>' +
-    '<kbd>⌥Enter</kbd><span data-i18n="kbd.mergedSend">Comment actions (merged)</span>' +
-    '<kbd>⌘⇧&#39;</kbd><span data-i18n="kbd.maximizePanel">Maximize panel</span>' +
-    '</div>' +
-    '<div class="keys-cat" data-i18n="settings.kbd.cat.history">History</div>' +
-    '<div class="keys-grid">' +
-    '<kbd>⌘9</kbd><span data-i18n="kbd.openHistory">Open / close Git history</span>' +
-    '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.historyNavigate">Select a commit, open it in the review</span>' +
-    '<kbd>PageUp / PageDown</kbd><span data-i18n="kbd.pageUpDown">Page up / down</span>' +
-    '</div>' +
+    shortcutSheetHtml() +
     '</div>',
     "</section>",
     // Git history (Cmd+9): the commit graph owns the full canvas. Enter opens the selected commit's

@@ -465,3 +465,17 @@ test("the Changes tree writes an added file's name in ink, not in a diff fill", 
   assert.doesNotMatch(added, /--add(-strong)?\b/, "no diff-fill token is used as a text colour");
   assert.match(added, /color:\s*var\(--chrome-vcs-\w+\)/, "it uses one of the sidebar's own ink colours");
 });
+
+// A `var(--x)` whose token was never declared is not a style error anywhere — the declaration is simply
+// dropped and the property inherits, so the rule looks present and does nothing. That is how a whole
+// block of new shortcut-sheet styling came to reference `--accent` and `--danger`, neither of which this
+// stylesheet has ever defined (the accent token is `--active`), and look merely subtle on screen.
+test("every custom property a rule reads is one this stylesheet declares", () => {
+  const declared = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/gi)].map((m) => m[1]));
+  const read = [...css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*\)/gi)].map((m) => m[1]); // no fallback = must exist
+  // Two tokens are legitimately absent here: they are written as an inline style by the renderer
+  // (render-tree.ts sets --depth per row, brand.ts sets --kakapo-ui-icon on the page).
+  const setInMarkup = new Set(["--depth", "--kakapo-ui-icon"]);
+  const undeclared = [...new Set(read.filter((name) => !declared.has(name) && !setInMarkup.has(name)))];
+  assert.deepEqual(undeclared, [], "a var() with no fallback must name a token that exists");
+});

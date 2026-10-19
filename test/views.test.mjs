@@ -271,11 +271,19 @@ test("line wrap is a checkbox-style Option+W toggle for raw file views", async (
   assert.ok(toggle && !toggle.classList.contains("hidden"), "raw code exposes the line-wrap checkbox");
   assert.equal(toggle.dataset.keyhint, "⌥W", "the checkbox advertises Option+W");
   assert.equal(toggle.getAttribute("role"), "checkbox");
+  // Wrapping is the default now. Measured on a real review, 95% of lines reached past their pane, so off
+  // by default meant the end of almost every line was somewhere to the right of the window.
+  assert.equal(toggle.getAttribute("aria-checked"), "true", "wrapping is on unless the reviewer turns it off");
+  assert.ok(body.classList.contains("line-wrap"), "and the body is wrapped from the first paint");
+
+  v.key("w", { altKey: true, code: "KeyW" });
+  await v.settle();
+  assert.equal(body.classList.contains("line-wrap"), false, "Option+W turns wrapping off");
   assert.equal(toggle.getAttribute("aria-checked"), "false");
 
   v.key("w", { altKey: true, code: "KeyW" });
   await v.settle();
-  assert.ok(body.classList.contains("line-wrap"), "Option+W enables wrapping on the raw source body");
+  assert.ok(body.classList.contains("line-wrap"), "and back on");
   assert.equal(toggle.getAttribute("aria-checked"), "true");
   assert.ok(toggle.classList.contains("is-checked"), "the toolbar checkbox visibly reflects the state");
 
@@ -305,6 +313,12 @@ test("line wrap is available in side-by-side diff and shares the Option+W state"
   assert.ok(toggle, "the diff toolbar exposes line wrapping without leaving review mode");
   assert.equal(toggle.dataset.keyhint, "⌥W");
   assert.equal(toggle.getAttribute("role"), "checkbox");
+  assert.equal(toggle.getAttribute("aria-checked"), "true", "the side-by-side diff wraps by default too");
+  assert.ok(diff.classList.contains("line-wrap"), "so no line of a diff starts out hidden to the right");
+
+  v.key("w", { altKey: true, code: "KeyW" });
+  await v.settle();
+  assert.equal(diff.classList.contains("line-wrap"), false, "Option+W releases the panes to scroll horizontally");
   assert.equal(toggle.getAttribute("aria-checked"), "false");
 
   v.key("w", { altKey: true, code: "KeyW" });
@@ -1542,16 +1556,17 @@ test("window-level shortcuts are one table with one scope rule, and a modal is w
 
   assert.match(keymap, /function keyboardScope\(\)/, "one place decides who owns the keyboard");
   assert.doesNotMatch(keymap, /var settingsUp/, "no per-shortcut settings guard is re-derived in the chain");
-  assert.match(keymap, /if \(scope !== 'modal'\)[\s\S]{0,320}WINDOW_SHORTCUTS/,
+  assert.match(keymap, /if \(scope !== 'modal' && runShortcut\(event, WINDOW_SHORTCUT_IDS\)\) return;/,
     "a modal (settings / go-to-line) is the single thing that stands the table down");
 
-  const table = keymap.match(/var WINDOW_SHORTCUTS = \[[\s\S]*?\n\];/)?.[0];
-  assert.ok(table, "the table exists");
-  for (const code of ["Quote", "Slash", "Digit9", "Digit0", "Digit1", "KeyZ"]) {
-    assert.ok(table.includes(`code: '${code}'`), `${code} is a row, not a branch`);
+  // The combinations themselves are no longer here. They live in src/shortcuts.ts, which the Settings
+  // sheet renders and the bundle carries as SHORTCUT_DEFS, so a key is spelled once and can be rebound;
+  // this file says only what each id DOES. A chord written back into a branch here would undo that.
+  for (const id of ["maximizePanel", "allComments", "openHistory", "filesChangesTab", "undoCommentRemoval"]) {
+    assert.match(keymap, new RegExp(`\\b${id}:\\s*function`), `${id} is an action, not a branch`);
   }
-  // Every row matches by code first, so a non-US layout or an IME can never swallow a combo.
-  assert.match(keymap, /function matchesChord[\s\S]{0,200}event\.code === sc\.code/, "code is the primary match");
+  assert.doesNotMatch(keymap, /code === 'Digit\d'|code === 'Key[A-Z]'/,
+    "no shortcut spells its own physical key here any more");
 
   // The scope names the keymap works in are the ones the dock helper feeds it.
   const dock = readFileSync(new URL("../src/viewer/08-dock.js", import.meta.url), "utf8");

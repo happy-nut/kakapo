@@ -150,39 +150,142 @@ var KEY_OWNERS = [
   } },
 ];
 
-// The window-level shortcut table (see the dispatch loop inside the keydown listener). A handler returning
-// false means "not applicable right now" — the key falls through to the rest of the chain untouched.
-var WINDOW_SHORTCUTS = [
-  { code: 'Quote', shift: true, run: function () { toggleDockMaximized(); } },
-  { code: 'Slash', shift: true, key: '?', run: function () { openMergedView(); } },
-  { code: 'Digit9', key: '9', run: function () { toggleHistory(); } },
-  { code: 'Digit8', key: '8', run: function () { toggleWorktrees(); } },
-  // Cmd+0/Cmd+1 mean "take me to the tree"; activate* itself puts every full-screen surface away first
+// ===== What each shortcut does ====================================================================
+// The combination lives in the shared table (src/shortcuts.ts, reaching the bundle as SHORTCUT_DEFS); this
+// says what the id means. Splitting them is the point: the Settings sheet, the `data-keyhint` on the
+// buttons that do the same thing, and this dispatcher now read one spelling instead of three, and a
+// rebind is a string in one place rather than an edit in each.
+//
+// A handler returning false declines — the key falls through untouched, the convention the old
+// WINDOW_SHORTCUTS table already used. `i` is which of the action's combinations fired, so one entry
+// covers both directions of a pair (F8/⇧F8) or both halves of a choice (⌥A/⌥U).
+var SHORTCUT_ACTIONS = {
+  // -- window level: these belong to the window, so they fire from a focused dock or the History overlay
+  maximizePanel: function () { toggleDockMaximized(); },
+  allComments: function () { openMergedView(); },
+  openHistory: function () { toggleHistory(); },
+  // ⌘0/⌘1 mean "take me to the tree"; activate* itself puts every full-screen surface away first
   // (leaveFullScreenPanels) — otherwise the view they activate would be switched invisibly underneath one.
-  { code: 'Digit0', key: '0', run: function () { activateChangesView(false); } },
-  { code: 'Digit1', key: '1', run: function () { activateFilesView(); } },
+  filesChangesTab: function (event, i) { if (i) activateChangesView(false); else activateFilesView(); },
   // Undo the last comment removal — a Backspace on a selected card in the merged dock deletes one, so the
   // safety net has to reach into that dock. Text surfaces keep their own native undo, and the key is only
   // swallowed when there was actually something to restore.
-  { code: 'KeyZ', key: 'z', run: function () {
+  undoCommentRemoval: function () {
     if (inTextField()) return false;
-    return undoLastCommentRemoval() ? undefined : false; // nothing to restore -> let the key through
-  } },
-];
+    return undoLastCommentRemoval() ? undefined : false;
+  },
+  revealInTree: function () { revealOpenFileInTree(); },
+
+  // -- review level: a cursor move, never text, so a focused composer must not swallow them
+  nextChange: function () { stepToChange(1); },
+  prevChange: function () { stepToChange(-1); },
+  nextComment: function (event, i) { clearTreeFocus(); gotoComment(i ? -1 : 1); },
+
+  // -- content level: the review itself owns the keyboard
+  commentStepAlt: function (event, i) { clearTreeFocus(); gotoComment(i ? -1 : 1); },
+  gotoDiagnostic: function (event, i) { return gotoDiagnostic(i ? -1 : 1) ? undefined : false; },
+  toggleFold: function () { return toggleCurrentSourceFold() ? undefined : false; },
+  selectEditor: function () { return selectAllInView() ? undefined : false; },
+  gotoLine: function () { openGotoLine(); },
+  copyLocation: function () { copyCaretLocation(); },
+  addComment: function () { openComposer('c'); },
+  recentFiles: function () {
+    var qo = document.getElementById('quick-open');
+    if (qo && !qo.classList.contains('hidden') && quickMode === 'recent') closeQuickOpen();
+    else openQuickOpen('recent', true);
+  },
+  findInFiles: function () { openQuickOpen('content'); },
+  searchExtensions: function () { openQuickOpen('content'); setTimeout(focusContentSearchExtensions, 0); },
+  excludeSearchNoise: function () { openQuickOpen('content'); toggleContentSearchNoise(); },
+  // ⌥A and ⌥U name the two compare states outright instead of toggling between them: a toggle is only
+  // usable if you already know which one you are on, and not knowing that is why you reached for the key.
+  compareMode: function (event, i) { pickCompareMode(i ? 'uncommitted' : 'all'); },
+  compareRef: function () { openCompareBranchPicker(); },
+  goToDef: function () { if (isSourceViewerVisible()) goToDefinitionUnderCursor(); else openDiffFileAtCaret(); },
+  workspaceSymbol: function () { openWorkspaceSymbols(); },
+  goToImplementation: function () { goToImplementation(); },
+  defUsages: function () { findUsagesUnderCursor(); },
+  prevNextTab: function (event, i) {
+    if (!isSourceViewerVisible() || sourceTabs.length <= 1) return false;
+    cycleSourceTab(i ? 1 : -1);
+  },
+  cursorBackForward: function (event, i) {
+    clearTreeFocus(); // jumping the cursor history moves the caret, so arrows follow it
+    if (i) navForward(); else navBack();
+  },
+  toggleRendered: function () {
+    var sv = document.getElementById('source-viewer');
+    var open = sv && sv.dataset.openPath;
+    if (!open || !isRenderToggleable(open) || !isSourceViewerVisible()) return false;
+    toggleRenderMode();
+  },
+  toggleLineWrap: function () { return toggleLineWrap() ? undefined : false; },
+  runHttp: function (event, i) {
+    // A focused tree owns Enter and ⌥Enter outright (handleTreeKey: open the row / row actions). That used
+    // to be settled by sitting below the tree in the chain; it is said here now, because the order a table
+    // walks in is not something a reader of this entry can see.
+    if (treeFocusIndex >= 0 || !isSourceViewerVisible()) return false;
+    var enterPath = document.getElementById('source-viewer').dataset.openPath || '';
+    if (isHttpFile(enterPath)) { runHttpAtCaret(); return; }
+    // ⌥Enter on a diagnostic line drafts a "fix this" change-request comment for the agent.
+    if (i === 1 && createFixCommentAtCaret()) return;
+    return false;
+  },
+};
+
+// Dispatch scope, by id. Everything else in SHORTCUT_ACTIONS is content-level — the review itself.
+//   window   fires unless a true modal (settings, go-to-line) owns the keyboard outright
+//   review   also fires from a focused text field: these move a cursor and never insert text, and the
+//            composer is exactly where you are when the note you want to step to is why you are typing
+var WINDOW_SHORTCUT_IDS = ['maximizePanel', 'allComments', 'openHistory', 'filesChangesTab', 'undoCommentRemoval', 'revealInTree'];
+var REVIEW_SHORTCUT_IDS = ['nextChange', 'prevChange', 'nextComment'];
+
+/**
+ * Run whichever of `ids` this event is. True when one of them consumed the key.
+ * A chord shared across surfaces offers several candidates; each is tried until one does not decline.
+ */
+function runShortcut(event, ids) {
+  var hits = shortcutHits(event);
+  for (var i = 0; i < hits.length; i += 1) {
+    if (ids.indexOf(hits[i].id) < 0) continue;
+    var action = SHORTCUT_ACTIONS[hits[i].id];
+    if (!action || action(event, hits[i].index) === false) continue;
+    event.preventDefault();
+    return true;
+  }
+  return false;
+}
+function contentShortcutIds() {
+  if (!contentShortcutIdsCache) {
+    contentShortcutIdsCache = Object.keys(SHORTCUT_ACTIONS)
+      .filter(function (id) { return WINDOW_SHORTCUT_IDS.indexOf(id) < 0 && REVIEW_SHORTCUT_IDS.indexOf(id) < 0; });
+  }
+  return contentShortcutIdsCache;
+}
+var contentShortcutIdsCache;
+
+// F7 forward from the source view enters the diff at the open file's own hunk, so the reviewer lands where
+// they were reading. Shift+F7 — and any file with no hunk of its own — falls through to plain prev/next.
+function stepToChange(delta) {
+  // Navigating changes moves the CODE caret, so arrows have to follow it. The sidebar owns arrows while
+  // treeFocusIndex >= 0, and nothing here focuses a DOM node inside the diff, so that index survived: after
+  // clicking a file in the tree and then pressing F7, the caret moved but arrows still drove the tree.
+  // (Not in setDiffCursor — a sidebar CLICK legitimately keeps its row focused while opening the diff.)
+  clearTreeFocus();
+  var sourceViewer = document.getElementById('source-viewer');
+  if (delta > 0 && sourceViewer && !sourceViewer.classList.contains('hidden')) {
+    var sp = sourceViewer.dataset.openPath || '';
+    var sourceHunk = firstHunkForPath(sp);
+    // Enter the diff at the open file's own hunk — UNLESS it's already viewed. A viewed file's diff body
+    // is hidden (display:none), so landing on it blanks the content and F7 appears stuck; fall through to
+    // next() instead so we skip to an unviewed change.
+    if (sourceHunk >= 0 && !isFileViewed(sp)) { setActive(sourceHunk); return; }
+  }
+  next(delta);
+}
+
 function closeHistoryIfOpen() {
   if (isHistoryOpen()) closeHistory();
-}
-// Cmd/Ctrl + the given code (or key, for layouts that report no code), with the modifiers spelled out: a
-// shortcut fires only on the exact combination it declares, so Cmd+Shift+P can never answer a plain Cmd+P.
-function matchesChord(event, sc) {
-  if (!(event.metaKey || event.ctrlKey) || event.altKey) return false;
-  if (event.code === sc.code) return !!sc.shift === event.shiftKey;
-  if (sc.key === undefined || typeof event.key !== 'string') return false;
-  if (event.key.toLowerCase() !== sc.key) return false;
-  // A letter/digit `key` still needs the Shift check (Cmd+P must not answer for Cmd+Shift+P). A punctuation
-  // one already IS the shifted character — "?" is Shift+/ — so demanding Shift on top of it would be asking
-  // for the same modifier twice.
-  return !/^[a-z0-9]$/.test(sc.key) || !!sc.shift === event.shiftKey;
 }
 document.addEventListener('keydown', (event) => {
   for (var oi = 0; oi < KEY_OWNERS.length; oi += 1) {
@@ -191,130 +294,31 @@ document.addEventListener('keydown', (event) => {
     if (KEY_OWNERS[oi].handle(event)) return;
   }
 
-  // ---- window-level shortcuts -------------------------------------------------------------------
-  // These belong to the window, not to whatever has focus, so they fire from a focused dock or the
-  // History overlay too. A true modal (settings, go-to-line) is the one thing that stands them
-  // down — it owns the keyboard while it is up. Adding one is a row in this table, not another branch with
-  // its own hand-written guard; the eight `!settingsUp &&` conditions this replaces were where the "above
-  // or below the focus guard?" mistakes kept happening.
-  // `code` is matched first so a non-US layout or an IME can never swallow the combo; `key` is the fallback.
+  // ---- the shortcut table ------------------------------------------------------------------------
+  // Window-level shortcuts belong to the window, not to whatever has focus, so they fire from a focused
+  // dock or the History overlay too. A true modal (settings, go-to-line) is the one thing that stands them
+  // down — it owns the keyboard while it is up. Adding one is a row in the table and an entry in
+  // SHORTCUT_ACTIONS, never another branch with its own hand-written guard; the eight `!settingsUp &&`
+  // conditions this replaces were where the "above or below the focus guard?" mistakes kept happening.
   var scope = keyboardScope();
-  if (scope !== 'modal') {
-    for (var wi = 0; wi < WINDOW_SHORTCUTS.length; wi += 1) {
-      var sc = WINDOW_SHORTCUTS[wi];
-      if (!matchesChord(event, sc)) continue;
-      if (sc.run(event) !== false) { event.preventDefault(); return; }
-    }
-  }
+  if (scope !== 'modal' && runShortcut(event, WINDOW_SHORTCUT_IDS)) return;
 
   // The bare navigation F-keys sit just above the content stand-down: they move a cursor and never insert
   // text, so a focused text field — a comment composer, which is exactly where you are when the note you
   // want to step to is the reason you are typing — must not swallow them. A focused PANEL still does: the
   // dock owns its keys outright, and F7 inside the merged dock has always meant nothing.
-  if (scope === 'content' || scope === 'field') {
-  if (event.key === 'F7' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-    event.preventDefault();
-    // Navigating changes moves the CODE caret, so arrows have to follow it. The sidebar owns arrows while
-    // treeFocusIndex >= 0, and nothing here focuses a DOM node inside the diff, so that index survived: after
-    // clicking a file in the tree and then pressing F7, the caret moved but arrows still drove the tree.
-    // (Not in setDiffCursor — a sidebar CLICK legitimately keeps its row focused while opening the diff.)
-    clearTreeFocus();
-    const delta = event.shiftKey ? -1 : 1;
-    const sourceViewer = document.getElementById('source-viewer');
-    // Forward F7 from the source view enters the diff at the open file's own hunk, so the reviewer lands
-    // where they were reading. Shift+F7 — and any file with no hunk of its own — falls through to plain
-    // prev/next-change navigation across the whole diff.
-    if (delta > 0 && sourceViewer && !sourceViewer.classList.contains('hidden')) {
-      const sp = sourceViewer.dataset.openPath || '';
-      const sourceHunk = firstHunkForPath(sp);
-      // Enter the diff at the open file's own hunk — UNLESS it's already viewed. A viewed file's diff body
-      // is hidden (display:none), so landing on it blanks the content and F7 appears stuck; fall through to
-      // next() instead so we skip to an unviewed change.
-      if (sourceHunk >= 0 && !isFileViewed(sp)) {
-        setActive(sourceHunk);
-        return;
-      }
-    }
-    next(delta);
-  }
-
-  // F8 / Shift+F8: step between everything written on the diff — the reviewer's comments AND the agent's
-  // notes, one list (see sortedNavThread). The bare-key counterpart of F7/Shift+F7 for hunks: changes on one
-  // key, the conversation about them on the next one over. Cmd+F7 below does the same and stays for muscle
-  // memory. There used to be a third key, F9, for the agent's notes alone; the two are one timeline now, and
-  // a second key for half of it only meant F8 silently skipped the other half.
-  if (event.key === 'F8' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-    event.preventDefault();
-    clearTreeFocus(); // stepping to a comment moves the caret, so arrows follow it (see F7 above)
-    gotoComment(event.shiftKey ? -1 : 1);
-    return;
-  }
-
-  }
-
-  // ⌥F1 reveals the open file in the tree from ANY view — it runs BEFORE the isFloatingModalOpen stand-down
-  // below so History (and the merged dock), which otherwise own the keys, don't swallow it. Only a
-  // genuine text-input modal (settings, go-to-line) still keeps it; there the "main panel" isn't focused.
-  if (event.key === 'F1' && event.altKey && !event.metaKey && !event.ctrlKey) {
-    // "Anything but a true modal" is `scope !== 'modal'` — which is already in hand. This used to re-read the
-    // settings overlay and the go-to-line prompt itself, the one branch left doing by hand what keyboardScope
-    // exists to answer, and so the one branch that would have gone on disagreeing with it as surfaces changed.
-    if (scope !== 'modal') { event.preventDefault(); revealOpenFileInTree(); return; }
-  }
+  if ((scope === 'content' || scope === 'field') && runShortcut(event, REVIEW_SHORTCUT_IDS)) return;
 
   // Settings overlay (or a focused merged dock) captures keys: stand down the rest of the global
   // shortcuts (F7, Cmd+[/], Cmd+B, …). Each has its own Esc + editing handlers.
   if (isFloatingModalOpen()) return;
 
-  // Cmd/Ctrl+. mirrors an IDE's "toggle fold" at the source caret. The Review renderer folds the
-  // innermost multiline brace range. Shift+. remains the distinct merged change-request shortcut above.
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'Period' || event.key === '.')) {
-    var foldAe = document.activeElement;
-    if (!(foldAe && (foldAe.tagName === 'INPUT' || foldAe.tagName === 'TEXTAREA' || foldAe.tagName === 'SELECT')) && toggleCurrentSourceFold()) {
-      event.preventDefault();
-      return;
-    }
-  }
-
-  // Cmd/Ctrl+A in the diff/source view selects ONLY that view's content (the browser default reached into
-  // the sidebar). In an editable field, let the default select-within-field stand.
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyA' || event.key === 'a' || event.key === 'A')) {
-    var aae = document.activeElement;
-    if (!(aae && (aae.tagName === 'INPUT' || aae.tagName === 'TEXTAREA' || aae.tagName === 'SELECT')) && selectAllInView()) {
-      event.preventDefault();
-      return;
-    }
-  }
-
-  // Cmd/Ctrl+L = go to line (numeric prompt); Cmd/Ctrl+K = copy the caret's file:line. Skip when an
-  // editable field owns focus (a comment composer textarea) so we don't hijack the user's typing.
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyL' || event.key === 'l' || event.key === 'L')) {
-    var lkae = document.activeElement;
-    if (!(lkae && (lkae.tagName === 'INPUT' || lkae.tagName === 'TEXTAREA' || lkae.tagName === 'SELECT'))) {
-      event.preventDefault();
-      openGotoLine();
-      return;
-    }
-  }
-  // ⌘E — the file you were just in. Straight to the recent-files list, no section rail: this key knows
-  // which section it wants, unlike ⌘⇧F, which is the door to all of them.
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyE' || event.key === 'e' || event.key === 'E')) {
-    var ekae = document.activeElement;
-    if (!(ekae && (ekae.tagName === 'INPUT' || ekae.tagName === 'TEXTAREA' || ekae.tagName === 'SELECT'))) {
-      event.preventDefault();
-      if (document.getElementById('quick-open') && !document.getElementById('quick-open').classList.contains('hidden') && quickMode === 'recent') closeQuickOpen();
-      else openQuickOpen('recent', true);
-      return;
-    }
-  }
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyK' || event.key === 'k' || event.key === 'K')) {
-    var kkae = document.activeElement;
-    if (!(kkae && (kkae.tagName === 'INPUT' || kkae.tagName === 'TEXTAREA' || kkae.tagName === 'SELECT'))) {
-      event.preventDefault();
-      copyCaretLocation();
-      return;
-    }
-  }
+  // Every chorded shortcut of the review, in one walk. The guard that used to sit in each branch
+  // ("is an INPUT focused?") is gone because it could never fire: isFloatingModalOpen() above already
+  // means the scope is 'content', and 'content' is by definition not a text field — ten copies of a
+  // condition that was always true. What a shortcut still owns is its own applicability, which it says by
+  // returning false (SHORTCUT_ACTIONS), not by where it sits in a chain.
+  if (runShortcut(event, contentShortcutIds())) return;
 
   // Tab / Shift+Tab move the "cursor" horizontally between the left sidebar and the right content pane.
   if (event.key === 'Tab') {
@@ -344,20 +348,6 @@ document.addEventListener('keydown', (event) => {
     }
   }
 
-  // (The merged view's Cmd/Ctrl+Shift+/ is handled above the focus guard so
-  // they work from inside a dock too.)
-  // "?" (Shift+/) opens the comment composer on the current line/selection (no modifier). There used to be a
-  // second key (">") for change requests; asking and asking-for-a-change are the same thread, so there is one.
-  if (!event.altKey && !event.metaKey && !event.ctrlKey && event.key === '?') {
-    const ce = document.activeElement;
-    const inEditable = ce && (ce.tagName === 'INPUT' || ce.tagName === 'TEXTAREA' || ce.tagName === 'SELECT');
-    if (!inEditable) {
-      event.preventDefault();
-      openComposer('c');
-      return;
-    }
-  }
-
   // Opt/Alt + Left/Right: word-wise caret jump (source or diff view).
   if (event.altKey && !event.metaKey && !event.ctrlKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
     var wae = document.activeElement;
@@ -379,86 +369,6 @@ document.addEventListener('keydown', (event) => {
   if (treeFocusIndex >= 0 && handleTreeKey(event)) return;
   if (treeFocusIndex < 0 && !event.metaKey && !event.ctrlKey && !event.altKey && isSourceViewerVisible() && handleSourceCaretKey(event)) return;
   if (treeFocusIndex < 0 && !event.metaKey && !event.ctrlKey && !event.altKey && isDiffViewVisible() && handleDiffCaretKey(event)) return;
-
-  if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && (event.code === 'KeyF' || event.key.toLowerCase() === 'f')) {
-    event.preventDefault();
-    openQuickOpen('content');
-    return;
-  }
-  if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && (event.code === 'KeyE' || event.key.toLowerCase() === 'e')) {
-    event.preventDefault();
-    openQuickOpen('content');
-    setTimeout(focusContentSearchExtensions, 0);
-    return;
-  }
-  if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && (event.code === 'KeyP' || event.key.toLowerCase() === 'p')) {
-    event.preventDefault();
-    openQuickOpen('content');
-    toggleContentSearchNoise();
-    return;
-  }
-  // The compare dropdown, by key. ⌥A and ⌥U name the two states outright instead of toggling between them:
-  // a toggle is only usable if you already know which one you are on, and not knowing that is the reason you
-  // reached for the key. ⌥C opens the third row, the branch picker, with its filter focused.
-  // Matched on `code` first — ⌥U is a dead key on macOS (it composes an umlaut), so `event.key` is "Dead".
-  if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && (event.code === 'KeyA' || event.key.toLowerCase() === 'a')) {
-    event.preventDefault();
-    pickCompareMode('all');
-    return;
-  }
-  if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.code === 'KeyU') {
-    event.preventDefault();
-    pickCompareMode('uncommitted');
-    return;
-  }
-  if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && (event.code === 'KeyC' || event.key.toLowerCase() === 'c')) {
-    event.preventDefault();
-    openCompareBranchPicker();
-    return;
-  }
-
-  if ((event.metaKey || event.altKey) && event.key === 'Enter' && isSourceViewerVisible()) {
-    const enterPath = document.getElementById('source-viewer')?.dataset.openPath || '';
-    if (isHttpFile(enterPath)) {
-      event.preventDefault();
-      runHttpAtCaret();
-      return;
-    }
-    // Option+Enter on a diagnostic line drafts a "fix this" change-request comment for the agent.
-    if (event.altKey && createFixCommentAtCaret()) {
-      event.preventDefault();
-      return;
-    }
-  }
-
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === 'ArrowDown') {
-    event.preventDefault();
-    if (isSourceViewerVisible()) goToDefinitionUnderCursor();
-    else openDiffFileAtCaret();
-    return;
-  }
-
-  if ((event.metaKey || event.ctrlKey) && event.altKey && !event.shiftKey && (event.code === 'KeyO' || event.key.toLowerCase() === 'o')) {
-    event.preventDefault();
-    openWorkspaceSymbols();
-    return;
-  }
-
-  if ((event.metaKey || event.ctrlKey) && event.altKey && !event.shiftKey && (event.code === 'KeyB' || event.key.toLowerCase() === 'b')) {
-    var aeImpl = document.activeElement;
-    if (aeImpl && (aeImpl.tagName === 'INPUT' || aeImpl.tagName === 'TEXTAREA' || aeImpl.tagName === 'SELECT')) return;
-    event.preventDefault();
-    goToImplementation();
-    return;
-  }
-
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.code === 'KeyB' || event.key === 'b' || event.key === 'B')) {
-    var aeB = document.activeElement;
-    if (aeB && (aeB.tagName === 'INPUT' || aeB.tagName === 'TEXTAREA' || aeB.tagName === 'SELECT')) return;
-    event.preventDefault();
-    findUsagesUnderCursor();
-    return;
-  }
 
   if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight') && isSourceViewerVisible() && viewerCursor) {
     event.preventDefault();
@@ -512,39 +422,6 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
-  // Cmd/Ctrl+[ / ] walk the cursor-position history (back / forward), like an editor's Go Back/Forward.
-  if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && (event.key === '[' || event.key === ']' || event.key === '{' || event.key === '}')) {
-    if (isSourceViewerVisible() && sourceTabs.length > 1) { event.preventDefault(); cycleSourceTab((event.key === '[' || event.key === '{') ? -1 : 1); return; }
-  }
-  if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && (event.key === '[' || event.key === ']')) {
-    var navEl = document.activeElement;
-    var navInField = navEl && (navEl.tagName === 'INPUT' || navEl.tagName === 'TEXTAREA' || navEl.tagName === 'SELECT');
-    if (!navInField) {
-      event.preventDefault();
-      clearTreeFocus(); // jumping the cursor history moves the caret, so arrows follow it (see F7 below)
-      if (event.key === '[') navBack(); else navForward();
-      return;
-    }
-  }
-
-  if (event.key === 'F2' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-    // F2 / Shift+F2 steps between language-server problems inside the open source file. It only consumes the
-    // key when the source view owns it (a code file is on screen); otherwise the event falls through.
-    if (gotoDiagnostic(event.shiftKey ? -1 : 1)) event.preventDefault();
-    return;
-  }
-
-  // Cmd+F7 / Shift+Cmd+F7: the same comment stepping as F8, kept for muscle memory. A modifier combo — unlike
-  // bare F7/F8 it can land in a text field (e.g. an open comment composer, which isn't inside .dock-panel so
-  // isFloatingModalOpen() above wouldn't catch it) — guard that explicitly, same idiom as the other
-  // modifier-combo shortcuts in this handler.
-  if (event.key === 'F7' && (event.metaKey || event.ctrlKey) && !event.altKey) {
-    var cfAe = document.activeElement;
-    if (cfAe && (cfAe.tagName === 'INPUT' || cfAe.tagName === 'TEXTAREA' || cfAe.tagName === 'SELECT' || cfAe.isContentEditable)) return;
-    event.preventDefault();
-    clearTreeFocus(); // same as F7: stepping between comments moves the caret, so arrows follow it
-    gotoComment(event.shiftKey ? -1 : 1);
-  }
 });
 
 quickInput?.addEventListener('input', () => renderQuickOpenResults());

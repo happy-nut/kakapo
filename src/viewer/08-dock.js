@@ -85,7 +85,7 @@ function mountDock(id, titleText) {
   var maxBtn = document.createElement('button');
   maxBtn.type = 'button';
   maxBtn.className = 'dock-btn dock-max';
-  maxBtn.dataset.keyhint = "⌘⇧'";
+  maxBtn.dataset.keyhintId = 'maximizePanel'; // the chord itself comes from the table (applyI18n)
   maxBtn.setAttribute('data-i18n-title', 'dock.maximize');
   maxBtn.title = t('dock.maximize');
   maxBtn.textContent = '⤢'; // ⤢ maximize glyph
@@ -199,12 +199,12 @@ function openMergedView() {
   // means the next hand-off carries it again, and the reviewer has to remember which cards they already
   // sent. So what goes into the clipboard leaves the thread with it.
   //
-  // Whole threads, not just the cards that were in the document: a copied card's replies would otherwise be
-  // left pointing at a parent that is gone — answers to a question nobody can read, which is the same
-  // reason deleting a card deletes its subtree (commentSubtreeSeqs). And nothing is cleared unless the
-  // clipboard write actually succeeded, because emptying a review that was never captured destroys work
-  // outright. It goes through removeComments, so Cmd+Z brings the whole batch back.
-  function copyAndClearMerged() {
+  // Whole threads, not just the cards that were in the document: archiving a card without its replies
+  // would leave answers to a question nobody can read, which is the same reason deleting a card takes its
+  // subtree (commentSubtreeSeqs). Nothing is archived unless the clipboard write actually succeeded —
+  // filing away a review that was never captured is the same loss as deleting it, one step slower. It
+  // shares the undo stack, so Cmd+Z brings the whole batch back into the review.
+  function copyAndArchiveMerged() {
     if (!copyTextToClipboard(currentMergedText())) { showToast(t('merged.copyFailed')); return; }
     var byId = {};
     reviewComments.forEach(function (c) { byId[c.seq] = c; });
@@ -217,10 +217,10 @@ function openMergedView() {
         });
       });
     });
-    removeComments(seqs);
+    var archived = archiveComments(seqs);
     refreshComments();
-    closeMergedDock(); // what the panel was showing is gone; an empty dock is nothing to look at
-    showToast(t('merged.copiedAndCleared').replace('{count}', String(seqs.length)));
+    closeMergedDock(); // what the panel was showing is out of the review now; an empty dock is nothing to look at
+    showToast(t('merged.copiedAndArchived').replace('{count}', String(archived)));
   }
   // The app menu keeps the standard Edit role so real text fields still get native Cut/Paste/Undo (see
   // app-main.ts) — but that means Cmd+C is ALSO a native accelerator that fires webContents.copy()
@@ -297,10 +297,10 @@ function openMergedView() {
   var copyBtn = document.createElement('button');
   copyBtn.type = 'button';
   copyBtn.className = 'dock-btn mc-copy-all';
-  copyBtn.setAttribute('data-i18n', 'merged.copyAndClear');
-  copyBtn.textContent = t('merged.copyAndClear');
+  copyBtn.setAttribute('data-i18n', 'merged.copyAndArchive');
+  copyBtn.textContent = t('merged.copyAndArchive');
   copyBtn.disabled = true;
-  copyBtn.addEventListener('click', copyAndClearMerged);
+  copyBtn.addEventListener('click', copyAndArchiveMerged);
   dock.bar.insertBefore(copyBtn, dock.bar.querySelector('.dock-max'));
   // Registered once (not per-rebuild inside initializeMergedEditor) so a Backspace-delete rebuild never
   // stacks a second copy of either listener.

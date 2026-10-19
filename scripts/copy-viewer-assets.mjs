@@ -5,6 +5,7 @@
 import { readdirSync, readFileSync, writeFileSync, copyFileSync, cpSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = join(root, "dist");
@@ -19,12 +20,12 @@ const viewerDir = join(root, "src", "viewer");
 // loudly if a slice is added/removed without updating this list — instead of silently mis-ordering.
 // What that order implies for cross-slice names is checked in test/viewer-slices.test.mjs.
 const VIEWER_SLICES = [
-  "00-util.js", "00-diff-layers.js", "01-core.js", "01-diff-alignment.js", "01-diff-model.js", "02-diff-nav.js",
+  "00-util.js", "00-diff-layers.js", "00-shortcuts.js", "01-core.js", "01-diff-alignment.js", "01-diff-model.js", "02-diff-nav.js",
   "03-quick-open.js", "04-source-tree.js", "05-keymap.js", "06-diff-caret.js", "07-comments.js",
   "08-dock.js", "09-views-update.js", "10-source-view.js", "11-render-http.js", "12-history.js",
   "13-goto.js", "15-analysis-status.js", "15-semantic-navigation.js", "16-semantic-peek.js",
   "17-file-find.js", "18-diagnostics.js", "20-mermaid.js", "21-compare-menu.js",
-  "22-patchset.js", "23-agent-cards.js", "28-shortcut-coach.js",
+  "22-patchset.js", "23-agent-cards.js", "28-shortcut-coach.js", "29-shortcut-rebind.js",
 ];
 const onDisk = readdirSync(viewerDir).filter((f) => f.endsWith(".js")).sort();
 const listed = [...VIEWER_SLICES].sort();
@@ -39,7 +40,13 @@ const markdownVendors = [
   join(root, "node_modules", "dompurify", "dist", "purify.min.js"),
 ];
 const vendorBundle = markdownVendors.map((file) => readFileSync(file, "utf8") + "\n").join("");
-const bundle = vendorBundle + parts.map((f) => readFileSync(join(viewerDir, f), "utf8")).join("");
+// The shortcut table (src/shortcuts.ts) is one array shared by the Settings sheet, which renders it, and
+// the viewer, which dispatches from it. It rides into the bundle as data ahead of every slice so no slice
+// can read it before it exists — the ordering trap that 00-shortcuts.js's lookups would otherwise sit in.
+const shortcutDefs = createRequire(import.meta.url)(join(distDir, "shortcuts.js")).SHORTCUTS;
+if (!Array.isArray(shortcutDefs) || !shortcutDefs.length) throw new Error("dist/shortcuts.js exported no SHORTCUTS — did tsc run?");
+const shortcutPrelude = `var SHORTCUT_DEFS = ${JSON.stringify(shortcutDefs)};\n`;
+const bundle = vendorBundle + shortcutPrelude + parts.map((f) => readFileSync(join(viewerDir, f), "utf8")).join("");
 writeFileSync(join(distDir, "viewer.client.js"), bundle); // readable concat — tests + debugging read this
 
 // Runtime ships a MINIFIED bundle (smaller inlined <script> -> faster parse). mangle.toplevel:false keeps

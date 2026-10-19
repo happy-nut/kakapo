@@ -118,34 +118,20 @@ kakapo --staged             # index vs HEAD
 | `Space` | Toggle *Viewed* on the selected changed file |
 | `?` | Comment on the current line |
 | `F8` / `⇧F8` | Next / previous comment |
-| `⌘⇧/` | All review comments (one hand-off document). Copying hands it over and clears it — `⌘Z` undoes |
+| `⌘⇧/` | All review comments (one hand-off document). Copying hands it over and archives it — the sidebar puts it back, `⌘Z` undoes |
 | `⌘9` | Git history |
-| `⌘8` | Worktrees — every checkout of this repository |
 | `⌘F` / `⌘⇧F` | Find in file / in project (the ⌘⇧F rail also holds file search & recent files) |
 | `⌘E` | Recent files — the list on its own, press again to close. Type to filter (Korean typing is read as the QWERTY keys that made it) |
 | `⌥A` / `⌥U` | All changes on the branch / only what is not committed yet |
 | `⌥C` | Choose the branch "all changes" is measured against |
 | `⌘B` / `⌘⌥B` / `⌘⌥O` | Find usages / implementation / workspace symbol |
 | `⌘↓` / `⌘`-click | Go to definition — including into library code (a dependency, a stdlib module, a bundled type stub), which opens read-only |
+| `⌥F1` | Reveal the open file in the sidebar |
+| `F2` / `⇧F2` | Next / previous problem the language server found |
+| `⌘K` | Copy the caret's `file:line` |
 | `⌘,` | Settings |
 
 Settings ▸ Shortcuts lists the rest.
-
-### Moving between worktrees
-
-`⌘8` lists every checkout that shares this repository — the main clone plus each `git worktree add` — so a
-branch you left in another directory is one keypress away instead of another terminal. Each row carries the
-state you would otherwise go looking for: the branch, what its HEAD commit was doing, whether it has
-uncommitted work, and how far it has drifted from its upstream. Enter opens one in its own window; a worktree
-already on screen is focused rather than opened twice.
-
-If [`gh`](https://cli.github.com) is installed and the remote is on GitHub, a row whose branch has an open
-pull request also shows its number — so a worktree that was local commits when you started says so once a PR
-exists behind it, without you going to look. That read is the whole of kakapo's GitHub reach: it never posts.
-Review comments stay local, in `.git/`, per worktree — a comment written before the PR existed is still there
-after, because it was never tied to the PR in the first place.
-
-kakapo lists worktrees; it does not create, move or remove them. `git worktree add` is still yours to run.
 
 ## Bundled language servers
 

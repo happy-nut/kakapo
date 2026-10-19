@@ -633,6 +633,18 @@ function applyI18n() {
   document.querySelectorAll('[data-i18n-ph]').forEach(function (el) { el.setAttribute('placeholder', t(el.getAttribute('data-i18n-ph'))); });
   document.querySelectorAll('[data-i18n-title]').forEach(function (el) { el.setAttribute('title', t(el.getAttribute('data-i18n-title'))); });
   document.querySelectorAll('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
+  // A control that advertises a shortcut names the ID, not the chord: the chord is read off the table, so
+  // the hover hint and the title say what the key actually is — including after it has been rebound. These
+  // were literals typed beside each button, and they had already drifted into three spellings of the same
+  // modifier ("Shift+F7", "⇧F7", "Option+W").
+  document.querySelectorAll('[data-keyhint-id]').forEach(function (el) {
+    var ref = el.getAttribute('data-keyhint-id').split(':');
+    var chord = shortcutKeys(ref[0])[Number(ref[1] || 0)];
+    if (!chord) return;
+    el.setAttribute('data-keyhint', chord);
+    var titleKey = el.getAttribute('data-i18n-title');
+    if (titleKey) el.setAttribute('title', t(titleKey) + ' (' + chord + ')');
+  });
   document.documentElement.lang = locale;
   if (langSelectRef) langSelectRef.render();
   if (themeSelectRef) themeSelectRef.render(); // theme labels are localized — refresh on a language switch too
@@ -957,6 +969,11 @@ var COMMENTS_KEY = 'kakapo-comments:' + location.pathname;
 var reviewComments = [];
 reviewComments = (function () { var b = persistRead(COMMENTS_KEY); if (Array.isArray(b)) return b; try { return JSON.parse(localStorage.getItem(COMMENTS_KEY) || '[]'); } catch (commentsErr) { return []; } })();
 if (!Array.isArray(reviewComments)) reviewComments = [];
+// Handed-over comments. They are kept, not deleted — copying a review archives it — but they are held OUT
+// of `reviewComments` so that every reader of that list (the cards beside the code, F8, the hand-off
+// document, the counts) keeps working without learning what an archive is. Only saving, loading and the
+// sidebar's archive list know this array exists.
+var archivedComments = [];
 // Questions ("q") and change requests ("c") were unified into one review comment; anything persisted under
 // the old split reads back as the one kind, so a card saved last week doesn't render with a dead label.
 reviewComments.forEach(function (c) { if (c && c.kind !== 'note') c.kind = 'c'; });

@@ -114,10 +114,15 @@ function renderDiffNode(node: DiffTreeNode, depth: number): string {
     const { added, deleted } = diffLineTotals(file);
     const trivial = trivialChange(file);
     return [
-      `<a class="${classes}${trivial ? " is-trivial" : ""}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" data-added="${added}" data-deleted="${deleted}"${trivial ? ` data-trivial="${trivial}"` : ""} style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + file.status)}">`,
+      `<a class="${classes}${trivial ? " is-trivial" : ""}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" data-added="${added}" data-deleted="${deleted}"${trivial ? ` data-trivial="${trivial}"` : ""} style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + file.status + statLabel(added, deleted))}">`,
       viewedBox(),
       fileTypeIcon(file.displayPath),
       `<span class="change-name"><span class="path">${escapeHtml(node.name)}</span></span>`,
+      // How big this change is, on the row you decide from. The counts were already attached to this element
+      // for the breadcrumb to read (data-added/data-deleted) and never shown, so scanning the list told you
+      // WHICH files changed and nothing about how much — a one-character constant and a rewritten module
+      // looked identical, and the only way to tell was to open both.
+      changeStat(added, deleted),
       // Why this row arrived already ticked. Without it a pre-viewed file reads as a bug — the reviewer is
       // sure they never marked it — and the box they would untick is the same box, right there.
       trivial ? `<span class="change-trivial" data-i18n="trivial.${trivial}">${trivial}</span>` : "",
@@ -189,6 +194,24 @@ function diffLineTotals(file: DiffFile): { added: number; deleted: number } {
 // about escaping, and reordering is not distinguishable from moving a line that mattered. Those still show.
 export type TrivialChange = "spacing" | "format" | "moved";
 const INDENT_SENSITIVE = new Set(["python", "yaml", "markdown"]);
+
+// The same magnitude, for the row's accessible name — the visible chip is aria-hidden so it is not read
+// twice, but "which of these is the big one" should not be a visual-only answer.
+function statLabel(added: number, deleted: number): string {
+  if (!added && !deleted) return "";
+  return `, +${added} \u2212${deleted}`;
+}
+
+// A file with no counted lines (a pure rename, a mode change, a binary) gets no stat rather than "+0 −0",
+// which would read as "nothing happened" for a change that did.
+function changeStat(added: number, deleted: number): string {
+  if (!added && !deleted) return "";
+  const parts = [
+    added ? `<span class="change-stat-add">+${added}</span>` : "",
+    deleted ? `<span class="change-stat-del">\u2212${deleted}</span>` : "",
+  ].filter(Boolean).join("");
+  return `<span class="change-stat" aria-hidden="true">${parts}</span>`;
+}
 
 export function trivialChange(file: DiffFile): TrivialChange | undefined {
   if (file.binary) return undefined; // nothing to compare, so nothing here can be called trivial

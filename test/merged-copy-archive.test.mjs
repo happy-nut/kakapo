@@ -1,7 +1,7 @@
-// The merged hand-off panel's button is Copy AND CLEAR: a review that has been handed to an agent is spent,
-// so the comments that went into the clipboard leave the thread with it. The three things that make that
-// safe rather than destructive: whole threads go (no replies left pointing at a parent that is gone), a
-// failed clipboard write clears nothing, and Cmd+Z brings the batch back.
+// The merged hand-off panel's button is Copy AND ARCHIVE: a review handed to an agent is spent, so what
+// went into the clipboard leaves the active review with it — kept, not deleted. The things that make that
+// safe: whole threads go (no replies left pointing at a parent that is gone), a failed clipboard write
+// archives nothing, Cmd+Z brings the batch back, and the sidebar can put any of it back later.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -42,14 +42,14 @@ test("the button says what it does", async () => {
     await v.openMergedView();
     const button = copyButton(v);
     assert.ok(button, "the hand-off panel has the button");
-    assert.match(button.textContent, /clear|비우기/i, "it is not labelled as a plain copy");
+    assert.match(button.textContent, /archive|보관/i, "it is not labelled as a plain copy");
     assert.equal(button.disabled, false, "and it is live once there is something to hand over");
   } finally {
     v.close();
   }
 });
 
-test("copying hands the review over and empties it", async () => {
+test("copying hands the review over and files it away", async () => {
   const v = await withComment("why this change?");
   try {
     const clipboard = installClipboard(v);
@@ -61,8 +61,9 @@ test("copying hands the review over and empties it", async () => {
     assert.match(clipboard.text, /why this change\?/, "the review reached the clipboard");
     await v.settle(60);
 
-    assert.equal(v.window.reviewComments.length, 0, "the handed-over comment is gone from the review");
-    assert.equal(v.storedComments().length, 0, "and from storage, so a reopen does not bring it back");
+    assert.equal(v.window.reviewComments.length, 0, "the handed-over comment is out of the active review");
+    assert.equal(v.window.archivedComments.length, 1, "but kept — handed over is not deleted");
+    assert.ok(v.window.archivedComments[0].archivedAt, "and stamped with when it was handed over");
     assert.equal(v.$("#mc-merged-panel"), null, "the panel closes — there is nothing left in it");
   } finally {
     v.close();
@@ -93,7 +94,7 @@ test("an agent's answer goes with the question it answered", async () => {
     assert.equal(
       v.window.reviewComments.map((comment) => `${comment.seq}:${comment.by}`).join("|"),
       "",
-      "the whole thread goes, not just the cards that were in the document",
+      "the whole thread is filed, not just the cards that were in the document",
     );
   } finally {
     v.close();
@@ -118,7 +119,7 @@ test("Cmd+Z brings the handed-over review back", async () => {
   }
 });
 
-test("a failed clipboard write clears nothing", async () => {
+test("a failed clipboard write archives nothing", async () => {
   const v = await withComment("why this change?");
   try {
     await v.openMergedView();
@@ -131,6 +132,7 @@ test("a failed clipboard write clears nothing", async () => {
     await v.settle(60);
 
     assert.equal(v.window.reviewComments.length, 1, "the review is untouched");
+    assert.equal(v.window.archivedComments.length, 0, "and nothing was filed away either");
     assert.ok(v.$("#mc-merged-panel"), "and the panel stays open so the reviewer can try again");
   } finally {
     v.close();
@@ -149,6 +151,32 @@ test("a plain Cmd+A/Cmd+C copy is not a hand-off", async () => {
     await v.settle(60);
 
     assert.equal(v.window.reviewComments.length, 1, "asking for the text does not spend the review");
+  } finally {
+    v.close();
+  }
+});
+
+// Archived is retrievable, which is the whole difference from deleted: the sidebar lists what was handed
+// over and puts a thread back into the review.
+test("the sidebar lists what was handed over and can put it back", async () => {
+  const v = await withComment("why this change?");
+  try {
+    installClipboard(v);
+    await v.openMergedView();
+    copyButton(v).click();
+    await v.settle(60);
+
+    const panel = v.$("#archive-panel");
+    assert.ok(panel && !panel.classList.contains("hidden"), "the archive appears once something is in it");
+    const rows = v.$all("#archive-panel .archive-row");
+    assert.equal(rows.length, 1, "one row per handed-over thread");
+    assert.match(rows[0].textContent, /why this change\?/, "the row says which review it was");
+
+    rows[0].click();
+    await v.settle(60);
+    assert.equal(v.window.reviewComments.length, 1, "clicking it puts the thread back in the review");
+    assert.equal(v.window.archivedComments.length, 0, "and takes it out of the archive");
+    assert.ok(v.$("#archive-panel").classList.contains("hidden"), "an empty archive shows no drawer");
   } finally {
     v.close();
   }

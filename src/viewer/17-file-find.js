@@ -365,9 +365,7 @@ function fileFindBlockedByOverlay() {
 }
 
 function handleFileFindKey(event) {
-  var findChord = (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey
-    && (event.code === 'KeyF' || event.key === 'f' || event.key === 'F');
-  if (findChord) {
+  if (isShortcut(event, 'findInFile')) {
     var active = document.activeElement;
     var editable = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable);
     if ((editable && active !== fileFindInput) || fileFindBlockedByOverlay()) return false;
@@ -381,8 +379,9 @@ function handleFileFindKey(event) {
   if (event.key === 'Enter') {
     event.preventDefault(); event.stopPropagation(); stepFileFind(event.shiftKey ? -1 : 1); return true;
   }
-  if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.code === 'KeyG' || event.key === 'g' || event.key === 'G')) {
-    event.preventDefault(); event.stopPropagation(); stepFileFind(event.shiftKey ? -1 : 1); return true;
+  // ⌘G / ⌘⇧G are one row of the table with two combinations; shortcutMatchIndex says which one fired.
+  if (isShortcut(event, 'findNextPrev')) {
+    event.preventDefault(); event.stopPropagation(); stepFileFind(shortcutMatchIndex ? -1 : 1); return true;
   }
   return false;
 }

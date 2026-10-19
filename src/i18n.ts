@@ -15,11 +15,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "tab.changes": "Changes",
     "tab.files": "All files",
     "sidebar.switch": "Sidebar tree",
-    "tab.changes.title": "Changes (⌘0)",
-    "tab.files.title": "All files (⌘1)",
+    "tab.changes.title": "Changes",
+    "tab.files.title": "All files",
     "tree.markViewed": "Reviewed this file (Space)",
     "rail.branch": "Current branch",
-    "brand.revealFile": "Reveal open file in the sidebar (⌥F1)",
+    "brand.revealFile": "Reveal open file in the sidebar",
     "rail.history": "History",
 
     // Mermaid diagrams a Markdown body can embed (20-mermaid.js).
@@ -65,7 +65,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Title on the brand mark while the release image streams down (applyUpdateProgress). The ring on the
     // mark is the report; this is for anyone who wants the number.
     "update.downloading": "Downloading update… {n}%",
-    "dock.maximize": "Maximize panel (⌘⇧')",
+    "dock.maximize": "Maximize panel",
 
     // Review status (toolbar) — units; the numeric count stays dynamic and is prepended at runtime.
     "status.watching": "watching",
@@ -112,11 +112,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.restoredMany": "Comments restored",
     "comment.clearedMany": "Cleared {n} comments",
     // Every pane is running something, so there is nowhere to cd without interrupting an agent.
-    "diff.previous": "Previous change (Shift+F7)",
+    "diff.previous": "Previous change",
     "diff.next": "Next change (F7)",
     "diff.hideSidebar": "Hide changed files",
     "diff.showSidebar": "Show changed files",
-    "diff.openSource": "Open source (Cmd/Ctrl+Down)",
+    "diff.openSource": "Open source",
     "diff.navigation": "Change navigation",
     "diff.panes": "Diff panes",
     "diff.base": "Base",
@@ -175,7 +175,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "source.viewRaw": "Raw",
     "source.viewRendered": "Rendered",
     "source.lineWrap": "Line wrap",
-    "source.lineWrap.title": "Toggle line wrap (Option+W)",
+    "source.lineWrap.title": "Toggle line wrap",
     "source.buildingTree": "Building file tree…",
 
     // Quick open
@@ -187,17 +187,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "quickopen.extensionsPlaceholder": "All · .py, .ts",
     "quickopen.excludeNoise": "Exclude comments & tests",
     "quickopen.workspaceSymbols": "Workspace symbols",
-    "quickopen.worktrees": "Worktrees",
-    "quickopen.filterWorktrees": "Filter worktrees",
-    "worktrees.current": "current",
-    "worktrees.dirty": "uncommitted",
-    "worktrees.locked": "locked",
-    "worktrees.prunable": "missing",
-    "worktrees.bare": "(bare)",
-    "worktrees.detached": "detached",
-    "worktrees.draft": "draft",
-    "worktrees.loading": "Reading worktrees\u2026",
-    "worktrees.none": "No other worktrees. `git worktree add` creates one.",
     "quickopen.noFiles": "No files found.",
     "quickopen.typeToFilter": "type to filter",
     "quickopen.typeFileName": "Type a file name to search.",
@@ -260,7 +249,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.openNewWindow": "Open in new window",
     "kbd.openSettings": "Settings",
     "kbd.openHistory": "Open / close Git history",
-    "kbd.openWorktrees": "Open / close the worktree list",
     "kbd.compareMode": "All changes / uncommitted changes",
     "kbd.compareRef": "Choose the branch to compare against",
     "kbd.closeDialog": "Close dialog / cancel",
@@ -301,11 +289,27 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.extendSelection": "Extend selection",
     "kbd.toggleViewed": "Toggle viewed on selected Changes row",
     "kbd.addComment": "Add a review comment",
-    "kbd.allComments": "All review comments (copy hands them over and clears)",
+    "kbd.allComments": "All review comments (copy hands them over and archives)",
     "kbd.ignoreWhitespace": "Ignore whitespace",
     "kbd.saveComment": "Save comment",
     "kbd.maximizePanel": "Maximize panel (merged / memo)",
     "kbd.historyNavigate": "Select a commit, open it in the review",
+    // Worked all along and the sheet never said so, until the sheet and the keymap became one table.
+    "kbd.revealInTree": "Reveal the open file in the sidebar",
+    "kbd.commentStepAlt": "Next / previous comment (alternate)",
+    "kbd.gotoDiagnostic": "Next / previous problem",
+    "kbd.copyLocation": "Copy the caret's file:line",
+    "kbd.undoCommentRemoval": "Undo the last comment removal",
+
+    // Settings — rebinding a shortcut
+    "settings.kbd.capture": "press a key",
+    "settings.kbd.captureHint": "Press the new combination, or Esc to cancel",
+    "settings.kbd.needModifier": "Hold ⌘, ⌥ or ⇧ as well — or use a function key",
+    "settings.kbd.conflict": "{key} is already {action}",
+    "settings.kbd.reset": "Back to the default",
+    "settings.kbd.resetAll": "Reset every shortcut",
+    "settings.kbd.fixed.menu": "The menu bar owns this one",
+    "settings.kbd.fixed.structural": "A standard key of this surface — it stays put",
 
     // Settings — Merge prompts
 
@@ -373,13 +377,15 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Merged comments modal
     "merged.title": "Review comments",
-    "merged.copyAndClear": "Copy and clear",
+    "merged.copyAndArchive": "Copy and archive",
+    "archive.title": "Handed over",
+    "archive.restore": "Put this back in the review",
     "merged.allAddressed": "All {n} comments are flagged as possibly addressed, so nothing is left to hand off.",
     "merged.allAnswered": "The agent has answered every open thread. Reply to one of its answers and the reply comes back here.",
     "merged.empty": "No comments yet. Put the caret on a line — in the diff or in a file — and press {key} to write the first one.",
     "merged.reopenAll": "Reopen them",
     "merged.copied": "Copied",
-    "merged.copiedAndCleared": "Copied — {count} cleared (⌘Z to undo)",
+    "merged.copiedAndArchived": "Copied — {count} archived (⌘Z to undo)",
     "merged.copyFailed": "Copy failed",
     "merged.close": "Close",
 
@@ -397,7 +403,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "sidebar.switch": "사이드바 트리",
     "tree.markViewed": "이 파일 확인함 (Space)",
     "rail.branch": "현재 브랜치",
-    "brand.revealFile": "열린 파일을 사이드바에서 보기 (⌥F1)",
+    "brand.revealFile": "열린 파일을 사이드바에서 보기",
     "rail.history": "히스토리",
 
     "explain.diagramLoading": "다이어그램을 불러오는 중…",
@@ -437,14 +443,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "notify.agentReplies": "에이전트가 리뷰 코멘트들에 답변했습니다",
     "menu.showLineHistory": "날짜와 작성자 표시",
     "menu.hideLineHistory": "날짜와 작성자 숨기기",
-    "tab.changes.title": "변경사항 (⌘0)",
-    "tab.files.title": "전체 파일 (⌘1)",
+    "tab.changes.title": "변경사항",
+    "tab.files.title": "전체 파일",
 
     // 레일: 톱니바퀴 배지 툴팁 / 정보
     // 릴리스 이미지를 내려받는 동안 브랜드 마크에 붙는 title (applyUpdateProgress). 링이 곧 보고이고,
     // 이건 숫자를 보고 싶은 사람을 위한 것이다.
     "update.downloading": "업데이트 내려받는 중… {n}%",
-    "dock.maximize": "패널 최대화 (⌘⇧')",
+    "dock.maximize": "패널 최대화",
 
     // Review status (toolbar)
     "status.watching": "감시 중",
@@ -491,11 +497,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.restoredMany": "코멘트들을 복원했습니다",
     "comment.clearedMany": "코멘트 {n}개를 지웠습니다",
     // 모든 pane에서 뭔가 돌고 있어서, 에이전트를 방해하지 않고 cd 할 자리가 없다.
-    "diff.previous": "이전 변경 (Shift+F7)",
+    "diff.previous": "이전 변경",
     "diff.next": "다음 변경 (F7)",
     "diff.hideSidebar": "변경 파일 패널 숨기기",
     "diff.showSidebar": "변경 파일 패널 보이기",
-    "diff.openSource": "소스 열기 (Cmd/Ctrl+Down)",
+    "diff.openSource": "소스 열기",
     "diff.navigation": "변경 탐색",
     "diff.panes": "Diff 비교 창",
     "diff.base": "기준 버전",
@@ -551,7 +557,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "source.viewRaw": "원문",
     "source.viewRendered": "렌더링",
     "source.lineWrap": "줄 바꿈",
-    "source.lineWrap.title": "긴 줄 줄 바꿈 전환 (Option+W)",
+    "source.lineWrap.title": "긴 줄 줄 바꿈 전환",
     "source.buildingTree": "파일 트리 만드는 중…",
 
     // Quick open
@@ -563,17 +569,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "quickopen.extensionsPlaceholder": "전체 · .py, .ts",
     "quickopen.excludeNoise": "주석·테스트 제외",
     "quickopen.workspaceSymbols": "워크스페이스 심볼",
-    "quickopen.worktrees": "워크트리",
-    "quickopen.filterWorktrees": "워크트리 검색",
-    "worktrees.current": "현재",
-    "worktrees.dirty": "커밋 안 됨",
-    "worktrees.locked": "잠김",
-    "worktrees.prunable": "사라짐",
-    "worktrees.bare": "(bare)",
-    "worktrees.detached": "detached",
-    "worktrees.draft": "draft",
-    "worktrees.loading": "워크트리를 읽는 중\u2026",
-    "worktrees.none": "다른 워크트리가 없습니다. `git worktree add`로 만들 수 있습니다.",
     "quickopen.noFiles": "파일을 찾을 수 없습니다.",
     "quickopen.typeToFilter": "입력하여 필터",
     "quickopen.typeFileName": "검색할 파일 이름을 입력하세요.",
@@ -635,7 +630,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.openNewWindow": "새 창에서 열기",
     "kbd.openSettings": "설정",
     "kbd.openHistory": "Git 히스토리 열기 / 닫기",
-    "kbd.openWorktrees": "워크트리 목록 열기 / 닫기",
     "kbd.compareMode": "모든 변경사항 / 커밋되지 않은 변경사항",
     "kbd.compareRef": "비교할 브랜치 고르기",
     "kbd.closeDialog": "대화상자 닫기 / 취소",
@@ -676,11 +670,25 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.extendSelection": "선택 영역 확장",
     "kbd.toggleViewed": "선택한 변경 파일의 확인 표시 토글",
     "kbd.addComment": "리뷰 코멘트 달기",
-    "kbd.allComments": "전체 리뷰 코멘트 (복사하면 넘기고 비움)",
+    "kbd.allComments": "전체 리뷰 코멘트 (복사하면 넘기고 보관)",
     "kbd.ignoreWhitespace": "공백 무시",
     "kbd.saveComment": "코멘트 저장",
     "kbd.maximizePanel": "패널 최대화 (합본 / 메모)",
     "kbd.historyNavigate": "커밋 / 파일 선택·열기",
+    "kbd.revealInTree": "열린 파일을 사이드바에서 찾기",
+    "kbd.commentStepAlt": "다음 / 이전 코멘트 (대체 키)",
+    "kbd.gotoDiagnostic": "다음 / 이전 문제",
+    "kbd.copyLocation": "커서 위치의 파일:줄 복사",
+    "kbd.undoCommentRemoval": "마지막 코멘트 삭제 취소",
+
+    "settings.kbd.capture": "키 입력",
+    "settings.kbd.captureHint": "새 조합을 누르세요. 취소는 Esc",
+    "settings.kbd.needModifier": "⌘, ⌥, ⇧ 중 하나를 같이 누르거나 기능키를 쓰세요",
+    "settings.kbd.conflict": "{key} 은(는) 이미 \u0027{action}\u0027 입니다",
+    "settings.kbd.reset": "기본값으로",
+    "settings.kbd.resetAll": "단축키 전체 초기화",
+    "settings.kbd.fixed.menu": "메뉴 막대가 가진 키입니다",
+    "settings.kbd.fixed.structural": "이 화면의 표준 키라 바꾸지 않습니다",
 
     // Settings — Merge prompts
 
@@ -741,13 +749,15 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Merged comments modal
     "merged.title": "리뷰 코멘트",
-    "merged.copyAndClear": "복사하고 비우기",
+    "merged.copyAndArchive": "복사하고 보관",
+    "archive.title": "넘긴 리뷰",
+    "archive.restore": "리뷰로 되돌리기",
     "merged.allAddressed": "코멘트 {n}개가 모두 반영된 듯으로 표시되어 전달할 내용이 없습니다.",
     "merged.allAnswered": "열린 스레드에 에이전트가 모두 답했습니다. 답변에 답글을 달면 그 답글이 여기로 옵니다.",
     "merged.empty": "아직 코멘트가 없습니다. diff나 파일에서 줄에 커서를 두고 {key} 를 누르면 첫 코멘트를 남길 수 있습니다.",
     "merged.reopenAll": "다시 열기",
     "merged.copied": "복사됨",
-    "merged.copiedAndCleared": "복사했고 {count}개를 비웠습니다 (⌘Z로 되돌리기)",
+    "merged.copiedAndArchived": "복사했고 {count}개를 보관했습니다 (⌘Z로 되돌리기)",
     "merged.copyFailed": "복사 실패",
     "merged.close": "닫기",
 

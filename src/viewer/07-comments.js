@@ -201,6 +201,7 @@ function commentToRecord(c) {
   if (c.anchorCode) record.anchor = c.anchorCode;
   if (c.title) record.title = c.title;
   if (c.addressed) record.addressed = true;
+  if (c.archivedAt) record.archivedAt = c.archivedAt; // handed over, kept, out of the way
   if (c.view) record.view = c.view; // same trap as role/group: a field not written back is a field the next save deletes
   // Written by the agent, never by this app — but it has to be carried back out. The renderer sends the WHOLE
   // list on every save (saveThread), so a field it forgets here is a field the next unrelated comment deletes
@@ -225,6 +226,7 @@ function recordToComment(record, byId) {
     role: NOTE_ROLES[record.role] ? record.role : null,
     group: Number(record.group) > 0 ? Number(record.group) : 0,
     addressed: !!record.addressed, anchorPresent: anchorLinePresent(path, anchor, anchor),
+    archivedAt: typeof record.archivedAt === 'string' ? record.archivedAt : null,
     view: record.view === 'diff' || record.view === 'source' ? record.view : null,
     text: String(record.text == null ? '' : record.text),
   };
@@ -294,7 +296,7 @@ function saveThread() {
       if (result && result.arrived && result.arrived.length) applyThreadRecords(null, result.arrived);
     };
     try {
-      window.kakapoComments.write({ records: reviewComments.map(commentToRecord) })
+      window.kakapoComments.write({ records: reviewComments.concat(archivedComments).map(commentToRecord) })
         .then(settle, function () { threadSavePending = false; });
     } catch (e) { threadSavePending = false; }
   }, 250);
@@ -308,9 +310,12 @@ function applyThreadRecords(records, extra, silent) {
     next.forEach(function (c) { byId[c.seq] = c; });
     threadFromRecords(extra).forEach(function (c) { if (!byId[c.seq]) next.push(c); });
   }
-  reviewComments = next;
+  // Split on the way in: an archived comment is still in the file (it was handed over, not deleted) and
+  // still numbered in the same id space, but it is not part of the review any more.
+  archivedComments = next.filter(function (c) { return !!c.archivedAt; });
+  reviewComments = next.filter(function (c) { return !c.archivedAt; });
   reanchorReplies(); // an answer that named its own line lands in its question's thread, not beside it
-  commentSeq = reviewComments.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
+  commentSeq = next.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
   persistSave(COMMENTS_KEY, reviewComments);
   if (silent) seenAgentSeq = maxAgentSeq(); else notifyAgentTurns();
   // Agent-driven, so the re-render yields to a field being typed into (see refreshCommentsWhenNotTyping).
@@ -551,6 +556,33 @@ function updateComment(seq, text) {
 // needs a safety net. Each entry is the full batch removed together (deleteCommentsInRow removes every
 // comment on a row in one Backspace), so one undo restores exactly what one deletion removed.
 var commentUndoStack = [];
+// Copying the hand-off document archives what went into it. The review is spent — it is in the agent's
+// hands now — but "spent" is not "wrong to have written": the thread is kept, out of the active review and
+// out of the next hand-off, and the sidebar's archive can bring it back. Shares the undo stack with
+// deletion, so one Cmd+Z puts the batch back exactly as it does there.
+function archiveComments(seqs) {
+  var moving = reviewComments.filter(function (c) { return seqs.indexOf(c.seq) !== -1; });
+  if (!moving.length) return 0;
+  var at = new Date().toISOString();
+  commentUndoStack.push(moving.map(function (c) { return Object.assign({}, c); }));
+  if (commentUndoStack.length > 20) commentUndoStack.shift();
+  moving.forEach(function (c) { c.archivedAt = at; });
+  reviewComments = reviewComments.filter(function (c) { return seqs.indexOf(c.seq) === -1; });
+  archivedComments = archivedComments.concat(moving);
+  saveComments();
+  return moving.length;
+}
+// Bring one back into the review, from the sidebar's archive list.
+function restoreArchivedThread(seq) {
+  var back = archivedComments.filter(function (c) { return c.seq === seq || c.replyTo === seq; });
+  if (!back.length) return 0;
+  back.forEach(function (c) { c.archivedAt = null; });
+  archivedComments = archivedComments.filter(function (c) { return back.indexOf(c) < 0; });
+  reviewComments = reviewComments.concat(back);
+  saveComments();
+  refreshComments();
+  return back.length;
+}
 function removeComments(seqs) {
   var removed = reviewComments.filter(function (c) { return seqs.indexOf(c.seq) !== -1; });
   if (!removed.length) return;
@@ -936,7 +968,40 @@ function applyCommentSelectionHighlight() {
     }
   }
 }
+// The sidebar's record of what has been handed over. Thread roots only — a reply has no identity apart from
+// the question it answers, and restoring one brings its thread with it.
+function renderArchivePanel() {
+  var panel = document.getElementById('archive-panel');
+  if (!panel) return;
+  var roots = archivedComments.filter(function (c) { return c.replyTo == null; });
+  panel.classList.toggle('hidden', roots.length === 0);
+  if (!roots.length) { panel.innerHTML = ''; return; }
+  roots.sort(function (a, b) { return String(b.archivedAt || '').localeCompare(String(a.archivedAt || '')); });
+  panel.innerHTML = '<div class="archive-head">' + escapeHtml(t('archive.title'))
+    + '<span class="archive-count">' + roots.length + '</span></div>'
+    + roots.map(function (c) {
+      var where = c.path ? sourceTabLabel(c.path) + ':' + c.line : '';
+      // escapeHtml, not escapeAttr: the renderer bundle has no escapeAttr, and escapeHtml covers & < > " '
+      // — which is what a quoted attribute needs.
+      return '<button type="button" class="archive-row" data-seq="' + c.seq + '" title="'
+        + escapeHtml(t('archive.restore')) + '">'
+        + '<span class="archive-where">' + escapeHtml(where) + '</span>'
+        + '<span class="archive-text">' + escapeHtml(String(c.text || '').replace(/\s+/g, ' ').slice(0, 90)) + '</span>'
+        + '</button>';
+    }).join('');
+}
+document.addEventListener('click', function (event) {
+  var row = event.target && event.target.closest ? event.target.closest('#archive-panel .archive-row') : null;
+  if (!row) return;
+  var seq = Number(row.dataset.seq);
+  if (!restoreArchivedThread(seq)) return;
+  // Put the reviewer where the comment is, since bringing it back is a decision to look at it again.
+  var back = reviewComments.filter(function (c) { return c.seq === seq; })[0];
+  if (back && back.path) openSourceAt(back.path, Math.max(0, back.line - 1), 0);
+});
+
 function refreshComments() {
+  renderArchivePanel();
   var changedDiffWrappers = renderDiffComments();
   // Reproject ONLY wrappers whose comment rows changed. The previous all-files loop measured every row in
   // every materialized diff on each keystroke/save/cancel, which became severe UI jank in large reviews.
