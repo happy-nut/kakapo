@@ -8,7 +8,20 @@
 #
 # Lives at Contents/Resources/app/bin/ inside the bundle; the app binary is three levels up in MacOS/.
 set -eu
-here=$(cd "$(dirname "$0")" && pwd)
+
+# Follow $0 through symlinks before measuring anything from it. Homebrew installs this command as a link
+# in its own bin directory, so `dirname "$0"` is /opt/homebrew/bin and every path derived from it lands
+# outside the bundle — the install produced `cd: /opt/../MacOS: No such file or directory` and nothing
+# else. A chain is followed, and a relative link is resolved against the directory it was found in.
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in
+    /*) self=$link ;;
+    *) self=$(dirname "$self")/$link ;;
+  esac
+done
+here=$(cd "$(dirname "$self")" && pwd)
 resources=$(cd "$here/../.." && pwd)
 macos=$(cd "$resources/../MacOS" && pwd)
 

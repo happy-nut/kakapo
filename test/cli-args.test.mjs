@@ -67,3 +67,17 @@ test("every flag the parser understands is named in --help", () => {
   const missing = [...flags].filter((flag) => !help.includes(flag));
   assert.deepEqual(missing, [], "flags the parser accepts but --help never mentions");
 });
+
+// An unknown flag opens the review app, which is right for a command whose job is "open this repo" — but
+// it swallowed `--version`, so the one question you ask after installing launched a window instead of
+// answering. --help was always handled; --version only looked like it was.
+test("--version answers instead of opening the app", () => {
+  const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
+  const version = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+  for (const flag of ["--version", "-v"]) {
+    const out = execFileSync(process.execPath, [cli, flag], { encoding: "utf8" }).trim();
+    assert.equal(out, version, `${flag} prints the version`);
+  }
+  assert.match(execFileSync(process.execPath, [cli, "--help"], { encoding: "utf8" }), /--version, -v/,
+    "and the help says it exists");
+});

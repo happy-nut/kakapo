@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -303,6 +304,44 @@ test("the packaged bundle ships a kakapo command that can launch the app", () =>
   // chmod where the shipping bundle is in hand: a cask links this file, and an unexecutable link is useless.
   const createDmg = readFileSync(join(repoRoot, "scripts", "create-dmg.mjs"), "utf8");
   assert.match(createDmg, /kakapo-bundled\.sh[\s\S]*chmodSync/, "the shim is executable in the shipped bundle");
+});
+
+// Reading the shim could only ever check what it says, not what it does — and what it did, when Homebrew
+// linked it into its own bin directory, was measure the bundle from the LINK: `dirname "$0"` was
+// /opt/homebrew/bin, so the install's only output was `cd: /opt/../MacOS: No such file or directory`.
+// Every assertion above still passed. So this one builds a bundle, links the command the way the cask
+// does, and runs it.
+test("the kakapo command works through the symlink a cask installs it as", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kakapo-shim-"));
+  try {
+    const bundle = join(dir, "Kakapo.app", "Contents");
+    const binDir = join(bundle, "Resources", "app", "bin");
+    mkdirSync(binDir, { recursive: true });
+    mkdirSync(join(bundle, "MacOS"), { recursive: true });
+    // Stand in for the Electron binary the shim hosts the CLI on: report what it was asked to run.
+    writeFileSync(join(bundle, "MacOS", "Kakapo"), '#!/bin/sh\necho "RAN $@"\n', { mode: 0o755 });
+    writeFileSync(join(binDir, "kakapo.js"), "", { mode: 0o644 });
+    const shimPath = join(binDir, "kakapo-bundled.sh");
+    writeFileSync(shimPath, readFileSync(join(repoRoot, "bin", "kakapo-bundled.sh"), "utf8"), { mode: 0o755 });
+
+    const expected = `RAN ${join(binDir, "kakapo.js")} review-me`;
+
+    // 1. run in place, the way a double-clicked bundle would
+    assert.equal(execFileSync(shimPath, ["review-me"], { encoding: "utf8" }).trim(), expected);
+
+    // 2. run through an absolute symlink in a bin directory — what `brew install --cask` makes
+    const brewBin = join(dir, "homebrew-bin");
+    mkdirSync(brewBin);
+    symlinkSync(shimPath, join(brewBin, "kakapo"));
+    assert.equal(execFileSync(join(brewBin, "kakapo"), ["review-me"], { encoding: "utf8" }).trim(), expected,
+      "the bundle is measured from the real file, not from the link");
+
+    // 3. and through a relative link to that link — a chain still resolves, each hop against its own dir
+    symlinkSync("kakapo", join(brewBin, "kakapo2"));
+    assert.equal(execFileSync(join(brewBin, "kakapo2"), ["review-me"], { encoding: "utf8" }).trim(), expected);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // The cask points at one URL that never changes, so a release needs no edit in the tap repository and no
