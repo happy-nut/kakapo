@@ -252,17 +252,8 @@ function toggleRenderMode() {
   if (diffWrapBtn) diffWrapBtn.addEventListener('click', function () { toggleLineWrap(); });
   applyLineWrapState();
   if (lineWrapEnabled) refreshDiffLineWrapLayout();
-  document.addEventListener('keydown', function (e) {
-    if (isFloatingModalOpen()) return; // a floating overlay owns focus -> no render-toggle shortcut beneath it
-    if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === 'R' || e.key === 'r' || e.code === 'KeyR')) {
-      var sv = document.getElementById('source-viewer');
-      var open = sv && sv.dataset.openPath;
-      if (open && isRenderToggleable(open) && isSourceViewerVisible()) { e.preventDefault(); toggleRenderMode(); }
-    }
-    if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === 'W' || e.key === 'w' || e.code === 'KeyW')) {
-      if (toggleLineWrap()) e.preventDefault();
-    }
-  });
+  // ⌥R and ⌥W used to be a second document keydown listener spelling their own chords; they are rows of
+  // the shortcut table now (SHORTCUT_ACTIONS in 05-keymap.js), which is also what lets them be rebound.
 })();
 
 // A PDF is handed to Chromium's built-in viewer rather than drawn by us: no PDF library ships in the bundle,

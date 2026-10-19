@@ -1556,16 +1556,17 @@ test("window-level shortcuts are one table with one scope rule, and a modal is w
 
   assert.match(keymap, /function keyboardScope\(\)/, "one place decides who owns the keyboard");
   assert.doesNotMatch(keymap, /var settingsUp/, "no per-shortcut settings guard is re-derived in the chain");
-  assert.match(keymap, /if \(scope !== 'modal'\)[\s\S]{0,320}WINDOW_SHORTCUTS/,
+  assert.match(keymap, /if \(scope !== 'modal' && runShortcut\(event, WINDOW_SHORTCUT_IDS\)\) return;/,
     "a modal (settings / go-to-line) is the single thing that stands the table down");
 
-  const table = keymap.match(/var WINDOW_SHORTCUTS = \[[\s\S]*?\n\];/)?.[0];
-  assert.ok(table, "the table exists");
-  for (const code of ["Quote", "Slash", "Digit9", "Digit0", "Digit1", "KeyZ"]) {
-    assert.ok(table.includes(`code: '${code}'`), `${code} is a row, not a branch`);
+  // The combinations themselves are no longer here. They live in src/shortcuts.ts, which the Settings
+  // sheet renders and the bundle carries as SHORTCUT_DEFS, so a key is spelled once and can be rebound;
+  // this file says only what each id DOES. A chord written back into a branch here would undo that.
+  for (const id of ["maximizePanel", "allComments", "openHistory", "filesChangesTab", "undoCommentRemoval"]) {
+    assert.match(keymap, new RegExp(`\\b${id}:\\s*function`), `${id} is an action, not a branch`);
   }
-  // Every row matches by code first, so a non-US layout or an IME can never swallow a combo.
-  assert.match(keymap, /function matchesChord[\s\S]{0,200}event\.code === sc\.code/, "code is the primary match");
+  assert.doesNotMatch(keymap, /code === 'Digit\d'|code === 'Key[A-Z]'/,
+    "no shortcut spells its own physical key here any more");
 
   // The scope names the keymap works in are the ones the dock helper feeds it.
   const dock = readFileSync(new URL("../src/viewer/08-dock.js", import.meta.url), "utf8");

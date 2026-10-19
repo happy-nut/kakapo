@@ -172,7 +172,7 @@ function sourceFoldButtonHtml(kind, count, start, end) {
   var title = codeFoldExpandTitle() + (kind === 'block' ? ' (⌘.)' : '');
   return '<button type="button" class="mc-code-fold-button source-fold-toggle" data-source-fold="1"'
     + ' data-fold-kind="' + kind + '" data-fold-count="' + count + '" data-fold-start="' + start + '" data-fold-end="' + end + '"'
-    + ' data-keyhint="⌘." title="' + escapeHtml(title) + '"><span class="mc-code-fold-icon">›</span>'
+    + ' data-keyhint-id="toggleFold" title="' + escapeHtml(title) + '"><span class="mc-code-fold-icon">›</span>'
     + '<span class="mc-code-fold-label">' + escapeHtml(label) + '</span></button>';
 }
 function repaintSourceFold(path, lineIndex, column) {

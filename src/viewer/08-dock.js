@@ -85,7 +85,7 @@ function mountDock(id, titleText) {
   var maxBtn = document.createElement('button');
   maxBtn.type = 'button';
   maxBtn.className = 'dock-btn dock-max';
-  maxBtn.dataset.keyhint = "⌘⇧'";
+  maxBtn.dataset.keyhintId = 'maximizePanel'; // the chord itself comes from the table (applyI18n)
   maxBtn.setAttribute('data-i18n-title', 'dock.maximize');
   maxBtn.title = t('dock.maximize');
   maxBtn.textContent = '⤢'; // ⤢ maximize glyph

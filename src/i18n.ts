@@ -15,11 +15,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "tab.changes": "Changes",
     "tab.files": "All files",
     "sidebar.switch": "Sidebar tree",
-    "tab.changes.title": "Changes (⌘0)",
-    "tab.files.title": "All files (⌘1)",
+    "tab.changes.title": "Changes",
+    "tab.files.title": "All files",
     "tree.markViewed": "Reviewed this file (Space)",
     "rail.branch": "Current branch",
-    "brand.revealFile": "Reveal open file in the sidebar (⌥F1)",
+    "brand.revealFile": "Reveal open file in the sidebar",
     "rail.history": "History",
 
     // Mermaid diagrams a Markdown body can embed (20-mermaid.js).
@@ -65,7 +65,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Title on the brand mark while the release image streams down (applyUpdateProgress). The ring on the
     // mark is the report; this is for anyone who wants the number.
     "update.downloading": "Downloading update… {n}%",
-    "dock.maximize": "Maximize panel (⌘⇧')",
+    "dock.maximize": "Maximize panel",
 
     // Review status (toolbar) — units; the numeric count stays dynamic and is prepended at runtime.
     "status.watching": "watching",
@@ -112,11 +112,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.restoredMany": "Comments restored",
     "comment.clearedMany": "Cleared {n} comments",
     // Every pane is running something, so there is nowhere to cd without interrupting an agent.
-    "diff.previous": "Previous change (Shift+F7)",
+    "diff.previous": "Previous change",
     "diff.next": "Next change (F7)",
     "diff.hideSidebar": "Hide changed files",
     "diff.showSidebar": "Show changed files",
-    "diff.openSource": "Open source (Cmd/Ctrl+Down)",
+    "diff.openSource": "Open source",
     "diff.navigation": "Change navigation",
     "diff.panes": "Diff panes",
     "diff.base": "Base",
@@ -175,7 +175,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "source.viewRaw": "Raw",
     "source.viewRendered": "Rendered",
     "source.lineWrap": "Line wrap",
-    "source.lineWrap.title": "Toggle line wrap (Option+W)",
+    "source.lineWrap.title": "Toggle line wrap",
     "source.buildingTree": "Building file tree…",
 
     // Quick open
@@ -294,6 +294,12 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.saveComment": "Save comment",
     "kbd.maximizePanel": "Maximize panel (merged / memo)",
     "kbd.historyNavigate": "Select a commit, open it in the review",
+    // Worked all along and the sheet never said so, until the sheet and the keymap became one table.
+    "kbd.revealInTree": "Reveal the open file in the sidebar",
+    "kbd.commentStepAlt": "Next / previous comment (alternate)",
+    "kbd.gotoDiagnostic": "Next / previous problem",
+    "kbd.copyLocation": "Copy the caret's file:line",
+    "kbd.undoCommentRemoval": "Undo the last comment removal",
 
     // Settings — Merge prompts
 
@@ -387,7 +393,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "sidebar.switch": "사이드바 트리",
     "tree.markViewed": "이 파일 확인함 (Space)",
     "rail.branch": "현재 브랜치",
-    "brand.revealFile": "열린 파일을 사이드바에서 보기 (⌥F1)",
+    "brand.revealFile": "열린 파일을 사이드바에서 보기",
     "rail.history": "히스토리",
 
     "explain.diagramLoading": "다이어그램을 불러오는 중…",
@@ -427,14 +433,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "notify.agentReplies": "에이전트가 리뷰 코멘트들에 답변했습니다",
     "menu.showLineHistory": "날짜와 작성자 표시",
     "menu.hideLineHistory": "날짜와 작성자 숨기기",
-    "tab.changes.title": "변경사항 (⌘0)",
-    "tab.files.title": "전체 파일 (⌘1)",
+    "tab.changes.title": "변경사항",
+    "tab.files.title": "전체 파일",
 
     // 레일: 톱니바퀴 배지 툴팁 / 정보
     // 릴리스 이미지를 내려받는 동안 브랜드 마크에 붙는 title (applyUpdateProgress). 링이 곧 보고이고,
     // 이건 숫자를 보고 싶은 사람을 위한 것이다.
     "update.downloading": "업데이트 내려받는 중… {n}%",
-    "dock.maximize": "패널 최대화 (⌘⇧')",
+    "dock.maximize": "패널 최대화",
 
     // Review status (toolbar)
     "status.watching": "감시 중",
@@ -481,11 +487,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.restoredMany": "코멘트들을 복원했습니다",
     "comment.clearedMany": "코멘트 {n}개를 지웠습니다",
     // 모든 pane에서 뭔가 돌고 있어서, 에이전트를 방해하지 않고 cd 할 자리가 없다.
-    "diff.previous": "이전 변경 (Shift+F7)",
+    "diff.previous": "이전 변경",
     "diff.next": "다음 변경 (F7)",
     "diff.hideSidebar": "변경 파일 패널 숨기기",
     "diff.showSidebar": "변경 파일 패널 보이기",
-    "diff.openSource": "소스 열기 (Cmd/Ctrl+Down)",
+    "diff.openSource": "소스 열기",
     "diff.navigation": "변경 탐색",
     "diff.panes": "Diff 비교 창",
     "diff.base": "기준 버전",
@@ -541,7 +547,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "source.viewRaw": "원문",
     "source.viewRendered": "렌더링",
     "source.lineWrap": "줄 바꿈",
-    "source.lineWrap.title": "긴 줄 줄 바꿈 전환 (Option+W)",
+    "source.lineWrap.title": "긴 줄 줄 바꿈 전환",
     "source.buildingTree": "파일 트리 만드는 중…",
 
     // Quick open
@@ -659,6 +665,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.saveComment": "코멘트 저장",
     "kbd.maximizePanel": "패널 최대화 (합본 / 메모)",
     "kbd.historyNavigate": "커밋 / 파일 선택·열기",
+    "kbd.revealInTree": "열린 파일을 사이드바에서 찾기",
+    "kbd.commentStepAlt": "다음 / 이전 코멘트 (대체 키)",
+    "kbd.gotoDiagnostic": "다음 / 이전 문제",
+    "kbd.copyLocation": "커서 위치의 파일:줄 복사",
+    "kbd.undoCommentRemoval": "마지막 코멘트 삭제 취소",
 
     // Settings — Merge prompts
 
