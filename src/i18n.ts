@@ -301,6 +301,16 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.copyLocation": "Copy the caret's file:line",
     "kbd.undoCommentRemoval": "Undo the last comment removal",
 
+    // Settings — rebinding a shortcut
+    "settings.kbd.capture": "press a key",
+    "settings.kbd.captureHint": "Press the new combination, or Esc to cancel",
+    "settings.kbd.needModifier": "Hold ⌘, ⌥ or ⇧ as well — or use a function key",
+    "settings.kbd.conflict": "{key} is already {action}",
+    "settings.kbd.reset": "Back to the default",
+    "settings.kbd.resetAll": "Reset every shortcut",
+    "settings.kbd.fixed.menu": "The menu bar owns this one",
+    "settings.kbd.fixed.structural": "A standard key of this surface — it stays put",
+
     // Settings — Merge prompts
 
     "trivial.spacing": "spacing",
@@ -670,6 +680,15 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.gotoDiagnostic": "다음 / 이전 문제",
     "kbd.copyLocation": "커서 위치의 파일:줄 복사",
     "kbd.undoCommentRemoval": "마지막 코멘트 삭제 취소",
+
+    "settings.kbd.capture": "키 입력",
+    "settings.kbd.captureHint": "새 조합을 누르세요. 취소는 Esc",
+    "settings.kbd.needModifier": "⌘, ⌥, ⇧ 중 하나를 같이 누르거나 기능키를 쓰세요",
+    "settings.kbd.conflict": "{key} 은(는) 이미 \u0027{action}\u0027 입니다",
+    "settings.kbd.reset": "기본값으로",
+    "settings.kbd.resetAll": "단축키 전체 초기화",
+    "settings.kbd.fixed.menu": "메뉴 막대가 가진 키입니다",
+    "settings.kbd.fixed.structural": "이 화면의 표준 키라 바꾸지 않습니다",
 
     // Settings — Merge prompts
 
