@@ -28,6 +28,31 @@ const packageVersion: string = (() => {
 
 // Welcome screen for the packaged .app (double-clicked, no cwd): an "Open Folder" button that asks the main
 // process (window.kakapoApp.openFolder, exposed via preload) to pick a git repo and load its review.
+// One shortcut row: what it does on the left, the keys on the right, each key its own chip — the way a
+// macOS menu or a system Keyboard pane spells a combination out. A single `<kbd>⌘⇧O</kbd>` made the whole
+// combination one lump, so the eye had to parse the glyph run itself; three chips read as three keys.
+// `⌥A / ⌥U` is two combinations for one action and stays two groups with the slash between them.
+const MODIFIER_GLYPHS = new Set(["⌘", "⇧", "⌥", "⌃"]);
+function keyChips(combo: string): string {
+  return combo.split(" / ").map((group) => {
+    const chips: string[] = [];
+    let rest = group.trim();
+    while (rest.length && MODIFIER_GLYPHS.has(rest[0])) {
+      chips.push(rest[0]);
+      rest = rest.slice(1);
+    }
+    // The key itself: a letter, a word like Enter / Space / F7 — or an arrow cluster, which is four keys
+    // rather than one label and so splits the same way the modifiers do.
+    if (/^[←↑↓→]+$/.test(rest)) chips.push(...rest.split(""));
+    else if (rest.length) chips.push(rest);
+    return `<span class="keys-combo">${chips.map((c) => `<kbd>${escapeHtml(c)}</kbd>`).join("")}</span>`;
+  }).join('<span class="keys-or">/</span>');
+}
+function shortcutRow(combo: string, i18nKey: string, label: string): string {
+  return `<div class="keys-row"><span class="keys-label" data-i18n="${i18nKey}">${escapeHtml(label)}</span>`
+    + `<span class="keys-keys">${keyChips(combo)}</span></div>`;
+}
+
 export function renderWelcomeHtml(
   light = false,
   recent: { path: string; name: string }[] = [],
@@ -560,71 +585,71 @@ export function renderDiffHtml(input: {
     '<div class="app-info-keys-h" data-i18n="settings.kbd.title">Keyboard shortcuts</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.app">App</div>' +
     '<div class="keys-grid">' +
-    '<kbd>⌘O</kbd><span data-i18n="kbd.openFolder">Open folder</span>' +
-    '<kbd>⌘⇧O</kbd><span data-i18n="kbd.openNewWindow">Open in new window</span>' +
-    '<kbd>⌘,</kbd><span data-i18n="kbd.openSettings">Settings</span>' +
-    '<kbd>⌘9</kbd><span data-i18n="kbd.openHistory">Git history</span>' +
-    '<kbd>⌥A / ⌥U</kbd><span data-i18n="kbd.compareMode">All changes / uncommitted changes</span>' +
-    '<kbd>⌥C</kbd><span data-i18n="kbd.compareRef">Choose the branch to compare against</span>' +
-    '<kbd>⌘L</kbd><span data-i18n="kbd.gotoLine">Go to line</span>' +
-    '<kbd>⌥Enter</kbd><span data-i18n="kbd.rowActions">Sidebar file actions (path / file manager)</span>' +
-    '<kbd>Esc</kbd><span data-i18n="kbd.closeDialog">Close dialog / cancel</span>' +
+    shortcutRow('⌘O', 'kbd.openFolder', 'Open folder') +
+    shortcutRow('⌘⇧O', 'kbd.openNewWindow', 'Open in new window') +
+    shortcutRow('⌘,', 'kbd.openSettings', 'Settings') +
+    shortcutRow('⌘9', 'kbd.openHistory', 'Git history') +
+    shortcutRow('⌥A / ⌥U', 'kbd.compareMode', 'All changes / uncommitted changes') +
+    shortcutRow('⌥C', 'kbd.compareRef', 'Choose the branch to compare against') +
+    shortcutRow('⌘L', 'kbd.gotoLine', 'Go to line') +
+    shortcutRow('⌥Enter', 'kbd.rowActions', 'Sidebar file actions (path / file manager)') +
+    shortcutRow('Esc', 'kbd.closeDialog', 'Close dialog / cancel') +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.nav">Navigation</div>' +
     '<div class="keys-grid">' +
-    '<kbd>F7</kbd><span data-i18n="kbd.nextChange">Next change</span>' +
-    '<kbd>⇧F7</kbd><span data-i18n="kbd.prevChange">Previous change</span>' +
-    '<kbd>F8 / ⇧F8</kbd><span data-i18n="kbd.nextComment">Next / previous comment</span>' +
-    '<kbd>⌘1 / ⌘0</kbd><span data-i18n="kbd.filesChangesTab">Files / Changes tab</span>' +
-    '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.sidebarNavigate">Navigate / open sidebar row</span>' +
-    '<kbd>Tab / ⇧Tab</kbd><span data-i18n="kbd.sidebarContent">Sidebar &harr; content / diff pane</span>' +
-    '<kbd>⌘F</kbd><span data-i18n="kbd.findInFile">Find in current file</span>' +
-    '<kbd>⌘G / ⌘⇧G</kbd><span data-i18n="kbd.findNextPrev">Next / previous match</span>' +
-    '<kbd>⌘⇧F</kbd><span data-i18n="kbd.findInFiles">Find in files</span>' +
-    '<kbd>⌘E</kbd><span data-i18n="kbd.recentFiles">Recent files</span>' +
-    '<kbd>⌥E</kbd><span data-i18n="kbd.searchExtensions">Focus extension filter</span>' +
-    '<kbd>⌥P</kbd><span data-i18n="kbd.excludeSearchNoise">Exclude comments / tests</span>' +
-    '<kbd>⌘B</kbd><span data-i18n="kbd.defUsages">Find usages</span>' +
-    '<kbd>⌘⌥B</kbd><span data-i18n="kbd.goToImplementation">Go to implementation</span>' +
-    '<kbd>⌘⌥O</kbd><span data-i18n="kbd.workspaceSymbol">Workspace symbol</span>' +
-    '<kbd>⌘&darr;</kbd><span data-i18n="kbd.goToDef">Go to definition (or ⌘-click)</span>' +
-    '<kbd>⌘.</kbd><span data-i18n="kbd.toggleFold">Toggle code fold</span>' +
-    '<kbd>⌘⇧[ / ]</kbd><span data-i18n="kbd.prevNextTab">Prev / next tab</span>' +
-    '<kbd>⌘[ / ]</kbd><span data-i18n="kbd.cursorBackForward">Cursor back / forward</span>' +
+    shortcutRow('F7', 'kbd.nextChange', 'Next change') +
+    shortcutRow('⇧F7', 'kbd.prevChange', 'Previous change') +
+    shortcutRow('F8 / ⇧F8', 'kbd.nextComment', 'Next / previous comment') +
+    shortcutRow('⌘1 / ⌘0', 'kbd.filesChangesTab', 'Files / Changes tab') +
+    shortcutRow('↑↓ / Enter', 'kbd.sidebarNavigate', 'Navigate / open sidebar row') +
+    shortcutRow('Tab / ⇧Tab', 'kbd.sidebarContent', 'Sidebar ↔ content / diff pane') +
+    shortcutRow('⌘F', 'kbd.findInFile', 'Find in current file') +
+    shortcutRow('⌘G / ⌘⇧G', 'kbd.findNextPrev', 'Next / previous match') +
+    shortcutRow('⌘⇧F', 'kbd.findInFiles', 'Find in files') +
+    shortcutRow('⌘E', 'kbd.recentFiles', 'Recent files') +
+    shortcutRow('⌥E', 'kbd.searchExtensions', 'Focus extension filter') +
+    shortcutRow('⌥P', 'kbd.excludeSearchNoise', 'Exclude comments / tests') +
+    shortcutRow('⌘B', 'kbd.defUsages', 'Find usages') +
+    shortcutRow('⌘⌥B', 'kbd.goToImplementation', 'Go to implementation') +
+    shortcutRow('⌘⌥O', 'kbd.workspaceSymbol', 'Workspace symbol') +
+    shortcutRow('⌘↓', 'kbd.goToDef', 'Go to definition (or ⌘-click)') +
+    shortcutRow('⌘.', 'kbd.toggleFold', 'Toggle code fold') +
+    shortcutRow('⌘⇧[ / ]', 'kbd.prevNextTab', 'Prev / next tab') +
+    shortcutRow('⌘[ / ]', 'kbd.cursorBackForward', 'Cursor back / forward') +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.editor">Editor</div>' +
     '<div class="keys-grid">' +
-    '<kbd>&larr;&uarr;&darr;&rarr;</kbd><span data-i18n="kbd.moveCaret">Move caret</span>' +
-    '<kbd>⌥&larr;/&rarr;</kbd><span data-i18n="kbd.wordJump">Word jump (vim w)</span>' +
-    '<kbd>⌘&larr;/&rarr;</kbd><span data-i18n="kbd.lineStartEnd">Line start / end</span>' +
-    '<kbd>⇧&larr;&uarr;&darr;&rarr;</kbd><span data-i18n="kbd.extendSelection">Extend selection</span>' +
-    '<kbd>⌘A</kbd><span data-i18n="kbd.selectEditor">Select editor content</span>' +
-    '<kbd>PageUp / PageDown</kbd><span data-i18n="kbd.pageUpDown">Page up / down</span>' +
-    '<kbd>Space</kbd><span data-i18n="kbd.expandDiffFold">Expand selected diff context</span>' +
-    '<kbd>⌘Enter / ⌥Enter</kbd><span data-i18n="kbd.runHttp">Run HTTP request (.http)</span>' +
-    '<kbd>⌥R</kbd><span data-i18n="kbd.toggleRendered">Rendered / raw Markdown or CSV</span>' +
-    '<kbd>⌥W</kbd><span data-i18n="kbd.toggleLineWrap">Toggle line wrap</span>' +
-    '<kbd>⌘W</kbd><span data-i18n="kbd.closeTab">Close tab</span>' +
+    shortcutRow('←↑↓→', 'kbd.moveCaret', 'Move caret') +
+    shortcutRow('⌥← / ⌥→', 'kbd.wordJump', 'Word jump (vim w)') +
+    shortcutRow('⌘← / ⌘→', 'kbd.lineStartEnd', 'Line start / end') +
+    shortcutRow('⇧←↑↓→', 'kbd.extendSelection', 'Extend selection') +
+    shortcutRow('⌘A', 'kbd.selectEditor', 'Select editor content') +
+    shortcutRow('PageUp / PageDown', 'kbd.pageUpDown', 'Page up / down') +
+    shortcutRow('Space', 'kbd.expandDiffFold', 'Expand selected diff context') +
+    shortcutRow('⌘Enter / ⌥Enter', 'kbd.runHttp', 'Run HTTP request (.http)') +
+    shortcutRow('⌥R', 'kbd.toggleRendered', 'Rendered / raw Markdown or CSV') +
+    shortcutRow('⌥W', 'kbd.toggleLineWrap', 'Toggle line wrap') +
+    shortcutRow('⌘W', 'kbd.closeTab', 'Close tab') +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.review">Review</div>' +
     '<div class="keys-grid">' +
-    '<kbd>Space</kbd><span data-i18n="kbd.toggleViewed">Toggle viewed on selected Changes row</span>' +
-    '<kbd>?</kbd><span data-i18n="kbd.addComment">Add a review comment</span>' +
-    '<kbd>⌘⇧/</kbd><span data-i18n="kbd.allComments">All review comments</span>' +
-    '<kbd>⌘⇧W</kbd><span data-i18n="kbd.ignoreWhitespace">Ignore whitespace</span>' +
-    '<kbd>⌘Enter</kbd><span data-i18n="kbd.saveComment">Save comment</span>' +
-    '<kbd>&uarr; / &darr;</kbd><span data-i18n="kbd.reviewStops">Step through comments / folded context</span>' +
-    '<kbd>e</kbd><span data-i18n="kbd.editComment">Edit comment (when selected)</span>' +
-    '<kbd>Backspace / Delete</kbd><span data-i18n="kbd.deleteComment">Delete comment (when selected)</span>' +
-    '<kbd>⌥&uarr;/&darr;</kbd><span data-i18n="kbd.stepComments">Step between comments (merged)</span>' +
-    '<kbd>⌥Enter</kbd><span data-i18n="kbd.mergedSend">Comment actions (merged)</span>' +
-    '<kbd>⌘⇧&#39;</kbd><span data-i18n="kbd.maximizePanel">Maximize panel</span>' +
+    shortcutRow('Space', 'kbd.toggleViewed', 'Toggle viewed on selected Changes row') +
+    shortcutRow('?', 'kbd.addComment', 'Add a review comment') +
+    shortcutRow('⌘⇧/', 'kbd.allComments', 'All review comments') +
+    shortcutRow('⌘⇧W', 'kbd.ignoreWhitespace', 'Ignore whitespace') +
+    shortcutRow('⌘Enter', 'kbd.saveComment', 'Save comment') +
+    shortcutRow('↑ / ↓', 'kbd.reviewStops', 'Step through comments / folded context') +
+    shortcutRow('e', 'kbd.editComment', 'Edit comment (when selected)') +
+    shortcutRow('Backspace / Delete', 'kbd.deleteComment', 'Delete comment (when selected)') +
+    shortcutRow('⌥↑ / ⌥↓', 'kbd.stepComments', 'Step between comments (merged)') +
+    shortcutRow('⌥Enter', 'kbd.mergedSend', 'Comment actions (merged)') +
+    shortcutRow('⌘⇧&#39;', 'kbd.maximizePanel', 'Maximize panel') +
     '</div>' +
     '<div class="keys-cat" data-i18n="settings.kbd.cat.history">History</div>' +
     '<div class="keys-grid">' +
-    '<kbd>⌘9</kbd><span data-i18n="kbd.openHistory">Open / close Git history</span>' +
-    '<kbd>&uarr;&darr; / Enter</kbd><span data-i18n="kbd.historyNavigate">Select a commit, open it in the review</span>' +
-    '<kbd>PageUp / PageDown</kbd><span data-i18n="kbd.pageUpDown">Page up / down</span>' +
+    shortcutRow('⌘9', 'kbd.openHistory', 'Open / close Git history') +
+    shortcutRow('↑↓ / Enter', 'kbd.historyNavigate', 'Select a commit, open it in the review') +
+    shortcutRow('PageUp / PageDown', 'kbd.pageUpDown', 'Page up / down') +
     '</div>' +
     '</div>',
     "</section>",
