@@ -231,7 +231,10 @@ function updateRenderToggle(path) {
     btn.classList.toggle('hidden', !on);
     if (on) {
       btn.textContent = renderRawMode ? t('source.viewRendered') : t('source.viewRaw'); // label = the mode you switch TO
-      btn.setAttribute('aria-pressed', renderRawMode ? 'true' : 'false');
+      // Deliberately no aria-pressed. This button's NAME is the action, not its state — and carrying a
+      // pressed state on top of a changing name made the two say opposite things: in raw mode a screen
+      // reader announced "Rendered, pressed" while the view was raw.
+      btn.removeAttribute('aria-pressed');
     }
   }
   updateLineWrapToggle(path);

@@ -531,7 +531,13 @@ export function renderDiffHtml(input: {
     '<div class="toolbar source-toolbar">',
     '<div class="source-file-meta"><span id="source-type-icon" class="source-type-icon" aria-hidden="true"></span><span id="source-title" data-i18n="source.title">Source</span><span id="source-meta" data-i18n="source.selectFile">Select a file from the Files tab.</span></div>',
     '<select id="http-env-select" class="http-env-select hidden" data-i18n-title="http.env.title" data-i18n-aria="http.env.aria" title="HTTP Client environment" aria-label="HTTP environment"></select>',
-    '<button type="button" id="render-toggle" class="plain-button hidden"' + keyHint('toggleRendered') + ' title="Rendered / raw Markdown or CSV (Option+R)" aria-pressed="false">Raw</button>',
+    // No aria-pressed. This button's NAME changes to the mode you would switch to, which is the right
+    // thing to show a reader — but aria-pressed describes the control's own state, so the two said
+    // opposite things: in raw mode a screen reader announced "Rendered, pressed" while the view was raw.
+    // A button named for its action does not also carry a pressed state.
+    // The title comes from the table too: it was hardcoded English with the chord hand-spelled inside it,
+    // next to a keyHint() that already emits the real one.
+    '<button type="button" id="render-toggle" class="plain-button hidden"' + keyHint('toggleRendered') + ' data-i18n-title="btn.renderToggle" title="Rendered / raw Markdown or CSV">Raw</button>',
     '<button type="button" id="line-wrap-toggle" class="source-line-wrap-toggle hidden" role="checkbox" aria-checked="false"' + keyHint('toggleLineWrap') + ' data-i18n="source.lineWrap" data-i18n-title="source.lineWrap.title" title="Toggle line wrap (Option+W)">Line wrap</button>',
     '<button type="button" id="back-to-diff" class="plain-button"' + keyHint('nextChange') + ' data-i18n="btn.diff" data-i18n-title="btn.diff.title" title="Back to diff (F7)">Diff</button>',
     "</div>",

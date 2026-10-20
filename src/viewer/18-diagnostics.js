@@ -171,7 +171,11 @@ function gotoDiagnostic(delta) {
   }
   setSourceCursor(path, target.lineIndex, target.column, true, target.lineIndex);
   scheduleSourceDiagnosticsPaint();
-  if (target.message) showCaretHint(target.message);
+  // sticky: a diagnostic message is the longest thing this app shows in a hint — measured to 190
+  // characters, about nine seconds of reading — and the hint's own default is two. There is no way to ask
+  // for it again from the keyboard, so the two-second version was a message you were shown and could not
+  // read. It stays until something replaces or hides it, which is what the flag is for (07-comments.js).
+  if (target.message) showCaretHint(target.message, null, true);
   return true;
 }
 
@@ -276,7 +280,14 @@ function onDiagnosticHover(event) {
   var key = path + ':' + lineIndex;
   diagnosticHoverX = event.clientX;
   diagnosticHoverY = event.clientY;
-  if (key === diagnosticHoverKey) return; // same line — let the pending timer or shown tooltip stand
+  // Same line — let a pending timer or a shown tooltip stand. But only if one of them IS standing: any
+  // scroll calls hideDiagnosticTooltip, which clears the timer and leaves this key set, and every later
+  // mousemove over the same line then returned here without scheduling anything. The message became
+  // unreachable for that line until the pointer left the row and came back. Scrolling is not rare in the
+  // middle of reading a problem — F7, ⌘L, saving a comment and the wheel all do it.
+  var standing = !!diagnosticHoverTimer
+    || !!(diagnosticTooltipEl && diagnosticTooltipEl.style.display !== 'none');
+  if (key === diagnosticHoverKey && standing) return;
   diagnosticHoverKey = key;
   hideDiagnosticTooltip();
   var message = diagnosticLineMessage(path, lineIndex);
