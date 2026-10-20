@@ -117,7 +117,7 @@ function renderDiffNode(node: DiffTreeNode, depth: number): string {
       `<a class="${classes}${trivial ? " is-trivial" : ""}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" data-added="${added}" data-deleted="${deleted}"${trivial ? ` data-trivial="${trivial}"` : ""} style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + file.status + statLabel(added, deleted))}">`,
       viewedBox(),
       fileTypeIcon(file.displayPath),
-      `<span class="change-name"><span class="path">${escapeHtml(node.name)}</span></span>`,
+      `<span class="change-name"><span class="path" title="${escapeAttr(node.name)}">${leafNameHtml(node.name)}</span></span>`,
       // How big this change is, on the row you decide from. The counts were already attached to this element
       // for the breadcrumb to read (data-added/data-deleted) and never shown, so scanning the list told you
       // WHICH files changed and nothing about how much — a one-character constant and a rewritten module
@@ -194,6 +194,20 @@ function diffLineTotals(file: DiffFile): { added: number; deleted: number } {
 // about escaping, and reordering is not distinguishable from moving a line that mattered. Those still show.
 export type TrivialChange = "spacing" | "format" | "moved";
 const INDENT_SENSITIVE = new Set(["python", "yaml", "markdown"]);
+
+// A filename is two pieces of information and tail-ellipsis destroys the second of them. The base name
+// says WHICH file; the extension chain says what KIND, and `navigation-failure.te…` answers neither —
+// it is not the name and it is not the type. Emitting the two separately lets only the base name shrink,
+// so a narrow column degrades to `navigation-fail….test.mjs`: still the type, still enough of the name.
+// Split at the FIRST interior dot so a compound extension (.test.mjs, .d.ts) survives whole. A leading
+// dot is part of the base name (.gitignore is not an extension), hence indexOf from 1.
+// 00-util.js carries the client's twin of this for the virtual source tree; app-boundaries keeps them equal.
+function leafNameHtml(name: string): string {
+  const dot = name.indexOf(".", 1);
+  if (dot <= 0 || dot === name.length - 1) return `<span class="path-head">${escapeHtml(name)}</span>`;
+  return `<span class="path-head">${escapeHtml(name.slice(0, dot))}</span>`
+    + `<span class="path-tail">${escapeHtml(name.slice(dot))}</span>`;
+}
 
 // The same magnitude, for the row's accessible name — the visible chip is aria-hidden so it is not read
 // twice, but "which of these is the big one" should not be a visual-only answer.
@@ -365,7 +379,7 @@ function renderSourceNode(node: SourceTreeNode, depth: number): string {
     return [
       `<button type="button" class="${classes}" data-source-file="${escapeAttr(file.path)}" style="--depth:${depth}" aria-label="${escapeAttr(file.path)}">`,
       fileTypeIcon(file.path),
-      `<span class="path">${escapeHtml(node.name)}</span>`,
+      `<span class="path" title="${escapeAttr(node.name)}">${leafNameHtml(node.name)}</span>`,
       "</button>",
     ].join("");
   }

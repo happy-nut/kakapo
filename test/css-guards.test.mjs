@@ -240,7 +240,15 @@ test("shared Markdown typography preserves readable paragraph rhythm", () => {
 // the sidebar is the left-most column. What still has to hold is how that sidebar collapses.
 test("the sidebar collapses without blanking its contents or jumping its divider", () => {
   assert.match(css, /body\s*\{[^}]*--rail-width:\s*0px/, "no rail column is reserved");
-  assert.match(css, /\.sidebar-brand,\s*\.sidebar-scroll\s*\{[^}]*width:\s*var\(--sidebar-width,\s*264px\)/, "fixed header and scrolling contents keep their layout while the grid track closes");
+  // What has to hold is that the grid track, the fixed header and the scrolling contents fall back to the
+  // SAME width — not that the width is any particular number. Spelling the number here made this assertion
+  // a fourth copy of it, and the copy is what failed the first time the default moved.
+  const trackDefault = /grid-template-columns:\s*var\(--rail-width\)\s*var\(--sidebar-width,\s*(\d+)px\)/.exec(css);
+  assert.ok(trackDefault, "the grid declares a sidebar track with a default width");
+  const fallback = new RegExp(
+    String.raw`\.sidebar-brand,\s*\.sidebar-scroll\s*\{[^}]*width:\s*var\(--sidebar-width,\s*${trackDefault[1]}px\)`,
+  );
+  assert.match(css, fallback, "fixed header and scrolling contents keep their layout while the grid track closes");
   assert.doesNotMatch(css, /body\.sidebar-collapsed\s+\.sidebar\s*\{[^}]*visibility:\s*hidden/, "sidebar content is not blanked before the close animation finishes");
   assert.match(css, /\.sidebar-resizer\s*\{[^}]*transition:\s*left\s+180ms/, "the resize divider follows the collapsing track instead of jumping");
 });

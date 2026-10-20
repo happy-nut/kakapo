@@ -80,3 +80,46 @@ test("every syntax token clears WCAG AA against its own theme's code background"
   assert.ok(checked >= 100, `the sweep actually covered the palette (checked ${checked})`);
   assert.deepEqual(failures, [], `tokens below ${AA_NORMAL_TEXT}:1`);
 });
+
+// The sidebar's +/− magnitude is TEXT on the chrome ground, and it used to be painted with --add-strong
+// and --del-strong — the fills the diff puts BEHIND a changed line. A fill read as text is dark-on-dark or
+// pale-on-pale by construction: measured in the running app it came out at 2.09:1 on a resting dark row,
+// 1.08:1 on the active one and 1.02:1 in light. It now inherits the chrome text colour, so this guards the
+// two halves of that: the rule may not reach for a fill again, and the colour it inherits has to be legible
+// on the ground it sits on, in every theme.
+test("the change magnitude is readable in every theme, wherever it is shown", () => {
+  // BOTH places this figure appears. The first version of this guard matched only the tree row, and the
+  // breadcrumb's copy — same figure, same bug, thirteen lines up — went on failing while the test passed.
+  // A guard that covers half of a fix certifies the half that was done.
+  const rules = [...css.matchAll(/^[^{}\n]*\.(?:change-stat|crumb-stat)-(?:add|del)\b[^{}]*\{([^}]*)\}/gm)];
+  assert.ok(rules.length >= 2, `every declaration of the magnitude's colour is checked (found ${rules.length})`);
+  for (const rule of rules) {
+    assert.doesNotMatch(rule[1], /--(add|del)(-strong)?\b/,
+      `the magnitude is painted with a diff FILL token again; those are backgrounds, not text: ${rule[0].trim()}`);
+  }
+
+  const blocks = customPropertyBlocks();
+  const base = blocks.find((b) => b.selector === ":root");
+  const light = blocks.find((b) => b.selector === ':root[data-theme="light"]') ?? { vars: {} };
+  const themes = blocks.filter((b) =>
+    b.selector === ":root" || b.selector === ':root[data-theme="light"]' || b.selector.includes("data-syntax-theme"));
+
+  const failures = [];
+  let checked = 0;
+  for (const theme of themes) {
+    const isLight = theme.selector.includes('data-theme="light"');
+    const vars = { ...base.vars, ...(isLight ? light.vars : {}), ...theme.vars };
+    const ground = resolve(vars, "--chrome-bg");
+    if (!ground) continue;
+    // --chrome-text is what the magnitude inherits; --chrome-muted is every other quiet label beside it.
+    for (const name of ["--chrome-text", "--chrome-muted"]) {
+      const colour = resolve(vars, name);
+      if (!colour) continue;
+      checked += 1;
+      const ratio = contrast(colour, ground);
+      if (ratio < AA_NORMAL_TEXT) failures.push(`${theme.selector} ${name} = ${ratio}:1`);
+    }
+  }
+  assert.ok(checked >= 20, `the sweep covered the shipped themes (checked ${checked})`);
+  assert.deepEqual(failures, [], `chrome text below ${AA_NORMAL_TEXT}:1 on its own ground`);
+});

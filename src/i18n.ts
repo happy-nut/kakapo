@@ -94,6 +94,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Diff view
     "diff.noDiff": "No diff to review.",
+    // A dead end should say where the way out is. Not which keys open it: a chord written here is a copy
+    // of the shortcut table that nothing keeps in agreement (see AGENTS.md). The control it points at is
+    // on screen, named, and one click away.
+    "diff.noDiff.hint": "If this is not what you meant to review, change it with the compare control in the toolbar.",
     "changes.empty": "No changed files",
     "diff.lastHunk": "Last change in this file — press F7 again to go to the next file.",
     "diff.navEnd": "No more changes this way.",
@@ -210,7 +214,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.language": "Language",
     "settings.theme": "Theme",
     "settings.uiScale": "Font size",
-    "settings.uiScale.hint": "Scales the whole interface, including the terminal.",
+    "settings.uiScale.hint": "Scales the whole interface.",
     "theme.dark": "Dark",
     "theme.light": "Light",
     // Theme grid: a theme is one named palette that is already light or dark (see renderThemeGrid).
@@ -479,6 +483,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Diff view
     "diff.noDiff": "검토할 변경사항이 없습니다.",
+    "diff.noDiff.hint": "보려던 것이 이게 아니라면, 툴바의 비교 컨트롤에서 바꿀 수 있습니다.",
     "changes.empty": "변경된 파일 없음",
     "diff.lastHunk": "이 파일의 마지막 변경입니다 — F7을 한 번 더 누르면 다음 파일로 이동합니다.",
     "diff.navEnd": "이 방향으로는 더 이상 변경사항이 없습니다.",
@@ -592,7 +597,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.language": "언어",
     "settings.theme": "테마",
     "settings.uiScale": "글자 크기",
-    "settings.uiScale.hint": "터미널을 포함한 인터페이스 전체 크기를 조절합니다.",
+    "settings.uiScale.hint": "인터페이스 전체 크기를 조절합니다.",
     "theme.dark": "다크",
     "theme.light": "라이트",
     // 테마 그리드 — 테마 이름은 고유명사라 번역하지 않고, 밝기 수식어만 한국어로 둡니다.

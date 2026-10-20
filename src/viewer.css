@@ -408,7 +408,7 @@
   --chrome-panel: #fdf6e3;
   --chrome-elevated: #fffbf0;
   --chrome-text: #2f4249;
-  --chrome-muted: #6b7f80;
+  --chrome-muted: #586e75; /* base01: Solarized's own secondary text. #6b7f80 was 3.57:1 on this ground. */
   --chrome-border: #d6cfba;
   --chrome-line: #e3dcc8;
   --chrome-selected: #e4ddc8;
@@ -630,7 +630,7 @@ body {
      The variable stays at 0 because several full-viewport surfaces (History) are still inset against it. */
   --rail-width: 0px;
   display: grid;
-  grid-template-columns: var(--rail-width) var(--sidebar-width, 264px) minmax(0, 1fr);
+  grid-template-columns: var(--rail-width) var(--sidebar-width, 300px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   background: var(--bg);
@@ -723,7 +723,7 @@ body.native-app .source-tabs {
 .sidebar-resizer {
   position: fixed;
   top: 0;
-  left: calc(var(--rail-width, 36px) + var(--sidebar-width, 264px));
+  left: calc(var(--rail-width, 36px) + var(--sidebar-width, 300px));
   width: 9px;
   height: 100vh;
   margin-left: -5px;
@@ -849,7 +849,11 @@ body.native-app .source-tabs {
 .analysis-status {
   min-width: 0; display: inline-flex; align-items: center; gap: 5px;
   overflow: hidden; white-space: nowrap;
-  font: 10.5px/1.3 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* "Semantic analysis ready" is a sentence about the app, not a literal from the project. It is set in
+     the UI sans like every other sentence in the chrome; the refs and shas that ARE literals keep mono. */
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.3;
 }
 .analysis-status-label { overflow: hidden; text-overflow: ellipsis; }
 .analysis-status-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); opacity: .7; }
@@ -970,22 +974,45 @@ body.native-app .source-tabs {
 .theme-card:hover { border-color: color-mix(in srgb, var(--active) 55%, var(--border)); }
 .theme-card.is-active { border-color: var(--active); box-shadow: 0 0 0 1px var(--active); }
 .theme-card-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Each swatch previews the theme it selects: the canvas it paints, with a wedge of that theme's accent.
+/* Each swatch is a small picture of the editor the theme paints: its ground, its accent rail, and two
+   lines of its own syntax colours. As twelve 22px circles of ground-plus-accent-wedge they were not a
+   choice you could make by looking — eight of the twelve are a near-black ground behind a blue accent, so
+   Kakapo Dark, GitHub Dark, Darcula and High Contrast were four indistinguishable dots. The keyword and
+   string colours are what actually differ between these families, so they are what the swatch shows.
    Hardcoded because a theme's variables only exist under its own :root selector — there is no way to read
    another theme's palette without applying it to the live document. Keep in sync with the :root blocks. */
-.theme-swatch { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); }
-.theme-swatch[data-swatch="default-dark"] { background: linear-gradient(135deg, #101318 0 62%, #58a6ff 62%); }
-.theme-swatch[data-swatch="default-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0969da 62%); }
-.theme-swatch[data-swatch="github-dark"] { background: linear-gradient(135deg, #0d1117 0 62%, #58a6ff 62%); }
-.theme-swatch[data-swatch="github-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0969da 62%); }
-.theme-swatch[data-swatch="darcula-dark"] { background: linear-gradient(135deg, #2b2b2b 0 62%, #4a88c7 62%); }
-.theme-swatch[data-swatch="darcula-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #3574f0 62%); }
-.theme-swatch[data-swatch="solarized-dark"] { background: linear-gradient(135deg, #002b36 0 62%, #b58900 62%); }
-.theme-swatch[data-swatch="solarized-light"] { background: linear-gradient(135deg, #fdf6e3 0 62%, #2aa198 62%); }
-.theme-swatch[data-swatch="dracula-dark"] { background: linear-gradient(135deg, #282a36 0 62%, #ff79c6 62%); }
-.theme-swatch[data-swatch="dracula-light"] { background: linear-gradient(135deg, #fffbeb 0 62%, #644ac9 62%); }
-.theme-swatch[data-swatch="contrast-dark"] { background: linear-gradient(135deg, #000000 0 62%, #ffe58a 62%); }
-.theme-swatch[data-swatch="contrast-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0000d4 62%); }
+.theme-swatch {
+  flex: none;
+  width: 34px;
+  height: 24px;
+  border-radius: var(--ui-radius-xs, 3px);
+  border: 1px solid var(--border);
+  /* Painted back to front: the window's ground is the base, the editor panel sits on it leaving a gutter
+     strip, the accent rails the left edge, and two lines of code lie on the panel. The panel is in here
+     because for two of the light themes it is the ONLY thing that differs — Kakapo Light and GitHub Light
+     share an accent, a keyword and a string colour, and a swatch that left the panel out drew them twice. */
+  background-color: var(--sw-ground);
+  background-image:
+    linear-gradient(var(--sw-keyword), var(--sw-keyword)),
+    linear-gradient(var(--sw-string), var(--sw-string)),
+    linear-gradient(var(--sw-panel), var(--sw-panel)),
+    linear-gradient(var(--sw-accent), var(--sw-accent));
+  background-repeat: no-repeat;
+  background-size: 15px 2px, 10px 2px, calc(100% - 11px) 100%, 3px 100%;
+  background-position: 14px 8px, 14px 14px, 11px 0, 0 0;
+}
+.theme-swatch[data-swatch="default-dark"] { --sw-ground: #101318; --sw-panel: #171b21; --sw-accent: #58a6ff; --sw-keyword: #ff9a56; --sw-string: #8ccf7e; }
+.theme-swatch[data-swatch="default-light"] { --sw-ground: #ffffff; --sw-panel: #f6f8fa; --sw-accent: #0969da; --sw-keyword: #cf222e; --sw-string: #0a3069; }
+.theme-swatch[data-swatch="github-dark"] { --sw-ground: #0d1117; --sw-panel: #0d1117; --sw-accent: #58a6ff; --sw-keyword: #ff7b72; --sw-string: #a5d6ff; }
+.theme-swatch[data-swatch="github-light"] { --sw-ground: #ffffff; --sw-panel: #ffffff; --sw-accent: #0969da; --sw-keyword: #cf222e; --sw-string: #0a3069; }
+.theme-swatch[data-swatch="darcula-dark"] { --sw-ground: #2b2b2b; --sw-panel: #313335; --sw-accent: #4a88c7; --sw-keyword: #d58d52; --sw-string: #89a678; }
+.theme-swatch[data-swatch="darcula-light"] { --sw-ground: #ffffff; --sw-panel: #f7f8fa; --sw-accent: #3574f0; --sw-keyword: #0033b3; --sw-string: #067d17; }
+.theme-swatch[data-swatch="solarized-dark"] { --sw-ground: #002b36; --sw-panel: #002b36; --sw-accent: #268bd2; --sw-keyword: #859900; --sw-string: #2aa198; }
+.theme-swatch[data-swatch="solarized-light"] { --sw-ground: #fdf6e3; --sw-panel: #fdf6e3; --sw-accent: #2074af; --sw-keyword: #667500; --sw-string: #1f7972; }
+.theme-swatch[data-swatch="dracula-dark"] { --sw-ground: #282a36; --sw-panel: #282a36; --sw-accent: #bd93f9; --sw-keyword: #ff79c6; --sw-string: #f1fa8c; }
+.theme-swatch[data-swatch="dracula-light"] { --sw-ground: #fffbeb; --sw-panel: #fffbeb; --sw-accent: #644ac9; --sw-keyword: #a3144d; --sw-string: #846e15; }
+.theme-swatch[data-swatch="contrast-dark"] { --sw-ground: #000000; --sw-panel: #000000; --sw-accent: #4fc3f7; --sw-keyword: #6ab7ff; --sw-string: #ffb38a; }
+.theme-swatch[data-swatch="contrast-light"] { --sw-ground: #ffffff; --sw-panel: #ffffff; --sw-accent: #0f4a85; --sw-keyword: #0000d4; --sw-string: #96000f; }
 
 /* The shortcuts reference is now its own category, so drop the divider/offset it carried as a General sub-block. */
 .settings-section[data-cat="shortcuts"] .app-info-keys { margin-top: 0; border-top: 0; padding-top: 0; }
@@ -1448,8 +1475,12 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-code-line-ctn .hljs-regexp,
 .d2h-code-line-ctn .hljs-char.escape_ { color: var(--token-string); }
 .d2h-code-line-ctn .hljs-number { color: var(--token-number); }
+/* Comments are not italic. In a well-commented file the comment IS most of the screen — whole paragraphs
+   of it — and synthesised oblique monospace at 12px is the least legible text in the window. The comment
+   colour already separates it from code, which is the whole job italic was doing. Short emphasis spans
+   (hljs-emphasis, doctag) keep theirs: those are a few words, not a wall. */
 .d2h-code-line-ctn .hljs-comment,
-.d2h-code-line-ctn .hljs-quote { color: var(--token-comment); font-style: italic; }
+.d2h-code-line-ctn .hljs-quote { color: var(--token-comment); font-style: normal; }
 .d2h-code-line-ctn .hljs-meta,
 .d2h-code-line-ctn .hljs-doctag { color: var(--token-decorator); font-style: italic; }
 .d2h-code-line-ctn .hljs-title,
@@ -1601,7 +1632,41 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-file-side-diff:last-of-type tr.diff-active-row td.d2h-code-side-linenumber { box-shadow: none; color: var(--text); }
 .review-status .ws-ignored { color: var(--token-tag); border: 1px solid color-mix(in srgb, var(--token-tag) 45%, transparent); border-radius: 0; padding: 0 7px; }
 .d2h-file-collapse { display: none !important; }
-.tree { display: grid; gap: 1px; font-size: 11.5px; font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+/* The tree is chrome, not code, so it is set in the UI sans like every other label in the window. It used
+   to be 11.5px Monaco, which cost it twice: it read as a different typographic system from the pane headers
+   and the toolbar beside it, and a fixed 6.9px advance per character truncated nine of seventeen names at
+   the default width. Proportional type at a larger size fits more of the name in less room. */
+.tree {
+  display: grid;
+  gap: 1px;
+  font-size: 12.5px;
+  font-family: inherit;
+  /* One step per nesting level, spelled once. At 14px a file three levels down started past a third of the
+     panel; 11px still reads as a level and gives those characters back to the name. */
+  --tree-indent: 11px;
+}
+.tree .path { font-size: inherit; }
+/* Only a LEAF name is split into two boxes, so only a leaf row becomes a flex container. A directory's
+   .path holds plain text, and making that a flex item too took its text-overflow away — the ellipsis
+   belongs to the box the text is in, and an anonymous flex item is not that box — so folder names went
+   from eliding to clipping mid-glyph while file names beside them elided. */
+.tree .path:has(> .path-head) { display: flex; min-width: 0; }
+/* Only the base name gives way. The extension is the row's type signal — the icon beside it distinguishes
+   code from data and no more — so it is never what gets cut. See leafNameHtml() in render-tree.ts.
+   The floor matters as much as the rule: with the extension simply refusing to shrink, a narrow enough
+   panel spent the whole column on it and left `….js` — no name at all, and on the active row not even a
+   whole extension. Below the floor the extension gives way too, because a few letters of the name beat a
+   file type you already have an icon for. */
+.tree .path-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* The guarantee is a CAP on the extension, not a floor under the name. A floor was the obvious shape and
+   both spellings of it were wrong: a flat `min-width: 4ch` on the name STRETCHED short ones, so `cli`
+   padded out and read as `cli  .ts`; `min(4ch, max-content)` would have said it exactly, but intrinsic
+   keywords are not allowed inside min(), so the whole declaration was dropped and the floor silently
+   became zero. A cap only ever takes width away, never adds it — the extension can have at most half the
+   column, so the name always keeps the other half, and a short name is untouched because it never
+   reaches the cap. Below that the extension gives way too: a few letters of the name beat a file type
+   the icon already carries. */
+.tree .path-tail { flex: 0 1 auto; min-width: 0; max-width: 50%; overflow: hidden; white-space: nowrap; }
 .tree-dir { display: grid; gap: 1px; }
 .tree-dir summary {
   display: grid;
@@ -1609,7 +1674,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   align-items: center;
   gap: 4px;
   min-height: 18px;
-  padding: 1px 5px 1px calc(7px + (var(--depth) * 14px));
+  padding: 1px 5px 1px calc(7px + (var(--depth) * var(--tree-indent)));
   cursor: default;
   list-style: none;
 }
@@ -1625,7 +1690,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .tree-dir > summary .fi-open { display: none; }
 .tree-dir[open] > summary .fi-closed { display: none; }
 .tree-dir[open] > summary .fi-open { display: block; }
-.file-link.tree-file { padding-left: calc(8px + (var(--depth) * 14px)); }
+.file-link.tree-file { padding-left: calc(8px + (var(--depth) * var(--tree-indent))); }
 /* Arrow-key focus in the tree (changes/files) matches the active-file highlight, so navigating the file tree
    reads the same as the diff-side selection. The fill and border are one shared rule with every other
    selection surface — see "selection is one complete neutral surface" in the chrome section below. */
@@ -1859,16 +1924,27 @@ h1 { margin: 0; font-size: 18px; }
 /* +30 -46 beside the path, for the one file the toolbar names. Built only from variables every theme block
    already defines, so it needs no per-theme override — the thing viewer.css keeps having to be reminded of. */
 .crumb-stat { margin-left: 10px; display: inline-flex; gap: 7px; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
-.crumb-stat-add { color: var(--add-strong); font-weight: 600; }
+/* The same figure as the tree row's, and it had the same bug: --add-strong and --del-strong are the fills
+   the diff paints behind a changed line, and as 11px text they measured 2.09:1 / 1.65:1 dark and
+   1.14:1 / 1.36:1 light. This one sits in the header of every file you open, in both views. Weight is what
+   separates it from the path beside it; the sign says which direction. */
+.crumb-stat-add,
+.crumb-stat-del { color: inherit; font-weight: 600; }
 /* Change magnitude on the sidebar row. Right-aligned and tabular so the numbers form a column the eye can
    run down — the question it answers ("which of these is the big one") is asked of the whole list at once,
    not of one row. Dimmer than the filename: it qualifies the row, it is not what you are looking for. */
 .change-row .change-stat { margin-left: auto; padding-left: 8px; display: inline-flex; gap: 5px; flex: none;
   font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; opacity: 0.75; }
-.change-row .change-stat-add { color: var(--add-strong); }
-.change-row .change-stat-del { color: var(--del-strong); }
+/* The sign carries the direction; the colour did not carry anything. --add-strong and --del-strong are the
+   fills the DIFF paints behind a changed line, and as text on the chrome ground they were unreadable in
+   every theme measured: 2.09:1 for the addition on a resting dark row, 1.08:1 for the deletion on the
+   active one, and 1.02:1 in light. There is no chrome-weight red in the token set to swap in — the twelve
+   --chrome-vcs-* triples carry green and blue but no removal colour — and inventing one in twelve theme
+   blocks buys a hue for a figure the rule right above this one deliberately keeps quiet. So the magnitude
+   is chrome text, and + and − say which is which. */
+.change-row .change-stat-add,
+.change-row .change-stat-del { color: inherit; }
 .change-row.active .change-stat, .change-row:hover .change-stat { opacity: 1; }
-.crumb-stat-del { color: var(--del-strong); font-weight: 600; }
 .crumb-sep { opacity: 0.55; }
 /* While the review is pointed at commits, the breadcrumb leads with the one it is showing. Its own accent —
    not one of the pill's three — because this is the state the pill's rule did not cover: those three colour
@@ -2087,7 +2163,11 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
    width. (Selectors are spelled out nowhere in this comment on purpose — the CSS guards in css-guards.test
    find a rule by scanning for its selector text, and a comment naming one is indistinguishable from it.) */
 .empty { padding: 24px; color: var(--muted); }
-#diff2html-container > .empty { margin: auto; text-align: center; }
+#diff2html-container > .empty { margin: auto; text-align: center; max-width: 42ch; }
+/* A state and the way out of it, in that order of weight: the sentence that names the state keeps the
+   body colour, the one that says what to do next is quieter and sits under it. */
+.empty .empty-title { margin: 0; color: var(--text); font-size: 13px; }
+.empty .empty-hint { margin: 6px 0 0; font-size: 12px; line-height: 1.5; }
 .source-viewer { min-height: 0; } /* grid sizes this; a 100vh min would overflow the content row */
 .source-toolbar { flex: none; margin-bottom: 0; padding: 4px 12px; } /* flex:none (don't shrink, same crush as the tabs); compact: the file-meta row needs far less height than the diff toolbar */
 .source-file-meta {
@@ -2098,7 +2178,13 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
   min-width: 0;
   font-size: 12px;
 }
+/* The source header prints the same crumb/crumb-sep markup as the diff breadcrumb but is not .breadcrumb,
+   so it never got that rule's 5px gap and the path came out jammed: `src\u203Aviewer\u203A07-comments.js` here
+   against `src \u203A viewer \u203A 07-comments.js` one view away. Same markup, one window, one spacing. */
 .source-file-meta #source-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   min-width: 0;
   max-width: min(56vw, 720px);
   overflow: hidden;
@@ -2375,10 +2461,20 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
   word-break: normal;
 }
 .source-body.line-wrap:not(.rendered-body) .source-table { table-layout: fixed; }
+/* A measure for wrapped code. Without a cap a wrapped line simply took the window: on a wide display a
+   single statement ran past 200 characters edge to edge, and the return sweep to the next line lost the
+   indentation that tells you where you are. 128 columns is well past what this (or any) project writes to,
+   so the cap only ever catches the runaway line, and max() leaves a narrow window alone.
+   The cap is PADDING on the cell, not a width on the table. Capping the table first did shorten the lines,
+   but it also shortened the rows: the strip of empty canvas to their right stopped belonging to any line,
+   and clicking there to put the caret at the end of a line — or to open a composer — did nothing, which it
+   had done a moment earlier with wrap off. Padding moves the wrap point and leaves the row full width, so
+   the whole canvas still answers to the line it is on. */
 .source-body.line-wrap:not(.rendered-body) .source-row > .source-code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
+  padding-right: max(10px, calc(100% - var(--source-gutter-width) - 128ch));
 }
 /* perf: let the browser skip layout/paint for off-screen rows in large files/diffs.
    DOM is unchanged (nav, search, comment anchoring still query every row); degrades
@@ -2538,7 +2634,11 @@ body.cmd-link-active .source-code { cursor: pointer; }
   background: color-mix(in srgb, var(--active) 20%, var(--panel));
 }
 /* Review comments (questions / change-requests) — per-file sidebar count badges (no emoji) */
-.change-row { grid-template-columns: auto auto minmax(0, 1fr) auto; }
+/* viewed box · type icon · name · +/− magnitude · comment count. The count was missing from this list, and
+   a grid row does not overflow sideways — it wraps. So the moment a file HAD a comment its row grew to two
+   lines and the count sat alone under the checkbox, forty pixels tall in a list of nineteens. It survived
+   because the other four fit, and a review starts with no comments on anything. */
+.change-row { grid-template-columns: auto auto minmax(0, 1fr) auto auto; }
 .source-link { grid-template-columns: auto minmax(0, 1fr) auto; }
 /* The type glyphs are drawn INSET in their box — the code icon's ink runs 3..13 of 16 — so the same column gap
    that sits snugly under a folder name reads far wider under a file name: measured 8.8px of whitespace on a
@@ -2609,7 +2709,13 @@ body.cmd-link-active .source-code { cursor: pointer; }
 /* Question vs change-request is a small monochrome pill: an icon (help-circle / pencil) carries the
    distinction — no color, no heavy left bar. */
 .mc-card-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 6px; color: var(--muted); }
-.mc-target { margin-left: auto; font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62%; }
+/* The push to the right edge belongs to the KIND pill, not to the anchor label. It used to sit on
+   .mc-target, which only exists when there is a target to name — so in the source view, where there is
+   none, the delete × collapsed back against the badge and the first control under the reader's eye was
+   the one that throws the comment away. Pushing from the badge puts the trailing group at the right edge
+   whether or not the anchor is there. */
+.mc-kind { margin-right: auto; }
+.mc-target { font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62%; }
 /* While composing a comment, the textarea owns the only caret — hide the file's inline caret and the
    cursor-row highlights (diff box-shadow + markdown/csv row tint) so attention stays on the composer. */
 body.mc-composing .code-cursor { display: none; }
@@ -2688,7 +2794,15 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 }
 .mc-path-ell:hover { color: var(--active); }
 .mc-path-ell:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; }
-.mc-card-body { padding: 2px 12px 11px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* A review comment is the reviewer's own prose, so it is set in the UI sans — the card inherited the code
+   font from the diff table it is injected into. That cost it twice: prose in a 12px fixed advance reads
+   slower than the code it is about, and Monaco carries no Hangul, so a Korean comment fell through to a
+   per-glyph fallback with a baseline that did not match the Latin around it. */
+.mc-card-body {
+  padding: 2px 12px 11px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12.5px; line-height: 1.55;
+}
 /* An agent-written explanation or answer (23-annotations.js) is a comment the agent left, so it wears the
    same card shell. What it does NOT share is the background: in a thread that alternates reviewer → agent →
    reviewer, identical boxes made you read the kind pill on every one just to tell whose turn you were
@@ -3010,7 +3124,7 @@ body.native-app.dock-maximized .dock-bar {
 }
 body.native-app.dock-maximized .dock-bar button,
 body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-drag; }
-.tok-comment { color: var(--token-comment); font-style: italic; }
+.tok-comment { color: var(--token-comment); font-style: normal; } /* see .hljs-comment: a comment wall is not set in oblique mono */
 .tok-keyword { color: var(--token-keyword); font-weight: 650; }
 .tok-string { color: var(--token-string); }
 .tok-number { color: var(--token-number); }
@@ -3939,7 +4053,7 @@ body.native-app .source-tabs {
   body:has(.sidebar-resizer.resizing) { transition: none; }
   /* Keep child layout at the remembered width while the grid track clips it closed. Otherwise every file
      row reflows through dozens of intermediate widths and the animation appears to stutter. */
-  .sidebar-brand, .sidebar-scroll { width: var(--sidebar-width, 264px); }
+  .sidebar-brand, .sidebar-scroll { width: var(--sidebar-width, 300px); }
   body.sidebar-collapsed { grid-template-columns: var(--rail-width) 0 minmax(0, 1fr); }
   /* While the workspace rail slides open/closed the shell resizes this whole view every frame. The sidebar's
      children are already width-pinned above, but the diff (content) column is 1fr, so it re-wraps through dozens

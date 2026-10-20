@@ -29,3 +29,13 @@ function selectedText() {
   if (!sel || !sel.rangeCount || sel.isCollapsed) return '';
   return String(sel);
 }
+
+// The client's twin of leafNameHtml() in render-tree.ts. The virtual source tree builds the same row the
+// server builds, so a name split in only one of them would read differently depending on whether you had
+// scrolled far enough for virtualization to take over. Keep the two in agreement.
+function leafNameHtml(name) {
+  var dot = String(name).indexOf('.', 1);
+  if (dot <= 0 || dot === name.length - 1) return '<span class="path-head">' + escapeHtml(name) + '</span>';
+  return '<span class="path-head">' + escapeHtml(name.slice(0, dot)) + '</span>'
+    + '<span class="path-tail">' + escapeHtml(name.slice(dot)) + '</span>';
+}
