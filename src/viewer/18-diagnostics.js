@@ -227,7 +227,12 @@ function diagnosticLineMessage(path, lineIndex) {
   var items = surfacedDiagnostics(cached && cached.items).filter(function (d) { return d.lineIndex === lineIndex; });
   var lines = [];
   items.forEach(function (d) {
-    var m = d.message + (d.source ? ' (' + d.source + ')' : '');
+    // Which severity, in words. The two colours measure 1.28:1 against each other and the marks were the
+    // same shape, so a reader who cannot separate the hues had nothing at all to go on — and this message
+    // is the one place that can simply say it. Two messages on one line also used to run together as a
+    // single paragraph; a labelled prefix gives each one a visible start.
+    var severity = t(d.severity === 'warning' ? 'diag.warning' : 'diag.error');
+    var m = severity + ': ' + d.message + (d.source ? ' (' + d.source + ')' : '');
     if (lines.indexOf(m) < 0) lines.push(m);
   });
   return lines.join('\n');

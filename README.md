@@ -129,6 +129,7 @@ kakapo --staged             # index vs HEAD
 | `⌘↓` / `⌘`-click | Go to definition — including into library code (a dependency, a stdlib module, a bundled type stub), which opens read-only |
 | `⌥F1` | Reveal the open file in the sidebar |
 | `F2` / `⇧F2` | Next / previous problem the language server found |
+| `⌥Enter` | On a flagged line: draft the change request that asks an agent to fix it |
 | `⌘K` | Copy the caret's `file:line` |
 | `⌘,` | Settings |
 

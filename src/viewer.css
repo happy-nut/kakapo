@@ -1889,8 +1889,23 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   height: 5px;
   border-radius: 50%;
 }
+/* Shape, not only hue. --diag-error and --diag-warning measure 1.28:1 AGAINST EACH OTHER — each is legible
+   on the code behind it, but telling the two apart was the thing they could not do, and they were two
+   identical 5px discs and two identical wavy underlines. For a protan or deutan reader severity was not
+   encoded anywhere on this surface (WCAG 1.4.1). An error keeps the disc; a warning is a triangle, which is
+   also what every editor and road sign already uses for one. The tooltip now says which it is in words, so
+   the message carries it too. */
 .source-row.diag-error > .num::before { background: var(--diag-error); }
-.source-row.diag-warning > .num::before { background: var(--diag-warning); }
+.source-row.diag-warning > .num::before {
+  background: transparent;
+  border-radius: 0;
+  width: 0;
+  height: 0;
+  /* A triangle drawn with borders: the mark sits in a 5px box either way, so the two line up in the gutter. */
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-bottom: 5px solid var(--diag-warning);
+}
 /* Dwell tooltip shown ~1s after the pointer rests on a problem line. Fixed-positioned near the cursor. */
 .diag-tooltip {
   position: fixed;

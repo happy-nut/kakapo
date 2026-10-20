@@ -78,6 +78,10 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "copyLocation", keys: ["⌘K"], where: "code", i18n: "kbd.copyLocation" },
   { id: "pageUpDown", keys: ["PageUp", "PageDown"], where: "code", i18n: "kbd.pageUpDown", fixed: "structural" },
   { id: "expandDiffFold", keys: ["Space"], where: "code", i18n: "kbd.expandDiffFold", fixed: "structural" },
+  // One key, two contexts — like compareMode's ⌥A/⌥U, this is one row because it is one chord: in a .http
+  // file ⌥Enter runs the request, and on a line a language server flagged it drafts the change request that
+  // asks an agent to fix it (05-keymap.js). The second was reachable, documented nowhere, and named by a
+  // label that said only "Run HTTP request" — so the sheet and both READMEs described half of the key.
   { id: "runHttp", keys: ["⌘Enter", "⌥Enter"], where: "code", i18n: "kbd.runHttp" },
   { id: "toggleRendered", keys: ["⌥R"], where: "code", i18n: "kbd.toggleRendered" },
   { id: "toggleLineWrap", keys: ["⌥W"], where: "code", i18n: "kbd.toggleLineWrap" },
