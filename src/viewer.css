@@ -2952,6 +2952,21 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    top-left edge, crosses the macOS traffic lights, and stays put for the whole session (it is focus, not the
    timed arrival flash). The active commit row is the real selection cue, so drop the container's own outline. */
 .history-view:focus { outline: none; }
+/* Shown when the filter matches nothing. Laid over the body (which is position:relative) rather than
+   placed beside the list: the body is a flex row and the list keeps its width even with no rows in it, so
+   a sibling would have been squeezed to the edge instead of answering where the rows would have been. */
+.history-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--chrome-muted);
+  font-size: 13px;
+  text-align: center;
+}
+.history-empty.hidden { display: none; }
 .history-bar { flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
 .history-title { font-weight: 650; font-size: 13px; letter-spacing: 0.02em; }
 .history-scope { min-width: 0; max-width: min(42vw, 620px); overflow: hidden; color: var(--muted); font: 11px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }

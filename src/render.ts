@@ -643,7 +643,9 @@ export function renderDiffHtml(input: {
     '<div class="history-bar">',
     '<span class="history-title" data-i18n="history.title">History</span>',
     '<span id="history-scope" class="history-scope hidden"></span>',
-    '<input id="history-search" type="search" class="history-search" autocomplete="off" spellcheck="false" data-i18n-ph="history.search" placeholder="Filter by message or author">',
+    // The placeholder was doing double duty as the accessible name, and a placeholder is gone as soon as
+    // there is a value — so the moment this does something, it stops saying what it is.
+    '<input id="history-search" type="search" class="history-search" autocomplete="off" spellcheck="false" data-i18n-ph="history.search" data-i18n-aria="history.search" aria-label="Filter by message or author" placeholder="Filter by message or author">',
     '<button type="button" id="history-close" class="dock-btn" data-keyhint="Esc" data-i18n-title="history.close" title="Close" aria-label="Close">&times;</button>',
     "</div>",
     // Selection/compare status strip: shows how to compare (hint) when one commit is selected, and the
@@ -652,6 +654,10 @@ export function renderDiffHtml(input: {
     '<div id="history-select-bar" class="history-select-bar hidden" aria-live="polite"></div>',
     '<div class="history-body">',
     '<div id="history-list" class="history-list"></div>',
+    // A filter that matches nothing left a black panel: no rows, no note, and the strip above still
+    // explaining how to compare two of the commits that are not there. It belongs in the body, where the
+    // rows would have been — put in the bar it became another item in that flex row, off at the far edge.
+    '<div id="history-empty" class="history-empty hidden" data-i18n="history.noMatch">No commit matches that filter.</div>',
     "</div>",
     "</div>",
     input.diffIslands || "",

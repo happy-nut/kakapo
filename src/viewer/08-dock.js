@@ -33,10 +33,22 @@ function isDockFocused() {
   var ae = document.activeElement;
   return !!(ae && ae.closest && ae.closest('.dock-panel'));
 }
+// How refreshComments() reaches the open dock. The dock builds its cards from a snapshot taken when it
+// opened (`blocks`), and nothing re-took that snapshot: a comment written, answered or pruned while the
+// panel was up did not appear in it, and copyAndArchiveMerged then copied and filed the stale snapshot.
+// That is not a cosmetic staleness — an agent answering through the thread file (USER_FLOWS Flow 7) writes
+// exactly while a reviewer has this open, so the hand-off could go out short, or the panel could say there
+// was nothing to hand over while the review held comments. Same shape as themeSelectRef below: the owner
+// publishes its renderer, the caller does not need to know who owns it.
+var mergedDockRefresh = null;
+function refreshMergedDock() {
+  if (mergedDockRefresh) mergedDockRefresh();
+}
 // Close the merged dock.
 function closeMergedDock() {
   var m = document.getElementById('mc-merged-panel');
   var hadDock = !!m;
+  mergedDockRefresh = null; // before the refreshComments below, so it does not rebuild what we just removed
   if (m) {
     try { if (typeof m.__kakapoBeforeClose === 'function') m.__kakapoBeforeClose(); } catch (e) {}
     m.remove();
@@ -399,6 +411,18 @@ function openMergedView() {
   function initializeMergedEditor(options) {
     if (!dock.panel.isConnected) return;
     var reselectIndex = options && typeof options.reselectIndex === 'number' ? options.reselectIndex : null;
+    // Only a rebuild the reviewer did not ask for holds back from taking focus. Opening the panel, or
+    // rebuilding it after a delete, must take it: the dock is modal, and the global keymap stands down
+    // only while the dock HAS focus (isDockFocused) — a panel that never took it let F7 navigate the diff
+    // behind the backdrop. An arriving comment is the other case, and there the caret stays where the
+    // reviewer put it.
+    var quiet = !!(options && options.keepSelection);
+    var takeFocus = !quiet || dock.panel.contains(document.activeElement);
+    if (reselectIndex === null && options && options.keepSelection) {
+      var open = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
+      var at = open.indexOf(selectedCard);
+      if (at >= 0) reselectIndex = at;
+    }
     blocks = mergedBlocks();
     host.innerHTML = '';
     selectedCard = null;
@@ -413,10 +437,10 @@ function openMergedView() {
     copyBtn.disabled = !host.querySelector('.mc-merged-card');
     var cards = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
     if (reselectIndex !== null && cards.length) {
-      selectCard(cards[Math.min(reselectIndex, cards.length - 1)], true);
+      selectCard(cards[Math.min(reselectIndex, cards.length - 1)], takeFocus);
       return;
     }
-    if (cards.length) selectCard(cards[0], true);
+    if (cards.length) selectCard(cards[0], takeFocus);
     // Nothing to select (a review with no open comments). The panel itself takes the keyboard — it is
     // tabIndex -1 for exactly this — so Esc still closes it and ⌘⇧' still maximizes it. Before, the empty
     // prose editor happened to hold focus here; without one, an empty panel answered no keys at all.
@@ -428,6 +452,7 @@ function openMergedView() {
     validatingCommentFiles = false;
     requestAnimationFrame(initializeMergedEditor);
   }
+  mergedDockRefresh = function () { initializeMergedEditor({ keepSelection: true }); };
   verifyCommentFilesExist().then(startMergedEditor, startMergedEditor);
 }
 

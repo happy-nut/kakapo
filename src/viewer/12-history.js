@@ -166,7 +166,12 @@ function renderHistoryList() {
   list.innerHTML = historyCommits.map(function (c, i) {
     var refs = historyRefBadges(c.refs);
     var mergeClass = c.parents && c.parents.length > 1 ? ' merge-commit' : '';
-    return '<button type="button" class="hrow' + mergeClass + (c.hash === historyActiveSha ? ' active' : '') + '" data-sha="' + escapeHtml(c.hash) + '" title="' + escapeHtml(c.hash.slice(0, 12) + '  ' + c.subject) + '">'
+    // tabindex -1: the list is ONE tab stop, and selectHistoryCommit moves it to whichever row is
+    // selected. Three hundred tabbable rows was not only a long walk — Tab moved the focus ring without
+    // moving the selection, and Enter resolves through historyActiveSha (reviewHistoryInMain), so the
+    // commit that opened was not the one the ring was on. The arrows and Enter are handled for the whole
+    // overlay (handleHistoryKey), so nothing here needed to be focusable for them to work.
+    return '<button type="button" class="hrow' + mergeClass + (c.hash === historyActiveSha ? ' active' : '') + '" tabindex="-1" data-sha="' + escapeHtml(c.hash) + '" title="' + escapeHtml(c.hash.slice(0, 12) + '  ' + c.subject) + '">'
       + '<span class="hgraph-cell">' + (historyScope ? historyLineRowSvg() : historyRowSvg(historyGraph[i])) + '</span>'
       + '<span class="hmsg">' + (refs ? '<span class="hrefs">' + refs + '</span>' : '') + '<span class="hsubject">' + escapeHtml(c.subject) + '</span></span>'
       + '<span class="hauthor">' + escapeHtml(c.author) + '</span>'
@@ -188,6 +193,7 @@ function selectHistoryCommit(sha, shouldScroll) {
   list.querySelectorAll('.hrow').forEach(function (r) {
     var on = r.dataset.sha === sha;
     r.classList.toggle('active', on);
+    r.tabIndex = on ? 0 : -1; // the list's single tab stop goes where the selection is
     if (on) active = r;
   });
   if (shouldScroll !== false && active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
@@ -353,7 +359,16 @@ function applyHistoryFilter() {
   var visible = historyVisibleRows();
   if (visible.length && !visible.some(function (r) { return r.dataset.sha === historyActiveSha; })) {
     selectHistoryCommit(visible[0].dataset.sha, false);
+  } else if (!visible.length) {
+    // Everything is filtered out: leave no tab stop behind on a row nobody can see.
+    list.querySelectorAll('.hrow').forEach(function (r) { r.tabIndex = -1; });
   }
+  var empty = document.getElementById('history-empty');
+  if (empty) empty.classList.toggle('hidden', !!visible.length);
+  // The strip above explains how to compare two commits; with none on screen it is explaining a gesture
+  // there is nothing to perform.
+  var selectBar = document.querySelector('#history-view .history-select-bar');
+  if (selectBar) selectBar.classList.toggle('hidden', !visible.length);
 }
 
 

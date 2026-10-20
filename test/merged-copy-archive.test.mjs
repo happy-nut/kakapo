@@ -181,3 +181,67 @@ test("the sidebar lists what was handed over and can put it back", async () => {
     v.close();
   }
 });
+
+// The panel builds its cards from a snapshot taken when it opened, and for a long time nothing re-took
+// that snapshot. It matters because of who writes while it is up: an agent answering through the thread
+// file (USER_FLOWS Flow 7) writes exactly then. A comment that arrived after the panel opened was not in
+// it, and the button copied and ARCHIVED the stale snapshot — so the hand-off went out short, and what it
+// left behind was a comment the reviewer had every reason to think they had just sent.
+test("a comment that arrives while the panel is open is in the hand-off", async () => {
+  const v = await withComment("why this change?");
+  try {
+    const clipboard = installClipboard(v);
+    await v.openMergedView();
+    assert.equal(v.$all("#mc-merged-panel .mc-merged-card").length, 1, "the panel starts with the one comment");
+
+    // Whatever writes a comment ends by refreshing — that is the one path everything shares.
+    v.window.addComment("?", FILE, 1, "export const a = 2;", "and this one landed while you were reading",
+      1, 1, "new");
+    v.window.saveComments();
+    v.window.refreshComments();
+    await v.settle(60);
+
+    assert.equal(v.$all("#mc-merged-panel .mc-merged-card").length, 2, "the panel followed the review");
+
+    copyButton(v).click();
+    await v.settle(60);
+    assert.match(clipboard.text, /why this change\?/, "the first comment was handed over");
+    assert.match(clipboard.text, /landed while you were reading/, "and so was the one that arrived after");
+    assert.equal(v.window.reviewComments.length, 0, "both left the review with it, not just the one on screen");
+  } finally {
+    v.close();
+  }
+});
+
+// A rebuild nobody asked for must not move the reviewer. Arrow-key selection is how this panel is read,
+// so a comment landing elsewhere should not drop them back at the top of a forty-card hand-off.
+test("an arriving comment does not move the reviewer's place", async () => {
+  const v = await withComment("first");
+  try {
+    await v.openMergedView();
+    for (const text of ["second", "third"]) {
+      v.window.addComment("?", FILE, 1, "export const a = 2;", text, 1, 1, "new");
+    }
+    v.window.saveComments();
+    v.window.refreshComments();
+    await v.settle(60);
+
+    const cards = v.$all("#mc-merged-panel .mc-merged-card");
+    assert.equal(cards.length, 3, "all three are on screen");
+    cards[2].click();
+    await v.settle(20);
+    assert.ok(cards[2].classList.contains("selected"), "the reviewer is on the last card");
+
+    v.window.addComment("?", FILE, 1, "export const a = 2;", "fourth", 1, 1, "new");
+    v.window.saveComments();
+    v.window.refreshComments();
+    await v.settle(60);
+
+    const after = v.$all("#mc-merged-panel .mc-merged-card");
+    assert.equal(after.length, 4, "the new one is there");
+    assert.equal(after.findIndex((c) => c.classList.contains("selected")), 2,
+      "and the reviewer is still on the card they were reading, not sent back to the top");
+  } finally {
+    v.close();
+  }
+});

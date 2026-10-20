@@ -1020,6 +1020,9 @@ function refreshComments() {
   if (changedDiffWrappers.length) scrollAsymmetricDiff();
   if (isSourceViewerVisible()) renderSourceComments();
   renderCommentBadges();
+  // The merged dock builds from its own snapshot and had no way to hear about this (refreshMergedDock,
+  // 08-dock.js). A no-op while it is closed.
+  try { refreshMergedDock(); } catch (e) {}
   applyCommentSelectionHighlight();
   // Every agent-written body can carry Mermaid diagrams — a note AND an answer (commentAnswerHtml renders the
   // same markdown). Gating this on a note existing left a diagram inside an answer stuck on "loading…" forever
