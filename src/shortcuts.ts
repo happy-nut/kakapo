@@ -94,6 +94,11 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "editComment", keys: ["e"], where: "merged", i18n: "kbd.editComment", fixed: "structural" },
   { id: "deleteComment", keys: ["Backspace", "Delete"], where: "merged", i18n: "kbd.deleteComment", fixed: "structural" },
   { id: "stepComments", keys: ["⌥↑", "⌥↓"], where: "merged", i18n: "kbd.stepComments", fixed: "structural" },
+  // Was "send to pane" back when the app embedded a terminal. The terminal was removed; the row survived
+  // with nothing answering it, so the sheet advertised a chord that did nothing. Its surviving descendant
+  // is the hand-off — copying the review out and filing it away is how a review leaves kakapo now — so the
+  // chord goes there rather than being deleted. Structural like its merged siblings: the dock's own
+  // keydown owns these, and none of them read a rebind.
   { id: "mergedSend", keys: ["⌥Enter"], where: "merged", i18n: "kbd.mergedSend", fixed: "structural" },
   { id: "maximizePanel", keys: ["⌘⇧'"], where: "merged", i18n: "kbd.maximizePanel" },
 

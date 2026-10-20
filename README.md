@@ -119,6 +119,7 @@ kakapo --staged             # index vs HEAD
 | `?` | Comment on the current line |
 | `F8` / `⇧F8` | Next / previous comment |
 | `⌘⇧/` | All review comments (one hand-off document). Copying hands it over and archives it — the sidebar puts it back, `⌘Z` undoes |
+| `⌥Enter` | In that document: hand the review over — the same copy-and-archive the button does |
 | `⌘9` | Git history |
 | `⌘F` / `⌘⇧F` | Find in file / in project (the ⌘⇧F rail also holds file search & recent files) |
 | `⌘E` | Recent files — the list on its own, press again to close. Type to filter (Korean typing is read as the QWERTY keys that made it) |

@@ -103,6 +103,8 @@ function mountDock(id, titleText) {
   panel.appendChild(resizer);
   panel.appendChild(bar);
   panel.appendChild(body);
+  // These buttons were born after the document was translated, so nothing had ever filled in their chords.
+  applyKeyHints(panel);
   document.body.appendChild(backdrop);
   document.body.appendChild(panel);
   function close() { closeMergedDock(); }
@@ -252,6 +254,17 @@ function openMergedView() {
     // so Cmd+C silently did nothing. A held modifier alone should never count as a deselecting keystroke.
     if (event.key === 'Meta' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Shift') return;
     var isCmd = event.metaKey || event.ctrlKey;
+    // The hand-off, from the keyboard. Copying the review and filing it away is the one thing this panel
+    // exists to do, and it was reachable only by clicking its button — Cmd+C (after Cmd+A) copies the same
+    // text but leaves the comments in the review, so there was no key that FINISHED a review.
+    // Checked before the select-all branch so it answers wherever focus is inside the panel, including
+    // while the fake select-all is up.
+    if (event.altKey && !isCmd && !event.shiftKey && (event.key === 'Enter' || event.code === 'Enter')) {
+      event.preventDefault();
+      clearSelectAll();
+      copyAndArchiveMerged();
+      return;
+    }
     if (isCmd && !event.altKey && !event.shiftKey && (event.key === 'a' || event.key === 'A' || event.code === 'KeyA')) {
       event.preventDefault();
       host.classList.add('mc-merged-select-all');
@@ -298,10 +311,15 @@ function openMergedView() {
   copyBtn.type = 'button';
   copyBtn.className = 'dock-btn mc-copy-all';
   copyBtn.setAttribute('data-i18n', 'merged.copyAndArchive');
+  copyBtn.dataset.keyhintId = 'mergedSend'; // the chord itself comes from the table (applyI18n)
   copyBtn.textContent = t('merged.copyAndArchive');
   copyBtn.disabled = true;
   copyBtn.addEventListener('click', copyAndArchiveMerged);
   dock.bar.insertBefore(copyBtn, dock.bar.querySelector('.dock-max'));
+  // mountDock's sweep already ran — this button is added to the bar afterwards, so it needs its own.
+  // Without this the chord it advertises through data-keyhint-id is never resolved into data-keyhint,
+  // which is the only thing the chip is drawn from.
+  applyKeyHints(dock.bar);
   // Registered once (not per-rebuild inside initializeMergedEditor) so a Backspace-delete rebuild never
   // stacks a second copy of either listener.
   host.addEventListener('click', handleMergedClick);
@@ -388,7 +406,11 @@ function openMergedView() {
       block.items.forEach(function (comment) { host.insertAdjacentHTML('beforeend', mergedCardHtml(comment)); });
     });
     renderAllAddressedNote();
-    copyBtn.disabled = false;
+    // Nothing to hand over is not something to offer. The comment above renderAllAddressedNote already
+    // says a blank sheet with a live button "reads like something is broken"; it was armed anyway, and
+    // once ⌥Enter reached it that was one keystroke from replacing the clipboard with an empty document
+    // and a toast reporting that zero comments had been filed.
+    copyBtn.disabled = !host.querySelector('.mc-merged-card');
     var cards = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
     if (reselectIndex !== null && cards.length) {
       selectCard(cards[Math.min(reselectIndex, cards.length - 1)], true);
@@ -684,7 +706,11 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     if (!grid) return;
     grid.innerHTML = THEMES.map(function (entry) {
       var on = entry.family === syntaxTheme && entry.mode === theme;
+      // Roving tabindex: a radiogroup is ONE tab stop. With every card tabbable, Tab walked all twelve
+      // before it reached the control below them, and the arrow keys — which is how a radiogroup is meant
+      // to be moved through — did nothing at all.
       return '<button type="button" class="theme-card' + (on ? ' is-active' : '') + '" role="radio"'
+        + ' tabindex="' + (on ? '0' : '-1') + '"'
         + ' aria-checked="' + (on ? 'true' : 'false') + '" data-theme-id="' + entry.id + '">'
         + '<span class="theme-swatch" data-swatch="' + entry.id + '" aria-hidden="true"></span>'
         + '<span class="theme-card-name">' + escapeHtml(t('theme.name.' + entry.id)) + '</span></button>';
@@ -700,10 +726,48 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     if (!card) return;
     var entry = THEMES.filter(function (x) { return x.id === card.dataset.themeId; })[0];
     if (!entry) return;
+    // Captured FIRST. applyThemePref re-renders the grid through themeSelectRef, so by the time the two
+    // calls below have returned, the card this handler was given is already detached and the focus it had
+    // is on <body> — asking afterwards always answered "no".
+    var hadFocus = document.activeElement === card;
     if (entry.family) applySyntaxThemePref(entry.family); // System keeps the family it is already using
     applyThemePref(entry.mode);
     renderThemeGrid(); // applyTheme/applySyntaxTheme skip their re-render when only the OTHER axis moved
+    // The re-render replaces every card, the focused one included. A mouse user never notices; a keyboard
+    // user pressing Enter on a theme was dropped onto <body>, outside the dialog they were working in.
+    if (hadFocus) {
+      var replacement = themeGrid.querySelector('.theme-card[data-theme-id="' + entry.id + '"]')
+        || themeGrid.querySelector('.theme-card[tabindex="0"]');
+      if (replacement) replacement.focus();
+    }
   });
+  // Arrows move focus; Space/Enter chooses. The usual radiogroup rule is that selection follows focus, but
+  // choosing here repaints the whole window and persists the choice, so arrowing across the grid to reach
+  // one theme would apply and store the four it passed over. ARIA allows decoupling them for exactly that.
+  if (themeGrid) themeGrid.addEventListener('keydown', function (event) {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    var cards = [].slice.call(themeGrid.querySelectorAll('.theme-card'));
+    var at = cards.indexOf(document.activeElement);
+    if (at < 0) return;
+    // The row length is read off the layout rather than written down here: the grid's column count lives in
+    // the stylesheet, and a copy of it in this file is a copy that would not be told when it changes.
+    var top = cards[0].getBoundingClientRect().top;
+    var perRow = cards.filter(function (c) { return Math.abs(c.getBoundingClientRect().top - top) < 1; }).length || 1;
+    var to = at;
+    if (event.key === 'ArrowRight') to = at + 1;
+    else if (event.key === 'ArrowLeft') to = at - 1;
+    else if (event.key === 'ArrowDown') to = at + perRow;
+    else if (event.key === 'ArrowUp') to = at - perRow;
+    else if (event.key === 'Home') to = 0;
+    else if (event.key === 'End') to = cards.length - 1;
+    else if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); cards[at].click(); return; }
+    else return;
+    if (to < 0 || to >= cards.length) return;
+    event.preventDefault();
+    cards.forEach(function (c, i) { c.tabIndex = i === to ? 0 : -1; });
+    cards[to].focus();
+  });
+
   // Cross-window sync: theme + locale are GLOBAL settings. When another review window (or the OS, relayed by the
   // main process) changes one, main broadcasts it here so every open review follows live — no reload, no drift.
   try {

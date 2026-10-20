@@ -972,7 +972,23 @@ body.native-app .source-tabs {
   border: 1px solid var(--border); border-radius: var(--ui-radius-sm, 0);
 }
 .theme-card:hover { border-color: color-mix(in srgb, var(--active) 55%, var(--border)); }
-.theme-card.is-active { border-color: var(--active); box-shadow: 0 0 0 1px var(--active); }
+/* Chosen and focused have to look like two different things, because in this grid they ARE two different
+   things: the arrow keys move focus without choosing (picking repaints the whole app, so selection
+   deliberately does not follow focus). Both used to be the same accent ring at the same weight, so after
+   arrowing one step the reader could no longer tell which theme was actually applied. Chosen is now a
+   filled surface with a tick; focus keeps the ring, offset so it reads as a separate layer. */
+.theme-card.is-active {
+  border-color: var(--active);
+  background: color-mix(in srgb, var(--active) 16%, transparent);
+  font-weight: 600;
+}
+.theme-card.is-active .theme-card-name::after {
+  content: "✓";
+  margin-left: 6px;
+  color: var(--active);
+  font-weight: 700;
+}
+.theme-card:focus-visible { outline: 2px solid var(--active); outline-offset: 2px; }
 .theme-card-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Each swatch is a small picture of the editor the theme paints: its ground, its accent rail, and two
    lines of its own syntax colours. As twelve 22px circles of ground-plus-accent-wedge they were not a
@@ -2008,7 +2024,11 @@ h1 { margin: 0; font-size: 18px; }
   min-width: 0;
 }
 .compare-ref { color: var(--text); overflow: hidden; text-overflow: ellipsis; max-width: 16ch; }
-.compare-arrow { opacity: 0.7; }
+/* The arrow is not decoration: it is the glyph that says which of the two refs is the base and which is
+   the target. At --muted knocked down to 70% it measured 2.88:1 dark and 2.08:1 light against the pill's
+   own fill — the least legible ink in a control whose whole job is answering "what am I looking at".
+   It joins two .compare-ref spans, so it takes their colour. */
+.compare-arrow { color: var(--text); opacity: 0.85; }
 /* Three accents, not five: the states the app CHOSE for you carry colour, and the two you asked for by name
    (--staged, an explicit base/target) stay neutral — you already know what you picked. */
 .compare-local { color: var(--add-strong); }
@@ -2021,7 +2041,17 @@ h1 { margin: 0; font-size: 18px; }
    hover that says it opens something. In a static export it is still a <span> and none of this applies. */
 button.compare-pill {
   border: 1px solid transparent;
-  color: inherit;
+  /* Was `inherit`, which took the toolbar's muted grey and put the pill at 3.55:1 in light — below the
+     floor for an 11px label that answers "what am I even looking at". --chrome-text is guarded against the
+     chrome ground in every theme (token-contrast), and the pill's fill and dot are color-mixes of
+     currentColor, so they follow it.
+     NOTE: this rule is also what has been overriding .compare-local / .compare-ahead / .compare-incoming
+     all along — `button.compare-pill` outranks a bare class, so the "three accents, not five" scheme
+     documented above them has never rendered in the app, only in the static export where the pill is a
+     <span>. Left as it is rather than quietly reviving three colours that change what the pill says;
+     reviving them needs text-weight tokens, and --add-strong (what .compare-local asks for) is a diff
+     FILL, so it would land at the contrast it was just rescued from. */
+  color: var(--chrome-text);
   font-family: inherit;
   cursor: pointer;
 }
@@ -3013,7 +3043,9 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .mc-caret-hint.show { opacity: 1; transform: translateY(0); }
 /* Merged prompts render as several small editable prose regions (agent-contract text) interleaved with
    read-only comment cards — not one continuous editable document (see openMergedView in 08-dock.js). */
-.mc-merged-body { flex: 1 1 auto; min-width: 0; min-height: 0; height: 100%; overflow: auto; }
+/* height:auto, not 100%: the panel now takes its height from this, so filling the panel from here would
+   be circular and would reinstate the empty box it was sized to avoid. It still scrolls at the ceiling. */
+.mc-merged-body { flex: 1 1 auto; min-width: 0; min-height: 0; height: auto; overflow: auto; }
 /* .mc-inline-editor-host's own base rule (below) sets min-height: 100% for the memo's single full-page
    editor, which forces this host to the full panel height even once its actual (much shorter) content
    fits comfortably — the "extra" space is invisible until scrollIntoView/arrow navigation scrolls down far
@@ -3067,9 +3099,13 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 /* ===== Merged-prompt & memo: a focused FLOATING writing surface.
    Cmd/Ctrl+Shift+' maximizes the active panel to full screen. =====
    (These used to dock below the editor; they now float so a big writing surface doesn't shrink the diff.) */
+/* The panel is as tall as what is in it, up to 90vh. Pinned top:5vh/bottom:5vh it was always nine tenths
+   of the window: two comments sat in a 1080px box and spent 85% of it on nothing, which reads as "is that
+   all of them?" rather than "that is all of them". */
 .dock-panel {
-  position: fixed; top: 5vh; bottom: 5vh; left: 50%;
-  width: min(1048px, calc(100vw - 48px)); transform: translateX(-50%);
+  position: fixed; top: 50%; left: 50%;
+  max-height: 90vh;
+  width: min(1048px, calc(100vw - 48px)); transform: translate(-50%, -50%);
   /* Must outrank History/Explain (z-index: 75, full-view overlays) — Cmd+Shift+/ can open the merged dock
      while either is showing, and it must land on top, not silently render underneath. Stays below the
      settings modal (80). */
@@ -3084,8 +3120,8 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
    keyframe keeps the base translateX(-50%) centering; the heavy editor mounts a frame later (see openMergedView)
    so it never blocks this animation. */
 @keyframes dock-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.985); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  from { opacity: 0; transform: translate(-50%, -50%) translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: translate(-50%, -50%) translateY(0) scale(1); }
 }
 @keyframes dock-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
 body:not(.dock-maximized) .dock-panel { animation: dock-in 165ms cubic-bezier(.2, .8, .2, 1); will-change: transform, opacity; }
@@ -3096,6 +3132,21 @@ body:not(.dock-maximized) .dock-panel { animation: dock-in 165ms cubic-bezier(.2
 }
 .dock-title { margin-right: auto; letter-spacing: 0.02em; }
 .dock-btn { border: 0; background: transparent; cursor: pointer; padding: 2px 7px; font: inherit; font-weight: 500; }
+/* Handing the review back to the agent is what this panel is FOR, and that button was a .dock-btn — the
+   same bare label as Close beside it, so the one action worth taking looked like the one that throws the
+   panel away. It is a surface now. The label keeps --chrome-text (guarded against the chrome ground in
+   every theme) and the accent arrives as a tint and a border, because --active ranges from #0f4a85 to
+   #bd93f9 across the twelve themes and nothing legible sits on all of those. */
+.dock-bar .mc-copy-all { border-radius: var(--ui-radius-sm, 6px); padding: 3px 11px; }
+.dock-bar .mc-copy-all:not(:disabled) {
+  color: var(--chrome-text);
+  font-weight: 650;
+  background: color-mix(in srgb, var(--active) 20%, var(--chrome-panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--active) 70%, transparent);
+}
+.dock-bar .mc-copy-all:not(:disabled):hover {
+  background: color-mix(in srgb, var(--active) 32%, var(--chrome-panel));
+}
 .dock-bar button { -webkit-app-region: no-drag; }
 .dock-bar button:not(:disabled) { cursor: pointer; }
 .dock-bar button:disabled { cursor: default; }
@@ -3105,7 +3156,7 @@ body:not(.dock-maximized) .dock-panel { animation: dock-in 165ms cubic-bezier(.2
 .dock-body > .mc-merged-body { flex: 1 1 auto; height: auto; }
 
 /* Maximize the floating merged/memo panel to fill the viewport. */
-body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border-radius: 0; }
+body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; transform: none; border-radius: 0; }
 
 /* Entrance animation: the panel rises + fades in when it un-hides (display:none -> flex restarts the
    animation on every open), and the freshly-appended backdrop fades with it. transform/opacity only, so the

@@ -561,7 +561,9 @@ export function renderDiffHtml(input: {
     '<nav id="quick-open-side" class="quick-open-side" aria-label="Sections">',
     '<button type="button" class="quick-open-side-item" data-section="content"' + keyHint('findInFiles') + '><span data-i18n="quickopen.findInFiles">Find in Files</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="all"><span data-i18n="quickopen.searchFiles">Search files</span></button>',
-    '<button type="button" class="quick-open-side-item" data-section="recent"><span data-i18n="quickopen.recent">Recent files</span></button>',
+    // ⌘E opens this one directly; the row simply never said so, while the two either side of it did.
+    // ("Search files" shows nothing because it HAS no chord — only the launcher's own arrows reach it.)
+    '<button type="button" class="quick-open-side-item" data-section="recent"' + keyHint('recentFiles') + '><span data-i18n="quickopen.recent">Recent files</span></button>',
     '<div class="quick-open-side-sep" aria-hidden="true"></div>',
     '<button type="button" class="quick-open-side-item" data-section="history"' + keyHint('openHistory') + '><span data-i18n="rail.history">History</span></button>',
     '</nav>',
@@ -626,6 +628,15 @@ export function renderDiffHtml(input: {
     shortcutSheetHtml() +
     '</div>',
     "</section>",
+    // Close the shortcuts section's three wrappers — settings-body, settings-panel, settings-modal. They
+    // were never closed, so the parser swallowed everything after them: #history-view became a descendant
+    // of a dialog that is display:none whenever Settings is shut, and \u2318 9 removed its .hidden class onto
+    // a 0\u00d70 box. The feature loaded its three hundred commits and painted nothing. Nothing caught it
+    // because the suite asserts on .hidden classes, which were all correct — the dead ancestor is a
+    // LAYOUT fact, and jsdom has no layout. renderReviewDocument now balances; a guard pins it.
+    '</div>',
+    '</div>',
+    '</div>',
     // Git history (Cmd+9): the commit graph owns the full canvas. Enter opens the selected commit's
     // message + diff in a large floating workspace instead of squeezing both views side by side.
     '<div id="history-view" class="history-view hidden" role="dialog" aria-modal="true" data-i18n-aria="history.title" aria-label="Git history">',
