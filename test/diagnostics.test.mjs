@@ -130,3 +130,58 @@ test("diagnostics: Opt+Enter on a problem line drafts a change-request comment t
   assert.equal(v.storedComments().filter((c) => c.kind === "c").length, 1, "no comment is drafted on a clean line");
   v.close();
 });
+
+// USER_FLOWS Flow 6: a file no language server covers reports `available:false` rather than a misleading
+// empty "no problems". analysis.ts has always honoured that; the viewer dropped the field on the way into
+// its cache and said the reassuring thing anyway — for CSS, for Markdown, for anything outside a server's
+// languages. Three different silences had one sentence, and it was true for exactly one of them.
+const UNCOVERED = "styles/app.css";
+
+async function openUncovered() {
+  const { html } = await makeReviewHtml([
+    { path: UNCOVERED, before: ".a { color: red; }\n", after: ".a { color: blue; }\n" },
+  ]);
+  const v = await loadViewer(html, {
+    // What analysis.ts returns for a path no client claims: ok, but nothing is checking it.
+    diagnosticsBridge: () => ({ ok: true, generation: 0, available: false, engine: "index", diagnostics: [] }),
+    analysisStatus: { generation: 0, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  await v.openSourceFile(UNCOVERED);
+  await v.settle(150);
+  return v;
+}
+
+test("a file no language server covers is not reported as having no problems", async () => {
+  const v = await openUncovered();
+  try {
+    assert.equal(v.window.gotoDiagnostic(1), true, "F2 still answers the key");
+    const hint = v.$(".mc-caret-hint");
+    assert.ok(hint, "it says something");
+    const said = hint.textContent.trim();
+    assert.notEqual(said, v.window.t("diag.none"),
+      "it must not be the sentence that means the file was checked and is clean");
+    assert.equal(said, v.window.t("diag.unavailable"), "it says nothing is checking this file");
+  } finally {
+    v.close();
+  }
+});
+
+test("a file that IS covered and clean still says so", async () => {
+  const { html } = await makeReviewHtml([
+    { path: FILE, before: "const a = 1;\n", after: "const a = 2;\n" },
+  ]);
+  const v = await loadViewer(html, {
+    // Covered by a server, and it found nothing — the one case "no problems" describes.
+    diagnosticsBridge: () => ({ ok: true, generation: 0, available: true, engine: "lsp", diagnostics: [] }),
+    analysisStatus: { generation: 0, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  try {
+    await v.openSourceFile(FILE);
+    await v.settle(150);
+    assert.equal(v.window.gotoDiagnostic(1), true, "F2 answers");
+    assert.equal(v.$(".mc-caret-hint").textContent.trim(), v.window.t("diag.none"),
+      "a checked, clean file gets the reassuring sentence — it has earned it");
+  } finally {
+    v.close();
+  }
+});

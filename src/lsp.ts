@@ -81,8 +81,25 @@ const IMPORT_RESOLUTION_CODES = new Set([
   "2307",                      // tsserver: "Cannot find module 'x' or its type declarations"
   "2792",                      // tsserver: "Cannot find module 'x'. Did you mean to set 'moduleResolution'?"
 ]);
+// The same environment, one step further in. An unresolved @types package does not only break `import`
+// statements — it takes the AMBIENT declarations with it, and those fire on ordinary code that names a
+// global. Measured on this project's own src/lsp.ts with node_modules absent: 63 errors, of which 42 were
+// "Cannot find name 'process'. Do you need to install type definitions for node?" and 12 were "Cannot find
+// namespace 'NodeJS'" — 54 of 63 markers, every one of them an artifact of kakapo running a bundled
+// tsserver that does not own the project's node_modules. That is the exact condition the codes above were
+// chosen for; these messages just were not in the net, so the policy held for imports and leaked
+// everywhere else.
+//
+// Matched on the MESSAGE, not the code: 2591 is "Cannot find name 'x'" in general, which is a real error
+// worth seeing. The sentence tsserver appends when it is a missing type package is what distinguishes the
+// two, and it is the same sentence in every version that emits it.
+const MISSING_TYPE_PACKAGE = /do you need to install type definitions|try `?npm i --save-dev @types\//i;
+// Ambient namespaces that only exist because of a type package. Listed rather than pattern-matched: a
+// namespace this project's own code defines and misspells should still be reported.
+const AMBIENT_TYPE_NAMESPACES = /cannot find namespace '(NodeJS|jest|Mocha|Chai|Cypress|Express|React)'/i;
 function isImportResolutionDiagnostic(code: string, message: string): boolean {
   if (code && IMPORT_RESOLUTION_CODES.has(code)) return true;
+  if (MISSING_TYPE_PACKAGE.test(message) || AMBIENT_TYPE_NAMESPACES.test(message)) return true;
   return /could not be resolved|cannot find module/i.test(message);
 }
 

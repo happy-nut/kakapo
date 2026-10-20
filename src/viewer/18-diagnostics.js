@@ -55,8 +55,17 @@ function refreshSourceDiagnostics(path) {
   Promise.resolve(window.kakapoAnalysis.diagnostics(path)).then(function (response) {
     if (token !== diagnosticsFetchToken) return; // a newer file / watch refresh superseded this request
     if (!analysisGenerationIsCurrent(response)) return;
-    if (!response || response.ok === false) return;
-    diagnosticsCache.set(path, { sig: sig, items: Array.isArray(response.diagnostics) ? response.diagnostics : [] });
+    // `available` and `ok` are part of the answer, not plumbing. analysis.ts reports available:false for a
+    // file no server covers precisely so the viewer can say so instead of an empty "no problems"
+    // (USER_FLOWS Flow 6 forbids the reassuring version) — and then the viewer dropped the field and said
+    // the reassuring version anyway, for CSS, for Markdown, for anything outside a server's languages.
+    if (!response) return;
+    if (response.ok === false) { diagnosticsCache.set(path, { sig: sig, items: [], state: 'failed' }); return; }
+    diagnosticsCache.set(path, {
+      sig: sig,
+      items: Array.isArray(response.diagnostics) ? response.diagnostics : [],
+      state: response.available === false ? 'unavailable' : 'ready',
+    });
     if (diagnosticsSurfacePath() === path) paintSourceDiagnostics(path);
   }).catch(function () { /* transport failures already quarantine the server in main; the paint just stays empty */ });
 }
@@ -138,7 +147,13 @@ function gotoDiagnostic(delta) {
     return a.lineIndex - b.lineIndex || a.column - b.column;
   });
   if (!items.length) {
-    showCaretHint(t('diag.none'));
+    // Three different silences, and they used to be one sentence. "No problems" is true for exactly one
+    // of them; for the other two it is a reassurance the app has not earned.
+    var state = cached && cached.state;
+    if (!cached) showCaretHint(t('diag.pending'));                          // nothing has come back yet
+    else if (state === 'unavailable') showCaretHint(t('diag.unavailable')); // no server covers this file
+    else if (state === 'failed') showCaretHint(t('diag.failed'));           // the server could not answer
+    else showCaretHint(t('diag.none'));
     return true;
   }
   var atPath = viewerCursor && viewerCursor.path === path;
