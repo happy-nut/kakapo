@@ -47,7 +47,18 @@ test("a focused dock / settings overlay hides the file's blinking caret beneath 
 });
 
 test("the merged dock is a centred floating panel with clickable header controls", () => {
-  assert.match(css, /\.dock-panel\s*\{\s*position:\s*fixed;[^}]*width:\s*min\(1048px,\s*calc\(100vw\s*-\s*48px\)\)/s, "the floating panel wraps the document with padding per side");
+  // The invariant is that the panel WRAPS what it holds — wide enough for a card plus a margin each side,
+  // and still inset from the viewport edges. Spelling the width here made this a copy of it, and the copy
+  // is what failed when the panel was fitted to its cards.
+  const panelWidth = /\.dock-panel\s*\{\s*position:\s*fixed;[^}]*width:\s*min\((\d+)px,\s*calc\(100vw\s*-\s*(\d+)px\)\)/s.exec(css);
+  assert.ok(panelWidth, "the floating panel declares a width capped against the viewport");
+  const cardWidth = /\.mc-card\s*\{[^}]*max-width:\s*(\d+)px/s.exec(css);
+  assert.ok(cardWidth, "the card it wraps declares a width");
+  const [panel, gutter, card] = [Number(panelWidth[1]), Number(panelWidth[2]), Number(cardWidth[1])];
+  assert.ok(panel > card, `the panel (${panel}px) is wider than the card it wraps (${card}px)`);
+  assert.ok(panel - card <= 240,
+    `the panel wraps the card rather than stranding ${panel - card}px of unusable surface beside it`);
+  assert.ok(gutter > 0, "and it stays inset from the viewport edges");
   assert.match(css, /\.dock-panel\s*\{\s*position:\s*fixed;[^}]*left:\s*50%/s, "the panel stays centred");
   const dockButtons = ruleBodyForExactSelector(".dock-bar button");
   const activeDockButtons = ruleBodyForExactSelector(".dock-bar button:not(:disabled)");

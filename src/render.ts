@@ -542,7 +542,7 @@ export function renderDiffHtml(input: {
     '<span id="file-find-count" class="file-find-count" aria-live="polite">0/0</span>',
     '<button type="button" id="file-find-prev" class="file-find-button" data-keyhint="⇧↵" data-i18n-title="find.previous" data-i18n-aria="find.previous" title="Previous match (Shift+Enter)" aria-label="Previous match">&#8593;</button>',
     '<button type="button" id="file-find-next" class="file-find-button" data-keyhint="↵" data-i18n-title="find.next" data-i18n-aria="find.next" title="Next match (Enter)" aria-label="Next match">&#8595;</button>',
-    '<button type="button" id="file-find-close" class="file-find-button file-find-close" data-keyhint="Esc" data-i18n-title="find.close" data-i18n-aria="find.close" title="Close (Esc)" aria-label="Close">&times;</button>',
+    '<button type="button" id="file-find-close" class="file-find-button file-find-close" data-keyhint-id="closeDialog" data-i18n-title="find.close" data-i18n-aria="find.close" title="Close (Esc)" aria-label="Close">&times;</button>',
     '</div>',
     "</main>",
     input.app
@@ -646,7 +646,7 @@ export function renderDiffHtml(input: {
     // The placeholder was doing double duty as the accessible name, and a placeholder is gone as soon as
     // there is a value — so the moment this does something, it stops saying what it is.
     '<input id="history-search" type="search" class="history-search" autocomplete="off" spellcheck="false" data-i18n-ph="history.search" data-i18n-aria="history.search" aria-label="Filter by message or author" placeholder="Filter by message or author">',
-    '<button type="button" id="history-close" class="dock-btn" data-keyhint="Esc" data-i18n-title="history.close" title="Close" aria-label="Close">&times;</button>',
+    '<button type="button" id="history-close" class="dock-btn" data-keyhint-id="closeDialog" data-i18n-title="history.close" title="Close" aria-label="Close">&times;</button>',
     "</div>",
     // Selection/compare status strip: shows how to compare (hint) when one commit is selected, and the
     // pending two-commit compare (with Open/Clear) once a range is shift-selected. The visible affordance

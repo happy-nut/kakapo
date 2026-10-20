@@ -1,15 +1,9 @@
 // ===== Bottom dock: the merged review-comments document, in a docked slot below the editor =====
 // Cmd/Ctrl+Shift+' maximizes it over the editor area.
-var dockHeightKey = 'kakapo-dock-height';
 var dockMaximized = false;
 // Assigned once the settings panel is built (see below); read by the KEY_OWNERS table in 05-keymap.js,
 // which loads first and so tests it with `typeof`.
 var handleSettingsKey;
-function applyDockHeight(px) {
-  var h = Math.max(140, Math.min(px, window.innerHeight - 120));
-  document.documentElement.style.setProperty('--dock-height', h + 'px');
-}
-(function () { var s = parseInt(persistRead(dockHeightKey) || localStorage.getItem(dockHeightKey) || '', 10); if (s) applyDockHeight(s); })();
 function activeDockPanel() {
   return document.getElementById('mc-merged-panel');
 }
@@ -73,7 +67,7 @@ function focusDockField(field, panelSel) {
   };
   if (!tryF()) { var iv = setInterval(function () { if (tryF() || ++tries > 12) clearInterval(iv); }, 25); }
 }
-// Build a docked panel shell (resizer + bar with Maximize/Close + body) and mount it below the editor.
+// Build a docked panel shell (a bar with Maximize/Close, and a body) and mount it over the editor.
 function mountDock(id, titleText) {
   // Full-screen surfaces switch, never stack: the dock floats above History (z78 vs 75), and closing the
   // dock later must not drop the reviewer back into an overlay they left minutes ago.
@@ -92,9 +86,6 @@ function mountDock(id, titleText) {
   // The panel floats over the editor; a dim backdrop sits behind it (click to dismiss).
   var backdrop = document.createElement('div');
   backdrop.className = 'dock-backdrop';
-  var resizer = document.createElement('div');
-  resizer.className = 'dock-resizer';
-  resizer.setAttribute('aria-hidden', 'true');
   var bar = document.createElement('div');
   bar.className = 'dock-bar';
   var title = document.createElement('span');
@@ -110,7 +101,7 @@ function mountDock(id, titleText) {
   var closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.className = 'dock-btn dock-close';
-  closeBtn.dataset.keyhint = 'Esc';
+  closeBtn.dataset.keyhintId = 'closeDialog'; // from the table, like every other advertised chord
   closeBtn.setAttribute('data-i18n', 'merged.close');
   closeBtn.textContent = t('merged.close');
   var body = document.createElement('div');
@@ -118,7 +109,6 @@ function mountDock(id, titleText) {
   bar.appendChild(title);
   bar.appendChild(maxBtn);
   bar.appendChild(closeBtn);
-  panel.appendChild(resizer);
   panel.appendChild(bar);
   panel.appendChild(body);
   // aria-modal is a promise about Tab, and this panel was not keeping it.
@@ -134,20 +124,6 @@ function mountDock(id, titleText) {
   // Esc closes the dock when focus is inside it; the editor keeps its own handlers otherwise.
   panel.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
-  });
-  resizer.addEventListener('mousedown', function (e) {
-    e.preventDefault();
-    resizer.classList.add('resizing');
-    function move(ev) { applyDockHeight(window.innerHeight - ev.clientY); }
-    function up() {
-      resizer.classList.remove('resizing');
-      document.removeEventListener('mousemove', move);
-      document.removeEventListener('mouseup', up);
-      var cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--dock-height'), 10);
-      if (cur) persistSave(dockHeightKey, String(cur));
-    }
-    document.addEventListener('mousemove', move);
-    document.addEventListener('mouseup', up);
   });
   document.body.classList.add('dock-open');
   document.body.classList.add('floating-dock'); // scopes the maximize CSS so it doesn't hide the diff

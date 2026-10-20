@@ -2730,6 +2730,8 @@ body.cmd-link-active .source-code { cursor: pointer; }
   width: min(760px, calc(100cqw - 74px));
   max-width: calc(100cqw - 74px);
 }
+/* Centred in the hand-off panel: whatever room is left over is margin on both sides, not a gap on one. */
+.mc-merged-card { margin-left: auto; margin-right: auto; }
 .mc-card {
   border: 1px solid var(--border); background: var(--panel); margin: 8px 0; max-width: 760px;
   font: 12px/1.5 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -3120,7 +3122,11 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .dock-panel {
   position: fixed; top: 50%; left: 50%;
   max-height: 90vh;
-  width: min(1048px, calc(100vw - 48px)); transform: translate(-50%, -50%);
+  /* Sized to what it holds. The cards cap at 760px (.mc-card, a measure the in-diff card sets and this one
+     inherits), so 1048 left a band of panel that could never hold anything — and because the cards are
+     laid out from the left, all of it on one side: 60px to their left and 229px to their right, which
+     reads as something having gone wrong rather than as margin. */
+  width: min(880px, calc(100vw - 48px)); transform: translate(-50%, -50%);
   /* Must outrank History/Explain (z-index: 75, full-view overlays) — Cmd+Shift+/ can open the merged dock
      while either is showing, and it must land on top, not silently render underneath. Stays below the
      settings modal (80). */
@@ -3141,7 +3147,6 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 @keyframes dock-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
 body:not(.dock-maximized) .dock-panel { animation: dock-in 165ms cubic-bezier(.2, .8, .2, 1); will-change: transform, opacity; }
 @media (prefers-reduced-motion: reduce) { .dock-panel, .dock-backdrop { animation: none; } }
-.dock-resizer { display: none; } /* a centered ~90% floating panel has no bottom edge to drag */
 .dock-bar {
   flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-weight: 650; font-size: 12px;
 }

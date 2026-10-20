@@ -134,7 +134,13 @@ test("closing a comment composer removes the hovered button shortcut bubble", as
   const save = input.closest(".mc-comment-row").querySelector(".mc-save");
   save.dispatchEvent(new v.window.MouseEvent("mouseover", { bubbles: true }));
   assert.equal(v.$("#mc-button-hint").classList.contains("hidden"), false, "hover shows the Comment shortcut");
-  assert.equal(v.$("#mc-button-hint kbd").textContent, "⌘↵", "the tooltip advertises the real save shortcut instead of generic Enter");
+  // Read from the table, not spelled here. This assertion used to carry "⌘↵" while the Settings sheet
+  // said "⌘Enter" for the same key — a fourth copy of a chord, which is the thing shortcuts.ts exists to
+  // prevent, and the copy is what failed when the button finally started reading the table too.
+  const saveChord = v.window.shortcutKeys("saveComment")[0];
+  assert.ok(saveChord, "the table still has a chord for saving a comment");
+  assert.equal(v.$("#mc-button-hint kbd").textContent, saveChord,
+    "the tooltip advertises the real save shortcut instead of generic Enter");
 
   v.window.closeComposer();
   await v.settle(0);

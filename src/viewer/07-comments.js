@@ -755,8 +755,11 @@ function threadHtml(path, line, side) {
       // macOS/Chromium text substitution mangles (foo_bar -> foo bar, capitalizing names) — and that OS-level
       // autocorrect is the leading suspect for a space being swallowed right after punctuation like "?".
       + '<textarea class="mc-input" rows="3" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="' + escapeHtml(ph) + '">' + escapeHtml(composerState.editText || '') + '</textarea>'
-      + '<div class="mc-actions"><button type="button" class="mc-btn mc-save" data-keyhint="⌘↵">' + escapeHtml(t('composer.save')) + '</button>'
-      + '<button type="button" class="mc-btn mc-ghost mc-cancel" data-keyhint="Esc">' + escapeHtml(t('composer.cancel')) + '</button>'
+      // The chords come from the table (data-keyhint-id, resolved by applyKeyHints after this lands).
+      // Written here as literals they had already drifted: this said ⌘↵ while the Settings sheet said
+      // ⌘Enter for the same key, which is the exact failure the table was introduced to end.
+      + '<div class="mc-actions"><button type="button" class="mc-btn mc-save" data-keyhint-id="saveComment">' + escapeHtml(t('composer.save')) + '</button>'
+      + '<button type="button" class="mc-btn mc-ghost mc-cancel" data-keyhint-id="closeDialog">' + escapeHtml(t('composer.cancel')) + '</button>'
       + '<span class="mc-hint">' + escapeHtml(t('composer.hint')) + '</span></div></div>';
   }
   return html;
@@ -1019,6 +1022,9 @@ function refreshComments() {
   // next user scroll. Recompute the active timeline in this same update, after both pane heights match.
   if (changedDiffWrappers.length) scrollAsymmetricDiff();
   if (isSourceViewerVisible()) renderSourceComments();
+  // The composer is built after the document was translated, so the chords on its two buttons have to be
+  // resolved when it lands. Scoped to the composers themselves — there is at most one open.
+  document.querySelectorAll('.mc-composer').forEach(function (el) { try { applyKeyHints(el); } catch (e) {} });
   renderCommentBadges();
   // The merged dock builds from its own snapshot and had no way to hear about this (refreshMergedDock,
   // 08-dock.js). A no-op while it is closed.

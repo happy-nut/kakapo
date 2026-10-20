@@ -47,9 +47,19 @@ test("Cmd/Ctrl+Shift+' maximizes the active dock and restores it (toggle)", asyn
   v.toggleDockMax();
   await v.settle(20);
   assert.equal(v.isDockMaximized(), true, "maximized");
-  const css = Array.from(v.document.querySelectorAll("style"), (style) => style.textContent || "").join("\n");
-  assert.match(css, /body\.native-app\.dock-maximized\s+\.dock-bar\s*\{[^}]*padding-left:\s*var\(--native-title-safe-left\)/, "full-screen writing panels keep their title beyond the macOS traffic lights");
-  assert.match(css, /body\.native-app\.dock-maximized\s+\.dock-bar\s+button,[\s\S]{0,180}-webkit-app-region:\s*no-drag/, "full-screen writing-panel buttons stay clickable");
+  // What used to be asserted here was the TEXT of two `body.native-app.dock-maximized` rules. The app
+  // stopped setting `native-app` when the integrated title bar went away — render.ts omits it on purpose
+  // and views.test.mjs pins that — so those rules cannot match, and asserting they are still written down
+  // meant this test defended dead CSS: it would have failed the cleanup rather than the regression.
+  // What is worth pinning is what a maximized panel actually does, which is answerable from the DOM.
+  assert.equal(v.document.body.classList.contains("native-app"), false,
+    "the integrated-title-bar layout is gone; rules scoped to it cannot run");
+  const bar = v.$("#mc-merged-panel .dock-bar");
+  assert.ok(bar, "a maximized panel still has its header bar");
+  for (const button of bar.querySelectorAll("button")) {
+    assert.ok(!button.disabled || button.classList.contains("mc-copy-all"),
+      "its controls stay operable while maximized");
+  }
   v.toggleDockMax();
   await v.settle(20);
   assert.equal(v.isDockMaximized(), false, "restored");
