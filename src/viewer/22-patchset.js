@@ -47,7 +47,9 @@ function patchSetShortDate(iso) {
   if (isNaN(d.getTime())) return '';
   var now = new Date();
   var opts = d.getFullYear() === now.getFullYear() ? { month: 'short', day: 'numeric' } : { year: 'numeric', month: 'short', day: 'numeric' };
-  try { return d.toLocaleDateString(undefined, opts); } catch (e) { return iso.slice(0, 10); }
+  // The app's locale, not the OS's. Passing undefined let a window running in English print a Korean
+  // date inside an English sentence (observed: "(sha0 · 10월 1일)").
+  try { return d.toLocaleDateString(locale, opts); } catch (e) { return iso.slice(0, 10); }
 }
 function patchSetCommitTitle(index, c) {
   var meta = c.shortSha + (c.date ? ' · ' + patchSetShortDate(c.date) : '');
@@ -95,8 +97,14 @@ function patchSetTargetOptions(data) {
 // The wide entries ("All" / "WT") are not patch sets and never fold away — they are the exits.
 var PATCHSET_EDGE = 2;   // how many at each end
 var PATCHSET_AROUND = 1; // how many either side of the active one
-function patchSetWindow(opts) {
+// Which sides the reader has asked to see in full. The fold is still not a guess — it does not pick a
+// commit for you — it just stops hiding them. Without this the window advanced by one per click, so
+// reaching the middle of a thirty-three commit branch took sixteen selections and sixteen diff rebuilds,
+// each one a full `git diff`, to arrive somewhere two clicks should have reached.
+var patchSetExpanded = { base: false, target: false };
+function patchSetWindow(opts, which) {
   var numbers = opts.filter(function (o) { return !o.wide; });
+  if (patchSetExpanded[which]) return opts;
   if (numbers.length <= PATCHSET_EDGE * 2 + PATCHSET_AROUND * 2 + 1) return opts;
   var at = -1;
   for (var i = 0; i < numbers.length; i++) if (numbers[i].active) at = i;
@@ -110,7 +118,8 @@ function patchSetWindow(opts) {
   var out = [], gap = false;
   numbers.forEach(function (o, index) {
     if (keep[index]) { out.push(o); gap = false; return; }
-    if (!gap) { out.push({ ellipsis: true, from: index }); gap = true; }
+    if (!gap) { out.push({ ellipsis: true, from: index, hidden: 0 }); gap = true; }
+    if (gap) out[out.length - 1].hidden += 1;
   });
   // Put the wide exits back where they were: base leads with "All", target ends with "WT".
   var lead = opts.filter(function (o) { return o.wide && opts.indexOf(o) === 0; });
@@ -121,7 +130,15 @@ function patchSetWindow(opts) {
 function patchSetNumButton(which, opt) {
   // A fold is not a control: it says how many were left out and answers a hover, nothing more. Clicking it
   // would have to guess which of the hidden commits you meant.
-  if (opt.ellipsis) return '<span class="patchset-gap" aria-hidden="true">…</span>';
+  // A fold is a control after all — not one that guesses which hidden commit you meant, one that stops
+  // hiding them. It also says how many it is holding, which the comment above has always claimed and the
+  // markup never did: it rendered a bare aria-hidden ellipsis with no count and no title.
+  if (opt.ellipsis) {
+    return '<button type="button" class="patchset-gap" data-expand="' + which + '"'
+      + ' title="' + escapeHtml(t('patchset.showAll').replace('{n}', String(opt.hidden || 0))) + '"'
+      + ' aria-label="' + escapeHtml(t('patchset.showAll').replace('{n}', String(opt.hidden || 0))) + '">'
+      + escapeHtml(String(opt.hidden || 0)) + '…</button>';
+  }
   return '<button type="button" class="patchset-num' + (opt.active ? ' active' : '') + (opt.wide ? ' patchset-num-wide' : '') + '"'
     + ' data-which="' + which + '" data-ref="' + escapeHtml(opt.ref) + '" title="' + escapeHtml(opt.title) + '"'
     + ' aria-pressed="' + (opt.active ? 'true' : 'false') + '">' + escapeHtml(opt.label) + '</button>';
@@ -136,10 +153,38 @@ function renderPatchSetBar() {
   bar.classList.remove('hidden');
   var baseWrap = document.getElementById('patchset-base-nums');
   var targetWrap = document.getElementById('patchset-target-nums');
-  if (baseWrap) baseWrap.innerHTML = patchSetWindow(patchSetBaseOptions(patchSetData)).map(function (o) { return patchSetNumButton('base', o); }).join('');
-  if (targetWrap) targetWrap.innerHTML = patchSetWindow(patchSetTargetOptions(patchSetData)).map(function (o) { return patchSetNumButton('target', o); }).join('');
+  if (baseWrap) {
+    baseWrap.innerHTML = patchSetWindow(patchSetBaseOptions(patchSetData), 'base').map(function (o) { return patchSetNumButton('base', o); }).join('');
+    baseWrap.classList.toggle('is-expanded', patchSetExpanded.base);
+  }
+  if (targetWrap) {
+    targetWrap.innerHTML = patchSetWindow(patchSetTargetOptions(patchSetData), 'target').map(function (o) { return patchSetNumButton('target', o); }).join('');
+    targetWrap.classList.toggle('is-expanded', patchSetExpanded.target);
+  }
   var reset = document.getElementById('patchset-reset');
   if (reset) reset.classList.toggle('hidden', !inCompare);
+  renderPatchSetSummary();
+}
+
+// The sentence in the middle of the bar: which two things the diff below is the difference between. Built
+// from the same option lists the buttons are, so it can never name something the bar does not offer.
+function patchSetSideLabel(opts) {
+  for (var i = 0; i < opts.length; i++) {
+    if (!opts[i].active) continue;
+    // The title already reads "3. subject (sha · date)" for a commit and "All changes · main" for an end;
+    // its leading "N. " is the number on the button right beside it, so it is dropped here.
+    return String(opts[i].title || opts[i].label).replace(/^\d+\.\s*/, '');
+  }
+  return '';
+}
+function renderPatchSetSummary() {
+  var el = document.getElementById('patchset-summary');
+  if (!el) return;
+  if (!patchSetData) { el.textContent = ''; return; }
+  var base = patchSetSideLabel(patchSetBaseOptions(patchSetData));
+  var target = patchSetSideLabel(patchSetTargetOptions(patchSetData));
+  el.textContent = (base && target) ? t('patchset.comparing').replace('{base}', base).replace('{target}', target) : '';
+  el.title = el.textContent;
 }
 
 // Switch base or target, then refresh the bar. The diff repaints via kakapo:diff-update.
@@ -183,6 +228,8 @@ function initPatchSetBar() {
   var bar = patchSetBarEl();
   if (!bar || !window.kakapoGit) return; // browser/serve mode, or bar not present
   bar.addEventListener('click', function (e) {
+    var gap = e.target.closest && e.target.closest('.patchset-gap[data-expand]');
+    if (gap) { patchSetExpanded[gap.getAttribute('data-expand')] = true; renderPatchSetBar(); return; }
     var num = e.target.closest && e.target.closest('.patchset-num[data-ref]');
     if (num) { selectPatchSet(num.getAttribute('data-which'), num.getAttribute('data-ref')); return; }
     if (e.target.closest && e.target.closest('#patchset-reset')) {

@@ -1174,25 +1174,48 @@ body.native-app .source-tabs {
 .patchset-num {
   flex: none; min-width: 22px; height: 22px; padding: 0 5px; box-sizing: border-box;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--muted);
+  border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--chrome-muted);
   font: 600 11.5px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; cursor: pointer;
 }
 .patchset-num.patchset-num-wide { min-width: 0; padding: 0 8px; font-family: inherit; font-size: 10.5px; }
 .patchset-num:hover { border-color: var(--active); color: var(--text); }
+/* The one piece of state this bar exists to communicate, and it was the least legible thing in it: the
+   accent as 10.5px text measured 3.75:1 in light. --active ranges from #0f4a85 to #bd93f9 across the
+   twelve themes, so nothing legible sits on all of them — the accent carries the border and the fill, and
+   the figure itself takes the chrome text colour, which is guarded against this ground in every theme. */
 .patchset-num.active {
-  color: var(--active); border-color: var(--active);
+  color: var(--chrome-text); border-color: var(--active);
   background: color-mix(in srgb, var(--active) 16%, transparent);
 }
-.patchset-kind { flex: none; color: var(--muted); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }
-
-.patchset-gap {
-  color: var(--muted); font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace;
-  padding: 0 2px; align-self: center; user-select: none;
+/* Sits in the gap the two groups already left between them, and gives way first: the numbers are the
+   controls, this is what they currently mean. */
+.patchset-summary {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: center;
+  padding: 0 10px;
+  color: var(--chrome-muted);
+  font-size: 11px;
 }
+.patchset-kind { flex: none; color: var(--chrome-muted); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* It is a button now — it stops hiding the folded sets rather than guessing which one you meant — so it
+   looks like one it is safe to press, and says how many it is holding. */
+.patchset-gap {
+  flex: none; height: 22px; padding: 0 6px; box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px dashed var(--border); border-radius: 6px; background: transparent;
+  color: var(--chrome-muted); font: 600 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  cursor: pointer; align-self: center; user-select: none;
+}
+.patchset-gap:hover { border-color: var(--active); color: var(--chrome-text); border-style: solid; }
+/* Unfolded, a long branch is a long row: it scrolls sideways rather than wrapping the toolbar into
+   several lines and pushing the diff down. */
+.patchset-nums.is-expanded { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
 .patchset-reset {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 6px;
-  color: var(--muted); background: var(--panel); cursor: pointer;
+  color: var(--chrome-muted); background: var(--panel); cursor: pointer;
 }
 .patchset-reset:hover { border-color: var(--active); color: var(--text); }
 .patchset-reset.hidden { display: none; }
@@ -2935,7 +2958,9 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .semantic-peek-item-path, .semantic-peek-item-code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .semantic-peek-item-path { color: var(--chrome-text); font: 11px/1.4 Monaco, ui-monospace, monospace; }
 .semantic-peek-item-line { color: var(--muted); text-align: right; font: 11px/1.4 Monaco, ui-monospace, monospace; font-variant-numeric: tabular-nums; }
-.semantic-peek-item-code { color: var(--muted); font: 10.5px/1.4 Monaco, ui-monospace, monospace; }
+/* The row's actual content, and it was on the code-muted token while sitting on a chrome ground: 4.25:1
+   in light. --chrome-muted is the one tuned for this ground, and token-contrast guards it. */
+.semantic-peek-item-code { color: var(--chrome-muted); font: 10.5px/1.4 Monaco, ui-monospace, monospace; }
 .semantic-peek-list-hint {
   position: sticky; bottom: 0; padding: 5px 9px; color: var(--muted); background: var(--elevated);
   border-top: 1px solid var(--border); font: 10px/1.35 Monaco, ui-monospace, monospace;

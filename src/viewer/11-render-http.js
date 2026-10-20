@@ -253,6 +253,22 @@ function toggleRenderMode() {
   if (wrapBtn) wrapBtn.addEventListener('click', function () { toggleLineWrap(); });
   var diffWrapBtn = document.getElementById('diff-line-wrap-toggle');
   if (diffWrapBtn) diffWrapBtn.addEventListener('click', function () { toggleLineWrap(); });
+  // Following an in-repo link from a rendered Markdown document. Delegated from the source body so it
+  // survives every re-render, and resolved here because this is the moment the open file is known.
+  // openSourceFile already answers for a path the review does not hold — it asks main once and says so if
+  // the file is not there — so a broken link in a document reads as a broken link rather than as nothing.
+  var sourceBody = document.getElementById('source-body');
+  if (sourceBody) sourceBody.addEventListener('click', function (event) {
+    var link = event.target && event.target.closest ? event.target.closest('a[data-md-link]') : null;
+    if (!link) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    var viewer = document.getElementById('source-viewer');
+    var from = (viewer && viewer.dataset.openPath) || '';
+    var target = resolveRepoHref(from, link.getAttribute('data-md-link') || '');
+    if (!target) return; // a bare fragment resolves to nothing to open; leave it to the browser
+    event.preventDefault();
+    openSourceFile(target);
+  });
   applyLineWrapState();
   if (lineWrapEnabled) refreshDiffLineWrapLayout();
   // ⌥R and ⌥W used to be a second document keydown listener spelling their own chords; they are rows of
@@ -328,6 +344,34 @@ function lightboxOpen() {
 // One open-source Markdown engine is shared by source previews and agent answers.
 // markdown-it gives CommonMark-compatible parsing plus top-level token source maps; DOMPurify sanitizes the
 // final HTML, including raw HTML blocks. Both audited browser bundles are prepended at build time.
+
+// A href that names a file in this repository rather than somewhere else: no scheme, no protocol-relative
+// prefix, and not a bare in-page fragment (those the browser already handles).
+function isRepoRelativeHref(href) {
+  if (!href) return false;
+  if (href.charAt(0) === '#') return false;
+  if (href.slice(0, 2) === '//') return false;
+  return !/^[a-z][a-z0-9+.-]*:/i.test(href);
+}
+// Resolve a link's href against the directory of the document it was written in. Kept here rather than
+// reaching for a URL object: a review path is repo-relative with no origin, and `new URL` would need a
+// fake one and then hand back something that has to be unwound again.
+function resolveRepoHref(fromPath, href) {
+  var hash = href.indexOf('#');
+  if (hash >= 0) href = href.slice(0, hash); // a fragment is for the browser, not for the file name
+  var query = href.indexOf('?');
+  if (query >= 0) href = href.slice(0, query);
+  if (!href) return '';
+  if (href.charAt(0) === '/') return href.replace(/^\/+/, ''); // repo-root-relative
+  var parts = String(fromPath || '').split('/');
+  parts.pop(); // drop the document's own filename
+  href.split('/').forEach(function (seg) {
+    if (!seg || seg === '.') return;
+    if (seg === '..') { parts.pop(); return; }
+    parts.push(seg);
+  });
+  return parts.join('/');
+}
 var markdownEngine = null;
 function markdownLanguage(lang) {
   var l = String(lang || '').trim().split(/\s+/)[0].toLowerCase();
@@ -358,6 +402,20 @@ function getMarkdownEngine() {
     return self.renderToken(tokens, idx, options);
   };
   markdownEngine.renderer.rules.link_open = function (tokens, idx, options, env, self) {
+    var href = tokens[idx].attrGet('href') || '';
+    // A link to a file in this repository is not an external link, and sending it to the browser was the
+    // same as deleting it: target=_blank on a relative href produces a file:// URL, which the window-open
+    // handler denies (it passes http(s) only), so the click did nothing at all — no navigation, no file,
+    // no message. Measured on this project's own README: 2 of its 5 links are in-repo documents, both
+    // inert, both styled and underlined like live ones. In a tool for reading a repository, its own
+    // documents are the links most worth following.
+    //
+    // Resolved on click rather than here: the engine is a singleton with no idea which file it is
+    // rendering, and a rendered Markdown document is always the one the source view has open.
+    if (isRepoRelativeHref(href)) {
+      tokens[idx].attrSet('data-md-link', href);
+      return defaultLinkOpen(tokens, idx, options, env, self);
+    }
     tokens[idx].attrSet('target', '_blank');
     tokens[idx].attrSet('rel', 'noopener noreferrer');
     return defaultLinkOpen(tokens, idx, options, env, self);
@@ -425,11 +483,16 @@ function renderMarkdownBlocks(content) {
 
 function renderMarkdownRows(content) {
   var blocks = renderMarkdownBlocks(content);
-  if (!blocks.length) return '<table class="source-table md-doc"><tbody></tbody></table>';
+  // role=presentation: the rows exist so a comment can be anchored to the Markdown block it is about
+  // (USER_FLOWS Flow 4) — they are a layout device, not a table of data. Declared as a real table, a
+  // screen reader walks a README as a 68-row two-column grid, announcing a row and column position for
+  // every paragraph. The CSV view next door is the one that genuinely is a table, and it is marked up
+  // as one. (The cells keep their own roles implicitly; presentation on the table is what drops the grid.)
+  if (!blocks.length) return '<table class="source-table md-doc" role="presentation"><tbody></tbody></table>';
   var rows = blocks.map(function (b) {
     return '<tr class="source-row md-row" data-line-index="' + b.line + '" data-line-end="' + b.endLine + '"><td class="num">' + (b.line + 1) + '</td><td class="source-code md-cell markdown-body">' + b.html + '</td></tr>';
   }).join('');
-  return '<table class="source-table md-doc"><tbody>' + rows + '</tbody></table>';
+  return '<table class="source-table md-doc" role="presentation"><tbody>' + rows + '</tbody></table>';
 }
 
 // Join a document-relative image src against the markdown file's directory and collapse ./ and ../ segments,
@@ -502,16 +565,31 @@ function renderCsvRows(content, path) {
   var records = parseDelimited(content, delim).filter(function (r) { return !(r.length === 1 && r[0] === ''); });
   if (!records.length) return '<table class="source-table csv-doc"><tbody></tbody></table>';
   var cols = records.reduce(function (max, r) { return Math.max(max, r.length); }, 0);
-  var rows = records.map(function (rec, idx) {
+  var rowHtml = records.map(function (rec, idx) {
     var head = idx === 0;
     var cells = '';
     for (var c = 0; c < cols; c++) {
       var v = escapeHtml(rec[c] == null ? '' : rec[c]);
-      cells += head ? '<th class="csv-cell">' + v + '</th>' : '<td class="csv-cell">' + v + '</td>';
+      // scope="col" is the whole point of a header cell: without it "name: widget, qty: 3" is just
+      // "widget, 3". A ragged record makes `cols` wider than the header row, so the padding cells at the
+      // end are headers of nothing — they get no scope, because announcing an empty column name on every
+      // row below is worse than announcing none.
+      var named = head && rec[c] != null && String(rec[c]).trim() !== '';
+      if (head) cells += '<th class="csv-cell"' + (named ? ' scope="col"' : '') + '>' + v + '</th>';
+      else cells += '<td class="csv-cell">' + v + '</td>';
     }
-    return '<tr class="source-row csv-row' + (head ? ' csv-head' : '') + '" data-line-index="' + idx + '"><td class="num">' + (idx + 1) + '</td>' + cells + '</tr>';
-  }).join('');
-  return '<table class="source-table csv-doc"><tbody>' + rows + '</tbody></table>';
+    // The gutter cell is the row's number, not data — a row header, not another column of values. It sat
+    // among the <th>s in the header row as a plain <td>, which made the first column nameless.
+    var gutter = '<' + (head ? 'th' : 'td') + ' class="num"' + (head ? ' scope="col"' : '') + '>' + (idx + 1) + '</' + (head ? 'th' : 'td') + '>';
+    return '<tr class="source-row csv-row' + (head ? ' csv-head' : '') + '" data-line-index="' + idx + '">' + gutter + cells + '</tr>';
+  });
+  // thead/tbody: a delimited file's first record names its columns, and a table that says so lets a reader
+  // ask for the column headings — the one affordance a data table exists for. This is the only surface
+  // here that genuinely IS a data table and it was the one not marked up as one.
+  // Split as rows, not as a string: finding the first "</tr>" in joined markup and adding its length is
+  // the kind of arithmetic that is right until a cell contains the characters you were counting on.
+  return '<table class="source-table csv-doc"><thead>' + rowHtml[0] + '</thead><tbody>'
+    + rowHtml.slice(1).join('') + '</tbody></table>';
 }
 
 function isHttpFile(path) {

@@ -742,7 +742,8 @@ async function checkForLiveUpdate() {
     if (!response.ok) return;
     const state = await response.json();
     if (liveStatus && state.generatedAt) {
-      liveStatus.textContent = t('status.live.updated') + ' ' + new Date(state.generatedAt).toLocaleTimeString();
+      // The app's locale, not the OS's — this sits right beside a translated sentence.
+      liveStatus.textContent = t('status.live.updated') + ' ' + new Date(state.generatedAt).toLocaleTimeString(locale);
     }
     if (state.signature && state.signature !== currentSignature) {
       // serve mode: fetch just the compact update payload and refresh in place (same path Electron uses

@@ -167,10 +167,13 @@ test("the patch-set bar folds a long branch down to a findable window", () => {
   // Read the two window sizes out of the bundle rather than restating them, or this test would keep passing
   // while the bar on screen showed a different shape.
   const sizeOf = (name) => Number(new RegExp(`var ${name} = (\\d+)`).exec(bundle)?.[1]);
+  const expanded = { base: false, target: false };
   const patchSetWindow = bundled("patchSetWindow",
-    ["PATCHSET_EDGE", sizeOf("PATCHSET_EDGE")], ["PATCHSET_AROUND", sizeOf("PATCHSET_AROUND")]);
-  const of = (count, activeIndex) => patchSetWindow(
+    ["PATCHSET_EDGE", sizeOf("PATCHSET_EDGE")], ["PATCHSET_AROUND", sizeOf("PATCHSET_AROUND")],
+    ["patchSetExpanded", expanded]);
+  const of = (count, activeIndex, which = "base") => patchSetWindow(
     Array.from({ length: count }, (_, i) => ({ label: String(i + 1), active: i === activeIndex })),
+    which,
   ).map((o) => (o.ellipsis ? "…" : o.label)).join(" ");
 
   assert.equal(of(33, 3), "1 2 3 4 5 … 32 33", "seven numbers: both ends, and where you are");
@@ -178,4 +181,21 @@ test("the patch-set bar folds a long branch down to a findable window", () => {
   assert.equal(of(33, -1), "1 2 … 32 33", "nothing active (base is All / target is the working tree): just the ends");
   assert.equal(of(7, 3), "1 2 3 4 5 6 7", "a branch that already fits is never folded");
   assert.equal(of(8, 3), "1 2 3 4 5 … 7 8", "one past the limit folds exactly one run");
+
+  // The window advances by one per selection, so walking to the middle of a long branch took as many
+  // diff rebuilds as there were steps — measured at sixteen `git diff`s to reach patch set 17 of 33.
+  // The fold stops hiding them rather than guessing which one was meant, so the middle is two clicks.
+  const folded = patchSetWindow(
+    Array.from({ length: 33 }, (_, i) => ({ label: String(i + 1), active: false })), "base");
+  const fold = folded.find((o) => o.ellipsis);
+  assert.ok(fold, "a thirty-three commit branch folds");
+  assert.equal(fold.hidden, 29,
+    "and the fold says how many it is holding — it rendered a bare ellipsis with no count for years");
+
+  expanded.base = true;
+  assert.equal(of(33, -1), Array.from({ length: 33 }, (_, i) => String(i + 1)).join(" "),
+    "asking to see them shows all of them, with no fold left");
+  assert.equal(of(33, -1, "target"), "1 2 … 32 33",
+    "and only the side that was asked — the other keeps its window");
+  expanded.base = false;
 });

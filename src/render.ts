@@ -513,6 +513,12 @@ export function renderDiffHtml(input: {
         + '<span class="patchset-kind" data-i18n="patchset.base">Base</span>'
         + '<div class="patchset-nums" id="patchset-base-nums" role="group" data-i18n-aria="patchset.pick" aria-label="Base patch set"></div>'
         + '</div>'
+        // What the two sides currently ARE. The bar named the ends of a range with bare digits and put
+        // every commit's subject, sha and date behind a title= — mouse-only, and nowhere at all for a
+        // reader picking a base among thirty-three of them. The space was already here: measured 882px of
+        // empty bar between the two groups, which is why they read as two independent paginators rather
+        // than the two ends of one comparison.
+        + '<div class="patchset-summary" id="patchset-summary" aria-live="polite"></div>'
         + '<div class="patchset-side patchset-side-target">'
         + '<div class="patchset-nums" id="patchset-target-nums" role="group" data-i18n-aria="patchset.pickTarget" aria-label="Target patch set"></div>'
         + '<span class="patchset-kind" data-i18n="patchset.target">Target</span>'
@@ -552,9 +558,12 @@ export function renderDiffHtml(input: {
     '</div>',
     "</main>",
     input.app
-      ? '<aside id="semantic-peek" class="semantic-peek hidden" aria-label="Semantic Peek">'
+      // Both labels come from the string table: they were written in English here, in a file whose whole
+      // job is to be read in two languages, and a screen reader is exactly the reader who cannot infer
+      // around that. monaco.peekHint two lines down was already doing it correctly.
+      ? '<aside id="semantic-peek" class="semantic-peek hidden" data-i18n-aria="peek.aria" aria-label="Semantic Peek">'
         + '<div class="semantic-peek-header"><div class="semantic-peek-heading"><div id="semantic-peek-title" class="semantic-peek-title">Semantic Peek</div><div id="semantic-peek-meta" class="semantic-peek-meta"></div></div>'
-        + '</div><div id="semantic-peek-results" class="semantic-peek-results" role="listbox" tabindex="0" aria-label="Semantic locations"></div>'
+        + '</div><div id="semantic-peek-results" class="semantic-peek-results" role="listbox" tabindex="0" data-i18n-aria="peek.list" aria-label="Semantic locations"></div>'
         + '</aside>'
       : "",
     '<div id="quick-open" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="quickopen.aria" aria-label="Quick open">',
