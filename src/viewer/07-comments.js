@@ -1620,7 +1620,11 @@ function buildMergedText() {
 // existed to explain why a finished exchange was still sitting in the hand-off, and the answer to that turned
 // out to be "it should not be". The answer itself stays one click away, in the thread at the comment's line.
 function mergedCardHtml(comment) {
-  return '<div class="mc-card mc-merged-card mc-' + comment.kind + '" data-comment-seq="' + comment.seq + '" tabindex="-1" role="button">'
+  // role=option, not button: these are the rows of a single-select list the arrows move through, and
+  // aria-selected — which this already set — is not a thing a button has. 16-semantic-peek.js spells the
+  // same pair the same way. The host carries role=listbox (08-dock.js); the two only ever appear together,
+  // because the "all addressed" note and the cards are mutually exclusive (renderAllAddressedNote).
+  return '<div class="mc-card mc-merged-card mc-' + comment.kind + '" data-comment-seq="' + comment.seq + '" tabindex="-1" role="option" aria-selected="false">'
     + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml() + '</span>'
     + '<span class="mc-target">' + escapeHtml(commentTargetLabel(comment)) + '</span>'
     + '</div>'

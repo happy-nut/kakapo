@@ -83,6 +83,12 @@ function mountDock(id, titleText) {
   panel.id = id;
   panel.className = 'dock-panel';
   panel.tabIndex = -1;
+  // The other four modal surfaces declare these in render.ts (quick-open, usages, settings, history).
+  // This one is built in script, so it was the only dim-the-window, click-outside-to-dismiss panel that
+  // announced itself as a plain div — a screen reader was never told it had entered anything.
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+  panel.setAttribute('aria-label', titleText);
   // The panel floats over the editor; a dim backdrop sits behind it (click to dismiss).
   var backdrop = document.createElement('div');
   backdrop.className = 'dock-backdrop';
@@ -115,6 +121,8 @@ function mountDock(id, titleText) {
   panel.appendChild(resizer);
   panel.appendChild(bar);
   panel.appendChild(body);
+  // aria-modal is a promise about Tab, and this panel was not keeping it.
+  panel.addEventListener('keydown', function (event) { trapTabWithin(panel, event); });
   // These buttons were born after the document was translated, so nothing had ever filled in their chords.
   applyKeyHints(panel);
   document.body.appendChild(backdrop);
@@ -298,6 +306,33 @@ function openMergedView() {
         focusRegion(siblingRegion(card, event.key === 'ArrowDown' ? 1 : -1));
         return;
       }
+      // The ends of the list, and a screenful at a time. A forty-comment hand-off had exactly one keyboard
+      // route to its last card: forty presses of ArrowDown. The History overlay has had PageUp/PageDown
+      // since it shipped; this list is read the same way and did not.
+      if (!event.altKey && (event.key === 'Home' || event.key === 'End')) {
+        event.preventDefault();
+        var all = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
+        if (all.length) focusRegion(event.key === 'Home' ? all[0] : all[all.length - 1]);
+        return;
+      }
+      if (!event.altKey && (event.key === 'PageDown' || event.key === 'PageUp')) {
+        event.preventDefault();
+        var rows = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
+        var at = rows.indexOf(card);
+        if (at < 0 || !rows.length) return;
+        // A screenful measured in cards, because the cards are not a uniform height — count how many of
+        // them the visible area actually holds from here, rather than guessing a row height.
+        var viewport = mergedBody.clientHeight || host.clientHeight;
+        var step = 0, used = 0;
+        for (var i = at; i >= 0 && i < rows.length; i += (event.key === 'PageDown' ? 1 : -1)) {
+          used += rows[i].getBoundingClientRect().height;
+          if (used > viewport && step > 0) break;
+          step++;
+        }
+        var to = at + (event.key === 'PageDown' ? 1 : -1) * Math.max(1, step - 1);
+        focusRegion(rows[Math.max(0, Math.min(rows.length - 1, to))]);
+        return;
+      }
       if (!event.altKey && (event.key === 'Enter' || event.code === 'Enter')) {
         event.preventDefault();
         var seq = parseInt(card.dataset.commentSeq, 10);
@@ -410,6 +445,9 @@ function openMergedView() {
   // normal open-time behavior of focusing the first prose region.
   function initializeMergedEditor(options) {
     if (!dock.panel.isConnected) return;
+    // Set per build rather than once: the "all addressed" note replaces the cards entirely, and a listbox
+    // holding one explanatory paragraph is not a listbox. They never coexist (renderAllAddressedNote
+    // returns early if a card is present), so the role can follow which of the two is on screen.
     var reselectIndex = options && typeof options.reselectIndex === 'number' ? options.reselectIndex : null;
     // Only a rebuild the reviewer did not ask for holds back from taking focus. Opening the panel, or
     // rebuilding it after a delete, must take it: the dock is modal, and the global keymap stands down
@@ -430,6 +468,9 @@ function openMergedView() {
       block.items.forEach(function (comment) { host.insertAdjacentHTML('beforeend', mergedCardHtml(comment)); });
     });
     renderAllAddressedNote();
+    var isList = !!host.querySelector('.mc-merged-card');
+    if (isList) { host.setAttribute('role', 'listbox'); host.setAttribute('aria-label', t('merged.title')); }
+    else { host.removeAttribute('role'); host.removeAttribute('aria-label'); }
     // Nothing to hand over is not something to offer. The comment above renderAllAddressedNote already
     // says a blank sheet with a live button "reads like something is broken"; it was armed anyway, and
     // once ⌥Enter reached it that was one keystroke from replacing the clipboard with an empty document
@@ -617,6 +658,7 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
   if (closeBtn) closeBtn.addEventListener('click', close);
   cats.forEach(function (c) { c.addEventListener('click', function () { showCat(c.dataset.cat); }); });
   modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+  modal.addEventListener('keydown', function (e) { trapTabWithin(modal, e); });
   // Settings is the first row of KEY_OWNERS (05-keymap.js), which is what makes its Esc beat the lightbox
   // and the composer. That used to be a capture-phase listener whose only statement of precedence was a
   // comment here; the ordering now lives in the one table that ranks every such surface.

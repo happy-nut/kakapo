@@ -39,3 +39,43 @@ function leafNameHtml(name) {
   return '<span class="path-head">' + escapeHtml(name.slice(0, dot)) + '</span>'
     + '<span class="path-tail">' + escapeHtml(name.slice(dot)) + '</span>';
 }
+
+// Keep Tab inside a modal surface.
+//
+// Four of this app's surfaces declare aria-modal="true" and none of them held the key that makes that
+// claim true: Tab walked straight out of the dock and out of Settings into the sidebar behind the dim
+// backdrop — which is click-blocked, so what you reached could be seen, announced and focused, but not
+// used. (That is also a one-way trip: the way back in is a mouse.)
+//
+// Returns true when it handled the key, so a caller can stop there.
+function tabbablesWithin(root) {
+  var sel = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]),'
+    + ' textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  return Array.prototype.slice.call(root.querySelectorAll(sel)).filter(function (el) {
+    // Hidden the way this app hides things: a `.hidden` class on the element or an ancestor (USER_FLOWS
+    // calls this out — view visibility is class-based here). Asking the layout instead (offsetParent)
+    // would have been the obvious spelling and the wrong one: it is null for EVERYTHING under jsdom, so
+    // the trap would have quietly degraded to "no tabbables" in every test that covers it, which is the
+    // same blindness that let a dialog render 0x0 for several releases.
+    return !el.closest('.hidden') && !el.hasAttribute('disabled');
+  });
+}
+function trapTabWithin(root, event) {
+  if (!root || event.key !== 'Tab' || event.metaKey || event.ctrlKey || event.altKey) return false;
+  var items = tabbablesWithin(root);
+  if (!items.length) {
+    // Nothing to land on, but the surface still owns the key — otherwise Tab leaves and cannot come back.
+    event.preventDefault();
+    if (root.focus) root.focus();
+    return true;
+  }
+  var first = items[0];
+  var last = items[items.length - 1];
+  var at = items.indexOf(document.activeElement);
+  // -1 covers both "focus is outside" and "focus is on something inside that is not itself tabbable" —
+  // a comment card is tabindex -1, and Tab from one used to leave the panel entirely.
+  if (at < 0) { event.preventDefault(); (event.shiftKey ? last : first).focus(); return true; }
+  if (!event.shiftKey && at === items.length - 1) { event.preventDefault(); first.focus(); return true; }
+  if (event.shiftKey && at === 0) { event.preventDefault(); last.focus(); return true; }
+  return false;
+}
