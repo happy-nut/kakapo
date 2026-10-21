@@ -94,25 +94,43 @@ test("the Darcula family follows interface appearance across chrome and Review t
   assert.equal(v.document.documentElement.getAttribute("data-theme"), "dark");
   assert.equal(v.document.documentElement.getAttribute("data-syntax-theme"), "darcula");
   assert.equal(v.window.localStorage.getItem("kakapo-syntax-theme"), "darcula");
-  assert.equal(
-    v.window.getComputedStyle(v.document.documentElement).getPropertyValue("--token-keyword").trim().toLowerCase(),
-    // Darcula's keyword, lifted in lightness until it cleared WCAG AA against Darcula's own background
-    // (#cc7832 was 3.81:1). Hue and saturation are the theme's; the floor is owned by
-    // test/token-contrast.test.mjs, which is what will catch the next palette that drifts under it.
-    "#d58d52",
-    "raw source and diff token classes receive the Darcula keyword color",
-  );
+
+  // What this is testing is that picking the family re-points the token at the Darcula member — not that
+  // the member holds one particular hex. A literal copied in here fails the next time the palette moves
+  // to clear a contrast floor, which is a guard going off at the wrong target: it happened, the keyword
+  // moved from #cc7832 to #d58d52 for AA against --panel and again when the sweep started asking about
+  // the diff's own fills. So ask the stylesheet what Darcula declares, and assert the document resolved
+  // to exactly that, and that it is not the value the base theme would have given. The floor itself is
+  // owned by test/token-contrast.test.mjs, which is what catches a palette drifting under it.
+  const styles = Array.from(v.document.querySelectorAll("style"), (s) => s.textContent || "").join("\n");
+  // `:root {` appears more than once — render.ts injects its own one-line block for the app icon — so take
+  // the first block under this selector that actually declares the property, not merely the first block.
+  const declared = (selector, name) => {
+    for (let at = styles.indexOf(selector + " {"); at >= 0; at = styles.indexOf(selector + " {", at + 1)) {
+      const block = styles.slice(at, styles.indexOf("}", at));
+      const found = new RegExp(`${name}\\s*:\\s*([^;]+);`).exec(block);
+      if (found) return found[1].trim().toLowerCase();
+    }
+    assert.fail(`no ${selector} block in the shipped stylesheet declares ${name}`);
+  };
+  const resolved = (name) =>
+    v.window.getComputedStyle(v.document.documentElement).getPropertyValue(name).trim().toLowerCase();
+
+  const darkKeyword = declared(':root[data-theme="dark"][data-syntax-theme="darcula"]', "--token-keyword");
+  assert.equal(resolved("--token-keyword"), darkKeyword,
+    "raw source and diff token classes receive the Darcula keyword color");
+  assert.notEqual(darkKeyword, declared(":root", "--token-keyword"),
+    "Darcula actually overrides the base keyword — otherwise the assertion above passes on any theme");
 
   pickTheme(v, "darcula-light");
   await v.settle(20);
+  const lightKeyword = declared(':root[data-theme="light"][data-syntax-theme="darcula"]', "--token-keyword");
+  assert.equal(resolved("--token-keyword"), lightKeyword,
+    "the light appearance selects the IntelliJ Light token member");
+  assert.notEqual(lightKeyword, darkKeyword, "the two appearances are different palettes, not one");
   assert.equal(
-    v.window.getComputedStyle(v.document.documentElement).getPropertyValue("--token-keyword").trim().toLowerCase(),
-    "#0033b3",
-    "the light appearance selects the IntelliJ Light token member",
-  );
-  assert.equal(
-    v.window.getComputedStyle(v.document.documentElement).getPropertyValue("--sidebar").trim().toLowerCase(),
-    "#f2f3f5",
+    resolved("--sidebar"),
+    declared(':root[data-theme="light"][data-syntax-theme="darcula"]', "--sidebar"),
     "the theme family also colors interface chrome",
   );
 

@@ -47,12 +47,12 @@
   --chrome-vcs-new: #f08b8b;
   --chrome-vcs-edited: #83b8f0;
   --chrome-vcs-staged: #98cb80;
-  --token-comment: #8b98a8;
-  --token-keyword: #ff9a56;
+  --token-comment: #aeb7c2;
+  --token-keyword: #ff9f5e;
   --token-string: #8ccf7e;
-  --token-number: #78b9ee;
-  --token-literal: #ff9a56;
-  --token-constant: #c792ea;
+  --token-number: #7ebcef;
+  --token-literal: #ff9f5e;
+  --token-constant: #d1a5ee;
   --token-tag: #f4cb73;
   --token-function: #ffd580;
   --token-type: #66d9c2;
@@ -113,14 +113,14 @@
   --chrome-vcs-new: #b42318;
   --chrome-vcs-edited: #175cd3;
   --chrome-vcs-staged: #2f7d32;
-  --token-comment: #676f79;
-  --token-keyword: #cf222e;
+  --token-comment: #606871;
+  --token-keyword: #c8212c;
   --token-string: #0a3069;
   --token-number: #0550ae;
-  --token-literal: #cf222e;
+  --token-literal: #c8212c;
   --token-constant: #6f42c1;
   --token-tag: #116329;
-  --token-function: #8250df;
+  --token-function: #7a45dd;
   --token-type: #953800;
   --token-decorator: #6639ba;
 }
@@ -166,7 +166,7 @@
   --chrome-vcs-new: #7ee787;
   --chrome-vcs-edited: #79c0ff;
   --chrome-vcs-staged: #3fb950;
-  --token-comment: #8b949e;
+  --token-comment: #9199a3;
   --token-keyword: #ff7b72;
   --token-string: #a5d6ff;
   --token-number: #79c0ff;
@@ -213,16 +213,16 @@
   --chrome-vcs-new: #1a7f37;
   --chrome-vcs-edited: #0969da;
   --chrome-vcs-staged: #1a7f37;
-  --token-comment: #6e7781;
+  --token-comment: #656d77;
   --token-keyword: #cf222e;
   --token-string: #0a3069;
   --token-number: #0550ae;
   --token-literal: #0550ae;
-  --token-constant: #8250df;
+  --token-constant: #804dde;
   --token-tag: #116329;
-  --token-function: #8250df;
+  --token-function: #804dde;
   --token-type: #953800;
-  --token-decorator: #8250df;
+  --token-decorator: #804dde;
 }
 :root[data-theme="dark"][data-syntax-theme="darcula"] {
   color-scheme: dark;
@@ -261,16 +261,16 @@
   --chrome-vcs-new: #ef8b8b;
   --chrome-vcs-edited: #88b8ec;
   --chrome-vcs-staged: #9aca83;
-  --token-comment: #9c9c9c;
-  --token-keyword: #d58d52;
-  --token-string: #89a678;
-  --token-number: #76a1c1;
-  --token-literal: #d58d52;
-  --token-constant: #ad92bc;
+  --token-comment: #b2b2b2;
+  --token-keyword: #dea679;
+  --token-string: #a2b994;
+  --token-number: #95b6cf;
+  --token-literal: #dea679;
+  --token-constant: #bfaacb;
   --token-tag: #e8bf6a;
   --token-function: #ffc66d;
   --token-type: #a9b7c6;
-  --token-decorator: #bbb529;
+  --token-decorator: #bcb629;
 }
 :root[data-theme="light"][data-syntax-theme="darcula"] {
   color-scheme: light;
@@ -308,16 +308,16 @@
   --chrome-vcs-new: #b42318;
   --chrome-vcs-edited: #175cd3;
   --chrome-vcs-staged: #2f7d32;
-  --token-comment: #707070;
+  --token-comment: #676767;
   --token-keyword: #0033b3;
-  --token-string: #067d17;
+  --token-string: #067816;
   --token-number: #1750eb;
   --token-literal: #0033b3;
   --token-constant: #871094;
   --token-tag: #0033b3;
   --token-function: #00627a;
   --token-type: #000000;
-  --token-decorator: #82700b;
+  --token-decorator: #77670a;
 }
 /* ---- The three families below exist because the first four did not differ enough to be worth choosing
    between: two near-black greys and two near-whites, all accented the same blue. These commit to a hue
@@ -366,19 +366,19 @@
   --chrome-vcs-new: #859900;
   --chrome-vcs-edited: #268bd2;
   --chrome-vcs-staged: #2aa198;
-  --token-comment: #7c929a;
-  --token-keyword: #859900;
-  --token-string: #2aa198;
-  --token-number: #de68a1;
-  --token-literal: #de68a1;
+  --token-comment: #8a9ea5;
+  --token-keyword: #8fa500;
+  --token-string: #2daca2;
+  --token-number: #e279ab;
+  --token-literal: #e279ab;
   /* Solarized's own violet (#6c71c4) is 3.43:1 on base03 — below AA, and the one token in this palette that
      was. Lifted toward the same washed violet the decorator already uses (4.79:1), so the hue survives and
      the text is readable. */
-  --token-constant: #868bd8;
-  --token-tag: #3295da;
-  --token-function: #3295da;
-  --token-type: #b58900;
-  --token-decorator: #858ace;
+  --token-constant: #9095db;
+  --token-tag: #4ba2df;
+  --token-function: #4ba2df;
+  --token-type: #c39400;
+  --token-decorator: #9296d3;
 }
 :root[data-theme="light"][data-syntax-theme="solarized"] {
   color-scheme: light;
@@ -416,18 +416,18 @@
   --chrome-vcs-new: #859900;
   --chrome-vcs-edited: #268bd2;
   --chrome-vcs-staged: #2aa198;
-  --token-comment: #627171;
-  --token-keyword: #667500;
-  --token-string: #1f7972;
-  --token-number: #c92c78;
-  --token-literal: #c92c78;
+  --token-comment: #5b6969;
+  --token-keyword: #5f6d00;
+  --token-string: #1d726c;
+  --token-number: #bc2970;
+  --token-literal: #bc2970;
   /* Same story as the dark palette: Solarized's violet is 4.06:1 on base3. Deepened rather than lifted,
      which is the same distance from the decorator's violet, just on the other side. */
-  --token-constant: #5b60b8;
-  --token-tag: #2074af;
-  --token-function: #2074af;
-  --token-type: #8c6a00;
-  --token-decorator: #6166c0;
+  --token-constant: #595eb7;
+  --token-tag: #1e6ba2;
+  --token-function: #1e6ba2;
+  --token-type: #826200;
+  --token-decorator: #575dbc;
 }
 /* Dracula, and Alucard — the light theme its authors published as its counterpart, rather than a light mode
    invented here. Violet ground, and the most saturated tokens in the picker. */
@@ -467,7 +467,7 @@
   --chrome-vcs-new: #50fa7b;
   --chrome-vcs-edited: #8be9fd;
   --chrome-vcs-staged: #50fa7b;
-  --token-comment: #8692b9;
+  --token-comment: #929dc0;
   --token-keyword: #ff79c6;
   --token-string: #f1fa8c;
   --token-number: #bd93f9;
@@ -514,16 +514,16 @@
   --chrome-vcs-new: #14710a;
   --chrome-vcs-edited: #036a96;
   --chrome-vcs-staged: #14710a;
-  --token-comment: #787255;
+  --token-comment: #6a654b;
   --token-keyword: #a3144d;
-  --token-string: #846e15;
+  --token-string: #776313;
   --token-number: #644ac9;
   --token-literal: #644ac9;
   --token-constant: #7d3fc4;
   --token-tag: #a3144d;
   --token-function: #14710a;
   --token-type: #036a96;
-  --token-decorator: #a34d14;
+  --token-decorator: #a24c14;
 }
 /* High Contrast. Not a mood — an accessibility floor: pure black or pure white ground, borders you can
    actually see, and tokens picked for separation rather than harmony. */
@@ -1527,17 +1527,33 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-file-wrapper.df-inactive { display: none; }
 .d2h-del { background: var(--del); }
 .d2h-ins { background: var(--add); }
-.d2h-del .d2h-change { background: var(--del-strong); }
-.d2h-ins .d2h-change { background: var(--add-strong); }
+/* The word-level mark is an UNDERLINE, not a fill. A fill was the one thing it could not be: it becomes
+   the ground underneath the very characters it is pointing at, and the syntax palette is tuned against
+   --panel, which a changed line never has. Swept across the twelve themes, a token on one of the strong
+   fills bottomed out at 2.07:1 — the changed word was the least readable text on the screen, and 98 of
+   120 token/ground pairs were under the AA floor on --diff-modified-strong alone.
+   Underlined, the glyphs keep the row's own fill, so their contrast is whatever it is on that fill and
+   nothing more is at stake. The mark itself is non-text, so it answers to 3:1, which it clears at
+   70% --text over the row's change hue: worst measured 3.40:1 (light Solarized, modified). Keeping 30%
+   of the hue is what lets a theme still tint its own marks; --text is what carries them over the bar.
+   A box was the first attempt and it caged the code: diff2html splits a wholly new line into eight or
+   more adjacent <ins> runs, so every token got its own rectangle. An underline is the one edge that
+   MERGES across adjacent runs — a rewritten line reads as one rule, a two-word edit as two words.
+   `--word-mark` is set per row below, so this stays one rule instead of one per change kind.
+   Two rules scoped to `.d2h-del .d2h-change` went with the fills, and they had never painted anything:
+   diff2html puts both classes on the SAME cell, so a descendant selector matches nothing. Checked against
+   the running app before deleting — 0 elements, against 28 real `ins`/`del` marks on the same screen. */
 .d2h-code-line-ctn ins, .d2h-code-line-ctn del {
   text-decoration: none;
-  border-radius: 0;
   padding: 0 1px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+  background: none;
+  border-radius: 0;
+  box-shadow: inset 0 -2px 0 0 color-mix(in srgb, var(--text) 70%, var(--word-mark, var(--border)));
 }
-.d2h-code-line-ctn ins { background: var(--add-strong); }
-.d2h-code-line-ctn del { background: var(--del-strong); }
+.d2h-del { --word-mark: var(--del-strong); }
+.d2h-ins { --word-mark: var(--add-strong); }
 .d2h-code-side-linenumber.d2h-del, .d2h-code-linenumber.d2h-del { background: var(--del); }
 .d2h-code-side-linenumber.d2h-ins, .d2h-code-linenumber.d2h-ins { background: var(--add); }
 /* Paired IntelliJ-style change bands. The semantic class is applied to BOTH aligned rows, including the
@@ -1592,10 +1608,12 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .mc-diff-connector-deleted { fill: color-mix(in srgb, var(--diff-deleted) 82%, transparent); }
 .mc-diff-blame-visible .mc-diff-connectors,
 .mc-diff-blame-loading .mc-diff-connectors { display: none; }
-.d2h-diff-table tr.mc-diff-modified .d2h-code-line-ctn ins,
-.d2h-diff-table tr.mc-diff-modified .d2h-code-line-ctn del { background-color: var(--diff-modified-strong); }
-.d2h-diff-table tr.mc-diff-deleted .d2h-code-line-ctn del { background-color: var(--diff-deleted-strong); }
-.d2h-diff-table tr.mc-diff-added .d2h-code-line-ctn ins { background-color: var(--diff-added-strong); }
+/* The paired view's own change kinds, feeding the same single mark rule above. These are set on the row
+   while .d2h-ins/.d2h-del sit on the cell, so in the paired view the cell's kind is the one that wins —
+   which is the more specific statement about that cell anyway. */
+.d2h-diff-table tr.mc-diff-modified { --word-mark: var(--diff-modified-strong); }
+.d2h-diff-table tr.mc-diff-deleted { --word-mark: var(--diff-deleted-strong); }
+.d2h-diff-table tr.mc-diff-added { --word-mark: var(--diff-added-strong); }
 .d2h-diff-table tr.mc-diff-change > td { border-color: transparent; }
 .d2h-file-side-diff:first-child tr.mc-active-hunk > td.d2h-code-side-linenumber {
   color: var(--text);
