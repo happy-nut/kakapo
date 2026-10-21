@@ -1,15 +1,9 @@
 // ===== Bottom dock: the merged review-comments document, in a docked slot below the editor =====
 // Cmd/Ctrl+Shift+' maximizes it over the editor area.
-var dockHeightKey = 'kakapo-dock-height';
 var dockMaximized = false;
 // Assigned once the settings panel is built (see below); read by the KEY_OWNERS table in 05-keymap.js,
 // which loads first and so tests it with `typeof`.
 var handleSettingsKey;
-function applyDockHeight(px) {
-  var h = Math.max(140, Math.min(px, window.innerHeight - 120));
-  document.documentElement.style.setProperty('--dock-height', h + 'px');
-}
-(function () { var s = parseInt(persistRead(dockHeightKey) || localStorage.getItem(dockHeightKey) || '', 10); if (s) applyDockHeight(s); })();
 function activeDockPanel() {
   return document.getElementById('mc-merged-panel');
 }
@@ -33,10 +27,22 @@ function isDockFocused() {
   var ae = document.activeElement;
   return !!(ae && ae.closest && ae.closest('.dock-panel'));
 }
+// How refreshComments() reaches the open dock. The dock builds its cards from a snapshot taken when it
+// opened (`blocks`), and nothing re-took that snapshot: a comment written, answered or pruned while the
+// panel was up did not appear in it, and copyAndArchiveMerged then copied and filed the stale snapshot.
+// That is not a cosmetic staleness — an agent answering through the thread file (USER_FLOWS Flow 7) writes
+// exactly while a reviewer has this open, so the hand-off could go out short, or the panel could say there
+// was nothing to hand over while the review held comments. Same shape as themeSelectRef below: the owner
+// publishes its renderer, the caller does not need to know who owns it.
+var mergedDockRefresh = null;
+function refreshMergedDock() {
+  if (mergedDockRefresh) mergedDockRefresh();
+}
 // Close the merged dock.
 function closeMergedDock() {
   var m = document.getElementById('mc-merged-panel');
   var hadDock = !!m;
+  mergedDockRefresh = null; // before the refreshComments below, so it does not rebuild what we just removed
   if (m) {
     try { if (typeof m.__kakapoBeforeClose === 'function') m.__kakapoBeforeClose(); } catch (e) {}
     m.remove();
@@ -61,7 +67,7 @@ function focusDockField(field, panelSel) {
   };
   if (!tryF()) { var iv = setInterval(function () { if (tryF() || ++tries > 12) clearInterval(iv); }, 25); }
 }
-// Build a docked panel shell (resizer + bar with Maximize/Close + body) and mount it below the editor.
+// Build a docked panel shell (a bar with Maximize/Close, and a body) and mount it over the editor.
 function mountDock(id, titleText) {
   // Full-screen surfaces switch, never stack: the dock floats above History (z78 vs 75), and closing the
   // dock later must not drop the reviewer back into an overlay they left minutes ago.
@@ -71,12 +77,15 @@ function mountDock(id, titleText) {
   panel.id = id;
   panel.className = 'dock-panel';
   panel.tabIndex = -1;
+  // The other four modal surfaces declare these in render.ts (quick-open, usages, settings, history).
+  // This one is built in script, so it was the only dim-the-window, click-outside-to-dismiss panel that
+  // announced itself as a plain div — a screen reader was never told it had entered anything.
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+  panel.setAttribute('aria-label', titleText);
   // The panel floats over the editor; a dim backdrop sits behind it (click to dismiss).
   var backdrop = document.createElement('div');
   backdrop.className = 'dock-backdrop';
-  var resizer = document.createElement('div');
-  resizer.className = 'dock-resizer';
-  resizer.setAttribute('aria-hidden', 'true');
   var bar = document.createElement('div');
   bar.className = 'dock-bar';
   var title = document.createElement('span');
@@ -92,7 +101,7 @@ function mountDock(id, titleText) {
   var closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.className = 'dock-btn dock-close';
-  closeBtn.dataset.keyhint = 'Esc';
+  closeBtn.dataset.keyhintId = 'closeDialog'; // from the table, like every other advertised chord
   closeBtn.setAttribute('data-i18n', 'merged.close');
   closeBtn.textContent = t('merged.close');
   var body = document.createElement('div');
@@ -100,9 +109,12 @@ function mountDock(id, titleText) {
   bar.appendChild(title);
   bar.appendChild(maxBtn);
   bar.appendChild(closeBtn);
-  panel.appendChild(resizer);
   panel.appendChild(bar);
   panel.appendChild(body);
+  // aria-modal is a promise about Tab, and this panel was not keeping it.
+  panel.addEventListener('keydown', function (event) { trapTabWithin(panel, event); });
+  // These buttons were born after the document was translated, so nothing had ever filled in their chords.
+  applyKeyHints(panel);
   document.body.appendChild(backdrop);
   document.body.appendChild(panel);
   function close() { closeMergedDock(); }
@@ -112,20 +124,6 @@ function mountDock(id, titleText) {
   // Esc closes the dock when focus is inside it; the editor keeps its own handlers otherwise.
   panel.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
-  });
-  resizer.addEventListener('mousedown', function (e) {
-    e.preventDefault();
-    resizer.classList.add('resizing');
-    function move(ev) { applyDockHeight(window.innerHeight - ev.clientY); }
-    function up() {
-      resizer.classList.remove('resizing');
-      document.removeEventListener('mousemove', move);
-      document.removeEventListener('mouseup', up);
-      var cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--dock-height'), 10);
-      if (cur) persistSave(dockHeightKey, String(cur));
-    }
-    document.addEventListener('mousemove', move);
-    document.addEventListener('mouseup', up);
   });
   document.body.classList.add('dock-open');
   document.body.classList.add('floating-dock'); // scopes the maximize CSS so it doesn't hide the diff
@@ -252,6 +250,17 @@ function openMergedView() {
     // so Cmd+C silently did nothing. A held modifier alone should never count as a deselecting keystroke.
     if (event.key === 'Meta' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Shift') return;
     var isCmd = event.metaKey || event.ctrlKey;
+    // The hand-off, from the keyboard. Copying the review and filing it away is the one thing this panel
+    // exists to do, and it was reachable only by clicking its button — Cmd+C (after Cmd+A) copies the same
+    // text but leaves the comments in the review, so there was no key that FINISHED a review.
+    // Checked before the select-all branch so it answers wherever focus is inside the panel, including
+    // while the fake select-all is up.
+    if (event.altKey && !isCmd && !event.shiftKey && (event.key === 'Enter' || event.code === 'Enter')) {
+      event.preventDefault();
+      clearSelectAll();
+      copyAndArchiveMerged();
+      return;
+    }
     if (isCmd && !event.altKey && !event.shiftKey && (event.key === 'a' || event.key === 'A' || event.code === 'KeyA')) {
       event.preventDefault();
       host.classList.add('mc-merged-select-all');
@@ -271,6 +280,33 @@ function openMergedView() {
       if (!event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
         event.preventDefault();
         focusRegion(siblingRegion(card, event.key === 'ArrowDown' ? 1 : -1));
+        return;
+      }
+      // The ends of the list, and a screenful at a time. A forty-comment hand-off had exactly one keyboard
+      // route to its last card: forty presses of ArrowDown. The History overlay has had PageUp/PageDown
+      // since it shipped; this list is read the same way and did not.
+      if (!event.altKey && (event.key === 'Home' || event.key === 'End')) {
+        event.preventDefault();
+        var all = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
+        if (all.length) focusRegion(event.key === 'Home' ? all[0] : all[all.length - 1]);
+        return;
+      }
+      if (!event.altKey && (event.key === 'PageDown' || event.key === 'PageUp')) {
+        event.preventDefault();
+        var rows = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
+        var at = rows.indexOf(card);
+        if (at < 0 || !rows.length) return;
+        // A screenful measured in cards, because the cards are not a uniform height — count how many of
+        // them the visible area actually holds from here, rather than guessing a row height.
+        var viewport = mergedBody.clientHeight || host.clientHeight;
+        var step = 0, used = 0;
+        for (var i = at; i >= 0 && i < rows.length; i += (event.key === 'PageDown' ? 1 : -1)) {
+          used += rows[i].getBoundingClientRect().height;
+          if (used > viewport && step > 0) break;
+          step++;
+        }
+        var to = at + (event.key === 'PageDown' ? 1 : -1) * Math.max(1, step - 1);
+        focusRegion(rows[Math.max(0, Math.min(rows.length - 1, to))]);
         return;
       }
       if (!event.altKey && (event.key === 'Enter' || event.code === 'Enter')) {
@@ -298,10 +334,15 @@ function openMergedView() {
   copyBtn.type = 'button';
   copyBtn.className = 'dock-btn mc-copy-all';
   copyBtn.setAttribute('data-i18n', 'merged.copyAndArchive');
+  copyBtn.dataset.keyhintId = 'mergedSend'; // the chord itself comes from the table (applyI18n)
   copyBtn.textContent = t('merged.copyAndArchive');
   copyBtn.disabled = true;
   copyBtn.addEventListener('click', copyAndArchiveMerged);
   dock.bar.insertBefore(copyBtn, dock.bar.querySelector('.dock-max'));
+  // mountDock's sweep already ran — this button is added to the bar afterwards, so it needs its own.
+  // Without this the chord it advertises through data-keyhint-id is never resolved into data-keyhint,
+  // which is the only thing the chip is drawn from.
+  applyKeyHints(dock.bar);
   // Registered once (not per-rebuild inside initializeMergedEditor) so a Backspace-delete rebuild never
   // stacks a second copy of either listener.
   host.addEventListener('click', handleMergedClick);
@@ -380,7 +421,22 @@ function openMergedView() {
   // normal open-time behavior of focusing the first prose region.
   function initializeMergedEditor(options) {
     if (!dock.panel.isConnected) return;
+    // Set per build rather than once: the "all addressed" note replaces the cards entirely, and a listbox
+    // holding one explanatory paragraph is not a listbox. They never coexist (renderAllAddressedNote
+    // returns early if a card is present), so the role can follow which of the two is on screen.
     var reselectIndex = options && typeof options.reselectIndex === 'number' ? options.reselectIndex : null;
+    // Only a rebuild the reviewer did not ask for holds back from taking focus. Opening the panel, or
+    // rebuilding it after a delete, must take it: the dock is modal, and the global keymap stands down
+    // only while the dock HAS focus (isDockFocused) — a panel that never took it let F7 navigate the diff
+    // behind the backdrop. An arriving comment is the other case, and there the caret stays where the
+    // reviewer put it.
+    var quiet = !!(options && options.keepSelection);
+    var takeFocus = !quiet || dock.panel.contains(document.activeElement);
+    if (reselectIndex === null && options && options.keepSelection) {
+      var open = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
+      var at = open.indexOf(selectedCard);
+      if (at >= 0) reselectIndex = at;
+    }
     blocks = mergedBlocks();
     host.innerHTML = '';
     selectedCard = null;
@@ -388,13 +444,20 @@ function openMergedView() {
       block.items.forEach(function (comment) { host.insertAdjacentHTML('beforeend', mergedCardHtml(comment)); });
     });
     renderAllAddressedNote();
-    copyBtn.disabled = false;
+    var isList = !!host.querySelector('.mc-merged-card');
+    if (isList) { host.setAttribute('role', 'listbox'); host.setAttribute('aria-label', t('merged.title')); }
+    else { host.removeAttribute('role'); host.removeAttribute('aria-label'); }
+    // Nothing to hand over is not something to offer. The comment above renderAllAddressedNote already
+    // says a blank sheet with a live button "reads like something is broken"; it was armed anyway, and
+    // once ⌥Enter reached it that was one keystroke from replacing the clipboard with an empty document
+    // and a toast reporting that zero comments had been filed.
+    copyBtn.disabled = !host.querySelector('.mc-merged-card');
     var cards = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
     if (reselectIndex !== null && cards.length) {
-      selectCard(cards[Math.min(reselectIndex, cards.length - 1)], true);
+      selectCard(cards[Math.min(reselectIndex, cards.length - 1)], takeFocus);
       return;
     }
-    if (cards.length) selectCard(cards[0], true);
+    if (cards.length) selectCard(cards[0], takeFocus);
     // Nothing to select (a review with no open comments). The panel itself takes the keyboard — it is
     // tabIndex -1 for exactly this — so Esc still closes it and ⌘⇧' still maximizes it. Before, the empty
     // prose editor happened to hold focus here; without one, an empty panel answered no keys at all.
@@ -406,6 +469,7 @@ function openMergedView() {
     validatingCommentFiles = false;
     requestAnimationFrame(initializeMergedEditor);
   }
+  mergedDockRefresh = function () { initializeMergedEditor({ keepSelection: true }); };
   verifyCommentFilesExist().then(startMergedEditor, startMergedEditor);
 }
 
@@ -570,6 +634,7 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
   if (closeBtn) closeBtn.addEventListener('click', close);
   cats.forEach(function (c) { c.addEventListener('click', function () { showCat(c.dataset.cat); }); });
   modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+  modal.addEventListener('keydown', function (e) { trapTabWithin(modal, e); });
   // Settings is the first row of KEY_OWNERS (05-keymap.js), which is what makes its Esc beat the lightbox
   // and the composer. That used to be a capture-phase listener whose only statement of precedence was a
   // comment here; the ordering now lives in the one table that ranks every such surface.
@@ -684,7 +749,11 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     if (!grid) return;
     grid.innerHTML = THEMES.map(function (entry) {
       var on = entry.family === syntaxTheme && entry.mode === theme;
+      // Roving tabindex: a radiogroup is ONE tab stop. With every card tabbable, Tab walked all twelve
+      // before it reached the control below them, and the arrow keys — which is how a radiogroup is meant
+      // to be moved through — did nothing at all.
       return '<button type="button" class="theme-card' + (on ? ' is-active' : '') + '" role="radio"'
+        + ' tabindex="' + (on ? '0' : '-1') + '"'
         + ' aria-checked="' + (on ? 'true' : 'false') + '" data-theme-id="' + entry.id + '">'
         + '<span class="theme-swatch" data-swatch="' + entry.id + '" aria-hidden="true"></span>'
         + '<span class="theme-card-name">' + escapeHtml(t('theme.name.' + entry.id)) + '</span></button>';
@@ -700,10 +769,48 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     if (!card) return;
     var entry = THEMES.filter(function (x) { return x.id === card.dataset.themeId; })[0];
     if (!entry) return;
+    // Captured FIRST. applyThemePref re-renders the grid through themeSelectRef, so by the time the two
+    // calls below have returned, the card this handler was given is already detached and the focus it had
+    // is on <body> — asking afterwards always answered "no".
+    var hadFocus = document.activeElement === card;
     if (entry.family) applySyntaxThemePref(entry.family); // System keeps the family it is already using
     applyThemePref(entry.mode);
     renderThemeGrid(); // applyTheme/applySyntaxTheme skip their re-render when only the OTHER axis moved
+    // The re-render replaces every card, the focused one included. A mouse user never notices; a keyboard
+    // user pressing Enter on a theme was dropped onto <body>, outside the dialog they were working in.
+    if (hadFocus) {
+      var replacement = themeGrid.querySelector('.theme-card[data-theme-id="' + entry.id + '"]')
+        || themeGrid.querySelector('.theme-card[tabindex="0"]');
+      if (replacement) replacement.focus();
+    }
   });
+  // Arrows move focus; Space/Enter chooses. The usual radiogroup rule is that selection follows focus, but
+  // choosing here repaints the whole window and persists the choice, so arrowing across the grid to reach
+  // one theme would apply and store the four it passed over. ARIA allows decoupling them for exactly that.
+  if (themeGrid) themeGrid.addEventListener('keydown', function (event) {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    var cards = [].slice.call(themeGrid.querySelectorAll('.theme-card'));
+    var at = cards.indexOf(document.activeElement);
+    if (at < 0) return;
+    // The row length is read off the layout rather than written down here: the grid's column count lives in
+    // the stylesheet, and a copy of it in this file is a copy that would not be told when it changes.
+    var top = cards[0].getBoundingClientRect().top;
+    var perRow = cards.filter(function (c) { return Math.abs(c.getBoundingClientRect().top - top) < 1; }).length || 1;
+    var to = at;
+    if (event.key === 'ArrowRight') to = at + 1;
+    else if (event.key === 'ArrowLeft') to = at - 1;
+    else if (event.key === 'ArrowDown') to = at + perRow;
+    else if (event.key === 'ArrowUp') to = at - perRow;
+    else if (event.key === 'Home') to = 0;
+    else if (event.key === 'End') to = cards.length - 1;
+    else if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); cards[at].click(); return; }
+    else return;
+    if (to < 0 || to >= cards.length) return;
+    event.preventDefault();
+    cards.forEach(function (c, i) { c.tabIndex = i === to ? 0 : -1; });
+    cards[to].focus();
+  });
+
   // Cross-window sync: theme + locale are GLOBAL settings. When another review window (or the OS, relayed by the
   // main process) changes one, main broadcasts it here so every open review follows live — no reload, no drift.
   try {

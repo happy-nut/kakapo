@@ -135,7 +135,7 @@ function agentCardHtml(c) {
     + (role ? '<span class="mc-role">' + escapeHtml(t('annotate.role.key')) + '</span>' : '')
     + (c.title ? '<span class="mc-ai-title">' + escapeHtml(c.title) + '</span>' : '')
     + commentTargetHeadHtml(c)
-    + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '"'
+    + '<button type="button" class="mc-del" data-keyhint-id="deleteComment:1" data-seq="' + c.seq + '"'
     + ' aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button>'
     + '</div>'
     + '<div class="mc-card-body markdown-body mc-ai-body">' + annotationBodyHtml(c.text)

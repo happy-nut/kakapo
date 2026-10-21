@@ -435,11 +435,14 @@ test("the diff toolbar carries the file's added and deleted line counts", async 
   await v.settle(60);
   const crumb = v.$("#diff-breadcrumb");
   assert.equal(crumb.querySelector(".crumb-stat-add").textContent, "+2", "two lines added");
-  assert.equal(crumb.querySelector(".crumb-stat-del").textContent, "-0", "none deleted");
+  // Both sides, always, zero included: the toolbar names one file, so the figure keeps its shape. The sign
+  // is U+2212, the same minus the tree prints — this used to be an ASCII hyphen, which is narrower than a
+  // digit in a tabular face, so one figure was set two ways in one window.
+  assert.equal(crumb.querySelector(".crumb-stat-del").textContent, "\u22120", "none deleted");
 
   await v.openDiffFor("src/shrank.ts");
   await v.settle(60);
-  assert.equal(v.$("#diff-breadcrumb .crumb-stat-del").textContent, "-1", "the counts follow the open file");
+  assert.equal(v.$("#diff-breadcrumb .crumb-stat-del").textContent, "\u22121", "the counts follow the open file");
 
   // Counted from the parsed diff, not from rendered rows: a body nobody has scrolled to is not in the DOM.
   const row = [...v.$all(".change-row")].find((el) => el.dataset.file === "src/grew.ts");

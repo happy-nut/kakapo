@@ -144,7 +144,13 @@ function appendBreadcrumbStat(container, path) {
   plus.textContent = '+' + added;
   var minus = document.createElement('span');
   minus.className = 'crumb-stat-del';
-  minus.textContent = '-' + deleted;
+  // U+2212, the same minus changeStat() prints in render-tree.ts. This one printed an ASCII hyphen, which
+  // in a tabular face is narrower than a digit and sits off the digits' optical centre, so the two
+  // spellings of one figure did not line up with each other. Only the glyph is unified here: BOTH sides
+  // are always printed, zero included, because the toolbar names a single file and a figure that keeps
+  // its shape is one you can read without first working out which half you are looking at. The tree omits
+  // a zero for the opposite reason — there the figure is scanned down a column, not read.
+  minus.textContent = '\u2212' + deleted;
   stat.appendChild(plus);
   stat.appendChild(minus);
   container.appendChild(stat);

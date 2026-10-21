@@ -11,7 +11,6 @@ const GLOBAL_SETTING_KEYS = new Set([
   "kakapo-theme",
   "kakapo-syntax-theme",
   RECENT_KEY,
-  "kakapo-dock-height",
   // The UI scale is one setting for the whole app — main applies it as a Chromium zoom factor to the shell,
   // the modal overlay and every review view. Left out of this list it was written per-WORKSPACE, while main
   // went on reading the global file: the dropdown moved, the number was stored, and nothing on screen ever

@@ -1,7 +1,12 @@
-// The toolbars that sit in the window's title strip are -webkit-app-region: drag, so the WINDOW takes the
-// mouse press and the page never sees the click. Anything in them that responds to a click has to say
-// no-drag. The file tabs are <div>s whose only <button> is the × — so the exemption list covered closing a
-// tab and not opening one, and clicking a tab silently did nothing.
+// A -webkit-app-region: drag surface hands the mouse press to the WINDOW, so the page never sees the
+// click. Anything inside one that responds to a click has to say no-drag — the failure that wrote this
+// test was file tabs being <div>s whose only <button> was the ×, so the exemption covered closing a tab
+// and not opening one, and clicking a tab silently did nothing.
+//
+// The review no longer declares a drag region anywhere: the toolbars that were one belonged to the
+// integrated title bar, which went away with the shell window, and this window has a real title bar. So
+// the invariant is now the stronger one — a drag region may not appear without every clickable thing in
+// it opting out — and it is written that way rather than listing selectors that no longer exist.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -21,16 +26,26 @@ function noDragSelectors() {
   return selectors;
 }
 
-test("every clickable thing in a title-strip toolbar opts out of the drag region", () => {
-  const selectors = noDragSelectors();
-  assert.ok(
-    selectors.includes("body.native-app .source-tabs .source-tab"),
-    "a file tab is clicked to open its file, so it cannot be part of the window's drag handle",
-  );
-  for (const bar of [".diff-toolbar", ".source-toolbar", ".source-tabs"]) {
+test("nothing is inside a drag region without opting out of it", () => {
+  const dragSelectors = [];
+  for (const block of css.split("}")) {
+    const [head, body] = block.split("{");
+    if (!body || !/-webkit-app-region:\s*drag/.test(body)) continue;
+    dragSelectors.push(...head.split(",").map((s) => s.trim()).filter(Boolean));
+  }
+
+  if (!dragSelectors.length) {
+    // Nothing is a drag handle, so nothing has to be exempted. Said out loud so that a future rule
+    // reintroducing one lands on the branch below rather than on a silently passing empty loop.
+    assert.equal(dragSelectors.length, 0, "the review declares no drag region");
+    return;
+  }
+
+  const exempt = noDragSelectors();
+  for (const dragged of dragSelectors) {
     assert.ok(
-      selectors.some((selector) => selector.includes(bar) && selector.endsWith("button")),
-      `${bar} buttons opt out of the drag region`,
+      exempt.some((selector) => selector.includes(dragged)),
+      `${dragged} is a drag handle, so the clickable things inside it must say no-drag`,
     );
   }
 });

@@ -122,7 +122,7 @@ function virtualSourceNodeHtml(node, depth) {
     var classes = ['file-link', 'source-link', 'tree-file', file.embedded ? '' : 'not-embedded', file.vcs ? 'vcs-' + file.vcs : ''].filter(Boolean).join(' ');
     return '<button type="button" class="' + classes + '" data-source-file="' + escapeHtml(file.path) + '" style="--depth:' + depth + '" aria-label="' + escapeHtml(file.path) + '">'
       + virtualTypeIcon(file.path)
-      + '<span class="path">' + escapeHtml(node.name) + '</span></button>';
+      + '<span class="path" title="' + escapeHtml(node.name) + '">' + leafNameHtml(node.name) + '</span></button>';
   }
   return '<details class="tree-dir source-dir mc-virtual-dir" data-dir="' + escapeHtml(node.path) + '" style="--depth:' + depth + '">'
     + '<summary>' + VIRTUAL_FOLDER_ICON + '<span class="path">' + escapeHtml(node.name) + '</span></summary>'

@@ -55,8 +55,17 @@ function refreshSourceDiagnostics(path) {
   Promise.resolve(window.kakapoAnalysis.diagnostics(path)).then(function (response) {
     if (token !== diagnosticsFetchToken) return; // a newer file / watch refresh superseded this request
     if (!analysisGenerationIsCurrent(response)) return;
-    if (!response || response.ok === false) return;
-    diagnosticsCache.set(path, { sig: sig, items: Array.isArray(response.diagnostics) ? response.diagnostics : [] });
+    // `available` and `ok` are part of the answer, not plumbing. analysis.ts reports available:false for a
+    // file no server covers precisely so the viewer can say so instead of an empty "no problems"
+    // (USER_FLOWS Flow 6 forbids the reassuring version) — and then the viewer dropped the field and said
+    // the reassuring version anyway, for CSS, for Markdown, for anything outside a server's languages.
+    if (!response) return;
+    if (response.ok === false) { diagnosticsCache.set(path, { sig: sig, items: [], state: 'failed' }); return; }
+    diagnosticsCache.set(path, {
+      sig: sig,
+      items: Array.isArray(response.diagnostics) ? response.diagnostics : [],
+      state: response.available === false ? 'unavailable' : 'ready',
+    });
     if (diagnosticsSurfacePath() === path) paintSourceDiagnostics(path);
   }).catch(function () { /* transport failures already quarantine the server in main; the paint just stays empty */ });
 }
@@ -138,7 +147,13 @@ function gotoDiagnostic(delta) {
     return a.lineIndex - b.lineIndex || a.column - b.column;
   });
   if (!items.length) {
-    showCaretHint(t('diag.none'));
+    // Three different silences, and they used to be one sentence. "No problems" is true for exactly one
+    // of them; for the other two it is a reassurance the app has not earned.
+    var state = cached && cached.state;
+    if (!cached) showCaretHint(t('diag.pending'));                          // nothing has come back yet
+    else if (state === 'unavailable') showCaretHint(t('diag.unavailable')); // no server covers this file
+    else if (state === 'failed') showCaretHint(t('diag.failed'));           // the server could not answer
+    else showCaretHint(t('diag.none'));
     return true;
   }
   var atPath = viewerCursor && viewerCursor.path === path;
@@ -156,7 +171,11 @@ function gotoDiagnostic(delta) {
   }
   setSourceCursor(path, target.lineIndex, target.column, true, target.lineIndex);
   scheduleSourceDiagnosticsPaint();
-  if (target.message) showCaretHint(target.message);
+  // sticky: a diagnostic message is the longest thing this app shows in a hint — measured to 190
+  // characters, about nine seconds of reading — and the hint's own default is two. There is no way to ask
+  // for it again from the keyboard, so the two-second version was a message you were shown and could not
+  // read. It stays until something replaces or hides it, which is what the flag is for (07-comments.js).
+  if (target.message) showCaretHint(target.message, null, true);
   return true;
 }
 
@@ -208,7 +227,12 @@ function diagnosticLineMessage(path, lineIndex) {
   var items = surfacedDiagnostics(cached && cached.items).filter(function (d) { return d.lineIndex === lineIndex; });
   var lines = [];
   items.forEach(function (d) {
-    var m = d.message + (d.source ? ' (' + d.source + ')' : '');
+    // Which severity, in words. The two colours measure 1.28:1 against each other and the marks were the
+    // same shape, so a reader who cannot separate the hues had nothing at all to go on — and this message
+    // is the one place that can simply say it. Two messages on one line also used to run together as a
+    // single paragraph; a labelled prefix gives each one a visible start.
+    var severity = t(d.severity === 'warning' ? 'diag.warning' : 'diag.error');
+    var m = severity + ': ' + d.message + (d.source ? ' (' + d.source + ')' : '');
     if (lines.indexOf(m) < 0) lines.push(m);
   });
   return lines.join('\n');
@@ -261,7 +285,14 @@ function onDiagnosticHover(event) {
   var key = path + ':' + lineIndex;
   diagnosticHoverX = event.clientX;
   diagnosticHoverY = event.clientY;
-  if (key === diagnosticHoverKey) return; // same line — let the pending timer or shown tooltip stand
+  // Same line — let a pending timer or a shown tooltip stand. But only if one of them IS standing: any
+  // scroll calls hideDiagnosticTooltip, which clears the timer and leaves this key set, and every later
+  // mousemove over the same line then returned here without scheduling anything. The message became
+  // unreachable for that line until the pointer left the row and came back. Scrolling is not rare in the
+  // middle of reading a problem — F7, ⌘L, saving a comment and the wheel all do it.
+  var standing = !!diagnosticHoverTimer
+    || !!(diagnosticTooltipEl && diagnosticTooltipEl.style.display !== 'none');
+  if (key === diagnosticHoverKey && standing) return;
   diagnosticHoverKey = key;
   hideDiagnosticTooltip();
   var message = diagnosticLineMessage(path, lineIndex);

@@ -53,12 +53,17 @@ function openSemanticPeek(name, locations, response, kind) {
   semanticPeekActive = 0;
   var title = document.getElementById('semantic-peek-title');
   var meta = document.getElementById('semantic-peek-meta');
-  var label = kind === 'definition' ? 'definitions' : kind === 'implementation' ? 'implementations' : 'usages';
-  if (title) title.textContent = semanticPeekItems.length + ' ' + label + ' · ' + name;
+  // The noun was built in English by a conditional here, in an app that ships in two languages. It is a
+  // user-facing string, so it lives in i18n.ts with the rest of them.
+  var key = kind === 'definition' ? 'peek.definitions' : kind === 'implementation' ? 'peek.implementations' : 'peek.usages';
+  if (title) title.textContent = t(key).replace('{n}', String(semanticPeekItems.length)) + ' · ' + name;
   if (meta) {
     var bits = [response && response.confidence || response && response.engine || 'semantic'];
     if (response && response.server) bits.push(response.server + (response.serverSource ? ' (' + response.serverSource + ')' : ''));
-    if (response && Number.isFinite(Number(response.generation))) bits.push('g' + Number(response.generation));
+    // No generation counter here. 'g1' is the analysis index's internal revision — it means nothing to a
+    // reader looking for a symbol, and it was taking room from the one thing in this heading that does.
+    // It is still on the response for anyone debugging, and the duration below is the part that tells a
+    // reader whether the answer is fresh or a fallback.
     if (response && Number.isFinite(Number(response.durationMs))) bits.push(Number(response.durationMs).toFixed(1) + 'ms');
     meta.textContent = bits.join(' · ');
     meta.title = response && response.fallbackReason ? String(response.fallbackReason) : '';
@@ -129,11 +134,18 @@ function renderSemanticPeekResults() {
   if (!results) return;
   if (!semanticPeekItems.length) { results.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('monaco.noResults')) + '</div>'; return; }
   results.innerHTML = semanticPeekItems.map(function (item, index) {
-    return '<button type="button" role="option" aria-selected="' + (index === semanticPeekActive ? 'true' : 'false')
+    // Each row needs an id so the listbox can point at the active one: focus stays on the list while the
+    // arrows move the selection, so without aria-activedescendant a screen reader heard "Semantic
+    // locations, listbox" and then nothing at all as the reader arrowed through it — and Enter opened a
+    // row they were never told about.
+    return '<button type="button" role="option" id="semantic-peek-item-' + index + '" aria-selected="' + (index === semanticPeekActive ? 'true' : 'false')
       + '" class="semantic-peek-item' + (item.isTest ? ' is-test' : '') + (index === semanticPeekActive ? ' active' : '') + '" data-index="' + index + '" title="' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '">'
       + '<span class="semantic-peek-item-path">' + escapeHtml(semanticFileLabel(item.path, item.lineIndex)) + '</span>'
       + '<span class="semantic-peek-item-code">' + semanticCodeHtml(item.path, item.text.trim().slice(0, 180)) + '</span></button>';
   }).join('') + '<div class="semantic-peek-list-hint">' + escapeHtml(t('monaco.peekHint')) + '</div>';
+  // Rebuilt every time the selection moves, so the pointer is reset with it.
+  if (semanticPeekItems.length) results.setAttribute('aria-activedescendant', 'semantic-peek-item-' + semanticPeekActive);
+  else results.removeAttribute('aria-activedescendant');
 }
 
 function showSemanticPeekItem(index) {
@@ -147,8 +159,18 @@ function showSemanticPeekItem(index) {
 function closeSemanticPeek() {
   var panel = document.getElementById('semantic-peek');
   if (!panel) return;
+  // Hand the keyboard back. The panel takes focus when it opens and never gave it up: Escape left
+  // document.activeElement on <body>, so the next Tab started from the top of the document and an
+  // assistive technology's cursor went with it. The CSS two rules up has always said "Escape returns to
+  // the original caret"; this is the half of that which was missing.
+  var hadFocus = panel.contains(document.activeElement);
   panel.classList.add('hidden');
   panel.style.left = panel.style.top = panel.style.bottom = panel.style.width = panel.style.maxHeight = '';
+  if (!hadFocus) return;
+  var body = document.getElementById('source-body');
+  if (body && body.offsetParent !== null && typeof body.focus === 'function') { body.focus({ preventScroll: true }); return; }
+  var diff = document.getElementById('diff2html-container');
+  if (diff && typeof diff.focus === 'function') diff.focus({ preventScroll: true });
 }
 
 function openActiveSemanticPeekSource() {

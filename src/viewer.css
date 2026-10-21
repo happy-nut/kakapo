@@ -47,12 +47,12 @@
   --chrome-vcs-new: #f08b8b;
   --chrome-vcs-edited: #83b8f0;
   --chrome-vcs-staged: #98cb80;
-  --token-comment: #8b98a8;
-  --token-keyword: #ff9a56;
+  --token-comment: #aeb7c2;
+  --token-keyword: #ff9f5e;
   --token-string: #8ccf7e;
-  --token-number: #78b9ee;
-  --token-literal: #ff9a56;
-  --token-constant: #c792ea;
+  --token-number: #7ebcef;
+  --token-literal: #ff9f5e;
+  --token-constant: #d1a5ee;
   --token-tag: #f4cb73;
   --token-function: #ffd580;
   --token-type: #66d9c2;
@@ -113,14 +113,14 @@
   --chrome-vcs-new: #b42318;
   --chrome-vcs-edited: #175cd3;
   --chrome-vcs-staged: #2f7d32;
-  --token-comment: #676f79;
-  --token-keyword: #cf222e;
+  --token-comment: #606871;
+  --token-keyword: #c8212c;
   --token-string: #0a3069;
   --token-number: #0550ae;
-  --token-literal: #cf222e;
+  --token-literal: #c8212c;
   --token-constant: #6f42c1;
   --token-tag: #116329;
-  --token-function: #8250df;
+  --token-function: #7a45dd;
   --token-type: #953800;
   --token-decorator: #6639ba;
 }
@@ -166,7 +166,7 @@
   --chrome-vcs-new: #7ee787;
   --chrome-vcs-edited: #79c0ff;
   --chrome-vcs-staged: #3fb950;
-  --token-comment: #8b949e;
+  --token-comment: #9199a3;
   --token-keyword: #ff7b72;
   --token-string: #a5d6ff;
   --token-number: #79c0ff;
@@ -213,16 +213,16 @@
   --chrome-vcs-new: #1a7f37;
   --chrome-vcs-edited: #0969da;
   --chrome-vcs-staged: #1a7f37;
-  --token-comment: #6e7781;
+  --token-comment: #656d77;
   --token-keyword: #cf222e;
   --token-string: #0a3069;
   --token-number: #0550ae;
   --token-literal: #0550ae;
-  --token-constant: #8250df;
+  --token-constant: #804dde;
   --token-tag: #116329;
-  --token-function: #8250df;
+  --token-function: #804dde;
   --token-type: #953800;
-  --token-decorator: #8250df;
+  --token-decorator: #804dde;
 }
 :root[data-theme="dark"][data-syntax-theme="darcula"] {
   color-scheme: dark;
@@ -261,16 +261,16 @@
   --chrome-vcs-new: #ef8b8b;
   --chrome-vcs-edited: #88b8ec;
   --chrome-vcs-staged: #9aca83;
-  --token-comment: #9c9c9c;
-  --token-keyword: #d58d52;
-  --token-string: #89a678;
-  --token-number: #76a1c1;
-  --token-literal: #d58d52;
-  --token-constant: #ad92bc;
+  --token-comment: #b2b2b2;
+  --token-keyword: #dea679;
+  --token-string: #a2b994;
+  --token-number: #95b6cf;
+  --token-literal: #dea679;
+  --token-constant: #bfaacb;
   --token-tag: #e8bf6a;
   --token-function: #ffc66d;
   --token-type: #a9b7c6;
-  --token-decorator: #bbb529;
+  --token-decorator: #bcb629;
 }
 :root[data-theme="light"][data-syntax-theme="darcula"] {
   color-scheme: light;
@@ -308,16 +308,16 @@
   --chrome-vcs-new: #b42318;
   --chrome-vcs-edited: #175cd3;
   --chrome-vcs-staged: #2f7d32;
-  --token-comment: #707070;
+  --token-comment: #676767;
   --token-keyword: #0033b3;
-  --token-string: #067d17;
+  --token-string: #067816;
   --token-number: #1750eb;
   --token-literal: #0033b3;
   --token-constant: #871094;
   --token-tag: #0033b3;
   --token-function: #00627a;
   --token-type: #000000;
-  --token-decorator: #82700b;
+  --token-decorator: #77670a;
 }
 /* ---- The three families below exist because the first four did not differ enough to be worth choosing
    between: two near-black greys and two near-whites, all accented the same blue. These commit to a hue
@@ -366,19 +366,19 @@
   --chrome-vcs-new: #859900;
   --chrome-vcs-edited: #268bd2;
   --chrome-vcs-staged: #2aa198;
-  --token-comment: #7c929a;
-  --token-keyword: #859900;
-  --token-string: #2aa198;
-  --token-number: #de68a1;
-  --token-literal: #de68a1;
+  --token-comment: #8a9ea5;
+  --token-keyword: #8fa500;
+  --token-string: #2daca2;
+  --token-number: #e279ab;
+  --token-literal: #e279ab;
   /* Solarized's own violet (#6c71c4) is 3.43:1 on base03 — below AA, and the one token in this palette that
      was. Lifted toward the same washed violet the decorator already uses (4.79:1), so the hue survives and
      the text is readable. */
-  --token-constant: #868bd8;
-  --token-tag: #3295da;
-  --token-function: #3295da;
-  --token-type: #b58900;
-  --token-decorator: #858ace;
+  --token-constant: #9095db;
+  --token-tag: #4ba2df;
+  --token-function: #4ba2df;
+  --token-type: #c39400;
+  --token-decorator: #9296d3;
 }
 :root[data-theme="light"][data-syntax-theme="solarized"] {
   color-scheme: light;
@@ -408,7 +408,7 @@
   --chrome-panel: #fdf6e3;
   --chrome-elevated: #fffbf0;
   --chrome-text: #2f4249;
-  --chrome-muted: #6b7f80;
+  --chrome-muted: #586e75; /* base01: Solarized's own secondary text. #6b7f80 was 3.57:1 on this ground. */
   --chrome-border: #d6cfba;
   --chrome-line: #e3dcc8;
   --chrome-selected: #e4ddc8;
@@ -416,18 +416,18 @@
   --chrome-vcs-new: #859900;
   --chrome-vcs-edited: #268bd2;
   --chrome-vcs-staged: #2aa198;
-  --token-comment: #627171;
-  --token-keyword: #667500;
-  --token-string: #1f7972;
-  --token-number: #c92c78;
-  --token-literal: #c92c78;
+  --token-comment: #5b6969;
+  --token-keyword: #5f6d00;
+  --token-string: #1d726c;
+  --token-number: #bc2970;
+  --token-literal: #bc2970;
   /* Same story as the dark palette: Solarized's violet is 4.06:1 on base3. Deepened rather than lifted,
      which is the same distance from the decorator's violet, just on the other side. */
-  --token-constant: #5b60b8;
-  --token-tag: #2074af;
-  --token-function: #2074af;
-  --token-type: #8c6a00;
-  --token-decorator: #6166c0;
+  --token-constant: #595eb7;
+  --token-tag: #1e6ba2;
+  --token-function: #1e6ba2;
+  --token-type: #826200;
+  --token-decorator: #575dbc;
 }
 /* Dracula, and Alucard — the light theme its authors published as its counterpart, rather than a light mode
    invented here. Violet ground, and the most saturated tokens in the picker. */
@@ -467,7 +467,7 @@
   --chrome-vcs-new: #50fa7b;
   --chrome-vcs-edited: #8be9fd;
   --chrome-vcs-staged: #50fa7b;
-  --token-comment: #8692b9;
+  --token-comment: #929dc0;
   --token-keyword: #ff79c6;
   --token-string: #f1fa8c;
   --token-number: #bd93f9;
@@ -514,16 +514,16 @@
   --chrome-vcs-new: #14710a;
   --chrome-vcs-edited: #036a96;
   --chrome-vcs-staged: #14710a;
-  --token-comment: #787255;
+  --token-comment: #6a654b;
   --token-keyword: #a3144d;
-  --token-string: #846e15;
+  --token-string: #776313;
   --token-number: #644ac9;
   --token-literal: #644ac9;
   --token-constant: #7d3fc4;
   --token-tag: #a3144d;
   --token-function: #14710a;
   --token-type: #036a96;
-  --token-decorator: #a34d14;
+  --token-decorator: #a24c14;
 }
 /* High Contrast. Not a mood — an accessibility floor: pure black or pure white ground, borders you can
    actually see, and tokens picked for separation rather than harmony. */
@@ -630,7 +630,7 @@ body {
      The variable stays at 0 because several full-viewport surfaces (History) are still inset against it. */
   --rail-width: 0px;
   display: grid;
-  grid-template-columns: var(--rail-width) var(--sidebar-width, 264px) minmax(0, 1fr);
+  grid-template-columns: var(--rail-width) var(--sidebar-width, 300px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   background: var(--bg);
@@ -638,71 +638,10 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   transition: grid-template-columns 180ms cubic-bezier(.2, .8, .2, 1);
 }
-/* The packaged macOS app uses BrowserWindow's hiddenInset title bar. Reuse the first review toolbar as
-   window chrome instead of stacking a native title strip above it. Only the traffic-light corner needs
-   reserved height; the main file path, navigation and review actions now occupy the title-bar row. */
-body.native-app {
-  --native-titlebar-height: 40px;
-  /* Window buttons start at x=14 and occupy the left ~76px. When the project sidebar is collapsed the
-     content starts immediately after the activity rail, so the remaining width must stay empty. */
-  --native-traffic-safe-width: 76px;
-  /* Full-viewport headers must use one of these derived insets. Keeping the traffic-light math here makes
-     History, collapsed editor chrome and maximized writing panels impossible to tune independently. */
-  --native-title-safe-left: calc(var(--native-traffic-safe-width) + 8px);
-  --native-title-safe-after-rail: calc(var(--native-traffic-safe-width) - var(--rail-width) + 8px);
-}
-/* Single-instance app: the activity rail's icons now live in the shell title bar, so the in-view rail is
-   hidden and its grid column collapses to 0 — the project sidebar becomes the left-most viewer column. Every
-   rail control stays in the DOM (only CSS-hidden), so the title-bar mirror can still click it via IPC. */
-body.native-app { --rail-width: 0px; }
-
-/* A quiet horizontal rule closes the macOS traffic-light strip across both navigation columns. */
-body.native-app .activity-rail::before,
-body.native-app .sidebar::before {
-  content: "";
-  position: absolute;
-  /* Toolbars are border-box: their 1px bottom border occupies the final pixel of the 40px title row. */
-  top: calc(var(--native-titlebar-height) - 1px);
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: var(--chrome-border);
-  pointer-events: none;
-  z-index: 2;
-}
-
-/* Reserve the native controls outside the scrolling element. Padding the scroll contents themselves
-   looked correct only at scrollTop=0; once the tree moved, that padding scrolled away and the project
-   heading slid underneath the traffic lights. The sidebar frame keeps this inset permanently. */
-/* The shell window owns the title bar + traffic lights above this view, so the sidebar no longer reserves a
-   title-strip row; its brand header aligns with the content toolbar as one header band. */
-body.native-app .sidebar { padding-top: 0; }
-body.native-app .sidebar-scroll { padding-top: 8px; }
-body.native-app .diff-toolbar,
-body.native-app .source-tabs,
-body.native-app .source-toolbar {
-  -webkit-app-region: drag;
-}
-/* Everything in these bars that answers a click has to opt OUT of the drag region: inside a drag region the
-   window takes the press and the click never reaches the page. The file tabs are plain <div>s (the <button>
-   in them is the × close), so only closing a tab worked — clicking a tab to open its file did nothing at all. */
-body.native-app .diff-toolbar button,
-body.native-app .diff-toolbar input,
-body.native-app .diff-toolbar select,
-body.native-app .source-tabs button,
-body.native-app .source-tabs [tabindex],
-body.native-app .source-tabs .source-tab,
-body.native-app .source-toolbar button,
-body.native-app .source-toolbar input,
-body.native-app .source-toolbar select {
-  -webkit-app-region: no-drag;
-}
-body.native-app .diff-toolbar,
-body.native-app .source-toolbar { min-height: var(--native-titlebar-height); }
-body.native-app .source-tabs {
-  min-height: var(--native-titlebar-height);
-  margin: 0;
-}
+/* The `native-app` layout is gone with the shell window it was built for: render.ts emits <body> with
+   no class (views.test.mjs pins that), so every rule scoped to it was unreachable — and the two custom
+   properties they were built on computed to the empty string. Removed rather than left as a reference:
+   a rule nothing can match is not documentation, it is a thing the next reader has to disprove. */
 .sidebar {
   position: relative;
   grid-row: 1 / -1;
@@ -723,7 +662,7 @@ body.native-app .source-tabs {
 .sidebar-resizer {
   position: fixed;
   top: 0;
-  left: calc(var(--rail-width, 36px) + var(--sidebar-width, 264px));
+  left: calc(var(--rail-width, 36px) + var(--sidebar-width, 300px));
   width: 9px;
   height: 100vh;
   margin-left: -5px;
@@ -849,7 +788,11 @@ body.native-app .source-tabs {
 .analysis-status {
   min-width: 0; display: inline-flex; align-items: center; gap: 5px;
   overflow: hidden; white-space: nowrap;
-  font: 10.5px/1.3 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* "Semantic analysis ready" is a sentence about the app, not a literal from the project. It is set in
+     the UI sans like every other sentence in the chrome; the refs and shas that ARE literals keep mono. */
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.3;
 }
 .analysis-status-label { overflow: hidden; text-overflow: ellipsis; }
 .analysis-status-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); opacity: .7; }
@@ -968,24 +911,63 @@ body.native-app .source-tabs {
   border: 1px solid var(--border); border-radius: var(--ui-radius-sm, 0);
 }
 .theme-card:hover { border-color: color-mix(in srgb, var(--active) 55%, var(--border)); }
-.theme-card.is-active { border-color: var(--active); box-shadow: 0 0 0 1px var(--active); }
+/* Chosen and focused have to look like two different things, because in this grid they ARE two different
+   things: the arrow keys move focus without choosing (picking repaints the whole app, so selection
+   deliberately does not follow focus). Both used to be the same accent ring at the same weight, so after
+   arrowing one step the reader could no longer tell which theme was actually applied. Chosen is now a
+   filled surface with a tick; focus keeps the ring, offset so it reads as a separate layer. */
+.theme-card.is-active {
+  border-color: var(--active);
+  background: color-mix(in srgb, var(--active) 16%, transparent);
+  font-weight: 600;
+}
+.theme-card.is-active .theme-card-name::after {
+  content: "✓";
+  margin-left: 6px;
+  color: var(--active);
+  font-weight: 700;
+}
+.theme-card:focus-visible { outline: 2px solid var(--active); outline-offset: 2px; }
 .theme-card-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Each swatch previews the theme it selects: the canvas it paints, with a wedge of that theme's accent.
+/* Each swatch is a small picture of the editor the theme paints: its ground, its accent rail, and two
+   lines of its own syntax colours. As twelve 22px circles of ground-plus-accent-wedge they were not a
+   choice you could make by looking — eight of the twelve are a near-black ground behind a blue accent, so
+   Kakapo Dark, GitHub Dark, Darcula and High Contrast were four indistinguishable dots. The keyword and
+   string colours are what actually differ between these families, so they are what the swatch shows.
    Hardcoded because a theme's variables only exist under its own :root selector — there is no way to read
    another theme's palette without applying it to the live document. Keep in sync with the :root blocks. */
-.theme-swatch { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); }
-.theme-swatch[data-swatch="default-dark"] { background: linear-gradient(135deg, #101318 0 62%, #58a6ff 62%); }
-.theme-swatch[data-swatch="default-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0969da 62%); }
-.theme-swatch[data-swatch="github-dark"] { background: linear-gradient(135deg, #0d1117 0 62%, #58a6ff 62%); }
-.theme-swatch[data-swatch="github-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0969da 62%); }
-.theme-swatch[data-swatch="darcula-dark"] { background: linear-gradient(135deg, #2b2b2b 0 62%, #4a88c7 62%); }
-.theme-swatch[data-swatch="darcula-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #3574f0 62%); }
-.theme-swatch[data-swatch="solarized-dark"] { background: linear-gradient(135deg, #002b36 0 62%, #b58900 62%); }
-.theme-swatch[data-swatch="solarized-light"] { background: linear-gradient(135deg, #fdf6e3 0 62%, #2aa198 62%); }
-.theme-swatch[data-swatch="dracula-dark"] { background: linear-gradient(135deg, #282a36 0 62%, #ff79c6 62%); }
-.theme-swatch[data-swatch="dracula-light"] { background: linear-gradient(135deg, #fffbeb 0 62%, #644ac9 62%); }
-.theme-swatch[data-swatch="contrast-dark"] { background: linear-gradient(135deg, #000000 0 62%, #ffe58a 62%); }
-.theme-swatch[data-swatch="contrast-light"] { background: linear-gradient(135deg, #ffffff 0 62%, #0000d4 62%); }
+.theme-swatch {
+  flex: none;
+  width: 34px;
+  height: 24px;
+  border-radius: var(--ui-radius-xs, 3px);
+  border: 1px solid var(--border);
+  /* Painted back to front: the window's ground is the base, the editor panel sits on it leaving a gutter
+     strip, the accent rails the left edge, and two lines of code lie on the panel. The panel is in here
+     because for two of the light themes it is the ONLY thing that differs — Kakapo Light and GitHub Light
+     share an accent, a keyword and a string colour, and a swatch that left the panel out drew them twice. */
+  background-color: var(--sw-ground);
+  background-image:
+    linear-gradient(var(--sw-keyword), var(--sw-keyword)),
+    linear-gradient(var(--sw-string), var(--sw-string)),
+    linear-gradient(var(--sw-panel), var(--sw-panel)),
+    linear-gradient(var(--sw-accent), var(--sw-accent));
+  background-repeat: no-repeat;
+  background-size: 15px 2px, 10px 2px, calc(100% - 11px) 100%, 3px 100%;
+  background-position: 14px 8px, 14px 14px, 11px 0, 0 0;
+}
+.theme-swatch[data-swatch="default-dark"] { --sw-ground: #101318; --sw-panel: #171b21; --sw-accent: #58a6ff; --sw-keyword: #ff9a56; --sw-string: #8ccf7e; }
+.theme-swatch[data-swatch="default-light"] { --sw-ground: #ffffff; --sw-panel: #f6f8fa; --sw-accent: #0969da; --sw-keyword: #cf222e; --sw-string: #0a3069; }
+.theme-swatch[data-swatch="github-dark"] { --sw-ground: #0d1117; --sw-panel: #0d1117; --sw-accent: #58a6ff; --sw-keyword: #ff7b72; --sw-string: #a5d6ff; }
+.theme-swatch[data-swatch="github-light"] { --sw-ground: #ffffff; --sw-panel: #ffffff; --sw-accent: #0969da; --sw-keyword: #cf222e; --sw-string: #0a3069; }
+.theme-swatch[data-swatch="darcula-dark"] { --sw-ground: #2b2b2b; --sw-panel: #313335; --sw-accent: #4a88c7; --sw-keyword: #d58d52; --sw-string: #89a678; }
+.theme-swatch[data-swatch="darcula-light"] { --sw-ground: #ffffff; --sw-panel: #f7f8fa; --sw-accent: #3574f0; --sw-keyword: #0033b3; --sw-string: #067d17; }
+.theme-swatch[data-swatch="solarized-dark"] { --sw-ground: #002b36; --sw-panel: #002b36; --sw-accent: #268bd2; --sw-keyword: #859900; --sw-string: #2aa198; }
+.theme-swatch[data-swatch="solarized-light"] { --sw-ground: #fdf6e3; --sw-panel: #fdf6e3; --sw-accent: #2074af; --sw-keyword: #667500; --sw-string: #1f7972; }
+.theme-swatch[data-swatch="dracula-dark"] { --sw-ground: #282a36; --sw-panel: #282a36; --sw-accent: #bd93f9; --sw-keyword: #ff79c6; --sw-string: #f1fa8c; }
+.theme-swatch[data-swatch="dracula-light"] { --sw-ground: #fffbeb; --sw-panel: #fffbeb; --sw-accent: #644ac9; --sw-keyword: #a3144d; --sw-string: #846e15; }
+.theme-swatch[data-swatch="contrast-dark"] { --sw-ground: #000000; --sw-panel: #000000; --sw-accent: #4fc3f7; --sw-keyword: #6ab7ff; --sw-string: #ffb38a; }
+.theme-swatch[data-swatch="contrast-light"] { --sw-ground: #ffffff; --sw-panel: #ffffff; --sw-accent: #0f4a85; --sw-keyword: #0000d4; --sw-string: #96000f; }
 
 /* The shortcuts reference is now its own category, so drop the divider/offset it carried as a General sub-block. */
 .settings-section[data-cat="shortcuts"] .app-info-keys { margin-top: 0; border-top: 0; padding-top: 0; }
@@ -1131,25 +1113,48 @@ body.native-app .source-tabs {
 .patchset-num {
   flex: none; min-width: 22px; height: 22px; padding: 0 5px; box-sizing: border-box;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--muted);
+  border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--chrome-muted);
   font: 600 11.5px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; cursor: pointer;
 }
 .patchset-num.patchset-num-wide { min-width: 0; padding: 0 8px; font-family: inherit; font-size: 10.5px; }
 .patchset-num:hover { border-color: var(--active); color: var(--text); }
+/* The one piece of state this bar exists to communicate, and it was the least legible thing in it: the
+   accent as 10.5px text measured 3.75:1 in light. --active ranges from #0f4a85 to #bd93f9 across the
+   twelve themes, so nothing legible sits on all of them — the accent carries the border and the fill, and
+   the figure itself takes the chrome text colour, which is guarded against this ground in every theme. */
 .patchset-num.active {
-  color: var(--active); border-color: var(--active);
+  color: var(--chrome-text); border-color: var(--active);
   background: color-mix(in srgb, var(--active) 16%, transparent);
 }
-.patchset-kind { flex: none; color: var(--muted); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }
-
-.patchset-gap {
-  color: var(--muted); font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace;
-  padding: 0 2px; align-self: center; user-select: none;
+/* Sits in the gap the two groups already left between them, and gives way first: the numbers are the
+   controls, this is what they currently mean. */
+.patchset-summary {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: center;
+  padding: 0 10px;
+  color: var(--chrome-muted);
+  font-size: 11px;
 }
+.patchset-kind { flex: none; color: var(--chrome-muted); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* It is a button now — it stops hiding the folded sets rather than guessing which one you meant — so it
+   looks like one it is safe to press, and says how many it is holding. */
+.patchset-gap {
+  flex: none; height: 22px; padding: 0 6px; box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px dashed var(--border); border-radius: 6px; background: transparent;
+  color: var(--chrome-muted); font: 600 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  cursor: pointer; align-self: center; user-select: none;
+}
+.patchset-gap:hover { border-color: var(--active); color: var(--chrome-text); border-style: solid; }
+/* Unfolded, a long branch is a long row: it scrolls sideways rather than wrapping the toolbar into
+   several lines and pushing the diff down. */
+.patchset-nums.is-expanded { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
 .patchset-reset {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 6px;
-  color: var(--muted); background: var(--panel); cursor: pointer;
+  color: var(--chrome-muted); background: var(--panel); cursor: pointer;
 }
 .patchset-reset:hover { border-color: var(--active); color: var(--text); }
 .patchset-reset.hidden { display: none; }
@@ -1448,8 +1453,12 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-code-line-ctn .hljs-regexp,
 .d2h-code-line-ctn .hljs-char.escape_ { color: var(--token-string); }
 .d2h-code-line-ctn .hljs-number { color: var(--token-number); }
+/* Comments are not italic. In a well-commented file the comment IS most of the screen — whole paragraphs
+   of it — and synthesised oblique monospace at 12px is the least legible text in the window. The comment
+   colour already separates it from code, which is the whole job italic was doing. Short emphasis spans
+   (hljs-emphasis, doctag) keep theirs: those are a few words, not a wall. */
 .d2h-code-line-ctn .hljs-comment,
-.d2h-code-line-ctn .hljs-quote { color: var(--token-comment); font-style: italic; }
+.d2h-code-line-ctn .hljs-quote { color: var(--token-comment); font-style: normal; }
 .d2h-code-line-ctn .hljs-meta,
 .d2h-code-line-ctn .hljs-doctag { color: var(--token-decorator); font-style: italic; }
 .d2h-code-line-ctn .hljs-title,
@@ -1518,17 +1527,33 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-file-wrapper.df-inactive { display: none; }
 .d2h-del { background: var(--del); }
 .d2h-ins { background: var(--add); }
-.d2h-del .d2h-change { background: var(--del-strong); }
-.d2h-ins .d2h-change { background: var(--add-strong); }
+/* The word-level mark is an UNDERLINE, not a fill. A fill was the one thing it could not be: it becomes
+   the ground underneath the very characters it is pointing at, and the syntax palette is tuned against
+   --panel, which a changed line never has. Swept across the twelve themes, a token on one of the strong
+   fills bottomed out at 2.07:1 — the changed word was the least readable text on the screen, and 98 of
+   120 token/ground pairs were under the AA floor on --diff-modified-strong alone.
+   Underlined, the glyphs keep the row's own fill, so their contrast is whatever it is on that fill and
+   nothing more is at stake. The mark itself is non-text, so it answers to 3:1, which it clears at
+   70% --text over the row's change hue: worst measured 3.40:1 (light Solarized, modified). Keeping 30%
+   of the hue is what lets a theme still tint its own marks; --text is what carries them over the bar.
+   A box was the first attempt and it caged the code: diff2html splits a wholly new line into eight or
+   more adjacent <ins> runs, so every token got its own rectangle. An underline is the one edge that
+   MERGES across adjacent runs — a rewritten line reads as one rule, a two-word edit as two words.
+   `--word-mark` is set per row below, so this stays one rule instead of one per change kind.
+   Two rules scoped to `.d2h-del .d2h-change` went with the fills, and they had never painted anything:
+   diff2html puts both classes on the SAME cell, so a descendant selector matches nothing. Checked against
+   the running app before deleting — 0 elements, against 28 real `ins`/`del` marks on the same screen. */
 .d2h-code-line-ctn ins, .d2h-code-line-ctn del {
   text-decoration: none;
-  border-radius: 0;
   padding: 0 1px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+  background: none;
+  border-radius: 0;
+  box-shadow: inset 0 -2px 0 0 color-mix(in srgb, var(--text) 70%, var(--word-mark, var(--border)));
 }
-.d2h-code-line-ctn ins { background: var(--add-strong); }
-.d2h-code-line-ctn del { background: var(--del-strong); }
+.d2h-del { --word-mark: var(--del-strong); }
+.d2h-ins { --word-mark: var(--add-strong); }
 .d2h-code-side-linenumber.d2h-del, .d2h-code-linenumber.d2h-del { background: var(--del); }
 .d2h-code-side-linenumber.d2h-ins, .d2h-code-linenumber.d2h-ins { background: var(--add); }
 /* Paired IntelliJ-style change bands. The semantic class is applied to BOTH aligned rows, including the
@@ -1583,10 +1608,12 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .mc-diff-connector-deleted { fill: color-mix(in srgb, var(--diff-deleted) 82%, transparent); }
 .mc-diff-blame-visible .mc-diff-connectors,
 .mc-diff-blame-loading .mc-diff-connectors { display: none; }
-.d2h-diff-table tr.mc-diff-modified .d2h-code-line-ctn ins,
-.d2h-diff-table tr.mc-diff-modified .d2h-code-line-ctn del { background-color: var(--diff-modified-strong); }
-.d2h-diff-table tr.mc-diff-deleted .d2h-code-line-ctn del { background-color: var(--diff-deleted-strong); }
-.d2h-diff-table tr.mc-diff-added .d2h-code-line-ctn ins { background-color: var(--diff-added-strong); }
+/* The paired view's own change kinds, feeding the same single mark rule above. These are set on the row
+   while .d2h-ins/.d2h-del sit on the cell, so in the paired view the cell's kind is the one that wins —
+   which is the more specific statement about that cell anyway. */
+.d2h-diff-table tr.mc-diff-modified { --word-mark: var(--diff-modified-strong); }
+.d2h-diff-table tr.mc-diff-deleted { --word-mark: var(--diff-deleted-strong); }
+.d2h-diff-table tr.mc-diff-added { --word-mark: var(--diff-added-strong); }
 .d2h-diff-table tr.mc-diff-change > td { border-color: transparent; }
 .d2h-file-side-diff:first-child tr.mc-active-hunk > td.d2h-code-side-linenumber {
   color: var(--text);
@@ -1601,7 +1628,41 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-file-side-diff:last-of-type tr.diff-active-row td.d2h-code-side-linenumber { box-shadow: none; color: var(--text); }
 .review-status .ws-ignored { color: var(--token-tag); border: 1px solid color-mix(in srgb, var(--token-tag) 45%, transparent); border-radius: 0; padding: 0 7px; }
 .d2h-file-collapse { display: none !important; }
-.tree { display: grid; gap: 1px; font-size: 11.5px; font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+/* The tree is chrome, not code, so it is set in the UI sans like every other label in the window. It used
+   to be 11.5px Monaco, which cost it twice: it read as a different typographic system from the pane headers
+   and the toolbar beside it, and a fixed 6.9px advance per character truncated nine of seventeen names at
+   the default width. Proportional type at a larger size fits more of the name in less room. */
+.tree {
+  display: grid;
+  gap: 1px;
+  font-size: 12.5px;
+  font-family: inherit;
+  /* One step per nesting level, spelled once. At 14px a file three levels down started past a third of the
+     panel; 11px still reads as a level and gives those characters back to the name. */
+  --tree-indent: 11px;
+}
+.tree .path { font-size: inherit; }
+/* Only a LEAF name is split into two boxes, so only a leaf row becomes a flex container. A directory's
+   .path holds plain text, and making that a flex item too took its text-overflow away — the ellipsis
+   belongs to the box the text is in, and an anonymous flex item is not that box — so folder names went
+   from eliding to clipping mid-glyph while file names beside them elided. */
+.tree .path:has(> .path-head) { display: flex; min-width: 0; }
+/* Only the base name gives way. The extension is the row's type signal — the icon beside it distinguishes
+   code from data and no more — so it is never what gets cut. See leafNameHtml() in render-tree.ts.
+   The floor matters as much as the rule: with the extension simply refusing to shrink, a narrow enough
+   panel spent the whole column on it and left `….js` — no name at all, and on the active row not even a
+   whole extension. Below the floor the extension gives way too, because a few letters of the name beat a
+   file type you already have an icon for. */
+.tree .path-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* The guarantee is a CAP on the extension, not a floor under the name. A floor was the obvious shape and
+   both spellings of it were wrong: a flat `min-width: 4ch` on the name STRETCHED short ones, so `cli`
+   padded out and read as `cli  .ts`; `min(4ch, max-content)` would have said it exactly, but intrinsic
+   keywords are not allowed inside min(), so the whole declaration was dropped and the floor silently
+   became zero. A cap only ever takes width away, never adds it — the extension can have at most half the
+   column, so the name always keeps the other half, and a short name is untouched because it never
+   reaches the cap. Below that the extension gives way too: a few letters of the name beat a file type
+   the icon already carries. */
+.tree .path-tail { flex: 0 1 auto; min-width: 0; max-width: 50%; overflow: hidden; white-space: nowrap; }
 .tree-dir { display: grid; gap: 1px; }
 .tree-dir summary {
   display: grid;
@@ -1609,7 +1670,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   align-items: center;
   gap: 4px;
   min-height: 18px;
-  padding: 1px 5px 1px calc(7px + (var(--depth) * 14px));
+  padding: 1px 5px 1px calc(7px + (var(--depth) * var(--tree-indent)));
   cursor: default;
   list-style: none;
 }
@@ -1625,7 +1686,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .tree-dir > summary .fi-open { display: none; }
 .tree-dir[open] > summary .fi-closed { display: none; }
 .tree-dir[open] > summary .fi-open { display: block; }
-.file-link.tree-file { padding-left: calc(8px + (var(--depth) * 14px)); }
+.file-link.tree-file { padding-left: calc(8px + (var(--depth) * var(--tree-indent))); }
 /* Arrow-key focus in the tree (changes/files) matches the active-file highlight, so navigating the file tree
    reads the same as the diff-side selection. The fill and border are one shared rule with every other
    selection surface — see "selection is one complete neutral surface" in the chrome section below. */
@@ -1785,8 +1846,23 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   height: 5px;
   border-radius: 50%;
 }
+/* Shape, not only hue. --diag-error and --diag-warning measure 1.28:1 AGAINST EACH OTHER — each is legible
+   on the code behind it, but telling the two apart was the thing they could not do, and they were two
+   identical 5px discs and two identical wavy underlines. For a protan or deutan reader severity was not
+   encoded anywhere on this surface (WCAG 1.4.1). An error keeps the disc; a warning is a triangle, which is
+   also what every editor and road sign already uses for one. The tooltip now says which it is in words, so
+   the message carries it too. */
 .source-row.diag-error > .num::before { background: var(--diag-error); }
-.source-row.diag-warning > .num::before { background: var(--diag-warning); }
+.source-row.diag-warning > .num::before {
+  background: transparent;
+  border-radius: 0;
+  width: 0;
+  height: 0;
+  /* A triangle drawn with borders: the mark sits in a 5px box either way, so the two line up in the gutter. */
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-bottom: 5px solid var(--diag-warning);
+}
 /* Dwell tooltip shown ~1s after the pointer rests on a problem line. Fixed-positioned near the cursor. */
 .diag-tooltip {
   position: fixed;
@@ -1859,16 +1935,27 @@ h1 { margin: 0; font-size: 18px; }
 /* +30 -46 beside the path, for the one file the toolbar names. Built only from variables every theme block
    already defines, so it needs no per-theme override — the thing viewer.css keeps having to be reminded of. */
 .crumb-stat { margin-left: 10px; display: inline-flex; gap: 7px; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
-.crumb-stat-add { color: var(--add-strong); font-weight: 600; }
+/* The same figure as the tree row's, and it had the same bug: --add-strong and --del-strong are the fills
+   the diff paints behind a changed line, and as 11px text they measured 2.09:1 / 1.65:1 dark and
+   1.14:1 / 1.36:1 light. This one sits in the header of every file you open, in both views. Weight is what
+   separates it from the path beside it; the sign says which direction. */
+.crumb-stat-add,
+.crumb-stat-del { color: inherit; font-weight: 600; }
 /* Change magnitude on the sidebar row. Right-aligned and tabular so the numbers form a column the eye can
    run down — the question it answers ("which of these is the big one") is asked of the whole list at once,
    not of one row. Dimmer than the filename: it qualifies the row, it is not what you are looking for. */
 .change-row .change-stat { margin-left: auto; padding-left: 8px; display: inline-flex; gap: 5px; flex: none;
   font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; opacity: 0.75; }
-.change-row .change-stat-add { color: var(--add-strong); }
-.change-row .change-stat-del { color: var(--del-strong); }
+/* The sign carries the direction; the colour did not carry anything. --add-strong and --del-strong are the
+   fills the DIFF paints behind a changed line, and as text on the chrome ground they were unreadable in
+   every theme measured: 2.09:1 for the addition on a resting dark row, 1.08:1 for the deletion on the
+   active one, and 1.02:1 in light. There is no chrome-weight red in the token set to swap in — the twelve
+   --chrome-vcs-* triples carry green and blue but no removal colour — and inventing one in twelve theme
+   blocks buys a hue for a figure the rule right above this one deliberately keeps quiet. So the magnitude
+   is chrome text, and + and − say which is which. */
+.change-row .change-stat-add,
+.change-row .change-stat-del { color: inherit; }
 .change-row.active .change-stat, .change-row:hover .change-stat { opacity: 1; }
-.crumb-stat-del { color: var(--del-strong); font-weight: 600; }
 .crumb-sep { opacity: 0.55; }
 /* While the review is pointed at commits, the breadcrumb leads with the one it is showing. Its own accent —
    not one of the pill's three — because this is the state the pill's rule did not cover: those three colour
@@ -1918,7 +2005,13 @@ h1 { margin: 0; font-size: 18px; }
   font-size: 11px;
   white-space: nowrap;
 }
-.compare-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+/* The dot carries the state, not the label. The three accents below were written as `color`, which
+   `button.compare-pill` has always outranked, so the scheme has never rendered in the app — and reviving
+   it as text would put --add-strong (a diff fill) and --active (which ranges from #0f4a85 to #bd93f9
+   across the twelve themes) into 11px type, which is the contrast this branch spent its time undoing.
+   A 6px dot is a non-text indicator with a 3:1 floor instead of 4.5, and it is the part of the pill that
+   was already shaped to mean "state". The label stays chrome text. */
+.compare-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--compare-state, currentColor); flex: none; }
 .compare-name { font-weight: 600; }
 .compare-count { font-weight: 600; font-variant-numeric: tabular-nums; }
 .compare-refs {
@@ -1932,20 +2025,35 @@ h1 { margin: 0; font-size: 18px; }
   min-width: 0;
 }
 .compare-ref { color: var(--text); overflow: hidden; text-overflow: ellipsis; max-width: 16ch; }
-.compare-arrow { opacity: 0.7; }
+/* The arrow is not decoration: it is the glyph that says which of the two refs is the base and which is
+   the target. At --muted knocked down to 70% it measured 2.88:1 dark and 2.08:1 light against the pill's
+   own fill — the least legible ink in a control whose whole job is answering "what am I looking at".
+   It joins two .compare-ref spans, so it takes their colour. */
+.compare-arrow { color: var(--text); opacity: 0.85; }
 /* Three accents, not five: the states the app CHOSE for you carry colour, and the two you asked for by name
    (--staged, an explicit base/target) stay neutral — you already know what you picked. */
-.compare-local { color: var(--add-strong); }
-.compare-ahead { color: var(--diag-warning); }
-.compare-incoming { color: var(--active); }
-.compare-staged { color: var(--muted); }
+.compare-local { --compare-state: var(--chrome-vcs-staged); }
+.compare-ahead { --compare-state: var(--diag-warning); }
+.compare-incoming { --compare-state: var(--active); }
+/* --staged and an explicit base/target are the two you asked for by name: you already know what you
+   picked, so they stay neutral. That half of the rule above always worked — it asks for nothing. */
 
 /* ===== Compare dropdown ==========================================================================
    The pill is a button in the app, so it needs the button reset the toolbar's other controls get, plus a
    hover that says it opens something. In a static export it is still a <span> and none of this applies. */
 button.compare-pill {
   border: 1px solid transparent;
-  color: inherit;
+  /* Was `inherit`, which took the toolbar's muted grey and put the pill at 3.55:1 in light — below the
+     floor for an 11px label that answers "what am I even looking at". --chrome-text is guarded against the
+     chrome ground in every theme (token-contrast), and the pill's fill and dot are color-mixes of
+     currentColor, so they follow it.
+     NOTE: this rule is also what has been overriding .compare-local / .compare-ahead / .compare-incoming
+     all along — `button.compare-pill` outranks a bare class, so the "three accents, not five" scheme
+     documented above them has never rendered in the app, only in the static export where the pill is a
+     <span>. Left as it is rather than quietly reviving three colours that change what the pill says;
+     reviving them needs text-weight tokens, and --add-strong (what .compare-local asks for) is a diff
+     FILL, so it would land at the contrast it was just rescued from. */
+  color: var(--chrome-text);
   font-family: inherit;
   cursor: pointer;
 }
@@ -2087,7 +2195,11 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
    width. (Selectors are spelled out nowhere in this comment on purpose — the CSS guards in css-guards.test
    find a rule by scanning for its selector text, and a comment naming one is indistinguishable from it.) */
 .empty { padding: 24px; color: var(--muted); }
-#diff2html-container > .empty { margin: auto; text-align: center; }
+#diff2html-container > .empty { margin: auto; text-align: center; max-width: 42ch; }
+/* A state and the way out of it, in that order of weight: the sentence that names the state keeps the
+   body colour, the one that says what to do next is quieter and sits under it. */
+.empty .empty-title { margin: 0; color: var(--text); font-size: 13px; }
+.empty .empty-hint { margin: 6px 0 0; font-size: 12px; line-height: 1.5; }
 .source-viewer { min-height: 0; } /* grid sizes this; a 100vh min would overflow the content row */
 .source-toolbar { flex: none; margin-bottom: 0; padding: 4px 12px; } /* flex:none (don't shrink, same crush as the tabs); compact: the file-meta row needs far less height than the diff toolbar */
 .source-file-meta {
@@ -2098,7 +2210,13 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
   min-width: 0;
   font-size: 12px;
 }
+/* The source header prints the same crumb/crumb-sep markup as the diff breadcrumb but is not .breadcrumb,
+   so it never got that rule's 5px gap and the path came out jammed: `src\u203Aviewer\u203A07-comments.js` here
+   against `src \u203A viewer \u203A 07-comments.js` one view away. Same markup, one window, one spacing. */
 .source-file-meta #source-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   min-width: 0;
   max-width: min(56vw, 720px);
   overflow: hidden;
@@ -2375,10 +2493,20 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
   word-break: normal;
 }
 .source-body.line-wrap:not(.rendered-body) .source-table { table-layout: fixed; }
+/* A measure for wrapped code. Without a cap a wrapped line simply took the window: on a wide display a
+   single statement ran past 200 characters edge to edge, and the return sweep to the next line lost the
+   indentation that tells you where you are. 128 columns is well past what this (or any) project writes to,
+   so the cap only ever catches the runaway line, and max() leaves a narrow window alone.
+   The cap is PADDING on the cell, not a width on the table. Capping the table first did shorten the lines,
+   but it also shortened the rows: the strip of empty canvas to their right stopped belonging to any line,
+   and clicking there to put the caret at the end of a line — or to open a composer — did nothing, which it
+   had done a moment earlier with wrap off. Padding moves the wrap point and leaves the row full width, so
+   the whole canvas still answers to the line it is on. */
 .source-body.line-wrap:not(.rendered-body) .source-row > .source-code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
+  padding-right: max(10px, calc(100% - var(--source-gutter-width) - 128ch));
 }
 /* perf: let the browser skip layout/paint for off-screen rows in large files/diffs.
    DOM is unchanged (nav, search, comment anchoring still query every row); degrades
@@ -2538,7 +2666,11 @@ body.cmd-link-active .source-code { cursor: pointer; }
   background: color-mix(in srgb, var(--active) 20%, var(--panel));
 }
 /* Review comments (questions / change-requests) — per-file sidebar count badges (no emoji) */
-.change-row { grid-template-columns: auto auto minmax(0, 1fr) auto; }
+/* viewed box · type icon · name · +/− magnitude · comment count. The count was missing from this list, and
+   a grid row does not overflow sideways — it wraps. So the moment a file HAD a comment its row grew to two
+   lines and the count sat alone under the checkbox, forty pixels tall in a list of nineteens. It survived
+   because the other four fit, and a review starts with no comments on anything. */
+.change-row { grid-template-columns: auto auto minmax(0, 1fr) auto auto; }
 .source-link { grid-template-columns: auto minmax(0, 1fr) auto; }
 /* The type glyphs are drawn INSET in their box — the code icon's ink runs 3..13 of 16 — so the same column gap
    that sits snugly under a folder name reads far wider under a file name: measured 8.8px of whitespace on a
@@ -2600,6 +2732,8 @@ body.cmd-link-active .source-code { cursor: pointer; }
   width: min(760px, calc(100cqw - 74px));
   max-width: calc(100cqw - 74px);
 }
+/* Centred in the hand-off panel: whatever room is left over is margin on both sides, not a gap on one. */
+.mc-merged-card { margin-left: auto; margin-right: auto; }
 .mc-card {
   border: 1px solid var(--border); background: var(--panel); margin: 8px 0; max-width: 760px;
   font: 12px/1.5 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -2609,7 +2743,13 @@ body.cmd-link-active .source-code { cursor: pointer; }
 /* Question vs change-request is a small monochrome pill: an icon (help-circle / pencil) carries the
    distinction — no color, no heavy left bar. */
 .mc-card-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 6px; color: var(--muted); }
-.mc-target { margin-left: auto; font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62%; }
+/* The push to the right edge belongs to the KIND pill, not to the anchor label. It used to sit on
+   .mc-target, which only exists when there is a target to name — so in the source view, where there is
+   none, the delete × collapsed back against the badge and the first control under the reader's eye was
+   the one that throws the comment away. Pushing from the badge puts the trailing group at the right edge
+   whether or not the anchor is there. */
+.mc-kind { margin-right: auto; }
+.mc-target { font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62%; }
 /* While composing a comment, the textarea owns the only caret — hide the file's inline caret and the
    cursor-row highlights (diff box-shadow + markdown/csv row tint) so attention stays on the composer. */
 body.mc-composing .code-cursor { display: none; }
@@ -2688,7 +2828,15 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 }
 .mc-path-ell:hover { color: var(--active); }
 .mc-path-ell:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; }
-.mc-card-body { padding: 2px 12px 11px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* A review comment is the reviewer's own prose, so it is set in the UI sans — the card inherited the code
+   font from the diff table it is injected into. That cost it twice: prose in a 12px fixed advance reads
+   slower than the code it is about, and Monaco carries no Hangul, so a Korean comment fell through to a
+   per-glyph fallback with a baseline that did not match the Latin around it. */
+.mc-card-body {
+  padding: 2px 12px 11px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12.5px; line-height: 1.55;
+}
 /* An agent-written explanation or answer (23-annotations.js) is a comment the agent left, so it wears the
    same card shell. What it does NOT share is the background: in a thread that alternates reviewer → agent →
    reviewer, identical boxes made you read the kind pill on every one just to tell whose turn you were
@@ -2771,9 +2919,13 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 }
 .semantic-peek.hidden { display: none; }
 .semantic-peek-header { flex: none; display: flex; align-items: center; min-height: 36px; padding: 5px 9px 5px 10px; border-bottom: 1px solid var(--border); }
-.semantic-peek-heading { min-width: 0; flex: 1; }
-.semantic-peek-title { display: inline; color: var(--text); font-size: 11.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.semantic-peek-meta { display: inline; margin-left: 8px; font: 10px/1.35 Monaco, ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The two lines stack. They were display:inline with text-overflow set on each, which does nothing on an
+   inline box — a long symbol name plus a long server name clipped mid-glyph instead of eliding, inside a
+   panel that is overflow:hidden. Blocks in a column elide, and the symbol stops sharing its line with the
+   engine's name. */
+.semantic-peek-heading { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.semantic-peek-title { display: block; color: var(--text); font-size: 11.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.semantic-peek-meta { display: block; margin-left: 0; font: 10px/1.35 Monaco, ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .semantic-peek-results {
   flex: 1 1 auto;
   min-height: 0;
@@ -2789,7 +2941,9 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .semantic-peek-item-path, .semantic-peek-item-code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .semantic-peek-item-path { color: var(--chrome-text); font: 11px/1.4 Monaco, ui-monospace, monospace; }
 .semantic-peek-item-line { color: var(--muted); text-align: right; font: 11px/1.4 Monaco, ui-monospace, monospace; font-variant-numeric: tabular-nums; }
-.semantic-peek-item-code { color: var(--muted); font: 10.5px/1.4 Monaco, ui-monospace, monospace; }
+/* The row's actual content, and it was on the code-muted token while sitting on a chrome ground: 4.25:1
+   in light. --chrome-muted is the one tuned for this ground, and token-contrast guards it. */
+.semantic-peek-item-code { color: var(--chrome-muted); font: 10.5px/1.4 Monaco, ui-monospace, monospace; }
 .semantic-peek-list-hint {
   position: sticky; bottom: 0; padding: 5px 9px; color: var(--muted); background: var(--elevated);
   border-top: 1px solid var(--border); font: 10px/1.35 Monaco, ui-monospace, monospace;
@@ -2808,6 +2962,21 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    top-left edge, crosses the macOS traffic lights, and stays put for the whole session (it is focus, not the
    timed arrival flash). The active commit row is the real selection cue, so drop the container's own outline. */
 .history-view:focus { outline: none; }
+/* Shown when the filter matches nothing. Laid over the body (which is position:relative) rather than
+   placed beside the list: the body is a flex row and the list keeps its width even with no rows in it, so
+   a sibling would have been squeezed to the edge instead of answering where the rows would have been. */
+.history-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--chrome-muted);
+  font-size: 13px;
+  text-align: center;
+}
+.history-empty.hidden { display: none; }
 .history-bar { flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
 .history-title { font-weight: 650; font-size: 13px; letter-spacing: 0.02em; }
 .history-scope { min-width: 0; max-width: min(42vw, 620px); overflow: hidden; color: var(--muted); font: 11px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
@@ -2833,19 +3002,6 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .hrow { -webkit-user-select: none; user-select: none; } /* double-click activates, never selects row text */
 .history-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; overflow: hidden; }
 .history-list { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 4px 0; }
-body.native-app .history-bar {
-  /* Pin the bar to exactly the title-bar height so its bottom border lines up with the activity rail's
-     title-strip divider (::before at --native-titlebar-height - 1). The default 8px top/bottom padding made
-     it 45px tall, leaving a 5px step at the rail/panel seam. The search input stays vertically centered. */
-  height: var(--native-titlebar-height);
-  min-height: var(--native-titlebar-height);
-  padding-top: 0;
-  padding-bottom: 0;
-  padding-left: var(--native-title-safe-after-rail);
-  -webkit-app-region: drag;
-}
-body.native-app .history-bar input,
-body.native-app .history-bar button { -webkit-app-region: no-drag; }
 /* Fixed-height rows let the per-row SVGs tile as one continuous graph without a scroll-time overlay. */
 .hrow { display: grid; grid-template-columns: var(--hgraph-w, 62px) minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; height: 26px; padding: 0 12px 0 0; border: 0; background: transparent; text-align: left; cursor: pointer; font-size: 12.5px; }
 /* Shift-select compare range: commits between the two endpoints get a subtle band; the endpoints a bar. */
@@ -2899,7 +3055,9 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 .mc-caret-hint.show { opacity: 1; transform: translateY(0); }
 /* Merged prompts render as several small editable prose regions (agent-contract text) interleaved with
    read-only comment cards — not one continuous editable document (see openMergedView in 08-dock.js). */
-.mc-merged-body { flex: 1 1 auto; min-width: 0; min-height: 0; height: 100%; overflow: auto; }
+/* height:auto, not 100%: the panel now takes its height from this, so filling the panel from here would
+   be circular and would reinstate the empty box it was sized to avoid. It still scrolls at the ceiling. */
+.mc-merged-body { flex: 1 1 auto; min-width: 0; min-height: 0; height: auto; overflow: auto; }
 /* .mc-inline-editor-host's own base rule (below) sets min-height: 100% for the memo's single full-page
    editor, which forces this host to the full panel height even once its actual (much shorter) content
    fits comfortably — the "extra" space is invisible until scrollIntoView/arrow navigation scrolls down far
@@ -2953,9 +3111,17 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
 /* ===== Merged-prompt & memo: a focused FLOATING writing surface.
    Cmd/Ctrl+Shift+' maximizes the active panel to full screen. =====
    (These used to dock below the editor; they now float so a big writing surface doesn't shrink the diff.) */
+/* The panel is as tall as what is in it, up to 90vh. Pinned top:5vh/bottom:5vh it was always nine tenths
+   of the window: two comments sat in a 1080px box and spent 85% of it on nothing, which reads as "is that
+   all of them?" rather than "that is all of them". */
 .dock-panel {
-  position: fixed; top: 5vh; bottom: 5vh; left: 50%;
-  width: min(1048px, calc(100vw - 48px)); transform: translateX(-50%);
+  position: fixed; top: 50%; left: 50%;
+  max-height: 90vh;
+  /* Sized to what it holds. The cards cap at 760px (.mc-card, a measure the in-diff card sets and this one
+     inherits), so 1048 left a band of panel that could never hold anything — and because the cards are
+     laid out from the left, all of it on one side: 60px to their left and 229px to their right, which
+     reads as something having gone wrong rather than as margin. */
+  width: min(880px, calc(100vw - 48px)); transform: translate(-50%, -50%);
   /* Must outrank History/Explain (z-index: 75, full-view overlays) — Cmd+Shift+/ can open the merged dock
      while either is showing, and it must land on top, not silently render underneath. Stays below the
      settings modal (80). */
@@ -2970,18 +3136,32 @@ body.native-app .history-bar button { -webkit-app-region: no-drag; }
    keyframe keeps the base translateX(-50%) centering; the heavy editor mounts a frame later (see openMergedView)
    so it never blocks this animation. */
 @keyframes dock-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.985); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  from { opacity: 0; transform: translate(-50%, -50%) translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: translate(-50%, -50%) translateY(0) scale(1); }
 }
 @keyframes dock-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
 body:not(.dock-maximized) .dock-panel { animation: dock-in 165ms cubic-bezier(.2, .8, .2, 1); will-change: transform, opacity; }
 @media (prefers-reduced-motion: reduce) { .dock-panel, .dock-backdrop { animation: none; } }
-.dock-resizer { display: none; } /* a centered ~90% floating panel has no bottom edge to drag */
 .dock-bar {
   flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-weight: 650; font-size: 12px;
 }
 .dock-title { margin-right: auto; letter-spacing: 0.02em; }
 .dock-btn { border: 0; background: transparent; cursor: pointer; padding: 2px 7px; font: inherit; font-weight: 500; }
+/* Handing the review back to the agent is what this panel is FOR, and that button was a .dock-btn — the
+   same bare label as Close beside it, so the one action worth taking looked like the one that throws the
+   panel away. It is a surface now. The label keeps --chrome-text (guarded against the chrome ground in
+   every theme) and the accent arrives as a tint and a border, because --active ranges from #0f4a85 to
+   #bd93f9 across the twelve themes and nothing legible sits on all of those. */
+.dock-bar .mc-copy-all { border-radius: var(--ui-radius-sm, 6px); padding: 3px 11px; }
+.dock-bar .mc-copy-all:not(:disabled) {
+  color: var(--chrome-text);
+  font-weight: 650;
+  background: color-mix(in srgb, var(--active) 20%, var(--chrome-panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--active) 70%, transparent);
+}
+.dock-bar .mc-copy-all:not(:disabled):hover {
+  background: color-mix(in srgb, var(--active) 32%, var(--chrome-panel));
+}
 .dock-bar button { -webkit-app-region: no-drag; }
 .dock-bar button:not(:disabled) { cursor: pointer; }
 .dock-bar button:disabled { cursor: default; }
@@ -2991,7 +3171,7 @@ body:not(.dock-maximized) .dock-panel { animation: dock-in 165ms cubic-bezier(.2
 .dock-body > .mc-merged-body { flex: 1 1 auto; height: auto; }
 
 /* Maximize the floating merged/memo panel to fill the viewport. */
-body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border-radius: 0; }
+body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; transform: none; border-radius: 0; }
 
 /* Entrance animation: the panel rises + fades in when it un-hides (display:none -> flex restarts the
    animation on every open), and the freshly-appended backdrop fades with it. transform/opacity only, so the
@@ -3000,17 +3180,7 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; transform: none; border
    same 14px/1.5% move is the WHOLE screen jumping, which looks like a flicker rather than a transition. */
 @keyframes terminalPanelIn { from { opacity: 0; } to { opacity: 1; } }
 
-/* A maximized writing panel becomes the window's topmost full-viewport surface. Its title therefore needs
-   the same native-control reservation as History and the collapsed review toolbar. Normal writing panels are
-   already inset from every window edge and deliberately keep their compact bar. */
-body.native-app.dock-maximized .dock-bar {
-  min-height: var(--native-titlebar-height);
-  padding-left: var(--native-title-safe-left);
-  -webkit-app-region: drag;
-}
-body.native-app.dock-maximized .dock-bar button,
-body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-drag; }
-.tok-comment { color: var(--token-comment); font-style: italic; }
+.tok-comment { color: var(--token-comment); font-style: normal; } /* see .hljs-comment: a comment wall is not set in oblique mono */
 .tok-keyword { color: var(--token-keyword); font-weight: 650; }
 .tok-string { color: var(--token-string); }
 .tok-number { color: var(--token-number); }
@@ -3262,13 +3432,6 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .quick-open-empty { padding: 28px 14px; font-size: 13px; }
 @media (max-width: 900px) {
   body { grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr); }
-  body.native-app { padding-top: var(--native-titlebar-height); }
-
-  body.native-app .sidebar { padding-top: 0; }
-  body.native-app .sidebar-scroll { padding-top: 10px; }
-  body.native-app .diff-toolbar,
-  body.native-app .source-tabs,
-  body.native-app .source-toolbar { -webkit-app-region: no-drag; }
 
   .history-view { inset: var(--rail-width) 0 0 0; }
 
@@ -3535,33 +3698,8 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   }
   100% { box-shadow: inset 0 0 transparent; }
 }
-/* The sidebar box begins at y=0 so its background can fill the inset titlebar, but a focus outline there
-   crosses the macOS traffic lights. Draw the keyboard-arrival cue on a contained overlay that starts below
-   the native controls. The activity rail already has focused-button feedback, so it needs no panel outline. */
-body.native-app .sidebar.mc-panel-focus-flash,
-body.native-app .activity-rail.mc-panel-focus-flash {
-  outline: 0;
-  animation: none;
-}
-body.native-app .sidebar.mc-panel-focus-flash::after {
-  content: "";
-  position: absolute;
-  top: var(--native-titlebar-height);
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 3;
-  border: 2px solid transparent;
-  pointer-events: none;
-  animation: mc-sidebar-panel-focus-flash 520ms cubic-bezier(.2, .8, .2, 1) both;
-}
-@keyframes mc-sidebar-panel-focus-flash {
-  0%, 28% { border-color: color-mix(in srgb, var(--active) 82%, transparent); }
-  100% { border-color: transparent; }
-}
 @media (prefers-reduced-motion: reduce) {
-  .mc-panel-focus-flash,
-  body.native-app .sidebar.mc-panel-focus-flash::after { animation-duration: 120ms; }
+  .mc-panel-focus-flash { animation-duration: 120ms; }
 }
 /* Both are the first row of the content pane whenever the tab strip is not there (one open file hides it,
    and the diff view has no tabs at all) — so they carry the header band, and the sidebar's rule crosses the
@@ -3753,7 +3891,14 @@ summary.tree-focus,
 .semantic-peek-results { background: var(--chrome-elevated); }
 .semantic-peek-item { color: var(--chrome-text); border-color: var(--chrome-border); }
 .semantic-peek-item:hover { background: var(--chrome-line); }
-.semantic-peek-item.active { color: var(--chrome-selected-text); background: var(--chrome-selected); }
+/* The selected row's fill measures 1.26:1 against an unselected one — below the 3:1 a non-text indicator
+   needs — so in practice the selection was being carried by the code text going grey to white. An accent
+   rail on the leading edge states it outright, at the one place the eye starts the row. */
+.semantic-peek-item.active {
+  color: var(--chrome-selected-text);
+  background: var(--chrome-selected);
+  box-shadow: inset 2px 0 0 var(--active);
+}
 .semantic-peek-item.active .semantic-peek-item-path,
 .semantic-peek-item.active .semantic-peek-item-line,
 .semantic-peek-item.active .semantic-peek-item-code { color: var(--chrome-selected-text); }
@@ -3850,8 +3995,7 @@ summary.tree-focus,
 .diff-tool-button:active,
 .plain-button:active,
 .dock-btn:active { transform: translateY(0); }
-.source-tabs,
-body.native-app .source-tabs {
+.source-tabs {
   align-items: flex-end;
   gap: 1px;
   /* No left padding: the first tab starts at the pane's left edge, so its left border continues the
@@ -3939,7 +4083,7 @@ body.native-app .source-tabs {
   body:has(.sidebar-resizer.resizing) { transition: none; }
   /* Keep child layout at the remembered width while the grid track clips it closed. Otherwise every file
      row reflows through dozens of intermediate widths and the animation appears to stutter. */
-  .sidebar-brand, .sidebar-scroll { width: var(--sidebar-width, 264px); }
+  .sidebar-brand, .sidebar-scroll { width: var(--sidebar-width, 300px); }
   body.sidebar-collapsed { grid-template-columns: var(--rail-width) 0 minmax(0, 1fr); }
   /* While the workspace rail slides open/closed the shell resizes this whole view every frame. The sidebar's
      children are already width-pinned above, but the diff (content) column is 1fr, so it re-wraps through dozens
@@ -3948,11 +4092,6 @@ body.native-app .source-tabs {
      never reflows. The pinned width equals the settled width in both states, so lifting the pin is seamless.
      Must follow body.sidebar-collapsed so it wins the grid-template-columns when both classes are set. */
   body.rail-pinning { transition: none; grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--rail-pin-content, minmax(0, 1fr)); }
-  body.native-app.sidebar-collapsed .diff-toolbar,
-  body.native-app.sidebar-collapsed .source-tabs,
-  body.native-app.sidebar-collapsed .source-toolbar {
-    padding-left: var(--native-title-safe-after-rail);
-  }
   body.sidebar-collapsed .sidebar {
     opacity: 0;
     transform: translateX(-10px);

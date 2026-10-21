@@ -1010,10 +1010,12 @@ function renderSourceTabs(activePath) {
     var active = p === activePath;
     return '<div class="source-tab' + (active ? ' active' : '') + '" data-tab-path="' + escapeHtml(p) + '" title="' + escapeHtml(p) + '">'
       + '<span class="source-tab-name">' + escapeHtml(sourceTabLabel(p)) + '</span>'
-      + '<button type="button" class="source-tab-close" data-keyhint="⌘W" data-close-path="' + escapeHtml(p) + '" aria-label="Close tab" title="Close (⌘W)">×</button>'
+      + '<button type="button" class="source-tab-close" data-keyhint-id="closeTab" data-close-path="' + escapeHtml(p) + '" aria-label="Close tab" data-i18n-title="tab.close" title="Close">×</button>'
       + '</div>';
   }).join('')
     + '<button type="button" class="source-tab-overflow hidden" aria-haspopup="menu"></button>';
+  // The close buttons name their chord through the table; resolve it as the tabs land.
+  try { applyKeyHints(bar); } catch (e) {}
   observeSourceTabWidth(bar);
   // openSourceFile renders before showSourceView reveals a hidden Files surface. Measure on the next frame,
   // after the final sidebar/window width is available, so maximization and Cmd+1 never use a stale width.

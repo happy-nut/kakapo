@@ -57,6 +57,11 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "sidebarContent", keys: ["Tab", "⇧Tab"], where: "any", i18n: "kbd.sidebarContent", fixed: "structural" },
   { id: "findInFile", keys: ["⌘F"], where: "any", i18n: "kbd.findInFile" },
   { id: "findNextPrev", keys: ["⌘G", "⌘⇧G"], where: "find", i18n: "kbd.findNextPrev" },
+  // The same step, from inside the find box, where Enter is what a search field answers to. It had no row
+  // at all: the two buttons beside the box spelled "↵" and "⇧↵" themselves, which is the one thing this
+  // table exists to stop. Structural — a search field's Enter is a convention of the surface, not a
+  // preference, and the find box reads it directly rather than through a rebind.
+  { id: "findEnter", keys: ["↵", "⇧↵"], where: "find", i18n: "kbd.findEnter", fixed: "structural" },
   { id: "findInFiles", keys: ["⌘⇧F"], where: "any", i18n: "kbd.findInFiles" },
   { id: "recentFiles", keys: ["⌘E"], where: "any", i18n: "kbd.recentFiles" },
   { id: "searchExtensions", keys: ["⌥E"], where: "any", i18n: "kbd.searchExtensions" },
@@ -78,6 +83,10 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "copyLocation", keys: ["⌘K"], where: "code", i18n: "kbd.copyLocation" },
   { id: "pageUpDown", keys: ["PageUp", "PageDown"], where: "code", i18n: "kbd.pageUpDown", fixed: "structural" },
   { id: "expandDiffFold", keys: ["Space"], where: "code", i18n: "kbd.expandDiffFold", fixed: "structural" },
+  // One key, two contexts — like compareMode's ⌥A/⌥U, this is one row because it is one chord: in a .http
+  // file ⌥Enter runs the request, and on a line a language server flagged it drafts the change request that
+  // asks an agent to fix it (05-keymap.js). The second was reachable, documented nowhere, and named by a
+  // label that said only "Run HTTP request" — so the sheet and both READMEs described half of the key.
   { id: "runHttp", keys: ["⌘Enter", "⌥Enter"], where: "code", i18n: "kbd.runHttp" },
   { id: "toggleRendered", keys: ["⌥R"], where: "code", i18n: "kbd.toggleRendered" },
   { id: "toggleLineWrap", keys: ["⌥W"], where: "code", i18n: "kbd.toggleLineWrap" },
@@ -94,6 +103,11 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "editComment", keys: ["e"], where: "merged", i18n: "kbd.editComment", fixed: "structural" },
   { id: "deleteComment", keys: ["Backspace", "Delete"], where: "merged", i18n: "kbd.deleteComment", fixed: "structural" },
   { id: "stepComments", keys: ["⌥↑", "⌥↓"], where: "merged", i18n: "kbd.stepComments", fixed: "structural" },
+  // Was "send to pane" back when the app embedded a terminal. The terminal was removed; the row survived
+  // with nothing answering it, so the sheet advertised a chord that did nothing. Its surviving descendant
+  // is the hand-off — copying the review out and filing it away is how a review leaves kakapo now — so the
+  // chord goes there rather than being deleted. Structural like its merged siblings: the dock's own
+  // keydown owns these, and none of them read a rebind.
   { id: "mergedSend", keys: ["⌥Enter"], where: "merged", i18n: "kbd.mergedSend", fixed: "structural" },
   { id: "maximizePanel", keys: ["⌘⇧'"], where: "merged", i18n: "kbd.maximizePanel" },
 
@@ -111,7 +125,7 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   ] },
   { i18n: "settings.kbd.cat.nav", ids: [
     "nextChange", "prevChange", "nextComment", "commentStepAlt", "gotoDiagnostic", "filesChangesTab",
-    "sidebarNavigate", "sidebarContent", "findInFile", "findNextPrev", "findInFiles", "recentFiles",
+    "sidebarNavigate", "sidebarContent", "findInFile", "findNextPrev", "findEnter", "findInFiles", "recentFiles",
     "searchExtensions", "excludeSearchNoise", "defUsages", "goToImplementation", "workspaceSymbol",
     "goToDef", "toggleFold", "prevNextTab", "cursorBackForward",
   ] },

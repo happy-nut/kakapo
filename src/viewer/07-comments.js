@@ -732,7 +732,7 @@ function reviewerCardHtml(c) {
     + commentTargetHeadHtml(c)
     + (addressed ? '<span class="mc-addressed-tag" title="' + escapeHtml(t('comment.addressed.hint')) + '">' + escapeHtml(t('comment.addressed')) + '</span>' : '')
     + (addressed ? '<button type="button" class="mc-reopen" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reopen')) + '" title="' + escapeHtml(t('comment.reopen')) + '">↺</button>' : '')
-    + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
+    + '<button type="button" class="mc-del" data-keyhint-id="deleteComment:1" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
     + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div></div>';
 }
 // Is the open composer the one that belongs in this (path, line, pane) slot?
@@ -755,8 +755,11 @@ function threadHtml(path, line, side) {
       // macOS/Chromium text substitution mangles (foo_bar -> foo bar, capitalizing names) — and that OS-level
       // autocorrect is the leading suspect for a space being swallowed right after punctuation like "?".
       + '<textarea class="mc-input" rows="3" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="' + escapeHtml(ph) + '">' + escapeHtml(composerState.editText || '') + '</textarea>'
-      + '<div class="mc-actions"><button type="button" class="mc-btn mc-save" data-keyhint="⌘↵">' + escapeHtml(t('composer.save')) + '</button>'
-      + '<button type="button" class="mc-btn mc-ghost mc-cancel" data-keyhint="Esc">' + escapeHtml(t('composer.cancel')) + '</button>'
+      // The chords come from the table (data-keyhint-id, resolved by applyKeyHints after this lands).
+      // Written here as literals they had already drifted: this said ⌘↵ while the Settings sheet said
+      // ⌘Enter for the same key, which is the exact failure the table was introduced to end.
+      + '<div class="mc-actions"><button type="button" class="mc-btn mc-save" data-keyhint-id="saveComment">' + escapeHtml(t('composer.save')) + '</button>'
+      + '<button type="button" class="mc-btn mc-ghost mc-cancel" data-keyhint-id="closeDialog">' + escapeHtml(t('composer.cancel')) + '</button>'
       + '<span class="mc-hint">' + escapeHtml(t('composer.hint')) + '</span></div></div>';
   }
   return html;
@@ -1019,7 +1022,14 @@ function refreshComments() {
   // next user scroll. Recompute the active timeline in this same update, after both pane heights match.
   if (changedDiffWrappers.length) scrollAsymmetricDiff();
   if (isSourceViewerVisible()) renderSourceComments();
+  // Everything here is built after the document was translated, so the chords these controls advertise
+  // through data-keyhint-id have to be resolved as they land — a card or composer that misses the sweep
+  // shows an empty chip, which is the silent half of this failure. Scoped to the nodes that carry one.
+  document.querySelectorAll('.mc-composer, .mc-card').forEach(function (el) { try { applyKeyHints(el); } catch (e) {} });
   renderCommentBadges();
+  // The merged dock builds from its own snapshot and had no way to hear about this (refreshMergedDock,
+  // 08-dock.js). A no-op while it is closed.
+  try { refreshMergedDock(); } catch (e) {}
   applyCommentSelectionHighlight();
   // Every agent-written body can carry Mermaid diagrams — a note AND an answer (commentAnswerHtml renders the
   // same markdown). Gating this on a note existing left a diagram inside an answer stuck on "loading…" forever
@@ -1617,7 +1627,11 @@ function buildMergedText() {
 // existed to explain why a finished exchange was still sitting in the hand-off, and the answer to that turned
 // out to be "it should not be". The answer itself stays one click away, in the thread at the comment's line.
 function mergedCardHtml(comment) {
-  return '<div class="mc-card mc-merged-card mc-' + comment.kind + '" data-comment-seq="' + comment.seq + '" tabindex="-1" role="button">'
+  // role=option, not button: these are the rows of a single-select list the arrows move through, and
+  // aria-selected — which this already set — is not a thing a button has. 16-semantic-peek.js spells the
+  // same pair the same way. The host carries role=listbox (08-dock.js); the two only ever appear together,
+  // because the "all addressed" note and the cards are mutually exclusive (renderAllAddressedNote).
+  return '<div class="mc-card mc-merged-card mc-' + comment.kind + '" data-comment-seq="' + comment.seq + '" tabindex="-1" role="option" aria-selected="false">'
     + '<div class="mc-card-head"><span class="mc-kind">' + commentKindHtml() + '</span>'
     + '<span class="mc-target">' + escapeHtml(commentTargetLabel(comment)) + '</span>'
     + '</div>'

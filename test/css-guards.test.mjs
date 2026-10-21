@@ -47,7 +47,18 @@ test("a focused dock / settings overlay hides the file's blinking caret beneath 
 });
 
 test("the merged dock is a centred floating panel with clickable header controls", () => {
-  assert.match(css, /\.dock-panel\s*\{\s*position:\s*fixed;[^}]*width:\s*min\(1048px,\s*calc\(100vw\s*-\s*48px\)\)/s, "the floating panel wraps the document with padding per side");
+  // The invariant is that the panel WRAPS what it holds — wide enough for a card plus a margin each side,
+  // and still inset from the viewport edges. Spelling the width here made this a copy of it, and the copy
+  // is what failed when the panel was fitted to its cards.
+  const panelWidth = /\.dock-panel\s*\{\s*position:\s*fixed;[^}]*width:\s*min\((\d+)px,\s*calc\(100vw\s*-\s*(\d+)px\)\)/s.exec(css);
+  assert.ok(panelWidth, "the floating panel declares a width capped against the viewport");
+  const cardWidth = /\.mc-card\s*\{[^}]*max-width:\s*(\d+)px/s.exec(css);
+  assert.ok(cardWidth, "the card it wraps declares a width");
+  const [panel, gutter, card] = [Number(panelWidth[1]), Number(panelWidth[2]), Number(cardWidth[1])];
+  assert.ok(panel > card, `the panel (${panel}px) is wider than the card it wraps (${card}px)`);
+  assert.ok(panel - card <= 240,
+    `the panel wraps the card rather than stranding ${panel - card}px of unusable surface beside it`);
+  assert.ok(gutter > 0, "and it stays inset from the viewport edges");
   assert.match(css, /\.dock-panel\s*\{\s*position:\s*fixed;[^}]*left:\s*50%/s, "the panel stays centred");
   const dockButtons = ruleBodyForExactSelector(".dock-bar button");
   const activeDockButtons = ruleBodyForExactSelector(".dock-bar button:not(:disabled)");
@@ -240,7 +251,15 @@ test("shared Markdown typography preserves readable paragraph rhythm", () => {
 // the sidebar is the left-most column. What still has to hold is how that sidebar collapses.
 test("the sidebar collapses without blanking its contents or jumping its divider", () => {
   assert.match(css, /body\s*\{[^}]*--rail-width:\s*0px/, "no rail column is reserved");
-  assert.match(css, /\.sidebar-brand,\s*\.sidebar-scroll\s*\{[^}]*width:\s*var\(--sidebar-width,\s*264px\)/, "fixed header and scrolling contents keep their layout while the grid track closes");
+  // What has to hold is that the grid track, the fixed header and the scrolling contents fall back to the
+  // SAME width — not that the width is any particular number. Spelling the number here made this assertion
+  // a fourth copy of it, and the copy is what failed the first time the default moved.
+  const trackDefault = /grid-template-columns:\s*var\(--rail-width\)\s*var\(--sidebar-width,\s*(\d+)px\)/.exec(css);
+  assert.ok(trackDefault, "the grid declares a sidebar track with a default width");
+  const fallback = new RegExp(
+    String.raw`\.sidebar-brand,\s*\.sidebar-scroll\s*\{[^}]*width:\s*var\(--sidebar-width,\s*${trackDefault[1]}px\)`,
+  );
+  assert.match(css, fallback, "fixed header and scrolling contents keep their layout while the grid track closes");
   assert.doesNotMatch(css, /body\.sidebar-collapsed\s+\.sidebar\s*\{[^}]*visibility:\s*hidden/, "sidebar content is not blanked before the close animation finishes");
   assert.match(css, /\.sidebar-resizer\s*\{[^}]*transition:\s*left\s+180ms/, "the resize divider follows the collapsing track instead of jumping");
 });
@@ -298,8 +317,14 @@ test("panel focus is a brief shared flash instead of a persistent native outline
   assert.match(css, /@keyframes\s+mc-panel-focus-flash\s*\{[\s\S]{0,240}100%\s*\{[^}]*outline-color:\s*transparent/, "the focus effect fades completely away");
   assert.match(css, /\.history-list\.mc-panel-focus-flash\s*\{[^}]*outline:\s*0;[^}]*animation:\s*mc-history-list-focus-flash/, "history focus does not draw over the activity-rail boundary");
   assert.match(css, /@keyframes\s+mc-history-list-focus-flash\s*\{[\s\S]{0,520}inset\s+-2px\s+0[\s\S]{0,300}100%\s*\{[^}]*box-shadow:\s*inset\s+0\s+0\s+transparent/, "history keeps a three-sided focus cue that fades without a left edge");
-  assert.match(css, /body\.native-app \.sidebar\.mc-panel-focus-flash::after\s*\{[^}]*top:\s*var\(--native-titlebar-height\)/, "the sidebar cue starts below the macOS traffic lights");
-  assert.match(css, /body\.native-app \.activity-rail\.mc-panel-focus-flash\s*\{[^}]*outline:\s*0/, "the activity rail never outlines the traffic-light strip");
+  // The two assertions that stood here pinned the TEXT of rules scoped to `body.native-app`, a layout that
+  // went away with the shell window it was built for — render.ts emits <body> with no class and
+  // views.test.mjs pins that. They could not match anything the app renders, so they were not guarding the
+  // focus cue; they were guarding the continued existence of dead CSS, and would have failed its removal.
+  // What is worth pinning is that nothing is left behind pointing at that layout.
+  assert.doesNotMatch(css, /body\.native-app/, "no rule is scoped to the layout the app stopped using");
+  assert.doesNotMatch(css, /--native-(titlebar-height|title-safe|traffic-safe)/,
+    "and nothing reads the custom properties that layout defined");
 });
 
 

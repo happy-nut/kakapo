@@ -130,3 +130,106 @@ test("diagnostics: Opt+Enter on a problem line drafts a change-request comment t
   assert.equal(v.storedComments().filter((c) => c.kind === "c").length, 1, "no comment is drafted on a clean line");
   v.close();
 });
+
+// USER_FLOWS Flow 6: a file no language server covers reports `available:false` rather than a misleading
+// empty "no problems". analysis.ts has always honoured that; the viewer dropped the field on the way into
+// its cache and said the reassuring thing anyway — for CSS, for Markdown, for anything outside a server's
+// languages. Three different silences had one sentence, and it was true for exactly one of them.
+const UNCOVERED = "styles/app.css";
+
+async function openUncovered() {
+  const { html } = await makeReviewHtml([
+    { path: UNCOVERED, before: ".a { color: red; }\n", after: ".a { color: blue; }\n" },
+  ]);
+  const v = await loadViewer(html, {
+    // What analysis.ts returns for a path no client claims: ok, but nothing is checking it.
+    diagnosticsBridge: () => ({ ok: true, generation: 0, available: false, engine: "index", diagnostics: [] }),
+    analysisStatus: { generation: 0, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  await v.openSourceFile(UNCOVERED);
+  await v.settle(150);
+  return v;
+}
+
+test("a file no language server covers is not reported as having no problems", async () => {
+  const v = await openUncovered();
+  try {
+    assert.equal(v.window.gotoDiagnostic(1), true, "F2 still answers the key");
+    const hint = v.$(".mc-caret-hint");
+    assert.ok(hint, "it says something");
+    const said = hint.textContent.trim();
+    assert.notEqual(said, v.window.t("diag.none"),
+      "it must not be the sentence that means the file was checked and is clean");
+    assert.equal(said, v.window.t("diag.unavailable"), "it says nothing is checking this file");
+  } finally {
+    v.close();
+  }
+});
+
+test("a file that IS covered and clean still says so", async () => {
+  const { html } = await makeReviewHtml([
+    { path: FILE, before: "const a = 1;\n", after: "const a = 2;\n" },
+  ]);
+  const v = await loadViewer(html, {
+    // Covered by a server, and it found nothing — the one case "no problems" describes.
+    diagnosticsBridge: () => ({ ok: true, generation: 0, available: true, engine: "lsp", diagnostics: [] }),
+    analysisStatus: { generation: 0, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  try {
+    await v.openSourceFile(FILE);
+    await v.settle(150);
+    assert.equal(v.window.gotoDiagnostic(1), true, "F2 answers");
+    assert.equal(v.$(".mc-caret-hint").textContent.trim(), v.window.t("diag.none"),
+      "a checked, clean file gets the reassuring sentence — it has earned it");
+  } finally {
+    v.close();
+  }
+});
+
+// Any scroll called hideDiagnosticTooltip, which clears the pending timer — but left the hover key set,
+// so every later mousemove over the SAME line took the "something is already standing" early return and
+// scheduled nothing. The message became unreachable for that line until the pointer left the row and came
+// back. Scrolling mid-read is not rare: F7, Cmd+L, saving a comment and the wheel all do it.
+test("a scroll does not make a problem line's tooltip unreachable", async () => {
+  const v = await openWithDiagnostics();
+  try {
+    const cell = v.$('#source-body .source-row[data-line-index="1"] .source-code');
+    const move = (x) => cell.dispatchEvent(new v.window.MouseEvent("mousemove", { bubbles: true, clientX: x, clientY: 10 }));
+
+    move(20);
+    assert.notEqual(v.window.diagnosticHoverTimer, 0, "resting on the line arms the dwell timer");
+
+    v.document.dispatchEvent(new v.window.Event("scroll", { bubbles: true }));
+    assert.equal(v.window.diagnosticHoverTimer, 0, "a scroll takes the pending tooltip away");
+
+    move(40); // same line, pointer never left
+    assert.notEqual(v.window.diagnosticHoverTimer, 0,
+      "moving again on the same line arms it again instead of being swallowed by the early return");
+  } finally {
+    v.close();
+  }
+});
+
+// A diagnostic message is the longest thing this app puts in a caret hint — measured to 190 characters,
+// about nine seconds of reading — and the hint's own default is two. There is no keyboard way to ask for
+// it again, so a two-second version is a message you were shown and could not read.
+test("F2's message stays up long enough to read", async () => {
+  const v = await openWithDiagnostics();
+  try {
+    v.window.gotoDiagnostic(1);
+    const hint = v.$(".mc-caret-hint");
+    assert.ok(hint, "F2 says something");
+    assert.match(hint.textContent, /Expression expected/, "and it is the diagnostic");
+    // The element is never removed — it is shown and hidden by the `show` class — so that is what has to
+    // be asserted. Checking the element exists passes either way, which is the difference between a guard
+    // and a decoration: this test passed with `sticky` removed until it was asserting the right thing.
+    assert.ok(hint.classList.contains("show"), "the hint is up");
+    // The hint's own auto-hide is 2s; sticky means no timer was scheduled to take it away.
+    await v.settle(2400);
+    assert.ok(v.$(".mc-caret-hint").classList.contains("show"),
+      "it is still up after the two seconds a non-sticky hint gets");
+    assert.match(v.$(".mc-caret-hint").textContent, /Expression expected/, "and still says the same thing");
+  } finally {
+    v.close();
+  }
+});

@@ -155,3 +155,58 @@ test("quitConfirmed is only ever set by finishQuit", () => {
   assert.equal(assignments.length, 1, `quitConfirmed is set outside finishQuit: ${JSON.stringify(assignments)}`);
   assert.match(source, /function finishQuit\(\): void \{\n\s*quitConfirmed = true;/);
 });
+
+// Two places compose the diff container and both carry the no-diff state's markup: build.ts for the
+// standalone review and render.ts for the app's own document. A reviewer who hits the dead end hits it
+// through one of them and has no way of knowing which, so the two have to say the same thing. They have
+// already been spelled twice; this is what keeps the second copy honest.
+test("the no-diff state says the same thing in both documents", () => {
+  const read = (name) => readFileSync(new URL(`../src/${name}`, import.meta.url), "utf8");
+  const markup = (source, name) => {
+    const found = source.match(/<div class="empty"><p class="empty-title"[\s\S]*?<\/p><\/div>/);
+    assert.ok(found, `${name} still renders the no-diff state`);
+    return found[0];
+  };
+  const fromBuild = markup(read("build.ts"), "build.ts");
+  const fromRender = markup(read("render.ts"), "render.ts");
+  assert.equal(fromBuild, fromRender, "the two copies of the no-diff state have drifted");
+  // A dead end that only names itself is still a dead end: it has to point at the way out, and it has to
+  // do so through the i18n table rather than in English baked into the markup.
+  assert.match(fromBuild, /data-i18n="diff\.noDiff"/, "the state names itself from the string table");
+  assert.match(fromBuild, /data-i18n="diff\.noDiff\.hint"/, "the state points at the control that resolves it");
+  // Not with a chord. A chord written outside shortcuts.ts is a copy nothing keeps in agreement (AGENTS.md).
+  const strings = readFileSync(new URL("../src/i18n.ts", import.meta.url), "utf8");
+  const hints = strings.match(/"diff\.noDiff\.hint":\s*"([^"]*)"/g) || [];
+  assert.equal(hints.length, 2, "the hint is translated in both locales");
+  for (const hint of hints) {
+    assert.doesNotMatch(hint, /[⌘⌥⇧⌃]|\bF\d\b/, `the hint spells a shortcut instead of naming the control: ${hint}`);
+  }
+});
+
+// The file tree is built twice — once by the server (render-tree.ts) and once by the client when the
+// source tree virtualizes (04-source-tree.js) — so splitting a leaf name into base + extension had to be
+// written twice too. Whether you see one spelling or the other depends only on how far you scrolled, which
+// is exactly the kind of difference nobody would think to look for. The UI_SCALES guard above exists for
+// the same reason; this is its sibling for the name split.
+test("the leaf-name split is the same on the server and in the viewer", () => {
+  const read = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+  const body = (source, name) => {
+    const found = /function leafNameHtml\([^)]*\)[^{]*\{([\s\S]*?)\n\}/.exec(source);
+    assert.ok(found, `${name} still splits a leaf name`);
+    // Compare the LOGIC, not the spelling: one file is TypeScript with template literals, the other is
+    // ES5 with string concatenation. What has to agree is the split point and the two class names.
+    return found[1].replace(/\s+/g, " ").trim();
+  };
+  const server = body(read("render-tree.ts"), "render-tree.ts");
+  const client = body(read("viewer/00-util.js"), "00-util.js");
+  const splitPoint = /indexOf\((['"])\.\1, 1\)/;
+  assert.match(server, splitPoint, "the server splits at the first interior dot");
+  assert.match(client, splitPoint, "the viewer splits at the first interior dot");
+  for (const [name, source] of [["server", server], ["viewer", client]]) {
+    assert.match(source, /dot <= 0 \|\| dot === name\.length - 1/, `${name} guards a dotless or trailing-dot name`);
+    assert.match(source, /class="path-head"/, `${name} emits the base name as path-head`);
+    assert.match(source, /class="path-tail"/, `${name} emits the extension as path-tail`);
+    assert.match(source, /slice\(0, dot\)/, `${name} puts the base name in the head`);
+    assert.match(source, /slice\(dot\)/, `${name} puts the extension in the tail`);
+  }
+});

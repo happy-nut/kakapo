@@ -628,16 +628,17 @@ function setupCustomSelect(id, getOptions, getCurrent, onPick) {
   render();
   return { render: render };
 }
-function applyI18n() {
-  document.querySelectorAll('[data-i18n]').forEach(function (el) { el.textContent = t(el.getAttribute('data-i18n')); });
-  document.querySelectorAll('[data-i18n-ph]').forEach(function (el) { el.setAttribute('placeholder', t(el.getAttribute('data-i18n-ph'))); });
-  document.querySelectorAll('[data-i18n-title]').forEach(function (el) { el.setAttribute('title', t(el.getAttribute('data-i18n-title'))); });
-  document.querySelectorAll('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
-  // A control that advertises a shortcut names the ID, not the chord: the chord is read off the table, so
-  // the hover hint and the title say what the key actually is — including after it has been rebound. These
-  // were literals typed beside each button, and they had already drifted into three spellings of the same
-  // modifier ("Shift+F7", "⇧F7", "Option+W").
-  document.querySelectorAll('[data-keyhint-id]').forEach(function (el) {
+// A control that advertises a shortcut names the ID, not the chord: the chord is read off the table, so the
+// hover hint and the title say what the key actually is — including after it has been rebound. These were
+// literals typed beside each button, and they had already drifted into three spellings of the same modifier
+// ("Shift+F7", "⇧F7", "Option+W").
+//
+// Takes a root because it has to run again on anything built after the document was first translated. The
+// floating dock's bar is created when the dock opens, long after applyI18n last swept, so its buttons kept
+// their data-keyhint-id and never received a chord: the maximize button's tooltip read "Maximize panel"
+// with no key in it, and a chord chip that is only ever drawn from data-keyhint was drawn on neither.
+function applyKeyHints(root) {
+  (root || document).querySelectorAll('[data-keyhint-id]').forEach(function (el) {
     var ref = el.getAttribute('data-keyhint-id').split(':');
     var chord = shortcutKeys(ref[0])[Number(ref[1] || 0)];
     if (!chord) return;
@@ -645,6 +646,13 @@ function applyI18n() {
     var titleKey = el.getAttribute('data-i18n-title');
     if (titleKey) el.setAttribute('title', t(titleKey) + ' (' + chord + ')');
   });
+}
+function applyI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(function (el) { el.textContent = t(el.getAttribute('data-i18n')); });
+  document.querySelectorAll('[data-i18n-ph]').forEach(function (el) { el.setAttribute('placeholder', t(el.getAttribute('data-i18n-ph'))); });
+  document.querySelectorAll('[data-i18n-title]').forEach(function (el) { el.setAttribute('title', t(el.getAttribute('data-i18n-title'))); });
+  document.querySelectorAll('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
+  applyKeyHints(document);
   document.documentElement.lang = locale;
   if (langSelectRef) langSelectRef.render();
   if (themeSelectRef) themeSelectRef.render(); // theme labels are localized — refresh on a language switch too

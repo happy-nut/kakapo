@@ -183,7 +183,7 @@ export function buildDiffReview(input: {
     signature,
     generatedAt,
     branch,
-    diffContainer: diffSplit.container || '<div class="empty" data-i18n="diff.noDiff">No diff to review.</div>',
+    diffContainer: diffSplit.container || '<div class="empty"><p class="empty-title" data-i18n="diff.noDiff">No diff to review.</p><p class="empty-hint" data-i18n="diff.noDiff.hint">If this is not what you meant to review, change it with the compare control in the toolbar.</p></div>',
     changesPanel: renderDiffTree(files),
     // Transport-backed reviews build folder children incrementally from sourceFilesMeta in the renderer;
     // avoid generating/transferring a multi-megabyte all-files HTML tree on every build/update.

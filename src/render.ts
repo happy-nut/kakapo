@@ -513,6 +513,12 @@ export function renderDiffHtml(input: {
         + '<span class="patchset-kind" data-i18n="patchset.base">Base</span>'
         + '<div class="patchset-nums" id="patchset-base-nums" role="group" data-i18n-aria="patchset.pick" aria-label="Base patch set"></div>'
         + '</div>'
+        // What the two sides currently ARE. The bar named the ends of a range with bare digits and put
+        // every commit's subject, sha and date behind a title= — mouse-only, and nowhere at all for a
+        // reader picking a base among thirty-three of them. The space was already here: measured 882px of
+        // empty bar between the two groups, which is why they read as two independent paginators rather
+        // than the two ends of one comparison.
+        + '<div class="patchset-summary" id="patchset-summary" aria-live="polite"></div>'
         + '<div class="patchset-side patchset-side-target">'
         + '<div class="patchset-nums" id="patchset-target-nums" role="group" data-i18n-aria="patchset.pickTarget" aria-label="Target patch set"></div>'
         + '<span class="patchset-kind" data-i18n="patchset.target">Target</span>'
@@ -524,14 +530,20 @@ export function renderDiffHtml(input: {
     '<div class="diff-pane diff-pane-base"><span class="diff-pane-kind" data-i18n="diff.base">Base</span><span id="diff-before-path" class="diff-pane-path"></span></div>',
     '<div class="diff-pane diff-pane-working"><span class="diff-pane-kind" data-i18n="diff.workingTree">Working tree</span><span id="diff-after-path" class="diff-pane-path"></span></div>',
     '</div>',
-    `<div id="diff2html-container" class="diff2html-container">${input.diffHtml || '<div class="empty" data-i18n="diff.noDiff">No diff to review.</div>'}</div>`,
+    `<div id="diff2html-container" class="diff2html-container">${input.diffHtml || '<div class="empty"><p class="empty-title" data-i18n="diff.noDiff">No diff to review.</p><p class="empty-hint" data-i18n="diff.noDiff.hint">If this is not what you meant to review, change it with the compare control in the toolbar.</p></div>'}</div>`,
     "</section>",
     '<section id="source-viewer" class="source-viewer">',
     '<div id="source-tabs" class="source-tabs hidden" role="tablist"></div>',
     '<div class="toolbar source-toolbar">',
     '<div class="source-file-meta"><span id="source-type-icon" class="source-type-icon" aria-hidden="true"></span><span id="source-title" data-i18n="source.title">Source</span><span id="source-meta" data-i18n="source.selectFile">Select a file from the Files tab.</span></div>',
     '<select id="http-env-select" class="http-env-select hidden" data-i18n-title="http.env.title" data-i18n-aria="http.env.aria" title="HTTP Client environment" aria-label="HTTP environment"></select>',
-    '<button type="button" id="render-toggle" class="plain-button hidden"' + keyHint('toggleRendered') + ' title="Rendered / raw Markdown or CSV (Option+R)" aria-pressed="false">Raw</button>',
+    // No aria-pressed. This button's NAME changes to the mode you would switch to, which is the right
+    // thing to show a reader — but aria-pressed describes the control's own state, so the two said
+    // opposite things: in raw mode a screen reader announced "Rendered, pressed" while the view was raw.
+    // A button named for its action does not also carry a pressed state.
+    // The title comes from the table too: it was hardcoded English with the chord hand-spelled inside it,
+    // next to a keyHint() that already emits the real one.
+    '<button type="button" id="render-toggle" class="plain-button hidden"' + keyHint('toggleRendered') + ' data-i18n-title="btn.renderToggle" title="Rendered / raw Markdown or CSV">Raw</button>',
     '<button type="button" id="line-wrap-toggle" class="source-line-wrap-toggle hidden" role="checkbox" aria-checked="false"' + keyHint('toggleLineWrap') + ' data-i18n="source.lineWrap" data-i18n-title="source.lineWrap.title" title="Toggle line wrap (Option+W)">Line wrap</button>',
     '<button type="button" id="back-to-diff" class="plain-button"' + keyHint('nextChange') + ' data-i18n="btn.diff" data-i18n-title="btn.diff.title" title="Back to diff (F7)">Diff</button>',
     "</div>",
@@ -540,15 +552,18 @@ export function renderDiffHtml(input: {
     '<div id="file-find" class="file-find hidden" role="search" data-i18n-aria="find.aria" aria-label="Find in current file">',
     '<input id="file-find-input" class="file-find-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="find.placeholder" placeholder="Find in current file">',
     '<span id="file-find-count" class="file-find-count" aria-live="polite">0/0</span>',
-    '<button type="button" id="file-find-prev" class="file-find-button" data-keyhint="⇧↵" data-i18n-title="find.previous" data-i18n-aria="find.previous" title="Previous match (Shift+Enter)" aria-label="Previous match">&#8593;</button>',
-    '<button type="button" id="file-find-next" class="file-find-button" data-keyhint="↵" data-i18n-title="find.next" data-i18n-aria="find.next" title="Next match (Enter)" aria-label="Next match">&#8595;</button>',
-    '<button type="button" id="file-find-close" class="file-find-button file-find-close" data-keyhint="Esc" data-i18n-title="find.close" data-i18n-aria="find.close" title="Close (Esc)" aria-label="Close">&times;</button>',
+    '<button type="button" id="file-find-prev" class="file-find-button" data-keyhint-id="findEnter:1" data-i18n-title="find.previous" data-i18n-aria="find.previous" title="Previous match (Shift+Enter)" aria-label="Previous match">&#8593;</button>',
+    '<button type="button" id="file-find-next" class="file-find-button" data-keyhint-id="findEnter" data-i18n-title="find.next" data-i18n-aria="find.next" title="Next match (Enter)" aria-label="Next match">&#8595;</button>',
+    '<button type="button" id="file-find-close" class="file-find-button file-find-close" data-keyhint-id="closeDialog" data-i18n-title="find.close" data-i18n-aria="find.close" title="Close (Esc)" aria-label="Close">&times;</button>',
     '</div>',
     "</main>",
     input.app
-      ? '<aside id="semantic-peek" class="semantic-peek hidden" aria-label="Semantic Peek">'
+      // Both labels come from the string table: they were written in English here, in a file whose whole
+      // job is to be read in two languages, and a screen reader is exactly the reader who cannot infer
+      // around that. monaco.peekHint two lines down was already doing it correctly.
+      ? '<aside id="semantic-peek" class="semantic-peek hidden" data-i18n-aria="peek.aria" aria-label="Semantic Peek">'
         + '<div class="semantic-peek-header"><div class="semantic-peek-heading"><div id="semantic-peek-title" class="semantic-peek-title">Semantic Peek</div><div id="semantic-peek-meta" class="semantic-peek-meta"></div></div>'
-        + '</div><div id="semantic-peek-results" class="semantic-peek-results" role="listbox" tabindex="0" aria-label="Semantic locations"></div>'
+        + '</div><div id="semantic-peek-results" class="semantic-peek-results" role="listbox" tabindex="0" data-i18n-aria="peek.list" aria-label="Semantic locations"></div>'
         + '</aside>'
       : "",
     '<div id="quick-open" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="quickopen.aria" aria-label="Quick open">',
@@ -561,7 +576,9 @@ export function renderDiffHtml(input: {
     '<nav id="quick-open-side" class="quick-open-side" aria-label="Sections">',
     '<button type="button" class="quick-open-side-item" data-section="content"' + keyHint('findInFiles') + '><span data-i18n="quickopen.findInFiles">Find in Files</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="all"><span data-i18n="quickopen.searchFiles">Search files</span></button>',
-    '<button type="button" class="quick-open-side-item" data-section="recent"><span data-i18n="quickopen.recent">Recent files</span></button>',
+    // ⌘E opens this one directly; the row simply never said so, while the two either side of it did.
+    // ("Search files" shows nothing because it HAS no chord — only the launcher's own arrows reach it.)
+    '<button type="button" class="quick-open-side-item" data-section="recent"' + keyHint('recentFiles') + '><span data-i18n="quickopen.recent">Recent files</span></button>',
     '<div class="quick-open-side-sep" aria-hidden="true"></div>',
     '<button type="button" class="quick-open-side-item" data-section="history"' + keyHint('openHistory') + '><span data-i18n="rail.history">History</span></button>',
     '</nav>',
@@ -626,14 +643,25 @@ export function renderDiffHtml(input: {
     shortcutSheetHtml() +
     '</div>',
     "</section>",
+    // Close the shortcuts section's three wrappers — settings-body, settings-panel, settings-modal. They
+    // were never closed, so the parser swallowed everything after them: #history-view became a descendant
+    // of a dialog that is display:none whenever Settings is shut, and \u2318 9 removed its .hidden class onto
+    // a 0\u00d70 box. The feature loaded its three hundred commits and painted nothing. Nothing caught it
+    // because the suite asserts on .hidden classes, which were all correct — the dead ancestor is a
+    // LAYOUT fact, and jsdom has no layout. renderReviewDocument now balances; a guard pins it.
+    '</div>',
+    '</div>',
+    '</div>',
     // Git history (Cmd+9): the commit graph owns the full canvas. Enter opens the selected commit's
     // message + diff in a large floating workspace instead of squeezing both views side by side.
     '<div id="history-view" class="history-view hidden" role="dialog" aria-modal="true" data-i18n-aria="history.title" aria-label="Git history">',
     '<div class="history-bar">',
     '<span class="history-title" data-i18n="history.title">History</span>',
     '<span id="history-scope" class="history-scope hidden"></span>',
-    '<input id="history-search" type="search" class="history-search" autocomplete="off" spellcheck="false" data-i18n-ph="history.search" placeholder="Filter by message or author">',
-    '<button type="button" id="history-close" class="dock-btn" data-keyhint="Esc" data-i18n-title="history.close" title="Close" aria-label="Close">&times;</button>',
+    // The placeholder was doing double duty as the accessible name, and a placeholder is gone as soon as
+    // there is a value — so the moment this does something, it stops saying what it is.
+    '<input id="history-search" type="search" class="history-search" autocomplete="off" spellcheck="false" data-i18n-ph="history.search" data-i18n-aria="history.search" aria-label="Filter by message or author" placeholder="Filter by message or author">',
+    '<button type="button" id="history-close" class="dock-btn" data-keyhint-id="closeDialog" data-i18n-title="history.close" title="Close" aria-label="Close">&times;</button>',
     "</div>",
     // Selection/compare status strip: shows how to compare (hint) when one commit is selected, and the
     // pending two-commit compare (with Open/Clear) once a range is shift-selected. The visible affordance
@@ -641,6 +669,10 @@ export function renderDiffHtml(input: {
     '<div id="history-select-bar" class="history-select-bar hidden" aria-live="polite"></div>',
     '<div class="history-body">',
     '<div id="history-list" class="history-list"></div>',
+    // A filter that matches nothing left a black panel: no rows, no note, and the strip above still
+    // explaining how to compare two of the commits that are not there. It belongs in the body, where the
+    // rows would have been — put in the bar it became another item in that flex row, off at the far edge.
+    '<div id="history-empty" class="history-empty hidden" data-i18n="history.noMatch">No commit matches that filter.</div>',
     "</div>",
     "</div>",
     input.diffIslands || "",
