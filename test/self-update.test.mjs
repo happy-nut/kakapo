@@ -173,7 +173,7 @@ test("the packaged updater picks the build for this machine, and only when it is
 
   const assets = [
     { name: "Kakapo-0.5.0-arm64.dmg", url: "https://example.test/mac.dmg" },
-    { name: "Kakapo-0.5.0-linux-x64.tar.gz", url: "https://example.test/linux.tgz" },
+    { name: "Source code (tar.gz)", url: "https://example.test/source.tgz" },
   ];
   assert.equal(macDmgAsset(assets, "arm64")?.url, "https://example.test/mac.dmg");
   assert.equal(macDmgAsset(assets, "x64"), undefined, "an Intel Mac is not handed an arm64 bundle");

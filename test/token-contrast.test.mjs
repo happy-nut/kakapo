@@ -108,11 +108,18 @@ test("the change magnitude is readable in every theme, wherever it is shown", ()
   // breadcrumb's copy — same figure, same bug, thirteen lines up — went on failing while the test passed.
   // A guard that covers half of a fix certifies the half that was done.
   const rules = [...css.matchAll(/^[^{}\n]*\.(?:change-stat|crumb-stat)-(?:add|del)\b[^{}]*\{([^}]*)\}/gm)];
-  assert.ok(rules.length >= 2, `every declaration of the magnitude's colour is checked (found ${rules.length})`);
+  assert.ok(rules.length >= 4, `every declaration of the magnitude's colour is checked (found ${rules.length})`);
   for (const rule of rules) {
-    assert.doesNotMatch(rule[1], /--(add|del)(-strong)?\b/,
+    assert.doesNotMatch(rule[1], /var\(--(add|del)(-strong)?\)/,
       `the magnitude is painted with a diff FILL token again; those are backgrounds, not text: ${rule[0].trim()}`);
+    assert.match(rule[1], /var\(--chrome-stat-(add|del)\)/,
+      `the magnitude is painted with the solved chrome pair: ${rule[0].trim()}`);
   }
+  // The figure was high-contrast and still unreadable once, because it was 10px at 0.75 alpha: the alpha
+  // composited the colour back toward the ground, undoing exactly what the pair above is solved for.
+  const stat = /\.change-row \.change-stat \{([^}]*)\}/.exec(css);
+  assert.ok(stat, "the sidebar magnitude still has one rule for its box");
+  assert.doesNotMatch(stat[1], /opacity:/, "the magnitude is solid; alpha here silently undoes its contrast");
 
   const blocks = customPropertyBlocks();
   const base = blocks.find((b) => b.selector === ":root");
@@ -125,18 +132,22 @@ test("the change magnitude is readable in every theme, wherever it is shown", ()
   for (const theme of themes) {
     const isLight = theme.selector.includes('data-theme="light"');
     const vars = { ...base.vars, ...(isLight ? light.vars : {}), ...theme.vars };
-    const ground = resolve(vars, "--chrome-bg");
-    if (!ground) continue;
-    // --chrome-text is what the magnitude inherits; --chrome-muted is every other quiet label beside it.
-    for (const name of ["--chrome-text", "--chrome-muted"]) {
-      const colour = resolve(vars, name);
-      if (!colour) continue;
-      checked += 1;
-      const ratio = contrast(colour, ground);
-      if (ratio < AA_NORMAL_TEXT) failures.push(`${theme.selector} ${name} = ${ratio}:1`);
+    // A sidebar row has two grounds — resting and selected — and the figure has to be readable on both.
+    // Measuring only --chrome-bg is how the SELECTED row went unchecked while it was the worse of the two.
+    for (const groundName of ["--chrome-bg", "--chrome-selected"]) {
+      const ground = resolve(vars, groundName);
+      if (!ground) continue;
+      // The pair the magnitude is actually painted with, plus the quiet labels sitting beside it.
+      for (const name of ["--chrome-stat-add", "--chrome-stat-del", "--chrome-text"]) {
+        const colour = resolve(vars, name);
+        if (!colour) continue;
+        checked += 1;
+        const ratio = contrast(colour, ground);
+        if (ratio < AA_NORMAL_TEXT) failures.push(`${theme.selector} ${name} on ${groundName} = ${ratio}:1`);
+      }
     }
   }
-  assert.ok(checked >= 20, `the sweep covered the shipped themes (checked ${checked})`);
+  assert.ok(checked >= 60, `the sweep covered the shipped themes on both grounds (checked ${checked})`);
   assert.deepEqual(failures, [], `chrome text below ${AA_NORMAL_TEXT}:1 on its own ground`);
 });
 

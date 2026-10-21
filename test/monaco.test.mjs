@@ -259,3 +259,35 @@ test("a failed definition lookup shows a short caret hint and does not open an e
   assert.equal(hint.classList.contains("show"), false, "the caret hint dismisses itself");
   v.close();
 });
+
+// Semantic Peek opened in the window's top-left corner instead of beside the symbol, but only after the
+// reviewer had opened a file at least once. Its anchor lookup was source-biased at both stages: the caret
+// query read `#source-body .code-cursor` first, and the fallback below it read a `#source-body` ROW with no
+// view gate at all. Both views keep their rendered DOM, so once the source view had ever painted, that stale
+// hidden row answered for the diff — measured in the running app at 0,0,0,0 while the diff caret was at
+// 1070,228. This is the gate, which is a question about classes and needs no layout: with the source view's
+// caret and rows present in the document, the anchor the diff view hands back has to be the DIFF's.
+test("the caret anchor follows the visible view, not whichever view rendered first", async () => {
+  const v = await loadViewer(html, {
+    monacoBridge: true,
+    analysisBridge: (request) => responseFor(request),
+    analysisStatus: { generation: 7, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  await v.openSourceFile("src/app.ts");
+  v.window.setSourceCursor("src/app.ts", 1, 10, false, -1);
+  await v.settle(40);
+  assert.ok(v.$("#source-body .code-cursor"), "the source view has painted a caret");
+  assert.ok(v.$("#source-body .source-row"), "and its rows are in the document");
+
+  v.window.showDiffView();
+  await v.settle(40);
+  assert.equal(v.window.isDiffViewVisible(), true, "the diff view is the one on screen");
+  // Still there, which is the whole trap: the fix cannot be "the source view is empty".
+  assert.ok(v.$("#source-body .source-row"), "the source view's rows outlive the switch");
+
+  const anchor = v.window.caretAnchorElement();
+  assert.ok(anchor, "an anchor is resolved at all — otherwise this test asserts nothing");
+  assert.equal(v.$("#source-body")?.contains(anchor), false,
+    "the anchor came from the hidden source view, which is what pinned the panel to 0,0");
+  v.close();
+});

@@ -35,7 +35,7 @@ const WARM_BUDGET_MS = 90_000;
 const BUNDLE_TEST_TIMEOUT_MS = 150_000;
 
 // So the first answer being "index" does not mean the bundle is broken, and asserting on it made this suite
-// fail on whichever runner happened to be slowest that day (Linux arm64, Java, on a release that had passed
+// fail on whichever runner happened to be slowest that day (Java, on a release that had passed
 // the identical job on the PR — and it took the release down with it). Ask again until the server is warm,
 // inside the test's own budget. A bundle that never answers still fails, with the last reason it gave.
 async function queryUntilWarm(analysis, request, family, budgetMs = WARM_BUDGET_MS) {
@@ -141,11 +141,11 @@ test("bundled JDT LS and JRE resolve a Java definition", {
 
 test("bundled official Kotlin LSP resolves a Gradle project definition", {
   timeout: BUNDLE_TEST_TIMEOUT_MS,
-  // The bundled Kotlin intellij-server intermittently fails to register on the Linux release runner (resolves
+  // The bundled Kotlin intellij-server intermittently failed to register on a cold release runner (resolving
   // to the regex index instead of the LSP) even though the runner image, the checksum-pinned Kotlin artifact,
-  // and this code are all identical to releases where it passed. Until that Linux CI/LSP issue is root-caused,
-  // the release workflow sets KAKAPO_SKIP_KOTLIN_GRADLE_SMOKE=1 so this one heavy integration test doesn't gate
-  // shipping; it still runs anywhere the env var isn't set.
+  // and this code were identical to releases where it passed. KAKAPO_SKIP_KOTLIN_GRADLE_SMOKE=1 keeps this one
+  // heavy integration test from gating a release; it still runs anywhere the env var isn't set — which now
+  // means locally, since the macOS release job skips the runtime lsp:smoke gate entirely.
   skip: !bundled.kotlin || !existsSync(bundled.kotlin) || process.env.KAKAPO_SKIP_KOTLIN_GRADLE_SMOKE === "1",
 }, async () => expectSemanticDefinition({
   family: "kotlin", path: "src/main/kotlin/demo/App.kt", line: 1, column: 14, symbol: "Target", expectedPath: "src/main/kotlin/demo/Target.kt", server: "kotlin-lsp",

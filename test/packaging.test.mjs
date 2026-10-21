@@ -2,28 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createMacDmg } from "../scripts/create-dmg.mjs";
-import {
-  assertNativeLinuxTarget,
-  linuxArchiveName,
-  linuxBundleName,
-  linuxRipgrepPackageName,
-  normalizeLinuxArch,
-  SUPPORTED_LINUX_ARCHES,
-} from "../scripts/package-linux.mjs";
-import {
-  assertNativeWindowsTarget,
-  normalizeWindowsArch,
-  SUPPORTED_WINDOWS_ARCHES,
-  windowsArchiveName,
-  windowsBundleName,
-  windowsRipgrepPackageName,
-} from "../scripts/package-win.mjs";
-import { waitForKakapoRenderer } from "../scripts/smoke-linux.mjs";
 import {
   BUNDLED_LANGUAGE_FAMILIES,
   download,
@@ -56,70 +39,15 @@ test("DMG packaging fails clearly before doing work outside macOS", () => {
   );
 });
 
-test("Linux packaging exposes deterministic x64 and ARM64 release names", () => {
-  assert.deepEqual(SUPPORTED_LINUX_ARCHES, ["x64", "arm64"]);
-  assert.equal(normalizeLinuxArch(" X64 "), "x64");
-  assert.equal(normalizeLinuxArch("ARM64"), "arm64");
-  assert.equal(linuxBundleName("x64"), "Kakapo-linux-x64");
-  assert.equal(linuxBundleName("arm64"), "Kakapo-linux-arm64");
-  assert.equal(linuxArchiveName("1.2.3", "x64"), "Kakapo-1.2.3-linux-x64.tar.gz");
-  assert.equal(linuxRipgrepPackageName("x64"), "@vscode/ripgrep-linux-x64");
-  assert.equal(linuxRipgrepPackageName("arm64"), "@vscode/ripgrep-linux-arm64");
-  assert.throws(() => normalizeLinuxArch("ia32"), /Expected x64 or arm64/);
-  assert.equal(
-    assertNativeLinuxTarget({ platform: "linux", hostArch: "arm64", targetArch: "arm64" }),
-    "arm64",
-  );
-  assert.throws(
-    () => assertNativeLinuxTarget({ platform: "darwin", hostArch: "arm64", targetArch: "arm64" }),
-    /must be built on native Linux arm64/,
-  );
-  assert.throws(
-    () => assertNativeLinuxTarget({ platform: "linux", hostArch: "arm64", targetArch: "x64" }),
-    /must be built on native Linux x64/,
-  );
-});
-
-test("Windows packaging exposes deterministic release names and refuses cross builds", () => {
-  assert.deepEqual(SUPPORTED_WINDOWS_ARCHES, ["x64", "arm64"]);
-  assert.equal(normalizeWindowsArch(" X64 "), "x64");
-  assert.equal(windowsBundleName("x64"), "Kakapo-win32-x64");
-  assert.equal(windowsArchiveName("1.2.3", "x64"), "Kakapo-1.2.3-windows-x64.zip");
-  assert.equal(windowsRipgrepPackageName("x64"), "@vscode/ripgrep-win32-x64");
-  assert.throws(() => normalizeWindowsArch("ia32"), /Expected x64 or arm64/);
-  assert.equal(
-    assertNativeWindowsTarget({ platform: "win32", hostArch: "x64", targetArch: "x64" }),
-    "x64",
-  );
-  assert.throws(
-    () => assertNativeWindowsTarget({ platform: "darwin", hostArch: "x64", targetArch: "x64" }),
-    /must be built on native Windows x64/,
-  );
-});
-
-test("release workflows attach the Windows zip alongside the other desktop packages", () => {
-  const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
-  const windows = readFileSync(join(repoRoot, ".github", "workflows", "windows.yml"), "utf8");
-  const autoRelease = readFileSync(join(repoRoot, ".github", "workflows", "auto-release.yml"), "utf8");
-  const release = readFileSync(join(repoRoot, ".github", "workflows", "release.yml"), "utf8");
-
-  assert.equal(packageJson.scripts["dist:win"], "npm run build && node scripts/package-win.mjs x64");
-  assert.match(windows, /runs-on: windows-latest/);
-  assert.match(windows, /npm run dist:win/);
-  assert.match(windows, /gh release upload "\$RELEASE_TAG" release\/Kakapo-\*-windows-x64\.zip/);
-  assert.match(windows, /ref: \$\{\{ inputs\.release_tag \|\| github\.ref \}\}/);
-  assert.match(release, /windows-release:[\s\S]*needs: linux-release[\s\S]*uses: \.\/\.github\/workflows\/windows\.yml/);
-  assert.match(autoRelease, /windows-release:[\s\S]*needs: \[auto-release, linux-release\][\s\S]*uses: \.\/\.github\/workflows\/windows\.yml/);
-});
-
 test("language-server packaging covers every advertised language family with pinned sidecars", () => {
   assert.deepEqual(BUNDLED_LANGUAGE_FAMILIES, [
     "typescript", "python", "go", "rust", "clang", "java", "kotlin", "ruby", "php",
   ]);
   assert.equal(platformTarget("darwin", "arm64"), "darwin-arm64");
-  assert.equal(platformTarget("linux", "x64"), "linux-x64");
-  assert.throws(() => platformTarget("win32", "x64"), /support darwin\/linux/);
-  assert.deepEqual(Object.keys(expectedServerPaths("/bundle", "linux-arm64")), [
+  assert.equal(platformTarget("darwin", "x64"), "darwin-x64");
+  assert.throws(() => platformTarget("linux", "x64"), /support darwin x64\/arm64/);
+  assert.throws(() => platformTarget("win32", "x64"), /support darwin x64\/arm64/);
+  assert.deepEqual(Object.keys(expectedServerPaths("/bundle", "darwin-arm64")), [
     "go", "rust", "clang", "java", "kotlin", "ruby", "php",
   ]);
   assert.match(SERVER_VERSIONS.gopls, /^\d+\.\d+\.\d+$/);
@@ -148,18 +76,6 @@ test("Java packaging preserves relative Temurin JRE links instead of retaining t
   );
 });
 
-test("Linux ARM64 clang packaging dereferences temporary .deb links", () => {
-  const installer = readFileSync(join(repoRoot, "scripts", "install-language-servers.mjs"), "utf8");
-  assert.match(installer, /cpSync\(realpathSync\(clangd\), join\(output, "bin", "clangd"\)\)/);
-  for (const runtime of ["libgrpc++1.51t64", "libprotobuf32t64", "libabsl20220623t64"]) {
-    assert.match(installer, new RegExp(runtime.replace(/[+.]/g, "\\$&")));
-  }
-  assert.match(installer, /walkFiles\(apt, \(path\) =>/);
-  assert.match(installer, /try \{ stat = statSync\(path\); \} catch \{ continue; \}/);
-  assert.match(installer, /LD_LIBRARY_PATH: join\(output, "lib"\)/);
-  assert.match(installer, /\["--version"\]/);
-});
-
 test("language-server downloads retry transient server failures without weakening checksums", async () => {
   const cache = mkdtempSync(join(tmpdir(), "kakapo-download-test-"));
   const payload = Buffer.from("verified-sidecar", "utf8");
@@ -184,103 +100,54 @@ test("language-server downloads retry transient server failures without weakenin
   }
 });
 
-// The smoke opens the repository it is run in, so the page it must find is the review document — and its
-// title is the project's name, which is whatever folder the app was pointed at. Matching on the title is what
-// broke: "kakapo" does not start with "Kakapo". The document does not move, so that is what identifies it.
-test("Linux GUI smoke holds out for the review document, whatever the page is titled", async () => {
-  const page = await waitForKakapoRenderer({
-    port: 9222,
-    timeoutMs: 1_000,
-    fetchImpl: async () => ({
-      ok: true,
-      json: async () => [
-        { type: "page", title: "Kakapo is loading", url: "data:text/html,Kakapo" },
-        { type: "page", title: "kakapo", url: "file:///home/runner/.config/Kakapo/workspaces/home/runner/kakapo/app-review.html" },
-      ],
-    }),
-    processState: () => ({ exited: false }),
-  });
-
-  assert.equal(page.type, "page");
-  assert.match(page.url, /^file:.*app-review\.html$/, "the review document, not the data: splash in front of it");
-});
-
-// The old message said "Last error: fetch failed" even when the debugger had answered perfectly and simply
-// held no review page — which sent a reader looking at the network for a problem that was in the matcher.
-test("a debugger that answers without a review page says so, instead of blaming the fetch", async () => {
-  await assert.rejects(
-    waitForKakapoRenderer({
-      port: 9222,
-      timeoutMs: 300,
-      fetchImpl: async () => ({
-        ok: true,
-        json: async () => [{ type: "page", title: "Kakapo is loading", url: "data:text/html,Kakapo" }],
-      }),
-      processState: () => ({ exited: false }),
-    }),
-    (error) => {
-      assert.match(error.message, /answered but held no app-review\.html/);
-      assert.match(error.message, /data:text\/html/, "and shows what it did hold");
-      return true;
-    },
-  );
-});
-
-// Nothing listening at all is a different failure and still reads as one.
-test("an unreachable debugger still reports the fetch that failed", async () => {
-  await assert.rejects(
-    waitForKakapoRenderer({
-      port: 9222,
-      timeoutMs: 300,
-      fetchImpl: async () => { throw new Error("fetch failed"); },
-      processState: () => ({ exited: false }),
-    }),
-    /Last error: fetch failed/,
-  );
-});
-
-test("release workflow tests, packages, and attaches Linux tarballs + a macOS dmg (no npm publish)", () => {
+test("the release workflow tests, builds the dmg and attaches it, with no npm publish", () => {
   const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
-  const workflow = readFileSync(join(repoRoot, ".github", "workflows", "linux.yml"), "utf8");
   const autoRelease = readFileSync(join(repoRoot, ".github", "workflows", "auto-release.yml"), "utf8");
   const release = readFileSync(join(repoRoot, ".github", "workflows", "release.yml"), "utf8");
   const macos = readFileSync(join(repoRoot, ".github", "workflows", "macos.yml"), "utf8");
 
-  assert.equal(packageJson.scripts["dist:linux:x64"], "npm run lsp:install && npm run build && npm run lsp:smoke && node scripts/package-linux.mjs x64");
-  assert.equal(packageJson.scripts["dist:linux:arm64"], "npm run lsp:install && npm run build && npm run lsp:smoke && node scripts/package-linux.mjs arm64");
-  assert.equal(packageJson.scripts["smoke:linux"], "node scripts/smoke-linux.mjs");
-  assert.match(workflow, /runner: ubuntu-24\.04\n/);
-  assert.match(workflow, /runner: ubuntu-24\.04-arm/);
-  assert.match(workflow, /!startsWith\(github\.event\.head_commit\.message, 'chore\(release\):'\)/);
-  assert.match(workflow, /run: npm test/);
-  assert.match(workflow, /npm run dist:linux:\$\{\{ matrix\.arch \}\}/);
-  assert.match(workflow, /npm run smoke:linux/);
-  assert.match(workflow, /gh release upload/);
-  assert.match(workflow, /GH_REPO: \$\{\{ github\.repository \}\}/);
-  assert.match(
-    readFileSync(join(repoRoot, "scripts", "smoke-linux.mjs"), "utf8"),
-    /child\.stdout\?\.destroy\(\);[\s\S]*child\.stderr\?\.destroy\(\);/,
-  );
-
-  // The tag-triggered release and the weekly auto-release both build Linux + the macOS dmg, and neither
+  // The tag-triggered release and the merge-triggered auto-release both build the dmg, and neither
   // publishes to npm (Trusted Publishing was never set up; the app ships from GitHub Releases).
-  assert.match(release, /linux-release:[\s\S]*uses: \.\/\.github\/workflows\/linux\.yml/);
-  assert.match(release, /macos-release:[\s\S]*needs: linux-release[\s\S]*uses: \.\/\.github\/workflows\/macos\.yml/);
+  assert.match(release, /macos-release:[\s\S]*uses: \.\/\.github\/workflows\/macos\.yml/);
   assert.match(release, /release_tag:\s*\$\{\{ inputs\.release_tag \}\}/);
   assert.doesNotMatch(release, /run: npm publish/);
-  assert.match(autoRelease, /uses: \.\/\.github\/workflows\/linux\.yml/);
+  assert.match(autoRelease, /macos-release:[\s\S]*needs: auto-release/);
   assert.match(autoRelease, /uses: \.\/\.github\/workflows\/macos\.yml/);
-  assert.match(autoRelease, /macos-release:[\s\S]*needs: \[auto-release, linux-release\]/);
   assert.doesNotMatch(autoRelease, /run: npm publish/);
+  assert.match(autoRelease, /run: npm test/, "a red build still does not get released");
 
-  // The macOS reusable workflow builds the unsigned dmg with system tools and uploads it to the release.
-  // It uses the :ci variant, which skips the runtime lsp:smoke gate (flaky on the cold macOS runner) but
-  // still verifies the bundled-server structure.
+  // The dmg job has to be able to stand alone now. It used to be ordered behind the Linux job, which
+  // created the GitHub release; with that gone, this job creates the release itself or there is nothing
+  // to upload to.
+  assert.match(macos, /gh release create "\$RELEASE_TAG"/);
   assert.match(macos, /npm run dist:mac:dmg:ci/);
   assert.match(macos, /gh release upload "\$RELEASE_TAG" release\/Kakapo-\*\.dmg/);
   assert.match(macos, /ref: \$\{\{ inputs\.release_tag \|\| github\.ref \}\}/);
   assert.equal(packageJson.scripts["dist:mac:dmg:ci"], "npm run dist:mac:ci && node scripts/create-dmg.mjs");
   assert.doesNotMatch(packageJson.scripts["dist:mac:ci"], /lsp:smoke/);
+});
+
+// kakapo ships for macOS only. The Linux and Windows packaging were removed wholesale — two workflows,
+// three scripts, five npm scripts and every linux-* sidecar in the bundle table — and this is the guard
+// that the removal stays removed, because a half-restored platform is worse than either state: a workflow
+// with no script behind it, or a bundle table that promises a sidecar no release builds.
+test("the repository ships for macOS only", () => {
+  const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+  for (const gone of ["linux.yml", "windows.yml"]) {
+    assert.equal(existsSync(join(repoRoot, ".github", "workflows", gone)), false, `${gone} is gone`);
+  }
+  for (const gone of ["package-linux.mjs", "package-win.mjs", "smoke-linux.mjs"]) {
+    assert.equal(existsSync(join(repoRoot, "scripts", gone)), false, `scripts/${gone} is gone`);
+    assert.equal(packageJson.files.includes(`scripts/${gone}`), false, `${gone} is not still published`);
+  }
+  for (const script of Object.keys(packageJson.scripts)) {
+    assert.doesNotMatch(script, /linux|win/, `npm script "${script}" targets a platform that is no longer built`);
+  }
+  // The bundle table is the other half: a linux-* entry here is a download the installer would attempt
+  // for a target no release produces.
+  const installer = readFileSync(join(repoRoot, "scripts", "install-language-servers.mjs"), "utf8");
+  assert.doesNotMatch(installer, /"linux-(x64|arm64)":/, "no sidecar is still pinned for Linux");
+  assert.match(installer, /Bundled language servers support darwin x64\/arm64/, "and the target check says so");
 });
 
 // A .dmg install — and so the Homebrew cask — has to give a working `kakapo`, not just an icon. The npm

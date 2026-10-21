@@ -203,7 +203,7 @@ type BundledServerContext = {
 
 function executable(path: string): boolean {
   try {
-    accessSync(path, process.platform === "win32" ? constants.F_OK : constants.X_OK);
+    accessSync(path, constants.X_OK);
     return true;
   } catch {
     return false;
@@ -273,14 +273,6 @@ const NODE_SERVER_ENTRIES: Record<string, { name: string; entry: string; args: s
   },
 };
 
-function bundlePlatform(platform: NodeJS.Platform): string {
-  return platform === "darwin" ? "darwin" : platform === "linux" ? "linux" : platform;
-}
-
-function bundleArch(arch: string): string {
-  return arch === "x64" || arch === "arm64" ? arch : arch;
-}
-
 function bundledRoot(env: NodeJS.ProcessEnv): string {
   return env.KAKAPO_LSP_BUNDLE_ROOT || DEFAULT_BUNDLED_SERVER_ROOT;
 }
@@ -289,20 +281,17 @@ function projectCacheKey(root: string): string {
   return createHash("sha256").update(resolve(root)).digest("hex").slice(0, 16);
 }
 
-function systemToolPath(platform: NodeJS.Platform): string {
-  // Native sidecars may need OS tools such as git, but never inherit arbitrary user PATH entries.
-  return platform === "win32" ? String.raw`C:\Windows\System32` : "/usr/bin:/bin:/usr/sbin:/sbin";
-}
+// Native sidecars may need OS tools such as git, but never inherit arbitrary user PATH entries.
+const SYSTEM_TOOL_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 
 function bundledNativeCommand(family: string, context: BundledServerContext): LanguageServerCommand | undefined {
   const base = join(
     bundledRoot(context.env),
-    `${bundlePlatform(context.platform)}-${bundleArch(context.arch)}`,
+    `${context.platform}-${context.arch}`,
     family,
   );
-  const executableName = context.platform === "win32" ? ".exe" : "";
   if (family === "go") {
-    const command = join(base, "go", "bin", `gopls${executableName}`);
+    const command = join(base, "go", "bin", "gopls");
     const goBin = join(base, "go", "bin");
     if (!executable(command)) return undefined;
     return {
@@ -315,15 +304,15 @@ function bundledNativeCommand(family: string, context: BundledServerContext): La
         GOROOT: join(base, "go"),
         GOCACHE: join(tmpdir(), "kakapo-go", projectCacheKey(context.root), "build"),
         GOMODCACHE: join(tmpdir(), "kakapo-go", projectCacheKey(context.root), "modules"),
-        PATH: `${goBin}${delimiter}${systemToolPath(context.platform)}`,
+        PATH: `${goBin}${delimiter}${SYSTEM_TOOL_PATH}`,
       },
     };
   }
   if (family === "rust") {
-    const command = join(base, `rust-analyzer${executableName}`);
+    const command = join(base, "rust-analyzer");
     const cargoHome = join(base, "cargo");
     const rustupHome = join(base, "rustup");
-    const cargo = join(cargoHome, "bin", `cargo${executableName}`);
+    const cargo = join(cargoHome, "bin", "cargo");
     if (!executable(command) || !executable(cargo)) return undefined;
     return {
       ...resolvedCommand(family, "rust-analyzer", command, [], "bundled"),
@@ -332,26 +321,22 @@ function bundledNativeCommand(family: string, context: BundledServerContext): La
         RUSTUP_HOME: rustupHome,
         RUSTUP_TOOLCHAIN: "stable",
         CARGO_TARGET_DIR: join(tmpdir(), "kakapo-rust", projectCacheKey(context.root), "target"),
-        PATH: `${join(cargoHome, "bin")}${delimiter}${systemToolPath(context.platform)}`,
+        PATH: `${join(cargoHome, "bin")}${delimiter}${SYSTEM_TOOL_PATH}`,
       },
     };
   }
   if (family === "clang") {
-    const command = join(base, "bin", `clangd${executableName}`);
-    const libraryDir = join(base, "lib");
+    const command = join(base, "bin", "clangd");
     if (!executable(command)) return undefined;
-    return {
-      ...resolvedCommand(family, "clangd", command, [], "bundled"),
-      env: context.platform === "linux"
-        ? { LD_LIBRARY_PATH: `${libraryDir}${delimiter}${context.env.LD_LIBRARY_PATH ?? ""}` }
-        : undefined,
-    };
+    // The macOS clangd archive is self-contained; only the Ubuntu build needed LD_LIBRARY_PATH pointed
+    // at the runtime closure beside it, and that build went with the Linux packaging.
+    return resolvedCommand(family, "clangd", command, [], "bundled");
   }
   if (family === "java") {
     const javaHome = join(base, "jre");
-    const java = join(javaHome, "bin", `java${executableName}`);
+    const java = join(javaHome, "bin", "java");
     const launcher = join(base, "jdtls", "plugins", "org.eclipse.equinox.launcher.jar");
-    const configuration = join(base, "jdtls", context.platform === "darwin" ? "config_mac" : "config_linux");
+    const configuration = join(base, "jdtls", "config_mac");
     if (!executable(java) || !existsSync(launcher) || !existsSync(configuration)) return undefined;
     const data = join(tmpdir(), "kakapo-jdtls", projectCacheKey(context.root));
     return {
@@ -377,14 +362,14 @@ function bundledNativeCommand(family: string, context: BundledServerContext): La
     };
   }
   if (family === "kotlin") {
-    const command = join(base, "bin", `intellij-server${executableName}`);
+    const command = join(base, "bin", "intellij-server");
     const systemPath = join(tmpdir(), "kakapo-kotlin", projectCacheKey(context.root));
     return executable(command)
       ? resolvedCommand(family, "kotlin-lsp", command, ["--stdio", "--system-path", systemPath], "bundled")
       : undefined;
   }
   if (family === "ruby") {
-    const command = join(base, `sorbet${executableName}`);
+    const command = join(base, "sorbet");
     return executable(command)
       ? resolvedCommand(family, "sorbet", command, [
         "--lsp", "--disable-watchman", "--cache-dir", join(tmpdir(), "kakapo-sorbet", projectCacheKey(context.root)), "--dir", ".",
@@ -392,7 +377,7 @@ function bundledNativeCommand(family: string, context: BundledServerContext): La
       : undefined;
   }
   if (family === "php") {
-    const command = join(base, `php${executableName}`);
+    const command = join(base, "php");
     const phpactor = join(base, "phpactor.phar");
     const cacheRoot = join(tmpdir(), "kakapo-phpactor", projectCacheKey(context.root));
     return executable(command) && existsSync(phpactor)
@@ -475,11 +460,10 @@ export function resolveLanguageServer(
 ): LanguageServerCommand | undefined {
   const family = familyForPath(path);
   if (!family) return undefined;
-  const suffix = platform === "win32" ? ".cmd" : "";
   const projectDirs = [
     join(root, "node_modules", ".bin"),
-    join(root, ".venv", platform === "win32" ? "Scripts" : "bin"),
-    join(root, "venv", platform === "win32" ? "Scripts" : "bin"),
+    join(root, ".venv", "bin"),
+    join(root, "venv", "bin"),
     join(root, "bin"),
   ];
   const override = env[`KAKAPO_LSP_${family.toUpperCase()}`];
@@ -492,7 +476,7 @@ export function resolveLanguageServer(
   if (!env[PROJECT_SERVERS_OPT_IN]) return undefined;
   for (const spec of SERVER_SPECS[family] ?? []) {
     const command = projectDirs
-      .map((dir) => join(dir, spec.binary + suffix))
+      .map((dir) => join(dir, spec.binary))
       .find((candidate) => existsSync(candidate) && executable(candidate));
     if (command) return nodeHostedCommand(resolvedCommand(family, spec.binary, command, spec.args, "project"));
   }
@@ -516,8 +500,7 @@ const liveServerGroups = new Set<number>();
 process.once("exit", () => {
   for (const pid of liveServerGroups) {
     try {
-      if (process.platform === "win32") process.kill(pid);
-      else process.kill(-pid, "SIGKILL");
+      process.kill(-pid, "SIGKILL");
     } catch { /* already gone */ }
   }
   reapEscapedGradleDaemons();
@@ -529,7 +512,6 @@ process.once("exit", () => {
 // machine had accumulated 15 daemon logs from our JVM. Nothing but Kakapo runs the JVM we bundle, so match on
 // that path — and only on daemons, since a daemon is a restartable cache while a language server is not.
 export function reapEscapedGradleDaemons(bundleDir = bundledKotlinDir()): void {
-  if (process.platform === "win32") return; // no bundled JBR there, and pgrep does not exist
   // Synchronous by necessity: this also runs from an 'exit' handler, where nothing async can still land.
   const found = spawnSync("pgrep", ["-f", `^${bundleDir}/.*GradleDaemon`], { encoding: "utf8" });
   for (const line of found.stdout?.split("\n") ?? []) {
@@ -540,7 +522,7 @@ export function reapEscapedGradleDaemons(bundleDir = bundledKotlinDir()): void {
 }
 
 function bundledKotlinDir(): string {
-  return join(bundledRoot(process.env), `${bundlePlatform(process.platform)}-${bundleArch(process.arch)}`, "kotlin");
+  return join(bundledRoot(process.env), `${process.platform}-${process.arch}`, "kotlin");
 }
 
 export class LspClient {
@@ -710,9 +692,7 @@ export class LspClient {
     const pid = child.pid;
     const signalGroup = (signal: NodeJS.Signals) => {
       try {
-        // Windows has no process groups to signal; kill() there already terminates the whole tree.
-        if (process.platform === "win32") child.kill(signal);
-        else process.kill(-pid, signal);
+        process.kill(-pid, signal);
       } catch { /* already gone */ }
     };
     signalGroup("SIGTERM");
@@ -768,7 +748,7 @@ export class LspClient {
         windowsHide: true,
         // Own process group, so killTree() can reap the server's own children (tsserver, the Kotlin JVM)
         // instead of orphaning them. stdio stays piped, so this is not a true detach.
-        detached: process.platform !== "win32",
+        detached: true,
       });
       this.child = child;
       const pid = child.pid;
@@ -952,7 +932,7 @@ export class LspClient {
   private async waitForWorkspaceReady(): Promise<void> {
     // These bundled servers do not publish a portable "workspace ready" notification. Their initialize
     // response only means the protocol is live, not that definitions are queryable. Keep the grace in the
-    // background prewarm path so first-use navigation is deterministic on slower Linux runners/workstations.
+    // background prewarm path so first-use navigation is deterministic on slower workstations.
     const startupGraceMs = this.server.family === "php" ? 6_000 : this.server.family === "kotlin" ? 75_000 : 0;
     if (startupGraceMs) {
       this.startupGrace ??= new Promise<void>((resolveReady) => {

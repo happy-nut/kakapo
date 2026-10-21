@@ -85,17 +85,11 @@ function openAnalysisUsagesFallback(name, locations, kind) {
   showUsages(name, usageItems.length);
 }
 
+// Shared with the caret hint — see caretAnchorElement in 07-comments.js for why the candidate list is
+// gated on which view is showing rather than on geometry.
 function semanticPeekAnchorRect() {
-  var caret = document.querySelector('#source-body .code-cursor')
-    || document.querySelector('#diff2html-container .code-cursor');
-  if (caret && caret.getBoundingClientRect) {
-    var caretRect = caret.getBoundingClientRect();
-    if (caretRect.width || caretRect.height || caretRect.top || caretRect.left) return caretRect;
-  }
-  var loc = caretSourceLoc();
-  var row = loc && document.querySelector('#source-body .source-row[data-line-index="' + loc.lineIndex + '"]');
-  if (!row && typeof activeDiffRow !== 'undefined') row = activeDiffRow;
-  return row && row.getBoundingClientRect ? row.getBoundingClientRect() : null;
+  var el = caretAnchorElement();
+  return el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
 }
 
 function positionSemanticPeekAtCaret() {

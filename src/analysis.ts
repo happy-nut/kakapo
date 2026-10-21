@@ -84,6 +84,7 @@ type AnalysisResult = Omit<AnalysisResponse, "generation" | "durationMs">;
 type AnalysisOptions = {
   resolveServer?: (root: string, path: string) => LanguageServerCommand | undefined;
   indexBudgetMs?: number;
+  coldQueryBudgetMs?: number;
   files?: IndexedFile[];
   onStatus?: (status: AnalysisStatus) => void;
 };
@@ -118,6 +119,10 @@ export class ProjectAnalysis {
   // because nothing is waiting on it, bounded because a server that never diagnoses must not leave the
   // status chip saying "indexing" forever. Overridable so tests do not spend a minute on it.
   private readonly indexBudgetMs: number;
+  // How long one navigation question waits for a server that has NOT said it is ready yet. Small, because
+  // during that window the server usually has no answer at all and the regex index does — see
+  // withDeadlineWhileIndexing.
+  private readonly coldQueryBudgetMs: number;
   private readonly fixedFiles?: IndexedFile[];
   private readonly onStatus?: (status: AnalysisStatus) => void;
   private generation = 0;
@@ -126,6 +131,7 @@ export class ProjectAnalysis {
   constructor(readonly root: string, options: AnalysisOptions = {}) {
     this.resolveServer = options.resolveServer ?? resolveLanguageServer;
     this.indexBudgetMs = options.indexBudgetMs ?? 90_000;
+    this.coldQueryBudgetMs = options.coldQueryBudgetMs ?? 400;
     this.fixedFiles = options.files;
     this.onStatus = options.onStatus;
   }
@@ -227,7 +233,7 @@ export class ProjectAnalysis {
         : request.kind === "references"
           ? "textDocument/references"
           : "textDocument/implementation";
-      const lsp = await this.lspLocations(path, context.lineIndex, context.column, method);
+      const lsp = await this.lspLocations(path, context.lineIndex, context.column, method, context.symbol);
       const semanticLocations = await this.navigationLocations(lsp.locations);
       if (semanticLocations.length) {
         return {
@@ -369,11 +375,58 @@ export class ProjectAnalysis {
     this.setStatus("fallback", { fallbackReason: `No language server is available for ${path}` });
   }
 
+  // A cold server answers its first questions only after it has read the project — tens of seconds on a
+  // large Gradle/Kotlin workspace — and REQUEST_TIMEOUT_MS lets one question sit there for eight of them.
+  // Every navigation key pressed in that window paid the whole wait and then usually got the regex index's
+  // answer anyway, because the server had nothing to give yet. So while the server has not reported
+  // `ready`, stop WAITING at a deadline and let the index answer now.
+  //
+  // The request is not cancelled. It keeps running, which is exactly what warms the server up, and the
+  // first question asked after `ready` waits as long as it needs to.
+  private withDeadlineWhileIndexing<T>(work: Promise<T>): Promise<{ settled: true; value: T } | { settled: false }> {
+    if (this.status.phase === "ready") return work.then((value) => ({ settled: true as const, value }));
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        resolve({ settled: false });
+      }, this.coldQueryBudgetMs);
+      // One timer left armed held this project's whole test suite open for six hours. Nothing here is
+      // worth keeping the process alive for.
+      if (typeof timer.unref === "function") timer.unref();
+      work.then(
+        (value) => { if (done) return; done = true; clearTimeout(timer); resolve({ settled: true, value }); },
+        // A rejection after the deadline has already passed belongs to the warm-up, not to this question;
+        // the handler is still attached so it cannot surface as an unhandled rejection.
+        (error) => { if (done) return; done = true; clearTimeout(timer); reject(error); },
+      );
+    });
+  }
+
+  // Is this line, in this file, something the regex index also calls a declaration of this symbol?
+  //
+  // That is the test for "the server sent me the real thing" — and its opposite is the test for an
+  // indirection worth following. No declaration pattern in analysis-index.ts matches an `import`, so an
+  // import binding can never answer true here, including the one shape no single-line pattern can see: a
+  // name on its own inside a multi-line `import { … }`.
+  //
+  // An index with no record of the symbol ANYWHERE has no opinion and says yes, so a language the regex
+  // patterns do not cover keeps the server's answer untouched instead of paying a follow-up on every jump.
+  private async isIndexedDeclaration(location: AnalysisLocation, symbol: string): Promise<boolean> {
+    if (!symbol) return true;
+    const index = await this.getIndex();
+    const records = index.definitions.get(symbol) ?? [];
+    if (!records.length) return true;
+    return records.some((record) => record.path === location.path && record.lineIndex === location.lineIndex);
+  }
+
   private async lspLocations(
     path: string,
     line: number,
     column: number,
     method: "textDocument/definition" | "textDocument/references" | "textDocument/implementation",
+    symbol = "",
   ): Promise<{ server?: string; serverSource?: LanguageServerCommand["source"]; locations: AnalysisLocation[]; fallbackReason?: string }> {
     let attempted = false;
     let lastError = "";
@@ -388,24 +441,42 @@ export class ProjectAnalysis {
       }
       attempted = true;
       try {
-        let locations = uniqueLocations(await client.locations(method, path, line, column));
-        // tsserver commonly reports the local import binding first. Follow a single definition once so
-        // Cmd/Ctrl+B reaches the exported declaration directly instead of requiring a second navigation.
-        if (method === "textDocument/definition" && locations.length === 1) {
-          const first = locations[0];
-          const [withText] = await this.withText([first]);
-          const importBinding = /^\s*import\b|^\s*export\s+(?:\{|\*)[^;]*\bfrom\b|\brequire\s*\(/.test(withText?.text ?? "");
-          if (importBinding) {
+        const answer = await this.withDeadlineWhileIndexing(client.locations(method, path, line, column));
+        if (!answer.settled) {
+          // Not an error and not a dead end: the server simply has not read enough of the project yet.
+          // Returning no locations drops through to the regex index below, and `fallbackReason` is what
+          // makes the renderer label it as the partial answer rather than as the whole truth.
+          return { locations: [], fallbackReason: "The language server is still reading the project" };
+        }
+        let locations = uniqueLocations(answer.value);
+        // tsserver and friends commonly report the local import BINDING rather than the declaration it
+        // points at. Go-to-definition that lands on `import { thing } from …` has not answered the
+        // question, so follow the indirection here instead of making the reviewer press the key twice.
+        //
+        // This used to fire only when the server returned EXACTLY ONE location, and only when a regex
+        // matched that one line as an import statement — so it missed both of the shapes that actually
+        // turn up: a server that returns the binding alongside something else, and a binding inside a
+        // multi-line `import {\n  thing,\n} from …`, whose line is just `  thing,` and matches nothing.
+        // Asking the index what counts as a declaration covers every shape and every language it knows.
+        //
+        // Following a location that really was the declaration is harmless by construction: the server
+        // sends back the same place, the filter below drops it, and the original answer stands. The bound
+        // is there so a server returning a long list cannot turn one keystroke into a dozen round trips.
+        if (method === "textDocument/definition" && locations.length && locations.length <= 4) {
+          const resolved: AnalysisLocation[] = [];
+          for (const candidate of locations) {
+            if (await this.isIndexedDeclaration(candidate, symbol)) { resolved.push(candidate); continue; }
             let followed: AnalysisLocation[] = [];
             if (client.server.family === "typescript") {
               try { followed = uniqueLocations(await client.sourceDefinitions(path, line, column)); } catch { /* standard LSP below */ }
             }
             if (!followed.length) {
-              followed = uniqueLocations(await client.locations(method, first.path, first.lineIndex, first.column));
+              followed = uniqueLocations(await client.locations(method, candidate.path, candidate.lineIndex, candidate.column));
             }
-            followed = followed.filter((item) => item.path !== first.path || item.lineIndex !== first.lineIndex || item.column !== first.column);
-            if (followed.length) locations = followed;
+            followed = followed.filter((item) => item.path !== candidate.path || item.lineIndex !== candidate.lineIndex || item.column !== candidate.column);
+            resolved.push(...(followed.length ? followed : [candidate]));
           }
+          locations = uniqueLocations(resolved);
         }
         this.setStatus("ready", serverFields(client.server));
         return {

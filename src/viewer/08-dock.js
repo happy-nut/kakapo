@@ -578,7 +578,7 @@ function checkForUpdate() {
   if (cached) apply(cached); // show what we know immediately; a fetch below may replace it
   if (cached && Date.now() - cachedAt < UPDATE_CHECK_MS) return;
   if (typeof fetch !== 'function') return;
-  // GitHub Releases is where kakapo actually ships (release.yml attaches the dmg and the Linux tarballs;
+  // GitHub Releases is where kakapo actually ships (release.yml attaches the macOS dmg;
   // there is no npm publish). This used to ask the npm registry, which answers 404 for this package — so the
   // check silently failed forever and no update was ever offered.
   fetch('https://api.github.com/repos/happy-nut/kakapo/releases/latest', { cache: 'no-store', headers: { accept: 'application/vnd.github+json' } })

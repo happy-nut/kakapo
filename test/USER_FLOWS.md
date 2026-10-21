@@ -94,7 +94,7 @@ localStorage라 이 함정을 못 건드린다).
 - Find in Files가 열린 동안 입력 필드의 `Cmd/Ctrl+←/→` 같은 네이티브 편집 키는 유지되고, 처리되지 않은 키가 dim 처리된 파일·diff 전역 단축키로 전파되지 않는다
 - 프로젝트 검색 프리뷰는 선택 줄 주변 문맥을 먼저 그리고, 위·아래 스크롤에 따라 문맥을 점진적으로 확장하면서 현재 보던 코드의 스크롤 앵커를 유지한다
 - 모달 프로젝트 검색이 열리면 파일 안 검색도 함께 dim 처리되고, 모든 스크롤바는 거터 폭을 유지한 채 스크롤 중에만 나타났다가 유휴 상태에서 사라진다
-- Linux x64와 ARM64는 각각 네이티브 Ubuntu runner에서 전체 테스트, Electron 패키징, Xvfb 실제 렌더러 기동을 통과한 동일 산출물만 GitHub Release에 첨부한다
+- 릴리스는 macOS(Apple Silicon) dmg 하나다. 태그 빌드가 전체 테스트를 통과한 뒤에만 패키징·첨부한다
 
 ### Flow 5 — 프로젝트 코드 분석 (`analysis.test.mjs`, `monaco.test.mjs`)
 
@@ -148,7 +148,7 @@ npm test          # pretest가 빌드 후 node --test 로 test/*.test.mjs 실행
 CI에서는 세 곳이 같은 `npm test`를 돌린다:
 
 - `.github/workflows/test.yml` — 모든 main push·PR (머지 전 1차 게이트, Node 22.14/24 매트릭스)
-- `.github/workflows/release.yml` — `v*` 태그 배포(Linux tarball + macOS dmg + Windows zip) 직전 게이트
+- `.github/workflows/release.yml` — `v*` 태그 배포(macOS dmg) 직전 게이트
 - `.github/workflows/auto-release.yml` — main 머지가 곧 릴리스인 자동 배포에서 version bump 직전 게이트
 
 즉 빨간 빌드는 머지도, 배포도 되지 않는다.
