@@ -638,71 +638,10 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   transition: grid-template-columns 180ms cubic-bezier(.2, .8, .2, 1);
 }
-/* The packaged macOS app uses BrowserWindow's hiddenInset title bar. Reuse the first review toolbar as
-   window chrome instead of stacking a native title strip above it. Only the traffic-light corner needs
-   reserved height; the main file path, navigation and review actions now occupy the title-bar row. */
-body.native-app {
-  --native-titlebar-height: 40px;
-  /* Window buttons start at x=14 and occupy the left ~76px. When the project sidebar is collapsed the
-     content starts immediately after the activity rail, so the remaining width must stay empty. */
-  --native-traffic-safe-width: 76px;
-  /* Full-viewport headers must use one of these derived insets. Keeping the traffic-light math here makes
-     History, collapsed editor chrome and maximized writing panels impossible to tune independently. */
-  --native-title-safe-left: calc(var(--native-traffic-safe-width) + 8px);
-  --native-title-safe-after-rail: calc(var(--native-traffic-safe-width) - var(--rail-width) + 8px);
-}
-/* Single-instance app: the activity rail's icons now live in the shell title bar, so the in-view rail is
-   hidden and its grid column collapses to 0 — the project sidebar becomes the left-most viewer column. Every
-   rail control stays in the DOM (only CSS-hidden), so the title-bar mirror can still click it via IPC. */
-body.native-app { --rail-width: 0px; }
-
-/* A quiet horizontal rule closes the macOS traffic-light strip across both navigation columns. */
-body.native-app .activity-rail::before,
-body.native-app .sidebar::before {
-  content: "";
-  position: absolute;
-  /* Toolbars are border-box: their 1px bottom border occupies the final pixel of the 40px title row. */
-  top: calc(var(--native-titlebar-height) - 1px);
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: var(--chrome-border);
-  pointer-events: none;
-  z-index: 2;
-}
-
-/* Reserve the native controls outside the scrolling element. Padding the scroll contents themselves
-   looked correct only at scrollTop=0; once the tree moved, that padding scrolled away and the project
-   heading slid underneath the traffic lights. The sidebar frame keeps this inset permanently. */
-/* The shell window owns the title bar + traffic lights above this view, so the sidebar no longer reserves a
-   title-strip row; its brand header aligns with the content toolbar as one header band. */
-body.native-app .sidebar { padding-top: 0; }
-body.native-app .sidebar-scroll { padding-top: 8px; }
-body.native-app .diff-toolbar,
-body.native-app .source-tabs,
-body.native-app .source-toolbar {
-  -webkit-app-region: drag;
-}
-/* Everything in these bars that answers a click has to opt OUT of the drag region: inside a drag region the
-   window takes the press and the click never reaches the page. The file tabs are plain <div>s (the <button>
-   in them is the × close), so only closing a tab worked — clicking a tab to open its file did nothing at all. */
-body.native-app .diff-toolbar button,
-body.native-app .diff-toolbar input,
-body.native-app .diff-toolbar select,
-body.native-app .source-tabs button,
-body.native-app .source-tabs [tabindex],
-body.native-app .source-tabs .source-tab,
-body.native-app .source-toolbar button,
-body.native-app .source-toolbar input,
-body.native-app .source-toolbar select {
-  -webkit-app-region: no-drag;
-}
-body.native-app .diff-toolbar,
-body.native-app .source-toolbar { min-height: var(--native-titlebar-height); }
-body.native-app .source-tabs {
-  min-height: var(--native-titlebar-height);
-  margin: 0;
-}
+/* The `native-app` layout is gone with the shell window it was built for: render.ts emits <body> with
+   no class (views.test.mjs pins that), so every rule scoped to it was unreachable — and the two custom
+   properties they were built on computed to the empty string. Removed rather than left as a reference:
+   a rule nothing can match is not documentation, it is a thing the next reader has to disprove. */
 .sidebar {
   position: relative;
   grid-row: 1 / -1;
@@ -2048,7 +1987,13 @@ h1 { margin: 0; font-size: 18px; }
   font-size: 11px;
   white-space: nowrap;
 }
-.compare-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+/* The dot carries the state, not the label. The three accents below were written as `color`, which
+   `button.compare-pill` has always outranked, so the scheme has never rendered in the app — and reviving
+   it as text would put --add-strong (a diff fill) and --active (which ranges from #0f4a85 to #bd93f9
+   across the twelve themes) into 11px type, which is the contrast this branch spent its time undoing.
+   A 6px dot is a non-text indicator with a 3:1 floor instead of 4.5, and it is the part of the pill that
+   was already shaped to mean "state". The label stays chrome text. */
+.compare-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--compare-state, currentColor); flex: none; }
 .compare-name { font-weight: 600; }
 .compare-count { font-weight: 600; font-variant-numeric: tabular-nums; }
 .compare-refs {
@@ -2069,10 +2014,11 @@ h1 { margin: 0; font-size: 18px; }
 .compare-arrow { color: var(--text); opacity: 0.85; }
 /* Three accents, not five: the states the app CHOSE for you carry colour, and the two you asked for by name
    (--staged, an explicit base/target) stay neutral — you already know what you picked. */
-.compare-local { color: var(--add-strong); }
-.compare-ahead { color: var(--diag-warning); }
-.compare-incoming { color: var(--active); }
-.compare-staged { color: var(--muted); }
+.compare-local { --compare-state: var(--chrome-vcs-staged); }
+.compare-ahead { --compare-state: var(--diag-warning); }
+.compare-incoming { --compare-state: var(--active); }
+/* --staged and an explicit base/target are the two you asked for by name: you already know what you
+   picked, so they stay neutral. That half of the rule above always worked — it asks for nothing. */
 
 /* ===== Compare dropdown ==========================================================================
    The pill is a button in the app, so it needs the button reset the toolbar's other controls get, plus a
@@ -2955,9 +2901,13 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 }
 .semantic-peek.hidden { display: none; }
 .semantic-peek-header { flex: none; display: flex; align-items: center; min-height: 36px; padding: 5px 9px 5px 10px; border-bottom: 1px solid var(--border); }
-.semantic-peek-heading { min-width: 0; flex: 1; }
-.semantic-peek-title { display: inline; color: var(--text); font-size: 11.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.semantic-peek-meta { display: inline; margin-left: 8px; font: 10px/1.35 Monaco, ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The two lines stack. They were display:inline with text-overflow set on each, which does nothing on an
+   inline box — a long symbol name plus a long server name clipped mid-glyph instead of eliding, inside a
+   panel that is overflow:hidden. Blocks in a column elide, and the symbol stops sharing its line with the
+   engine's name. */
+.semantic-peek-heading { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.semantic-peek-title { display: block; color: var(--text); font-size: 11.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.semantic-peek-meta { display: block; margin-left: 0; font: 10px/1.35 Monaco, ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .semantic-peek-results {
   flex: 1 1 auto;
   min-height: 0;
@@ -3034,19 +2984,6 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .hrow { -webkit-user-select: none; user-select: none; } /* double-click activates, never selects row text */
 .history-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; overflow: hidden; }
 .history-list { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 4px 0; }
-body.native-app .history-bar {
-  /* Pin the bar to exactly the title-bar height so its bottom border lines up with the activity rail's
-     title-strip divider (::before at --native-titlebar-height - 1). The default 8px top/bottom padding made
-     it 45px tall, leaving a 5px step at the rail/panel seam. The search input stays vertically centered. */
-  height: var(--native-titlebar-height);
-  min-height: var(--native-titlebar-height);
-  padding-top: 0;
-  padding-bottom: 0;
-  padding-left: var(--native-title-safe-after-rail);
-  -webkit-app-region: drag;
-}
-body.native-app .history-bar input,
-body.native-app .history-bar button { -webkit-app-region: no-drag; }
 /* Fixed-height rows let the per-row SVGs tile as one continuous graph without a scroll-time overlay. */
 .hrow { display: grid; grid-template-columns: var(--hgraph-w, 62px) minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; height: 26px; padding: 0 12px 0 0; border: 0; background: transparent; text-align: left; cursor: pointer; font-size: 12.5px; }
 /* Shift-select compare range: commits between the two endpoints get a subtle band; the endpoints a bar. */
@@ -3225,16 +3162,6 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
    same 14px/1.5% move is the WHOLE screen jumping, which looks like a flicker rather than a transition. */
 @keyframes terminalPanelIn { from { opacity: 0; } to { opacity: 1; } }
 
-/* A maximized writing panel becomes the window's topmost full-viewport surface. Its title therefore needs
-   the same native-control reservation as History and the collapsed review toolbar. Normal writing panels are
-   already inset from every window edge and deliberately keep their compact bar. */
-body.native-app.dock-maximized .dock-bar {
-  min-height: var(--native-titlebar-height);
-  padding-left: var(--native-title-safe-left);
-  -webkit-app-region: drag;
-}
-body.native-app.dock-maximized .dock-bar button,
-body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-drag; }
 .tok-comment { color: var(--token-comment); font-style: normal; } /* see .hljs-comment: a comment wall is not set in oblique mono */
 .tok-keyword { color: var(--token-keyword); font-weight: 650; }
 .tok-string { color: var(--token-string); }
@@ -3487,13 +3414,6 @@ body.native-app.dock-maximized .dock-bar [tabindex] { -webkit-app-region: no-dra
 .quick-open-empty { padding: 28px 14px; font-size: 13px; }
 @media (max-width: 900px) {
   body { grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr); }
-  body.native-app { padding-top: var(--native-titlebar-height); }
-
-  body.native-app .sidebar { padding-top: 0; }
-  body.native-app .sidebar-scroll { padding-top: 10px; }
-  body.native-app .diff-toolbar,
-  body.native-app .source-tabs,
-  body.native-app .source-toolbar { -webkit-app-region: no-drag; }
 
   .history-view { inset: var(--rail-width) 0 0 0; }
 
@@ -3760,33 +3680,8 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   }
   100% { box-shadow: inset 0 0 transparent; }
 }
-/* The sidebar box begins at y=0 so its background can fill the inset titlebar, but a focus outline there
-   crosses the macOS traffic lights. Draw the keyboard-arrival cue on a contained overlay that starts below
-   the native controls. The activity rail already has focused-button feedback, so it needs no panel outline. */
-body.native-app .sidebar.mc-panel-focus-flash,
-body.native-app .activity-rail.mc-panel-focus-flash {
-  outline: 0;
-  animation: none;
-}
-body.native-app .sidebar.mc-panel-focus-flash::after {
-  content: "";
-  position: absolute;
-  top: var(--native-titlebar-height);
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 3;
-  border: 2px solid transparent;
-  pointer-events: none;
-  animation: mc-sidebar-panel-focus-flash 520ms cubic-bezier(.2, .8, .2, 1) both;
-}
-@keyframes mc-sidebar-panel-focus-flash {
-  0%, 28% { border-color: color-mix(in srgb, var(--active) 82%, transparent); }
-  100% { border-color: transparent; }
-}
 @media (prefers-reduced-motion: reduce) {
-  .mc-panel-focus-flash,
-  body.native-app .sidebar.mc-panel-focus-flash::after { animation-duration: 120ms; }
+  .mc-panel-focus-flash { animation-duration: 120ms; }
 }
 /* Both are the first row of the content pane whenever the tab strip is not there (one open file hides it,
    and the diff view has no tabs at all) — so they carry the header band, and the sidebar's rule crosses the
@@ -3978,7 +3873,14 @@ summary.tree-focus,
 .semantic-peek-results { background: var(--chrome-elevated); }
 .semantic-peek-item { color: var(--chrome-text); border-color: var(--chrome-border); }
 .semantic-peek-item:hover { background: var(--chrome-line); }
-.semantic-peek-item.active { color: var(--chrome-selected-text); background: var(--chrome-selected); }
+/* The selected row's fill measures 1.26:1 against an unselected one — below the 3:1 a non-text indicator
+   needs — so in practice the selection was being carried by the code text going grey to white. An accent
+   rail on the leading edge states it outright, at the one place the eye starts the row. */
+.semantic-peek-item.active {
+  color: var(--chrome-selected-text);
+  background: var(--chrome-selected);
+  box-shadow: inset 2px 0 0 var(--active);
+}
 .semantic-peek-item.active .semantic-peek-item-path,
 .semantic-peek-item.active .semantic-peek-item-line,
 .semantic-peek-item.active .semantic-peek-item-code { color: var(--chrome-selected-text); }
@@ -4075,8 +3977,7 @@ summary.tree-focus,
 .diff-tool-button:active,
 .plain-button:active,
 .dock-btn:active { transform: translateY(0); }
-.source-tabs,
-body.native-app .source-tabs {
+.source-tabs {
   align-items: flex-end;
   gap: 1px;
   /* No left padding: the first tab starts at the pane's left edge, so its left border continues the
@@ -4173,11 +4074,6 @@ body.native-app .source-tabs {
      never reflows. The pinned width equals the settled width in both states, so lifting the pin is seamless.
      Must follow body.sidebar-collapsed so it wins the grid-template-columns when both classes are set. */
   body.rail-pinning { transition: none; grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--rail-pin-content, minmax(0, 1fr)); }
-  body.native-app.sidebar-collapsed .diff-toolbar,
-  body.native-app.sidebar-collapsed .source-tabs,
-  body.native-app.sidebar-collapsed .source-toolbar {
-    padding-left: var(--native-title-safe-after-rail);
-  }
   body.sidebar-collapsed .sidebar {
     opacity: 0;
     transform: translateX(-10px);

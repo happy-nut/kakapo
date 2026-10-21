@@ -60,7 +60,10 @@ function openSemanticPeek(name, locations, response, kind) {
   if (meta) {
     var bits = [response && response.confidence || response && response.engine || 'semantic'];
     if (response && response.server) bits.push(response.server + (response.serverSource ? ' (' + response.serverSource + ')' : ''));
-    if (response && Number.isFinite(Number(response.generation))) bits.push('g' + Number(response.generation));
+    // No generation counter here. 'g1' is the analysis index's internal revision — it means nothing to a
+    // reader looking for a symbol, and it was taking room from the one thing in this heading that does.
+    // It is still on the response for anyone debugging, and the duration below is the part that tells a
+    // reader whether the answer is fresh or a fallback.
     if (response && Number.isFinite(Number(response.durationMs))) bits.push(Number(response.durationMs).toFixed(1) + 'ms');
     meta.textContent = bits.join(' · ');
     meta.title = response && response.fallbackReason ? String(response.fallbackReason) : '';
@@ -156,8 +159,18 @@ function showSemanticPeekItem(index) {
 function closeSemanticPeek() {
   var panel = document.getElementById('semantic-peek');
   if (!panel) return;
+  // Hand the keyboard back. The panel takes focus when it opens and never gave it up: Escape left
+  // document.activeElement on <body>, so the next Tab started from the top of the document and an
+  // assistive technology's cursor went with it. The CSS two rules up has always said "Escape returns to
+  // the original caret"; this is the half of that which was missing.
+  var hadFocus = panel.contains(document.activeElement);
   panel.classList.add('hidden');
   panel.style.left = panel.style.top = panel.style.bottom = panel.style.width = panel.style.maxHeight = '';
+  if (!hadFocus) return;
+  var body = document.getElementById('source-body');
+  if (body && body.offsetParent !== null && typeof body.focus === 'function') { body.focus({ preventScroll: true }); return; }
+  var diff = document.getElementById('diff2html-container');
+  if (diff && typeof diff.focus === 'function') diff.focus({ preventScroll: true });
 }
 
 function openActiveSemanticPeekSource() {

@@ -57,6 +57,11 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "sidebarContent", keys: ["Tab", "⇧Tab"], where: "any", i18n: "kbd.sidebarContent", fixed: "structural" },
   { id: "findInFile", keys: ["⌘F"], where: "any", i18n: "kbd.findInFile" },
   { id: "findNextPrev", keys: ["⌘G", "⌘⇧G"], where: "find", i18n: "kbd.findNextPrev" },
+  // The same step, from inside the find box, where Enter is what a search field answers to. It had no row
+  // at all: the two buttons beside the box spelled "↵" and "⇧↵" themselves, which is the one thing this
+  // table exists to stop. Structural — a search field's Enter is a convention of the surface, not a
+  // preference, and the find box reads it directly rather than through a rebind.
+  { id: "findEnter", keys: ["↵", "⇧↵"], where: "find", i18n: "kbd.findEnter", fixed: "structural" },
   { id: "findInFiles", keys: ["⌘⇧F"], where: "any", i18n: "kbd.findInFiles" },
   { id: "recentFiles", keys: ["⌘E"], where: "any", i18n: "kbd.recentFiles" },
   { id: "searchExtensions", keys: ["⌥E"], where: "any", i18n: "kbd.searchExtensions" },
@@ -120,7 +125,7 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   ] },
   { i18n: "settings.kbd.cat.nav", ids: [
     "nextChange", "prevChange", "nextComment", "commentStepAlt", "gotoDiagnostic", "filesChangesTab",
-    "sidebarNavigate", "sidebarContent", "findInFile", "findNextPrev", "findInFiles", "recentFiles",
+    "sidebarNavigate", "sidebarContent", "findInFile", "findNextPrev", "findEnter", "findInFiles", "recentFiles",
     "searchExtensions", "excludeSearchNoise", "defUsages", "goToImplementation", "workspaceSymbol",
     "goToDef", "toggleFold", "prevNextTab", "cursorBackForward",
   ] },

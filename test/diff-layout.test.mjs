@@ -7,12 +7,21 @@ import { readFileSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
 
-test("real Chromium keeps every full-viewport title surface clear of macOS traffic lights", {
-  skip: process.platform !== "darwin" ? "macOS native-title layout regression" : false,
+// The sidebar's project header and the content pane's first toolbar are the same band, and they meet at
+// one seam across the sidebar/content divider — the CSS says so in a comment and nothing checked it. It
+// cannot be checked without a browser: jsdom reports every one of these heights as 0, so the band could
+// drift to three different values and the rest of the suite would stay green.
+//
+// What stood here instead was a test of the `native-app` layout, which reserved room for an integrated
+// title bar. The app stopped emitting that class, so the test only passed because its own fixture added
+// it by hand: with the class gone, the traffic-light reservation it asserted computes to 0 and every
+// "title starts past the controls" bound collapses to "past 8px". It was defending deleted CSS.
+test("real Chromium lands the sidebar header and the content toolbar on one seam", {
+  skip: process.platform !== "darwin" ? "macOS header-band layout regression" : false,
   timeout: 30_000,
 }, async () => {
   const electron = require("electron");
-  const fixture = fileURLToPath(new URL("./fixtures/electron-native-title-layout.cjs", import.meta.url));
+  const fixture = fileURLToPath(new URL("./fixtures/electron-header-band.cjs", import.meta.url));
   const css = fileURLToPath(new URL("../dist/viewer.css", import.meta.url));
   const result = await new Promise((resolve, reject) => {
     const child = spawn(electron, [fixture, css], { stdio: ["ignore", "pipe", "pipe"] });
@@ -27,20 +36,23 @@ test("real Chromium keeps every full-viewport title surface clear of macOS traff
   });
 
   assert.equal(result.code, 0, result.stderr || result.stdout);
-  const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("KAKAPO_NATIVE_TITLE_LAYOUT="));
-  assert.ok(marker, `native title layout result missing\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
-  const layout = JSON.parse(marker.slice("KAKAPO_NATIVE_TITLE_LAYOUT=".length));
-  assert.equal(layout.safeWidth, 76, "the measured native control reservation matches BrowserWindow traffic lights");
-  assert.equal(layout.titlebarHeight, 40, "all custom title rows share the native titlebar height");
-  assert.equal(layout.sidebarBrandTop, 0, "the project header sits flush at the top — the shell window owns the title bar above this view");
-  assert.equal(layout.sidebarFocusTop, layout.titlebarHeight, "the sidebar keyboard cue begins below the traffic-light row");
-  assert.equal(layout.sidebarFocusOutline, "none", "the sidebar does not draw a full-box outline through native controls");
-  assert.ok(layout.reviewTitleLeft >= layout.safeWidth + 8, `collapsed review title starts at ${layout.reviewTitleLeft}px`);
-  assert.ok(layout.historyTitleLeft >= layout.safeWidth + 8, `History title starts at ${layout.historyTitleLeft}px`);
-  assert.ok(layout.historyBarHeight >= layout.titlebarHeight - 0.5, "History preserves the shared titlebar height within Chromium subpixel rounding");
-  assert.ok(layout.dockTitleLeft >= layout.safeWidth + 8, `maximized writing-panel title starts at ${layout.dockTitleLeft}px`);
-  assert.ok(layout.dockBarHeight >= layout.titlebarHeight - 0.5, "maximized writing panels preserve the shared titlebar height within Chromium subpixel rounding");
-  assert.equal(layout.dockButtonRegion, "no-drag", "maximized writing-panel actions remain clickable");
+  const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("KAKAPO_HEADER_BAND="));
+  assert.ok(marker, `header band result missing\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  const layout = JSON.parse(marker.slice("KAKAPO_HEADER_BAND=".length));
+
+  assert.ok(layout.band > 0, `the band is a real measured height (--header-band resolved to ${layout.band})`);
+  // Both panes are measured, because the diff view and the source view reach the band by different rules.
+  for (const [name, surface] of Object.entries({ brand: layout.brand, diff: layout.diff, source: layout.source })) {
+    assert.ok(surface.height > 0, `${name} has a measurable height`);
+    assert.equal(surface.top, 0, `${name} sits flush at the top of the window`);
+    assert.ok(Math.abs(surface.height - layout.band) <= 0.5,
+      `${name} is ${surface.height}px tall, not the ${layout.band}px band`);
+  }
+  // The seam itself: the sidebar header and whichever toolbar is showing end on the same pixel row.
+  assert.ok(Math.abs(layout.brand.bottom - layout.diff.bottom) <= 0.5,
+    `the sidebar header ends at ${layout.brand.bottom} and the diff toolbar at ${layout.diff.bottom}`);
+  assert.ok(Math.abs(layout.brand.bottom - layout.source.bottom) <= 0.5,
+    `the sidebar header ends at ${layout.brand.bottom} and the source toolbar at ${layout.source.bottom}`);
 });
 
 test("real Chromium fills the enlarged native window and settles one visible diff projection", {

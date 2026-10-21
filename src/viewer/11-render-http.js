@@ -691,7 +691,7 @@ function renderHttpTable(file) {
     const reqIdx = hasRun ? runAtLine[index] : -1;
     const isCursorLine = Boolean(cursor && cursor.lineIndex === index);
     const gutter = hasRun
-      ? '<button type="button" class="http-run" data-keyhint="⌘↵" data-req="' + reqIdx + '" title="Run request (⌘Enter / ⌥Enter)" aria-label="Run request">&#9654;</button>'
+      ? '<button type="button" class="http-run" data-keyhint-id="runHttp" data-req="' + reqIdx + '" data-i18n-title="http.run" title="Run request" aria-label="Run request">&#9654;</button>'
       : '';
     rows += '<tr class="source-row http-row' + (hasRun ? ' http-request-line' : '') + (isCursorLine ? ' cursor-line' : '') + '" data-line-index="' + index + '">'
       + '<td class="num http-gutter">' + gutter + '<span class="num-text">' + (index + 1) + '</span></td>'

@@ -14,7 +14,7 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 ${css}
 html, body { width: 100%; height: 100%; overflow: hidden; }
 * { transition: none !important; }
-</style></head><body class="native-app">
+</style></head><body>
   <nav class="activity-rail"></nav>
   <aside class="sidebar"><div class="sidebar-brand">Project</div><div class="sidebar-scroll"></div></aside>
   <main class="content">

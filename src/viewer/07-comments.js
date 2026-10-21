@@ -732,7 +732,7 @@ function reviewerCardHtml(c) {
     + commentTargetHeadHtml(c)
     + (addressed ? '<span class="mc-addressed-tag" title="' + escapeHtml(t('comment.addressed.hint')) + '">' + escapeHtml(t('comment.addressed')) + '</span>' : '')
     + (addressed ? '<button type="button" class="mc-reopen" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reopen')) + '" title="' + escapeHtml(t('comment.reopen')) + '">↺</button>' : '')
-    + '<button type="button" class="mc-del" data-keyhint="Del" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
+    + '<button type="button" class="mc-del" data-keyhint-id="deleteComment:1" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
     + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div></div>';
 }
 // Is the open composer the one that belongs in this (path, line, pane) slot?
@@ -1022,9 +1022,10 @@ function refreshComments() {
   // next user scroll. Recompute the active timeline in this same update, after both pane heights match.
   if (changedDiffWrappers.length) scrollAsymmetricDiff();
   if (isSourceViewerVisible()) renderSourceComments();
-  // The composer is built after the document was translated, so the chords on its two buttons have to be
-  // resolved when it lands. Scoped to the composers themselves — there is at most one open.
-  document.querySelectorAll('.mc-composer').forEach(function (el) { try { applyKeyHints(el); } catch (e) {} });
+  // Everything here is built after the document was translated, so the chords these controls advertise
+  // through data-keyhint-id have to be resolved as they land — a card or composer that misses the sweep
+  // shows an empty chip, which is the silent half of this failure. Scoped to the nodes that carry one.
+  document.querySelectorAll('.mc-composer, .mc-card').forEach(function (el) { try { applyKeyHints(el); } catch (e) {} });
   renderCommentBadges();
   // The merged dock builds from its own snapshot and had no way to hear about this (refreshMergedDock,
   // 08-dock.js). A no-op while it is closed.

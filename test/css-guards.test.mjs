@@ -317,8 +317,14 @@ test("panel focus is a brief shared flash instead of a persistent native outline
   assert.match(css, /@keyframes\s+mc-panel-focus-flash\s*\{[\s\S]{0,240}100%\s*\{[^}]*outline-color:\s*transparent/, "the focus effect fades completely away");
   assert.match(css, /\.history-list\.mc-panel-focus-flash\s*\{[^}]*outline:\s*0;[^}]*animation:\s*mc-history-list-focus-flash/, "history focus does not draw over the activity-rail boundary");
   assert.match(css, /@keyframes\s+mc-history-list-focus-flash\s*\{[\s\S]{0,520}inset\s+-2px\s+0[\s\S]{0,300}100%\s*\{[^}]*box-shadow:\s*inset\s+0\s+0\s+transparent/, "history keeps a three-sided focus cue that fades without a left edge");
-  assert.match(css, /body\.native-app \.sidebar\.mc-panel-focus-flash::after\s*\{[^}]*top:\s*var\(--native-titlebar-height\)/, "the sidebar cue starts below the macOS traffic lights");
-  assert.match(css, /body\.native-app \.activity-rail\.mc-panel-focus-flash\s*\{[^}]*outline:\s*0/, "the activity rail never outlines the traffic-light strip");
+  // The two assertions that stood here pinned the TEXT of rules scoped to `body.native-app`, a layout that
+  // went away with the shell window it was built for — render.ts emits <body> with no class and
+  // views.test.mjs pins that. They could not match anything the app renders, so they were not guarding the
+  // focus cue; they were guarding the continued existence of dead CSS, and would have failed its removal.
+  // What is worth pinning is that nothing is left behind pointing at that layout.
+  assert.doesNotMatch(css, /body\.native-app/, "no rule is scoped to the layout the app stopped using");
+  assert.doesNotMatch(css, /--native-(titlebar-height|title-safe|traffic-safe)/,
+    "and nothing reads the custom properties that layout defined");
 });
 
 

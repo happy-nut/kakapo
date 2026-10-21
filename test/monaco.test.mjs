@@ -129,7 +129,12 @@ test("the caret-local semantic menu opens its selected source without a second e
   assert.ok(!v.$("#semantic-peek").classList.contains("hidden"));
   assert.equal(v.$all("#semantic-peek-results .semantic-peek-item").length, 2);
   assert.match(v.$("#semantic-peek-meta").textContent, /typescript-language-server/);
-  assert.match(v.$("#semantic-peek-meta").textContent, /g8/);
+  // The meta names who answered and how long it took — the two things that tell a reader whether this is
+  // a real semantic answer or a fallback. It used to print the analysis index's revision ("g8") too, which
+  // is a number for whoever is debugging the index and was taking room from the symbol name beside it.
+  assert.doesNotMatch(v.$("#semantic-peek-meta").textContent, /\bg\d+\b/,
+    "the index's internal revision is not part of what a reader is shown");
+  assert.match(v.$("#semantic-peek-meta").textContent, /\d+(\.\d+)?ms/, "how long it took stays");
   assert.equal(v.document.activeElement, v.$("#semantic-peek-results"), "the result dropdown owns arrow navigation");
   assert.equal(v.$("#semantic-peek-editor"), null, "Cmd+B does not cover the code with a second preview editor");
   assert.equal(v.window.__monacoMock.editors.length, 0, "opening the dropdown does not create another editor");

@@ -319,7 +319,7 @@ function updateHistorySelectBar() {
       + '<span class="hsel-sha">' + escapeHtml((ep.newerSha || '').slice(0, 7)) + '</span>'
       + '<span class="hsel-count">' + escapeHtml(ep.count + ' ' + t(ep.count === 1 ? 'history.commit' : 'history.commits')) + '</span></span>'
       + '<span class="hsel-actions">'
-      + '<button type="button" id="hsel-review" class="hsel-btn hsel-open" data-keyhint="⏎">' + escapeHtml(t('history.reviewCompare')) + '</button>'
+      + '<button type="button" id="hsel-review" class="hsel-btn hsel-open" data-keyhint-id="historyNavigate:1">' + escapeHtml(t('history.reviewCompare')) + '</button>'
       + '<button type="button" id="hsel-clear" class="hsel-btn">' + escapeHtml(t('history.clearRange')) + '</button></span>';
   } else if (historyActiveSha) {
     bar.classList.remove('hidden');
@@ -330,6 +330,8 @@ function updateHistorySelectBar() {
     bar.classList.remove('has-range');
     bar.innerHTML = '';
   }
+  // Built here, long after the document was translated: resolve the chord its button advertises.
+  try { applyKeyHints(bar); } catch (e) {}
 }
 // Shift+Arrow variant of moveHistoryCommit: keep the anchor, move the focus, re-diff the span.
 function moveHistoryRange(delta) {
