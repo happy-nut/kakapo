@@ -13,7 +13,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   statSync,
 } from "node:fs";
@@ -37,7 +36,7 @@ export const SERVER_VERSIONS = Object.freeze({
   rustAnalyzer: "2026-07-13",
   // rustup was fetched from static.rust-lang.org/rustup/dist/<target>/rustup-init — the "latest stable"
   // path, whose bytes change on every rustup release. A checksum pinned against a moving URL is a build
-  // that breaks the next time upstream ships, and it did: every Linux/macOS package job failed on a
+  // that breaks the next time upstream ships, and it did: every macOS package job failed on a
   // SHA-256 mismatch until someone noticed and re-pinned. The archive path below is immutable, so the
   // pin now guards what it is supposed to guard — that we got the bytes we meant to.
   rustup: "1.29.1",
@@ -66,57 +65,42 @@ const NATIVE_LANGUAGE_FAMILIES = Object.freeze(["go", "rust", "clang", "java", "
 const GO_ARCHIVES = Object.freeze({
   "darwin-x64": ["go1.26.5.darwin-amd64.tar.gz", "6231d8d3b8f5552ec6cbf6d685bdd5482e1e703214b120e89b3bf0d7bf1ef725"],
   "darwin-arm64": ["go1.26.5.darwin-arm64.tar.gz", "efb87ff28af9a188d0536ef5d42e63dd52ba8263cd7344a993cc48dd11dedb6a"],
-  "linux-x64": ["go1.26.5.linux-amd64.tar.gz", "5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053"],
-  "linux-arm64": ["go1.26.5.linux-arm64.tar.gz", "fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49"],
 });
 
 const RUST_ARCHIVES = Object.freeze({
   "darwin-x64": ["rust-analyzer-x86_64-apple-darwin.gz", "b8832accb9f163214e63ccc989bb2161d52f19270eafb136da0fb16093185041"],
   "darwin-arm64": ["rust-analyzer-aarch64-apple-darwin.gz", "9c6b3ebf06480e2c95a7b01750fa68d77834bffa34da81e4eb00cef3cdff4613"],
-  "linux-x64": ["rust-analyzer-x86_64-unknown-linux-gnu.gz", "5ee1754afa7a1eb7f56606847b61328e6fac2f316e40ebf314dcefb30263df4d"],
-  "linux-arm64": ["rust-analyzer-aarch64-unknown-linux-gnu.gz", "d30c3ac726f93ae7cb57c6e16cd2d2b5460c9893ccdd38b6d3ae9300c72852ab"],
 });
 
 // Checksums are upstream's own, from the .sha256 published beside each file in the same archive directory.
 const RUSTUP_ARCHIVES = Object.freeze({
   "darwin-x64": ["x86_64-apple-darwin", "259e2b84274434085163fe8d556510571772cda2aa6d87ca6aa664f57bc644e3"],
   "darwin-arm64": ["aarch64-apple-darwin", "ec1b9233e7f72990ecd8e62063fa7f6c3dfc2bec8e97f88bff165f9100ac696a"],
-  "linux-x64": ["x86_64-unknown-linux-gnu", "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"],
-  "linux-arm64": ["aarch64-unknown-linux-gnu", "15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433"],
 });
 
 const CLANG_ARCHIVES = Object.freeze({
   "darwin-x64": ["clangd-mac-22.1.6.zip", "631aef462556cbd74e0ebaae1778a38d1997d0ba3371652ca54f82652a179e7d"],
   "darwin-arm64": ["clangd-mac-22.1.6.zip", "631aef462556cbd74e0ebaae1778a38d1997d0ba3371652ca54f82652a179e7d"],
-  "linux-x64": ["clangd-linux-22.1.6.zip", "a9c77443af2e447ed467e84771848d3a6ac1c56f84bcfcde717e66318de77cfa"],
 });
 
 const KOTLIN_ARCHIVES = Object.freeze({
   "darwin-x64": ["kotlin-server-263.6379.0.sit", "e69e0c9d27b915b2db9ee692ec08d097df1a394d9f21190457ef199f2905f77e"],
   "darwin-arm64": ["kotlin-server-263.6379.0-aarch64.sit", "ebef2e13cd4adc4ec9e04084b848000a3ec7a9d2917c64f269574ce2efe9ecad"],
-  "linux-x64": ["kotlin-server-263.6379.0.tar.gz", "ab8ca4455dc2fc5fe1a24db2bccc46c104254d2c465155c4251ee65df8f3f7cc"],
-  "linux-arm64": ["kotlin-server-263.6379.0-aarch64.tar.gz", "50999901ef8bcfa1e58561b6a8d782a72dea5620fcf92a64130807f8924a56fc"],
 });
 
 const JAVA_ARCHIVES = Object.freeze({
   "darwin-x64": ["OpenJDK21U-jre_x64_mac_hotspot_21.0.11_10.tar.gz", "b341fb8ed5b70d49066b98176bc98e30f55082192403deb60e0cd5948b6e7923", "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jre_x64_mac_hotspot_21.0.11_10.tar.gz"],
   "darwin-arm64": ["OpenJDK21U-jre_aarch64_mac_hotspot_21.0.11_10.tar.gz", "4b7a8cd23102c251c8b8be42a9a5f1263fb337cf1037f6f64b25f3070efe4b76", "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jre_aarch64_mac_hotspot_21.0.11_10.tar.gz"],
-  "linux-x64": ["OpenJDK21U-jre_x64_linux_hotspot_21.0.11_10.tar.gz", "e5038aae3ca9ff670bc696496b0728dbd23d280026bad30291cb919221ecfdcb", "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jre_x64_linux_hotspot_21.0.11_10.tar.gz"],
-  "linux-arm64": ["OpenJDK21U-jre_aarch64_linux_hotspot_21.0.11_10.tar.gz", "fa23d9d9945053e67bcc7638410eabf1e17a7672c7c95a24f70cd08b8407d36e", "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jre_aarch64_linux_hotspot_21.0.11_10.tar.gz"],
 });
 
 const SORBET_ARCHIVES = Object.freeze({
   "darwin-x64": ["darwin-x86_64.sorbet", "bc1ddc60a6d7e085a11cfda4b31011cff3a4e7ed4c08854ff7ce4958e967b2c2"],
   "darwin-arm64": ["darwin-arm64.sorbet", "99d752201305cee0cb6baa2c605d9b5caf77930aa99621f2b0157e6769e3133b"],
-  "linux-x64": ["linux-x86_64.sorbet", "b63741ca6bdc86be83e9ee6be21cab3043454c34aa480d3d8cafd70623496b24"],
-  "linux-arm64": ["linux-aarch64.sorbet", "7a179a7145b9e0e53f36f957c15bd6d5071fd10d6b89d446fab15b72dc4e60c3"],
 });
 
 const PHP_ARCHIVES = Object.freeze({
   "darwin-x64": ["php-8.4.23-cli-macos-x86_64.tar.gz", "bd1c20f355e73a9f807b24ba62fd98f3a57bc08d063ebb3aa6393909e01ce89e"],
   "darwin-arm64": ["php-8.4.23-cli-macos-aarch64.tar.gz", "bba286e442796dbd420d778a016e2817b31d5036d11b3ba316d19a60de912cdc"],
-  "linux-x64": ["php-8.4.23-cli-linux-x86_64.tar.gz", "1aeed5bc7967977ca5b1da7163acd91bf9ba3ac56037045d4e91ee2ff2712bb7"],
-  "linux-arm64": ["php-8.4.23-cli-linux-aarch64.tar.gz", "0978d89157292bcc9268a34a73a4d5d2793f8dff1403b5138a94d2af6b7a09b0"],
 });
 
 const PHPACTOR_ARCHIVE = Object.freeze([
@@ -184,17 +168,6 @@ function walk(root, predicate) {
   return undefined;
 }
 
-function walkFiles(root, visit) {
-  if (!existsSync(root)) return;
-  for (const name of readdirSync(root)) {
-    const path = join(root, name);
-    let stat;
-    try { stat = statSync(path); } catch { continue; }
-    if (stat.isDirectory()) walkFiles(path, visit);
-    else visit(path);
-  }
-}
-
 function extract(archive, destination) {
   mkdirSync(destination, { recursive: true });
   if (/\.(zip|sit)$/i.test(archive)) run("unzip", ["-q", archive, "-d", destination]);
@@ -236,42 +209,6 @@ async function installRust(target, output, cache) {
 
 async function installClang(target, output, cache, work) {
   const spec = CLANG_ARCHIVES[target];
-  if (!spec && target === "linux-arm64") {
-    const apt = join(work, "clang-apt");
-    mkdirSync(apt, { recursive: true });
-    // Ubuntu's ARM64 clangd enables remote-index support and therefore links gRPC, Protobuf and Abseil
-    // in addition to LLVM. Download the complete non-glibc runtime closure so the app never relies on
-    // packages that happen to be installed on the build runner or the user's workstation.
-    run("apt-get", ["download",
-      "clangd-18", "libclang-common-18-dev", "libclang-cpp18", "libllvm18",
-      "libabsl20220623t64", "libgrpc++1.51t64", "libgrpc29t64",
-      "libprotobuf32t64", "libprotoc32t64", "libcares2", "libre2-10",
-      "libzstd1", "libtinfo6", "libxml2", "zlib1g",
-    ], { cwd: apt });
-    const debs = readdirSync(apt).filter((name) => name.endsWith(".deb"));
-    if (debs.length < 15) throw new Error("Ubuntu clangd-18 ARM64 runtime packages were not downloaded");
-    for (const deb of debs) run("dpkg-deb", ["-x", join(apt, deb), apt]);
-    const clangd = walk(apt, (path) => /\/clangd$/.test(path));
-    if (!clangd) throw new Error("clangd was missing from Ubuntu ARM64 packages");
-    mkdirSync(join(output, "bin"), { recursive: true });
-    mkdirSync(join(output, "lib"), { recursive: true });
-    // Ubuntu's clangd and LLVM packages expose versioned files through links inside the extracted .deb
-    // tree. Copying the links verbatim leaves the sidecar pointing back into `work`, which is removed as
-    // soon as installation completes. Dereference every portable payload so the packaged bundle is wholly
-    // self-contained after that cleanup.
-    cpSync(realpathSync(clangd), join(output, "bin", "clangd"));
-    walkFiles(apt, (path) => {
-      if (!/\.so(?:\.|$)/.test(basename(path))) return;
-      cpSync(realpathSync(path), join(output, "lib", basename(path)));
-    });
-    const resourceDir = join(apt, "usr", "lib", "llvm-18", "lib", "clang", "18");
-    if (existsSync(resourceDir)) cpSync(resourceDir, join(output, "lib", "clang", "18"), { recursive: true });
-    chmodSync(join(output, "bin", "clangd"), 0o755);
-    run(join(output, "bin", "clangd"), ["--version"], {
-      env: { ...process.env, LD_LIBRARY_PATH: join(output, "lib") },
-    });
-    return;
-  }
   const [name, checksum] = spec;
   const archive = await download(`https://github.com/clangd/clangd/releases/download/${SERVER_VERSIONS.clangd}/${name}`, checksum, cache);
   const extracted = join(work, "clang");
@@ -352,8 +289,8 @@ async function installPhp(target, output, cache, work) {
 }
 
 export function platformTarget(platform = process.platform, arch = process.arch) {
-  if (!['darwin', 'linux'].includes(platform) || !['x64', 'arm64'].includes(arch)) {
-    throw new Error(`Bundled language servers support darwin/linux x64/arm64, got ${platform}-${arch}`);
+  if (platform !== 'darwin' || !['x64', 'arm64'].includes(arch)) {
+    throw new Error(`Bundled language servers support darwin x64/arm64, got ${platform}-${arch}`);
   }
   return `${platform}-${arch}`;
 }

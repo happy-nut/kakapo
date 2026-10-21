@@ -8,7 +8,7 @@ import { loadViewer } from "./helpers/dom.mjs";
 // The history overlay is the macOS integrated-title-bar layout (the in-view rail is hidden — workspace
 // nav lives in the shell title bar). render() keys that off process.platform, so pin it to "darwin" for
 // this file's fixtures; otherwise these assertions only hold when the suite runs on a Mac (they failed on
-// the Linux release CI). node --test isolates each test file in its own process, so this stays contained.
+// release CI). node --test isolates each test file in its own process, so this stays contained.
 const __realPlatform = process.platform;
 Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
 after(() => Object.defineProperty(process, "platform", { value: __realPlatform, configurable: true }));

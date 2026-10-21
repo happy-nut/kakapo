@@ -38,21 +38,6 @@ build is unsigned — the cask clears the quarantine flag for you, which a manua
 
 `brew upgrade --cask kakapo` follows every release.
 
-### Linux (x64 / ARM64)
-
-Every PR, `main` push and release runs the full test suite on a native Ubuntu runner for both architectures, packages the app, and verifies a real Chromium renderer opens under Xvfb. Only builds that pass are published.
-
-```bash
-tar -xzf Kakapo-<version>-linux-x64.tar.gz
-./Kakapo-linux-x64/Kakapo --cwd /path/to/repository
-```
-
-Swap `x64` for `arm64` on ARM. Neither package needs a system Electron, Node.js, language server, JRE, PHP or Go/Rust toolchain.
-
-### Windows (x64)
-
-Download `Kakapo-<version>-windows-x64.zip` from [Releases](https://github.com/happy-nut/kakapo/releases), extract it, and run `Kakapo.exe`. The build is unsigned, so SmartScreen needs **More info → Run anyway** on first launch. TypeScript and Python language servers are bundled; the other seven language families use a server on your `PATH` or fall back to the regex index.
-
 ### From source
 
 Requires Node.js 22.14+.
@@ -170,7 +155,7 @@ Everything else is mirrored per absolute workspace path under the OS app-data di
 └── review/app-review.html
 ```
 
-Paths are readable, not hashed. A repository root, a package inside it and a separate worktree can all be open at once with independent state. On Linux the same tree lives under `${XDG_CONFIG_HOME:-~/.config}/Kakapo/workspaces/...`.
+Paths are readable, not hashed. A repository root, a package inside it and a separate worktree can all be open at once with independent state.
 
 ## Development
 
@@ -189,14 +174,13 @@ Review another repository with a local build:
 npm run dev -- --cwd /path/to/repository
 ```
 
-Build a Linux package and check a real desktop renderer:
+Build the app and the installable disk image:
 
 ```bash
-npm run dist:linux:x64   # or dist:linux:arm64
-npm run smoke:linux
+npm run dist:mac:dmg
 ```
 
-Linux packages are only produced on a Linux host of the same architecture, so a cross build can't ship missing platform-specific optional dependencies; running the command on macOS fails immediately instead of producing an incomplete artifact. macOS builds come from `npm run dist:mac:dmg`.
+That bundles the language servers, builds, packages the Apple Silicon app, runs the bundled-server smoke test and writes `release/Kakapo-<version>-arm64.dmg`. kakapo is packaged for macOS on Apple Silicon only.
 
 Measure performance with `npm run benchmark` (`-- --files 5000 --changed 200 --lines 120` for a larger synthetic repo).
 

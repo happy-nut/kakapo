@@ -25,9 +25,8 @@ export function isNewerVersion(candidate: string, current: string): boolean {
 }
 
 /**
- * The DMG built for THIS machine. The release carries a macOS arm64 dmg plus Linux tarballs, so an Intel
- * Mac or a Linux box must not be handed the arm64 bundle — better no automatic update than one that
- * installs an app that cannot run.
+ * The DMG built for THIS machine. The release carries an Apple Silicon dmg only, so an Intel Mac must not
+ * be handed the arm64 bundle — better no automatic update than one that installs an app that cannot run.
  */
 export function macDmgAsset(assets: ReleaseAsset[], arch: string = process.arch): ReleaseAsset | undefined {
   if (arch !== "arm64") return undefined;

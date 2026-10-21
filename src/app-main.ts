@@ -749,7 +749,7 @@ function buildApplicationMenu(): void {
     ],
   });
   // Keep the standard Edit/Window roles so Cmd+C/V/X/A (copy comments into prompts) and Cmd+Q work.
-  // The in-window menu bar stays hidden on Windows/Linux via autoHideMenuBar; macOS shows it in the top bar.
+  // macOS shows the menu bar in the top bar, so there is no in-window bar to hide.
   menuTemplate.push({ role: "editMenu" });
   // Ctrl+Cmd+Shift+/ ("?") opens the merged review-comments view (questions, then change requests).
   // ? is Shift+/ so Shift is part of the combo; Ctrl+Cmd avoids macOS's Cmd+? Help grab.

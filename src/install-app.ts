@@ -72,7 +72,7 @@ export function installApp(options: {
   version?: string;
 } = {}): InstallAppResult {
   if (process.platform !== "darwin") {
-    throw new Error("install-app builds a macOS .app bundle; on Linux and Windows use the package from the releases page.");
+    throw new Error("install-app builds a macOS .app bundle, and kakapo ships for macOS only.");
   }
   const bundlePath = resolve(options.bundlePath ?? applicationsBundlePath());
   const nodePath = options.nodePath ?? process.execPath;

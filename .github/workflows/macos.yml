@@ -41,7 +41,12 @@ jobs:
       # servers' STRUCTURE, then create release/Kakapo-<version>-arm64.dmg via hdiutil. It skips the runtime
       # lsp:smoke gate: on a cold macos-latest runner the slowest servers (rust-analyzer, Java JDT) don't
       # finish indexing in time, so their definition query falls back to the regex index and the smoke test
-      # flakes. The Linux release still runs the full runtime lsp:smoke, and the structure is verified here.
+      # flakes.
+      #
+      # That gate used to be covered by the Linux release, which ran the full runtime lsp:smoke. Linux is
+      # gone, so NO release now proves the bundled servers actually answer — only that they are structurally
+      # present. The runtime check still exists and still runs locally: `npm run dist:mac:dmg` includes
+      # lsp:smoke, and `npm run lsp:smoke` runs it on its own.
       - name: Build macOS dmg (Apple Silicon)
         run: npm run dist:mac:dmg:ci
 

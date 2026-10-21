@@ -37,21 +37,6 @@ brew install --cask happy-nut/tap/kakapo
 
 `brew upgrade --cask kakapo`로 이후 릴리스를 따라갑니다.
 
-### Linux (x64 / ARM64)
-
-모든 PR, `main` 변경, 릴리스에서 각 아키텍처의 네이티브 Ubuntu runner가 전체 테스트를 돌리고, 앱을 패키징하고, Xvfb에서 실제 Chromium 렌더러가 열리는 것까지 확인합니다. 이 검증을 통과한 빌드만 게시됩니다.
-
-```bash
-tar -xzf Kakapo-<version>-linux-x64.tar.gz
-./Kakapo-linux-x64/Kakapo --cwd /path/to/repository
-```
-
-ARM에서는 `x64`를 `arm64`로 바꿉니다. 별도의 Electron, Node.js, language server, JRE, PHP, Go/Rust toolchain을 설치할 필요가 없습니다.
-
-### Windows (x64)
-
-[Releases](https://github.com/happy-nut/kakapo/releases)에서 `Kakapo-<version>-windows-x64.zip`을 받아 풀고 `Kakapo.exe`를 실행합니다. 서명되지 않은 빌드라 첫 실행은 SmartScreen에서 **추가 정보 → 실행**을 눌러야 합니다. TypeScript·Python language server는 번들되어 있고, 나머지 7개 언어는 `PATH`의 서버를 쓰거나 정규식 인덱스로 폴백합니다.
-
 ### 소스에서
 
 Node.js 22.14 이상이 필요합니다.
@@ -168,7 +153,7 @@ kakapo --staged             # 인덱스 vs HEAD
 └── review/app-review.html
 ```
 
-경로를 해시로 숨기지 않아 직접 열어볼 수 있고, 저장소 루트·내부 패키지·다른 worktree를 동시에 열어도 각각 독립된 상태를 가집니다. Linux에서는 같은 구조가 `${XDG_CONFIG_HOME:-~/.config}/Kakapo/workspaces/...` 아래에 있습니다.
+경로를 해시로 숨기지 않아 직접 열어볼 수 있고, 저장소 루트·내부 패키지·다른 worktree를 동시에 열어도 각각 독립된 상태를 가집니다.
 
 ## 개발
 
@@ -187,14 +172,13 @@ npm run smoke
 npm run dev -- --cwd /path/to/repository
 ```
 
-Linux 패키지 생성과 실제 렌더러 확인:
+앱과 설치용 디스크 이미지 빌드:
 
 ```bash
-npm run dist:linux:x64   # 또는 dist:linux:arm64
-npm run smoke:linux
+npm run dist:mac:dmg
 ```
 
-플랫폼별 optional dependency가 빠진 교차 빌드를 배포하지 않도록, Linux 패키지는 대상과 같은 아키텍처의 Linux 호스트에서만 만들어집니다. macOS에서 실행하면 불완전한 산출물을 만들지 않고 바로 실패합니다. macOS 빌드는 `npm run dist:mac:dmg`로 만듭니다.
+language server를 번들하고, 빌드하고, Apple Silicon 앱을 패키징한 뒤 번들 서버 스모크 테스트를 돌려 `release/Kakapo-<version>-arm64.dmg`를 만듭니다. kakapo는 Apple Silicon macOS로만 패키징됩니다.
 
 성능은 `npm run benchmark`(`-- --files 5000 --changed 200 --lines 120`으로 더 큰 합성 저장소)로 측정합니다.
 
