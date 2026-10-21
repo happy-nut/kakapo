@@ -23,25 +23,33 @@ var caretHintEl = null, caretHintTimer = 0;
 // A "looking for X…" that disappears while the answer is still coming is worse than no hint at all: a cold
 // language server has eight seconds to reply (REQUEST_TIMEOUT_MS), so the reviewer got the message for two
 // of them and then six seconds of a screen that looks like the key was never pressed.
+// The element anything caret-anchored points at: the hint bubble here and the Semantic Peek panel in
+// 16-semantic-peek.js. Both views keep their caret in the DOM, so the hidden one's .code-cursor is still
+// queryable — and while it is display:none its rect is all-zero, which would pin the thing at the window's
+// top-left, over the macOS traffic lights. Gate candidates by which view is actually showing (the .hidden
+// class), not by geometry, so this is right even without layout.
+//
+// Semantic Peek resolved its own anchor and got the same thing wrong one level further down: after its
+// `#source-body .code-cursor` lookup it fell back to `#source-body .source-row[data-line-index=N]` with no
+// view gate at all. Open a file once, go back to the diff, press Cmd+B — the stale hidden source row
+// answered, measured at 0,0,0,0 while the diff caret sat at 1070,228, and the panel opened in the corner
+// instead of at the symbol. One list, one gate, both callers.
+function caretAnchorElement() {
+  // The caret span is rebuilt per render and can be missing for a moment; the row it is on always exists.
+  var sourceRow = function () {
+    var loc = caretSourceLoc();
+    return loc ? document.querySelector('#source-body .source-row[data-line-index="' + loc.lineIndex + '"]') : null;
+  };
+  var candidates = isSourceViewerVisible()
+    ? [document.querySelector('#source-body .code-cursor'), sourceRow()]
+    : isDiffViewVisible()
+      ? [document.querySelector('#diff2html-container .code-cursor'), activeDiffRow, document.querySelector('#diff2html-container .diff-active-row')]
+      : [document.querySelector('#source-body .code-cursor'), sourceRow(), document.querySelector('#diff2html-container .code-cursor'), activeDiffRow, document.querySelector('#diff2html-container .diff-active-row')];
+  for (var i = 0; i < candidates.length; i++) { if (candidates[i]) return candidates[i]; }
+  return null;
+}
 function showCaretHint(message, anchor, sticky) {
-  // Anchor to the caret in the VISIBLE view. Both the source and diff carets persist in the DOM, so the
-  // hidden view's .code-cursor is still queryable — and while it is display:none its rect is all-zero, which
-  // would pin the hint at the window's top-left, over the macOS traffic lights. Gate candidates by which view
-  // is actually showing (the .hidden class), not by geometry, so this is right even without layout.
-  var candidates;
-  if (anchor) {
-    candidates = [anchor];
-  } else {
-    var srcOnly = isSourceViewerVisible();
-    var diffShown = isDiffViewVisible();
-    candidates = srcOnly
-      ? [document.querySelector('#source-body .code-cursor')]
-      : diffShown
-        ? [document.querySelector('#diff2html-container .code-cursor'), activeDiffRow, document.querySelector('#diff2html-container .diff-active-row')]
-        : [document.querySelector('#source-body .code-cursor'), document.querySelector('#diff2html-container .code-cursor'), activeDiffRow, document.querySelector('#diff2html-container .diff-active-row')];
-  }
-  var row = null;
-  for (var i = 0; i < candidates.length; i++) { if (candidates[i]) { row = candidates[i]; break; } }
+  var row = anchor || caretAnchorElement();
   if (!row || (!row.getBoundingClientRect && !Number.isFinite(Number(row.bottom)))) { showToast(message); return; }
   if (!caretHintEl) {
     caretHintEl = document.createElement('div');

@@ -599,3 +599,129 @@ test("the identifier under the caret keeps its own column, even when its name hi
     analysis.dispose();
   }
 });
+
+// A cold server answers its first questions only after it has read the project, and REQUEST_TIMEOUT_MS lets
+// one question sit there for eight seconds. Every navigation key pressed during that window paid the whole
+// wait — and then usually got the regex index's answer anyway, because the server had nothing yet. So until
+// the server reports `ready`, a question stops waiting at coldQueryBudgetMs and the index answers instead.
+//
+// The fake server here never replies to a navigation request at all, which is the honest shape of "still
+// indexing": without the deadline this query waits the full REQUEST_TIMEOUT_MS, so the budget is what makes
+// it return at all within this test's own timeout.
+test("a question asked while the server is still indexing is answered by the index, not waited out", { timeout: 20_000 }, async () => {
+  const root = tempProject();
+  const files = [
+    { path: "src/app.ts", content: "export const value = target();\n" },
+    { path: "src/target.ts", content: "export function target() {}\n" },
+  ];
+  for (const file of files) write(root, file.path, file.content);
+  const silent = join(root, "silent-lsp.mjs");
+  writeFileSync(silent, `
+let buffer = Buffer.alloc(0);
+function send(value) {
+  const body = Buffer.from(JSON.stringify(value));
+  process.stdout.write('Content-Length: ' + body.length + '\\r\\n\\r\\n');
+  process.stdout.write(body);
+}
+process.stdin.on('data', (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+  while (true) {
+    const end = buffer.indexOf('\\r\\n\\r\\n');
+    if (end < 0) return;
+    const header = buffer.subarray(0, end).toString();
+    const length = Number(/Content-Length:\\s*(\\d+)/i.exec(header)?.[1]);
+    if (buffer.length < end + 4 + length) return;
+    const message = JSON.parse(buffer.subarray(end + 4, end + 4 + length));
+    buffer = buffer.subarray(end + 4 + length);
+    if (typeof message.id !== 'number') continue;
+    // Handshake yes, answers no: up and talking, still reading the project.
+    if (message.method === 'initialize') send({ jsonrpc: '2.0', id: message.id, result: { capabilities: {} } });
+  }
+});
+`);
+  const analysis = new ProjectAnalysis(root, {
+    files,
+    coldQueryBudgetMs: 150,
+    resolveServer: () => ({ family: "typescript", name: "silent-lsp", command: process.execPath, args: [silent] }),
+  });
+  try {
+    const started = Date.now();
+    const definition = await analysis.query({ kind: "definition", path: "src/app.ts", line: 0, column: 23, symbol: "target" });
+    const elapsed = Date.now() - started;
+
+    assert.equal(definition.engine, "index", "the index answered rather than the silent server");
+    assert.deepEqual(
+      definition.locations.map((item) => item.path),
+      ["src/target.ts"],
+      "and it is a real answer, not an empty one dressed up as a fallback",
+    );
+    assert.match(definition.fallbackReason, /still reading the project/, "which the reviewer is told is partial");
+    // Generous against a loaded CI box, but far under the 8s a waited-out request costs.
+    assert.ok(elapsed < 4_000, `the question came back in ${elapsed}ms instead of waiting out the request timeout`);
+  } finally {
+    analysis.dispose();
+  }
+});
+
+// Go-to-definition that lands on `import { thing } from …` has not answered the question. The follow-through
+// that fixes it used to fire only when the server returned exactly one location AND a regex matched that one
+// line as an import statement — which misses the shape that turns up most: a binding inside a multi-line
+// import, whose line is just `  target,` and looks like nothing at all.
+//
+// The fake server answers every definition request with that binding line, so without the follow-through the
+// answer IS the import. It is also the control for the follow: the second request arrives at a different
+// position, and only then does it hand back the declaration.
+test("a definition that lands on an import binding is followed to the declaration", { timeout: 10_000 }, async () => {
+  const root = tempProject();
+  const files = [
+    { path: "src/app.ts", content: "import {\n  target,\n} from './target.js';\nexport const value = target();\n" },
+    { path: "src/target.ts", content: "export function target() {}\n" },
+  ];
+  for (const file of files) write(root, file.path, file.content);
+  const indirect = join(root, "indirect-lsp.mjs");
+  writeFileSync(indirect, `
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+let buffer = Buffer.alloc(0);
+const at = (path, line, character) => ({ uri: pathToFileURL(resolve(process.cwd(), path)).href, range: { start: { line, character }, end: { line, character: character + 6 } } });
+function send(value) {
+  const body = Buffer.from(JSON.stringify(value));
+  process.stdout.write('Content-Length: ' + body.length + '\\r\\n\\r\\n');
+  process.stdout.write(body);
+}
+process.stdin.on('data', (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+  while (true) {
+    const end = buffer.indexOf('\\r\\n\\r\\n');
+    if (end < 0) return;
+    const header = buffer.subarray(0, end).toString();
+    const length = Number(/Content-Length:\\s*(\\d+)/i.exec(header)?.[1]);
+    if (buffer.length < end + 4 + length) return;
+    const message = JSON.parse(buffer.subarray(end + 4, end + 4 + length));
+    buffer = buffer.subarray(end + 4 + length);
+    if (typeof message.id !== 'number') continue;
+    if (message.method === 'initialize') { send({ jsonrpc: '2.0', id: message.id, result: { capabilities: {} } }); continue; }
+    const line = message.params?.position?.line;
+    // Asked about the usage (line 3) or about anything in app.ts: hand back the multi-line import's
+    // binding on line 1. Asked about that binding: hand back the real declaration.
+    const fromBinding = message.params?.textDocument?.uri?.endsWith('app.ts') && line === 1;
+    send({ jsonrpc: '2.0', id: message.id, result: fromBinding ? [at('src/target.ts', 0, 16)] : [at('src/app.ts', 1, 2)] });
+  }
+});
+`);
+  const analysis = new ProjectAnalysis(root, {
+    files,
+    resolveServer: () => ({ family: "other", name: "indirect-lsp", command: process.execPath, args: [indirect] }),
+  });
+  try {
+    const definition = await analysis.query({ kind: "definition", path: "src/app.ts", line: 3, column: 21, symbol: "target" });
+    assert.equal(definition.engine, "lsp", "the server answered");
+    assert.deepEqual(
+      definition.locations.map((item) => [item.path, item.lineIndex]),
+      [["src/target.ts", 0]],
+      "the import binding was followed through to the declaration it points at",
+    );
+  } finally {
+    analysis.dispose();
+  }
+});

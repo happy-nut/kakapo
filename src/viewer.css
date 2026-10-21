@@ -44,6 +44,8 @@
   --chrome-line: #34363a;
   --chrome-selected: #3a3c40;
   --chrome-selected-text: #ffffff;
+  --chrome-stat-add: #41be6c;
+  --chrome-stat-del: #d69898;
   --chrome-vcs-new: #f08b8b;
   --chrome-vcs-edited: #83b8f0;
   --chrome-vcs-staged: #98cb80;
@@ -110,6 +112,8 @@
   --chrome-line: #dedfe1;
   --chrome-selected: #e3e4e6;
   --chrome-selected-text: #17181a;
+  --chrome-stat-add: #12752a;
+  --chrome-stat-del: #ca0f00;
   --chrome-vcs-new: #b42318;
   --chrome-vcs-edited: #175cd3;
   --chrome-vcs-staged: #2f7d32;
@@ -163,6 +167,8 @@
   --chrome-line: #21262d;
   --chrome-selected: #21262d;
   --chrome-selected-text: #ffffff;
+  --chrome-stat-add: #3da04b;
+  --chrome-stat-del: #e0686b;
   --chrome-vcs-new: #7ee787;
   --chrome-vcs-edited: #79c0ff;
   --chrome-vcs-staged: #3fb950;
@@ -210,6 +216,8 @@
   --chrome-line: #d1d9e0;
   --chrome-selected: #dde3ea;
   --chrome-selected-text: #1f2328;
+  --chrome-stat-add: #18732c;
+  --chrome-stat-del: #c80c00;
   --chrome-vcs-new: #1a7f37;
   --chrome-vcs-edited: #0969da;
   --chrome-vcs-staged: #1a7f37;
@@ -258,6 +266,8 @@
   --chrome-line: #4a4b4e;
   --chrome-selected: #505155;
   --chrome-selected-text: #ffffff;
+  --chrome-stat-add: #aaceb9;
+  --chrome-stat-del: #c3c6c8;
   --chrome-vcs-new: #ef8b8b;
   --chrome-vcs-edited: #88b8ec;
   --chrome-vcs-staged: #9aca83;
@@ -305,6 +315,8 @@
   --chrome-line: #dedfe1;
   --chrome-selected: #e3e4e6;
   --chrome-selected-text: #17181a;
+  --chrome-stat-add: #347142;
+  --chrome-stat-del: #656565;
   --chrome-vcs-new: #b42318;
   --chrome-vcs-edited: #175cd3;
   --chrome-vcs-staged: #2f7d32;
@@ -363,6 +375,8 @@
   --chrome-line: #0c3a45;
   --chrome-selected: #0e4553;
   --chrome-selected-text: #fdf6e3;
+  --chrome-stat-add: #15c38a;
+  --chrome-stat-del: #e09999;
   --chrome-vcs-new: #859900;
   --chrome-vcs-edited: #268bd2;
   --chrome-vcs-staged: #2aa198;
@@ -413,6 +427,8 @@
   --chrome-line: #e3dcc8;
   --chrome-selected: #e4ddc8;
   --chrome-selected-text: #073642;
+  --chrome-stat-add: #536826;
+  --chrome-stat-del: #b52d20;
   --chrome-vcs-new: #859900;
   --chrome-vcs-edited: #268bd2;
   --chrome-vcs-staged: #2aa198;
@@ -464,6 +480,8 @@
   --chrome-line: #3a3d4d;
   --chrome-selected: #44475a;
   --chrome-selected-text: #ffffff;
+  --chrome-stat-add: #7ac899;
+  --chrome-stat-del: #e2aab3;
   --chrome-vcs-new: #50fa7b;
   --chrome-vcs-edited: #8be9fd;
   --chrome-vcs-staged: #50fa7b;
@@ -511,6 +529,8 @@
   --chrome-line: #e7e0c6;
   --chrome-selected: #ece3c8;
   --chrome-selected-text: #1f1f1f;
+  --chrome-stat-add: #3f6f2f;
+  --chrome-stat-del: #b8341f;
   --chrome-vcs-new: #14710a;
   --chrome-vcs-edited: #036a96;
   --chrome-vcs-staged: #14710a;
@@ -560,6 +580,8 @@
   --chrome-line: #5c5c5c;
   --chrome-selected: #2b2b2b;
   --chrome-selected-text: #ffffff;
+  --chrome-stat-add: #00a95d;
+  --chrome-stat-del: #e76d73;
   --chrome-vcs-new: #6bff9e;
   --chrome-vcs-edited: #8ce0ff;
   --chrome-vcs-staged: #6bff9e;
@@ -607,6 +629,8 @@
   --chrome-line: #8a8a8a;
   --chrome-selected: #d6e4f5;
   --chrome-selected-text: #000000;
+  --chrome-stat-add: #297141;
+  --chrome-stat-del: #bc2d21;
   --chrome-vcs-new: #067d3a;
   --chrome-vcs-edited: #0f4a85;
   --chrome-vcs-staged: #067d3a;
@@ -1937,25 +1961,33 @@ h1 { margin: 0; font-size: 18px; }
 .crumb-stat { margin-left: 10px; display: inline-flex; gap: 7px; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
 /* The same figure as the tree row's, and it had the same bug: --add-strong and --del-strong are the fills
    the diff paints behind a changed line, and as 11px text they measured 2.09:1 / 1.65:1 dark and
-   1.14:1 / 1.36:1 light. This one sits in the header of every file you open, in both views. Weight is what
-   separates it from the path beside it; the sign says which direction. */
-.crumb-stat-add,
-.crumb-stat-del { color: inherit; font-weight: 600; }
+   1.14:1 / 1.36:1 light. --chrome-stat-* is the readable pair: each theme's OWN add/del hue with only its
+   lightness solved, against the worst ground these sit on (--chrome-bg and --chrome-selected), so it still
+   looks like this theme and still clears AA. Darcula comes out green/grey rather than green/red because
+   that theme's deletion fill is grey — IntelliJ's own convention — and this figure should match the diff
+   it is summarising. */
+.crumb-stat-add { color: var(--chrome-stat-add); font-weight: 600; }
+.crumb-stat-del { color: var(--chrome-stat-del); font-weight: 600; }
 /* Change magnitude on the sidebar row. Right-aligned and tabular so the numbers form a column the eye can
    run down — the question it answers ("which of these is the big one") is asked of the whole list at once,
    not of one row. Dimmer than the filename: it qualifies the row, it is not what you are looking for. */
+/* 11px and solid, not 10px at 0.75. Dimming it was the wrong read of "it qualifies the row": at 10px and
+   three-quarter alpha the figure was high-contrast but had no salience — nothing drew the eye to it, so the
+   one question the column exists to answer ("which of these is the big one") could not be answered by
+   looking. The alpha also quietly undid the contrast the colours below are solved for, by compositing them
+   back toward the ground. Size and weight set it apart from the filename now; the colour says which way. */
 .change-row .change-stat { margin-left: auto; padding-left: 8px; display: inline-flex; gap: 5px; flex: none;
-  font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; opacity: 0.75; }
-/* The sign carries the direction; the colour did not carry anything. --add-strong and --del-strong are the
-   fills the DIFF paints behind a changed line, and as text on the chrome ground they were unreadable in
-   every theme measured: 2.09:1 for the addition on a resting dark row, 1.08:1 for the deletion on the
-   active one, and 1.02:1 in light. There is no chrome-weight red in the token set to swap in — the twelve
-   --chrome-vcs-* triples carry green and blue but no removal colour — and inventing one in twelve theme
-   blocks buys a hue for a figure the rule right above this one deliberately keeps quiet. So the magnitude
-   is chrome text, and + and − say which is which. */
-.change-row .change-stat-add,
-.change-row .change-stat-del { color: inherit; }
-.change-row.active .change-stat, .change-row:hover .change-stat { opacity: 1; }
+  font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+/* --add-strong and --del-strong are the fills the DIFF paints behind a changed line, and as text on the
+   chrome ground they were unreadable in every theme measured: 2.09:1 for the addition on a resting dark
+   row, 1.08:1 for the deletion on the active one, and 1.02:1 in light. Dropping to plain chrome text fixed
+   that and cost the figure the thing that made it findable in a long list, so the pair above was solved
+   instead: the theme's own hue, its lightness moved until it clears AA on both grounds a row has. The
+   --chrome-vcs-* triples were measured as a ready-made source first and cannot serve — they are IDE VCS
+   status colours, so "new" is red in one theme and green in another, and they fall under the floor on
+   --chrome-selected in 7 of 36 theme/ground pairs. */
+.change-row .change-stat-add { color: var(--chrome-stat-add); }
+.change-row .change-stat-del { color: var(--chrome-stat-del); }
 .crumb-sep { opacity: 0.55; }
 /* While the review is pointed at commits, the breadcrumb leads with the one it is showing. Its own accent —
    not one of the pill's three — because this is the state the pill's rule did not cover: those three colour
