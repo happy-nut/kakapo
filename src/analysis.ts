@@ -172,6 +172,20 @@ export class ProjectAnalysis {
   // Start at most one process per resolved language-server command and open one changed document. The app
   // schedules this only after its review page loads, so semantic navigation is warm without delaying paint.
   async prewarm(paths: string[]): Promise<void> {
+    // Start the regex index first, and do not wait for it.
+    //
+    // The index is what answers navigation WHILE the servers are still reading the project — that is its
+    // whole job. Building it lazily meant the reviewer's first keystroke in exactly that window paid to
+    // build it, on top of whatever it had already spent waiting for the server. Measured on this
+    // repository: 155 ms for 189 files and 2.4 MB, and it scales with the project, so the repositories
+    // where the warm-up window is longest are also the ones where the fallback costs most to produce.
+    //
+    // Nothing awaits this. prewarm runs after the review has painted, so the work lands where no keystroke
+    // is waiting on it; by the time one is, the index is already built and getIndex() returns the same
+    // settled promise. The catch is only so a failure here cannot surface as an unhandled rejection —
+    // queries await the same promise and handle it themselves.
+    void this.getIndex().catch(() => undefined);
+
     const seen = new Set<string>();
     const jobs: Promise<void>[] = [];
     let unsupportedPath = "";
