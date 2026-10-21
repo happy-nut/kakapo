@@ -172,46 +172,92 @@ function declarationFromLine(path: string, line: string, lineIndex: number, sour
   return undefined;
 }
 
+type IndexSink = {
+  fileMap: Map<string, string>;
+  definitions: Map<string, SymbolRecord[]>;
+  symbols: SymbolRecord[];
+};
+
+function indexOneFile(file: IndexedFile, sink: IndexSink): void {
+  const { fileMap, definitions, symbols } = sink;
+  const path = file.path.replace(/\\/g, "/");
+  if (documentPath(path)) return;
+  fileMap.set(path, file.content);
+  const lines = file.content.split(/\r?\n/);
+  const masked = maskNonCode(file.content, path);
+  const python = extname(path).toLowerCase() === ".py";
+  const pythonClasses: Array<{ name: string; indent: number }> = [];
+  // Indent of the `enum class`/`enum` line whose body we are inside, or -1. Entries live at a deeper
+  // indent than it, and end at the body's closing brace or at the `;` that separates them from members.
+  let enumIndent = -1;
+  // `masked` is scanned for declarations below and then dropped — CodeLines re-derives it per file on demand.
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const code = masked[lineIndex];
+    const trimmed = code.trim();
+    const indent = code.match(/^[ \t]*/)?.[0].replace(/\t/g, "    ").length ?? 0;
+    if (python && trimmed && !trimmed.startsWith("@")) {
+      while (pythonClasses.length && indent <= pythonClasses[pythonClasses.length - 1].indent) pythonClasses.pop();
+    }
+    if (enumIndent >= 0 && trimmed && indent <= enumIndent && trimmed.startsWith("}")) enumIndent = -1;
+    const record = declarationFromLine(path, code, lineIndex, lines[lineIndex], enumIndent >= 0 && indent > enumIndent);
+    if (enumIndent >= 0 && trimmed === ";") enumIndent = -1; // Java/Kotlin: entries end, members begin
+    if (!record) continue;
+    if (record.symbolKind === "enum" || /\benum\s+(class\s+)?[A-Za-z_$]/.test(trimmed)) enumIndent = indent;
+    if (python && pythonClasses.length && indent > pythonClasses[pythonClasses.length - 1].indent) {
+      record.container = pythonClasses[pythonClasses.length - 1].name;
+      if (record.symbolKind === "function") record.symbolKind = "method";
+    }
+    symbols.push(record);
+    const entries = definitions.get(record.name) ?? [];
+    entries.push(record);
+    definitions.set(record.name, entries);
+    if (python && record.symbolKind === "class") pythonClasses.push({ name: record.name, indent });
+  }
+}
+
+function emptySink(): IndexSink {
+  return { fileMap: new Map(), definitions: new Map(), symbols: [] };
+}
+
+const asRegexIndex = (sink: IndexSink): RegexIndex =>
+  ({ files: sink.fileMap, codeLines: new CodeLines(sink.fileMap), definitions: sink.definitions, symbols: sink.symbols });
+
 export function buildRegexSymbolIndex(files: IndexedFile[]): RegexIndex {
-  const fileMap = new Map<string, string>();
-  const definitions = new Map<string, SymbolRecord[]>();
-  const symbols: SymbolRecord[] = [];
+  const sink = emptySink();
+  for (const file of files) indexOneFile(file, sink);
+  return asRegexIndex(sink);
+}
+
+// The same work, yielding to the event loop as it goes.
+//
+// The scan is the expensive half and it is pure CPU: measured on a 3,000-file repository, reading every
+// file took 152 ms (already batched, already yielding) and scanning them took ~1,900 ms in ONE synchronous
+// block. This runs in the main process, so that block stalls IPC, the window and every other query for its
+// whole duration — a two-second freeze wherever it happens to land.
+//
+// Chunking does not make it faster, and is not meant to: on that repository the total was 1,832 ms
+// synchronous and 1,769 ms chunked. What changes is the longest single stall, which was the whole
+// 1,832 ms before.
+//
+// The budget is in BYTES, not files. Counting files put one 2 MB file in the same uninterrupted chunk as
+// seven neighbours, and the two worst stalls left (136 ms and 98 ms) were exactly that; a byte budget
+// gives a big file its own boundary. What it cannot do is split one file — a single file at the
+// MAX_INDEX_FILE_BYTES ceiling is the floor on this, and chunking inside a file is not worth the seams.
+//
+// (A sampling timer reports the synchronous version's worst stall as 0 ms, which is the measurement
+// failing rather than the code behaving: the sampler never gets to run during the block it is measuring.)
+export async function buildRegexSymbolIndexChunked(files: IndexedFile[], budget = 128 * 1024): Promise<RegexIndex> {
+  const sink = emptySink();
+  let pending = 0;
   for (const file of files) {
-    const path = file.path.replace(/\\/g, "/");
-    if (documentPath(path)) continue;
-    fileMap.set(path, file.content);
-    const lines = file.content.split(/\r?\n/);
-    const masked = maskNonCode(file.content, path);
-    const python = extname(path).toLowerCase() === ".py";
-    const pythonClasses: Array<{ name: string; indent: number }> = [];
-    // Indent of the `enum class`/`enum` line whose body we are inside, or -1. Entries live at a deeper
-    // indent than it, and end at the body's closing brace or at the `;` that separates them from members.
-    let enumIndent = -1;
-    // `masked` is scanned for declarations below and then dropped — CodeLines re-derives it per file on demand.
-    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-      const code = masked[lineIndex];
-      const trimmed = code.trim();
-      const indent = code.match(/^[ \t]*/)?.[0].replace(/\t/g, "    ").length ?? 0;
-      if (python && trimmed && !trimmed.startsWith("@")) {
-        while (pythonClasses.length && indent <= pythonClasses[pythonClasses.length - 1].indent) pythonClasses.pop();
-      }
-      if (enumIndent >= 0 && trimmed && indent <= enumIndent && trimmed.startsWith("}")) enumIndent = -1;
-      const record = declarationFromLine(path, code, lineIndex, lines[lineIndex], enumIndent >= 0 && indent > enumIndent);
-      if (enumIndent >= 0 && trimmed === ";") enumIndent = -1; // Java/Kotlin: entries end, members begin
-      if (!record) continue;
-      if (record.symbolKind === "enum" || /\benum\s+(class\s+)?[A-Za-z_$]/.test(trimmed)) enumIndent = indent;
-      if (python && pythonClasses.length && indent > pythonClasses[pythonClasses.length - 1].indent) {
-        record.container = pythonClasses[pythonClasses.length - 1].name;
-        if (record.symbolKind === "function") record.symbolKind = "method";
-      }
-      symbols.push(record);
-      const entries = definitions.get(record.name) ?? [];
-      entries.push(record);
-      definitions.set(record.name, entries);
-      if (python && record.symbolKind === "class") pythonClasses.push({ name: record.name, indent });
+    indexOneFile(file, sink);
+    pending += file.content.length;
+    if (pending >= budget) {
+      pending = 0;
+      await new Promise<void>((resolveChunk) => setImmediate(resolveChunk));
     }
   }
-  return { files: fileMap, codeLines: new CodeLines(fileMap), definitions, symbols };
+  return asRegexIndex(sink);
 }
 
 async function listProjectFiles(root: string): Promise<string[]> {
@@ -257,7 +303,7 @@ export async function buildProjectIndex(root: string): Promise<RegexIndex> {
     for (const file of loaded) if (file) files.push(file);
     await new Promise<void>((resolveBatch) => setImmediate(resolveBatch));
   }
-  return buildRegexSymbolIndex(files);
+  return buildRegexSymbolIndexChunked(files);
 }
 
 export function safeRelativePath(root: string, path: string | undefined): string | undefined {
