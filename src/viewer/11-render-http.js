@@ -759,7 +759,24 @@ function runHttpRequest(reqIndex, pathOverride, targetOverride) {
     headers: headers,
     body: req.body ? applyHttpVars(req.body, env) : undefined,
   };
+  // A placeholder that found no value is left in the text verbatim, so the URL goes out as
+  // "{{host}}/get" and the sender answers "unsupported URL scheme: {{host}}/get" — which names the
+  // symptom and hides the cause. Say which variable is missing, and where a value for it could live.
+  const unresolved = /\{\{\s*([\w.$-]+)\s*\}\}/.exec(
+    resolved.url + ' ' + Object.keys(headers).map(function (k) { return k + ' ' + headers[k]; }).join(' ')
+    + ' ' + (resolved.body || ''));
   const target = targetOverride || document.getElementById('http-resp-' + reqIndex);
+  if (unresolved) {
+    const message = t('http.unresolved').replace(/\{name\}/g, unresolved[1]);
+    if (target) {
+      target.className = 'http-response error';
+      target.innerHTML = '<div class="http-resp-head"><span class="http-status bad">'
+        + escapeHtml(t('http.notSent')) + '</span></div>'
+        + '<pre class="http-resp-body">' + escapeHtml(message) + '</pre>';
+    }
+    showToast(message);
+    return;
+  }
   if (target) {
     target.className = 'http-response loading';
     target.innerHTML = kakapoLoaderHtml('kakapo-loader-inline') + '<span class="http-loading-copy">'

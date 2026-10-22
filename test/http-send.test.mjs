@@ -7,6 +7,10 @@ import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { performHttpRequest } from "../dist/server.js";
+import { collectHttpEnvironments } from "../dist/diff.js";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 
 let server;
 let origin;
@@ -76,5 +80,47 @@ test("a URL that is not http(s) never reaches the network", async () => {
     const result = await performHttpRequest({ method: "GET", url, headers: {} });
     assert.equal(result.ok, false, `${url} must be refused`);
     assert.match(result.error, /unsupported URL scheme/);
+  }
+});
+
+// Where the .http runner looks for its environments.
+//
+// They were read only from the repository root, and that is not where they live: a project keeps its
+// requests in a folder with the env file next to them. So every {{variable}} stayed a literal, the request
+// went out as "{{host}}/get", and the sender answered "unsupported URL scheme: {{host}}/get" — naming the
+// symptom and hiding the cause.
+test("environment files are found beside the .http files, not only at the repository root", () => {
+  const root = mkdtempSync(join(tmpdir(), "kakapo-httpenv-"));
+  try {
+    mkdirSync(join(root, "api"), { recursive: true });
+    writeFileSync(join(root, "http-client.env.json"), JSON.stringify({ dev: { host: "https://root.test", shared: "yes" } }));
+    writeFileSync(join(root, "api", "http-client.env.json"), JSON.stringify({ dev: { host: "https://beside.test", only: "here" } }));
+
+    const beside = collectHttpEnvironments(root, ["api/calls.http"]);
+    assert.equal(beside.dev.only, "here", "the file beside the requests is read at all");
+    assert.equal(beside.dev.host, "https://beside.test", "and the nearer value wins the key it shares");
+    assert.equal(beside.dev.shared, "yes", "while the root still supplies what it alone defines");
+
+    const rootOnly = collectHttpEnvironments(root, []);
+    assert.equal(rootOnly.dev.host, "https://root.test", "with no .http files, the root is still read");
+    assert.equal(rootOnly.dev.only, undefined, "and nothing is pulled in from folders nothing points at");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// The paths come from the review's own file list, so they are repository-relative — but a reader of this
+// function cannot see that, and it opens files by path.
+test("an environment lookup cannot be walked out of the repository", () => {
+  const root = mkdtempSync(join(tmpdir(), "kakapo-httpenv-"));
+  const outside = mkdtempSync(join(tmpdir(), "kakapo-outside-"));
+  try {
+    writeFileSync(join(root, "http-client.env.json"), JSON.stringify({ dev: { host: "https://root.test" } }));
+    writeFileSync(join(outside, "http-client.env.json"), JSON.stringify({ dev: { host: "https://outside.test" } }));
+    const escaped = collectHttpEnvironments(root, ["../" + basename(outside) + "/calls.http", "/etc/calls.http"]);
+    assert.equal(escaped.dev.host, "https://root.test", "only the root's own value survived");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
   }
 });

@@ -701,10 +701,33 @@ export function collectReviewFileStates(diffFiles: DiffFile[], sourceFiles: Sour
 // Reads IntelliJ-style HTTP Client environment files from the project root and
 // merges them into { envName: { varName: value } }. The private file overrides
 // the public one so secrets stay out of source control.
-export function collectHttpEnvironments(root: string): Record<string, Record<string, string>> {
+/**
+ * Environments for the .http runner, from IntelliJ's two env files.
+ *
+ * They are looked for beside each .http file as well as at the repository root, because that is where
+ * they live: a project keeps its requests in a folder and its env file next to them. Scanning only the
+ * root meant an env file sitting beside the requests was never read, every {{variable}} stayed a literal,
+ * and the request went out as "{{host}}/get" — which the sender rejects with "unsupported URL scheme",
+ * naming the symptom and hiding the cause.
+ *
+ * Nearer files win per key, so a folder can override a value the root defines. Two sibling folders that
+ * define the same environment name are merged rather than kept apart; a request cannot say which folder
+ * it meant, and one merged environment is a better answer than silently picking a folder.
+ */
+export function collectHttpEnvironments(root: string, httpPaths: string[] = []): Record<string, Record<string, string>> {
   const result: Record<string, Record<string, string>> = {};
-  for (const fileName of ["http-client.env.json", "http-client.private.env.json"]) {
-    const filePath = join(root, fileName);
+  const dirs: string[] = [""];
+  for (const path of httpPaths) {
+    // The paths here are already repository-relative; guard anyway so nothing can walk out of the root.
+    const normalized = String(path).replace(/\\/g, "/");
+    if (!normalized || normalized.startsWith("/") || normalized.split("/").includes("..")) continue;
+    const relativeDir = normalized.replace(/\/[^/]*$/, "");
+    if (relativeDir && relativeDir !== normalized && !dirs.includes(relativeDir)) dirs.push(relativeDir);
+  }
+  // Shallowest first, so a deeper file's keys land on top of the ones it shares with its parents.
+  dirs.sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b));
+  for (const dir of dirs) for (const fileName of ["http-client.env.json", "http-client.private.env.json"]) {
+    const filePath = join(root, dir, fileName);
     if (!existsSync(filePath)) continue;
     let parsed: unknown;
     try {
