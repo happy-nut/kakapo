@@ -31,7 +31,9 @@ function openSourceFile(path, shouldSwitch = true, options) {
     document.getElementById('source-viewer').dataset.openPath = path;
     setTimeout(refreshFileFindForActiveView, 0);
     sourceLinks.forEach((link) => link.classList.toggle('active', link.dataset.sourceFile === path));
-    renderBreadcrumb(document.getElementById('source-title'), path);
+    renderCommitContext(document.getElementById('source-commit-context'));
+    renderCommitContext(document.getElementById('source-commit-context'));
+  renderBreadcrumb(document.getElementById('source-title'), path);
     setSourceTypeIcon(path);
     revealTreeFor(path, shouldScrollTree);
     var lb = document.getElementById('source-body');
@@ -50,6 +52,7 @@ function openSourceFile(path, shouldSwitch = true, options) {
   document.getElementById('source-viewer').dataset.openPath = path;
   setTimeout(refreshFileFindForActiveView, 0);
   sourceLinks.forEach((link) => link.classList.toggle('active', link.dataset.sourceFile === path));
+  renderCommitContext(document.getElementById('source-commit-context'));
   renderBreadcrumb(document.getElementById('source-title'), path);
   setSourceTypeIcon(path);
   revealTreeFor(path, shouldScrollTree);

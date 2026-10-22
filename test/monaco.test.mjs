@@ -291,3 +291,58 @@ test("the caret anchor follows the visible view, not whichever view rendered fir
     "the anchor came from the hidden source view, which is what pinned the panel to 0,0");
   v.close();
 });
+
+// While a language server is still reading the project, the regex index answers instead — and it matches
+// on the NAME alone, with no types and no receiver. In a codebase with several same-named declarations
+// that lands somewhere unrelated, and taking the jump costs the reviewer their place for a guess the
+// server was about to answer properly. Reported from use on Kotlin: Cmd+Down in the diff view during the
+// indexing window, "goes somewhere random".
+//
+// So during that window a lone heuristic hit is offered, not taken. With no server at all the index is the
+// final word and still navigates — that is the other half, and it is what makes this a window and not a
+// permanent downgrade.
+const INDEX_HIT = {
+  ok: true,
+  engine: "index",
+  confidence: "heuristic",
+  generation: 7,
+  durationMs: 1,
+  fallbackReason: "The language server is still reading the project",
+  locations: [{ path: "src/target.ts", lineIndex: 0, column: 13, endColumn: 19, name: "target", text: "export const target = 3;" }],
+};
+
+test("a lone index guess is offered while the server is still coming up, not jumped to", async () => {
+  const v = await loadViewer(html, {
+    monacoBridge: true,
+    analysisBridge: (request) => ({ ...INDEX_HIT, kind: request.kind }),
+    analysisStatus: { generation: 7, phase: "indexing", server: "kotlin-lsp", updatedAt: new Date(0).toISOString() },
+  });
+  await v.openSourceFile("src/app.ts");
+  const before = v.$("#source-viewer")?.dataset.openPath;
+  v.window.setSourceCursor("src/app.ts", 0, 14, false, -1);
+  v.key("ArrowDown", { metaKey: true });
+  await v.settle(80);
+
+  assert.equal(v.$("#source-viewer")?.dataset.openPath, before, "the reviewer has not been moved anywhere");
+  assert.equal(v.$("#semantic-peek").classList.contains("hidden"), false, "the candidate is offered instead");
+  const hint = v.$(".mc-caret-hint");
+  assert.ok(hint?.classList.contains("show"), "and it says the answer is only partial");
+  assert.match(hint.textContent, /indexing|인덱싱/i);
+  v.close();
+});
+
+test("the same lone index hit is navigated to when no server is coming", async () => {
+  const v = await loadViewer(html, {
+    monacoBridge: true,
+    analysisBridge: (request) => ({ ...INDEX_HIT, kind: request.kind, fallbackReason: "No language server is available for src/app.ts" }),
+    // `fallback` is the phase for "there is no server": the index is the whole answer, so it behaves like one.
+    analysisStatus: { generation: 7, phase: "fallback", updatedAt: new Date(0).toISOString() },
+  });
+  await v.openSourceFile("src/app.ts");
+  v.window.setSourceCursor("src/app.ts", 0, 14, false, -1);
+  v.key("ArrowDown", { metaKey: true });
+  await v.settle(80);
+
+  assert.equal(v.$("#source-viewer")?.dataset.openPath, "src/target.ts", "it navigates, as it always did");
+  v.close();
+});

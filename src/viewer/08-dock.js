@@ -172,6 +172,8 @@ function openMergedView() {
     if (shouldFocus) { card.focus(); card.scrollIntoView({ block: 'nearest' }); }
   }
   function clearSelectAll() { host.classList.remove('mc-merged-select-all'); }
+  // Set for one turn of the event loop by whichever of the two Cmd+C paths files first.
+  var copyArchivePending = false;
   // Land on the next card. Every region in this panel is a card now, so there is nothing else to land on.
   function focusRegion(node) {
     if (node && node.classList.contains('mc-merged-card')) selectCard(node, true);
@@ -179,6 +181,13 @@ function openMergedView() {
   // Assemble the CURRENT text: the reviewer's own comments and nothing else. No instructions are prepended
   // — what leaves this panel is the review, and what to do with it is the reader's to say wherever they
   // paste it. Mirrors buildMergedText's exact line structure.
+  // The same assembly as currentMergedText, for an arbitrary subset.
+  function mergedTextFor(items) {
+    var nl = String.fromCharCode(10);
+    var lines = [];
+    items.forEach(function (item) { lines.push.apply(lines, mergedItemLines(item)); });
+    return lines.join(nl);
+  }
   function currentMergedText() {
     var nl = String.fromCharCode(10);
     var lines = [];
@@ -186,12 +195,6 @@ function openMergedView() {
       block.items.forEach(function (c) { lines.push.apply(lines, mergedItemLines(c)); });
     });
     return lines.join(nl);
-  }
-  // Cmd+C-after-Cmd+A: a plain copy. Asking for the text is not the same act as finishing with it, so this
-  // path leaves the review alone; the button below is the one that hands it over.
-  function copyMergedText() {
-    var copied = copyTextToClipboard(currentMergedText());
-    showToast(t(copied ? 'merged.copied' : 'merged.copyFailed'));
   }
   // The button is copy AND clear. A review that has been handed to an agent is spent: leaving it behind
   // means the next hand-off carries it again, and the reviewer has to remember which cards they already
@@ -202,22 +205,48 @@ function openMergedView() {
   // subtree (commentSubtreeSeqs). Nothing is archived unless the clipboard write actually succeeded —
   // filing away a review that was never captured is the same loss as deleting it, one step slower. It
   // shares the undo stack, so Cmd+Z brings the whole batch back into the review.
-  function copyAndArchiveMerged() {
-    if (!copyTextToClipboard(currentMergedText())) { showToast(t('merged.copyFailed')); return; }
+  // Every item the panel is showing, in panel order.
+  function allMergedItems() {
+    var items = [];
+    blocks.forEach(function (block) {
+      block.items.forEach(function (item) { if (item && item.seq != null) items.push(item); });
+    });
+    return items;
+  }
+  // The item one card stands for.
+  function itemForCard(card) {
+    var seq = card && card.dataset ? parseInt(card.dataset.commentSeq, 10) : NaN;
+    if (!(seq >= 0)) return null;
+    var found = null;
+    allMergedItems().forEach(function (item) { if (item.seq === seq) found = item; });
+    return found;
+  }
+  // Copy these items and file them away. `items` is what the reviewer actually copied — the whole panel
+  // for select-all, one card otherwise — because copying IS the hand-off here, at whatever size it was
+  // done. Taking one comment out and leaving it in the review means the next hand-off carries it again.
+  function copyAndArchiveMerged(items) {
+    var picked = items && items.length ? items : allMergedItems();
+    // Same assembly either way: over every item this is currentMergedText by construction.
+    if (!copyTextToClipboard(mergedTextFor(picked))) { showToast(t('merged.copyFailed')); return; }
+    archiveMergedItems(picked);
+  }
+  // The filing half on its own: the native copy path has already put the text on the clipboard itself,
+  // through the event, so it must not write it a second time.
+  function archiveMergedItems(picked) {
     var byId = {};
     reviewComments.forEach(function (c) { byId[c.seq] = c; });
     var seqs = [];
-    blocks.forEach(function (block) {
-      block.items.forEach(function (item) {
-        if (!item || item.seq == null) return;
-        commentSubtreeSeqs(commentThreadRoot(item, byId)).forEach(function (seq) {
-          if (seqs.indexOf(seq) < 0) seqs.push(seq);
-        });
+    picked.forEach(function (item) {
+      commentSubtreeSeqs(commentThreadRoot(item, byId)).forEach(function (seq) {
+        if (seqs.indexOf(seq) < 0) seqs.push(seq);
       });
     });
     var archived = archiveComments(seqs);
     refreshComments();
-    closeMergedDock(); // what the panel was showing is out of the review now; an empty dock is nothing to look at
+    // Only the whole-panel hand-off empties the panel. Archiving one card leaves the rest of the review on
+    // screen, and closing the dock out from under it would lose the reviewer's place in a list they are
+    // still working through — refreshComments has already rebuilt it without the card that just left.
+    if (!document.querySelector('.mc-merged-card')) closeMergedDock();
     showToast(t('merged.copiedAndArchived').replace('{count}', String(archived)));
   }
   // The app menu keeps the standard Edit role so real text fields still get native Cut/Paste/Undo (see
@@ -230,7 +259,17 @@ function openMergedView() {
     if (!host.classList.contains('mc-merged-select-all')) return;
     event.preventDefault();
     event.clipboardData.setData('text/plain', currentMergedText());
-    showToast(t('merged.copied'));
+    // Both paths can answer one Cmd+C — this event fires for the Edit-menu accelerator, the keydown
+    // handler for the key itself — and archiving twice would file the second batch out of an empty panel
+    // and toast a count of zero over the real one. Whichever arrives first does the filing; the flag is
+    // cleared on the next turn, so the next real copy is not swallowed.
+    if (!copyArchivePending) {
+      copyArchivePending = true;
+      setTimeout(function () { copyArchivePending = false; }, 0);
+      archiveMergedItems(allMergedItems());
+    } else {
+      showToast(t('merged.copied'));
+    }
   }
   // Deleting the selected card removes it from reviewComments (with the same shared undo stack the
   // diff/source view's row-Backspace uses — Cmd/Ctrl+Z restores it, see 05-keymap.js), then rebuilds the
@@ -269,7 +308,12 @@ function openMergedView() {
     if (host.classList.contains('mc-merged-select-all')) {
       if (isCmd && !event.altKey && !event.shiftKey && (event.key === 'c' || event.key === 'C' || event.code === 'KeyC')) {
         event.preventDefault();
-        copyMergedText();
+        clearSelectAll();
+        if (!copyArchivePending) {
+          copyArchivePending = true;
+          setTimeout(function () { copyArchivePending = false; }, 0);
+          copyAndArchiveMerged(allMergedItems());
+        }
         return;
       }
       clearSelectAll();
@@ -277,6 +321,20 @@ function openMergedView() {
     var target = event.target;
     var card = target && target.closest ? target.closest('.mc-merged-card') : null;
     if (card) {
+      // Copying one card is a hand-off of one card. The panel's whole job is moving review out of kakapo
+      // and into something else, and a comment that has been handed over but left in the review comes
+      // back in the next hand-off — which is the same reason the select-all copy above files everything.
+      // Undoable like every other removal here: Cmd+Z brings the thread back.
+      if (isCmd && !event.altKey && !event.shiftKey && (event.key === 'c' || event.key === 'C' || event.code === 'KeyC')) {
+        event.preventDefault();
+        var item = itemForCard(card);
+        if (item && !copyArchivePending) {
+          copyArchivePending = true;
+          setTimeout(function () { copyArchivePending = false; }, 0);
+          copyAndArchiveMerged([item]);
+        }
+        return;
+      }
       if (!event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
         event.preventDefault();
         focusRegion(siblingRegion(card, event.key === 'ArrowDown' ? 1 : -1));

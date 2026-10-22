@@ -183,6 +183,60 @@ test("file view folds imports by default and Cmd+. toggles the caret's brace blo
   v.close();
 });
 
+// A fold does not hide its rows, it stops them being RENDERED. So a caret sent to a line inside one — by
+// go-to-definition, by a review stop, by stepping down into it — landed on a row that does not exist: no
+// caret on screen, nothing for the reveal to scroll to, and a jump that looked like it did nothing while
+// viewerCursor insisted it had moved. Measured in the running app before the fix: cursor at line 5, fold
+// still closed, no row and no caret span.
+test("navigating into a folded region opens it and the caret lands somewhere visible", async () => {
+  const { html: foldHtml } = await makeReviewHtml([
+    {
+      path: "src/fold.ts",
+      before: "import { one } from './one';\nimport { two } from './two';\nimport { three } from './three';\n\nfunction outer() {\n  const value = 1;\n  const more = 2;\n  if (value) {\n    return one + two + three + more;\n  }\n}\n",
+      after: "import { one } from './one';\nimport { two } from './two';\nimport { three } from './three';\n\nfunction outer() {\n  const value = 2;\n  const more = 2;\n  if (value) {\n    return one + two + three + more;\n  }\n}\n",
+    },
+  ]);
+  const v = await loadViewer(foldHtml);
+  await v.openSourceFile("src/fold.ts");
+  assert.ok(v.$("#source-body .source-fold-row [data-source-fold]"), "the imports start folded");
+  assert.equal(v.$('#source-body .source-row[data-line-index="1"]'), null, "so line 1 is not rendered");
+
+  // The jump a definition or a review stop makes.
+  v.window.openSourceAt("src/fold.ts", 1, 4);
+  await v.settle(60);
+
+  const landed = v.$('#source-body .source-row[data-line-index="1"]');
+  assert.ok(landed, "the fold opened, so the target line is on screen at all");
+  assert.ok(landed.classList.contains("cursor-line"), "and it is the line the caret is on");
+  assert.ok(v.$("#source-body .code-cursor"), "with a caret actually painted in it");
+  assert.equal(v.$("#source-body .source-fold-row [data-source-fold]"), null, "the fold marker is gone");
+
+  // A manual fold must not spring open under the caret that just made it: ⌘. leaves the caret on the
+  // fold's own first row, which is rendered, so that line does not count as hidden.
+  await v.clickSourceLine(4); // function outer() {
+  v.key(".", { metaKey: true, code: "Period" });
+  await v.settle(40);
+  assert.ok(v.$('#source-body .source-row.source-block-folded[data-line-index="4"]'), "the block folds and stays folded");
+  assert.equal(v.$('#source-body .source-row[data-line-index="5"]'), null, "its body is not rendered");
+
+  // The boundary itself: a caret move onto the fold's own first row must leave it folded. That row is
+  // rendered — it is the one carrying the marker — so it is not hidden, and treating it as hidden would
+  // reopen every manual fold on the next caret move.
+  v.window.setSourceCursor("src/fold.ts", 4, 0, true, -1);
+  await v.settle(60);
+  assert.ok(v.$('#source-body .source-row.source-block-folded[data-line-index="4"]'),
+    "the caret sitting on the marker row does not count as being inside the fold");
+  assert.equal(v.$('#source-body .source-row[data-line-index="5"]'), null, "so the body is still not rendered");
+
+  // Stepping the caret into that block opens it, the same as the jump above.
+  v.window.setSourceCursor("src/fold.ts", 5, 0, true, -1);
+  await v.settle(60);
+  const inside = v.$('#source-body .source-row[data-line-index="5"]');
+  assert.ok(inside, "the manual fold opened for the caret too");
+  assert.ok(inside.classList.contains("cursor-line"), "and the caret is on the line it was sent to");
+  v.close();
+});
+
 test("diff folds unchanged imports but leaves an import edit fully visible", async () => {
   const { html: unchangedImportHtml } = await makeReviewHtml([
     {
@@ -809,7 +863,12 @@ test("merged view: typing inside a comment card is impossible — it is not a co
   v.close();
 });
 
-test("merged view: Cmd+A visually selects the whole document (cards included), and Cmd+C then copies exactly what the hand-off button copies", async () => {
+// Cmd+C used to copy and stop there, and this test pinned that it copied the same text as the button. It
+// is the hand-off now — copying out of this panel archives what was copied, at whatever size — so what is
+// left to pin is that the TEXT still matches the button's, which it has to: both assemble the same review.
+// The button cannot be clicked afterwards to compare, because by then the panel has closed with nothing
+// left in it, so the two are compared across two panels holding the same comments.
+test("merged view: Cmd+A selects the whole document, and Cmd+C hands over exactly what the button hands over", async () => {
   const v = await loadViewer(html);
   v.window.addComment("q", "src/app.ts", 1, "", "first comment");
   v.window.addComment("c", "src/app.ts", 2, "", "second comment");
@@ -828,12 +887,21 @@ test("merged view: Cmd+A visually selects the whole document (cards included), a
   assert.match(copiedViaCmdC, /first comment/);
   assert.match(copiedViaCmdC, /second comment/);
 
-  let copiedViaButton = null;
-  v.window.kakapoClipboard = { write: (text) => { copiedViaButton = text; } };
-  v.$(".mc-copy-all").click();
-  await v.settle(20);
-  assert.equal(copiedViaCmdC, copiedViaButton, "Cmd+C after Cmd+A copies exactly what the hand-off button copies");
+  assert.equal(v.window.reviewComments.length, 0, "and hands them over — copying out of this panel archives");
+  assert.equal(v.$("#mc-merged-panel"), null, "the panel closes, having nothing left to show");
   v.close();
+
+  const w = await loadViewer(html);
+  w.window.addComment("q", "src/app.ts", 1, "", "first comment");
+  w.window.addComment("c", "src/app.ts", 2, "", "second comment");
+  await w.openMergedView();
+  await w.settle(80);
+  let copiedViaButton = null;
+  w.window.kakapoClipboard = { write: (text) => { copiedViaButton = text; } };
+  w.$(".mc-copy-all").click();
+  await w.settle(20);
+  assert.equal(copiedViaCmdC, copiedViaButton, "Cmd+C after Cmd+A hands over exactly what the button does");
+  w.close();
 });
 
 test("merged view: the native copy event (Electron's editMenu Cmd+C accelerator) is overridden with the merged text", async () => {

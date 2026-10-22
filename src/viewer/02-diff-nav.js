@@ -56,39 +56,51 @@ function focusDiffRow(row) {
   }
 }
 
-// The file path, and — while the review is pointed at commits instead of the working tree — the commit it is
-// showing, first. This is the one place a reader's eyes already go on every file change, which is what makes
-// it the place to say "these are not your local changes": opening a commit from Cmd+9 closes the history
-// overlay and lands you here, so nothing else on screen would have told you.
-function renderBreadcrumb(container, path) {
+// While the review is pointed at commits instead of the working tree, the toolbar says which commit it is
+// showing. This is the one place a reader's eyes already go on every file change, which is what makes it the
+// place to say "these are not your local changes": opening a commit from Cmd+9 closes the history overlay
+// and lands you here, so nothing else on screen would have told you.
+//
+// Its own component, beside the breadcrumb rather than inside it. They are two different statements — WHICH
+// COMMIT you are reading, and WHERE IN IT you are — and running them together as one crumb trail made them
+// compete for one ellipsis budget. The CSS admitted as much: the subject was told to give up its width
+// first so a long commit title would not push the filename off the end. It also put the file icon in front
+// of the commit, so the icon labelled the sha instead of the path it belongs to.
+function renderCommitContext(container) {
   if (!container) return;
   container.textContent = '';
   const lead = compareCommitLead();
-  if (lead) {
-    const mark = document.createElement('span');
-    mark.className = 'crumb-commit';
-    mark.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor"'
-      + ' stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1v4M8 11v4"/></svg>'
-      + '<span class="crumb-sha"></span>';
-    mark.querySelector('.crumb-sha').textContent = lead.sha;
-    container.appendChild(mark);
-    if (lead.subject) {
-      const subject = document.createElement('span');
-      subject.className = 'crumb-subject';
-      subject.textContent = lead.subject;
-      container.appendChild(subject);
-    }
-    if (lead.others > 0) {
-      const more = document.createElement('span');
-      more.className = 'crumb-count';
-      more.textContent = t('compare.andMore', { n: lead.others });
-      container.appendChild(more);
-    }
-    const sep = document.createElement('span');
-    sep.className = 'crumb-sep';
-    sep.textContent = '›';
-    container.appendChild(sep);
+  container.classList.toggle('hidden', !lead);
+  if (!lead) return;
+  const mark = document.createElement('span');
+  mark.className = 'crumb-commit';
+  mark.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor"'
+    + ' stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1v4M8 11v4"/></svg>'
+    + '<span class="crumb-sha"></span>';
+  mark.querySelector('.crumb-sha').textContent = lead.sha;
+  container.appendChild(mark);
+  if (lead.subject) {
+    const subject = document.createElement('span');
+    subject.className = 'crumb-subject';
+    subject.textContent = lead.subject;
+    // The full title, since this is the one that gets cut: the breadcrumb beside it keeps its own width.
+    subject.title = lead.subject;
+    container.appendChild(subject);
   }
+  if (lead.others > 0) {
+    const more = document.createElement('span');
+    more.className = 'crumb-count';
+    // t() takes a key and nothing else — the second argument was silently dropped, so this has been
+    // rendering the literal "+{n} more" since it was written. Substituted the way every other string
+    // with a placeholder in this codebase is.
+    more.textContent = t('compare.andMore').replace('{n}', String(lead.others));
+    container.appendChild(more);
+  }
+}
+// The file path alone.
+function renderBreadcrumb(container, path) {
+  if (!container) return;
+  container.textContent = '';
   // A library file is addressed absolutely, because no path relative to this project can name it. Splitting
   // it into crumbs read as a project structure that does not exist — `opt › ts › lib › lib.es2022.d.ts` —
   // so it keeps its own shape: the containing directory, then the file, marked as from outside the review.
@@ -300,6 +312,7 @@ function applySetActive(idx, shouldScroll) {
   setTab('changes');
   const file = hunkPathAt(idx);
   links.forEach((link) => link.classList.toggle('active', link.dataset.file === file));
+  renderCommitContext(document.getElementById('diff-commit-context'));
   renderBreadcrumb(document.getElementById('diff-breadcrumb'), file);
   syncDiffReviewChrome(file);
   if (file) rememberRecent(file, 'change');
