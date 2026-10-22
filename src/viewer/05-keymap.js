@@ -488,10 +488,13 @@ document.getElementById('changes-panel')?.addEventListener('click', (event) => {
   }
   const pointerSelection = reviewFocusInputModality === 'pointer';
   showDiffView(false);
-  const target = Number(link.dataset.hunk);
-  if (!Number.isNaN(target) && target >= 0 && target < hunkTotal()) {
+  const target = diffHunkForLink(link);
+  if (target >= 0) {
     event.preventDefault();
     setActive(target, true, true); // explicit selection always opens this file, even when it is already viewed
+  } else if (activateDiffFile(link.dataset.file, true)) {
+    // A changed file with no hunks of its own — opened by path, because it has no hunk to aim at.
+    event.preventDefault();
   }
   if (pointerSelection) focusTreeRowFromPointer(link);
 });
