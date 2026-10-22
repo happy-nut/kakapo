@@ -739,8 +739,11 @@ function sendHttp(request) {
   }).then(function (response) { return response.json(); });
 }
 
-function runHttpRequest(reqIndex) {
-  const path = document.getElementById('source-viewer')?.dataset.openPath || '';
+// `path` and `target` are passed in because this is no longer only the source view's runner: the diff
+// shows .http files too, and a request there is the same request. Both default to the source view, which
+// is where every existing caller runs from.
+function runHttpRequest(reqIndex, pathOverride, targetOverride) {
+  const path = pathOverride || document.getElementById('source-viewer')?.dataset.openPath || '';
   const requests = httpRequestsByPath.get(path);
   if (!requests || !requests[reqIndex]) return;
   const req = requests[reqIndex];
@@ -756,7 +759,7 @@ function runHttpRequest(reqIndex) {
     headers: headers,
     body: req.body ? applyHttpVars(req.body, env) : undefined,
   };
-  const target = document.getElementById('http-resp-' + reqIndex);
+  const target = targetOverride || document.getElementById('http-resp-' + reqIndex);
   if (target) {
     target.className = 'http-response loading';
     target.innerHTML = kakapoLoaderHtml('kakapo-loader-inline') + '<span class="http-loading-copy">'
@@ -1215,3 +1218,211 @@ function highlightLine(text, language) {
   return output;
 }
 
+
+// ---- .http requests in the diff view -------------------------------------------------------------
+//
+// A .http file in a diff is the same file: the request on the new side is the request you would run. It
+// was only runnable from the source view because the runner read its path out of #source-viewer and wrote
+// its response into a row the source table had rendered. Both of those are now arguments.
+//
+// Only the NEW side gets a run button. The old side is the request as it was before the change, and
+// running that is offering to send something the file no longer says.
+//
+// The response row is inserted the way a comment is — one row on the side that shows it, one spacer of
+// matching height on the other — because the two panes are separate tables aligned by row position, and a
+// row added to one alone silently shifts every line below it out of step with its counterpart.
+var diffHttpSlot = 0;
+// Same resolution diffWrapperByPath uses in reverse: data-path is only written on the wrappers render.ts
+// rewrites, and a review that ships diff2html's own markup has the path in the file-name header instead.
+// Reading only the dataset meant those reviews silently had no run buttons at all.
+function diffHttpPath(wrapper) {
+  if (!wrapper) return '';
+  var path = (wrapper.dataset && wrapper.dataset.path)
+    || ((wrapper.querySelector('.d2h-file-name') || {}).textContent || '').trim();
+  return isHttpFile(path) ? path : '';
+}
+var diffHttpPending = Object.create(null);
+function decorateDiffHttpRuns(wrapper) {
+  var path = diffHttpPath(wrapper);
+  if (!path) return;
+  // Parse the file as it is NOW, not the diff text: the request that runs is the one in the working tree,
+  // and the diff on screen may be missing the lines a folded context is hiding.
+  //
+  // The diff view never needed a file's source before, so it is not loaded here — the body it renders is
+  // the diff, not the file. Fetch it once and decorate again when it lands; until then the file simply has
+  // no run buttons, which is what it looked like before this existed.
+  var file = sourceByPath.get(path);
+  if (!file) return;
+  if (!sourceContentLoaded(file)) {
+    if (diffHttpPending[path]) return;
+    diffHttpPending[path] = true;
+    loadSourceFile(path).then(function () {
+      delete diffHttpPending[path];
+      var again = diffWrapperByPath(path);
+      if (again) decorateDiffHttpRuns(again);
+    }).catch(function () { delete diffHttpPending[path]; });
+    return;
+  }
+  var parsed = parseHttpRequests(file.content);
+  httpRequestsByPath.set(path, parsed.requests);
+  httpVarsByPath.set(path, parsed.vars);
+  var side = diffSideTable(wrapper, 'new');
+  if (!side) return;
+  var startLine = {};
+  parsed.requests.forEach(function (req, idx) { if (req.startLine >= 0) startLine[req.startLine + 1] = idx; });
+
+  // The buttons go in an overlay, not in the table.
+  //
+  // The obvious place is the line-number cell, and it cannot be used: four separate readers take that
+  // cell's textContent — diffLineNumber parses it as an integer, and two others treat "is it non-empty"
+  // as "is this a real code line". A glyph in there turns every line number on the file into NaN and every
+  // placeholder row into a code row. The connector curves already solved the same problem the same way:
+  // an absolutely-positioned layer inside the wrapper, which the table never sees.
+  // Hosted on .d2h-files-diff, which is the element the connector overlay is already positioned against —
+  // the wrapper itself is not a containing block.
+  var surface = wrapper.querySelector('.d2h-files-diff');
+  if (!surface) return;
+  var layer = surface.querySelector(':scope > .mc-http-runs');
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.className = 'mc-http-runs';
+    surface.appendChild(layer);
+  }
+  layer.textContent = '';
+  var base = surface.getBoundingClientRect();
+  diffRowsOf(side).forEach(function (row) {
+    var line = diffLineNumber(row);
+    if (line == null || !Object.prototype.hasOwnProperty.call(startLine, line)) return;
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'http-run http-run-diff';
+    button.dataset.req = String(startLine[line]);
+    // Derived from the table the row actually came from, not asserted: it is the only way to tell from
+    // the DOM which side a button was built from, because the overlay belongs to neither.
+    button.dataset.side = side === diffSideTable(wrapper, 'new') ? 'new' : 'old';
+    button.dataset.line = String(line);
+    button.dataset.httpPath = path;
+    button.setAttribute('data-keyhint-id', 'runHttp');
+    button.setAttribute('data-i18n-title', 'http.run');
+    button.title = t('http.run') || 'Run request';
+    button.setAttribute('aria-label', button.title);
+    button.innerHTML = '&#9654;';
+    layer.appendChild(button);
+    // WHICH lines get a button is a fact about the file; WHERE each one sits is a fact about layout, and
+    // only the second needs measuring. Keeping them apart means the buttons exist even before the rows
+    // have boxes — which is every render in a test, and the first frame in the app.
+    //
+    // Between the line number and the code, not on top of either: parked over the gutter it hid the line
+    // number, and a diff without line numbers is worse off than one without a run button.
+    var box = row.getBoundingClientRect();
+    if (!box.height) return;
+    var code = row.querySelector('.d2h-code-line-ctn');
+    var codeBox = code ? code.getBoundingClientRect() : box;
+    button.style.top = Math.round(box.top - base.top) + 'px';
+    button.style.left = Math.round(codeBox.left - base.left - 19) + 'px';
+  });
+}
+// The response lands under the request's last line, on the new side, with a spacer opposite it.
+function diffHttpResponseTarget(wrapper, reqIndex) {
+  var side = diffSideTable(wrapper, 'new');
+  var other = diffSideTable(wrapper, 'old');
+  if (!side || !other) return null;
+  var existing = wrapper.querySelector('.mc-http-row[data-http-req="' + reqIndex + '"] .http-response');
+  if (existing) return existing;
+  var requests = httpRequestsByPath.get(diffHttpPath(wrapper)) || [];
+  var req = requests[reqIndex];
+  if (!req) return null;
+  var rows = diffRowsOf(side);
+  var anchorIndex = -1;
+  for (var i = 0; i < rows.length; i++) {
+    var line = diffLineNumber(rows[i]);
+    if (line != null && line <= req.endLine + 1) anchorIndex = i;
+  }
+  if (anchorIndex < 0) return null;
+  var anchor = rows[anchorIndex];
+  var peer = diffRowsOf(other)[anchorIndex];
+  if (!anchor || !peer) return null;
+  var slot = String(++diffHttpSlot);
+
+  var tr = document.createElement('tr');
+  tr.className = 'mc-comment-row mc-http-row';
+  tr.dataset.commentSlot = slot;
+  tr.dataset.httpReq = String(reqIndex);
+  var td = document.createElement('td');
+  td.colSpan = 2;
+  var box = document.createElement('div');
+  box.className = 'http-response';
+  td.appendChild(box);
+  tr.appendChild(td);
+  anchor.parentNode.insertBefore(tr, anchor.nextSibling);
+
+  // Same slot, so the existing comment-spacer sync keeps the two sides the same height.
+  var spacer = document.createElement('tr');
+  spacer.className = 'mc-spacer-row mc-comment-spacer-row';
+  spacer.dataset.commentSlot = slot;
+  spacer.setAttribute('aria-hidden', 'true');
+  var spacerCell = document.createElement('td');
+  spacerCell.colSpan = 2;
+  var filler = document.createElement('div');
+  filler.className = 'mc-comment-spacer';
+  spacerCell.appendChild(filler);
+  spacer.appendChild(spacerCell);
+  peer.parentNode.insertBefore(spacer, peer.nextSibling);
+
+  invalidateDiffRows(wrapper);
+  return box;
+}
+function runDiffHttpRequest(button) {
+  var wrapper = button.closest ? button.closest('.d2h-file-wrapper') : null;
+  var path = button.dataset.httpPath || diffHttpPath(wrapper);
+  var reqIndex = parseInt(button.dataset.req, 10);
+  if (!wrapper || !path || !(reqIndex >= 0)) return false;
+  var target = diffHttpResponseTarget(wrapper, reqIndex);
+  runHttpRequest(reqIndex, path, target);
+  afterDiffHttpResponse(wrapper, target);
+  return true;
+}
+// A response row pushes everything under it down, and the run buttons are an overlay positioned in pixels,
+// so they have to be measured again or the next request's button is left pointing at the line that used to
+// be there. The opposite pane has to grow to match, too.
+//
+// Driven by the box's own size rather than by a timer: the response starts as a spinner, becomes a status
+// line, then grows again when the body lands, and a fixed delay can only ever be wrong for one of those.
+// A first attempt timed it at 400ms and left the second button stranded halfway up the response.
+function afterDiffHttpResponse(wrapper, target) {
+  var settle = function () {
+    syncDiffCommentSpacerHeights(wrapper);
+    decorateDiffHttpRuns(wrapper);
+  };
+  requestAnimationFrame(settle);
+  if (!target || typeof ResizeObserver !== 'function') { setTimeout(settle, 400); return; }
+  if (target.__kakapoHttpObserver) return;
+  var observer = new ResizeObserver(function () { settle(); });
+  observer.observe(target);
+  target.__kakapoHttpObserver = observer;
+}
+// The request the diff caret is standing in, run the same way the source view runs it.
+function runDiffHttpAtCaret() {
+  if (typeof diffCursor === 'undefined' || !diffCursor) return false;
+  var wrapper = diffWrapperByPath(diffCursor.path);
+  var path = diffHttpPath(wrapper);
+  if (!path) return false;
+  decorateDiffHttpRuns(wrapper);
+  var requests = httpRequestsByPath.get(path) || [];
+  if (!requests.length) return false;
+  var row = diffRowAt(wrapper, diffCursor.side, diffCursor.rowIndex);
+  var line = diffLineNumber(row);
+  var caretLine = (line == null ? 1 : line) - 1;
+  var chosen = -1;
+  for (var i = 0; i < requests.length; i++) {
+    var req = requests[i];
+    var from = req.boundaryLine >= 0 ? req.boundaryLine : req.startLine;
+    if (from <= caretLine && caretLine <= req.endLine) { chosen = i; break; }
+    if (from <= caretLine) chosen = i;
+  }
+  if (chosen < 0) chosen = 0;
+  var target = diffHttpResponseTarget(wrapper, chosen);
+  runHttpRequest(chosen, path, target);
+  afterDiffHttpResponse(wrapper, target);
+  return true;
+}

@@ -1198,6 +1198,31 @@ body {
    tooltip and to aria-label, where the other icon buttons keep theirs.
    The state is carried by colour, as with the pressed tool buttons: a toggle whose only cue was a tick
    inside the pill has nothing to show once the pill is gone. */
+/* The run buttons for a .http file live in their own layer over the new pane's gutter, never in the table
+   — see decorateDiffHttpRuns for why the line-number cell cannot hold them. The layer itself takes no
+   clicks; only the buttons in it do. */
+.mc-http-runs { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+.mc-http-runs .http-run-diff {
+  position: absolute;
+  pointer-events: auto;
+  padding: 0;
+  line-height: 1;
+  transform: translate(-2px, 1px);
+}
+.mc-http-row > td { padding: 0; background: transparent; }
+/* The row is as wide as the widest line of the file, because the pane scrolls horizontally. Left alone,
+   the response is laid out across that width and most of it sits off-screen — the same problem the comment
+   cards have, solved the same way: stick to the pane's viewport, sized in container units against the pane
+   rather than against the canvas it sits on. */
+.mc-layered-diff-side:last-of-type .mc-http-row .http-response,
+.mc-http-row .http-response {
+  position: sticky;
+  left: 62px;
+  z-index: 2;
+  margin: 2px 0 6px;
+  width: min(760px, calc(100cqw - 74px));
+  max-width: calc(100cqw - 74px);
+}
 .source-line-wrap-toggle.is-checked {
   color: var(--active);
   background: color-mix(in srgb, var(--active) 14%, transparent);
