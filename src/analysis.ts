@@ -708,6 +708,9 @@ export class ProjectAnalysis {
       .map((item) => ({ ...item, text: item.text ?? rawByPath.get(item.path)?.[item.lineIndex] ?? "" }))
       .filter((item) => {
         if (documentPath(item.path)) return false;
+        // Nothing to read and nothing to judge: an external target has no text by definition, and the
+        // "does this line have visible characters" test below would drop every one of them.
+        if (item.external) return true;
         const codeLine = maskedByPath.get(item.path)?.[item.lineIndex] ?? maskNonCode(item.text ?? "", item.path)[0] ?? "";
         const start = Math.max(0, Number(item.column) || 0);
         // Some servers report the beginning of indentation rather than the identifier itself. Looking from

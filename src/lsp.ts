@@ -18,7 +18,24 @@ export type AnalysisLocation = {
   // The definition lives outside the review root — a dependency, a stdlib, a bundled type stub. `path` is
   // then an absolute filesystem path instead of a repo-relative one, and the file opens read-only.
   library?: true;
+  // The definition is not a file at all: a compiled class inside a JDK image (`jrt:`) or a dependency
+  // archive (`jar:`), which is what a JVM language server answers with for anything outside the project.
+  // `path` is the URI verbatim. There is no source to show, and saying so is the whole point of the flag —
+  // the alternative is reporting "definition not found" for an answer the server did give.
+  external?: true;
 };
+
+// `jrt:/…/jbr/Contents/Home!/java.base/java/time/Instant.class` -> `java.base/java/time/Instant.class`,
+// `jar:file:/…/guava-33.jar!/com/google/common/base/Joiner.class` -> `guava-33.jar / com/google/…`.
+// Everything before the `!` is where the archive happens to live on this machine, which tells the reviewer
+// nothing about the symbol.
+export function externalLocationLabel(uri: string): string {
+  const bang = uri.indexOf("!/");
+  if (bang < 0) return uri.replace(/^[a-z]+:\/*/i, "");
+  const inner = uri.slice(bang + 2);
+  const archive = uri.slice(0, bang).split("/").pop() || "";
+  return archive && /\.(jar|zip)$/i.test(archive) ? `${archive} / ${inner}` : inner;
+}
 
 // Every path a language server has pointed at outside the review root. Following a definition into library
 // code reads a file the review root does not contain, so the renderer is never allowed to name one itself:
@@ -978,8 +995,26 @@ export function normalizeLocationResult(result: unknown, root: string): Analysis
     const uri = value.targetUri || value.uri || nested?.uri;
     const range = value.targetSelectionRange || value.targetRange || value.range || nested?.range;
     if (!uri || !range?.start) continue;
+    // A non-file URI is not a path, and treating it as one is how this failed: resolve() read
+    // "jrt:/…/Instant.class" as a RELATIVE path and prefixed the working directory, producing
+    // "<repo>/jrt:/…/Instant.class" — a path that exists nowhere. The read that followed came back empty,
+    // and the text filter in navigationLocations dropped the location for having no visible characters.
+    // So Kotlin and Java reported "definition not found" for every stdlib and dependency symbol, while the
+    // server had answered correctly every time.
+    if (!uri.startsWith("file:")) {
+      out.push({
+        path: uri,
+        external: true as const,
+        lineIndex: nonNegativeInt(range.start.line) ?? 0,
+        column: nonNegativeInt(range.start.character) ?? 0,
+        endLineIndex: nonNegativeInt(range.end?.line) ?? nonNegativeInt(range.start.line) ?? 0,
+        endColumn: nonNegativeInt(range.end?.character) ?? nonNegativeInt(range.start.character) ?? 0,
+        name: value.name,
+      });
+      continue;
+    }
     let absolute: string;
-    try { absolute = uri.startsWith("file:") ? fileURLToPath(uri) : uri; } catch { continue; }
+    try { absolute = fileURLToPath(uri); } catch { continue; }
     // Language servers commonly canonicalize symlinks (macOS also reports /private/var for /var).
     // Compare canonical paths so an in-workspace result is reported relative to the root, and anything
     // outside it is kept as a library location — an absolute path the reviewer can read but not edit.

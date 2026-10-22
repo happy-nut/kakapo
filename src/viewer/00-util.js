@@ -79,3 +79,16 @@ function trapTabWithin(root, event) {
   if (event.shiftKey && at === 0) { event.preventDefault(); last.focus(); return true; }
   return false;
 }
+
+// `jrt:/…!/java.base/java/time/Instant.class` -> `java.base/java/time/Instant.class`. The twin of
+// externalLocationLabel in src/lsp.ts: the renderer names these targets without the main process's help,
+// and what is in front of the `!` is where the archive sits on this machine, which says nothing about the
+// symbol. Kept in step by test/app-boundaries.test.mjs.
+function externalLocationLabel(uri) {
+  var text = String(uri || '');
+  var bang = text.indexOf('!/');
+  if (bang < 0) return text.replace(/^[a-z]+:\/*/i, '');
+  var inner = text.slice(bang + 2);
+  var archive = text.slice(0, bang).split('/').pop() || '';
+  return /\.(jar|zip)$/i.test(archive) ? archive + ' / ' + inner : inner;
+}

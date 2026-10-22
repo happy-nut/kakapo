@@ -123,6 +123,16 @@ async function goToDefOrUsages(name, explicitLoc) {
       return;
     }
     var def = defs[0];
+    // A compiled target is a real answer this app cannot open — a JDK class, a class inside a dependency
+    // jar. Say where it is. Before this, the location was mangled into a path that exists nowhere and then
+    // filtered away for having no readable text, so every stdlib and dependency symbol in Kotlin and Java
+    // reported "definition not found" while the server had answered.
+    if (def && def.external) {
+      showCaretHint(t('monaco.definitionExternal')
+        .replace('{symbol}', String(name || ''))
+        .replace('{where}', externalLocationLabel(def.path)));
+      return;
+    }
     if (def && loc && def.path === loc.path && def.lineIndex === loc.lineIndex) {
       var refs = await queryProjectAnalysis('references', name, loc);
       openAnalysisUsages(name, refs && refs.locations || [], refs, 'references');
