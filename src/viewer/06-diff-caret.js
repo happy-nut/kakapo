@@ -275,6 +275,7 @@ function revealDiffFile(path) {
   setTab('changes');
   showOnlyFile(path);
   links.forEach(function (link) { link.classList.toggle('active', link.dataset.file === path); });
+  renderCommitContext(document.getElementById('diff-commit-context'));
   renderBreadcrumb(document.getElementById('diff-breadcrumb'), path);
   syncDiffReviewChrome(path);
 }

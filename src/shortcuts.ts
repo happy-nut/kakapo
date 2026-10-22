@@ -109,6 +109,11 @@ export const SHORTCUTS: ShortcutDef[] = [
   // chord goes there rather than being deleted. Structural like its merged siblings: the dock's own
   // keydown owns these, and none of them read a rebind.
   { id: "mergedSend", keys: ["⌥Enter"], where: "merged", i18n: "kbd.mergedSend", fixed: "structural" },
+  // Copying out of this panel IS the hand-off, so it files what it copied — one card, or the whole panel
+  // after ⌘A. It used to copy and leave everything in the review, which meant the next hand-off carried
+  // the same comments again. "menu", not "structural": ⌘C is the Edit menu's accelerator (app-main.ts
+  // keeps the standard role so real text fields still work), so the page cannot rebind it.
+  { id: "mergedCopy", keys: ["⌘C"], where: "merged", i18n: "kbd.mergedCopy", fixed: "menu" },
   { id: "maximizePanel", keys: ["⌘⇧'"], where: "merged", i18n: "kbd.maximizePanel" },
 
   // ---- History ------------------------------------------------------------------------------------
@@ -135,7 +140,7 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   ] },
   { i18n: "settings.kbd.cat.review", ids: [
     "toggleViewed", "addComment", "allComments", "undoCommentRemoval", "ignoreWhitespace", "saveComment",
-    "reviewStops", "editComment", "deleteComment", "stepComments", "mergedSend", "maximizePanel",
+    "reviewStops", "editComment", "deleteComment", "stepComments", "mergedCopy", "mergedSend", "maximizePanel",
   ] },
   { i18n: "settings.kbd.cat.history", ids: [
     "openHistory", "historyNavigate", "pageUpDown",

@@ -269,20 +269,10 @@ function scheduleFileFindRefresh(options) {
   }, FILE_FIND_DEBOUNCE_MS);
 }
 
+// Same question the caret asks on every move, same answer — see expandSourceFoldsAt in 10-source-view.js.
+// This one repaints as well, because a find result is revealed without going through setSourceCursor.
 function expandSourceFindResult(result) {
-  var file = sourceByPath.get(result.path);
-  if (!file || !file.embedded) return false;
-  var changed = false;
-  sourceFoldRanges(file).forEach(function (fold) {
-    if (result.lineIndex < fold.start || result.lineIndex > fold.end || result.lineIndex === fold.start) return;
-    if (fold.kind === 'imports') sourceImportOpenPaths[result.path] = true;
-    else {
-      var stored = sourceManualFoldKeys[result.path] || Object.create(null);
-      delete stored[fold.start + ':' + fold.end];
-      sourceManualFoldKeys[result.path] = stored;
-    }
-    changed = true;
-  });
+  var changed = expandSourceFoldsAt(result.path, result.lineIndex);
   if (changed) openSourceFile(result.path, false);
   return changed;
 }

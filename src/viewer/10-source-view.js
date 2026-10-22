@@ -167,6 +167,33 @@ function sourceFoldRanges(file) {
     return true;
   });
 }
+// Navigating into a folded region opens it. The rows inside a fold are not rendered at all, so a caret
+// that lands on one sits on a row that does not exist: nothing to see, nothing to scroll to, and the jump
+// reads as having done nothing at all.
+//
+// Permanently, not just for the next render. ⌘F already answered this question that way, it is what an
+// editor does, and the alternative — dropping the fold while the caret is inside it — only takes effect
+// when something happens to rebuild the table, which the caret's fast path deliberately does not do.
+//
+// The fold's FIRST line is excluded: it is the row that carries the fold button, so it is rendered, and it
+// is where ⌘. leaves the caret after folding a block you were standing in. Counting it as hidden would
+// make a manual fold spring open the instant it was made.
+function expandSourceFoldsAt(path, lineIndex) {
+  var file = sourceByPath.get(path);
+  if (!file || !file.embedded) return false;
+  var changed = false;
+  sourceFoldRanges(file).forEach(function (fold) {
+    if (lineIndex <= fold.start || lineIndex > fold.end) return;
+    if (fold.kind === 'imports') sourceImportOpenPaths[path] = true;
+    else {
+      var stored = sourceManualFoldKeys[path] || Object.create(null);
+      delete stored[fold.start + ':' + fold.end];
+      sourceManualFoldKeys[path] = stored;
+    }
+    changed = true;
+  });
+  return changed;
+}
 function sourceFoldButtonHtml(kind, count, start, end) {
   var label = codeFoldMessage(kind, count);
   var title = codeFoldExpandTitle() + (kind === 'block' ? ' (⌘.)' : '');
@@ -416,6 +443,10 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
   const boundedLine = Math.max(0, Math.min(lineIndex, Math.max(lines.length - 1, 0)));
   const boundedColumn = Math.max(0, Math.min(column, (lines[boundedLine] || '').length));
 
+  // Before anything decides how to repaint: opening a fold changes which rows exist, so this move cannot
+  // take the two-rows-in-place fast path below.
+  const unfolded = expandSourceFoldsAt(path, boundedLine);
+
   const prev = viewerCursor;
   const viewer = document.getElementById('source-viewer');
   // Fast path: the file is already on screen and only the caret moved. Re-rendering the whole
@@ -425,7 +456,7 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
   // are metadata that can be set before the body repaints (lazy fetch in flight, fast file switch, watch
   // refresh), so without this the caret patches a STALE body and one file's content shows under another's
   // breadcrumb. On mismatch we fall through to openSourceFile, which re-renders the body for `path`.
-  const sameFileOpen = Boolean(viewer && viewer.dataset.openPath === path && !viewer.classList.contains('hidden')
+  const sameFileOpen = !unfolded && Boolean(viewer && viewer.dataset.openPath === path && !viewer.classList.contains('hidden')
     && prev && prev.path === path && !isHttpFile(path) && sourceBodyPath === path);
 
   viewerCursor = { path, lineIndex: boundedLine, column: boundedColumn, targetLine };

@@ -13,14 +13,14 @@
   --line: #222832;
   --add: #16351f;
   --del: #3f1d1d;
-  --add-strong: #1f5b34;
-  --del-strong: #6e2c2c;
+  --add-strong: #005418;
+  --del-strong: #760000;
   --diff-modified: #2d4a63;
-  --diff-modified-strong: #3d6687;
+  --diff-modified-strong: #004886;
   --diff-added: #193d29;
-  --diff-added-strong: #28613e;
+  --diff-added-strong: #005325;
   --diff-deleted: #35383b;
-  --diff-deleted-strong: #4b4f53;
+  --diff-deleted-strong: #00458a;
   --active: #58a6ff;
   /* The review is showing commits, not the working tree. Its own accent because the compare pill's
      three do not cover this case, and because two palettes already spend violet on --active — a
@@ -87,14 +87,14 @@
   --line: #eef1f4;
   --add: #e6ffec;
   --del: #ffebe9;
-  --add-strong: #abf2bc;
-  --del-strong: #ffc1bc;
+  --add-strong: #ccffd9;
+  --del-strong: #fffefe;
   --diff-modified: #d8e9f8;
-  --diff-modified-strong: #b6d7f2;
+  --diff-modified-strong: #eef5fc;
   --diff-added: #ddf4e4;
-  --diff-added-strong: #afe2bd;
+  --diff-added-strong: #b9ffce;
   --diff-deleted: #e6e8ea;
-  --diff-deleted-strong: #cfd3d7;
+  --diff-deleted-strong: #d4eaff;
   --active: #0969da;
   --commit-accent: #6d45c9;
   --sidebar: #f0f2f5;
@@ -144,14 +144,14 @@
   --line: #161b22;
   --add: #12261e;
   --del: #25171c;
-  --add-strong: #1b4721;
-  --del-strong: #78191b;
+  --add-strong: #003822;
+  --del-strong: #56001f;
   --diff-modified: #0c2d6b;
-  --diff-modified-strong: #1158c7;
+  --diff-modified-strong: #002a78;
   --diff-added: #12261e;
-  --diff-added-strong: #1b4721;
+  --diff-added-strong: #003822;
   --diff-deleted: #25171c;
-  --diff-deleted-strong: #78191b;
+  --diff-deleted-strong: #56001f;
   --active: #58a6ff;
   --commit-accent: #a98bff;
   --active-strong: #79c0ff;
@@ -193,14 +193,14 @@
   --line: #f6f8fa;
   --add: #dafbe1;
   --del: #ffebe9;
-  --add-strong: #aceebb;
-  --del-strong: #ffcecb;
+  --add-strong: #beffcc;
+  --del-strong: #fffefe;
   --diff-modified: #ddf4ff;
-  --diff-modified-strong: #b6e3ff;
+  --diff-modified-strong: #f7fcff;
   --diff-added: #dafbe1;
-  --diff-added-strong: #aceebb;
+  --diff-added-strong: #beffcc;
   --diff-deleted: #ffebe9;
-  --diff-deleted-strong: #ffcecb;
+  --diff-deleted-strong: #fffefe;
   --active: #0969da;
   --commit-accent: #6d45c9;
   --active-strong: #0550ae;
@@ -242,14 +242,14 @@
   --line: #3c3f41;
   --add: #294436;
   --del: #3f3f3f;
-  --add-strong: #355b45;
-  --del-strong: #55595c;
+  --add-strong: #054f29;
+  --del-strong: #00467a;
   --diff-modified: #34465a;
-  --diff-modified-strong: #435c76;
+  --diff-modified-strong: #00428b;
   --diff-added: #294436;
-  --diff-added-strong: #355b45;
+  --diff-added-strong: #054f29;
   --diff-deleted: #3f3f3f;
-  --diff-deleted-strong: #55595c;
+  --diff-deleted-strong: #00467a;
   --active: #4a88c7;
   --commit-accent: #a98bff;
   --active-strong: #6aa7e4;
@@ -292,14 +292,14 @@
   --line: #e7e9ec;
   --add: #e1f3e5;
   --del: #e7e7e7;
-  --add-strong: #b9dfc2;
-  --del-strong: #d0d0d0;
+  --add-strong: #bbffcb;
+  --del-strong: #ffe0e0;
   --diff-modified: #dbeaf7;
-  --diff-modified-strong: #bad6ef;
+  --diff-modified-strong: #f0f6fc;
   --diff-added: #e1f3e5;
-  --diff-added-strong: #b9dfc2;
+  --diff-added-strong: #bbffcb;
   --diff-deleted: #e7e7e7;
-  --diff-deleted-strong: #d0d0d0;
+  --diff-deleted-strong: #ffe0e0;
   --active: #3574f0;
   --commit-accent: #6d45c9;
   --active-strong: #1b5fd1;
@@ -352,14 +352,14 @@
   --line: #073642;
   --add: #04352c;
   --del: #3c191c;
-  --add-strong: #0a5f43;
-  --del-strong: #8c2b2b;
+  --add-strong: #021e18;
+  --del-strong: #6c0009;
   --diff-modified: #05374a;
-  --diff-modified-strong: #0a5f7f;
+  --diff-modified-strong: #032532;
   --diff-added: #04352c;
-  --diff-added-strong: #0a5f43;
+  --diff-added-strong: #021e18;
   --diff-deleted: #3c191c;
-  --diff-deleted-strong: #8c2b2b;
+  --diff-deleted-strong: #6c0009;
   --active: #268bd2;
   --commit-accent: #d33682;
   --active-strong: #6cc0f5;
@@ -404,14 +404,14 @@
   --line: #f2ecd8;
   --add: #e6efd0;
   --del: #fbe0dd;
-  --add-strong: #b8d183;
-  --del-strong: #f0b0aa;
+  --add-strong: #e5ffa6;
+  --del-strong: #fef5f4;
   --diff-modified: #dceaf3;
-  --diff-modified-strong: #a8cde5;
+  --diff-modified-strong: #ccebff;
   --diff-added: #e6efd0;
-  --diff-added-strong: #b8d183;
+  --diff-added-strong: #e5ffa6;
   --diff-deleted: #fbe0dd;
-  --diff-deleted-strong: #f0b0aa;
+  --diff-deleted-strong: #fef5f4;
   --active: #2074af;
   --commit-accent: #d33682;
   --active-strong: #1a6fab;
@@ -457,14 +457,14 @@
   --line: #21222c;
   --add: #1e3b2a;
   --del: #45222c;
-  --add-strong: #2c6b45;
-  --del-strong: #8b3040;
+  --add-strong: #023e1b;
+  --del-strong: #700020;
   --diff-modified: #2b3450;
-  --diff-modified-strong: #414d75;
+  --diff-modified-strong: #002495;
   --diff-added: #1e3b2a;
-  --diff-added-strong: #2c6b45;
+  --diff-added-strong: #023e1b;
   --diff-deleted: #45222c;
-  --diff-deleted-strong: #8b3040;
+  --diff-deleted-strong: #700020;
   --active: #bd93f9;
   --commit-accent: #ff79c6;
   --active-strong: #d6b6ff;
@@ -506,14 +506,14 @@
   --line: #f5efd8;
   --add: #e2f0d9;
   --del: #fbdcd7;
-  --add-strong: #a8d49a;
-  --del-strong: #efaba0;
+  --add-strong: #cfffb0;
+  --del-strong: #fdf0ee;
   --diff-modified: #dbe6f5;
-  --diff-modified-strong: #a9c2e8;
+  --diff-modified-strong: #eff4fb;
   --diff-added: #e2f0d9;
-  --diff-added-strong: #a8d49a;
+  --diff-added-strong: #cfffb0;
   --diff-deleted: #fbdcd7;
-  --diff-deleted-strong: #efaba0;
+  --diff-deleted-strong: #fdf0ee;
   --active: #644ac9;
   --commit-accent: #c4257f;
   --active-strong: #4a35a3;
@@ -557,14 +557,14 @@
   --line: #101010;
   --add: #003820;
   --del: #4a0d10;
-  --add-strong: #007a43;
-  --del-strong: #b81e26;
+  --add-strong: #001e11;
+  --del-strong: #710006;
   --diff-modified: #002c4d;
-  --diff-modified-strong: #0a6bb5;
+  --diff-modified-strong: #001d33;
   --diff-added: #003820;
-  --diff-added-strong: #007a43;
+  --diff-added-strong: #001e11;
   --diff-deleted: #4a0d10;
-  --diff-deleted-strong: #b81e26;
+  --diff-deleted-strong: #710006;
   --active: #4fc3f7;
   --commit-accent: #d7a3ff;
   --active-strong: #8ce0ff;
@@ -606,14 +606,14 @@
   --line: #f2f2f2;
   --add: #d6f5df;
   --del: #ffdcd9;
-  --add-strong: #63c785;
-  --del-strong: #e8867e;
+  --add-strong: #b3ffc9;
+  --del-strong: #fff3f3;
   --diff-modified: #d6e9ff;
-  --diff-modified-strong: #7fb2e8;
+  --diff-modified-strong: #f0f7ff;
   --diff-added: #d6f5df;
-  --diff-added-strong: #63c785;
+  --diff-added-strong: #b3ffc9;
   --diff-deleted: #ffdcd9;
-  --diff-deleted-strong: #e8867e;
+  --diff-deleted-strong: #fff3f3;
   --active: #0f4a85;
   --commit-accent: #6a0dad;
   --active-strong: #0a3560;
@@ -1183,50 +1183,19 @@ body {
 .patchset-reset:hover { border-color: var(--active); color: var(--text); }
 .patchset-reset.hidden { display: none; }
 
-.source-line-wrap-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-  padding: 3px 9px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--muted);
-  background: var(--panel);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.source-line-wrap-toggle.hidden { display: none; }
-.source-line-wrap-toggle:hover { border-color: var(--active); color: var(--text); }
-.source-line-wrap-toggle::before {
-  content: "";
-  box-sizing: border-box;
-  width: 13px;
-  height: 13px;
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  opacity: .78;
-}
+/* The line-wrap control is an icon button like every other control on this strip. It was the one pill of
+   labelled text among them, which made the toolbar read as two kinds of thing and cost the width of the
+   words "Line wrap" in a bar that ellipsises the file path. The label is not lost — it moves to the
+   tooltip and to aria-label, where the other icon buttons keep theirs.
+   The state is carried by colour, as with the pressed tool buttons: a toggle whose only cue was a tick
+   inside the pill has nothing to show once the pill is gone. */
 .source-line-wrap-toggle.is-checked {
   color: var(--active);
-  border-color: color-mix(in srgb, var(--active) 55%, transparent);
-  background: color-mix(in srgb, var(--active) 12%, transparent);
+  background: color-mix(in srgb, var(--active) 14%, transparent);
+  border-color: color-mix(in srgb, var(--active) 45%, transparent);
 }
-.source-line-wrap-toggle.is-checked::before {
-  content: "✓";
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-color: var(--active);
-  background: var(--active);
-  color: var(--bg);
-  font-size: 9px;
-  font-weight: 800;
-  opacity: 1;
-}
+.source-line-wrap-toggle.is-checked:hover { color: var(--active); }
+.source-line-wrap-toggle.hidden { display: none; }
 .d2h-file-wrapper.file-viewed {
   opacity: 0.68;
 }
@@ -1551,30 +1520,26 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-file-wrapper.df-inactive { display: none; }
 .d2h-del { background: var(--del); }
 .d2h-ins { background: var(--add); }
-/* The word-level mark is an UNDERLINE, not a fill. A fill was the one thing it could not be: it becomes
-   the ground underneath the very characters it is pointing at, and the syntax palette is tuned against
-   --panel, which a changed line never has. Swept across the twelve themes, a token on one of the strong
-   fills bottomed out at 2.07:1 — the changed word was the least readable text on the screen, and 98 of
-   120 token/ground pairs were under the AA floor on --diff-modified-strong alone.
-   Underlined, the glyphs keep the row's own fill, so their contrast is whatever it is on that fill and
-   nothing more is at stake. The mark itself is non-text, so it answers to 3:1, which it clears at
-   70% --text over the row's change hue: worst measured 3.40:1 (light Solarized, modified). Keeping 30%
-   of the hue is what lets a theme still tint its own marks; --text is what carries them over the bar.
-   A box was the first attempt and it caged the code: diff2html splits a wholly new line into eight or
-   more adjacent <ins> runs, so every token got its own rectangle. An underline is the one edge that
-   MERGES across adjacent runs — a rewritten line reads as one rule, a two-word edit as two words.
-   `--word-mark` is set per row below, so this stays one rule instead of one per change kind.
-   Two rules scoped to `.d2h-del .d2h-change` went with the fills, and they had never painted anything:
-   diff2html puts both classes on the SAME cell, so a descendant selector matches nothing. Checked against
-   the running app before deleting — 0 elements, against 28 real `ins`/`del` marks on the same screen. */
+/* The word-level mark is a fill again, the way a diff reads everywhere else: the row says the line
+   changed, a stronger patch of the row's own colour says which part of it.
+   What was wrong was never the fill, it was the colour. These are solved now, the same way the line fills
+   and the sidebar figures were: every syntax token clears WCAG AA on them in all twelve themes (they
+   bottomed out at 2.07:1 before, which made the changed word the least readable text on the screen).
+   The step is carried by SATURATION at a lightness the tokens survive — more of the row's own colour, as
+   GitHub's word highlight is the row's colour at a higher alpha. Worst colour difference from the row it
+   sits in is dE 6.7, most are 9-30; WCAG contrast is the wrong metric for two backgrounds, since it only
+   measures lightness, and judging the step by it is what made an earlier attempt conclude this was
+   impossible.
+   An underline was tried in between and is why this comment exists: it cleared the contrast bar, but on a
+   wholly rewritten line every token is a mark, so it drew a continuous rule under the whole line and read
+   as damage rather than emphasis. */
 .d2h-code-line-ctn ins, .d2h-code-line-ctn del {
   text-decoration: none;
   padding: 0 1px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
-  background: none;
-  border-radius: 0;
-  box-shadow: inset 0 -2px 0 0 color-mix(in srgb, var(--text) 70%, var(--word-mark, var(--border)));
+  border-radius: 2px;
+  background: var(--word-mark, var(--add-strong));
 }
 .d2h-del { --word-mark: var(--del-strong); }
 .d2h-ins { --word-mark: var(--add-strong); }
@@ -1632,12 +1597,15 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .mc-diff-connector-deleted { fill: color-mix(in srgb, var(--diff-deleted) 82%, transparent); }
 .mc-diff-blame-visible .mc-diff-connectors,
 .mc-diff-blame-loading .mc-diff-connectors { display: none; }
-/* The paired view's own change kinds, feeding the same single mark rule above. These are set on the row
-   while .d2h-ins/.d2h-del sit on the cell, so in the paired view the cell's kind is the one that wins —
-   which is the more specific statement about that cell anyway. */
-.d2h-diff-table tr.mc-diff-modified { --word-mark: var(--diff-modified-strong); }
-.d2h-diff-table tr.mc-diff-deleted { --word-mark: var(--diff-deleted-strong); }
-.d2h-diff-table tr.mc-diff-added { --word-mark: var(--diff-added-strong); }
+/* The paired view's own change kinds, feeding the same single mark rule above — and they have to beat the
+   cell-level .d2h-ins/.d2h-del, which is why they are written against the cell rather than the row.
+   Set on the row, the cell won, and a MODIFIED row (blue) got red and green word patches: the mark named
+   the cell's direction instead of the row's kind, so the emphasis disagreed with the thing it sat in.
+   The rules these replaced had the same ordering by accident — they came later in the file and were more
+   specific — and losing that is one of the things that made the new marks read as noise. */
+.d2h-diff-table tr.mc-diff-modified > td { --word-mark: var(--diff-modified-strong); }
+.d2h-diff-table tr.mc-diff-deleted > td { --word-mark: var(--diff-deleted-strong); }
+.d2h-diff-table tr.mc-diff-added > td { --word-mark: var(--diff-added-strong); }
 .d2h-diff-table tr.mc-diff-change > td { border-color: transparent; }
 .d2h-file-side-diff:first-child tr.mc-active-hunk > td.d2h-code-side-linenumber {
   color: var(--text);
@@ -2002,13 +1970,24 @@ h1 { margin: 0; font-size: 18px; }
 }
 .crumb-commit svg { flex: none; }
 .crumb-sha { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
-/* The subject gives up its width first: the file path is what the rest of the toolbar is about, and a title
-   that has pushed the filename off the end has stopped being context and become the content.
-   It also needs more room than the 5px the breadcrumb gives every gap: the sha and the subject are two
-   different things, and at 5px "b91ab3c" and "fix(turtle): …" read as one run-on token with no space in it. */
+/* The commit is its own component beside the breadcrumb, not the first crumb inside it: which commit you
+   are reading and where in it you are are two statements, and as one crumb trail they shared one ellipsis
+   budget — a long title ate the filename. Its own box with its own max-width ends that; the two can now be
+   cut independently, and the divider says they are different things. */
+.diff-commit-context {
+  display: inline-flex; align-items: center; min-width: 0; flex: 0 1 auto;
+  max-width: 38%;
+  margin-right: 9px; padding-right: 9px;
+  border-right: 1px solid var(--chrome-border, var(--border));
+}
+.diff-commit-context.hidden { display: none; }
+/* The subject still gives up its width first WITHIN the commit component — the sha names the commit, the
+   title only describes it — but it no longer takes the filename down with it.
+   It needs more room than the 5px the breadcrumb gives every gap: the sha and the subject are two different
+   things, and at 5px "b91ab3c" and "fix(turtle): …" read as one run-on token with no space in it. */
 .crumb-subject {
   margin-left: 6px; color: var(--muted); font-weight: 500;
-  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .crumb-count {
   flex: none; font-size: 10px; font-weight: 700; color: var(--commit-accent);

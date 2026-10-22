@@ -71,6 +71,13 @@ function isPartialAnalysisAnswer(response) {
 function showPartialAnalysisHint(name) {
   showCaretHint(t('monaco.analysisPartial').replace('{symbol}', String(name || '')));
 }
+// True while a language server is coming up and has not answered yet — so a better answer than the regex
+// index's is still on its way. Narrower than isPartialAnalysisAnswer on purpose: that one also counts
+// "there is no server at all", where the index IS the final answer and should behave like one.
+function analysisStillArriving() {
+  var phase = (document.getElementById('analysis-status') || { dataset: {} }).dataset.phase;
+  return phase === 'starting' || phase === 'indexing';
+}
 function showSemanticNavigationFailure(kind, name, response) {
   // `fallbackReason` is only set when the semantic answer could not be obtained, so this is "could not
   // ask", not "asked and there is nothing". Standalone HTML has no server at all and no reason either.
@@ -98,7 +105,20 @@ async function goToDefOrUsages(name, explicitLoc) {
     // know they are looking at the partial version, not conclude the project has only one definition of
     // this name. Said here, where they pressed the key, because the status chip is not where they looked.
     if (defs.length && isPartialAnalysisAnswer(response)) showPartialAnalysisHint(name);
-    if (defs.length > 1) {
+    // A guess must not MOVE the reviewer.
+    //
+    // While the server is still reading the project the regex index answers instead, and it matches on the
+    // NAME alone — no types, no receiver. In a project with several same-named declarations (every Kotlin
+    // codebase with more than one `greet`, `name`, `value`) that lands somewhere unrelated, and the
+    // reviewer has lost their place to a guess the server was about to answer properly a moment later.
+    // Reported from use: Cmd+Down in the diff view during the indexing window, "goes somewhere random".
+    //
+    // So during that window a single heuristic hit is OFFERED rather than taken — the peek list shows it,
+    // labelled partial by the hint above, and the same key jumps for real once the server is ready. With
+    // no server at all the index is the final word and still navigates, which is why this asks about the
+    // phase rather than reusing isPartialAnalysisAnswer.
+    var guessing = response.engine !== 'lsp' && analysisStillArriving();
+    if (defs.length > 1 || (defs.length === 1 && guessing)) {
       openSemanticPeek(name, defs, response, 'definition');
       return;
     }

@@ -453,7 +453,11 @@ export function renderDiffHtml(input: {
     '<main class="content">',
     '<section id="diff-view" class="hidden">',
     '<div class="toolbar diff-toolbar">',
-    '<div class="diff-toolbar-file"><span class="diff-file-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M3.5 1.75h5l4 4v8.5h-9z"/><path d="M8.5 1.75v4h4"/></svg></span><div class="breadcrumb" id="diff-breadcrumb"></div></div>',
+    '<div class="diff-toolbar-file">'
+      + '<div class="diff-commit-context hidden" id="diff-commit-context"></div>'
+      + '<span class="diff-file-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M3.5 1.75h5l4 4v8.5h-9z"/><path d="M8.5 1.75v4h4"/></svg></span>'
+      + '<div class="breadcrumb" id="diff-breadcrumb"></div>'
+      + '</div>',
     '<div class="diff-toolbar-meta">',
     `<div class="review-status">${renderReviewStatus({ compare: input.compare, app: input.app })}</div>`,
     // The compare dropdown the pill above opens (Electron only). Static markup, filled by 21-compare-menu.js
@@ -489,7 +493,7 @@ export function renderDiffHtml(input: {
         + '</div>'
         + '</div>'
       : '',
-    '<button type="button" id="diff-line-wrap-toggle" class="source-line-wrap-toggle diff-line-wrap-toggle" role="checkbox" aria-checked="false"' + keyHint('toggleLineWrap') + ' data-i18n="source.lineWrap" data-i18n-title="source.lineWrap.title" title="Toggle line wrap (Option+W)">Line wrap</button>',
+    '<button type="button" id="diff-line-wrap-toggle" class="diff-tool-button source-line-wrap-toggle diff-line-wrap-toggle" role="checkbox" aria-checked="false"' + keyHint('toggleLineWrap') + ' data-i18n-title="source.lineWrap.title" data-i18n-aria="source.lineWrap" title="Toggle line wrap (Option+W)" aria-label="Line wrap"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3.75h12"/><path d="M2 8h9a2.5 2.5 0 0 1 0 5H6"/><path d="m7.75 11.25-2 1.75 2 1.75"/></svg></button>',
     '</div>',
     '<div class="diff-review-controls" role="group" data-i18n-aria="diff.navigation" aria-label="Change navigation">',
     '<button type="button" id="diff-sidebar-toggle" class="diff-tool-button"' + keyHint('filesChangesTab:1') + ' data-tooltip="Hide changed files" aria-pressed="false" title="Hide changed files (⌘0)" aria-label="Hide changed files"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.25"/><path d="M5.25 2.5v11"/></svg></button>',
@@ -535,7 +539,12 @@ export function renderDiffHtml(input: {
     '<section id="source-viewer" class="source-viewer">',
     '<div id="source-tabs" class="source-tabs hidden" role="tablist"></div>',
     '<div class="toolbar source-toolbar">',
-    '<div class="source-file-meta"><span id="source-type-icon" class="source-type-icon" aria-hidden="true"></span><span id="source-title" data-i18n="source.title">Source</span><span id="source-meta" data-i18n="source.selectFile">Select a file from the Files tab.</span></div>',
+    '<div class="source-file-meta">'
+      + '<div class="diff-commit-context hidden" id="source-commit-context"></div>'
+      + '<span id="source-type-icon" class="source-type-icon" aria-hidden="true"></span>'
+      + '<span id="source-title" data-i18n="source.title">Source</span>'
+      + '<span id="source-meta" data-i18n="source.selectFile">Select a file from the Files tab.</span>'
+      + '</div>',
     '<select id="http-env-select" class="http-env-select hidden" data-i18n-title="http.env.title" data-i18n-aria="http.env.aria" title="HTTP Client environment" aria-label="HTTP environment"></select>',
     // No aria-pressed. This button's NAME changes to the mode you would switch to, which is the right
     // thing to show a reader — but aria-pressed describes the control's own state, so the two said
@@ -544,7 +553,7 @@ export function renderDiffHtml(input: {
     // The title comes from the table too: it was hardcoded English with the chord hand-spelled inside it,
     // next to a keyHint() that already emits the real one.
     '<button type="button" id="render-toggle" class="plain-button hidden"' + keyHint('toggleRendered') + ' data-i18n-title="btn.renderToggle" title="Rendered / raw Markdown or CSV">Raw</button>',
-    '<button type="button" id="line-wrap-toggle" class="source-line-wrap-toggle hidden" role="checkbox" aria-checked="false"' + keyHint('toggleLineWrap') + ' data-i18n="source.lineWrap" data-i18n-title="source.lineWrap.title" title="Toggle line wrap (Option+W)">Line wrap</button>',
+    '<button type="button" id="line-wrap-toggle" class="diff-tool-button source-line-wrap-toggle hidden" role="checkbox" aria-checked="false"' + keyHint('toggleLineWrap') + ' data-i18n-title="source.lineWrap.title" data-i18n-aria="source.lineWrap" title="Toggle line wrap (Option+W)" aria-label="Line wrap"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3.75h12"/><path d="M2 8h9a2.5 2.5 0 0 1 0 5H6"/><path d="m7.75 11.25-2 1.75 2 1.75"/></svg></button>',
     '<button type="button" id="back-to-diff" class="plain-button"' + keyHint('nextChange') + ' data-i18n="btn.diff" data-i18n-title="btn.diff.title" title="Back to diff (F7)">Diff</button>',
     "</div>",
     '<div id="source-body" class="source-body empty" data-i18n="source.selectFile">Select a file from the Files tab.</div>',

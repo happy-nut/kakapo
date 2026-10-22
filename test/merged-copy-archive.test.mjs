@@ -245,3 +245,72 @@ test("an arriving comment does not move the reviewer's place", async () => {
     v.close();
   }
 });
+
+// Cmd+C in this panel copies AND files, at whatever size the copy was. It used to copy and leave the
+// review alone, which meant a comment handed to an agent came back in the next hand-off and the reviewer
+// had to remember which ones they had already sent. The panel's whole job is moving review OUT of kakapo.
+//
+// Two scopes, because they end differently: one card leaves the rest on screen, the whole panel empties it.
+// v.key dispatches on `document`, and this panel's handler reads event.target to find which card the key
+// was pressed on — so a document-level dispatch is a key pressed on no card at all.
+function pressOn(v, element, key, mods = {}) {
+  element.dispatchEvent(new v.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...mods }));
+}
+
+async function twoComments() {
+  const v = await withComment("first question");
+  // Written the way everything that writes a comment writes one — the same path the test above uses.
+  v.window.addComment("?", FILE, 1, "export const a = 2;", "second question", 1, 1, "new");
+  v.window.saveComments();
+  v.window.refreshComments();
+  await v.settle(60);
+  return v;
+}
+
+test("Cmd+C on one card hands over that card and leaves the rest of the review", async () => {
+  const v = await twoComments();
+  try {
+    const clipboard = installClipboard(v);
+    await v.openMergedView();
+    const cards = v.$all("#mc-merged-panel .mc-merged-card");
+    assert.equal(cards.length, 2, "both comments are in the panel");
+
+    cards[0].focus();
+    pressOn(v, cards[0], "c", { metaKey: true });
+    await v.settle(80);
+
+    assert.match(clipboard.text, /first question/, "the card that was copied reached the clipboard");
+    assert.doesNotMatch(clipboard.text, /second question/, "and only that card");
+    assert.equal(v.window.reviewComments.length, 1, "the copied comment left the active review");
+    assert.equal(v.window.reviewComments[0].text, "second question", "the one that was not copied stayed");
+    assert.equal(v.window.archivedComments.length, 1, "kept, not deleted");
+    assert.ok(v.$("#mc-merged-panel"), "the panel stays open — there is still a review to work through");
+    assert.equal(v.$all("#mc-merged-panel .mc-merged-card").length, 1, "rebuilt without the card that left");
+  } finally {
+    v.close();
+  }
+});
+
+test("Cmd+A then Cmd+C hands over the whole panel and empties it", async () => {
+  const v = await twoComments();
+  try {
+    const clipboard = installClipboard(v);
+    await v.openMergedView();
+    const first = v.$("#mc-merged-panel .mc-merged-card");
+    first.focus();
+    pressOn(v, first, "a", { metaKey: true });
+    await v.settle(20);
+    assert.ok(v.$(".mc-merged-select-all"), "select-all is what Cmd+A puts the panel into");
+
+    pressOn(v, first, "c", { metaKey: true });
+    await v.settle(80);
+
+    assert.match(clipboard.text, /first question/);
+    assert.match(clipboard.text, /second question/, "the whole panel reached the clipboard");
+    assert.equal(v.window.reviewComments.length, 0, "and the whole panel left the active review");
+    assert.equal(v.window.archivedComments.length, 2, "kept, not deleted");
+    assert.equal(v.$("#mc-merged-panel"), null, "the panel closes — there is nothing left in it");
+  } finally {
+    v.close();
+  }
+});
