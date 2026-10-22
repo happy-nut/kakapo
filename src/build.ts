@@ -107,7 +107,8 @@ export function buildDiffReview(input: {
     changedPathsOnly: deferFullIndex,
   });
   const fileStates = collectReviewFileStates(files, sourceFiles);
-  const httpEnvironments = collectHttpEnvironments(root);
+  const httpEnvironments = collectHttpEnvironments(root,
+    sourceFiles.filter((file) => /\.http$/i.test(file.path)).map((file) => file.path));
   const hunks = files.reduce((sum, file) => sum + file.hunks.length, 0);
   const generatedAt = new Date().toISOString();
   // Current branch for the sidebar chip (empty on a detached HEAD); refreshed in the watch payload too.
