@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import {
   AnalysisLocation,
   LspClient,
@@ -108,6 +108,17 @@ function uniqueLocations<T extends AnalysisLocation>(items: T[], limit = MAX_LOC
 // (family/name/source -> family/server/serverSource) so a shape change touches one place, not five setStatus calls.
 function serverFields(server: LanguageServerCommand): { family: string; server: string; serverSource: LanguageServerCommand["source"] } {
   return { family: server.family, server: server.name, serverSource: server.source };
+}
+
+// Where a location's file actually is. A definition OUTSIDE the review root carries an absolute path —
+// a stdlib header, a gem, a crate in ~/.cargo, site-packages, GOROOT — and join(root, "/usr/include/x.h")
+// silently produces "<root>/usr/include/x.h", a path that exists nowhere. Every read of a library location
+// failed that way, which left it with no text, which got it dropped by the text filter in
+// navigationLocations. The server had answered with a real file on disk and the reviewer was told the
+// definition could not be found. Every language with dependencies outside the project was affected; the
+// JVM `jrt:`/`jar:` case was the same failure reached by a different route.
+function locationFilePath(root: string, path: string): string {
+  return isAbsolute(path) ? path : join(root, path);
 }
 
 export class ProjectAnalysis {
@@ -311,7 +322,7 @@ export class ProjectAnalysis {
     const col = Math.max(0, Number(column) || 0);
     if (explicit) return { symbol: explicit, lineIndex, column: col };
     let content = "";
-    try { content = await readFile(join(this.root, path), "utf8"); } catch { /* fall through to index */ }
+    try { content = await readFile(locationFilePath(this.root, path), "utf8"); } catch { /* fall through to index */ }
     const lines = content.split(/\r?\n/);
     const direct = identifierSpanAt(lines[lineIndex] ?? "", col);
     if (direct) return { symbol: direct.name, lineIndex, column: direct.start };
@@ -699,7 +710,7 @@ export class ProjectAnalysis {
     await Promise.all(Array.from(new Set(unique.map((item) => item.path))).map(async (path) => {
       if (documentPath(path)) return; // non-code doc target — filtered out below without a read
       try {
-        const content = await readFile(join(this.root, path), "utf8");
+        const content = await readFile(locationFilePath(this.root, path), "utf8");
         rawByPath.set(path, content.split(/\r?\n/));
         maskedByPath.set(path, maskNonCode(content, path));
       } catch { /* unreadable — fall back to per-line masking of item.text below */ }
@@ -722,7 +733,7 @@ export class ProjectAnalysis {
   private async withText(locations: AnalysisLocation[]): Promise<AnalysisLocation[]> {
     const byPath = new Map<string, string[]>();
     await Promise.all(Array.from(new Set(locations.map((item) => item.path))).map(async (path) => {
-      try { byPath.set(path, (await readFile(join(this.root, path), "utf8")).split(/\r?\n/)); } catch { byPath.set(path, []); }
+      try { byPath.set(path, (await readFile(locationFilePath(this.root, path), "utf8")).split(/\r?\n/)); } catch { byPath.set(path, []); }
     }));
     return locations.map((item) => ({ ...item, text: item.text ?? byPath.get(item.path)?.[item.lineIndex] ?? "" }));
   }

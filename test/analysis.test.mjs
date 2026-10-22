@@ -787,3 +787,56 @@ test("an external location is named by what it is, not by where the archive sits
   );
   assert.equal(externalLocationLabel("jdt://contents/rt.jar/java.lang/String.class"), "contents/rt.jar/java.lang/String.class");
 });
+
+// A definition OUTSIDE the review root carries an absolute path — a stdlib header, a gem, a crate in
+// ~/.cargo, site-packages, GOROOT, a type stub. join(root, "/usr/include/x.h") silently produces
+// "<root>/usr/include/x.h", a path that exists nowhere, so every read of a library location failed, which
+// left it with no text, which got it dropped by the "does this line have visible characters" filter. The
+// server had answered with a real file on disk and the reviewer was told the definition was not found.
+//
+// Every language with dependencies outside the project was affected. Measured with the real bundled
+// pyright, same file, same query: `Path` and `dataclass` returned `engine=index []` before and resolve
+// into pathlib and dataclasses after; gopls reached GOROOT the same way. The JVM `jrt:`/`jar:` case was
+// this same failure reached by a different route.
+test("a definition in a file outside the review root is an answer, not a dead end", async () => {
+  const root = tempProject();
+  const files = [{ path: "src/app.ts", content: "export const value = target();\n" }];
+  for (const file of files) write(root, file.path, file.content);
+
+  // A real file on disk, deliberately outside the root — that is the whole point of the test.
+  const outside = mkdtempSync(join(tmpdir(), "kakapo-outside-"));
+  const libFile = join(outside, "stdlib.d.ts");
+  writeFileSync(libFile, "export declare function target(): number;\n");
+
+  const fake = join(root, "lib-lsp.mjs");
+  writeFileSync(fake, `
+let buffer = Buffer.alloc(0);
+function send(v){const b=Buffer.from(JSON.stringify(v));process.stdout.write('Content-Length: '+b.length+'\\r\\n\\r\\n');process.stdout.write(b);}
+process.stdin.on('data', (chunk) => { buffer = Buffer.concat([buffer, chunk]);
+  while (true) { const end = buffer.indexOf('\\r\\n\\r\\n'); if (end < 0) return;
+    const h = buffer.subarray(0,end).toString(); const len = Number(/Content-Length:\\s*(\\d+)/i.exec(h)?.[1]);
+    if (buffer.length < end+4+len) return;
+    const m = JSON.parse(buffer.subarray(end+4, end+4+len)); buffer = buffer.subarray(end+4+len);
+    if (typeof m.id !== 'number') continue;
+    if (m.method === 'initialize') { send({jsonrpc:'2.0',id:m.id,result:{capabilities:{}}}); continue; }
+    send({ jsonrpc:'2.0', id:m.id, result: [{ uri: ${JSON.stringify(pathToFileURL(libFile).href)},
+      range:{ start:{line:0,character:24}, end:{line:0,character:30} } }] });
+  }});
+`);
+  const analysis = new ProjectAnalysis(root, {
+    files,
+    resolveServer: () => ({ family: "other", name: "lib-lsp", command: process.execPath, args: [fake] }),
+  });
+  try {
+    const definition = await analysis.query({ kind: "definition", path: "src/app.ts", line: 0, column: 23, symbol: "target" });
+    assert.equal(definition.engine, "lsp", "the server's answer was kept, not discarded for the index's");
+    assert.equal(definition.locations.length, 1, "the library location survived the text filter");
+    const [found] = definition.locations;
+    assert.equal(found.library, true, "and is marked as living outside the review");
+    assert.ok(isAbsolute(found.path), "it keeps the absolute path it actually has");
+    assert.match(found.text ?? "", /declare function target/, "its line was read from where the file really is");
+  } finally {
+    analysis.dispose();
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
