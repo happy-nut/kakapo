@@ -596,7 +596,7 @@ function applyDiffUpdate(u) {
   // Branch can change between watch ticks (checkout/commit) — keep the sidebar chip current.
   var branchName = document.getElementById('brand-branch-name');
   if (branchName) {
-    branchName.textContent = u.branch || '';
+    applyBranchChip(branchName, u.branch || '');
     var branchChip = branchName.closest && branchName.closest('.brand-branch');
     if (branchChip) branchChip.classList.toggle('hidden', !u.branch);
   }

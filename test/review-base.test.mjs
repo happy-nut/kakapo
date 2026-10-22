@@ -97,5 +97,10 @@ test("sidebar project name resolves from the main repository, not a linked workt
   const build = review(worktreeDir);
   assert.match(build.html, new RegExp(`class="brand-project">${mainName}<`), "the bold project name names the main repository directory");
   assert.doesNotMatch(build.html, new RegExp(`class="brand-project">${branchName}<`), "the worktree's own branch-named directory is not shown as the project name");
-  assert.match(build.html, new RegExp(`id="brand-branch-name">${branchName}<`), "the branch chip still names the actual branch");
+  // Asked of the element's CONTENT, not of what sits between the id and the ">": this pinned the attribute
+  // order, so adding the title that makes a truncated branch readable broke it without anything changing
+  // about the claim.
+  assert.match(build.html, new RegExp(`id="brand-branch-name"[^>]*>${branchName}<`), "the branch chip still names the actual branch");
+  assert.match(build.html, new RegExp(`id="brand-branch-name"[^>]*title="${branchName}"`),
+    "and carries the whole name as its tooltip, which is the only place a cut-off branch can still be read");
 });

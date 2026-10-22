@@ -92,3 +92,29 @@ function externalLocationLabel(uri) {
   var archive = text.slice(0, bang).split('/').pop() || '';
   return /\.(jar|zip)$/i.test(archive) ? archive + ' / ' + inner : inner;
 }
+
+// The branch chip, split so the end of the name survives the squeeze.
+//
+// The sidebar band holds the project name, this chip and the files/changes switch in 300px, so a real
+// branch name is always cut. Cut at the END — which is what one ellipsised span does — it loses exactly
+// the part that distinguishes the branch: "feature/KAKAPO-4821-rewo…" could be any of a dozen branches.
+//
+// Same shape as the file tree's leaf names: a head that gives up its width first and a tail that is
+// protected. The split is the last "/", so the prefix everyone shares ("feature/", "fix/") is what
+// disappears and the segment that names the work is what stays. The full name is on the title either way.
+function applyBranchChip(element, branch) {
+  if (!element) return;
+  var name = String(branch || '');
+  element.title = name;
+  var cut = name.lastIndexOf('/');
+  if (cut < 0 || cut === name.length - 1) { element.textContent = name; return; }
+  element.textContent = '';
+  var head = document.createElement('span');
+  head.className = 'branch-head';
+  head.textContent = name.slice(0, cut + 1);
+  var tail = document.createElement('span');
+  tail.className = 'branch-tail';
+  tail.textContent = name.slice(cut + 1);
+  element.appendChild(head);
+  element.appendChild(tail);
+}
