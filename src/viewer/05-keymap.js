@@ -629,6 +629,12 @@ document.getElementById('source-body')?.addEventListener('click', function (even
 })();
 
 applyI18n(); // first paint already shows English (inline); this swaps to the saved locale before the rest of init renders dynamic text
+// The server emits the branch as one run of text, which is the right fallback and the wrong shape once
+// it has to be cut. Split it into head/tail here, once, on the name the document arrived with.
+(function () {
+  var chip = document.getElementById('brand-branch-name');
+  if (chip) applyBranchChip(chip, chip.textContent || '');
+}());
 populateHttpEnvSelect();
 // A named file beats the restored tabs: the reader just asked for it on the command line, and that is a
 // more recent statement of intent than wherever they were when they last closed this repo.

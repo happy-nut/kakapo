@@ -726,8 +726,13 @@ body {
   border-bottom: 1px solid var(--border);
   min-width: 0;
 }
+/* The project name does not give up space to the branch beside it. Both were `0 1 auto`, so flexbox shrank
+   them together and a long branch reduced a four-letter project to "d…" — the window's own identity, gone
+   to make room for something that was being truncated anyway. It caps instead: short names are never cut,
+   and only a genuinely long one yields, at which point both are ellipsised rather than just this one. */
 .sidebar-brand .brand-project {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
+  max-width: 45%;
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
@@ -797,7 +802,11 @@ body {
 /* Current branch chip under the project name in the sidebar header. */
 .brand-branch { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 5px; margin-top: 0; min-width: 0; font-size: 12px; }
 .brand-branch-icon { flex: none; opacity: 0.8; }
-.brand-branch-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.brand-branch-name { display: flex; min-width: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* The shared prefix goes first and goes quietly; the segment that names the work keeps its width.
+   Mirrors .path-head/.path-tail in the file tree, for the same reason and with the same cap. */
+.brand-branch-name .branch-head { overflow: hidden; text-overflow: ellipsis; min-width: 0; opacity: 0.72; }
+.brand-branch-name .branch-tail { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .tab, .plain-button {
   border: 1px solid var(--border);
   padding: 5px 9px;
