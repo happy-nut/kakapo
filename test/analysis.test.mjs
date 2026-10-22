@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ProjectAnalysis, buildRegexSymbolIndex } from "../dist/analysis.js";
-import { LspClient, mapLspDiagnostics, normalizeLocationResult, resolveLanguageServer } from "../dist/lsp.js";
+import { LspClient, externalLocationLabel, mapLspDiagnostics, normalizeLocationResult, resolveLanguageServer } from "../dist/lsp.js";
 
 const dirs = [];
 function tempProject() {
@@ -724,4 +724,66 @@ process.stdin.on('data', (chunk) => {
   } finally {
     analysis.dispose();
   }
+});
+
+// A JVM language server answers for anything outside the project with a URI that is not a file: a class
+// inside the JDK image (`jrt:`) or inside a dependency archive (`jar:`). That was read as a PATH — and
+// resolve() treats "jrt:/…/Instant.class" as relative, so it became "<cwd>/jrt:/…/Instant.class", a path
+// that exists nowhere. The empty read that followed left the location with no text, and the
+// "does this line have visible characters" filter dropped it. So Kotlin and Java reported "definition not
+// found" for every stdlib and dependency symbol, while the server had answered correctly every time.
+//
+// Measured against the real bundled Kotlin server before the fix: raw answer
+// `jrt:/…/jbr/Contents/Home!/java.base/java/time/Instant.class`, result after filtering `[]`.
+test("a definition inside a JDK image or a dependency jar survives as an answer", async () => {
+  const root = tempProject();
+  const files = [{ path: "src/app.ts", content: "export const value = target();\n" }];
+  for (const file of files) write(root, file.path, file.content);
+  const external = join(root, "external-lsp.mjs");
+  writeFileSync(external, `
+let buffer = Buffer.alloc(0);
+function send(v){const b=Buffer.from(JSON.stringify(v));process.stdout.write('Content-Length: '+b.length+'\\r\\n\\r\\n');process.stdout.write(b);}
+process.stdin.on('data', (chunk) => { buffer = Buffer.concat([buffer, chunk]);
+  while (true) { const end = buffer.indexOf('\\r\\n\\r\\n'); if (end < 0) return;
+    const header = buffer.subarray(0,end).toString();
+    const length = Number(/Content-Length:\\s*(\\d+)/i.exec(header)?.[1]);
+    if (buffer.length < end+4+length) return;
+    const msg = JSON.parse(buffer.subarray(end+4, end+4+length)); buffer = buffer.subarray(end+4+length);
+    if (typeof msg.id !== 'number') continue;
+    if (msg.method === 'initialize') { send({jsonrpc:'2.0',id:msg.id,result:{capabilities:{}}}); continue; }
+    send({ jsonrpc: '2.0', id: msg.id, result: [{
+      uri: 'jrt:/opt/jbr/Contents/Home!/java.base/java/time/Instant.class',
+      range: { start: { line: 7, character: 13 }, end: { line: 7, character: 20 } },
+    }] });
+  }});
+`);
+  const analysis = new ProjectAnalysis(root, {
+    files,
+    resolveServer: () => ({ family: "other", name: "external-lsp", command: process.execPath, args: [external] }),
+  });
+  try {
+    const definition = await analysis.query({ kind: "definition", path: "src/app.ts", line: 0, column: 23, symbol: "target" });
+    assert.equal(definition.engine, "lsp", "the server's answer is kept, not thrown away for the index's");
+    assert.equal(definition.locations.length, 1, "the location survived the text filter it cannot satisfy");
+    const [found] = definition.locations;
+    assert.equal(found.external, true, "and is marked as having no source on disk");
+    assert.equal(found.path, "jrt:/opt/jbr/Contents/Home!/java.base/java/time/Instant.class",
+      "the URI is kept verbatim rather than resolved against the working directory");
+    assert.doesNotMatch(found.path, /^\//, "it is not pretending to be an absolute path");
+    assert.equal(found.lineIndex, 7);
+  } finally {
+    analysis.dispose();
+  }
+});
+
+test("an external location is named by what it is, not by where the archive sits on this machine", () => {
+  assert.equal(
+    externalLocationLabel("jrt:/Users/someone/jbr/Contents/Home!/java.base/java/time/Instant.class"),
+    "java.base/java/time/Instant.class",
+  );
+  assert.equal(
+    externalLocationLabel("jar:file:/Users/someone/.m2/repository/com/google/guava-33.0.jar!/com/google/common/base/Joiner.class"),
+    "guava-33.0.jar / com/google/common/base/Joiner.class",
+  );
+  assert.equal(externalLocationLabel("jdt://contents/rt.jar/java.lang/String.class"), "contents/rt.jar/java.lang/String.class");
 });

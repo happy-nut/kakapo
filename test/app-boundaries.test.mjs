@@ -210,3 +210,24 @@ test("the leaf-name split is the same on the server and in the viewer", () => {
     assert.match(source, /slice\(dot\)/, `${name} puts the extension in the tail`);
   }
 });
+
+// A JVM server answers for anything outside the project with a `jrt:`/`jar:` URI, and both sides have to
+// name it the same way: the main process so a location carries a sensible label, the viewer so the caret
+// hint can say where the definition is without asking. Written twice, for the same reason the leaf-name
+// split is — so guarded the same way. What must agree is where the name is cut, not the spelling.
+test("the external-location label is the same in the main process and in the viewer", () => {
+  const read = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+  const body = (source, name) => {
+    const found = /function externalLocationLabel\([^)]*\)[^{]*\{([\s\S]*?)\n\}/.exec(source);
+    assert.ok(found, `${name} still labels an external location`);
+    return found[1].replace(/\s+/g, " ").trim();
+  };
+  const main = body(read("lsp.ts"), "lsp.ts");
+  const viewer = body(read("viewer/00-util.js"), "00-util.js");
+  for (const [side, source] of [["main", main], ["viewer", viewer]]) {
+    assert.match(source, /indexOf\((['"])!\/\1\)/, `${side} cuts at the archive separator`);
+    assert.match(source, /slice\(bang \+ 2\)/, `${side} keeps what is inside the archive`);
+    assert.match(source, /\\\.\(jar\|zip\)\$/i, `${side} recognises an archive by the same extensions`);
+    assert.match(source, /\^\[a-z\]\+:/i, `${side} strips the scheme when there is no archive separator`);
+  }
+});
