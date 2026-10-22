@@ -239,6 +239,9 @@ function annotateDiffHunkRows(wrapper) {
   } : null;
   decorateDiffContextFolds(wrapper, oldRows, newRows);
   decorateDiffImportFold(wrapper, oldRows, newRows);
+  // A .http file in the diff gets its run buttons here, so lazy materialization and context expansion
+  // reach it on the same path everything else does.
+  decorateDiffHttpRuns(wrapper);
   refreshLayeredDiffGutters(wrapper);
   scheduleAsymmetricDiffScroll();
 }

@@ -1018,6 +1018,15 @@ function prepareDiff2HtmlHunks() {
 }
 
 document.addEventListener('click', function (event) {
+  // A run button in the diff's gutter. Checked first because it sits inside a line-number cell, which the
+  // caret also listens to — without this the click would place the caret instead of sending the request.
+  var runButton = event.target && event.target.closest ? event.target.closest('.http-run-diff') : null;
+  if (runButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    runDiffHttpRequest(runButton);
+    return;
+  }
   var importButton = event.target && event.target.closest ? event.target.closest('[data-import-expand]') : null;
   if (importButton) {
     event.preventDefault();

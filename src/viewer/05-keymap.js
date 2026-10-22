@@ -224,7 +224,13 @@ var SHORTCUT_ACTIONS = {
     // A focused tree owns Enter and ⌥Enter outright (handleTreeKey: open the row / row actions). That used
     // to be settled by sitting below the tree in the chain; it is said here now, because the order a table
     // walks in is not something a reader of this entry can see.
-    if (treeFocusIndex >= 0 || !isSourceViewerVisible()) return false;
+    if (treeFocusIndex >= 0) return false;
+    // The diff shows .http files too, and the request on the new side is the one the file now says to
+    // send. This used to be gated on the source view being up, so the key did nothing there.
+    if (!isSourceViewerVisible()) {
+      if (isDiffViewVisible() && runDiffHttpAtCaret()) return;
+      return false;
+    }
     var enterPath = document.getElementById('source-viewer').dataset.openPath || '';
     if (isHttpFile(enterPath)) { runHttpAtCaret(); return; }
     // ⌥Enter on a diagnostic line drafts a "fix this" change-request comment for the agent.
