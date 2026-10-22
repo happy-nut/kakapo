@@ -38,6 +38,11 @@ body { display: block; }
       </div>
     </td></tr></tbody></table>
   </div></div>
+  <!-- The overlays the app appends after both panes, in the app's own order. The run layer is a DIV, and a
+       div here is what broke the working-tree pane's sticky comment rules: they were written against
+       :last-of-type, which this element then answered to instead of the pane. Keep it, or the comment
+       measurements below go back to passing on a structure the app never renders. -->
+  <div class="mc-http-runs" aria-hidden="true"></div>
   <svg class="mc-diff-connectors" aria-hidden="true"></svg>
 </div>
 <div id="fold-surface" class="d2h-files-diff">

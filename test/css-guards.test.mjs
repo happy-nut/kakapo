@@ -373,7 +373,7 @@ test("diff hunk connectors bridge both center line-number gutters without steali
 });
 
 test("diff comment composers stay pinned inside the working-tree viewport", () => {
-  const card = ruleBodyForExactSelector(".mc-layered-diff-side:last-of-type .mc-comment-row .mc-card");
+  const card = ruleBodyForExactSelector(".mc-layered-diff-side + .mc-layered-diff-side .mc-comment-row .mc-card");
   assert.match(card || "", /position:\s*sticky/, "diff comments are viewport UI, not horizontally scrolling source text");
   assert.match(card || "", /left:\s*62px/, "the comment begins ten pixels after the single visible working-tree gutter");
   assert.match(card || "", /max-width:\s*calc\(100cqw\s*-\s*74px\)/, "the composer and its actions cannot be clipped at the pane's right edge");
@@ -504,3 +504,4 @@ test("every custom property a rule reads is one this stylesheet declares", () =>
   const undeclared = [...new Set(read.filter((name) => !declared.has(name) && !setInMarkup.has(name)))];
   assert.deepEqual(undeclared, [], "a var() with no fallback must name a token that exists");
 });
+
