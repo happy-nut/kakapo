@@ -64,7 +64,7 @@
     "@types/node": "^22.15.21",
     "dompurify": "3.4.13",
     "jsdom": "^29.1.1",
-    "markdown-it": "14.3.0",
+    "markdown-it": "14.3.3",
     "mermaid": "^11.16.1",
     "terser": "^5.48.0"
   },
