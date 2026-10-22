@@ -155,3 +155,70 @@ test("the change magnitude is readable in every theme, wherever it is shown", ()
   assert.ok(checked >= 60, `the sweep covered the shipped themes on both grounds (checked ${checked})`);
   assert.deepEqual(failures, [], `chrome text below ${AA_NORMAL_TEXT}:1 on its own ground`);
 });
+
+// The word fill and the line fill are one colour at two strengths, the way GitHub's are — not two
+// colours. An earlier attempt gave the step to SATURATION alone, at a near-identical lightness, and that
+// reads as a different colour rather than as more of the same one.
+//
+// Stated as a ramp, because that is the claim: from the panel, to the line's tint, to the word's. Each
+// step moves further from the panel in the same direction, so the page reads as one background getting
+// stronger rather than as unrelated patches.
+test("a changed word is the row's own colour, one step stronger", () => {
+  const blocks = customPropertyBlocks();
+  const base = blocks.find((b) => b.selector === ":root");
+  const light = blocks.find((b) => b.selector === ':root[data-theme="light"]') ?? { vars: {} };
+  const themes = blocks.filter((b) =>
+    b.selector === ":root" || b.selector === ':root[data-theme="light"]' || b.selector.includes("data-syntax-theme"));
+  const PAIRS = [
+    ["--add", "--add-strong"], ["--del", "--del-strong"],
+    ["--diff-modified", "--diff-modified-strong"],
+    ["--diff-added", "--diff-added-strong"],
+    ["--diff-deleted", "--diff-deleted-strong"],
+  ];
+  const hueOf = ({ r, g, b }) => {
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), span = max - min;
+    if (!span) return null; // grey has no hue to compare — Darcula's deletion tint is deliberately one
+    const h = max === r ? ((g - b) / span + (g < b ? 6 : 0)) : max === g ? ((b - r) / span + 2) : ((r - g) / span + 4);
+    return (h * 60 + 360) % 360;
+  };
+  const saturation = ({ r, g, b }) => {
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    return max === 0 ? 0 : (max - min) / max;
+  };
+
+  let checked = 0;
+  const failures = [];
+  for (const theme of themes) {
+    const isLight = theme.selector.includes('data-theme="light"');
+    const vars = { ...base.vars, ...(isLight ? light.vars : {}), ...theme.vars };
+    const panel = resolve(vars, "--panel");
+    if (!panel) continue;
+    for (const [lineName, wordName] of PAIRS) {
+      const line = resolve(vars, lineName);
+      const word = resolve(vars, wordName);
+      if (!line || !word) continue;
+      checked += 1;
+      const where = `${theme.selector} ${lineName}/${wordName}`;
+
+      // One colour, two strengths: the hues agree wherever there is a hue to compare.
+      const lineHue = hueOf(line), wordHue = hueOf(word);
+      if (lineHue !== null && wordHue !== null && saturation(line) > 0.08 && saturation(word) > 0.08) {
+        const apart = Math.min(Math.abs(lineHue - wordHue), 360 - Math.abs(lineHue - wordHue));
+        if (apart > 14) failures.push(`${where}: hues ${apart.toFixed(0)}° apart — that is two colours, not two strengths`);
+      }
+
+      // And a real step, in the same direction as the one the row already took from the panel.
+      const away = (a, b) => relativeLuminance(a) - relativeLuminance(b);
+      const rowStep = away(line, panel);
+      const wordStep = away(word, line);
+      if (Math.sign(wordStep) !== Math.sign(rowStep)) {
+        failures.push(`${where}: the word fill turns back toward the panel instead of going further from it`);
+      }
+      if (Math.abs(wordStep) < Math.abs(rowStep) * 0.25) {
+        failures.push(`${where}: the word fill is only ${(Math.abs(wordStep) / Math.abs(rowStep) * 100).toFixed(0)}% of the row's own step — no visible second level`);
+      }
+    }
+  }
+  assert.ok(checked >= 50, `every change kind in every theme was checked (checked ${checked})`);
+  assert.deepEqual(failures, [], "word fills that are not the row's colour one step stronger");
+});

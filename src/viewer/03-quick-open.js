@@ -745,9 +745,11 @@ function openQuickItem(item) {
   }
   const link = links.find((candidate) => candidate.dataset.file === item.path);
   if (!link) return;
-  const target = Number(link.dataset.hunk);
-  if (!Number.isNaN(target) && target >= 0 && target < hunkTotal()) {
+  const target = diffHunkForLink(link);
+  if (target >= 0) {
     setActive(target);
+  } else if (activateDiffFile(item.path, true)) {
+    // Was a scroll to the file's anchor, which left the sidebar and breadcrumb pointing elsewhere.
   } else {
     showDiffView(false);
     const targetId = link.getAttribute('href')?.slice(1);

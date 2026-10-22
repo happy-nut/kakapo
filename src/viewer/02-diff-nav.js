@@ -306,6 +306,39 @@ function setActive(index, shouldScroll = true, allowViewed = false) {
     applySetActive(current, setActiveScrollPending);
   });
 }
+// The hunk a sidebar row really owns, or -1.
+//
+// Every row carries data-hunk = the index of its FIRST hunk, which for a file with no hunks of its own
+// (an empty file added, a pure rename, a mode change) is simply the next file's first index — or one past
+// the end when it is last. So the number alone is not enough: it has to belong to this file. Clicking
+// "empty-added.txt" opened pic.png, and clicking a trailing rename did nothing, because setActive wraps an
+// out-of-range index with a modulo and lands back on hunk 0.
+function diffHunkForLink(link) {
+  if (!link) return -1;
+  const index = Number(link.dataset.hunk);
+  if (!Number.isFinite(index) || index < 0 || index >= hunkTotal()) return -1;
+  return hunkPathAt(index) === link.dataset.file ? index : -1;
+}
+// Open a file that has no hunk to aim at. The same work applySetActive does, minus everything that needs a
+// hunk: there is no change block to highlight and no changed row to put the caret on.
+function activateDiffFile(path, shouldScroll) {
+  if (!path) return false;
+  const wrapper = diffWrapperByPath(path);
+  if (!wrapper) return false;
+  document.getElementById('source-viewer')?.classList.add('hidden');
+  document.getElementById('diff-view')?.classList.remove('hidden');
+  setTab('changes');
+  links.forEach((link) => link.classList.toggle('active', link.dataset.file === path));
+  renderCommitContext(document.getElementById('diff-commit-context'));
+  renderBreadcrumb(document.getElementById('diff-breadcrumb'), path);
+  syncDiffReviewChrome(path);
+  rememberRecent(path, 'change');
+  whenFileReady(wrapper, function () {
+    showOnlyFile(path, true);
+    if (shouldScroll !== false) wrapper.scrollIntoView({ block: 'start' });
+  });
+  return true;
+}
 function applySetActive(idx, shouldScroll) {
   document.getElementById('source-viewer')?.classList.add('hidden');
   document.getElementById('diff-view')?.classList.remove('hidden');
@@ -487,7 +520,9 @@ function next(delta) {
   // hunk-level nav to the next/prev unviewed file.
   const caretHunk = hunkIndexAtCaret();
   const base = caretHunk >= 0 ? caretHunk : current;
-  const target = nextUnviewedHunk(base, delta);
+  // Walked over FILES, not just hunks, so a change with no hunks of its own is not stepped past.
+  const next = nextUnviewedTarget(base, activeDiffPath(), delta);
+  const target = next && next.hunk >= 0 ? next.hunk : -1;
   // File boundary: no more change blocks in this file. Forward F7 announces "last change — press F7 again
   // to go to the next file" on the FIRST press (a beat to mark-viewed) and only crosses on the SECOND
   // consecutive press. Already-viewed files (and backward nav) cross immediately — no announcement. There is
@@ -497,7 +532,8 @@ function next(delta) {
   // flight: after setActive moves `current` to the next file but BEFORE its (async, lazy-loaded) caret lands,
   // diffCursor still points at the OLD file — without the guard a quick second F7 re-announced that old
   // boundary instead of letting the cross finish (the "press F7 twice more, no caret" bug).
-  if (delta > 0 && target >= 0 && diffCursor && isDiffViewVisible() && !isFileViewed(diffCursor.path) && hunkPathAt(current) === diffCursor.path) {
+  if (delta > 0 && target >= 0 && diffCursor && isDiffViewVisible() && !isFileViewed(diffCursor.path)
+    && hunkPathAt(current) === diffCursor.path && !diffFileHasNoHunks(activeDiffPath())) {
     if (pendingFileBoundary !== diffCursor.path) {
       pendingFileBoundary = diffCursor.path;
       showCaretHint(t('diff.lastHunk'));
@@ -507,6 +543,8 @@ function next(delta) {
   }
   hideCaretHint(); // about to cross files — drop the hint NOW (before the async body load) so it can't cover the next file
   if (target >= 0) { setActive(target); return; }
+  // A change with nothing to put a caret in: open the file itself.
+  if (next && next.hunk < 0 && activateDiffFile(next.path, true)) return;
   // The walk ran off the end of the review. It used to wrap around to the other end, which reads as "the
   // review restarted" — a reviewer stepping through changes had no way to tell the last one from the first.
   // Stop at the edge instead and say why nothing moved.
@@ -527,6 +565,76 @@ function next(delta) {
 // The unviewed file this press lands on, or -1 when there is none left in that direction. Deliberately a
 // bounded walk rather than a modulo one: the review has a first and a last change, and F7 has to be able to
 // reach the end of it.
+// Every changed file in document order, with the hunks it owns.
+//
+// A file with none still gets a turn. F7 means "show me the next change", and an empty file added, a pure
+// rename or a mode change IS a change — it is in the sidebar, the reviewer can see it sitting there. The
+// hunk index cannot carry them: it is dense over real hunks and its numbers are baked into the hunk-N
+// element ids, so a file with no hunks has no slot and the walk stepped straight past it. With the caret
+// on the last real hunk, F7 then said "no more changes this way" while the sidebar plainly showed more.
+function diffNavTargets() {
+  const out = [];
+  document.querySelectorAll('#diff2html-container .d2h-file-wrapper').forEach(function (w) {
+    const path = w.dataset.path || ((w.querySelector('.d2h-file-name') || {}).textContent || '').trim();
+    const own = [];
+    if (REVIEW_LAZY) {
+      // data-first-hunk/data-hunk-count exist only on the shells render.ts rewrites for a lazy review.
+      const base = parseInt(w.dataset.firstHunk || '0', 10) || 0;
+      const count = parseInt(w.dataset.hunkCount || '0', 10) || 0;
+      for (let k = 0; k < count; k += 1) own.push(base + k);
+    } else {
+      // An eager review has no such attributes — reading them there reported every file as hunkless,
+      // which would have turned the whole walk into one target per file and silenced the boundary
+      // announcement everywhere. The rows themselves are the source of truth here.
+      Array.prototype.forEach.call(w.querySelectorAll('.hunk'), function (row) {
+        const index = hunks.indexOf(row);
+        if (index >= 0) own.push(index);
+      });
+    }
+    if (own.length) own.forEach(function (h) { out.push({ path: path, hunk: h }); });
+    else out.push({ path: path, hunk: -1 });
+  });
+  return out;
+}
+// Which file the review is actually showing. `current` is a hunk index, so it is stale while a file with
+// no hunks is open — and starting the walk from a stale index is how the first attempt at this skipped a
+// file forwards and never reached the last one.
+function activeDiffPath() {
+  const active = links.find(function (link) { return link.classList.contains('active'); });
+  if (active && active.dataset.file) return active.dataset.file;
+  return diffCursor ? diffCursor.path : '';
+}
+// A changed file with no change blocks of its own — an empty file added, a pure rename, a mode change.
+// There is no "last change in this file" to announce when leaving one, because it never had one.
+function diffFileHasNoHunks(path) {
+  if (!path) return false;
+  const mine = diffNavTargets().filter(function (x) { return x.path === path; });
+  return mine.length > 0 && mine.every(function (x) { return x.hunk < 0; });
+}
+// The next unviewed target after where the review is now, in document order.
+function nextUnviewedTarget(fromHunk, fromPath, delta) {
+  const targets = diffNavTargets();
+  if (!targets.length) return null;
+  // The FILE on screen decides where the walk starts; the caret's hunk only refines the position inside
+  // it. The caret does not follow when a file with no hunks is opened — there is no row to put it on — so
+  // trusting the hunk first meant the walk resumed from the file the reviewer had already left.
+  let at = -1;
+  const mine = [];
+  if (fromPath) targets.forEach(function (x, i) { if (x.path === fromPath) mine.push(i); });
+  if (mine.length) {
+    const viaHunk = fromHunk >= 0
+      ? targets.findIndex(function (x) { return x.hunk === fromHunk && x.path === fromPath; })
+      : -1;
+    at = viaHunk >= 0 ? viaHunk : (delta > 0 ? mine[mine.length - 1] : mine[0]);
+  } else if (fromHunk >= 0) {
+    at = targets.findIndex(function (x) { return x.hunk === fromHunk; });
+  }
+  if (at < 0) at = delta > 0 ? -1 : targets.length;
+  for (let i = at + delta; i >= 0 && i < targets.length; i += delta) {
+    if (!isFileViewed(targets[i].path)) return targets[i];
+  }
+  return null;
+}
 function nextUnviewedHunk(base, delta) {
   var total = hunkTotal();
   for (var idx = base < 0 ? initialHunkForNavigation(delta) : base + delta; idx >= 0 && idx < total; idx += delta) {
