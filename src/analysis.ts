@@ -15,7 +15,9 @@ import {
   buildRegexSymbolIndex,
   documentPath,
   identifierSpanAt,
+  indexablePath,
   maskNonCode,
+  patchProjectIndex,
   safeRelativePath,
   type IndexedFile,
   type RegexIndex,
@@ -89,7 +91,20 @@ type AnalysisOptions = {
   onStatus?: (status: AnalysisStatus) => void;
 };
 
+// What syncIndex needs from one of the review's file records. Structural rather than importing SourceFile,
+// so the analysis layer keeps knowing nothing about how a review is built.
+export type IndexedFileState = {
+  path: string;
+  signature: string;
+  content?: string;
+  skippedReason?: string;
+};
+
 const MAX_LOCATIONS = 500;
+// How many files syncIndex will read from disk itself before handing the job back to buildProjectIndex.
+// Matched to that builder's own read batch: one batch is work worth doing inline, and anything larger is a
+// base change or a branch switch dressed up as a save, where a batched, yielding rebuild is cheaper.
+const MAX_INLINE_INDEX_READS = 32;
 
 function uniqueLocations<T extends AnalysisLocation>(items: T[], limit = MAX_LOCATIONS): T[] {
   const seen = new Set<string>();
@@ -137,6 +152,10 @@ export class ProjectAnalysis {
   private readonly fixedFiles?: IndexedFile[];
   private readonly onStatus?: (status: AnalysisStatus) => void;
   private generation = 0;
+  // What the built index holds, path → the review's signature for it. The index itself does not carry these:
+  // buildProjectIndex reads the tree directly and has no cheaper hash to offer than the content it just read.
+  private indexedSignatures = new Map<string, string>();
+  private syncChain: Promise<void> = Promise.resolve();
   private status: AnalysisStatus = { generation: 0, phase: "idle", updatedAt: new Date().toISOString() };
 
   constructor(readonly root: string, options: AnalysisOptions = {}) {
@@ -147,8 +166,104 @@ export class ProjectAnalysis {
     this.onStatus = options.onStatus;
   }
 
+  /**
+   * Bring the built symbol index back in line with the review's own file records, re-indexing only what
+   * actually changed.
+   *
+   * This replaces invalidate() on the rebuild path. Discarding the index meant the next question rebuilt it
+   * from scratch: ripgrep walk, read every file, scan every line — 210ms on this repository, ~1,900ms of
+   * scan alone on a 3,000-file one, in the main process, once per save, because one file changed.
+   *
+   * The review's records are the right authority for this. Measured on this repository, every file the index
+   * holds appears in them (191 of 212; the other 21 are markdown and images the index skips), and all 212
+   * carry a signature — a content hash for files the build read, mtime+size for the ones it deferred past
+   * its byte budget. So comparing signatures says exactly which files moved, and a changed file's content is
+   * already in hand: the build keeps changed files regardless of that budget, so the common save needs no
+   * disk read at all.
+   *
+   * Returns what it did, so a test can tell a real patch from an accidental full rebuild.
+   */
+  syncIndex(files: IndexedFileState[]): Promise<"seeded" | "unchanged" | "patched" | "rebuilt"> {
+    // One at a time. Rebuilds arrive as fast as files are saved — a watch session, or an agent writing a
+    // directory — and two overlapping syncs read the same signature map before either writes it, so the
+    // second records its content under the first's signature and the NEXT save sees "unchanged" and skips a
+    // file that really did move. Patching twice is harmless; losing a signature is a stale index.
+    const run = this.syncChain.then(() => this.syncIndexNow(files), () => this.syncIndexNow(files));
+    this.syncChain = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  private async syncIndexNow(files: IndexedFileState[]): Promise<"seeded" | "unchanged" | "patched" | "rebuilt"> {
+    const next = new Map<string, IndexedFileState>();
+    for (const file of files) {
+      const path = safeRelativePath(this.root, file.path);
+      if (!path || file.skippedReason || !indexablePath(path)) continue;
+      next.set(path, file);
+    }
+
+    // Nothing built yet: the lazy build will read the working tree itself, so these signatures describe what
+    // it is about to produce. Recording them is the whole of the work.
+    if (!this.indexPromise) {
+      this.indexedSignatures = new Map([...next].map(([path, file]) => [path, file.signature]));
+      this.bumpGeneration();
+      return "seeded";
+    }
+
+    const stale: IndexedFileState[] = [];
+    for (const [path, file] of next) {
+      if (this.indexedSignatures.get(path) !== file.signature) stale.push(file);
+    }
+    const removed = [...this.indexedSignatures.keys()].filter((path) => !next.has(path));
+    if (!stale.length && !removed.length) {
+      this.bumpGeneration();
+      return "unchanged";
+    }
+
+    // An unchanged file whose signature moved is one the build read and then dropped to stay inside its
+    // byte budget, so its content has to come off disk. One batch of those is worth doing here; more than
+    // that is a base change wearing a save's clothing, and buildProjectIndex reads in batches and yields.
+    const needsRead = stale.filter((file) => typeof file.content !== "string" || !file.content.length);
+    if (needsRead.length > MAX_INLINE_INDEX_READS) {
+      this.invalidate();
+      this.indexedSignatures = new Map([...next].map(([path, file]) => [path, file.signature]));
+      return "rebuilt";
+    }
+
+    const index = await this.indexPromise;
+    const loaded: IndexedFile[] = [];
+    for (const file of stale) {
+      const path = safeRelativePath(this.root, file.path);
+      if (!path) continue;
+      let content = typeof file.content === "string" && file.content.length ? file.content : undefined;
+      if (content === undefined) {
+        try { content = await readFile(locationFilePath(this.root, path), "utf8"); } catch { continue; }
+      }
+      loaded.push({ path, content });
+    }
+    patchProjectIndex(index, loaded, removed);
+    for (const path of removed) this.indexedSignatures.delete(path);
+    for (const file of loaded) {
+      const entry = next.get(file.path);
+      if (entry) this.indexedSignatures.set(file.path, entry.signature);
+    }
+    this.bumpGeneration();
+    return "patched";
+  }
+
+  private bumpGeneration(): void {
+    this.generation += 1;
+    this.setStatus(this.status.phase, {
+      family: this.status.family,
+      server: this.status.server,
+      serverSource: this.status.serverSource,
+      fallbackReason: this.status.fallbackReason,
+      error: this.status.error,
+    });
+  }
+
   invalidate(): void {
     this.indexPromise = undefined;
+    this.indexedSignatures.clear();
     this.generation += 1;
     this.setStatus(this.status.phase, {
       family: this.status.family,
@@ -408,7 +523,18 @@ export class ProjectAnalysis {
   //
   // The request is not cancelled. It keeps running, which is exactly what warms the server up, and the
   // first question asked after `ready` waits as long as it needs to.
-  private withDeadlineWhileIndexing<T>(work: Promise<T>): Promise<{ settled: true; value: T } | { settled: false }> {
+  //
+  // `onLateSuccess` is how the NEXT question gets to skip the deadline. An answer that arrives after the
+  // budget is still an answer: it is the server saying it can read this project now. Dropping it on the
+  // floor left the phase wherever warm-up had put it, so every following keystroke was deadlined too — and
+  // warm-up's own signal is one file's diagnostics publish, bounded at 90 seconds. A session trace on this
+  // repository sat at `indexing` for 90,002ms twice, answering from the regex index the whole time while a
+  // server that could answer sat beside it. One cold keystroke is the price; ninety seconds of them is a
+  // lost signal.
+  private withDeadlineWhileIndexing<T>(
+    work: Promise<T>,
+    onLateSuccess?: () => void,
+  ): Promise<{ settled: true; value: T } | { settled: false }> {
     if (this.status.phase === "ready") return work.then((value) => ({ settled: true as const, value }));
     return new Promise((resolve, reject) => {
       let done = false;
@@ -421,7 +547,12 @@ export class ProjectAnalysis {
       // worth keeping the process alive for.
       if (typeof timer.unref === "function") timer.unref();
       work.then(
-        (value) => { if (done) return; done = true; clearTimeout(timer); resolve({ settled: true, value }); },
+        (value) => {
+          if (done) { onLateSuccess?.(); return; }
+          done = true;
+          clearTimeout(timer);
+          resolve({ settled: true, value });
+        },
         // A rejection after the deadline has already passed belongs to the warm-up, not to this question;
         // the handler is still attached so it cannot surface as an unhandled rejection.
         (error) => { if (done) return; done = true; clearTimeout(timer); reject(error); },
@@ -466,7 +597,11 @@ export class ProjectAnalysis {
       }
       attempted = true;
       try {
-        const answer = await this.withDeadlineWhileIndexing(client.locations(method, path, line, column));
+        const server = client;
+        const answer = await this.withDeadlineWhileIndexing(
+          client.locations(method, path, line, column),
+          () => this.setStatus("ready", serverFields(server.server)),
+        );
         if (!answer.settled) {
           // Not an error and not a dead end: the server simply has not read enough of the project yet.
           // Returning no locations drops through to the regex index below, and `fallbackReason` is what
