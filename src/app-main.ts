@@ -1168,7 +1168,13 @@ function applySnapshot(state: WinState, snapshot: BuildSnapshot): void {
   // Diff-first: this build carried only the changed files (fullIndexDeferred). Mark the full index owed so the
   // first project-index pull materializes it. A full build (deferFullIndex=false) clears the flag outright.
   state.fullIndexPending = snapshot.fullIndexDeferred;
-  state.analysis.invalidate();
+  // Re-index what moved instead of discarding the whole symbol index. A diff-first build carried only the
+  // changed files, so it cannot speak for the paths it never looked at — there, keep invalidating.
+  if (snapshot.fullIndexDeferred) state.analysis.invalidate();
+  else void state.analysis.syncIndex(snapshot.sourceFiles).then(
+    (outcome) => state.perf.mark("analysis-index-sync", { outcome, files: snapshot.sourceFiles.length }),
+    () => state.analysis.invalidate(),
+  );
 }
 
 // Build (or rebuild) this window's review OFF the main process, via the shared worker, then apply the result.
