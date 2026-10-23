@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ProjectAnalysis, buildRegexSymbolIndex } from "../dist/analysis.js";
+import { patchProjectIndex } from "../dist/analysis-index.js";
 import { LspClient, externalLocationLabel, mapLspDiagnostics, normalizeLocationResult, resolveLanguageServer } from "../dist/lsp.js";
 
 const dirs = [];
@@ -838,5 +839,322 @@ process.stdin.on('data', (chunk) => { buffer = Buffer.concat([buffer, chunk]);
   } finally {
     analysis.dispose();
     rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+// A server that is still reading the project does not stay that way, and the proof that it has finished is
+// that it answered. The deadline above keeps the first keystroke responsive by abandoning the WAIT at
+// coldQueryBudgetMs — but the request itself keeps running, and when it came back with a perfectly good
+// answer, `if (done) return` threw it away. Nothing recorded that the server had started answering, so the
+// NEXT keystroke was deadlined too, and the one after that, for as long as warm-up had not independently
+// decided the server was ready.
+//
+// That independent decision is a diagnostics publish for one file, bounded at 90 seconds. A real session
+// trace on this repository sat at `indexing` for 90,002ms twice — a round number, so a timeout, not work —
+// and every navigation key pressed inside those windows was answered by the regex index while a capable
+// server sat idle beside it.
+//
+// This server answers definitions, just later than the deadline. One fallback is the price of a cold
+// server; the second question is the one that must come back semantic.
+test("the answer that arrives after the deadline still reports the server as ready", { timeout: 20_000 }, async () => {
+  const root = tempProject();
+  const files = [
+    { path: "src/app.ts", content: "export const value = target();\n" },
+    { path: "src/target.ts", content: "export function target() {}\n" },
+  ];
+  for (const file of files) write(root, file.path, file.content);
+  const slow = join(root, "slow-lsp.mjs");
+  writeFileSync(slow, `
+let buffer = Buffer.alloc(0);
+function send(value) {
+  const body = Buffer.from(JSON.stringify(value));
+  process.stdout.write('Content-Length: ' + body.length + '\\r\\n\\r\\n');
+  process.stdout.write(body);
+}
+const target = process.argv[2];
+process.stdin.on('data', (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+  while (true) {
+    const end = buffer.indexOf('\\r\\n\\r\\n');
+    if (end < 0) return;
+    const header = buffer.subarray(0, end).toString();
+    const length = Number(/Content-Length:\\s*(\\d+)/i.exec(header)?.[1]);
+    if (buffer.length < end + 4 + length) return;
+    const message = JSON.parse(buffer.subarray(end + 4, end + 4 + length));
+    buffer = buffer.subarray(end + 4 + length);
+    if (typeof message.id !== 'number') continue;
+    if (message.method === 'initialize') { send({ jsonrpc: '2.0', id: message.id, result: { capabilities: {} } }); continue; }
+    if (message.method === 'textDocument/definition') {
+      // Later than the deadline, far earlier than the request timeout: a server that has finished reading
+      // the project but whose first answers are still slow.
+      const id = message.id;
+      setTimeout(() => send({ jsonrpc: '2.0', id, result: [{
+        uri: target,
+        range: { start: { line: 0, character: 16 }, end: { line: 0, character: 22 } },
+      }] }), 500);
+      continue;
+    }
+    send({ jsonrpc: '2.0', id: message.id, result: null });
+  }
+});
+`);
+  const analysis = new ProjectAnalysis(root, {
+    files,
+    coldQueryBudgetMs: 150,
+    // Long on purpose: warm-up must not be what promotes this server. The question has to.
+    indexBudgetMs: 60_000,
+    resolveServer: () => ({
+      family: "typescript",
+      name: "slow-lsp",
+      command: process.execPath,
+      args: [slow, pathToFileURL(join(root, "src/target.ts")).href],
+    }),
+  });
+  try {
+    const first = await analysis.query({ kind: "definition", path: "src/app.ts", line: 0, column: 23, symbol: "target" });
+    assert.equal(first.engine, "index", "the first question is still answered by the index, as it must be");
+
+    // Give the abandoned request time to land. Polling the status rather than sleeping a fixed amount, so
+    // a slow box lengthens the wait instead of failing the test.
+    const deadline = Date.now() + 10_000;
+    while (analysis.getStatus().phase !== "ready" && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(analysis.getStatus().phase, "ready",
+      "the late answer is itself the proof the server is ready, and has to be recorded as such");
+
+    const second = await analysis.query({ kind: "definition", path: "src/app.ts", line: 0, column: 23, symbol: "target" });
+    assert.equal(second.engine, "lsp", "so the next question waits for the server instead of being deadlined again");
+    assert.deepEqual(second.locations.map((item) => item.path), ["src/target.ts"], "and gets the semantic answer");
+  } finally {
+    analysis.dispose();
+  }
+});
+
+// Rebuilding the whole symbol index because one file changed cost 210ms per save on this repository, and
+// ~1,900ms of scan alone on a 3,000-file one — in the main process, measured. Patching it in place is only
+// allowed to be faster if what it leaves behind is exactly right, and the dangerous half is removal: a
+// record left pointing at a line that no longer exists is a jump into nothing, which is worse than slow.
+test("patching the index removes the records of what changed, not just adds the new ones", () => {
+  const index = buildRegexSymbolIndex([
+    { path: "src/a.ts", content: "export function alpha() {}\nexport function doomed() {}\n" },
+    { path: "src/b.ts", content: "export function beta() {}\n" },
+  ]);
+  assert.ok(index.definitions.get("doomed"), "the symbol about to be deleted is indexed to begin with");
+
+  patchProjectIndex(index, [{ path: "src/a.ts", content: "export function alpha() {}\nexport function fresh() {}\n" }]);
+
+  assert.ok(index.definitions.get("fresh"), "the new symbol is findable");
+  assert.equal(index.definitions.get("doomed"), undefined,
+    "and the deleted one is gone from definitions, not left pointing at a line that no longer exists");
+  assert.deepEqual(index.symbols.filter((r) => r.name === "doomed"), [],
+    "nor left behind in the flat symbol list, which is what enclosing-symbol lookups walk");
+  assert.ok(index.definitions.get("beta"), "the file that did not change keeps its records — the whole point");
+  assert.equal(index.files.get("src/a.ts"), "export function alpha() {}\nexport function fresh() {}\n",
+    "and the stored content is the new revision");
+});
+
+// A symbol can be defined in two files. Removing one file's record must not take the other's with it.
+test("patching one file leaves another file's record for the same symbol alone", () => {
+  const index = buildRegexSymbolIndex([
+    { path: "src/a.ts", content: "export function shared() {}\n" },
+    { path: "src/b.ts", content: "export function shared() {}\n" },
+  ]);
+  assert.equal(index.definitions.get("shared").length, 2, "both files define it");
+
+  patchProjectIndex(index, [{ path: "src/a.ts", content: "export const unrelated = 1;\n" }]);
+
+  const shared = index.definitions.get("shared") ?? [];
+  assert.deepEqual(shared.map((r) => r.path), ["src/b.ts"], "only the patched file's record went");
+});
+
+// Deleting a file has to take its records with it, or navigation offers a jump into a file that is not there.
+test("patching drops the records of a removed file", () => {
+  const index = buildRegexSymbolIndex([
+    { path: "src/a.ts", content: "export function alpha() {}\n" },
+    { path: "src/gone.ts", content: "export function vanished() {}\n" },
+  ]);
+  patchProjectIndex(index, [], ["src/gone.ts"]);
+
+  assert.equal(index.definitions.get("vanished"), undefined, "the deleted file's symbol is unreachable");
+  assert.equal(index.files.has("src/gone.ts"), false, "and its content is not retained");
+  assert.ok(index.definitions.get("alpha"), "its neighbour is untouched");
+});
+
+// codeLines keeps masked copies keyed by path, behind an LRU. Re-indexing in place has to evict that entry
+// or every later lookup — which is how the index decides whether a line is a real declaration — reads the
+// previous revision.
+test("patching evicts the masked line cache for the file it re-indexed", () => {
+  const index = buildRegexSymbolIndex([{ path: "src/a.ts", content: "const before = 1;\n" }]);
+  assert.match(index.codeLines.get("src/a.ts").join("\n"), /before/, "the masked copy is cached");
+
+  patchProjectIndex(index, [{ path: "src/a.ts", content: "const after = 2;\n" }]);
+
+  const lines = index.codeLines.get("src/a.ts").join("\n");
+  assert.match(lines, /after/, "the cache now reflects the new revision");
+  assert.doesNotMatch(lines, /before/, "and not the one it replaced");
+});
+
+// The index holds code, not documents or images; listProjectFiles filters ripgrep's output that way and the
+// patch has to apply the same rule, or a save would smuggle a README into it.
+test("patching admits only the files the full build would have indexed", () => {
+  const index = buildRegexSymbolIndex([{ path: "src/a.ts", content: "export function alpha() {}\n" }]);
+  patchProjectIndex(index, [
+    { path: "README.md", content: "# function notCode() {}\n" },
+    { path: "docs/guide.md", content: "export function alsoNotCode() {}\n" },
+  ]);
+  assert.equal(index.files.has("README.md"), false, "a markdown file is not indexed by a patch either");
+  assert.equal(index.definitions.get("notCode"), undefined, "so nothing in it becomes a definition");
+  assert.equal(index.definitions.get("alsoNotCode"), undefined, "whatever directory it sits in");
+});
+
+// The rebuild path used to call invalidate(), which threw the index away so the next question rebuilt it:
+// ripgrep walk, read every file, scan every line. syncIndex instead compares the review's own signatures
+// against what the index holds and re-indexes only what moved.
+//
+// `outcome` is asserted on every one of these, because every assertion below would ALSO pass if syncIndex
+// quietly fell back to a full rebuild — which is exactly the behaviour being replaced. Without it the tests
+// would prove nothing.
+function state(path, content, signature) {
+  return { path, content, signature };
+}
+
+test("syncIndex re-indexes only the file whose signature moved", async () => {
+  const root = tempProject();
+  const files = [
+    { path: "src/a.ts", content: "export function alpha() {}\nexport function doomed() {}\n" },
+    { path: "src/b.ts", content: "export function beta() {}\n" },
+  ];
+  for (const file of files) write(root, file.path, file.content);
+  const analysis = new ProjectAnalysis(root, { files, resolveServer: () => undefined });
+  try {
+    assert.equal(await analysis.syncIndex([state("src/a.ts", files[0].content, "a1"), state("src/b.ts", files[1].content, "b1")]),
+      "seeded", "the first sync only records what the build is about to produce");
+
+    // Force the index to exist, the way the first navigation question does.
+    const before = await analysis.query({ kind: "definition", path: "src/a.ts", line: 1, column: 16, symbol: "doomed" });
+    assert.deepEqual(before.locations.map((l) => l.path), ["src/a.ts"], "the doomed symbol is findable first");
+
+    const next = "export function alpha() {}\nexport function fresh() {}\n";
+    write(root, "src/a.ts", next);
+    assert.equal(await analysis.syncIndex([state("src/a.ts", next, "a2"), state("src/b.ts", files[1].content, "b1")]),
+      "patched", "one moved signature is a patch, not a rebuild");
+
+    const gone = await analysis.query({ kind: "definition", path: "src/a.ts", line: 1, column: 16, symbol: "doomed" });
+    assert.deepEqual(gone.locations, [], "the symbol that was deleted is no longer offered");
+    const added = await analysis.query({ kind: "definition", path: "src/a.ts", line: 1, column: 16, symbol: "fresh" });
+    assert.deepEqual(added.locations.map((l) => l.path), ["src/a.ts"], "and the new one is");
+    const kept = await analysis.query({ kind: "definition", path: "src/b.ts", line: 0, column: 16, symbol: "beta" });
+    assert.deepEqual(kept.locations.map((l) => l.path), ["src/b.ts"], "the untouched file still answers");
+  } finally {
+    analysis.dispose();
+  }
+});
+
+test("syncIndex does no work when nothing moved", async () => {
+  const root = tempProject();
+  const files = [{ path: "src/a.ts", content: "export function alpha() {}\n" }];
+  write(root, files[0].path, files[0].content);
+  const analysis = new ProjectAnalysis(root, { files, resolveServer: () => undefined });
+  try {
+    await analysis.syncIndex([state("src/a.ts", files[0].content, "a1")]);
+    await analysis.query({ kind: "definition", path: "src/a.ts", line: 0, column: 16, symbol: "alpha" });
+    assert.equal(await analysis.syncIndex([state("src/a.ts", files[0].content, "a1")]),
+      "unchanged", "the same signature is not re-indexed");
+  } finally {
+    analysis.dispose();
+  }
+});
+
+// An unchanged file whose signature moved is one the build read and then dropped to stay inside its byte
+// budget — its content is not in the snapshot, so syncIndex reads that one file itself. One batch of those
+// is worth doing inline; past that the builder's batched, yielding read is the better tool, and saying so
+// out loud is what keeps a branch switch from becoming thousands of serial reads.
+test("syncIndex reads a file the snapshot did not carry, and hands back a big set to the builder", async () => {
+  const root = tempProject();
+  const files = [
+    { path: "src/a.ts", content: "export function alpha() {}\n" },
+    { path: "src/b.ts", content: "export function beta() {}\n" },
+  ];
+  for (const file of files) write(root, file.path, file.content);
+  const analysis = new ProjectAnalysis(root, { files, resolveServer: () => undefined });
+  try {
+    await analysis.syncIndex([state("src/a.ts", files[0].content, "a1"), state("src/b.ts", files[1].content, "b1")]);
+    await analysis.query({ kind: "definition", path: "src/a.ts", line: 0, column: 16, symbol: "alpha" });
+
+    // No content, only a moved signature: the deferred shape.
+    write(root, "src/b.ts", "export function gamma() {}\n");
+    assert.equal(await analysis.syncIndex([state("src/a.ts", files[0].content, "a1"), { path: "src/b.ts", signature: "b2" }]),
+      "patched", "a single missing content is one disk read, done inline");
+    const found = await analysis.query({ kind: "definition", path: "src/b.ts", line: 0, column: 16, symbol: "gamma" });
+    assert.deepEqual(found.locations.map((l) => l.path), ["src/b.ts"], "and it read the file off disk to do it");
+
+    // 33 contentless moved signatures: one more than the inline bound.
+    const many = Array.from({ length: 33 }, (_, i) => ({ path: `src/g${i}.ts`, signature: `g${i}` }));
+    assert.equal(await analysis.syncIndex([...many]), "rebuilt",
+      "past one batch it goes back to the builder instead of reading them one at a time");
+  } finally {
+    analysis.dispose();
+  }
+});
+
+// A document path is not in the index, so it must not count as a change either — otherwise every README
+// save would patch an index that never held it.
+test("syncIndex ignores files the index does not hold", async () => {
+  const root = tempProject();
+  const files = [{ path: "src/a.ts", content: "export function alpha() {}\n" }];
+  write(root, files[0].path, files[0].content);
+  const analysis = new ProjectAnalysis(root, { files, resolveServer: () => undefined });
+  try {
+    await analysis.syncIndex([state("src/a.ts", files[0].content, "a1"), state("README.md", "# hi\n", "r1")]);
+    await analysis.query({ kind: "definition", path: "src/a.ts", line: 0, column: 16, symbol: "alpha" });
+    assert.equal(await analysis.syncIndex([state("src/a.ts", files[0].content, "a1"), state("README.md", "# changed\n", "r2")]),
+      "unchanged", "a markdown edit is not an index change");
+  } finally {
+    analysis.dispose();
+  }
+});
+
+// Rebuilds arrive as fast as files are saved, and syncIndex is fired off without being awaited. The hazard
+// is not the patching — applying the same content twice is harmless — it is the signature each run records
+// afterwards. One run has the file's content in hand and finishes in microtasks; another has only a
+// signature and must read the file, so it finishes after real I/O. Unserialized, the slow one lands LAST and
+// stamps its own signature over the revision the fast one actually put in the index. Nothing is visibly
+// wrong at that moment, and the next save compares against that wrong signature and skips a file that moved.
+//
+// Ordered deliberately so the loss is deterministic rather than lucky: the contentless run is started first
+// and is the one that has to wait for the disk.
+test("a sync that has to read the disk cannot stamp its signature over a later revision", async () => {
+  const root = tempProject();
+  const files = [{ path: "src/a.ts", content: "export function v0() {}\n" }];
+  write(root, files[0].path, files[0].content);
+  const analysis = new ProjectAnalysis(root, { files, resolveServer: () => undefined });
+  try {
+    await analysis.syncIndex([{ path: "src/a.ts", content: files[0].content, signature: "s0" }]);
+    await analysis.query({ kind: "definition", path: "src/a.ts", line: 0, column: 16, symbol: "v0" });
+
+    const second = "export function v2() {}\n";
+    write(root, "src/a.ts", second);
+    const outcomes = await Promise.all([
+      analysis.syncIndex([{ path: "src/a.ts", signature: "s1" }]),                    // no content: reads disk
+      analysis.syncIndex([{ path: "src/a.ts", content: second, signature: "s2" }]),   // content in hand
+    ]);
+    assert.deepEqual(outcomes, ["patched", "patched"], "both ran as patches, one after the other");
+
+    const latest = await analysis.query({ kind: "definition", path: "src/a.ts", line: 0, column: 16, symbol: "v2" });
+    assert.deepEqual(latest.locations.map((l) => l.path), ["src/a.ts"], "the index holds the revision on disk");
+
+    // The decisive one: the signature left behind has to be the one belonging to what the index now holds.
+    assert.equal(await analysis.syncIndex([{ path: "src/a.ts", content: second, signature: "s2" }]),
+      "unchanged", "re-offering that same revision is a no-op, so no later change can be missed");
+
+    const third = "export function v3() {}\n";
+    write(root, "src/a.ts", third);
+    assert.equal(await analysis.syncIndex([{ path: "src/a.ts", content: third, signature: "s3" }]),
+      "patched", "and the next genuine change is still seen");
+    const after = await analysis.query({ kind: "definition", path: "src/a.ts", line: 0, column: 16, symbol: "v3" });
+    assert.deepEqual(after.locations.map((l) => l.path), ["src/a.ts"], "with the index following it");
+  } finally {
+    analysis.dispose();
   }
 });
