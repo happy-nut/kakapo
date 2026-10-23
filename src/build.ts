@@ -4,6 +4,7 @@ import type { AutomaticReviewBase } from "./git.js";
 import type { CompareState, DiffReviewBuild } from "./types.js";
 import { isGitRepository, git, resolveAutomaticReviewBase } from "./git.js";
 import { collectHttpEnvironments, collectReviewFileStates, collectSourceFiles, parseUnifiedDiff, readUnifiedDiff } from "./diff.js";
+import { detectBaseDivergence } from "./git-conflicts.js";
 import { renderDiff2Html, type SourceTextLookup } from "./highlight.js";
 import {
   diffSubtitle,
@@ -107,6 +108,12 @@ export function buildDiffReview(input: {
     changedPathsOnly: deferFullIndex,
   });
   const fileStates = collectReviewFileStates(files, sourceFiles);
+  // Has something landed on the base in a file this review also changes? Local, read-only, and almost free
+  // when the base has not moved — detectBaseDivergence stops at one merge-base call in that case.
+  const divergence = reviewBase
+    ? detectBaseDivergence(root, reviewBase, files.map((file) => file.displayPath))
+    : undefined;
+  const collisions = new Map((divergence?.collisions ?? []).map((item) => [item.path, item.kind] as const));
   const httpEnvironments = collectHttpEnvironments(root,
     sourceFiles.filter((file) => /\.http$/i.test(file.path)).map((file) => file.path));
   const hunks = files.reduce((sum, file) => sum + file.hunks.length, 0);
@@ -157,6 +164,7 @@ export function buildDiffReview(input: {
     .digest("hex");
   const html = renderDiffHtml({
     files,
+    collisions,
     diffHtml: diffSplit.container,
     diffIslands: lazyLoad ? "" : diffSplit.islands,
     lazy,
@@ -185,7 +193,7 @@ export function buildDiffReview(input: {
     generatedAt,
     branch,
     diffContainer: diffSplit.container || '<div class="empty"><p class="empty-title" data-i18n="diff.noDiff">No diff to review.</p><p class="empty-hint" data-i18n="diff.noDiff.hint">If this is not what you meant to review, change it with the compare control in the toolbar.</p></div>',
-    changesPanel: renderDiffTree(files),
+    changesPanel: renderDiffTree(files, collisions),
     // Transport-backed reviews build folder children incrementally from sourceFilesMeta in the renderer;
     // avoid generating/transferring a multi-megabyte all-files HTML tree on every build/update.
     filesTree: lazyLoad ? "" : renderSourceTree(sourceFiles),

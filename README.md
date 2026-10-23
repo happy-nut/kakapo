@@ -94,6 +94,20 @@ kakapo --staged             # index vs HEAD
 
 `kakapo --help` lists every flag; `--base` takes any revision and validates it at startup, and `--staged` and `--base` are mutually exclusive. For a narrower slice than the dropdown offers, the patch-set bar under the toolbar diffs any single commit on the branch against any other, and `⌘9` opens the commit graph — Enter on a commit opens it in the main review.
 
+### When the base has moved under you
+
+If the base has landed commits since your branch left it, the Changes tree says so on the rows affected:
+
+| Badge | |
+| --- | --- |
+| **conflict** | The base changed these same lines. This will not merge cleanly. |
+| **diverged** | The base changed this file somewhere else. It still merges, but you are not reading the whole story. |
+
+Both sides are compared at the commit where they parted company, so the lines line up. It reads the local
+object database only — no fetch, no account, and nothing is written: not the working tree, not the index, not
+a ref. It also works on changes that are not committed yet, which is the usual case for work an agent just
+wrote, and a base that has not moved costs a single `git merge-base` call.
+
 ## Shortcuts
 
 | Key | Action |
