@@ -855,6 +855,21 @@ body {
   background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted);
   font-size: 9.5px; line-height: 15px; letter-spacing: .02em; white-space: nowrap;
 }
+/* Something has landed on the base in this file. Shaped like the trivial pill next to it — same row, same
+   question ("which of these do I read first?") — and coloured from the palette's own deletion ink, because
+   a conflict is the one thing on this row that is about work OTHER than the change being read. `diverged`
+   is the same shape without the colour: it merges, so it is a note, not a warning. */
+.change-collision {
+  flex: none; margin-left: 6px; padding: 0 5px; border-radius: 999px;
+  font-size: 9.5px; line-height: 15px; letter-spacing: .02em; white-space: nowrap;
+}
+.change-collision.cl-conflict {
+  background: color-mix(in srgb, var(--chrome-stat-del) 20%, transparent);
+  color: var(--chrome-stat-del);
+}
+.change-collision.cl-diverged {
+  background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted);
+}
 
 @keyframes mc-thinking-bounce { 0%, 60%, 100% { opacity: .28; } 30% { opacity: 1; } }
 

@@ -48,7 +48,7 @@ export function initialReviewSources(diffFiles: DiffFile[], sourceFiles: SourceF
 // The changed-files navigation mirrors renderSourceTree's folder hierarchy so a reviewer can see where
 // changes cluster and collapse whole directories, instead of scanning one flat list. Leaves keep the same
 // href/data-hunk/data-file contract the diff caret and click handler rely on.
-export function renderDiffTree(files: DiffFile[]): string {
+export function renderDiffTree(files: DiffFile[], collisions: Map<string, "conflict" | "diverged"> = new Map()): string {
   if (files.length === 0) {
     return '<div class="empty-nav changes-empty">'
       + '<svg class="empty-nav-icon" viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="m9.5 13.5 2 2 3.5-3.5"/></svg>'
@@ -85,10 +85,14 @@ export function renderDiffTree(files: DiffFile[]): string {
     });
   });
 
-  return `<nav class="tree changes-tree">${renderDiffChildren(root, 0)}</nav>`;
+  return `<nav class="tree changes-tree">${renderDiffChildren(root, 0, collisions)}</nav>`;
 }
 
-function renderDiffChildren(node: DiffTreeNode, depth: number): string {
+function renderDiffChildren(
+  node: DiffTreeNode,
+  depth: number,
+  collisions: Map<string, "conflict" | "diverged">,
+): string {
   return Array.from(node.children.values())
     .sort((a, b) => {
       if (Boolean(a.file) !== Boolean(b.file)) {
@@ -96,11 +100,15 @@ function renderDiffChildren(node: DiffTreeNode, depth: number): string {
       }
       return a.name.localeCompare(b.name);
     })
-    .map((child) => renderDiffNode(child, depth))
+    .map((child) => renderDiffNode(child, depth, collisions))
     .join("");
 }
 
-function renderDiffNode(node: DiffTreeNode, depth: number): string {
+function renderDiffNode(
+  node: DiffTreeNode,
+  depth: number,
+  collisions: Map<string, "conflict" | "diverged">,
+): string {
   if (node.file) {
     const file = node.file;
     // The change type rides on the ROW, because that is what colours the name: IntelliJ says green for added,
@@ -126,6 +134,10 @@ function renderDiffNode(node: DiffTreeNode, depth: number): string {
       // Why this row arrived already ticked. Without it a pre-viewed file reads as a bug — the reviewer is
       // sure they never marked it — and the box they would untick is the same box, right there.
       trivial ? `<span class="change-trivial" data-i18n="trivial.${trivial}">${trivial}</span>` : "",
+      // Something has landed on the base in this same file. "conflict" means it is in the same lines, which
+      // is what git will refuse to merge; "diverged" means elsewhere in the file, which merges but is still
+      // worth knowing before reading the change as if nothing else had happened.
+      collisionBadge(collisions.get(file.displayPath)),
       "</a>",
     ].join("");
   }
@@ -146,7 +158,7 @@ function renderDiffNode(node: DiffTreeNode, depth: number): string {
   return [
     `<details class="tree-dir changes-dir" data-dir="${escapeAttr(labelNode.path)}" style="--depth:${depth}" open>`,
     `<summary>${FOLDER_ICON}<span class="path">${escapeHtml(names.join("/"))}</span></summary>`,
-    renderDiffChildren(labelNode, depth + 1),
+    renderDiffChildren(labelNode, depth + 1, collisions),
     "</details>",
   ].join("");
 }
@@ -225,6 +237,12 @@ function changeStat(added: number, deleted: number): string {
     deleted ? `<span class="change-stat-del">\u2212${deleted}</span>` : "",
   ].filter(Boolean).join("");
   return `<span class="change-stat" aria-hidden="true">${parts}</span>`;
+}
+
+function collisionBadge(kind: "conflict" | "diverged" | undefined): string {
+  if (!kind) return "";
+  return `<span class="change-collision cl-${kind}" data-i18n="collision.${kind}"`
+    + ` data-i18n-title="collision.${kind}.title">${kind === "conflict" ? "conflict" : "diverged"}</span>`;
 }
 
 export function trivialChange(file: DiffFile): TrivialChange | undefined {

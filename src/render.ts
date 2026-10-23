@@ -363,6 +363,9 @@ function sidebarSwitch(active: string): string {
 
 export function renderDiffHtml(input: {
   files: DiffFile[];
+  // Files the base changed since this branch left it, so the Changes tree can say so on the row the reader
+  // decides from. Optional: a build with no base, and every standalone caller, simply has nothing to mark.
+  collisions?: Map<string, "conflict" | "diverged">;
   diffHtml: string;
   diffIslands?: string;
   lazy?: boolean;
@@ -383,7 +386,7 @@ export function renderDiffHtml(input: {
   signature?: string;
   generatedAt?: string;
 }): string {
-  const fileNav = renderDiffTree(input.files);
+  const fileNav = renderDiffTree(input.files, input.collisions);
   // A transport-backed review asks the host for the project tree only when the user opens Files. Keeping
   // this empty here removes several megabytes of repeated tree markup from large-project startup.
   const sourceNav = input.lazyLoad ? "" : renderSourceTree(input.sourceFiles);

@@ -343,6 +343,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "trivial.spacing": "spacing",
     "trivial.format": "formatting",
     "trivial.moved": "moved",
+    "collision.conflict": "conflict",
+    "collision.conflict.title": "The base changed these same lines since this branch left it \u2014 this will not merge cleanly",
+    "collision.diverged": "diverged",
+    "collision.diverged.title": "The base changed this file elsewhere since this branch left it \u2014 it still merges",
     // The two notes that carry the story of a change: where it goes wrong, and where that is beaten. Louder
     // cards, because a reviewer who reads only two notes should read these two.
     // The card's place in the reading order. Without it the order was real but invisible — the cards sit where
@@ -744,6 +748,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "trivial.spacing": "공백",
     "trivial.format": "포맷",
     "trivial.moved": "이동",
+    "collision.conflict": "충돌",
+    "collision.conflict.title": "이 브랜치가 갈라진 뒤 base가 같은 줄을 바꿨습니다 \u2014 깨끗하게 병합되지 않습니다",
+    "collision.diverged": "갈라짐",
+    "collision.diverged.title": "이 브랜치가 갈라진 뒤 base가 이 파일의 다른 곳을 바꿨습니다 \u2014 병합은 됩니다",
 
     // 브리핑 말풍선 (25-briefing.js)
 
