@@ -66,21 +66,71 @@ test("the merged dock is a centred floating panel with clickable header controls
   assert.match(activeDockButtons || "", /cursor:\s*pointer/, "clear, copy, and maximize controls advertise clickability");
 });
 
+// ===== The application layer order =====
+//
+// Which surface paints over which is a RELATION, and z-index can only state an absolute. So the relation
+// had nowhere to live in the stylesheet and leaked into prose: seven comments carried a copy of some other
+// selector's number, and three of those copies were wrong by the time anyone read them — the launcher's
+// said it sat "below the settings overlay" while sitting fourteen above it. The ladder in :root is where
+// the relation lives now, and these three tests are what keep it from going back into sentences.
+
+// Every --z-* token, in the order the stylesheet declares them.
+const layerLadder = () => {
+  const root = /^:root \{([\s\S]*?)^\}/m.exec(css);
+  assert.ok(root, "the stylesheet still opens with a :root block");
+  const rungs = [...root[1].matchAll(/^\s*(--z-[\w-]+):\s*(\d+);/gm)].map((m) => [m[1], Number(m[2])]);
+  assert.ok(rungs.length >= 14, `the ladder is declared in :root (found ${rungs.length} rungs)`);
+  return rungs;
+};
+// The z-index a selector resolves to, through its token.
+const layerOf = (selector) => {
+  // Not ruleBodyForExactSelector: it anchors on the previous rule's brace, and several of these rules are
+  // introduced by a comment rather than by one.
+  const at = css.indexOf("\n" + selector + " {");
+  assert.ok(at >= 0, `${selector} has a rule of its own`);
+  const body = css.slice(at, css.indexOf("}", at));
+  const match = /z-index:\s*var\((--z-[\w-]+)\)/.exec(body);
+  assert.ok(match, `${selector} takes its z-index from the ladder, not from a literal: ${body.trim()}`);
+  const rung = layerLadder().find(([name]) => name === match[1]);
+  assert.ok(rung, `${selector} names ${match[1]}, which is not on the ladder`);
+  return rung[1];
+};
+
+// Reading the list top to bottom has to BE the order, or it is just fifteen numbers in one place.
+test("the layer ladder is declared in the order it paints", () => {
+  const rungs = layerLadder();
+  for (let i = 1; i < rungs.length; i += 1) {
+    assert.ok(rungs[i][1] >= rungs[i - 1][1],
+      `${rungs[i][0]} (${rungs[i][1]}) is declared after ${rungs[i - 1][0]} (${rungs[i - 1][1]}) but paints below it`);
+  }
+});
+
+// The anti-drift rule. A literal in a rule is a number with no stated relation to any other, which is how
+// seven comments ended up restating their neighbours' values. Component-local stacking (a gutter over a
+// cell, a sticky header inside one panel) is a different thing and keeps its small literals.
+test("no application surface writes a raw z-index", () => {
+  // Comments are stripped first, and that is not incidental: the ladder's own comment QUOTES one of the
+  // copied numbers it exists to explain, and the first version of this guard failed on its own
+  // documentation. A rule about declarations has to look at declarations.
+  const declarations = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const offenders = [...declarations.matchAll(/z-index:\s*(\d+)/g)]
+    .map((m) => Number(m[1]))
+    .filter((value) => value >= 40);
+  assert.deepEqual(offenders, [],
+    "an application layer is declared as a literal; put it on the ladder in :root so its order is visible");
+  // Not vacuous: the ladder is still reachable and the surfaces still resolve through it.
+  assert.ok(/z-index:\s*var\(--z-/.test(declarations), "surfaces take their layer from the ladder");
+});
+
 // The launcher is a modal keyboard scope: while it is up every key goes to it and menu accelerators are
 // suspended. So it has to be ABOVE everything it can be opened over, or Cmd+E produces an invisible modal
-// that eats every keystroke with nothing on screen to explain why. Pin the ordering, not the numbers.
+// that eats every keystroke with nothing on screen to explain why.
 test("the modal launcher paints above the surfaces it can be opened over", () => {
-  // Not ruleBodyForExactSelector: it anchors on the previous rule's brace, and these rules are introduced by
-  // a comment rather than by one.
-  const zIndexOf = (selector) => {
-    const at = css.indexOf("\n" + selector + " {");
-    assert.ok(at >= 0, `${selector} has a rule of its own`);
-    const match = /z-index:\s*(\d+)/.exec(css.slice(at, css.indexOf("}", at)));
-    assert.ok(match, `${selector} declares a z-index`);
-    return Number(match[1]);
-  };
-  const quickOpen = zIndexOf(".quick-open");
-  assert.ok(zIndexOf(".file-find") < quickOpen, "the current-file search is editor chrome, not a modal");
+  const quickOpen = layerOf(".quick-open");
+  assert.ok(layerOf(".file-find") < quickOpen, "the current-file search is editor chrome, not a modal");
+  assert.ok(layerOf(".dock-panel") < quickOpen, "Cmd+E over an open terminal must not open behind it");
+  assert.ok(layerOf(".settings-modal") < quickOpen, "Cmd+E over Settings must not open behind it");
+  assert.ok(layerOf(".history-view") < quickOpen, "Cmd+E over History/Explain must not open behind it");
 });
 
 test("scrollbar thumbs remain layout-stable but only paint while scrolling", () => {

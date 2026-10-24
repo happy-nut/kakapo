@@ -5,6 +5,36 @@
      across the window, so they share a height — their bottom rules meet at the seam between the two
      columns, and deriving that height from paddings on each side left them a fraction of a pixel apart. */
   --header-band: 38px;
+  /* ===== Application layer order, lowest first =====
+     Read top to bottom, this list IS the order, and that is the whole point of its being a list. A surface
+     that paints over another is a RELATION, but z-index can only state an absolute, so the relation had
+     nowhere to live and leaked into prose: seven comments carried a copy of some other selector's number
+     ("Must outrank History/Explain (z-index: 75)"), and three of those copies were already wrong — the
+     launcher's said it sat below Settings while sitting fourteen above it. A number is only meaningful next
+     to the others, so the others are here.
+     The gaps are deliberate: a new surface lands between two neighbours without renumbering the rest.
+     Values are unchanged from when each was a literal — this named what was already there rather than
+     restacking anything, so every ordering argument written into the rules below still holds. */
+  --z-chrome: 45;           /* editor chrome that is not a modal: the current-file find bar */
+  --z-anchored: 60;         /* anchored to something on the page: the info popover, the compare menu, cmd-click */
+  --z-sidebar-raised: 73;   /* the sidebar, lifted while the briefing is up */
+  --z-nudge: 74;            /* coach tips — a full-view surface may cover a tip, never the reverse */
+  --z-overlay: 75;          /* full-view surfaces: History/Explain, the caret hint */
+  --z-dock-backdrop: 77;
+  --z-dock: 78;             /* the floating dock, and the terminal inside it */
+  --z-modal: 80;            /* Settings, Go to line */
+  --z-toast: 80;            /* NOTE: the same band as a modal, so a toast paints UNDER the menus below.
+                               Kept where it was rather than moved as part of a rename; it is pointer-events:
+                               none in the bottom-left corner, so whether that has ever cost anyone a glance
+                               is a question to answer on its own. */
+  --z-lightbox: 85;         /* a zoomed diagram, opened from the briefing, History or the dock */
+  --z-menu: 90;             /* menus: they are opened FROM the surfaces above and must clear them */
+  --z-peek: 92;
+  --z-launcher: 94;         /* the modal keyboard scope — while it is up every key goes to it, so it has to
+                               be above everything it can be opened over, or it is invisible and eats keys */
+  --z-boot: 200;            /* painted before the renderer has drawn anything */
+  --z-hint: 500;            /* the shortcut hint that follows a button */
+  --z-tooltip: 2147483000;  /* the dwell tooltip follows the pointer and may appear over any of the above */
   --bg: #101318;
   --panel: #171b21;
   --text: #d8e0eb;
@@ -906,7 +936,7 @@ body {
   position: fixed;
   left: 12px;
   bottom: 46px;
-  z-index: 60;
+  z-index: var(--z-anchored);
   width: 320px;
   max-width: calc(100vw - 24px);
   max-height: calc(100vh - 64px);
@@ -929,9 +959,10 @@ body {
 
 /* Settings modal (Cmd+Shift+/ merge prompts, etc.) — sidebar categories + form, like a desktop app. */
 .settings-modal {
-  /* Must outrank every full-view overlay (History/Explain, z-index: 75) — Settings is reachable (Cmd+,)
-     from inside any of them and must always land on top, not silently render underneath one. */
-  position: fixed; inset: 0; z-index: 80;
+  /* Must outrank --z-overlay (History/Explain) — Settings is reachable (Cmd+,) from inside any of them
+     and must always land on top, not silently render underneath one. It does NOT outrank everything: the
+     menus, the peek and the launcher are all above it, on purpose, because each is opened from inside it. */
+  position: fixed; inset: 0; z-index: var(--z-modal);
   display: flex; align-items: center; justify-content: center;
   background: rgba(0, 0, 0, 0.6); padding: 32px;
   isolation: isolate;
@@ -1833,7 +1864,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .file-find {
   position: fixed;
   /* Current-file search stays above editor chrome but below modal backdrops (Quick Open starts at 50). */
-  z-index: 45;
+  z-index: var(--z-chrome);
   display: flex;
   align-items: center;
   gap: 3px;
@@ -1934,7 +1965,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 /* Dwell tooltip shown ~1s after the pointer rests on a problem line. Fixed-positioned near the cursor. */
 .diag-tooltip {
   position: fixed;
-  z-index: 2147483000;
+  z-index: var(--z-tooltip);
   max-width: 460px;
   padding: 6px 9px;
   font-size: 12px;
@@ -2156,7 +2187,7 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  z-index: 60;
+  z-index: var(--z-anchored);
   display: flex;
   align-items: flex-start;
   gap: 6px;
@@ -2545,7 +2576,7 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
 /* Boot overlay: painted the instant the review HTML loads, removed once the renderer's bootstrap has drawn
    the diff/tree — so there's no blank screen between the native startup mark and first render. */
 #boot-overlay {
-  position: fixed; inset: 0; z-index: 200;
+  position: fixed; inset: 0; z-index: var(--z-boot);
   display: flex; align-items: center; justify-content: center;
   background: var(--bg); color: var(--muted);
   font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -2642,7 +2673,7 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
    inside it — see updateCmdLink. */
 .mc-cmd-link {
   position: fixed;
-  z-index: 60;
+  z-index: var(--z-anchored);
   height: 1px;
   pointer-events: none;
   opacity: 0;
@@ -3000,7 +3031,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    arrows move the menu selection, Enter opens the real source, and Escape returns to the original caret. */
 .semantic-peek {
   position: fixed;
-  z-index: 92;
+  z-index: var(--z-peek);
   display: flex;
   flex-direction: column;
   min-width: 280px;
@@ -3040,7 +3071,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 }
 
 /* ===== Git history view (Cmd+9): full commit graph with a floating changed-files + diff workspace. ===== */
-.history-view { position: fixed; inset: 0 0 0 var(--rail-width); z-index: 75; display: flex; flex-direction: column; }
+.history-view { position: fixed; inset: 0 0 0 var(--rail-width); z-index: var(--z-overlay); display: flex; flex-direction: column; }
 .history-view.hidden { display: none; }
 /* Entrance animation when the panel opens (⌘9 / history rail button) — a brief fade + rise, matching the dock
    panel's arrival. Runs each time it goes from hidden to shown (display none→flex restarts the animation). */
@@ -3119,29 +3150,29 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 
 /* Go-to-line (Cmd/Ctrl+L): a small numeric prompt near the top, like a command palette. */
 .goto-line {
-  position: fixed; top: 13vh; left: 50%; transform: translateX(-50%); z-index: 80; border: 1px solid var(--border); padding: 8px;
+  position: fixed; top: 13vh; left: 50%; transform: translateX(-50%); z-index: var(--z-modal); border: 1px solid var(--border); padding: 8px;
 }
 .goto-line-input {
   width: 220px; height: 30px; border: 1px solid var(--border); padding: 0 10px;
   font: 14px ui-sans-serif, -apple-system, system-ui, sans-serif; outline: none;
 }
 .mc-hint { color: var(--muted); font-size: 11px; }
-.mc-modal { position: fixed; inset: 0; z-index: 60; display: grid; place-items: start center; padding-top: min(10vh, 80px); background: color-mix(in srgb, #000 32%, transparent); }
+.mc-modal { position: fixed; inset: 0; z-index: var(--z-anchored); display: grid; place-items: start center; padding-top: min(10vh, 80px); background: color-mix(in srgb, #000 32%, transparent); }
 .mc-modal.hidden { display: none; }
 .mc-modal-panel { width: min(900px, calc(100vw - 40px)); height: 80vh; max-height: 80vh; display: grid; grid-template-rows: auto minmax(0, 1fr); border: 1px solid var(--border); overflow: hidden; }
 
-/* Above EVERY overlay, including Settings (z-index 80, and an `isolation: isolate` stacking context). The
-   dropdown is appended to <body>, so anything that outranks it renders on top of it — which read as "the
-   Language / Theme selects do nothing": the menu opened behind the modal, and the click that should have
-   picked an option landed on the backdrop instead. Same for menus opened from History/Explain (z-index 75). */
-.mc-dropdown { position: fixed; z-index: 90; min-width: 0; border: 1px solid var(--border); padding: 3px; }
+/* Above every overlay, including --z-modal (Settings, which is also an `isolation: isolate` stacking
+   context). The dropdown is appended to <body>, so anything that outranks it renders on top of it — which
+   read as "the Language / Theme selects do nothing": the menu opened behind the modal, and the click that
+   should have picked an option landed on the backdrop instead. Same for menus opened from --z-overlay. */
+.mc-dropdown { position: fixed; z-index: var(--z-menu); min-width: 0; border: 1px solid var(--border); padding: 3px; }
 .mc-dropdown-item { display: block; width: 100%; text-align: left; padding: 4px 10px; border: 0; background: transparent; font-size: 12px; line-height: 1.5; cursor: pointer; white-space: nowrap; }
-#mc-toasts { position: fixed; left: 16px; bottom: 16px; z-index: 80; display: flex; flex-direction: column; gap: 8px; max-width: 360px; pointer-events: none; }
+#mc-toasts { position: fixed; left: 16px; bottom: 16px; z-index: var(--z-toast); display: flex; flex-direction: column; gap: 8px; max-width: 360px; pointer-events: none; }
 .mc-toast { overflow-wrap: anywhere; border: 1px solid var(--border); border-left: 3px solid var(--active); padding: 10px 14px; font-size: 13px; line-height: 1.45; opacity: 0; transform: translateY(8px); transition: opacity .25s ease, transform .25s ease; }
 .mc-toast.show { opacity: 1; transform: translateY(0); }
 .mc-toast.hide { opacity: 0; transform: translateY(8px); }
 /* Inline hint anchored just under the diff caret (F7 "last change" boundary announcement); fades on its own. */
-.mc-caret-hint { position: fixed; z-index: 75; max-width: 460px; overflow-wrap: anywhere; border: 1px solid var(--border); border-left: 3px solid var(--active); padding: 5px 10px; font-size: 12px; line-height: 1.4; opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
+.mc-caret-hint { position: fixed; z-index: var(--z-overlay); max-width: 460px; overflow-wrap: anywhere; border: 1px solid var(--border); border-left: 3px solid var(--active); padding: 5px 10px; font-size: 12px; line-height: 1.4; opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
 .mc-caret-hint.show { opacity: 1; transform: translateY(0); }
 /* Merged prompts render as several small editable prose regions (agent-contract text) interleaved with
    read-only comment cards — not one continuous editable document (see openMergedView in 08-dock.js). */
@@ -3212,16 +3243,15 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
      laid out from the left, all of it on one side: 60px to their left and 229px to their right, which
      reads as something having gone wrong rather than as margin. */
   width: min(880px, calc(100vw - 48px)); transform: translate(-50%, -50%);
-  /* Must outrank History/Explain (z-index: 75, full-view overlays) — Cmd+Shift+/ can open the merged dock
-     while either is showing, and it must land on top, not silently render underneath. Stays below the
-     settings modal (80). */
-  z-index: 78; min-height: 0;
+  /* Must outrank --z-overlay (History/Explain) — Cmd+Shift+/ can open the merged dock while either is
+     showing, and it must land on top, not silently render underneath. Stays below --z-modal. */
+  z-index: var(--z-dock); min-height: 0;
   display: flex; flex-direction: column;
   border: 1px solid var(--border);
   overflow: hidden;
 }
 /* Dim the editor behind the floating panel; clicking it closes (handler wired in mountDock). */
-.dock-backdrop { position: fixed; inset: 0; z-index: 77; background: color-mix(in srgb, #000 40%, transparent); animation: dock-backdrop-in 140ms ease; }
+.dock-backdrop { position: fixed; inset: 0; z-index: var(--z-dock-backdrop); background: color-mix(in srgb, #000 40%, transparent); animation: dock-backdrop-in 140ms ease; }
 /* Smooth entrance so the panel eases in from the center instead of popping (which read as a stutter). The
    keyframe keeps the base translateX(-50%) centering; the heavy editor mounts a frame later (see openMergedView)
    so it never blocks this animation. */
@@ -3285,12 +3315,14 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 .quick-open {
   position: fixed;
   inset: 0;
-  /* A surface that owns the keyboard must be the surface you can see. At z-index 50 this sat BEHIND the
-     terminal panel (78), so pressing Cmd+E with a terminal open dropped an invisible modal over the app: it
+  /* A surface that owns the keyboard must be the surface you can see. Below --z-dock this sat BEHIND the
+     terminal panel, so pressing Cmd+E with a terminal open dropped an invisible modal over the app: it
      swallowed every keystroke into its speed-search — spaces included — and suspended every menu
-     accelerator, with nothing on screen to explain why. Above the terminal and the caret dropdowns, below
-     the settings overlay. */
-  z-index: 94;
+     accelerator, with nothing on screen to explain why. So it is the top of the ladder below the hints:
+     above the dock, above Settings, above the menus it can be opened over. (This said "below the settings
+     overlay" while sitting fourteen above it — a copied number that drifted, which is why the order is now
+     a list and not a sentence.) */
+  z-index: var(--z-launcher);
   display: grid;
   place-items: start center;
   padding-top: min(12vh, 96px);
@@ -3663,10 +3695,10 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 .mermaid-zoomable { cursor: zoom-in; }
 .mermaid-zoomable a { cursor: pointer; }
 .mc-lightbox {
-  /* Above every surface a diagram can be clicked in — the briefing (74), History (75), the floating dock
-     (78) — or the zoom opens UNDER the panel that asked for it and reads as doing nothing. Below .mc-dropdown
-     (90), which must outrank everything with its own explanation. */
-  position: fixed; inset: 0; z-index: 85;
+  /* Above every surface a diagram can be clicked in — the nudge, --z-overlay, --z-dock — or the zoom opens
+     UNDER the panel that asked for it and reads as doing nothing. Below --z-menu, so a menu opened over a
+     zoomed diagram still clears it. */
+  position: fixed; inset: 0; z-index: var(--z-lightbox);
   display: flex; align-items: center; justify-content: center;
   background: rgba(0, 0, 0, 0.82); cursor: zoom-out; padding: 32px;
 }
@@ -4255,7 +4287,7 @@ summary.tree-focus,
 /* Global button shortcut tooltip. Dynamic controls receive it through delegated events. */
 .mc-button-hint {
   position: fixed;
-  z-index: 500;
+  z-index: var(--z-hint);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -4290,7 +4322,7 @@ summary.tree-focus,
 
 @keyframes workspace-selector-spin { to { transform: rotate(360deg); } }
 
-body:has(#mc-briefing) .sidebar { z-index: 73; }
+body:has(#mc-briefing) .sidebar { z-index: var(--z-sidebar-raised); }
 
 @keyframes mc-term-in { from { opacity: 0; transform: translateY(-6px); } }
 
@@ -4299,12 +4331,12 @@ body:has(#mc-briefing) .sidebar { z-index: 73; }
 /* ===== Shortcut coach (28-shortcut-coach.js) — the top-right "there's a key for that" nudge. Blue edge
    for a never-used shortcut spotted through repeated clicks; the commit-accent violet marks the rusty
    re-introduction, matching what that hue already means elsewhere: "not new, coming back around". Sits
-   below the History overlay (z75) on purpose — a full-screen surface may cover a tip, never the reverse. */
+   below --z-overlay on purpose — a full-screen surface may cover a tip, never the reverse. */
 .coach-nudge {
   position: fixed;
   top: 52px;
   right: 16px;
-  z-index: 74;
+  z-index: var(--z-nudge);
   width: 280px;
   padding: 11px 13px;
   background: var(--elevated);
