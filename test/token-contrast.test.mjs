@@ -222,3 +222,87 @@ test("a changed word is the row's own colour, one step stronger", () => {
   assert.ok(checked >= 50, `every change kind in every theme was checked (checked ${checked})`);
   assert.deepEqual(failures, [], "word fills that are not the row's colour one step stronger");
 });
+
+// A pill never lays its ink on a tint of itself.
+//
+// The sidebar's qualifying pills (trivial, 충돌, 갈라짐) were built as `color: <ink>` over
+// `background: color-mix(<same ink> N%, transparent)`. That fill is not free: it moves the ground toward
+// the ink by exactly as much as it makes the pill visible, so the shape is bought with the contrast. And
+// there is nothing to buy it with here — `--chrome-stat-del` is solved to 4.58-4.63:1 in all twelve themes,
+// i.e. to the floor, and `--muted` (what two of the three pills used, though it is a code-canvas token on a
+// chrome ground) measures 2.33:1 before any fill at all.
+//
+// So the rule is structural, not a number: these rules declare no background. Stated that way because a
+// threshold would have to model the composite, and the composite is the bug — the way to not have it is to
+// not paint it.
+test("the sidebar's qualifying pills are ink on the row, never ink on a tint of itself", () => {
+  const PILLS = [".change-trivial", ".change-collision.cl-conflict", ".change-collision.cl-diverged"];
+  for (const selector of PILLS) {
+    // The shape block is shared (`.change-trivial,\n.change-collision`), so anchor on the whole declaration
+    // list that this exact selector introduces rather than on a rule that starts at a newline.
+    const at = css.indexOf(selector + " {");
+    assert.ok(at >= 0, `${selector} has a rule of its own`);
+    const body = css.slice(at, css.indexOf("}", at));
+    assert.doesNotMatch(body, /background/,
+      `${selector} paints a fill again; a pill's own tint is the ground its ink has to clear: ${body.trim()}`);
+  }
+  // The shared shape block may not reintroduce one for all of them either.
+  const shape = /\.change-trivial,\n\.change-collision \{([^}]*)\}/.exec(css);
+  assert.ok(shape, "the two pills still share one shape block");
+  assert.doesNotMatch(shape[1], /background/, "the shared pill shape stays unfilled");
+});
+
+// --chrome-status-bad is a STATE on a chrome row, and it is new, so its contract is asserted rather than
+// assumed: 4.5:1 on both grounds a sidebar row has, in every theme that ships.
+//
+// It exists because the conflict pill used --chrome-stat-del, which answers a different question ("how many
+// lines went away") and is tuned to the floor for it. The two are not interchangeable even where they share
+// a value: darcula paints its deletion figure GREY on purpose, so inheriting it would have rendered a
+// conflict warning as a grey pill next to the quiet grey pill it has to be told apart from.
+//
+// --chrome-muted, which the quiet pills use, is deliberately NOT swept here: it is under the floor on
+// solarized and dracula today, and solarized's own token comment records that choice (base01 is Solarized's
+// secondary text, and the lighter candidate measured worse). That is a palette question with its own
+// argument, not something this test should settle by failing.
+test("a chrome state ink is readable on both sidebar grounds, in every theme", () => {
+  const blocks = customPropertyBlocks();
+  const base = blocks.find((b) => b.selector === ":root");
+  const light = blocks.find((b) => b.selector === ':root[data-theme="light"]') ?? { vars: {} };
+  const themes = blocks.filter((b) =>
+    b.selector === ":root" || b.selector === ':root[data-theme="light"]' || b.selector.includes("data-syntax-theme"));
+
+  const failures = [];
+  let checked = 0;
+  for (const theme of themes) {
+    const isLight = theme.selector.includes('data-theme="light"');
+    const vars = { ...base.vars, ...(isLight ? light.vars : {}), ...theme.vars };
+    const ink = resolve(vars, "--chrome-status-bad");
+    assert.ok(ink, `${theme.selector} declares --chrome-status-bad (every theme states its own chrome inks)`);
+    for (const groundName of ["--chrome-bg", "--chrome-selected"]) {
+      const ground = resolve(vars, groundName);
+      if (!ground) continue;
+      checked += 1;
+      const ratio = contrast(ink, ground);
+      if (ratio < AA_NORMAL_TEXT) failures.push(`${theme.selector} --chrome-status-bad on ${groundName} = ${ratio}:1`);
+    }
+  }
+  assert.ok(checked >= 24, `both grounds in all twelve themes were checked (checked ${checked})`);
+  assert.deepEqual(failures, [], `a conflict warning below ${AA_NORMAL_TEXT}:1 on a row it appears on`);
+
+  // And it is a WARNING, so it may not collapse into the quiet ink beside it on any theme — the failure
+  // darcula would have had by inheriting the deletion figure.
+  for (const theme of themes) {
+    const isLight = theme.selector.includes('data-theme="light"');
+    const vars = { ...base.vars, ...(isLight ? light.vars : {}), ...theme.vars };
+    const bad = resolve(vars, "--chrome-status-bad");
+    const quiet = resolve(vars, "--chrome-muted");
+    if (!bad || !quiet) continue;
+    assert.ok(contrast(bad, quiet) >= 1.3 || Math.abs(saturationOf(bad) - saturationOf(quiet)) >= 0.15,
+      `${theme.selector}: 충돌 and 갈라짐 are the same ink — the warning has nothing to tell it apart`);
+  }
+});
+
+const saturationOf = ({ r, g, b }) => {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  return max === 0 ? 0 : (max - min) / max;
+};

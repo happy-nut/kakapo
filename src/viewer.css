@@ -46,6 +46,13 @@
   --chrome-selected-text: #ffffff;
   --chrome-stat-add: #41be6c;
   --chrome-stat-del: #d69898;
+  /* A STATE on a chrome row, as against a COUNT. --chrome-stat-add/del measure change magnitude, and
+     every one of the twelve themes has them solved to 4.58-4.63:1 — just over the floor, with no headroom
+     left for anything behind them. Painting a state with the count's token borrows a value that was tuned
+     for a different question, and ties the two together: darcula's deletion figure is deliberately GREY,
+     which would render a conflict warning as a grey pill indistinguishable from the quiet one beside it.
+     So states get their own ink per theme. */
+  --chrome-status-bad: #d69898;
   --chrome-vcs-new: #f08b8b;
   --chrome-vcs-edited: #83b8f0;
   --chrome-vcs-staged: #98cb80;
@@ -114,6 +121,7 @@
   --chrome-selected-text: #17181a;
   --chrome-stat-add: #12752a;
   --chrome-stat-del: #ca0f00;
+  --chrome-status-bad: #ca0f00;
   --chrome-vcs-new: #b42318;
   --chrome-vcs-edited: #175cd3;
   --chrome-vcs-staged: #2f7d32;
@@ -169,6 +177,7 @@
   --chrome-selected-text: #ffffff;
   --chrome-stat-add: #3da04b;
   --chrome-stat-del: #e0686b;
+  --chrome-status-bad: #e0686b;
   --chrome-vcs-new: #7ee787;
   --chrome-vcs-edited: #79c0ff;
   --chrome-vcs-staged: #3fb950;
@@ -218,6 +227,7 @@
   --chrome-selected-text: #1f2328;
   --chrome-stat-add: #18732c;
   --chrome-stat-del: #c80c00;
+  --chrome-status-bad: #c80c00;
   --chrome-vcs-new: #1a7f37;
   --chrome-vcs-edited: #0969da;
   --chrome-vcs-staged: #1a7f37;
@@ -268,6 +278,10 @@
   --chrome-selected-text: #ffffff;
   --chrome-stat-add: #aaceb9;
   --chrome-stat-del: #c3c6c8;
+  /* darcula paints its deletion figure GREY on purpose (--chrome-stat-del above), so there is no red in this
+     theme to inherit, and this chrome is mid-grey (#303133 resting, #505155 selected) — which puts the floor
+     at a luminance no saturated red reaches. A pale rose is what is left: 7.58:1 resting, 4.61:1 selected. */
+  --chrome-status-bad: #f0b8b8;
   --chrome-vcs-new: #ef8b8b;
   --chrome-vcs-edited: #88b8ec;
   --chrome-vcs-staged: #9aca83;
@@ -317,6 +331,7 @@
   --chrome-selected-text: #17181a;
   --chrome-stat-add: #347142;
   --chrome-stat-del: #656565;
+  --chrome-status-bad: #b42318;
   --chrome-vcs-new: #b42318;
   --chrome-vcs-edited: #175cd3;
   --chrome-vcs-staged: #2f7d32;
@@ -377,6 +392,7 @@
   --chrome-selected-text: #fdf6e3;
   --chrome-stat-add: #15c38a;
   --chrome-stat-del: #e09999;
+  --chrome-status-bad: #e09999;
   --chrome-vcs-new: #859900;
   --chrome-vcs-edited: #268bd2;
   --chrome-vcs-staged: #2aa198;
@@ -429,6 +445,7 @@
   --chrome-selected-text: #073642;
   --chrome-stat-add: #536826;
   --chrome-stat-del: #b52d20;
+  --chrome-status-bad: #b52d20;
   --chrome-vcs-new: #859900;
   --chrome-vcs-edited: #268bd2;
   --chrome-vcs-staged: #2aa198;
@@ -482,6 +499,11 @@
   --chrome-selected-text: #ffffff;
   --chrome-stat-add: #7ac899;
   --chrome-stat-del: #e2aab3;
+  /* Not dracula's own deletion rose (#e2aab3): against this theme's light --chrome-selected it clears the
+     floor at 4.63:1 but sits 0.11 saturation from --chrome-muted's lavender, and at 9.5px those two pills
+     read as one. Saturated reds are the obvious answer and all fail the selected row (#ff5555 is 2.91:1
+     there); this is the light salmon that clears both grounds AND stays visibly red beside the quiet ink. */
+  --chrome-status-bad: #ffa0a0;
   --chrome-vcs-new: #50fa7b;
   --chrome-vcs-edited: #8be9fd;
   --chrome-vcs-staged: #50fa7b;
@@ -531,6 +553,7 @@
   --chrome-selected-text: #1f1f1f;
   --chrome-stat-add: #3f6f2f;
   --chrome-stat-del: #b8341f;
+  --chrome-status-bad: #b8341f;
   --chrome-vcs-new: #14710a;
   --chrome-vcs-edited: #036a96;
   --chrome-vcs-staged: #14710a;
@@ -582,6 +605,7 @@
   --chrome-selected-text: #ffffff;
   --chrome-stat-add: #00a95d;
   --chrome-stat-del: #e76d73;
+  --chrome-status-bad: #e76d73;
   --chrome-vcs-new: #6bff9e;
   --chrome-vcs-edited: #8ce0ff;
   --chrome-vcs-staged: #6bff9e;
@@ -631,6 +655,7 @@
   --chrome-selected-text: #000000;
   --chrome-stat-add: #297141;
   --chrome-stat-del: #bc2d21;
+  --chrome-status-bad: #bc2d21;
   --chrome-vcs-new: #067d3a;
   --chrome-vcs-edited: #0f4a85;
   --chrome-vcs-staged: #067d3a;
@@ -848,28 +873,30 @@ body {
 .analysis-status.is-ready .analysis-status-dot { background: var(--token-string); opacity: 1; }
 .analysis-status.is-fallback .analysis-status-dot { background: var(--token-tag); opacity: 1; }
 .analysis-status.is-failed .analysis-status-dot { background: var(--token-keyword); opacity: 1; }
-/* Why a row arrived already ticked (trivialChange, render-tree.ts). Quiet enough that the filename still
-   wins the row, present enough that a pre-viewed file never reads as a bug. */
-.change-trivial {
-  flex: none; margin-left: 6px; padding: 0 5px; border-radius: 999px;
-  background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted);
-  font-size: 9.5px; line-height: 15px; letter-spacing: .02em; white-space: nowrap;
-}
-/* Something has landed on the base in this file. Shaped like the trivial pill next to it — same row, same
-   question ("which of these do I read first?") — and coloured from the palette's own deletion ink, because
-   a conflict is the one thing on this row that is about work OTHER than the change being read. `diverged`
-   is the same shape without the colour: it merges, so it is a note, not a warning. */
+/* The pills that qualify a sidebar row, and the one rule they share: THE INK IS NEVER LAID ON A TINT OF
+   ITSELF. A `color-mix(<ink> N%, transparent)` fill moves the ground toward the ink by exactly as much as it
+   makes the pill visible, so it spends the ink's contrast to buy the pill's shape. Swept across the twelve
+   themes on both sidebar grounds (--chrome-bg resting, --chrome-selected), no ink in this palette can afford
+   it: --chrome-stat-del measures 4.58-4.63:1 solid and 3.24:1 behind 20% of itself, and --muted — what these
+   pills used — measures 2.33:1 solid, so the fill took it to 1.93:1. These are the smallest glyphs in the
+   app. They are ink on the row's own ground now, and token-contrast.test.mjs holds the rule.
+   Shape still separates them from the filename: the gap, the 999px radius and the size are unchanged, and
+   the pill reads as a pill because it is the only thing on the row at 9.5px. */
+.change-trivial,
 .change-collision {
   flex: none; margin-left: 6px; padding: 0 5px; border-radius: 999px;
   font-size: 9.5px; line-height: 15px; letter-spacing: .02em; white-space: nowrap;
 }
-.change-collision.cl-conflict {
-  background: color-mix(in srgb, var(--chrome-stat-del) 20%, transparent);
-  color: var(--chrome-stat-del);
-}
-.change-collision.cl-diverged {
-  background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted);
-}
+/* Why a row arrived already ticked (trivialChange, render-tree.ts). Quiet enough that the filename still
+   wins the row, present enough that a pre-viewed file never reads as a bug — which is why it moved off
+   --muted (a code-canvas token, on chrome grounds here) and onto the chrome's own secondary ink. */
+.change-trivial { color: var(--chrome-muted); }
+/* Something has landed on the base in this file. Same shape as the trivial pill — same row, same question
+   ("which of these do I read first?") — in the chrome's STATE ink, not the deletion count's: a conflict is
+   about work OTHER than the change being read, and --chrome-stat-del answers "how many lines went away".
+   `diverged` is the same shape in the quiet ink: it merges, so it is a note, not a warning. */
+.change-collision.cl-conflict { color: var(--chrome-status-bad); font-weight: 600; }
+.change-collision.cl-diverged { color: var(--chrome-muted); }
 
 @keyframes mc-thinking-bounce { 0%, 60%, 100% { opacity: .28; } 30% { opacity: 1; } }
 
@@ -4208,11 +4235,17 @@ summary.tree-focus,
 @keyframes mc-surface-in { from { opacity: 0; transform: translateY(5px) scale(.995); } to { opacity: 1; transform: none; } }
 
 @media (prefers-reduced-motion: reduce) {
+  /* These four say "still working", so they are the surfaces that must NOT go still: the substitution
+     trades the peck and the pulse — movement — for an opacity breath, which is what reduced motion asks
+     for. `!important` because the blanket rule further down clamps `animation-duration` to .001ms with
+     `!important` of its own, and without it the breath was declared here and silently frozen there: the
+     indexing dot sat motionless while the code said it was breathing. Important beats important by
+     specificity, and every selector here is a class. */
   .kakapo-loader .kakapo-mark,
   .analysis-status.is-indexing .analysis-status-dot,
   .analysis-status.is-starting .analysis-status-loader .kakapo-mark,
   .mc-context-fold-row[data-context-loading="1"] .mc-context-fold-icon {
-    animation: kakapo-breathe 1.6s ease-in-out infinite;
+    animation: kakapo-breathe 1.6s ease-in-out infinite !important;
   }
   .mc-loading-state::after { animation: none; opacity: .45; transform: none; }
   .analysis-status.is-starting .analysis-status-dot { animation: none; }

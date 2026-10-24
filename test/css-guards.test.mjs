@@ -505,3 +505,26 @@ test("every custom property a rule reads is one this stylesheet declares", () =>
   assert.deepEqual(undeclared, [], "a var() with no fallback must name a token that exists");
 });
 
+
+// Reduced motion keeps the "still working" indicators alive, and a blanket rule must not silently kill them.
+//
+// Four surfaces say the app is busy: the startup mark, the indexing dot, the starting loader and the
+// context-fold spinner. Under `prefers-reduced-motion` they deliberately swap movement for an opacity
+// breath — going completely still is what a FINISHED indicator looks like. But the same media query ends
+// with a blanket `*, *::before, *::after { animation-duration: .001ms !important }`, which outranked the
+// substitution's shorthand and froze every one of them. The CSS said it was breathing; nothing was.
+//
+// Both halves are asserted: the blanket rule still being there is the precondition that makes `!important`
+// necessary, so if it is ever removed this fails and a human re-checks instead of the guard passing on a
+// rule that no longer needs to win.
+test("the reduced-motion breath outranks the blanket animation clamp it sits under", () => {
+  const blanket = /@media \(prefers-reduced-motion: reduce\) \{\s*\*, \*::before, \*::after \{([^}]*)\}/.exec(css);
+  assert.ok(blanket, "precondition: a blanket reduced-motion rule still clamps every animation");
+  assert.match(blanket[1], /animation-duration:\s*\.001ms\s*!important/,
+    "precondition: the clamp is !important — which is why the substitution below needs to be too");
+
+  const substitution = /\.analysis-status\.is-indexing \.analysis-status-dot,[^{]*\{([^}]*)\}/.exec(css);
+  assert.ok(substitution, "the busy indicators still substitute an animation under reduced motion");
+  assert.match(substitution[1], /animation:\s*kakapo-breathe[^;]*!important/,
+    "the breath is declared !important, or the blanket clamp above freezes it and the dot lies about working");
+});
