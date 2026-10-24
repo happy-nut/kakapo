@@ -81,7 +81,19 @@
      left for anything behind them. Painting a state with the count's token borrows a value that was tuned
      for a different question, and ties the two together: darcula's deletion figure is deliberately GREY,
      which would render a conflict warning as a grey pill indistinguishable from the quiet one beside it.
-     So states get their own ink per theme. */
+     So states get their own ink per theme.
+
+     NINE OF THE TWELVE SHARE THEIR THEME'S COUNT VALUE, AND THAT IS A MEASUREMENT, NOT AN OVERSIGHT. The
+     obvious design — the state is the same red one step stronger, the way a word fill is its row's fill one
+     step stronger — was tried and the grounds refuse it. Sweeping chroma at each count ink's own lightness,
+     every theme is ALREADY at the maximum its two sidebar grounds allow, by +0.00 to +0.01. There is no
+     step to take. Buying chroma means moving lightness, and that lands on a hot coral in dark themes and a
+     near-black maroon in light ones, which stops reading as a warning at all and would make one syntax
+     theme's dark and light halves behave differently from each other.
+     So the two are told apart the way --diag-error and --diag-warning already are in this file, which
+     measure 1.28:1 against EACH OTHER: by shape, not by hue. The state is a pill with a word in it at 600;
+     the count is a bare figure. The token stays its own so a theme CAN diverge — three already must, below
+     — and so nobody paints a state with the count by accident. It is not an alias, and a test says so. */
   --chrome-status-bad: #d69898;
   --chrome-vcs-new: #f08b8b;
   --chrome-vcs-edited: #83b8f0;

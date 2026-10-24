@@ -289,6 +289,18 @@ test("a chrome state ink is readable on both sidebar grounds, in every theme", (
   assert.ok(checked >= 24, `both grounds in all twelve themes were checked (checked ${checked})`);
   assert.deepEqual(failures, [], `a conflict warning below ${AA_NORMAL_TEXT}:1 on a row it appears on`);
 
+  // The split may not be collapsed back into an alias. Nine themes share their count's VALUE — swept at
+  // each count ink's own lightness, every theme is already at the maximum chroma its grounds allow, so
+  // there is no stronger step to give the state — but sharing a value is not the same as being the same
+  // token, and `var(--chrome-stat-del)` is how the distinction would quietly die. Shape carries it: a pill
+  // with a word in it at 600, against a bare figure.
+  for (const theme of themes) {
+    const declared = theme.vars["--chrome-status-bad"];
+    if (!declared) continue;
+    assert.doesNotMatch(declared, /var\(/,
+      `${theme.selector}: --chrome-status-bad is an alias; a state that tracks a count is a state painted by a count`);
+  }
+
   // And it is a WARNING, so it may not collapse into the quiet ink beside it on any theme — the failure
   // darcula would have had by inheriting the deletion figure.
   for (const theme of themes) {
