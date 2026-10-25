@@ -134,7 +134,7 @@ test("published Electron runtime stays pinned to the verified patch version", ()
   const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
   const packageLock = JSON.parse(readFileSync(join(repoRoot, "package-lock.json"), "utf8"));
 
-  assert.equal(packageJson.dependencies.electron, "42.10.0");
-  assert.equal(packageLock.packages[""].dependencies.electron, "42.10.0");
-  assert.equal(packageLock.packages["node_modules/electron"].version, "42.10.0");
+  assert.equal(packageJson.dependencies.electron, "42.11.18");
+  assert.equal(packageLock.packages[""].dependencies.electron, "42.11.18");
+  assert.equal(packageLock.packages["node_modules/electron"].version, "42.11.18");
 });
