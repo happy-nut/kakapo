@@ -770,8 +770,15 @@ export function collectHttpEnvironments(root: string, httpPaths: string[] = []):
         // SSLConfiguration and the other non-variable blocks IntelliJ puts inside an environment are not
         // variables; keeping them out stops `{{SSLConfiguration}}` resolving to "[object Object]".
         const target = result[envName] ?? (result[envName] = {});
-        const { SSLConfiguration: _ssl, Security: _security, ...variables } = rawVars as Record<string, unknown>;
+        const { SSLConfiguration: ssl, Security: _security, ...variables } = rawVars as Record<string, unknown>;
         assign(target, variables);
+        // The TLS block is not a variable, but the runner needs to know it exists: a request in this
+        // environment goes out over a client certificate. Only the fact and the paths travel — the
+        // certificate itself is read in main, at send time, from inside the review.
+        if (ssl && typeof ssl === "object") {
+          const store = result.$ssl ?? (result.$ssl = {});
+          store[envName] = JSON.stringify(ssl);
+        }
       }
     }
   }

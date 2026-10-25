@@ -600,6 +600,7 @@ function renderHttpTable(file) {
   const requests = parsed.requests;
   httpRequestsByPath.set(file.path, requests);
   httpVarsByPath.set(file.path, parsed.vars);
+  httpImportsByPath.set(file.path, parsed.imports);
   const scope = httpScope(file.path, -1);
   const lines = String(file.content).split(/\r?\n/);
   const cursor = viewerCursor && viewerCursor.path === file.path ? viewerCursor : null;
@@ -794,6 +795,32 @@ function renderWebSocketTranscript(target, result) {
   target.innerHTML = head
     + (result && result.error ? '<div class="http-script-error">' + escapeHtml(result.error) + '</div>' : '')
     + '<div class="ws-transcript">' + (rows || '<span class="http-resp-empty">' + escapeHtml(t('ws.nothing')) + '</span>') + '</div>';
+}
+
+/**
+ * What a `run` line did: one row per request it ran, in order, with its status.
+ *
+ * Not shaped like a response because it is not one — a `run` has no status, headers or body of its own,
+ * and what the reader needs from it is which of the requests it started came back.
+ */
+function renderHttpRunSummary(target, path, outcomes) {
+  const failed = outcomes.filter(function (outcome) { return !outcome.ok; }).length;
+  target.className = 'http-response' + (failed ? ' error' : '');
+  target.innerHTML = '<div class="http-resp-head">'
+    + '<span class="http-status ' + (failed ? 'bad' : 'ok') + '">'
+    + escapeHtml(failed
+      ? t('http.ranAllWithFailures').replace('{count}', String(outcomes.length)).replace('{failed}', String(failed))
+      : t('http.ranAll').replace('{count}', String(outcomes.length)))
+    + '</span>'
+    + '<span class="http-resp-meta">' + escapeHtml(path) + '</span>'
+    + '</div>'
+    + '<div class="http-run-list">' + outcomes.map(function (outcome) {
+      return '<div class="http-run-row ' + (outcome.ok ? 'ok' : 'bad') + '">'
+        + '<span class="http-run-mark" aria-hidden="true">' + (outcome.ok ? '&#10003;' : '&#10007;') + '</span>'
+        + '<span class="http-run-name">' + escapeHtml(outcome.name) + '</span>'
+        + '<span class="http-run-status">' + escapeHtml(outcome.status ? String(outcome.status) : '—') + '</span>'
+        + '</div>';
+    }).join('') + '</div>';
 }
 
 /** A non-text response. An image is worth showing; anything else is worth counting. */
@@ -1113,6 +1140,142 @@ function tokenSets() {
   return TOKEN_SETS;
 }
 
+// `true`, `off`, `~` and the rest of YAML's constants. A regex rather than a module-level Set on purpose:
+// the slices are ONE script and slice order is execution order, so a `var` initialised here is still
+// undefined to anything that runs earlier — and the source view renders its first file from an earlier
+// slice. (That is also why the keyword sets below are built lazily by tokenSets() instead of up here.)
+// Case-insensitive because YAML accepts `True` and `TRUE` for the same value, and colouring one spelling
+// and not the others looks broken.
+function yamlConstantWord(word) {
+  return /^(?:true|false|null|yes|no|on|off)$/i.test(word);
+}
+
+/**
+ * One line of a YAML value — everything to the right of a `key:`, or a bare list item.
+ *
+ * A plain scalar is a STRING in this grammar, not untyped text (Dracula paints `name: Release` and
+ * `name: "Release"` the same yellow), so the scanner accumulates a run and only interrupts it for the
+ * shapes that are something else. That is also what keeps `#` inside a quoted scalar from starting a
+ * comment — a line-local `indexOf('#')` gets that wrong, and a URL fragment in a value is not rare.
+ */
+function highlightYamlValue(text) {
+  var out = '';
+  var run = '';
+  var index = 0;
+  var flush = function () {
+    if (!run) return;
+    // The whitespace around a run belongs to the layout, not to the scalar: colouring it makes a trailing
+    // space visible as a yellow block when the line is selected.
+    var parts = run.match(/^(\s*)([\s\S]*?)(\s*)$/);
+    out += parts[1] + (parts[2] ? '<span class="tok-string">' + escapeHtml(parts[2]) + '</span>' : '') + parts[3];
+    run = '';
+  };
+  var atBoundary = function () {
+    return index === 0 || /[\s,[\]{}]/.test(text.charAt(index - 1));
+  };
+  while (index < text.length) {
+    var rest = text.slice(index);
+    var char = rest.charAt(0);
+    // YAML only starts a comment at a `#` that follows whitespace — `a#b` is the scalar "a#b".
+    if (char === '#' && (index === 0 || /\s/.test(text.charAt(index - 1)))) {
+      flush();
+      out += '<span class="tok-comment">' + escapeHtml(rest) + '</span>';
+      return out;
+    }
+    if (char === '"' || char === "'") {
+      var quoted = rest.match(char === '"' ? /^"(?:[^"\\]|\\.)*"?/ : /^'(?:[^']|'')*'?/);
+      flush();
+      out += '<span class="tok-string">' + escapeHtml(quoted[0]) + '</span>';
+      index += quoted[0].length;
+      continue;
+    }
+    if ((char === '&' || char === '*') && atBoundary()) {
+      var named = rest.match(/^[&*][^\s,\]}]+/);
+      if (named) {
+        flush();
+        out += '<span class="' + (char === '&' ? 'tok-anchor' : 'tok-alias') + '">' + escapeHtml(named[0]) + '</span>';
+        index += named[0].length;
+        continue;
+      }
+    }
+    if (char === '!' && atBoundary()) {
+      var tag = rest.match(/^!{1,2}[^\s]*/);
+      if (tag) { flush(); out += escapeHtml(tag[0]); index += tag[0].length; continue; }
+    }
+    if ((char === '|' || char === '>') && atBoundary()) {
+      var block = rest.match(/^[|>][-+]?\d*(?=\s|$)/);
+      if (block) {
+        flush();
+        out += '<span class="tok-keyword">' + escapeHtml(block[0]) + '</span>';
+        index += block[0].length;
+        continue;
+      }
+    }
+    if (atBoundary()) {
+      var number = rest.match(/^-?\d+(?:\.\d+)?(?![\w.-])/);
+      if (number) {
+        flush();
+        out += '<span class="tok-number">' + escapeHtml(number[0]) + '</span>';
+        index += number[0].length;
+        continue;
+      }
+      var word = rest.match(/^[A-Za-z~][\w.-]*(?![^\s,[\]{}])/);
+      if (word && yamlConstantWord(word[0])) {
+        flush();
+        out += '<span class="tok-literal">' + escapeHtml(word[0]) + '</span>';
+        index += word[0].length;
+        continue;
+      }
+      if (char === '~' ) {
+        flush();
+        out += '<span class="tok-literal">~</span>';
+        index += 1;
+        continue;
+      }
+    }
+    // Flow punctuation is punctuation: #F8F8F2 in the theme, which is the body colour already.
+    if (char === '[' || char === ']' || char === '{' || char === '}' || char === ',') {
+      flush();
+      out += escapeHtml(char);
+      index += 1;
+      continue;
+    }
+    run += char;
+    index += 1;
+  }
+  flush();
+  return out;
+}
+
+/** One line of YAML: its indent, its bullets, its key, then the value. */
+function highlightYamlLine(text) {
+  var line = String(text);
+  var indent = line.match(/^\s*/)[0];
+  var out = indent;
+  var rest = line.slice(indent.length);
+  if (!rest) return escapeHtml(line);
+  if (rest.charAt(0) === '#') return out + '<span class="tok-comment">' + escapeHtml(rest) + '</span>';
+  if (/^(?:---|\.\.\.)(?:\s|$)/.test(rest)) {
+    return out + '<span class="tok-keyword">' + rest.slice(0, 3) + '</span>' + highlightYamlValue(rest.slice(3));
+  }
+  // `- - a` is two bullets and one item, so this is a loop rather than one test.
+  var bullet = null;
+  while ((bullet = rest.match(/^-(\s+|$)/))) {
+    out += '<span class="tok-keyword">-</span>' + bullet[1];
+    rest = rest.slice(bullet[0].length);
+  }
+  if (!rest) return out;
+  if (rest.charAt(0) === '#') return out + '<span class="tok-comment">' + escapeHtml(rest) + '</span>';
+  // A key runs to the first `: ` — lazily, so `url: http://x` keeps its value intact, and a quoted key
+  // keeps its quotes. A line with no such colon is a plain scalar (a folded value's continuation).
+  var key = rest.match(/^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^\s#"'][^:#]*?)(\s*):(\s|$)/);
+  if (key) {
+    out += '<span class="tok-type">' + escapeHtml(key[1]) + '</span>' + key[2] + '<span class="tok-keyword">:</span>';
+    return out + highlightYamlValue(rest.slice(key[1].length + key[2].length + 1));
+  }
+  return out + highlightYamlValue(rest);
+}
+
 function highlightLine(text, language) {
   if (language === 'text') return escapeHtml(text);
   // CSS has none of the generic tokenizer's shapes — no keywords, no // comments, and `8px` is not a number
@@ -1140,6 +1303,35 @@ function highlightLine(text, language) {
   if (language === 'markup') {
     return escapeHtml(text).replace(/(&lt;\/?)([\w:-]+)([^&]*?)(\/?&gt;)/g, '$1<span class="tok-tag">$2</span>$3$4');
   }
+  // YAML had no shape here at all: a .yml file in the source view came out plain except for its `#`
+  // comments, because the generic tokenizer below is built for keyword languages and a YAML file has no
+  // keywords — it has KEYS, and nothing was colouring those. (The diff view was fine; it runs highlight.js,
+  // which does know YAML. One engine knowing it and the other not is what "yml isn't highlighted" was.)
+  //
+  // The colours are not a guess. They are read out of the shipped dracula-theme VS Code package
+  // (extension/theme/dracula.json), scope by scope:
+  //
+  //   entity.name.tag.yaml                        #8BE9FD   the key           -> --token-type
+  //   punctuation.separator.key-value.mapping     #FF79C6   the `:`           -> --token-keyword
+  //   punctuation.definition.block.sequence.item  #FF79C6   the `-` bullet    -> --token-keyword
+  //   punctuation.definition.block.scalar.*       #FF79C6   `|` and `>`       -> --token-keyword
+  //   string                                      #F1FA8C   scalars, quoted
+  //                                                         AND plain         -> --token-string
+  //   constant                                    #BD93F9   numbers, booleans -> --token-number/literal
+  //   entity.name.type                            #8BE9FD   `&anchor`, italic -> .tok-anchor
+  //   variable.other.alias.yaml                   #50FA7B   `*alias`, italic
+  //                                                         underline         -> .tok-alias
+  //   comment                                     #6272A4                     -> --token-comment
+  //
+  // Every one of those is a role this app already has a variable for, which is why the mapping is a
+  // mapping and not a second palette: the same branch paints YAML correctly in solarized and contrast too.
+  //
+  // One line at a time, like every other branch here — that is the contract the source view needs to paint
+  // a window of a 30k-line file. The visible cost is a `#` inside a `|` block scalar, which reads as a
+  // comment because the line that opened the block is not in front of us.
+  // ponytail: line-local. Carrying block-scalar state would mean the painter had to know the lines above
+  // the window it is painting, which is the thing the window exists to avoid.
+  if (language === 'yaml') return highlightYamlLine(text);
   if (language === 'markdown') {
     const escaped = escapeHtml(text);
     if (/^\s{0,3}#{1,6}\s/.test(text)) return '<span class="tok-keyword">' + escaped + '</span>';
@@ -1261,6 +1453,7 @@ function decorateDiffHttpRuns(wrapper) {
   var parsed = parseHttpRequests(file.content);
   httpRequestsByPath.set(path, parsed.requests);
   httpVarsByPath.set(path, parsed.vars);
+  httpImportsByPath.set(path, parsed.imports);
   var side = diffSideTable(wrapper, 'new');
   if (!side) return;
   var startLine = {};

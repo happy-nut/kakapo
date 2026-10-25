@@ -1,7 +1,79 @@
 import { createHash, randomBytes } from "node:crypto";
+import { request as httpsRequest } from "node:https";
 import type { HttpSendRequest, HttpSendResult } from "./types.js";
 import { errorMessage } from "./util.js";
 import { cookieHeaderFor, readHttpAttachmentBytes, saveCookies } from "./http-files.js";
+
+/**
+ * A request over a client certificate, through node:https.
+ *
+ * `fetch` cannot carry one — its only hook for that is undici's dispatcher, and undici is not importable
+ * from core — so this is the one path that bypasses it. The answer is wrapped in a real `Response`, so
+ * everything around it (redirect checks, cookies, the body cap) stays one implementation.
+ *
+ * A passphrase-protected key is refused by name: IntelliJ asks for it interactively, and kakapo has
+ * nowhere to ask.
+ */
+function sendOverClientCertificate(
+  url: URL,
+  options: { method: string; headers: Record<string, string>; body?: Buffer | string; timeoutMs: number },
+  ssl: NonNullable<HttpSendRequest["ssl"]>,
+  root: string | undefined,
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    if (ssl.hasCertificatePassphrase) {
+      reject(new Error("that client certificate needs a passphrase, which kakapo cannot ask for"));
+      return;
+    }
+    if (!root) { reject(new Error("a client certificate needs the desktop app")); return; }
+    const cert = ssl.clientCertificate ? readHttpAttachmentBytes(root, ssl.clientCertificate) : undefined;
+    const key = ssl.clientCertificateKey ? readHttpAttachmentBytes(root, ssl.clientCertificateKey) : undefined;
+    if (ssl.clientCertificate && !cert) {
+      reject(new Error(`cannot read the client certificate ${ssl.clientCertificate} — it is missing or outside the review`));
+      return;
+    }
+    if (ssl.clientCertificateKey && !key) {
+      reject(new Error(`cannot read the client key ${ssl.clientCertificateKey} — it is missing or outside the review`));
+      return;
+    }
+    const request = httpsRequest(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: `${url.pathname}${url.search}`,
+        method: options.method,
+        headers: options.headers,
+        cert,
+        key,
+        // IntelliJ's `verifyHostCertificate: false` is "this is a dev server with a self-signed
+        // certificate". Off by default, as it is there.
+        rejectUnauthorized: ssl.verifyHostCertificate !== false,
+      },
+      (incoming) => {
+        const chunks: Buffer[] = [];
+        incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
+        incoming.on("end", () => {
+          const headers = new Headers();
+          for (const [name, value] of Object.entries(incoming.headers)) {
+            if (Array.isArray(value)) for (const one of value) headers.append(name, one);
+            else if (value !== undefined) headers.append(name, String(value));
+          }
+          // 204/304 carry no body, and Response refuses one for them.
+          const status = incoming.statusCode ?? 0;
+          const body = status === 204 || status === 304 || options.method === "HEAD"
+            ? null
+            : Buffer.concat(chunks);
+          resolve(new Response(body, { status, statusText: incoming.statusMessage || "", headers }));
+        });
+      },
+    );
+    request.setTimeout(options.timeoutMs, () => request.destroy(new Error(`timed out after ${options.timeoutMs} ms`)));
+    request.on("error", reject);
+    if (options.body !== undefined) request.write(options.body);
+    request.end();
+  });
+}
 
 // Performs an HTTP request on behalf of the sandboxed renderer (the .http file runner). The renderer cannot
 // reach the network itself, so the main process makes the call and hands back the whole response.
@@ -196,13 +268,26 @@ export async function performHttpRequest(
     // ArrayBufferLike, which may be a SharedArrayBuffer). Copying into a fresh ArrayBuffer is the honest
     // conversion; request bodies are capped at 10 MB, so the copy is not worth a cast to work around.
     const sendable = typeof body === "string" || body === undefined ? body : new Uint8Array(body).buffer;
-    const send = (target: URL, extra?: Record<string, string>): Promise<Response> => fetch(target.href, {
-      method,
-      headers: headersFor(target, extra),
-      body: hasBody ? sendable : undefined,
-      redirect: "manual", // every hop is re-checked below instead of being followed blind
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    const send = (target: URL, extra?: Record<string, string>): Promise<Response> => {
+      const headers = headersFor(target, extra);
+      // A client certificate takes the node:https path; everything else is fetch. Both answer with a
+      // Response, so the redirect, cookie and body handling below does not know the difference.
+      if (request.ssl && (request.ssl.clientCertificate || request.ssl.verifyHostCertificate === false)) {
+        return sendOverClientCertificate(
+          target,
+          { method, headers, body: hasBody ? (body as Buffer | string) : undefined, timeoutMs },
+          request.ssl,
+          context.root,
+        );
+      }
+      return fetch(target.href, {
+        method,
+        headers,
+        body: hasBody ? sendable : undefined,
+        redirect: "manual", // every hop is re-checked below instead of being followed blind
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    };
 
     let response = await send(url);
     // Digest is a two-step scheme by design: the server has to hand out a nonce before a request can carry

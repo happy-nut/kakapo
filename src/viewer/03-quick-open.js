@@ -45,7 +45,9 @@ function openQuickOpen(mode, hideRail) {
               ? t('hierarchy.title')
               : mode === 'bookmarks'
                 ? t('bookmark.title')
-                : t('quickopen.searchFiles');
+                : mode === 'usages'
+                  ? t('findusages.title').replace('{name}', usageViewName)
+                  : t('quickopen.searchFiles');
   quickInput.setAttribute('placeholder', mode === 'symbol'
     ? t('quickopen.workspaceSymbols')
     : mode === 'content'
@@ -58,12 +60,17 @@ function openQuickOpen(mode, hideRail) {
             ? t('hierarchy.placeholder')
             : mode === 'bookmarks'
               ? t('bookmark.placeholder')
-              : t('quickopen.searchFiles'));
+              : mode === 'usages'
+                ? t('findusages.placeholder')
+                : t('quickopen.searchFiles'));
   quickOpen.classList.remove('hidden');
   // Recent files needs no search box — it's just the latest files. Hide the input and let typed letters
   // narrow the list (IntelliJ-style speed search); the global keydown routes keys to handleQuickOpenKey.
   quickOpen.classList.toggle('quick-recent', mode === 'recent');
   quickOpen.classList.toggle('quick-content', mode === 'content');
+  // The usage view borrows Find-in-Files' one toggle ("comments & tests are noise", ⌥P) instead of growing
+  // IntelliJ's per-type filter toolbar. Same button, same chord, same meaning — see 17-find-usages.js.
+  quickOpen.classList.toggle('quick-usages', mode === 'usages');
   quickOpen.classList.toggle('quick-launcher', !hideRail && QUICK_LAUNCHER_MODES.indexOf(mode) >= 0);
   syncQuickLauncherRail();
   syncContentSearchControls();
@@ -168,6 +175,7 @@ function handleQuickOpenKey(event) {
   // The hierarchy is a tree: ⇢ expands a row, ⇠ collapses it. Asked first, because ArrowLeft otherwise
   // steps out to the section rail.
   if (handleHierarchyKey(event)) return true;
+  if (handleUsageViewKey(event)) return true;
   var sideItem = focusedQuickSideItem();
   if (sideItem) {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -213,6 +221,16 @@ function handleQuickOpenKey(event) {
     event.preventDefault();
     toggleContentSearchNoise();
     return true;
+  }
+  // IntelliJ's Cc / W / .*, on the three letters the dialog can spare. Asked through the shortcut table
+  // rather than spelled here, so the Settings sheet and these branches cannot drift apart.
+  if (quickMode === 'content') {
+    var modifiers = [['searchMatchCase', 'matchCase'], ['searchWholeWords', 'wholeWords'], ['searchRegex', 'regex']];
+    for (var mi = 0; mi < modifiers.length; mi += 1) {
+      if (!isShortcut(event, modifiers[mi][0])) continue;
+      event.preventDefault();
+      return toggleContentSearchModifier(modifiers[mi][1]);
+    }
   }
   if (event.key === 'ArrowDown') {
     event.preventDefault();
@@ -306,6 +324,7 @@ function renderQuickOpenResults() {
   if (quickMode === 'locations') { renderRecentLocationResults(rawQuery); return; }
   if (quickMode === 'hierarchy') { renderHierarchyResults(rawQuery); return; }
   if (quickMode === 'bookmarks') { renderBookmarkResults(rawQuery); return; }
+  if (quickMode === 'usages') { renderFindUsagesResults(rawQuery); return; }
   if (!isRecent && !rawQuery) {
     quickItems = [];
     quickActive = 0;
@@ -468,16 +487,51 @@ function contentSearchItemAllowed(item, filters) {
     && (!filters.excludeNoise || !contentSearchLineIsComment(item));
 }
 function currentContentSearchFilters() {
-  return { extensions: contentSearchExtensions(), excludeNoise: contentSearchExcludeNoise };
+  return {
+    extensions: contentSearchExtensions(),
+    excludeNoise: contentSearchExcludeNoise,
+    matchCase: contentSearchMatchCase,
+    wholeWords: contentSearchWholeWords,
+    regex: contentSearchRegex,
+  };
 }
 function contentSearchRequestKey(query, filters) {
-  return JSON.stringify([query, filters.extensions, filters.excludeNoise]);
+  return JSON.stringify([query, filters.extensions, filters.excludeNoise,
+    filters.matchCase, filters.wholeWords, filters.regex]);
 }
 function syncContentSearchControls() {
   if (quickExcludeNoiseButton) {
-    quickExcludeNoiseButton.setAttribute('aria-pressed', contentSearchExcludeNoise ? 'true' : 'false');
-    quickExcludeNoiseButton.classList.toggle('active', contentSearchExcludeNoise);
+    var excluding = quickMode === 'usages' ? usageViewHideNoise : contentSearchExcludeNoise;
+    quickExcludeNoiseButton.setAttribute('aria-pressed', excluding ? 'true' : 'false');
+    quickExcludeNoiseButton.classList.toggle('active', excluding);
   }
+  [[quickMatchCaseButton, contentSearchMatchCase], [quickWholeWordsButton, contentSearchWholeWords],
+    [quickRegexButton, contentSearchRegex]].forEach(function (pair) {
+    if (!pair[0]) return;
+    pair[0].setAttribute('aria-pressed', pair[1] ? 'true' : 'false');
+    pair[0].classList.toggle('active', pair[1]);
+  });
+}
+/** One of the three modifiers, by the flag's name. Restarts the search: the answer changes with it. */
+function toggleContentSearchModifier(which) {
+  if (which === 'matchCase') contentSearchMatchCase = !contentSearchMatchCase;
+  else if (which === 'wholeWords') contentSearchWholeWords = !contentSearchWholeWords;
+  else if (which === 'regex') contentSearchRegex = !contentSearchRegex;
+  else return false;
+  syncContentSearchControls();
+  restartContentSearch();
+  return true;
+}
+/**
+ * The message for a pattern that cannot be compiled, or '' when it can.
+ *
+ * Checked in the page, before anything is asked, because both searchers would otherwise answer "nothing
+ * matched" — ripgrep by exiting 2, and the in-page fallback by having nothing to run. "No results" for a
+ * typo in a pattern is the wrong answer, and it is the one a reviewer would believe.
+ */
+function contentSearchPatternError(query) {
+  if (!contentSearchRegex || !query) return '';
+  try { new RegExp(query); return ''; } catch (error) { return String(error && error.message || error); }
 }
 function restartContentSearch() {
   contentSearchQuery = '\0';
@@ -496,6 +550,20 @@ function toggleContentSearchNoise() {
 
 function renderContentSearchResults(query) {
   var filters = currentContentSearchFilters();
+  var patternError = contentSearchPatternError(query);
+  if (patternError) {
+    contentSearchQuery = '';
+    contentSearchSeq += 1; // an answer already in flight is for a query that is no longer being asked
+    if (contentSearchTimer) clearTimeout(contentSearchTimer);
+    contentSearchBusy = false;
+    contentSearchItems = [];
+    quickItems = [];
+    updateContentSearchStatus(query);
+    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.badPattern'))
+      + '<span class="quick-open-why">' + escapeHtml(patternError) + '</span></div>';
+    renderQuickPreview(null);
+    return;
+  }
   var requestKey = contentSearchRequestKey(query, filters);
   if (requestKey !== contentSearchQuery) {
     contentSearchQuery = requestKey;
@@ -560,6 +628,9 @@ async function runContentSearch(query, seq, filters, requestKey) {
       var request = { query: query, limit: 500 };
       if (filters.extensions.length) request.extensions = filters.extensions;
       if (filters.excludeNoise) request.excludeCommentsAndTests = true;
+      if (filters.matchCase) request.matchCase = true;
+      if (filters.wholeWords) request.wholeWords = true;
+      if (filters.regex) request.regex = true;
       response = await window.kakapoSearch.query(request);
     }
   } catch (e) { response = null; }
@@ -603,10 +674,24 @@ function searchItemFromMatch(match) {
   };
 }
 
+/**
+ * One compiled matcher for the in-page searcher, honouring the same three modifiers ripgrep is given.
+ *
+ * Case: `Cc` off keeps this app's long-standing smart-case behaviour (a lower-case query ignores case, a
+ * query with a capital in it does not), which is what `--smart-case` means on the other side.
+ * Returns null when the pattern cannot be compiled — the caller has already said so by then.
+ */
+function localContentSearchMatcher(query, filters) {
+  var source = filters.regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (filters.wholeWords) source = '\\b(?:' + source + ')\\b';
+  var insensitive = filters.matchCase ? false : !/[A-Z]/.test(query);
+  try { return new RegExp(source, insensitive ? 'gi' : 'g'); } catch (e) { return null; }
+}
+
 function localContentSearch(query, limit, filters) {
   filters = filters || { extensions: [], excludeNoise: false };
-  var smartCase = /[A-Z]/.test(query);
-  var needle = smartCase ? query : query.toLowerCase();
+  var pattern = localContentSearchMatcher(query, filters);
+  if (!pattern) return [];
   var out = [];
   for (var fi = 0; fi < sourceFiles.length && out.length < limit; fi++) {
     var file = sourceFiles[fi];
@@ -614,14 +699,16 @@ function localContentSearch(query, limit, filters) {
     var lines = String(file.content || '').split(/\r?\n/);
     for (var li = 0; li < lines.length && out.length < limit; li++) {
       var line = lines[li];
-      var haystack = smartCase ? line : line.toLowerCase();
-      var from = 0;
-      while (from <= haystack.length && out.length < limit) {
-        var at = haystack.indexOf(needle, from);
-        if (at < 0) break;
-        var item = { path: file.path, name: file.name, detail: (li + 1) + ':' + (at + 1), kind: 'search', recent: false, lineIndex: li, column: at, endColumn: at + query.length, text: line, matchText: line.slice(at, at + query.length) };
+      pattern.lastIndex = 0;
+      var match = null;
+      while (out.length < limit && (match = pattern.exec(line))) {
+        var at = match.index;
+        var hit = match[0];
+        // A pattern that can match nothing (`a*`) would otherwise never advance.
+        pattern.lastIndex = at + Math.max(hit.length, 1);
+        if (!hit.length) continue;
+        var item = { path: file.path, name: file.name, detail: (li + 1) + ':' + (at + 1), kind: 'search', recent: false, lineIndex: li, column: at, endColumn: at + hit.length, text: line, matchText: hit };
         if (contentSearchItemAllowed(item, filters)) out.push(item);
-        from = at + Math.max(query.length, 1);
       }
     }
   }

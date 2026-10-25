@@ -100,6 +100,16 @@ export type HttpSendRequest = {
    * valid header value. The parser splits it out so main can encode Basic, or run Digest's 401 challenge.
    */
   auth?: { type: "basic" | "digest"; user: string; password: string };
+  /**
+   * The selected environment's `SSLConfiguration`, as written in http-client.private.env.json. Paths
+   * only: main reads the certificate and key itself, from inside the review, at send time.
+   */
+  ssl?: {
+    clientCertificate?: string;
+    clientCertificateKey?: string;
+    hasCertificatePassphrase?: boolean;
+    verifyHostCertificate?: boolean;
+  };
 };
 
 export type HttpSendResult = {

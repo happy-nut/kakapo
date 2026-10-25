@@ -123,10 +123,15 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌘9` | Git history — commits, reflog, stashes |
 | `⌘C` | In history: copy the selected commit's hash |
 | `⌘F` / `⌘⇧F` | Find in file / in project (the ⌘⇧F rail also holds file search & recent files) |
+| `⌥M` / `⌥W` / `⌥X` | In Find in Files: match case / whole words / regular expression |
 | `⌘E` | Recent files — the list on its own, press again to close. Type to filter (Korean typing is read as the QWERTY keys that made it) |
 | `⌥A` / `⌥U` | All changes on the branch / only what is not committed yet |
 | `⌥C` | Choose the branch "all changes" is measured against |
-| `⌘B` / `⌘⌥B` / `⌘⌥O` | Find usages / implementation / workspace symbol |
+| `⌘B` or `⌘⌥F7` | Who uses this — the flat list at the caret (IntelliJ's Show Usages) |
+| `⌥F7` | Find usages — the same answer, grouped by what each usage *is* |
+| `⌘F7` / `⌘⇧F7` | Highlight this symbol everywhere in the open file, writes apart from reads |
+| `⌘⌥↓` / `⌘⌥↑` | Next / previous occurrence of the symbol under the caret |
+| `⌘⌥B` / `⌘⌥O` | Go to implementation / workspace symbol |
 | `⌘⇧B` | Go to the declaration of this thing's **type** |
 | `⌘F12` | This file's structure — filter, then jump |
 | `⌥↓` / `⌥↑` | Next / previous symbol in this file |
@@ -152,11 +157,43 @@ Settings ▸ Shortcuts lists the rest.
 
 ## Getting around
 
-Most of this is IntelliJ's keymap, because most of it was already: `⌘B` usages, `⌘⌥B` implementations,
-`⌘⌥O` workspace symbols, `⌘E` recent files, `⌘⇧F` find in path, `⌘L` go to line, `⌥F1` reveal in the
-sidebar, `F2`/`⇧F2` next problem, `⌘[`/`⌘]` back and forward, `⌘↓` or `⌘`-click for a definition.
+Most of this is IntelliJ's keymap, because most of it was already: `⌘B` usages, `⌥F7` find usages,
+`⌘⌥B` implementations, `⌘⌥O` workspace symbols, `⌘E` recent files, `⌘⇧F` find in path, `⌘L` go to line,
+`⌥F1` reveal in the sidebar, `F2`/`⇧F2` next problem, `⌘[`/`⌘]` back and forward, `⌘↓` or `⌘`-click for a
+definition.
 
 What this adds:
+
+**Find usages** (`⌥F7`) — the same answer `⌘B` gives, grouped by what each usage *is*: the imports
+together, the writes together, the `extends` clause, the `new`, the type parameters, the lines that only
+mention the name in a comment or a string. Forty references to one symbol is a list you scroll; the same
+forty under eight headings is a list you read, and "which of these forty write to it" is usually the
+question you pressed the key for. The group names are IntelliJ's own — "Value write", "Usage in
+extends/implements clause", "New instance creation" — taken from `UsageViewBundle.properties` in
+intellij-community rather than invented here, so a reader who knows the IDE recognises them. A plain call
+site has no usage type in IntelliJ either; it shows under *Unclassified*.
+
+The comment and string hits are kept, under a *Non-code usages* divider, which is a change: the caret
+popup drops them silently, and "no usages" when there are four mentions in comments is a wrong answer.
+`⌥P` — the same chord and the same toggle Find in Files has — takes them and the test files out again.
+What a line *cannot* say is whether a declaration is a field or a local, so those two IntelliJ types are
+not in the table: a header that is right half the time is worse than no header.
+
+**Highlight in this file** (`⌘F7` / `⌘⇧F7`) — every occurrence of the symbol under the caret in the open
+file, writes in a second colour, `⌘⌥↓`/`⌘⌥↑` to walk them, `Esc` to put it away. IntelliJ's Find Usages in
+File and Highlight Usages in File, which do the same thing from two chords. This one is name-based, not
+semantic — two locals that share a name light up together, exactly as IntelliJ's own Find Word at Caret
+does — and it asks no language server, so it answers while a cold one is still indexing. `⌥F7` is the
+semantic answer when the difference matters. The chords were a second spelling of `F8`/`⇧F8`'s comment
+stepping before this; a duplicate is not worth IntelliJ's two in-file usage keys.
+
+**Find in Files' three modifiers** (`⌥M` match case, `⌥W` whole words, `⌥X` regular expression) —
+IntelliJ's `Cc`, `W` and `.*`, one ripgrep flag each, with `⌥E` for a file mask and `⌥P` to drop comments
+and tests as before. With none of them on the search is what it always was: smart-case (a lower-case query
+ignores case, a query with a capital in it does not) and literal. A pattern that does not compile is named
+as a bad pattern rather than searched for — "no matches" for a typo in a regex is a wrong answer a reviewer
+would believe — and a standalone HTML review, which has no ripgrep to ask, applies the same three
+modifiers in the page.
 
 **This file's structure** (`⌘F12`) — every symbol in the open file, indented by nesting, filtered as you
 type (names only, as IntelliJ matches, and a query typed with a Korean layout still on is read as the keys
@@ -194,6 +231,12 @@ bookmarks too: `⇧⌥3` gives this line the number 3 and `⌥3` goes back to it
 belonging to exactly one line. On `⌥` rather than IntelliJ's `⌃` because `⌘1`/`⌘0`/`⌘9` already mean the
 Files panel, the Changes panel and history. Bookmarks live in kakapo's own per-workspace state, never in
 the repository.
+
+**Not ported, on purpose.** *Go to Related Symbol* (`⌃⌘↑`): in a reader with no framework knowledge its
+contents are exactly `⌘⇧T` and `⌘U`, which are both here. *Go to Class* (`⌘O`): `⌘⌥O` already searches
+every symbol including types, and `⌘O` opens a folder here. The *Structure tool window*: `⌘F12`'s popup is
+the reading half of it, and a docked panel is workspace furniture. *Find Usages Settings* and *Structural
+Search*: both are about search scopes and patterns this app has no model for.
 
 **Search everywhere** (`⇧⇧`) — the launcher with every section beside it. The double tap is spelled as a
 chord in [src/shortcuts.ts](src/shortcuts.ts) and recognised by the one matcher, so it stays rebindable and
@@ -298,12 +341,30 @@ text is in front of you. Reading a repository should not run it.
 repository you are reading. The cookie jar lives there too, in IntelliJ's readable
 `# domain path name value date` format.
 
-**Not ported.** gRPC and WebSocket (no protocol stack — the lines are coloured but say so instead of
-sending), OAuth2 `Security.Auth` flows, `@use-os-credentials` (recognised as a directive, but there is no
-OS credential store to hand to a request), shared script modules (`import`/`export` in a handler),
-`$exampleServer`, variable collections (one request per array element), the full Java Faker generator set
+**Running other files.** `run ./smoke.http` runs every request in that file, `run #login` runs one by
+name (searched here first, then through whatever this file `import`s), and
+`run ./other.http#login (@host = https://staging.test)` overrides variables for that call alone. A file
+that would run itself is stopped and says so.
+
+**Collections.** A variable holding a JSON array makes a request a loop: `@ids = [1, 2, 3]` with
+`GET {{base}}/items/{{ids}}` sends three requests, and a handler reads `request.iteration()` to know which
+one it is in.
+
+**Script modules.** A handler may `import` from a `.js` file beside it, in any of the ES6 forms (named,
+default, namespace, renamed), and those modules may import each other. They run in the same sandbox as the
+handler: no `require`, no `fs`, no `process`.
+
+**Client certificates.** `SSLConfiguration` in `http-client.private.env.json` — `clientCertificate`,
+`clientCertificateKey`, `verifyHostCertificate` — is honoured. The certificate is read in the main
+process, from inside the review, and never passes through the page. A key with a passphrase is refused by
+name: IntelliJ asks for it interactively and kakapo has nowhere to ask.
+
+**Not ported.** gRPC (it needs a protobuf runtime, and this CLI carries no runtime dependency it has no
+review reason for), OAuth2 `Security.Auth` flows, `@use-os-credentials` (recognised as a directive, but
+there is no OS credential store to hand to a request), `$exampleServer`, the full Java Faker generator set
 (the common ones are there; an unimplemented one is reported by name), and importing a `curl` command —
-kakapo never writes to the file you are reading, so there would be nowhere to put it.
+kakapo never writes to the file you are reading, so there would be nowhere to put it. WebSocket runs the
+messages a file lists and shows the exchange; it is not IntelliJ's live console.
 
 ## Git history
 

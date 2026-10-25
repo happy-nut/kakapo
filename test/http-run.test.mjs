@@ -374,3 +374,193 @@ test("GRPC and WEBSOCKET requests get no Run button", async () => {
   assert.match(v.$("#http-resp-0").textContent, /not supported/, "…and say why they cannot send");
   v.close();
 });
+
+// ---- `run` and `import`: one file running another ---------------------------------------------------
+
+const SUITE_FILE = "requests/suite.http";
+const SHARED_FILE = "requests/shared.http";
+
+/** A second review whose .http files run each other. */
+async function openSuite() {
+  const { html: suiteHtml } = await makeReviewHtml([
+    {
+      path: SHARED_FILE,
+      after: [
+        "@base = https://example.test",
+        "",
+        "### login",
+        "GET {{base}}/login",
+        "",
+        "### profile",
+        "GET {{base}}/profile",
+        "",
+      ].join("\n"),
+    },
+    {
+      path: SUITE_FILE,
+      after: [
+        "import ./shared.http",
+        "",
+        "run ./shared.http",
+        "",
+        "run #profile",
+        "",
+        "run ./shared.http#login (@base = https://staging.test)",
+        "",
+        "run ./missing.http",
+        "",
+        "run #nothing-named-this",
+        "",
+        "run ./suite.http",
+        "",
+      ].join("\n"),
+    },
+  ]);
+  const v = await loadViewer(suiteHtml);
+  const sent = [];
+  v.window.kakapoHttp = {
+    send: (request) => {
+      sent.push(request);
+      return Promise.resolve({ ok: true, status: 200, statusText: "OK", durationMs: 2, bytes: 2, headers: {}, body: "{}" });
+    },
+    readFile: () => Promise.resolve({ ok: false, error: "not needed: the files are in the review" }),
+    saveResponse: () => Promise.resolve({ ok: true }),
+  };
+  v.window.openSourceFile(SUITE_FILE);
+  await v.settle(60);
+  return { v, sent };
+}
+
+const runPanel = (host, index) => host.v.$(`#http-resp-${index}`).textContent.replace(/\s+/g, " ");
+
+test("`run ./file.http` runs every request in that file, in order", async () => {
+  const host = await openSuite();
+  host.v.$('#source-body .http-run[data-req="0"]').click();
+  await host.v.settle(120);
+  assert.deepEqual(host.sent.map((request) => request.url), [
+    "https://example.test/login",
+    "https://example.test/profile",
+  ]);
+  const panel = runPanel(host, 0);
+  assert.match(panel, /2/, "the summary counts what it ran");
+  assert.match(panel, /login/);
+  assert.match(panel, /profile/);
+  host.v.close();
+});
+
+test("`run #name` finds the request in an imported file", async () => {
+  const host = await openSuite();
+  host.v.$('#source-body .http-run[data-req="1"]').click();
+  await host.v.settle(120);
+  assert.deepEqual(host.sent.map((request) => request.url), ["https://example.test/profile"],
+    "only the one it named, from the file this one imports");
+  host.v.close();
+});
+
+test("the overrides on a run line apply to that call and are put back afterwards", async () => {
+  const host = await openSuite();
+  host.v.$('#source-body .http-run[data-req="2"]').click();
+  await host.v.settle(120);
+  assert.deepEqual(host.sent.map((request) => request.url), ["https://staging.test/login"],
+    "@base was overridden for this call");
+
+  // And the file is back to its own value for the next one.
+  host.sent.length = 0;
+  host.v.$('#source-body .http-run[data-req="1"]').click();
+  await host.v.settle(120);
+  assert.deepEqual(host.sent.map((request) => request.url), ["https://example.test/profile"]);
+  host.v.close();
+});
+
+test("a run line that names nothing says which name it could not find", async () => {
+  const host = await openSuite();
+  host.v.$('#source-body .http-run[data-req="3"]').click();
+  await host.v.settle(80);
+  assert.match(runPanel(host, 3), /missing\.http/);
+  assert.equal(host.sent.length, 0);
+
+  host.v.$('#source-body .http-run[data-req="4"]').click();
+  await host.v.settle(80);
+  assert.match(runPanel(host, 4), /nothing-named-this/);
+  host.v.close();
+});
+
+test("a file cannot run itself", async () => {
+  const host = await openSuite();
+  host.v.$('#source-body .http-run[data-req="5"]').click();
+  await host.v.settle(200);
+  // Running suite.http runs ITS run lines, which is the feature — what must not happen is the one that
+  // points back here going round again. It is refused, the rest proceed, and the whole thing terminates.
+  assert.match(runPanel(host, 5), /suite\.http/);
+  assert.ok(host.sent.length <= 4, `it terminates instead of recursing (sent ${host.sent.length})`);
+  host.v.close();
+});
+
+// ---- variable collections: one request per element --------------------------------------------------
+
+test("a variable holding a JSON array sends one request per element", async () => {
+  const { html: collectionHtml } = await makeReviewHtml([{
+    path: "ids.http",
+    after: [
+      "@base = https://example.test",
+      "@ids = [1, 2, 3]",
+      "",
+      "### one per id",
+      "GET {{base}}/items/{{ids}}",
+      "",
+      "###",
+      "GET {{base}}/once",
+      "",
+    ].join("\n"),
+  }]);
+  const v = await loadViewer(collectionHtml);
+  const sent = [];
+  v.window.kakapoHttp = {
+    send: (request) => {
+      sent.push(request.url);
+      return Promise.resolve({ ok: true, status: 200, statusText: "OK", durationMs: 1, bytes: 2, headers: {}, body: "{}" });
+    },
+  };
+  v.window.openSourceFile("ids.http");
+  await v.settle(40);
+
+  v.$('#source-body .http-run[data-req="0"]').click();
+  await v.settle(120);
+  assert.deepEqual(sent, [
+    "https://example.test/items/1",
+    "https://example.test/items/2",
+    "https://example.test/items/3",
+  ], "three elements, three sends, in order");
+  assert.match(v.$("#http-resp-0").textContent, /3/, "and the panel reports the batch, not one response");
+
+  // A request that mentions no collection is still sent exactly once.
+  sent.length = 0;
+  v.$('#source-body .http-run[data-req="1"]').click();
+  await v.settle(80);
+  assert.deepEqual(sent, ["https://example.test/once"]);
+  v.close();
+});
+
+test("a value that merely starts with `[` is not a collection", async () => {
+  const { html: literalHtml } = await makeReviewHtml([{
+    path: "literal.http",
+    after: [
+      "@filter = [unparsed",
+      "",
+      "GET https://example.test/x?f={{filter}}",
+      "",
+    ].join("\n"),
+  }]);
+  const v = await loadViewer(literalHtml);
+  const sent = [];
+  v.window.kakapoHttp = {
+    send: (request) => { sent.push(request.url); return Promise.resolve({ ok: true, status: 200, durationMs: 1, headers: {}, body: "" }); },
+  };
+  v.window.openSourceFile("literal.http");
+  await v.settle(40);
+  v.$('#source-body .http-run[data-req="0"]').click();
+  await v.settle(80);
+  assert.equal(sent.length, 1, "not a collection, so not a loop");
+  assert.match(sent[0], /\?f=\[unparsed$/, "it stays the string it is");
+  v.close();
+});

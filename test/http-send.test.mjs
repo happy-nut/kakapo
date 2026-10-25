@@ -458,3 +458,75 @@ test("an environment's SSLConfiguration block is not offered as a variable", () 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// ---- a client certificate --------------------------------------------------------------------------
+// `fetch` cannot carry one, so this is the one request path that does not go through it. Both halves are
+// exercised against a real TLS server: the certificate reaching the server, and a self-signed host being
+// refused unless the environment says otherwise.
+
+test("a client certificate is read from the review and presented to the server", async (t) => {
+  const { createServer } = await import("node:https");
+  const { generateKeyPairSync, X509Certificate, createPrivateKey } = await import("node:crypto");
+  const { execFileSync } = await import("node:child_process");
+  const root = mkdtempSync(join(tmpdir(), "kakapo-tls-"));
+  let server;
+  try {
+    // openssl is the only thing here that can mint a certificate; without it there is nothing to test.
+    try {
+      execFileSync("openssl", [
+        "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+        "-subj", "/CN=localhost",
+        "-keyout", join(root, "key.pem"), "-out", join(root, "cert.pem"),
+      ], { stdio: "pipe" });
+    } catch {
+      t.skip("openssl is not available to mint a test certificate");
+      return;
+    }
+    const cert = readFileSync(join(root, "cert.pem"));
+    const key = readFileSync(join(root, "key.pem"));
+    let presented = null;
+    server = createServer({ cert, key, requestCert: true, rejectUnauthorized: false }, (request, response) => {
+      presented = request.socket.getPeerCertificate?.()?.subject?.CN ?? null;
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end("over tls");
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const url = `https://127.0.0.1:${server.address().port}/`;
+
+    // Self-signed, so the default (verify) must refuse it — that refusal is the feature working.
+    const refused = await performHttpRequest({ method: "GET", url, headers: {}, ssl: { verifyHostCertificate: true, clientCertificate: "cert.pem" } }, { root });
+    assert.equal(refused.ok, false, "a self-signed host is not trusted by default");
+
+    const result = await performHttpRequest({
+      method: "GET", url, headers: {},
+      ssl: { clientCertificate: "cert.pem", clientCertificateKey: "key.pem", verifyHostCertificate: false },
+    }, { root });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.body, "over tls");
+    assert.equal(presented, "localhost", "the server saw the certificate from the review");
+  } finally {
+    server?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a certificate outside the review, or one needing a passphrase, is refused by name", async () => {
+  const root = mkdtempSync(join(tmpdir(), "kakapo-tls-guard-"));
+  try {
+    const escaped = await performHttpRequest(
+      { method: "GET", url: "https://127.0.0.1:1/", headers: {}, ssl: { clientCertificate: "../../etc/ssl/cert.pem", verifyHostCertificate: false } },
+      { root },
+    );
+    assert.equal(escaped.ok, false);
+    assert.match(escaped.error, /outside the review/);
+
+    const locked = await performHttpRequest(
+      { method: "GET", url: "https://127.0.0.1:1/", headers: {}, ssl: { clientCertificate: "cert.pem", hasCertificatePassphrase: true } },
+      { root },
+    );
+    assert.equal(locked.ok, false);
+    assert.match(locked.error, /passphrase/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

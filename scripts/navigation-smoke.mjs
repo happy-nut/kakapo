@@ -15,13 +15,17 @@
 // Run it with `npm run nav:smoke`. It refuses while a Kakapo from this checkout is open, because a second
 // launch is handed to that instance and this would drive the wrong window.
 import { execFileSync, spawn } from "node:child_process";
+import { createServer } from "node:net";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync as write, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const PORT = 9333;
+// Overridable because 9333 is a popular debugger port — a Chrome started with --remote-debugging-port
+// holds it on this machine, and the failure that produced was "the review page never became ready" with
+// the real reason (bind() failed) buried in Electron's stderr. preflightPort below says it outright.
+const PORT = Number(process.env.KAKAPO_SMOKE_PORT) || 9333;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function checkoutElectronPids() {
@@ -29,6 +33,23 @@ function checkoutElectronPids() {
     return execFileSync("pgrep", ["-f", `${ROOT}/node_modules/electron`], { encoding: "utf8" })
       .split("\n").map((v) => v.trim()).filter(Boolean);
   } catch { return []; }
+}
+
+/** Whoever already has the debugger port, if anyone — so the run refuses for a reason it can name. */
+function portHolder(port) {
+  try {
+    return execFileSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"], { encoding: "utf8" })
+      .split("\n").slice(1).filter(Boolean).map((line) => line.split(/\s+/).slice(0, 2).join(" ")).join(", ");
+  } catch { return ""; }
+}
+
+function preflightPort(port) {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once("error", () => resolve(false));
+    probe.once("listening", () => probe.close(() => resolve(true)));
+    probe.listen(port, "127.0.0.1");
+  });
 }
 
 function fixtureRepo() {
@@ -148,7 +169,8 @@ class Page {
   close() { try { this.ws.close(); } catch { /* gone */ } }
 }
 
-const READY = `typeof openFileStructure === 'function' && typeof goToNextSymbol === 'function'`;
+const READY = `typeof openFileStructure === 'function' && typeof goToNextSymbol === 'function'
+  && typeof openFindUsages === 'function'`;
 
 async function readyPage(timeoutMs) {
   const until = Date.now() + timeoutMs;
@@ -180,6 +202,12 @@ async function run() {
   const already = checkoutElectronPids();
   if (already.length) {
     process.stdout.write(`a Kakapo from this checkout is already running (pid ${already.join(", ")}); quit it first.\n`);
+    return 2;
+  }
+  if (!await preflightPort(PORT)) {
+    const holder = portHolder(PORT);
+    process.stdout.write(`port ${PORT} is already taken${holder ? ` (${holder})` : ""}; `
+      + `run with KAKAPO_SMOKE_PORT=<free port>.\n`);
     return 2;
   }
   const repo = fixtureRepo();
@@ -313,6 +341,89 @@ async function run() {
     })()`);
     await page.shot("hierarchy");
     check("⌘⌥H lists the real callers", hierarchy.rows.length > 0, `${hierarchy.label} | ${JSON.stringify(hierarchy.rows)}`);
+
+    // ---- ⌥F7: the usage view, from the real server ----------------------------------------------
+    await page.key("Escape", "Escape", 27, 0);
+    await page.evaluate(`(() => { openSourceFile('src/store.ts'); return true; })()`);
+    await sleep(400);
+    // On `Store` in makeStore's return type — a position whose own line is filtered out, so what is left
+    // is the `new`, the import in the test and the plain reference beside it.
+    await page.evaluate(`(() => { setSourceCursor('src/store.ts', 13, 29, true, -1); return true; })()`);
+    await page.key("F7", "F7", 118, 1);
+    await sleep(1800); // the real server answers this one
+    const usages = await page.evaluate(`(() => {
+      const el = document.getElementById('quick-open');
+      return {
+        open: !el.classList.contains('hidden'),
+        groups: Array.from(document.querySelectorAll('#quick-open-results .usage-group[data-usage-type]')).map((g) => g.dataset.usageType),
+        types: Array.from(document.querySelectorAll('#quick-open-results .usage-result')).map((r) => r.dataset.usageType),
+        label: document.getElementById('quick-open-filter').textContent,
+      };
+    })()`);
+    await page.shot("usages");
+    check("⌥F7 opens the usage view in the real app", usages.open === true, usages.label);
+    // The point of the view is that the rows are not one undifferentiated list. Two distinct types from a
+    // real tsserver answer is the thing jsdom's stub cannot establish.
+    check("the real server's usages arrive classified, under more than one heading",
+      usages.types.length >= 2 && new Set(usages.groups).size >= 2 && usages.groups.includes("new"),
+      `${usages.label} | ${JSON.stringify(usages.groups)}`);
+    // ⌥P: the toggle it borrows from Find in Files, pressed inside this mode.
+    const beforeNoise = usages.types.length;
+    await page.key("p", "KeyP", 80, 1);
+    await sleep(300);
+    const afterNoise = await page.evaluate(`(() => ({
+      rows: document.querySelectorAll('#quick-open-results .usage-result').length,
+      pressed: document.getElementById('quick-open-exclude-noise').getAttribute('aria-pressed'),
+      visible: getComputedStyle(document.querySelector('.quick-open-search-options')).display,
+    }))()`);
+    check("⌥P takes the test file out, and the toggle it borrows is on screen saying so",
+      afterNoise.rows < beforeNoise && afterNoise.pressed === "true" && afterNoise.visible !== "none",
+      JSON.stringify(afterNoise));
+
+    // ---- ⌘F7 and ⌘⌥↓: the in-file highlight ------------------------------------------------------
+    await page.key("Escape", "Escape", 27, 0);
+    await page.evaluate(`(() => { setSourceCursor('src/store.ts', 8, 9, true, -1); return true; })()`); // on `total`
+    await sleep(200);
+    await page.key("F7", "F7", 118, 4);
+    await sleep(400);
+    const highlight = await page.evaluate(`(() => {
+      const names = ['kakapo-usage-read', 'kakapo-usage-write'];
+      const sizes = names.map((name) => (CSS.highlights.get(name) || { size: 0 }).size);
+      // A registered highlight with no CSS rule to draw it is the one failure a DOM assertion cannot see:
+      // the name is written in two files (17-find-usages.js and viewer.css) and nothing but this compares
+      // them. Reads every sheet's text rather than one known index, because the lazy Mermaid sheet moves.
+      let css = '';
+      for (const sheet of document.styleSheets) {
+        try { for (const rule of sheet.cssRules) css += rule.cssText; } catch (e) { /* cross-origin */ }
+      }
+      return {
+        sizes,
+        styled: names.filter((name) => css.includes('::highlight(' + name + ')')),
+        rows: document.querySelectorAll('#source-body tr.source-row.usage-mark-row').length,
+      };
+    })()`);
+    await page.shot("usage-highlight");
+    check("⌘F7 registers real ranges for this file's occurrences",
+      highlight.sizes[0] + highlight.sizes[1] >= 2 && highlight.rows >= 2, JSON.stringify(highlight));
+    check("and both highlight names have a rule that paints them",
+      highlight.styled.length === 2, JSON.stringify(highlight.styled));
+    const beforeStep = await page.evaluate(`caretLocation()`);
+    await page.key("ArrowDown", "ArrowDown", 40, 4 + 1);
+    const afterStep = await page.evaluate(`caretLocation()`);
+    await page.key("ArrowUp", "ArrowUp", 38, 4 + 1);
+    const backStep = await page.evaluate(`caretLocation()`);
+    check("⌘⌥↓ steps to the next occurrence, ⌘⌥↑ back",
+      afterStep !== beforeStep && backStep === beforeStep, `${beforeStep} -> ${afterStep} -> ${backStep}`);
+    // Stepping moves the caret, which repaints rows. A highlight whose ranges pointed at the rows that
+    // were there before the jump would be gone by now, and nothing in jsdom could tell.
+    const stillPainted = await page.evaluate(`(CSS.highlights.get('kakapo-usage-read') || { size: 0 }).size
+      + (CSS.highlights.get('kakapo-usage-write') || { size: 0 }).size`);
+    check("and the highlight survives the jump", stillPainted >= 2, String(stillPainted));
+    await page.key("Escape", "Escape", 27, 0);
+    await sleep(200);
+    const cleared = await page.evaluate(`(CSS.highlights.get('kakapo-usage-read') || { size: 0 }).size
+      + (CSS.highlights.get('kakapo-usage-write') || { size: 0 }).size`);
+    check("Escape takes the highlight down", cleared === 0, String(cleared));
 
     // ---- ⌘⇧E: recent locations -------------------------------------------------------------------
     await page.key("Escape", "Escape", 27, 0);

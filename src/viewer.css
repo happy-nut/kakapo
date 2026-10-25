@@ -1931,6 +1931,13 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .source-row.file-find-row-active > td { background-image: linear-gradient(color-mix(in srgb, #d6a84b 25%, transparent), color-mix(in srgb, #d6a84b 25%, transparent)); }
 ::highlight(kakapo-file-find) { background: color-mix(in srgb, #d6a84b 38%, transparent); color: inherit; }
 ::highlight(kakapo-file-find-active) { background: color-mix(in srgb, #e2a93b 68%, transparent); color: inherit; }
+/* ⌘F7: this file's occurrences of the symbol under the caret (17-find-usages.js). Two colours, because the
+   question the key is pressed for is usually "where is this WRITTEN" — IntelliJ paints writes apart from
+   reads for the same reason. Custom Highlight API again, so the tokenised source underneath is untouched. */
+.usage-mark-row > td,
+.source-row.usage-mark-row > td { background-image: linear-gradient(color-mix(in srgb, var(--active) 9%, transparent), color-mix(in srgb, var(--active) 9%, transparent)); }
+::highlight(kakapo-usage-read) { background: color-mix(in srgb, var(--active) 30%, transparent); color: inherit; }
+::highlight(kakapo-usage-write) { background: color-mix(in srgb, #d6704b 42%, transparent); color: inherit; }
 /* Language-server diagnostics: a wavy underline on the exact problem span (CSS Custom Highlight API, so no DOM
    is mutated — same technique as find-in-file above) plus a gutter dot. Error = red, warning = amber. F2 /
    Shift+F2 step between them within the file; hovering the line shows the message via the cell title. */
@@ -3079,6 +3086,42 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 /* The row's actual content, and it was on the code-muted token while sitting on a chrome ground: 4.25:1
    in light. --chrome-muted is the one tuned for this ground, and token-contrast guards it. */
 .semantic-peek-item-code { color: var(--chrome-muted); font: 10.5px/1.4 Monaco, ui-monospace, monospace; }
+/* ⌥F7's grouped list. A header is not a row: it carries no data-index, takes no selection and is skipped by
+   the arrows — the group is the only thing in this list that is not navigable, which is why it looks nothing
+   like one. */
+.usage-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px 4px;
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: .03em;
+}
+.usage-group + .usage-group { padding-top: 4px; }
+.usage-group-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-group-count {
+  padding: 0 5px;
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--line);
+  font-size: 10px;
+}
+.usage-group-noncode {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 9px;
+  color: var(--text);
+}
+.usage-result .usage-result-code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 12px/1.5 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.usage-result[data-usage-type="write"] .usage-result-code { box-shadow: inset 2px 0 0 #d6704b; padding-left: 7px; }
+.usage-result.is-test .quick-open-path { opacity: .72; }
 .semantic-peek-list-hint {
   position: sticky; bottom: 0; padding: 5px 9px; color: var(--muted); background: var(--elevated);
   border-top: 1px solid var(--border); font: 10px/1.35 Monaco, ui-monospace, monospace;
@@ -3373,6 +3416,12 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 .tok-function { color: var(--token-function); }
 .tok-type { color: var(--token-type); }
 .tok-decorator { color: var(--token-decorator); font-style: italic; }
+/* YAML's two reference forms. Dracula gives them different roles and different emphasis — an anchor is a
+   declared name (entity.name.type, italic) and an alias is a use of one (variable.other.alias, italic and
+   underlined) — and that distinction is the only thing telling you which end of the pair you are looking
+   at when both read `&build` / `*build`. */
+.tok-anchor { color: var(--token-type); font-style: italic; }
+.tok-alias { color: var(--token-function); font-style: italic; text-decoration: underline; }
 .quick-open {
   position: fixed;
   inset: 0;
@@ -3500,7 +3549,36 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
   font-size: 11px;
 }
 .quick-open.quick-content .quick-open-search-options { display: flex; }
+/* The usage view borrows the one option this strip holds (exclude comments & tests) and nothing else. */
+.quick-open.quick-usages .quick-open-search-options { display: flex; }
+.quick-open.quick-usages .quick-open-extension-field,
+.quick-open.quick-usages .quick-open-option-glyphs { display: none; }
+.quick-open.quick-usages .quick-open-panel { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
 .quick-open-extension-field { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.quick-open-option-glyphs { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+/* IntelliJ's Cc / W / .* — a monospace glyph in a square, so three of them read as one control group and
+   the strip stays one line. The pressed state is the same accent the checkbox toggle beside them uses. */
+.quick-open-option-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  background: transparent;
+  font: 11px/1 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  cursor: pointer;
+}
+.quick-open-option-glyph:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
+.quick-open-option-glyph:focus-visible { outline: 1px solid var(--active); outline-offset: 1px; }
+.quick-open-option-glyph.active {
+  border-color: var(--active);
+  color: var(--chrome-selected-text, #fff);
+  background: var(--active);
+}
 #quick-open-extensions {
   width: 170px;
   min-width: 0;
@@ -3729,6 +3807,14 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 }
 .http-resp-empty { color: var(--muted); font-style: italic; }
 .http-resp-image { max-width: 100%; display: block; }
+/* What a `run` line started, one row per request. */
+.http-run-list { padding: 8px 12px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.http-run-row { display: flex; gap: 8px; align-items: baseline; }
+.http-run-mark { flex: none; width: 12px; }
+.http-run-row.ok .http-run-mark { color: #59a869; }
+.http-run-row.bad .http-run-mark { color: #e06c75; }
+.http-run-name { min-width: 0; color: var(--text); word-break: break-word; }
+.http-run-status { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* A WebSocket exchange reads as a conversation: direction, when, text. Monospace for the text because it
    is nearly always JSON, and the time column aligned because the pace is part of what you are reading. */

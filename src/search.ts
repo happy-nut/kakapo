@@ -23,6 +23,17 @@ export type ProjectSearchResult = {
 export type ProjectSearchOptions = {
   extensions?: string[];
   excludeCommentsAndTests?: boolean;
+  /**
+   * IntelliJ's three Find in Files toggles — `Cc`, `W`, `.*`. Each is one ripgrep flag, and the default
+   * (all three off) is what this searcher always did: smart-case, literal, anywhere in the line.
+   *
+   * `regex: true` hands the query to ripgrep as a pattern. A pattern that does not compile makes ripgrep
+   * exit 2 with its own message on stderr, which already becomes `error` below — the one place in this
+   * file where "the search failed" and "nothing matched" were already told apart.
+   */
+  matchCase?: boolean;
+  wholeWords?: boolean;
+  regex?: boolean;
 };
 
 type EncodedText = { text?: string; bytes?: string } | undefined;
@@ -145,6 +156,9 @@ export function searchProject(root: string, query: string, limit = 500, options:
   const normalizedOptions: ProjectSearchOptions = {
     extensions,
     excludeCommentsAndTests: options.excludeCommentsAndTests === true,
+    matchCase: options.matchCase === true,
+    wholeWords: options.wholeWords === true,
+    regex: options.regex === true,
   };
   if (!needle) return Promise.resolve({ available: true, engine: "ripgrep", matches: [], truncated: false });
 
@@ -159,7 +173,11 @@ export function searchProject(root: string, query: string, limit = 500, options:
     let stderr = "";
     let truncated = false;
     let settled = false;
-    const args = ["--json", "--no-config", "--smart-case", "--fixed-strings"];
+    // --smart-case is the default this app has always had: a lower-case query ignores case, a query with
+    // a capital in it does not. `Cc` replaces the guess with the answer.
+    const args = ["--json", "--no-config", normalizedOptions.matchCase ? "--case-sensitive" : "--smart-case"];
+    if (!normalizedOptions.regex) args.push("--fixed-strings");
+    if (normalizedOptions.wholeWords) args.push("--word-regexp");
     for (const extension of extensions) args.push("--glob", `*.${extension}`);
     if (normalizedOptions.excludeCommentsAndTests) {
       for (const glob of ["!**/test/**", "!**/tests/**", "!**/__tests__/**", "!**/test_*", "!**/*_test.*", "!**/*.test.*", "!**/*.spec.*"]) {

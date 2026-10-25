@@ -60,3 +60,34 @@ test("project search normalizes extension filters and excludes comments and test
     await rm(root, { recursive: true, force: true });
   }
 });
+
+// IntelliJ's three Find in Files modifiers. One ripgrep flag each, so what is worth testing is that each
+// flag reaches ripgrep and changes the answer — and that a pattern ripgrep rejects comes back as an error
+// rather than as "nothing matched", which is the one way this could be wrong and look right.
+test("match case, whole words and regex each change what project search finds", async () => {
+  const root = await mkdtemp(join(tmpdir(), "kakapo-search-mods-"));
+  try {
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src", "a.ts"), [
+      "const Needle = 1;",      // 1  capital
+      "const needles = 2;",     // 2  lower, longer word
+      "const needle = 3;",      // 3  lower, exact word
+    ].join("\n") + "\n");
+    const lines = async (options) =>
+      (await searchProject(root, options.query ?? "needle", 50, options)).matches.map((m) => m.line);
+
+    // Off: smart-case, literal, anywhere in the line — a lower-case query finds the capital too.
+    assert.deepEqual(await lines({}), [1, 2, 3]);
+    assert.deepEqual(await lines({ matchCase: true }), [2, 3], "`Cc` stops it matching Needle");
+    assert.deepEqual(await lines({ wholeWords: true }), [1, 3], "`W` stops it matching needles");
+    assert.deepEqual(await lines({ matchCase: true, wholeWords: true }), [3], "and both together");
+    assert.deepEqual(await lines({ query: "needle[s]", regex: true }), [2], "`.*` reads the query as a pattern");
+    assert.deepEqual(await lines({ query: "needle[s]" }), [], "and without it, as the literal it is");
+
+    const broken = await searchProject(root, "needle(", 50, { regex: true });
+    assert.equal(broken.available, false, "an unparseable pattern failed — it did not find nothing");
+    assert.match(String(broken.error), /regex|parse|unclosed/i, broken.error);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

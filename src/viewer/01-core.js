@@ -775,6 +775,10 @@ let httpEnvNames = Object.keys(httpEnvironments).filter(function (name) { return
 const httpEnvKey = 'kakapo-http-env:' + location.pathname;
 const httpRequestsByPath = new Map();
 const httpVarsByPath = new Map();
+// `import other.http` lines, per file: the files whose named requests a `run #Name` here may address.
+const httpImportsByPath = new Map();
+// Which files a `run` is already inside, so a file that runs itself stops instead of recursing.
+const httpRunStack = [];
 // client.global.set() from a response handler: variables a later request reads as {{name}}. IntelliJ keeps
 // these until the IDE closes; kakapo keeps them for the window and persists them, so a watch rebuild (which
 // repaints the whole page) does not quietly empty a chain of requests that depend on an earlier login.
@@ -964,6 +968,9 @@ const quickModeLabel = document.getElementById('quick-open-mode');
 const quickFilterEl = document.getElementById('quick-open-filter');
 const quickExtensionInput = document.getElementById('quick-open-extensions');
 const quickExcludeNoiseButton = document.getElementById('quick-open-exclude-noise');
+const quickMatchCaseButton = document.getElementById('quick-open-match-case');
+const quickWholeWordsButton = document.getElementById('quick-open-whole-words');
+const quickRegexButton = document.getElementById('quick-open-regex');
 let current = -1;
 let checkingForUpdates = false;
 let quickMode = 'all';
@@ -978,6 +985,11 @@ let contentSearchBusy = false;
 let contentSearchTruncated = false;
 let contentSearchEngine = 'local';
 let contentSearchExcludeNoise = false;
+// IntelliJ's three Find in Files modifiers. They travel to ripgrep as flags (src/search.ts) and the
+// in-page fallback honours them itself, so a standalone review answers the same question.
+let contentSearchMatchCase = false;
+let contentSearchWholeWords = false;
+let contentSearchRegex = false;
 let workspaceSymbolItems = [];
 let workspaceSymbolQuery = '';
 let workspaceSymbolSeq = 0;

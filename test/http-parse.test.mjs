@@ -314,3 +314,45 @@ test("jsonPath reads the shapes .http files ask for", async () => {
   assert.equal(v.window.httpJsonPath(document_, "$.missing"), undefined);
   v.close();
 });
+
+test("`run` and `import` are parsed, with their per-call variable overrides", async () => {
+  const v = await loadViewer(html);
+  const parsed = plain(v.window.parseHttpRequests([
+    "import ./shared.http",
+    "",
+    "run ./smoke.http",
+    "",
+    "run #login",
+    "",
+    "run ./other.http#profile (@host = https://staging.test, @user=ada)",
+    "",
+    "### an ordinary request still works here",
+    "GET https://example.test/x",
+    "",
+  ].join("\n")));
+  assert.deepEqual(parsed.imports, ["./shared.http"], "import makes a file's requests addressable");
+  const runs = parsed.requests.filter((request) => request.kind === "run");
+  assert.deepEqual(runs.map((request) => [request.runSpec.path, request.runSpec.requestName]), [
+    ["./smoke.http", ""],
+    ["", "login"],
+    ["./other.http", "profile"],
+  ]);
+  assert.deepEqual(runs[2].runSpec.overrides, { host: "https://staging.test", user: "ada" });
+  assert.equal(parsed.requests.filter((request) => request.kind === "http").length, 1,
+    "a run line does not swallow the requests around it");
+  v.close();
+});
+
+test("a line that only looks like `run` is not one", async () => {
+  const v = await loadViewer(html);
+  const parsed = plain(v.window.parseHttpRequests([
+    "### running totals",
+    "GET https://example.test/run",
+    "X-Run: import something",
+    "",
+  ].join("\n")));
+  assert.equal(parsed.requests.length, 1);
+  assert.equal(parsed.requests[0].kind, "http");
+  assert.deepEqual(parsed.imports, []);
+  v.close();
+});

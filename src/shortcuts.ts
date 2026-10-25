@@ -23,6 +23,11 @@ export interface ShortcutDef {
    * The surface it acts on. Two actions may share a combination when they act on different surfaces —
    * Space ticks a sidebar row and expands diff context, and neither has ever been ambiguous — so this is
    * what makes a conflict check mean something. "any" is the whole window.
+   *
+   * "find" is a searching surface that owns the keyboard while it is up: the ⌘F bar, and the Find in
+   * Files dialog, whose three modifier toggles below take letters that mean something else in the window
+   * behind it. That is sound rather than lucky — the dialog consumes every key while it is open
+   * (KEY_OWNERS in 05-keymap.js), so the window-level chord cannot fire underneath it.
    */
   where: "any" | "code" | "tree" | "merged" | "history" | "find";
   /**
@@ -50,7 +55,6 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "nextChange", keys: ["F7"], where: "any", i18n: "kbd.nextChange" },
   { id: "prevChange", keys: ["⇧F7"], where: "any", i18n: "kbd.prevChange" },
   { id: "nextComment", keys: ["F8", "⇧F8"], where: "any", i18n: "kbd.nextComment" },
-  { id: "commentStepAlt", keys: ["⌘F7", "⌘⇧F7"], where: "any", i18n: "kbd.commentStepAlt" },
   { id: "gotoDiagnostic", keys: ["F2", "⇧F2"], where: "code", i18n: "kbd.gotoDiagnostic" },
   { id: "filesChangesTab", keys: ["⌘1", "⌘0"], where: "any", i18n: "kbd.filesChangesTab" },
   { id: "sidebarNavigate", keys: ["↑↓", "Enter"], where: "tree", i18n: "kbd.sidebarNavigate", fixed: "structural" },
@@ -66,7 +70,26 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "recentFiles", keys: ["⌘E"], where: "any", i18n: "kbd.recentFiles" },
   { id: "searchExtensions", keys: ["⌥E"], where: "any", i18n: "kbd.searchExtensions" },
   { id: "excludeSearchNoise", keys: ["⌥P"], where: "any", i18n: "kbd.excludeSearchNoise" },
-  { id: "defUsages", keys: ["⌘B"], where: "code", i18n: "kbd.defUsages" },
+  // IntelliJ's three Find in Files modifiers — `Cc`, `W`, `.*`. One ripgrep flag each (src/search.ts),
+  // and without them a reviewer hunting a pattern across a repository had to leave kakapo to do it.
+  // Match case is ⌥M rather than IntelliJ's mnemonic C: ⌥C is Compare against a ref, and a window-level
+  // chord owns every surface in this table — the dialog would shadow it rather than share it.
+  { id: "searchMatchCase", keys: ["⌥M"], where: "find", i18n: "kbd.searchMatchCase" },
+  { id: "searchWholeWords", keys: ["⌥W"], where: "find", i18n: "kbd.searchWholeWords" },
+  { id: "searchRegex", keys: ["⌥X"], where: "find", i18n: "kbd.searchRegex" },
+  // IntelliJ's Show Usages is ⌃⌥F7 and its Declaration or Usages is ⌘B; this popup is the answer to both,
+  // so it answers to both chords rather than being reached by only one of them.
+  { id: "defUsages", keys: ["⌘B", "⌘⌥F7"], where: "code", i18n: "kbd.defUsages" },
+  // IntelliJ's Find Usages: the same answer grouped by what each usage IS, which is the question ⌘B's flat
+  // popup cannot take. Its own chord, ⌥F7.
+  { id: "findUsages", keys: ["⌥F7"], where: "code", i18n: "kbd.findUsages" },
+  // IntelliJ's Find Usages in File (⌃F7) and Highlight Usages in File (⌃⇧F7), which are one action here:
+  // paint this file's occurrences, writes apart from reads. The chords used to be a second spelling of
+  // F8/⇧F8's comment stepping — a duplicate that cost IntelliJ's two in-file usage keys to keep.
+  { id: "highlightUsages", keys: ["⌘F7", "⌘⇧F7"], where: "code", i18n: "kbd.highlightUsages" },
+  // IntelliJ's next/previous occurrence of the element under the caret (⌃⌥↓/⌃⌥↑), which works whether or
+  // not the highlight is up.
+  { id: "nextPrevOccurrence", keys: ["⌘⌥↓", "⌘⌥↑"], where: "code", i18n: "kbd.nextPrevOccurrence" },
   { id: "goToImplementation", keys: ["⌘⌥B"], where: "code", i18n: "kbd.goToImplementation" },
   { id: "workspaceSymbol", keys: ["⌘⌥O"], where: "any", i18n: "kbd.workspaceSymbol" },
   { id: "goToDef", keys: ["⌘↓"], where: "code", i18n: "kbd.goToDef" },
@@ -163,10 +186,11 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
     "gotoLine", "revealInTree", "rowActions", "closeDialog",
   ] },
   { i18n: "settings.kbd.cat.nav", ids: [
-    "nextChange", "prevChange", "nextComment", "commentStepAlt", "gotoDiagnostic", "filesChangesTab",
+    "nextChange", "prevChange", "nextComment", "gotoDiagnostic", "filesChangesTab",
     "sidebarNavigate", "sidebarContent", "findInFile", "findNextPrev", "findEnter", "findInFiles", "recentFiles",
-    "searchExtensions", "excludeSearchNoise", "searchFiles", "searchEverywhere", "goToTest",
-    "defUsages", "goToImplementation",
+    "searchExtensions", "excludeSearchNoise", "searchMatchCase", "searchWholeWords", "searchRegex",
+    "searchFiles", "searchEverywhere", "goToTest",
+    "defUsages", "findUsages", "highlightUsages", "nextPrevOccurrence", "goToImplementation",
     "workspaceSymbol", "goToDef", "typeDeclaration", "fileStructure", "nextPrevSymbol", "recentLocations", "typeHierarchy", "callHierarchy", "goToSuper",
     "toggleBookmark", "showBookmarks", "assignBookmark", "jumpBookmark",
     "toggleFold", "prevNextTab", "cursorBackForward",
