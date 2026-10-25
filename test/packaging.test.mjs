@@ -222,3 +222,34 @@ test("every release publishes the dmg under a stable name for the Homebrew cask"
     "staged outside release/ so the versioned glob cannot pick it up",
   );
 });
+
+// A release that loses a race must not take the next one down with it.
+//
+// `git push --follow-tags` sends the branch and the tag in one command, but not atomically: the tag goes
+// up first, and if the branch is then rejected ("fetch first", because a merge landed while the release was
+// running) the remote keeps a tag pointing at a commit nobody has. The next release's `npm version patch`
+// computes the same version from package.json, tries to create a tag that already exists, and fails — so
+// ONE lost race blocks every release after it. That happened on 2026-10-25: two merges three minutes apart,
+// `v0.6.28` left orphaned, and the following release dead until someone deleted the tag by hand.
+//
+// The concurrency group above does not prevent this and cannot: it serialises releases against each other,
+// while the thing that breaks this workflow is a MERGE arriving mid-release, and merges do not wait.
+// Pushing the commit first makes a lost race cost only its own run — no tag is created to outlive it.
+test("the release pushes its commit before its tag, so a lost race leaves no orphan", () => {
+  const autoRelease = readFileSync(join(repoRoot, ".github", "workflows", "auto-release.yml"), "utf8");
+  // Comments may discuss --follow-tags (the one above does, and the header documents the manual
+  // minor/major path), so this looks only at what runs.
+  const runLines = autoRelease
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+  assert.doesNotMatch(runLines, /--follow-tags/,
+    "the automatic release must not push branch and tag in one non-atomic command");
+
+  const commitPush = runLines.indexOf("git push origin HEAD:main");
+  const tagPush = runLines.indexOf("git push origin \"${{ steps.version.outputs.tag }}\"");
+  assert.ok(commitPush >= 0, "the release pushes the version-bump commit to main");
+  assert.ok(tagPush >= 0, "and pushes the tag it created");
+  assert.ok(commitPush < tagPush,
+    "the commit goes first — a rejected branch must happen BEFORE any tag exists remotely");
+});
