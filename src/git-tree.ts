@@ -8,24 +8,7 @@
 //
 // So this module owns exactly two operations — enumerate, and read in bulk — and nothing else.
 import { spawn } from "node:child_process";
-import { git, RAW_PATHS } from "./git.js";
-
-/**
- * Paths in a review are relative to `root`, which may be a subdirectory of the repository (a monorepo
- * package, a worktree of one). Git specs are always repository-relative, so every spec needs this prefix
- * and every result needs it stripped.
- *
- * Asked of git rather than computed with `relative(repoRoot(root), root)`, which is what diff.ts does and
- * what this started as. That arithmetic is wrong wherever the path reaches the repository through a
- * symlink: on macOS `/var` is a symlink to `/private/var`, so for a repository under the temp directory
- * Node reports `/var/folders/…/repo` while `rev-parse --show-toplevel` reports `/private/var/folders/…/repo`,
- * and `relative` between them returns `../../../../../../../var/folders/…` — a pathspec that matches
- * nothing. `--show-prefix` is git answering about its own cwd, so the two can never disagree.
- * Returns "" at the repository root, otherwise a path with no trailing slash.
- */
-function workspacePrefix(root: string): string {
-  return git(root, ["rev-parse", "--show-prefix"]).replace(/\\/g, "/").replace(/\/+$/, "");
-}
+import { git, workspaceGitPrefix, RAW_PATHS } from "./git.js";
 
 /**
  * Every file the revision holds under this workspace, as paths relative to `root`.
@@ -35,7 +18,7 @@ function workspacePrefix(root: string): string {
  * quotes such names, which a line split silently mangles into a path that exists nowhere.
  */
 export function listRevisionFiles(root: string, revision: string): string[] {
-  const prefix = workspacePrefix(root);
+  const prefix = workspaceGitPrefix(root);
   // `--full-tree` is load-bearing when there is a prefix. Without it, ls-tree limits itself to the current
   // working directory AND reads the pathspec relative to it, so running in `<repo>/src` with `-- src`
   // asks for `src/src` and returns nothing — which is indistinguishable from an empty revision. With it,
@@ -71,7 +54,7 @@ export function readRevisionBlobs(
   options: { maxBytes?: number; onFile?: (file: RevisionBlob) => void } = {},
 ): Promise<RevisionBlob[]> {
   const maxBytes = options.maxBytes ?? Infinity;
-  const prefix = workspacePrefix(root);
+  const prefix = workspaceGitPrefix(root);
   const out: RevisionBlob[] = [];
   if (!paths.length) return Promise.resolve(out);
 

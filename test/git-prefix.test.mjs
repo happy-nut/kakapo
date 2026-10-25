@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { repoRoot, workspaceGitPrefix } from "../dist/git.js";
 import { materializeDeferredSourceFile } from "../dist/diff.js";
+import { listRevisionFiles, readRevisionBlobs } from "../dist/git-tree.js";
 
 const dirs = [];
 afterEach(() => { while (dirs.length) rmSync(dirs.pop(), { recursive: true, force: true }); });
@@ -91,4 +92,19 @@ test("a file genuinely missing from the revision is still reported absent", () =
   // The positive control for the assertion above: "not reported absent" only means something if something
   // still can be. An implementation that dropped the error branch would satisfy the previous test alone.
   assert.equal(materialized.skippedReason, "file is not present in this revision");
+});
+
+// git-tree.ts reads whole trees at a revision and needs the same prefix for its pathspec and its blob
+// specs. It carried its own copy of this helper; both now call the shared one, and nothing else covered
+// its prefix branch — the revision fixtures elsewhere open the repository at its root, where the prefix is
+// "" and there is nothing to get wrong.
+test("a whole-tree read from a subdirectory is scoped to that subdirectory", async () => {
+  const { pkg, revision } = monorepo();
+
+  assert.deepEqual(listRevisionFiles(pkg, revision), ["server.ts"],
+    "the revision's files come back relative to the opened subdirectory");
+
+  const blobs = await readRevisionBlobs(pkg, revision, ["server.ts"]);
+  assert.deepEqual(blobs.map((blob) => blob.path), ["server.ts"]);
+  assert.deepEqual(blobs.map((blob) => blob.content), ["export const port = 8080;\n"]);
 });
