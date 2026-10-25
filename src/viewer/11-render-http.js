@@ -600,6 +600,7 @@ function renderHttpTable(file) {
   const requests = parsed.requests;
   httpRequestsByPath.set(file.path, requests);
   httpVarsByPath.set(file.path, parsed.vars);
+  httpImportsByPath.set(file.path, parsed.imports);
   const scope = httpScope(file.path, -1);
   const lines = String(file.content).split(/\r?\n/);
   const cursor = viewerCursor && viewerCursor.path === file.path ? viewerCursor : null;
@@ -794,6 +795,32 @@ function renderWebSocketTranscript(target, result) {
   target.innerHTML = head
     + (result && result.error ? '<div class="http-script-error">' + escapeHtml(result.error) + '</div>' : '')
     + '<div class="ws-transcript">' + (rows || '<span class="http-resp-empty">' + escapeHtml(t('ws.nothing')) + '</span>') + '</div>';
+}
+
+/**
+ * What a `run` line did: one row per request it ran, in order, with its status.
+ *
+ * Not shaped like a response because it is not one — a `run` has no status, headers or body of its own,
+ * and what the reader needs from it is which of the requests it started came back.
+ */
+function renderHttpRunSummary(target, path, outcomes) {
+  const failed = outcomes.filter(function (outcome) { return !outcome.ok; }).length;
+  target.className = 'http-response' + (failed ? ' error' : '');
+  target.innerHTML = '<div class="http-resp-head">'
+    + '<span class="http-status ' + (failed ? 'bad' : 'ok') + '">'
+    + escapeHtml(failed
+      ? t('http.ranAllWithFailures').replace('{count}', String(outcomes.length)).replace('{failed}', String(failed))
+      : t('http.ranAll').replace('{count}', String(outcomes.length)))
+    + '</span>'
+    + '<span class="http-resp-meta">' + escapeHtml(path) + '</span>'
+    + '</div>'
+    + '<div class="http-run-list">' + outcomes.map(function (outcome) {
+      return '<div class="http-run-row ' + (outcome.ok ? 'ok' : 'bad') + '">'
+        + '<span class="http-run-mark" aria-hidden="true">' + (outcome.ok ? '&#10003;' : '&#10007;') + '</span>'
+        + '<span class="http-run-name">' + escapeHtml(outcome.name) + '</span>'
+        + '<span class="http-run-status">' + escapeHtml(outcome.status ? String(outcome.status) : '—') + '</span>'
+        + '</div>';
+    }).join('') + '</div>';
 }
 
 /** A non-text response. An image is worth showing; anything else is worth counting. */
@@ -1261,6 +1288,7 @@ function decorateDiffHttpRuns(wrapper) {
   var parsed = parseHttpRequests(file.content);
   httpRequestsByPath.set(path, parsed.requests);
   httpVarsByPath.set(path, parsed.vars);
+  httpImportsByPath.set(path, parsed.imports);
   var side = diffSideTable(wrapper, 'new');
   if (!side) return;
   var startLine = {};

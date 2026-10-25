@@ -346,10 +346,14 @@ function httpRequestApi(request, scope, key) {
       },
       get: function (name) { return (httpRequestVars.get(key) || {})[String(name)]; },
     },
-    // Variable collections (one request per array element) are not ported; these keep a script that reads
-    // them from throwing, and report the single iteration kakapo does run.
-    iteration: function () { return 0; },
-    templateValue: function () { return null; },
+    // Where in a collection this send is. A request whose variable holds a JSON array is sent once per
+    // element (runHttpCollection), and a handler that writes per-element results needs to know which.
+    iteration: function () { return Number(scope && scope.iteration) || 0; },
+    templateValue: function (index) {
+      const at = index === undefined ? (Number(scope && scope.iteration) || 0) : Number(index) || 0;
+      const collected = httpCollectionElement(request.body, Object.assign({}, scope, { iteration: at }));
+      return collected === undefined ? null : collected;
+    },
   };
 }
 
@@ -386,11 +390,78 @@ function httpResponseApi(result) {
  * Runs one script. Async, so `await sleep(…)` works as it does in IntelliJ, and every failure comes back as
  * a value — a handler that throws must not take the response panel down with it.
  */
+/**
+ * Resolves a handler's `import` lines into values it can close over.
+ *
+ * ES module syntax cannot be evaluated inside a Function body, so the imports are LIFTED: each named file
+ * is read, run in the same sandbox, and whatever it declares with `export` is captured. The importing
+ * script then sees those names as ordinary parameters, which is the same thing the module system would
+ * have given it.
+ *
+ * The depth limit is a module that imports itself; the sandbox is the one every handler runs in, so an
+ * imported file has no more reach than the file importing it.
+ */
+async function loadHttpScriptModules(text, fromPath, depth) {
+  const bindings = {};
+  const pattern = /^[ \t]*import\s+(?:(\*\s+as\s+[\w$]+|\{[^}]*\}|[\w$]+)\s+from\s+)?['"]([^'"]+)['"][ \t]*;?[ \t]*$/gm;
+  let match;
+  const seen = [];
+  while ((match = pattern.exec(text))) seen.push({ clause: match[1] || '', from: match[2] });
+  for (const entry of seen) {
+    if (depth > 4) return { error: 'a script module imports itself' };
+    const resolved = resolveHttpRunPath(fromPath, /\.[a-z]+$/i.test(entry.from) ? entry.from : entry.from + '.js');
+    const file = await readHttpFileText(resolved);
+    if (!file.ok) return { error: 'cannot read the script module ' + entry.from };
+    const exported = await runHttpScriptModule(file.text, resolved, depth + 1);
+    if (exported.error) return exported;
+    // `import x from …` is the default export; `import * as ns` is the whole namespace; the braced form
+    // takes names, with `as` renaming them.
+    const clause = entry.clause.trim();
+    if (!clause) continue;
+    if (clause.charAt(0) === '{') {
+      clause.slice(1, -1).split(',').forEach(function (part) {
+        const names = part.trim().split(/\s+as\s+/);
+        const from = names[0].trim();
+        const to = (names[1] || names[0]).trim();
+        if (from) bindings[to] = exported.values[from];
+      });
+    } else if (clause.indexOf('*') === 0) {
+      bindings[clause.split(/\s+as\s+/)[1].trim()] = exported.values;
+    } else {
+      bindings[clause] = exported.values.default;
+    }
+  }
+  return { bindings: bindings, strip: seen.length > 0 };
+}
+
+/** Runs one module file and returns what it exported. */
+async function runHttpScriptModule(text, path, depth) {
+  const nested = await loadHttpScriptModules(text, path, depth);
+  if (nested.error) return nested;
+  // `export` is removed and the names it marked are collected — the one transformation that turns module
+  // syntax into something a Function body accepts, without pretending to be a bundler.
+  const names = [];
+  let body = String(text).replace(/^[ \t]*import\s+[^\n]*$/gm, '');
+  body = body.replace(/^[ \t]*export\s+default\s+/gm, 'var __default__ = ');
+  body = body.replace(/^[ \t]*export\s+(?=(?:async\s+)?(?:function|class|const|let|var)\s)/gm, '');
+  const declaration = /(?:^|\n)[ \t]*(?:async\s+)?(?:function|class|const|let|var)\s+([\w$]+)/g;
+  let found;
+  while ((found = declaration.exec(body))) if (names.indexOf(found[1]) < 0) names.push(found[1]);
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  try {
+    const run = new AsyncFunction(
+      ...Object.keys(nested.bindings),
+      '"use strict";\n' + body + '\nreturn { default: typeof __default__ === "undefined" ? undefined : __default__, '
+        + names.map(function (name) { return JSON.stringify(name) + ': ' + name; }).join(', ') + ' };',
+    );
+    return { values: await run(...Object.values(nested.bindings)) };
+  } catch (error) {
+    return { error: 'script module ' + path + ': ' + (error && error.message ? error.message : String(error)) };
+  }
+}
+
 async function runHttpScript(source, api) {
   const text = String(source || '');
-  if (/^\s*(?:import|export)\s/m.test(text)) {
-    return { ok: false, error: 'shared script modules (import/export) are not supported in kakapo' };
-  }
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   const sleep = function (ms) { return new Promise(function (resolve) { setTimeout(resolve, Number(ms) || 0); }); };
   const random = {
@@ -402,11 +473,17 @@ async function runHttpScript(source, api) {
   };
   Object.defineProperty(random, 'uuid', { get: function () { return httpDynamicValue('$uuid'); } });
   Object.defineProperty(random, 'email', { get: function () { return httpDynamicValue('$random.email'); } });
+  const modules = await loadHttpScriptModules(text, api.path || '', 0);
+  if (modules.error) return { ok: false, error: modules.error };
+  const moduleNames = Object.keys(modules.bindings);
+  // The import lines themselves are removed: their values arrive as parameters instead.
+  const source_ = modules.strip ? text.replace(/^[ \t]*import\s+[^\n]*$/gm, '') : text;
   try {
     const body = new AsyncFunction(
       'client', 'request', 'response', 'crypto', 'jsonPath', 'xpath', 'sleep',
       '$uuid', '$timestamp', '$isoTimestamp', '$randomInt', '$random',
-      '"use strict";\n' + text,
+      ...moduleNames,
+      '"use strict";\n' + source_,
     );
     await body(
       api.client, api.request, api.response || null, httpCryptoApi(),
@@ -414,6 +491,7 @@ async function runHttpScript(source, api) {
       httpXPath, sleep,
       httpDynamicValue('$uuid'), httpDynamicValue('$timestamp'), httpDynamicValue('$isoTimestamp'),
       Number(httpDynamicValue('$randomInt')), random,
+      ...moduleNames.map(function (name) { return modules.bindings[name]; }),
     );
     return { ok: true };
   } catch (error) {

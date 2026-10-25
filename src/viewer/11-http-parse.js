@@ -81,6 +81,38 @@ function applyHttpDirective(line, directives) {
 }
 
 // `# @name login` / `# @name = login` / `### login`.
+/**
+ * `run ./other.http`, `run #Named`, `run #Named (@host=example.com, @user=ada)`, `import ./other.http`.
+ *
+ * A file that runs other files is how IntelliJ composes a suite out of request files, and the overrides
+ * are how one call differs from the next. Returns null for any other line.
+ */
+function parseHttpRunLine(line) {
+  const match = /^\s*(run|import)\s+(.+?)\s*$/.exec(line);
+  if (!match) return null;
+  const verb = match[1];
+  let rest = match[2];
+  const overrides = {};
+  // The parenthesised tail is a list of `@name = value` pairs, which apply to this call only.
+  const tail = /\(([^)]*)\)\s*$/.exec(rest);
+  if (tail) {
+    rest = rest.slice(0, tail.index).trim();
+    tail[1].split(',').forEach(function (pair) {
+      const assignment = /^\s*@?([\w.$-]+)\s*=\s*(.*?)\s*$/.exec(pair);
+      if (assignment) overrides[assignment[1]] = assignment[2];
+    });
+  }
+  if (!rest) return null;
+  // `run #Name` runs one request; `run path.http` runs the file; `run path.http#Name` does both at once.
+  const named = /^(.*?)#([^#]+)$/.exec(rest);
+  return {
+    verb: verb,
+    path: named ? named[1].trim() : (rest.charAt(0) === '#' ? '' : rest),
+    requestName: named ? named[2].trim() : (rest.charAt(0) === '#' ? rest.slice(1).trim() : ''),
+    overrides: overrides,
+  };
+}
+
 function httpRequestName(line) {
   const named = /^\s*(?:#+|\/\/)\s*@name\s*=?\s*(.+)$/.exec(line);
   return named ? named[1].trim() : '';
@@ -122,6 +154,8 @@ function parseHttpRequests(content) {
   const lines = String(content).split(/\r?\n/);
   const requests = [];
   const vars = {};
+  // `import other.http` — files whose named requests `run #Name` may address.
+  const imports = [];
   // Which lines belong to a {% … %} block, so the highlighter can treat them as JavaScript instead of as
   // .http syntax. Collected here because the parser is the only pass that knows where a block ends.
   const scriptLines = {};
@@ -131,7 +165,9 @@ function parseHttpRequests(content) {
   function flush() {
     if (!curr) return;
     if (script && script.sink) { script.sink.text = script.lines.join('\n'); script = null; }
-    if (curr.url) {
+    // A `run` line is a request in every way that matters here: it gets a gutter button, a response slot
+    // and a place in the file's order. It simply has no URL of its own.
+    if (curr.url || curr.runSpec) {
       curr.body = curr.bodyLines.join('\n').replace(/\s+$/, '');
       requests.push(curr);
     }
@@ -139,7 +175,7 @@ function parseHttpRequests(content) {
   function start(boundaryLine, name, index) {
     return {
       name: name, method: '', url: '', httpVersion: '', headers: [], bodyLines: [], body: '',
-      bodyFile: null, preScript: null, handler: null, output: null, auth: null,
+      bodyFile: null, preScript: null, handler: null, output: null, auth: null, runSpec: null,
       directives: emptyHttpDirectives(), kind: 'http',
       startLine: -1, endLine: index, boundaryLine: boundaryLine,
     };
@@ -196,6 +232,24 @@ function parseHttpRequests(content) {
       }
       const varMatch = /^@([\w.$-]+)\s*=\s*(.*)$/.exec(trimmed);
       if (varMatch) { vars[varMatch[1]] = varMatch[2].trim(); continue; }
+      // `run`/`import` before any request line. `import` only makes a file's requests addressable, so it
+      // carries no button of its own; `run` is the thing that executes.
+      const runLine = parseHttpRunLine(trimmed);
+      if (runLine) {
+        if (runLine.verb === 'import') { imports.push(runLine.path); continue; }
+        curr.runSpec = runLine;
+        curr.method = 'RUN';
+        curr.kind = 'run';
+        curr.startLine = i;
+        // Named after the LINE, not after what it targets: `run #profile` named "profile" made the line
+        // itself answer a search for the request called profile — so it found, and ran, itself.
+        curr.name = curr.name
+          || ('run ' + (runLine.path || '') + (runLine.requestName ? '#' + runLine.requestName : '')).trim();
+        flush();
+        curr = start(-1, '', i);
+        phase = 'pre';
+        continue;
+      }
       const syntax = httpSyntax();
       const sp = trimmed.search(/\s/);
       const firstToken = sp >= 0 ? trimmed.slice(0, sp) : trimmed;
@@ -281,7 +335,7 @@ function parseHttpRequests(content) {
     request.name = taken[base] ? base + (index + 1) : base;
     taken[request.name] = true;
   });
-  return { requests: requests, vars: vars, scriptLines: scriptLines };
+  return { requests: requests, vars: vars, scriptLines: scriptLines, imports: imports };
 }
 
 /**
@@ -378,6 +432,19 @@ function httpSharedVars() {
   return httpEnvironments.$shared || {};
 }
 
+/**
+ * The selected environment's `SSLConfiguration`, or undefined.
+ *
+ * Carried with the request so main knows to take the client-certificate path; the certificate itself is
+ * read there, from inside the review, and never passes through here.
+ */
+function currentHttpSsl() {
+  const store = httpEnvironments.$ssl || {};
+  const raw = store[currentHttpEnvName];
+  if (!raw) return undefined;
+  try { return JSON.parse(raw); } catch (error) { return undefined; }
+}
+
 function currentHttpEnv() {
   // The selected environment overrides $shared, which is the base every environment shares.
   return Object.assign({}, httpSharedVars(), httpEnvironments[currentHttpEnvName] || {});
@@ -393,6 +460,9 @@ function httpScope(path, requestIndex) {
     processEnv: httpEnvironments.$env || {},
     globals: httpGlobals,
     requestVars: httpRequestVars.get(path + '#' + requestIndex) || {},
+    // Which element of a collection this run is for. A variable whose value is a JSON array makes the
+    // request a loop — one send per element — and this is the index the {{name}} resolves at.
+    iteration: 0,
     responses: httpResponsesByName,
   };
 }
@@ -526,6 +596,10 @@ function httpVarValue(name, scope, depth) {
   const level = Number(depth) || 0;
   if (level > 10) return undefined;
   const resolveRaw = function (raw) {
+    // A collection: `@ids = [1, 2, 3]` is not the string "[1, 2, 3]" but three values, and the request
+    // is sent once per element. Which one is on `scope.iteration`, set by the runner.
+    const element = httpCollectionElement(raw, scope);
+    if (element !== undefined) raw = element;
     return String(raw).indexOf('{{') < 0 ? String(raw) : applyHttpVars(raw, scope, level + 1);
   };
   if (name.charAt(0) === '$') {
@@ -558,6 +632,44 @@ function httpVarValue(name, scope, depth) {
     }
   }
   return undefined;
+}
+
+/**
+ * The element this run wants, when a variable's value is a JSON array.
+ *
+ * Returns undefined for everything that is not a collection, which is how a value that merely starts with
+ * `[` (a header, a path) stays the string it is.
+ */
+function httpCollectionElement(raw, scope) {
+  const text = String(raw == null ? '' : raw).trim();
+  if (text.charAt(0) !== '[') return undefined;
+  let parsed;
+  try { parsed = JSON.parse(text); } catch (error) { return undefined; }
+  if (!Array.isArray(parsed) || !parsed.length) return undefined;
+  const at = Math.max(0, Math.min(Number(scope && scope.iteration) || 0, parsed.length - 1));
+  const value = parsed[at];
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
+/** How many times a request has to be sent: the longest collection among the variables it mentions. */
+function httpCollectionLength(text, scope) {
+  let longest = 1;
+  const pattern = httpVarPattern();
+  let match;
+  while ((match = pattern.exec(String(text || '')))) {
+    const name = match[1];
+    const raw = Object.prototype.hasOwnProperty.call(scope.requestVars, name) ? scope.requestVars[name]
+      : Object.prototype.hasOwnProperty.call(scope.globals, name) ? scope.globals[name]
+        : Object.prototype.hasOwnProperty.call(scope.vars, name) ? scope.vars[name]
+          : Object.prototype.hasOwnProperty.call(scope.env, name) ? scope.env[name] : undefined;
+    const value = String(raw == null ? '' : raw).trim();
+    if (value.charAt(0) !== '[') continue;
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) longest = Math.max(longest, parsed.length);
+    } catch (error) { /* not a collection after all */ }
+  }
+  return longest;
 }
 
 /** Substitutes every {{name}} in `text`. An unknown name is left verbatim so the runner can name it. */

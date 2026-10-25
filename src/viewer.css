@@ -3729,6 +3729,14 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 }
 .http-resp-empty { color: var(--muted); font-style: italic; }
 .http-resp-image { max-width: 100%; display: block; }
+/* What a `run` line started, one row per request. */
+.http-run-list { padding: 8px 12px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.http-run-row { display: flex; gap: 8px; align-items: baseline; }
+.http-run-mark { flex: none; width: 12px; }
+.http-run-row.ok .http-run-mark { color: #59a869; }
+.http-run-row.bad .http-run-mark { color: #e06c75; }
+.http-run-name { min-width: 0; color: var(--text); word-break: break-word; }
+.http-run-status { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* A WebSocket exchange reads as a conversation: direction, when, text. Monospace for the text because it
    is nearly always JSON, and the time column aligned because the pace is part of what you are reading. */

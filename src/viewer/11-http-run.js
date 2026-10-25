@@ -88,6 +88,7 @@ async function resolveHttpRequest(request, scope) {
     timeoutMs: request.directives.timeoutMs,
     connectTimeoutMs: request.directives.connectTimeoutMs,
     auth: auth,
+    ssl: currentHttpSsl(),
   };
 
   if (request.kind === 'graphql') {
@@ -199,6 +200,10 @@ async function runHttpRequest(reqIndex, pathOverride, targetOverride) {
     await runWebSocketRequest(request, path, reqIndex, target, fail);
     return;
   }
+  if (request.kind === 'run') {
+    await runHttpRunDirective(request, path, target, fail);
+    return;
+  }
 
   // A pre-request script's variables belong to this run, not to every run since the file was opened.
   httpRequestVars.delete(key);
@@ -211,9 +216,20 @@ async function runHttpRequest(reqIndex, pathOverride, targetOverride) {
   if (pre.text) {
     const outcome = await runHttpScript(pre.text, {
       client: httpClientApi(log), request: httpRequestApi(request, scope, key),
+      // Where `import './logger.js'` resolves from: beside the .http file, as it would in the IDE.
+      path: path,
     });
     if (!outcome.ok) { fail(t('http.preScriptFailed').replace('{error}', outcome.error)); return; }
     scope = httpScope(path, reqIndex); // request.variables.set() happened; rebuild so it is visible
+  }
+
+  // A variable holding a JSON array makes this request a loop: one send per element, in order, each with
+  // its own scope. One element is the ordinary case and goes through unchanged.
+  const iterations = httpCollectionLength(
+    request.url + ' ' + request.headers.map(function (h) { return h.name + ' ' + h.value; }).join(' ')
+      + ' ' + (request.body || ''), scope);
+  if (iterations > 1) {
+    return await runHttpCollection(request, path, reqIndex, target, fail, log, iterations);
   }
 
   const resolved = await resolveHttpRequest(request, scope);
@@ -241,6 +257,7 @@ async function runHttpRequest(reqIndex, pathOverride, targetOverride) {
       client: httpClientApi(log),
       request: httpRequestApi(request, scope, key),
       response: httpResponseApi(result),
+      path: path,
     });
     if (!outcome.ok) log.error = outcome.error;
   }
@@ -386,4 +403,161 @@ async function runWebSocketRequest(request, path, reqIndex, target, fail) {
   });
   if (target) renderWebSocketTranscript(target, result);
   return result;
+}
+
+// ---- `run` and `import`: one file running another ----------------------------------------------------
+// IntelliJ composes a suite out of request files this way, and the parenthesised overrides are how one
+// call differs from the next. The referenced file is parsed and registered in the SAME maps an open file
+// uses, so everything below — variables, pre-request scripts, handlers, `>>` saves — happens exactly as
+// it would if a reader had opened that file and pressed Run on each request themselves.
+
+/** `./other.http` next to `from`, or a repository-relative path. '' means "this file". */
+function resolveHttpRunPath(from, target) {
+  const wanted = String(target || '').replace(/\\/g, '/').trim();
+  if (!wanted) return from;
+  if (wanted.charAt(0) === '/') return wanted.slice(1);
+  const base = String(from || '').replace(/\/[^/]*$/, '');
+  const parts = (base ? base.split('/') : []).concat(wanted.split('/'));
+  const out = [];
+  for (const part of parts) {
+    if (!part || part === '.') continue;
+    if (part === '..') { out.pop(); continue; }
+    out.push(part);
+  }
+  return out.join('/');
+}
+
+/**
+ * Loads a .http file's requests into the runner's maps and returns them.
+ *
+ * The file already open is read from the index rather than through main: it is the text on screen, which
+ * is what the reader is pressing Run against.
+ */
+async function loadHttpRequestsOf(path) {
+  const known = httpRequestsByPath.get(path);
+  if (known) return known;
+  const file = sourceByPath.get(path);
+  let content = file && sourceContentLoaded(file) ? file.content : '';
+  if (!content) {
+    const read = await readHttpFileText(path);
+    if (!read.ok) return null;
+    content = read.text;
+  }
+  const parsed = parseHttpRequests(content);
+  httpRequestsByPath.set(path, parsed.requests);
+  httpVarsByPath.set(path, parsed.vars);
+  httpImportsByPath.set(path, parsed.imports);
+  return parsed.requests;
+}
+
+/** Which requests a `run` line names: all of a file's, or the one it names, searched through imports. */
+async function httpRunTargets(spec, fromPath) {
+  const direct = resolveHttpRunPath(fromPath, spec.path);
+  const candidates = [direct];
+  // `run #Name` with no path: this file first, then whatever it imported, in the order it imported them.
+  if (!spec.path) {
+    for (const imported of httpImportsByPath.get(fromPath) || []) {
+      candidates.push(resolveHttpRunPath(fromPath, imported));
+    }
+  }
+  for (const candidate of candidates) {
+    const requests = await loadHttpRequestsOf(candidate);
+    if (!requests) continue;
+    // Only real requests are runnable targets. A `run` line is not addressable by name — it has no
+    // request of its own to send, and letting one answer meant a file could find itself.
+    const sendable = requests.filter(function (request) { return request.kind !== 'run'; });
+    if (!spec.requestName) return { path: candidate, requests: sendable };
+    const named = sendable.filter(function (request) { return request.name === spec.requestName; });
+    if (named.length) return { path: candidate, requests: named };
+  }
+  return null;
+}
+
+async function runHttpRunDirective(request, path, target, fail) {
+  const spec = request.runSpec;
+  if (!spec) return;
+  const found = await httpRunTargets(spec, path);
+  if (!found) {
+    fail(t(spec.requestName ? 'http.runNoRequest' : 'http.runNoFile')
+      .replace('{name}', spec.requestName || spec.path));
+    return;
+  }
+  // A file that runs itself, directly or through another file, would never stop.
+  if (httpRunStack.indexOf(found.path) >= 0) {
+    fail(t('http.runLoop').replace('{file}', found.path));
+    return;
+  }
+  // `run #name (@host=…)`: variables for this call, layered over the target file's own.
+  const overrides = Object.keys(spec.overrides || {});
+  const saved = httpVarsByPath.get(found.path) || {};
+  if (overrides.length) httpVarsByPath.set(found.path, Object.assign({}, saved, spec.overrides));
+
+  if (target) {
+    target.className = 'http-response loading';
+    target.innerHTML = kakapoLoaderHtml('kakapo-loader-inline') + '<span class="http-loading-copy">'
+      + escapeHtml(t('http.runningAll').replace('{count}', String(found.requests.length))) + '</span>';
+  }
+  httpRunStack.push(found.path);
+  const outcomes = [];
+  try {
+    for (let i = 0; i < found.requests.length; i++) {
+      const index = httpRequestsByPath.get(found.path).indexOf(found.requests[i]);
+      // Each one runs through the ordinary path, with no response slot of its own — the slot belongs to
+      // the `run` line, and it reports the whole batch.
+      const result = await runHttpRequest(index, found.path, null);
+      outcomes.push({ name: found.requests[i].name, ok: Boolean(result && result.ok), status: result && result.status });
+    }
+  } finally {
+    httpRunStack.pop();
+    if (overrides.length) httpVarsByPath.set(found.path, saved);
+  }
+  if (target) renderHttpRunSummary(target, found.path, outcomes);
+}
+
+/**
+ * A request whose variables hold a collection: sent once per element.
+ *
+ * Each send gets its own scope with `iteration` set, which is what a {{name}} resolves against and what
+ * `request.iteration()` reports to a script. The response panel shows the batch rather than one response,
+ * because there is no single response to show.
+ */
+async function runHttpCollection(request, path, reqIndex, target, fail, log, iterations) {
+  const outcomes = [];
+  if (target) {
+    target.className = 'http-response loading';
+    target.innerHTML = kakapoLoaderHtml('kakapo-loader-inline') + '<span class="http-loading-copy">'
+      + escapeHtml(t('http.runningAll').replace('{count}', String(iterations))) + '</span>';
+  }
+  for (let at = 0; at < iterations; at++) {
+    const scope = httpScope(path, reqIndex);
+    scope.iteration = at;
+    const resolved = await resolveHttpRequest(request, scope);
+    if (resolved.error) { fail(resolved.error); return; }
+    let result;
+    try {
+      result = await sendHttp(resolved.request);
+    } catch (error) {
+      fail(String(error && error.message ? error.message : error));
+      return;
+    }
+    // The LAST response is the one a later {{name.response…}} refers to, which is what IntelliJ does.
+    rememberHttpResponse(request, result);
+    const handler = await httpScriptSource(request.handler);
+    if (handler.text) {
+      const outcome = await runHttpScript(handler.text, {
+        client: httpClientApi(log),
+        request: httpRequestApi(request, scope, path + '#' + reqIndex),
+        response: httpResponseApi(result),
+        path: path,
+      });
+      if (!outcome.ok) log.error = outcome.error;
+    }
+    outcomes.push({
+      name: resolved.request.url,
+      ok: Boolean(result && result.ok),
+      status: result && result.status,
+    });
+  }
+  if (target) renderHttpRunSummary(target, t('http.collection').replace('{count}', String(iterations)), outcomes);
+  return outcomes[outcomes.length - 1];
 }

@@ -775,6 +775,10 @@ let httpEnvNames = Object.keys(httpEnvironments).filter(function (name) { return
 const httpEnvKey = 'kakapo-http-env:' + location.pathname;
 const httpRequestsByPath = new Map();
 const httpVarsByPath = new Map();
+// `import other.http` lines, per file: the files whose named requests a `run #Name` here may address.
+const httpImportsByPath = new Map();
+// Which files a `run` is already inside, so a file that runs itself stops instead of recursing.
+const httpRunStack = [];
 // client.global.set() from a response handler: variables a later request reads as {{name}}. IntelliJ keeps
 // these until the IDE closes; kakapo keeps them for the window and persists them, so a watch rebuild (which
 // repaints the whole page) does not quietly empty a chain of requests that depend on an earlier login.

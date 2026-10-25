@@ -286,12 +286,29 @@ Authorization: Bearer {{token}}
 `{{$historyFolder}}`는 kakapo 자신의 app-data 미러로 풀립니다 — 읽고 있는 저장소에 kakapo의 상태를 쓰지
 않습니다. 쿠키 잼도 거기 있고, IntelliJ와 같은 `# domain path name value date` 형식이라 그대로 읽힙니다.
 
-**이식하지 않은 것.** gRPC·WebSocket (프로토콜 스택이 없습니다 — 줄은 색칠하지만 보내지 않고 그렇다고
-말합니다), OAuth2 `Security.Auth` 플로우, `@use-os-credentials` (지시자로는 인식하지만, 요청에 넘길 OS
-자격증명 저장소가 없습니다), 공유 스크립트 모듈 (핸들러 안의 `import`·`export`),
-`$exampleServer`, 변수 컬렉션 (배열 원소마다 요청 하나), Java Faker 생성기 전체 (흔한 것들은 있고,
-없는 것은 이름을 들어 알려 줍니다), 그리고 `curl` 명령 **가져오기** — kakapo는 읽고 있는 파일에 쓰지
-않으므로 넣을 자리가 없습니다.
+**다른 파일 실행.** `run ./smoke.http`는 그 파일의 모든 요청을, `run #login`은 이름으로 하나를 (이 파일
+먼저, 그다음 `import`한 파일들에서) 실행합니다. `run ./other.http#login (@host = https://staging.test)`은
+그 호출에만 변수를 덮어씁니다. 자기 자신을 실행하려는 파일은 멈추고 그렇다고 말합니다.
+
+**컬렉션.** 변수 값이 JSON 배열이면 요청이 반복문이 됩니다: `@ids = [1, 2, 3]`에 
+`GET {{base}}/items/{{ids}}`면 요청 세 개가 나가고, 핸들러는 `request.iteration()`으로 자기가 몇 번째인지
+압니다.
+
+**스크립트 모듈.** 핸들러는 옆의 `.js` 파일에서 `import`할 수 있습니다 (named·default·namespace·이름
+바꾸기 전부). 모듈끼리의 import도 됩니다. 핸들러와 **같은 샌드박스**에서 돕니다 — `require`도 `fs`도
+`process`도 없습니다.
+
+**클라이언트 인증서.** `http-client.private.env.json`의 `SSLConfiguration` (`clientCertificate`,
+`clientCertificateKey`, `verifyHostCertificate`)을 따릅니다. 인증서는 main 프로세스가 리뷰 안에서 읽고,
+페이지를 거치지 않습니다. 암호가 걸린 키는 이름을 들어 거절합니다 — IntelliJ는 대화형으로 묻지만 kakapo는
+물을 자리가 없습니다.
+
+**이식하지 않은 것.** gRPC (protobuf 런타임이 필요한데, 이 CLI는 리뷰상의 이유 없는 런타임 의존성을 지지
+않습니다), OAuth2 `Security.Auth` 플로우, `@use-os-credentials` (지시자로는 인식하지만 넘길 OS 자격증명
+저장소가 없습니다), `$exampleServer`, Java Faker 생성기 전체 (흔한 것들은 있고, 없는 것은 이름을 들어
+알려 줍니다), 그리고 `curl` 명령 **가져오기** — kakapo는 읽고 있는 파일에 쓰지 않으므로 넣을 자리가
+없습니다. WebSocket은 파일에 적힌 메시지를 보내고 교환을 보여 줍니다 — IntelliJ의 실시간 콘솔은
+아닙니다.
 
 ## Git 이력
 

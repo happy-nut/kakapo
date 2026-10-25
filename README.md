@@ -298,12 +298,30 @@ text is in front of you. Reading a repository should not run it.
 repository you are reading. The cookie jar lives there too, in IntelliJ's readable
 `# domain path name value date` format.
 
-**Not ported.** gRPC and WebSocket (no protocol stack — the lines are coloured but say so instead of
-sending), OAuth2 `Security.Auth` flows, `@use-os-credentials` (recognised as a directive, but there is no
-OS credential store to hand to a request), shared script modules (`import`/`export` in a handler),
-`$exampleServer`, variable collections (one request per array element), the full Java Faker generator set
+**Running other files.** `run ./smoke.http` runs every request in that file, `run #login` runs one by
+name (searched here first, then through whatever this file `import`s), and
+`run ./other.http#login (@host = https://staging.test)` overrides variables for that call alone. A file
+that would run itself is stopped and says so.
+
+**Collections.** A variable holding a JSON array makes a request a loop: `@ids = [1, 2, 3]` with
+`GET {{base}}/items/{{ids}}` sends three requests, and a handler reads `request.iteration()` to know which
+one it is in.
+
+**Script modules.** A handler may `import` from a `.js` file beside it, in any of the ES6 forms (named,
+default, namespace, renamed), and those modules may import each other. They run in the same sandbox as the
+handler: no `require`, no `fs`, no `process`.
+
+**Client certificates.** `SSLConfiguration` in `http-client.private.env.json` — `clientCertificate`,
+`clientCertificateKey`, `verifyHostCertificate` — is honoured. The certificate is read in the main
+process, from inside the review, and never passes through the page. A key with a passphrase is refused by
+name: IntelliJ asks for it interactively and kakapo has nowhere to ask.
+
+**Not ported.** gRPC (it needs a protobuf runtime, and this CLI carries no runtime dependency it has no
+review reason for), OAuth2 `Security.Auth` flows, `@use-os-credentials` (recognised as a directive, but
+there is no OS credential store to hand to a request), `$exampleServer`, the full Java Faker generator set
 (the common ones are there; an unimplemented one is reported by name), and importing a `curl` command —
-kakapo never writes to the file you are reading, so there would be nowhere to put it.
+kakapo never writes to the file you are reading, so there would be nowhere to put it. WebSocket runs the
+messages a file lists and shows the exchange; it is not IntelliJ's live console.
 
 ## Git history
 

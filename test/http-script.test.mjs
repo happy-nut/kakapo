@@ -244,9 +244,55 @@ test("a script has no filesystem, process or module loader to reach for", async 
     assert.equal(outcome.ok, true, outcome.error || "");
     assert.equal(host.global("probe"), "undefined", `${name} is not reachable from a handler`);
   }
-  // Shared modules are a real IntelliJ feature kakapo does not implement; say so instead of failing oddly.
-  const imported = await host.run('import { x } from "logger";');
+  // A module that cannot be read says which one, rather than failing as if the script were wrong.
+  const imported = await host.run('import { x } from "./nowhere.js";\nclient.log(x);');
   assert.equal(imported.ok, false);
-  assert.match(imported.error, /not supported/);
+  assert.match(imported.error, /nowhere/);
+  host.v.close();
+});
+
+test("a handler can import a shared script module, in every ES6 form", async () => {
+  const host = await scriptHost();
+  const modules = {
+    "lib/logger.js": [
+      "export const prefix = 'kakapo';",
+      "export function shout(text) { return prefix + ': ' + String(text).toUpperCase(); }",
+      "export default function () { return 'the default'; }",
+    ].join("\n"),
+    "lib/chain.js": "import { prefix } from './logger.js';\nexport const doubled = prefix + prefix;",
+  };
+  host.v.window.kakapoHttp = {
+    readFile: (path) => Promise.resolve(
+      modules[path.replace(/^\.\//, "")] !== undefined
+        ? { ok: true, text: modules[path.replace(/^\.\//, "")] }
+        : { ok: false, error: `no such module: ${path}` },
+    ),
+  };
+  const outcome = await host.run([
+    "import { shout } from './lib/logger.js';",
+    "import * as logger from './lib/logger.js';",
+    "import makeDefault from './lib/logger.js';",
+    "import { doubled } from './lib/chain.js';",
+    "client.global.set('shouted', shout('hi'));",
+    "client.global.set('namespaced', logger.prefix);",
+    "client.global.set('fromDefault', makeDefault());",
+    "client.global.set('nested', doubled);",
+  ].join("\n"));
+  assert.equal(outcome.ok, true, outcome.error || "");
+  assert.equal(host.global("shouted"), "kakapo: HI", "a named import is callable");
+  assert.equal(host.global("namespaced"), "kakapo", "a namespace import carries every export");
+  assert.equal(host.global("fromDefault"), "the default");
+  assert.equal(host.global("nested"), "kakapokakapo", "and a module may import another");
+  host.v.close();
+});
+
+test("an imported module runs in the same sandbox as the handler", async () => {
+  const host = await scriptHost();
+  host.v.window.kakapoHttp = {
+    readFile: () => Promise.resolve({ ok: true, text: "export const reach = typeof require + '/' + typeof process;" }),
+  };
+  const outcome = await host.run("import { reach } from './probe.js';\nclient.global.set('reach', reach);");
+  assert.equal(outcome.ok, true, outcome.error || "");
+  assert.equal(host.global("reach"), "undefined/undefined", "a module is no more privileged than its importer");
   host.v.close();
 });
