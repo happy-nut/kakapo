@@ -165,6 +165,33 @@ export function repoRoot(cwd: string = process.cwd()): string {
   return root;
 }
 
+// The repository-relative prefix of `root`: "" at the repository root, otherwise a path with no trailing
+// slash. Review paths are relative to the folder the reviewer opened, while every git spec (`<rev>:<path>`,
+// a pathspec) is repository-relative — so a monorepo subfolder needs this prefix on the way in and stripped
+// on the way out.
+//
+// Asked of git rather than computed as `relative(repoRoot(root), root)`, which is what three call sites
+// used to do. That arithmetic is wrong wherever `root` reaches the repository through a symlink, because
+// its two inputs come from different authorities: on macOS `/var` is a symlink to `/private/var`, so for a
+// repository under the temp directory Node reports `/var/folders/…/repo/pkg` while `rev-parse
+// --show-toplevel` reports `/private/var/folders/…/repo`, and `relative` between them returns
+// `../../../../../../../../var/folders/…/repo/pkg`. As a blob spec that resolves to nothing, and
+// readTargetBlobSource's own error path then reports every file in an A→B compare as "file is not present
+// in this revision" — a wrong answer in the shape of a real one. `--show-prefix` is git answering about its
+// own cwd, so there is no second opinion for it to disagree with.
+//
+// Memoized by root for the reason repoRoot is: this is reached per review build and per status map (see
+// gitStatusMap, where recomputing it per line once cost ~120 subprocesses), and a directory's prefix is as
+// stable as its toplevel for the life of the process.
+const workspacePrefixCache = new Map<string, string>();
+export function workspaceGitPrefix(root: string): string {
+  const cached = workspacePrefixCache.get(root);
+  if (cached !== undefined) return cached;
+  const prefix = git(root, ["rev-parse", "--show-prefix"]).replace(/\\/g, "/").replace(/\/+$/, "");
+  workspacePrefixCache.set(root, prefix);
+  return prefix;
+}
+
 // 이 워크트리 고유의 `.git/worktrees/<name>` 경로를 가리킨다 (워크트리가 아닌 일반 clone이면 `.git`) —
 // answers 교환 파일이 이 경로 아래에 저장된다 (answers-ipc.ts 참고). git은 자신의 `.git/` 내용물을
 // 추적하지 않으므로, 에이전트가 `git status`를 더럽히지 않고 파일을 쓸 수 있는 장소이기 때문이다.
