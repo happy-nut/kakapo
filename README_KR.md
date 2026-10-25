@@ -307,6 +307,10 @@ npm test
 npm run smoke
 ```
 
+`npm run mermaid:smoke`는 의도적으로 분리되어 있습니다. Mermaid의 `render()`는 `getBBox`로 텍스트를
+측정하는데 jsdom에 그 API가 없어서, 다이어그램이 실제로 배치되는지는 진짜 앱에서만 답할 수 있습니다.
+20초쯤 창이 떴다 사라지며, 이 체크아웃에서 띄운 Kakapo가 실행 중이면 안 됩니다.
+
 로컬 빌드로 다른 저장소를 검토:
 
 ```bash
