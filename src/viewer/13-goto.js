@@ -114,6 +114,11 @@ function openTreeRowMenu(row) {
       } catch (e) {}
     } });
   }
+  // IntelliJ's Git ▸ Show History for a file: every commit that touched it, followed through its renames.
+  // The line-level version is already a right-click on a line number; this is the whole file's story.
+  if (window.kakapoGit) {
+    items.push({ label: t('menu.fileHistory'), onSelect: function () { openFileHistory(path); } });
+  }
   if (window.kakapoApp && typeof window.kakapoApp.revealInFinder === 'function') {
     items.push({ label: t('menu.revealFinder'), onSelect: function () { try { window.kakapoApp.revealInFinder(path); } catch (e) {} } });
   }

@@ -121,6 +121,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "maximizePanel", keys: ["⌘⇧'"], where: "merged", i18n: "kbd.maximizePanel" },
 
   // ---- History ------------------------------------------------------------------------------------
+  { id: "copyRevision", keys: ["⌘C"], where: "history", i18n: "kbd.copyRevision" },
   { id: "historyNavigate", keys: ["↑↓", "Enter"], where: "history", i18n: "kbd.historyNavigate", fixed: "structural" },
 ];
 
@@ -148,7 +149,7 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
     "reviewStops", "editComment", "deleteComment", "stepComments", "mergedCopy", "mergedSend", "maximizePanel",
   ] },
   { i18n: "settings.kbd.cat.history", ids: [
-    "openHistory", "historyNavigate", "pageUpDown",
+    "openHistory", "historyNavigate", "copyRevision", "pageUpDown",
   ] },
 ];
 

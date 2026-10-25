@@ -91,6 +91,11 @@ contextBridge.exposeInMainWorld("kakapoSearch", {
 // Git history view (Cmd+9): list commits and fetch one commit's full diff for the current window's repo.
 contextBridge.exposeInMainWorld("kakapoGit", {
   log: (request: { limit?: number; skip?: number }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-log", request),
+  // The log view's own filters (author/path/message/content/date/branch) are applied by git — see
+  // GitLogFilter in git-log.ts. Reflog and the stash list are the two other read-only histories.
+  reflog: (request: { limit?: number }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-reflog", request),
+  stashes: (): Promise<unknown> => ipcRenderer.invoke("kakapo:git-stashes"),
+  resolveRevision: (query: string): Promise<unknown> => ipcRenderer.invoke("kakapo:git-resolve-rev", { query }),
   lineLog: (request: { path: string; line: number; limit?: number }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-line-log", request),
   blame: (request: { path: string; side?: "old" | "new" }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-blame", request),
   commitDiff: (sha: string): Promise<unknown> => ipcRenderer.invoke("kakapo:git-commit-diff", { sha }),

@@ -9,7 +9,10 @@ import { readHttpAttachment, saveHttpResponse } from "./http-files.js";
 // and running a .http request. Importing them when the first such request arrives keeps that off cold start.
 // Node caches the module, so only the first call pays anything at all.
 const buildTools = (): Promise<typeof import("./cli.js")> => import("./cli.js");
-import { readGitLog, readGitLineLog, readGitBlame, readCommitDiff, readRangeDiff } from "./git-log.js";
+import {
+  readGitLog, readGitLineLog, readGitBlame, readCommitDiff, readRangeDiff,
+  readGitReflog, readGitStashes, resolveGitRevision, type GitLogFilter,
+} from "./git-log.js";
 import { defaultBaseRef, git, listBranches } from "./git.js";
 import { readPatchSets } from "./patch-sets.js";
 import { materializeDeferredSourceFile } from "./diff.js";
@@ -242,10 +245,36 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     });
   });
 
-  ipc.handle("kakapo:git-log", (event, request: { limit?: number; skip?: number }) => {
+  // The log's filters are applied by git, not by hiding rows: a page holds a few hundred commits, so a
+  // filter over what is already loaded answers "nothing by Ada" when it means "nothing in the last page".
+  ipc.handle("kakapo:git-log", (event, request: GitLogFilter) => {
     const state = stateFromEvent(event);
     if (!state) return [];
-    try { return readGitLog(state.options.root, { limit: request?.limit, skip: request?.skip }); } catch { return []; }
+    try { return readGitLog(state.options.root, request ?? {}); } catch { return []; }
+  });
+
+  // Where HEAD has been. The one view that still holds a commit a reset or a rebase dropped.
+  ipc.handle("kakapo:git-reflog", (event, request: { limit?: number }) => {
+    const state = stateFromEvent(event);
+    if (!state) return [];
+    try { return readGitReflog(state.options.root, { limit: request?.limit }); } catch { return []; }
+  });
+
+  // Read-only, like everything else here: kakapo shows what is stashed, it does not apply or drop it.
+  // A stash IS a commit, so opening one needs no diff reader of its own — its first parent is where HEAD
+  // was when it was made, which is exactly what the review surface already opens for `sha^..sha`.
+  ipc.handle("kakapo:git-stashes", (event) => {
+    const state = stateFromEvent(event);
+    if (!state) return [];
+    try { return readGitStashes(state.options.root); } catch { return []; }
+  });
+
+  // "Go to hash": what a hash, branch, tag or HEAD~2 typed into the log's box actually names. null is the
+  // answer that tells the box it was holding an ordinary text filter after all.
+  ipc.handle("kakapo:git-resolve-rev", (event, request: { query?: string }) => {
+    const state = stateFromEvent(event);
+    if (!state || !request?.query) return null;
+    try { return resolveGitRevision(state.options.root, request.query); } catch { return null; }
   });
 
   ipc.handle("kakapo:git-line-log", (event, request: { path?: string; line?: number; limit?: number }) => {

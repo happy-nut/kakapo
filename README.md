@@ -120,7 +120,8 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌘⇧/` | All review comments (one hand-off document). Copying hands it over and archives it — the sidebar puts it back, `⌘Z` undoes |
 | `⌘C` | In that document: hand over the selected comment — copying IS the hand-off, so what you copy is archived (`⌘A` first for all of it) |
 | `⌥Enter` | In that document: hand the whole review over — the same copy-and-archive the button does |
-| `⌘9` | Git history |
+| `⌘9` | Git history — commits, reflog, stashes |
+| `⌘C` | In history: copy the selected commit's hash |
 | `⌘F` / `⌘⇧F` | Find in file / in project (the ⌘⇧F rail also holds file search & recent files) |
 | `⌘E` | Recent files — the list on its own, press again to close. Type to filter (Korean typing is read as the QWERTY keys that made it) |
 | `⌥A` / `⌥U` | All changes on the branch / only what is not committed yet |
@@ -211,6 +212,37 @@ sending), OAuth2 `Security.Auth` flows, shared script modules (`import`/`export`
 `$exampleServer`, variable collections (one request per array element), the full Java Faker generator set
 (the common ones are there; an unimplemented one is reported by name), and importing a `curl` command —
 kakapo never writes to the file you are reading, so there would be nowhere to put it.
+
+## Git history
+
+`⌘9` opens the repository's read-only histories. It never changes anything: there is no commit, push,
+rebase, checkout or stash-apply here, because the thing kakapo is for is reading a change someone (or
+something) already made.
+
+**Three kinds,** switched in the bar: **Commits** (the log, as a graph with branch lanes and ref chips),
+**Reflog** (where `HEAD` has been — the one view that still holds a commit a reset or a rebase dropped),
+and **Stashes**. A row from any of them opens in the main review surface, with the diff, the navigation and
+the comments you already have; a stash opens against its first parent, which is where `HEAD` was when it
+was made.
+
+**Filters are applied by git,** not by hiding rows that are already on screen: author, path, changed code
+(git's pickaxe), a date range, the message, and current-branch-only against every branch. The distinction
+matters — a page holds a few hundred commits, so filtering within it answers "no commits by Ada" when what
+it means is "none in the last few hundred".
+
+**Go to a commit.** Type a hash, a branch, a tag or `HEAD~3` into the search box: if it names a commit, the
+strip offers to open it even when it is nowhere in the current page. Anything that names nothing stays an
+ordinary message filter. `⌘C` copies the selected commit's hash.
+
+**One file, one line.** `⌥Enter` on a file in the sidebar shows that file's history, followed through its
+renames. Right-clicking a line number shows the blame for the file in the gutter — date and author, tinted
+by age — and clicking an attribution opens the commit that wrote that line. Right-clicking a line number
+with history open scopes the list to that single line (`git log -L`), so you see only the commits that
+actually changed it.
+
+**Compare two commits.** Shift-click (or `⇧↑↓`) two rows and open the range: every change between those two
+patch sets, in one review. `⌥A` / `⌥U` / `⌥C` do the branch-level version of the same question — see
+[Choosing what to compare](#choosing-what-to-compare).
 
 ## Bundled language servers
 
