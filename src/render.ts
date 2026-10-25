@@ -599,6 +599,14 @@ export function renderDiffHtml(input: {
     '<div id="quick-open-search-options" class="quick-open-search-options">',
     '<label class="quick-open-extension-field" for="quick-open-extensions"><span data-i18n="quickopen.extensions">Extensions</span><input id="quick-open-extensions" type="text" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.extensionsPlaceholder" placeholder="All · .py, .ts" title="Filter extensions (Option+E)"></label>',
     '<button type="button" id="quick-open-exclude-noise" class="quick-open-option-toggle" aria-pressed="false"' + keyHint('excludeSearchNoise') + '><span class="quick-open-option-check" aria-hidden="true"></span><span data-i18n="quickopen.excludeNoise">Exclude comments &amp; tests</span></button>',
+    // IntelliJ's Cc / W / .* — glyph toggles rather than three more labelled checkboxes, which is what
+    // IntelliJ does too and what keeps the strip one line wide. The glyph is decorative; the accessible
+    // name and the tooltip are the translated words.
+    '<span class="quick-open-option-glyphs">',
+    '<button type="button" id="quick-open-match-case" class="quick-open-option-glyph" aria-pressed="false"' + keyHint('searchMatchCase') + ' data-i18n-title="quickopen.matchCase" data-i18n-aria="quickopen.matchCase" title="Match case" aria-label="Match case"><span aria-hidden="true">Cc</span></button>',
+    '<button type="button" id="quick-open-whole-words" class="quick-open-option-glyph" aria-pressed="false"' + keyHint('searchWholeWords') + ' data-i18n-title="quickopen.wholeWords" data-i18n-aria="quickopen.wholeWords" title="Whole words" aria-label="Whole words"><span aria-hidden="true">W</span></button>',
+    '<button type="button" id="quick-open-regex" class="quick-open-option-glyph" aria-pressed="false"' + keyHint('searchRegex') + ' data-i18n-title="quickopen.regex" data-i18n-aria="quickopen.regex" title="Regular expression" aria-label="Regular expression"><span aria-hidden="true">.*</span></button>',
+    '</span>',
     '</div>',
     '<div id="quick-open-results" class="quick-open-results"></div>',
     '<div id="quick-open-preview" class="quick-open-preview"></div>',

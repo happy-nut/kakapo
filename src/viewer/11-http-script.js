@@ -441,8 +441,14 @@ async function runHttpScriptModule(text, path, depth) {
   // `export` is removed and the names it marked are collected — the one transformation that turns module
   // syntax into something a Function body accepts, without pretending to be a bundler.
   const names = [];
+  // Whether the module HAS a default is known right here, where the rewrite either matched or did not —
+  // so the generated body does not need to ask itself at run time. It used to, with a typeof check on
+  // the generated name inside the generated string, which test/viewer-slices.test.mjs reads as a guard on
+  // a name no slice declares (it cannot see that the code is a string). The flag is both the simpler code
+  // and the honest answer to that check.
+  let hasDefault = false;
   let body = String(text).replace(/^[ \t]*import\s+[^\n]*$/gm, '');
-  body = body.replace(/^[ \t]*export\s+default\s+/gm, 'var __default__ = ');
+  body = body.replace(/^[ \t]*export\s+default\s+/gm, function () { hasDefault = true; return 'var __default__ = '; });
   body = body.replace(/^[ \t]*export\s+(?=(?:async\s+)?(?:function|class|const|let|var)\s)/gm, '');
   const declaration = /(?:^|\n)[ \t]*(?:async\s+)?(?:function|class|const|let|var)\s+([\w$]+)/g;
   let found;
@@ -451,7 +457,7 @@ async function runHttpScriptModule(text, path, depth) {
   try {
     const run = new AsyncFunction(
       ...Object.keys(nested.bindings),
-      '"use strict";\n' + body + '\nreturn { default: typeof __default__ === "undefined" ? undefined : __default__, '
+      '"use strict";\n' + body + '\nreturn { ' + (hasDefault ? 'default: __default__, ' : '')
         + names.map(function (name) { return JSON.stringify(name) + ': ' + name; }).join(', ') + ' };',
     );
     return { values: await run(...Object.values(nested.bindings)) };

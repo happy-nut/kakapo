@@ -148,6 +148,15 @@ var KEY_OWNERS = [
     closeLightbox();
     return true;
   } },
+  // The in-file usage highlight (17-find-usages.js) owns no surface — it is painted over the source and the
+  // caret keeps working under it — but Escape takes it down, as IntelliJ's does. Last row on purpose: every
+  // dialog above gets Escape first, and this only answers while something is actually painted.
+  { name: 'usage-marks', handle: function (event) {
+    if (event.key !== 'Escape' || !(typeof usageMarks !== 'undefined' && usageMarks.length)) return false;
+    event.preventDefault();
+    clearUsageHighlights();
+    return true;
+  } },
 ];
 
 // ===== What each shortcut does ====================================================================
@@ -182,7 +191,6 @@ var SHORTCUT_ACTIONS = {
   nextComment: function (event, i) { clearTreeFocus(); gotoComment(i ? -1 : 1); },
 
   // -- content level: the review itself owns the keyboard
-  commentStepAlt: function (event, i) { clearTreeFocus(); gotoComment(i ? -1 : 1); },
   gotoDiagnostic: function (event, i) { return gotoDiagnostic(i ? -1 : 1) ? undefined : false; },
   toggleFold: function () { return toggleCurrentSourceFold() ? undefined : false; },
   selectEditor: function () { return selectAllInView() ? undefined : false; },
@@ -205,6 +213,21 @@ var SHORTCUT_ACTIONS = {
   workspaceSymbol: function () { openWorkspaceSymbols(); },
   goToImplementation: function () { goToImplementation(); },
   defUsages: function () { findUsagesUnderCursor(); },
+  // The grouped view, the in-file highlight and its two step keys. Each declines when there is nothing to
+  // act on — no symbol under the caret, no source view up — so the chord falls through instead of being
+  // swallowed, which is what every other navigation entry here does.
+  findUsages: function () {
+    if (treeFocusIndex >= 0) return false;
+    return openFindUsages() ? undefined : false;
+  },
+  highlightUsages: function () {
+    if (treeFocusIndex >= 0) return false;
+    return highlightUsagesInFile() ? undefined : false;
+  },
+  nextPrevOccurrence: function (event, i) {
+    if (treeFocusIndex >= 0 || isFloatingModalOpen()) return false;
+    return stepUsageOccurrence(i ? -1 : 1) ? undefined : false;
+  },
   prevNextTab: function (event, i) {
     if (!isSourceViewerVisible() || sourceTabs.length <= 1) return false;
     cycleSourceTab(i ? 1 : -1);
@@ -487,7 +510,14 @@ document.addEventListener('keydown', (event) => {
 
 quickInput?.addEventListener('input', () => renderQuickOpenResults());
 quickExtensionInput?.addEventListener('input', restartContentSearch);
-quickExcludeNoiseButton?.addEventListener('click', toggleContentSearchNoise);
+// One button, two lists: in the usage view it means "comments, strings and tests are noise" (⌥P there too).
+quickExcludeNoiseButton?.addEventListener('click', function () {
+  if (quickMode === 'usages') toggleUsageViewNoise();
+  else toggleContentSearchNoise();
+});
+quickMatchCaseButton?.addEventListener('click', function () { toggleContentSearchModifier('matchCase'); });
+quickWholeWordsButton?.addEventListener('click', function () { toggleContentSearchModifier('wholeWords'); });
+quickRegexButton?.addEventListener('click', function () { toggleContentSearchModifier('regex'); });
 quickResults?.addEventListener('mousemove', (event) => {
   const item = event.target.closest?.('.quick-open-item');
   if (!item) return;

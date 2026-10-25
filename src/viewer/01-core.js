@@ -968,6 +968,9 @@ const quickModeLabel = document.getElementById('quick-open-mode');
 const quickFilterEl = document.getElementById('quick-open-filter');
 const quickExtensionInput = document.getElementById('quick-open-extensions');
 const quickExcludeNoiseButton = document.getElementById('quick-open-exclude-noise');
+const quickMatchCaseButton = document.getElementById('quick-open-match-case');
+const quickWholeWordsButton = document.getElementById('quick-open-whole-words');
+const quickRegexButton = document.getElementById('quick-open-regex');
 let current = -1;
 let checkingForUpdates = false;
 let quickMode = 'all';
@@ -982,6 +985,11 @@ let contentSearchBusy = false;
 let contentSearchTruncated = false;
 let contentSearchEngine = 'local';
 let contentSearchExcludeNoise = false;
+// IntelliJ's three Find in Files modifiers. They travel to ripgrep as flags (src/search.ts) and the
+// in-page fallback honours them itself, so a standalone review answers the same question.
+let contentSearchMatchCase = false;
+let contentSearchWholeWords = false;
+let contentSearchRegex = false;
 let workspaceSymbolItems = [];
 let workspaceSymbolQuery = '';
 let workspaceSymbolSeq = 0;
