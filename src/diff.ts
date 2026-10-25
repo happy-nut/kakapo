@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, statSync, type Stats } from "node:fs";
-import { basename, join, relative } from "node:path";
+import { basename, join } from "node:path";
 import type { DiffFile, DiffHunk, DiffLine, ReviewFileState, SourceFile } from "./types.js";
 import {
   IMAGE_MAX_BYTES,
@@ -10,7 +10,7 @@ import {
   SOURCE_MAX_TOTAL_BYTES,
 } from "./constants.js";
 import { ByteBudgetCache, formatBytes, hashText, isLikelyBinary, languageForPath, stripDiffPath, unquoteGitPath } from "./util.js";
-import { canonicalWorkspaceRoot, git, isGitRepository, repoRoot, RAW_PATHS } from "./git.js";
+import { canonicalWorkspaceRoot, git, isGitRepository, workspaceGitPrefix, RAW_PATHS } from "./git.js";
 
 // File content + signature cache, keyed by path and validated on (mtime, size). Under `watch` the app
 // rebuilds every second; without this, collectSourceFiles re-reads + re-hashes EVERY tracked source
@@ -290,9 +290,10 @@ function gitStatusMap(cwd: string): Map<string, "new" | "edited" | "staged"> {
   }
   // The repo-root-relative prefix depends only on cwd — compute it ONCE. It used to be recomputed per
   // status line inside workspaceRelativeStatusPath, and each recompute spawned a `git rev-parse`
-  // subprocess (repoRoot); a 120-file change therefore ran ~120 git spawns (~420ms) in this map alone.
+  // subprocess; a 120-file change therefore ran ~120 git spawns (~420ms) in this map alone. The shared
+  // helper memoizes by root, so the cost is one spawn per process rather than one per status map.
   const workspace = canonicalWorkspaceRoot(cwd);
-  const statusPrefix = relative(repoRoot(workspace), workspace).replace(/\\/g, "/");
+  const statusPrefix = workspaceGitPrefix(workspace);
   for (const line of out.split(/\r?\n/)) {
     if (line.length < 3) continue;
     const x = line[0];
@@ -576,13 +577,6 @@ function diffStatusVcsMap(diffFiles: DiffFile[]): Map<string, "new" | "edited" |
     map.set(file.displayPath, file.status === "added" ? "new" : "edited");
   }
   return map;
-}
-
-// Repo-root-relative prefix for the opened workspace, so git blob specs (`<rev>:<repo-path>`) resolve for a
-// monorepo subfolder. Mirrors the prefixing in diff-context.ts.
-function workspaceGitPrefix(root: string): string {
-  const prefix = relative(repoRoot(root), root).replace(/\\/g, "/");
-  return prefix && prefix !== "." ? prefix : "";
 }
 
 // Read one file's content from commit `target` (A→B compare) instead of the working tree. Returns a fully

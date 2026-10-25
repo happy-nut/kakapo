@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { isAbsolute, relative, resolve } from "node:path";
 import { parseUnifiedDiff } from "./diff.js";
-import { canonicalWorkspaceRoot, repoRoot, RAW_PATHS } from "./git.js";
+import { canonicalWorkspaceRoot, repoRoot, workspaceGitPrefix, RAW_PATHS } from "./git.js";
 
 export type DiffContextRequest = {
   path?: unknown;
@@ -54,8 +54,8 @@ export function readReviewDiffContext(input: {
   // workspace. This keeps folded context correct for nested monorepo packages.
   const workspaceRoot = canonicalWorkspaceRoot(input.root);
   const root = repoRoot(workspaceRoot);
-  const prefix = relative(root, workspaceRoot).replace(/\\/g, "/");
-  const gitPath = (path: string) => prefix && prefix !== "." ? `${prefix}/${path}` : path;
+  const prefix = workspaceGitPrefix(workspaceRoot);
+  const gitPath = (path: string) => prefix ? `${prefix}/${path}` : path;
 
   const oldText = file.oldPath === "/dev/null"
     ? ""
