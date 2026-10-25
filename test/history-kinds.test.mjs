@@ -126,11 +126,13 @@ test("the filter row sends its fields to git rather than hiding rows", async () 
   assert.equal(request.limit, 300, "a filter is a new page, not a narrowing of the old one");
 
   await type(host, "history-filter-path", "src/a.ts");
+  await type(host, "history-filter-branch", "origin/main");
   await type(host, "history-filter-content", "needle");
   await type(host, "history-filter-since", "2026-01-01");
   const latest = host.asked.log[host.asked.log.length - 1];
   assert.equal(latest.author, "Grace", "the fields accumulate instead of replacing each other");
   assert.equal(latest.path, "src/a.ts");
+  assert.equal(latest.branch, "origin/main", "a branch filter walks somewhere you are not checked out on");
   assert.equal(latest.content, "needle");
   assert.equal(latest.since, "2026-01-01");
 

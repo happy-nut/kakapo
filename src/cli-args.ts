@@ -6,6 +6,7 @@
 // readOption/parsePositiveInteger already live in util.js (shared with the CLI entrypoint); re-export them
 // as the CLI-option helpers rather than keep a second copy.
 import { parsePositiveInteger, readOption } from "./util.js";
+import type { WhitespaceMode } from "./types.js";
 export { parsePositiveInteger, readOption };
 
 export type ParsedReviewArgs = {
@@ -20,7 +21,15 @@ export type ParsedReviewArgs = {
   context: number;
   watch: boolean;
   ignoreWhitespace: boolean;
+  // none | trim | all. `--ignore-whitespace` is the older spelling of `--whitespace=all`.
+  whitespace: WhitespaceMode;
 };
+
+/** `--whitespace=none|trim|all`, falling back to the older boolean flag. An unknown value is "none". */
+function whitespaceMode(value: string | undefined, legacyIgnore: boolean): WhitespaceMode {
+  if (value === "none" || value === "trim" || value === "all") return value;
+  return legacyIgnore ? "all" : "none";
+}
 
 /** Parse the review flags from argv. Pure: no filesystem/git — the caller resolves root and validates base. */
 export function parseReviewArgs(args: string[]): ParsedReviewArgs {
@@ -40,5 +49,6 @@ export function parseReviewArgs(args: string[]): ParsedReviewArgs {
     context: contextValue ? parsePositiveInteger(contextValue, "--context") : 12,
     watch: !args.includes("--no-watch"),
     ignoreWhitespace: args.includes("--ignore-whitespace"),
+    whitespace: whitespaceMode(readOption(args, "--whitespace"), args.includes("--ignore-whitespace")),
   };
 }

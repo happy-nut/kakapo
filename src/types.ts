@@ -61,6 +61,17 @@ export type SourceFile = {
  * renderer would have to turn its bytes into a string to pass them here — and a PNG does not survive that.
  * Main reads the file (repo-confined) and writes the bytes into the body it assembles.
  */
+/** How much whitespace difference counts as a difference. See readUnifiedDiff. */
+export type WhitespaceMode = "none" | "trim" | "all";
+
+/**
+ * How a changed line is marked: `word` highlights the characters that actually differ inside it (what
+ * diff2html emits and IntelliJ defaults to), `line` tints the whole line only, `none` tints nothing and
+ * leaves the +/- gutter as the signal. Renderer-side: it is CSS over markup that is always emitted, so
+ * changing it needs no rebuild.
+ */
+export type DiffHighlightMode = "word" | "line" | "none";
+
 export type HttpBodyPart = {
   headers: Record<string, string>;
   text?: string;

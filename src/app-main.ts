@@ -12,7 +12,7 @@ import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js"
 import { bundlePathFor, installPackagedUpdate, isNewerVersion, macDmgAsset } from "./app-update.js";
 import { ProjectAnalysis } from "./analysis.js";
 import { ReviewPerformanceTrace } from "./perf.js";
-import type { SourceFile } from "./types.js";
+import type { SourceFile, WhitespaceMode } from "./types.js";
 import { workspaceDataDirectory, workspaceReviewFile } from "./workspace-data.js";
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import { reviewBodyCount, reviewDiffSignature } from "./review-bodies.js";
@@ -44,7 +44,13 @@ type AppOptions = {
   context: number;
   watch: boolean;
   ignoreWhitespace: boolean;
+  // How much whitespace difference counts as a difference (none/trim/all) — the three modes IntelliJ's
+  // diff offers, changed from the Diff menu and applied by re-running git diff.
+  whitespace: WhitespaceMode;
 };
+
+/** The context sizes the Diff menu offers. The last one is "the whole file" in git's own terms. */
+const DIFF_CONTEXT_CHOICES = [3, 12, 50, 100_000] as const;
 
 type ReviewSurface = {
   webContents: WebContents;
@@ -727,12 +733,38 @@ app.on("window-all-closed", () => {
   app.quit();
 });
 
-// Keep the Ignore-whitespace menu checkbox honest as focus moves between windows (it's per-window state).
+// The Diff menu shows per-window state (whitespace handling, context size), so it is re-pointed at
+// whichever window comes to the front.
 app.on("browser-window-focus", (_event, win) => {
   const state = states.get(win.id);
-  const item = Menu.getApplicationMenu()?.getMenuItemById("ignore-whitespace");
-  if (item && state) item.checked = state.options.ignoreWhitespace;
+  if (!state) return;
+  syncDiffMenu(state.options);
 });
+
+function syncDiffMenu(options: AppOptions): void {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  for (const mode of ["none", "trim", "all"] as const) {
+    const item = menu.getMenuItemById(`whitespace-${mode}`);
+    if (item) item.checked = options.whitespace === mode;
+  }
+  for (const lines of DIFF_CONTEXT_CHOICES) {
+    const item = menu.getMenuItemById(`diff-context-${lines}`);
+    if (item) item.checked = options.context === lines;
+  }
+}
+
+/** Applies a Diff-menu change to the focused window: re-run git diff, rebuild, repaint. */
+async function rebuildFocusedReview(change: (options: AppOptions) => void): Promise<void> {
+  const state = focusedState();
+  if (!state) return;
+  change(state.options);
+  syncDiffMenu(state.options);
+  const build = await buildReview(state);
+  if (!build || state.win.isDestroyed()) return;
+  state.signature = build.signature;
+  state.win.webContents.reloadIgnoringCache();
+}
 
 // Build the application menu once. Items act on the focused window (BrowserWindow.getFocusedWindow()),
 // so a single global menu drives whichever window is in front.
@@ -757,25 +789,41 @@ function buildApplicationMenu(): void {
     label: t("menu.review"),
     submenu: [
       { label: t("menu.allReviewComments"), accelerator: "Control+Command+Shift+/", click: () => sendToFocused("kakapo:merged-view") },
+    ],
+  });
+  // What the diff itself counts as a difference, and how much unchanged code it keeps around one — the two
+  // questions IntelliJ's diff gear answers. Both re-run `git diff` in main and repaint, so they live in the
+  // menu rather than behind a renderer round-trip, and both are per-window (browser-window-focus re-points
+  // the radios at whichever window is in front).
+  menuTemplate.push({
+    label: t("menu.diff"),
+    submenu: [
+      ...(["none", "trim", "all"] as const).map((mode) => ({
+        id: `whitespace-${mode}`,
+        label: t(`menu.whitespace.${mode}`),
+        type: "radio" as const,
+        checked: options.whitespace === mode,
+        click: () => void rebuildFocusedReview((current) => { current.whitespace = mode; }),
+      })),
       { type: "separator" },
-      // Whitespace-ignore re-runs git diff with --ignore-all-space and reloads (main-process action,
-      // so a menu checkbox is simpler than a renderer IPC round-trip). Per-window: applies to the focused
-      // window only, and browser-window-focus syncs this checkbox to the focused window's state.
+      ...DIFF_CONTEXT_CHOICES.map((lines) => ({
+        id: `diff-context-${lines}`,
+        label: lines >= 100_000 ? t("menu.context.wholeFile") : t("menu.context.lines").replace("{n}", String(lines)),
+        type: "radio" as const,
+        checked: options.context === lines,
+        click: () => void rebuildFocusedReview((current) => { current.context = lines; }),
+      })),
+      // The ⌘⇧W the shortcut sheet advertises: one key through the three whitespace modes. Hidden, because
+      // the three radios above are the visible control and a fourth row for the same setting would be a
+      // second answer to one question.
       {
-        id: "ignore-whitespace",
-        label: t("menu.ignoreWhitespace"),
-        type: "checkbox",
-        checked: options.ignoreWhitespace,
+        label: t("menu.whitespace.cycle"),
+        visible: false,
         accelerator: "CommandOrControl+Shift+W",
-        click: async (item) => {
-          const state = focusedState();
-          if (!state) return;
-          state.options.ignoreWhitespace = item.checked;
-          const build = await buildReview(state);
-          if (!build || state.win.isDestroyed()) return;
-          state.signature = build.signature;
-          state.win.webContents.reloadIgnoringCache();
-        },
+        click: () => void rebuildFocusedReview((current) => {
+          const order: WhitespaceMode[] = ["none", "trim", "all"];
+          current.whitespace = order[(order.indexOf(current.whitespace) + 1) % order.length];
+        }),
       },
     ],
   });
@@ -1372,6 +1420,7 @@ function parseArgs(args: string[]): AppOptions {
     context: parsed.context,
     watch: parsed.watch,
     ignoreWhitespace: parsed.ignoreWhitespace,
+    whitespace: parsed.whitespace,
     openPath: openPath && !openPath.startsWith("..") ? openPath : undefined,
     explicitRoot: parsed.openedExplicitly || parsed.openPath !== undefined,
   };

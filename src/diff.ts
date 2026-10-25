@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, statSync, type Stats } from "node:fs";
 import { basename, join } from "node:path";
-import type { DiffFile, DiffHunk, DiffLine, ReviewFileState, SourceFile } from "./types.js";
+import type { DiffFile, DiffHunk, DiffLine, ReviewFileState, SourceFile, WhitespaceMode } from "./types.js";
 import {
   IMAGE_MAX_BYTES,
   SOURCE_MAX_FILE_BYTES,
@@ -37,6 +37,14 @@ export function readUnifiedDiff(options: {
   context: number;
   includeUntracked: boolean;
   ignoreWhitespace?: boolean;
+  /**
+   * How much whitespace difference counts as a difference, as IntelliJ's diff offers it:
+   *   none — every byte matters
+   *   trim — a change in the AMOUNT of whitespace, or at end of line, is not a change (`-b`)
+   *   all  — whitespace is not a difference at all (`-w`)
+   * `ignoreWhitespace` is the older boolean and means "all"; this wins when both are given.
+   */
+  whitespace?: WhitespaceMode;
   root?: string;
 }): string {
   // Run Git from the folder the user opened and ask it to rebase paths to that folder. Git still reads
@@ -50,7 +58,9 @@ export function readUnifiedDiff(options: {
   // --no-ext-diff and --no-textconv: both `diff.<driver>.command` and `diff.<driver>.textconv` are config
   // the reviewed repository can set (.gitattributes picks the driver), and git runs them as commands.
   const args = ["diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--relative", `--unified=${options.context}`];
-  if (options.ignoreWhitespace) args.push("--ignore-all-space");
+  const whitespace = options.whitespace ?? (options.ignoreWhitespace ? "all" : "none");
+  if (whitespace === "all") args.push("--ignore-all-space");
+  else if (whitespace === "trim") args.push("--ignore-space-change", "--ignore-space-at-eol");
   if (options.target) {
     // Two-revision compare: no working tree/index side, so no --cached and no untracked append.
     args.push(options.base ?? "HEAD", options.target);

@@ -646,6 +646,9 @@ export function renderDiffHtml(input: {
     // One scale for the whole app rather than a code-font size: the review is chrome + tree + diff, and
     // sizing only the code leaves the rest mismatched. Applied by main as a Chromium zoom factor.
     '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.uiScale">Font size</span><span class="settings-row-hint" data-i18n="settings.uiScale.hint">Scales the whole interface.</span></div><button type="button" id="settings-ui-scale" class="settings-select mc-select" data-i18n-aria="settings.uiScale"></button></div>',
+    // How a changed line is marked. Not a rebuild: diff2html always emits the per-character <ins>/<del>,
+    // so all three readings are CSS over one DOM (see data-diff-highlight in viewer.css).
+    '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.diffHighlight">Changed lines</span><span class="settings-row-hint" data-i18n="settings.diffHighlight.hint">How much of a changed line is coloured.</span></div><button type="button" id="settings-diff-highlight" class="settings-select mc-select" data-i18n-aria="settings.diffHighlight"></button></div>',
     '</div>',
     '</section>',
     // Keyboard shortcuts moved to their own category so General stays a short, scannable preferences page.
@@ -689,6 +692,7 @@ export function renderDiffHtml(input: {
     '<div id="history-filters" class="history-filters hidden">',
     '<input id="history-filter-author" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="history.filter.author" data-i18n-aria="history.filter.author" aria-label="Author" placeholder="Author">',
     '<input id="history-filter-path" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="history.filter.path" data-i18n-aria="history.filter.path" aria-label="Path" placeholder="Path">',
+    '<input id="history-filter-branch" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="history.filter.branch" data-i18n-aria="history.filter.branch" aria-label="Branch, tag or revision" placeholder="Branch">',
     '<input id="history-filter-content" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="history.filter.content" data-i18n-aria="history.filter.content" aria-label="Changed code" placeholder="Changed code">',
     '<input id="history-filter-since" type="date" data-i18n-aria="history.filter.since" aria-label="From date">',
     '<input id="history-filter-until" type="date" data-i18n-aria="history.filter.until" aria-label="To date">',

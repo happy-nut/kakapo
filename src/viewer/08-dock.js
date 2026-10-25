@@ -769,6 +769,17 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     function () { return UI_SCALES.map(function (v) { return { value: String(v), label: Math.round(v * 100) + '%' }; }); },
     function () { return String(uiScale); },
     function (next) { applyUiScale(Number(next)); });
+  // IntelliJ's "Highlight words / lines / do not highlight". The markup never changes — diff2html always
+  // emits the per-character <ins>/<del> — so this is an attribute three CSS blocks read, and switching it
+  // repaints without touching the diff or asking main for anything.
+  diffHighlightSelectRef = setupCustomSelect('settings-diff-highlight',
+    function () {
+      return DIFF_HIGHLIGHT_MODES.map(function (mode) {
+        return { value: mode, label: t('settings.diffHighlight.' + mode) };
+      });
+    },
+    function () { return diffHighlightMode; },
+    function (next) { applyDiffHighlight(next); });
   // ----- theme grid. A theme is one named thing that is ALREADY light or dark — Darcula is a dark theme,
   // IntelliJ Light is a light one; neither has an "appearance" to pick separately. So the grid is a flat
   // list of the four real palettes, plus System, which is the one genuinely automatic choice (it follows

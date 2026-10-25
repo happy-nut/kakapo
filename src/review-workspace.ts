@@ -48,6 +48,7 @@ export function writeReviewWorkspace(
     context: options.context,
     title,
     ignoreWhitespace: options.ignoreWhitespace,
+    whitespace: options.whitespace,
     lazyLoad: true,
     app: true,
     root: options.root,
@@ -85,6 +86,7 @@ export function collectReviewSourceIndex(
     context: options.context,
     includeUntracked: options.includeUntracked,
     ignoreWhitespace: options.ignoreWhitespace,
+    whitespace: options.whitespace,
     root: options.root,
   });
   return collectSourceFiles(parseUnifiedDiff(diffText), options.root, {

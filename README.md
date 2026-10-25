@@ -139,6 +139,30 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 
 Settings ▸ Shortcuts lists the rest.
 
+## Reading a diff
+
+The diff is side by side, with the characters that actually differ marked inside each changed line, and a
+ruler down the right edge of the pane showing every change in the open file at once — where they are, how
+much of the file they cover, where your comments sit, and where in all of it you currently are. Click the
+ruler to go there.
+
+Three things about what you are reading are adjustable, and two of them re-run `git diff`:
+
+| Where | What |
+| --- | --- |
+| Diff menu | **Whitespace**: count every difference, ignore how much whitespace there is (`-b`), or ignore it entirely (`-w`). `⌘⇧W` cycles the three. |
+| Diff menu | **Unchanged lines kept around a change**: 3, 12 (the default), 50, or the whole file. |
+| Settings | **Changed lines**: colour the characters that differ, the whole line, or nothing but the gutter. |
+
+The first two are per window, so two windows can read the same repository under different rules. The third
+is a reading of markup that is always there, so it applies the moment you choose it.
+
+**Not ported from IntelliJ's diff:** the unified (single-column) view, and rendering whitespace as visible
+glyphs. The unified view is not a setting in kakapo's diff but a second shape for it — the caret model, the
+row alignment, the comment anchoring and the gutter layers all read the two-column markup — so it is a
+change to the review surface itself rather than an option on it, and it is not worth destabilising that for
+a second way to look at the same hunk.
+
 ## HTTP requests (`.http` files)
 
 A `.http` or `.rest` file in the repository is runnable where you read it: every request gets a `▶` in the
@@ -176,7 +200,9 @@ indented lines that start with `/`, `?` or `&`. `GRAPHQL` posts `{query, variabl
 then a blank line, then the variables as JSON.
 
 **Directives**, written as comments above the request: `@no-redirect`, `@no-cookie-jar`, `@no-log`,
-`@no-auto-encoding`, `@timeout 600`, `@connection-timeout 2 m` (`ms`/`s`/`m`, seconds by default).
+`@no-auto-encoding`, `@timeout 600`, `@connection-timeout 2 m` (`ms`/`s`/`m`, seconds by default). Both
+timeouts become one deadline, the larger of the two: there is no hook between connecting and reading to
+enforce them separately, and a deadline shorter than either was asked for would be wrong.
 
 **Bodies.** Inline, or `< ./body.bin` to send a file's bytes, or `<@ ./body.json` to substitute its
 `{{variables}}` first. `multipart/form-data` parts are assembled from the `--boundary` blocks; a part with a
@@ -208,7 +234,8 @@ repository you are reading. The cookie jar lives there too, in IntelliJ's readab
 `# domain path name value date` format.
 
 **Not ported.** gRPC and WebSocket (no protocol stack — the lines are coloured but say so instead of
-sending), OAuth2 `Security.Auth` flows, shared script modules (`import`/`export` in a handler),
+sending), OAuth2 `Security.Auth` flows, `@use-os-credentials` (recognised as a directive, but there is no
+OS credential store to hand to a request), shared script modules (`import`/`export` in a handler),
 `$exampleServer`, variable collections (one request per array element), the full Java Faker generator set
 (the common ones are there; an unimplemented one is reported by name), and importing a `curl` command —
 kakapo never writes to the file you are reading, so there would be nowhere to put it.
@@ -225,8 +252,9 @@ and **Stashes**. A row from any of them opens in the main review surface, with t
 the comments you already have; a stash opens against its first parent, which is where `HEAD` was when it
 was made.
 
-**Filters are applied by git,** not by hiding rows that are already on screen: author, path, changed code
-(git's pickaxe), a date range, the message, and current-branch-only against every branch. The distinction
+**Filters are applied by git,** not by hiding rows that are already on screen: author, path, a branch,
+tag or revision to walk instead of all of them, changed code (git's pickaxe), a date range, the message, and
+current-branch-only against every branch. The distinction
 matters — a page holds a few hundred commits, so filtering within it answers "no commits by Ada" when what
 it means is "none in the last few hundred".
 

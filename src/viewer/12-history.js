@@ -19,7 +19,7 @@ var historyScope = null;
 // in IntelliJ, three sources for one list here — they answer the same question and open the same way.
 var historyKind = 'commits';
 // Handed to git (readGitLog), never used to hide rows that are already on screen.
-var historyFilters = { text: '', author: '', path: '', content: '', since: '', until: '', currentBranchOnly: false };
+var historyFilters = { text: '', author: '', path: '', branch: '', content: '', since: '', until: '', currentBranchOnly: false };
 var historyFilterTimer = 0;
 var historyGotoRevision = null; // what the search box names, when it names a commit rather than words
 var historyLoadSeq = 0;
@@ -403,6 +403,8 @@ function applyHistoryFilter() {
     text: value('history-search'),
     author: value('history-filter-author'),
     path: value('history-filter-path'),
+    // A branch, tag or revision to walk INSTEAD of every branch — the log of somewhere you are not.
+    branch: value('history-filter-branch'),
     content: value('history-filter-content'),
     since: value('history-filter-since'),
     until: value('history-filter-until'),
@@ -420,7 +422,7 @@ function applyHistoryFilter() {
 /** Whether anything is narrowing the list — for the empty state, which otherwise cannot explain itself. */
 function historyFiltered() {
   return Boolean(historyFilters.text || historyFilters.author || historyFilters.path
-    || historyFilters.content || historyFilters.since || historyFilters.until
+    || historyFilters.branch || historyFilters.content || historyFilters.since || historyFilters.until
     || historyFilters.currentBranchOnly);
 }
 
@@ -495,6 +497,7 @@ function historyPageRequest() {
     text: historyFilters.text,
     author: historyFilters.author,
     path: historyFilters.path,
+    branch: historyFilters.branch,
     content: historyFilters.content,
     since: historyFilters.since,
     until: historyFilters.until,
@@ -582,14 +585,14 @@ function setHistoryFiltersOpen(open) {
 }
 
 function clearHistoryFilterInputs() {
-  ['history-search', 'history-filter-author', 'history-filter-path', 'history-filter-content',
-    'history-filter-since', 'history-filter-until'].forEach(function (id) {
+  ['history-search', 'history-filter-author', 'history-filter-path', 'history-filter-branch',
+    'history-filter-content', 'history-filter-since', 'history-filter-until'].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) el.value = '';
   });
   var current = document.getElementById('history-filter-current');
   if (current) current.checked = false;
-  historyFilters = { text: '', author: '', path: '', content: '', since: '', until: '', currentBranchOnly: false };
+  historyFilters = { text: '', author: '', path: '', branch: '', content: '', since: '', until: '', currentBranchOnly: false };
   historyGotoRevision = null;
 }
 

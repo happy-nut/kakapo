@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { closeSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { canonicalWorkspaceRoot, git } from "./git.js";
+import type { WhitespaceMode } from "./types.js";
 
 // Everything about a built review that the MAIN process needs, and nothing that builds one. The split is not
 // tidiness: review-workspace.ts reaches buildDiffReview, and through it diff2html and highlight.js — 100ms of
@@ -22,6 +23,9 @@ export type ReviewWorkspaceOptions = {
   includeUntracked: boolean;
   context: number;
   ignoreWhitespace: boolean;
+  // How much whitespace difference counts as a difference (none/trim/all). Optional because
+  // `ignoreWhitespace` is its older boolean form; readUnifiedDiff resolves the two.
+  whitespace?: WhitespaceMode;
 };
 
 // One file, appended in build order, with a [start, length] pair per diff. A slice read is what a body costs

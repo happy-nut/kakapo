@@ -694,6 +694,26 @@ applyTheme();
 // Whole-interface scale. Persisted here; the Electron main process reads it and applies a Chromium zoom
 // factor to every review window — see applyUiScale in app-main.ts. Outside
 // Electron there is no main process, so the page scales itself with CSS zoom instead.
+// How much of a changed line is coloured: the characters that differ ('word', IntelliJ's default and
+// diff2html's own markup), the whole line only ('line'), or nothing but the gutter ('none'). Three CSS
+// readings of one DOM — nothing is re-rendered when this changes.
+var DIFF_HIGHLIGHT_KEY = 'kakapo-diff-highlight';
+var DIFF_HIGHLIGHT_MODES = ['word', 'line', 'none'];
+var diffHighlightSelectRef = null;
+var diffHighlightMode = (function () {
+  var saved = persistRead(DIFF_HIGHLIGHT_KEY);
+  if (typeof saved !== 'string') { try { saved = localStorage.getItem(DIFF_HIGHLIGHT_KEY) || ''; } catch (e) { saved = ''; } }
+  return DIFF_HIGHLIGHT_MODES.indexOf(saved) >= 0 ? saved : 'word';
+})();
+function applyDiffHighlight(next) {
+  if (DIFF_HIGHLIGHT_MODES.indexOf(next) < 0) return;
+  diffHighlightMode = next;
+  persistSave(DIFF_HIGHLIGHT_KEY, diffHighlightMode);
+  document.documentElement.setAttribute('data-diff-highlight', diffHighlightMode);
+  if (diffHighlightSelectRef) diffHighlightSelectRef.render();
+}
+applyDiffHighlight(diffHighlightMode);
+
 var UI_SCALE_KEY = 'kakapo-ui-scale';
 var UI_SCALES = [0.9, 1, 1.1, 1.25, 1.5];
 var uiScaleSelectRef = null;

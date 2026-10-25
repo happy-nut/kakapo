@@ -106,6 +106,8 @@ function launchReviewApp(args: string[]): void {
   if (base !== undefined) appArgs.push("--base", base);
   const context = readOption(args, "--context");
   appArgs.push("--context", context ?? String(DEFAULT_DIFF_CONTEXT));
+  const whitespace = readOption(args, "--whitespace");
+  if (whitespace !== undefined) appArgs.push("--whitespace", whitespace);
   for (const flag of ["--staged", "--ignore-whitespace", "--no-watch"]) {
     if (args.includes(flag)) appArgs.push(flag);
   }
@@ -207,8 +209,12 @@ Options:
                     commits, otherwise HEAD. Changeable in the app — see Alt+A/U/C.
   --staged          compare the index against HEAD instead (not with --base)
   --include-untracked  count files git does not track yet as additions
-  --ignore-whitespace  hide changes that are only whitespace
-  --context <n>     unchanged lines kept around each hunk; default: 12
+  --ignore-whitespace  hide changes that are only whitespace (= --whitespace=all)
+  --whitespace <mode>  how much whitespace difference counts as a difference:
+                    none (default) | trim (ignore how much) | all (ignore it).
+                    Changeable in the app — Diff menu, or Cmd/Ctrl+Shift+W.
+  --context <n>     unchanged lines kept around each hunk; default: 12.
+                    Changeable in the app — Diff menu.
   --no-watch        stop refreshing the review when the working tree changes
   -h, --help        this text
 

@@ -30,14 +30,14 @@ test("parseReviewArgs: defaults", () => {
     requestedCwd: undefined,
     openPath: undefined,
     openedExplicitly: false, staged: false, baseValue: undefined,
-    includeUntracked: false, context: 12, watch: true, ignoreWhitespace: false,
+    includeUntracked: false, context: 12, watch: true, ignoreWhitespace: false, whitespace: "none",
   });
 });
 
 test("parseReviewArgs: flags are read through", () => {
   assert.deepEqual(parseReviewArgs(["--cwd", "/repo", "--base", "main", "--context", "5", "--include-untracked", "--no-watch", "--ignore-whitespace"]), {
     requestedCwd: "/repo", openPath: undefined, openedExplicitly: false, staged: false, baseValue: "main",
-    includeUntracked: true, context: 5, watch: false, ignoreWhitespace: true,
+    includeUntracked: true, context: 5, watch: false, ignoreWhitespace: true, whitespace: "all",
   });
 });
 

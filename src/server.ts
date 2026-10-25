@@ -175,7 +175,12 @@ export async function performHttpRequest(
   const redirects: string[] = [];
   try {
     const hasBody = body !== undefined && method !== "GET" && method !== "HEAD";
-    const timeoutMs = Number(request.timeoutMs) > 0 ? Number(request.timeoutMs) : DEFAULT_TIMEOUT_MS;
+    // ONE deadline, from two directives that describe two phases. `fetch` has no hook between connecting
+    // and reading, so `@timeout` (read) and `@connection-timeout` cannot be enforced separately here; the
+    // larger of the two is used, which is never shorter than either asked for, and 60s when neither is set
+    // (IntelliJ's own default for both). The error names the deadline actually applied.
+    const timeoutMs = Math.max(Number(request.timeoutMs) || 0, Number(request.connectTimeoutMs) || 0)
+      || DEFAULT_TIMEOUT_MS;
     const headersFor = (target: URL, extra?: Record<string, string>): Record<string, string> => {
       const headers: Record<string, string> = { ...(request.headers ?? {}), ...(extra ?? {}) };
       if (request.auth?.type === "basic") headers.Authorization = basicHeader(request.auth.user, request.auth.password);
@@ -249,7 +254,9 @@ export async function performHttpRequest(
     return done({
       ok: false,
       redirects,
-      error: /timeout|abort/i.test(message) ? `timed out after ${request.timeoutMs || DEFAULT_TIMEOUT_MS} ms` : message,
+      error: /timeout|abort/i.test(message)
+        ? `timed out after ${Math.max(Number(request.timeoutMs) || 0, Number(request.connectTimeoutMs) || 0) || DEFAULT_TIMEOUT_MS} ms`
+        : message,
     });
   }
 }

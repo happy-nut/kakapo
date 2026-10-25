@@ -268,6 +268,25 @@ test("@timeout gives up instead of hanging, and says so", async () => {
   assert.match(result.error, /timed out after 60 ms/);
 });
 
+// Two directives describe two phases of one request, and `fetch` offers no hook between them. The larger
+// is used — never shorter than either was asked for — and the message names the deadline applied, so a
+// request that stopped early can be read back to the line that set it.
+test("@connection-timeout counts too: the deadline is the larger of the two", async () => {
+  const connectOnly = await performHttpRequest({ method: "GET", url: `${origin}/slow`, headers: {}, connectTimeoutMs: 50 });
+  assert.equal(connectOnly.ok, false);
+  assert.match(connectOnly.error, /timed out after 50 ms/);
+
+  const both = await performHttpRequest({
+    method: "GET", url: `${origin}/slow`, headers: {}, timeoutMs: 80, connectTimeoutMs: 40,
+  });
+  assert.equal(both.ok, false);
+  assert.match(both.error, /timed out after 80 ms/, "the shorter phase does not shorten the whole request");
+
+  // And a generous connection timeout is not overridden by the 60s default.
+  const generous = await performHttpRequest({ method: "GET", url: `${origin}/ok`, headers: {}, connectTimeoutMs: 120_000 });
+  assert.equal(generous.ok, true, generous.error);
+});
+
 test("a non-text response comes back as bytes with its size, not as mojibake", async () => {
   const result = await performHttpRequest({ method: "GET", url: `${origin}/png`, headers: {} });
   assert.equal(result.ok, true, result.error);
