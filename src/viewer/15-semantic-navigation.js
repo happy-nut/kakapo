@@ -46,7 +46,7 @@ async function findUsagesOf(name, explicitLoc) {
   var response = await queryProjectAnalysis('references', name, loc);
   clearTimeout(pending);
   hideCaretHint();
-  if (declinedForRevision(response)) return;
+  if (declinedForRevision(response, name)) return;
   // The declaration the caret is sitting on is not one of its usages. Some servers report it, and a lone
   // self-hit then "navigated" to the line the caret was already on, which looks exactly like nothing.
   var items = ((response && response.locations) || []).filter(function (item) {
@@ -66,6 +66,10 @@ async function findUsagesOf(name, explicitLoc) {
 // indexing window the regex index answers instead, and that is a different quality of answer.
 function isPartialAnalysisAnswer(response) {
   if (!response || response.engine === 'lsp') return false;
+  // A revision answer always carries a fallbackReason (no server can read a revision), which would make
+  // every one of them read as "still indexing" — telling the reviewer to wait for an answer that will
+  // never improve. It gets its own label below instead.
+  if (response.revision) return false;
   var phase = (document.getElementById('analysis-status') || { dataset: {} }).dataset.phase;
   return phase === 'indexing' || phase === 'starting' || Boolean(response.fallbackReason);
 }
@@ -83,23 +87,34 @@ function analysisStillArriving() {
 // Checked wherever an answer is consumed, and checked BEFORE the standalone in-memory scan: that scan
 // reads the rendered DOM and would happily answer, which is the same wrong jump by another route.
 function revisionDecline(response) {
-  return response && response.declined === 'revision' ? String(response.declinedRevision || '') : null;
+  return response && response.declined === 'revision' ? String(response.revision || '') : null;
 }
-function showRevisionDecline(revision) {
+// An answer that DID come back, about a revision. Name-matched by construction, and permanently so.
+function revisionAnswer(response) {
+  return response && !response.declined && response.revision ? String(response.revision) : null;
+}
+function showRevisionAnswerHint(name, revision) {
+  showCaretHint(t('monaco.analysisRevisionMatched')
+    .replace('{symbol}', String(name || ''))
+    .replace('{revision}', revision));
+}
+function showRevisionDecline(revision, name) {
   closeSemanticPeek();
-  showCaretHint(t('monaco.analysisRevision').replace('{revision}', revision || '—'));
+  showCaretHint(t('monaco.analysisRevision')
+    .replace('{revision}', revision || '—')
+    .replace('{symbol}', String(name || '')));
 }
 // One line per call site, so every surface that asks the analyzer a question stops at the same boundary.
 // Returns true when the caller should go no further — including past its own local fallback.
-function declinedForRevision(response) {
+function declinedForRevision(response, name) {
   var revision = revisionDecline(response);
   if (revision === null) return false;
-  showRevisionDecline(revision);
+  showRevisionDecline(revision, name);
   return true;
 }
 function showSemanticNavigationFailure(kind, name, response) {
   var revision = revisionDecline(response);
-  if (revision !== null) { showRevisionDecline(revision); return; }
+  if (revision !== null) { showRevisionDecline(revision, name); return; }
   // `fallbackReason` is only set when the semantic answer could not be obtained, so this is "could not
   // ask", not "asked and there is nothing". Standalone HTML has no server at all and no reason either.
   var pending = Boolean(response && response.engine !== 'lsp' && response.fallbackReason);
@@ -121,14 +136,16 @@ async function goToDefOrUsages(name, explicitLoc) {
   hideCaretHint(); // the wait is over, whatever the answer is; failures put their own message up below
   // Before the `ok` branch AND before the standalone scan below it: a decline is neither an answer nor a
   // failure to find one, and the local scan would read the rendered DOM and jump anyway.
-  if (declinedForRevision(response)) return;
+  if (declinedForRevision(response, name)) return;
   if (response && response.ok) {
     var defs = response.locations || [];
     // An answer from the regex index while a language server exists is a guess at what the server would
     // have said. It is worth having — it is usually right, and it is immediate — but the reviewer should
     // know they are looking at the partial version, not conclude the project has only one definition of
     // this name. Said here, where they pressed the key, because the status chip is not where they looked.
-    if (defs.length && isPartialAnalysisAnswer(response)) showPartialAnalysisHint(name);
+    var answeredFor = revisionAnswer(response);
+    if (defs.length && answeredFor) showRevisionAnswerHint(name, answeredFor);
+    else if (defs.length && isPartialAnalysisAnswer(response)) showPartialAnalysisHint(name);
     // A guess must not MOVE the reviewer.
     //
     // While the server is still reading the project the regex index answers instead, and it matches on the
@@ -179,7 +196,7 @@ async function goToImplementation() {
   var loc = symbol || caretSourceLoc();
   if (!name || !loc) { showSemanticNavigationFailure('symbol'); return; }
   var response = await queryProjectAnalysis('implementation', name, loc);
-  if (declinedForRevision(response)) return;
+  if (declinedForRevision(response, name)) return;
   var items = response && response.locations || [];
   if (items.length === 1) { openSourceAt(items[0].path, items[0].lineIndex, items[0].column); return; }
   openAnalysisUsages(name, items, response, 'implementation');

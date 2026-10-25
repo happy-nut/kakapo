@@ -192,18 +192,16 @@ test("finishing the indexing is announced, and only on the transition", async ()
   }
 });
 
-// A compare showing a revision is a THIRD dead end, and the one that does not look like a dead end at all.
-//
-// The analyzer reads the working tree. When the canvas is showing revision B it declines rather than
-// answering, because the alternative is a confident jump into the file a symbol lives in TODAY — which may
-// not have existed in the revision being read, and is indistinguishable from a correct jump.
+// A revision is a THIRD situation, and it splits in two: the revision could not be read (a dead end that
+// must not look like "no definition"), or it was read and answered (an answer that must not look like
+// "still indexing", because no better one is coming — a revision has no language server).
 //
 // Asserted through the viewer rather than against the bundle text: a `declinedForRevision` that always
 // returns false passes every text-shaped check, and did.
-test("a compare on a revision says so instead of reporting a missing definition", async () => {
+test("a revision that could not be read says so instead of reporting a missing definition", async () => {
   const v = await loadViewer(html);
   try {
-    installAnalysis(v, { ok: false, locations: [], declined: "revision", declinedRevision: "a1b2c3d" });
+    installAnalysis(v, { ok: false, locations: [], declined: "revision", revision: "a1b2c3d" });
     await jump(v);
 
     const message = hintText(v);
@@ -213,6 +211,28 @@ test("a compare on a revision says so instead of reporting a missing definition"
       "never 'definition not found' — the reviewer would conclude the symbol has none");
     assert.doesNotMatch(message, /moment|잠시/,
       "and never 'try again in a moment' — waiting does not change this one");
+  } finally { v.close(); }
+});
+
+test("an answer found IN a revision is labelled as name-matched, not as still indexing", async () => {
+  const v = await loadViewer(html);
+  try {
+    // The production shape: answered from the index, with a fallbackReason, because no server can be
+    // pointed at a revision. That reason is what used to make it read as "still indexing".
+    installAnalysis(v, {
+      ok: true,
+      engine: "index",
+      confidence: "heuristic",
+      revision: "a1b2c3d",
+      locations: [{ path: FILE, lineIndex: 0, column: 17, text: "export function helper() { return 1; }" }],
+      fallbackReason: "Reading a1b2c3d, which no language server can be pointed at",
+    });
+    await jump(v);
+
+    const message = hintText(v);
+    assert.match(message, /a1b2c3d/, "the revision is named");
+    assert.doesNotMatch(message, /[Ii]ndexing|인덱싱/,
+      "nothing is indexing — a revision's answer never improves by waiting");
   } finally { v.close(); }
 });
 
