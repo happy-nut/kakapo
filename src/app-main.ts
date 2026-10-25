@@ -1157,6 +1157,10 @@ async function refreshIfChanged(state: WinState): Promise<void> {
 function applySnapshot(state: WinState, snapshot: BuildSnapshot): void {
   state.reviewBase = snapshot.reviewBase;
   state.reviewTarget = snapshot.reviewTarget;
+  // Set beside the field it mirrors, on the one path that assigns it: the analyzer reads the working tree,
+  // so it has to learn when the canvas stops showing one. A compare that moves to a revision while
+  // navigation keeps answering from disk is the whole failure this guards.
+  state.analysis.setReviewTarget(snapshot.reviewTarget);
   state.reviewUpstream = snapshot.reviewUpstream;
   // The review artifact mirrors the workspace's absolute folder structure below userData. Different
   // repositories, nested monorepo packages, and worktrees therefore never share a file or touch source.

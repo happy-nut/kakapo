@@ -191,3 +191,40 @@ test("finishing the indexing is announced, and only on the transition", async ()
     v.close();
   }
 });
+
+// A compare showing a revision is a THIRD dead end, and the one that does not look like a dead end at all.
+//
+// The analyzer reads the working tree. When the canvas is showing revision B it declines rather than
+// answering, because the alternative is a confident jump into the file a symbol lives in TODAY — which may
+// not have existed in the revision being read, and is indistinguishable from a correct jump.
+//
+// Asserted through the viewer rather than against the bundle text: a `declinedForRevision` that always
+// returns false passes every text-shaped check, and did.
+test("a compare on a revision says so instead of reporting a missing definition", async () => {
+  const v = await loadViewer(html);
+  try {
+    installAnalysis(v, { ok: false, locations: [], declined: "revision", declinedRevision: "a1b2c3d" });
+    await jump(v);
+
+    const message = hintText(v);
+    assert.ok(hintShown(v), "the reviewer is told something at the caret");
+    assert.match(message, /a1b2c3d/, "and which revision is on screen");
+    assert.doesNotMatch(message, /not found|찾지 못/,
+      "never 'definition not found' — the reviewer would conclude the symbol has none");
+    assert.doesNotMatch(message, /moment|잠시/,
+      "and never 'try again in a moment' — waiting does not change this one");
+  } finally { v.close(); }
+});
+
+// The control for the test above: with the same fixture and the same keystroke, an ordinary empty answer
+// still reports a missing definition. Without this, a decline message shown unconditionally would pass.
+test("an ordinary empty answer still reports a missing definition", async () => {
+  const v = await loadViewer(html);
+  try {
+    installAnalysis(v, { engine: "index", confidence: "heuristic", locations: [] });
+    await jump(v);
+    const message = hintText(v);
+    assert.ok(message, "something is said at the caret");
+    assert.doesNotMatch(message, /a1b2c3d/, "no revision is named, because none is on screen");
+  } finally { v.close(); }
+});

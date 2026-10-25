@@ -85,6 +85,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "monaco.noSymbol": "No symbol under the caret.",
     "monaco.definitionNotFound": "Definition not found for “{symbol}”.",
     "monaco.analysisPending": "Still reading the project — try “{symbol}” again in a moment.",
+    // Not a failure to find something: a refusal to answer from the wrong text. Names the revision, because
+    // "navigation is unavailable" with no reason reads as a bug rather than as a boundary.
+    "quickopen.revisionOff": "off for this revision",
+    "monaco.analysisRevision": "Navigation is off while this compare shows {revision} — it would answer from your working tree, not from the revision on screen.",
     "monaco.analysisPartial": "Still indexing: this is a partial answer for “{symbol}”.",
     "monaco.definitionExternal": "“{symbol}” is defined in {where} — compiled, with no source to open.",
     "monaco.referencesNotFound": "No usages found for “{symbol}”.",
@@ -501,6 +505,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "monaco.noSymbol": "커서 위치에서 심볼을 찾지 못했습니다.",
     "monaco.definitionNotFound": "“{symbol}”의 정의를 찾지 못했습니다.",
     "monaco.analysisPending": "프로젝트를 아직 읽고 있습니다 — 잠시 후 “{symbol}”을 다시 시도하세요.",
+    "quickopen.revisionOff": "이 리비전에서는 꺼짐",
+    "monaco.analysisRevision": "{revision} 을 비교 중이라 코드 이동을 끕니다 — 화면의 리비전이 아니라 작업 트리를 기준으로 답하게 됩니다.",
     "monaco.analysisPartial": "인덱싱 중입니다 — “{symbol}”에 대한 부분적인 결과입니다.",
     "monaco.definitionExternal": "“{symbol}”의 정의는 {where}에 있습니다 — 컴파일된 코드라 열 소스가 없습니다.",
     "monaco.referencesNotFound": "“{symbol}”의 사용 위치를 찾지 못했습니다.",

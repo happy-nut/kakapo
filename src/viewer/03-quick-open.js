@@ -380,7 +380,11 @@ async function runWorkspaceSymbolSearch(query, seq) {
       text: String(item.text || ''),
     };
   }) : [];
-  workspaceSymbolEngine = response && response.engine === 'lsp' ? (response.server || 'LSP') : 'index';
+  // A declined search is not an empty project. Said in the label beside the count, because "0 results"
+  // with no reason is how a reviewer concludes the symbol does not exist.
+  workspaceSymbolEngine = revisionDecline(response) !== null
+    ? t('quickopen.revisionOff')
+    : response && response.engine === 'lsp' ? (response.server || 'LSP') : 'index';
   workspaceSymbolBusy = false;
   quickActive = 0;
   renderWorkspaceSymbolResults(query);
