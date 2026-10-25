@@ -87,9 +87,23 @@ jobs:
           version="$(node -p "require('./package.json').version")"
           echo "tag=v${version}" >> "$GITHUB_OUTPUT"
 
-      - name: Push commit and tag
+      # 커밋을 먼저, 태그를 그 다음에 민다. `git push --follow-tags`는 두 ref를 한 번에 보내지만
+      # 원자적이지 않다: 태그가 먼저 올라가고 브랜치가 거부되면, 아무도 가진 적 없는 커밋을 가리키는
+      # 태그만 원격에 남는다. 그 고아 태그는 다음 릴리스의 `npm version patch`가 같은 이름을 만들려다
+      # 실패하게 해서, 한 번의 경합이 그 뒤의 모든 릴리스를 막는다.
+      #
+      # 경합 자체는 막을 수 없다. 위의 concurrency group은 릴리스끼리만 직렬화하고, 이 워크플로우를
+      # 깨뜨리는 것은 다른 릴리스가 아니라 **릴리스가 도는 동안 들어온 머지**다 — 머지는 릴리스를
+      # 기다리지 않는다. 2026-10-25에 세 분 간격의 두 머지가 정확히 이렇게 겹쳤다.
+      #
+      # 그래서 목표를 "경합을 없앤다"가 아니라 "경합이 다음 릴리스를 막지 못하게 한다"로 둔다.
+      # 이 순서에서는 브랜치 push가 거부되면 태그는 아예 만들어지지 않으므로, 실패가 그 실행 하나로
+      # 끝나고 사람이 워크플로우를 다시 돌리면 깨끗하게 이어진다.
+      - name: Push commit, then tag
         if: steps.gate.outputs.go == 'true'
-        run: git push --follow-tags
+        run: |
+          git push origin HEAD:main
+          git push origin "${{ steps.version.outputs.tag }}"
 
   # A tag pushed with GITHUB_TOKEN does not trigger release.yml, so the dmg build is called here
   # directly. kakapo is macOS-only, so this is the whole of the release.
