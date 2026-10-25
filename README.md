@@ -183,6 +183,10 @@ npm test
 npm run smoke
 ```
 
+`npm run mermaid:smoke` is separate on purpose. Mermaid's `render()` measures text through `getBBox`, which
+jsdom does not implement, so whether a diagram actually lays out can only be answered in the real app — it
+opens a window for about twenty seconds, and needs no Kakapo already running from this checkout.
+
 Review another repository with a local build:
 
 ```bash
