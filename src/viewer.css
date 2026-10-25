@@ -3416,6 +3416,12 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 .tok-function { color: var(--token-function); }
 .tok-type { color: var(--token-type); }
 .tok-decorator { color: var(--token-decorator); font-style: italic; }
+/* YAML's two reference forms. Dracula gives them different roles and different emphasis — an anchor is a
+   declared name (entity.name.type, italic) and an alias is a use of one (variable.other.alias, italic and
+   underlined) — and that distinction is the only thing telling you which end of the pair you are looking
+   at when both read `&build` / `*build`. */
+.tok-anchor { color: var(--token-type); font-style: italic; }
+.tok-alias { color: var(--token-function); font-style: italic; text-decoration: underline; }
 .quick-open {
   position: fixed;
   inset: 0;
