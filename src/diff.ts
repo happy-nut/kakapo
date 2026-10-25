@@ -720,22 +720,48 @@ export function collectHttpEnvironments(root: string, httpPaths: string[] = []):
   }
   // Shallowest first, so a deeper file's keys land on top of the ones it shares with its parents.
   dirs.sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b));
-  for (const dir of dirs) for (const fileName of ["http-client.env.json", "http-client.private.env.json"]) {
-    const filePath = join(root, dir, fileName);
-    if (!existsSync(filePath)) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(readFileSync(filePath, "utf8"));
-    } catch {
-      continue;
+  // `$shared` and `$dotenv` ride in the same payload under their own keys rather than in a second island:
+  // both are variable scopes the runner consults, the dropdown hides every `$`-prefixed key, and the
+  // build -> viewer contract keeps its one shape. $shared is the base every environment overrides;
+  // $dotenv is a separate namespace, reachable only as {{$dotenv.NAME}}.
+  const assign = (target: Record<string, string>, rawVars: Record<string, unknown>): void => {
+    for (const [key, value] of Object.entries(rawVars)) {
+      if (typeof value === "string") target[key] = value;
+      else if (typeof value === "number" || typeof value === "boolean") target[key] = String(value);
     }
-    if (!parsed || typeof parsed !== "object") continue;
-    for (const [envName, rawVars] of Object.entries(parsed as Record<string, unknown>)) {
-      if (!rawVars || typeof rawVars !== "object") continue;
-      const target = result[envName] ?? (result[envName] = {});
-      for (const [key, value] of Object.entries(rawVars as Record<string, unknown>)) {
-        if (typeof value === "string") target[key] = value;
-        else if (typeof value === "number" || typeof value === "boolean") target[key] = String(value);
+  };
+  for (const dir of dirs) {
+    for (const fileName of [".env", ".env.local"]) {
+      const filePath = join(root, dir, fileName);
+      if (!existsSync(filePath)) continue;
+      const target = result.$dotenv ?? (result.$dotenv = {});
+      try {
+        for (const line of readFileSync(filePath, "utf8").split(/\r?\n/)) {
+          // KEY=VALUE, with dotenv's `export ` prefix, `#` comments and optional quotes. Nothing more:
+          // this is a variable lookup, not a shell.
+          const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+          if (!match || line.trim().startsWith("#")) continue;
+          target[match[1]] = match[2].trim().replace(/^(['"])([\s\S]*)\1$/, "$2");
+        }
+      } catch { /* an unreadable .env is simply not a source of variables */ }
+    }
+    for (const fileName of ["http-client.env.json", "http-client.private.env.json"]) {
+      const filePath = join(root, dir, fileName);
+      if (!existsSync(filePath)) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(readFileSync(filePath, "utf8"));
+      } catch {
+        continue;
+      }
+      if (!parsed || typeof parsed !== "object") continue;
+      for (const [envName, rawVars] of Object.entries(parsed as Record<string, unknown>)) {
+        if (!rawVars || typeof rawVars !== "object") continue;
+        // SSLConfiguration and the other non-variable blocks IntelliJ puts inside an environment are not
+        // variables; keeping them out stops `{{SSLConfiguration}}` resolving to "[object Object]".
+        const target = result[envName] ?? (result[envName] = {});
+        const { SSLConfiguration: _ssl, Security: _security, ...variables } = rawVars as Record<string, unknown>;
+        assign(target, variables);
       }
     }
   }

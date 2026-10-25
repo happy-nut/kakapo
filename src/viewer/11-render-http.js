@@ -595,91 +595,12 @@ function renderCsvRows(content, path) {
     + rowHtml.slice(1).join('') + '</tbody></table>';
 }
 
-function isHttpFile(path) {
-  return /\.(http|rest)$/i.test(path || '');
-}
-
-function currentHttpEnv() {
-  return httpEnvironments[currentHttpEnvName] || {};
-}
-
-function applyHttpVars(text, env) {
-  return String(text == null ? '' : text).replace(/\{\{\s*([\w.$-]+)\s*\}\}/g, function (whole, name) {
-    if (env && Object.prototype.hasOwnProperty.call(env, name)) return env[name];
-    return whole;
-  });
-}
-
-// Parses an IntelliJ-style .http file into a list of requests. Each request
-// tracks the line of its request line (for the gutter Run button) and the line
-// span it covers (for placing the inline response and for Cmd/Alt+Enter).
-function parseHttpRequests(content) {
-  const methods = { GET: 1, POST: 1, PUT: 1, PATCH: 1, DELETE: 1, HEAD: 1, OPTIONS: 1, TRACE: 1, CONNECT: 1 };
-  const lines = String(content).split(/\r?\n/);
-  const requests = [];
-  const vars = {};
-  let curr = null;
-  let phase = 'pre';
-  function flush() {
-    if (curr && curr.url) {
-      curr.body = curr.bodyLines.join('\n').replace(/\s+$/, '');
-      requests.push(curr);
-    }
-  }
-  function start(boundaryLine, name, index) {
-    return { name: name, method: '', url: '', headers: [], bodyLines: [], startLine: -1, endLine: index, boundaryLine: boundaryLine };
-  }
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const trimmed = rawLine.trim();
-    if (trimmed.indexOf('###') === 0) {
-      flush();
-      curr = start(i, trimmed.replace(/^#+/, '').trim(), i);
-      phase = 'pre';
-      continue;
-    }
-    if (!curr) {
-      curr = start(-1, '', i);
-      phase = 'pre';
-    }
-    curr.endLine = i;
-    if (phase === 'pre') {
-      if (trimmed === '') continue;
-      if (trimmed.indexOf('#') === 0 || trimmed.indexOf('//') === 0) continue;
-      const varMatch = /^@([\w.$-]+)\s*=\s*(.*)$/.exec(trimmed);
-      if (varMatch) { vars[varMatch[1]] = varMatch[2].trim(); continue; }
-      const sp = trimmed.indexOf(' ');
-      const firstToken = sp >= 0 ? trimmed.slice(0, sp) : trimmed;
-      if (sp >= 0 && methods[firstToken.toUpperCase()]) {
-        curr.method = firstToken.toUpperCase();
-        curr.url = trimmed.slice(sp + 1).replace(/\s+HTTP\/[\d.]+\s*$/i, '').trim();
-      } else {
-        curr.method = 'GET';
-        curr.url = trimmed.replace(/\s+HTTP\/[\d.]+\s*$/i, '').trim();
-      }
-      curr.startLine = i;
-      phase = 'headers';
-      continue;
-    }
-    if (phase === 'headers') {
-      if (trimmed === '') { phase = 'body'; continue; }
-      if (trimmed.indexOf('#') === 0 || trimmed.indexOf('//') === 0) continue;
-      const colon = rawLine.indexOf(':');
-      if (colon > 0) curr.headers.push({ name: rawLine.slice(0, colon).trim(), value: rawLine.slice(colon + 1).trim() });
-      continue;
-    }
-    curr.bodyLines.push(rawLine);
-  }
-  flush();
-  return { requests: requests, vars: vars };
-}
-
 function renderHttpTable(file) {
   const parsed = parseHttpRequests(file.content);
   const requests = parsed.requests;
   httpRequestsByPath.set(file.path, requests);
   httpVarsByPath.set(file.path, parsed.vars);
-  const env = Object.assign({}, parsed.vars, currentHttpEnv());
+  const scope = httpScope(file.path, -1);
   const lines = String(file.content).split(/\r?\n/);
   const cursor = viewerCursor && viewerCursor.path === file.path ? viewerCursor : null;
   const runAtLine = {};
@@ -693,12 +614,18 @@ function renderHttpTable(file) {
     const hasRun = Object.prototype.hasOwnProperty.call(runAtLine, index);
     const reqIdx = hasRun ? runAtLine[index] : -1;
     const isCursorLine = Boolean(cursor && cursor.lineIndex === index);
+    // The Run button names its request, so a file of twenty requests has twenty distinguishable buttons
+    // for a screen reader instead of twenty "Run request"s.
+    const label = hasRun ? t('http.runNamed').replace('{name}', requests[reqIdx].name) : '';
     const gutter = hasRun
-      ? '<button type="button" class="http-run" data-keyhint-id="runHttp" data-req="' + reqIdx + '" data-i18n-title="http.run" title="Run request" aria-label="Run request">&#9654;</button>'
+      ? '<button type="button" class="http-run" data-keyhint-id="runHttp" data-req="' + reqIdx + '"'
+        + ' title="' + escapeHtml(label) + '" aria-label="' + escapeHtml(label) + '">&#9654;</button>'
       : '';
-    rows += '<tr class="source-row http-row' + (hasRun ? ' http-request-line' : '') + (isCursorLine ? ' cursor-line' : '') + '" data-line-index="' + index + '">'
+    const isScript = Boolean(parsed.scriptLines[index]);
+    rows += '<tr class="source-row http-row' + (hasRun ? ' http-request-line' : '') + (isScript ? ' http-script-line' : '')
+      + (isCursorLine ? ' cursor-line' : '') + '" data-line-index="' + index + '">'
       + '<td class="num http-gutter">' + gutter + '<span class="num-text">' + (index + 1) + '</span></td>'
-      + '<td class="source-code">' + (isCursorLine ? renderHttpLineWithCursor(line, env, cursor.column) : highlightHttpLine(line, env)) + '</td>'
+      + '<td class="source-code">' + (isCursorLine ? renderHttpLineWithCursor(line, scope, cursor.column, isScript) : highlightHttpLine(line, scope, isScript)) + '</td>'
       + '</tr>';
     if (Object.prototype.hasOwnProperty.call(respAfterLine, index)) {
       const rIdx = respAfterLine[index];
@@ -707,112 +634,91 @@ function renderHttpTable(file) {
   });
   return '<table class="source-table http-table"><tbody>' + rows + '</tbody></table>';
 }
-function renderHttpLineWithCursor(text, env, column) {
+function renderHttpLineWithCursor(text, scope, column, isScript) {
   var col = Math.max(0, Math.min(column, text.length));
-  return highlightHttpLine(text.slice(0, col), env) + '<span class="code-cursor" aria-hidden="true"></span>' + highlightHttpLine(text.slice(col), env);
+  return highlightHttpLine(text.slice(0, col), scope, isScript)
+    + '<span class="code-cursor" aria-hidden="true"></span>'
+    + highlightHttpLine(text.slice(col), scope, isScript);
 }
 
-function highlightHttpLine(line, env) {
+function highlightHttpLine(line, scope, isScript) {
   const trimmed = line.trim();
+  // A script body is JavaScript, not .http syntax: a `#` in it is a character, and a {{var}} is not one.
+  if (isScript) return highlightLine(line, 'javascript');
   if (trimmed.indexOf('###') === 0) return '<span class="http-sep">' + escapeHtml(line) + '</span>';
-  if (trimmed.indexOf('#') === 0 || trimmed.indexOf('//') === 0) return '<span class="tok-comment">' + escapeHtml(line) + '</span>';
+  if (trimmed.indexOf('#') === 0 || trimmed.indexOf('//') === 0) {
+    // A directive comment is syntax that changes what is sent; prose above a request is not.
+    const directive = /^(\s*(?:#+|\/\/)\s*)(@[\w-]+)(.*)$/.exec(line);
+    if (directive && httpSyntax().directives[directive[2].slice(1).toLowerCase()]) {
+      return '<span class="tok-comment">' + escapeHtml(directive[1]) + '</span>'
+        + '<span class="http-directive">' + escapeHtml(directive[2]) + '</span>'
+        + '<span class="tok-comment">' + escapeHtml(directive[3]) + '</span>';
+    }
+    return '<span class="tok-comment">' + escapeHtml(line) + '</span>';
+  }
   let html = escapeHtml(line);
-  html = html.replace(/^(\s*)(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|TRACE|CONNECT)(\s)/, function (whole, pre, method, post) {
+  html = html.replace(/^(\s*)(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|TRACE|CONNECT|GRAPHQL|GRPC|WEBSOCKET)(\s)/, function (whole, pre, method, post) {
     return pre + '<span class="http-method">' + method + '</span>' + post;
   });
-  html = html.replace(/\{\{\s*([\w.$-]+)\s*\}\}/g, function (whole, name) {
-    const known = env && Object.prototype.hasOwnProperty.call(env, name);
-    const title = known ? String(env[name]) : 'Undefined variable';
-    return '<span class="http-var ' + (known ? 'known' : 'unknown') + '" title="' + escapeHtml(title) + '">' + escapeHtml(whole) + '</span>';
+  html = html.replace(/^(\s*)(&lt;@?[\w-]*|&gt;&gt;!?|&gt;)(\s)/, function (whole, pre, marker, post) {
+    return pre + '<span class="http-marker">' + marker + '</span>' + post;
+  });
+  html = html.replace(/\{\{\s*([^{}\s][^{}]*?)\s*\}\}/g, function (whole, name) {
+    const raw = name.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+    const value = httpVarValue(raw, scope, 0);
+    const known = value !== undefined;
+    const title = known ? String(value) : t('http.undefinedVariable');
+    return '<span class="http-var ' + (known ? 'known' : 'unknown') + '" title="' + escapeHtml(title) + '">' + whole + '</span>';
   });
   return html;
 }
 
-function sendHttp(request) {
-  if (window.kakapoHttp && typeof window.kakapoHttp.send === 'function') {
-    return Promise.resolve(window.kakapoHttp.send(request));
-  }
-  return fetch('/__http_send', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  }).then(function (response) { return response.json(); });
+/** The request could not be sent at all: no status line to show, so say why where one would have been. */
+function renderHttpFailure(target, message) {
+  target.className = 'http-response error';
+  target.innerHTML = '<div class="http-resp-head"><span class="http-status bad">'
+    + escapeHtml(t('http.notSent')) + '</span></div>'
+    + '<pre class="http-resp-body">' + escapeHtml(message) + '</pre>';
 }
 
-// `path` and `target` are passed in because this is no longer only the source view's runner: the diff
-// shows .http files too, and a request there is the same request. Both default to the source view, which
-// is where every existing caller runs from.
-function runHttpRequest(reqIndex, pathOverride, targetOverride) {
-  const path = pathOverride || document.getElementById('source-viewer')?.dataset.openPath || '';
-  const requests = httpRequestsByPath.get(path);
-  if (!requests || !requests[reqIndex]) return;
-  const req = requests[reqIndex];
-  const env = Object.assign({}, httpVarsByPath.get(path) || {}, currentHttpEnv());
-  const headers = {};
-  req.headers.forEach(function (header) {
-    const key = applyHttpVars(header.name, env);
-    if (key) headers[key] = applyHttpVars(header.value, env);
-  });
-  const resolved = {
-    method: req.method || 'GET',
-    url: applyHttpVars(req.url, env),
-    headers: headers,
-    body: req.body ? applyHttpVars(req.body, env) : undefined,
-  };
-  // A placeholder that found no value is left in the text verbatim, so the URL goes out as
-  // "{{host}}/get" and the sender answers "unsupported URL scheme: {{host}}/get" — which names the
-  // symptom and hides the cause. Say which variable is missing, and where a value for it could live.
-  const unresolved = /\{\{\s*([\w.$-]+)\s*\}\}/.exec(
-    resolved.url + ' ' + Object.keys(headers).map(function (k) { return k + ' ' + headers[k]; }).join(' ')
-    + ' ' + (resolved.body || ''));
-  const target = targetOverride || document.getElementById('http-resp-' + reqIndex);
-  if (unresolved) {
-    const message = t('http.unresolved').replace(/\{name\}/g, unresolved[1]);
-    if (target) {
-      target.className = 'http-response error';
-      target.innerHTML = '<div class="http-resp-head"><span class="http-status bad">'
-        + escapeHtml(t('http.notSent')) + '</span></div>'
-        + '<pre class="http-resp-body">' + escapeHtml(message) + '</pre>';
-    }
-    showToast(message);
-    return;
+/** client.test() results and client.log() output — a handler that ran invisibly may as well not have. */
+function httpScriptLogHtml(log) {
+  if (!log) return '';
+  let html = '';
+  if (log.tests && log.tests.length) {
+    const failed = log.tests.filter(function (entry) { return !entry.ok; }).length;
+    html += '<div class="http-tests' + (failed ? ' has-failures' : '') + '">'
+      + '<div class="http-tests-head">' + escapeHtml(
+        failed
+          ? t('http.testsFailed').replace('{failed}', String(failed)).replace('{total}', String(log.tests.length))
+          : t('http.testsPassed').replace('{total}', String(log.tests.length)))
+      + '</div>'
+      + log.tests.map(function (entry) {
+        return '<div class="http-test ' + (entry.ok ? 'ok' : 'bad') + '">'
+          + '<span class="http-test-mark">' + (entry.ok ? '&#10003;' : '&#10007;') + '</span>'
+          + '<span class="http-test-name">' + escapeHtml(entry.name) + '</span>'
+          + (entry.error ? '<span class="http-test-error">' + escapeHtml(entry.error) + '</span>' : '')
+          + '</div>';
+      }).join('')
+      + '</div>';
   }
-  if (target) {
-    target.className = 'http-response loading';
-    target.innerHTML = kakapoLoaderHtml('kakapo-loader-inline') + '<span class="http-loading-copy">'
-      + escapeHtml(resolved.method + ' ' + resolved.url) + '</span>';
+  if (log.lines && log.lines.length) {
+    html += '<pre class="http-script-log">' + escapeHtml(log.lines.join('\n')) + '</pre>';
   }
-  sendHttp(resolved).then(function (result) {
-    if (target) renderHttpResponse(target, result);
-  }).catch(function (error) {
-    if (target) {
-      target.className = 'http-response error';
-      target.innerHTML = '<div class="http-resp-head"><span class="http-status bad">Failed</span></div><pre class="http-resp-body">' + escapeHtml(String(error && error.message ? error.message : error)) + '</pre>';
-    }
-  });
+  if (log.error) {
+    html += '<div class="http-script-error">' + escapeHtml(t('http.handlerFailed').replace('{error}', log.error)) + '</div>';
+  }
+  return html;
 }
 
-function runHttpAtCaret() {
-  const path = document.getElementById('source-viewer')?.dataset.openPath || '';
-  const requests = httpRequestsByPath.get(path);
-  if (!requests || !requests.length) return;
-  const caretLine = viewerCursor && viewerCursor.path === path ? viewerCursor.lineIndex : 0;
-  let chosen = -1;
-  for (let i = 0; i < requests.length; i++) {
-    const req = requests[i];
-    const from = req.boundaryLine >= 0 ? req.boundaryLine : req.startLine;
-    if (from <= caretLine && caretLine <= req.endLine) { chosen = i; break; }
-    if (from <= caretLine) chosen = i;
-  }
-  if (chosen < 0) chosen = 0;
-  runHttpRequest(chosen);
-}
-
-function renderHttpResponse(target, result) {
+function renderHttpResponse(target, result, extra) {
+  const log = extra && extra.log;
+  const saved = extra && extra.saved;
   if (!result || !result.ok) {
     target.className = 'http-response error';
     const message = result && result.error ? result.error : 'Request failed';
-    target.innerHTML = '<div class="http-resp-head"><span class="http-status bad">Failed</span></div><pre class="http-resp-body">' + escapeHtml(message) + '</pre>';
+    target.innerHTML = '<div class="http-resp-head"><span class="http-status bad">Failed</span></div>'
+      + '<pre class="http-resp-body">' + escapeHtml(message) + '</pre>' + httpScriptLogHtml(log);
     return;
   }
   target.className = 'http-response';
@@ -828,16 +734,47 @@ function renderHttpResponse(target, result) {
     if (headerKeys[i].toLowerCase() === 'content-type') { contentType = String(headers[headerKeys[i]]); break; }
   }
   const bodyText = result.body == null ? '' : String(result.body);
-  const bodyHtml = formatHttpBody(bodyText, contentType);
+  // `bytes` is the length on the wire; bodyText.length counts UTF-16 units, which is a different number
+  // for any non-ASCII response.
+  const size = Number(result.bytes) || bodyText.length;
+  const bodyHtml = result.bodyBase64
+    ? renderHttpBinaryBody(result, contentType)
+    : formatHttpBody(bodyText, contentType);
+  const meta = [];
+  if (result.redirects && result.redirects.length) {
+    meta.push('<span class="http-resp-meta" title="' + escapeHtml(result.redirects.join('\n')) + '">'
+      + escapeHtml(t('http.redirects').replace('{count}', String(result.redirects.length))) + '</span>');
+  }
+  if (result.cookies && result.cookies.length) {
+    meta.push('<span class="http-resp-meta">' + escapeHtml(t('http.cookies').replace('{count}', String(result.cookies.length))) + '</span>');
+  }
   target.innerHTML =
     '<div class="http-resp-head">'
     + '<span class="http-status ' + statusClass + '">' + status + (result.statusText ? ' ' + escapeHtml(result.statusText) : '') + '</span>'
     + '<span class="http-resp-meta">' + (Number(result.durationMs) || 0) + ' ms</span>'
-    + '<span class="http-resp-meta">' + formatBytes(bodyText.length) + '</span>'
+    + '<span class="http-resp-meta">' + formatBytes(size) + '</span>'
+    + meta.join('')
     + (headerKeys.length ? '<button type="button" class="http-resp-toggle">Headers (' + headerKeys.length + ')</button>' : '')
     + '</div>'
     + '<div class="http-resp-headers hidden">' + headerHtml + '</div>'
-    + '<pre class="http-resp-body">' + bodyHtml + '</pre>';
+    + (saved
+      ? '<div class="http-saved' + (saved.ok ? '' : ' bad') + '">' + escapeHtml(saved.ok
+        ? t('http.savedTo').replace('{path}', saved.path)
+        : t('http.saveFailed').replace('{error}', saved.error)) + '</div>'
+      : '')
+    + '<pre class="http-resp-body">' + bodyHtml + '</pre>'
+    + httpScriptLogHtml(log);
+}
+
+/** A non-text response. An image is worth showing; anything else is worth counting. */
+function renderHttpBinaryBody(result, contentType) {
+  const mime = String(contentType || '').split(';')[0].trim();
+  if (/^image\//i.test(mime)) {
+    return '<img class="http-resp-image" alt="" src="data:' + escapeHtml(mime) + ';base64,' + escapeHtml(result.bodyBase64) + '">';
+  }
+  return '<span class="http-resp-empty">' + escapeHtml(
+    t('http.binaryBody').replace('{type}', mime || 'application/octet-stream')
+      .replace('{size}', formatBytes(Number(result.bytes) || 0))) + '</span>';
 }
 
 function formatHttpBody(text, contentType) {
@@ -848,6 +785,10 @@ function formatHttpBody(text, contentType) {
       const pretty = JSON.stringify(JSON.parse(text), null, 2);
       return pretty.split(/\r?\n/).map(function (line) { return highlightLine(line, 'json'); }).join('\n');
     } catch (error) {}
+  }
+  // An XML/HTML body gets the markup highlighter it would get in the source view.
+  if (/xml|html/i.test(contentType) || /^\s*<[?!a-zA-Z]/.test(text)) {
+    return text.split(/\r?\n/).map(function (line) { return highlightLine(line, 'markup'); }).join('\n');
   }
   return escapeHtml(text);
 }

@@ -237,6 +237,21 @@ var SHORTCUT_ACTIONS = {
     if (i === 1 && createFixCommentAtCaret()) return;
     return false;
   },
+  // Both decline (return false) outside a .http file, so the chord stays available to anything else.
+  // Checked synchronously here rather than inside the async runner: a promise is always truthy, so
+  // "did it handle the key?" cannot be answered by its return value.
+  runHttpAll: function () {
+    var path = httpOpenPath();
+    if (!path || treeFocusIndex >= 0 || !httpRequestsByPath.get(path)) return false;
+    runHttpFile();
+  },
+  copyHttpCurl: function () {
+    var path = httpOpenPath();
+    if (!path || treeFocusIndex >= 0) return false;
+    var chosen = httpRequestIndexAtCaret(path);
+    if (chosen < 0) return false;
+    copyHttpAsCurl(chosen, path);
+  },
 };
 
 // Dispatch scope, by id. Everything else in SHORTCUT_ACTIONS is content-level — the review itself.

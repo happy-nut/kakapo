@@ -125,10 +125,86 @@ kakapo --staged             # 인덱스 vs HEAD
 | `⌥F1` | 열린 파일을 사이드바에서 찾기 |
 | `F2` / `⇧F2` | 랭귀지 서버가 찾은 다음 / 이전 문제 |
 | `⌥Enter` | 문제가 표시된 줄에서: 그걸 고쳐달라는 변경 요청 작성 |
+| `⌘Enter` | 커서 위치의 `.http` 요청 실행 |
+| `⌘⇧Enter` | `.http` 파일의 모든 요청을 순서대로 실행 |
+| `⌘⇧C` | 커서 위치의 `.http` 요청을 `curl` 명령으로 복사 |
 | `⌘K` | 커서 위치의 `파일:줄` 복사 |
 | `⌘,` | 설정 |
 
 나머지는 설정 ▸ 단축키에 있습니다.
+
+## HTTP 요청 (`.http` 파일)
+
+저장소의 `.http`·`.rest` 파일은 읽는 자리에서 그대로 실행됩니다. 요청마다 거터에 `▶`가 붙고 (소스 뷰와
+diff 양쪽 모두), 응답은 그 요청 아래에 펼쳐집니다. 포맷은 JetBrains HTTP Client 그대로이므로, 같은 파일을
+고치지 않고 kakapo와 IntelliJ에서 함께 씁니다.
+
+```http
+@base = https://api.example.com
+
+### 로그인
+# @name login
+POST {{base}}/sessions
+Content-Type: application/json
+
+{ "user": "ada", "password": "{{$dotenv.PASSWORD}}" }
+
+> {%
+  client.global.set("token", response.body.token);
+  client.test("토큰이 왔다", function () {
+    client.assert(response.body.token, "응답에 토큰이 없음");
+  });
+%}
+
+### 그 토큰으로 여는 프로필
+# @timeout 5
+GET {{base}}/me
+Authorization: Bearer {{token}}
+
+>> out/me.json
+```
+
+**요청.** `###`가 요청을 나누고 이름을 줍니다 (`# @name`도 되고, 이름 없는 요청은 `#1`). URL만 적으면
+`GET`입니다. URL 뒤의 HTTP 버전은 URL에 포함되지 않습니다. 긴 URL은 `/`·`?`·`&`로 시작하는 들여쓴 줄로
+나눌 수 있습니다. `GRAPHQL`은 `{query, variables}`로 POST합니다 — 오퍼레이션, 빈 줄, 그리고 변수 JSON.
+
+**지시자** — 요청 위의 주석 줄에 씁니다: `@no-redirect`, `@no-cookie-jar`, `@no-log`,
+`@no-auto-encoding`, `@timeout 600`, `@connection-timeout 2 m` (`ms`·`s`·`m`, 기본은 초).
+
+**바디.** 인라인으로 쓰거나, `< ./body.bin`으로 파일의 바이트를 그대로 보내거나, `<@ ./body.json`으로
+파일 안의 `{{변수}}`를 먼저 치환해 보냅니다. `multipart/form-data`는 `--boundary` 블록에서 파트를
+조립합니다. `filename=`이 있는 파트는 그 파일의 바이트로, 없는 파트는 파일 내용을 그 필드의 텍스트로
+보냅니다.
+
+**변수.** 파일 안의 `@name = value`, `http-client.env.json`과 `http-client.private.env.json` (저장소
+루트뿐 아니라 요청 파일 옆에서도 찾고, 가까운 파일이 이깁니다), 모든 환경이 올라앉는 `$shared` 섹션,
+`.env`에서 읽는 `{{$dotenv.NAME}}`, 프로세스 환경변수 `{{$env.NAME}}`, 그리고 JSON을 담은 변수로 들어가는
+점 표기 (`{{client.host.url}}`). 동적 변수: `$uuid`, `$timestamp`, `$isoTimestamp`, `$randomInt`,
+`$random.integer/float/alphabetic/alphanumeric/hexadecimal/email/uuid`, `$projectRoot`, `$historyFolder`.
+이름 붙은 응답도 읽습니다 — `{{login.response.body.$.token}}`, `.headers.Location`, `.status`. 값이 없는
+`{{name}}`은 요청을 보내지 않고 **어느 이름인지** 말해 줍니다. 그대로 보내서 scheme 오류를 받는 것보다
+원인에 가깝습니다.
+
+**스크립트.** 요청 앞의 `< {% … %}`, 뒤의 `> {% … %}` 또는 `> ./handler.js`. IntelliJ API 그대로:
+`client.global`, `client.test`, `client.assert`, `client.log`, `client.exit`,
+`response.status/body/contentType/headers`, `request.body/url/headers/method/variables/environment`,
+`jsonPath`, `xpath`, `crypto.sha1/sha256/md5`과 `crypto.hmac.*`, `await sleep(ms)`, 그리고 동적 변수를
+그냥 식별자로. 테스트 결과와 `client.log` 출력은 응답과 함께 보여 줍니다 — 단언하고 통과한 핸들러는
+통과했다고 **말해야** 합니다.
+
+스크립트는 리뷰 창에서 돕니다. Electron이 그 창을 sandbox + contextIsolation으로, node 통합 없이 띄우므로
+핸들러에는 `require`도 `fs`도 `process`도 없습니다. 그리고 눈앞에 텍스트가 보이는 요청에 `▶`를 누르기
+전까지 아무것도 실행되지 않습니다. 저장소를 읽는 일이 그 저장소를 실행하는 일이 되어서는 안 됩니다.
+
+**저장.** `>> out.json`은 기존 파일 옆에 (`out-1.json`), `>>! out.json`은 덮어씁니다.
+`{{$historyFolder}}`는 kakapo 자신의 app-data 미러로 풀립니다 — 읽고 있는 저장소에 kakapo의 상태를 쓰지
+않습니다. 쿠키 잼도 거기 있고, IntelliJ와 같은 `# domain path name value date` 형식이라 그대로 읽힙니다.
+
+**이식하지 않은 것.** gRPC·WebSocket (프로토콜 스택이 없습니다 — 줄은 색칠하지만 보내지 않고 그렇다고
+말합니다), OAuth2 `Security.Auth` 플로우, 공유 스크립트 모듈 (핸들러 안의 `import`·`export`),
+`$exampleServer`, 변수 컬렉션 (배열 원소마다 요청 하나), Java Faker 생성기 전체 (흔한 것들은 있고,
+없는 것은 이름을 들어 알려 줍니다), 그리고 `curl` 명령 **가져오기** — kakapo는 읽고 있는 파일에 쓰지
+않으므로 넣을 자리가 없습니다.
 
 ## 내장 language server
 

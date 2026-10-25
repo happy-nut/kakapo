@@ -88,6 +88,10 @@ export const SHORTCUTS: ShortcutDef[] = [
   // asks an agent to fix it (05-keymap.js). The second was reachable, documented nowhere, and named by a
   // label that said only "Run HTTP request" — so the sheet and both READMEs described half of the key.
   { id: "runHttp", keys: ["⌘Enter", "⌥Enter"], where: "code", i18n: "kbd.runHttp" },
+  // The two other things a reviewer does with a .http file: run the whole file as the sequence it is
+  // written as, and take one request out of kakapo as a cURL command.
+  { id: "runHttpAll", keys: ["⌘⇧Enter"], where: "code", i18n: "kbd.runHttpAll" },
+  { id: "copyHttpCurl", keys: ["⌘⇧C"], where: "code", i18n: "kbd.copyHttpCurl" },
   { id: "toggleRendered", keys: ["⌥R"], where: "code", i18n: "kbd.toggleRendered" },
   { id: "toggleLineWrap", keys: ["⌥W"], where: "code", i18n: "kbd.toggleLineWrap" },
   { id: "closeTab", keys: ["⌘W"], where: "code", i18n: "kbd.closeTab", fixed: "menu" },
@@ -136,7 +140,8 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   ] },
   { i18n: "settings.kbd.cat.editor", ids: [
     "moveCaret", "wordJump", "lineStartEnd", "extendSelection", "selectEditor", "copyLocation",
-    "pageUpDown", "expandDiffFold", "runHttp", "toggleRendered", "toggleLineWrap", "closeTab",
+    "pageUpDown", "expandDiffFold", "runHttp", "runHttpAll", "copyHttpCurl", "toggleRendered",
+    "toggleLineWrap", "closeTab",
   ] },
   { i18n: "settings.kbd.cat.review", ids: [
     "toggleViewed", "addComment", "allComments", "undoCommentRemoval", "ignoreWhitespace", "saveComment",

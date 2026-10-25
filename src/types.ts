@@ -56,11 +56,39 @@ export type SourceFile = {
   library?: true;
 };
 
+/**
+ * One `multipart/form-data` part. A part whose content is a file is named rather than inlined, because the
+ * renderer would have to turn its bytes into a string to pass them here — and a PNG does not survive that.
+ * Main reads the file (repo-confined) and writes the bytes into the body it assembles.
+ */
+export type HttpBodyPart = {
+  headers: Record<string, string>;
+  text?: string;
+  file?: string;
+};
+
 export type HttpSendRequest = {
   method: string;
   url: string;
   headers: Record<string, string>;
   body?: string;
+  /** `< ./body.json`: main reads it, so a binary body stays bytes instead of going through a JS string. */
+  bodyFile?: string;
+  /** `multipart/form-data` parts, assembled by main against `boundary`. */
+  bodyParts?: HttpBodyPart[];
+  boundary?: string;
+  /** `# @timeout 600` / `# @connection-timeout 2 m`, already in milliseconds. */
+  timeoutMs?: number;
+  connectTimeoutMs?: number;
+  /** `# @no-redirect`: hand the 3xx back instead of following it. */
+  noRedirect?: boolean;
+  /** `# @no-cookie-jar`: keep this response's cookies out of the jar. */
+  noCookieJar?: boolean;
+  /**
+   * `Authorization: Basic user pass` / `Digest user pass` — IntelliJ's space-separated form, which is NOT a
+   * valid header value. The parser splits it out so main can encode Basic, or run Digest's 401 challenge.
+   */
+  auth?: { type: "basic" | "digest"; user: string; password: string };
 };
 
 export type HttpSendResult = {
@@ -69,8 +97,37 @@ export type HttpSendResult = {
   statusText?: string;
   headers?: Record<string, string>;
   body?: string;
+  /** Set instead of `body` when the response is not text — the renderer shows a byte count, not mojibake. */
+  bodyBase64?: string;
+  /** Byte length on the wire; `body.length` counts UTF-16 units, which is not the same number. */
+  bytes?: number;
+  /** URLs actually followed, so a reviewer can see where a request ended up. */
+  redirects?: string[];
+  /** Cookies this response set (and, unless `noCookieJar`, that were saved to the jar). */
+  cookies?: string[];
   error?: string;
   durationMs: number;
+};
+
+/** A file the .http runner asks main to read: an external body, a handler script, or a multipart part. */
+export type HttpAttachment = {
+  ok: boolean;
+  text?: string;
+  bytes?: number;
+  error?: string;
+};
+
+/** `>> out.json` / `>>! out.json`. `$historyFolder`-prefixed paths land in kakapo's own user-data mirror. */
+export type HttpSaveRequest = {
+  path: string;
+  force?: boolean;
+  body: string;
+};
+
+export type HttpSaveResult = {
+  ok: boolean;
+  path?: string;
+  error?: string;
 };
 
 export type SourceTreeNode = {

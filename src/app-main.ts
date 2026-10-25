@@ -265,7 +265,7 @@ function sendToFocused(channel: string, payload?: unknown): void {
 }
 
 // The composition root supplies window-scoped state; the adapter owns review/query IPC details.
-registerReviewIpc(ipcMain, stateFromEvent);
+registerReviewIpc(ipcMain, stateFromEvent, app.getPath("userData"));
 registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerCommentsIpc(ipcMain, stateFromEvent);
 // One UI scale for the whole app. Each surface is its own WebContents (the rail, every review view, the modal

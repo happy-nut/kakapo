@@ -115,7 +115,7 @@ export function buildDiffReview(input: {
     : undefined;
   const collisions = new Map((divergence?.collisions ?? []).map((item) => [item.path, item.kind] as const));
   const httpEnvironments = collectHttpEnvironments(root,
-    sourceFiles.filter((file) => /\.http$/i.test(file.path)).map((file) => file.path));
+    sourceFiles.filter((file) => /\.(http|rest)$/i.test(file.path)).map((file) => file.path));
   const hunks = files.reduce((sum, file) => sum + file.hunks.length, 0);
   const generatedAt = new Date().toISOString();
   // Current branch for the sidebar chip (empty on a detached HEAD); refreshed in the watch payload too.

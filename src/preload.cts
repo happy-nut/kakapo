@@ -5,6 +5,11 @@ import { clipboard, contextBridge, ipcRenderer } from "electron";
 // renderer only ever asks main to perform a single fetch and return the result.
 contextBridge.exposeInMainWorld("kakapoHttp", {
   send: (request: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:http-send", request),
+  // `<@ ./body.json` and `> ./handler.js`: the renderer needs those files' text, main decides whether the
+  // path is inside the review. Repo-relative in, text out — the renderer never sees a filesystem path.
+  readFile: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:http-attachment", { path }),
+  // `>> out.json` / `>>! out.json`.
+  saveResponse: (request: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:http-save-response", request),
 });
 
 // Lets the Review menu's Cmd/Ctrl+Shift+/ accelerator open the merged review-comments view in

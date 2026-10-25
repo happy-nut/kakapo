@@ -1,7 +1,8 @@
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute } from "node:path";
-import type { HttpSendRequest } from "./cli.js";
+import type { HttpAttachment, HttpSaveRequest, HttpSaveResult, HttpSendRequest } from "./types.js";
+import { readHttpAttachment, saveHttpResponse } from "./http-files.js";
 
 // diff2html + highlight.js, reached through cli.js, cost ~100ms to parse — and the main process needs them
 // for exactly two things, both of which happen long after first paint: rendering one lazily-fetched diff body,
@@ -73,8 +74,29 @@ function librarySource(root: string, requested: string): SourceFile | null {
   return target ? readLibrarySourceFile(target, requested) : null;
 }
 
-export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResolver): void {
-  ipc.handle("kakapo:http-send", async (_event, request: HttpSendRequest) => (await buildTools()).performHttpRequest(request));
+export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResolver, userData = ""): void {
+  // The .http runner. Three handlers, and the split is deliberate: main owns the network, the repository
+  // root and the cookie jar, so the renderer names a request and a repo-relative file and never learns a
+  // path. Containment lives in http-files.ts, because every path here was written in the reviewed repo.
+  ipc.handle("kakapo:http-send", async (event, request: HttpSendRequest) => {
+    const state = stateFromEvent(event);
+    return (await buildTools()).performHttpRequest(request, { root: state?.options.root, userData });
+  });
+
+  // `<@ ./body.json` (a body whose {{variables}} the renderer has to substitute) and `> ./handler.js`
+  // (a script the renderer has to run) are the two cases where the renderer needs the TEXT of a file.
+  // A raw `< ./body.bin` body never comes through here — main reads those bytes in performHttpRequest.
+  ipc.handle("kakapo:http-attachment", (event, request: { path?: string }): HttpAttachment => {
+    const state = stateFromEvent(event);
+    if (!state) return { ok: false, error: "Review window is unavailable" };
+    return readHttpAttachment(state.options.root, String(request?.path ?? ""));
+  });
+
+  ipc.handle("kakapo:http-save-response", (event, request: HttpSaveRequest): HttpSaveResult => {
+    const state = stateFromEvent(event);
+    if (!state) return { ok: false, error: "Review window is unavailable" };
+    return saveHttpResponse(state.options.root, userData, request);
+  });
 
   ipc.handle("kakapo:get-file", async (event, request: { index?: number }) => {
     const state = stateFromEvent(event);

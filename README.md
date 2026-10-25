@@ -130,10 +130,87 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌥F1` | Reveal the open file in the sidebar |
 | `F2` / `⇧F2` | Next / previous problem the language server found |
 | `⌥Enter` | On a flagged line: draft the change request that asks an agent to fix it |
+| `⌘Enter` | Run the `.http` request at the caret |
+| `⌘⇧Enter` | Run every request in the `.http` file, in order |
+| `⌘⇧C` | Copy the `.http` request at the caret as a `curl` command |
 | `⌘K` | Copy the caret's `file:line` |
 | `⌘,` | Settings |
 
 Settings ▸ Shortcuts lists the rest.
+
+## HTTP requests (`.http` files)
+
+A `.http` or `.rest` file in the repository is runnable where you read it: every request gets a `▶` in the
+gutter, in the source view and in the diff, and the response lands under the request. The format is
+JetBrains' HTTP Client, so the same file works in kakapo and in IntelliJ without being edited.
+
+```http
+@base = https://api.example.com
+
+### log in
+# @name login
+POST {{base}}/sessions
+Content-Type: application/json
+
+{ "user": "ada", "password": "{{$dotenv.PASSWORD}}" }
+
+> {%
+  client.global.set("token", response.body.token);
+  client.test("a token came back", function () {
+    client.assert(response.body.token, "no token in the response");
+  });
+%}
+
+### the profile it unlocks
+# @timeout 5
+GET {{base}}/me
+Authorization: Bearer {{token}}
+
+>> out/me.json
+```
+
+**Requests.** `###` separates them and names them (`# @name` works too, and an unnamed request is `#1`).
+A bare URL is a `GET`. An HTTP version after the URL is not part of it. A long URL can be split across
+indented lines that start with `/`, `?` or `&`. `GRAPHQL` posts `{query, variables}` — write the operation,
+then a blank line, then the variables as JSON.
+
+**Directives**, written as comments above the request: `@no-redirect`, `@no-cookie-jar`, `@no-log`,
+`@no-auto-encoding`, `@timeout 600`, `@connection-timeout 2 m` (`ms`/`s`/`m`, seconds by default).
+
+**Bodies.** Inline, or `< ./body.bin` to send a file's bytes, or `<@ ./body.json` to substitute its
+`{{variables}}` first. `multipart/form-data` parts are assembled from the `--boundary` blocks; a part with a
+`filename=` is sent as that file's bytes, and one without it sends the file's text as the field's value.
+
+**Variables.** `@name = value` in the file, `http-client.env.json` and `http-client.private.env.json`
+(looked for beside the requests as well as at the repository root, nearer file wins), the `$shared` section
+every environment sits on, `{{$dotenv.NAME}}` from a `.env`, `{{$env.NAME}}` from the process, and a dotted
+name as a JSONPath into a variable holding JSON (`{{client.host.url}}`). Dynamic: `$uuid`, `$timestamp`,
+`$isoTimestamp`, `$randomInt`, `$random.integer/float/alphabetic/alphanumeric/hexadecimal/email/uuid`,
+`$projectRoot`, `$historyFolder`. A named response is readable too —
+`{{login.response.body.$.token}}`, `.headers.Location`, `.status`. An unresolved `{{name}}` stops the
+request and says which name, instead of sending the text and getting back a scheme error.
+
+**Scripts.** `< {% … %}` before a request, `> {% … %}` or `> ./handler.js` after it, with IntelliJ's API:
+`client.global`, `client.test`, `client.assert`, `client.log`, `client.exit`, `response.status/body/
+contentType/headers`, `request.body/url/headers/method/variables/environment`, `jsonPath`, `xpath`,
+`crypto.sha1/sha256/md5` and `crypto.hmac.*`, `await sleep(ms)`, and the dynamic variables as plain
+identifiers. Test results and `client.log` output are shown with the response — a handler that asserted
+and passed says so.
+
+They run in the review window, which Electron gives kakapo sandboxed and without node integration: a
+handler has no `require`, no `fs` and no `process`, and nothing runs until you press `▶` on a request whose
+text is in front of you. Reading a repository should not run it.
+
+**Saving.** `>> out.json` writes beside an existing file (`out-1.json`); `>>! out.json` overwrites.
+`{{$historyFolder}}` resolves to kakapo's own app-data mirror — it never writes kakapo's state into the
+repository you are reading. The cookie jar lives there too, in IntelliJ's readable
+`# domain path name value date` format.
+
+**Not ported.** gRPC and WebSocket (no protocol stack — the lines are coloured but say so instead of
+sending), OAuth2 `Security.Auth` flows, shared script modules (`import`/`export` in a handler),
+`$exampleServer`, variable collections (one request per array element), the full Java Faker generator set
+(the common ones are there; an unimplemented one is reported by name), and importing a `curl` command —
+kakapo never writes to the file you are reading, so there would be nowhere to put it.
 
 ## Bundled language servers
 
