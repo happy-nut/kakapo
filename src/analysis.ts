@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import {
   AnalysisLocation,
+  type AnalysisSymbol,
   LspClient,
   resolveBundledLanguageServer,
   resolveLanguageServer,
@@ -25,7 +26,24 @@ import {
   type SymbolRecord,
 } from "./analysis-index.js";
 export { buildRegexSymbolIndex } from "./analysis-index.js";
-export type AnalysisKind = "definition" | "references" | "implementation" | "workspaceSymbol";
+export type AnalysisKind =
+  | "definition"
+  | "references"
+  | "implementation"
+  // Where the TYPE of the thing under the caret is declared, rather than the thing itself — IntelliJ's
+  // Go to Type Declaration. The same request shape as the three above.
+  | "typeDefinition"
+  | "workspaceSymbol"
+  // The open file's own structure: what the structure popup lists, what the breadcrumb reads the enclosing
+  // symbol from, and what next/previous-symbol walks. Answered in `symbols`, not in `locations`.
+  | "documentSymbol"
+  // The two hierarchies, one direction each: who calls this / what this calls, and what this extends /
+  // what extends it. A server that does not implement them says so, which is not the same answer as
+  // "nothing found" — see fallbackReason.
+  | "callers"
+  | "callees"
+  | "supertypes"
+  | "subtypes";
 
 export type AnalysisRequest = {
   kind: AnalysisKind;
@@ -47,6 +65,8 @@ export type AnalysisResponse = {
   serverSource?: LanguageServerCommand["source"];
   symbol?: string;
   locations: AnalysisLocation[];
+  /** Only for kind "documentSymbol": the file's structure, flattened in reading order. */
+  symbols?: AnalysisSymbol[];
   fallbackReason?: string;
   error?: string;
   /**
@@ -437,13 +457,22 @@ export class ProjectAnalysis {
     try {
       if (request.kind === "workspaceSymbol") return await this.workspaceSymbols(path, request.query ?? request.symbol ?? "", request.limit);
       if (!path) return { ok: false, engine: "index", confidence: "heuristic", locations: [], revision, error: "A project-relative source path is required" };
+      // A file's structure is about the file, not about a position in it, so it skips symbolContext (which
+      // exists to work out what the caret is on) and has its own index fallback.
+      if (request.kind === "documentSymbol") return await this.documentSymbols(path, onRevision);
+      if (request.kind === "callers" || request.kind === "callees"
+        || request.kind === "supertypes" || request.kind === "subtypes") {
+        return await this.hierarchy(request.kind, path, request, onRevision);
+      }
       const context = await this.symbolContext(path, request.line, request.column, request.symbol);
       if (!context.symbol) return { ok: true, engine: "index", confidence: "heuristic", locations: [], revision, symbol: "" };
       const method = request.kind === "definition"
         ? "textDocument/definition"
         : request.kind === "references"
           ? "textDocument/references"
-          : "textDocument/implementation";
+          : request.kind === "typeDefinition"
+            ? "textDocument/typeDefinition"
+            : "textDocument/implementation";
       const lsp = onRevision
         ? { locations: [], server: undefined, serverSource: undefined, fallbackReason: `Reading ${this.reviewTarget}, which no language server can be pointed at` }
         : await this.lspLocations(path, context.lineIndex, context.column, method, context.symbol);
@@ -463,7 +492,11 @@ export class ProjectAnalysis {
         ? await this.fallbackDefinitions(context.symbol, path, context.lineIndex, context.column)
         : request.kind === "references"
           ? await this.fallbackReferences(context.symbol, true, path, context.lineIndex)
-          : await this.fallbackImplementations(context.symbol);
+          // A type declaration is a declaration: the name index cannot tell a type's from a value's, so the
+          // heuristic answer is the same set of declarations the definition fallback offers.
+          : request.kind === "typeDefinition"
+            ? await this.fallbackDefinitions(context.symbol, path, context.lineIndex, context.column)
+            : await this.fallbackImplementations(context.symbol);
       return {
         ok: true,
         engine: "index",
@@ -684,7 +717,7 @@ export class ProjectAnalysis {
     path: string,
     line: number,
     column: number,
-    method: "textDocument/definition" | "textDocument/references" | "textDocument/implementation",
+    method: "textDocument/definition" | "textDocument/references" | "textDocument/implementation" | "textDocument/typeDefinition",
     symbol = "",
   ): Promise<{ server?: string; serverSource?: LanguageServerCommand["source"]; locations: AnalysisLocation[]; fallbackReason?: string }> {
     let attempted = false;
@@ -802,6 +835,251 @@ export class ProjectAnalysis {
       .slice(0, Math.max(1, Math.min(Number(limit) || 200, 500)))
       .map((item) => ({ ...item, kind: undefined }));
     return { ok: true, engine: "index", confidence: "heuristic", locations, fallbackReason };
+  }
+
+  /**
+   * The open file's structure.
+   *
+   * The language server is asked first and the regex index answers when it cannot — which is the same
+   * arrangement as every other query here, and matters more for this one: the structure popup is how a
+   * reader moves through a large file, and a file in a language with no bundled server still has functions
+   * in it. The index answer is flat (it reads declarations line by line, so it has no nesting to report)
+   * and labelled heuristic, which is the honest grade.
+   */
+  private async documentSymbols(path: string, onRevision: boolean): Promise<AnalysisResult> {
+    let fallbackReason = onRevision
+      ? `Reading ${this.reviewTarget}, which no language server can be pointed at`
+      : "Language server returned no structure for this file";
+    let attempted = false;
+    if (!onRevision) {
+      while (true) {
+        const client = this.clientFor(path);
+        if (!client) {
+          // Only when nothing was ever tried. A server that started and then failed has already put its
+          // own reason here, and replacing it with "no language server is available" says the opposite of
+          // what happened — which is what a Ruby file reported after sorbet died on it.
+          if (!attempted) fallbackReason = `No language server is available for ${path}`;
+          this.setStatus("fallback", { fallbackReason });
+          break;
+        }
+        attempted = true;
+        try {
+          const symbols = await client.documentSymbols(path);
+          this.setStatus("ready", serverFields(client.server));
+          if (symbols.length) {
+            return {
+              ok: true,
+              engine: "lsp",
+              confidence: "semantic",
+              server: client.server.name,
+              serverSource: client.server.source,
+              locations: [],
+              symbols,
+            };
+          }
+          break;
+        } catch (error) {
+          fallbackReason = errorMessage(error);
+          if (!this.transportFailure(error)) break;
+          this.quarantine(client, error);
+        }
+      }
+    }
+    const index = await this.getIndex();
+    const content = index.files.get(path);
+    if (content === undefined) {
+      return { ok: true, engine: "index", confidence: "heuristic", locations: [], symbols: [], revision: this.reviewTarget, fallbackReason };
+    }
+    // One file through the same declaration scanner the project index is built with, so the popup lists
+    // what Find Usages would have found in this file and nothing invented for the occasion.
+    const symbols = buildRegexSymbolIndex([{ path, content }]).symbols
+      .slice()
+      .sort((a, b) => a.lineIndex - b.lineIndex)
+      .map((record) => ({
+        name: record.name,
+        detail: record.declaration || undefined,
+        kind: record.symbolKind || "symbol",
+        lineIndex: record.lineIndex,
+        column: record.column,
+        endLineIndex: record.endLineIndex ?? record.lineIndex,
+        depth: record.container ? 1 : 0,
+      }));
+    return {
+      ok: true,
+      engine: "index",
+      confidence: "heuristic",
+      locations: [],
+      symbols,
+      revision: this.reviewTarget,
+      fallbackReason,
+    };
+  }
+
+  /**
+   * The call and type hierarchies.
+   *
+   * Each direction is one question, asked of the language server and — when it cannot answer — of the
+   * regex index, with one exception named below. A server that does not implement the request is reported
+   * as such rather than as an empty answer: "clangd has no call hierarchy" and "nothing calls this" are
+   * different facts, and a reader who cannot tell them apart will believe the wrong one.
+   */
+  private async hierarchy(
+    kind: "callers" | "callees" | "supertypes" | "subtypes",
+    path: string,
+    request: AnalysisRequest,
+    onRevision: boolean,
+  ): Promise<AnalysisResult> {
+    const context = await this.symbolContext(path, request.line, request.column, request.symbol);
+    if (!context.symbol) return { ok: true, engine: "index", confidence: "heuristic", locations: [], symbol: "" };
+    let fallbackReason = onRevision
+      ? `Reading ${this.reviewTarget}, which no language server can be pointed at`
+      : "";
+    let attempted = false;
+    if (!onRevision) {
+      while (true) {
+        const client = this.clientFor(path);
+        if (!client) {
+          if (!attempted) fallbackReason = `No language server is available for ${path}`;
+          this.setStatus("fallback", { fallbackReason });
+          break;
+        }
+        attempted = true;
+        try {
+          const answer = kind === "callers" || kind === "callees"
+            ? await client.callHierarchy(path, context.lineIndex, context.column, kind === "callers" ? "incoming" : "outgoing")
+            : await client.typeHierarchy(path, context.lineIndex, context.column, kind === "supertypes" ? "supertypes" : "subtypes");
+          this.setStatus("ready", serverFields(client.server));
+          if (!answer.supported) {
+            fallbackReason = `${client.server.name} does not offer ${kind === "callers" || kind === "callees" ? "a call hierarchy" : "a type hierarchy"}`;
+            break;
+          }
+          const locations = await this.navigationLocations(answer.locations);
+          if (locations.length) {
+            return {
+              ok: true,
+              engine: "lsp",
+              confidence: "semantic",
+              server: client.server.name,
+              serverSource: client.server.source,
+              symbol: context.symbol,
+              locations,
+            };
+          }
+          // The server answered, and the answer is "none". Say so as a semantic answer rather than
+          // falling through to a heuristic that will invent neighbours for it.
+          return {
+            ok: true,
+            engine: "lsp",
+            confidence: "semantic",
+            server: client.server.name,
+            serverSource: client.server.source,
+            symbol: context.symbol,
+            locations: [],
+          };
+        } catch (error) {
+          fallbackReason = errorMessage(error);
+          if (!this.transportFailure(error)) break;
+          this.quarantine(client, error);
+        }
+      }
+    }
+    // Heuristic answers. Callers are references, which the index can find. Callees cannot be done this
+    // way at all: a name index knows where names appear, not which of them are calls made from inside
+    // this body, and a list of every identifier in a function is not a call hierarchy.
+    if (kind === "callees") {
+      return {
+        ok: true,
+        engine: "index",
+        confidence: "heuristic",
+        symbol: context.symbol,
+        locations: [],
+        revision: this.reviewTarget,
+        // BOTH facts: why the server did not answer, and why the index cannot stand in for it. Either
+        // alone leaves the reader to conclude that the function calls nothing.
+        fallbackReason: (fallbackReason ? fallbackReason + "; " : "")
+          + "a name index cannot tell a call from a mention",
+      };
+    }
+    const locations = kind === "callers"
+      ? await this.fallbackReferences(context.symbol, true, path, context.lineIndex)
+      : await this.typeRelatives(context.symbol, kind === "supertypes" ? "supertypes" : "subtypes");
+    return {
+      ok: true,
+      engine: "index",
+      confidence: "heuristic",
+      symbol: context.symbol,
+      locations,
+      revision: this.reviewTarget,
+      fallbackReason,
+    };
+  }
+
+  /**
+   * Supertypes and subtypes read off declaration TEXT, for the languages whose syntax says it on the line:
+   * `class Foo extends Bar implements Baz`, `class Foo(Bar):`, `struct Foo: Bar`.
+   *
+   * Heuristic and labelled as such — it reads a line, not a type system, so a generic parameter named like
+   * a base class will be reported. That is still the difference between an answer and nothing for the
+   * languages whose bundled server has no type hierarchy at all.
+   */
+  private async typeRelatives(name: string, direction: "supertypes" | "subtypes"): Promise<AnalysisLocation[]> {
+    const index = await this.getIndex();
+    // Rust states the relationship in a block of its own rather than on the type's line:
+    // `impl Runnable for Store`. Those lines are read from the FILES rather than from the symbol index,
+    // which records declarations and not relationships — and changing what the index records to suit one
+    // query would change what every other query sees. Measured: without this, every Rust type reported no
+    // supertypes at all whenever rust-analyzer was not answering (it offers no type hierarchy either).
+    const implementations: { trait: string; type: string; path: string; lineIndex: number }[] = [];
+    for (const [filePath, content] of index.files) {
+      if (!/\.rs$/i.test(filePath) || !content.includes("impl ")) continue;
+      content.split(/\r?\n/).forEach((line, lineIndex) => {
+        const match = /^\s*impl(?:\s*<[^>]*>)?\s+([A-Za-z_][\w:]*)(?:\s*<[^>]*>)?\s+for\s+([A-Za-z_][\w:]*)/.exec(line);
+        if (match) {
+          implementations.push({
+            trait: match[1].split("::").pop() as string,
+            type: match[2].split("::").pop() as string,
+            path: filePath,
+            lineIndex,
+          });
+        }
+      });
+    }
+    if (direction === "subtypes") {
+      const pattern = new RegExp(`(?:\\bextends\\b|\\bimplements\\b|:|\\()[^{]*\\b${escapeRegExp(name)}\\b`);
+      const declared = index.symbols
+        .filter((record) => record.name !== name
+          && ["class", "interface", "struct", "enum", "type"].includes(record.symbolKind)
+          && pattern.test(record.declaration || ""))
+        .map((record) => ({ ...record, kind: undefined }));
+      const implementers = implementations
+        .filter((relation) => relation.trait === name)
+        .flatMap((relation) => index.definitions.get(relation.type) ?? [])
+        .map((record) => ({ ...record, kind: undefined }));
+      return [...declared, ...implementers].slice(0, 200);
+    }
+    const declarations = index.definitions.get(name) ?? [];
+    const bases = new Set<string>();
+    for (const record of declarations) {
+      const text = record.declaration || "";
+      // Everything after extends/implements, or inside the parentheses of a Python class header, up to the
+      // body. Names only — generics, commas and qualifiers are separators here.
+      const tail = /(?:\bextends\b|\bimplements\b|\bis\b)([^{;]*)/.exec(text)?.[1]
+        ?? /\bclass\s+\w+\s*\(([^)]*)\)/.exec(text)?.[1]
+        ?? "";
+      for (const candidate of tail.split(/[^A-Za-z0-9_$.]+/)) {
+        const base = candidate.split(".").pop() ?? "";
+        if (base && base !== name && !/^(public|private|protected|final|abstract|static|object|metaclass)$/i.test(base)) bases.add(base);
+      }
+    }
+    // …and the same blocks in the other direction: what this type is given by an `impl X for Name`.
+    for (const relation of implementations) {
+      if (relation.type === name) bases.add(relation.trait);
+    }
+    const out: AnalysisLocation[] = [];
+    for (const base of bases) {
+      for (const record of index.definitions.get(base) ?? []) out.push({ ...record, kind: undefined });
+    }
+    return out.slice(0, 200);
   }
 
   private pythonEnclosingClass(index: RegexIndex, path: string, line: number): string | undefined {

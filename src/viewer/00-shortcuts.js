@@ -44,9 +44,42 @@ function shortcutNameFromKey(key) {
 function shortcutModifiers(event, withShift) {
   return ((event.metaKey || event.ctrlKey) ? '⌘' : '') + (withShift && event.shiftKey ? '⇧' : '') + (event.altKey ? '⌥' : '');
 }
+// A DOUBLE TAP, spelled as a chord so the one table can hold it.
+//
+// IntelliJ's Search Everywhere is ⇧⇧, and a bare Shift press produces no chord at all above (its `code`
+// and `key` both resolve to ''). The alternative was a second key handler somewhere else with the timing
+// written into it — which is exactly the drift the single chord table exists to prevent. So the tap is
+// recognised HERE and handed to the same matcher as every other chord.
+var SHORTCUT_DOUBLE_TAP_MS = 400;
+var lastShiftTapAt = 0;
+// The detector has to be idempotent per event, because shortcutChords() is called more than once for the
+// same keypress (the dispatcher asks which shortcuts an event could be, and several callers ask again).
+// Without this, ONE Shift press was counted as two and opened the launcher on every single tap.
+var tapEvent = null;
+var tapChord = '';
+function shortcutDoubleTapChord(event) {
+  if (event === tapEvent) return tapChord;
+  tapEvent = event;
+  tapChord = shortcutComputeDoubleTap(event);
+  return tapChord;
+}
+function shortcutComputeDoubleTap(event) {
+  if (event.key !== 'Shift') { lastShiftTapAt = 0; return ''; } // any other key ends a pending tap
+  // Holding Shift repeats the keydown; a held key is not two presses. Shift with another modifier down is
+  // part of some other chord, not a tap of its own.
+  if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) { lastShiftTapAt = 0; return ''; }
+  var now = Date.now();
+  var isDouble = now - lastShiftTapAt <= SHORTCUT_DOUBLE_TAP_MS;
+  // Reset on a match so a third tap starts a new pair instead of firing again.
+  lastShiftTapAt = isDouble ? 0 : now;
+  return isDouble ? '⇧⇧' : '';
+}
+
 /** The one or two chord spellings this event could be, most reliable first. */
 function shortcutChords(event) {
   var out = [];
+  var tap = shortcutDoubleTapChord(event);
+  if (tap) out.push(tap);
   var byCode = shortcutNameFromCode(event.code);
   if (byCode) out.push(shortcutModifiers(event, true) + byCode);
   var byKey = shortcutNameFromKey(event.key);

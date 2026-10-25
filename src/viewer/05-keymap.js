@@ -240,6 +240,46 @@ var SHORTCUT_ACTIONS = {
   // Both decline (return false) outside a .http file, so the chord stays available to anything else.
   // Checked synchronously here rather than inside the async runner: a promise is always truthy, so
   // "did it handle the key?" cannot be answered by its return value.
+  // Structure navigation. Each declines (returns false) when it has nothing to act on, so the chord
+  // falls through to whatever else wants it rather than being swallowed on a file with no symbols.
+  typeDeclaration: function () {
+    if (treeFocusIndex >= 0) return false;
+    goToTypeDeclaration();
+  },
+  fileStructure: function () {
+    if (treeFocusIndex >= 0) return false;
+    return openFileStructure() ? undefined : false;
+  },
+  nextPrevSymbol: function (event, i) {
+    if (treeFocusIndex >= 0 || isFloatingModalOpen()) return false;
+    return goToNextSymbol(i ? -1 : 1) ? undefined : false;
+  },
+  recentLocations: function () { return openRecentLocations() ? undefined : false; },
+  // ⌘P is the file list on its own; ⇧⇧ is the launcher with every section beside it, which is what
+  // Search Everywhere is.
+  searchFiles: function () { openQuickOpen('all', true); },
+  searchEverywhere: function () { openQuickOpen('all'); },
+  goToTest: function () { return goToTestCounterpart() ? undefined : false; },
+  typeHierarchy: function () {
+    if (treeFocusIndex >= 0) return false;
+    return openHierarchy('supertypes') ? undefined : false;
+  },
+  callHierarchy: function () {
+    if (treeFocusIndex >= 0) return false;
+    return openHierarchy('callers') ? undefined : false;
+  },
+  goToSuper: function () {
+    if (treeFocusIndex >= 0) return false;
+    goToSuperDeclaration();
+  },
+  // No tree guard: F3 means "mark the line the caret is on", and the caret is in the file whether or not
+  // the sidebar happens to hold the logical focus. There is no other F3 to stand down for.
+  toggleBookmark: function () { return toggleBookmarkAtCaret() ? undefined : false; },
+  showBookmarks: function () { return openBookmarks() ? undefined : false; },
+  // `i` is which of the nine keys fired, so one entry covers all of them.
+  assignBookmark: function (event, i) { return assignBookmarkMnemonic(i + 1) ? undefined : false; },
+  jumpBookmark: function (event, i) { return goToBookmarkMnemonic(i + 1) ? undefined : false; },
+
   runHttpAll: function () {
     var path = httpOpenPath();
     if (!path || treeFocusIndex >= 0 || !httpRequestsByPath.get(path)) return false;

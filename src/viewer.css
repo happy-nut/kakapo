@@ -3730,6 +3730,55 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 .http-resp-empty { color: var(--muted); font-style: italic; }
 .http-resp-image { max-width: 100%; display: block; }
 
+/* A WebSocket exchange reads as a conversation: direction, when, text. Monospace for the text because it
+   is nearly always JSON, and the time column aligned because the pace is part of what you are reading. */
+.ws-transcript { padding: 8px 12px; display: flex; flex-direction: column; gap: 3px; max-height: 460px; overflow: auto; }
+.ws-line { display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
+.ws-mark { flex: none; width: 10px; text-align: center; }
+.ws-line.is-out .ws-mark { color: var(--add-strong); }
+.ws-line.is-in .ws-mark { color: var(--active); }
+.ws-line.is-open .ws-mark,
+.ws-line.is-close .ws-mark { color: var(--muted); }
+.ws-at { flex: none; min-width: 52px; text-align: right; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.ws-text { min-width: 0; white-space: pre-wrap; word-break: break-word; font-family: Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.ws-line.is-open .ws-text,
+.ws-line.is-close .ws-text { color: var(--muted); font-style: italic; }
+
+/* The structure list indents by nesting depth: a method inside a class reads as inside it. The depth is a
+   custom property on the row rather than six classes, because the value IS a number. */
+.structure-result .quick-open-main { padding-left: calc(var(--structure-depth, 0) * 14px); }
+/* Where the caret is now, in the recent-locations list. */
+.quick-open-item.is-current .quick-open-name { color: var(--active); font-weight: 600; }
+/* The hierarchy's twisty: ▸ a row that can be expanded, ▾ one that is, · one with nothing under it. */
+.hierarchy-twisty {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 10px;
+}
+/* Why a list is empty, under the "nothing to show" line — a server without the request, a revision no
+   server can read, an index that cannot tell a call from a mention. */
+.quick-open-why { display: block; margin-top: 4px; color: var(--muted); font-size: 11.5px; }
+/* A bookmarked line, in the gutter: the flag sits in the number cell's own space so nothing shifts. */
+.source-row.bookmarked > td.num { position: relative; }
+.source-row.bookmarked > td.num::after {
+  /* A custom property, NOT attr(): attr() on this pseudo-element reads the TD's attributes, and the mark
+     belongs to the row. Inherited values cross that boundary; attributes do not — which is why a numbered
+     bookmark rendered as nothing at all until a screenshot showed the empty gutter. */
+  content: var(--bookmark-mark, "\2691");
+  position: absolute;
+  left: 2px;
+  top: 0;
+  color: var(--active);
+  font-size: 10px;
+  line-height: inherit;
+  pointer-events: none;
+}
+.bookmark-mark { flex: none; width: 12px; text-align: center; color: var(--active); font-size: 11px; }
+/* A numbered bookmark shows its number where the flag would be. */
+.source-row.bookmarked[data-bookmark-mnemonic] > td.num::after { font-weight: 700; }
+
 /* ---- The diff overview stripe --------------------------------------------------------------------
    Every change in the open file as one column beside the scrollbar, with a box for where the reader is.
    Positioned against the diff pane, NOT inside the scroller — a ruler that scrolls away is not a ruler. */

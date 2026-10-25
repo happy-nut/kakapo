@@ -766,6 +766,36 @@ function renderHttpResponse(target, result, extra) {
     + httpScriptLogHtml(log);
 }
 
+/**
+ * A WebSocket exchange, in the order it happened: what was sent, what came back, and when.
+ *
+ * Deliberately not shaped like an HTTP response — there is no status, no header list and nothing to save.
+ * The time beside each line is what makes it readable as a conversation rather than a list.
+ */
+function renderWebSocketTranscript(target, result) {
+  const entries = (result && result.transcript) || [];
+  target.className = 'http-response' + (result && result.ok ? '' : ' error');
+  const head = '<div class="http-resp-head">'
+    + '<span class="http-status ' + (result && result.ok ? 'ok' : 'bad') + '">'
+    + escapeHtml(t(result && result.ok ? 'ws.closed' : 'http.notSent')) + '</span>'
+    + '<span class="http-resp-meta">' + (Number(result && result.durationMs) || 0) + ' ms</span>'
+    + '<span class="http-resp-meta">' + escapeHtml(t('ws.messages').replace('{count}', String(entries.filter(function (entry) {
+      return entry.direction === 'in' || entry.direction === 'out';
+    }).length))) + '</span>'
+    + '</div>';
+  const rows = entries.map(function (entry) {
+    const mark = entry.direction === 'out' ? '\u2191' : entry.direction === 'in' ? '\u2193' : '\u25cf';
+    return '<div class="ws-line is-' + entry.direction + '">'
+      + '<span class="ws-mark" aria-hidden="true">' + mark + '</span>'
+      + '<span class="ws-at">' + (Number(entry.at) || 0) + 'ms</span>'
+      + '<span class="ws-text">' + escapeHtml(String(entry.text || '')) + '</span>'
+      + '</div>';
+  }).join('');
+  target.innerHTML = head
+    + (result && result.error ? '<div class="http-script-error">' + escapeHtml(result.error) + '</div>' : '')
+    + '<div class="ws-transcript">' + (rows || '<span class="http-resp-empty">' + escapeHtml(t('ws.nothing')) + '</span>') + '</div>';
+}
+
 /** A non-text response. An image is worth showing; anything else is worth counting. */
 function renderHttpBinaryBody(result, contentType) {
   const mime = String(contentType || '').split(';')[0].trim();
@@ -942,6 +972,9 @@ function renderSourceTable(file, query) {
   const languageAt = (index) => (lineLanguages ? lineLanguages[index] : renderLanguage);
   const cursor = viewerCursor && viewerCursor.path === file.path ? viewerCursor : null;
   const changedSet = new Set(file.changedLines || []);
+  // Bookmarked lines get a gutter mark. Read once per render rather than per row, and written here so a
+  // row built later (progressive rendering, a fold opening) comes out marked without a second pass.
+  const bookmarkedLines = bookmarkLinesFor(file.path);
   const folds = normalizedQuery ? [] : sourceFoldRanges(file);
   const foldAt = new Map(folds.map((fold) => [fold.start, fold]));
 
@@ -970,6 +1003,7 @@ function renderSourceTable(file, query) {
       isChanged ? 'changed-line' : '',
       isCursorLine ? 'cursor-line' : '',
       isSymbolTarget ? 'symbol-target' : '',
+      bookmarkedLines.has(index) ? 'bookmarked' : '',
     ].filter(Boolean).join(' ');
     if (fold?.kind === 'imports') {
       const count = fold.end - fold.start + 1;
@@ -983,8 +1017,11 @@ function renderSourceTable(file, query) {
     const foldButton = fold?.kind === 'block'
       ? sourceFoldButtonHtml('block', fold.end - fold.start, fold.start, fold.end)
       : '';
+    const mnemonic = bookmarkedLines.has(index) ? bookmarkMnemonicAt(file.path, index) : '';
     return [
-      '<tr class="' + classes + '" data-line-index="' + index + '">',
+      '<tr class="' + classes + '" data-line-index="' + index + '"'
+        + (mnemonic ? ' data-bookmark-mnemonic="' + escapeHtml(mnemonic) + '"'
+          + ' style="--bookmark-mark: \'' + escapeHtml(mnemonic) + '\'"' : '') + '>',
       '<td class="num">' + String(index + 1) + '</td>',
       '<td class="source-code">' + highlightLine(line, languageAt(index)) + foldButton + '</td>',
       '</tr>',

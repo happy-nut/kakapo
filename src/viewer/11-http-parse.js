@@ -20,16 +20,18 @@ function isHttpFile(path) {
 // stopped. A call is always answerable.
 //
 // GRAPHQL is a request line like any other and is sent as a POST with a {query, variables} body.
-// GRPC and WEBSOCKET are deliberately absent: kakapo has no protocol stack for either, and a Run button
-// that cannot send is worse than no button (highlightHttpLine still colours them as methods).
+// WEBSOCKET is one too: Node ships a WebSocket client, so the messages a file lists can actually be sent
+// (http-socket.ts). GRPC is the one that stays unsendable — it needs a protobuf runtime, which is a
+// dependency this CLI does not take, and a Run button that cannot send is worse than none.
 var HTTP_SYNTAX = null;
 function httpSyntax() {
   if (HTTP_SYNTAX) return HTTP_SYNTAX;
   HTTP_SYNTAX = {
     methods: {
       GET: 1, POST: 1, PUT: 1, PATCH: 1, DELETE: 1, HEAD: 1, OPTIONS: 1, TRACE: 1, CONNECT: 1, GRAPHQL: 1,
+      WEBSOCKET: 1,
     },
-    unsupported: { GRPC: 1, GRPCS: 1, WEBSOCKET: 1, WS: 1, WSS: 1 },
+    unsupported: { GRPC: 1, GRPCS: 1 },
     // The comment-line directives that are syntax rather than prose — the highlighter colours exactly
     // these, so a typo'd `# @no-redirectt` stays grey and is visibly not doing anything.
     directives: {
@@ -201,7 +203,9 @@ function parseHttpRequests(content) {
       let target;
       if (sp >= 0 && (syntax.methods[upper] || syntax.unsupported[upper])) {
         curr.method = upper;
-        curr.kind = upper === 'GRAPHQL' ? 'graphql' : syntax.unsupported[upper] ? 'unsupported' : 'http';
+        curr.kind = upper === 'GRAPHQL' ? 'graphql'
+          : upper === 'WEBSOCKET' ? 'websocket'
+            : syntax.unsupported[upper] ? 'unsupported' : 'http';
         target = trimmed.slice(sp + 1).trim();
       } else {
         curr.method = 'GET'; // the short form: a bare URL on its own line
@@ -323,6 +327,29 @@ function parseHttpMultipart(bodyText, boundary) {
       text: part.lines.join('\r\n').replace(/\s+$/, ''),
     };
   });
+}
+
+/**
+ * A WEBSOCKET body is a list of messages separated by `===`, and `=== wait-for-server` means "hold here
+ * until the server has said something" — which is how a handshake is written down in the order it happens.
+ */
+function splitSocketMessages(bodyText) {
+  const messages = [];
+  let current = { text: '', waitForServer: false };
+  let pendingWait = false;
+  String(bodyText || '').split(/\r?\n/).forEach(function (line) {
+    const separator = /^\s*===\s*(.*)$/.exec(line);
+    if (!separator) { current.text += (current.text ? '\n' : '') + line; return; }
+    messages.push(current);
+    pendingWait = /wait-for-server/i.test(separator[1]);
+    current = { text: '', waitForServer: pendingWait };
+  });
+  messages.push(current);
+  return messages
+    .map(function (message) { return { text: message.text.replace(/^\s+|\s+$/g, ''), waitForServer: message.waitForServer }; })
+    // A separator with nothing after it is the end of the list, not an empty message. One that only says
+    // "wait" is kept, because waiting IS the instruction.
+    .filter(function (message) { return message.text || message.waitForServer; });
 }
 
 /**

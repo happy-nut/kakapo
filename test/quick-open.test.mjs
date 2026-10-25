@@ -14,12 +14,22 @@ before(async () => {
 });
 after(cleanupFixtures);
 
-test("double-Shift opens nothing; Cmd+E opens Recent files on its own and toggles closed", async () => {
+// Double-Shift was removed once, in the commit that stripped kakapo to a diff reader ("⌘E and
+// double-Shift. ⌘⇧F's section rail is the one door…"). ⌘E came back when the launcher grew sections
+// worth naming, and this is the same reversal for the same reason: ⇧⇧ is Search Everywhere, the chord an
+// IntelliJ reader reaches for, and the rail IS that search.
+//
+// What made it worth removing is still guarded below — it must not fire while anything is being typed
+// into, and two Shifts with another key between them are not a double tap.
+test("double-Shift opens the launcher; Cmd+E opens Recent files on its own and toggles closed", async () => {
   const v = await loadViewer(html);
   v.key("Shift", { location: 1 });
   v.key("Shift", { location: 1 });
   await v.settle(10);
-  assert.equal(v.quickOpenVisible(), false, "double-Shift no longer opens the file search");
+  assert.ok(v.quickOpenVisible(), "⇧⇧ is Search Everywhere");
+  assert.ok(v.$("#quick-open").classList.contains("quick-launcher"), "…with every section beside it");
+  v.key("Escape");
+  await v.settle(10);
   v.key("e", { metaKey: true, code: "KeyE" });
   await v.settle(10);
   assert.ok(v.quickOpenVisible(), "Cmd+E opens Recent files");
@@ -32,6 +42,19 @@ test("double-Shift opens nothing; Cmd+E opens Recent files on its own and toggle
   v.key("e", { metaKey: true, code: "KeyE" });
   await v.settle(10);
   assert.equal(v.quickOpenVisible(), false, "a second Cmd+E closes it");
+  v.close();
+});
+
+test("a stray double-Shift does not interrupt typing", async () => {
+  const v = await loadViewer(html);
+  // Capitals are typed with Shift, and a comment box is where that happens. The launcher is content-level,
+  // so a focused field keeps its keys — this is the behaviour that made the chord worth removing once.
+  // Any focused text field will do; the search box of the launcher itself is the simplest to reach.
+  v.$("#quick-open-input").focus();
+  v.key("Shift", { location: 1 });
+  v.key("Shift", { location: 1 });
+  await v.settle(10);
+  assert.equal(v.quickOpenVisible(), false, "typing capitals is not a request to search everywhere");
   v.close();
 });
 
