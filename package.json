@@ -39,6 +39,7 @@
     "benchmark": "npm run build && node scripts/benchmark.mjs",
     "lsp:install": "node scripts/install-language-servers.mjs",
     "lsp:smoke": "node --test test/language-server-bundles.test.mjs",
+    "mermaid:smoke": "npm run build && node scripts/mermaid-smoke.mjs run",
     "smoke": "npm run build && node dist/cli.js --help",
     "pretest": "npm run build",
     "test": "node --test --test-concurrency=1 test/*.test.mjs",

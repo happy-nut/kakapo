@@ -14,8 +14,12 @@
 // What is deliberately NOT tested here is render(). It measures text through SVGGraphicsElement.getBBox,
 // which jsdom does not implement; shimming that cascades into getComputedTextLength and friends until the
 // test is measuring the shims instead of Mermaid, and a green light that means "my stubs agree with each
-// other" is worse than no test. Layout belongs to the packaged Electron pass. Grammar, API shape and the
-// config we actually pass are what a version bump breaks, and those need no layout — so they are here.
+// other" is worse than no test. Grammar, API shape and the config we actually pass are what a version bump
+// breaks, and those need no layout — so they are here.
+//
+// Layout itself is answered where it can be: `npm run mermaid:smoke` renders a diagram in the real app,
+// over the real kakapo-asset:// protocol, and checks the SVG's getBBox and its laid-out labels. That needs
+// a GUI, so it is not part of this suite.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
