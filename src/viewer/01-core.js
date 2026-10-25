@@ -694,6 +694,26 @@ applyTheme();
 // Whole-interface scale. Persisted here; the Electron main process reads it and applies a Chromium zoom
 // factor to every review window — see applyUiScale in app-main.ts. Outside
 // Electron there is no main process, so the page scales itself with CSS zoom instead.
+// How much of a changed line is coloured: the characters that differ ('word', IntelliJ's default and
+// diff2html's own markup), the whole line only ('line'), or nothing but the gutter ('none'). Three CSS
+// readings of one DOM — nothing is re-rendered when this changes.
+var DIFF_HIGHLIGHT_KEY = 'kakapo-diff-highlight';
+var DIFF_HIGHLIGHT_MODES = ['word', 'line', 'none'];
+var diffHighlightSelectRef = null;
+var diffHighlightMode = (function () {
+  var saved = persistRead(DIFF_HIGHLIGHT_KEY);
+  if (typeof saved !== 'string') { try { saved = localStorage.getItem(DIFF_HIGHLIGHT_KEY) || ''; } catch (e) { saved = ''; } }
+  return DIFF_HIGHLIGHT_MODES.indexOf(saved) >= 0 ? saved : 'word';
+})();
+function applyDiffHighlight(next) {
+  if (DIFF_HIGHLIGHT_MODES.indexOf(next) < 0) return;
+  diffHighlightMode = next;
+  persistSave(DIFF_HIGHLIGHT_KEY, diffHighlightMode);
+  document.documentElement.setAttribute('data-diff-highlight', diffHighlightMode);
+  if (diffHighlightSelectRef) diffHighlightSelectRef.render();
+}
+applyDiffHighlight(diffHighlightMode);
+
 var UI_SCALE_KEY = 'kakapo-ui-scale';
 var UI_SCALES = [0.9, 1, 1.1, 1.25, 1.5];
 var uiScaleSelectRef = null;
@@ -749,10 +769,26 @@ function applySyntaxTheme() {
 applySyntaxTheme();
 let fileStates = JSON.parse(document.getElementById('file-state-data')?.textContent || '[]');
 let httpEnvironments = JSON.parse(document.getElementById('http-env-data')?.textContent || '{}');
-let httpEnvNames = Object.keys(httpEnvironments);
+// `$shared`, `$dotenv` and `$env` ride in the same island as the named environments (diff.ts explains why).
+// They are variable scopes, not environments, so the dropdown must never offer them as one.
+let httpEnvNames = Object.keys(httpEnvironments).filter(function (name) { return name.charAt(0) !== '$'; });
 const httpEnvKey = 'kakapo-http-env:' + location.pathname;
 const httpRequestsByPath = new Map();
 const httpVarsByPath = new Map();
+// client.global.set() from a response handler: variables a later request reads as {{name}}. IntelliJ keeps
+// these until the IDE closes; kakapo keeps them for the window and persists them, so a watch rebuild (which
+// repaints the whole page) does not quietly empty a chain of requests that depend on an earlier login.
+const httpGlobalsKey = 'kakapo-http-globals:' + location.pathname;
+let httpGlobals = (function () {
+  const saved = persistRead(httpGlobalsKey);
+  return saved && typeof saved === 'object' ? saved : {};
+})();
+// request.variables.set() from a pre-request script — scoped to the one request that follows it.
+const httpRequestVars = new Map();
+// Named responses, for {{login.response.body.$.token}}. `@no-log` keeps a request out of here.
+const httpResponsesByName = new Map();
+// Per-request script output: client.test() results, client.log() lines, and a script's own error.
+const httpScriptLogByRequest = new Map();
 let sourceByPath = new Map(sourceFiles.map((file) => [file.path, file]));
 var projectIndexLoaded = !REVIEW_LAZY_LOAD;
 var projectIndexPromise = null;

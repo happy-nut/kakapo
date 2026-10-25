@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { basename, dirname, resolve } from "node:path";
 import type { AutomaticReviewBase } from "./git.js";
-import type { CompareState, DiffReviewBuild } from "./types.js";
+import type { CompareState, DiffReviewBuild, WhitespaceMode } from "./types.js";
 import { isGitRepository, git, resolveAutomaticReviewBase } from "./git.js";
 import { collectHttpEnvironments, collectReviewFileStates, collectSourceFiles, parseUnifiedDiff, readUnifiedDiff } from "./diff.js";
 import { detectBaseDivergence } from "./git-conflicts.js";
@@ -63,6 +63,8 @@ export function buildDiffReview(input: {
   title: string;
   watch?: boolean;
   ignoreWhitespace?: boolean;
+  // Three whitespace modes (none/trim/all); `ignoreWhitespace` is the older boolean form of "all".
+  whitespace?: WhitespaceMode;
   lazy?: boolean; // force lazy materialize (shells + on-demand bodies); auto for big repos
   lazyLoad?: boolean; // serve/Electron set this — bodies + source fetched on demand, not embedded
   app?: boolean; // Electron app — enables app-only review features such as Git history
@@ -92,6 +94,7 @@ export function buildDiffReview(input: {
     context: input.context,
     includeUntracked: input.includeUntracked,
     ignoreWhitespace: input.ignoreWhitespace,
+    whitespace: input.whitespace,
     root,
   });
   const files = parseUnifiedDiff(diffText);
@@ -115,7 +118,7 @@ export function buildDiffReview(input: {
     : undefined;
   const collisions = new Map((divergence?.collisions ?? []).map((item) => [item.path, item.kind] as const));
   const httpEnvironments = collectHttpEnvironments(root,
-    sourceFiles.filter((file) => /\.http$/i.test(file.path)).map((file) => file.path));
+    sourceFiles.filter((file) => /\.(http|rest)$/i.test(file.path)).map((file) => file.path));
   const hunks = files.reduce((sum, file) => sum + file.hunks.length, 0);
   const generatedAt = new Date().toISOString();
   // Current branch for the sidebar chip (empty on a detached HEAD); refreshed in the watch payload too.

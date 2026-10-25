@@ -120,7 +120,8 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌘⇧/` | All review comments (one hand-off document). Copying hands it over and archives it — the sidebar puts it back, `⌘Z` undoes |
 | `⌘C` | In that document: hand over the selected comment — copying IS the hand-off, so what you copy is archived (`⌘A` first for all of it) |
 | `⌥Enter` | In that document: hand the whole review over — the same copy-and-archive the button does |
-| `⌘9` | Git history |
+| `⌘9` | Git history — commits, reflog, stashes |
+| `⌘C` | In history: copy the selected commit's hash |
 | `⌘F` / `⌘⇧F` | Find in file / in project (the ⌘⇧F rail also holds file search & recent files) |
 | `⌘E` | Recent files — the list on its own, press again to close. Type to filter (Korean typing is read as the QWERTY keys that made it) |
 | `⌥A` / `⌥U` | All changes on the branch / only what is not committed yet |
@@ -130,10 +131,146 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌥F1` | Reveal the open file in the sidebar |
 | `F2` / `⇧F2` | Next / previous problem the language server found |
 | `⌥Enter` | On a flagged line: draft the change request that asks an agent to fix it |
+| `⌘Enter` | Run the `.http` request at the caret |
+| `⌘⇧Enter` | Run every request in the `.http` file, in order |
+| `⌘⇧C` | Copy the `.http` request at the caret as a `curl` command |
 | `⌘K` | Copy the caret's `file:line` |
 | `⌘,` | Settings |
 
 Settings ▸ Shortcuts lists the rest.
+
+## Reading a diff
+
+The diff is side by side, with the characters that actually differ marked inside each changed line, and a
+ruler down the right edge of the pane showing every change in the open file at once — where they are, how
+much of the file they cover, where your comments sit, and where in all of it you currently are. Click the
+ruler to go there.
+
+Three things about what you are reading are adjustable, and two of them re-run `git diff`:
+
+| Where | What |
+| --- | --- |
+| Diff menu | **Whitespace**: count every difference, ignore how much whitespace there is (`-b`), or ignore it entirely (`-w`). `⌘⇧W` cycles the three. |
+| Diff menu | **Unchanged lines kept around a change**: 3, 12 (the default), 50, or the whole file. |
+| Settings | **Changed lines**: colour the characters that differ, the whole line, or nothing but the gutter. |
+
+The first two are per window, so two windows can read the same repository under different rules. The third
+is a reading of markup that is always there, so it applies the moment you choose it.
+
+**Not ported from IntelliJ's diff:** the unified (single-column) view, and rendering whitespace as visible
+glyphs. The unified view is not a setting in kakapo's diff but a second shape for it — the caret model, the
+row alignment, the comment anchoring and the gutter layers all read the two-column markup — so it is a
+change to the review surface itself rather than an option on it, and it is not worth destabilising that for
+a second way to look at the same hunk.
+
+## HTTP requests (`.http` files)
+
+A `.http` or `.rest` file in the repository is runnable where you read it: every request gets a `▶` in the
+gutter, in the source view and in the diff, and the response lands under the request. The format is
+JetBrains' HTTP Client, so the same file works in kakapo and in IntelliJ without being edited.
+
+```http
+@base = https://api.example.com
+
+### log in
+# @name login
+POST {{base}}/sessions
+Content-Type: application/json
+
+{ "user": "ada", "password": "{{$dotenv.PASSWORD}}" }
+
+> {%
+  client.global.set("token", response.body.token);
+  client.test("a token came back", function () {
+    client.assert(response.body.token, "no token in the response");
+  });
+%}
+
+### the profile it unlocks
+# @timeout 5
+GET {{base}}/me
+Authorization: Bearer {{token}}
+
+>> out/me.json
+```
+
+**Requests.** `###` separates them and names them (`# @name` works too, and an unnamed request is `#1`).
+A bare URL is a `GET`. An HTTP version after the URL is not part of it. A long URL can be split across
+indented lines that start with `/`, `?` or `&`. `GRAPHQL` posts `{query, variables}` — write the operation,
+then a blank line, then the variables as JSON.
+
+**Directives**, written as comments above the request: `@no-redirect`, `@no-cookie-jar`, `@no-log`,
+`@no-auto-encoding`, `@timeout 600`, `@connection-timeout 2 m` (`ms`/`s`/`m`, seconds by default). Both
+timeouts become one deadline, the larger of the two: there is no hook between connecting and reading to
+enforce them separately, and a deadline shorter than either was asked for would be wrong.
+
+**Bodies.** Inline, or `< ./body.bin` to send a file's bytes, or `<@ ./body.json` to substitute its
+`{{variables}}` first. `multipart/form-data` parts are assembled from the `--boundary` blocks; a part with a
+`filename=` is sent as that file's bytes, and one without it sends the file's text as the field's value.
+
+**Variables.** `@name = value` in the file, `http-client.env.json` and `http-client.private.env.json`
+(looked for beside the requests as well as at the repository root, nearer file wins), the `$shared` section
+every environment sits on, `{{$dotenv.NAME}}` from a `.env`, `{{$env.NAME}}` from the process, and a dotted
+name as a JSONPath into a variable holding JSON (`{{client.host.url}}`). Dynamic: `$uuid`, `$timestamp`,
+`$isoTimestamp`, `$randomInt`, `$random.integer/float/alphabetic/alphanumeric/hexadecimal/email/uuid`,
+`$projectRoot`, `$historyFolder`. A named response is readable too —
+`{{login.response.body.$.token}}`, `.headers.Location`, `.status`. An unresolved `{{name}}` stops the
+request and says which name, instead of sending the text and getting back a scheme error.
+
+**Scripts.** `< {% … %}` before a request, `> {% … %}` or `> ./handler.js` after it, with IntelliJ's API:
+`client.global`, `client.test`, `client.assert`, `client.log`, `client.exit`, `response.status/body/
+contentType/headers`, `request.body/url/headers/method/variables/environment`, `jsonPath`, `xpath`,
+`crypto.sha1/sha256/md5` and `crypto.hmac.*`, `await sleep(ms)`, and the dynamic variables as plain
+identifiers. Test results and `client.log` output are shown with the response — a handler that asserted
+and passed says so.
+
+They run in the review window, which Electron gives kakapo sandboxed and without node integration: a
+handler has no `require`, no `fs` and no `process`, and nothing runs until you press `▶` on a request whose
+text is in front of you. Reading a repository should not run it.
+
+**Saving.** `>> out.json` writes beside an existing file (`out-1.json`); `>>! out.json` overwrites.
+`{{$historyFolder}}` resolves to kakapo's own app-data mirror — it never writes kakapo's state into the
+repository you are reading. The cookie jar lives there too, in IntelliJ's readable
+`# domain path name value date` format.
+
+**Not ported.** gRPC and WebSocket (no protocol stack — the lines are coloured but say so instead of
+sending), OAuth2 `Security.Auth` flows, `@use-os-credentials` (recognised as a directive, but there is no
+OS credential store to hand to a request), shared script modules (`import`/`export` in a handler),
+`$exampleServer`, variable collections (one request per array element), the full Java Faker generator set
+(the common ones are there; an unimplemented one is reported by name), and importing a `curl` command —
+kakapo never writes to the file you are reading, so there would be nowhere to put it.
+
+## Git history
+
+`⌘9` opens the repository's read-only histories. It never changes anything: there is no commit, push,
+rebase, checkout or stash-apply here, because the thing kakapo is for is reading a change someone (or
+something) already made.
+
+**Three kinds,** switched in the bar: **Commits** (the log, as a graph with branch lanes and ref chips),
+**Reflog** (where `HEAD` has been — the one view that still holds a commit a reset or a rebase dropped),
+and **Stashes**. A row from any of them opens in the main review surface, with the diff, the navigation and
+the comments you already have; a stash opens against its first parent, which is where `HEAD` was when it
+was made.
+
+**Filters are applied by git,** not by hiding rows that are already on screen: author, path, a branch,
+tag or revision to walk instead of all of them, changed code (git's pickaxe), a date range, the message, and
+current-branch-only against every branch. The distinction
+matters — a page holds a few hundred commits, so filtering within it answers "no commits by Ada" when what
+it means is "none in the last few hundred".
+
+**Go to a commit.** Type a hash, a branch, a tag or `HEAD~3` into the search box: if it names a commit, the
+strip offers to open it even when it is nowhere in the current page. Anything that names nothing stays an
+ordinary message filter. `⌘C` copies the selected commit's hash.
+
+**One file, one line.** `⌥Enter` on a file in the sidebar shows that file's history, followed through its
+renames. Right-clicking a line number shows the blame for the file in the gutter — date and author, tinted
+by age — and clicking an attribution opens the commit that wrote that line. Right-clicking a line number
+with history open scopes the list to that single line (`git log -L`), so you see only the commits that
+actually changed it.
+
+**Compare two commits.** Shift-click (or `⇧↑↓`) two rows and open the range: every change between those two
+patch sets, in one review. `⌥A` / `⌥U` / `⌥C` do the branch-level version of the same question — see
+[Choosing what to compare](#choosing-what-to-compare).
 
 ## Bundled language servers
 

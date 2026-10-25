@@ -95,7 +95,9 @@ test("external-link boundary opens only http(s) URLs from untrusted text", () =>
 test("main process is a composition root for extracted persistence and IPC adapters", () => {
   const main = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
   assert.match(main, /new AppPreferences\(app\.getPath\("userData"\), isGitRepository\)/);
-  assert.match(main, /registerReviewIpc\(ipcMain, stateFromEvent\)/);
+  // The .http runner's cookie jar and `>>` output live under userData, so main hands the adapter that
+  // path too — it is still main that owns every absolute location, which is what this test is about.
+  assert.match(main, /registerReviewIpc\(ipcMain, stateFromEvent, app\.getPath\("userData"\)\)/);
   assert.match(main, /registerProjectPathIpc\(ipcMain, shell, stateFromEvent\)/);
   assert.match(main, /registerSettingsIpc\(ipcMain, preferences, stateFromEvent[,)]/);
   assert.doesNotMatch(main, /function readSettings|function resolveProjectRowPath|kakapo:get-file|"kakapo:get-settings"/);

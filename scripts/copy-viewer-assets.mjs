@@ -22,9 +22,10 @@ const viewerDir = join(root, "src", "viewer");
 const VIEWER_SLICES = [
   "00-util.js", "00-diff-layers.js", "00-shortcuts.js", "01-core.js", "01-diff-alignment.js", "01-diff-model.js", "02-diff-nav.js",
   "03-quick-open.js", "04-source-tree.js", "05-keymap.js", "06-diff-caret.js", "07-comments.js",
-  "08-dock.js", "09-views-update.js", "10-source-view.js", "11-render-http.js", "12-history.js",
+  "08-dock.js", "09-views-update.js", "10-source-view.js", "11-http-parse.js", "11-http-script.js",
+  "11-http-run.js", "11-render-http.js", "12-history.js",
   "13-goto.js", "15-analysis-status.js", "15-semantic-navigation.js", "16-semantic-peek.js",
-  "17-file-find.js", "18-diagnostics.js", "20-mermaid.js", "21-compare-menu.js",
+  "17-file-find.js", "18-diagnostics.js", "19-diff-stripe.js", "20-mermaid.js", "21-compare-menu.js",
   "22-patchset.js", "23-agent-cards.js", "28-shortcut-coach.js", "29-shortcut-rebind.js",
 ];
 const onDisk = readdirSync(viewerDir).filter((f) => f.endsWith(".js")).sort();

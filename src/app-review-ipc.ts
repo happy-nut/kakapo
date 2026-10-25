@@ -1,14 +1,18 @@
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute } from "node:path";
-import type { HttpSendRequest } from "./cli.js";
+import type { HttpAttachment, HttpSaveRequest, HttpSaveResult, HttpSendRequest } from "./types.js";
+import { readHttpAttachment, saveHttpResponse } from "./http-files.js";
 
 // diff2html + highlight.js, reached through cli.js, cost ~100ms to parse — and the main process needs them
 // for exactly two things, both of which happen long after first paint: rendering one lazily-fetched diff body,
 // and running a .http request. Importing them when the first such request arrives keeps that off cold start.
 // Node caches the module, so only the first call pays anything at all.
 const buildTools = (): Promise<typeof import("./cli.js")> => import("./cli.js");
-import { readGitLog, readGitLineLog, readGitBlame, readCommitDiff, readRangeDiff } from "./git-log.js";
+import {
+  readGitLog, readGitLineLog, readGitBlame, readCommitDiff, readRangeDiff,
+  readGitReflog, readGitStashes, resolveGitRevision, type GitLogFilter,
+} from "./git-log.js";
 import { defaultBaseRef, git, listBranches } from "./git.js";
 import { readPatchSets } from "./patch-sets.js";
 import { materializeDeferredSourceFile } from "./diff.js";
@@ -73,8 +77,29 @@ function librarySource(root: string, requested: string): SourceFile | null {
   return target ? readLibrarySourceFile(target, requested) : null;
 }
 
-export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResolver): void {
-  ipc.handle("kakapo:http-send", async (_event, request: HttpSendRequest) => (await buildTools()).performHttpRequest(request));
+export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResolver, userData = ""): void {
+  // The .http runner. Three handlers, and the split is deliberate: main owns the network, the repository
+  // root and the cookie jar, so the renderer names a request and a repo-relative file and never learns a
+  // path. Containment lives in http-files.ts, because every path here was written in the reviewed repo.
+  ipc.handle("kakapo:http-send", async (event, request: HttpSendRequest) => {
+    const state = stateFromEvent(event);
+    return (await buildTools()).performHttpRequest(request, { root: state?.options.root, userData });
+  });
+
+  // `<@ ./body.json` (a body whose {{variables}} the renderer has to substitute) and `> ./handler.js`
+  // (a script the renderer has to run) are the two cases where the renderer needs the TEXT of a file.
+  // A raw `< ./body.bin` body never comes through here — main reads those bytes in performHttpRequest.
+  ipc.handle("kakapo:http-attachment", (event, request: { path?: string }): HttpAttachment => {
+    const state = stateFromEvent(event);
+    if (!state) return { ok: false, error: "Review window is unavailable" };
+    return readHttpAttachment(state.options.root, String(request?.path ?? ""));
+  });
+
+  ipc.handle("kakapo:http-save-response", (event, request: HttpSaveRequest): HttpSaveResult => {
+    const state = stateFromEvent(event);
+    if (!state) return { ok: false, error: "Review window is unavailable" };
+    return saveHttpResponse(state.options.root, userData, request);
+  });
 
   ipc.handle("kakapo:get-file", async (event, request: { index?: number }) => {
     const state = stateFromEvent(event);
@@ -220,10 +245,36 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     });
   });
 
-  ipc.handle("kakapo:git-log", (event, request: { limit?: number; skip?: number }) => {
+  // The log's filters are applied by git, not by hiding rows: a page holds a few hundred commits, so a
+  // filter over what is already loaded answers "nothing by Ada" when it means "nothing in the last page".
+  ipc.handle("kakapo:git-log", (event, request: GitLogFilter) => {
     const state = stateFromEvent(event);
     if (!state) return [];
-    try { return readGitLog(state.options.root, { limit: request?.limit, skip: request?.skip }); } catch { return []; }
+    try { return readGitLog(state.options.root, request ?? {}); } catch { return []; }
+  });
+
+  // Where HEAD has been. The one view that still holds a commit a reset or a rebase dropped.
+  ipc.handle("kakapo:git-reflog", (event, request: { limit?: number }) => {
+    const state = stateFromEvent(event);
+    if (!state) return [];
+    try { return readGitReflog(state.options.root, { limit: request?.limit }); } catch { return []; }
+  });
+
+  // Read-only, like everything else here: kakapo shows what is stashed, it does not apply or drop it.
+  // A stash IS a commit, so opening one needs no diff reader of its own — its first parent is where HEAD
+  // was when it was made, which is exactly what the review surface already opens for `sha^..sha`.
+  ipc.handle("kakapo:git-stashes", (event) => {
+    const state = stateFromEvent(event);
+    if (!state) return [];
+    try { return readGitStashes(state.options.root); } catch { return []; }
+  });
+
+  // "Go to hash": what a hash, branch, tag or HEAD~2 typed into the log's box actually names. null is the
+  // answer that tells the box it was holding an ordinary text filter after all.
+  ipc.handle("kakapo:git-resolve-rev", (event, request: { query?: string }) => {
+    const state = stateFromEvent(event);
+    if (!state || !request?.query) return null;
+    try { return resolveGitRevision(state.options.root, request.query); } catch { return null; }
   });
 
   ipc.handle("kakapo:git-line-log", (event, request: { path?: string; line?: number; limit?: number }) => {

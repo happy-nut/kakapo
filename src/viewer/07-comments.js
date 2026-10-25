@@ -1014,6 +1014,9 @@ document.addEventListener('click', function (event) {
 function refreshComments() {
   renderArchivePanel();
   var changedDiffWrappers = renderDiffComments();
+  // A comment thread is a mark on the overview stripe, and it changes the height of the rows below it,
+  // so every other mark moves with it.
+  scheduleDiffStripe();
   // Reproject ONLY wrappers whose comment rows changed. The previous all-files loop measured every row in
   // every materialized diff on each keystroke/save/cancel, which became severe UI jank in large reviews.
   changedDiffWrappers.forEach(function (wrapper) {

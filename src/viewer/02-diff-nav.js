@@ -429,6 +429,7 @@ function showOnlyFile(fileName, skipCursor) {
   // also ensures its line numbers are ready in the same animation frame as asymmetric scroll alignment.
   if (activeWrapper) scheduleLayeredDiffGutters(activeWrapper);
   scheduleAsymmetricDiffScroll();
+  scheduleDiffStripe(); // the overview ruler is this file's; it is redrawn when the file changes
   // applySetActive passes skipCursor: it sets the caret itself via focusDiffRow(targetRow). Letting
   // ensureDiffCursor run here would first place the caret on the file's FIRST code row, then focusDiffRow
   // overrides it to the change — a visible double jump (the F7 "first line → change" flash).

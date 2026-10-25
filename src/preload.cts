@@ -5,6 +5,11 @@ import { clipboard, contextBridge, ipcRenderer } from "electron";
 // renderer only ever asks main to perform a single fetch and return the result.
 contextBridge.exposeInMainWorld("kakapoHttp", {
   send: (request: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:http-send", request),
+  // `<@ ./body.json` and `> ./handler.js`: the renderer needs those files' text, main decides whether the
+  // path is inside the review. Repo-relative in, text out — the renderer never sees a filesystem path.
+  readFile: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:http-attachment", { path }),
+  // `>> out.json` / `>>! out.json`.
+  saveResponse: (request: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:http-save-response", request),
 });
 
 // Lets the Review menu's Cmd/Ctrl+Shift+/ accelerator open the merged review-comments view in
@@ -86,6 +91,11 @@ contextBridge.exposeInMainWorld("kakapoSearch", {
 // Git history view (Cmd+9): list commits and fetch one commit's full diff for the current window's repo.
 contextBridge.exposeInMainWorld("kakapoGit", {
   log: (request: { limit?: number; skip?: number }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-log", request),
+  // The log view's own filters (author/path/message/content/date/branch) are applied by git — see
+  // GitLogFilter in git-log.ts. Reflog and the stash list are the two other read-only histories.
+  reflog: (request: { limit?: number }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-reflog", request),
+  stashes: (): Promise<unknown> => ipcRenderer.invoke("kakapo:git-stashes"),
+  resolveRevision: (query: string): Promise<unknown> => ipcRenderer.invoke("kakapo:git-resolve-rev", { query }),
   lineLog: (request: { path: string; line: number; limit?: number }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-line-log", request),
   blame: (request: { path: string; side?: "old" | "new" }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-blame", request),
   commitDiff: (sha: string): Promise<unknown> => ipcRenderer.invoke("kakapo:git-commit-diff", { sha }),

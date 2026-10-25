@@ -646,6 +646,9 @@ export function renderDiffHtml(input: {
     // One scale for the whole app rather than a code-font size: the review is chrome + tree + diff, and
     // sizing only the code leaves the rest mismatched. Applied by main as a Chromium zoom factor.
     '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.uiScale">Font size</span><span class="settings-row-hint" data-i18n="settings.uiScale.hint">Scales the whole interface.</span></div><button type="button" id="settings-ui-scale" class="settings-select mc-select" data-i18n-aria="settings.uiScale"></button></div>',
+    // How a changed line is marked. Not a rebuild: diff2html always emits the per-character <ins>/<del>,
+    // so all three readings are CSS over one DOM (see data-diff-highlight in viewer.css).
+    '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.diffHighlight">Changed lines</span><span class="settings-row-hint" data-i18n="settings.diffHighlight.hint">How much of a changed line is coloured.</span></div><button type="button" id="settings-diff-highlight" class="settings-select mc-select" data-i18n-aria="settings.diffHighlight"></button></div>',
     '</div>',
     '</section>',
     // Keyboard shortcuts moved to their own category so General stays a short, scannable preferences page.
@@ -672,8 +675,29 @@ export function renderDiffHtml(input: {
     '<span id="history-scope" class="history-scope hidden"></span>',
     // The placeholder was doing double duty as the accessible name, and a placeholder is gone as soon as
     // there is a value — so the moment this does something, it stops saying what it is.
-    '<input id="history-search" type="search" class="history-search" autocomplete="off" spellcheck="false" data-i18n-ph="history.search" data-i18n-aria="history.search" aria-label="Filter by message or author" placeholder="Filter by message or author">',
+    '<input id="history-search" type="search" class="history-search" autocomplete="off" spellcheck="false" data-i18n-ph="history.search" data-i18n-aria="history.search" aria-label="Filter by message, or type a hash to go to it" placeholder="Filter by message, or a hash to go to">',
+    '<button type="button" id="history-filter-toggle" class="dock-btn" aria-expanded="false" aria-controls="history-filters" data-i18n-title="history.filters" title="More filters" data-i18n-aria="history.filters" aria-label="More filters">&#9662;</button>',
     '<button type="button" id="history-close" class="dock-btn" data-keyhint-id="closeDialog" data-i18n-title="history.close" title="Close" aria-label="Close">&times;</button>',
+    "</div>",
+    // The three read-only histories of one repository: the log, where HEAD has been, and what is stashed.
+    // Separate tool windows in IntelliJ; one list with three sources here, because they answer the same
+    // question ("which commit was that?") and open the same way.
+    '<div class="history-kinds" role="tablist" data-i18n-aria="history.kinds" aria-label="History kind">',
+    '<button type="button" class="history-kind active" data-history-kind="commits" role="tab" aria-selected="true" data-i18n="history.kind.commits">Commits</button>',
+    '<button type="button" class="history-kind" data-history-kind="reflog" role="tab" aria-selected="false" data-i18n="history.kind.reflog">Reflog</button>',
+    '<button type="button" class="history-kind" data-history-kind="stashes" role="tab" aria-selected="false" data-i18n="history.kind.stashes">Stashes</button>',
+    "</div>",
+    // Every field here is handed to git, not used to hide rows that are already on screen — a page holds a
+    // few hundred commits, so a filter over those answers "none by Ada" when it means "none in this page".
+    '<div id="history-filters" class="history-filters hidden">',
+    '<input id="history-filter-author" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="history.filter.author" data-i18n-aria="history.filter.author" aria-label="Author" placeholder="Author">',
+    '<input id="history-filter-path" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="history.filter.path" data-i18n-aria="history.filter.path" aria-label="Path" placeholder="Path">',
+    '<input id="history-filter-branch" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="history.filter.branch" data-i18n-aria="history.filter.branch" aria-label="Branch, tag or revision" placeholder="Branch">',
+    '<input id="history-filter-content" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="history.filter.content" data-i18n-aria="history.filter.content" aria-label="Changed code" placeholder="Changed code">',
+    '<input id="history-filter-since" type="date" data-i18n-aria="history.filter.since" aria-label="From date">',
+    '<input id="history-filter-until" type="date" data-i18n-aria="history.filter.until" aria-label="To date">',
+    '<label class="history-filter-check"><input id="history-filter-current" type="checkbox"><span data-i18n="history.filter.currentBranch">Current branch</span></label>',
+    '<button type="button" id="history-filter-clear" class="history-filter-clear" data-i18n="history.filter.clear">Clear</button>',
     "</div>",
     // Selection/compare status strip: shows how to compare (hint) when one commit is selected, and the
     // pending two-commit compare (with Open/Clear) once a range is shift-selected. The visible affordance

@@ -1994,7 +1994,9 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 /* Pin the diff's horizontal scrollbar to the viewport bottom instead of letting it float
    mid-screen when a file's diff is short: fill the content column vertically so the last
    file's diff body extends all the way down. */
-#diff-view:not(.hidden) { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+/* position:relative so the overview stripe can be absolutely positioned against this pane. Out of flow, so
+   it is not a flex item of this column — a stripe that participated in the layout would squeeze the diff. */
+#diff-view:not(.hidden) { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; position: relative; }
 #diff-view .diff2html-container { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; overflow: auto; }
 /* Source view mirrors the diff view: fill the content column so the source-body (its last child, after
    the tabs + toolbar) reaches the bottom even for short files, instead of floating at the top. */
@@ -3114,7 +3116,54 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .history-title { font-weight: 650; font-size: 13px; letter-spacing: 0.02em; }
 .history-scope { min-width: 0; max-width: min(42vw, 620px); overflow: hidden; color: var(--muted); font: 11px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .history-search { flex: 1 1 auto; max-width: 440px; height: 28px; border: 1px solid var(--border); padding: 0 10px; font-size: 13px; outline: none; }
-.history-bar .dock-btn { margin-left: auto; font-size: 16px; }
+.history-bar .dock-btn { font-size: 16px; }
+/* The close button is the one pinned to the right edge. It used to be `.dock-btn`, which was the same
+   thing while it was the only button in the bar — the filter toggle beside it then took an auto margin
+   of its own and the two drifted to opposite ends. */
+.history-bar #history-close { margin-left: auto; }
+.history-bar #history-filter-toggle { margin-left: 0; font-size: 11px; }
+.history-bar #history-filter-toggle.hidden,
+.history-kinds.hidden,
+.history-search.hidden { display: none; }
+
+/* The three read-only histories: the log, the reflog, what is stashed. */
+.history-kinds { flex: none; display: inline-flex; align-items: center; gap: 2px; }
+.history-kind {
+  appearance: none; border: 1px solid transparent; background: transparent; color: var(--muted);
+  font: inherit; font-size: 11.5px; padding: 3px 9px; cursor: pointer; border-radius: var(--ui-radius-sm, 4px);
+}
+.history-kind:hover { color: var(--text); background: color-mix(in srgb, var(--active) 10%, transparent); }
+.history-kind.active {
+  color: var(--text); background: color-mix(in srgb, var(--active) 16%, transparent);
+  border-color: color-mix(in srgb, var(--active) 35%, transparent);
+}
+
+/* Filters handed to git, not used to hide rows — so the row is a query form, not a view option. */
+.history-filters {
+  flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--sidebar) 90%, var(--panel));
+}
+.history-filters.hidden { display: none; }
+.history-filters input[type="search"] { flex: 0 1 180px; min-width: 120px; height: 26px; border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 0 8px; font-size: 12px; outline: none; }
+.history-filters input[type="date"] { height: 26px; border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 0 6px; font-size: 12px; outline: none; }
+.history-filters input:focus { border-color: var(--active); }
+.history-filter-check { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.history-filter-clear {
+  appearance: none; border: 1px solid var(--border); background: transparent; color: var(--muted);
+  font: inherit; font-size: 11.5px; padding: 3px 10px; cursor: pointer;
+}
+.history-filter-clear:hover { color: var(--text); border-color: var(--active); }
+
+/* A reflog or stash row is named by its selector — HEAD@{3}, stash@{0} — which is how a person refers to
+   it afterwards, and without which three "WIP on main" rows are indistinguishable. */
+.hselector {
+  flex: none;
+  font: 11px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--active); padding: 1px 5px;
+  background: color-mix(in srgb, var(--active) 12%, transparent);
+  border-radius: var(--ui-radius-sm, 3px);
+}
 /* Selection/compare strip below the history bar: hint for one commit, compare controls for a range. */
 .history-select-bar {
   flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -3679,6 +3728,99 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
   line-height: 1.55;
 }
 .http-resp-empty { color: var(--muted); font-style: italic; }
+.http-resp-image { max-width: 100%; display: block; }
+
+/* ---- The diff overview stripe --------------------------------------------------------------------
+   Every change in the open file as one column beside the scrollbar, with a box for where the reader is.
+   Positioned against the diff pane, NOT inside the scroller — a ruler that scrolls away is not a ruler. */
+.diff-stripe {
+  /* top/height/right are written by renderDiffStripe: the stripe covers the SCROLLER's box, not the whole
+     pane (which also holds the toolbar), and sits beside a classic scrollbar rather than under it. */
+  position: absolute;
+  right: 0;
+  width: 10px;
+  z-index: 4;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--border) 25%, transparent);
+}
+.diff-stripe.hidden { display: none; }
+.diff-stripe-mark { position: absolute; left: 1px; right: 1px; min-height: 2px; border-radius: 1px; }
+.diff-stripe-mark.is-ins { background: var(--add-strong); }
+.diff-stripe-mark.is-del { background: var(--del-strong); }
+/* A deletion and an insertion together are one modification to the reader, so they get one mark — in the
+   accent colour, because it is neither of the two things it is made of. */
+.diff-stripe-mark.is-change { background: var(--active); }
+.diff-stripe-mark.is-comment { background: var(--chrome-vcs-staged, var(--active)); left: 0; right: 0; }
+.diff-stripe-viewport {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 35%, transparent);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  pointer-events: none;
+}
+
+/* ---- How a changed line is marked (Settings ▸ Diff highlighting) ---------------------------------
+   The markup is the same either way: diff2html always emits the per-character <ins>/<del>, so these are
+   three readings of one DOM rather than three renderings. */
+:root[data-diff-highlight="line"] .d2h-code-line-ctn ins,
+:root[data-diff-highlight="line"] .d2h-code-line-ctn del,
+:root[data-diff-highlight="none"] .d2h-code-line-ctn ins,
+:root[data-diff-highlight="none"] .d2h-code-line-ctn del { background: transparent; }
+/* "None" keeps the line-number gutter tinted — that is what still says which side a line is on once the
+   line itself is not coloured. */
+:root[data-diff-highlight="none"] td.d2h-del:not(.d2h-code-side-linenumber):not(.d2h-code-linenumber),
+:root[data-diff-highlight="none"] td.d2h-ins:not(.d2h-code-side-linenumber):not(.d2h-code-linenumber) {
+  background: transparent;
+}
+
+/* A {% … %} block is JavaScript inside a request file: tinted so the eye can tell at a glance which lines
+   are the request and which are the script that runs around it. */
+.http-script-line { background: color-mix(in srgb, var(--active) 5%, transparent); }
+.http-directive { color: var(--token-type); font-weight: 600; }
+.http-marker { color: var(--token-keyword); font-weight: 700; }
+
+/* client.test() results. A handler that asserted and passed has to SAY so — "no output" and "all good"
+   must not look the same. */
+.http-tests {
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+.http-tests-head { color: #59a869; font-weight: 600; }
+.http-tests.has-failures .http-tests-head { color: #e06c75; }
+.http-test { display: flex; gap: 8px; align-items: baseline; }
+.http-test-mark { flex-shrink: 0; width: 12px; }
+.http-test.ok .http-test-mark { color: #59a869; }
+.http-test.bad .http-test-mark { color: #e06c75; }
+.http-test-name { color: var(--text); }
+.http-test-error { color: #e06c75; word-break: break-word; }
+.http-script-log {
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.http-script-error {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  color: #e06c75;
+  font-size: 12px;
+}
+.http-saved {
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+.http-saved.bad { color: #e06c75; }
 
 /* --- Image preview (raster images embedded as data URIs) --- */
 .source-body.image-body { display: flex; align-items: flex-start; justify-content: center; padding: 24px; }
