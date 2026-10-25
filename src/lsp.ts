@@ -6,6 +6,28 @@ import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { errorMessage, languageForPath } from "./util.js";
 
+/**
+ * One entry of a file's structure: what `textDocument/documentSymbol` returns, flattened.
+ *
+ * Flattened with a `depth` rather than kept as a tree, because every reader of it wants a list: the
+ * structure popup renders one indented column, the breadcrumb takes the innermost that contains the caret,
+ * and next/previous-method walks it in order. A tree would be rebuilt into this by all three.
+ */
+export type AnalysisSymbol = {
+  name: string;
+  /** The server's own one-line summary (a signature, a type), when it offers one. */
+  detail?: string;
+  /** A short name for the icon/filter: "function", "class", "method", … See LSP_SYMBOL_KINDS. */
+  kind: string;
+  lineIndex: number;
+  column: number;
+  /** Last line of the symbol's whole range — what "jump past this method" needs. */
+  endLineIndex: number;
+  depth: number;
+  /** `containerName` from the flat shape: the only nesting signal a server that sends it gives. */
+  container?: string;
+};
+
 export type AnalysisLocation = {
   path: string;
   lineIndex: number;
@@ -175,7 +197,7 @@ type JsonRpcMessage = {
   method?: string;
   params?: unknown;
   result?: unknown;
-  error?: { message?: string };
+  error?: { message?: string; code?: number };
 };
 type PendingRequest = {
   resolve: (value: unknown) => void;
@@ -573,7 +595,7 @@ export class LspClient {
   }
 
   async locations(
-    method: "textDocument/definition" | "textDocument/references" | "textDocument/implementation",
+    method: "textDocument/definition" | "textDocument/references" | "textDocument/implementation" | "textDocument/typeDefinition",
     path: string,
     lineIndex: number,
     column: number,
@@ -603,6 +625,100 @@ export class LspClient {
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 400 * (attempt + 1)));
     }
     return [];
+  }
+
+  /**
+   * The open file's structure. Servers answer in either of two shapes and both are accepted: the
+   * hierarchical `DocumentSymbol[]` (what every bundled server returns) and the older flat
+   * `SymbolInformation[]`, whose nesting is only implied by `containerName` and is therefore reported as
+   * one level — a wrong indent is worse than none.
+   */
+  async documentSymbols(path: string): Promise<AnalysisSymbol[]> {
+    await this.ensureDocument(path);
+    await this.waitForWorkspaceReady();
+    const uri = pathToFileURL(resolve(this.root, path)).href;
+    const result = await this.requestAfterWorkspaceReady("textDocument/documentSymbol", { textDocument: { uri } });
+    return normalizeDocumentSymbols(result);
+  }
+
+  /**
+   * Who calls this, or what this calls — `textDocument/prepareCallHierarchy` then one of its follow-ups.
+   *
+   * Two round trips by design: prepare resolves the position to the symbol the server considers to be
+   * there, and the follow-up asks about THAT. Returns `supported: false` when the server does not offer
+   * the request, because "this server has no call hierarchy" and "nothing calls this" must not look the
+   * same to the reader.
+   */
+  async callHierarchy(
+    path: string, lineIndex: number, column: number, direction: "incoming" | "outgoing",
+  ): Promise<{ supported: boolean; locations: AnalysisLocation[] }> {
+    return this.hierarchy(
+      path, lineIndex, column,
+      "textDocument/prepareCallHierarchy",
+      direction === "incoming" ? "callHierarchy/incomingCalls" : "callHierarchy/outgoingCalls",
+      direction === "incoming" ? "from" : "to",
+    );
+  }
+
+  /** What this extends or implements, or what extends it — the type-hierarchy pair (LSP 3.17). */
+  async typeHierarchy(
+    path: string, lineIndex: number, column: number, direction: "supertypes" | "subtypes",
+  ): Promise<{ supported: boolean; locations: AnalysisLocation[] }> {
+    return this.hierarchy(
+      path, lineIndex, column,
+      "textDocument/prepareTypeHierarchy",
+      direction === "supertypes" ? "typeHierarchy/supertypes" : "typeHierarchy/subtypes",
+      "",
+    );
+  }
+
+  /**
+   * The shared shape of both hierarchies: prepare, then ask about the prepared item.
+   *
+   * `itemKey` is where the follow-up puts the item — call hierarchy wraps each answer in `{from}`/`{to}`
+   * alongside the ranges of the calls themselves, while the type hierarchy answers with bare items.
+   */
+  private async hierarchy(
+    path: string, lineIndex: number, column: number, prepareMethod: string, followMethod: string, itemKey: string,
+  ): Promise<{ supported: boolean; locations: AnalysisLocation[] }> {
+    await this.ensureDocument(path);
+    await this.waitForWorkspaceReady();
+    const uri = pathToFileURL(resolve(this.root, path)).href;
+    let prepared: unknown;
+    try {
+      prepared = await this.requestAfterWorkspaceReady(prepareMethod, {
+        textDocument: { uri },
+        position: { line: Math.max(0, lineIndex), character: Math.max(0, column) },
+      });
+    } catch (error) {
+      if (isMethodNotFound(error)) return { supported: false, locations: [] };
+      throw error;
+    }
+    const items = Array.isArray(prepared) ? prepared : [];
+    if (!items.length) return { supported: true, locations: [] };
+    let answer: unknown;
+    try {
+      answer = await this.requestAfterWorkspaceReady(followMethod, { item: items[0] });
+    } catch (error) {
+      if (isMethodNotFound(error)) return { supported: false, locations: [] };
+      throw error;
+    }
+    const rows = Array.isArray(answer) ? answer : [];
+    // Mapped into the shape normalizeLocationResult already reads, so URI handling (a library path, a
+    // `jrt:` class inside a JDK image) stays in one place. selectionRange is the NAME — where a jump
+    // should land — and range is the body, which is the fallback.
+    const normalized = rows.map((row) => {
+      const item = (itemKey && row && typeof row === "object" ? (row as Record<string, unknown>)[itemKey] : row) as
+        { uri?: string; name?: string; kind?: number; detail?: string; range?: unknown; selectionRange?: unknown } | undefined;
+      return {
+        uri: item?.uri,
+        targetSelectionRange: item?.selectionRange,
+        targetRange: item?.range,
+        name: item?.detail ? `${item.name} — ${item.detail}` : item?.name,
+        kind: item?.kind,
+      };
+    }).filter((item) => item.uri);
+    return { supported: true, locations: normalizeLocationResult(normalized, this.root) };
   }
 
   async workspaceSymbols(query: string): Promise<AnalysisLocation[]> {
@@ -904,7 +1020,14 @@ export class LspClient {
       if (!pending) continue;
       clearTimeout(pending.timer);
       this.pending.delete(message.id);
-      if (message.error) pending.reject(new Error(message.error.message || "language server request failed"));
+      if (message.error) {
+        // The CODE matters, not only the message: -32601 (method not found) is a server saying it does not
+        // offer this request at all, which is a different answer from "I looked and found nothing" — and
+        // the difference is exactly what a hierarchy view has to tell the reader.
+        const failure = new Error(message.error.message || "language server request failed") as Error & { code?: number };
+        failure.code = Number(message.error.code);
+        pending.reject(failure);
+      }
       else pending.resolve(message.result);
     }
   }
@@ -985,6 +1108,103 @@ export class LspClient {
     }
     this.pending.clear();
   }
+}
+
+/** A server answering "I do not implement that request" (JSON-RPC MethodNotFound), not "nothing found". */
+export function isMethodNotFound(error: unknown): boolean {
+  const code = (error as { code?: number } | undefined)?.code;
+  if (code === -32601) return true;
+  // Some servers answer an unknown method with a plain error instead of the code; their wording is
+  // consistent enough to recognise, and the cost of a false positive here is a clearer message.
+  return /unhandled method|method not found|unsupported method|no handler/i.test(errorMessage(error));
+}
+
+/** LSP SymbolKind (1-26) -> the short name the UI filters and labels by. */
+const LSP_SYMBOL_KINDS = [
+  "file", "module", "namespace", "package", "class", "method", "property", "field", "constructor",
+  "enum", "interface", "function", "variable", "constant", "string", "number", "boolean", "array",
+  "object", "key", "null", "enum-member", "struct", "event", "operator", "type-parameter",
+];
+
+export function lspSymbolKindName(kind: unknown): string {
+  const index = Number(kind) - 1;
+  return LSP_SYMBOL_KINDS[index] ?? "symbol";
+}
+
+type LspDocumentSymbolLike = {
+  name?: unknown;
+  detail?: unknown;
+  kind?: unknown;
+  range?: { start?: { line?: unknown; character?: unknown }; end?: { line?: unknown } };
+  selectionRange?: { start?: { line?: unknown; character?: unknown } };
+  location?: { range?: { start?: { line?: unknown; character?: unknown }; end?: { line?: unknown } } };
+  containerName?: unknown;
+  children?: unknown;
+};
+
+/**
+ * Flattens either documentSymbol shape into one list, in the order the file reads, with nesting.
+ *
+ * BOTH of those have to be derived rather than trusted, because the flat shape gives neither. Asked of the
+ * real typescript-language-server, `src/store.ts` came back as `SymbolInformation[]`: every symbol at the
+ * top level and `makeStore` listed before the class it is declared after. So:
+ *
+ *   order   sorted by start line. A parent always starts before its children, so this keeps the
+ *           hierarchical shape's depth-first order and fixes the flat shape's arbitrary one.
+ *   depth   counted from RANGE CONTAINMENT, not from `containerName` (a string that may name a type in
+ *           another file) and not from the reply's structure (which the flat shape does not have).
+ */
+export function normalizeDocumentSymbols(result: unknown): AnalysisSymbol[] {
+  const flat = flattenDocumentSymbols(result, 0);
+  flat.sort((a, b) => a.lineIndex - b.lineIndex || b.endLineIndex - a.endLineIndex);
+  const byContainment = flat.map((symbol) => ({
+    ...symbol,
+    depth: flat.filter((other) => other !== symbol
+      && other.lineIndex <= symbol.lineIndex
+      && symbol.endLineIndex <= other.endLineIndex
+      // A symbol cannot contain another that spans exactly the same lines — that is the same place, and
+      // one of the two would otherwise be reported as inside itself.
+      && (other.lineIndex < symbol.lineIndex || symbol.endLineIndex < other.endLineIndex)).length,
+  }));
+  if (byContainment.some((symbol) => symbol.depth > 0)) return byContainment;
+  // Containment found nothing. Either the file genuinely has no nesting (Go: a method is not inside its
+  // struct), or the server reported each symbol's range as its NAME rather than its body — which is what
+  // Eclipse JDT LS does, leaving every Java class and its methods looking like siblings. `containerName`
+  // is the second signal, used only here, and only one level deep because a single string cannot describe
+  // more than "inside that one".
+  const names = new Set(flat.map((symbol) => symbol.name));
+  return byContainment.map((symbol) => ({
+    ...symbol,
+    depth: symbol.container && symbol.container !== symbol.name && names.has(symbol.container) ? 1 : 0,
+  }));
+}
+
+function flattenDocumentSymbols(result: unknown, depth: number): AnalysisSymbol[] {
+  const values = Array.isArray(result) ? (result as LspDocumentSymbolLike[]) : [];
+  const out: AnalysisSymbol[] = [];
+  for (const value of values) {
+    const name = typeof value?.name === "string" ? value.name : "";
+    if (!name) continue;
+    // selectionRange is the NAME's position (where a jump should land); range is the whole body (how far
+    // the symbol extends). SymbolInformation has neither and carries one location instead.
+    const selection = value.selectionRange?.start ?? value.range?.start ?? value.location?.range?.start;
+    const end = value.range?.end ?? value.location?.range?.end;
+    const lineIndex = Math.max(0, Number(selection?.line) || 0);
+    out.push({
+      name,
+      detail: typeof value.detail === "string" && value.detail ? value.detail : undefined,
+      kind: lspSymbolKindName(value.kind),
+      lineIndex,
+      column: Math.max(0, Number(selection?.character) || 0),
+      endLineIndex: Math.max(lineIndex, Number(end?.line) || lineIndex),
+      depth,
+      container: typeof value.containerName === "string" && value.containerName ? value.containerName : undefined,
+    });
+    if (Array.isArray(value.children) && value.children.length) {
+      out.push(...flattenDocumentSymbols(value.children, depth + 1));
+    }
+  }
+  return out;
 }
 
 export function normalizeLocationResult(result: unknown, root: string): AnalysisLocation[] {

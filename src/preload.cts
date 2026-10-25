@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("kakapoHttp", {
   readFile: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:http-attachment", { path }),
   // `>> out.json` / `>>! out.json`.
   saveResponse: (request: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:http-save-response", request),
+  // `WEBSOCKET ws://…` — the whole exchange runs in main and comes back as a transcript.
+  sendSocket: (request: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:ws-send", request),
 });
 
 // Lets the Review menu's Cmd/Ctrl+Shift+/ accelerator open the merged review-comments view in

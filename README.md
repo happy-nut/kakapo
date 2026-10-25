@@ -127,6 +127,17 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌥A` / `⌥U` | All changes on the branch / only what is not committed yet |
 | `⌥C` | Choose the branch "all changes" is measured against |
 | `⌘B` / `⌘⌥B` / `⌘⌥O` | Find usages / implementation / workspace symbol |
+| `⌘⇧B` | Go to the declaration of this thing's **type** |
+| `⌘F12` | This file's structure — filter, then jump |
+| `⌥↓` / `⌥↑` | Next / previous symbol in this file |
+| `⌘P` | Search files by name (`store.ts:42` lands on the line) |
+| `⌘⇧E` | Recent locations — where the caret has been |
+| `⇧⇧` | Search everywhere (files, text, symbols, history) |
+| `⌘⇧T` | This file's test, or back to what it tests |
+| `⌘⌥H` / `⌘⇧H` | Call / type hierarchy — press again for the other direction |
+| `⌘U` | Go to the supertype |
+| `F3` / `⌘F3` | Bookmark this line / show every bookmark |
+| `⇧⌥1`…`⇧⌥9` / `⌥1`…`⌥9` | Number this line / go to that number |
 | `⌘↓` / `⌘`-click | Go to definition — including into library code (a dependency, a stdlib module, a bundled type stub), which opens read-only |
 | `⌥F1` | Reveal the open file in the sidebar |
 | `F2` / `⇧F2` | Next / previous problem the language server found |
@@ -138,6 +149,60 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌘,` | Settings |
 
 Settings ▸ Shortcuts lists the rest.
+
+## Getting around
+
+Most of this is IntelliJ's keymap, because most of it was already: `⌘B` usages, `⌘⌥B` implementations,
+`⌘⌥O` workspace symbols, `⌘E` recent files, `⌘⇧F` find in path, `⌘L` go to line, `⌥F1` reveal in the
+sidebar, `F2`/`⇧F2` next problem, `⌘[`/`⌘]` back and forward, `⌘↓` or `⌘`-click for a definition.
+
+What this adds:
+
+**This file's structure** (`⌘F12`) — every symbol in the open file, indented by nesting, filtered as you
+type (names only, as IntelliJ matches, and a query typed with a Korean layout still on is read as the keys
+that made it). `Enter` lands on the symbol's name. The language server answers it; where there is no server
+for the language, the same declaration index that backs Find Usages does, labelled as the heuristic it is.
+
+**Stepping by symbol** (`⌥↓` / `⌥↑`) — the next or previous symbol boundary, which is IntelliJ's
+next/previous method. Not on `⌃↓`/`⌃↑`: kakapo's shortcut table spells Command and Control the same way
+(one table, both platforms), and `⌘↓` is already Go to Definition.
+
+**Go to type declaration** (`⌘⇧B`) — where the *type* of the thing under the caret is declared, rather
+than the thing itself.
+
+**Recent locations** (`⌘⇧E`) — the back/forward history as a list rather than one `⌘[` at a time, newest
+first, with where you are now marked. `Enter` restores the whole position, diff side included.
+
+**File search** (`⌘P`) — by name, with `store.ts:42` to land on a line. Not on `⇧⌘O`, which opens a
+folder in a new window here — a desktop-app convention worth keeping.
+
+**The two hierarchies** (`⌘⌥H` calls, `⌘⇧H` types) — a tree you open a level at a time, because "who
+calls this" is only half the question and the other half is "and who calls them". `⇢` expands a row, `⇠`
+collapses it, and pressing the chord again flips the direction (IntelliJ's two tabs, one key). They are on
+`⌘` rather than IntelliJ's `⌃` for the reason above. Where the language server has no hierarchy request,
+the declaration-text heuristic answers for the languages whose syntax carries the relationship on the line
+(`class Child extends Base`, `class Worker(Base):`) — and where nothing can answer, the panel says *why*
+rather than looking like "nothing calls this".
+
+**Go to super** (`⌘U`) and **go to this file's test** (`⌘⇧T`) — the second by the naming conventions the
+bundled languages use (`.test.`/`.spec.`, `_test`, `test_`, a `Test` suffix), both ways, nearest directory
+first, so a monorepo with twenty `thing.test.ts` opens this file's.
+
+**Bookmarks** (`F3`, `⌘F3`) — a place to come back to with nothing to say about it. When there *is*
+something to say, that is a comment, which kakapo already keeps beside the code. Numbered (mnemonic)
+bookmarks too: `⇧⌥3` gives this line the number 3 and `⌥3` goes back to it from anywhere, with a number
+belonging to exactly one line. On `⌥` rather than IntelliJ's `⌃` because `⌘1`/`⌘0`/`⌘9` already mean the
+Files panel, the Changes panel and history. Bookmarks live in kakapo's own per-workspace state, never in
+the repository.
+
+**Search everywhere** (`⇧⇧`) — the launcher with every section beside it. The double tap is spelled as a
+chord in [src/shortcuts.ts](src/shortcuts.ts) and recognised by the one matcher, so it stays rebindable and
+there is no second place where a chord is written down.
+
+**Not ported.** Go to Related Symbol, which in IntelliJ is framework-specific (a template and its
+controller, a bean and its XML); `⌘⇧T` is the part of it that generalises to any project. And `⌘↑` opens
+the sidebar at the file you are in rather than IntelliJ's breadcrumb popup — the sidebar *is* kakapo's
+navigation bar, so it is the same gesture rather than a second surface for it.
 
 ## Reading a diff
 
@@ -340,7 +405,7 @@ That bundles the language servers, builds, packages the Apple Silicon app, runs 
 
 Measure performance with `npm run benchmark` (`-- --files 5000 --changed 200 --lines 120` for a larger synthetic repo).
 
-Tests run against real temporary Git repositories and the built `dist/`, covering diff, search, comments, history, LSP fallback, state persistence and the Electron layout. The user-visible flows are listed in [test/USER_FLOWS.md](test/USER_FLOWS.md).
+Tests run against real temporary Git repositories and the built `dist/`, covering diff, search, comments, history, LSP fallback, state persistence and the Electron layout. Two checks go further than the suite can: `npm run mermaid:smoke` and `npm run nav:smoke` launch the real app and drive it over the Chrome DevTools Protocol — real key events, the real language server, and `getComputedStyle` on what was drawn. That is where a structure list with no nesting (tsserver answers in the flat symbol shape) and a bookmark mark that painted nothing (`attr()` on a pseudo-element reads the cell's attributes, not the row's) were caught; neither is visible to jsdom. Set `KAKAPO_SMOKE_SHOTS=<dir>` to keep screenshots from a run. The user-visible flows are listed in [test/USER_FLOWS.md](test/USER_FLOWS.md).
 
 ## Design principles
 

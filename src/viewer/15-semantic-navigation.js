@@ -121,7 +121,9 @@ function showSemanticNavigationFailure(kind, name, response) {
   var key = pending ? 'monaco.analysisPending'
     : kind === 'references' ? 'monaco.referencesNotFound'
       : kind === 'implementation' ? 'monaco.implementationNotFound'
-        : kind === 'symbol' ? 'monaco.noSymbol' : 'monaco.definitionNotFound';
+        : kind === 'typeDefinition' ? 'monaco.typeNotFound'
+          : kind === 'supertypes' ? 'monaco.superNotFound'
+            : kind === 'symbol' ? 'monaco.noSymbol' : 'monaco.definitionNotFound';
   var message = t(key).replace('{symbol}', String(name || ''));
   closeSemanticPeek();
   showCaretHint(message);

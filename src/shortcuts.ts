@@ -42,7 +42,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "compareMode", keys: ["⌥A", "⌥U"], where: "any", i18n: "kbd.compareMode" },
   { id: "compareRef", keys: ["⌥C"], where: "any", i18n: "kbd.compareRef" },
   { id: "gotoLine", keys: ["⌘L"], where: "code", i18n: "kbd.gotoLine" },
-  { id: "revealInTree", keys: ["⌥F1"], where: "any", i18n: "kbd.revealInTree" },
+  { id: "revealInTree", keys: ["⌥F1", "⌘↑"], where: "any", i18n: "kbd.revealInTree" },
   { id: "rowActions", keys: ["⌥Enter"], where: "tree", i18n: "kbd.rowActions", fixed: "structural" },
   { id: "closeDialog", keys: ["Esc"], where: "any", i18n: "kbd.closeDialog", fixed: "structural" },
 
@@ -70,6 +70,35 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "goToImplementation", keys: ["⌘⌥B"], where: "code", i18n: "kbd.goToImplementation" },
   { id: "workspaceSymbol", keys: ["⌘⌥O"], where: "any", i18n: "kbd.workspaceSymbol" },
   { id: "goToDef", keys: ["⌘↓"], where: "code", i18n: "kbd.goToDef" },
+  // IntelliJ's Go to Type Declaration, its structure popup and its Recent Locations, on IntelliJ's own
+  // chords. Next/previous symbol is the one that could not keep its chord: this table folds Ctrl into ⌘
+  // (one spelling for both platforms), so ⌃↓ and ⌘↓ are the same row — and ⌘↓ is Go to Definition.
+  { id: "typeDeclaration", keys: ["⌘⇧B"], where: "code", i18n: "kbd.typeDeclaration" },
+  { id: "fileStructure", keys: ["⌘F12"], where: "code", i18n: "kbd.fileStructure" },
+  { id: "nextPrevSymbol", keys: ["⌥↓", "⌥↑"], where: "code", i18n: "kbd.nextPrevSymbol" },
+  { id: "recentLocations", keys: ["⌘⇧E"], where: "any", i18n: "kbd.recentLocations" },
+  // ⇧⌘O (IntelliJ's Go to File) is Open in New Window here, which is a desktop-app convention worth
+  // keeping; ⌘P is the other chord every editor uses for "go to a file by name".
+  { id: "searchFiles", keys: ["⌘P"], where: "any", i18n: "kbd.searchFiles" },
+  // IntelliJ's Search Everywhere, on its own chord. A double tap is spelled as a chord here and
+  // recognised by the one matcher (00-shortcuts.js) — not by a second handler with its own timing.
+  { id: "searchEverywhere", keys: ["⇧⇧"], where: "any", i18n: "kbd.searchEverywhere" },
+  // The file's counterpart: its test, or the source the test is for. Convention-based, as IntelliJ's is.
+  { id: "goToTest", keys: ["⌘⇧T"], where: "any", i18n: "kbd.goToTest" },
+  // The two hierarchies. IntelliJ puts them on ⌃H and ⌃⌥H; this table spells Control and Command the
+  // same way, so they take the ⌘ forms — and pressing the same chord again flips the direction, which is
+  // what IntelliJ's two tabs do.
+  { id: "typeHierarchy", keys: ["⌘⇧H"], where: "code", i18n: "kbd.typeHierarchy" },
+  { id: "callHierarchy", keys: ["⌘⌥H"], where: "code", i18n: "kbd.callHierarchy" },
+  { id: "goToSuper", keys: ["⌘U"], where: "code", i18n: "kbd.goToSuper" },
+  // A place to come back to, with nothing to say about it — IntelliJ's F3. A comment is the right thing
+  // when there IS something to say, and kakapo already keeps those beside the code.
+  { id: "toggleBookmark", keys: ["F3"], where: "code", i18n: "kbd.toggleBookmark" },
+  { id: "showBookmarks", keys: ["⌘F3"], where: "any", i18n: "kbd.showBookmarks" },
+  // IntelliJ's mnemonic bookmarks: a digit per line. On ⌥ rather than ⌃ for the same reason as above —
+  // ⌘1/⌘0/⌘9 are already the Files panel, the Changes panel and history.
+  { id: "assignBookmark", keys: ["⇧⌥1", "⇧⌥2", "⇧⌥3", "⇧⌥4", "⇧⌥5", "⇧⌥6", "⇧⌥7", "⇧⌥8", "⇧⌥9"], where: "code", i18n: "kbd.assignBookmark" },
+  { id: "jumpBookmark", keys: ["⌥1", "⌥2", "⌥3", "⌥4", "⌥5", "⌥6", "⌥7", "⌥8", "⌥9"], where: "any", i18n: "kbd.jumpBookmark" },
   { id: "toggleFold", keys: ["⌘."], where: "code", i18n: "kbd.toggleFold" },
   { id: "prevNextTab", keys: ["⌘⇧[", "⌘⇧]"], where: "code", i18n: "kbd.prevNextTab" },
   { id: "cursorBackForward", keys: ["⌘[", "⌘]"], where: "code", i18n: "kbd.cursorBackForward" },
@@ -136,8 +165,11 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   { i18n: "settings.kbd.cat.nav", ids: [
     "nextChange", "prevChange", "nextComment", "commentStepAlt", "gotoDiagnostic", "filesChangesTab",
     "sidebarNavigate", "sidebarContent", "findInFile", "findNextPrev", "findEnter", "findInFiles", "recentFiles",
-    "searchExtensions", "excludeSearchNoise", "defUsages", "goToImplementation", "workspaceSymbol",
-    "goToDef", "toggleFold", "prevNextTab", "cursorBackForward",
+    "searchExtensions", "excludeSearchNoise", "searchFiles", "searchEverywhere", "goToTest",
+    "defUsages", "goToImplementation",
+    "workspaceSymbol", "goToDef", "typeDeclaration", "fileStructure", "nextPrevSymbol", "recentLocations", "typeHierarchy", "callHierarchy", "goToSuper",
+    "toggleBookmark", "showBookmarks", "assignBookmark", "jumpBookmark",
+    "toggleFold", "prevNextTab", "cursorBackForward",
   ] },
   { i18n: "settings.kbd.cat.editor", ids: [
     "moveCaret", "wordJump", "lineStartEnd", "extendSelection", "selectEditor", "copyLocation",

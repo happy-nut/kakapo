@@ -120,6 +120,33 @@ export type HttpSendResult = {
   durationMs: number;
 };
 
+/** One line of a WebSocket exchange, as the response panel reads it back. */
+export type WebSocketTranscriptEntry = {
+  direction: "open" | "out" | "in" | "close";
+  text: string;
+  /** Milliseconds since the request started — the order and the pace are both part of the answer. */
+  at: number;
+};
+
+export type WebSocketSendRequest = {
+  url: string;
+  /** `Sec-WebSocket-Protocol`, the one header a browser-shaped WebSocket client can carry. */
+  protocols?: string[];
+  /** The messages the file lists, in order. `waitForServer` is `=== wait-for-server`. */
+  messages: { text?: string; waitForServer?: boolean }[];
+  /** `# @timeout`, as the whole exchange's deadline. */
+  timeoutMs?: number;
+  /** How long a silent socket is given before the exchange is called finished. */
+  idleMs?: number;
+};
+
+export type WebSocketSendResult = {
+  ok: boolean;
+  transcript: WebSocketTranscriptEntry[];
+  durationMs: number;
+  error?: string;
+};
+
 /** A file the .http runner asks main to read: an external body, a handler script, or a multipart part. */
 export type HttpAttachment = {
   ok: boolean;

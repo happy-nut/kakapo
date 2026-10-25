@@ -148,6 +148,14 @@ async function resolveHttpRequest(request, scope) {
   return { request: payload };
 }
 
+/** The WebSocket half of the bridge; absent in a browser review, like sendHttp's. */
+function sendSocket(request) {
+  if (window.kakapoHttp && typeof window.kakapoHttp.sendSocket === 'function') {
+    return Promise.resolve(window.kakapoHttp.sendSocket(request));
+  }
+  return Promise.resolve({ ok: false, transcript: [], durationMs: 0, error: t('http.needsApp') });
+}
+
 function sendHttp(request) {
   if (window.kakapoHttp && typeof window.kakapoHttp.send === 'function') {
     return Promise.resolve(window.kakapoHttp.send(request));
@@ -185,6 +193,10 @@ async function runHttpRequest(reqIndex, pathOverride, targetOverride) {
 
   if (request.kind === 'unsupported') {
     fail(t('http.unsupportedProtocol').replace('{method}', request.method));
+    return;
+  }
+  if (request.kind === 'websocket') {
+    await runWebSocketRequest(request, path, reqIndex, target, fail);
     return;
   }
 
@@ -339,4 +351,39 @@ async function copyHttpAsCurl(reqIndex, pathOverride) {
   copyTextToClipboard(command);
   showToast(t('http.copiedCurl'));
   return true;
+}
+
+/**
+ * A WEBSOCKET request: open the socket, send what the file lists, show the transcript.
+ *
+ * Shares the variable scope and the `@timeout` directive with every other request, and nothing else —
+ * there is no status line, no headers and no body to save, because what came back is an exchange rather
+ * than a response.
+ */
+async function runWebSocketRequest(request, path, reqIndex, target, fail) {
+  const scope = httpScope(path, reqIndex);
+  const url = applyHttpVars(request.url, scope, 0);
+  const unresolved = httpUnresolvedVar(request.url + ' ' + (request.body || ''), scope);
+  if (unresolved) { fail(t('http.unresolved').replace(/\{name\}/g, unresolved)); return; }
+  const protocols = request.headers
+    .filter(function (header) { return header.name.toLowerCase() === 'sec-websocket-protocol'; })
+    .map(function (header) { return applyHttpVars(header.value, scope, 0); })
+    .join(',')
+    .split(',')
+    .map(function (value) { return value.trim(); })
+    .filter(Boolean);
+  const messages = splitSocketMessages(applyHttpVars(request.body, scope, 0));
+  if (target) {
+    target.className = 'http-response loading';
+    target.innerHTML = kakapoLoaderHtml('kakapo-loader-inline') + '<span class="http-loading-copy">'
+      + escapeHtml('WEBSOCKET ' + url) + '</span>';
+  }
+  const result = await sendSocket({
+    url: url,
+    protocols: protocols,
+    messages: messages,
+    timeoutMs: request.directives.timeoutMs,
+  });
+  if (target) renderWebSocketTranscript(target, result);
+  return result;
 }

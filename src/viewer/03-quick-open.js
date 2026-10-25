@@ -37,8 +37,28 @@ function openQuickOpen(mode, hideRail) {
       ? t('quickopen.findInFiles')
       : mode === 'symbol'
         ? t('quickopen.workspaceSymbols')
-        : t('quickopen.searchFiles');
-  quickInput.setAttribute('placeholder', mode === 'symbol' ? t('quickopen.workspaceSymbols') : mode === 'content' ? t('quickopen.findInFiles') : t('quickopen.searchFiles'));
+        : mode === 'structure'
+          ? t('structure.title')
+          : mode === 'locations'
+            ? t('locations.title')
+            : mode === 'hierarchy'
+              ? t('hierarchy.title')
+              : mode === 'bookmarks'
+                ? t('bookmark.title')
+                : t('quickopen.searchFiles');
+  quickInput.setAttribute('placeholder', mode === 'symbol'
+    ? t('quickopen.workspaceSymbols')
+    : mode === 'content'
+      ? t('quickopen.findInFiles')
+      : mode === 'structure'
+        ? t('structure.placeholder')
+        : mode === 'locations'
+          ? t('locations.placeholder')
+          : mode === 'hierarchy'
+            ? t('hierarchy.placeholder')
+            : mode === 'bookmarks'
+              ? t('bookmark.placeholder')
+              : t('quickopen.searchFiles'));
   quickOpen.classList.remove('hidden');
   // Recent files needs no search box — it's just the latest files. Hide the input and let typed letters
   // narrow the list (IntelliJ-style speed search); the global keydown routes keys to handleQuickOpenKey.
@@ -97,6 +117,12 @@ function updateRecentFilterDisplay() {
 
 function closeQuickOpen() {
   setQuickOpenOwnsEditKeys(false);
+  // Hand the keyboard back explicitly. Chromium drops focus from an element that becomes display:none, so
+  // in the app the focus would move on its own — but relying on that leaves the keyboard scope reading
+  // "a text field is focused" in any environment that does not (jsdom), and every code-level shortcut
+  // stands down while that is true. Saying it is cheaper than depending on it.
+  var focused = document.activeElement;
+  if (focused && quickOpen && quickOpen.contains(focused) && focused.blur) focused.blur();
   quickOpen?.classList.add('hidden');
   quickPreviewState = null;
   if (quickPreviewScrollFrame) cancelAnimationFrame(quickPreviewScrollFrame);
@@ -139,6 +165,9 @@ document.addEventListener('focusout', function () {
 });
 
 function handleQuickOpenKey(event) {
+  // The hierarchy is a tree: ⇢ expands a row, ⇠ collapses it. Asked first, because ArrowLeft otherwise
+  // steps out to the section rail.
+  if (handleHierarchyKey(event)) return true;
   var sideItem = focusedQuickSideItem();
   if (sideItem) {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -273,6 +302,10 @@ function renderQuickOpenResults() {
   const rawQuery = (isRecent ? recentFilter : (quickInput?.value || '')).trim();
   if (quickMode === 'content') { renderContentSearchResults(rawQuery); return; }
   if (quickMode === 'symbol') { renderWorkspaceSymbolResults(rawQuery); return; }
+  if (quickMode === 'structure') { renderFileStructureResults(rawQuery); return; }
+  if (quickMode === 'locations') { renderRecentLocationResults(rawQuery); return; }
+  if (quickMode === 'hierarchy') { renderHierarchyResults(rawQuery); return; }
+  if (quickMode === 'bookmarks') { renderBookmarkResults(rawQuery); return; }
   if (!isRecent && !rawQuery) {
     quickItems = [];
     quickActive = 0;
@@ -286,7 +319,12 @@ function renderQuickOpenResults() {
         && String(quickInput && quickInput.value || '').trim()) renderQuickOpenResults();
     });
   }
-  const query = rawQuery.toLowerCase();
+  // `app.ts:42` — the line to land on, written after the file name, as IntelliJ's Go to File accepts it.
+  // Stripped before matching (nothing is named "app.ts:42") and carried on a COPY of the item, so the
+  // shared index entry does not keep a line number from an earlier search.
+  const lineSuffix = /^(.*\S)\s*:(\d+)(?::\d+)?$/.exec(rawQuery);
+  const gotoLine = lineSuffix ? Math.max(1, Number(lineSuffix[2])) : 0;
+  const query = (lineSuffix ? lineSuffix[1] : rawQuery).toLowerCase();
   const queries = queryVariants(query);
   const candidates = isRecent ? recentItems() : allQuickItems();
   quickItems = candidates
@@ -300,7 +338,8 @@ function renderQuickOpenResults() {
       return queries.some((variant) => hay.includes(variant));
     })
     .sort((a, b) => scoreQuickItem(a, matchedQuery(a, queries)) - scoreQuickItem(b, matchedQuery(b, queries)) || a.path.localeCompare(b.path))
-    .slice(0, 80);
+    .slice(0, 80)
+    .map((item) => (gotoLine ? Object.assign({}, item, { kind: 'symbol', lineIndex: gotoLine - 1, column: 0 }) : item));
   quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
   if (quickItems.length === 0) {
     quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.noFiles')) + '</div>';
@@ -735,6 +774,9 @@ document.getElementById('quick-open-preview')?.addEventListener('scroll', handle
 
 function openQuickItem(item) {
   if (!item) return;
+  // A recent location is a position (which pane, which side, which line), not a file — restoring it is a
+  // different act from opening its path.
+  if (openRecentLocationItem(item)) return;
   closeQuickOpen();
   rememberRecent(item.path, item.kind);
   if ((item.kind === 'search' || item.kind === 'symbol') && sourceByPath.has(item.path)) {

@@ -32,14 +32,15 @@ test("a rebound key drives the dispatcher, the sheet and the tooltips together",
 
   assert.deepEqual(chipsOf(rowFor(v, "openHistory")), ["⌘9"], "it starts on the table's default");
 
-  rebind(v, "openHistory", 0, { key: "h", code: "KeyH", metaKey: true, altKey: true });
+  // Any combination the table does not already hold will do — ⌘⌥J is one (⌘⌥B, ⌘⌥H and ⌘⌥O are not).
+  rebind(v, "openHistory", 0, { key: "j", code: "KeyJ", metaKey: true, altKey: true });
 
   // 1. the sheet
-  assert.deepEqual(chipsOf(rowFor(v, "openHistory")), ["⌘⌥H"], "the row shows the new combination");
+  assert.deepEqual(chipsOf(rowFor(v, "openHistory")), ["⌘⌥J"], "the row shows the new combination");
   assert.ok(rowFor(v, "openHistory").classList.contains("keys-row-custom"), "and is marked as changed");
 
   // 2. the dispatcher
-  const hitNew = w.shortcutHit(new w.KeyboardEvent("keydown", { key: "h", code: "KeyH", metaKey: true, altKey: true }));
+  const hitNew = w.shortcutHit(new w.KeyboardEvent("keydown", { key: "j", code: "KeyJ", metaKey: true, altKey: true }));
   assert.equal(hitNew?.id, "openHistory", "the new combination reaches the action");
   const hitOld = w.shortcutHit(new w.KeyboardEvent("keydown", { key: "9", code: "Digit9", metaKey: true }));
   assert.equal(hitOld, null, "and the old one no longer does");
@@ -47,7 +48,7 @@ test("a rebound key drives the dispatcher, the sheet and the tooltips together",
   // 3. the hint on every control that advertises the same action
   const hinted = v.$all('[data-keyhint-id="openHistory"]');
   assert.ok(hinted.length >= 1, "something advertises this shortcut");
-  for (const el of hinted) assert.equal(el.dataset.keyhint, "⌘⌥H", "its hint followed the rebind");
+  for (const el of hinted) assert.equal(el.dataset.keyhint, "⌘⌥J", "its hint followed the rebind");
 
   v.close();
 });
@@ -101,9 +102,10 @@ test("a key the page does not own cannot be clicked away", async () => {
 test("one row and all rows can be put back", async () => {
   const v = await loadViewer(html);
 
-  rebind(v, "openHistory", 0, { key: "h", code: "KeyH", metaKey: true, altKey: true });
+  // Any combination the table does not already hold will do — ⌘⌥J is one (⌘⌥B, ⌘⌥H and ⌘⌥O are not).
+  rebind(v, "openHistory", 0, { key: "j", code: "KeyJ", metaKey: true, altKey: true });
   rebind(v, "defUsages", 0, { key: "u", code: "KeyU", metaKey: true, altKey: true });
-  assert.deepEqual(chipsOf(rowFor(v, "openHistory")), ["⌘⌥H"]);
+  assert.deepEqual(chipsOf(rowFor(v, "openHistory")), ["⌘⌥J"]);
   assert.deepEqual(chipsOf(rowFor(v, "defUsages")), ["⌘⌥U"]);
 
   v.click(rowFor(v, "openHistory").querySelector(".keys-reset"));

@@ -199,8 +199,12 @@ test("the viewer tells a found-in-revision answer apart from a still-indexing on
     "a revision answer is excluded from the still-indexing label");
   assert.match(client, /monaco\.analysisRevisionMatched/, "and gets its own, which names the revision");
   assert.match(client, /monaco\.analysisRevision'/, "the unreadable-revision decline still has a message");
+  // One per navigation that asks the analysis layer a question and then JUMPS somewhere with the answer:
+  // definition-or-usages, find usages, implementation, type declaration, supertype. A new one belongs in
+  // this count — which is the point of counting rather than sampling. (The structure popup and the two
+  // hierarchies are not here: they render the decline in their own panel instead of jumping.)
   const sites = client.match(/if \(declinedForRevision\(response, name\)\) return;/g) || [];
-  assert.equal(sites.length, 3, `definition, references and implementation each check the decline (found ${sites.length})`);
+  assert.equal(sites.length, 5, `every jumping navigation checks the decline (found ${sites.length})`);
 });
 
 // readSource, which is the actual routing point: four call sites used to read the working tree directly.

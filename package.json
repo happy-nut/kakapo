@@ -40,6 +40,8 @@
     "lsp:install": "node scripts/install-language-servers.mjs",
     "lsp:smoke": "node --test test/language-server-bundles.test.mjs",
     "mermaid:smoke": "npm run build && node scripts/mermaid-smoke.mjs run",
+    "nav:smoke": "npm run build && node scripts/navigation-smoke.mjs",
+    "review:smoke": "npm run build && node scripts/review-smoke.mjs",
     "smoke": "npm run build && node dist/cli.js --help",
     "pretest": "npm run build",
     "test": "node --test --test-concurrency=1 test/*.test.mjs",

@@ -1,7 +1,10 @@
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute } from "node:path";
-import type { HttpAttachment, HttpSaveRequest, HttpSaveResult, HttpSendRequest } from "./types.js";
+import type {
+  HttpAttachment, HttpSaveRequest, HttpSaveResult, HttpSendRequest, WebSocketSendRequest,
+} from "./types.js";
+import { performWebSocketRequest } from "./http-socket.js";
 import { readHttpAttachment, saveHttpResponse } from "./http-files.js";
 
 // diff2html + highlight.js, reached through cli.js, cost ~100ms to parse — and the main process needs them
@@ -85,6 +88,10 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     const state = stateFromEvent(event);
     return (await buildTools()).performHttpRequest(request, { root: state?.options.root, userData });
   });
+
+  // `WEBSOCKET ws://…`: the messages the file lists, sent in order, and the transcript handed back.
+  // Node's own WebSocket client does the work, so this costs no dependency (http-socket.ts).
+  ipc.handle("kakapo:ws-send", (_event, request: WebSocketSendRequest) => performWebSocketRequest(request));
 
   // `<@ ./body.json` (a body whose {{variables}} the renderer has to substitute) and `> ./handler.js`
   // (a script the renderer has to run) are the two cases where the renderer needs the TEXT of a file.
