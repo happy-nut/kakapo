@@ -46,6 +46,7 @@ async function findUsagesOf(name, explicitLoc) {
   var response = await queryProjectAnalysis('references', name, loc);
   clearTimeout(pending);
   hideCaretHint();
+  if (declinedForRevision(response)) return;
   // The declaration the caret is sitting on is not one of its usages. Some servers report it, and a lone
   // self-hit then "navigated" to the line the caret was already on, which looks exactly like nothing.
   var items = ((response && response.locations) || []).filter(function (item) {
@@ -78,7 +79,27 @@ function analysisStillArriving() {
   var phase = (document.getElementById('analysis-status') || { dataset: {} }).dataset.phase;
   return phase === 'starting' || phase === 'indexing';
 }
+// The analyzer declined because the canvas is showing a revision and it only knows the working tree.
+// Checked wherever an answer is consumed, and checked BEFORE the standalone in-memory scan: that scan
+// reads the rendered DOM and would happily answer, which is the same wrong jump by another route.
+function revisionDecline(response) {
+  return response && response.declined === 'revision' ? String(response.declinedRevision || '') : null;
+}
+function showRevisionDecline(revision) {
+  closeSemanticPeek();
+  showCaretHint(t('monaco.analysisRevision').replace('{revision}', revision || '—'));
+}
+// One line per call site, so every surface that asks the analyzer a question stops at the same boundary.
+// Returns true when the caller should go no further — including past its own local fallback.
+function declinedForRevision(response) {
+  var revision = revisionDecline(response);
+  if (revision === null) return false;
+  showRevisionDecline(revision);
+  return true;
+}
 function showSemanticNavigationFailure(kind, name, response) {
+  var revision = revisionDecline(response);
+  if (revision !== null) { showRevisionDecline(revision); return; }
   // `fallbackReason` is only set when the semantic answer could not be obtained, so this is "could not
   // ask", not "asked and there is nothing". Standalone HTML has no server at all and no reason either.
   var pending = Boolean(response && response.engine !== 'lsp' && response.fallbackReason);
@@ -98,6 +119,9 @@ async function goToDefOrUsages(name, explicitLoc) {
   var response = await queryProjectAnalysis('definition', name, loc);
   clearTimeout(pending);
   hideCaretHint(); // the wait is over, whatever the answer is; failures put their own message up below
+  // Before the `ok` branch AND before the standalone scan below it: a decline is neither an answer nor a
+  // failure to find one, and the local scan would read the rendered DOM and jump anyway.
+  if (declinedForRevision(response)) return;
   if (response && response.ok) {
     var defs = response.locations || [];
     // An answer from the regex index while a language server exists is a guess at what the server would
@@ -155,6 +179,7 @@ async function goToImplementation() {
   var loc = symbol || caretSourceLoc();
   if (!name || !loc) { showSemanticNavigationFailure('symbol'); return; }
   var response = await queryProjectAnalysis('implementation', name, loc);
+  if (declinedForRevision(response)) return;
   var items = response && response.locations || [];
   if (items.length === 1) { openSourceAt(items[0].path, items[0].lineIndex, items[0].column); return; }
   openAnalysisUsages(name, items, response, 'implementation');

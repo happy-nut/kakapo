@@ -48,6 +48,13 @@ export type AnalysisResponse = {
   locations: AnalysisLocation[];
   fallbackReason?: string;
   error?: string;
+  /**
+   * Set when the question could not be asked at all, as opposed to asked and answered with nothing.
+   * `"revision"`: the review is showing a revision, and this analyzer only knows the working tree.
+   */
+  declined?: "revision";
+  /** The revision on screen when `declined` is "revision", for the message the reviewer gets. */
+  declinedRevision?: string;
 };
 
 export type DiagnosticsResponse = {
@@ -136,8 +143,30 @@ function locationFilePath(root: string, path: string): string {
   return isAbsolute(path) ? path : join(root, path);
 }
 
+/**
+ * Is the review showing something other than the working tree?
+ *
+ * `undefined` and the literal `"worktree"` both mean the files on disk, which is what this analyzer reads.
+ * Anything else is an A→B compare whose right side is a revision (app-main.ts: "exact right/new side
+ * revision for an A→B compare"), and the same test already guards path existence in app-path-ipc.ts.
+ */
+function readingARevision(target: string | undefined): target is string {
+  return Boolean(target) && target !== "worktree";
+}
+
 export class ProjectAnalysis {
   private indexPromise?: Promise<RegexIndex>;
+  /**
+   * The revision the review is currently showing, when it is not the working tree.
+   *
+   * Everything this class reads comes from `locationFilePath`, i.e. from disk, so when the canvas is
+   * showing revision B the index describes a DIFFERENT text than the one being read. That mismatch has two
+   * shapes and the second is the dangerous one: a symbol that was renamed answers with nothing (which at
+   * least looks like an answer of "none"), while a symbol that merely MOVED answers with the file it lives
+   * in today — a file that may not have existed in the revision on screen — and nothing distinguishes that
+   * from a correct jump. So navigation declines here rather than guessing.
+   */
+  private reviewTarget?: string;
   private clients = new Map<string, LspClient>();
   private failedServers = new Set<string>();
   private readonly resolveServer: (root: string, path: string) => LanguageServerCommand | undefined;
@@ -261,6 +290,15 @@ export class ProjectAnalysis {
     });
   }
 
+  /**
+   * Tell the analyzer which revision the review is showing. Called wherever the review's target is applied,
+   * so the two cannot drift: a compare that moves to a revision silently is exactly the state this exists
+   * to make visible. `undefined` or "worktree" restores ordinary navigation.
+   */
+  setReviewTarget(target: string | undefined): void {
+    this.reviewTarget = readingARevision(target) ? target : undefined;
+  }
+
   invalidate(): void {
     this.indexPromise = undefined;
     this.indexedSignatures.clear();
@@ -350,6 +388,13 @@ export class ProjectAnalysis {
     if (!relative) {
       return { ok: false, generation, available: false, engine: "index", diagnostics: [], error: "A project-relative source path is required" };
     }
+    // A language server reads the working tree, so on a revision its diagnostics describe different text:
+    // the line numbers still land, which is what makes it bad — squiggles appear on revision-B lines for
+    // problems in the file as it is today. `available: false` is the existing way to say "nothing can
+    // judge this file", and that is exactly true here.
+    if (this.reviewTarget) {
+      return { ok: true, generation, available: false, engine: "index", diagnostics: [] };
+    }
     const client = this.clientFor(relative);
     if (!client) return { ok: true, generation, available: false, engine: "index", diagnostics: [] };
     try {
@@ -363,6 +408,21 @@ export class ProjectAnalysis {
 
   private async runQuery(request: AnalysisRequest): Promise<AnalysisResult> {
     const path = safeRelativePath(this.root, request.path);
+    // Before anything is read: this analyzer only knows the working tree, so when the canvas is showing a
+    // revision it has nothing to say about what is on screen. Declining is not a lesser answer here — the
+    // alternative is a confident jump into a file from a different revision, which reads exactly like a
+    // correct one. Every kind goes through this, workspaceSymbol included: a symbol list for the wrong
+    // revision is the same lie in a different shape.
+    if (this.reviewTarget) {
+      return {
+        ok: false,
+        engine: "index",
+        confidence: "heuristic",
+        locations: [],
+        declined: "revision",
+        declinedRevision: this.reviewTarget,
+      };
+    }
     try {
       if (request.kind === "workspaceSymbol") return await this.workspaceSymbols(path, request.query ?? request.symbol ?? "", request.limit);
       if (!path) return { ok: false, engine: "index", confidence: "heuristic", locations: [], error: "A project-relative source path is required" };
