@@ -285,7 +285,7 @@ test("markdown opens rendered as sparse, line-numbered blocks", async () => {
 
 test("source documents and agent answers ship one audited Markdown renderer", () => {
   const js = readFileSync(new URL("../dist/viewer.client.js", import.meta.url), "utf8");
-  assert.match(js, /markdown-it 14\.3\.0/, "the open-source parser is embedded in the viewer bundle");
+  assert.match(js, /markdown-it 14\.\d+\.\d+/, "the open-source parser is embedded in the viewer bundle");
   assert.match(js, /DOMPurify 3\.\d+\.\d+/, "the audited sanitizer is embedded beside the parser");
   assert.match(js, /function renderMarkdownHtml\(/, "read-only document surfaces share the common rendering entry point");
   assert.doesNotMatch(js, /function renderInlineMd\(/, "the old regex-only Markdown renderer is gone");

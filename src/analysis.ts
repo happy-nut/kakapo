@@ -12,6 +12,7 @@ import { searchProject } from "./search.js";
 import { errorMessage } from "./util.js";
 import {
   buildProjectIndex,
+  buildProjectIndexAtRevision,
   buildRegexSymbolIndex,
   documentPath,
   identifierSpanAt,
@@ -49,12 +50,18 @@ export type AnalysisResponse = {
   fallbackReason?: string;
   error?: string;
   /**
+   * Set whenever this answer describes a REVISION rather than the working tree, whether or not it found
+   * anything. Such an answer can only ever come from the index — no language server can be pointed at a
+   * revision — so it is name-matched by construction, and the reviewer has to be told that in different
+   * words from "still indexing": nothing is indexing, and no better answer is coming later.
+   */
+  revision?: string;
+  /**
    * Set when the question could not be asked at all, as opposed to asked and answered with nothing.
-   * `"revision"`: the review is showing a revision, and this analyzer only knows the working tree.
+   * `"revision"`: that revision could not be read, so an empty answer would mean "nothing there" when it
+   * actually means "nothing was looked at".
    */
   declined?: "revision";
-  /** The revision on screen when `declined` is "revision", for the message the reviewer gets. */
-  declinedRevision?: string;
 };
 
 export type DiagnosticsResponse = {
@@ -167,6 +174,8 @@ export class ProjectAnalysis {
    * from a correct jump. So navigation declines here rather than guessing.
    */
   private reviewTarget?: string;
+  /** Built indexes keyed by revision. A revision's tree is immutable, so these never need invalidating. */
+  private revisionIndexes = new Map<string, Promise<RegexIndex>>();
   private clients = new Map<string, LspClient>();
   private failedServers = new Set<string>();
   private readonly resolveServer: (root: string, path: string) => LanguageServerCommand | undefined;
@@ -213,6 +222,9 @@ export class ProjectAnalysis {
    * Returns what it did, so a test can tell a real patch from an accidental full rebuild.
    */
   syncIndex(files: IndexedFileState[]): Promise<"seeded" | "unchanged" | "patched" | "rebuilt"> {
+    // Saves happen in the working tree. A revision's tree cannot change, so there is nothing to patch and
+    // patching would touch the OTHER index — the working-tree one, which is not what is being served.
+    if (this.reviewTarget) return Promise.resolve("unchanged");
     // One at a time. Rebuilds arrive as fast as files are saved — a watch session, or an agent writing a
     // directory — and two overlapping syncs read the same signature map before either writes it, so the
     // second records its content under the first's signature and the NEXT save sees "unchanged" and skips a
@@ -408,32 +420,33 @@ export class ProjectAnalysis {
 
   private async runQuery(request: AnalysisRequest): Promise<AnalysisResult> {
     const path = safeRelativePath(this.root, request.path);
-    // Before anything is read: this analyzer only knows the working tree, so when the canvas is showing a
-    // revision it has nothing to say about what is on screen. Declining is not a lesser answer here — the
-    // alternative is a confident jump into a file from a different revision, which reads exactly like a
-    // correct one. Every kind goes through this, workspaceSymbol included: a symbol list for the wrong
-    // revision is the same lie in a different shape.
-    if (this.reviewTarget) {
-      return {
-        ok: false,
-        engine: "index",
-        confidence: "heuristic",
-        locations: [],
-        declined: "revision",
-        declinedRevision: this.reviewTarget,
-      };
+    // A language server reads the working tree and cannot be pointed at a revision without materializing
+    // files, so on a revision it is not asked at all: an answer from a server about today's text, offered
+    // while the canvas shows commit B, is the confident-but-wrong jump this whole branch exists to stop.
+    // The index, by contrast, is built FROM the revision (see getIndex), so it answers about what is on
+    // screen — heuristically, which is the honest grade for a name-matching index and is already how this
+    // app labels an index answer.
+    const revision = this.reviewTarget;
+    const onRevision = Boolean(revision);
+    // (B) introduced a new way to be silently empty: a revision whose tree could not be read at all yields
+    // an index with no files, and then every answer is `[]` — "nothing there" when the truth is "nothing was
+    // looked at". That is the exact failure this branch set out to remove, so it is declined by name.
+    if (revision && (await this.getIndex()).files.size === 0) {
+      return { ok: false, engine: "index", confidence: "heuristic", locations: [], revision, declined: "revision" };
     }
     try {
       if (request.kind === "workspaceSymbol") return await this.workspaceSymbols(path, request.query ?? request.symbol ?? "", request.limit);
-      if (!path) return { ok: false, engine: "index", confidence: "heuristic", locations: [], error: "A project-relative source path is required" };
+      if (!path) return { ok: false, engine: "index", confidence: "heuristic", locations: [], revision, error: "A project-relative source path is required" };
       const context = await this.symbolContext(path, request.line, request.column, request.symbol);
-      if (!context.symbol) return { ok: true, engine: "index", confidence: "heuristic", locations: [], symbol: "" };
+      if (!context.symbol) return { ok: true, engine: "index", confidence: "heuristic", locations: [], revision, symbol: "" };
       const method = request.kind === "definition"
         ? "textDocument/definition"
         : request.kind === "references"
           ? "textDocument/references"
           : "textDocument/implementation";
-      const lsp = await this.lspLocations(path, context.lineIndex, context.column, method, context.symbol);
+      const lsp = onRevision
+        ? { locations: [], server: undefined, serverSource: undefined, fallbackReason: `Reading ${this.reviewTarget}, which no language server can be pointed at` }
+        : await this.lspLocations(path, context.lineIndex, context.column, method, context.symbol);
       const semanticLocations = await this.navigationLocations(lsp.locations);
       if (semanticLocations.length) {
         return {
@@ -455,6 +468,7 @@ export class ProjectAnalysis {
         ok: true,
         engine: "index",
         confidence: "heuristic",
+        revision,
         symbol: context.symbol,
         locations,
         fallbackReason: lsp.fallbackReason ?? "Language server returned no semantic locations",
@@ -486,18 +500,47 @@ export class ProjectAnalysis {
   }
 
   private getIndex(): Promise<RegexIndex> {
+    // On a revision the index is built FROM that revision, so every answer below describes the text on
+    // screen. Cached per revision because a compare is switched back and forth while reading, and because
+    // a revision's tree cannot change under us — unlike the working tree, which is why only this side of
+    // the branch needs syncIndex and invalidate at all.
+    if (this.reviewTarget) {
+      const revision = this.reviewTarget;
+      const cached = this.revisionIndexes.get(revision);
+      if (cached) return cached;
+      const pending = buildProjectIndexAtRevision(this.root, revision);
+      this.revisionIndexes.set(revision, pending);
+      return pending;
+    }
     if (!this.indexPromise) this.indexPromise = this.fixedFiles
       ? Promise.resolve(buildRegexSymbolIndex(this.fixedFiles))
       : buildProjectIndex(this.root);
     return this.indexPromise;
   }
 
+  /**
+   * One file's text, from whatever the review is actually showing.
+   *
+   * This is the routing point. Four call sites used to read `locationFilePath(root, path)` directly — the
+   * working tree — so on a revision they resolved the symbol under the caret, filtered candidates and
+   * built result previews from a different text than the one on screen. They all come through here now,
+   * and nothing downstream had to learn about revisions.
+   *
+   * On a revision the answer comes from the index rather than from git: `RegexIndex.files` already holds
+   * the content of every indexed file (the masking cache next door relies on the same property), so there
+   * is no second read and no process to spawn. A path the index does not hold — not code, over the size
+   * cap, absent from this revision — returns undefined, which is what the old `catch` produced too.
+   */
+  private async readSource(path: string): Promise<string | undefined> {
+    if (this.reviewTarget) return (await this.getIndex()).files.get(path);
+    try { return await readFile(locationFilePath(this.root, path), "utf8"); } catch { return undefined; }
+  }
+
   private async symbolContext(path: string, line = 0, column = 0, explicit?: string): Promise<{ symbol?: string; lineIndex: number; column: number }> {
     const lineIndex = Math.max(0, Number(line) || 0);
     const col = Math.max(0, Number(column) || 0);
     if (explicit) return { symbol: explicit, lineIndex, column: col };
-    let content = "";
-    try { content = await readFile(locationFilePath(this.root, path), "utf8"); } catch { /* fall through to index */ }
+    const content = (await this.readSource(path)) ?? "";
     const lines = content.split(/\r?\n/);
     const direct = identifierSpanAt(lines[lineIndex] ?? "", col);
     if (direct) return { symbol: direct.name, lineIndex, column: direct.start };
@@ -904,11 +947,13 @@ export class ProjectAnalysis {
     const maskedByPath = new Map<string, string[]>();
     await Promise.all(Array.from(new Set(unique.map((item) => item.path))).map(async (path) => {
       if (documentPath(path)) return; // non-code doc target — filtered out below without a read
-      try {
-        const content = await readFile(locationFilePath(this.root, path), "utf8");
+      // Unreadable (absent from this revision, over the cap, not code) leaves both maps unset, and the
+      // filter below falls back to per-line masking of item.text — the old catch's behaviour.
+      const content = await this.readSource(path);
+      if (content !== undefined) {
         rawByPath.set(path, content.split(/\r?\n/));
         maskedByPath.set(path, maskNonCode(content, path));
-      } catch { /* unreadable — fall back to per-line masking of item.text below */ }
+      }
     }));
     return unique
       .map((item) => ({ ...item, text: item.text ?? rawByPath.get(item.path)?.[item.lineIndex] ?? "" }))
@@ -928,7 +973,7 @@ export class ProjectAnalysis {
   private async withText(locations: AnalysisLocation[]): Promise<AnalysisLocation[]> {
     const byPath = new Map<string, string[]>();
     await Promise.all(Array.from(new Set(locations.map((item) => item.path))).map(async (path) => {
-      try { byPath.set(path, (await readFile(locationFilePath(this.root, path), "utf8")).split(/\r?\n/)); } catch { byPath.set(path, []); }
+      byPath.set(path, ((await this.readSource(path)) ?? "").split(/\r?\n/));
     }));
     return locations.map((item) => ({ ...item, text: item.text ?? byPath.get(item.path)?.[item.lineIndex] ?? "" }));
   }
