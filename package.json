@@ -62,7 +62,7 @@
   "devDependencies": {
     "@electron/packager": "^20.0.1",
     "@types/node": "^22.15.21",
-    "dompurify": "3.4.13",
+    "dompurify": "3.4.16",
     "jsdom": "^29.1.1",
     "markdown-it": "14.3.3",
     "mermaid": "^12.2.0",
