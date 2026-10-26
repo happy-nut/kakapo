@@ -34,6 +34,17 @@ export type ProjectSearchOptions = {
   matchCase?: boolean;
   wholeWords?: boolean;
   regex?: boolean;
+  /**
+   * IntelliJ's Find in Files scope, as the directory prefixes it comes down to: "Project Production
+   * Files" is the project minus its test roots, a module scope is one directory, and the renderer knows
+   * which those are (it holds the project layout) so it sends them rather than a scope name.
+   *
+   * A NARROWING, not the whole filter. ripgrep is asked for at most `limit` matches, so a scope applied
+   * only to the answer would cut the wrong 500 rows first; the renderer applies the exact rule to what
+   * comes back (14-project-layout.js knows about path conventions this cannot express as a glob).
+   */
+  includePaths?: string[];
+  excludePaths?: string[];
 };
 
 type EncodedText = { text?: string; bytes?: string } | undefined;
@@ -145,8 +156,30 @@ export function projectSearchMatchAllowed(match: ProjectSearchMatch, options: Pr
   const extensions = normalizeProjectSearchExtensions(options.extensions);
   const path = match.path.toLowerCase();
   if (extensions.length && !extensions.some((extension) => path.endsWith(`.${extension}`))) return false;
+  const include = normalizeSearchPaths(options.includePaths);
+  const exclude = normalizeSearchPaths(options.excludePaths);
+  if (include.length && !include.some((prefix) => underSearchPath(match.path, prefix))) return false;
+  if (exclude.some((prefix) => underSearchPath(match.path, prefix))) return false;
   if (!options.excludeCommentsAndTests) return true;
   return !isTestPath(match.path) && !isLikelyCommentMatch(match);
+}
+
+/** Repo-relative directory prefixes, de-duplicated. Anything absolute or climbing out is dropped. */
+export function normalizeSearchPaths(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const relative = value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "").replace(/\/+$/, "");
+    if (!relative || relative.split("/").includes("..") || seen.size >= 200) continue;
+    seen.add(relative);
+  }
+  return Array.from(seen);
+}
+
+function underSearchPath(path: string, prefix: string): boolean {
+  const relative = path.replace(/\\/g, "/").replace(/^\.\//, "");
+  return relative === prefix || relative.startsWith(`${prefix}/`);
 }
 
 export function searchProject(root: string, query: string, limit = 500, options: ProjectSearchOptions = {}): Promise<ProjectSearchResult> {
@@ -159,6 +192,8 @@ export function searchProject(root: string, query: string, limit = 500, options:
     matchCase: options.matchCase === true,
     wholeWords: options.wholeWords === true,
     regex: options.regex === true,
+    includePaths: normalizeSearchPaths(options.includePaths),
+    excludePaths: normalizeSearchPaths(options.excludePaths),
   };
   if (!needle) return Promise.resolve({ available: true, engine: "ripgrep", matches: [], truncated: false });
 
@@ -179,6 +214,10 @@ export function searchProject(root: string, query: string, limit = 500, options:
     if (!normalizedOptions.regex) args.push("--fixed-strings");
     if (normalizedOptions.wholeWords) args.push("--word-regexp");
     for (const extension of extensions) args.push("--glob", `*.${extension}`);
+    // The scope, as globs. A directory prefix covers the directory itself and everything under it, which
+    // is what `dir/**` means to ripgrep once `dir` is relative to its cwd (the repository root).
+    for (const prefix of normalizedOptions.includePaths ?? []) args.push("--glob", `${prefix}/**`);
+    for (const prefix of normalizedOptions.excludePaths ?? []) args.push("--glob", `!${prefix}/**`);
     if (normalizedOptions.excludeCommentsAndTests) {
       for (const glob of ["!**/test/**", "!**/tests/**", "!**/__tests__/**", "!**/test_*", "!**/*_test.*", "!**/*.test.*", "!**/*.spec.*"]) {
         args.push("--glob", glob);

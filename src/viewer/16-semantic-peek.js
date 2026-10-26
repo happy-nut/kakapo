@@ -4,8 +4,11 @@
 var semanticPeekItems = [];
 var semanticPeekActive = 0;
 
+// Test code, as the PROJECT says rather than as the path looks: 14-project-layout.js asks the declared
+// test roots first (an `.iml`'s `isTestSource`, a Maven `src/test`) and falls back to the path pattern
+// this used to be. Every surface that sorts tests below production code reads it through here.
 function semanticTestPath(path) {
-  return /(^|\/)(test|tests|__tests__|spec|specs)(\/|$)|\.(?:test|spec)\.[^.]+$/i.test(String(path || ''));
+  return projectIsTestPath(path);
 }
 
 function semanticDocumentPath(path) {
@@ -156,10 +159,16 @@ function renderSemanticPeekResults() {
     // arrows move the selection, so without aria-activedescendant a screen reader heard "Semantic
     // locations, listbox" and then nothing at all as the reader arrowed through it — and Enter opened a
     // row they were never told about.
+    // Which module, in a workspace where two files share a name — the same tag every other list here
+    // carries (14-project-layout.js). The test is already said by `is-test`, so only the module. The row
+    // claims its third grid track only when it has something to put in it.
+    var tags = projectRowTagsHtml(item.path, 'module');
     return '<button type="button" role="option" id="semantic-peek-item-' + index + '" aria-selected="' + (index === semanticPeekActive ? 'true' : 'false')
-      + '" class="semantic-peek-item' + (item.isTest ? ' is-test' : '') + (index === semanticPeekActive ? ' active' : '') + '" data-index="' + index + '" title="' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '">'
+      + '" class="semantic-peek-item' + (item.isTest ? ' is-test' : '') + (tags ? ' has-tags' : '') + (index === semanticPeekActive ? ' active' : '') + '" data-index="' + index + '" title="' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '">'
       + '<span class="semantic-peek-item-path">' + escapeHtml(semanticFileLabel(item.path, item.lineIndex)) + '</span>'
-      + '<span class="semantic-peek-item-code">' + semanticCodeHtml(item.path, item.text.trim().slice(0, 180)) + '</span></button>';
+      + '<span class="semantic-peek-item-code">' + semanticCodeHtml(item.path, item.text.trim().slice(0, 180)) + '</span>'
+      + tags
+      + '</button>';
   }).join('') + '<div class="semantic-peek-list-hint">' + escapeHtml(t('monaco.peekHint')) + '</div>';
   // Rebuilt every time the selection moves, so the pointer is reset with it.
   if (semanticPeekItems.length) results.setAttribute('aria-activedescendant', 'semantic-peek-item-' + semanticPeekActive);

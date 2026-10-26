@@ -90,6 +90,7 @@ contextBridge.exposeInMainWorld("kakapoSearch", {
   query: (request: {
     query: string; limit?: number; extensions?: string[]; excludeCommentsAndTests?: boolean;
     matchCase?: boolean; wholeWords?: boolean; regex?: boolean;
+    includePaths?: string[]; excludePaths?: string[];
   }): Promise<unknown> => ipcRenderer.invoke("kakapo:search", request),
 });
 

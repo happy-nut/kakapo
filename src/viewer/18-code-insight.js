@@ -388,7 +388,8 @@ function renderProblemsResults(query) {
       + '<span class="problem-mark" aria-hidden="true"></span>'
       + '<span class="quick-open-main"><span class="problem-message">' + escapeHtml(row.message) + '</span>'
       + '<span class="quick-open-path">' + escapeHtml(semanticFileLabel(row.path, row.lineIndex))
-      + (row.source ? ' · ' + escapeHtml(row.source) : '') + '</span></span>'
+      + (row.source ? ' · ' + escapeHtml(row.source) : '') + '</span>'
+      + projectRowTagsHtml(row.path) + '</span>'
       + '<span class="quick-open-badge">' + escapeHtml(t('problems.severity.' + row.severity)) + '</span></button>';
   }).join('');
   renderQuickPreview(quickItems[quickActive]);

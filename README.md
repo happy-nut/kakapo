@@ -124,6 +124,7 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌘C` | In history: copy the selected commit's hash |
 | `⌘F` / `⌘⇧F` | Find in file / in project (the ⌘⇧F rail also holds file search & recent files) |
 | `⌥M` / `⌥W` / `⌥X` | In Find in Files: match case / whole words / regular expression |
+| `⌥S` | In Find in Files: the scope — the project, production files, test files, this module, changed files |
 | `⌘E` | Recent files — the list on its own, press again to close. Type to filter (Korean typing is read as the QWERTY keys that made it) |
 | `⌥A` / `⌥U` | All changes on the branch / only what is not committed yet |
 | `⌥C` | Choose the branch "all changes" is measured against |
@@ -131,6 +132,9 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌥F7` | Find usages — the same answer, grouped by what each usage *is* |
 | `⌘F7` / `⌘⇧F7` | Highlight this symbol everywhere in the open file, writes apart from reads |
 | `⌘⌥↓` / `⌘⌥↑` | Next / previous occurrence of the symbol under the caret |
+| `⌘⌥T` / `⌘⌥M` / `⌘⌥S` | In the usage view: group by usage type / by module / by production-test |
+| `⌘⌥P` / `⌘⌥F` / `⌘⇧⌥M` | In the usage view: group by directory / by file, and flatten the modules |
+| `⌘⌥R` / `⌘⌥W` / `⌘⌥I` | In the usage view: show read access / write access / import statements |
 | `⌘⌥B` / `⌘⌥O` | Go to implementation / workspace symbol |
 | `⌥O` | Go to a class by name (types only) |
 | `⌥G` | Files related to this one — its test, and its same-name siblings |
@@ -196,6 +200,36 @@ semantic — two locals that share a name light up together, exactly as IntelliJ
 does — and it asks no language server, so it answers while a cold one is still indexing. `⌥F7` is the
 semantic answer when the difference matters. The chords were a second spelling of `F8`/`⇧F8`'s comment
 stepping before this; a duplicate is not worth IntelliJ's two in-file usage keys.
+
+**Modules, and which files are tests** — IntelliJ never shows a flat list. Every list it has is divided
+by what the files *are*: which module they belong to, and whether they are production code, test code or
+a library. kakapo now reads that division from the project itself — `.idea/modules.xml` and the
+`.iml` files when the repository has been opened in IntelliJ (`isTestSource="true"` is where the IDE's own
+answer lives), otherwise the build tool's workspace manifest: pnpm, npm workspaces, a Cargo workspace,
+`go.work`, `settings.gradle`, a Maven aggregator pom. Only when none of those exist does it fall back to
+guessing from path names.
+
+What that buys, in the places a path is listed: the file tree and the changes tree tint test files and
+badge the directory that *is* a module root with the module's name; Go to File, Go to Symbol and the
+Problems list carry the module on the right of every row, which is what the question "which `Button.ts`?"
+actually turns on; and the usage view (`⌥F7`) gets IntelliJ's whole grouping stack rather than two levels
+of it.
+
+**The usage view's two toolbars** — IntelliJ's usage view is a tree, and what it is a tree of is a stack
+of grouping rules with ranks: non-code, then Production/Test, then usage type, then module, then
+directory, then file (`UsageGroupingRulesDefaultRanks` in intellij-community — the ranks are why that
+order is not a matter of taste). Each rank is a chip above the list, with IntelliJ's own default on or
+off: usage type, module and file on, modules flattened, Production/Test off until you ask for it. Beside
+them is its filtering toolbar — show read access, show write access, show import statements — and `⌥P`,
+which was already here. The chords are IntelliJ's too, from `$default.xml`: `⌃⌥T`/`⌃⌥M`/`⌃⌥P`/`⌃⌥F`
+arrive here as `⌘⌥T`/`⌘⌥M`/`⌘⌥P`/`⌘⌥F`. A division that would divide nothing is not drawn: a
+single-module repository gets no module header, and a list that is nothing but call sites gets no heading
+at all.
+
+**Find in Files' scope** (`⌥S`) — IntelliJ's scope dropdown, with the scopes that mean something in a
+review: the whole project, production files, test files, this file's module, or only the files this change
+touches. The scope goes *with* the query rather than being applied to its answer — ripgrep is asked for at
+most 500 matches, and a scope applied afterwards would cut the wrong 500 first.
 
 **Find in Files' three modifiers** (`⌥M` match case, `⌥W` whole words, `⌥X` regular expression) —
 IntelliJ's `Cc`, `W` and `.*`, one ripgrep flag each, with `⌥E` for a file mask and `⌥P` to drop comments

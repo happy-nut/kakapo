@@ -2817,6 +2817,30 @@ body.cmd-link-active .source-code { cursor: pointer; }
    already carry, so both rows read at the same distance from their icon. */
 .source-link { column-gap: 2px; }
 .file-link .ftype { width: 15px; height: 15px; flex: none; display: block; }
+/* Test code and build output, marked in both trees — IntelliJ's green test-source-root icon and its
+   excluded-folder grey, as a tint on the name rather than a second icon: these rows already carry a file
+   icon, a viewed box and a change stat, and a fourth glyph per row is what makes a tree unreadable.
+   `--chrome-vcs-staged` is the one green every theme in this file defines; mixed toward --muted so it
+   does not read as the staged-file green that token is otherwise used for. */
+.is-test-file .path { color: color-mix(in srgb, var(--chrome-vcs-staged) 85%, var(--muted)); }
+.is-generated-file .path { color: var(--muted); }
+.tree-dir.is-test-root > summary .path,
+.tree-dir.is-test-root > summary .folder-icon { color: color-mix(in srgb, var(--chrome-vcs-staged) 85%, var(--muted)); }
+/* The module a directory IS the root of. Only ever on the row that is that root, and only in a repository
+   that has more than one module — see projectHasModules(). The summary is a two-column grid (icon, name),
+   so a row that carries a badge is given the third track it needs — without it the badge wrapped onto a
+   line of its own, which the real app showed and jsdom could not. */
+.tree-dir.has-module > summary { grid-template-columns: 14px minmax(0, 1fr) auto; }
+.tree-module {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 9.5px;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
 .source-link.not-embedded { opacity: 0.45; }
 .source-link.not-embedded:hover { opacity: 0.72; }
 .source-type-icon { display: inline-flex; align-items: center; flex: none; margin-right: 2px; }
@@ -3080,6 +3104,10 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
   border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
   background: transparent; text-align: left; cursor: pointer;
 }
+/* A tagged row needs the track its tag goes in: this grid is two columns, and a third child without a
+   third track drops onto a line of its own (which is what the tree's module badge did until it was
+   given one). */
+.semantic-peek-item.has-tags { grid-template-columns: minmax(145px, 36%) minmax(0, 1fr) auto; }
 .semantic-peek-item-path, .semantic-peek-item-code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .semantic-peek-item-path { color: var(--chrome-text); font: 11px/1.4 Monaco, ui-monospace, monospace; }
 .semantic-peek-item-line { color: var(--muted); text-align: right; font: 11px/1.4 Monaco, ui-monospace, monospace; font-variant-numeric: tabular-nums; }
@@ -3178,9 +3206,25 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 14px 4px;
+  /* One level of the grouping stack per step. The rank order IS the nesting (non-code, scope, usage type,
+     module, directory, file), so the indent is the only thing on screen that says which is inside which. */
+  padding: 7px 14px 4px calc(14px + var(--depth, 0) * 13px);
   color: var(--muted);
   font-size: 10.5px;
+  letter-spacing: .03em;
+}
+.usage-group[data-usage-group="module"] .usage-group-name,
+.usage-group[data-usage-group="scope"] .usage-group-name { color: var(--text); }
+.usage-result { padding-left: calc(9px + var(--depth, 0) * 13px); }
+/* Test code, marked on the row the way IntelliJ marks it in every list it has — there with a green icon,
+   here with the word, because this list has no icons and "Test" is two glyphs wider than one. */
+.usage-result-tag {
+  margin-left: 7px;
+  border: 1px solid color-mix(in srgb, var(--ok, #5aa469) 55%, transparent);
+  border-radius: 999px;
+  padding: 0 5px;
+  color: color-mix(in srgb, var(--ok, #5aa469) 85%, var(--text));
+  font-size: 9.5px;
   letter-spacing: .03em;
 }
 .usage-group + .usage-group { padding-top: 4px; }
@@ -3206,6 +3250,10 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
   font: 12px/1.5 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .usage-result[data-usage-type="write"] .usage-result-code { box-shadow: inset 2px 0 0 #d6704b; padding-left: 7px; }
+/* The location is the fixed column and the line is what gets the room, the same way round as the caret
+   popup's .usage-loc / .usage-code. */
+.usage-result .quick-open-path { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.usage-result .usage-result-code { flex: 1 1 auto; min-width: 0; }
 .usage-result.is-test .quick-open-path { opacity: .72; }
 .semantic-peek-list-hint {
   position: sticky; bottom: 0; padding: 5px 9px; color: var(--muted); background: var(--elevated);
@@ -3637,9 +3685,57 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 /* The usage view borrows the one option this strip holds (exclude comments & tests) and nothing else. */
 .quick-open.quick-usages .quick-open-search-options { display: flex; }
 .quick-open.quick-usages .quick-open-extension-field,
+.quick-open.quick-usages .quick-open-scope-field,
 .quick-open.quick-usages .quick-open-option-glyphs { display: none; }
 .quick-open.quick-usages .quick-open-panel { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
+/* IntelliJ's usage view carries two toolbars over the list — Group By (one toggle per grouping rank) and
+   a filtering row. Chips rather than its gear popup: nine toggles whose STATE is the thing a reader needs
+   at a glance, and this strip is already here. It wraps because nine of them plus the noise toggle is
+   more than one line at a narrow window, and a chip pushed off the edge is a chip nobody finds. */
+.quick-open-usage-options { display: none; }
+.quick-open.quick-usages .quick-open-search-options { flex-wrap: wrap; }
+.quick-open.quick-usages .quick-open-usage-options {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.quick-open-usage-label {
+  margin: 0 2px 0 6px;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: .04em;
+}
+.quick-open-usage-label:first-child { margin-left: 0; }
+.quick-open-usage-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 9px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.quick-open-usage-chip:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
+.quick-open-usage-chip:focus-visible { outline: 1px solid var(--active); outline-offset: 1px; }
+.quick-open-usage-chip.active {
+  border-color: var(--active);
+  color: var(--chrome-selected-text, #fff);
+  background: var(--active);
+}
+/* Flatten Modules is a property of the module grouping, so while that is off it is not a choice. */
+.quick-open-usage-chip.unavailable { opacity: .42; cursor: default; }
 .quick-open-extension-field { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.quick-open-scope-field { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#quick-open-scope {
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-sm);
+  padding: 4px 6px;
+  color: var(--text);
+  background: var(--bg);
+  font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+#quick-open-scope:focus { border-color: var(--active); outline: 0; }
 .quick-open-option-glyphs { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
 /* IntelliJ's Cc / W / .* — a monospace glyph in a square, so three of them read as one control group and
    the strip stays one line. The pressed state is the same accent the checkbox toggle beside them uses. */
@@ -3709,6 +3805,24 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 .usage-loc { flex: none; color: var(--chrome-text); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
 .usage-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: 12px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .quick-open-main { display: flex; align-items: baseline; gap: 8px; }
+/* The module tag and the Test tag a row carries — IntelliJ puts the module on the right of every Go to
+   File row, and it is what the question "which Button.ts?" turns on in a workspace with four of them.
+   Inside the main column rather than a third grid track: the row's grid is two columns everywhere. */
+.row-tags { flex: none; display: inline-flex; align-items: baseline; gap: 4px; }
+.row-tag {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 5px;
+  color: var(--muted);
+  font-size: 9.5px;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+.row-tag.is-test {
+  border-color: color-mix(in srgb, var(--ok, #5aa469) 55%, transparent);
+  color: color-mix(in srgb, var(--ok, #5aa469) 85%, var(--text));
+}
+.quick-open-item.active .row-tag { border-color: color-mix(in srgb, var(--chrome-selected-text, #fff) 45%, transparent); color: var(--chrome-selected-text, #fff); }
 .quick-open-path { flex: 1 1 auto; }
 .quick-open-preview {
   border-top: 1px solid var(--border);

@@ -246,6 +246,7 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
   ipc.handle("kakapo:search", (event, request: {
     query?: string; limit?: number; extensions?: string[]; excludeCommentsAndTests?: boolean;
     matchCase?: boolean; wholeWords?: boolean; regex?: boolean;
+    includePaths?: string[]; excludePaths?: string[];
   }) => {
     const state = stateFromEvent(event);
     if (!state) return { available: false, engine: "fallback", matches: [], truncated: false };
@@ -254,6 +255,8 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
       excludeCommentsAndTests: request?.excludeCommentsAndTests === true,
       matchCase: request?.matchCase === true,
       wholeWords: request?.wholeWords === true,
+      includePaths: request?.includePaths,
+      excludePaths: request?.excludePaths,
       regex: request?.regex === true,
     });
   });

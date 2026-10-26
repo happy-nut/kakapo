@@ -148,9 +148,9 @@ var usageViewBusy = false;
 var usageViewEngine = '';
 var usageViewNote = '';
 var usageViewSeq = 0;
-// IntelliJ's "Show Usages in Comments" and friends are per-type checkboxes in a toolbar. kakapo already
-// has one toggle that means exactly "comments and tests are noise" — Find in Files' ⌥P — so the usage view
-// borrows it rather than growing a toolbar of its own.
+// IntelliJ's Show Usages in Comments is one checkbox of its filtering toolbar. kakapo already has a
+// toggle that means exactly "comments and tests are noise" — Find in Files' ⌥P — so that one keeps its
+// chord and its button, and the three access filters below it are the rest of that toolbar.
 var usageViewHideNoise = false;
 
 /** ⌥F7: every usage of the symbol under the caret, grouped by what kind of usage it is. */
@@ -164,6 +164,7 @@ function openFindUsages() {
   usageViewBusy = true;
   usageViewEngine = '';
   openQuickOpen('usages', true);
+  syncUsageViewControls();
   loadFindUsages();
   return true;
 }
@@ -195,6 +196,11 @@ function loadFindUsages() {
         text: text,
         type: classifyUsage(usageViewName, text, item.column, item.path),
         isTest: semanticTestPath(item.path),
+        // What the project says this file is, decided once per row rather than once per regrouping:
+        // 14-project-layout.js reads the declared test roots, and a module is a prefix match.
+        scope: projectScopeOf(item.path),
+        module: projectModuleName(item.path),
+        moduleGroup: (projectModuleOf(item.path) || {}).group || '',
       };
     });
     usageViewNote = !usageViewRows.length && response && response.fallbackReason ? String(response.fallbackReason) : '';
@@ -207,40 +213,196 @@ function loadFindUsages() {
   });
 }
 
-/** The rows the filters leave: the typed query, and ⌥P's "comments and tests are noise". */
+/** The rows the filters leave: the typed query, ⌥P's noise toggle, and the three access filters. */
+function usageRowVisible(row) {
+  if (usageViewHideNoise && (row.isTest || USAGE_NON_CODE[row.type] === 1)) return false;
+  // IntelliJ's filtering toolbar, one rule each: ReadAccessFilteringRule, WriteAccessFilteringRule,
+  // ImportUsageFilteringRule. A declaration that initialises is a write there and here (usageMarksIn
+  // reads it the same way), so hiding writes hides it too.
+  if (!usageFiltering.read && row.type === 'read') return false;
+  if (!usageFiltering.write && row.type === 'write') return false;
+  if (!usageFiltering.imports && row.type === 'import') return false;
+  return true;
+}
+
 function visibleUsageRows(query) {
   var needle = String(query || '').trim().toLowerCase();
   var queries = queryVariants(needle);
   return usageViewRows.filter(function (row) {
-    if (usageViewHideNoise && (row.isTest || USAGE_NON_CODE[row.type] === 1)) return false;
+    if (!usageRowVisible(row)) return false;
     if (!needle) return true;
     var hay = (row.path + ' ' + row.text).toLowerCase();
     return queries.some(function (variant) { return hay.includes(variant); });
   });
 }
 
-/** Rows in display order, as `[{type, rows}]` — IntelliJ's group order, empty groups left out. */
-function groupUsageRows(rows) {
-  var byType = {};
+// ---- IntelliJ's grouping stack -----------------------------------------------------------------------
+// The usage view is not a list, it is a tree, and what it is a tree OF is a stack of grouping rules with
+// ranks — `UsageGroupingRulesDefaultRanks` in intellij-community: non-code 0, scope 100, usage type 200,
+// module 300, directory 400, file 500, outermost first. The ranks are why that order is not a matter of
+// taste: a module inside a usage type and a usage type inside a module are different answers to the same
+// question, and IntelliJ picked one.
+//
+// Defaults are IntelliJ's own (UsageViewSettings.kt): usage type, module and file on, modules flattened,
+// Production/Test off. One deliberate difference — `isGroupByPackage` is true there and `directory` is
+// false here. IntelliJ's tree collapses; this list does not, so a directory level would be a third header
+// above two rows whose path is already printed on the file header. Turning it on makes the file header
+// show the bare name instead, which is the point at which a directory header says something new.
+var usageGrouping = { scope: false, type: true, module: true, flatten: true, directory: false, file: true };
+// IntelliJ's filtering toolbar: Show Read Access / Show Write Access / Show Import Statements, all on.
+var usageFiltering = { read: true, write: true, imports: true };
+
+// UsageScopeGroupingRule's own codes: production 0, test 1, library 2. 'generated' is this app's addition
+// — IntelliJ makes generated code a FILTER rather than a scope, and a reviewer who has asked for the
+// division wants build output in a bucket of its own rather than mixed into production code.
+var USAGE_SCOPE_ORDER = ['production', 'test', 'library', 'generated'];
+
+function usageDirectoryOf(path) {
+  var normalized = String(path || '').replace(/\\/g, '/');
+  var slash = normalized.lastIndexOf('/');
+  return slash > 0 ? normalized.slice(0, slash) : '';
+}
+
+/**
+ * The rules in force, in rank order.
+ *
+ * Takes the rows because two of the rules need to know what is in the whole answer before they can say
+ * whether their own heading is worth drawing: a "Non-code usages" divider with no code above it divides
+ * nothing, and "Unclassified" over a list that is nothing but call sites is the same furniture the flat
+ * version had. A rule whose `labelOf` returns '' still groups and still orders — it just draws no header
+ * and costs no indentation.
+ */
+function usageGroupingRules(rows) {
+  var rules = [];
+  var hasCode = rows.some(function (row) { return USAGE_NON_CODE[row.type] !== 1; });
+  rules.push({
+    id: 'noncode',
+    keyOf: function (row) { return USAGE_NON_CODE[row.type] === 1 ? 'noncode' : 'code'; },
+    orderOf: function (key) { return key === 'noncode' ? 1 : 0; },
+    labelOf: function (key) { return key === 'noncode' && hasCode ? t('findusages.noncode') : ''; },
+    classOf: function (key) { return key === 'noncode' ? ' usage-group-noncode' : ''; },
+  });
+  if (usageGrouping.scope) {
+    rules.push({
+      id: 'scope',
+      keyOf: function (row) { return row.scope || 'production'; },
+      orderOf: function (key) { return USAGE_SCOPE_ORDER.indexOf(key); },
+      // Shown even when every row is in one scope: the toggle was pressed to ask which scope these are
+      // in, and "all of them are production" is that answer rather than furniture.
+      labelOf: function (key) { return t('usagescope.' + key); },
+      classOf: function (key) { return ' usage-group-scope-' + key; },
+    });
+  }
+  if (usageGrouping.type) {
+    var types = {};
+    rows.forEach(function (row) { types[row.type] = 1; });
+    var onlyUnclassified = Object.keys(types).length === 1 && types.unclassified === 1;
+    rules.push({
+      id: 'type',
+      keyOf: function (row) { return row.type; },
+      orderOf: function (key) { return USAGE_TYPE_ORDER.indexOf(key); },
+      labelOf: function (key) { return onlyUnclassified ? '' : usageTypeLabel(key); },
+    });
+  }
+  // A single-module repository is most repositories, and a module header every row is under is not a
+  // division. projectHasModules() is the same guard the file tree uses.
+  if (usageGrouping.module && projectHasModules()) {
+    if (!usageGrouping.flatten) {
+      // ModuleGroupingRule returns the module's group path as parent groups when modules are not
+      // flattened — `node.group.module.group`, the `group=` attribute of modules.xml.
+      rules.push({
+        id: 'moduleGroup',
+        keyOf: function (row) { return row.moduleGroup || ''; },
+        orderOf: function () { return 0; },
+        labelOf: function (key) { return key ? t('usagegroup.moduleGroup').replace('{name}', key) : ''; },
+      });
+    }
+    rules.push({
+      id: 'module',
+      keyOf: function (row) { return row.module || ''; },
+      orderOf: function () { return 0; },
+      labelOf: function (key) { return key ? t('usagegroup.module').replace('{name}', key) : ''; },
+    });
+  }
+  if (usageGrouping.directory) {
+    rules.push({
+      id: 'directory',
+      keyOf: function (row) { return usageDirectoryOf(row.path); },
+      orderOf: function () { return 0; },
+      labelOf: function (key) { return t('usagegroup.directory').replace('{path}', key || '.'); },
+    });
+  }
+  if (usageGrouping.file) {
+    rules.push({
+      id: 'file',
+      keyOf: function (row) { return row.path; },
+      orderOf: function () { return 0; },
+      // IntelliJ's showShortFilePath is on by default. The whole path when it is the only thing saying
+      // where this is; the name alone once a directory header above has already said it.
+      labelOf: function (key) { return usageGrouping.directory ? sourceTabLabel(key) : key; },
+    });
+  }
+  return rules;
+}
+
+function usageRowOrder(a, b) {
+  return a.path.localeCompare(b.path) || a.lineIndex - b.lineIndex || a.column - b.column;
+}
+
+/** Rows → a tree, one level per rule. Leaves hold the rows in file/line order. */
+function groupUsageTree(rows, rules, depth) {
+  if (depth >= rules.length) return { rows: rows.slice().sort(usageRowOrder), children: [] };
+  var rule = rules[depth];
+  var buckets = new Map();
   rows.forEach(function (row) {
-    (byType[row.type] || (byType[row.type] = [])).push(row);
+    var key = rule.keyOf(row);
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(row);
   });
-  return USAGE_TYPE_ORDER.filter(function (type) { return byType[type]; }).map(function (type) {
-    return {
-      type: type,
-      nonCode: USAGE_NON_CODE[type] === 1,
-      rows: byType[type].slice().sort(function (a, b) {
-        return a.path.localeCompare(b.path) || a.lineIndex - b.lineIndex || a.column - b.column;
-      }),
-    };
+  var keys = Array.from(buckets.keys()).sort(function (a, b) {
+    return (rule.orderOf(a) - rule.orderOf(b)) || String(a).localeCompare(String(b));
   });
+  return {
+    rows: [],
+    children: keys.map(function (key) {
+      var inner = groupUsageTree(buckets.get(key), rules, depth + 1);
+      return {
+        id: rule.id,
+        key: key,
+        label: rule.labelOf(key),
+        extraClass: rule.classOf ? rule.classOf(key) : '',
+        count: buckets.get(key).length,
+        rows: inner.rows,
+        children: inner.children,
+      };
+    }),
+  };
+}
+
+/** The tree as the flat sequence the list renders: headers with a depth, then the rows under them. */
+function flattenUsageTree(node, depth, out) {
+  (node.children || []).forEach(function (child) {
+    var shown = Boolean(child.label);
+    if (shown) {
+      out.push({ kind: 'group', id: child.id, key: child.key, label: child.label, extraClass: child.extraClass, count: child.count, depth: depth });
+    }
+    flattenUsageTree(child, shown ? depth + 1 : depth, out);
+  });
+  (node.rows || []).forEach(function (row) { out.push({ kind: 'row', row: row, depth: depth }); });
+}
+
+/** Headers and rows in display order — the one function the renderer and the tests both read. */
+function usageViewEntries(query) {
+  var rows = visibleUsageRows(query);
+  var entries = [];
+  flattenUsageTree(groupUsageTree(rows, usageGroupingRules(rows), 0), 0, entries);
+  return entries;
 }
 
 function renderFindUsagesResults(query) {
   if (!quickResults) return;
-  var groups = groupUsageRows(visibleUsageRows(query));
-  var flat = [];
-  groups.forEach(function (group) { group.rows.forEach(function (row) { flat.push(row); }); });
+  var entries = usageViewEntries(query);
+  var flat = entries.filter(function (entry) { return entry.kind === 'row'; }).map(function (entry) { return entry.row; });
   quickItems = flat.map(function (row) {
     return {
       path: row.path,
@@ -256,6 +418,7 @@ function renderFindUsagesResults(query) {
   quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
   var files = {};
   flat.forEach(function (row) { files[row.path] = 1; });
+  var tests = flat.filter(function (row) { return row.isTest; }).length;
   if (quickFilterEl) {
     quickFilterEl.className = 'quick-open-filter' + (usageViewBusy ? ' is-loading' : '');
     quickFilterEl.innerHTML = usageViewBusy
@@ -263,6 +426,9 @@ function renderFindUsagesResults(query) {
       : escapeHtml(t('findusages.summary')
         .replace('{n}', String(flat.length))
         .replace('{files}', String(Object.keys(files).length))
+        // How much of this answer is test code, before any grouping is turned on. "Forty usages" and
+        // "forty usages, thirty-one of them in tests" are different facts about a symbol.
+        + (tests ? ' · ' + t('findusages.testCount').replace('{n}', String(tests)) : '')
         + (usageViewEngine ? ' · ' + usageViewEngine : ''));
   }
   if (usageViewBusy) {
@@ -271,8 +437,14 @@ function renderFindUsagesResults(query) {
     return;
   }
   if (!flat.length) {
+    // "No usages of Store" when there are nine of them and a filter is hiding all nine is a wrong answer,
+    // and it is the one a reviewer would believe. Only when nothing was typed: with a query in the box,
+    // "nothing matched" is what happened.
+    var hidden = usageViewRows.length && !String(query || '').trim();
     quickResults.innerHTML = '<div class="quick-open-empty">'
-      + escapeHtml(t('findusages.none').replace('{name}', usageViewName))
+      + escapeHtml(hidden
+        ? t('findusages.allFiltered').replace('{n}', String(usageViewRows.length))
+        : t('findusages.none').replace('{name}', usageViewName))
       + (usageViewNote ? '<span class="quick-open-why">' + escapeHtml(usageViewNote) + '</span>' : '')
       + '</div>';
     renderQuickPreview(null);
@@ -280,28 +452,34 @@ function renderFindUsagesResults(query) {
   }
   var index = 0;
   var html = '';
-  var openedNonCode = false;
-  // "Unclassified" over a list that is nothing but call sites says nothing — and in IntelliJ an untyped
-  // usage has no node of its own either, it hangs off the file. So the one group that is only ever a
-  // leftover does not get a heading when it is the whole answer.
-  var soleUnclassified = groups.length === 1 && groups[0].type === 'unclassified';
-  groups.forEach(function (group) {
-    if (group.nonCode && !openedNonCode) {
-      openedNonCode = true;
-      html += '<div class="usage-group usage-group-noncode">' + escapeHtml(t('findusages.noncode')) + '</div>';
+  entries.forEach(function (entry) {
+    if (entry.kind === 'group') {
+      html += '<div class="usage-group' + escapeHtml(entry.extraClass || '') + '" data-usage-group="' + escapeHtml(entry.id) + '"'
+        + ' data-usage-key="' + escapeHtml(String(entry.key)) + '" style="--depth:' + entry.depth + '">'
+        + '<span class="usage-group-name">' + escapeHtml(entry.label) + '</span>'
+        + '<span class="usage-group-count">' + String(entry.count) + '</span></div>';
+      return;
     }
-    if (!soleUnclassified) html += '<div class="usage-group" data-usage-type="' + escapeHtml(group.type) + '">'
-      + '<span class="usage-group-name">' + escapeHtml(usageTypeLabel(group.type)) + '</span>'
-      + '<span class="usage-group-count">' + String(group.rows.length) + '</span></div>';
-    group.rows.forEach(function (row) {
-      html += '<button type="button" class="quick-open-item usage-result' + (index === quickActive ? ' active' : '')
-        + (row.isTest ? ' is-test' : '') + '" data-index="' + index + '" data-usage-type="' + escapeHtml(row.type) + '"'
-        + ' title="' + escapeHtml(usageTypeLabel(row.type) + ' — ' + row.path + ':' + (row.lineIndex + 1)) + '">'
-        + '<span class="quick-open-main"><span class="usage-result-code">'
-        + semanticCodeHtml(row.path, row.text.trim().slice(0, 180)) + '</span>'
-        + '<span class="quick-open-path">' + escapeHtml(semanticFileLabel(row.path, row.lineIndex)) + '</span></span></button>';
-      index += 1;
-    });
+    var row = entry.row;
+    // Under a file header the path is already on screen; the line number is the part that is not. Without
+    // one, the row carries `name:line` as it always has.
+    var where = usageGrouping.file ? ':' + String(row.lineIndex + 1) : semanticFileLabel(row.path, row.lineIndex);
+    // Test code is marked on the row, not only when the scope grouping is on: the division IntelliJ draws
+    // with a green icon in every list it has. When the scope header is above it, saying it twice is noise.
+    var tag = row.isTest && !usageGrouping.scope
+      ? '<span class="usage-result-tag">' + escapeHtml(t('usagescope.test')) + '</span>' : '';
+    html += '<button type="button" class="quick-open-item usage-result' + (index === quickActive ? ' active' : '')
+      + (row.isTest ? ' is-test' : '') + '" data-index="' + index + '" data-usage-type="' + escapeHtml(row.type) + '"'
+      + ' style="--depth:' + entry.depth + '"'
+      + ' title="' + escapeHtml(usageTypeLabel(row.type) + ' — ' + row.path + ':' + (row.lineIndex + 1)) + '">'
+      // Where first, then the line — the order the caret popup beside this one uses (.usage-loc then
+      // .usage-code in 15-semantic-navigation.js), and the order IntelliJ's own usage rows read in. With
+      // the code first, ":1" trailed off the end of the line and read as part of it.
+      + '<span class="quick-open-main">'
+      + '<span class="quick-open-path">' + escapeHtml(where) + '</span>'
+      + '<span class="usage-result-code">' + semanticCodeHtml(row.path, row.text.trim().slice(0, 180)) + '</span>'
+      + tag + '</span></button>';
+    index += 1;
   });
   quickResults.innerHTML = html;
   renderQuickPreview(quickItems[quickActive]);
@@ -316,12 +494,75 @@ function toggleUsageViewNoise() {
   return true;
 }
 
+// Every toggle of the two toolbars, by the name on its chip: which flag it owns, and which shortcut row
+// labels it. One table so the chips, the chords and the click handler cannot come to disagree — the same
+// reason src/shortcuts.ts exists.
+var USAGE_TOGGLES = [
+  { name: 'scope', group: true, shortcut: 'usageGroupScope' },
+  { name: 'type', group: true, shortcut: 'usageGroupType' },
+  { name: 'module', group: true, shortcut: 'usageGroupModule' },
+  { name: 'flatten', group: true, shortcut: 'usageFlattenModules' },
+  { name: 'directory', group: true, shortcut: 'usageGroupDirectory' },
+  { name: 'file', group: true, shortcut: 'usageGroupFile' },
+  { name: 'read', group: false, shortcut: 'usageFilterRead' },
+  { name: 'write', group: false, shortcut: 'usageFilterWrite' },
+  { name: 'imports', group: false, shortcut: 'usageFilterImports' },
+];
+
+function usageToggleState(toggle) {
+  return toggle.group ? usageGrouping[toggle.name] === true : usageFiltering[toggle.name] === true;
+}
+
+/** The chips show what is on. Called on open and after every toggle. */
+function syncUsageViewControls() {
+  var strip = document.getElementById('quick-open-usage-options');
+  if (!strip) return;
+  USAGE_TOGGLES.forEach(function (toggle) {
+    var chip = strip.querySelector('.quick-open-usage-chip[data-usage-toggle="' + toggle.name + '"]');
+    if (!chip) return;
+    var on = usageToggleState(toggle);
+    chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+    chip.classList.toggle('active', on);
+    // Flattening is a property of the module grouping, so it is not a choice while that is off.
+    var available = toggle.name !== 'flatten' || usageGrouping.module;
+    chip.disabled = !available;
+    chip.classList.toggle('unavailable', !available);
+  });
+}
+
+/** One toggle, by chip name. The answer is the same rows regrouped, so nothing is re-queried. */
+function toggleUsageView(name) {
+  var toggle = USAGE_TOGGLES.filter(function (item) { return item.name === name; })[0];
+  if (!toggle) return false;
+  if (toggle.group) usageGrouping[name] = !usageGrouping[name];
+  else usageFiltering[name] = !usageFiltering[name];
+  quickActive = 0;
+  syncUsageViewControls();
+  renderFindUsagesResults(String(quickInput && quickInput.value || ''));
+  return true;
+}
+
+document.getElementById('quick-open-usage-options')?.addEventListener('click', function (event) {
+  var chip = event.target && event.target.closest ? event.target.closest('.quick-open-usage-chip') : null;
+  if (!chip || !chip.dataset.usageToggle) return;
+  event.preventDefault();
+  toggleUsageView(chip.dataset.usageToggle);
+  if (quickInput) quickInput.focus();
+});
+
 function handleUsageViewKey(event) {
   if (quickMode !== 'usages') return false;
   if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey
     && (event.code === 'KeyP' || String(event.key).toLowerCase() === 'p')) {
     event.preventDefault();
     return toggleUsageViewNoise();
+  }
+  for (var i = 0; i < USAGE_TOGGLES.length; i += 1) {
+    var toggle = USAGE_TOGGLES[i];
+    if (!isShortcut(event, toggle.shortcut)) continue;
+    event.preventDefault();
+    if (toggle.name === 'flatten' && !usageGrouping.module) return true;
+    return toggleUsageView(toggle.name);
   }
   return false;
 }

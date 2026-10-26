@@ -974,6 +974,7 @@ const quickExcludeNoiseButton = document.getElementById('quick-open-exclude-nois
 const quickMatchCaseButton = document.getElementById('quick-open-match-case');
 const quickWholeWordsButton = document.getElementById('quick-open-whole-words');
 const quickRegexButton = document.getElementById('quick-open-regex');
+const quickScopeSelect = document.getElementById('quick-open-scope');
 let current = -1;
 let checkingForUpdates = false;
 let quickMode = 'all';
@@ -993,6 +994,9 @@ let contentSearchExcludeNoise = false;
 let contentSearchMatchCase = false;
 let contentSearchWholeWords = false;
 let contentSearchRegex = false;
+// IntelliJ's Find in Files scope: 'all' is its In Project, and the others are its predefined scopes that
+// mean something in a review (see CONTENT_SEARCH_SCOPES in 03-quick-open.js).
+let contentSearchScope = 'all';
 let workspaceSymbolItems = [];
 let workspaceSymbolQuery = '';
 let workspaceSymbolSeq = 0;

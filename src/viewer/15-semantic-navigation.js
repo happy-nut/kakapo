@@ -318,6 +318,9 @@ function renderUsages() {
     return '<button type="button" class="quick-open-item usage-item' + (isTest ? ' is-test' : '') + (index === usageActive ? ' active' : '') + '" data-index="' + index + '" title="' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '">'
       + '<span class="usage-loc">' + escapeHtml(fname) + ':' + (item.lineIndex + 1) + '</span>'
       + '<span class="usage-code">' + semanticCodeHtml(item.path, item.text.replace(/^\s+/, '').slice(0, 160)) + '</span>'
+      // The module, where there is more than one — this popup's rows are `name:line` and in a workspace
+      // two of them can be the same file name in different modules.
+      + projectRowTagsHtml(item.path, 'module')
       + '</button>';
   }).join('');
   updateUsageActive();
