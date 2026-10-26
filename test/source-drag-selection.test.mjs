@@ -79,6 +79,30 @@ test("a pointer below the last row puts the focus at the end of the file, not th
   v.close();
 });
 
+test("the corrected selection actually has text in it — which is what ⌘C copies", async () => {
+  const v = await loadViewer(html);
+  const rows = await openFile(v);
+  // The worst version of the bug, and the one that reads as "copying is broken" rather than as "the
+  // selection is wrong": drag from the very start of line 1 and Chromium parks the focus at the start of
+  // the container, which is the SAME position. The selection is not collapsed and its text is "".
+  const selection = v.window.getSelection();
+  const range = v.document.createRange();
+  range.setStart(firstTextNode(rows[0].querySelector(".source-code")), 0);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  selection.extend(v.$("#source-body"), 0);
+  // In Chromium that selection's text is "" — not collapsed, and nothing to copy, which is why this read
+  // as "⌘C is broken" rather than as "the selection is wrong". jsdom serializes a range across table rows
+  // differently (it does not honour `user-select: none`, so it even picks up the gutter), so the premise
+  // is only measurable in a real browser; what is held here is the outcome.
+  drag(v, 400);
+  assert.equal(lineOf(selection.focusNode), rows.length);
+  assert.ok(selection.toString().includes("line8"), "the whole file is in the selection now");
+  assert.ok(selection.toString().length > 50, selection.toString().slice(0, 40));
+  v.close();
+});
+
 test("a pointer above the first row puts it at the start, which is the same bug the other way up", async () => {
   const v = await loadViewer(html);
   const rows = await openFile(v);

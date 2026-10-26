@@ -100,6 +100,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "analysis.readyToast": "Semantic analysis is ready — navigation is complete now.",
     "analysis.fallback": "Heuristic analysis",
     "analysis.failed": "Analysis failed",
+    // How long the current phase has been running, shown once it is long enough to wonder about.
+    "analysis.elapsed": "{n}s",
     "monaco.peek": "Semantic Peek",
     "monaco.peekHint": "↑/↓ Select · Enter Open · Esc Close",
     "monaco.noResults": "No semantic locations found.",
@@ -752,6 +754,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "analysis.readyToast": "의미 분석이 준비됐습니다 — 이제 전체 기능으로 이동합니다.",
     "analysis.fallback": "heuristic 분석",
     "analysis.failed": "분석 실패",
+    "analysis.elapsed": "{n}초",
     "monaco.peek": "Semantic Peek",
     "monaco.peekHint": "↑/↓ 선택 · Enter 열기 · Esc 닫기",
     "monaco.noResults": "semantic 위치를 찾지 못했습니다.",

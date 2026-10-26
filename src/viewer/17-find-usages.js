@@ -205,7 +205,13 @@ function loadFindUsages() {
         moduleGroup: (projectModuleOf(item.path) || {}).group || '',
       };
     });
-    usageViewNote = !usageViewRows.length && response && response.fallbackReason ? String(response.fallbackReason) : '';
+    // The analyzer's own `fallbackReason` is an internal English sentence ("Language server returned no
+    // semantic locations") and was being printed verbatim under a Korean heading. While a server is still
+    // coming up the honest line is the translated one that says so; otherwise the reason is at least
+    // specific, so it stays for the case where nothing better exists.
+    usageViewNote = usageViewRows.length ? ''
+      : analysisStillArriving() ? t('monaco.analysisPending').replace('{symbol}', usageViewName)
+        : (response && response.fallbackReason ? String(response.fallbackReason) : '');
     quickActive = 0;
     renderFindUsagesResults(String(quickInput && quickInput.value || ''));
   }, function () {
