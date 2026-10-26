@@ -253,9 +253,25 @@ export async function performHttpRequest(
     // (IntelliJ's own default for both). The error names the deadline actually applied.
     const timeoutMs = Math.max(Number(request.timeoutMs) || 0, Number(request.connectTimeoutMs) || 0)
       || DEFAULT_TIMEOUT_MS;
+    // The origin the reviewer actually named, which is the only one the credentials in their file are for.
+    const requestedOrigin = url.origin;
     const headersFor = (target: URL, extra?: Record<string, string>): Record<string, string> => {
       const headers: Record<string, string> = { ...(request.headers ?? {}), ...(extra ?? {}) };
-      if (request.auth?.type === "basic") headers.Authorization = basicHeader(request.auth.user, request.auth.password);
+      // Every hop re-sent the file's headers and its Basic credentials, whatever host the hop led to.
+      // Following redirects manually is what makes each one checkable (above) — and it also took over the
+      // one thing `redirect: "follow"` had been doing correctly, because fetch drops Authorization when a
+      // redirect crosses origins and nothing here did. A server named in a .http file could answer `302
+      // Location: https://elsewhere/` and be handed the reviewer's password in cleartext, along with
+      // whatever API key the file sets. A scheme downgrade is a different origin too, deliberately.
+      const sameOrigin = target.origin === requestedOrigin;
+      if (!sameOrigin) {
+        for (const name of Object.keys(headers)) {
+          if (/^(authorization|proxy-authorization|cookie)$/i.test(name)) delete headers[name];
+        }
+      }
+      if (sameOrigin && request.auth?.type === "basic") {
+        headers.Authorization = basicHeader(request.auth.user, request.auth.password);
+      }
       // The jar fills in what the file did not say. A Cookie: line written in the .http file wins outright —
       // it is the request the reviewer can read, and silently appending to it would change what they ran.
       if (jarred && !Object.keys(headers).some((name) => name.toLowerCase() === "cookie")) {
