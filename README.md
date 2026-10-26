@@ -132,14 +132,24 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌘F7` / `⌘⇧F7` | Highlight this symbol everywhere in the open file, writes apart from reads |
 | `⌘⌥↓` / `⌘⌥↑` | Next / previous occurrence of the symbol under the caret |
 | `⌘⌥B` / `⌘⌥O` | Go to implementation / workspace symbol |
+| `⌥O` | Go to a class by name (types only) |
+| `⌥G` | Files related to this one — its test, and its same-name siblings |
+| `⌘⌥.` | Go to a `region` in this file |
+| `⌘⇧Backspace` | Jump to this file's last change |
+| `F1` | Quick documentation for the symbol under the caret |
+| `⌘⇧P` | The type of the expression under the caret |
+| `⌘F1` | The full message of the problem on this line |
+| `⌘6` | Problems — everything the language servers found in this review |
 | `⌘⇧B` | Go to the declaration of this thing's **type** |
 | `⌘F12` | This file's structure — filter, then jump |
 | `⌥↓` / `⌥↑` | Next / previous symbol in this file |
 | `⌘P` | Search files by name (`store.ts:42` lands on the line) |
 | `⌘⇧E` | Recent locations — where the caret has been |
 | `⇧⇧` | Search everywhere (files, text, symbols, history) |
+| `⌘⇧A` | Find an action by name — every command, with its chord |
+| `⌥Space` / `⌘Y` | Quick definition — the code, without going there |
 | `⌘⇧T` | This file's test, or back to what it tests |
-| `⌘⌥H` / `⌘⇧H` | Call / type hierarchy — press again for the other direction |
+| `⌘⌥H` / `⌘⇧H` / `⌘⇧M` | Call / type / method hierarchy — press again for the other direction |
 | `⌘U` | Go to the supertype |
 | `F3` / `⌘F3` | Bookmark this line / show every bookmark |
 | `⇧⌥1`…`⇧⌥9` / `⌥1`…`⌥9` | Number this line / go to that number |
@@ -232,11 +242,37 @@ belonging to exactly one line. On `⌥` rather than IntelliJ's `⌃` because `�
 Files panel, the Changes panel and history. Bookmarks live in kakapo's own per-workspace state, never in
 the repository.
 
-**Not ported, on purpose.** *Go to Related Symbol* (`⌃⌘↑`): in a reader with no framework knowledge its
-contents are exactly `⌘⇧T` and `⌘U`, which are both here. *Go to Class* (`⌘O`): `⌘⌥O` already searches
-every symbol including types, and `⌘O` opens a folder here. The *Structure tool window*: `⌘F12`'s popup is
-the reading half of it, and a docked panel is workspace furniture. *Find Usages Settings* and *Structural
-Search*: both are about search scopes and patterns this app has no model for.
+**Find action** (`⌘⇧A`) — every command this app can run, by name, with its chord on the row. It costs
+almost nothing because the commands are already data: [src/shortcuts.ts](src/shortcuts.ts) is the one table
+the Settings sheet renders, the `data-keyhint`s are filled from and the dispatcher attaches to by id, so
+the list is a search over it and running one is the call the keypress makes. Typing a chord finds the
+action it belongs to, which is the other half of why this list gets opened. Only what the page can invoke
+is offered: `⌘O` opens a folder through the OS menu and cannot be fired from here.
+
+**Quick definition** (`⌥Space`, `⌘Y`) — the definition's own lines, in a box at the caret, without going
+anywhere. `⌘↓` is for when you want to be there; this is for "what does this call do" in the middle of
+reading something else. A definition outside the review says where it is instead of showing an empty box.
+
+**Code analysis** (`F1`, `⌘⇧P`, `⌘F1`, `⌘6`) — the language servers were already answering eight
+questions here, and every one of them was about *where* something is. `textDocument/hover` is the ninth and
+the only one that answers *what*: `F1` renders it in full (it is Markdown, and it goes through the same
+renderer the source preview uses), and `⌘⇧P` takes its signature line alone. `⌘F1` reads out the problem
+on the caret's line, which until now was a mouse-only tooltip.
+
+`⌘6` is the Problems view: every error and warning in the review, not just in the file on screen, asked a
+few files at a time and filling in as the answers land. Errors sort above warnings, `⌥E` hides the
+warnings, and a file no language server covers is **counted and named** rather than quietly contributing
+zero — "no problems" for a review half of which could not be checked is the one wrong answer this list
+could give. Inspections and data-flow slicing are not here and cannot be: they need a compiler's model of
+the program. The servers' own diagnostics are this app's inspections.
+
+**Not ported, and why.** *Show File Path* (`⌃⌥F12`): the breadcrumb above the source view already shows
+it, permanently, and `⌥F1` reveals the file in the sidebar. The *Structure tool window*: `⌘F12`'s popup is
+the reading half of it, and a docked panel is workspace furniture. *Inspect Code*, *Code Cleanup* and
+*Analyze ▸ Data Flow*: all three need IntelliJ's own engine over a compiler's model — what this app has
+instead is the diagnostics of the project's real language servers, which `⌘6` now collects. *Find Usages
+Settings* and *Structural Search*: both are about search scopes and patterns this app has no model for.
+*Live templates* and their parameter stepping: there is nothing to type into here.
 
 **Search everywhere** (`⇧⇧`) — the launcher with every section beside it. The double tap is spelled as a
 chord in [src/shortcuts.ts](src/shortcuts.ts) and recognised by the one matcher, so it stays rebindable and

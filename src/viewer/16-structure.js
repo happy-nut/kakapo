@@ -382,7 +382,15 @@ var hierarchyBusy = false;
 var hierarchyEngine = '';
 var hierarchyNote = '';
 
-var HIERARCHY_FLIP = { callers: 'callees', callees: 'callers', supertypes: 'subtypes', subtypes: 'supertypes' };
+// The pairs the panel flips between when its own chord is pressed again — IntelliJ's two tabs, one key.
+// `implementation` and `supertypes` are the two directions of a METHOD hierarchy as this app can answer it:
+// who overrides this, and what it overrides. Both requests already existed (⌘⌥B and ⌘U ask them one answer
+// at a time); what was missing was the tree over them.
+var HIERARCHY_FLIP = {
+  callers: 'callees', callees: 'callers',
+  supertypes: 'subtypes', subtypes: 'supertypes',
+  implementation: 'supertypes',
+};
 
 function hierarchyTitle(kind) {
   return t('hierarchy.' + kind);
@@ -545,6 +553,7 @@ function handleHierarchyKey(event) {
   // opened the panel flips its direction (openHierarchy does the swap).
   if (isShortcut(event, 'callHierarchy')) { event.preventDefault(); openHierarchy('callers'); return true; }
   if (isShortcut(event, 'typeHierarchy')) { event.preventDefault(); openHierarchy('supertypes'); return true; }
+  if (isShortcut(event, 'methodHierarchy')) { event.preventDefault(); openHierarchy('implementation'); return true; }
   if (event.metaKey || event.ctrlKey || event.altKey) return false;
   var item = quickItems[quickActive];
   if (!item || typeof item.hierarchyIndex !== 'number') return false;
@@ -571,6 +580,94 @@ async function goToSuperDeclaration() {
   if (!items.length) { showSemanticNavigationFailure('supertypes', name, response); return; }
   if (items.length === 1) { openSourceAt(items[0].path, items[0].lineIndex, items[0].column); return; }
   openAnalysisUsages(name, items, response, 'supertypes');
+}
+
+// ---- the smaller jumps IntelliJ's Navigate menu has ---------------------------------------------------
+
+/**
+ * ⌥G: IntelliJ's Go to Related Symbol, as a reader with no framework knowledge can answer it.
+ *
+ * IntelliJ's list is built by plugins — a Spring bean's XML, a component's template, a controller's view —
+ * and none of that is knowable here. What IS knowable is the part every project has: the file's test (or
+ * the file a test is for), and its siblings, the files that share its name under another extension
+ * (`Button.tsx` / `Button.css` / `Button.stories.tsx`). Those are the two relations a reviewer follows.
+ */
+function goToRelatedSymbol() {
+  var path = structureTargetPath();
+  if (!path) return false;
+  var parts = filePathParts(path);
+  var related = [];
+  filesNamed(testCounterpartNames(path), path).forEach(function (candidate) {
+    related.push({ path: candidate, lineIndex: 0, column: 0, name: sourceTabLabel(candidate), text: t('related.test') });
+  });
+  // Same stem, different extension, same directory first.
+  sourceByPath.forEach(function (_file, candidate) {
+    if (candidate === path) return;
+    var other = filePathParts(candidate);
+    if (other.stem !== parts.stem || other.extension === parts.extension) return;
+    if (related.some(function (item) { return item.path === candidate; })) return;
+    related.push({ path: candidate, lineIndex: 0, column: 0, name: sourceTabLabel(candidate), text: t('related.sibling') });
+  });
+  if (!related.length) {
+    showToast(t('related.none').replace('{file}', sourceTabLabel(path)));
+    return true;
+  }
+  related.sort(function (a, b) { return pathDistance(path, a.path) - pathDistance(path, b.path); });
+  if (related.length === 1) { openSourceFile(related[0].path); return true; }
+  openAnalysisUsages(sourceTabLabel(path), related, null, 'related');
+  return true;
+}
+
+// `//region Name`, `// #region Name`, `#region Name`, `# region Name` and the markup form. IntelliJ folds
+// these and lets you jump between them; this app does not fold them (a fold is a shape of the code, and a
+// region is a comment), but the jump is the half worth having.
+var REGION_MARKER = /^\s*(?:\/\/|#|--|\/\*|<!--)\s*#?\s*region\b[ \t:]*(.*?)\s*(?:\*\/|-->)?\s*$/i;
+
+/** ⌘⌥. : the named regions of the open file. */
+function openCustomRegions() {
+  var path = structureTargetPath();
+  var file = path ? sourceByPath.get(path) : null;
+  if (!file || !file.embedded) return false;
+  var regions = [];
+  String(file.content || '').split(/\r?\n/).forEach(function (line, lineIndex) {
+    var match = REGION_MARKER.exec(line);
+    if (!match) return;
+    regions.push({
+      path: path,
+      lineIndex: lineIndex,
+      column: Math.max(0, line.length - line.replace(/^\s*/, '').length),
+      name: match[1] || t('region.unnamed'),
+      text: line.trim(),
+    });
+  });
+  if (!regions.length) {
+    showToast(t('region.none').replace('{file}', sourceTabLabel(path)));
+    return true;
+  }
+  if (regions.length === 1) { openSourceAt(path, regions[0].lineIndex, regions[0].column); return true; }
+  openAnalysisUsages(sourceTabLabel(path), regions, null, 'region');
+  return true;
+}
+
+/**
+ * ⌘⇧⌫: the last changed line of the open file — IntelliJ's Jump to Last Change.
+ *
+ * `F7` already steps the review's changes file by file; this one stays inside the file you are reading,
+ * which is the question "where did this file actually change" rather than "what is next".
+ */
+function jumpToLastChange() {
+  var path = structureTargetPath();
+  var file = path ? sourceByPath.get(path) : null;
+  var lines = file && Array.isArray(file.changedLines) ? file.changedLines : [];
+  if (!lines.length) {
+    showToast(t('lastchange.none').replace('{file}', sourceTabLabel(path || '')));
+    return true;
+  }
+  // changedLines is 1-based (renderSourceTable compares it against index + 1).
+  var last = lines[lines.length - 1];
+  for (var i = 0; i < lines.length; i += 1) if (lines[i] > last) last = lines[i];
+  openSourceAt(path, Math.max(0, Number(last) - 1), 0);
+  return true;
 }
 
 // ---- bookmarks ---------------------------------------------------------------------------------------

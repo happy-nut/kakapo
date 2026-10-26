@@ -23,7 +23,20 @@ function semanticCommentOnlyLine(text) {
   return /^(?:\/\/|\/\*|\*\/|\*|#|--|<!--|\"\"\"|''')/.test(trimmed);
 }
 
-function semanticNavigationLocations(locations) {
+/**
+ * The locations worth showing, in the order worth showing them: documentation and comment-only lines out,
+ * tests below production code, the analyzer's own order kept inside each group.
+ *
+ * `kind` is read for one reason: a list whose answers ARE comments. A region marker (`// region Hooks`) is
+ * a comment by construction, so the filter below would drop every row and the list would come up empty —
+ * which is what it did the first time. The filter is about noise around an answer, not about answers.
+ */
+var SEMANTIC_COMMENT_KINDS = { region: true };
+
+function semanticNavigationLocations(locations, kind) {
+  if (SEMANTIC_COMMENT_KINDS[kind] === true) {
+    return (locations || []).filter(function (item) { return item && item.path; });
+  }
   return (locations || []).map(function (item, index) {
     return { item: item, index: index, test: item && semanticTestPath(item.path) };
   }).filter(function (entry) {
@@ -46,7 +59,7 @@ function analysisGenerationIsCurrent(response) {
 function openSemanticPeek(name, locations, response, kind) {
   var panel = document.getElementById('semantic-peek');
   if (!panel) { openAnalysisUsagesFallback(name, locations, kind); return; }
-  semanticPeekItems = semanticNavigationLocations(locations).map(function (item) {
+  semanticPeekItems = semanticNavigationLocations(locations, kind).map(function (item) {
     return { path: item.path, lineIndex: Number(item.lineIndex) || 0, column: Number(item.column) || 0, text: String(item.text || ''), isTest: semanticTestPath(item.path) };
   });
   if (!semanticPeekItems.length) { showSemanticNavigationFailure(kind || 'references', name); return; }
@@ -76,7 +89,7 @@ function openSemanticPeek(name, locations, response, kind) {
 }
 
 function openAnalysisUsagesFallback(name, locations, kind) {
-  usageItems = semanticNavigationLocations(locations).map(function (item) {
+  usageItems = semanticNavigationLocations(locations, kind).map(function (item) {
     return { path: item.path, lineIndex: Number(item.lineIndex) || 0, column: Number(item.column) || 0, text: String(item.text || ''), isTest: semanticTestPath(item.path) };
   });
   if (usageItems.length === 1) { openUsageItem(usageItems[0]); return; }
@@ -93,7 +106,18 @@ function semanticPeekAnchorRect() {
 }
 
 function positionSemanticPeekAtCaret() {
-  var panel = document.getElementById('semantic-peek');
+  positionPanelAtCaret(document.getElementById('semantic-peek'));
+}
+
+/**
+ * Put a caret-anchored panel where the caret is: below it when there is room, above it when there is not,
+ * clamped to the window on both axes.
+ *
+ * Generalised from the peek's own positioning when Quick Documentation needed the same thing. One
+ * function, two panels — the alternative was a second copy of the four-way fallback below, which is the
+ * part of this that is actually hard to get right.
+ */
+function positionPanelAtCaret(panel) {
   if (!panel || panel.classList.contains('hidden')) return;
   var rect = semanticPeekAnchorRect();
   var margin = 8, gap = 6, vw = window.innerWidth, vh = window.innerHeight;

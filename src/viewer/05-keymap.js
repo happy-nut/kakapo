@@ -148,6 +148,14 @@ var KEY_OWNERS = [
     closeLightbox();
     return true;
   } },
+  // Quick Documentation is a caret panel like the peek, so it answers Escape the same way and in the same
+  // place in this order — above the highlight, below every real dialog.
+  { name: 'quick-doc', handle: function (event) {
+    if (event.key !== 'Escape') return false;
+    if (!closeQuickDoc()) return false;
+    event.preventDefault();
+    return true;
+  } },
   // The in-file usage highlight (17-find-usages.js) owns no surface — it is painted over the source and the
   // caret keeps working under it — but Escape takes it down, as IntelliJ's does. Last row on purpose: every
   // dialog above gets Escape first, and this only answers while something is actually painted.
@@ -192,6 +200,23 @@ var SHORTCUT_ACTIONS = {
 
   // -- content level: the review itself owns the keyboard
   gotoDiagnostic: function (event, i) { return gotoDiagnostic(i ? -1 : 1) ? undefined : false; },
+  errorDescription: function () {
+    if (treeFocusIndex >= 0) return false;
+    return showErrorDescriptionAtCaret() ? undefined : false;
+  },
+  problemsView: function () {
+    var qo = document.getElementById('quick-open');
+    if (qo && !qo.classList.contains('hidden') && quickMode === 'problems') { closeQuickOpen(); return; }
+    return openProblemsView() ? undefined : false;
+  },
+  quickDoc: function () {
+    if (treeFocusIndex >= 0) return false;
+    return openQuickDocumentation() ? undefined : false;
+  },
+  expressionType: function () {
+    if (treeFocusIndex >= 0) return false;
+    return showExpressionType() ? undefined : false;
+  },
   toggleFold: function () { return toggleCurrentSourceFold() ? undefined : false; },
   selectEditor: function () { return selectAllInView() ? undefined : false; },
   gotoLine: function () { openGotoLine(); },
@@ -210,7 +235,26 @@ var SHORTCUT_ACTIONS = {
   compareMode: function (event, i) { pickCompareMode(i ? 'uncommitted' : 'all'); },
   compareRef: function () { openCompareBranchPicker(); },
   goToDef: function () { if (isSourceViewerVisible()) goToDefinitionUnderCursor(); else openDiffFileAtCaret(); },
-  workspaceSymbol: function () { openWorkspaceSymbols(); },
+  quickDefinition: function () {
+    if (treeFocusIndex >= 0) return false;
+    return openQuickDefinition() ? undefined : false;
+  },
+  findAction: function () {
+    var qo = document.getElementById('quick-open');
+    if (qo && !qo.classList.contains('hidden') && quickMode === 'actions') { closeQuickOpen(); return; }
+    return openFindAction() ? undefined : false;
+  },
+  workspaceSymbol: function () { openWorkspaceSymbols(false); },
+  goToClass: function () { openWorkspaceSymbols(true); },
+  relatedSymbol: function () { return goToRelatedSymbol() ? undefined : false; },
+  customRegion: function () {
+    if (treeFocusIndex >= 0) return false;
+    return openCustomRegions() ? undefined : false;
+  },
+  lastChange: function () {
+    if (treeFocusIndex >= 0) return false;
+    return jumpToLastChange() ? undefined : false;
+  },
   goToImplementation: function () { goToImplementation(); },
   defUsages: function () { findUsagesUnderCursor(); },
   // The grouped view, the in-file highlight and its two step keys. Each declines when there is nothing to
@@ -290,6 +334,10 @@ var SHORTCUT_ACTIONS = {
   callHierarchy: function () {
     if (treeFocusIndex >= 0) return false;
     return openHierarchy('callers') ? undefined : false;
+  },
+  methodHierarchy: function () {
+    if (treeFocusIndex >= 0) return false;
+    return openHierarchy('implementation') ? undefined : false;
   },
   goToSuper: function () {
     if (treeFocusIndex >= 0) return false;

@@ -3086,6 +3086,91 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 /* The row's actual content, and it was on the code-muted token while sitting on a chrome ground: 4.25:1
    in light. --chrome-muted is the one tuned for this ground, and token-contrast guards it. */
 .semantic-peek-item-code { color: var(--chrome-muted); font: 10.5px/1.4 Monaco, ui-monospace, monospace; }
+/* Quick Documentation (F1). A caret panel like the peek above and positioned by the same function, but it
+   holds prose: the markdown stack renders into it, so it inherits the source preview's typography rather
+   than inventing a second one. Same rung as the peek, because it is the same kind of thing and the two can
+   never be up at once. */
+.quick-doc {
+  position: fixed;
+  z-index: var(--z-peek);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--chrome-border);
+  border-radius: 8px;
+  background: var(--chrome-elevated);
+  box-shadow: 0 10px 30px var(--shadow);
+  overflow: hidden;
+}
+.quick-doc.hidden { display: none; }
+.quick-doc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 11px;
+  border-bottom: 1px solid var(--chrome-border);
+  background: var(--chrome-panel);
+}
+.quick-doc-title { color: var(--chrome-text); font: 600 12px/1.3 ui-sans-serif, system-ui, sans-serif; }
+.quick-doc-meta { color: var(--chrome-muted); font-size: 10.5px; margin-left: auto; }
+.quick-doc-body {
+  padding: 9px 12px 12px;
+  overflow: auto;
+  color: var(--chrome-text);
+  font: 12px/1.6 ui-sans-serif, system-ui, sans-serif;
+}
+.quick-doc-body:focus-visible { outline: 1px solid var(--active); outline-offset: -2px; }
+.quick-doc-body p { margin: 0 0 7px; }
+.quick-doc-body pre {
+  margin: 0 0 8px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: var(--chrome-bg);
+  overflow-x: auto;
+}
+.quick-doc-body code { font: 11.5px/1.5 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.quick-doc-body ul, .quick-doc-body ol { margin: 0 0 7px; padding-left: 18px; }
+.quick-doc-body a { color: var(--active); }
+.quick-doc-empty { color: var(--chrome-muted); display: flex; flex-direction: column; gap: 4px; }
+/* The Problems list (⌘6). A severity mark rather than a coloured message: the message is what is read, and
+   colouring a whole sentence red makes a list of forty warnings unreadable. Same two colours the gutter
+   markers use, so the list and the file agree. */
+.problem-result { gap: 9px; }
+.problem-mark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--chrome-muted);
+}
+.problem-result[data-severity="error"] .problem-mark { background: var(--diag-error, #e5534b); }
+.problem-result[data-severity="warning"] .problem-mark { background: var(--diag-warning, #d6a84b); }
+.problem-message {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--chrome-text);
+}
+/* Find Action (⌘⇧A): the chord sits on the row because half of why this list is opened is to be reminded
+   of it. Monospace keycaps, so ⌘⇧E and ⌘⇧F line up down the column. */
+.action-chords { display: inline-flex; gap: 4px; flex: none; }
+.action-chord {
+  padding: 1px 5px;
+  border: 1px solid var(--chrome-border);
+  border-radius: 4px;
+  color: var(--chrome-muted);
+  background: var(--chrome-bg);
+  font: 10.5px/1.5 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.quick-open-item.active .action-chord { color: var(--chrome-selected-text); border-color: var(--chrome-selected-text); }
+/* Quick Definition (⌥Space): the definition's own lines, numbered as they are in the file they came from —
+   a body with no line numbers reads as a quotation, and the point is that it is a place. */
+.quick-def { font: 11.5px/1.55 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.quick-def-line { display: flex; gap: 10px; white-space: pre; }
+.quick-def-num { flex: none; min-width: 2.5em; text-align: right; color: var(--chrome-muted); user-select: none; }
+.quick-def-code { min-width: 0; }
 /* ⌥F7's grouped list. A header is not a row: it carries no data-index, takes no selection and is skipped by
    the arrows — the group is the only thing in this list that is not navigable, which is why it looks nothing
    like one. */

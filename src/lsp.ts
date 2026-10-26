@@ -727,6 +727,24 @@ export class LspClient {
     return normalizeLocationResult(result, this.root);
   }
 
+  /**
+   * `textDocument/hover` — the one question in this file whose answer is PROSE rather than a position.
+   *
+   * Everything else here (definition, references, the two hierarchies, the symbols) answers "where", and a
+   * reader who wants to know "what IS this" had nowhere to ask. That is two IntelliJ actions at once:
+   * Quick Documentation (F1) renders the whole answer, and Expression Type (⌃⇧P) takes its first line.
+   */
+  async hover(path: string, lineIndex: number, column: number): Promise<string> {
+    await this.ensureDocument(path);
+    await this.waitForWorkspaceReady();
+    const uri = pathToFileURL(resolve(this.root, path)).href;
+    const result = await this.requestAfterWorkspaceReady("textDocument/hover", {
+      textDocument: { uri },
+      position: { line: Math.max(0, lineIndex), character: Math.max(0, column) },
+    });
+    return normalizeHoverResult(result);
+  }
+
   async sourceDefinitions(path: string, lineIndex: number, column: number): Promise<AnalysisLocation[]> {
     await this.ensureDocument(path);
     const uri = pathToFileURL(resolve(this.root, path)).href;
@@ -1154,6 +1172,49 @@ type LspDocumentSymbolLike = {
  *   depth   counted from RANGE CONTAINMENT, not from `containerName` (a string that may name a type in
  *           another file) and not from the reply's structure (which the flat shape does not have).
  */
+/**
+ * A hover answer, as Markdown. Three wire shapes are in the field and all three are accepted:
+ *
+ *   `MarkupContent`           `{ kind: "markdown" | "plaintext", value }` — what every current server sends
+ *   `MarkedString`            a bare string, or `{ language, value }` — the 3.0 shape, still sent by some
+ *   `MarkedString[]`          a list of either, which is how a signature and its doc arrive separately
+ *
+ * A `{ language, value }` entry becomes a fenced block rather than being flattened: it IS the signature,
+ * and the renderer highlights a fenced block with the same tokenizer the source view uses. Plaintext is
+ * fenced for the same reason — it is code far more often than it is a sentence, and fencing it stops a
+ * leading `#` or `*` in a C comment from being read as Markdown.
+ */
+export function normalizeHoverResult(result: unknown): string {
+  const value = result as { contents?: unknown } | undefined;
+  if (!value || typeof value !== "object") return "";
+  const parts = Array.isArray(value.contents) ? value.contents : [value.contents];
+  const out: string[] = [];
+  for (const part of parts) {
+    if (typeof part === "string") {
+      if (part.trim()) out.push(part);
+      continue;
+    }
+    const marked = part as { kind?: unknown; value?: unknown; language?: unknown } | null;
+    if (!marked || typeof marked !== "object" || typeof marked.value !== "string") continue;
+    if (!marked.value.trim()) continue;
+    if (typeof marked.language === "string" && marked.language) {
+      out.push("```" + marked.language + "\n" + marked.value + "\n```");
+    } else if (marked.kind === "plaintext") {
+      out.push("```\n" + marked.value + "\n```");
+    } else {
+      out.push(marked.value);
+    }
+  }
+  // Servers repeat themselves: tsserver answers a signature and then the same signature inside the doc.
+  const seen = new Set<string>();
+  return out.filter((entry) => {
+    const key = entry.trim();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).join("\n\n").trim();
+}
+
 export function normalizeDocumentSymbols(result: unknown): AnalysisSymbol[] {
   const flat = flattenDocumentSymbols(result, 0);
   flat.sort((a, b) => a.lineIndex - b.lineIndex || b.endLineIndex - a.endLineIndex);

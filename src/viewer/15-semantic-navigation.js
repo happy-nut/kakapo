@@ -259,7 +259,7 @@ function openUsages(name, def) {
   showUsages(name, items.length);
 }
 function openAnalysisUsages(name, locations, response, kind) {
-  locations = semanticNavigationLocations(locations);
+  locations = semanticNavigationLocations(locations, kind);
   if (!(locations || []).length) { showSemanticNavigationFailure(kind || 'references', name, response); return; }
   if (locations.length > 1) {
     openSemanticPeek(name, locations, response, kind || 'references');

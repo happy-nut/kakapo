@@ -170,7 +170,7 @@ class Page {
 }
 
 const READY = `typeof openFileStructure === 'function' && typeof goToNextSymbol === 'function'
-  && typeof openFindUsages === 'function'`;
+  && typeof openFindUsages === 'function' && typeof openProblemsView === 'function'`;
 
 async function readyPage(timeoutMs) {
   const until = Date.now() + timeoutMs;
@@ -424,6 +424,62 @@ async function run() {
     const cleared = await page.evaluate(`(CSS.highlights.get('kakapo-usage-read') || { size: 0 }).size
       + (CSS.highlights.get('kakapo-usage-write') || { size: 0 }).size`);
     check("Escape takes the highlight down", cleared === 0, String(cleared));
+
+    // ---- F1 and ⌘⇧P: what the real server says this IS -------------------------------------------
+    await page.key("Escape", "Escape", 27, 0);
+    await page.evaluate(`(() => { openSourceFile('src/store.ts'); return true; })()`);
+    await sleep(400);
+    await page.evaluate(`(() => { setSourceCursor('src/store.ts', 13, 29, true, -1); return true; })()`); // on `Store`
+    await page.key("F1", "F1", 112, 0);
+    await sleep(1500);
+    const doc = await page.evaluate(`(() => {
+      const panel = document.getElementById('quick-doc');
+      const body = document.getElementById('quick-doc-body');
+      return {
+        open: panel && !panel.classList.contains('hidden'),
+        title: (document.getElementById('quick-doc-title') || {}).textContent,
+        meta: (document.getElementById('quick-doc-meta') || {}).textContent,
+        code: body ? Array.from(body.querySelectorAll('pre code')).map((el) => el.textContent.trim()) : [],
+        text: body ? body.textContent.trim().slice(0, 160) : '',
+      };
+    })()`);
+    await page.shot("quick-doc");
+    // A real tsserver answers hover with a fenced signature; jsdom's stub can only prove the page renders
+    // whatever it is handed, which is the half that was never in doubt.
+    check("F1 shows what the real server says about the symbol",
+      doc.open === true && doc.title === "Store" && doc.code.some((entry) => /class\s+Store/.test(entry)),
+      JSON.stringify(doc));
+    await page.key("Escape", "Escape", 27, 0);
+    await page.key("p", "KeyP", 80, 4 + 8);
+    await sleep(1200);
+    const typeHint = await page.evaluate(`(() => {
+      const hint = document.querySelector('.mc-caret-hint, .mc-toast');
+      return hint ? hint.textContent.trim() : '(none)';
+    })()`);
+    check("⌘⇧P puts the real signature on one line", /class\s+Store/.test(typeHint), typeHint);
+
+    // ---- ⌘6: the Problems view over the whole review ----------------------------------------------
+    await page.key("6", "Digit6", 54, 4);
+    await sleep(2500); // every file in the review, through a real server
+    const problems = await page.evaluate(`(() => {
+      const rows = Array.from(document.querySelectorAll('#quick-open-results .problem-result'));
+      return {
+        open: !document.getElementById('quick-open').classList.contains('hidden'),
+        label: document.getElementById('quick-open-filter').textContent,
+        asked: (window.__diagnosticsRequests || []).length,
+        rows: rows.length,
+        severities: rows.map((row) => row.dataset.severity),
+        empty: document.querySelector('#quick-open-results .quick-open-empty') ? document.querySelector('#quick-open-results .quick-open-empty').textContent.trim() : '',
+      };
+    })()`);
+    await page.shot("problems");
+    // The fixture compiles, so the honest expectation is "the list ran and said something" — either rows
+    // or the clean message. What matters is that it asked about more than the open file and that the
+    // scanning line resolved rather than hanging.
+    check("⌘6 opens the Problems view and finishes its scan",
+      problems.open === true && !/\u2026$/.test(problems.label.trim()),
+      JSON.stringify(problems));
+    await page.key("Escape", "Escape", 27, 0);
 
     // ---- ⌘⇧E: recent locations -------------------------------------------------------------------
     await page.key("Escape", "Escape", 27, 0);

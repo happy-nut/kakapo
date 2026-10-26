@@ -168,7 +168,12 @@ function shortcutLookupMap() {
   }
   return shortcutLookup;
 }
-function shortcutsChanged() { shortcutLookup = null; }
+function shortcutsChanged() {
+  shortcutLookup = null;
+  // Find Action shows each row's chord, from a list it caches — a rebind has to drop that too, or the
+  // list goes on advertising the combination the reader just changed.
+  forgetFindActionItems();
+}
 
 /** Every shortcut this event could be, as [{id, index}]. `index` is which of that action's keys fired. */
 function shortcutHits(event) {

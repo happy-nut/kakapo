@@ -36,7 +36,7 @@ function openQuickOpen(mode, hideRail) {
     : mode === 'content'
       ? t('quickopen.findInFiles')
       : mode === 'symbol'
-        ? t('quickopen.workspaceSymbols')
+        ? t(workspaceSymbolTypesOnly ? 'quickopen.goToClass' : 'quickopen.workspaceSymbols')
         : mode === 'structure'
           ? t('structure.title')
           : mode === 'locations'
@@ -47,7 +47,11 @@ function openQuickOpen(mode, hideRail) {
                 ? t('bookmark.title')
                 : mode === 'usages'
                   ? t('findusages.title').replace('{name}', usageViewName)
-                  : t('quickopen.searchFiles');
+                  : mode === 'problems'
+                    ? t('problems.title')
+                    : mode === 'actions'
+                      ? t('actions.title')
+                      : t('quickopen.searchFiles');
   quickInput.setAttribute('placeholder', mode === 'symbol'
     ? t('quickopen.workspaceSymbols')
     : mode === 'content'
@@ -62,7 +66,11 @@ function openQuickOpen(mode, hideRail) {
               ? t('bookmark.placeholder')
               : mode === 'usages'
                 ? t('findusages.placeholder')
-                : t('quickopen.searchFiles'));
+                : mode === 'problems'
+                  ? t('problems.placeholder')
+                  : mode === 'actions'
+                    ? t('actions.placeholder')
+                    : t('quickopen.searchFiles'));
   quickOpen.classList.remove('hidden');
   // Recent files needs no search box — it's just the latest files. Hide the input and let typed letters
   // narrow the list (IntelliJ-style speed search); the global keydown routes keys to handleQuickOpenKey.
@@ -176,6 +184,8 @@ function handleQuickOpenKey(event) {
   // steps out to the section rail.
   if (handleHierarchyKey(event)) return true;
   if (handleUsageViewKey(event)) return true;
+  if (handleProblemsKey(event)) return true;
+  if (quickMode === 'actions' && isShortcut(event, 'findAction')) { event.preventDefault(); closeQuickOpen(); return true; }
   var sideItem = focusedQuickSideItem();
   if (sideItem) {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -325,6 +335,8 @@ function renderQuickOpenResults() {
   if (quickMode === 'hierarchy') { renderHierarchyResults(rawQuery); return; }
   if (quickMode === 'bookmarks') { renderBookmarkResults(rawQuery); return; }
   if (quickMode === 'usages') { renderFindUsagesResults(rawQuery); return; }
+  if (quickMode === 'problems') { renderProblemsResults(rawQuery); return; }
+  if (quickMode === 'actions') { renderFindActionResults(rawQuery); return; }
   if (!isRecent && !rawQuery) {
     quickItems = [];
     quickActive = 0;
@@ -380,7 +392,15 @@ function renderQuickOpenResults() {
   renderQuickPreview(quickItems[quickActive]);
 }
 
-function openWorkspaceSymbols() {
+/**
+ * ⌘⌥O every symbol, ⌥O types only — IntelliJ's Go to Symbol and its Go to Class.
+ *
+ * One mode with a flag rather than two: the list, the debounce and the engine label are identical and the
+ * only difference is a word in the title and a filter main applies. (The filter is main's because the two
+ * engines spell a kind differently — see isTypeLocation in analysis.ts.)
+ */
+function openWorkspaceSymbols(typesOnly) {
+  workspaceSymbolTypesOnly = typesOnly === true;
   workspaceSymbolQuery = '\0';
   openQuickOpen('symbol');
 }
@@ -424,7 +444,7 @@ function renderWorkspaceSymbolResults(query) {
 
 async function runWorkspaceSymbolSearch(query, seq) {
   var loc = caretSourceLoc() || { path: sourceFiles[0] && sourceFiles[0].path, lineIndex: 0, column: 0 };
-  var response = await queryProjectAnalysis('workspaceSymbol', null, loc, { query: query, limit: 200 });
+  var response = await queryProjectAnalysis('workspaceSymbol', null, loc, { query: query, limit: 200, types: workspaceSymbolTypesOnly });
   if (seq !== workspaceSymbolSeq || quickMode !== 'symbol' || query !== String(quickInput && quickInput.value || '').trim()) return;
   workspaceSymbolItems = response && Array.isArray(response.locations) ? response.locations.map(function (item) {
     return {
@@ -861,6 +881,8 @@ document.getElementById('quick-open-preview')?.addEventListener('scroll', handle
 
 function openQuickItem(item) {
   if (!item) return;
+  // An action is not a place: running it is the whole point, and it has no path to open.
+  if (runFindActionItem(item)) return;
   // A recent location is a position (which pane, which side, which line), not a file — restoring it is a
   // different act from opening its path.
   if (openRecentLocationItem(item)) return;

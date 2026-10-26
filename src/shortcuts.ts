@@ -56,6 +56,16 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "prevChange", keys: ["⇧F7"], where: "any", i18n: "kbd.prevChange" },
   { id: "nextComment", keys: ["F8", "⇧F8"], where: "any", i18n: "kbd.nextComment" },
   { id: "gotoDiagnostic", keys: ["F2", "⇧F2"], where: "code", i18n: "kbd.gotoDiagnostic" },
+  // IntelliJ's Show Error Description (⌃F1): the message of the problem the caret is on, in full and from
+  // the keyboard. The gutter already carries it in a dwell tooltip, which is a mouse affordance.
+  { id: "errorDescription", keys: ["⌘F1"], where: "code", i18n: "kbd.errorDescription" },
+  // IntelliJ's Problems tool window, on its own chord. The diagnostics were always here; what was missing
+  // was asking about more than the one file on screen.
+  { id: "problemsView", keys: ["⌘6"], where: "any", i18n: "kbd.problemsView" },
+  // Quick Documentation (F1 on IntelliJ's own Mac keymap) and Expression Type (⌃⇧P). One `textDocument/
+  // hover` answers both — this app asked the server eight questions and none of them was "what IS this".
+  { id: "quickDoc", keys: ["F1"], where: "code", i18n: "kbd.quickDoc" },
+  { id: "expressionType", keys: ["⌘⇧P"], where: "code", i18n: "kbd.expressionType" },
   { id: "filesChangesTab", keys: ["⌘1", "⌘0"], where: "any", i18n: "kbd.filesChangesTab" },
   { id: "sidebarNavigate", keys: ["↑↓", "Enter"], where: "tree", i18n: "kbd.sidebarNavigate", fixed: "structural" },
   { id: "sidebarContent", keys: ["Tab", "⇧Tab"], where: "any", i18n: "kbd.sidebarContent", fixed: "structural" },
@@ -92,7 +102,23 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "nextPrevOccurrence", keys: ["⌘⌥↓", "⌘⌥↑"], where: "code", i18n: "kbd.nextPrevOccurrence" },
   { id: "goToImplementation", keys: ["⌘⌥B"], where: "code", i18n: "kbd.goToImplementation" },
   { id: "workspaceSymbol", keys: ["⌘⌥O"], where: "any", i18n: "kbd.workspaceSymbol" },
+  // IntelliJ's Go to Class. Not on its ⌘O — that opens a folder here, and a desktop app's ⌘O is not a
+  // chord to take — so it sits one modifier away from Go to Symbol, which is what it is a filter of.
+  { id: "goToClass", keys: ["⌥O"], where: "any", i18n: "kbd.goToClass" },
+  // IntelliJ's Go to Related Symbol. Its ⌃⌘↑ folds onto ⌘↑, which reveals the file in the sidebar here.
+  { id: "relatedSymbol", keys: ["⌥G"], where: "any", i18n: "kbd.relatedSymbol" },
+  // IntelliJ's Go to Custom Region, on its own chord.
+  { id: "customRegion", keys: ["⌘⌥."], where: "code", i18n: "kbd.customRegion" },
+  // IntelliJ's Jump to Last Change, on its own chord. F7 steps the review; this stays in the file.
+  { id: "lastChange", keys: ["⌘⇧Backspace"], where: "code", i18n: "kbd.lastChange" },
+  // The third hierarchy. IntelliJ puts the method hierarchy on ⌃⇧H, which folds onto ⌘⇧H — already the
+  // type hierarchy here, because IntelliJ's ⌃H folds onto ⌘H and macOS owns that one (Hide). The whole
+  // family is therefore shifted by one, and this is the chord left over.
+  { id: "methodHierarchy", keys: ["⌘⇧M"], where: "code", i18n: "kbd.methodHierarchy" },
   { id: "goToDef", keys: ["⌘↓"], where: "code", i18n: "kbd.goToDef" },
+  // IntelliJ's Quick Definition, on both of the chords it answers to there: the definition's own code
+  // without going to it, which is the difference from ⌘↓.
+  { id: "quickDefinition", keys: ["⌥Space", "⌘Y"], where: "code", i18n: "kbd.quickDefinition" },
   // IntelliJ's Go to Type Declaration, its structure popup and its Recent Locations, on IntelliJ's own
   // chords. Next/previous symbol is the one that could not keep its chord: this table folds Ctrl into ⌘
   // (one spelling for both platforms), so ⌃↓ and ⌘↓ are the same row — and ⌘↓ is Go to Definition.
@@ -106,6 +132,9 @@ export const SHORTCUTS: ShortcutDef[] = [
   // IntelliJ's Search Everywhere, on its own chord. A double tap is spelled as a chord here and
   // recognised by the one matcher (00-shortcuts.js) — not by a second handler with its own timing.
   { id: "searchEverywhere", keys: ["⇧⇧"], where: "any", i18n: "kbd.searchEverywhere" },
+  // IntelliJ's Find Action (⌃⇧A). Cheap here because the commands are already this table: the list is a
+  // search over it and running one is the call the keypress makes.
+  { id: "findAction", keys: ["⌘⇧A"], where: "any", i18n: "kbd.findAction" },
   // The file's counterpart: its test, or the source the test is for. Convention-based, as IntelliJ's is.
   { id: "goToTest", keys: ["⌘⇧T"], where: "any", i18n: "kbd.goToTest" },
   // The two hierarchies. IntelliJ puts them on ⌃H and ⌃⌥H; this table spells Control and Command the
@@ -186,12 +215,13 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
     "gotoLine", "revealInTree", "rowActions", "closeDialog",
   ] },
   { i18n: "settings.kbd.cat.nav", ids: [
-    "nextChange", "prevChange", "nextComment", "gotoDiagnostic", "filesChangesTab",
+    "nextChange", "prevChange", "nextComment", "gotoDiagnostic", "errorDescription", "problemsView",
+    "quickDoc", "expressionType", "filesChangesTab",
     "sidebarNavigate", "sidebarContent", "findInFile", "findNextPrev", "findEnter", "findInFiles", "recentFiles",
     "searchExtensions", "excludeSearchNoise", "searchMatchCase", "searchWholeWords", "searchRegex",
-    "searchFiles", "searchEverywhere", "goToTest",
+    "searchFiles", "searchEverywhere", "findAction", "goToTest",
     "defUsages", "findUsages", "highlightUsages", "nextPrevOccurrence", "goToImplementation",
-    "workspaceSymbol", "goToDef", "typeDeclaration", "fileStructure", "nextPrevSymbol", "recentLocations", "typeHierarchy", "callHierarchy", "goToSuper",
+    "workspaceSymbol", "goToClass", "relatedSymbol", "customRegion", "lastChange", "goToDef", "quickDefinition", "typeDeclaration", "fileStructure", "nextPrevSymbol", "recentLocations", "typeHierarchy", "callHierarchy", "methodHierarchy", "goToSuper",
     "toggleBookmark", "showBookmarks", "assignBookmark", "jumpBookmark",
     "toggleFold", "prevNextTab", "cursorBackForward",
   ] },
