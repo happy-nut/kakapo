@@ -96,24 +96,47 @@ export function saveHttpResponse(root: string, userData: string, request: HttpSa
   } catch (error) { return { ok: false, error: errorMessage(error) }; }
 }
 
-type Cookie = { domain: string; path: string; name: string; value: string; expires: number };
+type Cookie = {
+  domain: string;
+  path: string;
+  name: string;
+  value: string;
+  expires: number;
+  /** `Secure`: this cookie may only be sent over a secure transport. */
+  secure?: boolean;
+  /** No `Domain=` was given, so it belongs to that one host and not to anything under it. */
+  hostOnly?: boolean;
+};
 
-/** IntelliJ's own jar format — `# domain path name value date` — so the file stays readable and editable. */
+/**
+ * IntelliJ's own jar format — `# domain path name value date` — so the file stays readable and editable,
+ * with the two flags RFC 6265 needs appended after it.
+ *
+ * Appended rather than woven in: `parseJar` reads by position, so a jar written by a version that did not
+ * have them still parses, and one written now still parses for a version that does not look for them.
+ * A jar entry from before this existed has neither flag, which is what it meant at the time.
+ */
 function parseJar(text: string): Cookie[] {
   const cookies: Cookie[] = [];
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
-    const [domain, path, name, value, date] = trimmed.split(/\t/);
+    const [domain, path, name, value, date, secure, hostOnly] = trimmed.split(/\t/);
     if (!domain || !name) continue;
-    cookies.push({ domain, path: path || "/", name, value: value ?? "", expires: Number(date) || -1 });
+    cookies.push({
+      domain, path: path || "/", name, value: value ?? "", expires: Number(date) || -1,
+      secure: secure === "secure", hostOnly: hostOnly === "host",
+    });
   }
   return cookies;
 }
 
 function serializeJar(cookies: Cookie[]): string {
-  return "# domain\tpath\tname\tvalue\tdate (-1 never expires)\n"
-    + cookies.map((c) => [c.domain, c.path, c.name, c.value, String(c.expires)].join("\t")).join("\n") + "\n";
+  return "# domain\tpath\tname\tvalue\tdate (-1 never expires)\tsecure\thost-only\n"
+    + cookies.map((c) => [
+      c.domain, c.path, c.name, c.value, String(c.expires),
+      c.secure ? "secure" : "-", c.hostOnly ? "host" : "-",
+    ].join("\t")).join("\n") + "\n";
 }
 
 function readJar(root: string, userData: string): Cookie[] {
@@ -121,10 +144,44 @@ function readJar(root: string, userData: string): Cookie[] {
   try { return existsSync(file) ? parseJar(readFileSync(file, "utf8")) : []; } catch { return []; }
 }
 
-function domainMatches(cookieDomain: string, host: string): boolean {
-  const domain = cookieDomain.replace(/^\./, "").toLowerCase();
+function domainMatches(cookie: Cookie, host: string): boolean {
+  const domain = cookie.domain.replace(/^\./, "").toLowerCase();
   const target = host.toLowerCase();
+  // A cookie with no `Domain=` belongs to the host that set it and to nothing under it (RFC 6265 §5.1.3,
+  // "host-only"). Treating every cookie as a domain cookie sent a session set by example.org to
+  // sub.example.org, which is a host the server never said to trust.
+  if (cookie.hostOnly) return domain === target;
   return domain === target || target.endsWith(`.${domain}`);
+}
+
+/**
+ * Whether a response from `host` is allowed to set a cookie for `domain` (RFC 6265 §5.3.5–6).
+ *
+ * The `Domain=` attribute was taken at its word, so a response from any server a .http file happened to
+ * name could put a cookie in the jar for a host it has nothing to do with — `Set-Cookie: s=1;
+ * Domain=github.com` from attacker.test was then sent to api.github.com by the next request. The
+ * attribute may only widen a cookie to a PARENT of the host that set it.
+ *
+ * The single-label rule is the public-suffix problem in the form this file can answer without shipping
+ * the Public Suffix List: `Domain=com` passes the suffix test for every host that ends in `.com`, and one
+ * response could claim every one of them. ponytail: a multi-label suffix (`co.uk`, `github.io`) is still
+ * claimable by a server already under it, which is what the PSL exists for; this is the cheap 90%.
+ */
+function maySetDomain(domain: string, host: string): boolean {
+  const wanted = domain.replace(/^\./, "").toLowerCase();
+  const target = host.toLowerCase();
+  if (!wanted || !wanted.includes(".")) return false;
+  return wanted === target || target.endsWith(`.${wanted}`);
+}
+
+/**
+ * `Secure` means "not over plain http". Loopback counts as secure, as it does in every browser: a .http
+ * file run against your own dev server over http is the feature, not an attack on it.
+ */
+function secureEnough(url: URL): boolean {
+  if (url.protocol === "https:") return true;
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1" || host === "::1";
 }
 
 function pathMatches(cookiePath: string, path: string): boolean {
@@ -135,9 +192,11 @@ function pathMatches(cookiePath: string, path: string): boolean {
 /** The `Cookie:` header this URL has earned from earlier responses, or "" when the jar has nothing for it. */
 export function cookieHeaderFor(root: string, userData: string, url: URL): string {
   const now = Date.now();
+  const secure = secureEnough(url);
   const matched = readJar(root, userData).filter((cookie) =>
     (cookie.expires < 0 || cookie.expires > now)
-    && domainMatches(cookie.domain, url.hostname)
+    && (!cookie.secure || secure)
+    && domainMatches(cookie, url.hostname)
     && pathMatches(cookie.path, url.pathname || "/"));
   const seen = new Set<string>();
   const pairs: string[] = [];
@@ -159,23 +218,35 @@ export function saveCookies(root: string, userData: string, url: URL, setCookie:
     if (!name?.trim()) continue;
     const cookie: Cookie = {
       domain: url.hostname, path: "/", name: name.trim(), value: valueParts.join("=").trim(), expires: -1,
+      hostOnly: true,
     };
     let maxAge: number | undefined;
     let expires: number | undefined;
+    let rejected = false;
     for (const attribute of parts) {
       const [key, ...rest] = attribute.split("=");
       const attributeName = key.trim().toLowerCase();
       const value = rest.join("=").trim();
-      if (attributeName === "domain" && value) cookie.domain = value.replace(/^\./, "");
-      else if (attributeName === "path" && value) cookie.path = value;
+      if (attributeName === "domain" && value) {
+        // Not "whatever the response asked for": a `Domain=` that is not a parent of the host that sent it
+        // is a cookie for somebody else's site, and the whole Set-Cookie is dropped (RFC 6265 §5.3.6).
+        if (!maySetDomain(value, url.hostname)) { rejected = true; break; }
+        cookie.domain = value.replace(/^\./, "");
+        cookie.hostOnly = false;
+      } else if (attributeName === "path" && value) cookie.path = value;
       else if (attributeName === "max-age") maxAge = Number(value);
       else if (attributeName === "expires") expires = Date.parse(value);
+      else if (attributeName === "secure") cookie.secure = true;
     }
+    if (rejected) continue;
     // Max-Age wins over Expires, as in RFC 6265. A zero/negative age is a deletion.
     if (Number.isFinite(maxAge)) cookie.expires = Date.now() + (maxAge as number) * 1000;
     else if (Number.isFinite(expires)) cookie.expires = expires as number;
+    // Host-only is part of a cookie's identity: `s` for example.org and `s` for `.example.org` are two
+    // cookies, and replacing one with the other would silently widen or narrow where it is sent.
     const index = jar.findIndex((existing) =>
-      existing.name === cookie.name && existing.domain === cookie.domain && existing.path === cookie.path);
+      existing.name === cookie.name && existing.domain === cookie.domain && existing.path === cookie.path
+      && Boolean(existing.hostOnly) === Boolean(cookie.hostOnly));
     if (cookie.expires >= 0 && cookie.expires <= Date.now()) {
       if (index >= 0) jar.splice(index, 1); // Set-Cookie with a past date deletes
       continue;
