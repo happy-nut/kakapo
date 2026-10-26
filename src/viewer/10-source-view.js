@@ -53,6 +53,76 @@ function sourceSelectionCitation() {
   return { reference, payload: reference + '\n\n' + fence + language + '\n' + code.replace(/\s+$/g, '') + '\n' + fence };
 }
 
+// ---- dragging past the end of the file --------------------------------------------------------------
+// Drag-select downwards past the last line of a short file and the selection used to flip: instead of
+// reaching the end it covered line 1 down to wherever the drag STARTED.
+//
+// The source view is a real <table>, and Chromium maps a point below a table to `(container, 0)` — the
+// START of the scroll container, not the end of its last row. That position sorts before the anchor, so
+// the browser's own selection reverses. (The diff view does not do this: diff2html is divs, and a point
+// below a block maps to the end of it, which is what one expects.)
+//
+// Corrected AFTER the fact, on `selectionchange`, not on mousemove: the browser updates a drag selection
+// in the default action of the move, which runs after listeners, so anything set during the move is
+// immediately overwritten. The symptom is precise enough to key on — while a button is down, with the
+// anchor inside the body, the focus has left the rows entirely — so this never touches a drag that is
+// behaving.
+
+/** The last text node inside `el`, or the first when `last` is false. */
+function deepestTextNode(el, last) {
+  if (!el) return null;
+  var nodes = el.childNodes;
+  for (var i = 0; i < nodes.length; i += 1) {
+    var node = nodes[last ? nodes.length - 1 - i : i];
+    if (node.nodeType === 3) return node;
+    var inner = deepestTextNode(node, last);
+    if (inner) return inner;
+  }
+  return null;
+}
+
+// Where the pointer was on the last move with a button held, and '' when no drag is running.
+var sourceDragY = null;
+// selection.extend() fires selectionchange again; without this the correction answers itself.
+var clampingSourceSelection = false;
+
+function sourceRowOf(node) {
+  var el = node ? (node.nodeType === 1 ? node : node.parentElement) : null;
+  return el && el.closest ? el.closest('.source-row') : null;
+}
+
+function clampSourceDragSelection() {
+  if (clampingSourceSelection || sourceDragY === null) return;
+  var body = document.getElementById('source-body');
+  if (!body || body.classList.contains('empty')) return;
+  var selection = window.getSelection && window.getSelection();
+  if (!selection || !selection.rangeCount || !selection.anchorNode || !selection.focusNode) return;
+  if (!body.contains(selection.anchorNode) || !sourceRowOf(selection.anchorNode)) return;
+  // A focus still on a row is a selection that is working. Only the parked one is corrected.
+  if (sourceRowOf(selection.focusNode)) return;
+  var rows = body.querySelectorAll('.source-row');
+  if (!rows.length) return;
+  var last = rows[rows.length - 1];
+  var below = sourceDragY > last.getBoundingClientRect().bottom;
+  var row = below ? last : rows[0];
+  var cell = row.querySelector('.source-code') || row;
+  var node = deepestTextNode(cell, below);
+  clampingSourceSelection = true;
+  try {
+    if (node) selection.extend(node, below ? node.length : 0);
+    else selection.extend(cell, below ? cell.childNodes.length : 0);
+  } catch (e) {
+    // extend() throws when there is no range to extend; there is nothing to correct in that case.
+  }
+  clampingSourceSelection = false;
+}
+
+document.addEventListener('mousemove', function (event) {
+  sourceDragY = (event.buttons & 1) ? event.clientY : null;
+}, true);
+document.addEventListener('mouseup', function () { sourceDragY = null; }, true);
+document.addEventListener('selectionchange', clampSourceDragSelection);
+
 function selectedSourceRows(selection) {
   if (!selection.rangeCount) return [];
   flushSourceRows(); // a selection may reach rows a big file has not painted yet
@@ -1039,7 +1109,12 @@ function renderSourceTabs(activePath) {
   bar.classList.remove('hidden');
   bar.innerHTML = sourceTabs.map(function (p) {
     var active = p === activePath;
-    return '<div class="source-tab' + (active ? ' active' : '') + '" data-tab-path="' + escapeHtml(p) + '" title="' + escapeHtml(p) + '">'
+    // IntelliJ's File Colors tint the editor TAB as well as the tree row — the same green says "you are
+    // reading test code" in the one place you look at while reading it (14-project-layout.js).
+    var scope = projectScopeOf(p);
+    return '<div class="source-tab' + (active ? ' active' : '')
+      + (scope === 'test' ? ' is-test-file' : scope === 'generated' ? ' is-generated-file' : '')
+      + '" data-tab-path="' + escapeHtml(p) + '" title="' + escapeHtml(p) + '">'
       + '<span class="source-tab-name">' + escapeHtml(sourceTabLabel(p)) + '</span>'
       + '<button type="button" class="source-tab-close" data-keyhint-id="closeTab" data-close-path="' + escapeHtml(p) + '" aria-label="Close tab" data-i18n-title="tab.close" title="Close">×</button>'
       + '</div>';

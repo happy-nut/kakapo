@@ -626,6 +626,11 @@ export function renderDiffHtml(input: {
     // write accesses or imports. Chips in the strip that is already here rather than a gear popup: WHICH
     // divisions are on is the thing a reader needs to see at a glance, not something to go and open.
     '<span id="quick-open-usage-options" class="quick-open-usage-options">',
+    // Expand All / Collapse All, which IntelliJ's usage-view toolbar carries beside the Group By menu.
+    // Buttons rather than chords: there are nine chords on this strip already, and these two are the ones
+    // IntelliJ itself puts on the toolbar.
+    '<button type="button" class="quick-open-usage-icon" data-usage-tree="expand" data-i18n-title="usagegroup.expandAll" data-i18n-aria="usagegroup.expandAll" title="Expand all" aria-label="Expand all"><span aria-hidden="true">▾</span></button>',
+    '<button type="button" class="quick-open-usage-icon" data-usage-tree="collapse" data-i18n-title="usagegroup.collapseAll" data-i18n-aria="usagegroup.collapseAll" title="Collapse all" aria-label="Collapse all"><span aria-hidden="true">▸</span></button>',
     '<span class="quick-open-usage-label" data-i18n="usagegroup.title">Group by</span>',
     '<button type="button" class="quick-open-usage-chip" data-usage-toggle="scope" aria-pressed="false"' + keyHint('usageGroupScope') + ' data-i18n="usagegroup.by.scope">Production/Test</button>',
     '<button type="button" class="quick-open-usage-chip" data-usage-toggle="type" aria-pressed="false"' + keyHint('usageGroupType') + ' data-i18n="usagegroup.by.type">Usage type</button>',

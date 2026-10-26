@@ -226,6 +226,16 @@ arrive here as `⌘⌥T`/`⌘⌥M`/`⌘⌥P`/`⌘⌥F`. A division that would di
 single-module repository gets no module header, and a list that is nothing but call sites gets no heading
 at all.
 
+**What that looks like** — IntelliJ never says "test file" in words, and neither does this now. It tints
+the row (its File Colors: green for tests, yellow for generated code — `FileColorManagerImpl`'s own
+values) in both trees and on the editor tab, and it marks the folder itself with the green-and-orange
+pair its `testSourceFolder` icon draws, the blue square its `Module` icon draws, and the bars its library
+icon draws — the polygons and the hexes are IntelliJ's, on kakapo's own folder outline. The usage view is
+a tree: every node folds, carries the icon for what it is, and says how much is under it ("3 usages");
+the occurrence itself is bold inside the line it sits on; and Expand All / Collapse All are the two
+buttons IntelliJ's own usage-view toolbar has. The file's NAME is left its own colour throughout — that
+already means new, edited or staged here, and one more meaning on the same pixels is one too many.
+
 **Find in Files' scope** (`⌥S`) — IntelliJ's scope dropdown, with the scopes that mean something in a
 review: the whole project, production files, test files, this file's module, or only the files this change
 touches. The scope goes *with* the query rather than being applied to its answer — ripgrep is asked for at

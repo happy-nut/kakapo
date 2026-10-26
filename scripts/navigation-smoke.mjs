@@ -90,6 +90,9 @@ function fixtureRepo() {
     "",
   ].join("\n"));
   put("src/store.test.ts", "import { Store } from './store';\n\nexport const subject = Store;\n");
+  // A test DIRECTORY as well as a test file: the first is a declared root (project-layout.ts finds it on
+  // disk), which is what carries IntelliJ's green folder mark and its File Color in the tree.
+  put("test/helper.ts", "export const helper = 1;\n");
   git(["add", "-A"]);
   git(["commit", "-qm", "baseline"]);
   // A change, so the app opens a review rather than the welcome screen.
@@ -144,6 +147,29 @@ class Page {
     const result = await this.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails).slice(0, 400));
     return result.result?.value;
+  }
+  /**
+   * A real drag, injected below the page like the keys are.
+   *
+   * Several moves rather than one: a selection is dragged out by the moves, and a single jump to the end
+   * is not the gesture a hand makes — the bug this exists for only shows up once the pointer is past the
+   * content, which is where the last moves are.
+   */
+  async drag(fromX, fromY, toX, toY, steps = 6) {
+    const common = { button: 'left', clickCount: 1 };
+    await this.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: fromX, y: fromY, buttons: 1, ...common });
+    for (let step = 1; step <= steps; step += 1) {
+      await this.send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: fromX + ((toX - fromX) * step) / steps,
+        y: fromY + ((toY - fromY) * step) / steps,
+        buttons: 1,
+        button: 'left',
+      });
+      await sleep(20);
+    }
+    await this.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: toX, y: toY, buttons: 0, ...common });
+    await sleep(120);
   }
   /** A real key, injected below the page. mods: Alt=1 Ctrl=2 Meta=4 Shift=8. */
   async key(key, code, vk, modifiers = 0) {
@@ -367,6 +393,11 @@ async function run() {
         // What jsdom cannot answer: does the nesting PAINT. A module header inside a usage type is one
         // step further in than the type above it, and the step is a computed padding.
         indents: Array.from(document.querySelectorAll('#quick-open-results .usage-group')).map((g) => parseFloat(getComputedStyle(g).paddingLeft)),
+        // The ROWS are indented under their node too, which takes a compound selector to beat the
+        // padding shorthand on .quick-open-item. Flush-left rows under a four-deep header is what it
+        // looked like before, and no jsdom assertion could see it. (No backticks in here: this whole
+        // block is a template literal.)
+        rowIndents: Array.from(document.querySelectorAll('#quick-open-results .usage-result')).map((r) => parseFloat(getComputedStyle(r).paddingLeft)),
         chips: Array.from(document.querySelectorAll('.quick-open-usage-chip')).filter((c) => getComputedStyle(c).display !== 'none').length,
         types: Array.from(document.querySelectorAll('#quick-open-results .usage-result')).map((r) => r.dataset.usageType),
         label: document.getElementById('quick-open-filter').textContent,
@@ -383,9 +414,10 @@ async function run() {
     check("the usages are divided by module, with the workspace's own module names",
       usages.modules.includes("@smoke/ui") && usages.modules.includes("@smoke/root"),
       JSON.stringify(usages.modules));
-    check("and the nesting is drawn, not merely ordered",
-      usages.chips >= 9 && new Set(usages.indents).size >= 2 && Math.max(...usages.indents) > Math.min(...usages.indents),
-      `${usages.chips} chips, indents ${JSON.stringify(usages.indents)}`);
+    check("and the nesting is drawn, not merely ordered — headers and the rows under them",
+      usages.chips >= 9 && new Set(usages.indents).size >= 2 && Math.max(...usages.indents) > Math.min(...usages.indents)
+      && Math.max(...usages.rowIndents) >= Math.max(...usages.indents),
+      `${usages.chips} chips, indents ${JSON.stringify(usages.indents)}, rows ${JSON.stringify(usages.rowIndents)}`);
 
     // ⌘⌥S: Production/Test, the one grouping IntelliJ ships switched off.
     await page.key("s", "KeyS", 83, 4 + 1);
@@ -400,6 +432,34 @@ async function run() {
       scoped.pressed === "true" && scoped.scopes.includes("production") && scoped.scopes.includes("test") && scoped.tags === 0,
       JSON.stringify(scoped));
     await page.key("s", "KeyS", 83, 4 + 1);
+    await sleep(200);
+
+    // The tree: a node folds away what is under it, and the occurrence is picked out of each line.
+    const tree = await page.evaluate(`(() => {
+      const node = document.querySelector('#quick-open-results .usage-group[data-usage-group="type"]');
+      const before = document.querySelectorAll('#quick-open-results .usage-result').length;
+      const hit = document.querySelector('#quick-open-results .usage-hit');
+      const weight = hit ? getComputedStyle(hit).fontWeight : '';
+      node.click();
+      return new Promise((resolve) => setTimeout(() => {
+        const after = document.querySelector('#quick-open-results .usage-group[data-usage-group="type"]');
+        resolve({
+          before,
+          afterRows: document.querySelectorAll('#quick-open-results .usage-result').length,
+          twisty: after ? after.querySelector('.usage-twisty').textContent : '',
+          count: after ? after.querySelector('.usage-group-count').textContent : '',
+          hit: hit ? hit.textContent : '',
+          weight,
+          icon: Boolean(document.querySelector('#quick-open-results .usage-group .usage-group-icon')),
+        });
+      }, 120));
+    })()`);
+    await page.shot("usages-tree");
+    check("a usage node folds, keeps its count, and the occurrence is marked in bold",
+      tree.afterRows < tree.before && tree.twisty === "▸" && /^\(\d+/.test(tree.count)
+      && tree.hit === "Store" && Number(tree.weight) >= 600 && tree.icon,
+      JSON.stringify(tree));
+    await page.evaluate(`(() => { document.querySelector('[data-usage-tree="expand"]').click(); return true; })()`);
     await sleep(200);
 
     // ⌥P: the toggle it borrows from Find in Files, pressed inside this mode.
@@ -527,6 +587,46 @@ async function run() {
     check("⌘⇧E lists where the caret has been", locations.open === true && locations.rows > 0, JSON.stringify(locations));
     await page.key("Escape", "Escape", 27, 0);
 
+    // ---- dragging a selection past the end of a short file ---------------------------------------
+    // Only a real browser can answer this: jsdom has no layout and no native drag selection, and the bug
+    // was Chromium's own mapping of a point below a <table> to the START of the scroll container.
+    await page.key("Escape", "Escape", 27, 0);
+    await page.evaluate(`(() => { openSourceFile('src/store.ts'); return true; })()`);
+    await sleep(400);
+    const geometry = await page.evaluate(`(() => {
+      const rows = Array.from(document.querySelectorAll('#source-body .source-row'));
+      const code = (row) => row.querySelector('.source-code').getBoundingClientRect();
+      const first = code(rows[1]);
+      const last = code(rows[rows.length - 1]);
+      const body = document.getElementById('source-body').getBoundingClientRect();
+      getSelection().removeAllRanges();
+      return {
+        rows: rows.length,
+        startX: first.left + 30, startY: first.top + first.height / 2,
+        belowY: Math.min(last.bottom + 160, body.bottom - 8),
+        room: body.bottom - last.bottom,
+      };
+    })()`);
+    // Only meaningful while there IS empty space under the last line; the window is tall enough that
+    // there is, and the check says so rather than passing vacuously.
+    await page.drag(geometry.startX, geometry.startY, geometry.startX + 40, geometry.belowY);
+    const dragged = await page.evaluate(`(() => {
+      const selection = getSelection();
+      const lineOf = (node) => {
+        const el = node && (node.nodeType === 1 ? node : node.parentElement);
+        const row = el && el.closest ? el.closest('.source-row') : null;
+        return row ? Number(row.dataset.lineIndex) + 1 : null;
+      };
+      const rows = selectedSourceRows(selection).map((row) => Number(row.dataset.lineIndex) + 1);
+      return { anchor: lineOf(selection.anchorNode), focus: lineOf(selection.focusNode), first: rows[0], last: rows[rows.length - 1], count: rows.length };
+    })()`);
+    await page.shot("drag-past-end");
+    check("dragging below the last line selects to the END of the file, not back to the top",
+      geometry.room > 40 && dragged.anchor === 2 && dragged.first === 2 && dragged.last === geometry.rows
+      && dragged.focus === geometry.rows,
+      `${geometry.room}px of room | ${JSON.stringify(dragged)}`);
+    await page.evaluate(`(() => { getSelection().removeAllRanges(); return true; })()`);
+
     // ---- modules and test sources, where a path is listed ----------------------------------------
     // The tree marking is done in the renderer over server-rendered rows (14-project-layout.js), so the
     // thing to check in the real app is that it happened at all and that the tint and the badge are
@@ -543,10 +643,18 @@ async function run() {
       const row = document.querySelector('.tree-dir[data-dir="packages/ui"]');
       const badge = row && row.querySelector('.tree-module');
       const name = row && row.querySelector('summary .path');
-      const colour = (el) => el ? getComputedStyle(el.querySelector('.path')).color : '';
+      const mark = document.querySelector('.tree-dir.is-test-root .folder-mark');
+      const moduleMark = row && row.querySelector('.folder-mark');
+      const box = (el) => el ? el.getBoundingClientRect() : { width: 0, height: 0 };
       return {
         test: Boolean(test && test.classList.contains('is-test-file')),
-        tinted: Boolean(test && plain) && colour(test) !== colour(plain),
+        // IntelliJ's File Colors, by value: FileColorManagerImpl's Green is #effae7 light / #49544a dark,
+        // and TestsScope asks for Green. A class with no paint behind it is what jsdom cannot catch.
+        tint: test ? getComputedStyle(test).backgroundColor : '',
+        plainTint: plain ? getComputedStyle(plain).backgroundColor : '',
+        // The folder marks lifted out of testSourceFolder.svg and Module.svg, drawn ON the folder icon.
+        testMark: box(mark).width > 0 && box(mark).height > 0,
+        moduleMark: box(moduleMark).width > 0,
         badge: badge ? badge.textContent : '',
         badgeShown: badge ? getComputedStyle(badge).display !== 'none' : false,
         // On the same line as the folder name, not wrapped under it: the summary is a grid and a third
@@ -556,9 +664,13 @@ async function run() {
       };
     })()`);
     await page.shot("tree-modules");
-    check("the tree marks the test file and badges the module root, visibly",
-      layoutMarks.test && layoutMarks.tinted && layoutMarks.badge === "@smoke/ui" && layoutMarks.badgeShown
-      && layoutMarks.inline, JSON.stringify(layoutMarks));
+    const FILE_COLOR_TEST = ["rgb(73, 84, 74)", "rgb(239, 250, 231)"]; // #49544a dark, #effae7 light
+    check("the tree paints IntelliJ's test File Color and its folder marks, and badges the module root",
+      layoutMarks.test && FILE_COLOR_TEST.includes(layoutMarks.tint)
+      && layoutMarks.tint !== layoutMarks.plainTint
+      && layoutMarks.testMark && layoutMarks.moduleMark
+      && layoutMarks.badge === "@smoke/ui" && layoutMarks.badgeShown && layoutMarks.inline,
+      JSON.stringify(layoutMarks));
 
     // ⌥S: the Find in Files scope, cycled from inside the dialog that owns the keyboard.
     await page.key("f", "KeyF", 70, 4 + 8);

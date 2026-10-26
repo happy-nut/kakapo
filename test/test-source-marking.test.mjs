@@ -120,6 +120,20 @@ test("the caret peek says which module each location is in", async () => {
   v.close();
 });
 
+test("the editor tab is tinted too, except while it is the active one", async () => {
+  const v = await loadViewer(html);
+  v.window.openSourceFile(UI);
+  await v.settle(40);
+  v.window.openSourceFile(UI_TEST);
+  await v.settle(40);
+  const tab = (path) => v.$(`.source-tab[data-tab-path="${path}"]`);
+  assert.ok(tab(UI_TEST).classList.contains("is-test-file"), "the test file's tab says so");
+  assert.ok(!tab(UI).classList.contains("is-test-file"));
+  // The active tab keeps its own background: "this is the one on screen" outranks "this is test code".
+  assert.ok(tab(UI_TEST).classList.contains("active"));
+  v.close();
+});
+
 test("a single-module repository gets no module tags at all", async () => {
   const { html: plain } = await makeReviewHtml([
     { path: "src/index.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },

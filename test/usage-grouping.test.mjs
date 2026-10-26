@@ -192,6 +192,76 @@ test("⌘⌥P adds the directory, and the file header drops to the bare name und
   host.v.close();
 });
 
+// ---- the tree itself ------------------------------------------------------------------------------
+
+test("a group node folds, and what it folds away is out of reach of the arrows too", async () => {
+  const host = await openUsages(MIXED);
+  const before = rowTypes(host).length;
+  const node = host.v.$all("#quick-open-results .usage-group").filter((row) => row.dataset.usageGroup === "type")[0];
+  assert.equal(node.querySelector(".usage-twisty").textContent, "▾");
+  const folded = Number(node.querySelector(".usage-group-count").textContent.replace(/\D/g, ""));
+
+  node.click();
+  await host.v.settle(40);
+  const after = host.v.$all("#quick-open-results .usage-group").filter((row) => row.dataset.usageGroup === "type")[0];
+  assert.equal(after.querySelector(".usage-twisty").textContent, "▸", "the twisty says which way it is");
+  assert.equal(after.getAttribute("aria-expanded"), "false");
+  assert.equal(after.querySelector(".usage-group-count").textContent, `(${folded} usages)`,
+    "a folded node still says how much is under it — that is what the count is for");
+  assert.equal(rowTypes(host).length, before - folded);
+  // The rows are gone from the list the arrows walk, not merely hidden: the index space is rebuilt from
+  // what the tree hands back, so it is 0..n-1 over the rows that are actually on screen and Enter can
+  // never reach one that is folded away.
+  const indices = host.v.$all("#quick-open-results .usage-result").map((row) => Number(row.dataset.index));
+  assert.deepEqual(indices, indices.map((_, at) => at));
+
+  after.click();
+  await host.v.settle(40);
+  assert.equal(rowTypes(host).length, before, "and it comes back");
+  host.v.close();
+});
+
+test("Collapse all and Expand all fold the whole tree", async () => {
+  const host = await openUsages(MIXED);
+  const rows = rowTypes(host).length;
+  host.v.$('[data-usage-tree="collapse"]').click();
+  await host.v.settle(40);
+  assert.equal(rowTypes(host).length, 0, "nothing is left but the outermost nodes");
+  assert.ok(host.v.$all("#quick-open-results .usage-group").length > 0);
+  assert.ok(host.v.$all("#quick-open-results .usage-group").every((row) => row.classList.contains("is-collapsed")));
+
+  host.v.$('[data-usage-tree="expand"]').click();
+  await host.v.settle(40);
+  assert.equal(rowTypes(host).length, rows);
+  host.v.close();
+});
+
+test("a node carries IntelliJ's icon for what it is, and a usage-type node carries none", async () => {
+  const host = await openUsages(MIXED);
+  await press(host, { code: "KeyS", key: "s", metaKey: true, altKey: true }); // scope grouping on
+  const nodes = host.v.$all("#quick-open-results .usage-group");
+  const byRank = (rank) => nodes.filter((row) => row.dataset.usageGroup === rank);
+  const testScope = byRank("scope").filter((row) => row.dataset.usageKey === "test")[0];
+  assert.ok(testScope.querySelector(".usage-group-icon .folder-mark"), "the test scope wears the test folder mark");
+  assert.ok(byRank("module")[0].querySelector(".usage-group-icon .folder-mark"), "and a module its own");
+  assert.equal(byRank("type")[0].querySelector(".usage-group-icon"), null,
+    "a usage-type node has no icon in IntelliJ either");
+  assert.ok(byRank("file")[0].querySelector(".usage-group-icon"), "a file node takes the file tree's type icon");
+  host.v.close();
+});
+
+test("the occurrence is picked out of the line it sits on", async () => {
+  const host = await openUsages(MIXED);
+  const hits = host.v.$all("#quick-open-results .usage-hit").map((hit) => hit.textContent);
+  assert.ok(hits.length >= 3, `the usage itself is marked in each row: ${hits.length}`);
+  assert.ok(hits.every((hit) => hit === "Store"), JSON.stringify(hits));
+  // And the rest of the line is still there around it.
+  const row = host.v.$("#quick-open-results .usage-result .usage-result-code");
+  assert.match(row.textContent, /Store/);
+  assert.ok(row.textContent.length > "Store".length, "the mark did not eat the line");
+  host.v.close();
+});
+
 // ---- the filtering toolbar ------------------------------------------------------------------------
 
 test("⌘⌥R, ⌘⌥W and ⌘⌥I hide read accesses, write accesses and imports", async () => {
