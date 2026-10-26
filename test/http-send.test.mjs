@@ -35,6 +35,17 @@ before(async () => {
       res.end();
       return;
     }
+    // A hop that stays on this origin, and an endpoint that reports what it was sent.
+    if (req.url === "/to-echo") {
+      res.writeHead(302, { location: "/echo-headers" });
+      res.end();
+      return;
+    }
+    if (req.url === "/echo-headers") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(req.headers));
+      return;
+    }
     if (req.url?.startsWith("/loop")) {
       res.writeHead(302, { location: "/loop" });
       res.end();
@@ -529,4 +540,58 @@ test("a certificate outside the review, or one needing a passphrase, is refused 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// ---- what travels with a redirect -------------------------------------------------------------------
+// The redirect tests above check where a hop LEADS. Nothing checked what it carries, and the answer was
+// everything: following redirects manually is what makes each destination checkable, and it also took over
+// the one thing `redirect: "follow"` had been doing correctly — fetch drops Authorization when a redirect
+// crosses origins. A server named in a .http file could answer `302 Location: http://elsewhere/` and be
+// handed the reviewer's password in cleartext.
+
+test("credentials do not follow a redirect to another origin", async () => {
+  const collected = [];
+  const other = createServer((req, res) => {
+    collected.push(req.headers);
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("collected");
+  });
+  await new Promise((resolve) => other.listen(0, "127.0.0.1", resolve));
+  const otherOrigin = `http://127.0.0.1:${other.address().port}`;
+  const away = createServer((req, res) => {
+    res.writeHead(302, { location: `${otherOrigin}/collect` });
+    res.end();
+  });
+  await new Promise((resolve) => away.listen(0, "127.0.0.1", resolve));
+
+  try {
+    const result = await performHttpRequest({
+      method: "GET",
+      url: `http://127.0.0.1:${away.address().port}/api`,
+      headers: { Cookie: "session=reviewers-session", Accept: "application/json" },
+      auth: { type: "basic", user: "reviewer", password: "hunter2" },
+    });
+    assert.equal(result.ok, true, result.error ?? "");
+    assert.equal(collected.length, 1, "the hop was followed");
+    const got = collected[0];
+    assert.equal(got.authorization, undefined, "the reviewer's password did not go to a host they never named");
+    assert.equal(got.cookie, undefined, "nor the session cookie the file set for the other host");
+    assert.equal(got.accept, "application/json", "an ordinary header still travels, as it does in a browser");
+  } finally {
+    other.close();
+    away.close();
+  }
+});
+
+test("a redirect within the same origin still carries them", async () => {
+  // The ordinary case — a trailing slash, a login hop — and stripping there would break every one of them.
+  const result = await performHttpRequest({
+    method: "GET",
+    url: `${origin}/to-echo`,
+    headers: {},
+    auth: { type: "basic", user: "reviewer", password: "hunter2" },
+  });
+  assert.equal(result.ok, true, result.error ?? "");
+  assert.deepEqual(result.redirects, [`${origin}/echo-headers`]);
+  assert.equal(JSON.parse(result.body).authorization, `Basic ${Buffer.from("reviewer:hunter2").toString("base64")}`);
 });
