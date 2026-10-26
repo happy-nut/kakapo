@@ -49,13 +49,37 @@ function setProjectLayout(layout) {
     generatedRoots: Array.isArray(layout.generatedRoots) ? layout.generatedRoots : [],
     source: typeof layout.source === 'string' ? layout.source : 'conventions',
   };
-  projectScopeCache = new Map();
+  projectScopeCache = null;
   markProjectLayoutInTrees();
 }
 
 // Classifying a path is two prefix scans and a regex, and the lists that use it ask about the same few
 // hundred paths over and over as a filter is typed. One map, dropped whenever the layout changes.
-var projectScopeCache = new Map();
+//
+// Behind a function, like the layout itself, and for the same reason: SLICE ORDER IS EXECUTION ORDER.
+// 05-keymap.js reopens the file you had open at ITS top level — before this file has run — and that
+// render asks what kind of file it is. A plain `var` here is still `undefined` at that moment, so
+// `projectScopeCache.get(...)` threw, and a throw at slice 5 means every slice after it never
+// initialises: the source view itself (slice 10) included. That is what "no code shows for any file"
+// was. Nothing in this file may be read by an earlier slice except through a function.
+var projectScopeCache = null;
+function projectScopeCacheMap() {
+  if (!projectScopeCache) projectScopeCache = new Map();
+  return projectScopeCache;
+}
+
+// The conventions, for the same reason: a regex literal at the top level of this slice is `undefined`
+// to anything that runs before it.
+var projectConventionPatterns = null;
+function projectConventions() {
+  if (!projectConventionPatterns) {
+    projectConventionPatterns = {
+      test: /(^|\/)(test|tests|__tests__|spec|specs)(\/|$)|\.(?:test|spec)\.[^.]+$/i,
+      generated: /(^|\/)(dist|build|out|target|node_modules|vendor|generated|__generated__|\.next|coverage)(\/|$)|\.(?:min\.(?:js|css)|g\.dart|pb\.go)$|_pb2\.pyi?$/i,
+    };
+  }
+  return projectConventionPatterns;
+}
 
 function projectNormalizePath(path) {
   return String(path || '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '').replace(/\/+$/, '');
@@ -67,18 +91,17 @@ function projectUnderRoot(path, root) {
   return path === prefix || path.indexOf(prefix + '/') === 0;
 }
 
-// Conventions, used only where the project declared nothing. The test one is the pattern this app has
-// always used for "is this a test file" (it was `semanticTestPath`'s whole body); the generated one is
-// IntelliJ's `generated="true"` without the declaration — a build output directory, or a file whose name
-// says a generator wrote it.
-var PROJECT_TEST_CONVENTION = /(^|\/)(test|tests|__tests__|spec|specs)(\/|$)|\.(?:test|spec)\.[^.]+$/i;
-var PROJECT_GENERATED_CONVENTION = /(^|\/)(dist|build|out|target|node_modules|vendor|generated|__generated__|\.next|coverage)(\/|$)|\.(?:min\.(?:js|css)|g\.dart|pb\.go)$|_pb2\.pyi?$/i;
+// The conventions above are used only where the project declared nothing. The test one is the pattern
+// this app has always used for "is this a test file" (it was `semanticTestPath`'s whole body); the
+// generated one is IntelliJ's `generated="true"` without the declaration — a build output directory, or
+// a file whose name says a generator wrote it.
 
 /** 'test' | 'generated' | 'library' | 'production' — IntelliJ's scope groups, plus generated. */
 function projectScopeOf(path) {
   var relative = projectNormalizePath(path);
   if (!relative) return 'production';
-  var cached = projectScopeCache.get(relative);
+  var cache = projectScopeCacheMap();
+  var cached = cache.get(relative);
   if (cached) return cached;
   var layout = projectLayoutData();
   var scope = 'production';
@@ -89,12 +112,12 @@ function projectScopeOf(path) {
     scope = 'generated';
   } else if (layout.testRoots.some(function (root) { return projectUnderRoot(relative, root); })) {
     scope = 'test';
-  } else if (PROJECT_GENERATED_CONVENTION.test(relative)) {
+  } else if (projectConventions().generated.test(relative)) {
     scope = 'generated';
-  } else if (PROJECT_TEST_CONVENTION.test(relative)) {
+  } else if (projectConventions().test.test(relative)) {
     scope = 'test';
   }
-  projectScopeCache.set(relative, scope);
+  cache.set(relative, scope);
   return scope;
 }
 
@@ -199,25 +222,25 @@ function projectRowTagsHtml(path, kinds) {
 // #40B6E0) are verbatim from those two files; what is kakapo's is the folder they sit on, which is this
 // app's own outline icon rather than IntelliJ's filled one. A 16-unit viewBox over a 14px icon puts them
 // in the bottom-right corner, which is where IntelliJ composes them.
-var PROJECT_TEST_FOLDER_MARK = '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+function projectTestFolderMark() { return '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
   + '<polygon fill="#62B543" points="13.75 10.75 17.25 14.25 10.25 14.25" transform="rotate(90 13.75 12.5)"/>'
-  + '<polygon fill="#F26522" points="9.25 10.75 12.75 14.25 5.75 14.25" transform="rotate(-90 9.25 12.5)"/></svg>';
-var PROJECT_MODULE_FOLDER_MARK = '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
-  + '<polygon fill="#40B6E0" points="10 16 16 16 16 10 10 10"/></svg>';
+  + '<polygon fill="#F26522" points="9.25 10.75 12.75 14.25 5.75 14.25" transform="rotate(-90 9.25 12.5)"/></svg>'; }
+function projectModuleFolderMark() { return '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+  + '<polygon fill="#40B6E0" points="10 16 16 16 16 10 10 10"/></svg>'; }
 
 // A module GROUP, from moduleGroup.svg: four squares where the module icon has one.
-var PROJECT_MODULE_GROUP_FOLDER_MARK = '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+function projectModuleGroupFolderMark() { return '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
   + '<polygon fill="#40B6E0" points="13 16 16 16 16 13 13 13"/><polygon fill="#40B6E0" points="13 12 16 12 16 9 13 9"/>'
-  + '<polygon fill="#40B6E0" points="9 16 12 16 12 13 9 13"/><polygon fill="#40B6E0" points="9 12 12 12 12 9 9 9"/></svg>';
+  + '<polygon fill="#40B6E0" points="9 16 12 16 12 13 9 13"/><polygon fill="#40B6E0" points="9 12 12 12 12 9 9 9"/></svg>'; }
 // The library mark, from ppLibFolder.svg: three bars in IntelliJ's blue, grey and green.
-var PROJECT_LIBRARY_FOLDER_MARK = '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+function projectLibraryFolderMark() { return '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
   + '<rect width="2" height="6" x="14" y="8" fill="#40B6E0"/><rect width="2" height="8" x="11" y="6" fill="#9AA7B0"/>'
-  + '<rect width="2" height="6" x="8" y="8" fill="#62B543"/></svg>';
+  + '<rect width="2" height="6" x="8" y="8" fill="#62B543"/></svg>'; }
 // Excluded/generated, from excludedFromCompile.svg: its cross, in the row's own colour rather than
 // IntelliJ's near-black — a dark theme would swallow that.
-var PROJECT_GENERATED_FOLDER_MARK = '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+function projectGeneratedFolderMark() { return '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
   + '<polygon fill="currentColor" fill-opacity=".75" points="15.995 15.291 14.2 13.498 15.988 11.709 15.288 11.008'
-  + ' 13.499 12.798 11.704 11.004 11.003 11.703 12.8 13.498 11 15.299 11.7 16 13.5 14.198 15.294 15.991"/></svg>';
+  + ' 13.499 12.798 11.704 11.004 11.003 11.703 12.8 13.498 11 15.299 11.7 16 13.5 14.198 15.294 15.991"/></svg>'; }
 
 /**
  * A folder icon with one of IntelliJ's marks on it, for a usage-view group node.
@@ -267,7 +290,7 @@ function markProjectLayoutTreeDirectories() {
     row.classList.toggle('has-module', Boolean(name));
     // One mark per folder, and a test root inside a module keeps the test one: that is the distinction
     // the reader is being asked to see, and IntelliJ draws it the same way round.
-    setFolderMark(row, isTestRoot ? PROJECT_TEST_FOLDER_MARK : (name ? PROJECT_MODULE_FOLDER_MARK : ''));
+    setFolderMark(row, isTestRoot ? projectTestFolderMark() : (name ? projectModuleFolderMark() : ''));
     if (!name) { if (existing) existing.remove(); return; }
     if (existing) { existing.textContent = name; return; }
     var badge = document.createElement('span');

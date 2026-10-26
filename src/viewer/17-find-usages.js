@@ -357,13 +357,13 @@ function usageGroupingRules(rows) {
 // TYPE nodes, which have none there either — so this returns '' for those and for the non-code divider.
 function usageGroupIconHtml(group) {
   if (group.id === 'scope') {
-    if (group.key === 'test') return projectFolderIconHtml(PROJECT_TEST_FOLDER_MARK);
-    if (group.key === 'library') return projectFolderIconHtml(PROJECT_LIBRARY_FOLDER_MARK);
-    if (group.key === 'generated') return projectFolderIconHtml(PROJECT_GENERATED_FOLDER_MARK);
+    if (group.key === 'test') return projectFolderIconHtml(projectTestFolderMark());
+    if (group.key === 'library') return projectFolderIconHtml(projectLibraryFolderMark());
+    if (group.key === 'generated') return projectFolderIconHtml(projectGeneratedFolderMark());
     return projectFolderIconHtml('');
   }
-  if (group.id === 'moduleGroup') return projectFolderIconHtml(PROJECT_MODULE_GROUP_FOLDER_MARK);
-  if (group.id === 'module') return projectFolderIconHtml(PROJECT_MODULE_FOLDER_MARK);
+  if (group.id === 'moduleGroup') return projectFolderIconHtml(projectModuleGroupFolderMark());
+  if (group.id === 'module') return projectFolderIconHtml(projectModuleFolderMark());
   if (group.id === 'directory') return projectFolderIconHtml('');
   // A file node takes the icon the file tree gives that type, so one file is the same glyph everywhere.
   if (group.id === 'file') return '<span class="usage-group-icon">' + virtualTypeIcon(group.key) + '</span>';
