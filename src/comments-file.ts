@@ -173,6 +173,24 @@ export type CommentsIpcState = {
   delivered?: Set<string>;
 };
 
+/**
+ * Point a window's state at one repository's thread files.
+ *
+ * Here rather than at the call sites because there are two of them — a window opening, and a window being
+ * switched to another repo — and the fields they have to agree on are every field the handlers below read.
+ * They did not agree: `knowledgeFile` was set by neither, so `readThread(undefined)` returned nothing, the
+ * split in `comments-write` never ran, and the shared notes file was dead in the shipped app while three
+ * test files exercised it by constructing the state themselves. `delivered` belongs here for the same
+ * reason — it answers "has this window's renderer seen this record", which is a question about one repo.
+ */
+export function attachThreadFiles(state: CommentsIpcState, root: string): void {
+  state.commentsFile = commentsFilePath(root);
+  state.knowledgeFile = knowledgeFilePath(root);
+  state.commentsSig = undefined;
+  state.knowledgeSig = undefined;
+  state.delivered = undefined;
+}
+
 // Records on their way to the renderer. Returned as-is so call sites read as the send they already were.
 function deliver(state: CommentsIpcState, records: ThreadRecord[]): ThreadRecord[] {
   const delivered = (state.delivered ??= new Set<string>());
@@ -196,6 +214,11 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
       path: state.commentsFile,
       notesPath: state.knowledgeFile ?? state.commentsFile,
       exists: exists || existsSync(state.knowledgeFile ?? ""),
+      // Whether THIS workspace has a conversation of its own, which is a different question from whether
+      // there is anything to show. A sibling worktree's shared notes make `exists` true in a workspace
+      // that has never had a comment in it, and the renderer decides whether to fold in the pre-unification
+      // stores on that flag — so on its own it would skip the migration and lose them.
+      conversationExists: exists,
       records: deliver(state, readThread(state.commentsFile).concat(notesForWorkspace(readThread(state.knowledgeFile), state.options.root))),
       legacyNotes: exists ? [] : legacyNotes(state.options.root),
     };
@@ -226,10 +249,29 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
     let nextFree = [payload.records, keptHere, keptShared]
       .reduce((max, list) => list.reduce((m, r) => Math.max(m, Number(r.id) || 0), max), 0) + 1;
     // A record the renderer never saw can hold an id the renderer has since allocated for something else.
-    // Both are real, so the one nobody is pointing at yet is renumbered rather than dropped: `re:` is only
-    // ever written by the renderer, which by definition has not seen this record.
+    // Both are real, so the one nobody is pointing at yet is renumbered rather than dropped.
+    //
+    // "Nobody is pointing at it" was not true. The file header tells an agent how to reply — `"re":<id you
+    // are answering>` — so an agent that appends a note AND a follow-up to its own note leaves two records
+    // this window has never seen, one of which points at the other. Renumbering the parent alone left the
+    // child's `re:` on a number that now belongs to one of the REVIEWER's comments, and the agent's
+    // follow-up appeared, silently and plausibly, under something it was never about.
+    const remapped = new Map<number, number>();
     const renumberCollisions = (records: ThreadRecord[]): ThreadRecord[] =>
-      records.map((record) => (sentIds.has(Number(record.id)) ? { ...record, id: nextFree++ } : record));
+      records.map((record) => {
+        if (!sentIds.has(Number(record.id))) return record;
+        const id = nextFree++;
+        remapped.set(Number(record.id), id);
+        return { ...record, id };
+      });
+    // Applied to both files at once, after both have been renumbered: an undelivered reply in this
+    // workspace's conversation may answer an undelivered note in the shared one. Only records that were
+    // themselves never delivered are re-pointed — whatever the renderer sent means the id it sent.
+    const reparent = (records: ThreadRecord[]): ThreadRecord[] =>
+      records.map((record) => {
+        const moved = record.re == null ? undefined : remapped.get(Number(record.re));
+        return moved === undefined ? record : { ...record, re: moved };
+      });
     // Split on the way out, exactly as they were merged on the way in: what the agent learned about the code
     // goes to the shared file, the conversation stays with this workspace. Each file keeps whatever arrived in
     // it since the renderer last looked.
@@ -238,14 +280,14 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
     const shared = state.knowledgeFile;
     const mine = shared ? payload.records.filter((record) => !isKnowledge(record)) : payload.records;
     const learned = shared ? payload.records.filter(isKnowledge) : [];
-    const arrivedHere = renumberCollisions(keptHere);
+    // Renumber across both files first, then re-point the replies among them — in that order, because a
+    // reply may answer a record in the file that has not been renumbered yet.
+    let arrivedHere = renumberCollisions(keptHere);
+    let arrivedShared = shared ? renumberCollisions(keptShared) : [];
+    arrivedHere = reparent(arrivedHere);
+    arrivedShared = reparent(arrivedShared);
     const here = mine.concat(arrivedHere);
-    let arrivedShared: ThreadRecord[] = [];
-    let there: ThreadRecord[] = [];
-    if (shared) {
-      arrivedShared = renumberCollisions(keptShared);
-      there = learned.concat(arrivedShared);
-    }
+    const there = shared ? learned.concat(arrivedShared) : [];
     // Both files carry the SAME next free id, computed across both — that is what makes them one id space to
     // an agent, which only ever sees the one it was pointed at.
     const nextId = nextThreadId(here, there);

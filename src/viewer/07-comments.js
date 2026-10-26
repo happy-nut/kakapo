@@ -366,7 +366,13 @@ function loadThread() {
     // The CONVERSATION file: the path an agent is handed so its answers land beside the comments they
     // answer, rather than existing only as output in somebody's scrollback.
     reviewThreadPath = result.path || '';
-    if (result.exists) { applyThreadRecords(result.records, null, true); return; } // a load is not news
+    // Whatever the files already hold goes on screen first — a load is not news, so it is applied silently.
+    // That includes a sibling worktree's shared notes arriving in a workspace that has no conversation of
+    // its own, which is why the migration below starts from the result of this rather than from nothing:
+    // saving `migrated` saves the whole list, and a list that had dropped those notes would write the
+    // shared file back empty.
+    if (result.records && result.records.length) applyThreadRecords(result.records, null, true);
+    if (result.conversationExists ?? result.exists) return;
     var migrated = reviewComments.slice();
     var nextSeq = migrated.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
     // A pre-unification answer was a field ON the question; it becomes what it always was — a reply.
