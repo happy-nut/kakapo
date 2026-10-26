@@ -24,7 +24,8 @@ import { AppPreferences } from "./app-preferences.js";
 import { compareDefaultRef, registerReviewIpc } from "./app-review-ipc.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { externalUrl, registerProjectPathIpc } from "./app-path-ipc.js";
-import { registerCommentsIpc, syncCommentsFile, commentsFilePath } from "./comments-file.js";
+import { registerCommentsIpc, syncCommentsFile, attachThreadFiles } from "./comments-file.js";
+import type { CommentsIpcState } from "./comments-file.js";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 import { UI_SCALES } from "./constants.js";
 
@@ -66,17 +67,21 @@ type ReviewSurface = {
 // Per-window state. Everything that used to be a module-level global (the review signature, watch timer,
 // lazily-served diff bodies/source, and last-diff hash) now lives here, keyed
 // by BrowserWindow.id, so two windows reviewing different repos don't trample each other's state.
-type WinState = {
+type WinState = Omit<CommentsIpcState, "win" | "options"> & {
   win: ReviewSurface;
   options: AppOptions; // this window's repo + diff flags (root + ignoreWhitespace are per-window)
   signature: string;
   refreshing: boolean;
   refreshTimer?: NodeJS.Timeout;
   analysisWarmTimer?: NodeJS.Timeout;
-  // The review conversation (see comments-file.ts): this window's comments.jsonl path, the last-seen
-  // mtime+size, and the poll timer that picks up whatever an agent appended — all independent of --watch.
-  commentsFile?: string;
-  commentsSig?: string;
+  // The poll timer that picks up whatever an agent appended to the review conversation, independent of
+  // --watch. The files themselves, their signatures and what this window has been handed come from
+  // CommentsIpcState above (see comments-file.ts).
+  //
+  // Spelled as that type rather than as a copy of its fields. The copy is how the shared knowledge
+  // file came to be dead code: `knowledgeFile` was simply absent here, and because every field over there
+  // is optional a WinState without it is still structurally a CommentsIpcState, so nothing ever said so.
+  // The handlers only ever read what this type carries.
   commentsTimer?: NodeJS.Timeout;
   // WHERE this build's per-file diffs are, not the diffs. They are the biggest thing a build makes — 106 MB
   // for a 1,352-file compare — and holding them per workspace is what put main's heap in gigabyte territory.
@@ -1133,7 +1138,7 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
   //
   // Diff-first: this build paints the diff + changed-file sources; the full project index is materialized on
   // demand (ensureFullProjectIndex) so a large tree's enumeration never blocks first paint.
-  if (!welcome) state.commentsFile = commentsFilePath(state.options.root);
+  if (!welcome) attachThreadFiles(state, state.options.root);
   const building = welcome ? null : buildReview(state, true, claimPendingBuild(state.options.root)).catch((error: unknown) => {
     // One window's build failure shouldn't take down the whole app (other windows may be fine); log and
     // leave this window on the loading mark rather than quitting.
@@ -1338,8 +1343,7 @@ async function openReview(state: WinState, root: string): Promise<void> {
   restoreCompareRef(state);
   state.lastDiffSig = ""; // new repo -> force the next watch tick to rebuild
   clearWatchTimers(state); // stop the previous repo's pollers before switching this window to the new repo
-  state.commentsFile = commentsFilePath(state.options.root); // new repo -> that worktree's own thread
-  state.commentsSig = undefined;
+  attachThreadFiles(state, state.options.root); // new repo -> its own thread, its own shared notes
   // Diff-first, same as the cold boot: reusing this window for another repo paints its diff without waiting
   // on the new tree's full enumeration; the full index is pulled on demand (state.ensureFullIndex persists).
   const build = await buildReview(state, true);

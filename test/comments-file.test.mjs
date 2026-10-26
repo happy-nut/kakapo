@@ -10,7 +10,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rm
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { commentsFilePath, knowledgeFilePath, registerCommentsIpc, syncCommentsFile, readThread, writeThread } from "../dist/comments-file.js";
+import { attachThreadFiles, commentsFilePath, knowledgeFilePath, registerCommentsIpc, syncCommentsFile, readThread, writeThread } from "../dist/comments-file.js";
 
 function harness() {
   const root = mkdtempSync(join(tmpdir(), "kakapo-thread-"));
@@ -219,4 +219,80 @@ test("both thread files carry the same next free id, so an agent seeing one cann
   } finally {
     h.cleanup();
   }
+});
+
+// ---- the wiring, which is the half nothing was testing ----------------------------------------------
+// Every test above builds the state by hand and then asserts what the handlers do with it. None of them
+// could see that the APP never built that state: `knowledgeFile` was set by no production code at all, so
+// the split these tests cover never ran outside them, and what an agent learned about the codebase died
+// with the worktree it was learned in — the one thing the shared file exists to prevent. It stayed
+// invisible to the compiler too, because every field of CommentsIpcState is optional, so a window state
+// missing one is still structurally a CommentsIpcState.
+
+/** A bare git repo to point a window at. */
+function gitRepo() {
+  const root = mkdtempSync(join(tmpdir(), "kakapo-wire-"));
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  return root;
+}
+
+test("opening a repository points the window at BOTH of its thread files", () => {
+  const root = gitRepo();
+  const state = {};
+  attachThreadFiles(state, root);
+  assert.equal(state.commentsFile, commentsFilePath(root));
+  assert.equal(state.knowledgeFile, knowledgeFilePath(root), "the shared notes file, not undefined");
+  assert.notEqual(state.commentsFile, state.knowledgeFile, "and they are two different files");
+});
+
+test("switching a window to another repository takes nothing of the old one with it", () => {
+  const first = gitRepo();
+  const second = gitRepo();
+  const state = {};
+  attachThreadFiles(state, first);
+  // Pretend this window has read the first repo's conversation.
+  state.delivered = new Set(['{"id":1,"text":"from the first repo"}']);
+  state.commentsSig = "stale";
+  state.knowledgeSig = "stale";
+
+  attachThreadFiles(state, second);
+  assert.equal(state.commentsFile, commentsFilePath(second));
+  assert.equal(state.knowledgeFile, knowledgeFilePath(second));
+  assert.equal(state.delivered, undefined,
+    "what this window was handed belonged to the other repository; the write handler reads it as 'has the renderer seen this'");
+  assert.equal(state.commentsSig, undefined);
+  assert.equal(state.knowledgeSig, undefined);
+});
+
+test("the app wires its thread files in one place, so the two call sites cannot drift apart", () => {
+  // The source, not the behaviour: there are two places a window is pointed at a repository — one opening,
+  // one switching — and the bug was that they disagreed about which fields a window needs. Reading the
+  // source is how app-boundaries.test.mjs guards the same class of thing, and it is the only way to see a
+  // field that is missing rather than wrong.
+  const main = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
+  const direct = main.match(/state\.(commentsFile|knowledgeFile|delivered)\s*=/g) ?? [];
+  assert.deepEqual(direct, [],
+    `a window's thread files are set by attachThreadFiles(), not field by field — found ${direct.join(", ")}`);
+  assert.equal((main.match(/attachThreadFiles\(/g) ?? []).length, 2,
+    "both the open path and the repo-switch path go through it");
+});
+
+test("a workspace with no conversation of its own still folds in its legacy stores, and keeps the shared notes", () => {
+  // Turning the shared notes file on made `exists` true in a workspace that had never had a comment —
+  // another worktree had written knowledge — and the renderer reads that flag as "there is a thread, skip
+  // the migration". So the pre-unification comments were never folded in; and had the flag simply been
+  // narrowed instead, the migration would have saved a list without the shared notes in it and written
+  // the shared file back empty. Both facts have to travel.
+  const root = gitRepo();
+  const state = { win: { isDestroyed: () => false, webContents: { send: () => {} } }, options: { root } };
+  attachThreadFiles(state, root);
+  writeFileSync(join(root, "README.md"), "hi\n");
+  writeThread(state.knowledgeFile, [{ id: 1, by: "agent", kind: "note", path: "README.md", line: 1, text: "a shared note" }]);
+
+  let read;
+  registerCommentsIpc({ handle: (channel, fn) => { if (channel === "kakapo:comments-read") read = fn; } }, () => state);
+  const result = read({});
+  assert.equal(result.conversationExists, false, "this workspace has no conversation file");
+  assert.equal(result.exists, true, "but there IS something to show");
+  assert.equal(result.records.length, 1, "and the shared note is in it, so a save cannot drop it");
 });

@@ -128,3 +128,37 @@ test("saving twice in a row does not duplicate the conversation", () => {
     h.cleanup();
   }
 });
+
+test("an agent's follow-up to its own note keeps pointing at that note", () => {
+  // The file header tells an agent how to reply (`"re":<id you are answering>`), so an agent that leaves a
+  // note AND a follow-up to it leaves two records this window has never seen, one pointing at the other.
+  // Renumbering the parent out of a collision used to move it alone: the child's `re:` stayed on a number
+  // that now belonged to one of the REVIEWER's comments, and the follow-up appeared — silently, and
+  // plausibly — under something it was never about.
+  const h = harness();
+  try {
+    h.write([{ id: 1, path: "src/a.ts", line: 1, text: "reviewer question" }]);
+    appendFileSync(h.state.commentsFile,
+      `${JSON.stringify({ id: 2, by: "agent", kind: "note", path: "src/a.ts", line: 5, text: "the note" })}\n`);
+    appendFileSync(h.state.commentsFile,
+      `${JSON.stringify({ id: 3, re: 2, by: "agent", text: "a follow-up to my own note" })}\n`);
+    // The reviewer allocated 2 and 3 from the same counter, which is the ordinary case.
+    h.write([
+      { id: 1, path: "src/a.ts", line: 1, text: "reviewer question" },
+      { id: 2, path: "src/b.ts", line: 1, text: "reviewer comment two" },
+      { id: 3, re: 1, text: "reviewer follow-up" },
+    ]);
+
+    const all = readThread(h.state.commentsFile).concat(readThread(h.state.knowledgeFile));
+    const note = all.find((record) => record.text === "the note");
+    const followUp = all.find((record) => record.text === "a follow-up to my own note");
+    assert.ok(note && followUp, "both of the agent's records were kept");
+    assert.notEqual(note.id, 2, "the collision was renumbered");
+    assert.equal(followUp.re, note.id,
+      `the follow-up still answers the note, not "${all.find((r) => r.id === followUp.re)?.text}"`);
+    // And the reviewer's own records are untouched: what the renderer sent means the ids it sent.
+    assert.equal(all.find((record) => record.text === "reviewer follow-up").re, 1);
+  } finally {
+    h.cleanup();
+  }
+});
