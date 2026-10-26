@@ -48,7 +48,11 @@ function caretAnchorElement() {
   for (var i = 0; i < candidates.length; i++) { if (candidates[i]) return candidates[i]; }
   return null;
 }
+// Bumped by every hint that is actually put up. The provisional-analysis notice reads it to tell "the
+// caller had nothing to say" from "the caller said something better" — see noteProvisionalAnalysis.
+var caretHintSeq = 0;
 function showCaretHint(message, anchor, sticky) {
+  caretHintSeq += 1;
   var row = anchor || caretAnchorElement();
   if (!row || (!row.getBoundingClientRect && !Number.isFinite(Number(row.bottom)))) { showToast(message); return; }
   if (!caretHintEl) {

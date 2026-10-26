@@ -55,7 +55,7 @@ async function findUsagesOf(name, explicitLoc) {
   if (items.length) { openAnalysisUsages(name, items, response, 'references'); return; }
   // Standalone HTML has no analyzer; the in-memory scan answers the same question over the embedded files.
   var def = findSymbolDefinition(name) || { path: (loc && loc.path) || '', lineIndex: -1 };
-  openUsages(name, def);
+  openUsages(name, def, response);
 }
 // A dead end has to say WHICH dead end. "No definition" and "the language server has not finished reading
 // the project yet" are different situations, and only one of them is worth pressing the key again a second
@@ -73,8 +73,39 @@ function isPartialAnalysisAnswer(response) {
   var phase = (document.getElementById('analysis-status') || { dataset: {} }).dataset.phase;
   return phase === 'indexing' || phase === 'starting' || Boolean(response.fallbackReason);
 }
+// Said at most once every few seconds. Every analyzer-backed surface funnels through
+// queryProjectAnalysis, so without a throttle one ⌘6 (which asks about every file in the review) would
+// stack a dozen identical notices.
+var ANALYSIS_PARTIAL_NOTICE_MS = 4000;
+var analysisPartialNoticeAt = 0;
+
 function showPartialAnalysisHint(name) {
+  analysisPartialNoticeAt = Date.now();
   showCaretHint(t('monaco.analysisPartial').replace('{symbol}', String(name || '')));
+}
+
+/**
+ * "This came from the text index; the language server is still coming up."
+ *
+ * Said HERE, in the one funnel every surface asks its question through, because it used to be said by
+ * ⌘B alone: press ⌥F7, ⌘⌥B, ⌥O or ⌘6 in the same window and the index answered silently, which reads as
+ * the project having no usages rather than as an answer that is not final yet. A notice per surface was
+ * a notice per surface to forget — the next one added would have forgotten it too.
+ */
+function noteProvisionalAnalysis(response, symbol) {
+  if (!isPartialAnalysisAnswer(response)) return;
+  if (!analysisStillArriving()) return; // no server coming: the index IS the answer, and says so elsewhere
+  if (Date.now() - analysisPartialNoticeAt < ANALYSIS_PARTIAL_NOTICE_MS) return;
+  // After the caller has had its turn, for two reasons. Every caller clears the "Searching…" hint the
+  // moment its answer lands (hideCaretHint), which would take this down with it; and a caller that has
+  // something more specific to say — "the definition is outside this review", "no usages of X" — should
+  // say it instead. `caretHintSeq` moves only when a hint is actually put up, so this stays quiet exactly
+  // when it has been superseded.
+  var seq = caretHintSeq;
+  setTimeout(function () {
+    if (caretHintSeq !== seq) return;
+    showPartialAnalysisHint(symbol);
+  }, 0);
 }
 // True while a language server is coming up and has not answered yet — so a better answer than the regex
 // index's is still on its way. Narrower than isPartialAnalysisAnswer on purpose: that one also counts
@@ -117,7 +148,9 @@ function showSemanticNavigationFailure(kind, name, response) {
   if (revision !== null) { showRevisionDecline(revision, name); return; }
   // `fallbackReason` is only set when the semantic answer could not be obtained, so this is "could not
   // ask", not "asked and there is nothing". Standalone HTML has no server at all and no reason either.
-  var pending = Boolean(response && response.engine !== 'lsp' && response.fallbackReason);
+  // "Not yet" rather than "not there": a server that has not finished starting has not answered, and
+  // reporting "no definition found" for it is a wrong answer the reviewer has no way to question.
+  var pending = analysisStillArriving() || Boolean(response && response.engine !== 'lsp' && response.fallbackReason);
   var key = pending ? 'monaco.analysisPending'
     : kind === 'references' ? 'monaco.referencesNotFound'
       : kind === 'implementation' ? 'monaco.implementationNotFound'
@@ -146,8 +179,9 @@ async function goToDefOrUsages(name, explicitLoc) {
     // know they are looking at the partial version, not conclude the project has only one definition of
     // this name. Said here, where they pressed the key, because the status chip is not where they looked.
     var answeredFor = revisionAnswer(response);
+    // The partial-answer notice is the funnel's (noteProvisionalAnalysis); saying it again here would
+    // double it on the one key that used to be the only one saying it at all.
     if (defs.length && answeredFor) showRevisionAnswerHint(name, answeredFor);
-    else if (defs.length && isPartialAnalysisAnswer(response)) showPartialAnalysisHint(name);
     // A guess must not MOVE the reviewer.
     //
     // While the server is still reading the project the regex index answers instead, and it matches on the
@@ -214,6 +248,7 @@ function queryProjectAnalysis(kind, symbol, loc, extra) {
   }, extra || {});
   return Promise.resolve(window.kakapoAnalysis.query(request)).then(function (response) {
     if (!analysisGenerationIsCurrent(response)) return null;
+    noteProvisionalAnalysis(response, symbol);
     return response;
   }).catch(function () { return null; });
 }
@@ -250,9 +285,12 @@ function findUsages(name, defPath, defLine) {
   }
   return out;
 }
-function openUsages(name, def) {
+function openUsages(name, def, response) {
   var items = findUsages(name, def.path, def.lineIndex);
   if (items.length === 1) { openSourceAt(items[0].path, items[0].lineIndex, items[0].column); return; }
+  // `response` used to be read here as a free variable — there is no such binding in this scope, so the
+  // one line that explains a dead end threw a ReferenceError instead of explaining it, and the async
+  // caller swallowed it. The caller passes its own answer in now.
   if (!items.length) { showSemanticNavigationFailure('references', name, response); return; }
   usageItems = items;
   usageActive = 0;
@@ -267,11 +305,14 @@ function openAnalysisUsages(name, locations, response, kind) {
   }
   openAnalysisUsagesFallback(name, locations, kind || 'references');
 }
+var usageName = '';
 function showUsages(name, count) {
   var box = document.getElementById('usages');
   var title = document.getElementById('usages-title');
   if (!box) return;
-  if (title) title.textContent = count + ' usage' + (count === 1 ? '' : 's') + ' of ' + name;
+  usageName = String(name || '');
+  // Built in English in code — "3 usages of Store" — under a heading the rest of the app translates.
+  if (title) title.textContent = t('peek.usages').replace('{n}', String(count)) + ' · ' + usageName;
   renderUsages();
   box.classList.remove('hidden');
   positionUsagesAtCaret();
@@ -311,7 +352,16 @@ function resetUsagesAnchor(box, panel) {
 function renderUsages() {
   var results = document.getElementById('usages-results');
   if (!results) return;
-  if (!usageItems.length) { results.innerHTML = '<div class="quick-open-empty">No usages found.</div>'; return; }
+  if (!usageItems.length) {
+    // Hardcoded English under a translated heading, and — worse — "no usages" while the language server
+    // was still coming up, which is the one moment that answer is not true yet. Both fixed here: the
+    // sentence is translated, and while the analysis is still arriving it says so instead.
+    var empty = analysisStillArriving()
+      ? t('monaco.analysisPending').replace('{symbol}', usageName || '')
+      : t('monaco.referencesNotFound').replace('{symbol}', usageName || '');
+    results.innerHTML = '<div class="quick-open-empty">' + escapeHtml(empty) + '</div>';
+    return;
+  }
   results.innerHTML = usageItems.map(function (item, index) {
     var fname = item.path.split('/').pop();
     var isTest = item.isTest || semanticTestPath(item.path);

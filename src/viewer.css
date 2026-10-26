@@ -901,6 +901,8 @@ body {
   font-size: 11px;
   line-height: 1.3;
 }
+/* The elapsed counter beside the phase label: the same muted weight, so the chip reads as one thing. */
+.analysis-status-elapsed { color: var(--muted); font-variant-numeric: tabular-nums; }
 .analysis-status-label { overflow: hidden; text-overflow: ellipsis; }
 .analysis-status-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); opacity: .7; }
 .analysis-status-loader { display: none; } /* deprecated: the analysis parrot was removed (one brand mark only) */

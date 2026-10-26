@@ -205,7 +205,13 @@ function loadFindUsages() {
         moduleGroup: (projectModuleOf(item.path) || {}).group || '',
       };
     });
-    usageViewNote = !usageViewRows.length && response && response.fallbackReason ? String(response.fallbackReason) : '';
+    // The analyzer's own `fallbackReason` is an internal English sentence ("Language server returned no
+    // semantic locations") and was being printed verbatim under a Korean heading. While a server is still
+    // coming up the honest line is the translated one that says so; otherwise the reason is at least
+    // specific, so it stays for the case where nothing better exists.
+    usageViewNote = usageViewRows.length ? ''
+      : analysisStillArriving() ? t('monaco.analysisPending').replace('{symbol}', usageViewName)
+        : (response && response.fallbackReason ? String(response.fallbackReason) : '');
     quickActive = 0;
     renderFindUsagesResults(String(quickInput && quickInput.value || ''));
   }, function () {
@@ -351,13 +357,13 @@ function usageGroupingRules(rows) {
 // TYPE nodes, which have none there either — so this returns '' for those and for the non-code divider.
 function usageGroupIconHtml(group) {
   if (group.id === 'scope') {
-    if (group.key === 'test') return projectFolderIconHtml(PROJECT_TEST_FOLDER_MARK);
-    if (group.key === 'library') return projectFolderIconHtml(PROJECT_LIBRARY_FOLDER_MARK);
-    if (group.key === 'generated') return projectFolderIconHtml(PROJECT_GENERATED_FOLDER_MARK);
+    if (group.key === 'test') return projectFolderIconHtml(projectTestFolderMark());
+    if (group.key === 'library') return projectFolderIconHtml(projectLibraryFolderMark());
+    if (group.key === 'generated') return projectFolderIconHtml(projectGeneratedFolderMark());
     return projectFolderIconHtml('');
   }
-  if (group.id === 'moduleGroup') return projectFolderIconHtml(PROJECT_MODULE_GROUP_FOLDER_MARK);
-  if (group.id === 'module') return projectFolderIconHtml(PROJECT_MODULE_FOLDER_MARK);
+  if (group.id === 'moduleGroup') return projectFolderIconHtml(projectModuleGroupFolderMark());
+  if (group.id === 'module') return projectFolderIconHtml(projectModuleFolderMark());
   if (group.id === 'directory') return projectFolderIconHtml('');
   // A file node takes the icon the file tree gives that type, so one file is the same glyph everywhere.
   if (group.id === 'file') return '<span class="usage-group-icon">' + virtualTypeIcon(group.key) + '</span>';
