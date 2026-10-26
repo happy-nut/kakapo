@@ -203,3 +203,69 @@ test("the deepest module root owns the path", () => {
   assert.equal(moduleForPath(layout, "apps/other/a.ts").name, "shared");
   assert.equal(moduleForPath(layout, "tools/a.ts").name, "root");
 });
+
+// ---- what the reviewed repository is allowed to make this read ---------------------------------------
+// Three bugs from the 2026-10-26 bounty, each confirmed against readProjectLayout before it was fixed.
+
+test("a Cargo workspace is found however its [workspace] keys are ordered", () => {
+  // `[^[]*?members` could not cross the `[` of an earlier array, so `exclude` or `default-members`
+  // above `members` — which is where a formatter that sorts keys alphabetically puts both — read as
+  // "this is not a workspace" and the repo lost every module it had.
+  const dir = repo({
+    "Cargo.toml": '[workspace]\nresolver = "2"\nexclude = ["old"]\ndefault-members = ["crates/a"]\nmembers = ["crates/a"]\n',
+    "crates/a/Cargo.toml": '[package]\nname = "crate-a"\n',
+    "crates/a/src/lib.rs": "",
+  });
+  const layout = readProjectLayout(dir);
+  assert.equal(layout.source, "workspace");
+  assert.deepEqual(Array.from(layout.modules, (m) => m.name).sort(), ["crate-a"]);
+});
+
+test("only `packages:` in pnpm-workspace.yaml names a module", () => {
+  // pnpm 10 puts other lists in this file. Reading every `- item` in it as a package pattern invented a
+  // module for any that happened to name a directory that exists.
+  const dir = repo({
+    "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\nonlyBuiltDependencies:\n  - esbuild\n",
+    "packages/ui/package.json": '{"name":"@acme/ui"}',
+    "esbuild/index.js": "",
+  });
+  const layout = readProjectLayout(dir);
+  assert.deepEqual(Array.from(layout.modules, (m) => m.name), ["@acme/ui"],
+    "esbuild is a built dependency, not a package of this workspace");
+});
+
+test("a reviewed repository cannot point the layout outside itself", () => {
+  // `.idea/modules.xml` is content of the repo under review. This one named an .iml two directories
+  // above the review root; kakapo read it and took its source folders into the layout.
+  const dir = repo({
+    ".idea/modules.xml": '<project><component><modules>'
+      + '<module filepath="$PROJECT_DIR$/../../OUTSIDE.iml" />'
+      + '<module filepath="$PROJECT_DIR$/inside.iml" />'
+      + "</modules></component></project>",
+    "inside.iml": '<module><component>'
+      + '<sourceFolder url="file://$MODULE_DIR$/src/test" isTestSource="true" />'
+      + '<sourceFolder url="file://$MODULE_DIR$/../../leaked" isTestSource="true" />'
+      + "</component></module>",
+    "src/test/a.ts": "",
+  });
+  const layout = readProjectLayout(dir);
+  assert.deepEqual(Array.from(layout.modules, (m) => m.name), ["inside"], "the escaping module is not read");
+  assert.ok(!layout.testRoots.some((root) => root.includes("..")), `no root climbs out: ${layout.testRoots}`);
+  assert.ok(layout.testRoots.includes("src/test"), "and the one that stays inside is still found");
+});
+
+test("a workspace member cannot climb out of the repository either", () => {
+  const dir = repo({
+    "package.json": '{"name":"root","workspaces":["../escape-target","packages/*"]}',
+    "packages/ui/package.json": '{"name":"@acme/ui"}',
+  });
+  // The escape target has to EXIST, or the directory check already drops it and this test passes against
+  // the bug. It is a sibling of the throwaway repo, inside the same temp directory.
+  const outside = join(dir, "..", "escape-target");
+  mkdirSync(outside, { recursive: true });
+  writeFileSync(join(outside, "package.json"), '{"name":"outside"}');
+  made.push(outside);
+  const layout = readProjectLayout(dir);
+  assert.ok(!layout.modules.some((m) => m.root.includes("..")), `no module root climbs out: ${JSON.stringify(layout.modules)}`);
+  assert.ok(!layout.modules.some((m) => m.name === "outside"), "and its manifest was never read");
+});

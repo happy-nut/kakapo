@@ -138,21 +138,38 @@ function selectedSourceRows(selection) {
     .sort((a, b) => Number(a.dataset.lineIndex || 0) - Number(b.dataset.lineIndex || 0));
 }
 
+/**
+ * One selected line with the line-number gutter taken off it \u2014 and only the gutter.
+ *
+ * `.num` is `user-select: none`, so a real browser never puts a line number in the selection and there
+ * is usually nothing here to take off at all; the strip exists for the environments that ignore that
+ * (jsdom, and anything that copies the table as a table). But `^\s*<n>\s+` also matches a line of CODE
+ * whose first token happens to be its own line number \u2014 line 3 of a data file reading `3 4 5` \u2014 and
+ * eating that produced a citation quoting `4 5` under "line 3", which is a wrong answer in the one
+ * feature whose whole job is to be quotable.
+ *
+ * So the row is asked. Whatever its own code cell says is on that line IS on that line, gutter or no.
+ */
+function stripLineNumberGutter(line, row) {
+  if (!row) return line;
+  const cell = row.querySelector('.source-code');
+  const code = cell ? cell.textContent.replace(/\u200b/g, '') : '';
+  // Whatever the row's own code cell already accounts for IS code, gutter or no gutter.
+  if (code && code.includes(line.trim())) return line;
+  // Otherwise there is something in front of the code, and the code is the part to keep \u2014 taking it
+  // from the row rather than cutting the line keeps the INDENTATION, which `^\s*<n>\s+` also ate: a
+  // greedy `\s+` ran straight through the line's own leading spaces.
+  if (code && line.endsWith(code)) return code;
+  const lineNumber = Number(row.dataset.lineIndex || 0) + 1;
+  return line.replace(new RegExp('^\\s*' + lineNumber + '\\s+'), '');
+}
+
 function cleanSelectedSourceText(text, rows) {
   const value = String(text || '').replace(/\r/g, '').replace(/\u200b/g, '');
   if (!value.trim()) return '';
-  const lineNumbers = rows.map((row) => Number(row.dataset.lineIndex || 0) + 1);
   const lines = value.split('\n');
-  if (lines.length >= lineNumbers.length) {
-    return lines
-      .map((line, index) => {
-        const lineNumber = lineNumbers[index];
-        return lineNumber ? line.replace(new RegExp('^\\s*' + lineNumber + '\\s+'), '') : line;
-      })
-      .join('\n')
-      .trimEnd();
-  }
-  return value.trimEnd();
+  if (lines.length < rows.length) return value.trimEnd();
+  return lines.map((line, index) => stripLineNumberGutter(line, rows[index])).join('\n').trimEnd();
 }
 
 function sourceLinesForRows(file, rows) {

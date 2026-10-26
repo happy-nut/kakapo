@@ -182,6 +182,19 @@ function underSearchPath(path: string, prefix: string): boolean {
   return relative === prefix || relative.startsWith(`${prefix}/`);
 }
 
+/**
+ * A directory name as a glob that means only itself.
+ *
+ * A repo-relative prefix is a path, not a pattern, and `app/[slug]` is a directory in every Next.js app
+ * there is. Handed to ripgrep unescaped it is a character class — `--glob 'app/[slug]/**'` looks for
+ * `app/s/`, `app/l/`, `app/u/`, `app/g/` and matches nothing at all, so the scope silently returned no
+ * results. A one-character class is the portable way to say "this character, literally": globset's
+ * backslash escape is off by default on Windows, `[[]` is not.
+ */
+export function searchGlobLiteral(path: string): string {
+  return path.replace(/[*?[\]{}]/g, (character) => `[${character}]`);
+}
+
 export function searchProject(root: string, query: string, limit = 500, options: ProjectSearchOptions = {}): Promise<ProjectSearchResult> {
   const needle = String(query ?? "").slice(0, 500);
   const maxResults = Math.max(1, Math.min(Number(limit) || 500, 2000));
@@ -202,6 +215,25 @@ export function searchProject(root: string, query: string, limit = 500, options:
     return Promise.resolve({ available: false, engine: "fallback", matches: [], truncated: false, error: "ripgrep is not installed" });
   }
 
+  // The scope's directories, as the places ripgrep is pointed AT rather than as more globs.
+  //
+  // ripgrep's positive globs are an OR: `--glob '*.ts' --glob 'sub/**'` returns every .ts anywhere AND
+  // every file under sub/, so a scope used to switch the file-type filter off. A directory is not a
+  // filter on the walk, it is where the walk starts, and starting it in the scope's directories ANDs
+  // with `--glob '*.ts'` the way the two controls read on screen.
+  //
+  // Dropped if it is not there: ripgrep exits 2 on a path that does not exist, and this searcher reads a
+  // non-zero exit as "the search failed". A scope whose every directory has gone (a module deleted since
+  // the layout was read) searches nothing rather than quietly searching the whole repository.
+  // `./dir` rather than `dir` only because `.` is what the one argument used to be — ripgrep echoes the
+  // argument it was given into every match path, and parseRipgrepJsonLine strips a leading `./` from all
+  // of them, so what the rest of the app sees is the same repo-relative path either way.
+  const wanted = normalizedOptions.includePaths ?? [];
+  const searchRoots = wanted.filter((prefix) => existsSync(join(root, prefix))).map((prefix) => `./${prefix}`);
+  if (wanted.length && !searchRoots.length) {
+    return Promise.resolve({ available: true, engine: "ripgrep", matches: [], truncated: false });
+  }
+
   return new Promise((resolve) => {
     const matches: ProjectSearchMatch[] = [];
     let pending = "";
@@ -214,16 +246,15 @@ export function searchProject(root: string, query: string, limit = 500, options:
     if (!normalizedOptions.regex) args.push("--fixed-strings");
     if (normalizedOptions.wholeWords) args.push("--word-regexp");
     for (const extension of extensions) args.push("--glob", `*.${extension}`);
-    // The scope, as globs. A directory prefix covers the directory itself and everything under it, which
-    // is what `dir/**` means to ripgrep once `dir` is relative to its cwd (the repository root).
-    for (const prefix of normalizedOptions.includePaths ?? []) args.push("--glob", `${prefix}/**`);
-    for (const prefix of normalizedOptions.excludePaths ?? []) args.push("--glob", `!${prefix}/**`);
+    // An exclusion has to stay a glob — there is no "search everywhere but here" path argument — so the
+    // directory name is escaped into one that means only itself.
+    for (const prefix of normalizedOptions.excludePaths ?? []) args.push("--glob", `!${searchGlobLiteral(prefix)}/**`);
     if (normalizedOptions.excludeCommentsAndTests) {
       for (const glob of ["!**/test/**", "!**/tests/**", "!**/__tests__/**", "!**/test_*", "!**/*_test.*", "!**/*.test.*", "!**/*.spec.*"]) {
         args.push("--glob", glob);
       }
     }
-    args.push("--", needle, ".");
+    args.push("--", needle, ...(searchRoots.length ? searchRoots : ["."]));
     const child = spawn(binary, args, {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],

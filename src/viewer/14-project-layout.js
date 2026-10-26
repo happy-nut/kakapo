@@ -100,15 +100,20 @@ function projectUnderRoot(path, root) {
 function projectScopeOf(path) {
   var relative = projectNormalizePath(path);
   if (!relative) return 'production';
+  // Library-ness is asked BEFORE the cache, and is never put in it: it is the one input here that
+  // changes under the cache's feet. A tab restored from the last session names a library file that has
+  // no record yet, so the first classification falls through to the conventions — `node_modules` reads
+  // as generated — and a cached answer would still say so long after the record arrived. The lookup is
+  // one Map.get, which is what this branch already cost.
+  var file = typeof sourceByPath !== 'undefined' && sourceByPath
+    ? (sourceByPath.get(path) || sourceByPath.get(relative)) : null;
+  if (file && file.library) return 'library';
   var cache = projectScopeCacheMap();
   var cached = cache.get(relative);
   if (cached) return cached;
   var layout = projectLayoutData();
   var scope = 'production';
-  var file = typeof sourceByPath !== 'undefined' && sourceByPath ? sourceByPath.get(path) : null;
-  if (file && file.library) {
-    scope = 'library';
-  } else if (layout.generatedRoots.some(function (root) { return projectUnderRoot(relative, root); })) {
+  if (layout.generatedRoots.some(function (root) { return projectUnderRoot(relative, root); })) {
     scope = 'generated';
   } else if (layout.testRoots.some(function (root) { return projectUnderRoot(relative, root); })) {
     scope = 'test';
