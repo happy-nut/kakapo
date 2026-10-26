@@ -256,7 +256,8 @@ function renderRecentLocationResults(query) {
     return '<button type="button" class="quick-open-item symbol-result' + (index === quickActive ? ' active' : '')
       + (item.current ? ' is-current' : '') + '" data-index="' + index + '">'
       + '<span class="quick-open-main"><span class="quick-open-name">' + escapeHtml(item.name) + '</span>'
-      + '<span class="quick-open-path">' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '</span></span>'
+      + '<span class="quick-open-path">' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '</span>'
+      + projectRowTagsHtml(item.path) + '</span>'
       + '<span class="quick-open-badge">' + escapeHtml(item.detail) + '</span></button>';
   }).join('');
   renderQuickPreview(quickItems[quickActive]);
@@ -539,7 +540,8 @@ function renderHierarchyResults(query) {
       + '<span class="hierarchy-twisty" aria-hidden="true">' + marker + '</span>'
       + '<span class="quick-open-main"><span class="quick-open-name">'
       + escapeHtml(String(row.location.name || sourceTabLabel(row.location.path))) + '</span>'
-      + '<span class="quick-open-path">' + escapeHtml(semanticFileLabel(row.location.path, row.location.lineIndex)) + '</span></span>'
+      + '<span class="quick-open-path">' + escapeHtml(semanticFileLabel(row.location.path, row.location.lineIndex)) + '</span>'
+      + projectRowTagsHtml(row.location.path) + '</span>'
       + '<span class="quick-open-badge">' + escapeHtml(t('hierarchy.badge.' + hierarchyKind)) + '</span></button>';
   }).join('');
   renderQuickPreview(quickItems[quickActive]);
@@ -864,7 +866,8 @@ function renderBookmarkResults(query) {
       + '" data-index="' + index + '">'
       + '<span class="bookmark-mark" aria-hidden="true">' + escapeHtml(item.mnemonic || '\u2691') + '</span>'
       + '<span class="quick-open-main"><span class="quick-open-name">' + escapeHtml(item.name) + '</span>'
-      + '<span class="quick-open-path">' + escapeHtml(item.detail) + '</span></span></button>';
+      + '<span class="quick-open-path">' + escapeHtml(item.detail) + '</span>'
+      + projectRowTagsHtml(item.path) + '</span></button>';
   }).join('');
   renderQuickPreview(quickItems[quickActive]);
 }

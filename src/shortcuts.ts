@@ -87,6 +87,10 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "searchMatchCase", keys: ["⌥M"], where: "find", i18n: "kbd.searchMatchCase" },
   { id: "searchWholeWords", keys: ["⌥W"], where: "find", i18n: "kbd.searchWholeWords" },
   { id: "searchRegex", keys: ["⌥X"], where: "find", i18n: "kbd.searchRegex" },
+  // IntelliJ's Find in Files scope selector: In Project / Project Production Files / Project Test Files /
+  // Module. It has no chord there (it is a dropdown), and a dropdown inside a dialog that owns the
+  // keyboard needs one here, so ⌥S cycles it — beside ⌥M/⌥W/⌥X, which are the toggles next to it.
+  { id: "searchScope", keys: ["⌥S"], where: "find", i18n: "kbd.searchScope" },
   // IntelliJ's Show Usages is ⌃⌥F7 and its Declaration or Usages is ⌘B; this popup is the answer to both,
   // so it answers to both chords rather than being reached by only one of them.
   { id: "defUsages", keys: ["⌘B", "⌘⌥F7"], where: "code", i18n: "kbd.defUsages" },
@@ -100,6 +104,29 @@ export const SHORTCUTS: ShortcutDef[] = [
   // IntelliJ's next/previous occurrence of the element under the caret (⌃⌥↓/⌃⌥↑), which works whether or
   // not the highlight is up.
   { id: "nextPrevOccurrence", keys: ["⌘⌥↓", "⌘⌥↑"], where: "code", i18n: "kbd.nextPrevOccurrence" },
+  // ---- The usage view's two toolbars ---------------------------------------------------------------
+  // IntelliJ's usage view is not a list, it is a tree divided by what the files ARE, and the division is
+  // a stack of grouping rules with ranks (UsageGroupingRulesDefaultRanks): non-code(0), scope(100),
+  // usage type(200), module(300), directory(400), file(500). Each rank is a toggle in its Group By
+  // toolbar, and beside it a filtering toolbar hides read accesses, write accesses or imports.
+  //
+  // The chords are IntelliJ's own, from `$default.xml` rather than the Mac keymap: that file spells the
+  // groupings ⌃⌥-something, which arrives here as ⌘⌥-something and lands on nothing already taken. The
+  // Mac keymap's plain ⌃M/⌃P/⌃T would have become ⌘M/⌘P/⌘T, and ⌘P is already the patch-set selector.
+  // Two deviations, both forced: Flatten Modules is ⌃⌥O there and ⌘⌥O is Go to Symbol here, so it sits on
+  // the module chord plus ⇧ (the ⌘F7/⌘⇧F7 pairing this app already uses, spelled in the order
+  // shortcutModifiers builds: ⌘⇧⌥); and Production/Test has no
+  // chord in IntelliJ at all — it is toolbar-only — so ⌘⌥S is this app's choice.
+  { id: "usageGroupScope", keys: ["⌘⌥S"], where: "find", i18n: "kbd.usageGroupScope" },
+  { id: "usageGroupType", keys: ["⌘⌥T"], where: "find", i18n: "kbd.usageGroupType" },
+  { id: "usageGroupModule", keys: ["⌘⌥M"], where: "find", i18n: "kbd.usageGroupModule" },
+  { id: "usageFlattenModules", keys: ["⌘⇧⌥M"], where: "find", i18n: "kbd.usageFlattenModules" },
+  { id: "usageGroupDirectory", keys: ["⌘⌥P"], where: "find", i18n: "kbd.usageGroupDirectory" },
+  { id: "usageGroupFile", keys: ["⌘⌥F"], where: "find", i18n: "kbd.usageGroupFile" },
+  { id: "usageFilterRead", keys: ["⌘⌥R"], where: "find", i18n: "kbd.usageFilterRead" },
+  { id: "usageFilterWrite", keys: ["⌘⌥W"], where: "find", i18n: "kbd.usageFilterWrite" },
+  { id: "usageFilterImports", keys: ["⌘⌥I"], where: "find", i18n: "kbd.usageFilterImports" },
+
   { id: "goToImplementation", keys: ["⌘⌥B"], where: "code", i18n: "kbd.goToImplementation" },
   { id: "workspaceSymbol", keys: ["⌘⌥O"], where: "any", i18n: "kbd.workspaceSymbol" },
   // IntelliJ's Go to Class. Not on its ⌘O — that opens a folder here, and a desktop app's ⌘O is not a
@@ -218,12 +245,19 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
     "nextChange", "prevChange", "nextComment", "gotoDiagnostic", "errorDescription", "problemsView",
     "quickDoc", "expressionType", "filesChangesTab",
     "sidebarNavigate", "sidebarContent", "findInFile", "findNextPrev", "findEnter", "findInFiles", "recentFiles",
-    "searchExtensions", "excludeSearchNoise", "searchMatchCase", "searchWholeWords", "searchRegex",
+    "searchExtensions", "excludeSearchNoise", "searchMatchCase", "searchWholeWords", "searchRegex", "searchScope",
     "searchFiles", "searchEverywhere", "findAction", "goToTest",
     "defUsages", "findUsages", "highlightUsages", "nextPrevOccurrence", "goToImplementation",
     "workspaceSymbol", "goToClass", "relatedSymbol", "customRegion", "lastChange", "goToDef", "quickDefinition", "typeDeclaration", "fileStructure", "nextPrevSymbol", "recentLocations", "typeHierarchy", "callHierarchy", "methodHierarchy", "goToSuper",
     "toggleBookmark", "showBookmarks", "assignBookmark", "jumpBookmark",
     "toggleFold", "prevNextTab", "cursorBackForward",
+  ] },
+  // IntelliJ's own two groups: "Usage View Grouping" and "Usage View Filtering" (UsageViewBundle). They
+  // are one category here because they are one panel — nine toggles over the same list.
+  { i18n: "settings.kbd.cat.usages", ids: [
+    "findUsages", "usageGroupScope", "usageGroupType", "usageGroupModule", "usageFlattenModules",
+    "usageGroupDirectory", "usageGroupFile", "usageFilterRead", "usageFilterWrite", "usageFilterImports",
+    "excludeSearchNoise",
   ] },
   { i18n: "settings.kbd.cat.editor", ids: [
     "moveCaret", "wordJump", "lineStartEnd", "extendSelection", "selectEditor", "copyLocation",

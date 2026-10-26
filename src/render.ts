@@ -6,6 +6,7 @@ import { MESSAGES, makeTranslator } from "./i18n.js";
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
+import { EMPTY_PROJECT_LAYOUT, type ProjectLayout } from "./project-layout.js";
 import { REVIEW_ISLAND } from "./viewer-contract.js";
 import { SHORTCUTS, SHORTCUT_GROUPS } from "./shortcuts.js";
 
@@ -373,6 +374,7 @@ export function renderDiffHtml(input: {
   sourceFiles: SourceFile[];
   fileStates: ReviewFileState[];
   httpEnvironments: Record<string, Record<string, string>>;
+  projectLayout?: ProjectLayout;
   title: string;
   subtitle: string;
   projectName: string;
@@ -607,6 +609,10 @@ export function renderDiffHtml(input: {
     '<div id="quick-open-search-options" class="quick-open-search-options">',
     '<label class="quick-open-extension-field" for="quick-open-extensions"><span data-i18n="quickopen.extensions">Extensions</span><input id="quick-open-extensions" type="text" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.extensionsPlaceholder" placeholder="All · .py, .ts" title="Filter extensions (Option+E)"></label>',
     '<button type="button" id="quick-open-exclude-noise" class="quick-open-option-toggle" aria-pressed="false"' + keyHint('excludeSearchNoise') + '><span class="quick-open-option-check" aria-hidden="true"></span><span data-i18n="quickopen.excludeNoise">Exclude comments &amp; tests</span></button>',
+    // IntelliJ's scope selector. The scopes are its own predefined ones, minus the ones this app has no
+    // answer for (no library sources are indexed, and every file here is a project file).
+    '<label class="quick-open-scope-field" for="quick-open-scope"><span data-i18n="quickopen.scope">Scope</span>'
+      + '<select id="quick-open-scope"' + keyHint('searchScope') + '></select></label>',
     // IntelliJ's Cc / W / .* — glyph toggles rather than three more labelled checkboxes, which is what
     // IntelliJ does too and what keeps the strip one line wide. The glyph is decorative; the accessible
     // name and the tooltip are the translated words.
@@ -614,6 +620,23 @@ export function renderDiffHtml(input: {
     '<button type="button" id="quick-open-match-case" class="quick-open-option-glyph" aria-pressed="false"' + keyHint('searchMatchCase') + ' data-i18n-title="quickopen.matchCase" data-i18n-aria="quickopen.matchCase" title="Match case" aria-label="Match case"><span aria-hidden="true">Cc</span></button>',
     '<button type="button" id="quick-open-whole-words" class="quick-open-option-glyph" aria-pressed="false"' + keyHint('searchWholeWords') + ' data-i18n-title="quickopen.wholeWords" data-i18n-aria="quickopen.wholeWords" title="Whole words" aria-label="Whole words"><span aria-hidden="true">W</span></button>',
     '<button type="button" id="quick-open-regex" class="quick-open-option-glyph" aria-pressed="false"' + keyHint('searchRegex') + ' data-i18n-title="quickopen.regex" data-i18n-aria="quickopen.regex" title="Regular expression" aria-label="Regular expression"><span aria-hidden="true">.*</span></button>',
+    '</span>',
+    // IntelliJ's usage view carries two toolbars over the same list: Group By — its grouping rules, one
+    // toggle per rank (UsageGroupingRulesDefaultRanks) — and a filtering row that hides read accesses,
+    // write accesses or imports. Chips in the strip that is already here rather than a gear popup: WHICH
+    // divisions are on is the thing a reader needs to see at a glance, not something to go and open.
+    '<span id="quick-open-usage-options" class="quick-open-usage-options">',
+    '<span class="quick-open-usage-label" data-i18n="usagegroup.title">Group by</span>',
+    '<button type="button" class="quick-open-usage-chip" data-usage-toggle="scope" aria-pressed="false"' + keyHint('usageGroupScope') + ' data-i18n="usagegroup.by.scope">Production/Test</button>',
+    '<button type="button" class="quick-open-usage-chip" data-usage-toggle="type" aria-pressed="false"' + keyHint('usageGroupType') + ' data-i18n="usagegroup.by.type">Usage type</button>',
+    '<button type="button" class="quick-open-usage-chip" data-usage-toggle="module" aria-pressed="false"' + keyHint('usageGroupModule') + ' data-i18n="usagegroup.by.module">Module</button>',
+    '<button type="button" class="quick-open-usage-chip" data-usage-toggle="flatten" aria-pressed="false"' + keyHint('usageFlattenModules') + ' data-i18n="usagegroup.by.flatten">Flatten</button>',
+    '<button type="button" class="quick-open-usage-chip" data-usage-toggle="directory" aria-pressed="false"' + keyHint('usageGroupDirectory') + ' data-i18n="usagegroup.by.directory">Directory</button>',
+    '<button type="button" class="quick-open-usage-chip" data-usage-toggle="file" aria-pressed="false"' + keyHint('usageGroupFile') + ' data-i18n="usagegroup.by.file">File</button>',
+    '<span class="quick-open-usage-label" data-i18n="usagefilter.title">Show</span>',
+    '<button type="button" class="quick-open-usage-chip" data-usage-toggle="read" aria-pressed="true"' + keyHint('usageFilterRead') + ' data-i18n="usagefilter.read">Read</button>',
+    '<button type="button" class="quick-open-usage-chip" data-usage-toggle="write" aria-pressed="true"' + keyHint('usageFilterWrite') + ' data-i18n="usagefilter.write">Write</button>',
+    '<button type="button" class="quick-open-usage-chip" data-usage-toggle="imports" aria-pressed="true"' + keyHint('usageFilterImports') + ' data-i18n="usagefilter.imports">Imports</button>',
     '</span>',
     '</div>',
     '<div id="quick-open-results" class="quick-open-results"></div>',
@@ -733,6 +756,7 @@ export function renderDiffHtml(input: {
     `<script type="application/json" id="${REVIEW_ISLAND.sourceFiles}">${jsonForScript(input.lazyLoad ? initialSourceFiles.map(sourceFileMetadata) : initialSourceFiles)}</script>`,
     `<script type="application/json" id="${REVIEW_ISLAND.fileStates}">${jsonForScript(initialFileStates)}</script>`,
     `<script type="application/json" id="${REVIEW_ISLAND.httpEnv}">${jsonForScript(input.httpEnvironments)}</script>`,
+    `<script type="application/json" id="${REVIEW_ISLAND.projectLayout}">${jsonForScript(input.projectLayout ?? EMPTY_PROJECT_LAYOUT)}</script>`,
     `<script>window.__KAKAPO_VERSION__=${JSON.stringify(packageVersion)};</script>`,
     // The Electron app serves the ~514KB client as an external, immutably-cached kakapo-asset:// script
     // (loaded from the file:// review page, the same scheme the lazy Markdown editor already uses) so the

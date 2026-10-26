@@ -62,7 +62,14 @@ function fixtureRepo() {
   git(["init", "-qb", "main"]);
   git(["config", "user.email", "smoke@kakapo.test"]);
   git(["config", "user.name", "kakapo smoke"]);
-  put("tsconfig.json", JSON.stringify({ compilerOptions: { strict: true, target: "ES2022", module: "ESNext", moduleResolution: "bundler" }, include: ["src"] }));
+  put("tsconfig.json", JSON.stringify({ compilerOptions: { strict: true, target: "ES2022", module: "ESNext", moduleResolution: "bundler" }, include: ["src", "packages"] }));
+  // A real workspace, because the module grouping and the module scope read the project's own
+  // declarations (src/project-layout.ts) and a single-module fixture cannot exercise either. The
+  // reference from packages/ui into src/ is what makes tsserver answer ⌥F7 with two modules.
+  put("package.json", JSON.stringify({ name: "@smoke/root", private: true }));
+  put("pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n");
+  put("packages/ui/package.json", JSON.stringify({ name: "@smoke/ui", private: true }));
+  put("packages/ui/src/button.ts", "import { Store } from '../../../src/store';\n\nexport const button = new Store();\n");
   put("src/store.ts", [
     "export class Store {",        // 1
     "  private total = 0;",         // 2
@@ -355,7 +362,12 @@ async function run() {
       const el = document.getElementById('quick-open');
       return {
         open: !el.classList.contains('hidden'),
-        groups: Array.from(document.querySelectorAll('#quick-open-results .usage-group[data-usage-type]')).map((g) => g.dataset.usageType),
+        groups: Array.from(document.querySelectorAll('#quick-open-results .usage-group[data-usage-group="type"]')).map((g) => g.dataset.usageKey),
+        modules: Array.from(document.querySelectorAll('#quick-open-results .usage-group[data-usage-group="module"]')).map((g) => g.dataset.usageKey),
+        // What jsdom cannot answer: does the nesting PAINT. A module header inside a usage type is one
+        // step further in than the type above it, and the step is a computed padding.
+        indents: Array.from(document.querySelectorAll('#quick-open-results .usage-group')).map((g) => parseFloat(getComputedStyle(g).paddingLeft)),
+        chips: Array.from(document.querySelectorAll('.quick-open-usage-chip')).filter((c) => getComputedStyle(c).display !== 'none').length,
         types: Array.from(document.querySelectorAll('#quick-open-results .usage-result')).map((r) => r.dataset.usageType),
         label: document.getElementById('quick-open-filter').textContent,
       };
@@ -367,6 +379,29 @@ async function run() {
     check("the real server's usages arrive classified, under more than one heading",
       usages.types.length >= 2 && new Set(usages.groups).size >= 2 && usages.groups.includes("new"),
       `${usages.label} | ${JSON.stringify(usages.groups)}`);
+    // The module division, from a real two-module workspace and a real tsserver answer.
+    check("the usages are divided by module, with the workspace's own module names",
+      usages.modules.includes("@smoke/ui") && usages.modules.includes("@smoke/root"),
+      JSON.stringify(usages.modules));
+    check("and the nesting is drawn, not merely ordered",
+      usages.chips >= 9 && new Set(usages.indents).size >= 2 && Math.max(...usages.indents) > Math.min(...usages.indents),
+      `${usages.chips} chips, indents ${JSON.stringify(usages.indents)}`);
+
+    // ⌘⌥S: Production/Test, the one grouping IntelliJ ships switched off.
+    await page.key("s", "KeyS", 83, 4 + 1);
+    await sleep(300);
+    const scoped = await page.evaluate(`(() => ({
+      scopes: Array.from(document.querySelectorAll('#quick-open-results .usage-group[data-usage-group="scope"]')).map((g) => g.dataset.usageKey),
+      pressed: document.querySelector('.quick-open-usage-chip[data-usage-toggle="scope"]').getAttribute('aria-pressed'),
+      tags: document.querySelectorAll('#quick-open-results .usage-result-tag').length,
+    }))()`);
+    await page.shot("usages-scoped");
+    check("⌘⌥S divides the real answer into production and test code",
+      scoped.pressed === "true" && scoped.scopes.includes("production") && scoped.scopes.includes("test") && scoped.tags === 0,
+      JSON.stringify(scoped));
+    await page.key("s", "KeyS", 83, 4 + 1);
+    await sleep(200);
+
     // ⌥P: the toggle it borrows from Find in Files, pressed inside this mode.
     const beforeNoise = usages.types.length;
     await page.key("p", "KeyP", 80, 1);
@@ -490,6 +525,59 @@ async function run() {
       rows: document.querySelectorAll('#quick-open-results .quick-open-item').length,
     }))()`);
     check("⌘⇧E lists where the caret has been", locations.open === true && locations.rows > 0, JSON.stringify(locations));
+    await page.key("Escape", "Escape", 27, 0);
+
+    // ---- modules and test sources, where a path is listed ----------------------------------------
+    // The tree marking is done in the renderer over server-rendered rows (14-project-layout.js), so the
+    // thing to check in the real app is that it happened at all and that the tint and the badge are
+    // visible — a class nobody can see is the failure jsdom would pass.
+    // The Files tree builds its folders on demand (renderDeferredSourceTree), so `packages/ui` is not a
+    // row until something opens it — a badge on a row that does not exist is not a failure.
+    await page.evaluate(`(() => { openVirtualSourceDirectory('packages/ui'); return true; })()`);
+    await sleep(300);
+    const layoutMarks = await page.evaluate(`(() => {
+      const test = document.querySelector('.source-link[data-source-file="src/store.test.ts"]');
+      // NOT store.ts: that row is the open file, so it is selected, and its name is the selected colour
+      // rather than the ordinary one — comparing against it would call any two rows "tinted".
+      const plain = document.querySelector('.source-link[data-source-file="tsconfig.json"]');
+      const row = document.querySelector('.tree-dir[data-dir="packages/ui"]');
+      const badge = row && row.querySelector('.tree-module');
+      const name = row && row.querySelector('summary .path');
+      const colour = (el) => el ? getComputedStyle(el.querySelector('.path')).color : '';
+      return {
+        test: Boolean(test && test.classList.contains('is-test-file')),
+        tinted: Boolean(test && plain) && colour(test) !== colour(plain),
+        badge: badge ? badge.textContent : '',
+        badgeShown: badge ? getComputedStyle(badge).display !== 'none' : false,
+        // On the same line as the folder name, not wrapped under it: the summary is a grid and a third
+        // child without a third track drops to the next row.
+        inline: Boolean(badge && name) && Math.abs(badge.getBoundingClientRect().top - name.getBoundingClientRect().top) < 4
+          && badge.getBoundingClientRect().left > name.getBoundingClientRect().left,
+      };
+    })()`);
+    await page.shot("tree-modules");
+    check("the tree marks the test file and badges the module root, visibly",
+      layoutMarks.test && layoutMarks.tinted && layoutMarks.badge === "@smoke/ui" && layoutMarks.badgeShown
+      && layoutMarks.inline, JSON.stringify(layoutMarks));
+
+    // ⌥S: the Find in Files scope, cycled from inside the dialog that owns the keyboard.
+    await page.key("f", "KeyF", 70, 4 + 8);
+    await sleep(400);
+    await page.key("s", "KeyS", 83, 1);
+    await sleep(250);
+    const scope = await page.evaluate(`(() => {
+      const select = document.getElementById('quick-open-scope');
+      return {
+        value: select.value,
+        options: Array.from(select.options).map((o) => o.value),
+        shown: getComputedStyle(select).display !== 'none',
+        label: Array.from(select.options).map((o) => o.textContent).join(' | '),
+      };
+    })()`);
+    await page.shot("search-scope");
+    check("⌥S cycles the Find in Files scope, and the module scope is named",
+      scope.shown && scope.value === "production" && scope.options.includes("module") && /@smoke\/root/.test(scope.label),
+      JSON.stringify(scope));
     await page.key("Escape", "Escape", 27, 0);
   } finally {
     page?.close();

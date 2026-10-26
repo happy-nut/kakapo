@@ -163,6 +163,7 @@ function materializeVirtualSourceChildren(container, node, depth) {
     virtualSourceDetailsByPath.set(details.dataset.dir || '', details);
   });
   sourceLinks = Array.from(document.querySelectorAll('.source-link'));
+  markProjectLayoutInTrees();
 }
 
 function materializeVirtualSourceDirectory(details) {
@@ -207,6 +208,7 @@ function renderDeferredSourceTree(files) {
   var openPath = (document.getElementById('source-viewer') || {}).dataset?.openPath || '';
   if (openPath.indexOf('/') >= 0) openVirtualSourceDirectory(openPath.slice(0, openPath.lastIndexOf('/')));
   sourceLinks = Array.from(document.querySelectorAll('.source-link'));
+  markProjectLayoutInTrees();
   sourceLinks.forEach(function (link) { link.classList.toggle('active', link.dataset.sourceFile === openPath); });
   if (openPath) setSourceTypeIcon(openPath);
 }
@@ -500,6 +502,7 @@ function revealTreeFor(path, shouldScroll) {
     var slash = path.lastIndexOf('/');
     if (slash > 0) openVirtualSourceDirectory(path.slice(0, slash));
     sourceLinks = Array.from(document.querySelectorAll('.source-link'));
+    markProjectLayoutInTrees();
     sourceLinks.forEach(function (link) { link.classList.toggle('active', link.dataset.sourceFile === path); });
     setSourceTypeIcon(path);
   }

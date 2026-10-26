@@ -4,6 +4,7 @@ import type { AutomaticReviewBase } from "./git.js";
 import type { CompareState, DiffReviewBuild, WhitespaceMode } from "./types.js";
 import { isGitRepository, git, resolveAutomaticReviewBase } from "./git.js";
 import { collectHttpEnvironments, collectReviewFileStates, collectSourceFiles, parseUnifiedDiff, readUnifiedDiff } from "./diff.js";
+import { readProjectLayout } from "./project-layout.js";
 import { detectBaseDivergence } from "./git-conflicts.js";
 import { renderDiff2Html, type SourceTextLookup } from "./highlight.js";
 import {
@@ -111,6 +112,10 @@ export function buildDiffReview(input: {
     changedPathsOnly: deferFullIndex,
   });
   const fileStates = collectReviewFileStates(files, sourceFiles);
+  // What this repository is made of: its modules, and which directories hold test code. Read once per
+  // build from the project's own declarations (project-layout.ts) and carried into the renderer as one
+  // island, where every list that divides its rows by module or by Production/Test reads it.
+  const projectLayout = readProjectLayout(root);
   // Has something landed on the base in a file this review also changes? Local, read-only, and almost free
   // when the base has not moved — detectBaseDivergence stops at one merge-base call in that case.
   const divergence = reviewBase
@@ -175,6 +180,7 @@ export function buildDiffReview(input: {
     sourceFiles,
     fileStates,
     httpEnvironments,
+    projectLayout,
     title: input.title,
     subtitle: diffSubtitle({ ...input, base: reviewBase, baseLabel: automaticBase?.label }),
     projectName,
@@ -205,6 +211,7 @@ export function buildDiffReview(input: {
     fileStates,
     sourceFilesMeta: lazyLoad ? sourceFiles.map((file) => ({ ...file, content: "", image: "" })) : sourceFiles,
     httpEnvironments,
+    projectLayout,
   };
 
   return {

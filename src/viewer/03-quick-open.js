@@ -76,8 +76,9 @@ function openQuickOpen(mode, hideRail) {
   // narrow the list (IntelliJ-style speed search); the global keydown routes keys to handleQuickOpenKey.
   quickOpen.classList.toggle('quick-recent', mode === 'recent');
   quickOpen.classList.toggle('quick-content', mode === 'content');
-  // The usage view borrows Find-in-Files' one toggle ("comments & tests are noise", ⌥P) instead of growing
-  // IntelliJ's per-type filter toolbar. Same button, same chord, same meaning — see 17-find-usages.js.
+  // The usage view shares this strip: Find-in-Files' "comments & tests are noise" toggle (⌥P) keeps its
+  // meaning there, and beside it the Group By and Show chips of IntelliJ's two usage-view toolbars appear
+  // — #quick-open-usage-options, driven by 17-find-usages.js.
   quickOpen.classList.toggle('quick-usages', mode === 'usages');
   quickOpen.classList.toggle('quick-launcher', !hideRail && QUICK_LAUNCHER_MODES.indexOf(mode) >= 0);
   syncQuickLauncherRail();
@@ -219,6 +220,10 @@ function handleQuickOpenKey(event) {
     if (quickMode === 'recent' && recentFilter) { recentFilter = ''; updateRecentFilterDisplay(); renderQuickOpenResults(); return true; }
     closeQuickOpen();
     return true;
+  }
+  if (quickMode === 'content' && isShortcut(event, 'searchScope')) {
+    event.preventDefault();
+    return cycleContentSearchScope();
   }
   if (quickMode === 'content' && event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey
     && (event.code === 'KeyE' || event.key.toLowerCase() === 'e')) {
@@ -382,6 +387,9 @@ function renderQuickOpenResults() {
     '<span class="quick-open-main">',
     '<span class="quick-open-name">' + escapeHtml(item.name) + '</span>',
     '<span class="quick-open-path">' + escapeHtml(item.path) + '</span>',
+    // Which module, and whether it is test code — the two things IntelliJ's own Go to File row says
+    // besides the name (14-project-layout.js). Inside the main column, where the path it qualifies is.
+    projectRowTagsHtml(item.path),
     '</span>',
     // The type as its icon, not as the words "file - kotlin": the row is scanned, not read, and the icon is
     // the same glyph the file tree uses for that type. The words stay as the tooltip.
@@ -436,7 +444,8 @@ function renderWorkspaceSymbolResults(query) {
   quickResults.innerHTML = quickItems.map(function (item, index) {
     return '<button type="button" class="quick-open-item symbol-result' + (index === quickActive ? ' active' : '') + '" data-index="' + index + '">'
       + '<span class="quick-open-main"><span class="quick-open-name">' + escapeHtml(item.name) + '</span>'
-      + '<span class="quick-open-path">' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '</span></span>'
+      + '<span class="quick-open-path">' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '</span>'
+      + projectRowTagsHtml(item.path) + '</span>'
       + '<span class="quick-open-badge">' + escapeHtml(item.detail) + '</span></button>';
   }).join('');
   renderQuickPreview(quickItems[quickActive]);
@@ -488,6 +497,28 @@ function contentSearchPathAllowed(path, extensions, excludeNoise) {
   return !segments.some(function (segment) { return segment === 'test' || segment === 'tests' || segment === '__tests__'; })
     && !/(^test_.*|_test\.[^.]+$|\.(test|spec)\.[^.]+$)/.test(name);
 }
+// IntelliJ's Find in Files scope dropdown, minus the scopes this app has no answer for: it indexes no
+// library sources, and every file in a review is a project file, so "All Places" and "Project Files" are
+// the same list. "Changed files" is this app's own — the review IS a change, and "only where something
+// moved" is the scope a reviewer asks for that IntelliJ has no name for.
+var CONTENT_SEARCH_SCOPES = ['all', 'production', 'tests', 'module', 'changed'];
+
+/** Whether `path` is in the chosen scope. The exact rule — the globs sent with the query only narrow. */
+function contentSearchScopeAllows(path, scope) {
+  if (!scope || scope === 'all') return true;
+  if (scope === 'production') return projectScopeOf(path) === 'production';
+  if (scope === 'tests') return projectScopeOf(path) === 'test';
+  if (scope === 'module') {
+    var module = projectCurrentModule();
+    return !module || projectModuleName(path) === module;
+  }
+  if (scope === 'changed') {
+    var file = sourceByPath.get(path);
+    return Boolean(file && file.changed);
+  }
+  return true;
+}
+
 function contentSearchLineIsComment(item) {
   var text = String(item && item.text || '');
   var path = String(item && item.path || '').toLowerCase();
@@ -504,6 +535,7 @@ function contentSearchLineIsComment(item) {
 }
 function contentSearchItemAllowed(item, filters) {
   return contentSearchPathAllowed(item && item.path, filters.extensions, filters.excludeNoise)
+    && contentSearchScopeAllows(item && item.path, filters.scope)
     && (!filters.excludeNoise || !contentSearchLineIsComment(item));
 }
 function currentContentSearchFilters() {
@@ -513,13 +545,15 @@ function currentContentSearchFilters() {
     matchCase: contentSearchMatchCase,
     wholeWords: contentSearchWholeWords,
     regex: contentSearchRegex,
+    scope: contentSearchScope,
   };
 }
 function contentSearchRequestKey(query, filters) {
   return JSON.stringify([query, filters.extensions, filters.excludeNoise,
-    filters.matchCase, filters.wholeWords, filters.regex]);
+    filters.matchCase, filters.wholeWords, filters.regex, filters.scope, projectCurrentModule()]);
 }
 function syncContentSearchControls() {
+  syncContentSearchScope();
   if (quickExcludeNoiseButton) {
     var excluding = quickMode === 'usages' ? usageViewHideNoise : contentSearchExcludeNoise;
     quickExcludeNoiseButton.setAttribute('aria-pressed', excluding ? 'true' : 'false');
@@ -532,6 +566,45 @@ function syncContentSearchControls() {
     pair[0].classList.toggle('active', pair[1]);
   });
 }
+/** The scope select's options and selection. Rebuilt rather than patched: one of them carries a name. */
+function syncContentSearchScope() {
+  if (!quickScopeSelect) return;
+  var module = projectCurrentModule();
+  var offered = CONTENT_SEARCH_SCOPES.filter(function (scope) {
+    // A module scope with no module to name is not a scope. Neither is one in a single-module repo,
+    // where it would be the whole project under another name.
+    return scope !== 'module' || (module && projectHasModules());
+  });
+  if (offered.indexOf(contentSearchScope) < 0) contentSearchScope = 'all';
+  quickScopeSelect.innerHTML = offered.map(function (scope) {
+    var label = scope === 'module' ? t('scope.module').replace('{name}', module) : t('scope.' + scope);
+    return '<option value="' + escapeHtml(scope) + '">' + escapeHtml(label) + '</option>';
+  }).join('');
+  quickScopeSelect.value = contentSearchScope;
+}
+
+/** ⌥S, and the select itself: the next scope round. Restarts the search — the answer changes with it. */
+function setContentSearchScope(scope) {
+  if (CONTENT_SEARCH_SCOPES.indexOf(scope) < 0) return false;
+  contentSearchScope = scope;
+  syncContentSearchScope();
+  restartContentSearch();
+  return true;
+}
+
+document.getElementById('quick-open-scope')?.addEventListener('change', function (event) {
+  setContentSearchScope(String(event.target && event.target.value || 'all'));
+  if (quickInput) quickInput.focus();
+});
+
+function cycleContentSearchScope() {
+  if (!quickScopeSelect) return false;
+  var offered = Array.prototype.map.call(quickScopeSelect.options, function (option) { return option.value; });
+  if (!offered.length) return false;
+  var at = offered.indexOf(contentSearchScope);
+  return setContentSearchScope(offered[(at + 1) % offered.length]);
+}
+
 /** One of the three modifiers, by the flag's name. Restarts the search: the answer changes with it. */
 function toggleContentSearchModifier(which) {
   if (which === 'matchCase') contentSearchMatchCase = !contentSearchMatchCase;
@@ -621,6 +694,7 @@ function renderContentSearchResults(query) {
       + '<span class="quick-open-main">'
       + '<span class="quick-open-name">' + escapeHtml(baseName(item.path) + ':' + (item.lineIndex + 1) + ':' + (item.column + 1)) + '</span>'
       + '<span class="quick-open-path search-snippet">' + searchSnippetHtml(item) + '</span>'
+      + projectRowTagsHtml(item.path)
       + '</span>'
       + '<span class="quick-open-badge">' + escapeHtml(item.path) + '</span>'
       + '</button>';
@@ -651,6 +725,9 @@ async function runContentSearch(query, seq, filters, requestKey) {
       if (filters.matchCase) request.matchCase = true;
       if (filters.wholeWords) request.wholeWords = true;
       if (filters.regex) request.regex = true;
+      var prefixes = projectScopePrefixes(filters.scope);
+      if (prefixes.include.length) request.includePaths = prefixes.include;
+      if (prefixes.exclude.length) request.excludePaths = prefixes.exclude;
       response = await window.kakapoSearch.query(request);
     }
   } catch (e) { response = null; }
@@ -716,6 +793,7 @@ function localContentSearch(query, limit, filters) {
   for (var fi = 0; fi < sourceFiles.length && out.length < limit; fi++) {
     var file = sourceFiles[fi];
     if (!file.embedded || !contentSearchPathAllowed(file.path, filters.extensions, filters.excludeNoise)) continue;
+    if (!contentSearchScopeAllows(file.path, filters.scope)) continue;
     var lines = String(file.content || '').split(/\r?\n/);
     for (var li = 0; li < lines.length && out.length < limit; li++) {
       var line = lines[li];

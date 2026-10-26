@@ -157,6 +157,7 @@ function ensureTreeRendered() {
       panel.innerHTML = html;
       panel.dataset.projectIndex = 'loaded';
       sourceLinks = Array.from(document.querySelectorAll('.source-link'));
+      markProjectLayoutInTrees();
       try { refreshComments(); } catch (e) {}
     }, 0);
     return Promise.resolve();
@@ -167,6 +168,7 @@ function ensureTreeRendered() {
     else panel.innerHTML = payload && payload.filesTree ? payload.filesTree : '<div class="empty-nav">' + escapeHtml(t('source.selectFile')) + '</div>';
     panel.dataset.projectIndex = 'loaded';
     sourceLinks = Array.from(document.querySelectorAll('.source-link'));
+    markProjectLayoutInTrees();
     try { refreshComments(); } catch (e) {} // re-render per-file badges
   });
 }
@@ -630,9 +632,13 @@ function applyDiffUpdate(u) {
   if (filesPanel && filesPanel.dataset.projectIndex === 'loaded' && REVIEW_LAZY_LOAD) renderDeferredSourceTree(sourceFiles);
   httpEnvironments = u.httpEnvironments || {};
   httpEnvNames = Object.keys(httpEnvironments);
+  // A refresh can add a module or a test root — a new workspace package, a `src/test` that did not exist
+  // when the window opened. The layout travels with the update so the groupings do not go stale.
+  setProjectLayout(u.projectLayout);
   currentSignature = u.signature;
   links = Array.from(document.querySelectorAll('#changes-panel .file-link'));
   sourceLinks = Array.from(document.querySelectorAll('.source-link'));
+  markProjectLayoutInTrees();
   // The Changes tree was just replaced. Reapply persisted per-file review marks immediately; otherwise
   // F7 consults isFileViewed() and skips files whose rows still look like ordinary blue "modified" items.
   applyViewedState();
