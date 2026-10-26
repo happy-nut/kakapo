@@ -4,6 +4,7 @@ import {
   AnalysisLocation,
   type AnalysisSymbol,
   LspClient,
+  lspSymbolKindName,
   resolveBundledLanguageServer,
   resolveLanguageServer,
   type LanguageServerCommand,
@@ -43,7 +44,11 @@ export type AnalysisKind =
   | "callers"
   | "callees"
   | "supertypes"
-  | "subtypes";
+  | "subtypes"
+  // What the thing under the caret IS, in prose — `textDocument/hover`. The only question in this list
+  // whose answer is not a position, and the one two IntelliJ actions were missing for: Quick Documentation
+  // renders the whole answer, Expression Type takes its first line. Answered in `hover`.
+  | "hover";
 
 export type AnalysisRequest = {
   kind: AnalysisKind;
@@ -53,6 +58,13 @@ export type AnalysisRequest = {
   query?: string;
   symbol?: string;
   limit?: number;
+  /**
+   * Only for kind "workspaceSymbol": keep types only — IntelliJ's Go to Class, as opposed to its Go to
+   * Symbol. Filtered HERE rather than in the page because the two engines label a kind differently: a
+   * language server sends LSP's numeric SymbolKind and the regex index sends its own word, and the page
+   * would need both tables to tell a class from a function.
+   */
+  types?: boolean;
 };
 
 export type AnalysisResponse = {
@@ -67,6 +79,8 @@ export type AnalysisResponse = {
   locations: AnalysisLocation[];
   /** Only for kind "documentSymbol": the file's structure, flattened in reading order. */
   symbols?: AnalysisSymbol[];
+  /** Only for kind "hover": Markdown. Empty when neither the server nor the index had anything to say. */
+  hover?: string;
   fallbackReason?: string;
   error?: string;
   /**
@@ -455,7 +469,7 @@ export class ProjectAnalysis {
       return { ok: false, engine: "index", confidence: "heuristic", locations: [], revision, declined: "revision" };
     }
     try {
-      if (request.kind === "workspaceSymbol") return await this.workspaceSymbols(path, request.query ?? request.symbol ?? "", request.limit);
+      if (request.kind === "workspaceSymbol") return await this.workspaceSymbols(path, request.query ?? request.symbol ?? "", request.limit, request.types === true);
       if (!path) return { ok: false, engine: "index", confidence: "heuristic", locations: [], revision, error: "A project-relative source path is required" };
       // A file's structure is about the file, not about a position in it, so it skips symbolContext (which
       // exists to work out what the caret is on) and has its own index fallback.
@@ -466,6 +480,7 @@ export class ProjectAnalysis {
       }
       const context = await this.symbolContext(path, request.line, request.column, request.symbol);
       if (!context.symbol) return { ok: true, engine: "index", confidence: "heuristic", locations: [], revision, symbol: "" };
+      if (request.kind === "hover") return await this.hoverAt(path, context, onRevision, revision);
       const method = request.kind === "definition"
         ? "textDocument/definition"
         : request.kind === "references"
@@ -713,6 +728,84 @@ export class ProjectAnalysis {
     return records.some((record) => record.path === location.path && record.lineIndex === location.lineIndex);
   }
 
+  /**
+   * What the caret is on, in prose.
+   *
+   * A revision skips the server outright — no language server can be pointed at one — and takes the index
+   * answer, which is the same arrangement every other kind here uses. That is not a decline: the
+   * declaration line IS an answer about a revision, and a reader asking "what is this" gets the signature
+   * rather than a refusal.
+   */
+  private async hoverAt(
+    path: string,
+    context: { symbol?: string; lineIndex: number; column: number },
+    onRevision: boolean,
+    revision?: string,
+  ): Promise<AnalysisResult> {
+    const lsp = onRevision
+      ? { hover: "", fallbackReason: `Reading ${this.reviewTarget}, which no language server can be pointed at` }
+      : await this.lspHover(path, context.lineIndex, context.column);
+    if (lsp.hover) {
+      return {
+        ok: true,
+        engine: "lsp",
+        confidence: "semantic",
+        server: lsp.server,
+        serverSource: lsp.serverSource,
+        symbol: context.symbol,
+        locations: [],
+        hover: lsp.hover,
+      };
+    }
+    // The index knows the line a symbol was declared on, which is the part of a hover a reader is usually
+    // after. Fenced, so the renderer highlights it as the code it is rather than as a paragraph.
+    const index = await this.getIndex();
+    const declaration = (index.definitions.get(context.symbol ?? "") ?? [])[0];
+    const text = declaration?.declaration?.trim() ?? "";
+    return {
+      ok: true,
+      engine: "index",
+      confidence: "heuristic",
+      revision,
+      symbol: context.symbol,
+      locations: [],
+      hover: text ? "```\n" + text + "\n```" : "",
+      fallbackReason: lsp.fallbackReason ?? "Language server returned no hover",
+    };
+  }
+
+  private async lspHover(
+    path: string,
+    line: number,
+    column: number,
+  ): Promise<{ server?: string; serverSource?: LanguageServerCommand["source"]; hover: string; fallbackReason?: string }> {
+    const client = this.clientFor(path);
+    if (!client) {
+      const fallbackReason = `No language server is available for ${path}`;
+      this.setStatus("fallback", { fallbackReason });
+      return { hover: "", fallbackReason };
+    }
+    try {
+      const server = client;
+      const answer = await this.withDeadlineWhileIndexing(
+        client.hover(path, line, column),
+        () => this.setStatus("ready", serverFields(server.server)),
+      );
+      if (!answer.settled) return { hover: "", fallbackReason: "The language server is still reading the project" };
+      this.setStatus("ready", serverFields(client.server));
+      return {
+        server: client.server.name,
+        serverSource: client.server.source,
+        hover: answer.value,
+        fallbackReason: answer.value ? undefined : "Language server returned no hover",
+      };
+    } catch (error) {
+      // Hover is an optional capability and a server that lacks it must not be quarantined for saying so —
+      // the same reasoning the location path applies to `implementation`.
+      return { hover: "", fallbackReason: errorMessage(error) };
+    }
+  }
+
   private async lspLocations(
     path: string,
     line: number,
@@ -795,7 +888,7 @@ export class ProjectAnalysis {
     }
   }
 
-  private async workspaceSymbols(path: string | undefined, query: string, limit = 200): Promise<AnalysisResult> {
+  private async workspaceSymbols(path: string | undefined, query: string, limit = 200, typesOnly = false): Promise<AnalysisResult> {
     let fallbackReason = path ? "Language server returned no workspace symbols" : "A source file is required to select a language server";
     if (path) {
       while (true) {
@@ -806,7 +899,8 @@ export class ProjectAnalysis {
           break;
         }
         try {
-          const locations = uniqueLocations(await client.workspaceSymbols(query), Math.max(1, Math.min(Number(limit) || 200, 500)));
+          const answered = uniqueLocations(await client.workspaceSymbols(query), Math.max(1, Math.min(Number(limit) || 200, 500)));
+          const locations = typesOnly ? answered.filter(isTypeLocation) : answered;
           const codeLocations = await this.navigationLocations(locations, Math.max(1, Math.min(Number(limit) || 200, 500)));
           this.setStatus("ready", serverFields(client.server));
           if (codeLocations.length) {
@@ -830,7 +924,7 @@ export class ProjectAnalysis {
     const needle = query.trim().toLowerCase();
     const index = await this.getIndex();
     const locations = index.symbols
-      .filter((item) => !needle || item.name.toLowerCase().includes(needle))
+      .filter((item) => (!needle || item.name.toLowerCase().includes(needle)) && (!typesOnly || isTypeLocation(item)))
       .sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
       .slice(0, Math.max(1, Math.min(Number(limit) || 200, 500)))
       .map((item) => ({ ...item, kind: undefined }));
@@ -1255,6 +1349,16 @@ export class ProjectAnalysis {
     }));
     return locations.map((item) => ({ ...item, text: item.text ?? byPath.get(item.path)?.[item.lineIndex] ?? "" }));
   }
+}
+
+// What counts as a type for Go to Class. The two engines answer differently and both are read: a language
+// server sends LSP's numeric SymbolKind (mapped by name here so the list is readable), and the regex index
+// sends the word its declaration patterns matched.
+const TYPE_KIND_NAMES = new Set(["class", "interface", "struct", "enum", "object", "trait"]);
+function isTypeLocation(item: AnalysisLocation & { symbolKind?: string }): boolean {
+  if (typeof item.symbolKind === "string" && item.symbolKind) return TYPE_KIND_NAMES.has(item.symbolKind);
+  if (item.kind === undefined) return false;
+  return TYPE_KIND_NAMES.has(lspSymbolKindName(item.kind));
 }
 
 function escapeRegExp(value: string): string {

@@ -660,6 +660,9 @@ function applyI18n() {
   if (termsSweepSelectRef) termsSweepSelectRef.render();
   refreshDiffContextFoldLabels();
   refreshCodeFoldLabels();
+  // The action list caches its rows with their labels already translated, so a language switch has to drop
+  // it or ⌘⇧A keeps answering in the language you just left.
+  forgetFindActionItems();
   syncDiffReviewChrome();
 }
 // Theme mirrors the locale pattern: persisted choice, applied by toggling data-theme on <html> so the
@@ -996,6 +999,8 @@ let workspaceSymbolSeq = 0;
 let workspaceSymbolTimer = null;
 let workspaceSymbolBusy = false;
 let workspaceSymbolEngine = 'index';
+// Go to Class is Go to Symbol with this on — see openWorkspaceSymbols in 03-quick-open.js.
+let workspaceSymbolTypesOnly = false;
 let usageItems = []; // find-usages results for the Cmd+B-on-declaration popup
 let usageActive = 0;
 let viewerCursor = null;

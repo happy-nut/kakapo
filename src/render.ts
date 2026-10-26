@@ -577,6 +577,14 @@ export function renderDiffHtml(input: {
         + '<div class="semantic-peek-header"><div class="semantic-peek-heading"><div id="semantic-peek-title" class="semantic-peek-title">Semantic Peek</div><div id="semantic-peek-meta" class="semantic-peek-meta"></div></div>'
         + '</div><div id="semantic-peek-results" class="semantic-peek-results" role="listbox" tabindex="0" data-i18n-aria="peek.list" aria-label="Semantic locations"></div>'
         + '</aside>'
+        // Quick Documentation: prose, not a list of places, so it is a panel of its own rather than a mode
+        // of the one above. It borrows that panel's caret positioning (positionPanelAtCaret) and nothing
+        // else. Gated on `app` for the same reason the peek is: there is no language server to ask in a
+        // standalone HTML review.
+        + '<aside id="quick-doc" class="quick-doc hidden" role="dialog" data-i18n-aria="quickdoc.aria" aria-label="Quick documentation">'
+        + '<div class="quick-doc-head"><span id="quick-doc-title" class="quick-doc-title"></span><span id="quick-doc-meta" class="quick-doc-meta"></span></div>'
+        + '<div id="quick-doc-body" class="quick-doc-body" tabindex="0"></div>'
+        + '</aside>'
       : "",
     '<div id="quick-open" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="quickopen.aria" aria-label="Quick open">',
     '<div class="quick-open-panel">',
