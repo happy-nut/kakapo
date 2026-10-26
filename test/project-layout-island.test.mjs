@@ -62,3 +62,19 @@ test("a single-module repo gets no module division at all", async () => {
   assert.equal(v.window.projectHasModules(), false);
   v.close();
 });
+
+test("a library file is a library file as soon as it says so, cached answer or not", async () => {
+  // The scope cache is keyed by path and lives for the life of the layout, but one of its inputs does
+  // not: a tab restored from the last session names a library file whose record has not arrived yet, so
+  // the first classification falls through to the conventions — `node_modules` reads as GENERATED — and
+  // the cached answer outlived the record by the whole session.
+  const v = await loadViewer(html);
+  await v.settle(20);
+  const path = "node_modules/@acme/dep/index.d.ts";
+  assert.equal(v.window.projectScopeOf(path), "generated", "with no record, the conventions answer");
+  // `sourceByPath` is a top-level `let`, which lives in the script scope and never reaches `window`.
+  // Global eval sees that binding; this is how the app itself registers a library record.
+  v.window.eval(`sourceByPath.set(${JSON.stringify(path)}, { path: ${JSON.stringify(path)}, library: true, embedded: true, content: "export {};" })`);
+  assert.equal(v.window.projectScopeOf(path), "library", "and the record wins the moment it exists");
+  v.close();
+});

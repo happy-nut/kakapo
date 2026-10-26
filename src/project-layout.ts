@@ -55,6 +55,19 @@ const SKIP_DIRECTORIES = new Set([
   "__pycache__", ".next", ".nuxt", ".gradle", ".idea", ".cache", "coverage", "tmp",
 ]);
 
+/**
+ * Whether a repo-relative path stays inside the repository.
+ *
+ * `.idea/modules.xml` and the `.iml` files it names are content of the repository being REVIEWED, which
+ * is to say input, and `filepath="$PROJECT_DIR$/../../OUTSIDE.iml"` made this file read an `.iml` two
+ * directories above the review root and take its source folders into the layout. kakapo reads what the
+ * review target contains and nothing above it; that boundary is the same one the 2026-10-15 bounty drew
+ * around library navigation.
+ */
+function insideRepository(relative: string): boolean {
+  return Boolean(relative) && !relative.split("/").includes("..");
+}
+
 function normalizeRelative(path: string): string {
   const relative = String(path || "").replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "").replace(/^\/+/, "");
   // `.` is how a workspace manifest spells the repository root (Cargo and go.work both allow it), and the
@@ -152,7 +165,7 @@ function readIntellijLayout(root: string): ProjectLayout | null {
     const filepath = attribute(tag, "filepath") || attribute(tag, "fileurl");
     if (!filepath) continue;
     const relative = resolveIdeaUrl(filepath, "");
-    if (!/\.iml$/i.test(relative)) continue;
+    if (!/\.iml$/i.test(relative) || !insideRepository(relative)) continue;
     const group = attribute(tag, "group");
     imlPaths.push({ name: basename(relative).replace(/\.iml$/i, ""), file: relative, group: group || undefined });
     if (imlPaths.length >= MAX_MODULES) break;
@@ -179,7 +192,7 @@ function readIntellijLayout(root: string): ProjectLayout | null {
     if (!iml) continue;
     for (const tag of iml.match(/<sourceFolder\b[^>]*>/g) ?? []) {
       const folder = resolveIdeaUrl(attribute(tag, "url"), moduleDirectory);
-      if (!folder) continue;
+      if (!insideRepository(folder)) continue;
       // `isTestSource="true"` is the Java-style flag; `type="java-test-resource"` is how a test RESOURCE
       // root is spelled, and IntelliJ counts both as test sources.
       if (attribute(tag, "isTestSource") === "true" || /test/i.test(attribute(tag, "type"))) testRoots.push(folder);
@@ -213,14 +226,47 @@ function manifestName(root: string, member: string): string {
   return basename(member) || member;
 }
 
+/** The lines of one TOML table, `[name]` to the next table header. Shallow on purpose, like its callers. */
+function tomlSection(toml: string, name: string): string {
+  const lines = toml.split(/\r?\n/);
+  const header = (line: string) => line.replace(/#.*$/, "").trim();
+  const start = lines.findIndex((line) => header(line) === `[${name}]`);
+  if (start < 0) return "";
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^\s*\[/.test(line));
+  return (end < 0 ? rest : rest.slice(0, end)).join("\n");
+}
+
+/**
+ * The values of one YAML list key, `key:` to the next key at the same indentation.
+ *
+ * pnpm-workspace.yaml is not only `packages:` any more — pnpm 10 puts `onlyBuiltDependencies:` and
+ * friends beside it, and reading every `- item` in the file as a package pattern invented a module for
+ * any of them that happened to name a directory that exists.
+ */
+function yamlListUnder(yaml: string, key: string): string[] {
+  const lines = yaml.split(/\r?\n/);
+  const start = lines.findIndex((line) => new RegExp(`^\\s*${key}\\s*:`).test(line));
+  if (start < 0) return [];
+  const values: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    const item = /^\s*-\s*(.*)$/.exec(line);
+    if (!item) {
+      if (!line.trim() || /^\s*#/.test(line)) continue;
+      break; // the next key, whatever it is, ends this list
+    }
+    const value = item[1].replace(/\s+#.*$/, "").trim().replace(/^['"]/, "").replace(/['"]$/, "").trim();
+    if (value) values.push(value);
+  }
+  return values;
+}
+
 function workspaceMembers(root: string): string[] {
   // pnpm first: when it is there it is the authority, and a pnpm repo's root package.json usually has no
   // `workspaces` field at all.
   const pnpm = readTextFile(join(root, "pnpm-workspace.yaml")) || readTextFile(join(root, "pnpm-workspace.yml"));
   if (pnpm) {
-    const patterns = (pnpm.match(/^\s*-\s*['"]?([^'"\n#]+)['"]?\s*$/gm) ?? [])
-      .map((line) => line.replace(/^\s*-\s*['"]?/, "").replace(/['"]?\s*$/, "").trim());
-    const members = patterns.flatMap((pattern) => expandMemberPattern(root, pattern));
+    const members = yamlListUnder(pnpm, "packages").flatMap((pattern) => expandMemberPattern(root, pattern));
     if (members.length) return members;
   }
   const packageJson = readTextFile(join(root, "package.json"));
@@ -238,7 +284,11 @@ function workspaceMembers(root: string): string[] {
     }
   }
   const cargo = readTextFile(join(root, "Cargo.toml"));
-  const cargoWorkspace = /\[workspace\][^[]*?members\s*=\s*\[([^\]]*)\]/s.exec(cargo);
+  // The `[workspace]` table, to its next table header — not "everything up to the first `[`", which was
+  // the old reading and which `exclude = [...]` or `default-members = [...]` before `members` ended
+  // early. A formatter that sorts keys alphabetically puts both of them there, so a sorted Cargo.toml
+  // lost every module it had.
+  const cargoWorkspace = /^\s*members\s*=\s*\[([^\]]*)\]/m.exec(tomlSection(cargo, "workspace"));
   if (cargoWorkspace) {
     const members = (cargoWorkspace[1].match(/"([^"]+)"/g) ?? [])
       .map((value) => value.replace(/"/g, ""))
@@ -336,7 +386,10 @@ export function readProjectLayout(root: string): ProjectLayout {
     };
   }
 
-  const members = workspaceMembers(root);
+  // Every manifest reader above takes its member paths from the reviewed repository's own files, so the
+  // same boundary applies to all of them in one place: `workspaces: ["../../elsewhere"]` names a
+  // directory, and a real one at that, but not one this review is allowed to read.
+  const members = workspaceMembers(root).filter(insideRepository);
   if (members.length) {
     const memberRoots = unique(members).slice(0, MAX_MODULES);
     const modules = memberRoots.map((member) => ({ name: manifestName(root, member), root: member }));

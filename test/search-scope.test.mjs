@@ -7,7 +7,24 @@
 // conventions no glob can express.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeSearchPaths, projectSearchMatchAllowed } from "../dist/search.js";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { normalizeSearchPaths, projectSearchMatchAllowed, searchProject } from "../dist/search.js";
+
+const scopeDirs = [];
+after(() => scopeDirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
+
+/** A throwaway directory tree to point the real ripgrep at. */
+async function scopeRepo(files) {
+  const dir = mkdtempSync(join(tmpdir(), "kakapo-scope-"));
+  scopeDirs.push(dir);
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, path)), { recursive: true });
+    writeFileSync(join(dir, path), content);
+  }
+  return dir;
+}
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
 
@@ -136,4 +153,44 @@ test("a single-module repository is not offered a module scope", async () => {
   assert.deepEqual(scopes(v), ["all", "production", "tests", "changed"],
     "it would be the whole project under another name");
   v.close();
+});
+
+// ---- the half nothing was asserting ----------------------------------------------------------------
+// Everything above this line tests `projectSearchMatchAllowed`, the rule applied to what ripgrep sends
+// back — which was always right. What was wrong was the question ripgrep was asked, and no test ran
+// ripgrep. Both bugs below were measured against the bundled binary before they were written down.
+
+// A scope used to be another `--glob`, and ripgrep's positive globs are an OR: `--glob '*.ts' --glob
+// 'sub/**'` asked for every .ts in the repository OR every file under sub/. The ANSWER was still right —
+// projectSearchMatchAllowed re-applies both rules above — so there is no assertion to make about it here;
+// what was lost was the walk. Scoping to one module of a monorepo read every file in the monorepo and
+// threw most of it away. The scope is now where ripgrep starts, which is also the only way to name a
+// directory literally, which is the bug below.
+
+test("a scope directory whose name is also a glob is still searched", async () => {
+  // `app/[slug]` is a directory in every Next.js app there is. As a glob `[slug]` is a character class:
+  // `--glob 'app/[slug]/**'` looked for app/s/, app/l/, app/u/, app/g/ and matched nothing, so scoping
+  // Find in Files to that module returned zero results and said so as if it were the answer.
+  const dir = await scopeRepo({
+    "app/[slug]/page.ts": "NEEDLE\n",
+    "app/plain.ts": "NEEDLE\n",
+    "other/c.ts": "NEEDLE\n",
+  });
+  const scoped = await searchProject(dir, "NEEDLE", 50, { includePaths: ["app/[slug]"] });
+  assert.equal(scoped.available, true, scoped.error ?? "");
+  assert.deepEqual(scoped.matches.map((match) => match.path), ["app/[slug]/page.ts"]);
+
+  const excluded = await searchProject(dir, "NEEDLE", 50, { excludePaths: ["app/[slug]"] });
+  assert.equal(excluded.available, true, excluded.error ?? "");
+  assert.ok(!excluded.matches.some((match) => match.path.includes("[slug]")),
+    `excluding it must exclude it: ${excluded.matches.map((m) => m.path)}`);
+});
+
+test("a scope whose directories have all gone searches nothing, not everything", async () => {
+  // ripgrep exits 2 on a path that is not there, which this searcher reads as "the search failed". A
+  // module deleted since the layout was read must not silently widen back to the whole repository.
+  const dir = await scopeRepo({ "src/a.ts": "NEEDLE\n" });
+  const result = await searchProject(dir, "NEEDLE", 50, { includePaths: ["packages/gone"] });
+  assert.equal(result.available, true, result.error ?? "");
+  assert.deepEqual(result.matches, []);
 });
