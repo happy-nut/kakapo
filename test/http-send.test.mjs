@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { performHttpRequest } from "../dist/server.js";
 import { collectHttpEnvironments } from "../dist/diff.js";
-import { readHttpAttachment, saveHttpResponse } from "../dist/http-files.js";
+import { cookieHeaderFor, readHttpAttachment, saveCookies, saveHttpResponse } from "../dist/http-files.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -594,4 +594,69 @@ test("a redirect within the same origin still carries them", async () => {
   assert.equal(result.ok, true, result.error ?? "");
   assert.deepEqual(result.redirects, [`${origin}/echo-headers`]);
   assert.equal(JSON.parse(result.body).authorization, `Basic ${Buffer.from("reviewer:hunter2").toString("base64")}`);
+});
+
+// ---- the cookie jar's half of RFC 6265 ---------------------------------------------------------------
+// The jar is written by hand — IntelliJ's own file format, no dependency — and the tests it had covered
+// the round trip: a cookie saved on one request is sent on the next, @no-cookie-jar skips it, a Cookie:
+// line in the file wins. All happy paths, all from a server behaving itself. What a hand-written jar
+// actually has to get right is the four rules that decide when NOT to send one, and none of them were
+// there: a response could claim any host it liked, `Domain=com` matched every .com, `Secure` was not
+// parsed at all, and a cookie with no Domain= went to every subdomain of the host that set it.
+
+const jarDirs = [];
+function jar() {
+  const root = mkdtempSync(join(tmpdir(), "kakapo-jar-root-"));
+  const userData = mkdtempSync(join(tmpdir(), "kakapo-jar-data-"));
+  jarDirs.push(root, userData);
+  return {
+    save: (origin, header) => saveCookies(root, userData, new URL(origin), [header]),
+    get: (origin) => cookieHeaderFor(root, userData, new URL(origin)),
+  };
+}
+after(() => jarDirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
+
+test("a response cannot set a cookie for a host it has nothing to do with", () => {
+  const j = jar();
+  j.save("http://attacker.test/x", "injected=1; Domain=github.com; Path=/");
+  assert.equal(j.get("https://api.github.com/user"), "",
+    "Domain= may widen a cookie to a PARENT of the host that set it, and to nothing else");
+});
+
+test("a response cannot claim an entire public suffix", () => {
+  const j = jar();
+  j.save("http://attacker.test/x", "everywhere=2; Domain=com; Path=/");
+  assert.equal(j.get("https://example.com/"), "", "`com` is a suffix of every .com host, which is the point");
+});
+
+test("a Secure cookie does not go out over plain http", () => {
+  const j = jar();
+  j.save("https://bank.test/login", "session=3; Path=/; Secure");
+  assert.equal(j.get("http://bank.test/"), "", "the whole meaning of the flag");
+  assert.equal(j.get("https://bank.test/"), "session=3");
+  // Loopback counts as secure, as it does in every browser: a .http file run against your own dev server
+  // over http is the feature, not an attack on it.
+  j.save("http://localhost:3000/login", "dev=4; Path=/; Secure");
+  assert.equal(j.get("http://localhost:3000/me"), "dev=4");
+});
+
+test("a cookie with no Domain= belongs to that host, not to everything under it", () => {
+  const j = jar();
+  j.save("https://example.org/", "hostonly=5; Path=/");
+  assert.equal(j.get("https://sub.example.org/"), "", "a subdomain is a host the server never named");
+  assert.equal(j.get("https://example.org/"), "hostonly=5");
+});
+
+test("and the flows a reviewer actually runs are untouched", () => {
+  const j = jar();
+  j.save("https://api.example.com/login", "session=abc; Path=/");
+  assert.equal(j.get("https://api.example.com/users"), "session=abc");
+  // A legitimate parent domain — the single-sign-on shape these files are full of.
+  j.save("https://auth.example.com/login", "sso=xyz; Domain=example.com; Path=/");
+  assert.equal(j.get("https://api.example.com/users"), "session=abc; sso=xyz");
+  j.save("https://paths.test/api/v1", "scoped=2; Path=/api");
+  assert.equal(j.get("https://paths.test/api/v1/x"), "scoped=2");
+  assert.equal(j.get("https://paths.test/other"), "");
+  j.save("https://expiry.test/", "gone=3; Path=/; Max-Age=0");
+  assert.equal(j.get("https://expiry.test/"), "");
 });
