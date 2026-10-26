@@ -169,7 +169,12 @@ test("⌥F7 groups the usages by what they are, non-code usages last", async () 
     "the code groups in IntelliJ's order, then the two that are not code");
   const headers = groups(host);
   assert.match(headers.join("|"), /Non-code usages/, "with the non-code divider between them");
-  assert.match(headers[0], /^Usage in import2$/, "a header carries its own count");
+  // The header is a tree node now: twisty, name, and the count after it the way IntelliJ writes it.
+  const firstHeader = host.v.$("#quick-open-results .usage-group");
+  assert.equal(firstHeader.querySelector(".usage-group-name").textContent, "Usage in import");
+  assert.equal(firstHeader.querySelector(".usage-group-count").textContent, "(2 usages)",
+    "a header carries its own count, in IntelliJ's own phrasing");
+  assert.equal(firstHeader.querySelector(".usage-twisty").textContent, "▾", "and a twisty, because it folds");
   assert.match(host.v.$("#quick-open-filter").textContent, /6 usages in 2 files/);
   host.v.close();
 });

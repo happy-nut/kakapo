@@ -193,6 +193,59 @@ function projectRowTagsHtml(path, kinds) {
 //
 // Idempotent, because it runs again every time either tree is rebuilt.
 
+// IntelliJ's own folder marks, lifted out of its icons: the green/orange arrow pair that
+// `platform/icons/src/nodes/testSourceFolder.svg` draws over a folder, and the blue square that
+// `Module.svg` draws over the same folder. The polygons and the three colours (#62B543, #F26522,
+// #40B6E0) are verbatim from those two files; what is kakapo's is the folder they sit on, which is this
+// app's own outline icon rather than IntelliJ's filled one. A 16-unit viewBox over a 14px icon puts them
+// in the bottom-right corner, which is where IntelliJ composes them.
+var PROJECT_TEST_FOLDER_MARK = '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+  + '<polygon fill="#62B543" points="13.75 10.75 17.25 14.25 10.25 14.25" transform="rotate(90 13.75 12.5)"/>'
+  + '<polygon fill="#F26522" points="9.25 10.75 12.75 14.25 5.75 14.25" transform="rotate(-90 9.25 12.5)"/></svg>';
+var PROJECT_MODULE_FOLDER_MARK = '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+  + '<polygon fill="#40B6E0" points="10 16 16 16 16 10 10 10"/></svg>';
+
+// A module GROUP, from moduleGroup.svg: four squares where the module icon has one.
+var PROJECT_MODULE_GROUP_FOLDER_MARK = '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+  + '<polygon fill="#40B6E0" points="13 16 16 16 16 13 13 13"/><polygon fill="#40B6E0" points="13 12 16 12 16 9 13 9"/>'
+  + '<polygon fill="#40B6E0" points="9 16 12 16 12 13 9 13"/><polygon fill="#40B6E0" points="9 12 12 12 12 9 9 9"/></svg>';
+// The library mark, from ppLibFolder.svg: three bars in IntelliJ's blue, grey and green.
+var PROJECT_LIBRARY_FOLDER_MARK = '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+  + '<rect width="2" height="6" x="14" y="8" fill="#40B6E0"/><rect width="2" height="8" x="11" y="6" fill="#9AA7B0"/>'
+  + '<rect width="2" height="6" x="8" y="8" fill="#62B543"/></svg>';
+// Excluded/generated, from excludedFromCompile.svg: its cross, in the row's own colour rather than
+// IntelliJ's near-black — a dark theme would swallow that.
+var PROJECT_GENERATED_FOLDER_MARK = '<svg class="folder-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+  + '<polygon fill="currentColor" fill-opacity=".75" points="15.995 15.291 14.2 13.498 15.988 11.709 15.288 11.008'
+  + ' 13.499 12.798 11.704 11.004 11.003 11.703 12.8 13.498 11 15.299 11.7 16 13.5 14.198 15.294 15.991"/></svg>';
+
+/**
+ * A folder icon with one of IntelliJ's marks on it, for a usage-view group node.
+ *
+ * The same composition the trees use, built here so the two surfaces cannot drift: the outline is
+ * kakapo's folder, the mark is IntelliJ's.
+ */
+function projectFolderIconHtml(mark) {
+  return '<span class="folder-icon usage-group-icon">'
+    + '<svg class="folder-ic" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"'
+    + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>'
+    + '</svg>' + (mark || '') + '</span>';
+}
+
+/** Put `mark` on the row's folder icon, or take whatever is there off. Idempotent, like its caller. */
+function setFolderMark(row, mark) {
+  var icon = row.querySelector('summary .folder-icon');
+  if (!icon) return;
+  var existing = icon.querySelector('.folder-mark');
+  if (!mark) { if (existing) existing.remove(); return; }
+  if (existing && existing.dataset.mark === mark.length + '') return;
+  if (existing) existing.remove();
+  icon.insertAdjacentHTML('beforeend', mark);
+  var added = icon.querySelector('.folder-mark');
+  if (added) added.dataset.mark = mark.length + '';
+}
+
 /** The directory row that IS a module root gets the module's name; a test root gets told so once. */
 function markProjectLayoutTreeDirectories() {
   var layout = projectLayoutData();
@@ -212,6 +265,9 @@ function markProjectLayoutTreeDirectories() {
     var existing = summary.querySelector('.tree-module');
     var name = byRoot[path] || '';
     row.classList.toggle('has-module', Boolean(name));
+    // One mark per folder, and a test root inside a module keeps the test one: that is the distinction
+    // the reader is being asked to see, and IntelliJ draws it the same way round.
+    setFolderMark(row, isTestRoot ? PROJECT_TEST_FOLDER_MARK : (name ? PROJECT_MODULE_FOLDER_MARK : ''));
     if (!name) { if (existing) existing.remove(); return; }
     if (existing) { existing.textContent = name; return; }
     var badge = document.createElement('span');

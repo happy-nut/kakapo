@@ -298,6 +298,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "usagegroup.directory": "Directory: {path}",
     // The two toolbars, and the Group By items as IntelliJ labels them.
     "usagegroup.title": "Group by",
+    // The count IntelliJ puts after a node's name — `usage.name` in UsageViewBundle is the plural.
+    "usagegroup.count": "({n} usages)",
+    "usagegroup.expandAll": "Expand all",
+    "usagegroup.collapseAll": "Collapse all",
     "usagefilter.title": "Show",
     "usagegroup.by.scope": "Production/Test",
     "usagegroup.by.type": "Usage type",
@@ -932,6 +936,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "usagegroup.moduleGroup": "모듈 그룹: {name}",
     "usagegroup.directory": "디렉터리: {path}",
     "usagegroup.title": "나누기",
+    "usagegroup.count": "({n}곳)",
+    "usagegroup.expandAll": "모두 펼치기",
+    "usagegroup.collapseAll": "모두 접기",
     "usagefilter.title": "보이기",
     "usagegroup.by.scope": "프로덕션·테스트",
     "usagegroup.by.type": "사용 종류",

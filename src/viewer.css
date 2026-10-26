@@ -122,6 +122,11 @@
   --d2h-ins-bg-color: var(--add);
   --d2h-info-bg-color: var(--line);
   --d2h-info-color: var(--muted);
+  /* IntelliJ's File Colors (FileColorManagerImpl): Green and Yellow, dark values here and light
+     ones under [data-theme="light"] below — every light theme carries that attribute, so the pair
+     covers all twelve without a token per theme. */
+  --file-color-test: #49544a;
+  --file-color-generated: #4f4b41;
 }
 /* Light theme. Everything (chrome, diff2html, syntax tokens) reads these var()s, so overriding the
    palette flips the whole UI — no per-rule light styles needed. Toggled in Settings → General, which
@@ -177,6 +182,8 @@
   --token-function: #7a45dd;
   --token-type: #953800;
   --token-decorator: #6639ba;
+  --file-color-test: #effae7;
+  --file-color-generated: #ffffe4;
 }
 /* JetBrains theme family. Appearance selects its matching member: Darcula Dark or IntelliJ Light.
    These palettes own both application chrome and code tokens so a light window never contains a
@@ -1789,8 +1796,12 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .folder-icon {
   display: inline-grid;
   place-items: center;
+  position: relative;
   color: var(--muted);
 }
+/* IntelliJ's folder marks sit ON the folder, not beside it: one absolutely-positioned overlay over the
+   14px icon, in the same 16-unit coordinates the originals are drawn in. */
+.folder-mark { position: absolute; inset: 0; pointer-events: none; }
 .folder-icon .folder-ic { width: 14px; height: 14px; display: block; }
 .mc-virtual-children { display: block; }
 /* Closed vs open folder glyph (replaces the old rotated "v" chevron). */
@@ -2817,15 +2828,24 @@ body.cmd-link-active .source-code { cursor: pointer; }
    already carry, so both rows read at the same distance from their icon. */
 .source-link { column-gap: 2px; }
 .file-link .ftype { width: 15px; height: 15px; flex: none; display: block; }
-/* Test code and build output, marked in both trees — IntelliJ's green test-source-root icon and its
-   excluded-folder grey, as a tint on the name rather than a second icon: these rows already carry a file
-   icon, a viewed box and a change stat, and a fourth glyph per row is what makes a tree unreadable.
-   `--chrome-vcs-staged` is the one green every theme in this file defines; mixed toward --muted so it
-   does not read as the staged-file green that token is otherwise used for. */
-.is-test-file .path { color: color-mix(in srgb, var(--chrome-vcs-staged) 85%, var(--muted)); }
-.is-generated-file .path { color: var(--muted); }
-.tree-dir.is-test-root > summary .path,
-.tree-dir.is-test-root > summary .folder-icon { color: color-mix(in srgb, var(--chrome-vcs-staged) 85%, var(--muted)); }
+/* IntelliJ's File Colors, which is how it says "this file is test code" in every tree it has: the ROW is
+   tinted and the name is left alone. The values are its own — FileColorManagerImpl's palette, Green
+   #effae7 light / #49544a dark and Yellow #ffffe4 / #4f4b41 — and which scope gets which is from the
+   scope class: TestsScope.getDefaultColorName() returns "Green". Generated code takes the Yellow that
+   NonProjectFilesScope uses, since it is the same idea: in the project, not of it.
+
+   A background rather than a coloured name on purpose. The name's colour already means something here
+   (the vcs-* tokens: new, edited, staged), and a second meaning on the same pixels is how a reader ends
+   up unsure which one they are looking at. Declared before the hover/selected rules below, so those
+   still win on the row under the pointer. */
+.is-test-file { background: var(--file-color-test); }
+/* The tab too, which is where IntelliJ's File Colors are most often seen: the tint is behind the name of
+   the file you are actually reading. The active tab keeps its own background — that one says "this is the
+   one on screen", which outranks what kind of file it is. */
+.source-tab.is-test-file:not(.active) { background: var(--file-color-test); }
+.source-tab.is-generated-file:not(.active) { background: var(--file-color-generated); }
+.is-generated-file { background: var(--file-color-generated); }
+.tree-dir.is-test-root > summary { background: var(--file-color-test); }
 /* The module a directory IS the root of. Only ever on the row that is that root, and only in a repository
    that has more than one module — see projectHasModules(). The summary is a two-column grid (icon, name),
    so a row that carries a badge is given the third track it needs — without it the badge wrapped onto a
@@ -3205,7 +3225,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .usage-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   /* One level of the grouping stack per step. The rank order IS the nesting (non-code, scope, usage type,
      module, directory, file), so the indent is the only thing on screen that says which is inside which. */
   padding: 7px 14px 4px calc(14px + var(--depth, 0) * 13px);
@@ -3215,7 +3235,10 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 }
 .usage-group[data-usage-group="module"] .usage-group-name,
 .usage-group[data-usage-group="scope"] .usage-group-name { color: var(--text); }
-.usage-result { padding-left: calc(9px + var(--depth, 0) * 13px); }
+/* A row sits under the node it belongs to. `.quick-open-item` sets `padding` as a shorthand further
+   down this file, so this needs the compound selector to outrank it — without it every row was flush
+   left under a header indented four levels, which only the real app showed. */
+.quick-open-item.usage-result { padding-left: calc(9px + var(--depth, 0) * 13px); }
 /* Test code, marked on the row the way IntelliJ marks it in every list it has — there with a green icon,
    here with the word, because this list has no icons and "Test" is two glyphs wider than one. */
 .usage-result-tag {
@@ -3228,14 +3251,18 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
   letter-spacing: .03em;
 }
 .usage-group + .usage-group { padding-top: 4px; }
-.usage-group-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.usage-group-count {
-  padding: 0 5px;
-  border-radius: 7px;
-  color: var(--muted);
-  background: var(--line);
-  font-size: 10px;
-}
+.usage-group-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+/* IntelliJ writes the count after the node's name as plain grey text, not as a badge: it is part of the
+   node's label there ("src (3 usages)"), and a pill made it look like a control. */
+.usage-group-count { color: var(--muted); font-size: 10px; }
+/* The twisty, same glyphs and same role as the hierarchy list's. The whole header is the hit target —
+   a 9px triangle is not one. */
+.usage-group { cursor: pointer; user-select: none; }
+.usage-group:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+.usage-twisty { flex: none; width: 9px; color: var(--muted); font-size: 9px; line-height: 1; }
+.usage-group-icon { flex: none; display: inline-grid; place-items: center; position: relative; color: var(--muted); }
+.usage-group-icon .ftype { width: 14px; height: 14px; display: block; }
+.usage-group.is-collapsed .usage-group-name { color: var(--muted); }
 .usage-group-noncode {
   margin-top: 6px;
   border-top: 1px solid var(--border);
@@ -3253,6 +3280,10 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 /* The location is the fixed column and the line is what gets the room, the same way round as the caret
    popup's .usage-loc / .usage-code. */
 .usage-result .quick-open-path { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* The occurrence itself, picked out of the line it sits on — IntelliJ bolds it. Not a search-hit
+   background: every row here matches, so a highlight on all of them would say nothing. */
+.usage-hit { padding: 0; color: var(--text); background: transparent; font-weight: 700; }
+.quick-open-item.active .usage-hit { color: inherit; }
 .usage-result .usage-result-code { flex: 1 1 auto; min-width: 0; }
 .usage-result.is-test .quick-open-path { opacity: .72; }
 .semantic-peek-list-hint {
@@ -3717,6 +3748,22 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
   cursor: pointer;
 }
 .quick-open-usage-chip:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
+/* Expand All / Collapse All: the two the usage-view toolbar has, as glyph buttons beside the chips. */
+.quick-open-usage-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 10px;
+  cursor: pointer;
+}
+.quick-open-usage-icon:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
+.quick-open-usage-icon:focus-visible { outline: 1px solid var(--active); outline-offset: 1px; }
 .quick-open-usage-chip:focus-visible { outline: 1px solid var(--active); outline-offset: 1px; }
 .quick-open-usage-chip.active {
   border-color: var(--active);

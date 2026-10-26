@@ -162,6 +162,8 @@ function openFindUsages() {
   usageViewRows = [];
   usageViewNote = '';
   usageViewBusy = true;
+  // Folds belong to the answer that was on screen, not to the next one.
+  collapsedUsageGroups = {};
   usageViewEngine = '';
   openQuickOpen('usages', true);
   syncUsageViewControls();
@@ -345,6 +347,66 @@ function usageGroupingRules(rows) {
   return rules;
 }
 
+// Which icon a group node carries. IntelliJ draws one on every node of its usage tree except the usage
+// TYPE nodes, which have none there either — so this returns '' for those and for the non-code divider.
+function usageGroupIconHtml(group) {
+  if (group.id === 'scope') {
+    if (group.key === 'test') return projectFolderIconHtml(PROJECT_TEST_FOLDER_MARK);
+    if (group.key === 'library') return projectFolderIconHtml(PROJECT_LIBRARY_FOLDER_MARK);
+    if (group.key === 'generated') return projectFolderIconHtml(PROJECT_GENERATED_FOLDER_MARK);
+    return projectFolderIconHtml('');
+  }
+  if (group.id === 'moduleGroup') return projectFolderIconHtml(PROJECT_MODULE_GROUP_FOLDER_MARK);
+  if (group.id === 'module') return projectFolderIconHtml(PROJECT_MODULE_FOLDER_MARK);
+  if (group.id === 'directory') return projectFolderIconHtml('');
+  // A file node takes the icon the file tree gives that type, so one file is the same glyph everywhere.
+  if (group.id === 'file') return '<span class="usage-group-icon">' + virtualTypeIcon(group.key) + '</span>';
+  return '';
+}
+
+// Which group nodes are collapsed, by their path through the tree. Kept across a re-render (a filter
+// toggle regroups the same answer, and a node that was folded away should stay folded), dropped when the
+// view is opened on a different symbol.
+var collapsedUsageGroups = {};
+
+/**
+ * A node's identity: its own rank and key, after its parent's.
+ *
+ * Percent-encoded and joined with `|` because this string goes into a `data-` attribute and comes back
+ * out of `dataset` — a NUL separator did not survive the HTML parser, which is a fold that silently never
+ * happened rather than an error.
+ */
+function usageGroupPath(parent, id, key) {
+  return (parent ? parent + '|' : '') + encodeURIComponent(id + ':' + String(key));
+}
+
+function toggleUsageGroup(path) {
+  if (!path) return false;
+  if (collapsedUsageGroups[path]) delete collapsedUsageGroups[path];
+  else collapsedUsageGroups[path] = true;
+  quickActive = 0;
+  renderFindUsagesResults(String(quickInput && quickInput.value || ''));
+  return true;
+}
+
+/** Every group node that is currently drawn, so Expand/Collapse All can act on all of them. */
+function usageGroupPaths() {
+  var paths = [];
+  usageViewEntries(String(quickInput && quickInput.value || ''), true).forEach(function (entry) {
+    if (entry.kind === 'group') paths.push(entry.path);
+  });
+  return paths;
+}
+
+function setAllUsageGroupsCollapsed(collapsed) {
+  var paths = usageGroupPaths();
+  collapsedUsageGroups = {};
+  if (collapsed) paths.forEach(function (path) { collapsedUsageGroups[path] = true; });
+  quickActive = 0;
+  renderFindUsagesResults(String(quickInput && quickInput.value || ''));
+  return true;
+}
+
 function usageRowOrder(a, b) {
   return a.path.localeCompare(b.path) || a.lineIndex - b.lineIndex || a.column - b.column;
 }
@@ -379,24 +441,57 @@ function groupUsageTree(rows, rules, depth) {
   };
 }
 
-/** The tree as the flat sequence the list renders: headers with a depth, then the rows under them. */
-function flattenUsageTree(node, depth, out) {
+/**
+ * The tree as the flat sequence the list renders: headers with a depth, then the rows under them.
+ *
+ * A collapsed node keeps its header and drops everything beneath it — including the rows, which is the
+ * point: `quickItems` is built from what comes out of here, so the arrows and Enter never reach a row
+ * that is folded away. `ignoreCollapsed` is for Expand/Collapse All, which needs the whole tree's paths.
+ */
+function flattenUsageTree(node, depth, out, parentPath, ignoreCollapsed) {
   (node.children || []).forEach(function (child) {
     var shown = Boolean(child.label);
+    var path = shown ? usageGroupPath(parentPath, child.id, child.key) : parentPath;
+    var collapsed = shown && !ignoreCollapsed && collapsedUsageGroups[path] === true;
     if (shown) {
-      out.push({ kind: 'group', id: child.id, key: child.key, label: child.label, extraClass: child.extraClass, count: child.count, depth: depth });
+      out.push({
+        kind: 'group', id: child.id, key: child.key, label: child.label, extraClass: child.extraClass,
+        count: child.count, depth: depth, path: path, collapsed: collapsed,
+      });
     }
-    flattenUsageTree(child, shown ? depth + 1 : depth, out);
+    if (!collapsed) flattenUsageTree(child, shown ? depth + 1 : depth, out, path, ignoreCollapsed);
   });
   (node.rows || []).forEach(function (row) { out.push({ kind: 'row', row: row, depth: depth }); });
 }
 
 /** Headers and rows in display order — the one function the renderer and the tests both read. */
-function usageViewEntries(query) {
+function usageViewEntries(query, ignoreCollapsed) {
   var rows = visibleUsageRows(query);
   var entries = [];
-  flattenUsageTree(groupUsageTree(rows, usageGroupingRules(rows), 0), 0, entries);
+  flattenUsageTree(groupUsageTree(rows, usageGroupingRules(rows), 0), 0, entries, '', ignoreCollapsed === true);
   return entries;
+}
+
+/**
+ * The usage line, with the occurrence itself marked — IntelliJ renders the usage in bold inside the line
+ * it sits on, which is what makes a forty-row list scannable.
+ *
+ * Highlighted in three pieces so the mark can sit between them. The tokenizer sees each piece on its own,
+ * which is sound here because the cut is at an identifier boundary: `const value = ` and `;` tokenize the
+ * same whether or not `Store` is between them. Anything that does not line up — a column past the end, a
+ * name that is not there — falls back to the whole line highlighted in one go, which is what this did
+ * before.
+ */
+function usageCodeHtml(row) {
+  var text = String(row.text || '');
+  var lead = text.length - text.replace(/^\s+/, '').length;
+  var trimmed = text.trim().slice(0, 180);
+  var start = (Number(row.column) || 0) - lead;
+  var name = usageViewName || '';
+  if (!name || start < 0 || trimmed.substr(start, name.length) !== name) return semanticCodeHtml(row.path, trimmed);
+  return semanticCodeHtml(row.path, trimmed.slice(0, start))
+    + '<mark class="usage-hit">' + escapeHtml(name) + '</mark>'
+    + semanticCodeHtml(row.path, trimmed.slice(start + name.length));
 }
 
 function renderFindUsagesResults(query) {
@@ -436,7 +531,9 @@ function renderFindUsagesResults(query) {
     renderQuickPreview(null);
     return;
   }
-  if (!flat.length) {
+  // `entries`, not `flat`: a tree whose nodes are all folded has no rows and is not empty — it is a tree
+  // with everything folded, and replacing it with "no usages" would be an answer nobody asked for.
+  if (!entries.length) {
     // "No usages of Store" when there are nine of them and a filter is hiding all nine is a wrong answer,
     // and it is the one a reviewer would believe. Only when nothing was typed: with a query in the box,
     // "nothing matched" is what happened.
@@ -454,10 +551,20 @@ function renderFindUsagesResults(query) {
   var html = '';
   entries.forEach(function (entry) {
     if (entry.kind === 'group') {
-      html += '<div class="usage-group' + escapeHtml(entry.extraClass || '') + '" data-usage-group="' + escapeHtml(entry.id) + '"'
-        + ' data-usage-key="' + escapeHtml(String(entry.key)) + '" style="--depth:' + entry.depth + '">'
+      // A tree node, the way IntelliJ draws one: a twisty, the node's icon, its name, and the count in
+      // parentheses after it ("3 usages" — `usage.name` in UsageViewBundle). The twisty is the whole
+      // reason the count is useful: a folded node still says how much is under it.
+      html += '<div class="usage-group' + escapeHtml(entry.extraClass || '')
+        + (entry.collapsed ? ' is-collapsed' : '') + '" data-usage-group="' + escapeHtml(entry.id) + '"'
+        + ' data-usage-key="' + escapeHtml(String(entry.key)) + '"'
+        + ' data-usage-path="' + escapeHtml(entry.path) + '"'
+        + ' role="button" tabindex="-1" aria-expanded="' + (entry.collapsed ? 'false' : 'true') + '"'
+        + ' style="--depth:' + entry.depth + '">'
+        + '<span class="usage-twisty" aria-hidden="true">' + (entry.collapsed ? '▸' : '▾') + '</span>'
+        + usageGroupIconHtml(entry)
         + '<span class="usage-group-name">' + escapeHtml(entry.label) + '</span>'
-        + '<span class="usage-group-count">' + String(entry.count) + '</span></div>';
+        + '<span class="usage-group-count">' + escapeHtml(t('usagegroup.count').replace('{n}', String(entry.count))) + '</span>'
+        + '</div>';
       return;
     }
     var row = entry.row;
@@ -477,7 +584,7 @@ function renderFindUsagesResults(query) {
       // the code first, ":1" trailed off the end of the line and read as part of it.
       + '<span class="quick-open-main">'
       + '<span class="quick-open-path">' + escapeHtml(where) + '</span>'
-      + '<span class="usage-result-code">' + semanticCodeHtml(row.path, row.text.trim().slice(0, 180)) + '</span>'
+      + '<span class="usage-result-code">' + usageCodeHtml(row) + '</span>'
       + tag + '</span></button>';
     index += 1;
   });
@@ -543,10 +650,27 @@ function toggleUsageView(name) {
 }
 
 document.getElementById('quick-open-usage-options')?.addEventListener('click', function (event) {
-  var chip = event.target && event.target.closest ? event.target.closest('.quick-open-usage-chip') : null;
+  var target = event.target && event.target.closest ? event.target : null;
+  if (!target) return;
+  var tree = target.closest('[data-usage-tree]');
+  if (tree) {
+    event.preventDefault();
+    setAllUsageGroupsCollapsed(tree.dataset.usageTree === 'collapse');
+    if (quickInput) quickInput.focus();
+    return;
+  }
+  var chip = target.closest('.quick-open-usage-chip');
   if (!chip || !chip.dataset.usageToggle) return;
   event.preventDefault();
   toggleUsageView(chip.dataset.usageToggle);
+  if (quickInput) quickInput.focus();
+});
+
+document.getElementById('quick-open-results')?.addEventListener('click', function (event) {
+  var group = event.target && event.target.closest ? event.target.closest('.usage-group[data-usage-path]') : null;
+  if (!group) return;
+  event.preventDefault();
+  toggleUsageGroup(group.dataset.usagePath);
   if (quickInput) quickInput.focus();
 });
 
