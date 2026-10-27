@@ -31,18 +31,18 @@ function isFloatingModalOpen() { return keyboardScope() !== 'content'; }
 // The surfaces that cover the whole screen — the History overlay (z75) and the floating merged dock (z78)
 // — are exclusive in practice: each renders over (or under) the other, so a shortcut activating one while
 // the other was up either looked like it did nothing or switched a view invisibly underneath. Every door
-// into one of them puts the rest away first: the ⌘0/⌘1 activations call this, and openHistory
+// into one of them puts the rest away first: the ⌘2/⌘1 activations call this, and openHistory
 // (12-history.js) and mountDock (08-dock.js) do it from their side.
 function leaveFullScreenPanels() {
   closeHistoryIfOpen();
   closeMergedDock();
 }
 
-// Cmd+0/1 and their header icons are focus-aware. From content they reveal/focus the matching tree; only a
+// Cmd+1/2 and their header icons are focus-aware. From content they reveal/focus the matching tree; only a
 // repeated activation while that tree owns the logical focus collapses it. A collapsed tree expands first.
 //
 // "That tree", not "a tree": the guard used to be `treeFocusIndex >= 0` alone, which is true whenever ANY
-// tree holds the logical cursor — including the other one. So ⌘0 (focus Changes) followed by ⌘1 read as a
+// tree holds the logical cursor — including the other one. So ⌘2 (focus Changes) followed by ⌘1 read as a
 // repeat and collapsed the sidebar instead of switching to Files, and the same in reverse. The first press
 // of either key must always be "take me to my tree".
 
@@ -56,7 +56,7 @@ function activateChangesView(navigateToDiff) {
     return;
   }
   // Outside the diff, keep the current content visible and move navigation to Changes. Enter on a row
-  // performs the actual diff transition, matching the existing Cmd+0 -> arrows -> Enter workflow.
+  // performs the actual diff transition, matching the existing Cmd+2 -> arrows -> Enter workflow.
   setSourceSidebarCollapsed(false);
   setReviewSidebarCollapsed(false);
   if (navigateToDiff) showDiffView(false);
@@ -117,7 +117,7 @@ var KEY_OWNERS = [
   { name: 'settings', handle: function (event) { return typeof handleSettingsKey === 'function' && handleSettingsKey(event); } },
   // Semantic navigation is a caret-local dropdown. It must own arrows/Enter before the persistent sidebar's
   // logical tree focus gets a chance to consume them; otherwise Enter opens the tree row instead of the
-  // selected definition when Cmd+B was invoked after Cmd+0/Cmd+1.
+  // selected definition when Cmd+B was invoked after Cmd+1/Cmd+2.
   { name: 'semantic-peek', handle: function (event) { return handleSemanticPeekKey(event); } },
   // A small popover anchored to the toolbar pill. Above Quick Open only because it can be open while nothing
   // else is; it stands down the moment it is hidden, so the order below it never matters.
@@ -181,7 +181,7 @@ var SHORTCUT_ACTIONS = {
   maximizePanel: function () { toggleDockMaximized(); },
   allComments: function () { openMergedView(); },
   openHistory: function () { toggleHistory(); },
-  // ⌘0/⌘1 mean "take me to the tree"; activate* itself puts every full-screen surface away first
+  // ⌘2/⌘1 mean "take me to the tree"; activate* itself puts every full-screen surface away first
   // (leaveFullScreenPanels) — otherwise the view they activate would be switched invisibly underneath one.
   filesChangesTab: function (event, i) { if (i) activateChangesView(false); else activateFilesView(); },
   // Undo the last comment removal — a Backspace on a selected card in the merged dock deletes one, so the
@@ -599,7 +599,7 @@ document.getElementById('usages')?.addEventListener('click', function (event) {
 });
 
 // Delegated (like #files-panel below) so it survives the in-place diff update that re-captures `links`
-// on every watch tick — per-element listeners would be lost on the new nodes, and then Cmd+0 → arrow →
+// on every watch tick — per-element listeners would be lost on the new nodes, and then Cmd+2 → arrow →
 // Enter (which calls row.click()) would silently do nothing.
 document.getElementById('changes-panel')?.addEventListener('click', (event) => {
   const link = event.target && event.target.closest ? event.target.closest('.file-link') : null;
@@ -641,7 +641,7 @@ document.getElementById('files-panel')?.addEventListener('click', (event) => {
   if (pointerSelection) focusTreeRowFromPointer(link);
 });
 
-// The header icons are the pointer half of ⌘0/⌘1 now that the activity rail is gone, so they do what those
+// The header icons are the pointer half of ⌘2/⌘1 now that the activity rail is gone, so they do what those
 // keys do — bring the matching view forward, not just swap which tree the sidebar shows. Clicking "Changes"
 // while reading a source file used to leave the file on screen with the Changes tree beside it.
 document.querySelectorAll('.sidebar-switch-item').forEach((button) => {

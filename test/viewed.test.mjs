@@ -29,7 +29,7 @@ test("Space toggles Viewed only for the keyboard-selected Changes row", async ()
   await v.settle(40);
   assert.equal(v.window.isFileViewed("src/a.ts"), false, "the retired Shift+Comma shortcut cannot mark a file");
 
-  v.key("0", { metaKey: true, code: "Digit0" });
+  v.key("2", { metaKey: true, code: "Digit2" });
   await v.settle(40);
   assert.ok(v.$('.change-row[data-file="src/a.ts"]').classList.contains("tree-focus"), "the open file owns the sidebar cursor");
   v.key(" ", { code: "Space" });
@@ -190,8 +190,8 @@ test("Space marks the arrow-selected Changes row instead of the open file", asyn
   await v.openDiffFor("src/a.ts");
   await v.settle(100);
 
-  // From diff content, Cmd+0 moves focus to the open file in Changes so arrow navigation is deterministic.
-  v.key("0", { metaKey: true, code: "Digit0" });
+  // From diff content, Cmd+2 moves focus to the open file in Changes so arrow navigation is deterministic.
+  v.key("2", { metaKey: true, code: "Digit2" });
   await v.settle(40);
   v.key("ArrowDown");
   await v.settle(40);

@@ -771,7 +771,7 @@ function paintBookmarkGutter() {
 /**
  * ⇧⌥1…⇧⌥9: give this line a number — IntelliJ's mnemonic bookmarks — and ⌥1…⌥9 to go there.
  *
- * On ⌥ rather than IntelliJ's ⌃: this table spells Control and Command alike, and ⌘1 / ⌘0 / ⌘9 already
+ * On ⌥ rather than IntelliJ's ⌃: this table spells Control and Command alike, and ⌘1 / ⌘2 / ⌘9 already
  * mean the Files panel, the Changes panel and history.
  *
  * A number belongs to one line: assigning it elsewhere moves it, rather than leaving two lines claiming

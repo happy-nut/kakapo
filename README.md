@@ -112,7 +112,7 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 
 | Key | Action |
 | --- | --- |
-| `⌘0` / `⌘1` | Changes / Files panel |
+| `⌘1` / `⌘2` | Files / Changes panel |
 | `F7` / `⇧F7` | Next / previous changed hunk |
 | `Space` | Toggle *Viewed* on the selected changed file |
 | `?` | Comment on the current line |
@@ -309,7 +309,7 @@ first, so a monorepo with twenty `thing.test.ts` opens this file's.
 **Bookmarks** (`F3`, `⌘F3`) — a place to come back to with nothing to say about it. When there *is*
 something to say, that is a comment, which kakapo already keeps beside the code. Numbered (mnemonic)
 bookmarks too: `⇧⌥3` gives this line the number 3 and `⌥3` goes back to it from anywhere, with a number
-belonging to exactly one line. On `⌥` rather than IntelliJ's `⌃` because `⌘1`/`⌘0`/`⌘9` already mean the
+belonging to exactly one line. On `⌥` rather than IntelliJ's `⌃` because `⌘1`/`⌘2`/`⌘9` already mean the
 Files panel, the Changes panel and history. Bookmarks live in kakapo's own per-workspace state, never in
 the repository.
 

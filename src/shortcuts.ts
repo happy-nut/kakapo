@@ -66,7 +66,12 @@ export const SHORTCUTS: ShortcutDef[] = [
   // hover` answers both — this app asked the server eight questions and none of them was "what IS this".
   { id: "quickDoc", keys: ["F1"], where: "code", i18n: "kbd.quickDoc" },
   { id: "expressionType", keys: ["⌘⇧P"], where: "code", i18n: "kbd.expressionType" },
-  { id: "filesChangesTab", keys: ["⌘1", "⌘0"], where: "any", i18n: "kbd.filesChangesTab" },
+  // IntelliJ's tool-window digits: ⌘1 is its Project window, ⌘0 its Commit window, and this row was
+  // spelled that way. ⌘0 never arrived — the View menu's zoom reset holds `CommandOrControl+0`, and a menu
+  // accelerator is consumed before any renderer keydown runs (the comment above that menu says Chromium
+  // takes ⌘+/⌘−/⌘0 outright). The Changes half therefore sits one digit along from the Files half, beside
+  // ⌘9 for history: three sidebars, three digits, none of them claimed.
+  { id: "filesChangesTab", keys: ["⌘1", "⌘2"], where: "any", i18n: "kbd.filesChangesTab" },
   { id: "sidebarNavigate", keys: ["↑↓", "Enter"], where: "tree", i18n: "kbd.sidebarNavigate", fixed: "structural" },
   { id: "sidebarContent", keys: ["Tab", "⇧Tab"], where: "any", i18n: "kbd.sidebarContent", fixed: "structural" },
   { id: "findInFile", keys: ["⌘F"], where: "any", i18n: "kbd.findInFile" },
@@ -196,7 +201,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "toggleBookmark", keys: ["F3"], where: "code", i18n: "kbd.toggleBookmark" },
   { id: "showBookmarks", keys: ["⌘F3"], where: "any", i18n: "kbd.showBookmarks" },
   // IntelliJ's mnemonic bookmarks: a digit per line. On ⌥ rather than ⌃ for the same reason as above —
-  // ⌘1/⌘0/⌘9 are already the Files panel, the Changes panel and history.
+  // ⌘1/⌘2/⌘9 are already the Files panel, the Changes panel and history.
   { id: "assignBookmark", keys: ["⇧⌥1", "⇧⌥2", "⇧⌥3", "⇧⌥4", "⇧⌥5", "⇧⌥6", "⇧⌥7", "⇧⌥8", "⇧⌥9"], where: "code", i18n: "kbd.assignBookmark" },
   { id: "jumpBookmark", keys: ["⌥1", "⌥2", "⌥3", "⌥4", "⌥5", "⌥6", "⌥7", "⌥8", "⌥9"], where: "any", i18n: "kbd.jumpBookmark" },
   { id: "toggleFold", keys: ["⌘."], where: "code", i18n: "kbd.toggleFold" },

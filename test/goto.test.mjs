@@ -122,7 +122,7 @@ test("the tree's terminal row cds the integrated terminal, and clears a file's c
 // ⌘B is about the code you are reading, and while the terminal is up you are not reading it — the panel
 // covers the review. The old guard only skipped a focused INPUT/TEXTAREA, which catches typing into a pane
 // but not the moment after clicking the panel's own chrome: ⌘B then sent the hidden view underneath to a
-// definition nobody could watch it reach. (The terminal releases ⌘ combos on purpose so ⌘1/⌘0 keep working,
+// definition nobody could watch it reach. (The terminal releases ⌘ combos on purpose so ⌘1/⌘2 keep working,
 // which is why this one has to say no for itself.)
 test("go-to-definition does nothing while the terminal panel is open", async () => {
   const { html } = await makeReviewHtml([

@@ -829,7 +829,7 @@ body {
 }
 .brand-reveal:hover { color: var(--active); background: color-mix(in srgb, var(--active) 15%, transparent); }
 /* Changes / Files. These were hidden while the activity rail carried the same two icons; the rail is gone,
-   so they are the only pointer affordance for the switch again (⌘0/⌘1 remain the keyboard one). */
+   so they are the only pointer affordance for the switch again (⌘2/⌘1 remain the keyboard one). */
 /* Which tree the sidebar shows: two icons in the header row, not a pair of full-width text tabs. The tabs
    were sized like the main navigation of the app, for a choice made once a session. */
 .sidebar-switch { display: flex; gap: 1px; flex: none; margin-left: auto; padding: 1px; border-radius: 7px; background: var(--bg); }
@@ -4762,7 +4762,7 @@ summary.tree-focus,
 .href { border-radius: 999px; }
 .mc-del { border-radius: var(--ui-radius-xs); }
 
-/* Cmd+0/1 collapse the active Changes/Files sidebar. The activity rail stays pinned and clickable. */
+/* Cmd+1/2 collapse the active Files/Changes sidebar. The activity rail stays pinned and clickable. */
 @media (min-width: 901px) {
   body:has(.sidebar-resizer.resizing) { transition: none; }
   /* Keep child layout at the remembered width while the grid track clips it closed. Otherwise every file

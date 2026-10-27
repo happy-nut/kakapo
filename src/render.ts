@@ -13,7 +13,7 @@ import { SHORTCUTS, SHORTCUT_GROUPS } from "./shortcuts.js";
 // A control that does the same thing as a shortcut advertises it by ID. The chord rendered here is the
 // table's; applyI18n (01-core.js) refreshes it from the table on every locale change, which is also what
 // keeps it honest once the key has been rebound. `id:n` picks one combination of a pair — ⌘1 is the Files
-// half of filesChangesTab, ⌘0 the Changes half.
+// half of filesChangesTab, ⌘2 the Changes half.
 function keyHint(ref: string): string {
   const [id, index] = ref.split(":");
   const def = SHORTCUTS.find((s) => s.id === id);
@@ -359,7 +359,7 @@ function sidebarSwitch(active: string): string {
     "</button>",
   ].join("");
   return '<div class="sidebar-switch" role="tablist" data-i18n-aria="sidebar.switch" aria-label="Sidebar tree">'
-    + item("changes", "Changes", "⌘0") + item("files", "All files", "⌘1") + "</div>";
+    + item("changes", "Changes", "⌘2") + item("files", "All files", "⌘1") + "</div>";
 }
 
 export function renderDiffHtml(input: {
@@ -501,7 +501,7 @@ export function renderDiffHtml(input: {
     '<button type="button" id="diff-line-wrap-toggle" class="diff-tool-button source-line-wrap-toggle diff-line-wrap-toggle" role="checkbox" aria-checked="false"' + keyHint('toggleLineWrap') + ' data-i18n-title="source.lineWrap.title" data-i18n-aria="source.lineWrap" title="Toggle line wrap (Option+W)" aria-label="Line wrap"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3.75h12"/><path d="M2 8h9a2.5 2.5 0 0 1 0 5H6"/><path d="m7.75 11.25-2 1.75 2 1.75"/></svg></button>',
     '</div>',
     '<div class="diff-review-controls" role="group" data-i18n-aria="diff.navigation" aria-label="Change navigation">',
-    '<button type="button" id="diff-sidebar-toggle" class="diff-tool-button"' + keyHint('filesChangesTab:1') + ' data-tooltip="Hide changed files" aria-pressed="false" title="Hide changed files (⌘0)" aria-label="Hide changed files"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.25"/><path d="M5.25 2.5v11"/></svg></button>',
+    '<button type="button" id="diff-sidebar-toggle" class="diff-tool-button"' + keyHint('filesChangesTab:1') + ' data-tooltip="Hide changed files" aria-pressed="false" title="Hide changed files (⌘2)" aria-label="Hide changed files"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.25"/><path d="M5.25 2.5v11"/></svg></button>',
     '<span class="diff-tool-separator" aria-hidden="true"></span>',
     '<button type="button" id="diff-prev-change" class="diff-tool-button"' + keyHint('prevChange') + ' data-i18n-title="diff.previous" data-i18n-aria="diff.previous" title="Previous change (Shift+F7)" aria-label="Previous change"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 10 4-4 4 4"/></svg></button>',
     '<button type="button" id="diff-next-change" class="diff-tool-button"' + keyHint('nextChange') + ' data-i18n-title="diff.next" data-i18n-aria="diff.next" title="Next change (F7)" aria-label="Next change"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>',

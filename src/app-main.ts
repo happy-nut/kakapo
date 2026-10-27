@@ -1157,7 +1157,7 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
     preferences.recordRecentProject(state.options.root); // remember the launched/new-window repo for the welcome screen
     restoreCompareRef(state);
     await state.win.loadFile(reviewPath(state.options.root));
-    // ⌘0/⌘1 (and the other in-view shortcuts) are renderer keydown handlers, so they only fire while the page
+    // ⌘2/⌘1 (and the other in-view shortcuts) are renderer keydown handlers, so they only fire while the page
     // holds keyboard focus. loadFile swaps the page out from under whatever had it, leaving the freshly
     // painted review looking ready but ignoring its own shortcuts until the user clicks into it.
     if (!state.win.isDestroyed()) state.win.webContents.focus();

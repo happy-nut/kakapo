@@ -15,7 +15,7 @@ function setTab(name) {
   document.getElementById('files-panel')?.classList.toggle('hidden', name !== 'files');
 }
 
-// Each primary review surface owns its sidebar preference: Cmd+0 toggles Changes while the diff is open,
+// Each primary review surface owns its sidebar preference: Cmd+2 toggles Changes while the diff is open,
 // and Cmd+1 toggles Files while a source file is open. Collapsing moves actual DOM focus out of the sidebar
 // before the grid animates so a hidden row never keeps receiving Arrow/Enter; expanding restores the
 // logical tree cursor to the open file.
@@ -82,7 +82,7 @@ function syncReviewSidebarVisibility() {
     button.setAttribute('aria-pressed', diffCollapsed ? 'true' : 'false');
     button.setAttribute('aria-label', label);
     button.setAttribute('data-tooltip', label);
-    button.title = label + ' (⌘0)';
+    button.title = label + ' (⌘2)';
   }
 }
 function focusDiffAfterSidebarCollapse() {

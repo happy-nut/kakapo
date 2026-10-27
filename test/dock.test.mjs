@@ -89,14 +89,14 @@ test("closing a maximized dock clears the maximized state", async () => {
 
 // A key the dock claimed is the dock's alone. ⌥⏎ closes the panel synchronously on its way out, so by the
 // time it reached the window keymap "a dock is focused" was already false — and a file left selected in the
-// ⌘0 Changes tree answered the same keystroke by popping its row menu.
+// ⌘2 Changes tree answered the same keystroke by popping its row menu.
 test("the merged dock copies the document without also opening the focused tree row's menu", async () => {
   const v = await loadViewer(html);
   let copied = null;
   v.window.kakapoClipboard = { write: (text) => { copied = text; return true; } };
   v.window.addComment("q", "src/app.ts", 1, "", "why this change?");
   await v.openDiffFor("src/app.ts");
-  v.window.focusTree(v.window.treeRows().findIndex((row) => row.dataset.file)); // a FILE selected in the ⌘0 Changes panel
+  v.window.focusTree(v.window.treeRows().findIndex((row) => row.dataset.file)); // a FILE selected in the ⌘2 Changes panel
   await v.openMergedView();
   await v.settle(20);
   v.$("#mc-merged-panel .mc-copy-all").click();

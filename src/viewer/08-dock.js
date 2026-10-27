@@ -22,7 +22,7 @@ function toggleDockMaximized() {
   applyDockMaximized();
 }
 // "The keys belong to a panel, not to the editor." While the dock holds focus the global shortcuts below
-// the keymap's focus guard stand down; the ones placed ABOVE it (Cmd+0/1/7/8/9, the dock toggles) still work.
+// the keymap's focus guard stand down; the ones placed ABOVE it (Cmd+1/2/7/8/9, the dock toggles) still work.
 function isDockFocused() {
   var ae = document.activeElement;
   return !!(ae && ae.closest && ae.closest('.dock-panel'));

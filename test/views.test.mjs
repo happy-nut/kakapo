@@ -629,14 +629,14 @@ test("leaving the composer unsaved (open another file) clears mc-composing — c
   v.close();
 });
 
-test("Cmd+0 focuses the Changes panel; arrow + Enter opens that file in the diff (delegated click)", async () => {
+test("Cmd+2 focuses the Changes panel; arrow + Enter opens that file in the diff (delegated click)", async () => {
   // Regression: the Changes panel used per-element click listeners, which were lost when a watch tick
-  // re-captured `links` — so Cmd+0 → arrow → Enter (row.click()) silently did nothing. The handler is
+  // re-captured `links` — so Cmd+2 → arrow → Enter (row.click()) silently did nothing. The handler is
   // now delegated on #changes-panel (like #files-panel), so it survives re-capture.
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   assert.equal(v.visibleView(), "source");
-  v.key("0", { metaKey: true }); // Cmd+0 → focus the Changes panel
+  v.key("2", { metaKey: true }); // Cmd+2 → focus the Changes panel
   await v.settle(80);
   v.key("ArrowDown");
   await v.settle(40);
@@ -714,19 +714,19 @@ test("the file tree is open on the first paint, not collapsed by the boot sync",
   v.close();
 });
 
-test("Cmd+0 focuses Changes from content, then toggles its sidebar without losing the diff", async () => {
+test("Cmd+2 focuses Changes from content, then toggles its sidebar without losing the diff", async () => {
   const v = await loadViewer(html);
   await v.openDiffFor("src/app.ts");
   const button = v.$("#diff-sidebar-toggle");
   assert.ok(button, "the compact diff toolbar exposes a clickable sidebar control");
 
-  v.key("0", { metaKey: true, code: "Digit0" });
+  v.key("2", { metaKey: true, code: "Digit2" });
   await v.settle(60);
   assert.equal(v.window.document.body.classList.contains("sidebar-collapsed"), false, "content focus does not collapse Changes");
-  assert.ok(v.$(".change-row.tree-focus"), "Cmd+0 moves focus from the diff content to the Changes tree");
+  assert.ok(v.$(".change-row.tree-focus"), "Cmd+2 moves focus from the diff content to the Changes tree");
   assert.equal(v.visibleView(), "diff", "moving focus keeps the review surface in place");
 
-  v.key("0", { metaKey: true, code: "Digit0" });
+  v.key("2", { metaKey: true, code: "Digit2" });
   await v.settle(60);
   assert.ok(v.window.document.body.classList.contains("sidebar-collapsed"), "a repeated press from the tree collapses it");
   assert.equal(button.getAttribute("aria-pressed"), "true", "the pressed state is accessible");
@@ -735,7 +735,7 @@ test("Cmd+0 focuses Changes from content, then toggles its sidebar without losin
   assert.equal(v.$(".sidebar").getAttribute("aria-hidden"), "true", "the visually closing tree is hidden from accessibility navigation");
   assert.equal(v.visibleView(), "diff", "the review surface keeps its place");
 
-  v.key("0", { metaKey: true, code: "Digit0" });
+  v.key("2", { metaKey: true, code: "Digit2" });
   await v.settle(60);
   assert.equal(v.window.document.body.classList.contains("sidebar-collapsed"), false, "the next press expands it");
   assert.ok(v.$(".change-row.tree-focus"), "expanding restores keyboard navigation to the changed file");
@@ -743,7 +743,7 @@ test("Cmd+0 focuses Changes from content, then toggles its sidebar without losin
 
   button.dispatchEvent(new v.window.MouseEvent("mouseover", { bubbles: true }));
   await v.settle(20);
-  assert.match(v.$("#mc-button-hint").textContent, /⌘0/, "hover names the shortcut");
+  assert.match(v.$("#mc-button-hint").textContent, /⌘2/, "hover names the shortcut");
   v.click(button);
   await v.settle(40);
   assert.ok(v.window.document.body.classList.contains("sidebar-collapsed"), "the icon performs the same action by mouse");
@@ -1152,17 +1152,17 @@ test("Cmd+1 from the diff opens the file you were viewing as source (not a stale
 });
 
 // REGRESSION: the "second press collapses" guard was `treeFocusIndex >= 0` — true whenever ANY tree held the
-// logical cursor, the other one included. So ⌘0 (focus Changes) then ⌘1 read as a repeat of ⌘1 and folded the
+// logical cursor, the other one included. So ⌘2 (focus Changes) then ⌘1 read as a repeat of ⌘1 and folded the
 // sidebar away instead of switching to Files. The first press of either key is always "take me to my tree".
-test("Cmd+0 then Cmd+1 switches trees; only a real repeat collapses", async () => {
+test("Cmd+2 then Cmd+1 switches trees; only a real repeat collapses", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   const tab = () => v.window.activeSidebarTab();
   const collapsed = () => v.window.document.body.classList.contains("sidebar-collapsed");
 
-  v.key("0", { metaKey: true, code: "Digit0" });
+  v.key("2", { metaKey: true, code: "Digit2" });
   await v.settle(60);
-  assert.equal(tab(), "changes", "Cmd+0 moves the sidebar to Changes");
+  assert.equal(tab(), "changes", "Cmd+2 moves the sidebar to Changes");
   assert.equal(collapsed(), false);
 
   v.key("1", { metaKey: true, code: "Digit1" });
@@ -1670,16 +1670,16 @@ test("the caret on an empty line is taken out of the flow", async () => {
   v.close();
 });
 
-// ⌘0 hands the keyboard to the Changes tree, and pressing it again closes the panel and hands the keyboard
+// ⌘2 hands the keyboard to the Changes tree, and pressing it again closes the panel and hands the keyboard
 // back. Only the first half said so: collapsing cleared the tree's focus ring and then left the diff caret
 // parked wherever it had been — no re-render, no reveal, no arrival flash — so the review looked like it had
 // no keyboard at all until an arrow key was pressed.
-test("closing the Changes panel with ⌘0 puts the caret back on the diff, without waiting for an arrow", async () => {
+test("closing the Changes panel with ⌘2 puts the caret back on the diff, without waiting for an arrow", async () => {
   const v = await loadViewer(html);
   await v.openDiffFor("src/app.ts");
   await v.settle(100);
 
-  v.key("0", { metaKey: true, code: "Digit0" });
+  v.key("2", { metaKey: true, code: "Digit2" });
   await v.settle(60);
   assert.ok(v.$(".tree-focus"), "the first press moves the keyboard to the Changes tree");
 
@@ -1689,7 +1689,7 @@ test("closing the Changes panel with ⌘0 puts the caret back on the diff, witho
   assert.ok(stale, "the diff had a caret before the panel took the keyboard");
   stale.dataset.stale = "1";
 
-  v.key("0", { metaKey: true, code: "Digit0" });
+  v.key("2", { metaKey: true, code: "Digit2" });
   await v.settle(60);
   assert.ok(!v.$(".tree-focus"), "the second press takes the keyboard off the tree");
   const caret = v.$("#diff2html-container .code-cursor");
