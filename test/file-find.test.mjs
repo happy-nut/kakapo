@@ -314,3 +314,233 @@ test("closing the bar on a file change hands the keyboard to the content, not to
   );
   v.close();
 });
+
+// ---- IntelliJ's find-toolbar toggles -------------------------------------------------------------
+// Cc / W / .* / Search In Selection, the four the editor find bar carries. Each is asserted by what it
+// changes about the match set, which is the only thing a toggle is for.
+
+const OPTIONS_FILE = [
+  {
+    path: "src/opt.ts",
+    before: "const nothing = 0;\n",
+    after: [
+      "const needle = 1;",        // 0
+      "const Needle = 2;",        // 1
+      "const needleish = 3;",     // 2
+      "const other = 'needle';",  // 3
+      "",
+    ].join("\n"),
+  },
+];
+
+async function openOptionsFind() {
+  const { html: page } = await makeReviewHtml(OPTIONS_FILE);
+  const v = await loadViewer(page);
+  await v.openSourceFile("src/opt.ts");
+  v.key("f", { metaKey: true, code: "KeyF" });
+  return v;
+}
+
+test("find in file with Match Case off finds both spellings, and on finds only the one typed", async () => {
+  const v = await openOptionsFind();
+  await v.typeChars(v.$("#file-find-input"), "needle");
+  const api = v.window.__kakapoFileFind;
+  assert.equal(api.results().length, 4, "needle, Needle, needleish and the string");
+
+  api.toggle("matchCase");
+  await v.settle(140);
+  assert.equal(api.options().matchCase, true);
+  assert.equal(api.results().length, 3, "Needle is a different spelling now");
+  assert.ok(api.results().every((hit) => hit.text === "needle"));
+  assert.equal(v.$("#file-find-match-case").getAttribute("aria-pressed"), "true");
+  v.close();
+});
+
+test("find in file with Words on skips a match inside a longer identifier", async () => {
+  const v = await openOptionsFind();
+  await v.typeChars(v.$("#file-find-input"), "needle");
+  const api = v.window.__kakapoFileFind;
+
+  api.toggle("wholeWords");
+  await v.settle(140);
+  assert.equal(api.results().length, 3, "needleish is not the word needle");
+  assert.ok(!api.results().some((hit) => hit.lineIndex === 2));
+  v.close();
+});
+
+test("find in file with Regex on searches by pattern, with the match's own length", async () => {
+  const v = await openOptionsFind();
+  const api = v.window.__kakapoFileFind;
+  api.toggle("regex");
+  await v.typeChars(v.$("#file-find-input"), "need(le)+");
+  await v.settle(140);
+
+  assert.equal(api.results().length, 4);
+  assert.ok(api.results().every((hit) => hit.length === 6 && hit.text.toLowerCase() === "needle"));
+  v.close();
+});
+
+test("find in file with Regex and Words on wraps the whole pattern", async () => {
+  const v = await openOptionsFind();
+  const api = v.window.__kakapoFileFind;
+  api.toggle("regex");
+  api.toggle("wholeWords");
+  await v.typeChars(v.$("#file-find-input"), "needle|nothing");
+  await v.settle(140);
+
+  // \b(?:needle|nothing)\b — the alternation as a whole, which is what IntelliJ wraps. Were only the first
+  // branch wrapped, needleish would come back as a match for the bare `nothing` branch's side.
+  assert.equal(api.results().length, 3);
+  assert.ok(!api.results().some((hit) => hit.lineIndex === 2), "needleish is still not a whole word");
+  v.close();
+});
+
+test("find in file with a toggle pressed re-runs the query without retyping it", async () => {
+  const v = await openOptionsFind();
+  await v.typeChars(v.$("#file-find-input"), "needle");
+  const api = v.window.__kakapoFileFind;
+  assert.equal(api.results().length, 4);
+
+  api.toggle("matchCase");
+  await v.settle(140);
+  assert.equal(api.results().length, 3, "the count moved on the press alone");
+  assert.equal(v.$("#file-find-input").value, "needle", "and the query is still in the field");
+  v.close();
+});
+
+// "No results" for a typo in a pattern is the wrong answer, and the one a reviewer would believe.
+// IntelliJ says Bad pattern (find.incorrect.regexp); Find in Files here already did, the find bar did not.
+test("an invalid regex says Bad pattern instead of reporting no matches", async () => {
+  const v = await openOptionsFind();
+  const api = v.window.__kakapoFileFind;
+  api.toggle("regex");
+  await v.typeChars(v.$("#file-find-input"), "need(le");
+  await v.settle(140);
+
+  assert.equal(api.results().length, 0);
+  assert.ok(api.options().patternError, "the compiler's complaint was kept");
+  assert.equal(v.$("#file-find-count").textContent, "Bad pattern");
+  assert.ok(v.$("#file-find-count").classList.contains("is-empty"));
+
+  await v.typeChars(v.$("#file-find-input"), ")");
+  assert.equal(api.results().length, 4, "and it recovers when the pattern closes");
+  assert.equal(v.$("#file-find-count").textContent, "1/4");
+  v.close();
+});
+
+function selectSourceLines(v, from, to) {
+  const rows = Array.from(v.document.querySelectorAll("#source-body .source-row"));
+  const first = rows.find((row) => Number(row.dataset.lineIndex) === from);
+  const last = rows.find((row) => Number(row.dataset.lineIndex) === to);
+  const range = v.document.createRange();
+  range.setStartBefore(first);
+  range.setEndAfter(last);
+  const selection = v.window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+test("In Selection narrows the search to the selected lines", async () => {
+  const { html: page } = await makeReviewHtml(OPTIONS_FILE);
+  const v = await loadViewer(page);
+  await v.openSourceFile("src/opt.ts");
+  selectSourceLines(v, 2, 3);
+
+  v.key("f", { metaKey: true, code: "KeyF" });
+  const api = v.window.__kakapoFileFind;
+  await v.typeChars(v.$("#file-find-input"), "needle");
+
+  assert.equal(api.options().inSelection, true);
+  assert.deepEqual({ ...api.options().selectionLines }, { from: 2, to: 3 });
+  assert.equal(api.results().length, 2, "only the two selected lines were searched");
+  assert.ok(api.results().every((hit) => hit.lineIndex >= 2 && hit.lineIndex <= 3));
+
+  api.toggle("inSelection");
+  await v.settle(140);
+  assert.equal(api.results().length, 4, "switching it off gives the file back");
+  v.close();
+});
+
+// IntelliJ turns it on by itself for a selection spanning more than one line: a reviewer who selected a
+// block and reached for find meant that block. A selection inside one line is a word they want to search
+// FOR, not a range to search in.
+test("In Selection turns itself on only for a selection that spans more than one line", async () => {
+  const { html: page } = await makeReviewHtml(OPTIONS_FILE);
+  const v = await loadViewer(page);
+  await v.openSourceFile("src/opt.ts");
+  selectSourceLines(v, 1, 1);
+
+  v.key("f", { metaKey: true, code: "KeyF" });
+  assert.equal(v.window.__kakapoFileFind.options().inSelection, false, "one line is a word, not a scope");
+  v.key("Escape");
+  await v.settle(40);
+
+  selectSourceLines(v, 0, 1);
+  v.key("f", { metaKey: true, code: "KeyF" });
+  assert.equal(v.window.__kakapoFileFind.options().inSelection, true, "a block is a scope");
+  v.close();
+});
+
+// The chord, not the function behind it: everything above toggles through the test hook, which would keep
+// passing if the keys were never wired. ⌥M/⌥W/⌥X are the rows Find in Files already owns — same chord, same
+// meaning, a different surface — and handleFileFindKey sits above the focus guard so they reach the bar
+// while its field holds the keyboard.
+test("find in file with ⌥M, ⌥W, ⌥X and ⌘⌥E pressed as chords toggles the four", async () => {
+  const v = await openOptionsFind();
+  const api = v.window.__kakapoFileFind;
+  await v.typeChars(v.$("#file-find-input"), "needle");
+
+  v.key("m", { altKey: true, code: "KeyM" });
+  await v.settle(140);
+  assert.equal(api.options().matchCase, true, "⌥M");
+  assert.equal(api.results().length, 3, "and the query re-ran on the chord alone");
+
+  v.key("w", { altKey: true, code: "KeyW" });
+  await v.settle(140);
+  assert.equal(api.options().wholeWords, true, "⌥W");
+
+  v.key("x", { altKey: true, code: "KeyX" });
+  await v.settle(140);
+  assert.equal(api.options().regex, true, "⌥X");
+
+  v.key("e", { metaKey: true, altKey: true, code: "KeyE" });
+  await v.settle(60);
+  assert.equal(api.options().inSelection, false, "⌘⌥E with nothing selected changes no scope");
+  v.close();
+});
+
+// IntelliJ's Search History, which its toolbar opens as a dropdown from the field. A query enters it when
+// the reviewer steps to a match with it (its moveCursor calls addTextToRecent), not on every keystroke.
+test("the find field remembers recent searches and ⌥↓ walks back through them", async () => {
+  const v = await openOptionsFind();
+  const api = v.window.__kakapoFileFind;
+
+  await v.typeChars(v.$("#file-find-input"), "needle");
+  v.key("Enter");
+  await v.settle(60);
+  v.key("Escape");
+  await v.settle(60);
+
+  v.key("f", { metaKey: true, code: "KeyF" });
+  v.$("#file-find-input").value = "";
+  await v.typeChars(v.$("#file-find-input"), "Needle");
+  v.key("Enter");
+  await v.settle(60);
+  // Spread into an array of THIS realm: deepEqual on one read off v.window fails on prototypes alone,
+  // and prints two identical-looking arrays while doing it.
+  assert.deepEqual([...api.history()], ["Needle", "needle"], "most recent first, no duplicates");
+
+  v.$("#file-find-input").value = "";
+  v.key("ArrowDown", { altKey: true, code: "ArrowDown" });
+  await v.settle(140);
+  assert.equal(v.$("#file-find-input").value, "Needle", "⌥↓ brings the last one back");
+
+  v.key("ArrowDown", { altKey: true, code: "ArrowDown" });
+  await v.settle(140);
+  assert.equal(v.$("#file-find-input").value, "needle", "and the one before it");
+
+  v.key("ArrowUp", { altKey: true, code: "ArrowUp" });
+  await v.settle(140);
+  assert.equal(v.$("#file-find-input").value, "Needle", "⌥↑ walks forward again");
+  v.close();
+});

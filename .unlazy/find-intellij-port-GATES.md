@@ -17,21 +17,21 @@ Run with:
 - [ ] G3: moving to another file hands the keyboard to the content, not to nothing
   CHECK: node --test test/file-find.test.mjs 2>&1 | grep -c "^ok [0-9]* - closing the bar"
   EXPECT: ^1$
-- [ ] G4: Match Case / Words / Regex each change which matches are found
+- [ ] G4: Match Case / Words / Regex each change which matches are found, on the chord too
   CHECK: node --test test/file-find.test.mjs 2>&1 | grep -c "^ok [0-9]* - find in file with"
-  EXPECT: ^5$
+  EXPECT: ^6$
 - [ ] G5: an invalid regex says so instead of reporting no matches
   CHECK: node --test test/file-find.test.mjs 2>&1 | grep -c "^ok [0-9]* - an invalid regex"
   EXPECT: ^1$
 - [ ] G6: In Selection searches the selection only
   CHECK: node --test test/file-find.test.mjs 2>&1 | grep -c "^ok [0-9]* - In Selection"
   EXPECT: ^2$
-- [ ] G7: the field remembers recent searches
+- [ ] G7: the field remembers recent searches and the chord walks them
   CHECK: node --test test/file-find.test.mjs 2>&1 | grep -c "^ok [0-9]* - the find field remembers"
   EXPECT: ^1$
 - [ ] G8: the real app types five characters into the bar and the bar still owns the keyboard
   CHECK: npm run nav:smoke 2>&1 | tail -4
-  EXPECT: checks passed in the real app
+  EXPECT: 35/35 checks passed
 - [ ] G9: positive control — the searches a reviewer already ran still work
   CHECK: node --test test/file-find.test.mjs 2>&1 | grep -c "^ok [0-9]* - \(Cmd+F searches only\|diff search stays inside\|search reveals matches inside\)"
   EXPECT: ^3$
@@ -41,8 +41,8 @@ Run with:
 - [ ] G11: types still check
   CHECK: npx tsc --noEmit && echo TSC-CLEAN
   EXPECT: TSC-CLEAN
-- [ ] G12: every new chord is a row in the one table, in both locales
-  CHECK: node scripts/../test/shortcut-table-check.mjs 2>/dev/null || node --test test/shortcuts.test.mjs 2>&1 | tail -6
+- [ ] G12: every new chord is a row in the one table, with a label in both locales
+  CHECK: node --test test/shortcut-registry.test.mjs test/shortcut-settings.test.mjs test/shortcut-platforms.test.mjs 2>&1 | tail -6
   EXPECT: # fail 0
 
 ## Recorded negative — IntelliJ's search-context filter

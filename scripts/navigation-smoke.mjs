@@ -181,6 +181,23 @@ class Page {
     });
     await sleep(140);
   }
+  /**
+   * A real printable keystroke: keyDown CARRYING text, then keyUp.
+   *
+   * `key()` above sends rawKeyDown, which fires a keydown and inserts nothing, and `type()` below uses
+   * Input.insertText, which inserts without a keydown at all. Neither models a hand: a field that loses
+   * focus mid-query, or a keydown handler that consumes the letter, is invisible to both, and that is
+   * exactly how "type one character and no further character is accepted" shipped unnoticed.
+   */
+  async char(ch, code, vk) {
+    await this.send("Input.dispatchKeyEvent", {
+      type: "keyDown", key: ch, text: ch, unmodifiedText: ch, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk,
+    });
+    await this.send("Input.dispatchKeyEvent", {
+      type: "keyUp", key: ch, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk,
+    });
+    await sleep(70);
+  }
   async type(text) {
     await this.send("Input.insertText", { text });
     await this.evaluate(`(() => { const el = document.getElementById('quick-open-input'); el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
@@ -690,6 +707,56 @@ async function run() {
     check("⌥S cycles the Find in Files scope, and the module scope is named",
       scope.shown && scope.value === "production" && scope.options.includes("module") && /@smoke\/root/.test(scope.label),
       JSON.stringify(scope));
+    await page.key("Escape", "Escape", 27, 0);
+    await sleep(250);
+
+    // ⌘F and five characters typed as REAL keystrokes, in the real app, 70ms apart. The assertion is not
+    // "the search works" — it is that the fifth character arrived and the field still owns the keyboard.
+    // Everything that publishes a result (revealing a file, expanding a fold, repainting a window of a
+    // large file) runs between two of these keys, and the code surfaces bind no plain letters, so a field
+    // that quietly lost focus looks exactly like one that stopped accepting input.
+    await page.evaluate(`(() => { openSourceFile('src/store.ts'); return true; })()`);
+    await sleep(700);
+    await page.key("f", "KeyF", 70, 4);
+    await sleep(350);
+    for (const [ch, code, vk] of [["b", "KeyB", 66], ["u", "KeyU", 85], ["m", "KeyM", 77], ["p", "KeyP", 80], ["(", "Digit9", 57]]) {
+      await page.char(ch, code, vk);
+    }
+    await sleep(400);
+    const typing = await page.evaluate(`(() => {
+      const field = document.getElementById('file-find-input');
+      return {
+        value: field.value,
+        focused: document.activeElement === field,
+        open: !document.getElementById('file-find').classList.contains('hidden'),
+        count: document.getElementById('file-find-count').textContent,
+        matches: window.__kakapoFileFind.results().length,
+      };
+    })()`);
+    await page.shot("file-find-typing");
+    check("every character typed into the find bar arrives, and the bar keeps the keyboard",
+      typing.open && typing.focused && typing.value === "bump(" && typing.matches > 0,
+      JSON.stringify(typing));
+
+    // The four IntelliJ toggles, on their chords, in the real app.
+    await page.key("m", "KeyM", 77, 1);
+    await sleep(300);
+    await page.key("x", "KeyX", 88, 1);
+    await sleep(300);
+    const toggles = await page.evaluate(`(() => {
+      const options = window.__kakapoFileFind.options();
+      return {
+        matchCase: options.matchCase,
+        regex: options.regex,
+        patternError: Boolean(options.patternError),
+        count: document.getElementById('file-find-count').textContent,
+        pressed: document.getElementById('file-find-match-case').getAttribute('aria-pressed'),
+      };
+    })()`);
+    await page.shot("file-find-toggles");
+    check("⌥M and ⌥X reach the find bar, and an unclosed group is named a bad pattern",
+      toggles.matchCase && toggles.regex && toggles.patternError && toggles.pressed === "true",
+      JSON.stringify(toggles));
     await page.key("Escape", "Escape", 27, 0);
   } finally {
     page?.close();

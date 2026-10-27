@@ -91,6 +91,15 @@ export const SHORTCUTS: ShortcutDef[] = [
   // Module. It has no chord there (it is a dropdown), and a dropdown inside a dialog that owns the
   // keyboard needs one here, so ⌥S cycles it — beside ⌥M/⌥W/⌥X, which are the toggles next to it.
   { id: "searchScope", keys: ["⌥S"], where: "find", i18n: "kbd.searchScope" },
+  // IntelliJ's Search In Selection (ToggleFindInSelection, ⌃⌥E in both the default and the Mac keymap),
+  // which narrows the in-file find to the block the reviewer had selected when they pressed ⌘F. ⌃ folds
+  // into ⌘ in this table, so it lands on ⌘⌥E — free, and beside the three toggles it sits next to.
+  { id: "findInSelection", keys: ["⌘⌥E"], where: "find", i18n: "kbd.findInSelection" },
+  // IntelliJ's Search History, which its find toolbar opens as a dropdown from the field (⌥↓). A bar one
+  // line wide has nowhere to put a dropdown, so the same keys step through it in place. The chord is shared
+  // with the code surface's next/previous symbol and only answers here while the find FIELD has the
+  // keyboard — which is the same thing that stops IntelliJ's editor from seeing it.
+  { id: "findHistory", keys: ["⌥↓", "⌥↑"], where: "find", i18n: "kbd.findHistory" },
   // IntelliJ's Show Usages is ⌃⌥F7 and its Declaration or Usages is ⌘B; this popup is the answer to both,
   // so it answers to both chords rather than being reached by only one of them.
   { id: "defUsages", keys: ["⌘B", "⌘⌥F7"], where: "code", i18n: "kbd.defUsages" },
@@ -246,6 +255,7 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
     "quickDoc", "expressionType", "filesChangesTab",
     "sidebarNavigate", "sidebarContent", "findInFile", "findNextPrev", "findEnter", "findInFiles", "recentFiles",
     "searchExtensions", "excludeSearchNoise", "searchMatchCase", "searchWholeWords", "searchRegex", "searchScope",
+    "findInSelection", "findHistory",
     "searchFiles", "searchEverywhere", "findAction", "goToTest",
     "defUsages", "findUsages", "highlightUsages", "nextPrevOccurrence", "goToImplementation",
     "workspaceSymbol", "goToClass", "relatedSymbol", "customRegion", "lastChange", "goToDef", "quickDefinition", "typeDeclaration", "fileStructure", "nextPrevSymbol", "recentLocations", "typeHierarchy", "callHierarchy", "methodHierarchy", "goToSuper",
