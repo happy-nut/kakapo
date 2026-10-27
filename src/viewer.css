@@ -1893,7 +1893,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   display: flex;
   align-items: center;
   gap: 3px;
-  width: min(360px, calc(100vw - 24px));
+  width: min(468px, calc(100vw - 24px));
   min-height: 34px;
   padding: 4px;
   background: color-mix(in srgb, var(--sidebar) 96%, var(--panel));
@@ -1922,6 +1922,31 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   font: 10.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .file-find-count.is-empty { color: var(--warning, #c69026); }
+/* IntelliJ's Cc / W / .* / In Selection, the same square glyph group the Find in Files strip uses — one
+   control group, one line, and the pressed state is the accent both strips already speak. */
+.file-find-options { display: inline-flex; align-items: center; gap: 3px; flex: none; }
+.file-find-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 23px;
+  height: 22px;
+  padding: 0 4px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: 11px/1 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  cursor: pointer;
+}
+.file-find-option:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
+.file-find-option:focus-visible { outline: 1px solid var(--active); outline-offset: 1px; }
+.file-find-option.active {
+  border-color: var(--active);
+  color: var(--chrome-selected-text, #fff);
+  background: var(--active);
+}
+.file-find-option:disabled { opacity: .36; cursor: default; background: transparent; }
 .file-find-button {
   flex: none;
   width: 26px;

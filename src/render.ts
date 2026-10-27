@@ -566,6 +566,16 @@ export function renderDiffHtml(input: {
     '<div id="file-find" class="file-find hidden" role="search" data-i18n-aria="find.aria" aria-label="Find in current file">',
     '<input id="file-find-input" class="file-find-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="find.placeholder" placeholder="Find in current file">',
     '<span id="file-find-count" class="file-find-count" aria-live="polite">0/0</span>',
+    // IntelliJ's editor find toolbar carries these four between the match count and the step arrows:
+    // Match Case, Words, Regex, Search In Selection (its Toggle* actions in find/editorHeaderActions).
+    // Glyph toggles, like the Find in Files strip above — the glyph is decorative and the accessible name
+    // and tooltip are the translated words.
+    '<span class="file-find-options">',
+    '<button type="button" id="file-find-match-case" class="file-find-option" aria-pressed="false"' + keyHint('searchMatchCase') + ' data-i18n-title="quickopen.matchCase" data-i18n-aria="quickopen.matchCase" title="Match case" aria-label="Match case"><span aria-hidden="true">Cc</span></button>',
+    '<button type="button" id="file-find-whole-words" class="file-find-option" aria-pressed="false"' + keyHint('searchWholeWords') + ' data-i18n-title="quickopen.wholeWords" data-i18n-aria="quickopen.wholeWords" title="Whole words" aria-label="Whole words"><span aria-hidden="true">W</span></button>',
+    '<button type="button" id="file-find-regex" class="file-find-option" aria-pressed="false"' + keyHint('searchRegex') + ' data-i18n-title="quickopen.regex" data-i18n-aria="quickopen.regex" title="Regular expression" aria-label="Regular expression"><span aria-hidden="true">.*</span></button>',
+    '<button type="button" id="file-find-in-selection" class="file-find-option" aria-pressed="false"' + keyHint('findInSelection') + ' data-i18n-title="find.inSelection" data-i18n-aria="find.inSelection" title="Search in selection" aria-label="Search in selection"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" aria-hidden="true"><path d="M4 2.5H2.5v11H4"/><path d="M12 2.5h1.5v11H12"/><path d="M6 8h4"/></svg></button>',
+    '</span>',
     '<button type="button" id="file-find-prev" class="file-find-button" data-keyhint-id="findEnter:1" data-i18n-title="find.previous" data-i18n-aria="find.previous" title="Previous match (Shift+Enter)" aria-label="Previous match">&#8593;</button>',
     '<button type="button" id="file-find-next" class="file-find-button" data-keyhint-id="findEnter" data-i18n-title="find.next" data-i18n-aria="find.next" title="Next match (Enter)" aria-label="Next match">&#8595;</button>',
     '<button type="button" id="file-find-close" class="file-find-button file-find-close" data-keyhint-id="closeDialog" data-i18n-title="find.close" data-i18n-aria="find.close" title="Close (Esc)" aria-label="Close">&times;</button>',
@@ -607,7 +617,9 @@ export function renderDiffHtml(input: {
     '<div class="quick-open-title"><span id="quick-open-mode" data-i18n="quickopen.searchFiles">Search files</span><span id="quick-open-filter" class="quick-open-filter"></span></div>',
     '<input id="quick-open-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.searchFiles" placeholder="Search files">',
     '<div id="quick-open-search-options" class="quick-open-search-options">',
-    '<label class="quick-open-extension-field" for="quick-open-extensions"><span data-i18n="quickopen.extensions">Extensions</span><input id="quick-open-extensions" type="text" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.extensionsPlaceholder" placeholder="All · .py, .ts" title="Filter extensions (Option+E)"></label>',
+    // IntelliJ calls this the file mask (FindBundle's find.popup.filemask) and takes comma-separated globs
+    // in it, `!` to exclude. So does this now; it used to reduce every entry to a bare extension.
+    '<label class="quick-open-extension-field" for="quick-open-extensions"><span data-i18n="quickopen.fileMask">File mask</span><input id="quick-open-extensions" type="text" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.fileMaskPlaceholder" placeholder="All · *.ts, !*.d.ts" title="File mask (Option+E)"></label>',
     '<button type="button" id="quick-open-exclude-noise" class="quick-open-option-toggle" aria-pressed="false"' + keyHint('excludeSearchNoise') + '><span class="quick-open-option-check" aria-hidden="true"></span><span data-i18n="quickopen.excludeNoise">Exclude comments &amp; tests</span></button>',
     // IntelliJ's scope selector. The scopes are its own predefined ones, minus the ones this app has no
     // answer for (no library sources are indexed, and every file here is a project file).

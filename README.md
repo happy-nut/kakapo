@@ -123,7 +123,9 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌘9` | Git history — commits, reflog, stashes |
 | `⌘C` | In history: copy the selected commit's hash |
 | `⌘F` / `⌘⇧F` | Find in file / in project (the ⌘⇧F rail also holds file search & recent files) |
-| `⌥M` / `⌥W` / `⌥X` | In Find in Files: match case / whole words / regular expression |
+| `⌥M` / `⌥W` / `⌥X` | In either search: match case / whole words / regular expression |
+| `⌘⌥E` | In the find bar: search the selected lines only |
+| `⌥↓` / `⌥↑` | In the find bar: walk back and forward through recent searches |
 | `⌥S` | In Find in Files: the scope — the project, production files, test files, this module, changed files |
 | `⌘E` | Recent files — the list on its own, press again to close. Type to filter (Korean typing is read as the QWERTY keys that made it) |
 | `⌥A` / `⌥U` | All changes on the branch / only what is not committed yet |
@@ -241,9 +243,33 @@ review: the whole project, production files, test files, this file's module, or 
 touches. The scope goes *with* the query rather than being applied to its answer — ripgrep is asked for at
 most 500 matches, and a scope applied afterwards would cut the wrong 500 first.
 
+**The find bar's toggles** (`⌥M` match case, `⌥W` whole words, `⌥X` regular expression, `⌘⌥E` in
+selection) — IntelliJ's editor find toolbar carries four toggles beside the match count, and `⌘F` now
+carries the same four. The first three share their chord with Find in Files; their *state* does not, the
+way IntelliJ keeps the editor search's case and word settings apart from the project search's — "is this
+word in this file" and "is this string in the project" are not asked with the same precision. A pattern
+that will not compile is named as a bad pattern rather than searched for. `⌥↓` and `⌥↑` walk through recent searches, which is IntelliJ's Search History dropdown stepped
+through in place because the bar is one line wide; they answer only while the field itself has the
+keyboard, so the code surface keeps its own `⌥↓`. `⌘⌥E` narrows the search to the
+lines that were selected when `⌘F` opened, and a selection spanning more than one line turns it on by
+itself: a reviewer who selected a block and reached for find meant that block. Line granularity, where
+IntelliJ restricts to the exact selected characters — both views here select by row.
+
+Typing scrolls the view to the first match; it does not move the caret. `Enter` / `⌘G` and `Esc` do. (A
+query being typed is not yet a place the reviewer went, and the old behaviour spent one entry of the `⌘[`
+history on every character of it.) IntelliJ's search-context filter — Anywhere / In Comments / In String
+Literals and their inverses — is deliberately **not** here: IntelliJ answers it from a real lexer, and this
+app's source painter is line-local by design so that it can paint a window of a 30k-line file. Built on it,
+the filter would be wrong for every block comment and multi-line string. Find in Files keeps `⌥P`, which is
+honest about being a heuristic.
+
 **Find in Files' three modifiers** (`⌥M` match case, `⌥W` whole words, `⌥X` regular expression) —
-IntelliJ's `Cc`, `W` and `.*`, one ripgrep flag each, with `⌥E` for a file mask and `⌥P` to drop comments
-and tests as before. With none of them on the search is what it always was: smart-case (a lower-case query
+IntelliJ's `Cc`, `W` and `.*`, one ripgrep flag each, with `⌥P` to drop comments
+and tests as before. `⌥E` is IntelliJ's **file mask** (`find.popup.filemask`) and now takes what IntelliJ
+takes: comma-separated globs with `!` to exclude, so `*Service*.java` and `*.ts, !*.d.ts` mean what they
+look like. It used to reduce every entry to a bare extension — `*.ts` worked, `*Service*.java` matched
+nothing and `!*.min.js` was dropped without a word. ripgrep reads the `!` itself, and a standalone HTML
+review, which has no ripgrep to ask, applies the same rule in the page. With none of them on the search is what it always was: smart-case (a lower-case query
 ignores case, a query with a capital in it does not) and literal. A pattern that does not compile is named
 as a bad pattern rather than searched for — "no matches" for a typo in a regex is a wrong answer a reviewer
 would believe — and a standalone HTML review, which has no ripgrep to ask, applies the same three

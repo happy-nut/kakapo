@@ -253,7 +253,7 @@ test("Find in Files filters extensions and excludes comment and test results wit
   v.key("f", { metaKey: true, shiftKey: true, code: "KeyF" });
   v.typeInto(v.$("#quick-open-input"), "needle");
   v.key("e", { altKey: true, code: "KeyE" });
-  assert.equal(v.document.activeElement, v.$("#quick-open-extensions"), "Option+E focuses the extension filter");
+  assert.equal(v.document.activeElement, v.$("#quick-open-extensions"), "Option+E focuses the file mask");
   v.typeInto(v.$("#quick-open-extensions"), ".py");
   v.key("p", { altKey: true, code: "KeyP" });
   await v.settle(190);
@@ -262,7 +262,7 @@ test("Find in Files filters extensions and excludes comment and test results wit
   assert.deepEqual(JSON.parse(JSON.stringify(requests.at(-1))), {
     query: "needle",
     limit: 500,
-    extensions: ["py"],
+    masks: ["*.py"],
     excludeCommentsAndTests: true,
   });
   assert.deepEqual(
@@ -402,5 +402,48 @@ test("the launcher lists only the surfaces that still exist", async () => {
   await v.openQuickOpenSection("content");
   const sections = v.$all("#quick-open-side .quick-open-side-item").map((b) => b.dataset.section);
   assert.deepEqual(sections, ["content", "all", "recent", "history"], "the three searches and history, nothing removed");
+  v.close();
+});
+
+// IntelliJ's file mask takes comma-separated globs with `!` to exclude (FindBundle's find.popup.filemask).
+// This field reduced every entry to a bare extension, so `*Service*.java` matched nothing and `!*.min.js`
+// was dropped without a word — and a standalone HTML review, which has no ripgrep to ask, filtered by the
+// same reduced rule in the page.
+test("the Find in Files file mask takes globs and exclusions, in the page and on the wire", async () => {
+  const { html: searchable } = await makeReviewHtml([
+    { path: "src/api/UserService.java", before: "old\n", after: "needle one\n" },
+    { path: "src/api/User.java", before: "old\n", after: "needle two\n" },
+    { path: "src/app.min.js", before: "old\n", after: "needle three\n" },
+    { path: "src/app.js", before: "old\n", after: "needle four\n" },
+  ]);
+  const requests = [];
+  const matches = [
+    { path: "src/api/UserService.java", line: 1, column: 1, endColumn: 7, text: "needle one", matchText: "needle" },
+    { path: "src/api/User.java", line: 1, column: 1, endColumn: 7, text: "needle two", matchText: "needle" },
+    { path: "src/app.min.js", line: 1, column: 1, endColumn: 7, text: "needle three", matchText: "needle" },
+    { path: "src/app.js", line: 1, column: 1, endColumn: 7, text: "needle four", matchText: "needle" },
+  ];
+  const v = await loadViewer(searchable, {
+    searchBridge(request) {
+      requests.push(request);
+      return { available: true, engine: "ripgrep", truncated: false, matches };
+    },
+  });
+
+  v.key("f", { metaKey: true, shiftKey: true, code: "KeyF" });
+  v.typeInto(v.$("#quick-open-input"), "needle");
+  v.typeInto(v.$("#quick-open-extensions"), "*Service*.java, *.js, !*.min.js");
+  await v.settle(190);
+
+  assert.deepEqual(
+    [...(requests.at(-1).masks || [])],
+    ["*service*.java", "*.js", "!*.min.js"],
+    "the masks reach ripgrep as typed — it reads the ! itself",
+  );
+  assert.deepEqual(
+    v.$all("#quick-open-results .search-result .quick-open-name").map((node) => node.textContent),
+    ["UserService.java:1:1", "app.js:1:1"],
+    "User.java misses the glob and app.min.js is excluded by it",
+  );
   v.close();
 });

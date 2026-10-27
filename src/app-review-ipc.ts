@@ -244,14 +244,14 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
   });
 
   ipc.handle("kakapo:search", (event, request: {
-    query?: string; limit?: number; extensions?: string[]; excludeCommentsAndTests?: boolean;
+    query?: string; limit?: number; masks?: string[]; extensions?: string[]; excludeCommentsAndTests?: boolean;
     matchCase?: boolean; wholeWords?: boolean; regex?: boolean;
     includePaths?: string[]; excludePaths?: string[];
   }) => {
     const state = stateFromEvent(event);
     if (!state) return { available: false, engine: "fallback", matches: [], truncated: false };
     return searchProject(state.options.root, String(request?.query ?? ""), request?.limit, {
-      extensions: request?.extensions,
+      masks: request?.masks ?? request?.extensions,
       excludeCommentsAndTests: request?.excludeCommentsAndTests === true,
       matchCase: request?.matchCase === true,
       wholeWords: request?.wholeWords === true,
