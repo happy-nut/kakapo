@@ -314,6 +314,7 @@ var SHORTCUT_ACTIONS = {
   codeVision: function () { return isCodeSurfaceVisible() ? toggleRenderToggle('codeVision') : false; },
   inlayHints: function () { return isCodeSurfaceVisible() ? toggleRenderToggle('inlayHints') : false; },
   copyAsPatch: function () { return copyActiveFileAsPatch() ? undefined : false; },
+  compareClipboard: function () { return compareClipboardWithFile() ? undefined : false; },
   runHttp: function (event, i) {
     // A focused tree owns Enter and ⌥Enter outright (handleTreeKey: open the row / row actions). That used
     // to be settled by sitting below the tree in the chain; it is said here now, because the order a table

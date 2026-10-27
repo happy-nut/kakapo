@@ -109,3 +109,43 @@ test("⌘F7 answers at once, then takes the server's read/write labels when they
   assert.match(hint.textContent, /1/, `the server's one write is counted: ${hint.textContent}`);
   v.close();
 });
+
+test("the server's own tokens colour the line, and a line it says nothing about keeps the hand tokenizer", async () => {
+  const { v, asked } = await openHost({
+    semanticTokens: {
+      tokens: [
+        // `def outer():` — the hand tokenizer has no Python keywords, so a tok-keyword on line 3 could
+        // only have come from the server.
+        { lineIndex: 3, startColumn: 0, length: 3, type: "keyword" },
+        { lineIndex: 3, startColumn: 4, length: 5, type: "function" },
+      ],
+    },
+  });
+  await v.settle(60);
+  assert.ok(asked.some((r) => r.kind === "semanticTokens" && r.path === FILE),
+    `semanticTokens was never asked for: ${asked.map((r) => r.kind).join(", ")}`);
+  const row = v.$(`#source-body .source-row[data-line-index="3"] .source-code`);
+  assert.ok(row, "the def line is rendered");
+  assert.ok(row.querySelector(".tok-keyword"), `no server token drawn: ${row.innerHTML}`);
+  assert.ok(row.querySelector(".tok-function"), `the function name is not coloured: ${row.innerHTML}`);
+  // Every character is still there exactly once: the caret and the whitespace marker both count columns
+  // in this text, so a dropped or doubled character is a navigation bug, not a colour one.
+  assert.equal(row.textContent, "def outer():");
+  v.close();
+});
+
+test("overlapping tokens are dropped, not nested — the text must stay the text", async () => {
+  const { v } = await openHost({
+    semanticTokens: {
+      tokens: [
+        { lineIndex: 3, startColumn: 0, length: 12, type: "keyword" },
+        { lineIndex: 3, startColumn: 4, length: 5, type: "function" }, // inside the one above
+      ],
+    },
+  });
+  await v.settle(60);
+  const row = v.$(`#source-body .source-row[data-line-index="3"] .source-code`);
+  assert.equal(row.textContent, "def outer():", "the line reads the same whatever the server sent");
+  assert.equal(row.querySelectorAll(".tok-function").length, 0, "the overlapping token was dropped");
+  v.close();
+});

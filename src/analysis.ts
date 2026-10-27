@@ -5,6 +5,7 @@ import {
   type AnalysisCodeLens,
   type AnalysisFoldingRange,
   type AnalysisInlayHint,
+  type AnalysisSemanticToken,
   type AnalysisHighlight,
   type AnalysisSymbol,
   LspClient,
@@ -61,7 +62,10 @@ export type AnalysisKind =
   // What the server would write above a declaration and inside a line — IntelliJ's Code Vision and its
   // inlay hints. Decoration, not navigation: answered in `lenses` / `hints`.
   | "codeLens"
-  | "inlayHint";
+  | "inlayHint"
+  // The file's tokens as the language's own parser sees them, which is what the source view's hand-written
+  // tokenizer can only approximate. Answered in `tokens`.
+  | "semanticTokens";
 
 export type AnalysisRequest = {
   kind: AnalysisKind;
@@ -102,6 +106,8 @@ export type AnalysisResponse = {
   lenses?: AnalysisCodeLens[];
   /** Only for kind "inlayHint". */
   hints?: AnalysisInlayHint[];
+  /** Only for kind "semanticTokens". Absent when the server registered no legend for them. */
+  tokens?: AnalysisSemanticToken[];
   fallbackReason?: string;
   error?: string;
   /**
@@ -500,7 +506,7 @@ export class ProjectAnalysis {
       // supported" so the caller can keep its own fallback rather than read an empty list as a fact.
       if (request.kind === "foldingRange") return await this.foldingRanges(path, onRevision);
       if (request.kind === "documentHighlight") return await this.documentHighlights(path, request, onRevision);
-      if (request.kind === "codeLens" || request.kind === "inlayHint") {
+      if (request.kind === "codeLens" || request.kind === "inlayHint" || request.kind === "semanticTokens") {
         return await this.decoration(request.kind, path, request, onRevision);
       }
       if (request.kind === "callers" || request.kind === "callees"
@@ -1012,7 +1018,7 @@ export class ProjectAnalysis {
    * if the compiler had said it is the one thing decoration must never do.
    */
   private async decoration(
-    kind: "codeLens" | "inlayHint", path: string, request: AnalysisRequest, onRevision: boolean,
+    kind: "codeLens" | "inlayHint" | "semanticTokens", path: string, request: AnalysisRequest, onRevision: boolean,
   ): Promise<AnalysisResult> {
     if (onRevision) {
       return {
@@ -1027,7 +1033,9 @@ export class ProjectAnalysis {
     try {
       const answer = kind === "codeLens"
         ? await client.codeLenses(path)
-        : await client.inlayHints(path, request.line ?? 0, request.limit ?? (request.line ?? 0) + 2000);
+        : kind === "semanticTokens"
+          ? await client.semanticTokens(path)
+          : await client.inlayHints(path, request.line ?? 0, request.limit ?? (request.line ?? 0) + 2000);
       this.setStatus("ready", serverFields(client.server));
       const base = {
         ok: true as const,
@@ -1040,9 +1048,9 @@ export class ProjectAnalysis {
       if (!answer.supported) {
         return { ...base, fallbackReason: `${client.server.name} does not implement ${kind}` };
       }
-      return kind === "codeLens"
-        ? { ...base, lenses: (answer as { lenses: AnalysisCodeLens[] }).lenses }
-        : { ...base, hints: (answer as { hints: AnalysisInlayHint[] }).hints };
+      if (kind === "codeLens") return { ...base, lenses: (answer as { lenses: AnalysisCodeLens[] }).lenses };
+      if (kind === "semanticTokens") return { ...base, tokens: (answer as { tokens: AnalysisSemanticToken[] }).tokens };
+      return { ...base, hints: (answer as { hints: AnalysisInlayHint[] }).hints };
     } catch (error) {
       if (this.transportFailure(error)) this.quarantine(client, error);
       return { ok: true, engine: "index", confidence: "heuristic", locations: [], fallbackReason: errorMessage(error) };

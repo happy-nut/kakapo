@@ -106,6 +106,9 @@ var BACKGROUND_ANALYSIS_KINDS = {
   documentSymbol: true,
   foldingRange: true,
   documentHighlight: true,
+  codeLens: true,
+  inlayHint: true,
+  semanticTokens: true,
 };
 function noteProvisionalAnalysis(response, symbol) {
   if (!isPartialAnalysisAnswer(response)) return;

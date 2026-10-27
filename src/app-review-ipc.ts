@@ -1,6 +1,8 @@
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
-import { readFileSync, statSync } from "node:fs";
-import { extname, isAbsolute } from "node:path";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { basename, extname, isAbsolute, join } from "node:path";
 import type {
   HttpAttachment, HttpSaveRequest, HttpSaveResult, HttpSendRequest, WebSocketSendRequest,
 } from "./types.js";
@@ -333,6 +335,40 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
       });
     } catch {
       return "";
+    }
+  });
+
+  // IntelliJ's Compare with Clipboard: what the clipboard holds against what the file holds.
+  //
+  // `git diff --no-index` rather than a diff written here: it is the same engine that produced every other
+  // hunk in this window, so the patch reads the same way, and it is already a dependency. The two sides go
+  // to the app's own temp directory and are removed straight after — the clipboard may hold anything, and
+  // it has no business landing in the reviewed project (AGENTS.md: never write app state into it).
+  ipc.handle("kakapo:compare-clipboard", (event, request: { path?: string; text?: string }) => {
+    const state = stateFromEvent(event);
+    const path = typeof request?.path === "string" ? request.path : "";
+    const text = typeof request?.text === "string" ? request.text : "";
+    if (!state || !path || !state.sourceFiles.has(path)) return "";
+    const file = state.sourceFiles.get(path);
+    const current = typeof file?.content === "string" ? file.content : "";
+    let dir = "";
+    try {
+      dir = mkdtempSync(join(tmpdir(), "kakapo-clip-"));
+      const mine = join(dir, "clipboard");
+      const theirs = join(dir, basename(path) || "file");
+      writeFileSync(mine, text, "utf8");
+      writeFileSync(theirs, current, "utf8");
+      // --no-index makes git compare two paths outside any repository, so this says nothing about, and
+      // reads nothing from, the review's own history. status 1 just means "they differ".
+      const result = spawnSync("git", ["--no-pager", "diff", "--no-index", "--unified=3", "--", mine, theirs], {
+        encoding: "utf8", maxBuffer: 1024 * 1024 * 50,
+      });
+      if (result.status !== 0 && result.status !== 1) return "";
+      return result.stdout ?? "";
+    } catch {
+      return "";
+    } finally {
+      if (dir) { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
     }
   });
 

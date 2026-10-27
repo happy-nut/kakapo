@@ -107,6 +107,8 @@ contextBridge.exposeInMainWorld("kakapoGit", {
   commitDiff: (sha: string): Promise<unknown> => ipcRenderer.invoke("kakapo:git-commit-diff", { sha }),
   // IntelliJ's Copy as Patch: one file's hunks as git writes them, for handing to something that applies.
   filePatch: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:file-patch", { path }),
+  // IntelliJ's Compare with Clipboard, as a patch between the two sides.
+  compareClipboard: (path: string, text: string): Promise<unknown> => ipcRenderer.invoke("kakapo:compare-clipboard", { path, text }),
   // History shift-select: combined diff between two commits (old→new endpoints).
   rangeDiff: (oldSha: string, newSha: string): Promise<unknown> => ipcRenderer.invoke("kakapo:git-range-diff", { oldSha, newSha }),
   // Patch-set compare bar: list selectable bases, and switch the diff base to one (or "auto").
@@ -154,6 +156,11 @@ contextBridge.exposeInMainWorld("kakapoApp", {
 // even when navigator.clipboard is unavailable for a local file.
 contextBridge.exposeInMainWorld("kakapoClipboard", {
   write: (text: string): void => clipboard.writeText(typeof text === "string" ? text : String(text)),
+  // Read, for IntelliJ's Compare with Clipboard. The renderer never gets the clipboard on its own — a
+  // file:// page cannot read it — and this is the only feature that asks, so it stays beside the write.
+  read: (): string => {
+    try { return clipboard.readText(); } catch { return ""; }
+  },
 });
 
 // Global settings (locale, …) persisted by the main process under userData so they survive app

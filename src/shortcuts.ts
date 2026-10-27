@@ -234,6 +234,9 @@ export const SHORTCUTS: ShortcutDef[] = [
   // IntelliJ's Copy as Patch, which it keeps on the Changes context menu with no chord of its own. ⇧⌥P
   // joins the ⇧⌥ family: not a reading switch, but the same "about the file on screen" scope.
   { id: "copyAsPatch", keys: ["⇧⌥P"], where: "any", i18n: "kbd.copyAsPatch" },
+  // IntelliJ's Compare with Clipboard (⌘⇧B there is Go to Type Declaration here, and its own chord for
+  // this is none) — ⇧⌥C beside Copy as Patch, which is the other thing this app does with a patch.
+  { id: "compareClipboard", keys: ["⇧⌥C"], where: "any", i18n: "kbd.compareClipboard" },
   { id: "pageUpDown", keys: ["PageUp", "PageDown"], where: "code", i18n: "kbd.pageUpDown", fixed: "structural" },
   { id: "expandDiffFold", keys: ["Space"], where: "code", i18n: "kbd.expandDiffFold", fixed: "structural" },
   // One key, two contexts — like compareMode's ⌥A/⌥U, this is one row because it is one chord: in a .http
@@ -326,7 +329,7 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   ] },
   { i18n: "settings.kbd.cat.editor", ids: [
     "moveCaret", "wordJump", "lineStartEnd", "extendSelection", "selectEditor", "copyLocation",
-    "pageUpDown", "expandDiffFold", "copyAsPatch", "runHttp", "runHttpAll", "copyHttpCurl", "toggleRendered",
+    "pageUpDown", "expandDiffFold", "copyAsPatch", "compareClipboard", "runHttp", "runHttpAll", "copyHttpCurl", "toggleRendered",
     "toggleLineWrap", "showWhitespace", "indentGuides", "stickyLines", "focusMode",
     "essentialHighlighting", "alignChanges", "codeVision", "inlayHints", "closeTab",
   ] },

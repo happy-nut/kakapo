@@ -47,6 +47,28 @@ export type AnalysisInlayHint = {
   paddingRight: boolean;
 };
 
+/**
+ * The token types this client asks for, in LSP's own order and spelling.
+ *
+ * A server answers with indexes into ITS legend, not into this list — this is only what the client says it
+ * understands, and a server is free to send a legend with more, fewer or differently ordered entries. The
+ * legend that arrives at initialize is what decodes the stream.
+ */
+export const SEMANTIC_TOKEN_TYPES = [
+  "namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter", "variable",
+  "property", "enumMember", "event", "function", "method", "macro", "keyword", "modifier", "comment",
+  "string", "number", "regexp", "operator", "decorator",
+];
+
+/** One semantic token: a run inside one line, and what the server that parsed the file says it is. */
+export type AnalysisSemanticToken = {
+  lineIndex: number;
+  startColumn: number;
+  length: number;
+  /** The legend's own word — "keyword", "string", "property"… The viewer maps it to a class. */
+  type: string;
+};
+
 export type AnalysisSymbol = {
   name: string;
   /** The server's own one-line summary (a signature, a type), when it offers one. */
@@ -606,6 +628,8 @@ export class LspClient {
   private started?: Promise<void>;
   private opened = new Map<string, { mtimeMs: number; version: number }>();
   private documentSync = new Map<string, Promise<void>>();
+  /** The server's own legend, captured at initialize. null means it registered no semantic tokens. */
+  private semanticTokenTypes: string[] | null = null;
   private stopped = false;
   private workspaceQuiescent = false;
   private workspaceWaiters = new Set<() => void>();
@@ -750,6 +774,52 @@ export class LspClient {
       });
     }
     return { supported: true, highlights };
+  }
+
+  /**
+   * The file's tokens as the parser that owns the language sees them.
+   *
+   * The source view highlights with a hand-written tokenizer, which is why its language coverage and the
+   * diff's (highlight.js) differ — a `.yml` file was plain in one and coloured in the other. A server that
+   * implements this request knows the answer exactly, including the cases no regex reaches: a type used as
+   * a value, a property that shares a name with a keyword, a template literal's embedded expression.
+   *
+   * The wire format is five integers per token, each line and column RELATIVE to the previous token, which
+   * is decoded here so that nothing downstream has to know it. Tokens never span lines (LSP guarantees it),
+   * so a line's tokens are all the caller needs to draw that line.
+   */
+  async semanticTokens(path: string): Promise<{ supported: boolean; tokens: AnalysisSemanticToken[] }> {
+    await this.ensureDocument(path);
+    await this.waitForWorkspaceReady();
+    if (!this.semanticTokenTypes || !this.semanticTokenTypes.length) return { supported: false, tokens: [] };
+    const legend = this.semanticTokenTypes;
+    const uri = pathToFileURL(resolve(this.root, path)).href;
+    let result: unknown;
+    try {
+      result = await this.requestAfterWorkspaceReady("textDocument/semanticTokens/full", { textDocument: { uri } });
+    } catch (error) {
+      if (isMethodNotFound(error)) return { supported: false, tokens: [] };
+      throw error;
+    }
+    const data = (result as { data?: unknown })?.data;
+    if (!Array.isArray(data)) return { supported: true, tokens: [] };
+    const tokens: AnalysisSemanticToken[] = [];
+    let line = 0;
+    let column = 0;
+    for (let i = 0; i + 4 < data.length; i += 5) {
+      const deltaLine = Number(data[i]);
+      const deltaStart = Number(data[i + 1]);
+      const length = Number(data[i + 2]);
+      const typeIndex = Number(data[i + 3]);
+      if (!Number.isFinite(deltaLine) || !Number.isFinite(deltaStart) || !Number.isFinite(length)) break;
+      line += deltaLine;
+      // The column is relative to the previous token only while on the SAME line; a new line restarts it.
+      column = deltaLine === 0 ? column + deltaStart : deltaStart;
+      const type = legend[typeIndex];
+      if (!type || length <= 0) continue;
+      tokens.push({ lineIndex: Math.max(0, line), startColumn: Math.max(0, column), length, type });
+    }
+    return { supported: true, tokens };
   }
 
   /**
@@ -1150,9 +1220,26 @@ export class LspClient {
             // would invite servers to send unresolved stubs.
             codeLens: {},
             inlayHint: {},
+            // Declared in full because semantic tokens are gated on it: a server will not register the
+            // provider (and so sends no legend) unless the client says which shapes it can read. Only the
+            // whole-file request and the relative encoding — no deltas, no ranges, because this app
+            // re-reads a file when it changes rather than patching a token stream.
+            semanticTokens: {
+              requests: { full: true, range: false },
+              formats: ["relative"],
+              tokenTypes: SEMANTIC_TOKEN_TYPES,
+              tokenModifiers: [],
+            },
           },
         },
-      }).then(() => {
+      }).then((result) => {
+        // The semantic-token legend is the one thing in the initialize RESULT this client needs: the token
+        // stream is integers, and `tokenTypes[n]` is the only place that says what integer n means. It was
+        // being discarded with the rest of the result, which is why the stream could not be read.
+        const provider = (result as { capabilities?: { semanticTokensProvider?: { legend?: { tokenTypes?: unknown } } } })
+          ?.capabilities?.semanticTokensProvider;
+        const types = provider?.legend?.tokenTypes;
+        this.semanticTokenTypes = Array.isArray(types) ? types.map((entry) => String(entry)) : null;
         this.notify("initialized", {});
         this.notify("workspace/didChangeConfiguration", { settings: {} });
         if (!settled) { settled = true; resolveStart(); }

@@ -276,6 +276,79 @@ function sourceServerFoldRanges(path) {
   return null;
 }
 
+// ---- Highlighting from the parser that owns the language ---------------------------------------------
+// The source view tokenises by hand (highlightLine, 11-render-http.js) and the diff runs highlight.js, so
+// the two disagree about how much of a file is coloured — a `.yml` file was plain in one and not the other.
+// `textDocument/semanticTokens/full` is the answer from the thing that actually parses the file, and the
+// server giving it is already running: it was never asked.
+//
+// Used when it arrives, and only then. The hand tokenizer draws the first paint and every file whose
+// server has no legend for this, so nothing waits on a round trip to be readable — the same bargain the
+// folds make one function up.
+var semanticTokenCache;
+function semanticTokenCacheMap() {
+  if (!semanticTokenCache) semanticTokenCache = new Map();
+  return semanticTokenCache;
+}
+/** LSP's token types in this app's own classes. What is not mapped is left plain, which is honest. */
+var SEMANTIC_TOKEN_CLASS = {
+  namespace: 'tok-type', type: 'tok-type', class: 'tok-type', enum: 'tok-type', interface: 'tok-type',
+  struct: 'tok-type', typeParameter: 'tok-type',
+  function: 'tok-function', method: 'tok-function', macro: 'tok-function',
+  keyword: 'tok-keyword', modifier: 'tok-keyword', operator: 'tok-keyword',
+  comment: 'tok-comment', string: 'tok-string', regexp: 'tok-string',
+  number: 'tok-number', enumMember: 'tok-constant', decorator: 'tok-decorator',
+};
+function semanticTokensFor(path) {
+  if (!path) return null;
+  var cached = semanticTokenCacheMap().get(path);
+  if (cached && cached.generation === analysisGeneration()) return cached.pending ? null : cached.byLine;
+  semanticTokenCacheMap().set(path, { generation: analysisGeneration(), byLine: null, pending: true });
+  Promise.resolve(queryProjectAnalysis('semanticTokens', null, { path: path, lineIndex: 0, column: 0 }))
+    .then(function (response) {
+      if (!pageAlive()) return;
+      var tokens = response && Array.isArray(response.tokens) ? response.tokens : null;
+      if (!tokens || !tokens.length) { semanticTokenCacheMap().delete(path); return; }
+      var byLine = new Map();
+      tokens.forEach(function (token) {
+        if (!SEMANTIC_TOKEN_CLASS[token.type]) return; // a type this app does not colour is not stored
+        var row = byLine.get(token.lineIndex);
+        if (!row) { row = []; byLine.set(token.lineIndex, row); }
+        row.push(token);
+      });
+      byLine.forEach(function (row) { row.sort(function (a, b) { return a.startColumn - b.startColumn; }); });
+      semanticTokenCacheMap().set(path, { generation: analysisGeneration(), byLine: byLine, pending: false });
+      var viewer = document.getElementById('source-viewer');
+      if (viewer && viewer.dataset.openPath === path) openSourceFile(path, false);
+    }, function () {
+      if (pageAlive()) semanticTokenCacheMap().delete(path);
+    });
+  return null;
+}
+/**
+ * One line's HTML from its tokens, with the gaps between them escaped and left plain.
+ *
+ * Overlaps are dropped rather than nested: a server may send a token inside another (a type argument
+ * inside a type), and two opened spans over the same characters would double-colour the text and, worse,
+ * change the character count the whitespace marker and the caret both measure in.
+ */
+function semanticLineHtml(text, tokens) {
+  var out = '';
+  var at = 0;
+  for (var i = 0; i < tokens.length; i += 1) {
+    var token = tokens[i];
+    var start = token.startColumn;
+    var end = start + token.length;
+    if (start < at || start >= text.length) continue;
+    if (end > text.length) end = text.length;
+    if (end <= start) continue;
+    out += escapeHtml(text.slice(at, start));
+    out += '<span class="' + SEMANTIC_TOKEN_CLASS[token.type] + '">' + escapeHtml(text.slice(start, end)) + '</span>';
+    at = end;
+  }
+  return out + escapeHtml(text.slice(at));
+}
+
 /**
  * The regions of `file` that CAN fold — the server's if it has an answer, the brace pairs otherwise.
  *

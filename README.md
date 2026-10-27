@@ -148,7 +148,7 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⇧⌥V` / `⇧⌥H` | Code Vision / inlay hints — what the language server would have written |
 | `⌘⇧→` / `⌘⇧←` | Next / previous file in the diff |
 | `⌥D` | In the find bar: search only the lines this review changed |
-| `⇧⌥P` | Copy this file as a patch |
+| `⇧⌥P` / `⇧⌥C` | Copy this file as a patch / compare it with the clipboard |
 | `⌘⇧Backspace` | Jump to this file's last change |
 | `F1` | Quick documentation for the symbol under the caret |
 | `⌘⇧P` | The type of the expression under the caret |

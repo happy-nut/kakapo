@@ -28,6 +28,48 @@ function copyActiveFileAsPatch() {
   return true;
 }
 
+// IntelliJ's Compare with Clipboard. What this does NOT do is open a side-by-side pane for it: this app's
+// diff view is built once, in main, from the review's own `git diff`, and there is no second diff surface in
+// the window to put an ad-hoc comparison into. So the comparison is shown as what it is — git's own patch
+// between the two sides — opened as a read-only document in the source view, which is already a perfectly
+// good place to read a patch. It is less than IntelliJ shows, and that is worth saying rather than hiding.
+function compareClipboardWithFile() {
+  var path = isSourceViewerVisible()
+    ? (document.getElementById('source-viewer') || { dataset: {} }).dataset.openPath
+    : (diffCursor && diffCursor.path) || '';
+  if (!path) return false;
+  if (!window.kakapoClipboard || typeof window.kakapoClipboard.read !== 'function') return false;
+  if (!window.kakapoGit || typeof window.kakapoGit.compareClipboard !== 'function') return false;
+  var text = '';
+  try { text = String(window.kakapoClipboard.read() || ''); } catch (e) { text = ''; }
+  if (!text) { showToast(t('clipdiff.empty')); return true; }
+  Promise.resolve(window.kakapoGit.compareClipboard(path, text)).then(function (patch) {
+    if (!pageAlive()) return;
+    var body = typeof patch === 'string' ? patch : '';
+    if (!body.trim()) { showToast(t('clipdiff.same').replace('{path}', path)); return; }
+    // A synthetic entry in the same map every other file lives in, so the tabs, the caret, ⌘F and the
+    // whitespace marks all work on it without knowing where it came from. Named for what it is.
+    var synthetic = path + ' ↔ clipboard.diff';
+    sourceByPath.set(synthetic, {
+      path: synthetic,
+      name: synthetic,
+      language: 'diff',
+      content: body,
+      size: body.length,
+      changed: false,
+      embedded: true,
+      changedLines: [],
+      signature: '',
+      library: true, // read-only, and not part of the project index
+      __loaded: true,
+    });
+    openSourceFile(synthetic, true);
+  }, function () {
+    if (pageAlive()) showToast(t('clipdiff.same').replace('{path}', path));
+  });
+  return true;
+}
+
 // "path:line" for the current caret — source view (the painted file) or the diff caret. '' if neither.
 function caretLocation() {
   if (isSourceViewerVisible()) {

@@ -987,6 +987,20 @@ function scheduleSourceFill() {
   }, 16);
 }
 
+/**
+ * A line's highlighted HTML: the language server's tokens where it has sent any for that line, and the
+ * hand tokenizer everywhere else.
+ *
+ * Per LINE rather than per file, because a server's answer is sparse — it sends tokens for the code it
+ * recognised and nothing for a blank line or one it has no opinion about. Falling back per line keeps
+ * those lines coloured instead of plain.
+ */
+function sourceLineHtml(line, byLine, index, language) {
+  var tokens = byLine ? byLine.get(index) : null;
+  if (tokens && tokens.length) return semanticLineHtml(line, tokens);
+  return highlightLine(line, language);
+}
+
 function renderSourceTable(file, query) {
   const normalizedQuery = query.trim().toLowerCase();
   const lines = file.content.split(/\r?\n/);
@@ -997,6 +1011,8 @@ function renderSourceTable(file, query) {
   // Markup files carry two other languages inside them; everything else is one language for every line.
   const lineLanguages = renderLanguage === 'markup' ? markupBlockLanguages(lines) : null;
   const languageAt = (index) => (lineLanguages ? lineLanguages[index] : renderLanguage);
+  // The server's own tokens for this file, if it has answered. One lookup per render, not per line.
+  const semanticByLine = renderLanguage === 'text' ? null : semanticTokensFor(file.path);
   const cursor = viewerCursor && viewerCursor.path === file.path ? viewerCursor : null;
   const changedSet = new Set(file.changedLines || []);
   // Bookmarked lines get a gutter mark. Read once per render rather than per row, and written here so a
@@ -1050,7 +1066,7 @@ function renderSourceTable(file, query) {
         + (mnemonic ? ' data-bookmark-mnemonic="' + escapeHtml(mnemonic) + '"'
           + ' style="--bookmark-mark: \'' + escapeHtml(mnemonic) + '\'"' : '') + '>',
       '<td class="num">' + String(index + 1) + '</td>',
-      '<td class="source-code">' + markWhitespaceRuns(highlightLine(line, languageAt(index))) + foldButton + '</td>',
+      '<td class="source-code">' + markWhitespaceRuns(sourceLineHtml(line, semanticByLine, index, languageAt(index))) + foldButton + '</td>',
       '</tr>',
     ].join('');
   };
