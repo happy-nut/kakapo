@@ -147,10 +147,39 @@ function applyFileFindHighlights() {
 
 function scheduleFileFindHighlights() {
   if (fileFindHighlightFrame) cancelAnimationFrame(fileFindHighlightFrame);
+  var owned = fileFindOwnsKeyboard();
   fileFindHighlightFrame = requestAnimationFrame(function () {
     fileFindHighlightFrame = 0;
     applyFileFindHighlights();
+    keepFileFindFocus(owned);
   });
+}
+
+function fileFindOwnsKeyboard() {
+  return Boolean(fileFindInput && document.activeElement === fileFindInput);
+}
+
+// Typing is the one thing this bar must never interrupt, and publishing results is not a small act: it
+// reveals a file, expands a fold, repaints a window of a large file and scrolls. Any of that may take DOM
+// focus, and the code surfaces bind no plain letters — so a field that quietly lost the keyboard looks
+// exactly like a field that stopped accepting input, with every following keystroke going nowhere.
+// One invariant at the single place every refresh passes through, rather than a guard per caller: if the
+// field held the keyboard before the work and the bar is still open, it holds it after.
+function keepFileFindFocus(owned) {
+  if (!owned || !fileFindInput || !isFileFindOpen()) return;
+  if (document.activeElement === fileFindInput) return;
+  try { fileFindInput.focus({ preventScroll: true }); } catch (e) { try { fileFindInput.focus(); } catch (ignore) {} }
+}
+
+// Where the keyboard goes when the bar closes because the reviewer left the file it was about. Navigation
+// already decided which surface they are on; this hands it the keys so they answer.
+function focusFileFindSurface() {
+  var content = isSourceViewerVisible()
+    ? document.getElementById('source-body')
+    : document.getElementById('diff2html-container');
+  if (!content) return;
+  content.tabIndex = -1;
+  try { content.focus({ preventScroll: true }); } catch (e) { try { content.focus(); } catch (ignore) {} }
 }
 
 function updateFileFindChrome() {
@@ -207,6 +236,7 @@ function collectDiffFindResults(wrapper, query) {
 
 function finishFileFindResults(revision, results, options) {
   if (revision !== fileFindRevision || !isFileFindOpen()) return;
+  var owned = fileFindOwnsKeyboard();
   var previous = options && options.preserveActive && fileFindResults[fileFindActive];
   fileFindResults = results;
   fileFindActive = results.length ? 0 : -1;
@@ -220,8 +250,9 @@ function finishFileFindResults(revision, results, options) {
     if (same >= 0) fileFindActive = same;
   }
   updateFileFindChrome();
-  if (results.length && options && options.revealFirst) revealFileFindResult(fileFindActive);
+  if (results.length && options && options.revealFirst) previewFileFindResult(fileFindActive);
   else scheduleFileFindHighlights();
+  keepFileFindFocus(owned);
 }
 
 function refreshFileFindResults(options) {
@@ -277,9 +308,43 @@ function expandSourceFindResult(result) {
   return changed;
 }
 
+function fileFindIndexAt(index) {
+  return ((index % fileFindResults.length) + fileFindResults.length) % fileFindResults.length;
+}
+
+// IntelliJ's "Scroll to results during typing" (FindSettings.SCROLL_TO_RESULTS_DURING_TYPING, on by
+// default): while the query is still being typed the VIEW follows the first match. It does not place the
+// editor caret there — EditorSearchSession passes that setting as `allowedToChangedEditorSelection`, and
+// restores the caret it started from when the field is cleared.
+//
+// kakapo called setDiffCursor/setSourceCursor on every keystroke instead, which is not a scroll: it moved
+// the caret, dropped any selection, re-asserted the active hunk, cleared the caret hint, and pushed one
+// entry per CHARACTER into the ⌘[/⌘] history — so a six-letter query cost six positions, and going back
+// walked the word backwards. The caret is where the reviewer is; a query they are still typing is not a
+// position yet. It moves on Enter / ⌘G / the arrow buttons, and once more when the bar closes.
+function previewFileFindResult(index) {
+  if (!fileFindResults.length) return;
+  fileFindActive = fileFindIndexAt(index);
+  var result = fileFindResults[fileFindActive];
+  if (result.kind === 'diff') {
+    var wrapper = diffWrapperByPath(result.path);
+    // Same reason setDiffCursor does it: a match in a file that is not the visible one has nothing on
+    // screen to scroll to, and revealing also materializes a lazy body so its rows exist to be found.
+    if (wrapper && wrapper.classList && wrapper.classList.contains('df-inactive')) revealDiffFile(result.path);
+    var row = wrapper && diffRowAt(wrapper, result.side, result.rowIndex);
+    if (row) scrolloffReveal(row, document.getElementById('diff2html-container'), 0.15);
+  } else {
+    expandSourceFindResult(result); // a match inside a folded region is not shown until the fold opens
+    var sourceRow = sourceFindRow(result.lineIndex);
+    if (sourceRow) scrolloffReveal(sourceRow, document.getElementById('source-body'), 0.15);
+  }
+  updateFileFindChrome();
+  scheduleFileFindHighlights();
+}
+
 function revealFileFindResult(index) {
   if (!fileFindResults.length) return;
-  fileFindActive = ((index % fileFindResults.length) + fileFindResults.length) % fileFindResults.length;
+  fileFindActive = fileFindIndexAt(index);
   var result = fileFindResults[fileFindActive];
   if (result.kind === 'diff') {
     setDiffCursor(result.path, result.side, result.rowIndex, result.column, true);
@@ -312,15 +377,28 @@ function openFileFind() {
     if (importFold) openDiffImportFold(importFold);
   }
   positionFileFind();
-  if (fileFindInput.value) scheduleFileFindRefresh({ preserveActive: true });
-  else refreshFileFindResults({ preserveActive: true });
+  // The keyboard moves first, THEN the search runs. The other order looks equivalent and is not: the first
+  // refresh schedules the highlight pass, and that pass asks "did the field own the keyboard" to decide
+  // whether to keep it — asked before the focus call, the answer was no, so the one paint that lands while
+  // the reviewer is typing their first characters was the one paint allowed to leave focus elsewhere.
   fileFindInput.focus({ preventScroll: true });
   fileFindInput.select();
+  if (fileFindInput.value) scheduleFileFindRefresh({ preserveActive: true });
+  else refreshFileFindResults({ preserveActive: true });
   return true;
 }
 
 function closeFileFind(restoreFocus) {
   if (!fileFindPanel) return;
+  // Esc ends the search AT the match, the way IntelliJ does: typing only scrolled the view, so without this
+  // a reviewer who typed, found the line and pressed Esc would be returned to where they started with
+  // nothing to show for it. A close caused by LEAVING the file (restoreFocus === false) places nothing —
+  // the match belongs to a file that is no longer on screen.
+  if (restoreFocus !== false && fileFindActive >= 0 && fileFindResults[fileFindActive]) {
+    var landing = fileFindResults[fileFindActive];
+    if (landing.kind === 'diff') setDiffCursor(landing.path, landing.side, landing.rowIndex, landing.column, true);
+    else setSourceCursor(landing.path, landing.lineIndex, landing.column, true, landing.lineIndex);
+  }
   fileFindRevision += 1;
   cancelScheduledFileFindRefresh();
   if (fileFindHighlightFrame) cancelAnimationFrame(fileFindHighlightFrame);
@@ -342,7 +420,17 @@ function refreshFileFindForActiveView() {
   // Moved to another file: the search ends with the file it was about. Closing without restoring focus is
   // deliberate — navigation already decided where the reviewer is, and pulling focus back to whatever held it
   // when ⌘F opened would undo that.
-  if (fileFindSurfacePath() !== fileFindPath) { closeFileFind(false); return; }
+  //
+  // But "not pulling focus back" was implemented as leaving it NOWHERE: the field was hidden while it still
+  // held the keyboard, so focus fell to <body>, which binds no plain letters. Everything typed next went
+  // nowhere — the field had not stopped accepting input, it had stopped existing while still holding the
+  // keys. Hand them to the surface navigation chose.
+  if (fileFindSurfacePath() !== fileFindPath) {
+    var owned = fileFindOwnsKeyboard();
+    closeFileFind(false);
+    if (owned) focusFileFindSurface();
+    return;
+  }
   positionFileFind();
   scheduleFileFindRefresh({ preserveActive: true });
 }

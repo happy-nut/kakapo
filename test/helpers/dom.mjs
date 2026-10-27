@@ -471,6 +471,33 @@ class Viewer {
     else el.textContent = value;
     el.dispatchEvent(new this.window.Event("input", { bubbles: true }));
   }
+  /**
+   * Type the way a hand does: one character at a time, each with its own keydown, and the page's own work
+   * allowed to run between them.
+   *
+   * `typeInto` sets the whole value and fires ONE input event, so no test using it has ever asked whether
+   * the second keystroke arrives — and that is the only question some bugs answer. A per-character refresh
+   * builds up state between two keys (focus moved, a file revealed, a window repainted), and this is where
+   * it becomes visible.
+   *
+   * A real browser inserts the character only when the field still owns the keyboard and nothing cancelled
+   * the key, so both conditions are modelled: if focus was stolen or the keydown was consumed, the
+   * character does NOT appear — exactly as the reviewer experiences it.
+   */
+  async typeChars(el, text, settleMs = 120) {
+    if (!el) throw new Error("typeChars: element not found");
+    el.focus();
+    for (const ch of text) {
+      const event = new this.window.KeyboardEvent("keydown", { key: ch, bubbles: true, cancelable: true });
+      el.dispatchEvent(event);
+      if (!event.defaultPrevented && this.document.activeElement === el) {
+        el.value += ch;
+        el.dispatchEvent(new this.window.Event("input", { bubbles: true }));
+      }
+      await this.settle(settleMs);
+    }
+    return el.value;
+  }
 
   // ---- viewer vocabulary -----------------------------------------------------------------------
   async openSourceFile(path) {

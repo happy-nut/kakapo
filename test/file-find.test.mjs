@@ -188,3 +188,129 @@ test("the find bar belongs to one file and closes when the reviewer moves to ano
   assert.equal(v.window.__kakapoFileFind.results().length, 0, "and takes its results with it");
   v.close();
 });
+
+// ---- what the field owes the hand typing into it -------------------------------------------------
+//
+// Everything below types one character at a time (typeChars), which is the only way these show up:
+// typeInto sets the whole value and fires one input event, so the state that a per-character refresh
+// builds up between two keys never exists.
+
+test("typing in the find field scrolls to the match without moving the caret", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/one.ts");
+  const before = v.caretLine();
+
+  v.key("f", { metaKey: true, code: "KeyF" });
+  await v.typeChars(v.$("#file-find-input"), "secondNeedle");
+
+  const api = v.window.__kakapoFileFind;
+  assert.equal(api.results().length, 1, "the query found its match");
+  assert.equal(api.active(), 0, "and the bar points at it");
+  assert.equal(v.caretLine(), before, "but the caret did not follow a query that is still being typed");
+
+  v.key("Enter");
+  await v.settle(40);
+  assert.equal(v.caretLine(), api.results()[0].lineIndex + 1, "Enter is what moves it");
+  v.close();
+});
+
+// Before this, the reveal ran on every keystroke, and a reveal is a caret placement: setSourceCursor
+// records one entry in the ⌘[/⌘] history, drops the selection, re-asserts the active hunk and repaints the
+// file when the match sits inside a fold. A six-letter query cost six of those. Counted at the source
+// rather than through the history, because the history coalesces nearby moves and would hide the trail in
+// a small file — the call is the thing that should not happen.
+test("typing in the find field places no caret at all, and one Enter places one", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/one.ts");
+  const placeCaret = v.window.setSourceCursor;
+  let placements = 0;
+  v.window.setSourceCursor = function (...args) { placements += 1; return placeCaret.apply(this, args); };
+
+  v.key("f", { metaKey: true, code: "KeyF" });
+  await v.typeChars(v.$("#file-find-input"), "secondNeedle");
+  assert.equal(placements, 0, "twelve characters are not twelve places the reviewer went");
+
+  v.key("Enter");
+  await v.settle(40);
+  assert.equal(placements, 1, "arriving at the match is one");
+  v.window.setSourceCursor = placeCaret;
+  v.close();
+});
+
+// The reveal runs the view's own machinery — repaint, fold expansion, file reveal — and any of it may take
+// DOM focus. The code surfaces bind no plain letters, so a field that silently lost the keyboard reads as a
+// field that stopped accepting input. Both halves of the publish are checked: the synchronous one and the
+// frame-deferred highlight pass.
+test("the find field keeps the keyboard when the reveal steals focus", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/one.ts");
+  const thief = v.$("#source-body");
+  const original = v.window.expandSourceFindResult;
+  v.window.expandSourceFindResult = function (result) {
+    thief.tabIndex = -1;
+    thief.focus();
+    return original.call(this, result);
+  };
+
+  v.key("f", { metaKey: true, code: "KeyF" });
+  const typed = await v.typeChars(v.$("#file-find-input"), "needle");
+
+  assert.equal(typed, "needle", "every character after the first one arrived");
+  assert.equal(v.document.activeElement, v.$("#file-find-input"), "and the field still owns the keyboard");
+  v.window.expandSourceFindResult = original;
+  v.close();
+});
+
+test("the find field keeps the keyboard when the highlight pass steals focus", async () => {
+  const v = await loadViewer(html);
+  await v.openSourceFile("src/one.ts");
+  const thief = v.$("#source-body");
+  const original = v.window.applyFileFindHighlights;
+  v.window.applyFileFindHighlights = function () {
+    const result = original.call(this);
+    thief.tabIndex = -1;
+    thief.focus();
+    return result;
+  };
+
+  v.key("f", { metaKey: true, code: "KeyF" });
+  const typed = await v.typeChars(v.$("#file-find-input"), "needle");
+
+  assert.equal(typed, "needle", "every character arrived");
+  assert.equal(v.document.activeElement, v.$("#file-find-input"), "and the field still owns the keyboard");
+  v.window.applyFileFindHighlights = original;
+  v.close();
+});
+
+// Closing the bar used to hide it while it still held the keyboard, which left focus on <body> — a surface
+// that binds no plain letters, so the reviewer's next keystroke went nowhere and the field looked like it
+// had stopped accepting input.
+//
+// The file changes here the way a --watch rebuild changes it: the active wrapper moves with no navigation
+// of its own, so nothing else is handing the keyboard anywhere. Going through openDiffFor instead would
+// pass without the fix, because that path focuses the container itself — the control caught exactly that.
+test("closing the bar on a file change hands the keyboard to the content, not to nothing", async () => {
+  const { html: two } = await makeReviewHtml([
+    { path: "src/first.ts", before: "export const value = 1;\n", after: "export const value = 2;\n" },
+    { path: "src/second.ts", before: "export const other = 1;\n", after: "export const other = 3;\n" },
+  ]);
+  const v = await loadViewer(two);
+  await v.openDiffFor("src/first.ts");
+
+  v.key("f", { metaKey: true, code: "KeyF" });
+  await v.typeChars(v.$("#file-find-input"), "value");
+  assert.equal(v.document.activeElement, v.$("#file-find-input"), "the field owns the keyboard");
+
+  v.window.showOnlyFile("src/second.ts");
+  v.window.__kakapoFileFind.refresh();
+  await v.settle(140);
+
+  assert.ok(v.$("#file-find").classList.contains("hidden"), "the bar still ends with its file");
+  assert.notEqual(v.document.activeElement, v.document.body, "the keyboard did not fall to the document");
+  assert.equal(
+    v.document.activeElement,
+    v.$("#diff2html-container"),
+    "it went to the surface the reviewer is now looking at",
+  );
+  v.close();
+});
