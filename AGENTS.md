@@ -46,3 +46,9 @@ written anywhere else is a copy that will drift. Give the row its label in `src/
 and, if it is dispatched, an entry in `SHORTCUT_ACTIONS` (`src/viewer/05-keymap.js`); a handler returning
 false declines the key. Mark a row `fixed` only when the page genuinely cannot rebind it — a menu
 accelerator, or a standard key of the surface. Mention it in the READMEs when it is worth knowing about.
+
+A chord the application menu holds never reaches the page: Electron consumes a menu accelerator before any
+renderer keydown runs, so such a row is advertised everywhere and fires nowhere, and jsdom tests stay green
+because they dispatch keydown straight at the page. `test/menu-accelerators.test.mjs` builds the real menu
+and checks the table against it; a row may collide only when it says `fixed: "menu"` or when the menu item
+forwards the key on with `sendToFocused`.
