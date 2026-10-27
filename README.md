@@ -264,8 +264,12 @@ the filter would be wrong for every block comment and multi-line string. Find in
 honest about being a heuristic.
 
 **Find in Files' three modifiers** (`⌥M` match case, `⌥W` whole words, `⌥X` regular expression) —
-IntelliJ's `Cc`, `W` and `.*`, one ripgrep flag each, with `⌥E` for a file mask and `⌥P` to drop comments
-and tests as before. With none of them on the search is what it always was: smart-case (a lower-case query
+IntelliJ's `Cc`, `W` and `.*`, one ripgrep flag each, with `⌥P` to drop comments
+and tests as before. `⌥E` is IntelliJ's **file mask** (`find.popup.filemask`) and now takes what IntelliJ
+takes: comma-separated globs with `!` to exclude, so `*Service*.java` and `*.ts, !*.d.ts` mean what they
+look like. It used to reduce every entry to a bare extension — `*.ts` worked, `*Service*.java` matched
+nothing and `!*.min.js` was dropped without a word. ripgrep reads the `!` itself, and a standalone HTML
+review, which has no ripgrep to ask, applies the same rule in the page. With none of them on the search is what it always was: smart-case (a lower-case query
 ignores case, a query with a capital in it does not) and literal. A pattern that does not compile is named
 as a bad pattern rather than searched for — "no matches" for a typo in a regex is a wrong answer a reviewer
 would believe — and a standalone HTML review, which has no ripgrep to ask, applies the same three

@@ -21,6 +21,12 @@ export type ProjectSearchResult = {
 };
 
 export type ProjectSearchOptions = {
+  /**
+   * IntelliJ's file mask: comma-separated globs over the file name, `!` to exclude (`*.ts, !*.d.ts`).
+   * `extensions` is the name it had when it only took `ts`; both are read so a standalone review built by
+   * an older build keeps filtering.
+   */
+  masks?: string[];
   extensions?: string[];
   excludeCommentsAndTests?: boolean;
   /**
@@ -116,17 +122,64 @@ export function findRipgrepBinary(env: NodeJS.ProcessEnv = process.env, platform
   return Array.from(new Set(candidates)).find((candidate) => existsSync(candidate) && executable(candidate));
 }
 
-export function normalizeProjectSearchExtensions(values: unknown): string[] {
+/**
+ * IntelliJ's file mask (FindBundle's `find.popup.filemask`), as the globs it comes down to.
+ *
+ * It used to take bare EXTENSIONS: every entry was stripped to its last component and matched with
+ * `endsWith`, so `*.ts` worked, `*Service*.java` matched nothing and `!*.min.js` was dropped on the floor
+ * without a word. IntelliJ's mask is a comma-separated list of globs where a leading `!` excludes, and
+ * ripgrep's own `--glob` speaks exactly that — so the mask passes through rather than being reduced.
+ *
+ * Kept deliberately narrow: a mask names FILES, so a `/` would be a path filter, which is what the scope
+ * is for (and what includePaths/excludePaths carry). Anything with a slash, a `..`, or beyond the length
+ * budget is dropped, as before.
+ */
+export function normalizeProjectSearchMasks(values: unknown): string[] {
   if (!Array.isArray(values)) return [];
   const seen = new Set<string>();
   return values
-    .map((value) => String(value ?? "").trim().toLowerCase().replace(/^\*?\./, ""))
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .map((value) => {
+      const negated = value.startsWith("!");
+      const body = negated ? value.slice(1).trim() : value;
+      // A bare extension is still a mask — `.ts`, `ts` and `*.ts` all mean the same thing to a reviewer.
+      const glob = /^\.?[a-z0-9][a-z0-9._+-]*$/.test(body) && !body.includes("*")
+        ? `*.${body.replace(/^\./, "")}`
+        : body;
+      return (negated ? "!" : "") + glob;
+    })
     .filter((value) => {
-      if (!value || !/^[a-z0-9][a-z0-9._+-]{0,31}$/.test(value) || seen.has(value)) return false;
+      const body = value.startsWith("!") ? value.slice(1) : value;
+      if (!body || body.length > 48 || body.includes("/") || body.includes("..") || seen.has(value)) return false;
+      if (!/^[a-z0-9*?._+\-\[\]{},]+$/.test(body)) return false;
       seen.add(value);
       return true;
     })
     .slice(0, 20);
+}
+
+/** One mask as a regular expression over the file's NAME. `*` and `?` only — ripgrep does the real work. */
+function maskToRegExp(mask: string): RegExp {
+  const pattern = mask
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*/g, "[^/]*")
+    .replace(/\?/g, "[^/]");
+  return new RegExp(`^${pattern}$`);
+}
+
+/**
+ * Does this path pass the mask list?
+ *
+ * The same rule ripgrep applies, mirrored for the standalone HTML review that has no ripgrep to ask: a
+ * path must match at least one including mask (or there must be none), and no excluding one.
+ */
+export function projectSearchMaskAllows(path: string, masks: string[]): boolean {
+  if (!masks.length) return true;
+  const name = path.replace(/\\/g, "/").toLowerCase().split("/").pop() || "";
+  const include = masks.filter((mask) => !mask.startsWith("!"));
+  const exclude = masks.filter((mask) => mask.startsWith("!")).map((mask) => mask.slice(1));
+  if (exclude.some((mask) => maskToRegExp(mask).test(name))) return false;
+  return !include.length || include.some((mask) => maskToRegExp(mask).test(name));
 }
 
 function isTestPath(path: string): boolean {
@@ -153,9 +206,8 @@ function isLikelyCommentMatch(match: ProjectSearchMatch): boolean {
 }
 
 export function projectSearchMatchAllowed(match: ProjectSearchMatch, options: ProjectSearchOptions = {}): boolean {
-  const extensions = normalizeProjectSearchExtensions(options.extensions);
-  const path = match.path.toLowerCase();
-  if (extensions.length && !extensions.some((extension) => path.endsWith(`.${extension}`))) return false;
+  const masks = normalizeProjectSearchMasks(options.masks ?? options.extensions);
+  if (!projectSearchMaskAllows(match.path, masks)) return false;
   const include = normalizeSearchPaths(options.includePaths);
   const exclude = normalizeSearchPaths(options.excludePaths);
   if (include.length && !include.some((prefix) => underSearchPath(match.path, prefix))) return false;
@@ -198,9 +250,9 @@ export function searchGlobLiteral(path: string): string {
 export function searchProject(root: string, query: string, limit = 500, options: ProjectSearchOptions = {}): Promise<ProjectSearchResult> {
   const needle = String(query ?? "").slice(0, 500);
   const maxResults = Math.max(1, Math.min(Number(limit) || 500, 2000));
-  const extensions = normalizeProjectSearchExtensions(options.extensions);
+  const masks = normalizeProjectSearchMasks(options.masks ?? options.extensions);
   const normalizedOptions: ProjectSearchOptions = {
-    extensions,
+    masks,
     excludeCommentsAndTests: options.excludeCommentsAndTests === true,
     matchCase: options.matchCase === true,
     wholeWords: options.wholeWords === true,
@@ -245,7 +297,8 @@ export function searchProject(root: string, query: string, limit = 500, options:
     const args = ["--json", "--no-config", normalizedOptions.matchCase ? "--case-sensitive" : "--smart-case"];
     if (!normalizedOptions.regex) args.push("--fixed-strings");
     if (normalizedOptions.wholeWords) args.push("--word-regexp");
-    for (const extension of extensions) args.push("--glob", `*.${extension}`);
+    // ripgrep reads `!glob` as an exclusion itself, which is the same spelling IntelliJ's mask uses.
+    for (const mask of masks) args.push("--glob", mask);
     // An exclusion has to stay a glob — there is no "search everywhere but here" path argument — so the
     // directory name is escaped into one that means only itself.
     for (const prefix of normalizedOptions.excludePaths ?? []) args.push("--glob", `!${searchGlobLiteral(prefix)}/**`);

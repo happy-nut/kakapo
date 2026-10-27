@@ -32,6 +32,9 @@ Run with:
 - [ ] G8: the real app types five characters into the bar and the bar still owns the keyboard
   CHECK: npm run nav:smoke 2>&1 | tail -4
   EXPECT: 35/35 checks passed
+- [ ] G13: the Find in Files file mask takes globs and exclusions
+  CHECK: node --test test/search.test.mjs test/quick-open.test.mjs 2>&1 | grep -c "^ok [0-9]* - \(the Find in Files file mask\|project search normalizes\)"
+  EXPECT: ^2$
 - [ ] G9: positive control — the searches a reviewer already ran still work
   CHECK: node --test test/file-find.test.mjs 2>&1 | grep -c "^ok [0-9]* - \(Cmd+F searches only\|diff search stays inside\|search reveals matches inside\)"
   EXPECT: ^3$

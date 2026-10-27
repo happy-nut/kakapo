@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rgPath } from "@vscode/ripgrep";
-import { findRipgrepBinary, normalizeProjectSearchExtensions, parseRipgrepJsonLine, searchProject } from "../dist/search.js";
+import { findRipgrepBinary, normalizeProjectSearchMasks, parseRipgrepJsonLine, projectSearchMaskAllows, searchProject } from "../dist/search.js";
 
 test("project search resolves the bundled ripgrep without relying on PATH", async () => {
   assert.equal(findRipgrepBinary({ PATH: "" }), rgPath);
@@ -41,7 +41,15 @@ test("ripgrep JSON parser ignores summary and malformed stream messages", () => 
 });
 
 test("project search normalizes extension filters and excludes comments and test files", async () => {
-  assert.deepEqual(normalizeProjectSearchExtensions([".TS", "*.py", "ts", "bad/path"]), ["ts", "py"]);
+  // IntelliJ's mask, not a bare extension: a plain `ts` still means `*.ts` (that is what the field always
+  // took), a glob passes through, `!` excludes, and a path is still not a mask — that is what the scope is.
+  assert.deepEqual(normalizeProjectSearchMasks([".TS", "*.py", "ts", "bad/path"]), ["*.ts", "*.py"]);
+  assert.deepEqual(normalizeProjectSearchMasks(["*Service*.java", "!*.min.js"]), ["*service*.java", "!*.min.js"]);
+  assert.ok(projectSearchMaskAllows("src/api/UserService.java", ["*service*.java"]));
+  assert.ok(!projectSearchMaskAllows("src/api/User.java", ["*service*.java"]));
+  assert.ok(projectSearchMaskAllows("src/app.ts", ["*.ts", "!*.d.ts"]));
+  assert.ok(!projectSearchMaskAllows("src/app.d.ts", ["*.ts", "!*.d.ts"]), "an exclusion beats an inclusion");
+  assert.ok(projectSearchMaskAllows("src/anything.rb", []), "no mask filters nothing");
   const root = await mkdtemp(join(tmpdir(), "kakapo-search-"));
   try {
     await mkdir(join(root, "src"), { recursive: true });

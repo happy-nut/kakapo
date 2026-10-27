@@ -617,7 +617,9 @@ export function renderDiffHtml(input: {
     '<div class="quick-open-title"><span id="quick-open-mode" data-i18n="quickopen.searchFiles">Search files</span><span id="quick-open-filter" class="quick-open-filter"></span></div>',
     '<input id="quick-open-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.searchFiles" placeholder="Search files">',
     '<div id="quick-open-search-options" class="quick-open-search-options">',
-    '<label class="quick-open-extension-field" for="quick-open-extensions"><span data-i18n="quickopen.extensions">Extensions</span><input id="quick-open-extensions" type="text" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.extensionsPlaceholder" placeholder="All · .py, .ts" title="Filter extensions (Option+E)"></label>',
+    // IntelliJ calls this the file mask (FindBundle's find.popup.filemask) and takes comma-separated globs
+    // in it, `!` to exclude. So does this now; it used to reduce every entry to a bare extension.
+    '<label class="quick-open-extension-field" for="quick-open-extensions"><span data-i18n="quickopen.fileMask">File mask</span><input id="quick-open-extensions" type="text" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.fileMaskPlaceholder" placeholder="All · *.ts, !*.d.ts" title="File mask (Option+E)"></label>',
     '<button type="button" id="quick-open-exclude-noise" class="quick-open-option-toggle" aria-pressed="false"' + keyHint('excludeSearchNoise') + '><span class="quick-open-option-check" aria-hidden="true"></span><span data-i18n="quickopen.excludeNoise">Exclude comments &amp; tests</span></button>',
     // IntelliJ's scope selector. The scopes are its own predefined ones, minus the ones this app has no
     // answer for (no library sources are indexed, and every file here is a project file).

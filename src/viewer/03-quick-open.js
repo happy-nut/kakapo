@@ -477,20 +477,57 @@ async function runWorkspaceSymbolSearch(query, seq) {
   renderWorkspaceSymbolResults(query);
 }
 
-function contentSearchExtensions() {
+/**
+ * IntelliJ's file mask, as typed: a comma-separated list of globs over the file name, `!` to exclude.
+ *
+ * The field used to reduce every entry to an extension, so `*Service*.java` matched nothing and `!*.min.js`
+ * was dropped silently. The entries pass through now and src/search.ts hands them to ripgrep's own
+ * `--glob`, which reads the same spelling including the `!`. A bare `ts` or `.ts` still means `*.ts` —
+ * that is what a reviewer typing in this field means, and it is what the field used to accept.
+ */
+function contentSearchMasks() {
   var seen = new Set();
   return String(quickExtensionInput && quickExtensionInput.value || '')
     .split(/[\s,;]+/)
-    .map(function (value) { return value.trim().toLowerCase().replace(/^\*?\./, ''); })
+    .map(function (value) {
+      var text = value.trim().toLowerCase();
+      var negated = text.charAt(0) === '!';
+      var body = negated ? text.slice(1) : text;
+      if (body && !body.includes('*') && /^\.?[a-z0-9][a-z0-9._+-]*$/.test(body)) body = '*.' + body.replace(/^\./, '');
+      return (negated ? '!' : '') + body;
+    })
     .filter(function (value) {
-      if (!value || !/^[a-z0-9][a-z0-9._+-]{0,31}$/.test(value) || seen.has(value)) return false;
+      var body = value.charAt(0) === '!' ? value.slice(1) : value;
+      if (!body || body.length > 48 || body.indexOf('/') >= 0 || body.indexOf('..') >= 0 || seen.has(value)) return false;
+      if (!/^[a-z0-9*?._+\-\[\]{},]+$/.test(body)) return false;
       seen.add(value);
       return true;
     });
 }
-function contentSearchPathAllowed(path, extensions, excludeNoise) {
+
+/** One mask over a file NAME. `*` and `?` only; ripgrep does the real matching when there is a ripgrep. */
+function contentSearchMaskRegExp(mask) {
+  var pattern = String(mask)
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '[^/]*')
+    .replace(/\?/g, '[^/]');
+  return new RegExp('^' + pattern + '$');
+}
+
+function contentSearchMaskAllows(path, masks) {
+  if (!masks.length) return true;
+  var segments = String(path || '').replace(/\\/g, '/').toLowerCase().split('/');
+  var name = segments[segments.length - 1] || '';
+  var excluded = masks.some(function (mask) {
+    return mask.charAt(0) === '!' && contentSearchMaskRegExp(mask.slice(1)).test(name);
+  });
+  if (excluded) return false;
+  var include = masks.filter(function (mask) { return mask.charAt(0) !== '!'; });
+  return !include.length || include.some(function (mask) { return contentSearchMaskRegExp(mask).test(name); });
+}
+function contentSearchPathAllowed(path, masks, excludeNoise) {
   var normalized = String(path || '').replace(/\\/g, '/').toLowerCase();
-  if (extensions && extensions.length && !extensions.some(function (extension) { return normalized.endsWith('.' + extension); })) return false;
+  if (!contentSearchMaskAllows(normalized, masks || [])) return false;
   if (!excludeNoise) return true;
   var segments = normalized.split('/');
   var name = segments[segments.length - 1] || '';
@@ -534,13 +571,13 @@ function contentSearchLineIsComment(item) {
   });
 }
 function contentSearchItemAllowed(item, filters) {
-  return contentSearchPathAllowed(item && item.path, filters.extensions, filters.excludeNoise)
+  return contentSearchPathAllowed(item && item.path, filters.masks, filters.excludeNoise)
     && contentSearchScopeAllows(item && item.path, filters.scope)
     && (!filters.excludeNoise || !contentSearchLineIsComment(item));
 }
 function currentContentSearchFilters() {
   return {
-    extensions: contentSearchExtensions(),
+    masks: contentSearchMasks(),
     excludeNoise: contentSearchExcludeNoise,
     matchCase: contentSearchMatchCase,
     wholeWords: contentSearchWholeWords,
@@ -549,7 +586,7 @@ function currentContentSearchFilters() {
   };
 }
 function contentSearchRequestKey(query, filters) {
-  return JSON.stringify([query, filters.extensions, filters.excludeNoise,
+  return JSON.stringify([query, filters.masks, filters.excludeNoise,
     filters.matchCase, filters.wholeWords, filters.regex, filters.scope, projectCurrentModule()]);
 }
 function syncContentSearchControls() {
@@ -720,7 +757,7 @@ async function runContentSearch(query, seq, filters, requestKey) {
   try {
     if (window.kakapoSearch && typeof window.kakapoSearch.query === 'function') {
       var request = { query: query, limit: 500 };
-      if (filters.extensions.length) request.extensions = filters.extensions;
+      if (filters.masks.length) request.masks = filters.masks;
       if (filters.excludeNoise) request.excludeCommentsAndTests = true;
       if (filters.matchCase) request.matchCase = true;
       if (filters.wholeWords) request.wholeWords = true;
@@ -786,13 +823,13 @@ function localContentSearchMatcher(query, filters) {
 }
 
 function localContentSearch(query, limit, filters) {
-  filters = filters || { extensions: [], excludeNoise: false };
+  filters = filters || { masks: [], excludeNoise: false };
   var pattern = localContentSearchMatcher(query, filters);
   if (!pattern) return [];
   var out = [];
   for (var fi = 0; fi < sourceFiles.length && out.length < limit; fi++) {
     var file = sourceFiles[fi];
-    if (!file.embedded || !contentSearchPathAllowed(file.path, filters.extensions, filters.excludeNoise)) continue;
+    if (!file.embedded || !contentSearchPathAllowed(file.path, filters.masks, filters.excludeNoise)) continue;
     if (!contentSearchScopeAllows(file.path, filters.scope)) continue;
     var lines = String(file.content || '').split(/\r?\n/);
     for (var li = 0; li < lines.length && out.length < limit; li++) {
