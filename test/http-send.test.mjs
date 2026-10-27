@@ -6,6 +6,7 @@
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { performHttpRequest } from "../dist/server.js";
 import { collectHttpEnvironments } from "../dist/diff.js";
 import { cookieHeaderFor, readHttpAttachment, saveCookies, saveHttpResponse } from "../dist/http-files.js";
@@ -72,6 +73,18 @@ before(async () => {
         res.writeHead(401, {
           "www-authenticate": 'Digest realm="kakapo", qop="auth", nonce="abc123", opaque="op"',
         });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end(req.headers.authorization);
+      return;
+    }
+    // A Digest challenge the caller gets to dictate, so one fixture covers every algorithm and qop a
+    // server can ask for. The query is the WWW-Authenticate header, verbatim.
+    if (req.url?.startsWith("/challenge")) {
+      if (!req.headers.authorization) {
+        res.writeHead(401, { "www-authenticate": decodeURIComponent(req.url.split("?")[1] ?? "") });
         res.end();
         return;
       }
@@ -659,4 +672,188 @@ test("and the flows a reviewer actually runs are untouched", () => {
   assert.equal(j.get("https://paths.test/other"), "");
   j.save("https://expiry.test/", "gone=3; Path=/; Max-Age=0");
   assert.equal(j.get("https://expiry.test/"), "");
+});
+
+// --- Round 5: the multipart body is assembled by hand, so it inherited none of fetch's checks. ---
+// Every assertion below reads the body back through a REAL multipart parser (undici's, the same one a
+// server-side framework uses) rather than through a regex of our own, because the question is not what
+// bytes went out — it is what a server concludes the reviewer asked for.
+
+/** The fields a real parser extracts from the body that actually went on the wire. */
+async function fieldsOnTheWire(result) {
+  const echoed = JSON.parse(result.body);
+  const form = await new Response(Buffer.from(echoed.body, "base64"), {
+    headers: { "content-type": echoed.contentType },
+  }).formData();
+  return [...form.entries()].map(([name, value]) => [name, typeof value === "string" ? value : value.name]);
+}
+
+const upload = (boundary, bodyParts, context = {}) => performHttpRequest({
+  method: "POST", url: `${origin}/echo`,
+  headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+  boundary, bodyParts,
+}, context);
+
+const disposition = (name) => ({ "Content-Disposition": `form-data; name="${name}"` });
+
+/** The shape an encoder actually generates, and the length at which the boundary check never misfires. */
+const WEBKIT_BOUNDARY = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
+
+test("a multipart part whose content carries the delimiter is refused", async () => {
+  // The content is a {{variable}} away from being the server's own words: a value captured out of an
+  // earlier response, or an env value out of the reviewed repository. Two fields were written here.
+  const result = await upload("kakapo-boundary", [
+    {
+      headers: disposition("note"),
+      text: 'hi\r\n--kakapo-boundary\r\nContent-Disposition: form-data; name="role"\r\n\r\nadmin',
+    },
+    { headers: disposition("role"), text: "viewer" },
+  ]);
+  assert.equal(result.ok, false, "three fields would have arrived, the injected one first");
+  assert.match(result.error, /the part named note/);
+  assert.match(result.error, /contains the boundary kakapo-boundary/);
+});
+
+test("a multipart part whose content contains the bare boundary is refused as well", async () => {
+  // RFC 2046 says a delimiter is CRLF + `--boundary`, which would make this harmless. Measured against
+  // undici — Node's own `fetch`, and so the server side of most JS dev servers — it is not: the complete
+  // boundary string anywhere in a part, with no `--` and nowhere near a line start, makes it reject the
+  // whole body. A prefix of the boundary, or the boundary less one character, parses fine. The check can
+  // only be as narrow as the most eager parser that will read the body, which is this one.
+  const result = await upload(WEBKIT_BOUNDARY, [
+    { headers: disposition("note"), text: `see ${WEBKIT_BOUNDARY} for the separator` },
+    { headers: disposition("role"), text: "viewer" },
+  ]);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /contains the boundary/);
+});
+
+test("a multipart upload whose content does not contain the boundary is untouched", async () => {
+  // Including a near miss: a prefix of the boundary, which is what the strictness costs and does not.
+  const note = "dashes -- and ----WebKitFormBoundary, neither of them the whole thing";
+  const result = await upload(WEBKIT_BOUNDARY, [
+    { headers: disposition("note"), text: note },
+    { headers: disposition("role"), text: "viewer" },
+  ]);
+  assert.equal(result.ok, true, result.error);
+  assert.deepEqual(await fieldsOnTheWire(result), [["note", note], ["role", "viewer"]]);
+});
+
+test("a multipart part reading a file whose bytes carry the delimiter is refused", async () => {
+  // The same hole, reached by the path the reviewer is least able to check: a file in the repository
+  // under review, whose contents they never read, sent as a field's text.
+  const root = mkdtempSync(join(tmpdir(), "kakapo-mp-delim-"));
+  try {
+    writeFileSync(join(root, "note.txt"), 'hi\r\n--sep\r\nContent-Disposition: form-data; name="role"\r\n\r\nadmin');
+    const result = await upload("sep", [
+      // A file part's disposition carries `filename=` before `name=`, and the error has to name the field
+      // rather than the tail of the filename, or it points the reviewer at the wrong part.
+      { headers: { "Content-Disposition": 'form-data; filename="note.txt"; name="note"' }, file: "note.txt" },
+      { headers: disposition("role"), text: "viewer" },
+    ], { root });
+    assert.equal(result.ok, false);
+    assert.match(result.error, /^the part named note: /);
+    assert.match(result.error, /contains the boundary sep/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a part header with a line break in its value is refused", async () => {
+  // `fetch` throws on CRLF in a real header value. Nothing checked these, so the break closed the header
+  // block, added a part, and swallowed the reviewer's own value — `note` arrived as `injected`.
+  const result = await upload("kakapo-boundary", [
+    {
+      headers: {
+        ...disposition("note"),
+        "X-Tag": 'a\r\n\r\ninjected\r\n--kakapo-boundary\r\nContent-Disposition: form-data; name="role"\r\n\r\nadmin',
+      },
+      text: "hello",
+    },
+    { headers: disposition("role"), text: "viewer" },
+  ]);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /the header X-Tag has a line break/);
+});
+
+test("a part header with an ordinary value still goes out", async () => {
+  const result = await upload("sep", [
+    { headers: { ...disposition("file"), "Content-Type": "application/json; charset=utf-8" }, text: "{}" },
+  ]);
+  assert.equal(result.ok, true, result.error);
+  assert.deepEqual(await fieldsOnTheWire(result), [["file", "{}"]]);
+});
+
+// --- Round 5: Digest named an algorithm in the header and then ignored it. ---
+
+/**
+ * Recompute the response the way the server does — from the header's own fields, including the `uri` it
+ * claims to have signed — and say which hash it was actually built with.
+ */
+function digestHashUsed(header, user, password, method) {
+  const field = (name) => {
+    const match = new RegExp(`${name}=("[^"]*"|[^,]*)`).exec(header);
+    return match ? match[1].replace(/^"|"$/g, "") : undefined;
+  };
+  for (const algorithm of ["md5", "sha256", "sha512-256"]) {
+    const hash = (value) => createHash(algorithm).update(value, "utf8").digest("hex");
+    let ha1 = hash(`${user}:${field("realm")}:${password}`);
+    if (/-sess$/i.test(field("algorithm") ?? "")) ha1 = hash(`${ha1}:${field("nonce")}:${field("cnonce")}`);
+    const ha2 = hash(`${method}:${field("uri")}`);
+    const qop = field("qop");
+    const want = qop
+      ? hash(`${ha1}:${field("nonce")}:${field("nc")}:${field("cnonce")}:${qop}:${ha2}`)
+      : hash(`${ha1}:${field("nonce")}:${ha2}`);
+    if (want === field("response")) return algorithm;
+  }
+  return "none of them";
+}
+
+const challenged = (www) => performHttpRequest({
+  method: "GET", url: `${origin}/challenge?${encodeURIComponent(www)}`, headers: {},
+  auth: { type: "digest", user: "ada", password: "s3cret" },
+});
+
+test("digest with algorithm MD5 answers with an MD5 response", async () => {
+  const result = await challenged('Digest realm="k", qop="auth", nonce="abc", algorithm=MD5');
+  assert.equal(result.ok, true, result.error);
+  assert.match(result.body, /algorithm=MD5,/);
+  assert.equal(digestHashUsed(result.body, "ada", "s3cret", "GET"), "md5");
+});
+
+test("digest with algorithm SHA-256 answers with a SHA-256 response", async () => {
+  // It used to send an MD5 digest labelled `algorithm=SHA-256`: 32 hex characters where 64 were promised.
+  const result = await challenged('Digest realm="k", qop="auth", nonce="abc", algorithm=SHA-256');
+  assert.equal(result.ok, true, result.error);
+  assert.match(result.body, /algorithm=SHA-256,/);
+  assert.match(result.body, /response="[0-9a-f]{64}"/);
+  assert.equal(digestHashUsed(result.body, "ada", "s3cret", "GET"), "sha256");
+});
+
+test("digest with algorithm SHA-512-256 answers with a SHA-512-256 response", async () => {
+  const result = await challenged('Digest realm="k", qop="auth", nonce="abc", algorithm=SHA-512-256');
+  assert.equal(result.ok, true, result.error);
+  assert.equal(digestHashUsed(result.body, "ada", "s3cret", "GET"), "sha512-256");
+});
+
+test("digest echoes the algorithm name the server spelled, not an upper-cased copy of it", async () => {
+  // RFC 7616 registers `MD5-sess`; a server comparing the token literally rejects `MD5-SESS`.
+  const result = await challenged('Digest realm="k", qop="auth", nonce="abc", algorithm=MD5-sess');
+  assert.equal(result.ok, true, result.error);
+  assert.match(result.body, /algorithm=MD5-sess,/);
+  assert.equal(digestHashUsed(result.body, "ada", "s3cret", "GET"), "md5");
+});
+
+test("digest refuses an algorithm it cannot compute instead of answering with another one", async () => {
+  const result = await challenged('Digest realm="k", qop="auth", nonce="abc", algorithm=SHA3-512');
+  assert.equal(result.ok, false);
+  assert.match(result.error, /algorithm=SHA3-512, which kakapo cannot compute/);
+});
+
+test("digest will not drop to the RFC 2069 form when the server offers only auth-int", async () => {
+  // The old fallback sent no cnonce and no nc, which is the replayable 1999 form of the scheme — and the
+  // server that asked for auth-int would have rejected it anyway, as a bare 401 with nothing to read.
+  const result = await challenged('Digest realm="k", qop="auth-int", nonce="abc"');
+  assert.equal(result.ok, false);
+  assert.match(result.error, /qop=auth-int only; kakapo implements qop=auth/);
 });

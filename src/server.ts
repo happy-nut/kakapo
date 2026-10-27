@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { request as httpsRequest } from "node:https";
-import type { HttpSendRequest, HttpSendResult } from "./types.js";
+import type { HttpBodyPart, HttpSendRequest, HttpSendResult } from "./types.js";
 import { errorMessage } from "./util.js";
 import { cookieHeaderFor, readHttpAttachmentBytes, saveCookies } from "./http-files.js";
 
@@ -146,6 +146,61 @@ function isTextualContentType(contentType: string): boolean {
   return false;
 }
 
+/** The field a part is named after on the wire, for an error the reviewer can act on. */
+function multipartPartName(part: HttpBodyPart, index: number): string {
+  const disposition = Object.entries(part.headers || {})
+    .find(([name]) => name.toLowerCase() === "content-disposition")?.[1] ?? "";
+  // `name=` and not the tail of `filename=`, which comes first on a file part's disposition.
+  const named = /(?:^|[;\s])name\s*=\s*"?([^";]+)"?/i.exec(String(disposition));
+  return named ? `the part named ${named[1].trim()}` : `multipart part ${index + 1}`;
+}
+
+/**
+ * Whether `content` contains the boundary at all. RFC 2046 defines a delimiter as CRLF followed by
+ * `--boundary`, so in principle only a line start counts — but the check cannot be narrower than the most
+ * eager parser that will read the body, and real parsers are much more eager than that. Measured against
+ * undici, which is Node's own `fetch` and so the server side of most JS dev servers: it rejects the entire
+ * body when the complete boundary string appears anywhere in a part, with or without the `--` prefix and
+ * nowhere near a line start. A prefix of the boundary, or the boundary less one character, parses fine.
+ *
+ * So the rule is the one a real encoder keeps by construction: the boundary does not occur in the content.
+ * With a boundary of the length encoders actually generate this never fires by accident; with a three
+ * character boundary it fires often, and correctly, because that upload was going to fail anyway.
+ */
+function carriesMultipartDelimiter(content: Buffer, boundary: string): boolean {
+  return content.includes(boundary);
+}
+
+/**
+ * Whether a part would change the request's shape rather than fill it in. A part's header values and its
+ * bytes are both written into the body verbatim, so either can carry a line break or the delimiter and
+ * add parts nobody wrote. `fetch` rejects CRLF in a real header value, and a real multipart encoder
+ * chooses a boundary its content does not contain; this body is assembled by hand and inherited neither.
+ *
+ * The content is not the request author's to vouch for — it is a file out of the reviewed repository, or a
+ * value captured from a server's response — so the reviewer can read two fields and send five. Refusing by
+ * name keeps the request that was read the request that is sent; re-generating the boundary would also fix
+ * the collision, but then the wire would stop matching the `boundary=` the reviewer can see in the file.
+ */
+function multipartPartProblem(
+  part: HttpBodyPart, content: Buffer, boundary: string, index: number,
+): string | undefined {
+  const where = multipartPartName(part, index);
+  for (const [name, value] of Object.entries(part.headers || {})) {
+    const broken = /[\r\n]/.test(name) ? "name" : /[\r\n]/.test(String(value)) ? "value" : "";
+    if (broken) {
+      const shown = name.replace(/[\r\n]+/g, " ").trim() || "(unnamed)";
+      return `${where}: the header ${shown} has a line break in its ${broken}, `
+        + "which would add parts to the request that are not in the file";
+    }
+  }
+  if (carriesMultipartDelimiter(content, boundary)) {
+    return `${where}: its content contains the boundary ${boundary}, so the request on the wire would `
+      + "not be the one you read — give Content-Type a boundary the content does not contain";
+  }
+  return undefined;
+}
+
 /**
  * Assembles the request body. Three shapes arrive, and only the first is a plain string:
  * an inline body, a `< ./file` body (bytes, read here), and multipart parts (bytes per part, read here).
@@ -154,7 +209,7 @@ function requestBody(request: HttpSendRequest, root: string | undefined): Buffer
   if (request.bodyParts?.length) {
     const boundary = request.boundary || "kakapo-boundary";
     const pieces: Buffer[] = [];
-    for (const part of request.bodyParts) {
+    for (const [index, part] of request.bodyParts.entries()) {
       const headerLines = Object.entries(part.headers || {}).map(([name, value]) => `${name}: ${value}`);
       let content: Buffer;
       if (typeof part.file === "string" && part.file) {
@@ -165,6 +220,8 @@ function requestBody(request: HttpSendRequest, root: string | undefined): Buffer
       } else {
         content = Buffer.from(part.text ?? "", "utf8");
       }
+      const problem = multipartPartProblem(part, content, boundary, index);
+      if (problem) return { error: problem };
       pieces.push(Buffer.from(`--${boundary}\r\n${headerLines.join("\r\n")}${headerLines.length ? "\r\n" : ""}\r\n`, "utf8"));
       pieces.push(content);
       pieces.push(Buffer.from("\r\n", "utf8"));
@@ -197,29 +254,51 @@ function digestChallenge(header: string): Record<string, string> | undefined {
   return fields;
 }
 
-const md5 = (value: string): string => createHash("md5").update(value, "utf8").digest("hex");
+/**
+ * The algorithms a Digest challenge may name (RFC 7616 §6.1 plus RFC 2617's MD5), and the hash each one
+ * means. The name was previously echoed back into the header and then ignored: a server asking for
+ * SHA-256 was answered with an MD5 digest labelled `algorithm=SHA-256`, 32 hex characters where 64 were
+ * promised. A credential that claims the wrong algorithm is not a weaker credential, it is a wrong one.
+ */
+const DIGEST_HASHES: Record<string, string> = {
+  "MD5": "md5", "MD5-SESS": "md5",
+  "SHA-256": "sha256", "SHA-256-SESS": "sha256",
+  "SHA-512-256": "sha512-256", "SHA-512-256-SESS": "sha512-256",
+};
 
 /**
- * RFC 2617 Digest, with the qop="auth" extension every server that still offers Digest actually uses.
- * MD5 is not a choice here — it is what the scheme specifies, and the alternative is not supporting the
- * `Authorization: Digest user pass` line IntelliJ's own .http files are written with.
+ * RFC 2617/7616 Digest, with the qop="auth" extension every server that still offers Digest actually
+ * uses. Returns the reason instead of a header when the challenge asks for something this cannot compute:
+ * guessing produces a request that fails as a bare 401 with nothing to read, and the two ways of guessing
+ * are both worse than saying so — hashing with MD5 under another algorithm's name, or dropping to the
+ * RFC 2069 form (no cnonce, no nc, replayable) because the only qop offered was auth-int.
  */
 function digestHeader(
   challenge: Record<string, string>, method: string, url: URL, user: string, password: string,
-): string {
+): string | { error: string } {
   const uri = `${url.pathname}${url.search}`;
   const realm = challenge.realm ?? "";
   const nonce = challenge.nonce ?? "";
-  const algorithm = (challenge.algorithm ?? "MD5").toUpperCase();
+  // Echo the server's own spelling: RFC 7616 registers `MD5-sess`, and a server may compare it literally.
+  const algorithm = challenge.algorithm ?? "MD5";
+  const hashName = DIGEST_HASHES[algorithm.toUpperCase()];
+  if (!hashName) {
+    return { error: `the server asked for Digest algorithm=${algorithm}, which kakapo cannot compute` };
+  }
+  const offered = (challenge.qop ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+  if (offered.length && !offered.includes("auth")) {
+    return { error: `the server offers Digest qop=${offered.join(",")} only; kakapo implements qop=auth` };
+  }
+  const hash = (value: string): string => createHash(hashName).update(value, "utf8").digest("hex");
   const cnonce = randomBytes(8).toString("hex");
   const nc = "00000001";
-  const qop = (challenge.qop ?? "").split(",").map((value) => value.trim()).includes("auth") ? "auth" : "";
-  let ha1 = md5(`${user}:${realm}:${password}`);
-  if (algorithm === "MD5-SESS") ha1 = md5(`${ha1}:${nonce}:${cnonce}`);
-  const ha2 = md5(`${method}:${uri}`);
+  const qop = offered.includes("auth") ? "auth" : "";
+  let ha1 = hash(`${user}:${realm}:${password}`);
+  if (/-SESS$/.test(algorithm.toUpperCase())) ha1 = hash(`${ha1}:${nonce}:${cnonce}`);
+  const ha2 = hash(`${method}:${uri}`);
   const response = qop
-    ? md5(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`)
-    : md5(`${ha1}:${nonce}:${ha2}`);
+    ? hash(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`)
+    : hash(`${ha1}:${nonce}:${ha2}`);
   const fields = [
     `username="${user}"`, `realm="${realm}"`, `nonce="${nonce}"`, `uri="${uri}"`,
     `algorithm=${algorithm}`, `response="${response}"`,
@@ -311,9 +390,9 @@ export async function performHttpRequest(
     if (response.status === 401 && request.auth?.type === "digest") {
       const challenge = digestChallenge(response.headers.get("www-authenticate") ?? "");
       if (challenge?.nonce) {
-        response = await send(url, {
-          Authorization: digestHeader(challenge, method, url, request.auth.user, request.auth.password),
-        });
+        const authorization = digestHeader(challenge, method, url, request.auth.user, request.auth.password);
+        if (typeof authorization !== "string") return done({ ok: false, error: authorization.error, redirects });
+        response = await send(url, { Authorization: authorization });
       }
     }
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
