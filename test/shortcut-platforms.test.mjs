@@ -38,7 +38,7 @@ test("every ⌘ chord fires from Control as well as Command", async () => {
     { name: "⌘P", init: { key: "p", code: "KeyP" }, expect: "searchFiles" },
     { name: "⌘⇧E", init: { key: "e", code: "KeyE", shiftKey: true }, expect: "recentLocations" },
     { name: "⌘⇧B", init: { key: "b", code: "KeyB", shiftKey: true }, expect: "typeDeclaration" },
-    { name: "⌘⌥H", init: { key: "h", code: "KeyH", altKey: true }, expect: "callHierarchy" },
+    { name: "⌘⇧Y", init: { key: "y", code: "KeyY", shiftKey: true }, expect: "callHierarchy" },
     { name: "⌘⇧H", init: { key: "h", code: "KeyH", shiftKey: true }, expect: "typeHierarchy" },
     { name: "⌘U", init: { key: "u", code: "KeyU" }, expect: "goToSuper" },
     { name: "⌘F3", init: { key: "F3", code: "F3" }, expect: "showBookmarks" },

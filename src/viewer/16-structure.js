@@ -397,7 +397,7 @@ function hierarchyTitle(kind) {
   return t('hierarchy.' + kind);
 }
 
-/** ⌘⌥H / ⌘⇧H, and pressing the same chord again flips the direction — IntelliJ's two tabs, one key. */
+/** ⌘⇧Y / ⌘⇧H, and pressing the same chord again flips the direction — IntelliJ's two tabs, one key. */
 function openHierarchy(kind) {
   var symbol = isSourceViewerVisible() ? wordAtCursor() : null;
   var name = symbol ? symbol.name : wordAtDiffCaret();

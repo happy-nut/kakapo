@@ -155,7 +155,7 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌘⇧A` | Find an action by name — every command, with its chord |
 | `⌥Space` / `⌘Y` | Quick definition — the code, without going there |
 | `⌘⇧T` | This file's test, or back to what it tests |
-| `⌘⌥H` / `⌘⇧H` / `⌘⇧M` | Call / type / method hierarchy — press again for the other direction |
+| `⌘⇧Y` / `⌘⇧H` / `⌘⇧M` | Call / type / method hierarchy — press again for the other direction |
 | `⌘U` | Go to the supertype |
 | `F3` / `⌘F3` | Bookmark this line / show every bookmark |
 | `⇧⌥1`…`⇧⌥9` / `⌥1`…`⌥9` | Number this line / go to that number |
@@ -294,7 +294,7 @@ first, with where you are now marked. `Enter` restores the whole position, diff 
 **File search** (`⌘P`) — by name, with `store.ts:42` to land on a line. Not on `⇧⌘O`, which opens a
 folder in a new window here — a desktop-app convention worth keeping.
 
-**The two hierarchies** (`⌘⌥H` calls, `⌘⇧H` types) — a tree you open a level at a time, because "who
+**The two hierarchies** (`⌘⇧Y` calls, `⌘⇧H` types) — a tree you open a level at a time, because "who
 calls this" is only half the question and the other half is "and who calls them". `⇢` expands a row, `⇠`
 collapses it, and pressing the chord again flips the direction (IntelliJ's two tabs, one key). They are on
 `⌘` rather than IntelliJ's `⌃` for the reason above. Where the language server has no hierarchy request,

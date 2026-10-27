@@ -181,9 +181,15 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "goToTest", keys: ["⌘⇧T"], where: "any", i18n: "kbd.goToTest" },
   // The two hierarchies. IntelliJ puts them on ⌃H and ⌃⌥H; this table spells Control and Command the
   // same way, so they take the ⌘ forms — and pressing the same chord again flips the direction, which is
-  // what IntelliJ's two tabs do.
+  // what IntelliJ's two tabs do. ⌘H went to macOS (Hide), which is why the type hierarchy is on ⌘⇧H.
+  //
+  // The call hierarchy could not keep ⌘⌥H either, for the same kind of reason one step further out:
+  // `role: "appMenu"` (app-main.ts) expands to Hide / **Hide Others (⌘⌥H)** / Show All, and a menu
+  // accelerator is consumed before any renderer keydown runs — so that chord hid every other application
+  // and the hierarchy never opened. IntelliJ's own macOS keymap moves Call Hierarchy to ⌘⇧H, which is the
+  // type hierarchy here, so this takes IntelliJ's other name for it: the mnemonic in "Call Hierarch_y".
   { id: "typeHierarchy", keys: ["⌘⇧H"], where: "code", i18n: "kbd.typeHierarchy" },
-  { id: "callHierarchy", keys: ["⌘⌥H"], where: "code", i18n: "kbd.callHierarchy" },
+  { id: "callHierarchy", keys: ["⌘⇧Y"], where: "code", i18n: "kbd.callHierarchy" },
   { id: "goToSuper", keys: ["⌘U"], where: "code", i18n: "kbd.goToSuper" },
   // A place to come back to, with nothing to say about it — IntelliJ's F3. A comment is the right thing
   // when there IS something to say, and kakapo already keeps those beside the code.

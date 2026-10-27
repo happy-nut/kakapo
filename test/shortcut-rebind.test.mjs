@@ -32,7 +32,7 @@ test("a rebound key drives the dispatcher, the sheet and the tooltips together",
 
   assert.deepEqual(chipsOf(rowFor(v, "openHistory")), ["⌘9"], "it starts on the table's default");
 
-  // Any combination the table does not already hold will do — ⌘⌥J is one (⌘⌥B, ⌘⌥H and ⌘⌥O are not).
+  // Any combination the table does not already hold will do — ⌘⌥J is one (⌘⌥B and ⌘⌥O are not).
   rebind(v, "openHistory", 0, { key: "j", code: "KeyJ", metaKey: true, altKey: true });
 
   // 1. the sheet
@@ -102,7 +102,7 @@ test("a key the page does not own cannot be clicked away", async () => {
 test("one row and all rows can be put back", async () => {
   const v = await loadViewer(html);
 
-  // Any combination the table does not already hold will do — ⌘⌥J is one (⌘⌥B, ⌘⌥H and ⌘⌥O are not).
+  // Any combination the table does not already hold will do — ⌘⌥J is one (⌘⌥B and ⌘⌥O are not).
   rebind(v, "openHistory", 0, { key: "j", code: "KeyJ", metaKey: true, altKey: true });
   rebind(v, "defUsages", 0, { key: "u", code: "KeyU", metaKey: true, altKey: true });
   assert.deepEqual(chipsOf(rowFor(v, "openHistory")), ["⌘⌥J"]);

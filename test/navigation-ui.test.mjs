@@ -327,12 +327,12 @@ async function openHierarchyHost(answers) {
   return { v, asked };
 }
 
-test("⌘⌥H lists the callers, ⇢ expands one of them, ⇠ collapses it", async () => {
+test("⌘⇧Y lists the callers, ⇢ expands one of them, ⇠ collapses it", async () => {
   const host = await openHierarchyHost({
     "callers:helper": [{ path: FILE, lineIndex: 12, column: 2, name: "Store.load" }],
     "callers:Store.load": [{ path: "src/thing.ts", lineIndex: 0, column: 0, name: "boot" }],
   });
-  await press(host, { key: "h", code: "KeyH", metaKey: true, altKey: true });
+  await press(host, { key: "y", code: "KeyY", metaKey: true, shiftKey: true });
   await host.v.settle(60);
   let rows = host.v.$all("#quick-open-results .structure-result");
   assert.equal(rows.length, 1);
@@ -357,11 +357,11 @@ test("pressing the hierarchy chord again flips the direction", async () => {
     "callers:helper": [{ path: FILE, lineIndex: 12, column: 2, name: "Store.load" }],
     "callees:helper": [{ path: FILE, lineIndex: 2, column: 13, name: "Store" }],
   });
-  await press(host, { key: "h", code: "KeyH", metaKey: true, altKey: true });
+  await press(host, { key: "y", code: "KeyY", metaKey: true, shiftKey: true });
   await host.v.settle(60);
   assert.match(host.v.$("#quick-open-filter").textContent, /What calls helper/);
 
-  await press(host, { key: "h", code: "KeyH", metaKey: true, altKey: true });
+  await press(host, { key: "y", code: "KeyY", metaKey: true, shiftKey: true });
   await host.v.settle(60);
   assert.match(host.v.$("#quick-open-filter").textContent, /What helper calls/,
     "one key, both directions — IntelliJ's two tabs");
