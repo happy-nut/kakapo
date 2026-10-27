@@ -122,6 +122,12 @@ export const SHORTCUTS: ShortcutDef[] = [
   // The chords are IntelliJ's own, from `$default.xml` rather than the Mac keymap: that file spells the
   // groupings ⌃⌥-something, which arrives here as ⌘⌥-something and lands on nothing already taken. The
   // Mac keymap's plain ⌃M/⌃P/⌃T would have become ⌘M/⌘P/⌘T, and ⌘P is already the patch-set selector.
+  //
+  // One of those chords has to be read carefully: `$default.xml` gives UsageGrouping.Module TWO
+  // keystrokes, ⌃⌥M and ⌃⌥P, and names the directory rule ⌃⌥D (UsageGrouping.DirectoryStructure). ⌃⌥P
+  // is therefore the module's second spelling, not the directory's — this table used to have the
+  // directory on ⌘⌥P, which is the module chord said twice.
+  //
   // Two deviations, both forced: Flatten Modules is ⌃⌥O there and ⌘⌥O is Go to Symbol here, so it sits on
   // the module chord plus ⇧ (the ⌘F7/⌘⇧F7 pairing this app already uses, spelled in the order
   // shortcutModifiers builds: ⌘⇧⌥); and Production/Test has no
@@ -130,7 +136,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "usageGroupType", keys: ["⌘⌥T"], where: "find", i18n: "kbd.usageGroupType" },
   { id: "usageGroupModule", keys: ["⌘⌥M"], where: "find", i18n: "kbd.usageGroupModule" },
   { id: "usageFlattenModules", keys: ["⌘⇧⌥M"], where: "find", i18n: "kbd.usageFlattenModules" },
-  { id: "usageGroupDirectory", keys: ["⌘⌥P"], where: "find", i18n: "kbd.usageGroupDirectory" },
+  { id: "usageGroupDirectory", keys: ["⌘⌥D"], where: "find", i18n: "kbd.usageGroupDirectory" },
   { id: "usageGroupFile", keys: ["⌘⌥F"], where: "find", i18n: "kbd.usageGroupFile" },
   { id: "usageFilterRead", keys: ["⌘⌥R"], where: "find", i18n: "kbd.usageFilterRead" },
   { id: "usageFilterWrite", keys: ["⌘⌥W"], where: "find", i18n: "kbd.usageFilterWrite" },

@@ -135,7 +135,7 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌘F7` / `⌘⇧F7` | Highlight this symbol everywhere in the open file, writes apart from reads |
 | `⌘⌥↓` / `⌘⌥↑` | Next / previous occurrence of the symbol under the caret |
 | `⌘⌥T` / `⌘⌥M` / `⌘⌥S` | In the usage view: group by usage type / by module / by production-test |
-| `⌘⌥P` / `⌘⌥F` / `⌘⇧⌥M` | In the usage view: group by directory / by file, and flatten the modules |
+| `⌘⌥D` / `⌘⌥F` / `⌘⇧⌥M` | In the usage view: group by directory / by file, and flatten the modules |
 | `⌘⌥R` / `⌘⌥W` / `⌘⌥I` | In the usage view: show read access / write access / import statements |
 | `⌘⌥B` / `⌘⌥O` | Go to implementation / workspace symbol |
 | `⌥O` | Go to a class by name (types only) |
@@ -223,8 +223,9 @@ directory, then file (`UsageGroupingRulesDefaultRanks` in intellij-community —
 order is not a matter of taste). Each rank is a chip above the list, with IntelliJ's own default on or
 off: usage type, module and file on, modules flattened, Production/Test off until you ask for it. Beside
 them is its filtering toolbar — show read access, show write access, show import statements — and `⌥P`,
-which was already here. The chords are IntelliJ's too, from `$default.xml`: `⌃⌥T`/`⌃⌥M`/`⌃⌥P`/`⌃⌥F`
-arrive here as `⌘⌥T`/`⌘⌥M`/`⌘⌥P`/`⌘⌥F`. A division that would divide nothing is not drawn: a
+which was already here. The chords are IntelliJ's too, from `$default.xml`: `⌃⌥T`/`⌃⌥M`/`⌃⌥D`/`⌃⌥F`
+arrive here as `⌘⌥T`/`⌘⌥M`/`⌘⌥D`/`⌘⌥F` (that file gives the module rule a
+second chord, `⌃⌥P`, which is not the directory's). A division that would divide nothing is not drawn: a
 single-module repository gets no module header, and a list that is nothing but call sites gets no heading
 at all.
 

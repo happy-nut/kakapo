@@ -81,9 +81,9 @@ const MIXED = [
 
 test("the groupings nest in IntelliJ's rank order, outermost first", async () => {
   const host = await openUsages(MIXED);
-  // Everything on at once, so the full stack is visible. ⌘⌥S and ⌘⌥P are the two that are off by default.
+  // Everything on at once, so the full stack is visible. ⌘⌥S and ⌘⌥D are the two that are off by default.
   await press(host, { code: "KeyS", key: "s", metaKey: true, altKey: true });
-  await press(host, { code: "KeyP", key: "p", metaKey: true, altKey: true });
+  await press(host, { code: "KeyD", key: "d", metaKey: true, altKey: true });
 
   const ranks = headers(host).map((row) => row[0]);
   const firstOf = (rank) => ranks.indexOf(rank);
@@ -180,11 +180,11 @@ test("⌘⌥T turns the usage types off; the file grouping keeps the rows findab
   host.v.close();
 });
 
-test("⌘⌥P adds the directory, and the file header drops to the bare name under it", async () => {
+test("⌘⌥D adds the directory, and the file header drops to the bare name under it", async () => {
   const host = await openUsages(MIXED);
   assert.ok(headersOf(host, "file").some((label) => label.includes("/")),
     "without a directory header the file node carries the whole path");
-  await press(host, { code: "KeyP", key: "p", metaKey: true, altKey: true });
+  await press(host, { code: "KeyD", key: "d", metaKey: true, altKey: true });
   assert.deepEqual(labelsAt(host, "directory"), ["Directory: packages/data/src", "Directory: packages/ui/src", "Directory: packages/ui/test"],
     "directory.0 is `Directory:{0}`");
   assert.ok(headersOf(host, "file").every((label) => !label.includes("/")),
