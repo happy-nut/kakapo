@@ -394,7 +394,10 @@ enforce them separately, and a deadline shorter than either was asked for would 
 
 **Bodies.** Inline, or `< ./body.bin` to send a file's bytes, or `<@ ./body.json` to substitute its
 `{{variables}}` first. `multipart/form-data` parts are assembled from the `--boundary` blocks; a part with a
-`filename=` is sent as that file's bytes, and one without it sends the file's text as the field's value.
+`filename=` is sent as that file's bytes, and one without it sends the file's text as the field's value. A
+part whose content contains the boundary, or whose header value contains a line break, is refused rather
+than sent: either one adds parts the file does not have, and the content can be a file or a captured
+response value rather than something you wrote. Give `Content-Type` a longer boundary if you hit this.
 
 **Variables.** `@name = value` in the file, `http-client.env.json` and `http-client.private.env.json`
 (looked for beside the requests as well as at the repository root, nearer file wins), the `$shared` section
