@@ -32,6 +32,14 @@ contextBridge.exposeInMainWorld("kakapoMenu", {
   onCloseTab: (cb: () => void): void => {
     ipcRenderer.on("kakapo:close-tab", () => cb());
   },
+  // A menu item for something the PAGE owns: the item sends the shortcut's own id and main never claims
+  // the keystroke (registerAccelerator: false), so the menu and the key run the identical handler.
+  onReadingAction: (cb: (id: string, index: number) => void): void => {
+    ipcRenderer.on("kakapo:reading-action", (_event, msg: { id?: unknown; index?: unknown }) => {
+      const id = typeof msg?.id === "string" ? msg.id : "";
+      if (id) cb(id, Number(msg?.index) || 0);
+    });
+  },
   // ⌘+ / ⌘− change the zoom in main (Chromium never lets these reach a renderer keydown). This is main
   // telling the page what the new size is, so the Settings dropdown can show it.
   onUiScale: (cb: (scale: number) => void): void => {

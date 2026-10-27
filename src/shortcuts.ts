@@ -342,6 +342,45 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   ] },
 ];
 
+/**
+ * A row's chord in Electron's accelerator spelling, for DRAWING beside a menu item.
+ *
+ * Here rather than in app-main because the table is where a chord is written down, and this is a reading
+ * of the table — the same reason the Settings sheet and the keyhints read it rather than keeping copies.
+ *
+ * The caller must set `registerAccelerator: false` on the item. These chords are dispatched in the PAGE
+ * (SHORTCUT_ACTIONS), and a menu that registered one would consume the keystroke before any renderer
+ * keydown ran — which is what made ⌘⌥H hide every other application and ⌘0 reset the zoom. Drawing it is
+ * the whole point: a menu is worth having for a key you already know only if it tells you the key.
+ *
+ * Returns undefined for a row Electron has no spelling for — a two-key chord (⇧⇧) or a cluster (↑↓) — and
+ * the item then simply carries no accelerator. An accelerator Electron cannot parse THROWS when the menu
+ * is built, which would take the whole menu bar with it.
+ */
+export function electronAcceleratorFor(id: string, index = 0): string | undefined {
+  const chord = shortcutById(id)?.keys[index];
+  if (!chord) return undefined;
+  let rest = chord;
+  const parts: string[] = [];
+  if (rest.startsWith("⌘")) { parts.push("CommandOrControl"); rest = rest.slice(1); }
+  if (rest.startsWith("⇧")) { parts.push("Shift"); rest = rest.slice(1); }
+  if (rest.startsWith("⌥")) { parts.push("Alt"); rest = rest.slice(1); }
+  const NAMED: Record<string, string> = {
+    "↑": "Up", "↓": "Down", "←": "Left", "→": "Right", "Enter": "Return", "Esc": "Escape",
+    Backspace: "Backspace", Delete: "Delete", Tab: "Tab", Space: "Space",
+    Home: "Home", End: "End", PageUp: "PageUp", PageDown: "PageDown",
+  };
+  if (NAMED[rest]) return [...parts, NAMED[rest]].join("+");
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(rest)) return [...parts, rest].join("+");
+  // Anything else must be a single ASCII printable: a letter, a digit, or one of the punctuation keys this
+  // table uses (., -, =, /, [, ], ', `). The ASCII bound is what matters — Electron does NOT reject a
+  // symbol it cannot map, so `⇧⇧` came back as the accelerator "Shift+⇧" and `↵` as "↵", both of which
+  // would have been drawn in the menu exactly like that. A row this cannot spell gets no accelerator and
+  // keeps its place in the menu; the Settings sheet is where its real spelling is shown.
+  if (!/^[\x20-\x7e]$/.test(rest)) return undefined;
+  return [...parts, rest.toUpperCase()].join("+");
+}
+
 export function shortcutById(id: string): ShortcutDef | undefined {
   return SHORTCUTS.find((s) => s.id === id);
 }

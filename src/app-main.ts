@@ -28,6 +28,7 @@ import { registerCommentsIpc, syncCommentsFile, attachThreadFiles } from "./comm
 import type { CommentsIpcState } from "./comments-file.js";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 import { UI_SCALES } from "./constants.js";
+import { electronAcceleratorFor } from "./shortcuts.js";
 
 type AppOptions = {
   root: string;
@@ -347,6 +348,9 @@ function refreshChrome(): void {
 registerSettingsIpc(ipcMain, preferences, stateFromEvent, (key) => {
   if (key === "kakapo-theme" || key === "kakapo-locale") refreshChrome();
   if (key === UI_SCALE_KEY) applyUiScale();
+  // A display switch flipped from the keyboard: the menu holds its tick, so it has to be rebuilt or the
+  // menu starts disagreeing with the page about what is on.
+  if (READING_TOGGLE_KEYS.has(key)) buildApplicationMenu();
 });
 // Patch-set compare bar: switch the diff base to a chosen patch set (or "auto" to restore the automatic
 // upstream merge-base). Mirrors the "Ignore whitespace" menu toggle — mutate this window's options,
@@ -773,9 +777,56 @@ async function rebuildFocusedReview(change: (options: AppOptions) => void): Prom
 
 // Build the application menu once. Items act on the focused window (BrowserWindow.getFocusedWindow()),
 // so a single global menu drives whichever window is in front.
+// The eight display switches' persisted keys, which main needs for two reasons: to draw the ticks, and to
+// know when a page has flipped one so the ticks can be redrawn. The renderer owns the list (RENDER_TOGGLES
+// in 01-core.js); this is the same set spelled once here rather than beside each menu item.
+const READING_TOGGLE_KEYS = new Set([
+  "kakapo-show-whitespace", "kakapo-indent-guides", "kakapo-sticky-lines", "kakapo-focus-mode",
+  "kakapo-code-vision", "kakapo-inlay-hints", "kakapo-essential-highlighting", "kakapo-align-changes",
+]);
+
+/** What the focused window's renderer currently has this display switch set to. */
+function readingToggleOn(key: string): boolean {
+  const state = focusedState();
+  try {
+    const settings = state
+      ? preferences.rendererSettings(state.options.root)
+      : preferences.readGlobal();
+    const value = settings[key];
+    // The renderer writes '1'/'0' (persistSave takes strings), and an unset key means the default — which
+    // only the renderer knows, so these two start off ticked here to match RENDER_TOGGLES.
+    if (value === "1") return true;
+    if (value === "0") return false;
+  } catch { /* unreadable settings: fall through to the defaults */ }
+  return key === "kakapo-sticky-lines" || key === "kakapo-align-changes"
+    || key === "kakapo-code-vision" || key === "kakapo-inlay-hints";
+}
+
 function buildApplicationMenu(): void {
   const t = tr();
   const menuTemplate: Electron.MenuItemConstructorOptions[] = [];
+  // ---- The reading switches, where IntelliJ keeps them ------------------------------------------------
+  //
+  // Every one of these also has a chord, and the chord is handled in the PAGE. So each item here carries
+  // `registerAccelerator: false`: Electron then draws the chord beside the label — which is the only reason
+  // a menu is worth having for a key you already know — without claiming the keystroke. Claiming it would
+  // make the menu eat the key before any renderer keydown ran, which is the bug ⌘⌥H and ⌘0 were.
+  //
+  // The click sends the shortcut's OWN id to the renderer, which runs it through the same
+  // SHORTCUT_ACTIONS entry the keyboard uses. One implementation, two ways in — a menu item that did its
+  // own version of the work is how a menu and a key start disagreeing.
+  const readingItem = (id: string, index = 0): Electron.MenuItemConstructorOptions => ({
+    label: t(`kbd.${id}`),
+    accelerator: electronAcceleratorFor(id, index),
+    registerAccelerator: false,
+    click: () => sendToFocused("kakapo:reading-action", { id, index }),
+  });
+  const readingToggle = (id: string, key: string): Electron.MenuItemConstructorOptions => ({
+    ...readingItem(id),
+    type: "checkbox",
+    checked: readingToggleOn(key),
+  });
+
   if (process.platform === "darwin") menuTemplate.push({ role: "appMenu" });
   // File menu: open a repo in the current window, or spawn a new window for it.
   menuTemplate.push({
@@ -830,11 +881,24 @@ function buildApplicationMenu(): void {
           current.whitespace = order[(order.indexOf(current.whitespace) + 1) % order.length];
         }),
       },
+      { type: "separator" },
+      // The rest of what IntelliJ's diff gear and its diff toolbar offer: whether the two panes are
+      // aligned, stepping file by file through the stack, and the two things it does with a patch.
+      readingToggle("alignChanges", "kakapo-align-changes"),
+      { type: "separator" },
+      readingItem("diffFileStep", 0),
+      readingItem("diffFileStep", 1),
+      { type: "separator" },
+      readingItem("copyAsPatch"),
+      readingItem("compareClipboard"),
     ],
   });
   // Zoom, for the same reason the terminal shortcuts are here: Chromium takes ⌘+/⌘−/⌘0 before any renderer
   // keydown runs. Both ⌘= and ⌘+ are bound because the key is the same one with and without Shift, and
   // binding only one means the shortcut works on some layouts and not others.
+  //
+  // Below the zoom: what IntelliJ keeps under View → Active Editor — whether the things that are in the
+  // file but not in its text are drawn. All eight are display only; none of them re-runs git.
   menuTemplate.push({
     label: t("menu.view"),
     submenu: [
@@ -842,6 +906,26 @@ function buildApplicationMenu(): void {
       { label: t("menu.zoomIn"), accelerator: "CommandOrControl+Plus", visible: false, click: () => stepUiScale(1) },
       { label: t("menu.zoomOut"), accelerator: "CommandOrControl+-", click: () => stepUiScale(-1) },
       { label: t("menu.zoomReset"), accelerator: "CommandOrControl+0", click: () => setUiScale(1) },
+      { type: "separator" },
+      readingToggle("showWhitespace", "kakapo-show-whitespace"),
+      readingToggle("indentGuides", "kakapo-indent-guides"),
+      readingToggle("stickyLines", "kakapo-sticky-lines"),
+      readingToggle("focusMode", "kakapo-focus-mode"),
+      readingToggle("codeVision", "kakapo-code-vision"),
+      readingToggle("inlayHints", "kakapo-inlay-hints"),
+      readingToggle("essentialHighlighting", "kakapo-essential-highlighting"),
+      { type: "separator" },
+      // IntelliJ's Code → Folding, which is where the three whole-file fold actions live there too. ⌘.
+      // heads the list because it is the one that acts on where the caret is.
+      {
+        label: t("menu.folding"),
+        submenu: [
+          readingItem("toggleFold"),
+          readingItem("collapseAll"),
+          readingItem("expandAll"),
+          readingItem("collapseRecursively"),
+        ],
+      },
     ],
   });
   // Cmd/Ctrl+W closes the active Files-mode tab (routed to the renderer) instead of the window, matching

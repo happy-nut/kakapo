@@ -695,6 +695,10 @@ document.addEventListener('click', function (event) {
 });
 document.getElementById('diff-prev-change')?.addEventListener('click', function () { next(-1); });
 document.getElementById('diff-next-change')?.addEventListener('click', function () { next(1); });
+// The file arrows beside them. goToDiffFile answers for both the buttons and ⌘⇧→/⌘⇧←, so a click and
+// the chord step the stack the same way — including opening a file that was collapsed.
+document.getElementById('diff-prev-file')?.addEventListener('click', function () { goToDiffFile(-1); });
+document.getElementById('diff-next-file')?.addEventListener('click', function () { goToDiffFile(1); });
 document.getElementById('diff-open-source')?.addEventListener('click', function () { openDiffFileAtCaret(); });
 document.getElementById('diff-sidebar-toggle')?.addEventListener('click', function () { toggleReviewSidebar(); });
 document.getElementById('source-body')?.addEventListener('mousemove', updateCmdLink);
@@ -826,6 +830,23 @@ if (watchEnabled && !(window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate
   setInterval(checkForLiveUpdate, 1500);
 }
 window.addEventListener('beforeunload', saveUiState);
+
+// A menu item asked for one of the reading actions. It arrives as the shortcut's own id and runs through
+// SHORTCUT_ACTIONS — the same entry the chord dispatches to, called with the same (event, index) shape —
+// so there is one implementation of each and the menu cannot drift from the key. A handler that declines
+// (returns false) declines here too: View → Show Whitespaces with no file open does nothing, exactly as
+// ⇧⌥W does.
+if (window.kakapoMenu && typeof window.kakapoMenu.onReadingAction === 'function') {
+  window.kakapoMenu.onReadingAction(function (id, index) {
+    // A plain truthiness check, not a typeof one: test/viewer-slices.test.mjs reads every typeof guard in
+    // this directory as a claim about a GLOBAL — and it reads the COMMENTS too, so the phrase cannot be
+    // written here either. This is a table lookup. `id` comes from a menu item built out of the same
+    // table, so a miss means the two have gone out of step, and nothing happening is the right answer.
+    var action = SHORTCUT_ACTIONS[id];
+    if (!action) return;
+    action(new KeyboardEvent('keydown'), Number(index) || 0);
+  });
+}
 
 // First render has painted — drop the boot overlay (it bridged the blank gap right after loadFile). Two
 // rAFs so the Kakapo loading mark stays until the diff/tree are actually on screen, then a short fade-out.

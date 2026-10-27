@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
-import { SHORTCUTS } from "../dist/shortcuts.js";
+import { SHORTCUTS, electronAcceleratorFor } from "../dist/shortcuts.js";
 
 const require = createRequire(import.meta.url);
 
@@ -69,10 +69,16 @@ test("no shortcut row sits on a chord the application menu eats", { timeout: 60_
   const roles = [...new Set([...main.matchAll(/role:\s*"([A-Za-z]+)"/g)].map((m) => m[1]))];
   assert.ok(roles.includes("appMenu"), `the macOS app menu is still built from a role: ${roles.join(", ")}`);
 
+  // Every chord the menus DRAW. app-main puts these on items with registerAccelerator: false, so the
+  // risk is not that they steal a key but that Electron cannot PARSE one — which throws inside
+  // buildFromTemplate and would take the whole menu bar with it. They are built for real below.
+  const drawn = [...new Set(SHORTCUTS.flatMap((row) => row.keys.map((_key, index) => electronAcceleratorFor(row.id, index))))]
+    .filter(Boolean);
+
   const electron = require("electron");
   const fixture = fileURLToPath(new URL("./fixtures/electron-menu-accelerators.cjs", import.meta.url));
   const result = await new Promise((resolve, reject) => {
-    const child = spawn(electron, [fixture, JSON.stringify(roles)], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(electron, [fixture, JSON.stringify(roles), JSON.stringify(drawn)], { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");
@@ -106,10 +112,43 @@ test("no shortcut row sits on a chord the application menu eats", { timeout: 60_
   assert.ok(eaten.has("⌘+") && eaten.has("⌘⇧="),
     "CommandOrControl+Plus is one keystroke with two spellings and both must be claimed");
 
+  const drawnMarker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("KAKAPO_MENU_DRAWN="));
+  assert.ok(drawnMarker, `drawn accelerators missing\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  const drawnBack = JSON.parse(drawnMarker.slice("KAKAPO_MENU_DRAWN=".length));
+  assert.equal(drawnBack.length, drawn.length, "Electron accepted every accelerator the table can spell");
+  for (const item of drawnBack) {
+    assert.equal(item.registered, false, `${item.accelerator} must be drawn, not registered`);
+  }
+
   const clashes = [];
   for (const row of SHORTCUTS) {
     if (row.fixed === "menu") continue;                      // the row already says the menu owns it
     for (const key of row.keys) if (eaten.has(key)) clashes.push(`${row.id} on ${key} — ${eaten.get(key)}`);
   }
   assert.deepEqual(clashes, [], `these rows can never fire:\n  ${clashes.join("\n  ")}`);
+});
+
+// The speller is in the shortcut table (electronAcceleratorFor) because a chord is written down there and
+// this is a reading of it. What it must never do is hand Electron something Electron will not reject:
+// buildFromTemplate accepted "Shift+⇧" for the ⇧⇧ row and "↵" for the find box's Enter, and both would have
+// been DRAWN in the menu exactly like that. A row it cannot spell gets no accelerator at all.
+test("the menu speller produces ASCII accelerators or none", async () => {
+  for (const row of SHORTCUTS) {
+    row.keys.forEach((key, index) => {
+      const accelerator = electronAcceleratorFor(row.id, index);
+      if (accelerator === undefined) return;
+      assert.match(accelerator, /^[\x20-\x7e+]+$/,
+        `${row.id} (${key}) spells as ${JSON.stringify(accelerator)}, which the menu would draw as-is`);
+    });
+  }
+  // The rows with no Electron spelling, named so that adding one is a deliberate act: four key clusters,
+  // the two Enters of the find box, and the double-Shift of Search Everywhere.
+  const unspellable = SHORTCUTS
+    .flatMap((row) => row.keys.map((key, index) => (electronAcceleratorFor(row.id, index) ? null : `${row.id}:${key}`)))
+    .filter(Boolean)
+    .sort();
+  assert.deepEqual(unspellable, [
+    "extendSelection:⇧←↑↓→", "findEnter:↵", "findEnter:⇧↵", "historyNavigate:↑↓",
+    "moveCaret:←↑↓→", "searchEverywhere:⇧⇧", "sidebarNavigate:↑↓",
+  ]);
 });

@@ -10,10 +10,7 @@ function copyTextToClipboard(text) {
 // IntelliJ's Copy as Patch, for the file being read: git's own hunks for it, on the clipboard, ready for
 // `git apply`. Asked of main (kakapo:file-patch) rather than rebuilt from the rendered rows — a folded hunk
 // is not in the DOM, and a patch missing a hunk still looks like a patch.
-function copyActiveFileAsPatch() {
-  var path = isSourceViewerVisible()
-    ? (document.getElementById('source-viewer') || { dataset: {} }).dataset.openPath
-    : (diffCursor && diffCursor.path) || (diffActiveWrapper() ? diffWrapperPathKey(diffActiveWrapper()) : '');
+function copyFileAsPatch(path) {
   if (!path) return false;
   if (!window.kakapoGit || typeof window.kakapoGit.filePatch !== 'function') return false;
   Promise.resolve(window.kakapoGit.filePatch(path)).then(function (patch) {
@@ -33,10 +30,7 @@ function copyActiveFileAsPatch() {
 // the window to put an ad-hoc comparison into. So the comparison is shown as what it is — git's own patch
 // between the two sides — opened as a read-only document in the source view, which is already a perfectly
 // good place to read a patch. It is less than IntelliJ shows, and that is worth saying rather than hiding.
-function compareClipboardWithFile() {
-  var path = isSourceViewerVisible()
-    ? (document.getElementById('source-viewer') || { dataset: {} }).dataset.openPath
-    : (diffCursor && diffCursor.path) || '';
+function compareClipboardWith(path) {
   if (!path) return false;
   if (!window.kakapoClipboard || typeof window.kakapoClipboard.read !== 'function') return false;
   if (!window.kakapoGit || typeof window.kakapoGit.compareClipboard !== 'function') return false;
@@ -69,6 +63,18 @@ function compareClipboardWithFile() {
   });
   return true;
 }
+
+/** The file the reader is on: the open source file, else whichever the diff caret is in. '' if neither. */
+function activeReadingPath() {
+  if (isSourceViewerVisible()) {
+    return (document.getElementById('source-viewer') || { dataset: {} }).dataset.openPath || '';
+  }
+  if (diffCursor && diffCursor.path) return diffCursor.path;
+  var wrapper = diffActiveWrapper();
+  return wrapper ? (diffWrapperPathKey(wrapper) || '') : '';
+}
+function copyActiveFileAsPatch() { return copyFileAsPatch(activeReadingPath()); }
+function compareClipboardWithFile() { return compareClipboardWith(activeReadingPath()); }
 
 // "path:line" for the current caret — source view (the painted file) or the diff caret. '' if neither.
 function caretLocation() {
@@ -189,6 +195,15 @@ function openTreeRowMenu(row) {
   // terminal, so this is the way back to one beside the change being read.
   if (window.kakapoApp && typeof window.kakapoApp.openTerminal === 'function') {
     items.push({ label: t('menu.openTerminal'), onSelect: function () { try { window.kakapoApp.openTerminal(path); } catch (e) {} } });
+  }
+  // IntelliJ keeps both of these on the context menu of a change, which is what this row is. They are the
+  // same two functions the ⇧⌥P / ⇧⌥C chords call — the path is simply this row's instead of the caret's.
+  if (window.kakapoGit && typeof window.kakapoGit.filePatch === 'function') {
+    items.push({ label: t('kbd.copyAsPatch'), onSelect: function () { copyFileAsPatch(path); } });
+  }
+  if (window.kakapoClipboard && typeof window.kakapoClipboard.read === 'function'
+    && window.kakapoGit && typeof window.kakapoGit.compareClipboard === 'function') {
+    items.push({ label: t('kbd.compareClipboard'), onSelect: function () { compareClipboardWith(path); } });
   }
   // Clear this file's review comments in one action. It rides removeComments, so the whole batch comes back
   // with one Cmd/Ctrl+Z — which is why it asks for no confirmation. Only offered when there is something to
