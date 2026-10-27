@@ -35,6 +35,10 @@ var fileFindMatchCase = false;
 var fileFindWholeWords = false;
 var fileFindRegex = false;
 var fileFindInSelection = false;
+// IntelliJ's Search In Changes, which its diff toolbar keeps beside the find field: the same query, asked
+// only of the lines this review actually changed. In a 2000-line file a reviewer looking for `userId` does
+// not want the 40 places it was already written — they want the 3 the agent touched.
+var fileFindChangesOnly = false;
 // The lines In Selection was switched on over. Captured once, not read live: the selection is dropped the
 // moment the reviewer clicks into the find field, and a scope that evaporates on its way to being used is
 // not a scope.
@@ -51,6 +55,7 @@ var fileFindMatchCaseButton = document.getElementById('file-find-match-case');
 var fileFindWholeWordsButton = document.getElementById('file-find-whole-words');
 var fileFindRegexButton = document.getElementById('file-find-regex');
 var fileFindInSelectionButton = document.getElementById('file-find-in-selection');
+var fileFindChangesOnlyButton = document.getElementById('file-find-changes-only');
 
 function isFileFindOpen() {
   return Boolean(fileFindPanel && !fileFindPanel.classList.contains('hidden'));
@@ -265,7 +270,24 @@ var FILE_FIND_OPTIONS = [
   { id: 'wholeWords', shortcut: 'searchWholeWords', get: function () { return fileFindWholeWords; }, set: function (on) { fileFindWholeWords = on; } },
   { id: 'regex', shortcut: 'searchRegex', get: function () { return fileFindRegex; }, set: function (on) { fileFindRegex = on; } },
   { id: 'inSelection', shortcut: 'findInSelection', get: function () { return fileFindInSelection; }, set: function (on) { fileFindInSelection = on; } },
+  { id: 'changesOnly', shortcut: 'searchChangesOnly', get: function () { return fileFindChangesOnly; }, set: function (on) { fileFindChangesOnly = on; } },
 ];
+
+/**
+ * Is this line one the review changed?
+ *
+ * Asked of both surfaces, which know it differently: the source view carries `changedLines` (1-based, the
+ * same list the `changed-line` class is painted from), and a diff row simply IS a change or is context —
+ * `isChangeCodeRow` already says which. Passing the row where there is one keeps that distinction in the
+ * caller rather than re-deriving it here.
+ */
+function withinFileFindChanges(lineIndex, row) {
+  if (!fileFindChangesOnly) return true;
+  if (row) return isChangeCodeRow(row);
+  var file = sourceByPath.get(document.getElementById('source-viewer')?.dataset.openPath || '');
+  if (!file || !Array.isArray(file.changedLines)) return false; // nothing is known to have changed here
+  return file.changedLines.indexOf(lineIndex + 1) >= 0;
+}
 
 function rememberFileFindQuery(text) {
   var query = String(text || '').trim();
@@ -289,10 +311,15 @@ function stepFileFindHistory(direction) {
 }
 
 function fileFindOptionButton(id) {
+  // Spelled out rather than falling through to in-selection: the last branch used to answer for every id
+  // that was not one of the first three, which would have given the changes-only toggle the wrong button
+  // and made each of them paint the other's state.
   return id === 'matchCase' ? fileFindMatchCaseButton
     : id === 'wholeWords' ? fileFindWholeWordsButton
       : id === 'regex' ? fileFindRegexButton
-        : fileFindInSelectionButton;
+        : id === 'inSelection' ? fileFindInSelectionButton
+          : id === 'changesOnly' ? fileFindChangesOnlyButton
+            : null;
 }
 
 function syncFileFindOptions() {
@@ -403,7 +430,7 @@ function collectSourceFindResults(query) {
   var results = [];
   if (!file || !file.embedded || file.image) return results;
   String(file.content || '').split(/\r?\n/).some(function (line, lineIndex) {
-    if (!withinFileFindSelection(lineIndex, '')) return false;
+    if (!withinFileFindSelection(lineIndex, '') || !withinFileFindChanges(lineIndex, null)) return false;
     appendFileFindMatches(results, line, query, function (column, length, text) {
       return { kind: 'source', path: path, lineIndex: lineIndex, column: column, length: length, text: text };
     });
@@ -418,7 +445,7 @@ function collectDiffFindResults(wrapper, query) {
   ['old', 'new'].some(function (side) {
     var rows = diffRowsOf(diffSideTable(wrapper, side));
     return rows.some(function (row, rowIndex) {
-      if (!isDiffCodeRow(row) || !withinFileFindSelection(rowIndex, side)) return false;
+      if (!isDiffCodeRow(row) || !withinFileFindSelection(rowIndex, side) || !withinFileFindChanges(rowIndex, row)) return false;
       appendFileFindMatches(results, diffLineText(row), query, function (column, length, text) {
         return { kind: 'diff', path: path, side: side, rowIndex: rowIndex, column: column, length: length, text: text, row: row };
       });

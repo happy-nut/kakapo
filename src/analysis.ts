@@ -2,6 +2,10 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import {
   AnalysisLocation,
+  type AnalysisCodeLens,
+  type AnalysisFoldingRange,
+  type AnalysisInlayHint,
+  type AnalysisHighlight,
   type AnalysisSymbol,
   LspClient,
   lspSymbolKindName,
@@ -48,7 +52,16 @@ export type AnalysisKind =
   // What the thing under the caret IS, in prose — `textDocument/hover`. The only question in this list
   // whose answer is not a position, and the one two IntelliJ actions were missing for: Quick Documentation
   // renders the whole answer, Expression Type takes its first line. Answered in `hover`.
-  | "hover";
+  | "hover"
+  // Where the file folds, and every occurrence of one symbol inside its own file. Both are about the file
+  // rather than about a position in the index, and both are answered only by a language server — an index
+  // of names cannot tell a fold from a brace or a read from a write. Answered in `folds` / `highlights`.
+  | "foldingRange"
+  | "documentHighlight"
+  // What the server would write above a declaration and inside a line — IntelliJ's Code Vision and its
+  // inlay hints. Decoration, not navigation: answered in `lenses` / `hints`.
+  | "codeLens"
+  | "inlayHint";
 
 export type AnalysisRequest = {
   kind: AnalysisKind;
@@ -81,6 +94,14 @@ export type AnalysisResponse = {
   symbols?: AnalysisSymbol[];
   /** Only for kind "hover": Markdown. Empty when neither the server nor the index had anything to say. */
   hover?: string;
+  /** Only for kind "foldingRange". Absent (not empty) when the server does not implement the request. */
+  folds?: AnalysisFoldingRange[];
+  /** Only for kind "documentHighlight", each occurrence labelled read / write / neither. */
+  highlights?: AnalysisHighlight[];
+  /** Only for kind "codeLens": one entry per declaration the server has something to say about. */
+  lenses?: AnalysisCodeLens[];
+  /** Only for kind "inlayHint". */
+  hints?: AnalysisInlayHint[];
   fallbackReason?: string;
   error?: string;
   /**
@@ -474,6 +495,14 @@ export class ProjectAnalysis {
       // A file's structure is about the file, not about a position in it, so it skips symbolContext (which
       // exists to work out what the caret is on) and has its own index fallback.
       if (request.kind === "documentSymbol") return await this.documentSymbols(path, onRevision);
+      // Both are language-server-only questions, and both are about the file rather than the index, so
+      // they take the same shape as the structure above: ask the client for this path, or answer "not
+      // supported" so the caller can keep its own fallback rather than read an empty list as a fact.
+      if (request.kind === "foldingRange") return await this.foldingRanges(path, onRevision);
+      if (request.kind === "documentHighlight") return await this.documentHighlights(path, request, onRevision);
+      if (request.kind === "codeLens" || request.kind === "inlayHint") {
+        return await this.decoration(request.kind, path, request, onRevision);
+      }
       if (request.kind === "callers" || request.kind === "callees"
         || request.kind === "supertypes" || request.kind === "subtypes") {
         return await this.hierarchy(request.kind, path, request, onRevision);
@@ -940,6 +969,113 @@ export class ProjectAnalysis {
    * in it. The index answer is flat (it reads declarations line by line, so it has no nesting to report)
    * and labelled heuristic, which is the honest grade.
    */
+  /**
+   * Where the open file folds. No index fallback: the viewer keeps its own brace walk for exactly the case
+   * this cannot answer, and an empty list from here would be indistinguishable from "this file has no
+   * folds", which would silently take the folds away from every C-like file while a server was starting.
+   */
+  private async foldingRanges(path: string, onRevision: boolean): Promise<AnalysisResult> {
+    if (onRevision) {
+      return {
+        ok: true, engine: "index", confidence: "heuristic", locations: [], revision: this.reviewTarget,
+        fallbackReason: `Reading ${this.reviewTarget}, which no language server can be pointed at`,
+      };
+    }
+    const client = this.clientFor(path);
+    if (!client) {
+      return { ok: true, engine: "index", confidence: "heuristic", locations: [], fallbackReason: `No language server is available for ${path}` };
+    }
+    try {
+      const answer = await client.foldingRanges(path);
+      this.setStatus("ready", serverFields(client.server));
+      if (!answer.supported) {
+        return {
+          ok: true, engine: "lsp", confidence: "semantic", server: client.server.name,
+          serverSource: client.server.source, locations: [],
+          fallbackReason: `${client.server.name} does not implement folding ranges`,
+        };
+      }
+      return {
+        ok: true, engine: "lsp", confidence: "semantic", server: client.server.name,
+        serverSource: client.server.source, locations: [], folds: answer.ranges,
+      };
+    } catch (error) {
+      if (this.transportFailure(error)) this.quarantine(client, error);
+      return { ok: true, engine: "index", confidence: "heuristic", locations: [], fallbackReason: errorMessage(error) };
+    }
+  }
+
+  /**
+   * The two decoration requests, which are one method because they are one shape: ask the server about the
+   * open file, hand back what it said, and say so plainly when it has no such provider. Neither has an
+   * index fallback — a regex index cannot infer a parameter name or count a usage, and drawing a guess as
+   * if the compiler had said it is the one thing decoration must never do.
+   */
+  private async decoration(
+    kind: "codeLens" | "inlayHint", path: string, request: AnalysisRequest, onRevision: boolean,
+  ): Promise<AnalysisResult> {
+    if (onRevision) {
+      return {
+        ok: true, engine: "index", confidence: "heuristic", locations: [], revision: this.reviewTarget,
+        fallbackReason: `Reading ${this.reviewTarget}, which no language server can be pointed at`,
+      };
+    }
+    const client = this.clientFor(path);
+    if (!client) {
+      return { ok: true, engine: "index", confidence: "heuristic", locations: [], fallbackReason: `No language server is available for ${path}` };
+    }
+    try {
+      const answer = kind === "codeLens"
+        ? await client.codeLenses(path)
+        : await client.inlayHints(path, request.line ?? 0, request.limit ?? (request.line ?? 0) + 2000);
+      this.setStatus("ready", serverFields(client.server));
+      const base = {
+        ok: true as const,
+        engine: "lsp" as const,
+        confidence: "semantic" as const,
+        server: client.server.name,
+        serverSource: client.server.source,
+        locations: [],
+      };
+      if (!answer.supported) {
+        return { ...base, fallbackReason: `${client.server.name} does not implement ${kind}` };
+      }
+      return kind === "codeLens"
+        ? { ...base, lenses: (answer as { lenses: AnalysisCodeLens[] }).lenses }
+        : { ...base, hints: (answer as { hints: AnalysisInlayHint[] }).hints };
+    } catch (error) {
+      if (this.transportFailure(error)) this.quarantine(client, error);
+      return { ok: true, engine: "index", confidence: "heuristic", locations: [], fallbackReason: errorMessage(error) };
+    }
+  }
+
+  /** Every occurrence of the caret's symbol in its own file, labelled read / write / neither. */
+  private async documentHighlights(path: string, request: AnalysisRequest, onRevision: boolean): Promise<AnalysisResult> {
+    if (onRevision) {
+      return {
+        ok: true, engine: "index", confidence: "heuristic", locations: [], revision: this.reviewTarget,
+        fallbackReason: `Reading ${this.reviewTarget}, which no language server can be pointed at`,
+      };
+    }
+    const client = this.clientFor(path);
+    if (!client) {
+      return { ok: true, engine: "index", confidence: "heuristic", locations: [], fallbackReason: `No language server is available for ${path}` };
+    }
+    try {
+      const answer = await client.documentHighlights(path, request.line ?? 0, request.column ?? 0);
+      this.setStatus("ready", serverFields(client.server));
+      return {
+        ok: true, engine: "lsp", confidence: "semantic", server: client.server.name,
+        serverSource: client.server.source, locations: [],
+        highlights: answer.supported ? answer.highlights : undefined,
+        fallbackReason: answer.supported ? undefined : `${client.server.name} does not implement document highlight`,
+      };
+    } catch (error) {
+      if (this.transportFailure(error)) this.quarantine(client, error);
+      return { ok: true, engine: "index", confidence: "heuristic", locations: [], fallbackReason: errorMessage(error) };
+    }
+  }
+
   private async documentSymbols(path: string, onRevision: boolean): Promise<AnalysisResult> {
     let fallbackReason = onRevision
       ? `Reading ${this.reviewTarget}, which no language server can be pointed at`

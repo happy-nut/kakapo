@@ -92,6 +92,21 @@ function showPartialAnalysisHint(name) {
  * the project having no usages rather than as an answer that is not final yet. A notice per surface was
  * a notice per surface to forget — the next one added would have forgotten it too.
  */
+// Questions nobody pressed a key to ask: the file's structure, where it folds, and where a symbol occurs
+// inside it. All three are asked on file open or on caret movement, by the structure popup, the fold
+// gutter, sticky lines, focus mode and the in-file highlight — and none of them is an answer a reader is
+// waiting on.
+//
+// That matters because `noteProvisionalAnalysis` is RATE-LIMITED: it shows "the index answered, a server
+// is still coming" at most once every ANALYSIS_PARTIAL_NOTICE_MS. A background request that goes through
+// it spends that window, and the next ⌘B — the one the reader actually pressed — gets no notice at all
+// and silently looks like a complete answer. Folding ranges are asked for on every file open, so this was
+// not a rare race; it was the normal case.
+var BACKGROUND_ANALYSIS_KINDS = {
+  documentSymbol: true,
+  foldingRange: true,
+  documentHighlight: true,
+};
 function noteProvisionalAnalysis(response, symbol) {
   if (!isPartialAnalysisAnswer(response)) return;
   if (!analysisStillArriving()) return; // no server coming: the index IS the answer, and says so elsewhere
@@ -248,7 +263,7 @@ function queryProjectAnalysis(kind, symbol, loc, extra) {
   }, extra || {});
   return Promise.resolve(window.kakapoAnalysis.query(request)).then(function (response) {
     if (!analysisGenerationIsCurrent(response)) return null;
-    noteProvisionalAnalysis(response, symbol);
+    if (!BACKGROUND_ANALYSIS_KINDS[kind]) noteProvisionalAnalysis(response, symbol);
     return response;
   }).catch(function () { return null; });
 }

@@ -298,6 +298,17 @@ function rebaseAsymmetricDiffReference(container, state, referenceSide, scrollTo
 // of the user's own scroll gesture; once it reaches the target the two panes resume moving together.
 function scrollAsymmetricDiffSurface(container, wrapper, cursor) {
   var state = wrapper && wrapper.__asymmetricDiffState;
+  // IntelliJ's Align Changes In Side-by-Side Diff, switchable here for the same reason it is switchable
+  // there: aligning moves one pane relative to the other, and a reader comparing two files line by line
+  // sometimes wants the two line 40s on the same row and nothing else. Off means no transform and no
+  // connectors — the panes scroll as the plain pair they are.
+  if (!renderToggleOn('alignChanges')) {
+    if (state && state.oldContent) state.oldContent.style.transform = '';
+    if (state && state.newContent) state.newContent.style.transform = '';
+    if (state) { state.initialized = false; state.offset = 0; state.newOffset = 0; state.catchingUp = false; }
+    if (wrapper && state) renderDiffConnectors(wrapper, state);
+    return;
+  }
   if (!container || !state || !state.oldContent || !state.newContent || !container.clientHeight) {
     if (state && state.oldContent) state.oldContent.style.transform = '';
     if (state && state.newContent) state.newContent.style.transform = '';
@@ -348,6 +359,10 @@ function scrollAsymmetricDiff() {
   var wrapper = diffActiveWrapper();
   var cursor = typeof diffCursor !== 'undefined' ? diffCursor : null;
   scrollAsymmetricDiffSurface(container, wrapper, cursor);
+}
+/** The alignment toggle flipped: re-run the engine (or undo it) without waiting for a scroll. */
+function refreshDiffAlignment() {
+  scrollAsymmetricDiff();
 }
 function scheduleAsymmetricDiffScroll() {
   if (asymmetricDiffScrollRaf) return;

@@ -1,6 +1,6 @@
 import { html as renderDiff2HtmlMarkup } from "diff2html";
 import hljs from "highlight.js";
-import { decodeEntities, languageForPath, stripHtmlTags } from "./util.js";
+import { decodeEntities, languageForPath, markWhitespaceRuns, stripHtmlTags } from "./util.js";
 
 // How the caller finds a changed file's CURRENT text, by the repo-relative path the diff names. Optional
 // everywhere: a history diff of an old commit has no such text, and highlighting falls back to reading the
@@ -122,9 +122,12 @@ function highlightSideLines(side: string, languageFor: (text: string, line: numb
     /(<span class="d2h-code-line-ctn">)([\s\S]*?)(<\/span>\s*<\/div>)/g,
     (whole: string, open: string, content: string, close: string, offset: number) => {
       const language = languageFor(decodeEntities(stripHtmlTags(content)), lineNumberBefore(side, offset));
-      if (!hljs.getLanguage(language)) return whole;
+      // Marked whether or not the line could be highlighted: a row of nothing but spaces has no language
+      // and is exactly the row worth seeing (highlightCtnSegments answers null for it).
+      const marked = (inner: string) => `${open}${markWhitespaceRuns(inner)}${close}`;
+      if (!hljs.getLanguage(language)) return marked(content);
       const highlighted = highlightCtnSegments(content, language);
-      return highlighted === null ? whole : `${open}${highlighted}${close}`;
+      return marked(highlighted === null ? content : highlighted);
     },
   );
 }

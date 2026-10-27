@@ -1050,7 +1050,7 @@ function renderSourceTable(file, query) {
         + (mnemonic ? ' data-bookmark-mnemonic="' + escapeHtml(mnemonic) + '"'
           + ' style="--bookmark-mark: \'' + escapeHtml(mnemonic) + '\'"' : '') + '>',
       '<td class="num">' + String(index + 1) + '</td>',
-      '<td class="source-code">' + highlightLine(line, languageAt(index)) + foldButton + '</td>',
+      '<td class="source-code">' + markWhitespaceRuns(highlightLine(line, languageAt(index))) + foldButton + '</td>',
       '</tr>',
     ].join('');
   };

@@ -217,7 +217,22 @@ var SHORTCUT_ACTIONS = {
     if (treeFocusIndex >= 0) return false;
     return showExpressionType() ? undefined : false;
   },
-  toggleFold: function () { return toggleCurrentSourceFold() ? undefined : false; },
+  // One sentence, two surfaces: "fold the thing the caret is in" is a code block in the source view and a
+  // FILE in the diff, and "collapse everything" is every region or every file. Same rows in the table.
+  toggleFold: function () {
+    if (isDiffViewVisible()) return toggleDiffFileCollapse() ? undefined : false;
+    return toggleCurrentSourceFold() ? undefined : false;
+  },
+  collapseAll: function () {
+    if (isDiffViewVisible()) return setAllDiffFilesCollapsed(true) ? undefined : false;
+    return collapseAllSourceFolds() ? undefined : false;
+  },
+  expandAll: function () {
+    if (isDiffViewVisible()) return setAllDiffFilesCollapsed(false) ? undefined : false;
+    return expandAllSourceFolds() ? undefined : false;
+  },
+  collapseRecursively: function () { return collapseSourceFoldRecursively() ? undefined : false; },
+  diffFileStep: function (event, i) { return goToDiffFile(i ? -1 : 1) ? undefined : false; },
   selectEditor: function () { return selectAllInView() ? undefined : false; },
   gotoLine: function () { openGotoLine(); },
   copyLocation: function () { copyCaretLocation(); },
@@ -287,6 +302,18 @@ var SHORTCUT_ACTIONS = {
     toggleRenderMode();
   },
   toggleLineWrap: function () { return toggleLineWrap() ? undefined : false; },
+  // The six reading switches (RENDER_TOGGLES in 01-core.js). Each is a persisted boolean and an attribute
+  // on <html>; the stylesheet does the rest, so there is nothing here to re-render. The four that act on
+  // code decline outside it, the way every other `where: "code"` entry does.
+  showWhitespace: function () { return isCodeSurfaceVisible() ? toggleRenderToggle('showWhitespace') : false; },
+  indentGuides: function () { return isCodeSurfaceVisible() ? toggleRenderToggle('indentGuides') : false; },
+  stickyLines: function () { return isCodeSurfaceVisible() ? toggleRenderToggle('stickyLines') : false; },
+  focusMode: function () { return isCodeSurfaceVisible() ? toggleRenderToggle('focusMode') : false; },
+  essentialHighlighting: function () { return toggleRenderToggle('essentialHighlighting'); },
+  alignChanges: function () { return toggleRenderToggle('alignChanges'); },
+  codeVision: function () { return isCodeSurfaceVisible() ? toggleRenderToggle('codeVision') : false; },
+  inlayHints: function () { return isCodeSurfaceVisible() ? toggleRenderToggle('inlayHints') : false; },
+  copyAsPatch: function () { return copyActiveFileAsPatch() ? undefined : false; },
   runHttp: function (event, i) {
     // A focused tree owns Enter and ⌥Enter outright (handleTreeKey: open the row / row actions). That used
     // to be settled by sitting below the tree in the chain; it is said here now, because the order a table

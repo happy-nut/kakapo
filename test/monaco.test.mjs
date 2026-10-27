@@ -151,6 +151,10 @@ test("the caret-local semantic menu opens its selected source without a second e
   v.close();
 });
 
+// The request a KEY made, not whichever was last: opening a file also asks for its folding ranges and its
+// structure in the background (BACKGROUND_ANALYSIS_KINDS), so `at(-1)` is whatever happened to settle last.
+const lastOfKind = (requests, kind) => requests.filter((r) => r.kind === kind).at(-1);
+
 test("Cmd+B resolves the token at the active diff caret on both working and base panes", async () => {
   const requests = [];
   const v = await loadViewer(html, {
@@ -177,7 +181,7 @@ test("Cmd+B resolves the token at the active diff caret on both working and base
   v.key("b", { metaKey: true, code: "KeyB" });
   await v.settle(40);
   assert.deepEqual(
-    JSON.parse(JSON.stringify(requests.at(-1))),
+    JSON.parse(JSON.stringify(lastOfKind(requests, "references"))),
     {
       kind: "references",
       symbol: "target",
@@ -199,7 +203,7 @@ test("Cmd+B resolves the token at the active diff caret on both working and base
   v.key("b", { metaKey: true, code: "KeyB" });
   await v.settle(40);
   assert.deepEqual(
-    JSON.parse(JSON.stringify(requests.at(-1))),
+    JSON.parse(JSON.stringify(lastOfKind(requests, "references"))),
     {
       kind: "references",
       symbol: "oldValue",

@@ -105,6 +105,8 @@ contextBridge.exposeInMainWorld("kakapoGit", {
   lineLog: (request: { path: string; line: number; limit?: number }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-line-log", request),
   blame: (request: { path: string; side?: "old" | "new" }): Promise<unknown> => ipcRenderer.invoke("kakapo:git-blame", request),
   commitDiff: (sha: string): Promise<unknown> => ipcRenderer.invoke("kakapo:git-commit-diff", { sha }),
+  // IntelliJ's Copy as Patch: one file's hunks as git writes them, for handing to something that applies.
+  filePatch: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:file-patch", { path }),
   // History shift-select: combined diff between two commits (old→new endpoints).
   rangeDiff: (oldSha: string, newSha: string): Promise<unknown> => ipcRenderer.invoke("kakapo:git-range-diff", { oldSha, newSha }),
   // Patch-set compare bar: list selectable bases, and switch the diff base to one (or "auto").

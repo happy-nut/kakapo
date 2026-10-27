@@ -38,8 +38,27 @@ function diagnosticsEligible(path) {
   return !(isMarkdownPath(path) || isCsvPath(path) || isHttpFile(path));
 }
 
+// The one gate every reading of a diagnostic passes through — the gutter marks, the squiggles, the ⌘6
+// Problems list, F2 stepping and the ⌘F1 description all call it — which is why IntelliJ's Essential
+// Highlighting is one line here. It drops everything that is not an error, for the review where a hundred
+// style warnings are between the reader and the three things that are actually wrong.
 function surfacedDiagnostics(items) {
-  return (items || []).filter(function (d) { return d && (d.severity === 'error' || d.severity === 'warning'); });
+  var errorsOnly = renderToggleOn('essentialHighlighting');
+  return (items || []).filter(function (d) {
+    if (!d) return false;
+    if (d.severity === 'error') return true;
+    return !errorsOnly && d.severity === 'warning';
+  });
+}
+
+/** Essential Highlighting flipped: repaint whatever is on screen through the gate above. */
+function refreshDiagnosticsFilter() {
+  var viewer = document.getElementById('source-viewer');
+  var open = viewer && viewer.dataset.openPath;
+  if (open) refreshSourceDiagnostics(open);
+  // The ⌘6 list reads through the same gate, so it only needs re-rendering when it happens to be up. Its
+  // own ⌥E errors-only filter still works and simply has nothing left to drop while this is on.
+  if (quickMode === 'problems') renderProblemsResults(String((quickInput && quickInput.value) || ''));
 }
 
 // Entry point, called from openSourceFile after a code body renders. Paints from cache when the file content

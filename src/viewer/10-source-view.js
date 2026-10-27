@@ -229,6 +229,70 @@ function sourceFoldHasComment(file, range) {
     return comment.path === file.path && line >= range.start && line <= range.end;
   });
 }
+// ---- Where a file folds ------------------------------------------------------------------------------
+// The brace walk above is a guess that is right about C-like languages and silent about every other one:
+// Python, YAML and Markdown have no braces and so had no folds at all, and even in a braced file an import
+// block or a comment header is a region braces cannot see. `textDocument/foldingRange` is the server's own
+// answer, and the server is already running for this file — it was simply never asked.
+//
+// Cached per path and generation, like the structure (16-structure.js), and ASKED FOR LAZILY: the first
+// render of a file uses the braces, the answer arrives, and the file re-renders with the real regions.
+// A server that does not implement the request leaves the braces in place rather than taking folding away.
+// Created on first use, not at this line. The first render of the app happens DURING the bundle's own load
+// (openDefaultSourceFile, from a slice above this one), so a `= new Map()` here has not run yet when the
+// first renderSourceTable asks — and the throw takes every later slice's initialisation down with it.
+// `var` hoists, so assigning it from inside the accessor is enough.
+var sourceFoldServerCache;
+function sourceFoldServerCacheMap() {
+  if (!sourceFoldServerCache) sourceFoldServerCache = new Map();
+  return sourceFoldServerCache;
+}
+function sourceServerFoldRanges(path) {
+  if (!path) return null;
+  var cached = sourceFoldServerCacheMap().get(path);
+  if (cached && cached.generation === analysisGeneration()) return cached.ranges;
+  if (cached && cached.pending) return null;
+  sourceFoldServerCacheMap().set(path, { generation: analysisGeneration(), ranges: null, pending: true });
+  Promise.resolve(queryProjectAnalysis('foldingRange', null, { path: path, lineIndex: 0, column: 0 }))
+    .then(function (response) {
+      if (!pageAlive()) return;
+      var ranges = response && Array.isArray(response.folds) ? response.folds : null;
+      // `folds` absent means the question could not be answered (no server yet, or it does not implement
+      // the request) rather than "no folds", and the two must not be cached the same way: only a real
+      // answer is remembered, so a server that arrives later still gets asked.
+      if (!ranges) sourceFoldServerCacheMap().delete(path);
+      else sourceFoldServerCacheMap().set(path, { generation: analysisGeneration(), ranges: ranges, pending: false });
+      // Only re-render when the answer actually changes what folds: an unsupported server or an empty
+      // answer leaves the braces as they were, and re-rendering for that would be a flash for nothing.
+      var viewer = document.getElementById('source-viewer');
+      if (ranges && ranges.length && viewer && viewer.dataset.openPath === path) openSourceFile(path, false);
+    }, function () {
+      if (!pageAlive()) return;
+      // A failed ASK is not an answer. Caching it would turn "the server was still starting" into "this
+      // file does not fold", for the rest of the session — so the entry is dropped and the next render of
+      // this file asks again. Renders are file-open events, not frames, so this cannot spin.
+      sourceFoldServerCacheMap().delete(path);
+    });
+  return null;
+}
+
+/**
+ * The regions of `file` that CAN fold — the server's if it has an answer, the brace pairs otherwise.
+ *
+ * One list either way, in the shape the manual fold state is keyed by, so everything downstream (the
+ * stored keys, the gutter buttons, Collapse All) reads the same thing whichever engine produced it.
+ */
+function sourceFoldCandidates(file) {
+  if (!file || !file.embedded) return [];
+  var server = sourceServerFoldRanges(file.path);
+  if (!server || !server.length) return sourceBraceRanges(file);
+  var lineCount = String(file.content || '').split(/\r?\n/).length;
+  return server
+    .filter(function (r) { return r.endLine > r.startLine && r.startLine >= 0 && r.endLine < lineCount; })
+    .map(function (r) { return { start: r.startLine, end: r.endLine, column: 0, kind: 'block' }; })
+    .sort(function (a, b) { return a.start - b.start || b.end - a.end; });
+}
+
 function sourceFoldRanges(file) {
   if (!file || !file.embedded) return [];
   var folds = [];
@@ -237,7 +301,7 @@ function sourceFoldRanges(file) {
     folds.push({ start: importRange.start, end: importRange.end, column: 0, kind: 'imports' });
   }
   var stored = sourceManualFoldKeys[file.path] || Object.create(null);
-  var pairs = sourceBraceRanges(file), valid = Object.create(null);
+  var pairs = sourceFoldCandidates(file), valid = Object.create(null);
   pairs.forEach(function (pair) { valid[pair.start + ':' + pair.end] = pair; });
   Object.keys(stored).forEach(function (key) {
     var pair = valid[key];
@@ -319,9 +383,13 @@ function toggleCurrentSourceFold() {
   if (existingButton) return openSourceFoldButton(existingButton);
   var file = sourceByPath.get(viewerCursor.path);
   if (!file || !file.embedded) return false;
-  var pair = sourceBraceRanges(file).filter(function (range) {
+  // The INNERMOST region the caret is in, chosen by span rather than by position in the list. The brace
+  // walk happened to emit its pairs innermost-first (a stack pops that way) and this read [0]; the
+  // server's ranges arrive outermost-first, which would have folded the whole file on ⌘. and looked like
+  // a fold bug rather than an ordering one.
+  var pair = sourceFoldCandidates(file).filter(function (range) {
     return range.start <= viewerCursor.lineIndex && range.end >= viewerCursor.lineIndex;
-  })[0]; // ranges are sorted inner-most first
+  }).sort(function (a, b) { return (a.end - a.start) - (b.end - b.start); })[0];
   if (!pair || sourceFoldHasComment(file, pair)) return false;
   var stored = sourceManualFoldKeys[file.path] || Object.create(null);
   stored[pair.start + ':' + pair.end] = true;
@@ -329,6 +397,67 @@ function toggleCurrentSourceFold() {
   repaintSourceFold(file.path, pair.start, pair.column + 1);
   return true;
 }
+// ---- IntelliJ's three whole-file fold actions ---------------------------------------------------------
+// Collapse All, Expand All and Collapse Recursively. ⌘. has always folded the one region the caret is in;
+// what was missing is the pair that act on the file, which is how a reader skims a long file they did not
+// write — collapse everything, then open the two declarations the change is actually about.
+//
+// All three write the same `sourceManualFoldKeys` the gutter buttons write, so a fold made by a key and a
+// fold made by a click are the same fold, and the next render draws both from one list.
+function sourceFoldActionTarget() {
+  var viewer = document.getElementById('source-viewer');
+  var path = viewer && viewer.dataset.openPath;
+  if (!path || !isSourceViewerVisible()) return null;
+  var file = sourceByPath.get(path);
+  if (!file || !file.embedded) return null;
+  return { path: path, file: file };
+}
+/** Collapse every region the file has. Nested ones are kept: reopening a parent reveals them still folded. */
+function collapseAllSourceFolds() {
+  var target = sourceFoldActionTarget();
+  if (!target) return false;
+  var candidates = sourceFoldCandidates(target.file).filter(function (pair) {
+    return !sourceFoldHasComment(target.file, pair);
+  });
+  if (!candidates.length) return false;
+  var stored = sourceManualFoldKeys[target.path] || Object.create(null);
+  candidates.forEach(function (pair) { stored[pair.start + ':' + pair.end] = true; });
+  sourceManualFoldKeys[target.path] = stored;
+  openSourceFile(target.path, false);
+  return true;
+}
+/** Open everything, including the import block this app folds on arrival. */
+function expandAllSourceFolds() {
+  var target = sourceFoldActionTarget();
+  if (!target) return false;
+  var had = Object.keys(sourceManualFoldKeys[target.path] || {}).length > 0
+    || !sourceImportOpenPaths[target.path];
+  sourceManualFoldKeys[target.path] = Object.create(null);
+  sourceImportOpenPaths[target.path] = true;
+  if (!had) return false;
+  openSourceFile(target.path, false);
+  return true;
+}
+/** The region the caret is in and everything inside it — IntelliJ's Collapse Recursively. */
+function collapseSourceFoldRecursively() {
+  var target = sourceFoldActionTarget();
+  if (!target || !viewerCursor || viewerCursor.path !== target.path) return false;
+  var candidates = sourceFoldCandidates(target.file);
+  var enclosing = candidates.filter(function (pair) {
+    return pair.start <= viewerCursor.lineIndex && pair.end >= viewerCursor.lineIndex;
+  }).sort(function (a, b) { return (a.end - a.start) - (b.end - b.start); })[0];
+  if (!enclosing) return false;
+  var stored = sourceManualFoldKeys[target.path] || Object.create(null);
+  candidates.forEach(function (pair) {
+    if (pair.start < enclosing.start || pair.end > enclosing.end) return;
+    if (sourceFoldHasComment(target.file, pair)) return;
+    stored[pair.start + ':' + pair.end] = true;
+  });
+  sourceManualFoldKeys[target.path] = stored;
+  openSourceFile(target.path, false);
+  return true;
+}
+
 function sourceVisibleLineIndex(lineIndex, direction) {
   var body = document.getElementById('source-body');
   if (!body) return lineIndex;
@@ -560,6 +689,11 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
     if (shouldReveal) scheduleScrollIntoView(document.querySelector('.source-row.cursor-line'), document.getElementById('source-body'), 0.15);
   }
   recordNav(navEntryOf('source'));
+  // Both reading modes follow the caret: the pinned header is relative to what is on screen, and the dim
+  // is relative to the declaration the caret is in. Defined in 16-reading-modes.js, which loads later.
+  refreshFocusMode();
+  scheduleStickyLines();
+  paintSourceDecorations();
 }
 var sourceRevealRaf = 0, sourceRevealPrev = null;
 // Source rows are a fixed monospace height, so the caret-follow scroll can be computed from

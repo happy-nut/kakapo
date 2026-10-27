@@ -246,3 +246,74 @@ export class ByteBudgetCache<V> {
 
 // --- Persistent terminals ----------------------------------------------------------------------------
 // A pty lives in our main process, so quitting kakapo closes its master and SIGHUPs whatever ran inside —
+
+// --- Whitespace runs ---------------------------------------------------------------------------------
+// Whitespace a reader cannot see is still whitespace a diff counts. kakapo's ⌘⇧W chooses whether it COUNTS
+// as a change; this is the other half — whether you can SEE it. IntelliJ spells them Show Whitespaces and
+// Show Indent Guides, two settings over the same thing: the run of blanks at the start of a line, and the
+// run nobody meant to leave at the end.
+//
+// Both halves of the app render code, and both go through here, so there is one definition of what a
+// whitespace run is: `src/highlight.ts` for the diff (built in main) and the viewer's renderSourceTable for
+// the source view, which gets this exact function emitted into its bundle by scripts/copy-viewer-assets.mjs.
+//
+// Only the LEADING and TRAILING runs are marked, never the gaps between tokens. A span per inner gap would
+// be a span per word on every line of every file, and this app's DOM size is already a measured constraint
+// (169 MB for a 130-file diff). Leading and trailing are also the two that carry information: how deep the
+// line sits, and what was left behind. CSS draws them — one dot per column cell, guides every N columns —
+// so turning either display on re-paints and never re-renders.
+//
+// `data-ws` says what the leading run is MADE of, which no amount of dots can show: a file that mixes tabs
+// and spaces reads identically until something else parses it.
+export function markWhitespaceRuns(html: string): string {
+  if (!html || !/[ \t]/.test(html)) return html;
+  // Tags are kept verbatim; only the text between them is examined. Text segments are already escaped, so
+  // no `<` can appear inside one and this split cannot cut a tag in half.
+  const parts = html.split(/(<[^>]*>)/);
+  const textAt: number[] = [];
+  for (let i = 0; i < parts.length; i += 1) if (i % 2 === 0 && parts[i]) textAt.push(i);
+  if (!textAt.length) return html;
+
+  const kindOf = (run: string) => (run.includes("\t") ? (run.includes(" ") ? "mixed" : "tabs") : "spaces");
+  const wrap = (run: string, className: string) =>
+    `<span class="${className}" data-ws="${kindOf(run)}">${run}</span>`;
+
+  // A run can cross a tag: a highlighter may put the indentation outside the first span and the code
+  // inside it, so "the leading run" is a walk over text segments, not a regex on the first one. Each
+  // whole-blank segment is taken entirely and the walk continues; the first segment with real text ends
+  // the run inside itself. `claimed` is how many characters of each segment a run has already taken, so
+  // the two runs cannot both claim the same blank on a line that is nothing but blanks.
+  const claimed = new Map<number, { lead: number; trail: number }>();
+  const claimOf = (index: number) => {
+    let entry = claimed.get(index);
+    if (!entry) { entry = { lead: 0, trail: 0 }; claimed.set(index, entry); }
+    return entry;
+  };
+  const free = (index: number) => parts[index].length - claimOf(index).lead - claimOf(index).trail;
+
+  // Trailing first: on an all-blank line it should win, because "left behind" is the truer reading of it.
+  for (let n = textAt.length - 1; n >= 0; n -= 1) {
+    const index = textAt[n];
+    const text = parts[index];
+    const run = /[ \t]*$/.exec(text)![0].length;
+    claimOf(index).trail = Math.min(run, free(index));
+    if (run < text.length) break;                      // this segment has real text: the run ends here
+  }
+  for (let n = 0; n < textAt.length; n += 1) {
+    const index = textAt[n];
+    const text = parts[index];
+    const run = /^[ \t]*/.exec(text)![0].length;
+    claimOf(index).lead = Math.min(run, free(index));
+    if (run < text.length) break;
+  }
+
+  for (const [index, { lead, trail }] of claimed) {
+    if (!lead && !trail) continue;
+    const text = parts[index];
+    const middle = text.slice(lead, text.length - trail);
+    parts[index] = (lead ? wrap(text.slice(0, lead), "ws-lead") : "")
+      + middle
+      + (trail ? wrap(text.slice(text.length - trail), "ws-trail") : "");
+  }
+  return parts.join("");
+}

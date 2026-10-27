@@ -28,18 +28,38 @@ const require = createRequire(import.meta.url);
 const FORWARDING_ROLES = new Set(["editmenu", "undo", "redo", "cut", "copy", "paste",
   "pasteandmatchstyle", "delete", "selectall"]);
 
-/** Electron's accelerator spelling in the table's spelling: Ctrl folds into ⌘, modifiers run ⌘⇧⌥. */
-function fold(accelerator) {
+/**
+ * Electron's accelerator spelling in the table's spelling(S) — plural, because one keystroke can be
+ * spelled two ways and only one of them would ever be compared. `CommandOrControl+Plus` is Command and
+ * the `+` CHARACTER, which on a US layout is Shift and the `=` key: the chord a reader would write as
+ * ⌘⇧=. A table row spelled ⌘⇧= would therefore be eaten by the zoom accelerator while matching nothing
+ * here. Every shifted-character accelerator has the same shape, so they are expanded, not special-cased.
+ *
+ * Ctrl folds into ⌘ (the table spells both the same way); modifiers run ⌘⇧⌥.
+ */
+const SHIFTED = { Plus: ["+", "="], Underscore: ["_", "-"], Colon: [":", ";"], Tilde: ["~", "`"] };
+const NAMED = { Plus: "+", Space: "Space", Backspace: "Backspace", Delete: "Delete", Tab: "Tab",
+  Return: "Enter", Enter: "Enter", Escape: "Esc", Up: "↑", Down: "↓", Left: "←", Right: "→",
+  PageUp: "PageUp", PageDown: "PageDown" };
+
+/** One (modifiers, key) pair in the table's spelling. Never re-joined with "+": the key can BE "+". */
+function spell(mods, key) {
+  const command = ["CommandOrControl", "CmdOrCtrl", "Command", "Cmd", "Control", "Ctrl", "Super", "Meta"]
+    .some((name) => mods.has(name));
+  return (command ? "⌘" : "") + (mods.has("Shift") ? "⇧" : "")
+    + (mods.has("Alt") || mods.has("Option") ? "⌥" : "")
+    + (NAMED[key] ?? (key.length === 1 ? key.toUpperCase() : key));
+}
+
+function foldAll(accelerator) {
   const parts = accelerator.split("+");
   const key = parts.pop();
   const mods = new Set(parts);
-  const command = mods.has("CommandOrControl") || mods.has("CmdOrCtrl") || mods.has("Command")
-    || mods.has("Cmd") || mods.has("Control") || mods.has("Ctrl") || mods.has("Super") || mods.has("Meta");
-  const named = { Plus: "+", Space: "Space", Backspace: "Backspace", Delete: "Delete", Tab: "Tab",
-    Return: "Enter", Enter: "Enter", Escape: "Esc", Up: "↑", Down: "↓", Left: "←", Right: "→",
-    PageUp: "PageUp", PageDown: "PageDown" };
-  return (command ? "⌘" : "") + (mods.has("Shift") ? "⇧" : "") + (mods.has("Alt") || mods.has("Option") ? "⌥" : "")
-    + (named[key] ?? (key.length === 1 ? key.toUpperCase() : key));
+  const shifted = SHIFTED[key];
+  if (!shifted) return [spell(mods, key)];
+  const withShift = new Set(mods);
+  withShift.add("Shift");
+  return [spell(mods, shifted[0]), spell(withShift, shifted[1])];
 }
 
 test("no shortcut row sits on a chord the application menu eats", { timeout: 60_000 }, async () => {
@@ -71,7 +91,7 @@ test("no shortcut row sits on a chord the application menu eats", { timeout: 60_
   const eaten = new Map();                                   // folded chord -> what holds it
   for (const item of fromRoles) {
     if (item.role && FORWARDING_ROLES.has(item.role.toLowerCase())) continue;
-    eaten.set(fold(item.accelerator), `the ${item.role || item.label} menu item (${item.accelerator})`);
+    for (const chord of foldAll(item.accelerator)) eaten.set(chord, `the ${item.role || item.label} menu item (${item.accelerator})`);
   }
   assert.ok(eaten.has("⌘⌥H"), "role: appMenu still binds Hide Others to ⌘⌥H");
 
@@ -79,8 +99,12 @@ test("no shortcut row sits on a chord the application menu eats", { timeout: 60_
   for (const m of main.matchAll(/accelerator:\s*"([^"]+)"/g)) {
     const around = main.slice(Math.max(0, m.index - 320), m.index + 320);
     if (around.includes("sendToFocused")) continue;
-    eaten.set(fold(m[1]), `a menu item that does not forward it (${m[1]})`);
+    for (const chord of foldAll(m[1])) eaten.set(chord, `a menu item that does not forward it (${m[1]})`);
   }
+
+  // The zoom-in item is the reason foldAll exists: it must be known under BOTH of its spellings.
+  assert.ok(eaten.has("⌘+") && eaten.has("⌘⇧="),
+    "CommandOrControl+Plus is one keystroke with two spellings and both must be claimed");
 
   const clashes = [];
   for (const row of SHORTCUTS) {

@@ -792,6 +792,61 @@ function paintUsageHighlights() {
   return { reads: reads.length, writes: writes.length };
 }
 
+// ---- The server's own answer to "where else, in this file" -------------------------------------------
+// `textDocument/documentHighlight` is the request this feature was always about and never made. The scan
+// above finds the NAME; the server finds the SYMBOL, and it labels each occurrence read, write or neither
+// — which is the one thing `classifyUsage` can only guess at, and the thing the usage view's Show Read
+// Access / Show Write Access filters are made of.
+//
+// The text scan stays, and stays FIRST: ⌘F7 answers on the keystroke, out of the file it already has, and
+// the server's answer replaces it when it arrives. A reader never waits for a round trip to see a
+// highlight, and a language that has no server keeps the feature it had.
+// Lazily created for the same reason the fold cache above is: the app's first render runs while the bundle
+// is still loading, and a slice's `= new Map()` is not guaranteed to have run when something calls into it.
+var usageHighlightCache;
+function usageHighlightCacheMap() {
+  if (!usageHighlightCache) usageHighlightCache = new Map();
+  return usageHighlightCache;
+}
+function usageHighlightKey(path, name, lineIndex) { return path + '\u0000' + name + '\u0000' + lineIndex; }
+function serverUsageMarks(path, symbol) {
+  var key = usageHighlightKey(path, symbol.name, symbol.lineIndex);
+  var cached = usageHighlightCacheMap().get(key);
+  if (cached && cached.generation === analysisGeneration()) return cached.pending ? null : cached.marks;
+  usageHighlightCacheMap().set(key, { generation: analysisGeneration(), marks: null, pending: true });
+  Promise.resolve(queryProjectAnalysis('documentHighlight', symbol.name, {
+    path: path, lineIndex: symbol.lineIndex, column: symbol.column,
+  })).then(function (response) {
+    if (!pageAlive()) return;
+    var highlights = response && Array.isArray(response.highlights) ? response.highlights : null;
+    var marks = highlights && highlights.length ? highlights.map(function (h) {
+      return {
+        path: path,
+        lineIndex: h.lineIndex,
+        column: h.startColumn,
+        length: Math.max(1, (h.endColumn || h.startColumn) - h.startColumn),
+        write: h.kind === 'write',
+      };
+    }).sort(function (a, b) { return a.lineIndex - b.lineIndex || a.column - b.column; }) : null;
+    if (!marks) usageHighlightCacheMap().delete(key);
+    else usageHighlightCacheMap().set(key, { generation: analysisGeneration(), marks: marks, pending: false });
+    // Only act if this is still the symbol on screen: the reader may have moved on, and repainting over
+    // a different symbol's highlight with this one's marks is worse than not upgrading at all.
+    if (!marks || usageMarkPath !== path || usageMarkName !== symbol.name || !usageMarks.length) return;
+    usageMarks = marks;
+    usageMarkActive = -1;
+    paintUsageHighlights();
+    showCaretHint(t('findusages.inFile')
+      .replace('{n}', String(usageMarks.length))
+      .replace('{name}', symbol.name)
+      .replace('{writes}', String(usageMarks.filter(function (mark) { return mark.write; }).length)));
+  }, function () {
+    if (!pageAlive()) return;
+    usageHighlightCacheMap().delete(key); // a failed ask is not an answer — see the fold cache
+  });
+  return null;
+}
+
 /** The marks for the symbol under the caret in the open file, computed once and reused by the step keys. */
 function ensureUsageMarks() {
   if (!isSourceViewerVisible()) return false;
@@ -800,7 +855,8 @@ function ensureUsageMarks() {
   if (!symbol || !symbol.name || !path) return false;
   if (usageMarkName === symbol.name && usageMarkPath === path && usageMarks.length
     && usageMarkGeneration === analysisGeneration()) return true;
-  usageMarks = usageMarksIn(path, symbol.name);
+  var fromServer = serverUsageMarks(path, symbol);
+  usageMarks = fromServer && fromServer.length ? fromServer : usageMarksIn(path, symbol.name);
   usageMarkPath = path;
   usageMarkName = symbol.name;
   usageMarkGeneration = analysisGeneration();

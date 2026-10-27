@@ -17,6 +17,7 @@ import {
   readGitReflog, readGitStashes, resolveGitRevision, type GitLogFilter,
 } from "./git-log.js";
 import { defaultBaseRef, git, listBranches } from "./git.js";
+import { readUnifiedDiff } from "./diff.js";
 import { readPatchSets } from "./patch-sets.js";
 import { materializeDeferredSourceFile } from "./diff.js";
 import { containedRealPath, languageForPath } from "./util.js";
@@ -308,6 +309,31 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
       ? (state.reviewBase ?? state.options.base ?? "HEAD")
       : (state.reviewTarget ?? state.options.target); // A→B: new-side blame is commit B, else working tree
     try { return readGitBlame(state.options.root, path, revision); } catch { return []; }
+  });
+
+  // IntelliJ's Copy as Patch, for one file. Asked of git rather than rebuilt from the rendered rows: a
+  // folded hunk is not in the DOM, and a patch missing a hunk still looks like a patch.
+  ipc.handle("kakapo:file-patch", (event, request: { path?: string }) => {
+    const state = stateFromEvent(event);
+    const path = typeof request?.path === "string" ? request.path : "";
+    if (!state || !path || !state.sourceFiles.has(path)) return "";
+    try {
+      return readUnifiedDiff({
+        base: state.reviewBase ?? state.options.base,
+        target: state.reviewTarget ?? state.options.target,
+        staged: state.options.staged === true,
+        // Three lines of context and NO whitespace flags, whatever the window is currently showing. The
+        // review's own view may be ignoring whitespace to read better; a patch generated that way does not
+        // apply, and a patch that does not apply is worse than none. This is the form `git apply` expects.
+        context: 3,
+        includeUntracked: false,
+        whitespace: "none",
+        root: state.options.root,
+        paths: [path],
+      });
+    } catch {
+      return "";
+    }
   });
 
   ipc.handle("kakapo:git-commit-diff", async (event, request: { sha?: string }) => {

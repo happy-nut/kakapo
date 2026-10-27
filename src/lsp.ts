@@ -13,6 +13,40 @@ import { errorMessage, languageForPath } from "./util.js";
  * structure popup renders one indented column, the breadcrumb takes the innermost that contains the caret,
  * and next/previous-method walks it in order. A tree would be rebuilt into this by all three.
  */
+/** One foldable region of a file, as `textDocument/foldingRange` reports it. */
+export type AnalysisFoldingRange = {
+  startLine: number;
+  endLine: number;
+  /** LSP's own words where the server gives one: "comment", "imports", "region". Empty means a block. */
+  kind: string;
+};
+
+/** One occurrence of the symbol under the caret inside its own file, and what the file does with it. */
+export type AnalysisHighlight = {
+  lineIndex: number;
+  startColumn: number;
+  endColumn: number;
+  /** "read" | "write" | "text" — LSP's DocumentHighlightKind, which is what the usage filters need. */
+  kind: "read" | "write" | "text";
+};
+
+/** One Code Vision line: what the server has to say ABOVE a declaration, and which line it belongs to. */
+export type AnalysisCodeLens = {
+  lineIndex: number;
+  title: string;
+};
+
+/** One inlay hint: a label the server wants drawn INSIDE a line, at a column, as if it were written there. */
+export type AnalysisInlayHint = {
+  lineIndex: number;
+  column: number;
+  label: string;
+  /** "type" | "parameter" | "" — LSP's InlayHintKind, which is what makes them separately switchable. */
+  kind: "type" | "parameter" | "";
+  paddingLeft: boolean;
+  paddingRight: boolean;
+};
+
 export type AnalysisSymbol = {
   name: string;
   /** The server's own one-line summary (a signature, a type), when it offers one. */
@@ -642,6 +676,170 @@ export class LspClient {
   }
 
   /**
+   * Where this file folds, according to the server that parses it.
+   *
+   * The viewer folded on brace pairs before this, which is a guess that is right about C-like languages and
+   * silent about every other one: Python, YAML and Markdown have no braces and so had no folds at all, and
+   * even in a braced file an import block or a comment header is a region the braces cannot see. A server
+   * that does not implement the request says so by MethodNotFound, which is reported as `supported: false`
+   * rather than "this file does not fold" — the brace walk is still there to fall back to.
+   */
+  async foldingRanges(path: string): Promise<{ supported: boolean; ranges: AnalysisFoldingRange[] }> {
+    await this.ensureDocument(path);
+    await this.waitForWorkspaceReady();
+    const uri = pathToFileURL(resolve(this.root, path)).href;
+    let result: unknown;
+    try {
+      result = await this.requestAfterWorkspaceReady("textDocument/foldingRange", { textDocument: { uri } });
+    } catch (error) {
+      if (isMethodNotFound(error)) return { supported: false, ranges: [] };
+      throw error;
+    }
+    const ranges: AnalysisFoldingRange[] = [];
+    for (const entry of Array.isArray(result) ? result : []) {
+      const row = entry as { startLine?: unknown; endLine?: unknown; kind?: unknown };
+      const startLine = Number(row?.startLine);
+      const endLine = Number(row?.endLine);
+      if (!Number.isFinite(startLine) || !Number.isFinite(endLine) || endLine <= startLine) continue;
+      ranges.push({
+        startLine: Math.max(0, Math.trunc(startLine)),
+        endLine: Math.max(0, Math.trunc(endLine)),
+        kind: typeof row?.kind === "string" ? row.kind : "",
+      });
+    }
+    return { supported: true, ranges };
+  }
+
+  /**
+   * Every occurrence of the symbol under the caret in its own file, each labelled read, write or neither.
+   *
+   * `textDocument/references` answers the same question across the workspace and without the labels, which
+   * is why the in-file highlight used to ask it and then throw most of the answer away. The labels are the
+   * point: the usage view's Show Read Access / Show Write Access filters are a property of an occurrence,
+   * and no amount of reference-hunting recovers it.
+   */
+  async documentHighlights(
+    path: string, lineIndex: number, column: number,
+  ): Promise<{ supported: boolean; highlights: AnalysisHighlight[] }> {
+    await this.ensureDocument(path);
+    await this.waitForWorkspaceReady();
+    const uri = pathToFileURL(resolve(this.root, path)).href;
+    let result: unknown;
+    try {
+      result = await this.requestAfterWorkspaceReady("textDocument/documentHighlight", {
+        textDocument: { uri },
+        position: { line: Math.max(0, lineIndex), character: Math.max(0, column) },
+      });
+    } catch (error) {
+      if (isMethodNotFound(error)) return { supported: false, highlights: [] };
+      throw error;
+    }
+    const KINDS: Record<number, AnalysisHighlight["kind"]> = { 1: "text", 2: "read", 3: "write" };
+    const highlights: AnalysisHighlight[] = [];
+    for (const entry of Array.isArray(result) ? result : []) {
+      const row = entry as { range?: { start?: { line?: unknown; character?: unknown }; end?: { line?: unknown; character?: unknown } }; kind?: unknown };
+      const line = Number(row?.range?.start?.line);
+      const startColumn = Number(row?.range?.start?.character);
+      const endColumn = Number(row?.range?.end?.character);
+      if (!Number.isFinite(line) || !Number.isFinite(startColumn)) continue;
+      highlights.push({
+        lineIndex: Math.max(0, Math.trunc(line)),
+        startColumn: Math.max(0, Math.trunc(startColumn)),
+        endColumn: Number.isFinite(endColumn) ? Math.max(0, Math.trunc(endColumn)) : Math.max(0, Math.trunc(startColumn)),
+        kind: KINDS[Number(row?.kind)] ?? "text",
+      });
+    }
+    return { supported: true, highlights };
+  }
+
+  /**
+   * What the server has to say above each declaration — IntelliJ's Code Vision.
+   *
+   * Unresolved lenses are DROPPED rather than resolved. A server is allowed to send `{range, data}` with no
+   * title and expect a `codeLens/resolve` per lens, and a file with a hundred declarations would then be a
+   * hundred extra round trips to draw decoration. What arrives with a title is drawn; what does not is not
+   * worth a reader waiting for.
+   */
+  async codeLenses(path: string): Promise<{ supported: boolean; lenses: AnalysisCodeLens[] }> {
+    await this.ensureDocument(path);
+    await this.waitForWorkspaceReady();
+    const uri = pathToFileURL(resolve(this.root, path)).href;
+    let result: unknown;
+    try {
+      result = await this.requestAfterWorkspaceReady("textDocument/codeLens", { textDocument: { uri } });
+    } catch (error) {
+      if (isMethodNotFound(error)) return { supported: false, lenses: [] };
+      throw error;
+    }
+    const lenses: AnalysisCodeLens[] = [];
+    for (const entry of Array.isArray(result) ? result : []) {
+      const row = entry as { range?: { start?: { line?: unknown } }; command?: { title?: unknown } };
+      const line = Number(row?.range?.start?.line);
+      const title = typeof row?.command?.title === "string" ? row.command.title.trim() : "";
+      if (!Number.isFinite(line) || !title) continue;
+      lenses.push({ lineIndex: Math.max(0, Math.trunc(line)), title });
+    }
+    return { supported: true, lenses };
+  }
+
+  /**
+   * The labels the server would write into the code if the code had been written that way — parameter
+   * names at a call site, an inferred type after a binding. LSP's `textDocument/inlayHint`.
+   *
+   * A hint's label is either a string or a list of parts (each of which may carry its own tooltip and
+   * location); only the text is kept, because this app draws them and does not make them clickable.
+   */
+  async inlayHints(
+    path: string, fromLine: number, toLine: number,
+  ): Promise<{ supported: boolean; hints: AnalysisInlayHint[] }> {
+    await this.ensureDocument(path);
+    await this.waitForWorkspaceReady();
+    const uri = pathToFileURL(resolve(this.root, path)).href;
+    let result: unknown;
+    try {
+      result = await this.requestAfterWorkspaceReady("textDocument/inlayHint", {
+        textDocument: { uri },
+        range: {
+          start: { line: Math.max(0, Math.trunc(fromLine)), character: 0 },
+          end: { line: Math.max(0, Math.trunc(toLine)), character: 0 },
+        },
+      });
+    } catch (error) {
+      if (isMethodNotFound(error)) return { supported: false, hints: [] };
+      throw error;
+    }
+    const KINDS: Record<number, AnalysisInlayHint["kind"]> = { 1: "type", 2: "parameter" };
+    const hints: AnalysisInlayHint[] = [];
+    for (const entry of Array.isArray(result) ? result : []) {
+      const row = entry as {
+        position?: { line?: unknown; character?: unknown };
+        label?: unknown;
+        kind?: unknown;
+        paddingLeft?: unknown;
+        paddingRight?: unknown;
+      };
+      const line = Number(row?.position?.line);
+      const column = Number(row?.position?.character);
+      if (!Number.isFinite(line) || !Number.isFinite(column)) continue;
+      const label = typeof row?.label === "string"
+        ? row.label
+        : Array.isArray(row?.label)
+          ? row.label.map((part) => (typeof part === "string" ? part : String((part as { value?: unknown })?.value ?? ""))).join("")
+          : "";
+      if (!label.trim()) continue;
+      hints.push({
+        lineIndex: Math.max(0, Math.trunc(line)),
+        column: Math.max(0, Math.trunc(column)),
+        label,
+        kind: KINDS[Number(row?.kind)] ?? "",
+        paddingLeft: row?.paddingLeft === true,
+        paddingRight: row?.paddingRight === true,
+      });
+    }
+    return { supported: true, hints };
+  }
+
+  /**
    * Who calls this, or what this calls — `textDocument/prepareCallHierarchy` then one of its follow-ups.
    *
    * Two round trips by design: prepare resolves the position to the symbol the server considers to be
@@ -943,6 +1141,15 @@ export class LspClient {
             references: {},
             implementation: { linkSupport: true },
             publishDiagnostics: { relatedInformation: false },
+            // Declared because these two are gated on the client capability by servers that register
+            // their providers dynamically; the requests above are answered whether or not they are named.
+            foldingRange: { lineFoldingOnly: true },
+            documentHighlight: {},
+            // Code Vision and inlay hints. `resolveSupport` is deliberately NOT declared: a lens or hint
+            // this client cannot draw without a second round trip is skipped instead, and saying otherwise
+            // would invite servers to send unresolved stubs.
+            codeLens: {},
+            inlayHint: {},
           },
         },
       }).then(() => {

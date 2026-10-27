@@ -717,6 +717,73 @@ function applyDiffHighlight(next) {
 }
 applyDiffHighlight(diffHighlightMode);
 
+// ---- How the code is DRAWN, as against what it says -------------------------------------------------
+// Six switches that change nothing about the review and everything about reading it, and they are one
+// table because they are one shape: a persisted boolean, an attribute on <html>, and a stylesheet that
+// reads it. Nothing re-renders when one flips — the marks they act on (ws-lead/ws-trail, the symbol
+// ranges, the diagnostic severities) are already in the DOM, and these decide whether they are shown.
+// That is the same bargain --diff-highlight above makes, and the reason the toggles are instant on a
+// 30k-line file.
+//
+// IntelliJ keeps each of these as its own action: Show Whitespaces, Show Indent Guides, Show Sticky Lines,
+// Highlight Only Current Declaration (its Focus Mode), Essential Highlighting, and Align Changes In
+// Side-by-Side Diff. None of them carries a keystroke there — they live in menus — so the chords are this
+// app's, and they are one family on ⇧⌥ because they are one kind of thing.
+var RENDER_TOGGLES = {
+  showWhitespace: { key: 'kakapo-show-whitespace', attr: 'data-show-whitespace', on: false },
+  indentGuides: { key: 'kakapo-indent-guides', attr: 'data-indent-guides', on: false },
+  stickyLines: { key: 'kakapo-sticky-lines', attr: 'data-sticky-lines', on: true },
+  focusMode: { key: 'kakapo-focus-mode', attr: 'data-focus-mode', on: false },
+  essentialHighlighting: { key: 'kakapo-essential-highlighting', attr: 'data-essential-highlighting', on: false },
+  // Default on: the asymmetric alignment engine (01-diff-alignment.js) has always run, and a toggle that
+  // changed the app's behaviour the first time it shipped would be a different change from this one.
+  alignChanges: { key: 'kakapo-align-changes', attr: 'data-align-changes', on: true },
+  // The two decoration switches, on by default because they are on by default in IntelliJ: a reader who
+  // has never heard of Code Vision should still see "3 usages" over a function they are being asked to
+  // review, and a reader who finds it noisy has a key for it.
+  codeVision: { key: 'kakapo-code-vision', attr: 'data-code-vision', on: true },
+  inlayHints: { key: 'kakapo-inlay-hints', attr: 'data-inlay-hints', on: true },
+};
+Object.keys(RENDER_TOGGLES).forEach(function (name) {
+  var entry = RENDER_TOGGLES[name];
+  var saved = persistRead(entry.key);
+  if (typeof saved !== 'string') { try { saved = localStorage.getItem(entry.key); } catch (e) {} }
+  if (saved === '1' || saved === '0') entry.on = saved === '1';
+});
+/** Source view or diff — the two surfaces the drawing switches act on. */
+function isCodeSurfaceVisible() {
+  return isSourceViewerVisible() || isDiffViewVisible();
+}
+function renderToggleOn(name) {
+  var entry = RENDER_TOGGLES[name];
+  return Boolean(entry && entry.on);
+}
+function paintRenderToggle(name) {
+  var entry = RENDER_TOGGLES[name];
+  if (!entry) return;
+  document.documentElement.setAttribute(entry.attr, entry.on ? 'on' : 'off');
+}
+function setRenderToggle(name, on) {
+  var entry = RENDER_TOGGLES[name];
+  if (!entry) return false;
+  entry.on = Boolean(on);
+  persistSave(entry.key, entry.on ? '1' : '0');
+  paintRenderToggle(name);
+  // Four of them are not pure paint: they own something the stylesheet cannot reach — the pinned header,
+  // the dim, the opposite pane's transform, and which diagnostics exist at all. The slices are one script,
+  // so these are simply called (test/viewer-slices.test.mjs: a `typeof` guard here could only hide a rename).
+  if (name === 'stickyLines') refreshStickyLines();
+  if (name === 'focusMode') refreshFocusMode();
+  if (name === 'alignChanges') refreshDiffAlignment();
+  if (name === 'essentialHighlighting') refreshDiagnosticsFilter();
+  if (name === 'codeVision' || name === 'inlayHints') paintSourceDecorations();
+  return true;
+}
+function toggleRenderToggle(name) {
+  return setRenderToggle(name, !renderToggleOn(name));
+}
+Object.keys(RENDER_TOGGLES).forEach(paintRenderToggle);
+
 var UI_SCALE_KEY = 'kakapo-ui-scale';
 var UI_SCALES = [0.9, 1, 1.1, 1.25, 1.5];
 var uiScaleSelectRef = null;

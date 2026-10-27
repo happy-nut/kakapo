@@ -25,7 +25,7 @@ const VIEWER_SLICES = [
   "08-dock.js", "09-views-update.js", "10-source-view.js", "11-http-parse.js", "11-http-script.js",
   "11-http-run.js", "11-render-http.js", "12-history.js",
   "13-goto.js", "14-project-layout.js", "15-analysis-status.js", "15-semantic-navigation.js", "16-semantic-peek.js",
-  "16-structure.js", "17-file-find.js", "17-find-usages.js", "18-diagnostics.js", "18-code-insight.js", "19-find-action.js", "19-diff-stripe.js", "20-mermaid.js", "21-compare-menu.js",
+  "16-structure.js", "16-reading-modes.js", "17-file-find.js", "17-find-usages.js", "18-diagnostics.js", "18-code-insight.js", "19-find-action.js", "19-diff-stripe.js", "20-mermaid.js", "21-compare-menu.js",
   "22-patchset.js", "23-agent-cards.js", "28-shortcut-coach.js", "29-shortcut-rebind.js",
 ];
 const onDisk = readdirSync(viewerDir).filter((f) => f.endsWith(".js")).sort();
@@ -47,7 +47,13 @@ const vendorBundle = markdownVendors.map((file) => readFileSync(file, "utf8") + 
 const shortcutDefs = createRequire(import.meta.url)(join(distDir, "shortcuts.js")).SHORTCUTS;
 if (!Array.isArray(shortcutDefs) || !shortcutDefs.length) throw new Error("dist/shortcuts.js exported no SHORTCUTS — did tsc run?");
 const shortcutPrelude = `var SHORTCUT_DEFS = ${JSON.stringify(shortcutDefs)};\n`;
-const bundle = vendorBundle + shortcutPrelude + parts.map((f) => readFileSync(join(viewerDir, f), "utf8")).join("");
+// Whitespace runs are marked identically on both sides of the app — the diff is built in main through
+// src/highlight.ts, the source view in the viewer — so the one definition in src/util.ts rides in as source
+// rather than being written twice. Emitted ahead of the slices for the same reason SHORTCUT_DEFS is.
+const { markWhitespaceRuns } = createRequire(import.meta.url)(join(distDir, "util.js"));
+if (typeof markWhitespaceRuns !== "function") throw new Error("dist/util.js exported no markWhitespaceRuns — did tsc run?");
+const whitespacePrelude = `var markWhitespaceRuns = ${markWhitespaceRuns.toString()};\n`;
+const bundle = vendorBundle + shortcutPrelude + whitespacePrelude + parts.map((f) => readFileSync(join(viewerDir, f), "utf8")).join("");
 writeFileSync(join(distDir, "viewer.client.js"), bundle); // readable concat — tests + debugging read this
 
 // Runtime ships a MINIFIED bundle (smaller inlined <script> -> faster parse). mangle.toplevel:false keeps

@@ -658,3 +658,86 @@ function firstHunkForPath(path) {
   const index = Number(link.dataset.hunk);
   return Number.isNaN(index) ? -1 : index;
 }
+
+// ---- The diff as a stack of files ---------------------------------------------------------------------
+// IntelliJ's combined diff view is one scroll holding every changed file, which is what this app has always
+// shown — so the actions worth porting from it are the ones that treat that scroll as a STACK: collapse the
+// file you have finished with, collapse them all, and step to the next one.
+//
+// No new chords. ⌘. already folds "the thing the caret is in" and ⌘⇧-/⌘⌥= already collapse and expand
+// "everything", and in the diff the thing the caret is in is a FILE. The keys mean the same sentence on
+// both surfaces, which is why they are one row in the table and not four.
+//
+// Display only, and deliberately separate from Viewed. Viewed is review state — it says a human has read
+// this file — and it happens to hide the body as well; a reader who collapses three files to get them out
+// of the way has not reviewed them, and conflating the two would quietly tick them off.
+var diffCollapsedFiles = null;
+function diffCollapsedFileSet() {
+  if (!diffCollapsedFiles) diffCollapsedFiles = Object.create(null);
+  return diffCollapsedFiles;
+}
+function paintDiffFileCollapse() {
+  var wrappers = document.querySelectorAll('#diff2html-container .d2h-file-wrapper');
+  Array.prototype.forEach.call(wrappers, function (wrapper) {
+    var key = diffWrapperPathKey(wrapper);
+    wrapper.classList.toggle('file-collapsed', !!(key && diffCollapsedFileSet()[key]));
+  });
+}
+/** ⌘. in the diff: fold away the file the caret is in, or open it again. */
+function toggleDiffFileCollapse() {
+  if (!isDiffViewVisible()) return false;
+  var wrapper = diffActiveWrapper();
+  var key = wrapper ? diffWrapperPathKey(wrapper) : '';
+  if (!key) return false;
+  var set = diffCollapsedFileSet();
+  if (set[key]) delete set[key];
+  else set[key] = true;
+  paintDiffFileCollapse();
+  return true;
+}
+/** ⌘⇧- / ⌘⌥= in the diff: every file at once. */
+function setAllDiffFilesCollapsed(collapsed) {
+  if (!isDiffViewVisible()) return false;
+  var wrappers = document.querySelectorAll('#diff2html-container .d2h-file-wrapper');
+  if (!wrappers.length) return false;
+  var set = diffCollapsedFileSet();
+  Array.prototype.forEach.call(wrappers, function (wrapper) {
+    var key = diffWrapperPathKey(wrapper);
+    if (!key) return;
+    if (collapsed) set[key] = true;
+    else delete set[key];
+  });
+  paintDiffFileCollapse();
+  return true;
+}
+/**
+ * ⌘⇧→ / ⌘⇧← : the next or previous file in the stack — IntelliJ's Compare Next/Previous File, on the
+ * chords `$default.xml` gives them (⌃⇧→ / ⌃⇧←).
+ *
+ * The caret lands on the file's first code row, not on its header: a header is not a position a reader can
+ * read from, and every other jump in this app leaves the caret somewhere it can press an arrow next.
+ */
+function goToDiffFile(delta) {
+  if (!isDiffViewVisible()) return false;
+  var wrappers = Array.prototype.slice.call(document.querySelectorAll('#diff2html-container .d2h-file-wrapper'));
+  if (wrappers.length < 2) return false;
+  var current = diffActiveWrapper();
+  var at = wrappers.indexOf(current);
+  var next = wrappers[(at < 0 ? 0 : at + (delta > 0 ? 1 : -1) + wrappers.length) % wrappers.length];
+  var key = next ? diffWrapperPathKey(next) : '';
+  if (!key) return false;
+  // Stepping INTO a collapsed file opens it: the alternative is a jump that appears to do nothing, which
+  // is the same reason navigating into a folded region opens it in the source view.
+  if (diffCollapsedFileSet()[key]) { delete diffCollapsedFileSet()[key]; paintDiffFileCollapse(); }
+  var side = diffCursor && diffCursor.side === 'old' ? 'old' : 'new';
+  var rows = diffRowsOf(diffSideTable(next, side));
+  var rowIndex = rows.findIndex(function (row) { return isDiffCodeRow(row); });
+  if (rowIndex < 0) {
+    rows = diffRowsOf(diffSideTable(next, side === 'new' ? 'old' : 'new'));
+    rowIndex = rows.findIndex(function (row) { return isDiffCodeRow(row); });
+    if (rowIndex < 0) return false;
+    side = side === 'new' ? 'old' : 'new';
+  }
+  setDiffCursor(key, side, rowIndex, 0, true);
+  return true;
+}

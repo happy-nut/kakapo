@@ -46,6 +46,12 @@ export function readUnifiedDiff(options: {
    */
   whitespace?: WhitespaceMode;
   root?: string;
+  /**
+   * Limit the diff to these repository-relative paths. Used by Copy as Patch, which wants one file's
+   * hunks exactly as git would write them — reconstructing them from the rendered rows would be wrong the
+   * moment a hunk is folded, and a patch that is subtly wrong is worse than no patch at all.
+   */
+  paths?: string[];
 }): string {
   // Run Git from the folder the user opened and ask it to rebase paths to that folder. Git still reads
   // the enclosing repository/index, but a monorepo package now behaves as an independent review
@@ -69,7 +75,12 @@ export function readUnifiedDiff(options: {
   } else {
     args.push(options.base ?? "HEAD");
   }
-  args.push("--", ".");
+  // `--` then the pathspecs. A caller that names paths gets those; everything else gets the whole folder,
+  // which is what `--relative` above rebases onto. A path is passed verbatim after `--`, so it can never
+  // be read as an option.
+  args.push("--");
+  if (options.paths && options.paths.length) args.push(...options.paths);
+  else args.push(".");
 
   const result = spawnSync("git", [...RAW_PATHS, ...args], {
     cwd: root,

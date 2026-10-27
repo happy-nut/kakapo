@@ -118,3 +118,14 @@ function applyBranchChip(element, branch) {
   element.appendChild(head);
   element.appendChild(tail);
 }
+
+// Is this page still there to be written to?
+//
+// Every analysis request is a round trip, and a window can be closed inside one. In the browser the
+// callback simply stops mattering; under jsdom the globals are torn out from under it and `document`
+// becomes undefined, so a callback that reads the DOM throws into an unhandled rejection with no test
+// around it any more. Asked FIRST in any async continuation that touches the page — before even reading
+// the analysis generation, which is itself read off an element.
+function pageAlive() {
+  return typeof document !== 'undefined' && !!document && typeof document.getElementById === 'function';
+}

@@ -100,6 +100,9 @@ export const SHORTCUTS: ShortcutDef[] = [
   // which narrows the in-file find to the block the reviewer had selected when they pressed ⌘F. ⌃ folds
   // into ⌘ in this table, so it lands on ⌘⌥E — free, and beside the three toggles it sits next to.
   { id: "findInSelection", keys: ["⌘⌥E"], where: "find", i18n: "kbd.findInSelection" },
+  // IntelliJ's Search In Changes (Vcs.Diff.ToggleSearchInChanges), which has no chord there — it is a
+  // button on the diff toolbar — so ⌥D joins the ⌥M/⌥W/⌥X family of find-bar toggles beside it.
+  { id: "searchChangesOnly", keys: ["⌥D"], where: "find", i18n: "kbd.searchChangesOnly" },
   // IntelliJ's Search History, which its find toolbar opens as a dropdown from the field (⌥↓). A bar one
   // line wide has nowhere to put a dropdown, so the same keys step through it in place. The chord is shared
   // with the code surface's next/previous symbol and only answers here while the find FIELD has the
@@ -205,6 +208,19 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "assignBookmark", keys: ["⇧⌥1", "⇧⌥2", "⇧⌥3", "⇧⌥4", "⇧⌥5", "⇧⌥6", "⇧⌥7", "⇧⌥8", "⇧⌥9"], where: "code", i18n: "kbd.assignBookmark" },
   { id: "jumpBookmark", keys: ["⌥1", "⌥2", "⌥3", "⌥4", "⌥5", "⌥6", "⌥7", "⌥8", "⌥9"], where: "any", i18n: "kbd.jumpBookmark" },
   { id: "toggleFold", keys: ["⌘."], where: "code", i18n: "kbd.toggleFold" },
+  // IntelliJ's two whole-file fold actions and its recursive one. Collapse All and Collapse Recursively
+  // keep IntelliJ's own chords (⌃⇧- and ⌃⌥-, which fold to ⌘⇧- and ⌘⌥-). Expand All cannot: IntelliJ
+  // spells it ⌃⇧+, which folds to ⌘⇧+ — and ⌘⇧+ is the SAME PHYSICAL KEY as the View menu's zoom-in
+  // accelerator (`CommandOrControl+Plus` is Shift and the `=` key), so the menu would eat it. ⌘⌥= is one
+  // modifier away and free. This is the one collision two different spellings can hide, and
+  // test/menu-accelerators.test.mjs now expands `Plus` into both of them so it cannot hide again.
+  { id: "collapseAll", keys: ["⌘⇧-"], where: "code", i18n: "kbd.collapseAll" },
+  { id: "expandAll", keys: ["⌘⌥="], where: "code", i18n: "kbd.expandAll" },
+  { id: "collapseRecursively", keys: ["⌘⌥-"], where: "code", i18n: "kbd.collapseRecursively" },
+  // IntelliJ's Compare Next / Previous File, which is what its diff viewer calls stepping through the
+  // stack of changed files, on the chords `$default.xml` gives them (⌃⇧→ / ⌃⇧←). F7 steps the CHANGES;
+  // this steps the files, which is the question "what else did it touch" rather than "what else here".
+  { id: "diffFileStep", keys: ["⌘⇧→", "⌘⇧←"], where: "code", i18n: "kbd.diffFileStep" },
   { id: "prevNextTab", keys: ["⌘⇧[", "⌘⇧]"], where: "code", i18n: "kbd.prevNextTab" },
   { id: "cursorBackForward", keys: ["⌘[", "⌘]"], where: "code", i18n: "kbd.cursorBackForward" },
 
@@ -215,6 +231,9 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "extendSelection", keys: ["⇧←↑↓→"], where: "code", i18n: "kbd.extendSelection", fixed: "structural" },
   { id: "selectEditor", keys: ["⌘A"], where: "code", i18n: "kbd.selectEditor" },
   { id: "copyLocation", keys: ["⌘K"], where: "code", i18n: "kbd.copyLocation" },
+  // IntelliJ's Copy as Patch, which it keeps on the Changes context menu with no chord of its own. ⇧⌥P
+  // joins the ⇧⌥ family: not a reading switch, but the same "about the file on screen" scope.
+  { id: "copyAsPatch", keys: ["⇧⌥P"], where: "any", i18n: "kbd.copyAsPatch" },
   { id: "pageUpDown", keys: ["PageUp", "PageDown"], where: "code", i18n: "kbd.pageUpDown", fixed: "structural" },
   { id: "expandDiffFold", keys: ["Space"], where: "code", i18n: "kbd.expandDiffFold", fixed: "structural" },
   // One key, two contexts — like compareMode's ⌥A/⌥U, this is one row because it is one chord: in a .http
@@ -227,6 +246,25 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "runHttpAll", keys: ["⌘⇧Enter"], where: "code", i18n: "kbd.runHttpAll" },
   { id: "copyHttpCurl", keys: ["⌘⇧C"], where: "code", i18n: "kbd.copyHttpCurl" },
   { id: "toggleRendered", keys: ["⌥R"], where: "code", i18n: "kbd.toggleRendered" },
+
+  // ---- How the code is drawn ----------------------------------------------------------------------
+  // IntelliJ's reading switches, which it keeps in menus and gives no keystroke: Show Whitespaces, Show
+  // Indent Guides, Show Sticky Lines, Highlight Only Current Declaration (its Focus Mode), Essential
+  // Highlighting, and Align Changes In Side-by-Side Diff. The chords are therefore this app's own, and
+  // they are one ⇧⌥ family because they are one kind of switch — none of them changes the review, only
+  // how it is drawn. ⇧⌥ was free apart from the bookmark digits, and ⌥letter is already crowded.
+  //
+  // The pair with ⌥W is deliberate: ⌥W decides whether a long line WRAPS and ⇧⌥W whether its blanks are
+  // VISIBLE, and the app's other whitespace key, ⌘⇧W, decides whether they COUNT as a change. Three
+  // questions about whitespace that readers mix up, kept one modifier apart.
+  { id: "showWhitespace", keys: ["⇧⌥W"], where: "code", i18n: "kbd.showWhitespace" },
+  { id: "indentGuides", keys: ["⇧⌥I"], where: "code", i18n: "kbd.indentGuides" },
+  { id: "stickyLines", keys: ["⇧⌥S"], where: "code", i18n: "kbd.stickyLines" },
+  { id: "focusMode", keys: ["⇧⌥F"], where: "code", i18n: "kbd.focusMode" },
+  { id: "essentialHighlighting", keys: ["⇧⌥E"], where: "any", i18n: "kbd.essentialHighlighting" },
+  { id: "alignChanges", keys: ["⇧⌥A"], where: "any", i18n: "kbd.alignChanges" },
+  { id: "codeVision", keys: ["⇧⌥V"], where: "code", i18n: "kbd.codeVision" },
+  { id: "inlayHints", keys: ["⇧⌥H"], where: "code", i18n: "kbd.inlayHints" },
   { id: "toggleLineWrap", keys: ["⌥W"], where: "code", i18n: "kbd.toggleLineWrap" },
   { id: "closeTab", keys: ["⌘W"], where: "code", i18n: "kbd.closeTab", fixed: "menu" },
 
@@ -272,12 +310,12 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
     "quickDoc", "expressionType", "filesChangesTab",
     "sidebarNavigate", "sidebarContent", "findInFile", "findNextPrev", "findEnter", "findInFiles", "recentFiles",
     "searchExtensions", "excludeSearchNoise", "searchMatchCase", "searchWholeWords", "searchRegex", "searchScope",
-    "findInSelection", "findHistory",
+    "findInSelection", "searchChangesOnly", "findHistory",
     "searchFiles", "searchEverywhere", "findAction", "goToTest",
     "defUsages", "findUsages", "highlightUsages", "nextPrevOccurrence", "goToImplementation",
     "workspaceSymbol", "goToClass", "relatedSymbol", "customRegion", "lastChange", "goToDef", "quickDefinition", "typeDeclaration", "fileStructure", "nextPrevSymbol", "recentLocations", "typeHierarchy", "callHierarchy", "methodHierarchy", "goToSuper",
     "toggleBookmark", "showBookmarks", "assignBookmark", "jumpBookmark",
-    "toggleFold", "prevNextTab", "cursorBackForward",
+    "toggleFold", "collapseAll", "expandAll", "collapseRecursively", "diffFileStep", "prevNextTab", "cursorBackForward",
   ] },
   // IntelliJ's own two groups: "Usage View Grouping" and "Usage View Filtering" (UsageViewBundle). They
   // are one category here because they are one panel — nine toggles over the same list.
@@ -288,8 +326,9 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   ] },
   { i18n: "settings.kbd.cat.editor", ids: [
     "moveCaret", "wordJump", "lineStartEnd", "extendSelection", "selectEditor", "copyLocation",
-    "pageUpDown", "expandDiffFold", "runHttp", "runHttpAll", "copyHttpCurl", "toggleRendered",
-    "toggleLineWrap", "closeTab",
+    "pageUpDown", "expandDiffFold", "copyAsPatch", "runHttp", "runHttpAll", "copyHttpCurl", "toggleRendered",
+    "toggleLineWrap", "showWhitespace", "indentGuides", "stickyLines", "focusMode",
+    "essentialHighlighting", "alignChanges", "codeVision", "inlayHints", "closeTab",
   ] },
   { i18n: "settings.kbd.cat.review", ids: [
     "toggleViewed", "addComment", "allComments", "undoCommentRemoval", "ignoreWhitespace", "saveComment",

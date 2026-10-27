@@ -141,6 +141,14 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌥O` | Go to a class by name (types only) |
 | `⌥G` | Files related to this one — its test, and its same-name siblings |
 | `⌘⌥.` | Go to a `region` in this file |
+| `⌘⇧-` / `⌘⌥=` / `⌘⌥-` | Collapse all / expand all / collapse recursively |
+| `⇧⌥W` / `⇧⌥I` | Show whitespaces / show indent guides |
+| `⇧⌥S` / `⇧⌥F` | Show sticky lines / highlight only the current declaration |
+| `⇧⌥E` / `⇧⌥A` | Essential highlighting (errors only) / align changes in the side-by-side diff |
+| `⇧⌥V` / `⇧⌥H` | Code Vision / inlay hints — what the language server would have written |
+| `⌘⇧→` / `⌘⇧←` | Next / previous file in the diff |
+| `⌥D` | In the find bar: search only the lines this review changed |
+| `⇧⌥P` | Copy this file as a patch |
 | `⌘⇧Backspace` | Jump to this file's last change |
 | `F1` | Quick documentation for the symbol under the caret |
 | `⌘⇧P` | The type of the expression under the caret |

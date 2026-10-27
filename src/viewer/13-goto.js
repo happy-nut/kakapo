@@ -7,6 +7,27 @@ function copyTextToClipboard(text) {
   return false;
 }
 
+// IntelliJ's Copy as Patch, for the file being read: git's own hunks for it, on the clipboard, ready for
+// `git apply`. Asked of main (kakapo:file-patch) rather than rebuilt from the rendered rows — a folded hunk
+// is not in the DOM, and a patch missing a hunk still looks like a patch.
+function copyActiveFileAsPatch() {
+  var path = isSourceViewerVisible()
+    ? (document.getElementById('source-viewer') || { dataset: {} }).dataset.openPath
+    : (diffCursor && diffCursor.path) || (diffActiveWrapper() ? diffWrapperPathKey(diffActiveWrapper()) : '');
+  if (!path) return false;
+  if (!window.kakapoGit || typeof window.kakapoGit.filePatch !== 'function') return false;
+  Promise.resolve(window.kakapoGit.filePatch(path)).then(function (patch) {
+    if (!pageAlive()) return;
+    var text = typeof patch === 'string' ? patch : '';
+    if (!text.trim()) { showToast(t('patch.none').replace('{path}', path)); return; }
+    copyTextToClipboard(text);
+    showToast(t('patch.copied').replace('{path}', path));
+  }, function () {
+    if (pageAlive()) showToast(t('patch.none').replace('{path}', path));
+  });
+  return true;
+}
+
 // "path:line" for the current caret — source view (the painted file) or the diff caret. '' if neither.
 function caretLocation() {
   if (isSourceViewerVisible()) {

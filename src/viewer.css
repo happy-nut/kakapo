@@ -2046,6 +2046,8 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 /* Source view mirrors the diff view: fill the content column so the source-body (its last child, after
    the tabs + toolbar) reaches the bottom even for short files, instead of floating at the top. */
 #source-viewer:not(.hidden) { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+/* The sticky-lines overlay is absolutely placed against this box (16-reading-modes.js sets its top). */
+#source-viewer { position: relative; }
 .diff2html-container .d2h-wrapper { flex: 1 1 auto; display: flex; flex-direction: column; }
 /* (removed last-file flex-fill) It forced the wrapper to the container height + overflow:hidden, which
    froze the diff's vertical scroll — and froze the absolute line numbers at "1". The diff column now
@@ -4944,3 +4946,105 @@ body:has(#mc-briefing) .sidebar { z-index: var(--z-sidebar-raised); }
 @media (prefers-reduced-motion: reduce) {
   .coach-nudge { transition: none; }
 }
+
+/* ===== Whitespace runs and indent guides =================================================================
+   Three readings of one DOM, like --diff-highlight above it: the leading and trailing runs of every code
+   line are marked once at render (markWhitespaceRuns in src/util.ts, used by both the diff built in main
+   and the source view built here), and these rules decide whether either is visible. Toggling repaints;
+   nothing re-renders, and nothing is measured.
+
+   Dots are drawn per column cell, not per character span — a span per space would be a span per indent
+   level on every line of every file, and this app's DOM size is a measured constraint. `ch` is the advance
+   of "0", which in a monospace face is exactly a space.
+
+   Tabs are NOT dotted. A tab's rendered width is whatever tab-size says, so a dot every 1ch would sit
+   under the wrong columns and claim a count the file does not have. A run that is tabs, or mixes them with
+   spaces, is tinted instead — which answers the question dots cannot ("is this file mixing them?"). */
+:root {
+  --ws-dot: color-mix(in srgb, var(--muted) 55%, transparent);
+  --ws-trail-bg: color-mix(in srgb, #e5534b 28%, transparent);
+  --ws-tab-bg: color-mix(in srgb, var(--muted) 16%, transparent);
+  --indent-guide: color-mix(in srgb, var(--border) 85%, transparent);
+  --indent-width: 2;
+}
+.ws-lead, .ws-trail { background-repeat: repeat; }
+
+html[data-show-whitespace="on"] .ws-lead[data-ws="spaces"],
+html[data-show-whitespace="on"] .ws-trail[data-ws="spaces"] {
+  background-image: radial-gradient(circle at 50% 50%, var(--ws-dot) 0 1px, transparent 1.5px);
+  background-size: 1ch 100%;
+}
+html[data-show-whitespace="on"] .ws-lead[data-ws="tabs"],
+html[data-show-whitespace="on"] .ws-lead[data-ws="mixed"],
+html[data-show-whitespace="on"] .ws-trail[data-ws="tabs"],
+html[data-show-whitespace="on"] .ws-trail[data-ws="mixed"] { background-color: var(--ws-tab-bg); }
+/* Trailing whitespace is the one nobody meant to leave, so it is tinted as well as dotted. */
+html[data-show-whitespace="on"] .ws-trail { background-color: var(--ws-trail-bg); }
+
+html[data-indent-guides="on"] .ws-lead {
+  background-image: linear-gradient(to right, var(--indent-guide) 0 1px, transparent 1px);
+  background-size: calc(var(--indent-width) * 1ch) 100%;
+}
+/* Both on: the guides ride over the dots rather than replacing them (first layer paints last). */
+html[data-indent-guides="on"][data-show-whitespace="on"] .ws-lead[data-ws="spaces"] {
+  background-image:
+    linear-gradient(to right, var(--indent-guide) 0 1px, transparent 1px),
+    radial-gradient(circle at 50% 50%, var(--ws-dot) 0 1px, transparent 1.5px);
+  background-size: calc(var(--indent-width) * 1ch) 100%, 1ch 100%;
+}
+
+/* ===== Sticky lines and focus mode =====================================================================
+   The pinned header is a CLONE of the rows it names, inside an overlay the scroll container does not
+   scroll. Cloning is what keeps the columns aligned — the clone carries the same cells and the same
+   widths, so nothing here measures anything. */
+.sticky-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  pointer-events: auto;
+  overflow: hidden;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 22%);
+  cursor: pointer;
+}
+.sticky-lines .source-table { width: 100%; }
+.sticky-lines .source-row:hover { background: color-mix(in srgb, var(--accent, #4a9eff) 12%, transparent); }
+html[data-sticky-lines="off"] .sticky-lines { display: none; }
+
+/* Focus mode dims, never hides: the shape of the file stays scrollable past the declaration being read. */
+html[data-focus-mode="on"] .source-row.focus-dim { opacity: 0.32; }
+html[data-focus-mode="on"] .source-row.focus-dim .source-code { filter: saturate(0.25); }
+
+/* ===== Code Vision and inlay hints =====================================================================
+   Decoration, and it must read as decoration: nothing here is code, and a reader skimming a diff should
+   never mistake a label the server wrote for a line the author did. Both are dimmed, both are italic, and
+   the Code Vision row carries no line number — the gutter stays empty so the numbers beside the real code
+   are still the file's own. */
+.code-vision-row td { border: 0; padding-top: 2px; }
+.code-vision-text {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.86em;
+  opacity: 0.85;
+  user-select: none;
+}
+.inlay-hint {
+  color: var(--muted);
+  font-style: italic;
+  opacity: 0.8;
+  border-radius: 3px;
+  padding: 0 2px;
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  user-select: none;
+}
+.inlay-hint[data-inlay-kind="type"] { font-style: normal; }
+html[data-code-vision="off"] .code-vision-row { display: none; }
+html[data-inlay-hints="off"] .inlay-hint { display: none; }
+
+/* A file collapsed for display only. Separate from .file-viewed above, which means a human has read it and
+   happens to hide the body too — collapsing three files to get them out of the way is not reviewing them. */
+.d2h-file-wrapper.file-collapsed .d2h-files-diff { display: none; }
+.d2h-file-wrapper.file-collapsed.mc-active-diff .d2h-files-diff { display: none; }
