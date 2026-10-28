@@ -274,34 +274,64 @@ function setFolderMark(row, mark) {
   if (added) added.dataset.mark = mark.length + '';
 }
 
-/** The directory row that IS a module root gets the module's name; a test root gets told so once. */
+/**
+ * The row that OPENS a module gets the module's name; the row that opens a test root gets told so once.
+ *
+ * Not "the row whose data-dir equals the root": both trees collapse a single-child directory chain into
+ * one row (render-tree.ts), so a module whose root holds a single changed folder is drawn as "core/src"
+ * with data-dir="core/src" and there is no row at "core" at all — the module lost its name and its icon
+ * entirely, while a sibling module with two changed folders kept both. Resolve each root to the
+ * SHALLOWEST row at or inside it instead: that is the row where the tree first enters the root, which is
+ * the collapsed row when the chain swallowed it and the root's own row when it did not.
+ *
+ * Per tree, because the changes tree and the source tree hold different folders and each needs its own.
+ */
+function projectRowOpening(rows, root) {
+  var best = null;
+  var bestLength = Infinity;
+  rows.forEach(function (row) {
+    var path = projectNormalizePath(row.dataset.dir);
+    if (!projectUnderRoot(path, root)) return;
+    if (path.length < bestLength) { best = row; bestLength = path.length; }
+  });
+  return best;
+}
+
 function markProjectLayoutTreeDirectories() {
   var layout = projectLayoutData();
-  var byRoot = {};
-  if (projectHasModules()) {
-    layout.modules.forEach(function (module) {
+  var modules = projectHasModules() ? layout.modules : [];
+  ['changes-dir', 'source-dir'].forEach(function (kind) {
+    var rows = Array.prototype.slice.call(document.querySelectorAll('.tree-dir.' + kind + '[data-dir]'));
+    var nameByRow = new Map();
+    var testRows = new Set();
+    modules.forEach(function (module) {
       var root = projectNormalizePath(module && module.root);
-      if (root && module.name) byRoot[root] = module.name;
+      if (!root || !module.name) return;
+      var row = projectRowOpening(rows, root);
+      if (row) nameByRow.set(row, String(module.name));
     });
-  }
-  Array.prototype.forEach.call(document.querySelectorAll('.tree-dir[data-dir]'), function (row) {
-    var path = projectNormalizePath(row.dataset.dir);
-    var summary = row.querySelector('summary');
-    if (!summary) return;
-    var isTestRoot = layout.testRoots.some(function (root) { return projectNormalizePath(root) === path; });
-    row.classList.toggle('is-test-root', isTestRoot);
-    var existing = summary.querySelector('.tree-module');
-    var name = byRoot[path] || '';
-    row.classList.toggle('has-module', Boolean(name));
-    // One mark per folder, and a test root inside a module keeps the test one: that is the distinction
-    // the reader is being asked to see, and IntelliJ draws it the same way round.
-    setFolderMark(row, isTestRoot ? projectTestFolderMark() : (name ? projectModuleFolderMark() : ''));
-    if (!name) { if (existing) existing.remove(); return; }
-    if (existing) { existing.textContent = name; return; }
-    var badge = document.createElement('span');
-    badge.className = 'tree-module';
-    badge.textContent = name;
-    summary.appendChild(badge);
+    layout.testRoots.forEach(function (root) {
+      var row = projectRowOpening(rows, projectNormalizePath(root));
+      if (row) testRows.add(row);
+    });
+    rows.forEach(function (row) {
+      var summary = row.querySelector('summary');
+      if (!summary) return;
+      var isTestRoot = testRows.has(row);
+      row.classList.toggle('is-test-root', isTestRoot);
+      var existing = summary.querySelector('.tree-module');
+      var name = nameByRow.get(row) || '';
+      row.classList.toggle('has-module', Boolean(name));
+      // One mark per folder, and a test root inside a module keeps the test one: that is the distinction
+      // the reader is being asked to see, and IntelliJ draws it the same way round.
+      setFolderMark(row, isTestRoot ? projectTestFolderMark() : (name ? projectModuleFolderMark() : ''));
+      if (!name) { if (existing) existing.remove(); return; }
+      if (existing) { existing.textContent = name; return; }
+      var badge = document.createElement('span');
+      badge.className = 'tree-module';
+      badge.textContent = name;
+      summary.appendChild(badge);
+    });
   });
 }
 

@@ -42,8 +42,8 @@ test("the file tree marks test code, generated code, and which directory is a mo
   assert.ok(sourceRow(v, GENERATED).classList.contains("is-generated-file"),
     "`generated/` is a generated root — IntelliJ's generated=\"true\" without the declaration");
 
-  // The directory rows compact single-child chains, so the module root is the row whose data-dir IS the
-  // module root — which is what the badge is attached to.
+  // The directory rows compact single-child chains, so a module root is not always a row of its own. The
+  // badge goes on the row that OPENS the module either way.
   const uiRoot = dirRow(v, "packages/ui");
   assert.ok(uiRoot, "packages/ui is a row of its own, since it has more than one child");
   assert.equal(uiRoot.querySelector(".tree-module").textContent, "@acme/ui",
@@ -190,4 +190,54 @@ test("every viewer list that prints a path says which module it is", () => {
   const structure = readFileSync(join(dir, "16-structure.js"), "utf8");
   assert.equal((structure.match(/projectRowTagsHtml/g) ?? []).length, 3,
     "recent locations, the hierarchies and the bookmarks — the three lists in that slice that leave the open file");
+});
+
+
+// A module root is not always a row. Both trees collapse a single-child directory chain into one row
+// ("packages/api/src"), so a module whose root holds one changed folder has no row at its root at all —
+// and matching the root against data-dir lost that module's name and its icon completely, while a sibling
+// module with two changed folders kept both. A module disappeared from the sidebar for being small.
+//
+// The two trees collapse DIFFERENTLY: the changes tree holds only what changed, the source tree also holds
+// the module's unchanged package.json, so the same module opens at a different row in each. That is why the
+// row is resolved per tree rather than once for the document.
+test("a module whose root collapsed into the path above it still says which module it is", async () => {
+  const pkg = (name) => JSON.stringify({ name });
+  const unchanged = (path, body) => ({ path, before: body, after: body });
+  const { html: collapsed } = await makeReviewHtml([
+    unchanged("pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n"),
+    unchanged("packages/api/package.json", pkg("@acme/api")),
+    unchanged("packages/web/package.json", pkg("@acme/web")),
+    { path: "packages/api/src/handler.ts", before: "export const h = 1;\n", after: "export const h = 2;\n" },
+    { path: "packages/web/src/App.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+    { path: "packages/web/test/App.test.ts", before: "// old\n", after: "// a check of App\n" },
+  ]);
+  const v = await loadViewer(collapsed);
+  const ownBadge = (row) => row?.querySelector(":scope > summary > .tree-module")?.textContent ?? null;
+  const ownMark = (row) => Boolean(row?.querySelector(":scope > summary .folder-mark"));
+
+  // @acme/api changed one folder, so the changes tree collapsed its root away entirely.
+  assert.equal(v.$('.tree-dir.changes-dir[data-dir="packages/api"]'), null,
+    "precondition: the changes tree has no row at the module root — the chain swallowed it");
+  const apiChanges = v.$('.tree-dir.changes-dir[data-dir="packages/api/src"]');
+  assert.equal(ownBadge(apiChanges), "@acme/api", "the collapsed row names the module it opens");
+  assert.ok(ownMark(apiChanges), "and carries IntelliJ's module mark on its folder");
+  assert.ok(apiChanges.classList.contains("has-module"),
+    "and opens the third grid track, or the badge wraps onto its own line");
+
+  // The source tree kept the root as a row (the unchanged package.json is a second child), so the SAME
+  // module is marked one level higher there. Resolving once for the document would mark only one of them.
+  const apiSource = v.$('.tree-dir.source-dir[data-dir="packages/api"]');
+  assert.equal(ownBadge(apiSource), "@acme/api", "the source tree marks the root itself");
+  assert.equal(ownBadge(v.$('.tree-dir.source-dir[data-dir="packages/api/src"]')), null,
+    "and not the folder inside it as well");
+
+  // The module that did not collapse is unchanged by any of this, and a test root still wins its folder.
+  assert.equal(ownBadge(v.$('.tree-dir.changes-dir[data-dir="packages/web"]')), "@acme/web");
+  assert.equal(ownBadge(v.$('.tree-dir.changes-dir[data-dir="packages"]')), null,
+    "the folder ABOVE two modules is not one of them");
+  const webTest = v.$('.tree-dir.changes-dir[data-dir="packages/web/test"]');
+  assert.ok(webTest.classList.contains("is-test-root"), "a test root inside a module is still a test root");
+  assert.equal(ownBadge(webTest), null, "and is not relabelled with the module's name");
+  v.close();
 });
