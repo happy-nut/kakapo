@@ -183,6 +183,8 @@ export type SourceTreeNode = {
   path: string;
   children: Map<string, SourceTreeNode>;
   file?: SourceFile;
+  // Set on the node that IS a module: its name is the module's, not the folder's, and it sorts to the top.
+  module?: string;
 };
 
 // Folder-hierarchy node for the Changes navigation. Leaves carry the diff file plus the flat index/hunk
@@ -194,6 +196,8 @@ export type DiffTreeNode = {
   file?: DiffFile;
   fileIndex?: number;
   firstHunk?: number;
+  // Set on the node that IS a module: its name is the module's, not the folder's, and it sorts to the top.
+  module?: string;
 };
 
 // What the diff on screen is actually comparing. A clean worktree silently moves the review to the branch

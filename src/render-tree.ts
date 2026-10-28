@@ -1,5 +1,6 @@
 import type { DiffFile, DiffTreeNode, SourceFile, SourceTreeNode } from "./types.js";
-import { escapeAttr, escapeHtml, languageForPath } from "./util.js";
+import type { ProjectModule } from "./project-layout.js";
+import { escapeAttr, escapeHtml, languageForPath, moduleEntryFor } from "./util.js";
 
 // The two-state (closed/open) folder glyph shared by the Changes and Files trees. CSS toggles which SVG
 // shows based on the parent <details>[open] state, so both are always emitted.
@@ -45,10 +46,38 @@ export function initialReviewSources(diffFiles: DiffFile[], sourceFiles: SourceF
   return fallback ? [fallback] : [];
 }
 
+// IntelliJ's Project window makes the module the top node and hangs the content root's files under it, so
+// a reviewer reads "which module changed" before "which folder". Both tries below are built from paths, so
+// grouping is one substitution at insert time: start at the module's node and insert what is left of the
+// path under it, with the folder paths still absolute so data-dir keeps naming a real directory.
+//
+// The node carries the module's NAME, which is not the folder's — "@acme/ui" lives in packages/ui — and
+// that is the whole point of the grouping: a monorepo's modules read as a flat list of what they are called
+// instead of a packages/ folder you have to open first.
+function moduleEntry<N extends { name: string; path: string; children: Map<string, N>; module?: string }>(
+  root: N,
+  path: string,
+  modules: ProjectModule[],
+): { node: N; base: string; rest: string } {
+  const entry = moduleEntryFor(path, modules);
+  if (!entry) return { node: root, base: "", rest: path };
+  const key = `\0module:${entry.root}`;
+  let group = root.children.get(key);
+  if (!group) {
+    group = { name: entry.name, path: entry.root, children: new Map(), module: entry.name } as N;
+    root.children.set(key, group);
+  }
+  return { node: group, base: entry.root, rest: entry.rest };
+}
+
 // The changed-files navigation mirrors renderSourceTree's folder hierarchy so a reviewer can see where
 // changes cluster and collapse whole directories, instead of scanning one flat list. Leaves keep the same
 // href/data-hunk/data-file contract the diff caret and click handler rely on.
-export function renderDiffTree(files: DiffFile[], collisions: Map<string, "conflict" | "diverged"> = new Map()): string {
+export function renderDiffTree(
+  files: DiffFile[],
+  collisions: Map<string, "conflict" | "diverged"> = new Map(),
+  modules: ProjectModule[] = [],
+): string {
   if (files.length === 0) {
     return '<div class="empty-nav changes-empty">'
       + '<svg class="empty-nav-icon" viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="m9.5 13.5 2 2 3.5-3.5"/></svg>'
@@ -61,9 +90,10 @@ export function renderDiffTree(files: DiffFile[], collisions: Map<string, "confl
   files.forEach((file, fileIndex) => {
     const firstHunk = hunkIndex;
     hunkIndex += file.hunks.length;
-    const parts = file.displayPath.split("/").filter(Boolean);
-    let node = root;
-    let currentPath = "";
+    const grouped = moduleEntry(root, file.displayPath, modules);
+    const parts = grouped.rest.split("/").filter(Boolean);
+    let node = grouped.node;
+    let currentPath = grouped.base;
     for (const part of parts.slice(0, -1)) {
       currentPath = currentPath ? `${currentPath}/${part}` : part;
       let child = node.children.get(part);
@@ -95,6 +125,11 @@ function renderDiffChildren(
 ): string {
   return Array.from(node.children.values())
     .sort((a, b) => {
+      // Modules are the top of the tree, not folders that happen to sort there: without this they would be
+      // interleaved with whatever else lives at the root by name.
+      if (Boolean(a.module) !== Boolean(b.module)) {
+        return a.module ? -1 : 1;
+      }
       if (Boolean(a.file) !== Boolean(b.file)) {
         return a.file ? 1 : -1;
       }
@@ -143,20 +178,23 @@ function renderDiffNode(
   }
 
   // Collapse single-child directory chains ("a/b/c") into one summary row, exactly as renderSourceNode does,
-  // so a lone nested folder does not cost a click to expand.
+  // so a lone nested folder does not cost a click to expand. A module node never starts a chain: its label
+  // is the module's name, and folding the folder below it in would print "@acme/ui/src" as the module.
   let labelNode: DiffTreeNode = node;
   const names = [node.name];
-  for (;;) {
-    const entries = Array.from(labelNode.children.values());
-    if (entries.length !== 1 || entries[0].file) break;
-    names.push(entries[0].name);
-    labelNode = entries[0];
+  if (!node.module) {
+    for (;;) {
+      const entries = Array.from(labelNode.children.values());
+      if (entries.length !== 1 || entries[0].file) break;
+      names.push(entries[0].name);
+      labelNode = entries[0];
+    }
   }
 
   // Changed-file folders default to open — a review wants every change visible up front; 04-source-tree.js
   // restores any folder the reviewer chose to collapse.
   return [
-    `<details class="tree-dir changes-dir" data-dir="${escapeAttr(labelNode.path)}" style="--depth:${depth}" open>`,
+    `<details class="tree-dir changes-dir${node.module ? " tree-module-node" : ""}" data-dir="${escapeAttr(labelNode.path)}"${node.module ? ` data-module="${escapeAttr(node.module)}"` : ""} style="--depth:${depth}" open>`,
     `<summary>${FOLDER_ICON}<span class="path">${escapeHtml(names.join("/"))}</span></summary>`,
     renderDiffChildren(labelNode, depth + 1, collisions),
     "</details>",
@@ -278,16 +316,17 @@ function viewedBox(): string {
   return '<span class="viewed-box" role="checkbox" aria-checked="false" data-i18n-aria="tree.markViewed"></span>';
 }
 
-export function renderSourceTree(files: SourceFile[]): string {
+export function renderSourceTree(files: SourceFile[], modules: ProjectModule[] = []): string {
   if (files.length === 0) {
     return '<div class="empty-nav">No source files indexed</div>';
   }
 
   const root: SourceTreeNode = { name: "", path: "", children: new Map() };
   files.forEach((file) => {
-    const parts = file.path.split("/").filter(Boolean);
-    let node = root;
-    let currentPath = "";
+    const grouped = moduleEntry(root, file.path, modules);
+    const parts = grouped.rest.split("/").filter(Boolean);
+    let node = grouped.node;
+    let currentPath = grouped.base;
     for (const part of parts.slice(0, -1)) {
       currentPath = currentPath ? `${currentPath}/${part}` : part;
       let child = node.children.get(part);
@@ -313,6 +352,11 @@ export function renderSourceTree(files: SourceFile[]): string {
 function renderSourceChildren(node: SourceTreeNode, depth: number): string {
   return Array.from(node.children.values())
     .sort((a, b) => {
+      // Modules are the top of the tree, not folders that happen to sort there: without this they would be
+      // interleaved with whatever else lives at the root by name.
+      if (Boolean(a.module) !== Boolean(b.module)) {
+        return a.module ? -1 : 1;
+      }
       if (Boolean(a.file) !== Boolean(b.file)) {
         return a.file ? 1 : -1;
       }
@@ -402,17 +446,20 @@ function renderSourceNode(node: SourceTreeNode, depth: number): string {
     ].join("");
   }
 
+  // See renderDiffNode: a module node is the module, so it never folds the folder below it into its label.
   let labelNode: SourceTreeNode = node;
   const names = [node.name];
-  for (;;) {
-    const entries = Array.from(labelNode.children.values());
-    if (entries.length !== 1 || entries[0].file) break;
-    names.push(entries[0].name);
-    labelNode = entries[0];
+  if (!node.module) {
+    for (;;) {
+      const entries = Array.from(labelNode.children.values());
+      if (entries.length !== 1 || entries[0].file) break;
+      names.push(entries[0].name);
+      labelNode = entries[0];
+    }
   }
 
   return [
-    `<details class="tree-dir source-dir" data-dir="${escapeAttr(labelNode.path)}" style="--depth:${depth}">`,
+    `<details class="tree-dir source-dir${node.module ? " tree-module-node" : ""}" data-dir="${escapeAttr(labelNode.path)}"${node.module ? ` data-module="${escapeAttr(node.module)}"` : ""} style="--depth:${depth}">`,
     `<summary>${FOLDER_ICON}<span class="path">${escapeHtml(names.join("/"))}</span></summary>`,
     renderSourceChildren(labelNode, depth + 1),
     "</details>",

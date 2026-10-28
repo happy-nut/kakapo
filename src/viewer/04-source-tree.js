@@ -19,10 +19,26 @@ var virtualSourceDetailsByPath = new Map();
 function buildVirtualSourceTree(files) {
   var root = { name: '', path: '', children: new Map(), file: null };
   virtualSourceNodeByPath = new Map();
+  // The Files tab in the app is ALWAYS this tree (Electron sets lazyLoad), so the module grouping the two
+  // server trees do has to happen here too, from the same decision — moduleEntryFor, emitted into this
+  // bundle from src/util.ts — or the same file hangs under a module in Changes and under its raw path here.
+  var modules = projectLayoutData().modules || [];
   (files || []).forEach(function (file) {
-    var parts = String(file.path || '').split('/').filter(Boolean);
+    var entry = moduleEntryFor(file.path, modules);
+    var parts = String((entry ? entry.rest : file.path) || '').split('/').filter(Boolean);
     if (!parts.length) return;
     var node = root, current = '';
+    if (entry) {
+      var key = '\0module:' + entry.root;
+      var group = root.children.get(key);
+      if (!group) {
+        group = { name: entry.name, path: entry.root, children: new Map(), file: null, module: entry.name };
+        root.children.set(key, group);
+        virtualSourceNodeByPath.set(entry.root, group);
+      }
+      node = group;
+      current = entry.root;
+    }
     for (var i = 0; i < parts.length - 1; i++) {
       current = current ? current + '/' + parts[i] : parts[i];
       var child = node.children.get(parts[i]);
@@ -41,6 +57,8 @@ function buildVirtualSourceTree(files) {
 
 function virtualSourceChildren(node) {
   return Array.from(node.children.values()).sort(function (a, b) {
+    // Modules first, as a block — see the same clause in render-tree.ts.
+    if (Boolean(a.module) !== Boolean(b.module)) return a.module ? -1 : 1;
     if (Boolean(a.file) !== Boolean(b.file)) return a.file ? 1 : -1;
     return a.name.localeCompare(b.name);
   });
@@ -124,7 +142,9 @@ function virtualSourceNodeHtml(node, depth) {
       + virtualTypeIcon(file.path)
       + '<span class="path" title="' + escapeHtml(node.name) + '">' + leafNameHtml(node.name) + '</span></button>';
   }
-  return '<details class="tree-dir source-dir mc-virtual-dir" data-dir="' + escapeHtml(node.path) + '" style="--depth:' + depth + '">'
+  return '<details class="tree-dir source-dir mc-virtual-dir' + (node.module ? ' tree-module-node' : '') + '"'
+    + ' data-dir="' + escapeHtml(node.path) + '"' + (node.module ? ' data-module="' + escapeHtml(node.module) + '"' : '')
+    + ' style="--depth:' + depth + '">'
     + '<summary>' + VIRTUAL_FOLDER_ICON + '<span class="path">' + escapeHtml(node.name) + '</span></summary>'
     + '<div class="mc-virtual-children" data-depth="' + (depth + 1) + '"></div></details>';
 }
@@ -180,7 +200,9 @@ function openVirtualSourceDirectory(path) {
   for (var i = 0; i < parts.length; i++) {
     current = current ? current + '/' + parts[i] : parts[i];
     var details = virtualSourceDetailsByPath.get(current);
-    if (!details) break;
+    // Not `break`: with modules grouped, the folders ABOVE a module root are not rows at all ("packages"
+    // when the module is "packages/api"), so stopping at the first miss never reaches the file's folder.
+    if (!details) continue;
     materializeVirtualSourceDirectory(details);
     details.open = true;
   }

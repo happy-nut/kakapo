@@ -50,9 +50,13 @@ const shortcutPrelude = `var SHORTCUT_DEFS = ${JSON.stringify(shortcutDefs)};\n`
 // Whitespace runs are marked identically on both sides of the app — the diff is built in main through
 // src/highlight.ts, the source view in the viewer — so the one definition in src/util.ts rides in as source
 // rather than being written twice. Emitted ahead of the slices for the same reason SHORTCUT_DEFS is.
-const { markWhitespaceRuns } = createRequire(import.meta.url)(join(distDir, "util.js"));
+const { markWhitespaceRuns, moduleEntryFor } = createRequire(import.meta.url)(join(distDir, "util.js"));
 if (typeof markWhitespaceRuns !== "function") throw new Error("dist/util.js exported no markWhitespaceRuns — did tsc run?");
-const whitespacePrelude = `var markWhitespaceRuns = ${markWhitespaceRuns.toString()};\n`;
+// Same reason: the module a path belongs to decides where it hangs in a tree, and the server trees and the
+// virtual one must answer it identically or the same file lands in two different places.
+if (typeof moduleEntryFor !== "function") throw new Error("dist/util.js exported no moduleEntryFor — did tsc run?");
+const whitespacePrelude = `var markWhitespaceRuns = ${markWhitespaceRuns.toString()};\n`
+  + `var moduleEntryFor = ${moduleEntryFor.toString()};\n`;
 const bundle = vendorBundle + shortcutPrelude + whitespacePrelude + parts.map((f) => readFileSync(join(viewerDir, f), "utf8")).join("");
 writeFileSync(join(distDir, "viewer.client.js"), bundle); // readable concat — tests + debugging read this
 

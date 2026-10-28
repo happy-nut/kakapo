@@ -2882,21 +2882,6 @@ body.cmd-link-active .source-code { cursor: pointer; }
 .source-tab.is-generated-file:not(.active) { background: var(--file-color-generated); }
 .is-generated-file { background: var(--file-color-generated); }
 .tree-dir.is-test-root > summary { background: var(--file-color-test); }
-/* The module a directory IS the root of. Only ever on the row that is that root, and only in a repository
-   that has more than one module — see projectHasModules(). The summary is a two-column grid (icon, name),
-   so a row that carries a badge is given the third track it needs — without it the badge wrapped onto a
-   line of its own, which the real app showed and jsdom could not. */
-.tree-dir.has-module > summary { grid-template-columns: 14px minmax(0, 1fr) auto; }
-.tree-module {
-  margin-left: 6px;
-  padding: 0 5px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 9.5px;
-  letter-spacing: .02em;
-  white-space: nowrap;
-}
 .source-link.not-embedded { opacity: 0.45; }
 .source-link.not-embedded:hover { opacity: 0.72; }
 .source-type-icon { display: inline-flex; align-items: center; flex: none; margin-right: 2px; }

@@ -219,11 +219,17 @@ answer lives), otherwise the build tool's workspace manifest: pnpm, npm workspac
 `go.work`, `settings.gradle`, a Maven aggregator pom. Only when none of those exist does it fall back to
 guessing from path names.
 
-What that buys, in the places a path is listed: the file tree and the changes tree tint test files and
-badge the directory that *is* a module root with the module's name; Go to File, Go to Symbol and the
+What that buys, in the places a path is listed: both trees are grouped by module the way IntelliJ's
+Project window is — the modules come out flat at the top under their own names (`@acme/ui`, not the
+`packages/ui` it happens to live in), the folder they sit in stops being a row, and what is left of each
+path hangs under its module. Folders in no module stay where they were, below. The trees also tint test
+files and mark a test source root with IntelliJ's own folder icons; Go to File, Go to Symbol and the
 Problems list carry the module on the right of every row, which is what the question "which `Button.ts`?"
 actually turns on; and the usage view (`⌥F7`) gets IntelliJ's whole grouping stack rather than two levels
 of it.
+
+A repository with one module is not divided by this — a heading every row is under is furniture, not a
+division — so a single-package repository looks exactly as it did.
 
 **The usage view's two toolbars** — IntelliJ's usage view is a tree, and what it is a tree of is a stack
 of grouping rules with ranks: non-code, then Production/Test, then usage type, then module, then

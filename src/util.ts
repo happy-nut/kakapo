@@ -317,3 +317,35 @@ export function markWhitespaceRuns(html: string): string {
   }
   return parts.join("");
 }
+
+/**
+ * Which module a path belongs to, and what is left of the path inside it.
+ *
+ * IntelliJ's Project window makes the module the top node and hangs the content root's files under it, so
+ * a reviewer reads "which module changed" before "which folder". All three of this app's trees are path
+ * tries (renderDiffTree, renderSourceTree, buildVirtualSourceTree), so grouping is this one decision taken
+ * at insert time: start at the module's node and insert what is left of the path under it. The decision is
+ * shared — this function is emitted into the viewer bundle beside markWhitespaceRuns — because a module
+ * boundary answered differently by two trees would put the same file in two places.
+ *
+ * The longest root wins, so a module nested inside another takes its own files. Fewer than two modules is
+ * not a division, and a module rooted at the repository itself ("") would hold every path, so neither
+ * groups: that is the same rule projectHasModules() applies to the badges.
+ */
+export function moduleEntryFor(
+  path: string,
+  modules: Array<{ name: string; root: string }> | undefined,
+): { name: string; root: string; rest: string } | null {
+  if (!Array.isArray(modules) || modules.length < 2) return null;
+  const clean = String(path || "").replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
+  let best: { name: string; root: string; rest: string } | null = null;
+  for (const module of modules) {
+    if (!module || !module.name) continue;
+    const root = String(module.root || "")
+      .replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "").replace(/\/+$/, "");
+    if (!root || clean.indexOf(root + "/") !== 0) continue;
+    if (best && root.length <= best.root.length) continue;
+    best = { name: String(module.name), root, rest: clean.slice(root.length + 1) };
+  }
+  return best;
+}

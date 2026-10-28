@@ -482,3 +482,44 @@ test("lazy: a file-set change leaves only the viewed file projected, not every b
   assert.equal(active[0].dataset.path, "src/a.ts", "and it is the one being read");
   v.close();
 });
+
+// The Files tab in the app is ALWAYS this tree (Electron sets lazyLoad), so the module grouping the two
+// server trees do has to happen here too — from the same decision, moduleEntryFor, emitted into the viewer
+// bundle from src/util.ts. The same file hanging under a module in Changes and under its raw path in Files
+// would be two answers to one question.
+//
+// It also breaks the reveal walk, which is why this test opens a file rather than only reading rows: the
+// walk steps path segment by path segment, and once the modules are lifted out of packages/ there is no row
+// at "packages" at all. Stopping at the first miss never reaches the folder the file is in.
+test("lazy-LOAD: the deferred tree groups by module, and still reveals a file deep inside one", async () => {
+  const pkg = (name) => JSON.stringify({ name });
+  const unchanged = (path, body) => ({ path, before: body, after: body });
+  const r = await makeReviewHtml([
+    unchanged("pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n"),
+    unchanged("packages/api/package.json", pkg("@acme/api")),
+    unchanged("packages/web/package.json", pkg("@acme/web")),
+    unchanged("packages/api/src/deep/nested/helper.ts", "export const q = 1;\n"),
+    { path: "packages/api/src/deep/nested/handler.ts", before: "export const h = 1;\n", after: "export const h = 2;\n" },
+    { path: "packages/web/src/App.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+    { path: "tools/build.ts", before: "export const z = 1;\n", after: "export const z = 2;\n" },
+  ], { lazyLoad: true });
+
+  const v = await loadViewer(r.html, { lazySourceData: r.build.lazySourceData });
+  v.window.setTab("files");
+  await v.settle(100);
+
+  const row = (dir) => v.$(`#files-panel .tree-dir[data-dir="${dir}"]`);
+  assert.equal(row("packages/api")?.dataset.module, "@acme/api", "the module is a node in the deferred tree too");
+  assert.equal(row("packages/api").querySelector(":scope > summary .path").textContent, "@acme/api",
+    "labelled with the module's name, not its folder's");
+  assert.equal(row("packages"), null, "the folder the modules live in is not a row — they were lifted out");
+  assert.ok(row("tools"), "a folder in no module stays where it was");
+
+  // The walk has to step over "packages", which is no longer a row, to reach the file's folder.
+  v.window.openVirtualSourceDirectory("packages/api/src/deep/nested");
+  await v.settle(40);
+  assert.ok(row("packages/api/src/deep/nested")?.open, "the folder holding the file is open");
+  assert.ok(v.$('#files-panel [data-source-file="packages/api/src/deep/nested/helper.ts"]'),
+    "and its files are materialized — the reveal reached the bottom");
+  v.close();
+});

@@ -388,10 +388,10 @@ export function renderDiffHtml(input: {
   signature?: string;
   generatedAt?: string;
 }): string {
-  const fileNav = renderDiffTree(input.files, input.collisions);
+  const fileNav = renderDiffTree(input.files, input.collisions, input.projectLayout?.modules ?? []);
   // A transport-backed review asks the host for the project tree only when the user opens Files. Keeping
   // this empty here removes several megabytes of repeated tree markup from large-project startup.
-  const sourceNav = input.lazyLoad ? "" : renderSourceTree(input.sourceFiles);
+  const sourceNav = input.lazyLoad ? "" : renderSourceTree(input.sourceFiles, input.projectLayout?.modules ?? []);
   const initialSourceFiles = input.lazyLoad
     ? initialReviewSources(input.files, input.sourceFiles, input.openPath)
     : input.sourceFiles;
