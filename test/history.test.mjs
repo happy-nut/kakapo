@@ -14,9 +14,8 @@ Object.defineProperty(process, "platform", { value: "darwin", configurable: true
 after(() => Object.defineProperty(process, "platform", { value: __realPlatform, configurable: true }));
 
 let html;
-let build;
 before(async () => {
-  ({ html, build } = await makeReviewHtml([
+  ({ html } = await makeReviewHtml([
     { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
     { path: "src/b.ts", before: "export const b = 1;\n", after: "export const b = 2;\n" },
   ], { app: true }));
@@ -24,8 +23,8 @@ before(async () => {
 after(cleanupFixtures);
 
 // The overlay no longer renders a diff of its own: everything it opens goes to the MAIN review through
-// setReviewCompare, so that is what the bridge records. `calls` is the list of [base, target] pairs it was
-// asked for — the whole observable behaviour of opening something from here.
+// setReviewCompare, so that is what the bridge records. `calls` is the list of [base, target, scope] it
+// was asked for — the whole observable behaviour of opening something from here.
 function installHistoryBridge(v) {
   const calls = [];
   v.window.kakapoGit = {
@@ -39,19 +38,6 @@ function installHistoryBridge(v) {
       { hash: "aaaaaaaa", parents: ["bbbbbbbb"], author: "A", email: "a@test", date: "2026-06-01T10:00:00+09:00", refs: "HEAD -> main", subject: "newer commit" },
       { hash: "bbbbbbbb", parents: [], author: "B", email: "b@test", date: "2026-05-31T10:00:00+09:00", refs: "", subject: "older commit" },
     ]),
-    commitDiff: (sha) => {
-      calls.push(sha);
-      return Promise.resolve({
-        hash: sha,
-        author: "A",
-        email: "a@test",
-        date: "2026-06-01T10:00:00+09:00",
-        refs: "",
-        message: sha === "bbbbbbbb" ? "older commit" : "newer commit\n\nA detailed rationale that should not cover the diff by default.\n\nCo-Authored-By: Reviewer <reviewer@test>",
-        diffHtml: build.update.diffContainer,
-        isMerge: false,
-      });
-    },
   };
   return calls;
 }
@@ -97,7 +83,6 @@ test("history graph: refs use branch and tag chips while merges retain topology"
       { hash: "bbbbbbbb", parents: ["cccccccc"], author: "B", email: "b@test", date: "2026-06-02T10:00:00+09:00", refs: "refs/remotes/origin/topic", subject: "topic work" },
       { hash: "cccccccc", parents: [], author: "C", email: "c@test", date: "2026-06-01T10:00:00+09:00", refs: "", subject: "root" },
     ]),
-    commitDiff: () => Promise.resolve(null),
   };
 
   v.key("9", { metaKey: true, code: "Digit9" });
@@ -168,7 +153,6 @@ test("history: a shift-selected range opens from the parent of its oldest commit
       { hash: "bbbbbbbb", parents: ["cccccccc"], author: "B", email: "b@test", date: "2026-06-02T10:00:00+09:00", refs: "", subject: "middle" },
       { hash: "cccccccc", parents: [], author: "C", email: "c@test", date: "2026-06-01T10:00:00+09:00", refs: "", subject: "root" },
     ]),
-    commitDiff: () => Promise.resolve(null),
   };
 
   v.key("9", { metaKey: true, code: "Digit9" });

@@ -1,5 +1,5 @@
 // ===== Git history view (Cmd+9): commit list with graph lanes + per-commit diff. =====
-// Data comes from the main process (window.kakapoGit.log / .commitDiff); the lane layout is computed
+// Data comes from the main process (window.kakapoGit.log); the lane layout is computed
 // here from each commit's parents. Read-only — the per-commit diff is static diff2html HTML.
 
 var HISTORY_LANE_W = 16, HISTORY_DOT_R = 3.8, HISTORY_ROW_H = 26;

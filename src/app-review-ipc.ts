@@ -15,7 +15,7 @@ import { readHttpAttachment, saveHttpResponse } from "./http-files.js";
 // Node caches the module, so only the first call pays anything at all.
 const buildTools = (): Promise<typeof import("./cli.js")> => import("./cli.js");
 import {
-  readGitLog, readGitLineLog, readGitBlame, readCommitDiff, readRangeDiff,
+  readGitLog, readGitLineLog, readGitBlame,
   readGitReflog, readGitStashes, resolveGitRevision, type GitLogFilter,
 } from "./git-log.js";
 import { defaultBaseRef, git, listBranches } from "./git.js";
@@ -370,19 +370,6 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     } finally {
       if (dir) { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
     }
-  });
-
-  ipc.handle("kakapo:git-commit-diff", async (event, request: { sha?: string }) => {
-    const state = stateFromEvent(event);
-    if (!state || !request?.sha) return null;
-    try { return await readCommitDiff(state.options.root, request.sha); } catch { return null; }
-  });
-
-  // Combined diff between two commits shift-selected in the history view (readRangeDiff validates the SHAs).
-  ipc.handle("kakapo:git-range-diff", async (event, request: { oldSha?: string; newSha?: string }) => {
-    const state = stateFromEvent(event);
-    if (!state || !request?.oldSha || !request?.newSha) return null;
-    try { return await readRangeDiff(state.options.root, request.oldSha, request.newSha); } catch { return null; }
   });
 
   // Everything the compare dropdown needs, in one round-trip: which of the two modes the review is in, the
