@@ -355,6 +355,42 @@ const INIT_OPTIONS: Record<string, Record<string, unknown>> = {
   },
 };
 
+// What the server is told the workspace wants, sent as workspace/didChangeConfiguration right after
+// `initialized`. Until this existed the notification carried `{}`, and typescript-language-server takes
+// that notification's `settings` AS the workspace configuration — so Code Vision and inlay hints, which it
+// reads from exactly these keys, were off for every TypeScript and JavaScript review. The requests went
+// out, the server answered `ok` with an empty array, and both features painted nothing: nothing in the
+// client was broken, it had simply never asked.
+//
+// The hint set is IntelliJ's reading of inlay hints — parameter names and the types it inferred for you —
+// minus the one IntelliJ also leaves out, a parameter name that merely repeats the argument's. Code Vision
+// is on for all declarations because that is what IntelliJ shows above one. ⇧⌥V and ⇧⌥H turn either off.
+const TS_READING_SETTINGS = {
+  implementationsCodeLens: { enabled: true },
+  referencesCodeLens: { enabled: true, showOnAllFunctions: true },
+  inlayHints: {
+    includeInlayParameterNameHints: "all",
+    includeInlayParameterNameHintsWhenArgumentMatchesName: false,
+    includeInlayFunctionParameterTypeHints: true,
+    includeInlayVariableTypeHints: true,
+    includeInlayPropertyDeclarationTypeHints: true,
+    includeInlayFunctionLikeReturnTypeHints: true,
+    includeInlayEnumMemberValueHints: true,
+  },
+};
+
+// What one file's Code Vision is allowed to cost. A lens resolve is a references lookup, so the bound is
+// on the file rather than on the project: a 2000-line file with a declaration every ten lines asks for 200
+// of them, and the reader is looking at one screen of it.
+const CODE_LENS_LIMIT = 300;
+const CODE_LENS_BATCH = 24;
+
+const WORKSPACE_SETTINGS: Record<string, Record<string, unknown>> = {
+  // One object, both sections: the server picks the section by the document's language, and a .js file in
+  // a TypeScript project should read the same as the .ts file beside it.
+  typescript: { typescript: TS_READING_SETTINGS, javascript: TS_READING_SETTINGS },
+};
+
 const NODE_SERVER_ENTRIES: Record<string, { name: string; entry: string; args: string[] }> = {
   typescript: {
     name: "typescript-language-server",
@@ -825,10 +861,15 @@ export class LspClient {
   /**
    * What the server has to say above each declaration — IntelliJ's Code Vision.
    *
-   * Unresolved lenses are DROPPED rather than resolved. A server is allowed to send `{range, data}` with no
-   * title and expect a `codeLens/resolve` per lens, and a file with a hundred declarations would then be a
-   * hundred extra round trips to draw decoration. What arrives with a title is drawn; what does not is not
-   * worth a reader waiting for.
+   * Unresolved lenses are resolved, in bounded batches. A server is allowed to answer `textDocument/codeLens`
+   * with `{range, data}` and no title, expecting one `codeLens/resolve` per lens — and that is not an edge
+   * case: typescript-language-server answers EVERY lens that way (measured: 133 of 133 on one file of this
+   * repository), so dropping them, which is what this did at first, left Code Vision permanently blank in
+   * the language this app is written in. Blank is not cheaper than slow; it is the feature not existing.
+   *
+   * The cost it was avoiding is real, so it is bounded rather than ignored: at most CODE_LENS_LIMIT lenses
+   * per file, CODE_LENS_BATCH resolves in flight, and a resolve that fails drops only its own lens. The
+   * answer is cached per analysis generation by the caller, so a file pays this once.
    */
   async codeLenses(path: string): Promise<{ supported: boolean; lenses: AnalysisCodeLens[] }> {
     await this.ensureDocument(path);
@@ -841,13 +882,29 @@ export class LspClient {
       if (isMethodNotFound(error)) return { supported: false, lenses: [] };
       throw error;
     }
+    const rows = (Array.isArray(result) ? result : []).slice(0, CODE_LENS_LIMIT) as Array<{
+      range?: { start?: { line?: unknown } };
+      command?: { title?: unknown };
+    }>;
     const lenses: AnalysisCodeLens[] = [];
-    for (const entry of Array.isArray(result) ? result : []) {
-      const row = entry as { range?: { start?: { line?: unknown } }; command?: { title?: unknown } };
-      const line = Number(row?.range?.start?.line);
-      const title = typeof row?.command?.title === "string" ? row.command.title.trim() : "";
-      if (!Number.isFinite(line) || !title) continue;
-      lenses.push({ lineIndex: Math.max(0, Math.trunc(line)), title });
+    for (let at = 0; at < rows.length; at += CODE_LENS_BATCH) {
+      const batch = rows.slice(at, at + CODE_LENS_BATCH);
+      const titles = await Promise.all(batch.map(async (row) => {
+        const own = typeof row?.command?.title === "string" ? row.command.title.trim() : "";
+        if (own) return own;
+        try {
+          const resolved = await this.requestAfterWorkspaceReady("codeLens/resolve", row as Record<string, unknown>);
+          const title = (resolved as { command?: { title?: unknown } })?.command?.title;
+          return typeof title === "string" ? title.trim() : "";
+        } catch {
+          return ""; // one declaration without its count is not a reason to lose the other hundred
+        }
+      }));
+      batch.forEach((row, index) => {
+        const line = Number(row?.range?.start?.line);
+        if (!Number.isFinite(line) || !titles[index]) return;
+        lenses.push({ lineIndex: Math.max(0, Math.trunc(line)), title: titles[index] });
+      });
     }
     return { supported: true, lenses };
   }
@@ -1241,7 +1298,7 @@ export class LspClient {
         const types = provider?.legend?.tokenTypes;
         this.semanticTokenTypes = Array.isArray(types) ? types.map((entry) => String(entry)) : null;
         this.notify("initialized", {});
-        this.notify("workspace/didChangeConfiguration", { settings: {} });
+        this.notify("workspace/didChangeConfiguration", { settings: WORKSPACE_SETTINGS[this.server.family] ?? {} });
         if (!settled) { settled = true; resolveStart(); }
       }, (error) => {
         if (!settled) { settled = true; rejectStart(error); }
