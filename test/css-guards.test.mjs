@@ -14,9 +14,15 @@ function ruleBodyContaining(needle) {
   return m ? m[2] : null;
 }
 
+// A comment between two rules hides the second from a guard that names it exactly, and the looser
+// ruleBodyContaining then silently reads a DIFFERENT rule that merely ENDS in the same selector — which is
+// how ".d2h-file-side-diff:first-child::-webkit-scrollbar" started answering for "::-webkit-scrollbar".
+// Strip the comments once: a regex that skips them inline nests quantifiers and backtracks forever here.
+const cssRules = css.replace(/\/\*[\s\S]*?\*\//g, "");
+
 function ruleBodyForExactSelector(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const m = css.match(new RegExp("(^|})\\s*" + escaped + "\\s*\\{([^}]*)\\}", "s"));
+  const m = cssRules.match(new RegExp("(^|})\\s*" + escaped + "\\s*\\{([^}]*)\\}", "s"));
   return m ? m[2] : null;
 }
 
@@ -134,7 +140,7 @@ test("the modal launcher paints above the surfaces it can be opened over", () =>
 });
 
 test("scrollbar thumbs remain layout-stable but only paint while scrolling", () => {
-  const gutter = ruleBodyContaining("::-webkit-scrollbar");
+  const gutter = ruleBodyForExactSelector("::-webkit-scrollbar");
   const thumb = ruleBodyForExactSelector("::-webkit-scrollbar-thumb");
   const activeThumb = ruleBodyForExactSelector(".mc-scroll-active::-webkit-scrollbar-thumb");
   assert.match(gutter || "", /width:\s*9px/, "hiding the thumb keeps a fixed scrollbar gutter so content never shifts");
@@ -577,4 +583,42 @@ test("the reduced-motion breath outranks the blanket animation clamp it sits und
   assert.ok(substitution, "the busy indicators still substitute an animation under reduced motion");
   assert.match(substitution[1], /animation:\s*kakapo-breathe[^;]*!important/,
     "the breath is declared !important, or the blanket clamp above freezes it and the dot lies about working");
+});
+
+
+// The side-by-side diff drew its horizontal scrollbar twice — one per pane, at the bottom of every file.
+//
+// Both sides are a single horizontal position: syncDiffSideScroll mirrors scrollLeft from whichever pane is
+// scrolled onto the other, so the second bar was the same number rendered again. Suppressing the base side's
+// thumb is only safe while that pane is still a scroller — the caret keys walk up to it (revealCaretColumn)
+// and a wheel over it still moves it — so the precondition is asserted with the fix.
+test("the side-by-side diff shows one horizontal scrollbar, not one per pane", () => {
+  assert.match(css, /\.d2h-file-side-diff:first-child::-webkit-scrollbar\s*\{[^}]*height:\s*0/s,
+    "the base pane's horizontal thumb is suppressed — the working tree's bar drives both");
+
+  const side = ruleBodyForExactSelector(".d2h-file-side-diff");
+  assert.ok(side, "precondition: .d2h-file-side-diff rule must exist");
+  assert.match(side, /overflow-x:\s*auto\b/,
+    "precondition: the base pane is still a SCROLLER — hiding its thumb must not stop it scrolling");
+
+  const nav = readFileSync(new URL("../src/viewer/02-diff-nav.js", import.meta.url), "utf8");
+  assert.match(nav, /function syncDiffSideScroll\b/,
+    "precondition: the two sides are mirrored — without that, one bar would only move one pane");
+});
+
+// The rule above hides the FIRST pane's thumb, which is only safe while a second pane exists to carry the
+// bar. A row with one side would lose its only scrollbar and say nothing about it, so assert the renderer
+// still emits both sides for the two cases that have content on one side alone.
+test("a one-sided change still renders both diff panes, so the kept scrollbar always exists", async () => {
+  const { renderDiff2Html } = await import("../dist/highlight.js");
+  const patch = (header, from, to, hunk, lines) =>
+    ["diff --git a/f b/f", header, "index 0000000..e69de29", from, to, hunk, ...lines, ""].join("\n");
+
+  const added = patch("new file mode 100644", "--- /dev/null", "+++ b/f", "@@ -0,0 +1,2 @@", ["+hello", "+world"]);
+  const deleted = patch("deleted file mode 100644", "--- a/f", "+++ /dev/null", "@@ -1,2 +0,0 @@", ["-hello", "-world"]);
+
+  for (const [what, diff] of [["an added file", added], ["a deleted file", deleted]]) {
+    const panes = (renderDiff2Html(diff).match(/d2h-file-side-diff/g) || []).length;
+    assert.equal(panes, 2, `${what} still renders two side panes — the second one carries the only bar`);
+  }
 });

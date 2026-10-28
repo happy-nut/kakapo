@@ -1342,6 +1342,13 @@ body {
 .d2h-files-diff { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .d2h-file-side-diff { position: relative; min-width: 0; width: 100%; overflow-x: auto; container-type: inline-size; }
 .d2h-file-side-diff:first-child { border-right: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+/* One horizontal position, drawn once. syncDiffSideScroll (02-diff-nav.js) mirrors scrollLeft between the
+   two sides, so each pane's own bar showed the SAME number — a pair of scrollbars at the bottom of every
+   file. The working tree keeps its bar: it is the side being read, and the added side is the longer one more
+   often, so its thumb has the longer travel. Base stays a scroller, it just has no thumb — the caret keys
+   (revealCaretColumn) and a wheel over that pane still reach the end of a base-only long line, and the
+   mirror carries the other side along. */
+.d2h-file-side-diff:first-child::-webkit-scrollbar { height: 0; }
 .d2h-code-wrapper { width: 100%; }
 .mc-diff-layer-stack {
   position: relative;
