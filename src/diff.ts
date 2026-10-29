@@ -9,7 +9,7 @@ import {
   SOURCE_MAX_LAZY_FILE_BYTES,
   SOURCE_MAX_TOTAL_BYTES,
 } from "./constants.js";
-import { ByteBudgetCache, decodeTextBuffer, formatBytes, hashText, isLikelyBinary, languageForPath, readTextFile, stripDiffPath, unquoteGitPath } from "./util.js";
+import { ByteBudgetCache, decodeTextBuffer, formatBytes, hashText, isContainedRelativePath, isLikelyBinary, languageForPath, readTextFile, stripDiffPath, unquoteGitPath } from "./util.js";
 import { canonicalWorkspaceRoot, git, isGitRepository, workspaceGitPrefix, RAW_PATHS } from "./git.js";
 
 // File content + signature cache, keyed by path and validated on (mtime, size). Under `watch` the app
@@ -170,13 +170,23 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
 
   for (const line of content.split(/\r?\n/)) {
     if (line.startsWith("diff --git ")) {
-      const match = line.match(/^diff --git a\/(.+) b\/(.+)$/);
+      const rest = line.slice("diff --git ".length);
+      // Git writes `a/<path> b/<path>`, and a path may contain a space — including the substring ` b/`, as
+      // `docs/plan b/diagram.png` does. The pattern below is greedy, so it splits at the LAST ` b/` and
+      // invents two paths that are both wrong. Everywhere but a rename the two halves are the SAME path, so
+      // try that split first: a rename is corrected by its own `rename from`/`rename to` lines, and a text
+      // file by its `---`/`+++` pair, but a binary file has neither and was listed at a path that does not
+      // exist — a phantom row in the Changes list, and the real changed image nowhere.
+      const span = rest.length >= 5 && (rest.length - 5) % 2 === 0 ? (rest.length - 5) / 2 : -1;
+      const half = span >= 0 ? rest.slice(2, 2 + span) : "";
+      const same = span >= 0 && rest === `a/${half} b/${half}` ? half : "";
+      const match = same ? null : line.match(/^diff --git a\/(.+) b\/(.+)$/);
       // A path git had to quote puts the `a/`…`b/` pair INSIDE the quotes — `diff --git "a/quo\"te.ts"
       // "b/quo\"te.ts"` — so the plain pattern misses it entirely and the file was named "unknown" until a
       // later `+++` line happened to correct it. Binary files have no such line.
-      const quoted = match ? null : line.slice("diff --git ".length).match(/^("(?:[^"\\]|\\.)*"|\S+) ("(?:[^"\\]|\\.)*"|\S+)$/);
-      const oldPath = match?.[1] ?? (quoted ? stripDiffPath(quoted[1]) : "unknown");
-      const newPath = match?.[2] ?? (quoted ? stripDiffPath(quoted[2]) : oldPath);
+      const quoted = same || match ? null : rest.match(/^("(?:[^"\\]|\\.)*"|\S+) ("(?:[^"\\]|\\.)*"|\S+)$/);
+      const oldPath = same ? same : match?.[1] ?? (quoted ? stripDiffPath(quoted[1]) : "unknown");
+      const newPath = same ? same : match?.[2] ?? (quoted ? stripDiffPath(quoted[2]) : oldPath);
       current = {
         oldPath,
         newPath,
@@ -191,6 +201,50 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
     }
 
     if (!current) {
+      continue;
+    }
+
+    // `@@` opens a hunk. Every content line of a file carries a `+`, `-` or space prefix, so no content
+    // line can start with `@@` — this is safe to try before the dispatch below.
+    const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/);
+    if (hunkMatch) {
+      oldLine = Number(hunkMatch[1]);
+      newLine = Number(hunkMatch[3]);
+      hunk = {
+        header: line,
+        title: hunkMatch[5]?.trim() ?? "",
+        oldStart: oldLine,
+        newStart: newLine,
+        lines: [],
+      };
+      current.hunks.push(hunk);
+      continue;
+    }
+
+    // Inside a hunk every remaining line is that hunk's CONTENT, and the metadata patterns below must not
+    // be tried against it. Git writes a file's metadata before its first `@@`, so only a new hunk (above) or
+    // a new file (`diff --git`) ends one.
+    //
+    // Reading content as metadata was not cosmetic. A deleted `-- note` line — an ordinary comment in SQL,
+    // Lua, Haskell, Ada, or a `-- ` signature delimiter — reaches the parser as `--- note`, which was taken
+    // for the `--- a/path` header: the deletion vanished from the hunk, every old line number after it
+    // shifted up by one (so comments anchored past it pointed at the wrong line), and oldPath became the
+    // comment's text. An added `++ b/…` line was worse than wrong: it set displayPath, and displayPath is a
+    // path collectSourceFiles joins to the root and reads, so `++ b/../../secret` put a file from outside
+    // the review into the index.
+    if (hunk) {
+      if (line.startsWith("+")) {
+        hunk.lines.push({ kind: "add", newLine, text: line.slice(1) });
+        newLine += 1;
+      } else if (line.startsWith("-")) {
+        hunk.lines.push({ kind: "delete", oldLine, text: line.slice(1) });
+        oldLine += 1;
+      } else if (line.startsWith(" ")) {
+        hunk.lines.push({ kind: "context", oldLine, newLine, text: line.slice(1) });
+        oldLine += 1;
+        newLine += 1;
+      }
+      // Anything else here is `\ No newline at end of file`, which occupies no line on either side.
       continue;
     }
 
@@ -230,36 +284,6 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
       continue;
     }
 
-    const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/);
-    if (hunkMatch) {
-      oldLine = Number(hunkMatch[1]);
-      newLine = Number(hunkMatch[3]);
-      hunk = {
-        header: line,
-        title: hunkMatch[5]?.trim() ?? "",
-        oldStart: oldLine,
-        newStart: newLine,
-        lines: [],
-      };
-      current.hunks.push(hunk);
-      continue;
-    }
-
-    if (!hunk) {
-      continue;
-    }
-
-    if (line.startsWith("+")) {
-      hunk.lines.push({ kind: "add", newLine, text: line.slice(1) });
-      newLine += 1;
-    } else if (line.startsWith("-")) {
-      hunk.lines.push({ kind: "delete", oldLine, text: line.slice(1) });
-      oldLine += 1;
-    } else if (line.startsWith(" ")) {
-      hunk.lines.push({ kind: "context", oldLine, newLine, text: line.slice(1) });
-      oldLine += 1;
-      newLine += 1;
-    }
   }
 
   // A file git bothered to name is in the review even when it has no hunks, because several ordinary
@@ -352,6 +376,12 @@ export function computeChangeSet(diffFiles: DiffFile[]): { changed: Set<string>;
   const changedLinesByPath = new Map<string, number[]>();
   for (const file of diffFiles) {
     if (!file.displayPath || file.displayPath === "/dev/null") continue;
+    // This is where a diff path becomes a path the index joins to the root and reads, so it is where a path
+    // that leaves the root stops. Git never writes `..` or an absolute path in a diff header, which is why
+    // nothing checked — until a hunk's own content could reach a header (see parseUnifiedDiff) and one line
+    // of a reviewed file chose what the index read. The parser no longer allows that; this is the boundary
+    // that makes it not matter.
+    if (!isContainedRelativePath(file.displayPath)) continue;
     changed.add(file.displayPath);
     const nums: number[] = [];
     for (const hunk of file.hunks) for (const line of hunk.lines) {
@@ -628,15 +658,20 @@ function readTargetBlobSource(root: string, file: SourceFile, target: string): S
   // file and leaves it full of NULs, which the check below then reports as "binary file" — the same file
   // reads fine on the left of an A→B compare and is refused on the right.
   const content = decodeTextBuffer((out.stdout as Buffer | undefined) ?? Buffer.alloc(0));
-  if (content.includes("\0")) {
+  // The same two measurements the working-tree read makes, so the same file is not accepted on the left of
+  // an A→B compare and refused on the right. isLikelyBinary sniffs the first 8KB (git's heuristic) — scanning
+  // the whole text instead refused a readable file for one NUL at the far end of it — and both budgets here
+  // are in BYTES, which a JS string's length is not once the file is not ASCII.
+  const bytes = Buffer.byteLength(content, "utf8");
+  if (content.slice(0, 8192).includes("\0")) {
     const skippedReason = "binary file";
-    return { ...file, content: "", size: content.length, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0binary-target\0${target}`) };
+    return { ...file, content: "", size: bytes, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0binary-target\0${target}`) };
   }
-  if (content.length > SOURCE_MAX_LAZY_FILE_BYTES) {
+  if (bytes > SOURCE_MAX_LAZY_FILE_BYTES) {
     const skippedReason = `larger than ${formatBytes(SOURCE_MAX_LAZY_FILE_BYTES)}`;
-    return { ...file, content: "", size: content.length, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0large-target\0${content.length}`) };
+    return { ...file, content: "", size: bytes, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0large-target\0${bytes}`) };
   }
-  return { ...file, content, size: content.length, embedded: true, deferred: false, skippedReason: undefined, signature: hashText(`${file.path}\0${content}`) };
+  return { ...file, content, size: bytes, embedded: true, deferred: false, skippedReason: undefined, signature: hashText(`${file.path}\0${content}`) };
 }
 
 // Materialize an app-only deferred source record after the reviewer opens it. The path is accepted only

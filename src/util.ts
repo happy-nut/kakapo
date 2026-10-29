@@ -85,6 +85,21 @@ export function unquoteGitPath(value: string): string {
   return out;
 }
 
+/**
+ * Whether a repository-relative path stays inside the root it is about to be joined to. Pure string math:
+ * it runs over every changed path on the way to first paint, and the path may not exist yet.
+ *
+ * Every path kakapo indexes comes from git, and git never writes `..` or an absolute path in a diff header
+ * — which is exactly why nothing checked. Then one line of a reviewed file could reach a header (an added
+ * `++ b/…` line, read as `+++ b/…`; see parseUnifiedDiff) and the content of the repository under review
+ * chose which file the index read. A parser is a trust boundary when what it parses is not the author's.
+ */
+export function isContainedRelativePath(path: string): boolean {
+  const normalized = String(path || "").replace(/\\/g, "/");
+  if (!normalized || isAbsolute(normalized) || /^[a-zA-Z]:\//.test(normalized)) return false;
+  return !normalized.split("/").includes("..");
+}
+
 export function stripDiffPath(value: string): string {
   if (value === "/dev/null") {
     return value;
