@@ -187,6 +187,25 @@ function handleQuickOpenKey(event) {
   if (handleUsageViewKey(event)) return true;
   if (handleProblemsKey(event)) return true;
   if (quickMode === 'actions' && isShortcut(event, 'findAction')) { event.preventDefault(); closeQuickOpen(); return true; }
+  // The section rail prints a chord beside each row — data-keyhint-id, resolved by applyKeyHints — and this
+  // handler owns every key while the dialog is up, so those chords reached nothing at all. ⌘E and ⌘9 were
+  // drawn on screen next to "Recent files" and "History" while Find in Files was open, and pressing either
+  // did nothing; so did ⌘⇧F from Search files. A surface may not advertise a key it swallows.
+  //
+  // Asked of the rail itself, so a row's key does exactly what its click does and the two cannot drift —
+  // including the rows whose click closes this dialog and opens a panel of their own. The row already on
+  // screen closes, which is the toggle ⌘E spelled for 'recent' before this covered it (and ⌘⇧A and ⌘6
+  // still spell for the two modes that have no row). The modes that own one of these keys — hierarchy,
+  // usages, problems — answer above and never reach here.
+  var railItems = quickSideItems();
+  for (var ri = 0; ri < railItems.length; ri += 1) {
+    var railId = (railItems[ri].getAttribute('data-keyhint-id') || '').split(':')[0];
+    if (!railId || !isShortcut(event, railId)) continue;
+    event.preventDefault();
+    if (railItems[ri].dataset.section === quickMode) closeQuickOpen();
+    else railItems[ri].click();
+    return true;
+  }
   var sideItem = focusedQuickSideItem();
   if (sideItem) {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -204,14 +223,6 @@ function handleQuickOpenKey(event) {
   } else if (event.key === 'ArrowLeft' && QUICK_LAUNCHER_MODES.indexOf(quickMode) >= 0 && !event.metaKey && !event.ctrlKey && !event.altKey) {
     event.preventDefault();
     focusQuickSide();
-    return true;
-  }
-  // Cmd/Ctrl+E toggles the Recent panel: it opened this dialog, so a second press closes it (parity with how
-  // Esc dismisses it). Only for 'recent' — the same key means "focus extensions" inside Find-in-Files.
-  if (quickMode === 'recent' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey
-    && (event.code === 'KeyE' || event.key.toLowerCase() === 'e')) {
-    event.preventDefault();
-    closeQuickOpen();
     return true;
   }
   if (event.key === 'Escape') {
@@ -505,13 +516,31 @@ function contentSearchMasks() {
     });
 }
 
-/** One mask over a file NAME. `*` and `?` only; ripgrep does the real matching when there is a ripgrep. */
-function contentSearchMaskRegExp(mask) {
-  var pattern = String(mask)
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\?/g, '[^/]');
-  return new RegExp('^' + pattern + '$');
+/**
+ * Does one mask match this file NAME? `*` and `?` only; ripgrep does the real matching when there is one.
+ *
+ * Greedy with a single backtrack point, not a compiled regular expression — the same matcher as
+ * maskMatchesName in src/search.ts, and for the reason written there: `*` became `[^/]*`, a mask may be
+ * 48 characters, and `*a*a*a…` against a name that fails at the end took 1.07s on 33 characters and ten
+ * times that per two more. It ran once per file of the index on every keystroke in this field, so a
+ * review could be frozen by its own filter. Keep the two copies the same.
+ */
+function contentSearchMaskMatches(mask, name) {
+  var text = String(mask);
+  var m = 0;
+  var n = 0;
+  var star = -1;
+  var afterStar = 0;
+  while (n < name.length) {
+    var ch = m < text.length ? text.charAt(m) : '';
+    // `*` first: the literal comparison below also matches a `*` in the NAME, which swallowed the wildcard.
+    if (ch === '*') { m += 1; star = m; afterStar = n; }
+    else if (ch && (ch === '?' || ch === name.charAt(n))) { m += 1; n += 1; }
+    else if (star >= 0) { m = star; afterStar += 1; n = afterStar; }
+    else return false;
+  }
+  while (text.charAt(m) === '*') m += 1;
+  return m === text.length;
 }
 
 function contentSearchMaskAllows(path, masks) {
@@ -519,11 +548,11 @@ function contentSearchMaskAllows(path, masks) {
   var segments = String(path || '').replace(/\\/g, '/').toLowerCase().split('/');
   var name = segments[segments.length - 1] || '';
   var excluded = masks.some(function (mask) {
-    return mask.charAt(0) === '!' && contentSearchMaskRegExp(mask.slice(1)).test(name);
+    return mask.charAt(0) === '!' && contentSearchMaskMatches(mask.slice(1), name);
   });
   if (excluded) return false;
   var include = masks.filter(function (mask) { return mask.charAt(0) !== '!'; });
-  return !include.length || include.some(function (mask) { return contentSearchMaskRegExp(mask).test(name); });
+  return !include.length || include.some(function (mask) { return contentSearchMaskMatches(mask, name); });
 }
 function contentSearchPathAllowed(path, masks, excludeNoise) {
   var normalized = String(path || '').replace(/\\/g, '/').toLowerCase();

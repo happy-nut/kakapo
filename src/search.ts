@@ -158,13 +158,48 @@ export function normalizeProjectSearchMasks(values: unknown): string[] {
     .slice(0, 20);
 }
 
-/** One mask as a regular expression over the file's NAME. `*` and `?` only — ripgrep does the real work. */
-function maskToRegExp(mask: string): RegExp {
-  const pattern = mask
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*/g, "[^/]*")
-    .replace(/\?/g, "[^/]");
-  return new RegExp(`^${pattern}$`);
+/**
+ * Does one mask match this file NAME? `*` and `?` only — ripgrep does the real work when there is a ripgrep.
+ *
+ * Greedy with a single backtrack point, not a compiled regular expression. `*` became `[^/]*`, and a mask
+ * is allowed 48 characters, so `*a*a*a…` is 24 of them: against a name that fails at the end the engine
+ * tries every way to split it, which measured 1.07s on a 33-character name and ten times that for every
+ * two characters more. That ran once PER FILE of the index, on each keystroke in the mask field — a review
+ * could be frozen by its own filter. This is linear in the name per star instead, and compiles nothing.
+ *
+ * Only `*` and `?` are wildcards; `[`, `]`, `{`, `}` and `,` are literals here, exactly as the escaped
+ * regular expression treated them. (ripgrep reads those as glob syntax, so a mask using them already
+ * matched differently in the two paths — unchanged, and worth knowing before widening either.)
+ */
+function maskMatchesName(mask: string, name: string): boolean {
+  let m = 0;
+  let n = 0;
+  let star = -1;
+  let afterStar = 0;
+  while (n < name.length) {
+    const ch = m < mask.length ? mask[m] : "";
+    // `*` is tested FIRST. The literal comparison below also succeeds when the mask char and the name char
+    // are both `*`, which consumed the wildcard as a literal and never opened the star — mask `*` then
+    // failed to match a name containing one. A dispatch whose branches overlap has to put the specific
+    // case before the general one; a differential run against the regular expression caught it.
+    if (ch === "*") {
+      m += 1;
+      star = m;
+      afterStar = n;
+    } else if (ch && (ch === "?" || ch === name[n])) {
+      m += 1;
+      n += 1;
+    } else if (star >= 0) {
+      // The last `*` took one character too few; give it one more and resume from there.
+      m = star;
+      afterStar += 1;
+      n = afterStar;
+    } else {
+      return false;
+    }
+  }
+  while (mask[m] === "*") m += 1;
+  return m === mask.length;
 }
 
 /**
@@ -178,8 +213,8 @@ export function projectSearchMaskAllows(path: string, masks: string[]): boolean 
   const name = path.replace(/\\/g, "/").toLowerCase().split("/").pop() || "";
   const include = masks.filter((mask) => !mask.startsWith("!"));
   const exclude = masks.filter((mask) => mask.startsWith("!")).map((mask) => mask.slice(1));
-  if (exclude.some((mask) => maskToRegExp(mask).test(name))) return false;
-  return !include.length || include.some((mask) => maskToRegExp(mask).test(name));
+  if (exclude.some((mask) => maskMatchesName(mask, name))) return false;
+  return !include.length || include.some((mask) => maskMatchesName(mask, name));
 }
 
 function isTestPath(path: string): boolean {
