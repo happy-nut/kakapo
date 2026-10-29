@@ -622,3 +622,27 @@ test("a one-sided change still renders both diff panes, so the kept scrollbar al
     assert.equal(panes, 2, `${what} still renders two side panes — the second one carries the only bar`);
   }
 });
+
+// Below 900px the shell stops being two columns and stacks the sidebar ABOVE the diff. The stacked sidebar
+// had `height: auto`, so it was as tall as its file list — and the file list is as long as the review. At 42
+// files it took the whole window and left .content, the diff, a 32px strip under it: narrow the window and
+// the thing you opened the app to read is gone. Measured in the running app at 900px and 720px (sidebar 891
+// and 711 tall, content 32), and after the fix 280 / 520.
+//
+// jsdom has no layout and does not evaluate media queries, so this is guarded as text, like the rules above.
+test("the stacked narrow-window sidebar is bounded, so the diff still gets the window", () => {
+  const narrow = cssRules.match(/@media\s*\(max-width:\s*900px\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(narrow, "the max-width:900px block must exist — it is what stacks the two columns");
+  const body = narrow[1];
+
+  assert.match(body, /\.content\s*\{[^}]*grid-row:\s*3/, "precondition: the diff is the row BELOW the sidebar");
+  assert.match(body, /body\s*\{[^}]*grid-template-rows:[^;]*minmax\(0,\s*1fr\)/,
+    "precondition: the diff's row is the one that takes what is left — so what is left has to be something");
+
+  const sidebar = body.match(/\.sidebar\s*\{([^}]*)\}/);
+  assert.ok(sidebar, ".sidebar must be restyled for the stacked layout");
+  assert.doesNotMatch(sidebar[1], /height:\s*auto/,
+    "the fix: an `auto` height here is the file list's full height, which is the whole window on a long review");
+  assert.match(sidebar[1], /height:\s*[\d.]+(vh|px|%)|max-height:\s*/,
+    "…so it must state a bounded height; .sidebar-scroll inside it already scrolls");
+});

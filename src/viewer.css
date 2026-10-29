@@ -3963,7 +3963,11 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 
   .history-view { inset: var(--rail-width) 0 0 0; }
 
-  .sidebar { grid-row: 2; grid-column: 1; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  /* Bounded, not `auto`. Stacked above the content, an `auto` sidebar is as tall as its file list, and the
+     list is as long as the review: at 42 files it took the entire window and left `.content` — the diff,
+     the reason the app is open — a 32px strip under it. The tree scrolls inside this box exactly as it
+     does in the wide layout; it is the same .sidebar-scroll. */
+  .sidebar { grid-row: 2; grid-column: 1; height: 35vh; border-right: 0; border-bottom: 1px solid var(--border); }
   .content { grid-row: 3; grid-column: 1; padding: 16px; }
   .toolbar { margin: -16px -16px 16px; padding: 12px 16px; }
   .semantic-peek { min-width: 240px; }
