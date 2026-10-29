@@ -9,7 +9,7 @@ import {
   SOURCE_MAX_LAZY_FILE_BYTES,
   SOURCE_MAX_TOTAL_BYTES,
 } from "./constants.js";
-import { ByteBudgetCache, formatBytes, hashText, isLikelyBinary, languageForPath, stripDiffPath, unquoteGitPath } from "./util.js";
+import { ByteBudgetCache, decodeTextBuffer, formatBytes, hashText, isLikelyBinary, languageForPath, readTextFile, stripDiffPath, unquoteGitPath } from "./util.js";
 import { canonicalWorkspaceRoot, git, isGitRepository, workspaceGitPrefix, RAW_PATHS } from "./git.js";
 
 // File content + signature cache, keyed by path and validated on (mtime, size). Under `watch` the app
@@ -141,7 +141,7 @@ function readUntrackedDiff(root: string): string {
       continue;
     }
 
-    const content = readFileSync(absolute, "utf8");
+    const content = readTextFile(absolute);
     const lines = content.split(/\r?\n/);
     if (lines[lines.length - 1] === "") {
       lines.pop();
@@ -559,7 +559,7 @@ export function collectSourceFiles(
       content = cached!.content; // unchanged since last build — skip the read + hash
       signature = cached!.signature;
     } else {
-      content = readFileSync(absolute, "utf8");
+      content = readTextFile(absolute);
       signature = hashText(`${path}\0${content}`);
       sourceContentCache.set(cacheKey, { mtimeMs: stats.mtimeMs, size: stats.size, content, signature });
     }
@@ -619,12 +619,15 @@ function readTargetBlobSource(root: string, file: SourceFile, target: string): S
     }
     return { ...file, content: "", size: data.length, deferred: false, image: `data:${previewMime};base64,${data.toString("base64")}`, signature: hashText(`${file.path}\0image-target\0${data.length}`) };
   }
-  const out = spawnSync("git", [...RAW_PATHS, "show", "--no-textconv", spec], { cwd: root, encoding: "utf8", maxBuffer: 1024 * 1024 * 50 });
+  const out = spawnSync("git", [...RAW_PATHS, "show", "--no-textconv", spec], { cwd: root, encoding: "buffer", maxBuffer: 1024 * 1024 * 50 });
   if (out.status !== 0) {
     const skippedReason = "file is not present in this revision";
     return { ...file, content: "", embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0missing-target\0${target}`) };
   }
-  const content = out.stdout ?? "";
+  // Decode by BOM, exactly as the working-tree read does. Taking the blob as UTF-8 both mojibakes a UTF-16
+  // file and leaves it full of NULs, which the check below then reports as "binary file" — the same file
+  // reads fine on the left of an A→B compare and is refused on the right.
+  const content = decodeTextBuffer((out.stdout as Buffer | undefined) ?? Buffer.alloc(0));
   if (content.includes("\0")) {
     const skippedReason = "binary file";
     return { ...file, content: "", size: content.length, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0binary-target\0${target}`) };
@@ -682,7 +685,7 @@ export function materializeDeferredSourceFile(rootArg: string, file: SourceFile,
     const skippedReason = "binary file";
     return { ...file, content: "", size: stats.size, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0binary\0${stats.size}`) };
   }
-  const content = readFileSync(absolute, "utf8");
+  const content = readTextFile(absolute);
   return {
     ...file,
     content,

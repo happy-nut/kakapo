@@ -122,6 +122,48 @@ export function languageForPath(path: string): string {
   return "text";
 }
 
+/**
+ * The encoding a byte-order mark declares, or null when there is none (or when it declares one we cannot
+ * read). A BOM is a file saying what it is, and two places here would otherwise get it wrong: the NUL sniff
+ * below, because every other byte of UTF-16 text IS a NUL, and the read itself, because a UTF-8 read of
+ * UTF-16 is mojibake. PowerShell redirection and a good deal of Windows tooling still write UTF-16 — a
+ * MANIFEST.MF or .properties produced that way is perfectly readable text that kakapo refused as binary.
+ *
+ * UTF-32 deliberately returns null: its NULs are not an encoding artefact we can undo with swap16, so the
+ * sniff should go on calling it binary rather than show four bytes per character.
+ */
+function bomEncodingOf(head: Buffer): "utf16le" | "utf16be" | "utf8" | null {
+  if (head.length >= 4 && head[0] === 0xff && head[1] === 0xfe && head[2] === 0x00 && head[3] === 0x00) return null;
+  if (head.length >= 4 && head[0] === 0x00 && head[1] === 0x00 && head[2] === 0xfe && head[3] === 0xff) return null;
+  if (head.length >= 2 && head[0] === 0xff && head[1] === 0xfe) return "utf16le";
+  if (head.length >= 2 && head[0] === 0xfe && head[1] === 0xff) return "utf16be";
+  if (head.length >= 3 && head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf) return "utf8";
+  return null;
+}
+
+/**
+ * Decode a file's bytes as text, honouring its BOM and dropping it. The mark has to go: left in the string
+ * it is an invisible first character of the first line, which shows up as a phantom column in the gutter,
+ * in find, and in every offset a language server is given.
+ */
+export function decodeTextBuffer(buf: Buffer): string {
+  switch (bomEncodingOf(buf)) {
+    case "utf16le": return buf.subarray(2).toString("utf16le");
+    // swap16 mutates and needs an even length, so copy and drop a trailing odd byte rather than throw on a
+    // truncated file.
+    case "utf16be": {
+      const body = buf.subarray(2, 2 + (((buf.length - 2) >> 1) << 1));
+      return Buffer.from(body).swap16().toString("utf16le");
+    }
+    case "utf8": return buf.subarray(3).toString("utf8");
+    default: return buf.toString("utf8");
+  }
+}
+
+export function readTextFile(path: string): string {
+  return decodeTextBuffer(readFileSync(path));
+}
+
 export function isLikelyBinary(path: string): boolean {
   // Read only the first 8KB — a NUL byte in the head is our binary heuristic. The previous version read
   // the WHOLE file just to slice 8KB off it, which on a large repo means re-reading every tracked file
@@ -130,7 +172,9 @@ export function isLikelyBinary(path: string): boolean {
   try {
     const buf = Buffer.alloc(8000);
     const n = readSync(fd, buf, 0, 8000, 0);
-    return buf.subarray(0, n).includes(0);
+    const head = buf.subarray(0, n);
+    if (bomEncodingOf(head)) return false; // a BOM says text, whatever NULs its encoding needs
+    return head.includes(0);
   } finally {
     closeSync(fd);
   }

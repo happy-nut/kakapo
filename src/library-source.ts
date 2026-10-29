@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { SOURCE_MAX_LAZY_FILE_BYTES } from "./constants.js";
 import type { SourceFile } from "./types.js";
-import { formatBytes, hashText, isLikelyBinary, languageForPath } from "./util.js";
+import { formatBytes, hashText, isLikelyBinary, languageForPath, readTextFile } from "./util.js";
 
 /**
  * A file read for library navigation — a dependency, a stdlib module, a bundled type stub — after a
@@ -37,7 +37,7 @@ export function readLibrarySourceFile(absolutePath: string, displayPath = absolu
   }
   if (isLikelyBinary(absolutePath)) return unreadable("binary file", "library-binary");
   let content: string;
-  try { content = readFileSync(absolutePath, "utf8"); } catch { return unreadable("unreadable file", "library-unreadable"); }
+  try { content = readTextFile(absolutePath); } catch { return unreadable("unreadable file", "library-unreadable"); }
   return {
     ...base,
     content,

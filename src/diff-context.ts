@@ -1,7 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { isAbsolute, relative, resolve } from "node:path";
 import { parseUnifiedDiff } from "./diff.js";
+import { readTextFile } from "./util.js";
 import { canonicalWorkspaceRoot, repoRoot, workspaceGitPrefix, RAW_PATHS } from "./git.js";
 
 export type DiffContextRequest = {
@@ -107,7 +108,7 @@ function readWorktreeFile(root: string, path: string): string | null {
   const absolute = resolve(root, path);
   const rel = relative(resolve(root), absolute);
   if (!rel || rel.startsWith("..") || isAbsolute(rel) || !existsSync(absolute)) return null;
-  try { return readFileSync(absolute, "utf8"); } catch { return null; }
+  try { return readTextFile(absolute); } catch { return null; }
 }
 
 function sliceLines(text: string, start: number, end: number): string[] {

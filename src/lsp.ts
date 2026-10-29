@@ -1,10 +1,10 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
-import { accessSync, constants, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, realpathSync, statSync } from "node:fs";
 import { delimiter, extname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { errorMessage, languageForPath } from "./util.js";
+import { errorMessage, languageForPath, readTextFile } from "./util.js";
 
 /**
  * One entry of a file's structure: what `textDocument/documentSymbol` returns, flattened.
@@ -1190,7 +1190,7 @@ export class LspClient {
       // LSP versions are monotonically increasing signed integers. A millisecond epoch exceeds the
       // 32-bit integer accepted by JetBrains' Kotlin server, so keep mtime only for change detection.
       const version = opened ? opened.version + 1 : 1;
-      const text = readFileSync(absolute, "utf8");
+      const text = readTextFile(absolute); // same decode the viewer uses, or a BOM shifts every column on line 1
       if (!opened) {
         this.notify("textDocument/didOpen", { textDocument: { uri, languageId: lspLanguageId(path), version, text } });
       } else {
