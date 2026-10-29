@@ -62,7 +62,16 @@ function foldAll(accelerator) {
   return [spell(mods, shifted[0]), spell(withShift, shifted[1])];
 }
 
-test("no shortcut row sits on a chord the application menu eats", { timeout: 60_000 }, async () => {
+// macOS only, like the other four tests that boot a real Electron (test/diff-layout.test.mjs). Two reasons,
+// and the second is the one that matters: Linux CI has no SUID sandbox configured, so the child aborts
+// before it can answer — and even with --no-sandbox it would answer about the WRONG menu. `role: "appMenu"`
+// is a macOS construct; the chords this guard exists to catch (⌘⌥H Hide Others, ⌘0 zoom reset) are bindings
+// Electron only makes there. Checking a Linux menu against a ⌘-spelled table would go green while saying
+// nothing about the menu users actually get, and a test that cannot fail is furniture.
+test("no shortcut row sits on a chord the application menu eats", {
+  timeout: 60_000,
+  skip: process.platform !== "darwin" ? "the application menu this guards is macOS's" : false,
+}, async () => {
   const main = readFileSync(fileURLToPath(new URL("../dist/app-main.js", import.meta.url)), "utf8");
 
   // The roles the shipped main process actually uses, and whether each forwards.

@@ -51,4 +51,5 @@ A chord the application menu holds never reaches the page: Electron consumes a m
 renderer keydown runs, so such a row is advertised everywhere and fires nowhere, and jsdom tests stay green
 because they dispatch keydown straight at the page. `test/menu-accelerators.test.mjs` builds the real menu
 and checks the table against it; a row may collide only when it says `fixed: "menu"` or when the menu item
-forwards the key on with `sendToFocused`.
+forwards the key on with `sendToFocused`. That guard runs on macOS only — the menu it checks is macOS's —
+so run the suite there before trusting a chord change; Linux CI skips it.
