@@ -113,7 +113,7 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | Key | Action |
 | --- | --- |
 | `⌘1` / `⌘2` | Files / Changes panel |
-| `F7` / `⇧F7` | Next / previous changed hunk |
+| `F7` / `⇧F7` | Next / previous change — each edit, including deleted lines, not each `@@` |
 | `Space` | Toggle *Viewed* on the selected changed file |
 | `?` | Comment on the current line |
 | `F8` / `⇧F8` | Next / previous comment |

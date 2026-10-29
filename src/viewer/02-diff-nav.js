@@ -11,12 +11,16 @@ function firstCodeRowOfHunk(hunkRow) {
   return firstRow || hunkRow;
 }
 
-// First row in a hunk to land the caret on. F7 should track the NEW (right) file, so prefer the
-// first change on the new side anywhere in the hunk (additions / modifications) and only fall back
-// to the old side for a pure-deletion hunk that has nothing on the new side. The .hunk marker sits
-// on the OLD side and the two side tables are positionally aligned row-for-row, so the new-side row
-// at the same index is the counterpart. Without this, a hunk that begins with deletions lands the
-// caret on the old-side deletion instead of the added lines below it.
+// First row in a hunk to land the caret on: the first row where EITHER side changes, preferring the new
+// (right) side when both change at that row — which is every modification, since diff2html pairs the del
+// and the ins on one aligned row. The .hunk marker sits on the OLD side and the two side tables are
+// positionally aligned row-for-row, so the new-side row at the same index is the counterpart.
+//
+// This used to scan the whole hunk for a new-side change first and only fall back to the old side for a
+// hunk with nothing added at all. That skipped PAST a leading deletion to the additions below it, and since
+// F7 only moves forward from where the caret lands, those deleted lines were then unreachable: entering the
+// file already put the caret beyond the hunk's first change. IntelliJ enters at the first difference
+// whichever side it is on (ScrollToPolicy.FIRST_CHANGE over a side-agnostic fragment list).
 function isChangeCodeRow(row) {
   return !!(row && isDiffCodeRow(row) && row.querySelector('.d2h-ins, .d2h-del, ins, del'));
 }
@@ -28,14 +32,12 @@ function firstChangeRowForCaret(hunkRow) {
     const hunkRows = Array.from(hunkSideEl.querySelectorAll('tr')); // old side (carries the .hunk marker)
     const otherEl = hunkSideEl === sides[0] ? sides[1] : sides[0];   // new side
     const otherRows = Array.from(otherEl.querySelectorAll('tr'));
-    let fallbackOld = null;
     for (let i = hunkRows.indexOf(hunkRow) + 1; i < hunkRows.length; i++) {
       const hr = hunkRows[i];
       if (hr.classList.contains('hunk') || hr.classList.contains('hunk-peer')) break;
-      if (isChangeCodeRow(otherRows[i])) return otherRows[i]; // first new-side change wins (track the new file)
-      if (fallbackOld === null && isChangeCodeRow(hr)) fallbackOld = hr; // remember the first old-side change
+      if (isChangeCodeRow(otherRows[i])) return otherRows[i]; // a modification or an addition: track the new file
+      if (isChangeCodeRow(hr)) return hr;                     // a deletion at this row: the caret belongs on it
     }
-    if (fallbackOld) return fallbackOld; // pure-deletion hunk: nothing added, so land on the deletion
   }
   return firstCodeRowOfHunk(hunkRow);
 }
@@ -271,7 +273,7 @@ function scheduleScrollIntoView(el, scroller, marginFrac) {
   });
 }
 
-var setActiveRaf = 0, setActiveScrollPending = true;
+var setActiveRaf = 0, setActiveScrollPending = true, setActiveEnterAtPending = 'first';
 // A viewed diff intentionally folds out of the review queue. Any navigation path that tries to activate it
 // (startup restore, sidebar click, quick open, etc.) should land on the next unviewed file instead of leaving
 // the content pane blank. If the whole queue is viewed, keep the requested file active so its body can remain
@@ -287,7 +289,7 @@ function preferredReviewHunk(index) {
   }
   return requested;
 }
-function setActive(index, shouldScroll = true, allowViewed = false) {
+function setActive(index, shouldScroll = true, allowViewed = false, enterAt = 'first') {
   if (hunkTotal() === 0) return;
   var total = hunkTotal();
   var requested = ((index % total) + total) % total;
@@ -300,10 +302,11 @@ function setActive(index, shouldScroll = true, allowViewed = false) {
   // while the heavy DOM work (full link/wrapper sweeps, body materialize) runs at most once per frame
   // instead of once per keystroke — the input queue never blocks and can't pile up on big repos.
   setActiveScrollPending = shouldScroll;
+  setActiveEnterAtPending = enterAt;
   if (setActiveRaf) return;
   setActiveRaf = requestAnimationFrame(function () {
     setActiveRaf = 0;
-    applySetActive(current, setActiveScrollPending);
+    applySetActive(current, setActiveScrollPending, setActiveEnterAtPending);
   });
 }
 // The hunk a sidebar row really owns, or -1.
@@ -339,7 +342,7 @@ function activateDiffFile(path, shouldScroll) {
   });
   return true;
 }
-function applySetActive(idx, shouldScroll) {
+function applySetActive(idx, shouldScroll, enterAt) {
   document.getElementById('source-viewer')?.classList.add('hidden');
   document.getElementById('diff-view')?.classList.remove('hidden');
   setTab('changes');
@@ -362,7 +365,14 @@ function applySetActive(idx, shouldScroll) {
       hunks.forEach((hunk, i) => hunk.classList.toggle('active', i === idx));
       hunkPeers.forEach((hunk) => hunk.classList.toggle('active', Number(hunk.dataset.hunkIndex) === idx));
     }
-    const targetRow = firstChangeRowForCaret(active);
+    // Entering a file BACKWARD lands on its last change, not its first — IntelliJ's ScrollToPolicy.
+    // LAST_CHANGE. Without it Shift+F7 entered at the first change and the next press left the file again,
+    // so every change block after the first was unreachable going backward: walking the review backward
+    // visited fewer changes than walking it forward.
+    const wrap = diffWrapperByPath(file);
+    const blocks = enterAt === 'last' ? changeBlockAnchors(wrap) : [];
+    const lastRow = blocks.length ? changeBlockRow(wrap, blocks[blocks.length - 1]) : null;
+    const targetRow = lastRow || firstChangeRowForCaret(active);
     // F7/change navigation moves the caret but must NOT pollute the Cmd+[/] cursor history.
     navSuppress = true;
     try { focusDiffRow(targetRow); } finally { navSuppress = false; }
@@ -477,23 +487,41 @@ function syncActiveDiffHunk(index) {
   container.querySelectorAll('[data-hunk-index="' + normalized + '"]').forEach(function (row) { row.classList.add('active'); });
 }
 
-// New-side row indices, one per change block — a run of change rows (ins/del) separated by context.
-// A wide context window merges several edits into one @@ hunk; stepping by these stops at each edit.
+// Row indices, one per change block — a run of change rows (ins/del) separated by context. A wide context
+// window merges several edits into one @@ hunk (the default is 12 lines, so this is the normal case, not an
+// edge one); stepping by these stops at each edit.
+//
+// A block counts when EITHER side changes at that row. Scanning only the new side skipped every block that
+// exists only on the old one: a hunk that deletes a few lines and edits another is one @@ with two blocks,
+// and F7 silently stepped over the deletion — a reviewer walking the review with F7 never saw the deleted
+// code at all. IntelliJ's difference list is side-agnostic for the same reason (PrevNextDifferenceIterable
+// walks LineFragments, each of which may be a pure deletion), so this is also what F7 means there.
 function changeBlockAnchors(wrapper) {
   if (!wrapper) return [];
   if (wrapper.__anchors) return wrapper.__anchors;
-  var right = diffSideTables(wrapper).right;
-  if (!right) return []; // body not materialized yet — don't cache an empty result
-  var rows = diffRowsOf(right);
+  var sides = diffSideTables(wrapper);
+  if (!sides.right) return []; // body not materialized yet — don't cache an empty result
+  var right = diffRowsOf(sides.right);
+  var left = sides.left && sides.left !== sides.right ? diffRowsOf(sides.left) : [];
   var anchors = [];
   var prev = false;
-  for (var i = 0; i < rows.length; i++) {
-    var chg = isChangeCodeRow(rows[i]);
+  for (var i = 0; i < right.length; i++) {
+    var chg = isChangeCodeRow(right[i]) || isChangeCodeRow(left[i]);
     if (chg && !prev) anchors.push(i);
     prev = chg;
   }
   wrapper.__anchors = anchors; // change-block layout is static once materialized
   return anchors;
+}
+
+// The row to put the caret on for the change block at `index`: the new side when the change is there, the
+// old side when the block is a pure deletion and the new side holds nothing but a filler. Same rule as
+// firstChangeRowForCaret applies within a hunk — the caret belongs on the lines that actually changed.
+function changeBlockRow(wrapper, index) {
+  var row = diffRowAt(wrapper, 'new', index);
+  if (isChangeCodeRow(row)) return row;
+  var old = diffRowAt(wrapper, 'old', index);
+  return isChangeCodeRow(old) ? old : row;
 }
 
 // Forward F7 at a file's last change announces "last change — press F7 again" once before crossing to the
@@ -513,7 +541,7 @@ function next(delta) {
       if (delta > 0) { for (let a = 0; a < anchors.length; a++) { if (anchors[a] > cur) { target = anchors[a]; break; } } }
       else { for (let b = anchors.length - 1; b >= 0; b--) { if (anchors[b] < cur) { target = anchors[b]; break; } } }
       if (target != null) {
-        const row = diffRowAt(w, 'new', target);
+        const row = changeBlockRow(w, target);
         if (row) { navSuppress = true; try { focusDiffRow(row); } finally { navSuppress = false; } scheduleDiffScroll(row); return; }
       }
     }
@@ -524,26 +552,34 @@ function next(delta) {
   // Walked over FILES, not just hunks, so a change with no hunks of its own is not stepped past.
   const next = nextUnviewedTarget(base, activeDiffPath(), delta);
   const target = next && next.hunk >= 0 ? next.hunk : -1;
-  // File boundary: no more change blocks in this file. Forward F7 announces "last change — press F7 again
-  // to go to the next file" on the FIRST press (a beat to mark-viewed) and only crosses on the SECOND
-  // consecutive press. Already-viewed files (and backward nav) cross immediately — no announcement. There is
-  // nothing to announce either when this is the LAST file: the walk has no target, so the promise of a next
-  // file would be a lie.
+  // File boundary: no more change blocks in this file this way. The press announces "press again to go to
+  // the next/previous file" on the FIRST press (a beat to mark-viewed) and only crosses on the SECOND
+  // consecutive press. Already-viewed files cross immediately — no announcement. There is nothing to
+  // announce either when this is the LAST file in that direction: the walk has no target, so the promise of
+  // another file would be a lie.
+  // Both directions announce, as in IntelliJ, which ships the message in both spellings
+  // (DiffBundle: press.again.to.go.to.the.next.file / .previous.file). Backward used to cross silently,
+  // which made the two keys disagree about what a file boundary is.
+  // The arm records the DIRECTION as well as the path: turning around at a boundary is a new question, and
+  // a Shift+F7 must not be answered by an F7's arming.
   // The `hunkPathAt(current) === diffCursor.path` guard skips the announcement while a cross is still in
   // flight: after setActive moves `current` to the next file but BEFORE its (async, lazy-loaded) caret lands,
   // diffCursor still points at the OLD file — without the guard a quick second F7 re-announced that old
   // boundary instead of letting the cross finish (the "press F7 twice more, no caret" bug).
-  if (delta > 0 && target >= 0 && diffCursor && isDiffViewVisible() && !isFileViewed(diffCursor.path)
+  if (target >= 0 && diffCursor && isDiffViewVisible() && !isFileViewed(diffCursor.path)
     && hunkPathAt(current) === diffCursor.path && !diffFileHasNoHunks(activeDiffPath())) {
-    if (pendingFileBoundary !== diffCursor.path) {
-      pendingFileBoundary = diffCursor.path;
-      showCaretHint(t('diff.lastHunk'));
+    const arm = diffCursor.path + (delta > 0 ? '\u0000next' : '\u0000prev');
+    if (pendingFileBoundary !== arm) {
+      pendingFileBoundary = arm;
+      showCaretHint(t(delta > 0 ? 'diff.lastHunk' : 'diff.firstHunk'));
       return;
     }
-    pendingFileBoundary = null; // second consecutive press on the same file → fall through and cross
+    pendingFileBoundary = null; // second consecutive press the same way → fall through and cross
   }
   hideCaretHint(); // about to cross files — drop the hint NOW (before the async body load) so it can't cover the next file
-  if (target >= 0) { setActive(target); return; }
+  // Backward entry lands on the target file's LAST change (IntelliJ's ScrollToPolicy.LAST_CHANGE), so the
+  // walk back visits every change the walk forward did.
+  if (target >= 0) { setActive(target, true, false, delta < 0 ? 'last' : 'first'); return; }
   // A change with nothing to put a caret in: open the file itself.
   if (next && next.hunk < 0 && activateDiffFile(next.path, true)) return;
   // The walk ran off the end of the review. It used to wrap around to the other end, which reads as "the

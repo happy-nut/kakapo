@@ -219,7 +219,7 @@ Options:
   -h, --help        this text
 
 Diff review keys:
-  F7 / Shift+F7     next / previous changed hunk
+  F7 / Shift+F7     next / previous change — each edit, deleted lines included
   Cmd/Ctrl+8        worktrees — every checkout sharing this repository; Enter opens one
                     in its own window. Shows each one's branch, uncommitted work and
                     drift, plus its open GitHub PR when gh is installed.
