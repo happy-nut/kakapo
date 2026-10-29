@@ -564,7 +564,7 @@ export function renderDiffHtml(input: {
     // next to a keyHint() that already emits the real one.
     '<button type="button" id="render-toggle" class="plain-button hidden"' + keyHint('toggleRendered') + ' data-i18n-title="btn.renderToggle" title="Rendered / raw Markdown or CSV">Raw</button>',
     '<button type="button" id="line-wrap-toggle" class="diff-tool-button source-line-wrap-toggle hidden" role="checkbox" aria-checked="false"' + keyHint('toggleLineWrap') + ' data-i18n-title="source.lineWrap.title" data-i18n-aria="source.lineWrap" title="Toggle line wrap (Option+W)" aria-label="Line wrap"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3.75h12"/><path d="M2 8h9a2.5 2.5 0 0 1 0 5H6"/><path d="m7.75 11.25-2 1.75 2 1.75"/></svg></button>',
-    '<button type="button" id="back-to-diff" class="plain-button"' + keyHint('nextChange') + ' data-i18n="btn.diff" data-i18n-title="btn.diff.title" title="Back to diff (F7)">Diff</button>',
+    '<button type="button" id="back-to-diff" class="plain-button"' + keyHint('nextChange') + ' data-i18n="btn.diff" data-i18n-title="btn.diff.title" title="Back to diff">Diff</button>',
     "</div>",
     '<div id="source-body" class="source-body empty" data-i18n="source.selectFile">Select a file from the Files tab.</div>',
     "</section>",
@@ -615,9 +615,9 @@ export function renderDiffHtml(input: {
     // merged view is a legacy surface — reachable by ⌘⇧/ and its rail dispatch, but not advertised here.
     '<nav id="quick-open-side" class="quick-open-side" aria-label="Sections">',
     '<button type="button" class="quick-open-side-item" data-section="content"' + keyHint('findInFiles') + '><span data-i18n="quickopen.findInFiles">Find in Files</span></button>',
-    '<button type="button" class="quick-open-side-item" data-section="all"><span data-i18n="quickopen.searchFiles">Search files</span></button>',
-    // ⌘E opens this one directly; the row simply never said so, while the two either side of it did.
-    // ("Search files" shows nothing because it HAS no chord — only the launcher's own arrows reach it.)
+    '<button type="button" class="quick-open-side-item" data-section="all"' + keyHint('searchFiles') + '><span data-i18n="quickopen.searchFiles">Search files</span></button>',
+    // Every row names its chord. "Search files" showed none on the grounds that it HAS none, which the
+    // table contradicts — ⌘P is `searchFiles`, and `searchFiles` opens exactly this section.
     '<button type="button" class="quick-open-side-item" data-section="recent"' + keyHint('recentFiles') + '><span data-i18n="quickopen.recent">Recent files</span></button>',
     '<div class="quick-open-side-sep" aria-hidden="true"></div>',
     '<button type="button" class="quick-open-side-item" data-section="history"' + keyHint('openHistory') + '><span data-i18n="rail.history">History</span></button>',

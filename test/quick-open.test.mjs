@@ -447,3 +447,63 @@ test("the Find in Files file mask takes globs and exclusions, in the page and on
   );
   v.close();
 });
+
+// The rail draws a chord beside each row it has one for — data-keyhint-id, resolved by applyKeyHints —
+// and Quick Open owns every key while it is up, so those chords reached nothing at all. ⌘E and ⌘9 sat on
+// screen next to "Recent files" and "History" while Find in Files was open, and pressing either did
+// nothing; so did ⌘⇧F from "Search files", which had no chip of its own although ⌘P is its chord.
+//
+// The invariant, not the four chords: a row that advertises a key answers it. Add a row and this asks it.
+test("every section the rail advertises a chord for answers that chord from inside the dialog", async () => {
+  const v = await loadViewer(html);
+  const railRows = () => Array.from(v.$("#quick-open-side").querySelectorAll(".quick-open-side-item"));
+
+  v.key("f", { metaKey: true, shiftKey: true, code: "KeyF" });
+  await v.settle(10);
+  const advertised = railRows()
+    .filter((row) => row.getAttribute("data-keyhint"))
+    .map((row) => ({ section: row.dataset.section, chord: row.getAttribute("data-keyhint") }));
+  assert.ok(advertised.length >= 3, `the rail prints chords: ${JSON.stringify(advertised)}`);
+
+  const press = (chord) => v.key(chord.slice(-1).toLowerCase(), {
+    metaKey: chord.includes("⌘"), shiftKey: chord.includes("⇧"), altKey: chord.includes("⌥"),
+    code: /\d/.test(chord.slice(-1)) ? `Digit${chord.slice(-1)}` : `Key${chord.slice(-1)}`,
+  });
+
+  for (const { section, chord } of advertised) {
+    // Start each one from the same place, so "it did something" means this chord did it.
+    if (!v.quickOpenVisible()) { v.key("f", { metaKey: true, shiftKey: true, code: "KeyF" }); await v.settle(10); }
+    else if (!v.$("#quick-open").classList.contains("quick-content")) {
+      v.key("Escape"); await v.settle(10);
+      v.key("f", { metaKey: true, shiftKey: true, code: "KeyF" }); await v.settle(10);
+    }
+    press(chord);
+    await v.settle(10);
+    const classes = v.$("#quick-open").className;
+    if (section === "content") {
+      assert.equal(v.quickOpenVisible(), false, `${chord} on the section already open closes it`);
+    } else if (section === "all") {
+      assert.ok(v.quickOpenVisible() && !/quick-content|quick-recent/.test(classes), `${chord} → file search (${classes})`);
+    } else if (section === "recent") {
+      assert.ok(v.quickOpenVisible() && classes.includes("quick-recent"), `${chord} → recent files (${classes})`);
+    } else {
+      // A row whose click leaves this dialog for a panel of its own — it must at least leave.
+      assert.equal(v.quickOpenVisible(), false, `${chord} → ${section}, so the launcher gets out of the way`);
+    }
+  }
+  v.close?.();
+});
+
+// ⌘E opens Recent files with no rail beside it, so the toggle that closes it cannot come from a rail row
+// that is not on screen. It is the same chord either way.
+test("Cmd+E still closes the rail-less Recent files it opened", async () => {
+  const v = await loadViewer(html);
+  v.key("e", { metaKey: true, code: "KeyE" });
+  await v.settle(10);
+  assert.ok(v.quickOpenVisible() && v.$("#quick-open").classList.contains("quick-recent"));
+  assert.equal(v.$("#quick-open").classList.contains("quick-launcher"), false, "…with no rail");
+  v.key("e", { metaKey: true, code: "KeyE" });
+  await v.settle(10);
+  assert.equal(v.quickOpenVisible(), false, "a second ⌘E closes it");
+  v.close?.();
+});
