@@ -82,7 +82,14 @@ function syncReviewSidebarVisibility() {
     button.setAttribute('aria-pressed', diffCollapsed ? 'true' : 'false');
     button.setAttribute('aria-label', label);
     button.setAttribute('data-tooltip', label);
-    button.title = label + ' (⌘2)';
+    // Record WHICH key this state uses, so the next applyI18n can redo both without being told the state.
+    // Only this function used to write them, and only a collapse calls it — so switching the language left
+    // this one control reading "Hide changed files" in a Korean window until you happened to toggle it.
+    button.setAttribute('data-i18n-title', key);
+    button.setAttribute('data-i18n-aria', key);
+    // The chord comes from the table like every other advertised one; `' (⌘2)'` spelled here was a copy
+    // that a rebind would have made a lie. data-keyhint-id on the button already names filesChangesTab:1.
+    applyKeyHints(button.parentNode || document);
   }
 }
 function focusDiffAfterSidebarCollapse() {

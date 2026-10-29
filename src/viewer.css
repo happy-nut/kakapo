@@ -3795,6 +3795,11 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 .quick-open-usage-chip.unavailable { opacity: .42; cursor: default; }
 .quick-open-extension-field { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .quick-open-scope-field { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* The caption is a caption: only the control beside it may give up width. `min-width: 0` above lets this
+   row shrink, and the SPAN shrank first — the Korean "범위" was handed a 10px box, one character wide, and
+   broke in half down the middle of a two-character word (a line may break between any two Hangul syllables
+   under `word-break: normal`). English never showed it because "Scope" has nothing to break into. */
+.quick-open-extension-field > span, .quick-open-scope-field > span { flex: none; }
 #quick-open-scope {
   border: 1px solid var(--border);
   border-radius: var(--ui-radius-sm);
