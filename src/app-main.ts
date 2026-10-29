@@ -1100,7 +1100,11 @@ function createWindow(root: string, explicitRoot = true): WinState {
     scheduleAnalysisPrewarm(state);
   });
   win.webContents.once("did-finish-load", () => {
-    if (DEV_BUILD) win.webContents.openDevTools({ mode: "detach" });
+    // KAKAPO_NO_DEVTOOLS=1 keeps it shut. The review inlines the whole minified viewer as one ~1.3MB
+    // line, and DevTools indexing that froze this window indefinitely — reproducibly, on the first launch
+    // after every `npm run build`, which is exactly when a developer relaunches. The renderer answered no
+    // CDP evaluate for over two minutes; suppressing DevTools, the same build opens instantly.
+    if (DEV_BUILD && !process.env.KAKAPO_NO_DEVTOOLS) win.webContents.openDevTools({ mode: "detach" });
   });
   // Fill the screen. A review is a two-pane diff plus a file tree: at the default 1440x960 the panes are
   // narrow enough that most lines wrap or clip, and the first thing anyone did was maximize the window.
