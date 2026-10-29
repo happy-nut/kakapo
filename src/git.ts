@@ -11,6 +11,28 @@ export function isGitRepository(root: string): boolean {
   return result.status === 0 && (result.stdout ?? "").trim() === "true";
 }
 
+/**
+ * How kakapo frames the records of a `--pretty=format:` read, and the only shape it accepts back.
+ *
+ * Both separators used to be chosen "because git output cannot contain them". Git output can: a commit
+ * message and an ident are arbitrary bytes, `git commit -m` passes 0x1e straight through, and
+ * `hash-object -t commit --literally` writes anything at all into either while `git fsck` merely warns. One
+ * commit in a reviewed repository could therefore add whole RECORDS — a forged row in the history panel, a
+ * forged entry in the patch-set selector — and a review tool that can be made to narrate a history that
+ * never happened is lying to its only reader. `-z` is no better: a NUL in a message is emitted verbatim.
+ *
+ * A NEWLINE is the one separator git normalises away. `%s` is the first paragraph with its line breaks
+ * turned into spaces; a newline inside an ident makes git print `%an`/`%ae` empty rather than leak it; and
+ * `%H`, `%P`, `%h`, `%cI` and `%D` are structurally newline-free (git's ref-name rules forbid control
+ * characters). Measured on this repository: 939 commits, 939 lines.
+ *
+ * So: one record per line, free-text fields LAST so a stray 0x1f cannot shift the structured ones out of
+ * their columns, and a record is a commit only when it opens with a hash. A field separator inside a
+ * subject can still make that one row's own columns odd; it can no longer invent a row.
+ */
+export const RECORD_FS = "\x1f";
+export const RECORD_RS = "\n";
+
 // Git escapes any non-ASCII byte in the paths it PRINTS (status, ls-files, diff headers) as C octal —
 // "과제 안내.md" comes out as "\352\263\274\354\240\234 \354\225\210\353\202\264.md". kakapo then
 // shows that literal string as the filename, splits the stray quote into a phantom directory, and cannot

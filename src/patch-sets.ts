@@ -1,4 +1,4 @@
-import { defaultBaseRef, git } from "./git.js";
+import { defaultBaseRef, git, isCommitSha, RECORD_FS, RECORD_RS } from "./git.js";
 
 // One selectable patch set: a commit on the branch under review. The reviewer picks one as the diff
 // base and always compares it against the latest state (working tree). "remote보다 앞선 로컬 커밋
@@ -29,10 +29,12 @@ export type PatchSetList = {
   scoped?: boolean;
 };
 
-// Field/record separators that can't occur in git output — the same idiom readGitLog uses (git-log.ts).
-const FS = "\x1f";
-const RS = "\x1e";
-const PRETTY = `--pretty=format:%H${FS}%h${FS}%s${FS}%cI${RS}`;
+// One record per line, free text last — see RECORD_RS in git.ts for why it is not 0x1e. A forged record
+// here would be worse than a forged history row: the sha of the row the reviewer picks becomes the diff's
+// BASE, so an invented patch set labelled with a plausible subject makes them read the wrong change set.
+const FS = RECORD_FS;
+const RS = RECORD_RS;
+const PRETTY = `--pretty=format:%H${FS}%h${FS}%cI${FS}%s`;
 
 // The base the "All changes" row compares against. Prefer the tracking branch's merge-base (so only
 // commits introduced on this branch count, correct even after divergence); fall back to the merge-base
@@ -68,15 +70,15 @@ export function readPatchSets(root: string): PatchSetList {
       "--",
     ]);
     for (const record of out.split(RS)) {
-      const trimmed = record.replace(/^\n/, "");
-      if (!trimmed.trim()) continue;
-      const f = trimmed.split(FS);
-      if (!f[0]) continue;
+      if (!record.trim()) continue;
+      const f = record.split(FS);
+      if (!isCommitSha(f[0] ?? "")) continue;
       commits.push({
         sha: f[0],
         shortSha: f[1] || f[0].slice(0, 8),
-        subject: f[2] || "",
-        date: f[3] || "",
+        date: f[2] || "",
+        // Rejoined: a subject carrying the field separator keeps all of itself and shifts nothing.
+        subject: f.slice(3).join(FS),
       });
     }
   }

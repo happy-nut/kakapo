@@ -1,4 +1,4 @@
-import { git, isCommitSha } from "./git.js";
+import { git, isCommitSha, RECORD_FS, RECORD_RS } from "./git.js";
 
 // One commit row for the history view. parents drives the graph lanes (computed in the renderer).
 export type GitCommit = {
@@ -46,15 +46,15 @@ export type GitBlameLine = {
   summary: string;
 };
 
-// Field/record separators that can't occur in git output, so subjects with spaces/commas parse cleanly.
-const FS = "\x1f";
-const RS = "\x1e";
-const PRETTY = `--pretty=format:%H${FS}%P${FS}%an${FS}%ae${FS}%ad${FS}%D${FS}%s${RS}`;
+// How a record is framed, and why it is framed that way, lives in git.ts beside RAW_PATHS.
+const FS = RECORD_FS;
+const RS = RECORD_RS;
+const PRETTY = `--pretty=format:%H${FS}%P${FS}%an${FS}%ae${FS}%ad${FS}%D${FS}%s`;
 // The same record with the reflog's own two fields appended (%gd selector, %gs action).
 //
 // %aI, not %ad with --date=iso-strict: a date format applies to the reflog SELECTOR too, which turns
 // `stash@{0}` into `stash@{2026-10-25T21:45:42+09:00}` — unusable as the name it is supposed to be.
-const PRETTY_REFLOG = `--pretty=format:%H${FS}%P${FS}%an${FS}%ae${FS}%aI${FS}%D${FS}%s${FS}%gd${FS}%gs${RS}`;
+const PRETTY_REFLOG = `--pretty=format:%H${FS}%P${FS}%an${FS}%ae${FS}%aI${FS}%D${FS}%gd${FS}%gs${FS}%s`;
 
 /**
  * What the log view may ask for. Every field is renderer input, so each one is validated below before it
@@ -113,11 +113,15 @@ function trackedWorkspacePath(root: string, requestedPath: string): string {
   return git(root, ["ls-files", "--error-unmatch", "--", path]) ? path : "";
 }
 
-function parseGitCommits(out: string): GitCommit[] {
+/**
+ * One record per line. `extraFields` is how many fields a caller's format inserts between `%D` and the
+ * subject — the reflog's `%gd`/`%gs` — because the SUBJECT has to stay last: it is the one field a commit
+ * author writes freely, so it is rejoined and a separator inside it costs nothing and shifts nothing.
+ */
+function parseGitCommits(out: string, extraFields = 0): GitCommit[] {
   if (!out) return [];
   return out
     .split(RS)
-    .map((rec) => rec.replace(/^\n/, ""))
     .filter((rec) => rec.trim().length > 0)
     .map((rec) => {
       const f = rec.split(FS);
@@ -128,11 +132,11 @@ function parseGitCommits(out: string): GitCommit[] {
         email: f[3] || "",
         date: f[4] || "",
         refs: f[5] || "",
-        subject: f[6] || "",
-        extra: f.length > 7 ? f.slice(7).map((field) => field.replace(/\n$/, "")) : undefined,
+        extra: extraFields ? f.slice(6, 6 + extraFields) : undefined,
+        subject: f.slice(6 + extraFields).join(FS),
       };
     })
-    .filter((c) => c.hash);
+    .filter((c) => isCommitSha(c.hash));
 }
 
 /**
@@ -193,7 +197,7 @@ export function readGitReflog(root: string, options: { limit?: number } = {}): G
     "-c", "log.showSignature=false",
     "log", "-g", "--no-color", "--decorate=full", PRETTY_REFLOG, "-n", String(limit),
   ]);
-  return parseGitCommits(out).map((commit, index) => ({
+  return parseGitCommits(out, 2).map((commit, index) => ({
     ...commit,
     selector: commit.extra?.[0] ?? `HEAD@{${index}}`,
     action: commit.extra?.[1] ?? "",
@@ -204,12 +208,11 @@ export function readGitReflog(root: string, options: { limit?: number } = {}): G
 export function readGitStashes(root: string): GitStashEntry[] {
   const out = git(root, [
     "stash", "list", "--no-color",
-    `--pretty=format:%gd${FS}%H${FS}%P${FS}%an${FS}%aI${FS}%gs${RS}`,
+    `--pretty=format:%gd${FS}%H${FS}%P${FS}%an${FS}%aI${FS}%gs`,
   ]);
   if (!out) return [];
   return out
     .split(RS)
-    .map((record) => record.replace(/^\n/, ""))
     .filter((record) => record.trim().length > 0)
     .map((record) => {
       const fields = record.split(FS);
@@ -222,7 +225,7 @@ export function readGitStashes(root: string): GitStashEntry[] {
         subject: fields[5] || "",
       };
     })
-    .filter((entry) => entry.hash);
+    .filter((entry) => isCommitSha(entry.hash));
 }
 
 /**
@@ -236,16 +239,17 @@ export function resolveGitRevision(root: string, query: string): GitRevision | n
   const hash = git(root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
   if (!/^[0-9a-fA-F]{40,64}$/.test(hash)) return null;
   const meta = git(root, [
-    "show", "-s", "--decorate=full", `--pretty=format:%h${FS}%s${FS}%an${FS}%ad${FS}%D`, "--date=iso-strict", hash,
+    "show", "-s", "--decorate=full", `--pretty=format:%h${FS}%an${FS}%ad${FS}%D${FS}%s`, "--date=iso-strict", hash,
   ]);
   const fields = meta.split(FS);
   return {
     hash,
     short: fields[0] || hash.slice(0, 7),
-    subject: fields[1] || "",
-    author: fields[2] || "",
-    date: fields[3] || "",
-    refs: fields[4] || "",
+    author: fields[1] || "",
+    date: fields[2] || "",
+    refs: fields[3] || "",
+    // Last on purpose, and rejoined: a subject carrying the field separator loses nothing and shifts nothing.
+    subject: fields.slice(4).join(FS),
   };
 }
 
