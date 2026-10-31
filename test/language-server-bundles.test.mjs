@@ -148,6 +148,97 @@ test("bundled gopls reports a staticcheck finding, so the pulled settings really
   }
 });
 
+// Rust diagnostics end to end through the real product, and deliberately on the FIRST call: the viewer asks
+// once per file and caches the answer, so an assertion that polls would pass on a build where the first read
+// returns empty — which is exactly the bug this covers. rust-analyzer publishes an empty set for the open
+// document before it has compiled anything (measured at 1.6s, with the real findings at 3.7s), so the read
+// has to wait for the `cargo check` it announces as work-done progress.
+// The decorations half of the same road the staticcheck test guards: gopls registers providers for all
+// three of these and then answers an empty array until its settings arrive. Measured on this fixture,
+// before the settings existed: 0 semantic tokens and 0 inlay hints, so every Go file in the app was read
+// with the hand-written tokenizer and nothing said why.
+test("bundled gopls answers semantic tokens and inlay hints, which it does only when configured", {
+  timeout: BUNDLE_TEST_TIMEOUT_MS,
+  skip: !bundled.go || !existsSync(bundled.go),
+}, async () => {
+  const root = project();
+  write(root, "go.mod", "module example.com/sample\n\ngo 1.24\n");
+  write(root, "hints.go", [
+    "package sample",
+    "",
+    "func Total(sides []float64) float64 {",
+    "\tvar sum float64",           // assignVariableTypes / rangeVariableTypes land here
+    "\tfor _, side := range sides {",
+    "\t\tsum += side",
+    "\t}",
+    "\treturn sum",
+    "}",
+    "",
+  ].join("\n"));
+  const analysis = new ProjectAnalysis(root);
+  try {
+    await analysis.prewarm(["hints.go"]);
+    const tokens = await analysis.query({ kind: "semanticTokens", path: "hints.go", line: 0, column: 0 });
+    assert.equal(tokens.engine, "lsp", "the tokens came from gopls, not from the fallback tokenizer");
+    assert.ok((tokens.tokens ?? []).length > 0, "gopls returned no semantic tokens — ui.semanticTokens is off again");
+    const hints = await analysis.query({ kind: "inlayHint", path: "hints.go", line: 0, column: 0 });
+    assert.ok((hints.hints ?? []).length > 0, "gopls returned no inlay hints — the hints settings are off again");
+  } finally {
+    analysis.dispose();
+  }
+});
+
+// The range half: rust-analyzer refuses a range that runs past the file instead of clamping it, so this
+// fails with `Invalid offset LineCol` — not an empty list — if the window is ever sent unclamped again.
+test("bundled rust-analyzer answers inlay hints for a file far shorter than the window asked for", {
+  timeout: BUNDLE_TEST_TIMEOUT_MS,
+  skip: !bundled.rust || !existsSync(bundled.rust),
+}, async () => {
+  const root = project();
+  write(root, "Cargo.toml", "[package]\nname = \"sample\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
+  write(root, "src/lib.rs", "pub fn total(values: &[f64]) -> f64 {\n    let sum = values.iter().sum();\n    sum\n}\n");
+  const analysis = new ProjectAnalysis(root);
+  try {
+    await analysis.prewarm(["src/lib.rs"]);
+    const hints = await analysis.query({ kind: "inlayHint", path: "src/lib.rs", line: 0, column: 0 });
+    assert.equal(hints.engine, "lsp",
+      `the hint request fell back to the index instead of being answered: ${hints.fallbackReason ?? ""}`);
+    assert.ok((hints.hints ?? []).length > 0, "rust-analyzer returned no hints for a file that has an inferred type");
+  } finally {
+    analysis.dispose();
+  }
+});
+
+test("bundled rust-analyzer reports rustc findings on the first read, not an empty list", {
+  timeout: BUNDLE_TEST_TIMEOUT_MS,
+  skip: !bundled.rust || !existsSync(bundled.rust),
+}, async () => {
+  const root = project();
+  write(root, "Cargo.toml", "[package]\nname = \"sample\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
+  write(root, "src/main.rs", [
+    "fn main() {",
+    "    let unused_local = 5;", // unused_variables: a warning rustc finds, not rust-analyzer
+    "    return;",
+    "    println!(\"unreachable\");", // unreachable_code
+    "}",
+    "",
+  ].join("\n"));
+  const analysis = new ProjectAnalysis(root);
+  try {
+    const answer = await analysis.diagnostics("src/main.rs");
+    const rustc = (answer.diagnostics ?? []).filter((d) => d.source === "rustc");
+    assert.ok(rustc.length > 0,
+      `the first read of a Rust file with two rustc warnings reported nothing; it answered: `
+      + JSON.stringify([answer.available, answer.engine, (answer.diagnostics ?? []).map((d) => [d.source, d.severity, d.message])]));
+    assert.ok(rustc.some((d) => d.severity === "warning"), "rustc warnings land on the warning tier");
+    // The hint half of rustc's pair ("prefix it with an underscore") is severity 4 on the wire; it is what
+    // the weak tier exists for, and its presence here is the proof that Rust reaches all three tiers.
+    assert.ok(rustc.some((d) => d.severity === "weak"), "and its suggestions land on the weak tier");
+  } finally {
+    analysis.dispose();
+  }
+});
+
 test("bundled rust-analyzer resolves a cross-file definition", {
   timeout: BUNDLE_TEST_TIMEOUT_MS,
   skip: !bundled.rust || !existsSync(bundled.rust),

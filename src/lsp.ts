@@ -291,6 +291,10 @@ const REQUEST_TIMEOUT_MS = 8_000;
 const INITIALIZE_TIMEOUT_MS = 20_000;
 // How long a stopped server may take to exit on its own before it is killed outright.
 const STOP_GRACE_MS = 2_000;
+// How long a first read may wait for a compiler-backed check to finish (see waitForFirstCheck). Measured
+// 3.7s for rust-analyzer's flycheck on a one-file crate with a warm registry; a first `cargo check` on a
+// real workspace compiles its dependencies, so the budget is sized for that and not for the fixture.
+const CHECK_BUDGET_MS = 60_000;
 const APP_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DEFAULT_BUNDLED_SERVER_ROOT = join(APP_ROOT, "vendor", "language-servers");
 
@@ -407,12 +411,35 @@ const WORKSPACE_SETTINGS: Record<string, Record<string, unknown>> = {
   // a loop that cannot run) and `analyses` holds the ones its own default leaves off. Measured on a
   // twenty-line file: one finding before, three after. None of this runs the reviewed code — Go has no
   // build scripts and gopls type-checks rather than executes — so it needs no opt-in.
+  // Semantic highlighting and inlay hints are gopls's too, and both are off until told: measured on a
+  // twenty-line file, 0 tokens and 0 hints before, 51 and 5 after. Unlike pyright — which answers "I do
+  // not implement that" and lets this app say so — gopls registers all three providers and then returns
+  // an empty array, so a Go file was read with the fallback tokenizer and nothing anywhere said why.
+  // The hint set matches the TypeScript one above: the types it inferred for you and the parameter names.
   go: {
     gopls: {
       staticcheck: true,
       analyses: { nilness: true, unusedwrite: true, unusedparams: true },
+      "ui.semanticTokens": true,
+      hints: {
+        assignVariableTypes: true,
+        parameterNames: true,
+        rangeVariableTypes: true,
+        constantValues: true,
+        compositeLiteralTypes: true,
+        compositeLiteralFields: true,
+        functionTypeParameters: true,
+      },
     },
   },
+  // rust-analyzer's own analysis answers "does this name resolve"; every warning a Rust reader expects —
+  // an unused binding, unreachable code, a type that does not line up — comes from rustc itself, which it
+  // reaches by running `cargo check` as a subprocess (flycheck). Both of these are the server's defaults,
+  // written down because a bundled toolchain's defaults are a thing that changes under you and the whole
+  // Rust diagnostic surface hangs off them. `clippy` would be the closer analogue of IntelliJ's own
+  // inspections, and it is in the bundle, but it re-compiles the crate graph with its own lint pass:
+  // measured at over 150 seconds on a ten-line file against `check`'s 3.7, so `check` is what ships.
+  rust: { "rust-analyzer": { checkOnSave: true, check: { command: "check" } } },
 };
 
 // Resolve one pulled configuration section against a family's settings. A server asks for what it wants
@@ -699,7 +726,11 @@ export class LspClient {
   private buffer = Buffer.alloc(0);
   private pending = new Map<number, PendingRequest>();
   private started?: Promise<void>;
-  private opened = new Map<string, { mtimeMs: number; version: number }>();
+  // `end` is the last position in the document as the server counts them. A range request that names a
+  // line the file does not have is not clamped by every server: rust-analyzer rejects the whole request
+  // with "Invalid offset LineCol { line: 2000, col: 0 }", which is how inlay hints came back empty for
+  // every Rust file in the app while working everywhere else.
+  private opened = new Map<string, { mtimeMs: number; version: number; end: { line: number; character: number } }>();
   private documentSync = new Map<string, Promise<void>>();
   /** The server's own legend, captured at initialize. null means it registered no semantic tokens. */
   private semanticTokenTypes: string[] | null = null;
@@ -713,6 +744,16 @@ export class LspClient {
   private diagnostics = new Map<string, unknown[]>();
   private publishedUris = new Set<string>();
   private diagnosticWaiters = new Map<string, Set<() => void>>();
+  // A server that gets its diagnostics from a compiler subprocess publishes twice: an empty set as soon as
+  // the document opens, then the real findings when the compiler returns. Measured on rust-analyzer with a
+  // three-problem file: empty publish at 1.6s, `experimental/serverStatus` quiescent at 3.3s, flycheck
+  // STARTS at 3.6s and publishes four diagnostics at 3.7s. So neither of this class's two existing
+  // readiness signals means the file has been checked — the first publish is empty and quiescence lands
+  // before the check even begins — and a Rust review was answered with a confident empty list every time.
+  // The flycheck work-done progress is the one signal that does mean it.
+  private checksRunning = 0;
+  private checkCompleted = false;
+  private checkWaiters = new Set<() => void>();
 
   constructor(
     readonly root: string,
@@ -961,12 +1002,15 @@ export class LspClient {
     const uri = pathToFileURL(resolve(this.root, path)).href;
     let result: unknown;
     try {
+      // The caller asks for a window; the document decides how much of it exists. Clamping here rather
+      // than at the caller because this is the only place that knows both, and because a server is within
+      // its rights to refuse a range it cannot resolve — one of the bundled ones does.
+      const documentEnd = this.opened.get(uri)?.end;
+      const start = { line: Math.max(0, Math.trunc(fromLine)), character: 0 };
+      const wanted = { line: Math.max(start.line, Math.trunc(toLine)), character: 0 };
+      const end = documentEnd && documentEnd.line <= wanted.line ? documentEnd : wanted;
       result = await this.requestAfterWorkspaceReady("textDocument/inlayHint", {
-        textDocument: { uri },
-        range: {
-          start: { line: Math.max(0, Math.trunc(fromLine)), character: 0 },
-          end: { line: Math.max(0, Math.trunc(toLine)), character: 0 },
-        },
+        textDocument: { uri }, range: { start, end },
       });
     } catch (error) {
       if (isMethodNotFound(error)) return { supported: false, hints: [] };
@@ -1160,9 +1204,55 @@ export class LspClient {
   async diagnosticsFor(path: string): Promise<LspDiagnostic[]> {
     await this.ensureDocument(path);
     await this.waitForWorkspaceReady();
+    if (this.server.family === "rust") await this.waitForFirstCheck();
     const uri = pathToFileURL(resolve(this.root, path)).href;
     if (!this.publishedUris.has(uri)) await this.waitForFirstDiagnostics(uri);
     return mapLspDiagnostics(this.diagnostics.get(uri));
+  }
+
+  /**
+   * Tell a compiler-backed server that this document is saved, because for one of them that is the only
+   * thing that runs a check. `cargo check` reads the file FROM DISK and rust-analyzer starts it on save:
+   * a didChange alone produced no check and no publish at all (measured: fifteen seconds of silence), so
+   * a reviewed file that an agent had just rewritten lost its diagnostics completely. Kakapo re-reads the
+   * file from disk and sends what it read, so the saved text and the document text are the same text —
+   * which is what makes announcing a save here true rather than a trick to poke the server.
+   *
+   * Narrow to the one family that needs it on purpose. The other bundled servers diagnose from the
+   * document they were handed, and a save notification to a server that builds on save (jdtls) buys
+   * nothing for a reader and costs a compile.
+   */
+  private announceSave(uri: string, text: string): void {
+    if (this.server.family !== "rust") return;
+    // The completed check describes the text that just stopped existing. Leaving this set would let the
+    // read below return on the old run before the new one has even begun.
+    this.checkCompleted = false;
+    this.notify("textDocument/didSave", { textDocument: { uri }, text });
+  }
+
+  /**
+   * Resolve once a flycheck run has finished and none is in flight. The budget is generous because the
+   * cost of answering early is a wrong answer — "no problems" for a file nobody compiled — while the cost
+   * of waiting is a squiggle that arrives late into a paint that already happened. A first `cargo check`
+   * compiles the crate's dependencies, so on a cold target directory this is seconds, not milliseconds.
+   * When the budget runs out the read answers from whatever the server has published, which is the same
+   * thing it did before this existed.
+   */
+  private waitForFirstCheck(): Promise<void> {
+    if (this.checkCompleted && this.checksRunning === 0) return Promise.resolve();
+    return new Promise<void>((resolveWait) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.checkWaiters.delete(done);
+        resolveWait();
+      };
+      const timer = setTimeout(done, CHECK_BUDGET_MS);
+      timer.unref?.();
+      this.checkWaiters.add(done);
+    });
   }
 
   private waitForFirstDiagnostics(uri: string): Promise<void> {
@@ -1228,8 +1318,11 @@ export class LspClient {
       // 32-bit integer accepted by JetBrains' Kotlin server, so keep mtime only for change detection.
       const version = opened ? opened.version + 1 : 1;
       const text = readTextFile(absolute); // same decode the viewer uses, or a BOM shifts every column on line 1
+      const lines = text.split("\n");
+      const end = { line: Math.max(0, lines.length - 1), character: (lines[lines.length - 1] ?? "").length };
       if (!opened) {
         this.notify("textDocument/didOpen", { textDocument: { uri, languageId: lspLanguageId(path), version, text } });
+        this.announceSave(uri, text);
       } else {
         this.notify("textDocument/didChange", { textDocument: { uri, version }, contentChanges: [{ text }] });
         // The diagnostics held for this uri describe the version that just stopped existing, at ITS line
@@ -1239,8 +1332,9 @@ export class LspClient {
         // into its place. Forget both, so the next read waits for the server's fresh publish.
         this.diagnostics.delete(uri);
         this.publishedUris.delete(uri);
+        this.announceSave(uri, text);
       }
-      this.opened.set(uri, { mtimeMs: stat.mtimeMs, version });
+      this.opened.set(uri, { mtimeMs: stat.mtimeMs, version, end });
     });
     this.documentSync.set(uri, sync);
     try {
@@ -1298,6 +1392,11 @@ export class LspClient {
         workspaceFolders: [{ uri: rootUri, name: this.root.split(/[\\/]/).pop() || "workspace" }],
         capabilities: {
           workspace: { configuration: true, workspaceFolders: true, symbol: {} },
+          // Declared for exactly one reason: rust-analyzer reports its `cargo check` run as work-done
+          // progress and reports it only to a client that says it can read progress. Without this line the
+          // notification below never arrives and there is no way to tell "checked, clean" from "not yet
+          // checked" — see the flycheck state on the class for what that cost.
+          window: { workDoneProgress: true },
           // Servers push textDocument/publishDiagnostics on didOpen regardless; declaring the client capability
           // just advertises support so servers that gate the notification on it still send it.
           textDocument: {
@@ -1466,6 +1565,23 @@ export class LspClient {
       this.publishedUris.add(uri);
       const waiters = this.diagnosticWaiters.get(uri);
       if (waiters) for (const notifyWaiter of Array.from(waiters)) notifyWaiter();
+      return;
+    }
+    if (message.method === "$/progress") {
+      const params = message.params as { token?: unknown; value?: { kind?: unknown } } | undefined;
+      // rust-analyzer's token is `rust-analyzer/flycheck/<n>`, one per workspace it checks, so count the
+      // runs rather than tracking a single flag: readiness is "a check has finished and none is running".
+      if (typeof params?.token !== "string" || !params.token.includes("flycheck")) return;
+      const kind = params.value?.kind;
+      if (kind === "begin") this.checksRunning += 1;
+      else if (kind === "end") {
+        this.checksRunning = Math.max(0, this.checksRunning - 1);
+        if (this.checksRunning === 0) {
+          this.checkCompleted = true;
+          for (const resolveWaiter of this.checkWaiters) resolveWaiter();
+          this.checkWaiters.clear();
+        }
+      }
       return;
     }
     if (message.method !== "experimental/serverStatus") return;

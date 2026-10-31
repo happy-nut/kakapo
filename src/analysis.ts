@@ -1035,7 +1035,11 @@ export class ProjectAnalysis {
         ? await client.codeLenses(path)
         : kind === "semanticTokens"
           ? await client.semanticTokens(path)
-          : await client.inlayHints(path, request.line ?? 0, request.limit ?? (request.line ?? 0) + 2000);
+          // No `limit` means this file's hints, all of them: the page asks once per file and paints the
+          // whole body, so a 2000-line window was a ceiling nobody could see — hints simply stopped
+          // partway down a long file. The client cuts the range to the document, so "all of them" is a
+          // range the server can resolve rather than a guess about how long the file is.
+          : await client.inlayHints(path, request.line ?? 0, request.limit ?? Number.MAX_SAFE_INTEGER);
       this.setStatus("ready", serverFields(client.server));
       const base = {
         ok: true as const,

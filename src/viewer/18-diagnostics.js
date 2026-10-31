@@ -62,6 +62,10 @@ function surfacedDiagnostics(items) {
 // error, then warning, then weak — the one order every reading of a diagnostic paints and sorts by, so the
 // gutter mark on a line that holds two, the Opt+Enter list and the ⌘6 rows cannot disagree about which wins.
 var DIAGNOSTIC_RANK = { error: 0, warning: 1, weak: 2 };
+// The same three names as classes and highlight registries. Read from the rank table rather than written
+// out again, because the paint and the clear have to agree about the whole set: when the weak tier was
+// added, the clear kept listing two and a weak mark survived into the next file the reader opened.
+var DIAGNOSTIC_TIERS = Object.keys(DIAGNOSTIC_RANK);
 function diagnosticRank(severity) {
   var rank = DIAGNOSTIC_RANK[severity];
   return rank === undefined ? 3 : rank;
@@ -108,14 +112,14 @@ function refreshSourceDiagnostics(path) {
 function clearSourceDiagnosticsPaint() {
   ensureDiagnosticsState();
   diagnosticsPaintedRows.forEach(function (row) {
-    row.classList.remove('has-diagnostic', 'diag-error', 'diag-warning');
+    row.classList.remove('has-diagnostic');
+    DIAGNOSTIC_TIERS.forEach(function (tier) { row.classList.remove('diag-' + tier); });
   });
   diagnosticsPaintedRows = [];
   hideDiagnosticTooltip(); // the hovered line may be repainted/removed; drop any tooltip anchored to it
   try {
     if (window.CSS && CSS.highlights) {
-      CSS.highlights.delete('kakapo-diag-error');
-      CSS.highlights.delete('kakapo-diag-warning');
+      DIAGNOSTIC_TIERS.forEach(function (tier) { CSS.highlights.delete('kakapo-diag-' + tier); });
     }
   } catch (e) {}
 }
@@ -127,7 +131,8 @@ function paintSourceDiagnostics(path) {
   var cached = diagnosticsCache.get(path);
   var items = surfacedDiagnostics(cached && cached.items);
   if (!items.length) return;
-  var ranges = { error: [], warning: [], weak: [] };
+  var ranges = {};
+  DIAGNOSTIC_TIERS.forEach(function (tier) { ranges[tier] = []; });
   var rowSeverity = new Map(); // row element -> severity; the strongest on the line wins
   items.forEach(function (d) {
     var row = sourceFindRow(d.lineIndex);
@@ -154,9 +159,9 @@ function paintSourceDiagnostics(path) {
   // not a native title — so the delay and styling are ours and it appears only over the underlined line.
   try {
     if (window.CSS && CSS.highlights && typeof window.Highlight === 'function') {
-      CSS.highlights.set('kakapo-diag-error', new window.Highlight(...ranges.error));
-      CSS.highlights.set('kakapo-diag-warning', new window.Highlight(...ranges.warning));
-      CSS.highlights.set('kakapo-diag-weak', new window.Highlight(...ranges.weak));
+      DIAGNOSTIC_TIERS.forEach(function (tier) {
+        CSS.highlights.set('kakapo-diag-' + tier, new window.Highlight(...ranges[tier]));
+      });
     }
   } catch (e) {}
 }

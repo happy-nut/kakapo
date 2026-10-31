@@ -356,13 +356,26 @@ weak tier, which is IntelliJ's own name for it, is where a declaration nobody re
 `return` and a call to something already marked deprecated arrive. tsserver publishes all three for
 TypeScript and JavaScript without being asked — they were being collected and dropped at the last step —
 and gopls's `staticcheck` adds the Go body of them (a comparison to a bool constant, a value assigned and
-never read) now that it is turned on. clangd runs clang-tidy already. The mark is a grey dotted underline
-and a bar in the gutter, a third silhouette rather than a third hue, and `⌥E` or `⇧⌥E` puts the whole tier
-away for a review where it is in the way.
+never read) now that it is turned on. clangd runs clang-tidy already. Rust reaches all three tiers through
+`cargo check`: every warning a Rust reader expects — an unused binding, unreachable code, a type that does
+not line up — comes from rustc rather than from the language server, which runs it as a subprocess and
+publishes an empty set until it returns. A Rust file's problems therefore arrive a few seconds after the
+file opens, where every other language's are there with the first paint. The mark is a grey dotted
+underline and a bar in the gutter, a third silhouette rather than a third hue, and `⌥E` or `⇧⌥E` puts the
+whole tier away for a review where it is in the way.
 
 What still cannot be here is IntelliJ's own engine: *Inspect Code* over a whole project, its nullability
 contracts and data-flow slicing all need a model of the program that a language server does not expose.
-What this app has instead is every inspection the project's real toolchain can already run.
+What this app has instead is every inspection the project's real toolchain can already run. `clippy` is one
+deliberate omission: it is in the Rust bundle and it is the closest analogue of an IntelliJ inspection, but
+it re-compiles the crate graph with its own lint pass — over 150 seconds on a ten-file crate against
+`check`'s four — which is not a wait a reader can be put through per file.
+
+Reading a Rust project runs its build scripts. That is not new with the checks above and not something this
+app chose: a `cargo` workspace is only knowable by running `build.rs` and expanding its proc macros, which
+is what rust-analyzer does to answer anything at all about Rust, including a plain jump to definition. If
+you are reading unfamiliar Rust and that matters to you, the thing to skip is the Rust language server, not
+the inspections.
 
 **Not ported, and why.** *Show File Path* (`⌃⌥F12`): the breadcrumb above the source view already shows
 it, permanently, and `⌥F1` reveals the file in the sidebar. The *Structure tool window*: `⌘F12`'s popup is

@@ -98,6 +98,34 @@ test("diagnostics: a weak warning gets its own gutter mark, and loses the line t
   v.close();
 });
 
+test("diagnostics: Essential Highlighting takes the weak mark off the line it was on", async () => {
+  // The repaint runs over the rows it painted last time, so the clear has to know every tier the paint can
+  // add. It listed two while the paint added three, and a weak mark stayed in the gutter after the filter
+  // that hides weak problems was switched on — a mark for a problem the reader can no longer see.
+  const { html } = await makeReviewHtml([{ path: FILE, before: "const a = 1;\n", after: AFTER }]);
+  const v = await loadViewer(html, {
+    diagnosticsBridge: (path) => ({
+      ok: true, generation: 0, available: true, engine: "lsp",
+      diagnostics: path === FILE ? [
+        { lineIndex: 3, column: 6, endLineIndex: 3, endColumn: 12, severity: "weak", message: "never read", source: "typescript" },
+      ] : [],
+    }),
+    analysisStatus: { generation: 0, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  await v.openSourceFile(FILE);
+  await v.settle(150);
+  const row = () => v.$('#source-body .source-row[data-line-index="3"]');
+  assert.ok(row().classList.contains("diag-weak"), "the weak line is marked before the filter is on");
+
+  v.key("e", { shiftKey: true, altKey: true, code: "KeyE" }); // ⇧⌥E, Essential Highlighting
+  await v.settle(60);
+  assert.equal(v.window.document.documentElement.getAttribute("data-essential-highlighting"), "on",
+    "the filter really went on — otherwise the assertion below proves nothing");
+  assert.ok(!row().classList.contains("diag-weak"), "and the mark is gone once weak problems are hidden");
+  assert.ok(!row().classList.contains("has-diagnostic"), "the line carries no diagnostic marker at all");
+  v.close();
+});
+
 test("diagnostics: resting the pointer on a problem line shows the message in a dwell tooltip; leaving hides it", async () => {
   const v = await openWithDiagnostics();
   const cell = v.$('#source-body .source-row[data-line-index="1"] .source-code');
