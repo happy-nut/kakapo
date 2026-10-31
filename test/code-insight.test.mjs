@@ -193,21 +193,45 @@ test("⌘6 asks every file in the review and lists what came back, errors first"
   host.v.close();
 });
 
-test("info and hint are collected and not listed, as everywhere else in this app", async () => {
+// This test used to assert the opposite — that the weak tier was collected and never listed. It is the tier
+// tsserver fills unasked (an unused declaration, a line after a return), which is the half of generated code
+// that compiles and is still wrong, so it is now listed and sorts below the warnings. The old assertion
+// would have stayed GREEN through this change: the severity it fed, "info", no longer exists, so the rows
+// were dropped as unknown rather than as weak.
+test("the weak tier is listed, under the warnings, and both noise filters still hide it", async () => {
   const host = await openSource({
-    diagnostics: () => ({
+    diagnostics: (path) => ({
       ok: true,
       available: true,
-      diagnostics: [
-        { lineIndex: 0, column: 0, severity: "info", message: "consider renaming", source: "ts" },
-        { lineIndex: 1, column: 0, severity: "hint", message: "unreachable", source: "ts" },
-      ],
+      diagnostics: path === FILE
+        ? [{ lineIndex: 0, column: 0, severity: "weak", message: "unused declaration", source: "ts" }]
+        : [{ lineIndex: 0, column: 0, severity: "warning", message: "shadowed name", source: "ts" }],
     }),
   });
   await press(host, { code: "Digit6", key: "6", metaKey: true });
   await host.v.settle(120);
-  assert.deepEqual(problemRows(host), [],
-    "the gutter shows only errors and warnings; a list that disagreed would be a second answer");
+  assert.deepEqual(problemRows(host), [["warning", "shadowed name"], ["weak", "unused declaration"]],
+    "a weak warning is a row, and it sorts below a real warning");
+
+  await press(host, { code: "KeyE", key: "e", altKey: true });
+  assert.deepEqual(problemRows(host), [], "⌥E wants errors, and neither of these is one");
+  host.v.close();
+});
+
+test("Essential Highlighting hides the weak tier too", async () => {
+  const host = await openSource({
+    diagnostics: () => ({
+      ok: true,
+      available: true,
+      diagnostics: [{ lineIndex: 0, column: 0, severity: "weak", message: "unused declaration", source: "ts" }],
+    }),
+  });
+  // ⇧⌥E is the toggle a reviewer reaches for when a hundred style findings are between them and the three
+  // things that are wrong. It predates this tier; the point here is that it covers it without being told to.
+  await press(host, { code: "KeyE", key: "E", altKey: true, shiftKey: true });
+  await press(host, { code: "Digit6", key: "6", metaKey: true });
+  await host.v.settle(120);
+  assert.deepEqual(problemRows(host), [], "nothing weak survives Essential Highlighting");
   host.v.close();
 });
 

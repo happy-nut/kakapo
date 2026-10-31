@@ -59,6 +59,7 @@
   --active-strong: #79b8ff;
   --diag-error: #f47067;
   --diag-warning: #e0a326;
+  --diag-weak: #8d96a0;
   --sidebar: #15191f;
   --elevated: #1d232c;
   --shadow: rgba(0, 0, 0, 0.52);
@@ -155,6 +156,7 @@
   --active-strong: #0557b8;
   --diag-error: #cf222e;
   --diag-warning: #9a6700;
+  --diag-weak: #6e7781;
   --elevated: #ffffff;
   --shadow: rgba(31, 35, 40, 0.18);
   --chrome-bg: #f0f0f1;
@@ -1998,6 +2000,15 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   text-decoration-color: var(--diag-warning);
   text-decoration-skip-ink: none;
 }
+/* The weak tier recedes on purpose: it is the busiest of the three and the reviewer is not meant to read it
+   first. Neutral grey rather than a third warm hue, so it cannot be mistaken for an error or a warning at a
+   glance, and dotted rather than wavy so the line itself says which tier it is. */
+::highlight(kakapo-diag-weak) {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--diag-weak);
+  text-decoration-skip-ink: none;
+}
 .source-row.has-diagnostic > .num { position: relative; }
 .source-row.has-diagnostic > .num::before {
   content: '';
@@ -2025,6 +2036,14 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   border-left: 3px solid transparent;
   border-right: 3px solid transparent;
   border-bottom: 5px solid var(--diag-warning);
+}
+/* And the third tier needs a third SILHOUETTE for the same reason the triangle exists — a bar, which shares
+   no outline with the disc or the triangle and reads as the quietest of the three. */
+.source-row.diag-weak > .num::before {
+  border-radius: 0;
+  width: 5px;
+  height: 2px;
+  background: var(--diag-weak);
 }
 /* Dwell tooltip shown ~1s after the pointer rests on a problem line. Fixed-positioned near the cursor. */
 .diag-tooltip {
@@ -3215,6 +3234,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 }
 .problem-result[data-severity="error"] .problem-mark { background: var(--diag-error, #e5534b); }
 .problem-result[data-severity="warning"] .problem-mark { background: var(--diag-warning, #d6a84b); }
+.problem-result[data-severity="weak"] .problem-mark { background: var(--diag-weak, #8d96a0); }
 .problem-message {
   display: block;
   overflow: hidden;

@@ -319,7 +319,7 @@ function queryProjectDiagnostics(path) {
   return Promise.resolve(window.kakapoAnalysis.diagnostics(path));
 }
 
-var PROBLEM_ORDER = { error: 0, warning: 1, info: 2, hint: 3 };
+var PROBLEM_ORDER = { error: 0, warning: 1, weak: 2 };
 
 function visibleProblemRows(query) {
   var needle = String(query || '').trim().toLowerCase();

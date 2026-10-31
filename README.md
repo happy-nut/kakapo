@@ -344,12 +344,25 @@ the only one that answers *what*: `F1` renders it in full (it is Markdown, and i
 renderer the source preview uses), and `⌘⇧P` takes its signature line alone. `⌘F1` reads out the problem
 on the caret's line, which until now was a mouse-only tooltip.
 
-`⌘6` is the Problems view: every error and warning in the review, not just in the file on screen, asked a
-few files at a time and filling in as the answers land. Errors sort above warnings, `⌥E` hides the
-warnings, and a file no language server covers is **counted and named** rather than quietly contributing
-zero — "no problems" for a review half of which could not be checked is the one wrong answer this list
-could give. Inspections and data-flow slicing are not here and cannot be: they need a compiler's model of
-the program. The servers' own diagnostics are this app's inspections.
+`⌘6` is the Problems view: every problem in the review, not just in the file on screen, asked a
+few files at a time and filling in as the answers land. Errors sort above warnings, `⌥E` hides everything
+that is not an error, and a file no language server covers is **counted and named** rather than quietly
+contributing zero — "no problems" for a review half of which could not be checked is the one wrong answer
+this list could give.
+
+**Inspections** — the question an error answers is "does this compile", and the half of generated code worth
+reviewing is the half that compiles and is still wrong. So three severities are drawn here, not two: the
+weak tier, which is IntelliJ's own name for it, is where a declaration nobody reads, a line left after a
+`return` and a call to something already marked deprecated arrive. tsserver publishes all three for
+TypeScript and JavaScript without being asked — they were being collected and dropped at the last step —
+and gopls's `staticcheck` adds the Go body of them (a comparison to a bool constant, a value assigned and
+never read) now that it is turned on. clangd runs clang-tidy already. The mark is a grey dotted underline
+and a bar in the gutter, a third silhouette rather than a third hue, and `⌥E` or `⇧⌥E` puts the whole tier
+away for a review where it is in the way.
+
+What still cannot be here is IntelliJ's own engine: *Inspect Code* over a whole project, its nullability
+contracts and data-flow slicing all need a model of the program that a language server does not expose.
+What this app has instead is every inspection the project's real toolchain can already run.
 
 **Not ported, and why.** *Show File Path* (`⌃⌥F12`): the breadcrumb above the source view already shows
 it, permanently, and `⌥F1` reveals the file in the sidebar. The *Structure tool window*: `⌘F12`'s popup is

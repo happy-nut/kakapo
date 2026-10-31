@@ -131,10 +131,11 @@ export function resetKnownLibraryPaths(): void {
   libraryPaths.clear();
 }
 
-export type DiagnosticSeverity = "error" | "warning" | "info" | "hint";
+export type DiagnosticSeverity = "error" | "warning" | "weak";
 
 // A language-server diagnostic normalized to Kakapo's 0-based line/column model. The renderer draws these
-// as wavy underlines and lets the reviewer step between them; only error/warning are surfaced by default.
+// as wavy underlines and lets the reviewer step between them. Essential Highlighting (Shift+Opt+E) narrows
+// what is drawn to errors; everything else is drawn by default.
 export type LspDiagnostic = {
   lineIndex: number;
   column: number;
@@ -146,7 +147,12 @@ export type LspDiagnostic = {
   code?: string;
 };
 
-const DIAGNOSTIC_SEVERITY: DiagnosticSeverity[] = ["error", "warning", "info", "hint"];
+// LSP's four severities land on three tiers: Information and Hint are one mark, the weak tier, which is
+// IntelliJ's Weak Warning. Keeping them apart would mean two names for one colour, and every gutter class,
+// sort order, tooltip word and Problems badge downstream would have to know both — five copies to drift.
+// This tier is where an unused declaration, a line after a return and a deprecated call arrive; tsserver
+// publishes all three unasked, so it is never empty for a TypeScript or JavaScript review.
+const DIAGNOSTIC_SEVERITY: DiagnosticSeverity[] = ["error", "warning", "weak", "weak"];
 
 function nonNegativeInt(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
@@ -385,11 +391,42 @@ const TS_READING_SETTINGS = {
 const CODE_LENS_LIMIT = 300;
 const CODE_LENS_BATCH = 24;
 
+// Settings reach a server by two roads and a server need only walk one of them. typescript-language-server
+// reads the `settings` payload this client PUSHES with workspace/didChangeConfiguration; gopls ignores that
+// and PULLS what it wants with a workspace/configuration request, and it is not alone. Both roads are served
+// from this one table — the push sends the family's whole object, the pull is answered per section by
+// configurationSection — because a setting that only arrives on one road is a setting that is off for half
+// the languages and looks on in the source. The pull used to be answered with `{}` for every section, which
+// is why nothing below could be configured before.
 const WORKSPACE_SETTINGS: Record<string, Record<string, unknown>> = {
   // One object, both sections: the server picks the section by the document's language, and a .js file in
   // a TypeScript project should read the same as the .ts file beside it.
   typescript: { typescript: TS_READING_SETTINGS, javascript: TS_READING_SETTINGS },
+  // gopls answers "does it compile" out of the box and keeps its inspections behind a flag. staticcheck is
+  // the body of them (the S/SA/ST checks: a comparison to a bool constant, a value assigned and never read,
+  // a loop that cannot run) and `analyses` holds the ones its own default leaves off. Measured on a
+  // twenty-line file: one finding before, three after. None of this runs the reviewed code — Go has no
+  // build scripts and gopls type-checks rather than executes — so it needs no opt-in.
+  go: {
+    gopls: {
+      staticcheck: true,
+      analyses: { nilness: true, unusedwrite: true, unusedparams: true },
+    },
+  },
 };
+
+// Resolve one pulled configuration section against a family's settings. A server asks for what it wants
+// by name — `gopls`, `rust-analyzer`, `typescript.inlayHints` — and gets the sub-object at that dotted path,
+// or `{}` when this client has nothing to say about it. An absent section means "all of it".
+export function configurationSection(settings: Record<string, unknown>, section: unknown): unknown {
+  if (typeof section !== "string" || !section) return settings;
+  let cursor: unknown = settings;
+  for (const part of section.split(".")) {
+    if (!cursor || typeof cursor !== "object" || !(part in (cursor as Record<string, unknown>))) return {};
+    cursor = (cursor as Record<string, unknown>)[part];
+  }
+  return cursor;
+}
 
 const NODE_SERVER_ENTRIES: Record<string, { name: string; entry: string; args: string[] }> = {
   typescript: {
@@ -1407,7 +1444,8 @@ export class LspClient {
       const items = Array.isArray((message.params as { items?: unknown[] } | undefined)?.items)
         ? (message.params as { items: unknown[] }).items
         : [];
-      result = items.map(() => ({}));
+      const settings = WORKSPACE_SETTINGS[this.server.family] ?? {};
+      result = items.map((item) => configurationSection(settings, (item as { section?: unknown })?.section));
     } else if (message.method === "workspace/workspaceFolders") {
       result = [{ uri: pathToFileURL(this.root).href, name: this.root.split(/[\\/]/).pop() || "workspace" }];
     } else if (message.method === "workspace/applyEdit") {

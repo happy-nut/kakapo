@@ -1,10 +1,18 @@
-// Language-server diagnostics for the open source file. Main pushes error/warning ranges (LSP
+// Language-server diagnostics for the open source file. Main pushes ranges (LSP
 // textDocument/publishDiagnostics, normalized to 0-based line/column); here we draw them as wavy underlines
 // via the CSS Custom Highlight API — the same zero-DOM-mutation technique file-find uses — plus a gutter dot,
-// and let F2 / Shift+F2 step between them WITHIN the current file. Info/hint severities are collected by main
-// but intentionally not surfaced: this review station is about "does the AI's code actually hold up", so only
-// errors (red) and warnings (amber) earn a mark. There is no regex fallback — an unsupported language reports
-// available:false upstream and simply paints nothing, never a misleading "no problems".
+// and let F2 / Shift+F2 step between them WITHIN the current file. There is no regex fallback — an
+// unsupported language reports available:false upstream and simply paints nothing, never a misleading
+// "no problems".
+//
+// Three severities earn a mark, not two. The weak tier — IntelliJ's own name for it, LSP's Information and
+// Hint folded together — used to be collected and dropped here on the grounds that this station is about
+// "does the AI's code actually hold up". That reading had it backwards: an error is the compiler refusing
+// the code, and what a reviewer of generated code is hunting is the half that compiles and is still wrong.
+// A variable the agent declared and never read, a line it left after a return, a call it kept using after
+// marking it deprecated — every one of those arrives in this tier and nowhere else. tsserver publishes them
+// for TypeScript and JavaScript with no configuration at all, which is why the three of them were already
+// in the cache when this gate was dropping them.
 
 // State is lazily created because boot calls openSourceFile (→ refreshSourceDiagnostics) while the concatenated
 // bundle is still executing top to bottom — before this slice's own initializers would otherwise run. Every
@@ -47,8 +55,16 @@ function surfacedDiagnostics(items) {
   return (items || []).filter(function (d) {
     if (!d) return false;
     if (d.severity === 'error') return true;
-    return !errorsOnly && d.severity === 'warning';
+    return !errorsOnly && (d.severity === 'warning' || d.severity === 'weak');
   });
+}
+
+// error, then warning, then weak — the one order every reading of a diagnostic paints and sorts by, so the
+// gutter mark on a line that holds two, the Opt+Enter list and the ⌘6 rows cannot disagree about which wins.
+var DIAGNOSTIC_RANK = { error: 0, warning: 1, weak: 2 };
+function diagnosticRank(severity) {
+  var rank = DIAGNOSTIC_RANK[severity];
+  return rank === undefined ? 3 : rank;
 }
 
 /** Essential Highlighting flipped: repaint whatever is on screen through the gate above. */
@@ -111,8 +127,8 @@ function paintSourceDiagnostics(path) {
   var cached = diagnosticsCache.get(path);
   var items = surfacedDiagnostics(cached && cached.items);
   if (!items.length) return;
-  var errorRanges = [], warningRanges = [];
-  var rowSeverity = new Map(); // row element -> 'error' | 'warning' (error wins when a line has both)
+  var ranges = { error: [], warning: [], weak: [] };
+  var rowSeverity = new Map(); // row element -> severity; the strongest on the line wins
   items.forEach(function (d) {
     var row = sourceFindRow(d.lineIndex);
     if (!row) return; // line folded away or outside the rendered body
@@ -126,19 +142,21 @@ function paintSourceDiagnostics(path) {
     var end = singleLine ? Math.min(Math.max(d.endColumn, start + 1), textLen) : textLen;
     var length = Math.max(1, end - start);
     var range = fileFindRange(container, start, length);
-    if (range) (d.severity === 'error' ? errorRanges : warningRanges).push(range);
-    if (d.severity === 'error' || !rowSeverity.has(row)) rowSeverity.set(row, d.severity);
+    if (range && ranges[d.severity]) ranges[d.severity].push(range);
+    var held = rowSeverity.get(row);
+    if (held === undefined || diagnosticRank(d.severity) < diagnosticRank(held)) rowSeverity.set(row, d.severity);
   });
   rowSeverity.forEach(function (severity, row) {
-    row.classList.add('has-diagnostic', severity === 'error' ? 'diag-error' : 'diag-warning');
+    row.classList.add('has-diagnostic', 'diag-' + severity);
     diagnosticsPaintedRows.push(row);
   });
   // The message itself is shown by the dwell tooltip (onDiagnosticHover), keyed off the .has-diagnostic row,
   // not a native title — so the delay and styling are ours and it appears only over the underlined line.
   try {
     if (window.CSS && CSS.highlights && typeof window.Highlight === 'function') {
-      CSS.highlights.set('kakapo-diag-error', new window.Highlight(...errorRanges));
-      CSS.highlights.set('kakapo-diag-warning', new window.Highlight(...warningRanges));
+      CSS.highlights.set('kakapo-diag-error', new window.Highlight(...ranges.error));
+      CSS.highlights.set('kakapo-diag-warning', new window.Highlight(...ranges.warning));
+      CSS.highlights.set('kakapo-diag-weak', new window.Highlight(...ranges.weak));
     }
   } catch (e) {}
 }
@@ -207,8 +225,7 @@ function diagnosticsAtCaret() {
   return surfacedDiagnostics(cached && cached.items)
     .filter(function (d) { return d.lineIndex === viewerCursor.lineIndex; })
     .sort(function (a, b) {
-      if ((a.severity === 'error') !== (b.severity === 'error')) return a.severity === 'error' ? -1 : 1;
-      return a.column - b.column;
+      return (diagnosticRank(a.severity) - diagnosticRank(b.severity)) || (a.column - b.column);
     });
 }
 
@@ -250,7 +267,7 @@ function diagnosticLineMessage(path, lineIndex) {
     // same shape, so a reader who cannot separate the hues had nothing at all to go on — and this message
     // is the one place that can simply say it. Two messages on one line also used to run together as a
     // single paragraph; a labelled prefix gives each one a visible start.
-    var severity = t(d.severity === 'warning' ? 'diag.warning' : 'diag.error');
+    var severity = t(DIAGNOSTIC_RANK[d.severity] === undefined ? 'diag.error' : 'diag.' + d.severity);
     var m = severity + ': ' + d.message + (d.source ? ' (' + d.source + ')' : '');
     if (lines.indexOf(m) < 0) lines.push(m);
   });

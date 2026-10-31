@@ -104,6 +104,50 @@ test("bundled gopls resolves a cross-file definition", {
   },
 }));
 
+// Inspections, end to end through the real product: a Go file that compiles cleanly and whose only defect
+// is staticcheck's to find. gopls keeps staticcheck behind a setting and reads its settings by PULLING them
+// with workspace/configuration, which this app used to answer with `{}` for every section — so this is the
+// test that fails if that road goes dead again. The check id arrives in `source`, not in `code` (gopls
+// leaves `code` as "default"), which is worth stating because reading `code` here looks right and finds
+// nothing.
+test("bundled gopls reports a staticcheck finding, so the pulled settings really arrived", {
+  timeout: BUNDLE_TEST_TIMEOUT_MS,
+  skip: !bundled.go || !existsSync(bundled.go),
+}, async () => {
+  const root = project();
+  write(root, "go.mod", "module example.com/sample\n\ngo 1.24\n");
+  write(root, "check.go", [
+    "package sample",
+    "",
+    "func Check(ok bool) bool {",
+    "\tif ok == true {", // S1002: should omit comparison to bool constant
+    "\t\treturn true",
+    "\t}",
+    "\treturn false",
+    "}",
+    "",
+  ].join("\n"));
+  const analysis = new ProjectAnalysis(root);
+  try {
+    await analysis.prewarm(["check.go"]);
+    const deadline = Date.now() + WARM_BUDGET_MS;
+    let found = [];
+    let last = null;
+    while (Date.now() < deadline) {
+      last = await analysis.diagnostics("check.go");
+      found = (last.diagnostics ?? []).filter((d) => /^(S|SA|ST|QF)\d+$/.test(d.source ?? ""));
+      if (found.length) break;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+    assert.ok(found.length > 0,
+      `gopls reported no staticcheck finding on a file whose only defect is one; it answered: `
+      + JSON.stringify((last?.diagnostics ?? []).map((d) => [d.source, d.severity, d.message])));
+    assert.equal(found[0].severity, "warning", "staticcheck findings are warnings, not errors");
+  } finally {
+    analysis.dispose();
+  }
+});
+
 test("bundled rust-analyzer resolves a cross-file definition", {
   timeout: BUNDLE_TEST_TIMEOUT_MS,
   skip: !bundled.rust || !existsSync(bundled.rust),

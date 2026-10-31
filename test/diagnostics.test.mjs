@@ -65,6 +65,39 @@ test("diagnostics: error and warning lines get severity-colored gutter markers; 
   v.close();
 });
 
+test("diagnostics: a weak warning gets its own gutter mark, and loses the line to a real warning", async () => {
+  // Its own bridge rather than the shared one above: adding a third diagnostic to that fixture would move
+  // every F2 stepping assertion in this file, and those are measuring something else.
+  const { html } = await makeReviewHtml([{ path: FILE, before: "const a = 1;\n", after: AFTER }]);
+  const v = await loadViewer(html, {
+    diagnosticsBridge: (path) => ({
+      ok: true,
+      generation: 0,
+      available: true,
+      engine: "lsp",
+      diagnostics: path === FILE ? [
+        { lineIndex: 3, column: 6, endLineIndex: 3, endColumn: 12, severity: "weak", message: "'unused' is declared but its value is never read", source: "typescript" },
+        // Two on one line: the gutter has room for one mark, and it has to be the louder of the two.
+        { lineIndex: 1, column: 0, endLineIndex: 1, endColumn: 5, severity: "weak", message: "unreachable code detected", source: "typescript" },
+        { lineIndex: 1, column: 6, endLineIndex: 1, endColumn: 12, severity: "warning", message: "shadowed name", source: "typescript" },
+      ] : [],
+    }),
+    analysisStatus: { generation: 0, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  await v.openSourceFile(FILE);
+  await v.settle(150);
+  const body = v.$("#source-body");
+
+  const weakRow = body.querySelector('.source-row[data-line-index="3"]');
+  assert.ok(weakRow.classList.contains("has-diagnostic") && weakRow.classList.contains("diag-weak"),
+    "the weak line is marked, and marked as weak");
+
+  const bothRow = body.querySelector('.source-row[data-line-index="1"]');
+  assert.ok(bothRow.classList.contains("diag-warning"), "the warning wins the gutter on a line holding both");
+  assert.ok(!bothRow.classList.contains("diag-weak"), "and the weak mark does not also sit there");
+  v.close();
+});
+
 test("diagnostics: resting the pointer on a problem line shows the message in a dwell tooltip; leaving hides it", async () => {
   const v = await openWithDiagnostics();
   const cell = v.$('#source-body .source-row[data-line-index="1"] .source-code');
