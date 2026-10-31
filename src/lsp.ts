@@ -568,6 +568,12 @@ function bundledNativeCommand(family: string, context: BundledServerContext): La
     return executable(command)
       ? resolvedCommand(family, "sorbet", command, [
         "--lsp", "--disable-watchman", "--cache-dir", join(tmpdir(), "kakapo-sorbet", projectCacheKey(context.root)), "--dir", ".",
+        // ⌘F7, which sorbet refuses outright without this: "The `Highlight` LSP feature is experimental and
+        // disabled by default." Measured with the flag on a ten-line file: a local, a class name and a
+        // method name each answered with both of their occurrences; only instance variables come back
+        // empty. It carries no read/write kinds, so the two colours collapse into one — still the file's
+        // real occurrences rather than the text search that is the alternative.
+        "--enable-experimental-lsp-document-highlight",
       ], "bundled")
       : undefined;
   }

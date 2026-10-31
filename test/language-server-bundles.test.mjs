@@ -292,6 +292,26 @@ test("bundled official Kotlin LSP resolves a Gradle project definition", {
   },
 }));
 
+// ⌘F7 in a Ruby file. sorbet refuses documentHighlight with an error — not an empty list — unless it is
+// launched with its own experimental flag, so this is the test that notices if the flag is dropped from
+// the argv. Instance variables answer empty even with it on; a local, a class and a method do not.
+test("bundled Sorbet answers an in-file highlight, which it refuses without its flag", {
+  timeout: BUNDLE_TEST_TIMEOUT_MS,
+  skip: !bundled.ruby || !existsSync(bundled.ruby),
+}, async () => {
+  const root = project();
+  write(root, "main.rb", "# typed: true\nclass Box\n  def area = 4\nend\nbox = Box.new\nputs box.area\n");
+  const analysis = new ProjectAnalysis(root);
+  try {
+    const answer = await analysis.query({ kind: "documentHighlight", path: "main.rb", line: 4, column: 0 }); // `box`
+    assert.equal(answer.engine, "lsp",
+      `the highlight fell back to the index instead of being answered: ${answer.fallbackReason ?? ""}`);
+    assert.ok((answer.highlights ?? []).length >= 2, "both occurrences of the local came back");
+  } finally {
+    analysis.dispose();
+  }
+});
+
 test("bundled Sorbet resolves a typed Ruby definition", {
   timeout: BUNDLE_TEST_TIMEOUT_MS,
   skip: !bundled.ruby || !existsSync(bundled.ruby),
