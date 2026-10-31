@@ -50,7 +50,8 @@ function renderAnalysisStatus(status) {
   // was given partial answers until this moment and has no other way to know that stopped. Announced on the
   // transition out of indexing only — a project whose server was ready before anyone looked says nothing.
   var wasIndexing = el.dataset.phase === 'indexing' || el.dataset.phase === 'starting';
-  if (phase === 'ready' && wasIndexing) showToast(t('analysis.readyToast'));
+  var becameReady = phase === 'ready' && wasIndexing;
+  if (becameReady) showToast(t('analysis.readyToast'));
   el.className = 'analysis-status is-' + phase;
   el.dataset.phase = phase;
   el.dataset.generation = String(generation);
@@ -77,6 +78,18 @@ function renderAnalysisStatus(status) {
   if (status.fallbackReason) detail.push(String(status.fallbackReason));
   if (status.error) detail.push(String(status.error));
   el.title = detail.join('\n');
+  // The moment the index finishes is the moment the earlier answers are worth having again. A file opened
+  // while a server was still starting was told, honestly, that nothing could judge it: the diagnostics
+  // cache holds that as the file's state and the decoration cache drops its entry, and neither is asked a
+  // second time by anything a reader does. So ask here, once, on the transition — not on every status
+  // report, which arrives on a timer and would send a round trip per open file several times a minute.
+  if (becameReady) refreshAnalysisPaints();
+}
+
+/** Re-ask for whatever the open file is decorated and marked with. */
+function refreshAnalysisPaints() {
+  paintSourceDecorations();
+  refreshDiagnosticsFilter();
 }
 
 (function setupAnalysisStatus() {

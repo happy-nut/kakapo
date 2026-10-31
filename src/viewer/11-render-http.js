@@ -134,6 +134,11 @@ function openSourceFile(path, shouldSwitch = true, options) {
   renderSourceComments();
   refreshSourceBlamePaint(path);
   refreshSourceDiagnostics(path);
+  // Code Vision and the inlay hints, which until now were painted only by a JUMP into a file
+  // (openSourceAt) and by flipping one of their own switches. Opening a file — which is how a file is
+  // normally opened — asked for neither, so a reader who clicked a file in the tree saw neither, in every
+  // language, and the measurement that looked like "gopls answers nothing" was this.
+  paintSourceDecorations();
   if (shouldSwitch) showSourceView();
 }
 
@@ -965,6 +970,8 @@ function sourceRowsCompleted(path) {
   try { renderSourceComments(); } catch (e) {}
   try { refreshSourceBlamePaint(path); } catch (e) {}
   try { refreshSourceDiagnostics(path); } catch (e) {}
+  // A hint or a lens below the first window has no row to attach to until the rest of the file arrives.
+  try { paintSourceDecorations(); } catch (e) {}
 }
 
 // A timer, not requestAnimationFrame. The first fill is scheduled from the render itself, and a session
