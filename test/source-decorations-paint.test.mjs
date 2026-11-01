@@ -104,3 +104,83 @@ test("a status report that is not a transition into ready repaints nothing", asy
   assert.deepEqual(asked, [], "still indexing, reported again, asks nothing again");
   v.close();
 });
+
+// Two hints on ONE line, which is the ordinary shape for a parameter and a return type.
+//
+// The offsets are positions in the LINE, and the walk that finds them counted the labels it had already
+// inserted. So the second hint landed as many characters late as the first label was long — and the walk
+// descended INTO that label, so it nested there as well: `(who: any): string` came out as
+// `(who  : string: any)`. On a minified line carrying 1200 hints the drift ran to hundreds of characters
+// and the labels landed mid-identifier, cutting `function` in half.
+//
+// The rendered TEXT is what is asserted, not the count or the order of the spans: the defect was visible
+// to the reader as the wrong characters in the wrong places, and a test on the span list would have been
+// green for `(who  : string: any)` too.
+const SIGNATURE = ["export function greet(who) {", "  return who;", "}", ""].join("\n");
+
+function twoHintBridge(request) {
+  const base = { ok: true, generation: 0, engine: "lsp", confidence: "semantic", locations: [] };
+  if (request.kind === "inlayHint") {
+    return {
+      ...base,
+      hints: [
+        // `(who` ends at column 25, `)` at 26 — a parameter type and a return type, in the order a server
+        // sends them, which is ascending and is exactly the order that used to go wrong.
+        { lineIndex: 0, column: 25, label: ": any", kind: "type", paddingLeft: false, paddingRight: false },
+        { lineIndex: 0, column: 26, label: ": string", kind: "type", paddingLeft: false, paddingRight: false },
+      ],
+    };
+  }
+  if (request.kind === "codeLens") return { ...base, lenses: [] };
+  return { ...base, hints: [], lenses: [] };
+}
+
+test("two hints on one line land where the server put them, and neither is inside the other", async () => {
+  const { html } = await makeReviewHtml([{ path: FILE, before: "export function greet(who) {\n", after: SIGNATURE }]);
+  const v = await loadViewer(html, {
+    analysisBridge: twoHintBridge,
+    analysisStatus: { generation: 0, phase: "ready", updatedAt: new Date(1000).toISOString() },
+  });
+  try {
+    await v.openSourceFile(FILE);
+    await v.settle(150);
+    const cell = v.$("#source-body .source-row[data-line-index='0'] .source-code");
+    assert.equal(cell.textContent, "export function greet(who: any): string {",
+      "the line reads as the server described it");
+    const hints = Array.from(cell.querySelectorAll(".inlay-hint"));
+    assert.equal(hints.length, 2, "both hints are drawn");
+    assert.ok(!hints.some((hint) => hint.parentNode.closest(".inlay-hint")),
+      "and neither label is nested inside the other");
+  } finally {
+    v.close();
+  }
+});
+
+// A lens row is inserted ABOVE the line it annotates, so a line carrying many declarations — every line of
+// a minified file is one — put a screenful of rows between the reader and the code. 300 identical
+// "0 references" rows, the first source row at y=5762. One row per line, listing what fits and counting
+// the rest.
+test("declarations that share a line share one lens row", async () => {
+  const titles = Array.from({ length: 12 }, (_, i) => `${i} references`);
+  const { html } = await makeReviewHtml([{ path: FILE, before: "export function greet(who) {\n", after: SIGNATURE }]);
+  const v = await loadViewer(html, {
+    analysisBridge: (request) => {
+      const base = { ok: true, generation: 0, engine: "lsp", confidence: "semantic", locations: [] };
+      if (request.kind === "codeLens") return { ...base, lenses: titles.map((title) => ({ lineIndex: 0, title })) };
+      return { ...base, hints: [], lenses: [] };
+    },
+    analysisStatus: { generation: 0, phase: "ready", updatedAt: new Date(1000).toISOString() },
+  });
+  try {
+    await v.openSourceFile(FILE);
+    await v.settle(150);
+    const rows = v.$all("#source-body .code-vision-row");
+    assert.equal(rows.length, 1, "twelve declarations on one line get one row, not twelve");
+    const text = rows[0].textContent;
+    assert.ok(text.includes("0 references") && text.includes("2 references"), "it names the first few");
+    assert.ok(!text.includes("11 references"), "it stops rather than listing all twelve");
+    assert.match(text, /\b9\b/, "and says how many it left out — twelve less the three it named");
+  } finally {
+    v.close();
+  }
+});

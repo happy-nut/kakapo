@@ -216,3 +216,32 @@ test("the patch-set bar folds a long branch down to a findable window", () => {
     "and only the side that was asked — the other keeps its window");
   expanded.base = false;
 });
+
+// "전체" and the branch point resolve to the same diff, and only one of them is reversible. The option
+// sent `branchPoint.sha`, which app-main stores as an explicit base — so one click moved the toolbar pill
+// from `main` to `54d784f` and nothing in the app put it back: ⌥A did not, and neither did re-picking the
+// same option, because the bar marks it active for either value and so looked unchanged the whole time.
+// "auto" is understood on both compare paths (app-main's set-review-base and set-review-compare) and is
+// the value that restores automatic base resolution.
+test("the patch-set bar's “all” option is reversible", () => {
+  const options = bundled("patchSetBaseOptions", ["t", (key) => key], ["patchSetShortRef", (ref) => String(ref)], ["patchSetCommitTitle", (i, c) => String(c.subject)])({
+    branchPoint: { sha: "54d784f0000", label: "main" },
+    commits: [{ sha: "1fe2700", subject: "work", shortSha: "1fe2700", date: "" }],
+    scoped: false,
+    activeBase: undefined,
+  });
+  const all = options[0];
+  assert.equal(all.ref, "auto", "picking it restores the automatic base rather than pinning a commit");
+  assert.equal(all.active, true, "and with no explicit base it is the one marked active");
+
+  // Still marked active when the base IS that sha — a review opened at the branch point is "all changes",
+  // and this is why the bar looked unchanged while the pill had started naming a commit.
+  const atSha = bundled("patchSetBaseOptions", ["t", (key) => key], ["patchSetShortRef", (ref) => String(ref)], ["patchSetCommitTitle", (i, c) => String(c.subject)])({
+    branchPoint: { sha: "54d784f0000", label: "main" },
+    commits: [],
+    scoped: false,
+    activeBase: "54d784f0000",
+  });
+  assert.equal(atSha[0].active, true);
+  assert.equal(atSha[0].ref, "auto", "and picking it there is still the reversible value");
+});

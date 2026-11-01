@@ -1082,3 +1082,33 @@ test("a file that could not be painted does not record itself as painted", async
   assert.ok(v.visibleCardTexts().includes("paint me"), "the retry paints it instead of trusting a stale key");
   v.close();
 });
+
+// The composer opens PREFILLED with the line it is about — `@src/app.ts#L2 ` — so "the reviewer wrote
+// nothing" is not an empty box. ⌘Enter on an untouched composer passed the empty-text guard and saved a
+// comment whose entire body was its own anchor: the diff card printed the raw reference, the dock card
+// came out blank (the hand-off strips the anchor from the body, leaving nothing), and the merged text the
+// agent receives ended with a bare `@src/app.ts#L2` and no instruction under it.
+//
+// The anchor counts as the reviewer's words only once they have changed it — which is the rule the
+// hand-off already applies when it strips the prefix, and the reason editing that prefix is documented as
+// the way to say "this is not about that line".
+test("the anchor the composer prefills is not a comment", async () => {
+  const v = await loadViewer(html);
+  try {
+    const before = v.window.reviewComments.length;
+    const path = "src/app.ts";
+    const label = v.window.commentTargetLabel({ path, line: 2, from: 2, to: 2 });
+    assert.match(label, /^@/, "the premise: the composer's prefill is an @-reference");
+
+    v.window.addComment("c", path, 2, "  return 43;", label + " ", 2, 2, null, "  return 43;");
+    assert.equal(v.window.reviewComments.length, before, "an untouched composer saves nothing");
+
+    v.window.addComment("c", path, 2, "  return 43;", label + " rename this", 2, 2, null, "  return 43;");
+    assert.equal(v.window.reviewComments.length, before + 1, "and one that was typed into still saves");
+    const saved = v.window.reviewComments[v.window.reviewComments.length - 1];
+    assert.equal(saved.text, label + " rename this",
+      "with the anchor kept exactly as written — editing it is how a reviewer redirects a comment");
+  } finally {
+    v.close();
+  }
+});
