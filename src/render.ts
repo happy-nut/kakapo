@@ -542,7 +542,7 @@ export function renderDiffHtml(input: {
       : '',
     '<div class="diff-pane-header" data-i18n-aria="diff.panes" aria-label="Diff panes">',
     '<div class="diff-pane diff-pane-base"><span class="diff-pane-kind" data-i18n="diff.base">Base</span><span id="diff-before-path" class="diff-pane-path"></span></div>',
-    '<div class="diff-pane diff-pane-working"><span class="diff-pane-kind" data-i18n="diff.workingTree">Working tree</span><span id="diff-after-path" class="diff-pane-path"></span></div>',
+    '<div class="diff-pane diff-pane-working"><span id="diff-after-kind" class="diff-pane-kind" data-i18n="diff.workingTree">Working tree</span><span id="diff-after-path" class="diff-pane-path"></span></div>',
     '</div>',
     `<div id="diff2html-container" class="diff2html-container">${input.diffHtml || '<div class="empty"><p class="empty-title" data-i18n="diff.noDiff">No diff to review.</p><p class="empty-hint" data-i18n="diff.noDiff.hint">If this is not what you meant to review, change it with the compare control in the toolbar.</p></div>'}</div>`,
     "</section>",

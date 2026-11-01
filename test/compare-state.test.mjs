@@ -149,8 +149,10 @@ test("the breadcrumb names one commit, and counts the rest of a range", () => {
   const commits = [1, 2, 3, 4, 5, 6].map((n) => ({
     sha: `sha${n}`, shortSha: `abc000${n}`, subject: `커밋 ${n}`, date: "",
   }));
-  const lead = (activeBase, activeTarget, extra) => bundled("compareCommitLead", ["patchSetData",
-    { commits, activeBase, activeTarget, scoped: true, ...extra }])();
+  const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+  const lead = (activeBase, activeTarget, extra) => bundled("compareCommitLead",
+    ["patchSetData", { commits, activeBase, activeTarget, scoped: true, ...extra }],
+    ["EMPTY_TREE_SHA", EMPTY_TREE])();
 
   assert.deepEqual(lead("sha3", "sha4"), { sha: "abc0004", subject: "커밋 4", others: 0 },
     "base..target spanning one commit is named, not counted");
@@ -159,6 +161,15 @@ test("the breadcrumb names one commit, and counts the rest of a range", () => {
   assert.equal(lead("sha1", "worktree"), null, "the working tree is not a commit and says nothing");
   assert.equal(lead("sha1", "sha6", { scoped: false }), null,
     "outside a Cmd+9 compare the toolbar stays quiet — marking every state marks none");
+
+  // git's empty tree is not an unknown base, it is "nothing was there yet" — which is what a range opened
+  // from the ROOT commit is measured from, and it puts every commit up to the target inside the span.
+  // Counted as an unknown (one), a three-commit range from the root read as a single named commit with
+  // nothing beside it, which is the one shape this function exists to prevent.
+  assert.deepEqual(lead(EMPTY_TREE, "sha3"), { sha: "abc0003", subject: "커밋 3", others: 2 },
+    "a range from the root counts every commit it contains");
+  assert.deepEqual(lead(EMPTY_TREE, "sha1"), { sha: "abc0001", subject: "커밋 1", others: 0 },
+    "and the root commit on its own is still one commit");
 });
 
 // compareCommitLead reads activeBase/activeTarget, so whatever MOVES those has changed what the toolbar's
@@ -273,4 +284,21 @@ test("clicking the option already in force changes nothing", () => {
   // And a patch set that is NOT in force is not marked active, or the guard would swallow a real pick.
   const one = options(atBranchPoint).filter((option) => option.ref === "1fe2700")[0];
   assert.equal(one.active, false, "picking a different patch set is a real change");
+});
+
+// "전체" in the patch-set bar and "모든 변경사항" (⌥A) say the same thing, so they have to BE the same
+// thing. They were not: the bar sent `auto`, which clears `options.base` and leaves the build to resolve
+// one automatically — and automatic resolution DECLINES on a dirty worktree (resolveAutomaticReviewBase:
+// unpushed commits are only the base when there is nothing uncommitted), so the build fell back to HEAD.
+// A button reading `전체 변경 · main` then narrowed the review to uncommitted changes, which is the
+// opposite of what it says, on any tree with anything uncommitted — the state this app is usually in.
+//
+// Read off the source because the defect is which CALL the click makes, and both calls succeed.
+test("the bar's “all” goes the same way Alt+A goes", () => {
+  const source = bundle.slice(bundle.indexOf("function selectPatchSet"));
+  const body = source.slice(0, source.indexOf("\nfunction ", 1));
+  assert.match(body, /ref === 'auto'[\s\S]{0,120}applyCompareMode\('all'/,
+    "picking it resolves the branch point explicitly, as the compare menu does");
+  assert.ok(!/setReviewBase\('auto'\)/.test(body),
+    "and never by clearing the base and hoping the automatic resolution agrees");
 });

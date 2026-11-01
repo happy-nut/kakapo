@@ -251,7 +251,11 @@ test("the comment navigation list contains both kinds", () => {
   const comments = readFileSync(new URL("../src/viewer/07-comments.js", import.meta.url), "utf8");
   assert.match(comments, /function sortedNavThread\(\)\s*\{\s*\n\s*return sortedNavComments\(\);/,
     "notes and comments are one list, so the walk is just that list in file order");
-  assert.match(comments, /function revealComment\(seq\)[\s\S]{0,300}navigateToCommentInDiff\(target\.seq\)/,
+  const revealBody = comments.slice(
+    comments.indexOf("\nfunction revealComment(seq) {"),
+    comments.indexOf("\n}\n", comments.indexOf("\nfunction revealComment(seq) {")),
+  );
+  assert.ok(revealBody.includes("navigateToCommentInDiff(target.seq)"),
     "and every card on it is reached by its own id — the same tail a notification click uses");
 });
 
@@ -434,4 +438,40 @@ test("a comment comes back in the view it was written in, and survives the threa
   assert.equal(v.storedComments().find((c) => c.seq === fromFile).view, "source", "the view survives the round trip");
   assert.equal(v.storedComments().find((c) => c.seq === fromDiff).view, "diff");
   v.close();
+});
+
+// A comment can name a file this review does not have. An agent writes a note about a path that was never
+// in the diff; a reply arrives orphaned and carries no path at all. `revealComment` reported success for
+// those because it had found the RECORD, so F8 chose one, nothing opened, the caret did not move — and the
+// next press, which works out where it is FROM the caret, chose the same one again. One such note made
+// every real comment in the review unreachable from the keyboard, in both directions, with the same
+// sentence on screen each time and no surface saying which record was eating the key.
+test("stepping walks past a comment whose file this review does not have", async () => {
+  const v = await loadViewer(html);
+  try {
+    await diffCommentOnFirstLine(v, "a real one");
+    const real = v.window.reviewComments[0];
+    assert.ok(real, "the premise: there is one reachable comment");
+
+    // The shape an agent writes into comments.jsonl, naming a file nobody has.
+    v.window.reviewComments.push({
+      seq: 99, kind: "note", by: "agent", path: "src/does-not-exist.ts", line: 3,
+      from: 3, to: 3, side: null, code: "", anchorCode: "", text: "about a file that is not here",
+    });
+    v.window.refreshComments();
+    await v.settle(30);
+    assert.equal(v.window.commentIsReachable({ path: "src/does-not-exist.ts" }), false, "and it is not reachable");
+    assert.equal(v.window.commentIsReachable(real), true, "while the real one is");
+
+    // Six presses in each direction: the walk must keep landing on the reachable comment rather than
+    // stopping on the one it cannot open.
+    for (const delta of [1, 1, 1, -1, -1, -1]) {
+      v.window.gotoComment(delta);
+      await v.settle(20);
+      assert.equal(v.window.lastRevealedSeq, real.seq,
+        `after stepping ${delta > 0 ? "forward" : "back"} the walk is on the comment it can show`);
+    }
+  } finally {
+    v.close();
+  }
 });

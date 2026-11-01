@@ -329,6 +329,15 @@ function showSourceBlame(path) {
   Promise.resolve(window.kakapoGit.blame({ path: path })).then(function (records) {
     if (seq !== sourceBlameLoadSeq || sourceBlamePath !== path) return;
     var rows = Array.isArray(records) ? records : [];
+    // git has nothing to say about a file it has never seen — an untracked one, most often. Painted
+    // anyway, that produced an empty `.source-blame-entry` on every line: a third of the editor's width
+    // given over to a blank column, with no text, no tooltip and nothing to say why. There is a sentence
+    // for "nothing to show" and this is one of the places that needed it.
+    if (!rows.length) {
+      hideSourceBlame(path);
+      showCaretHint(t('blame.noHistory'));
+      return;
+    }
     sourceBlameLines = new Map(rows.map(function (record) { return [Number(record.line), record]; }));
     sourceBlameAges = buildBlameAgeBuckets(rows);
     applySourceBlameIfActive(path);

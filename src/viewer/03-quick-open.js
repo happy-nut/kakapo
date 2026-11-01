@@ -56,7 +56,9 @@ function openQuickOpen(mode, hideRail) {
                       ? t('actions.title')
                       : t('quickopen.searchFiles');
   quickInput.setAttribute('placeholder', mode === 'symbol'
-    ? t('quickopen.workspaceSymbols')
+    // The same question the title asks six lines above: ⌥O and ⌘⌥O share this mode, and the box said
+    // "워크스페이스 심볼" under a title reading "클래스로 가기".
+    ? t(workspaceSymbolTypesOnly ? 'quickopen.goToClass' : 'quickopen.workspaceSymbols')
     : mode === 'content'
       ? t('quickopen.findInFiles')
       : mode === 'structure'

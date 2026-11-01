@@ -188,6 +188,22 @@ function syncDiffReviewChrome(path) {
   var activePath = empty ? '' : (path || (diffCursor && diffCursor.path) || hunkPathAt(current) || '');
   var beforePath = document.getElementById('diff-before-path');
   var afterPath = document.getElementById('diff-after-path');
+  // The right pane's label is static markup reading "작업 트리", which is true of the ordinary review and
+  // false of every A→B compare: a ⌘9 range, or a patch set chosen as the target, puts a COMMIT there and
+  // the header went on naming a working tree that is not in the comparison at all. A sha is not a phrase,
+  // so the i18n key comes off while one is shown and goes back on when the working tree returns — leaving
+  // it would let the next locale switch repaint "작업 트리" over the commit.
+  var afterKind = document.getElementById('diff-after-kind');
+  if (afterKind) {
+    var target = patchSetData && patchSetData.activeTarget;
+    if (target && target !== 'worktree') {
+      afterKind.removeAttribute('data-i18n');
+      afterKind.textContent = String(target).slice(0, 7);
+    } else if (!afterKind.getAttribute('data-i18n')) {
+      afterKind.setAttribute('data-i18n', 'diff.workingTree');
+      afterKind.textContent = t('diff.workingTree');
+    }
+  }
   if (beforePath) { beforePath.textContent = activePath; beforePath.title = activePath; }
   if (afterPath) { afterPath.textContent = activePath; afterPath.title = activePath; }
   // Every arrow key reaches this through setDiffCursor; rebuilding the crumb DOM per keystroke would be

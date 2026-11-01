@@ -340,7 +340,9 @@ function toggleFileFindOption(id) {
   if (id === 'inSelection') {
     if (!fileFindInSelection) {
       var lines = fileFindHasSelection() ? fileFindSelectedLines() : null;
-      if (!lines) return true; // nothing to narrow to; the press is consumed, the scope is unchanged
+      // Consumed, and said. The disabled button tells a mouse user why nothing happened; a keyboard user
+      // pressing ⌥E with no selection got the same silence this whole pass has been removing.
+      if (!lines) { showCaretHint(t('find.inSelection.none')); return true; }
       fileFindSelectionLines = lines;
     } else {
       fileFindSelectionLines = null;

@@ -1032,9 +1032,14 @@ export class ProjectAnalysis {
           break;
         }
         try {
-          const answered = uniqueLocations(await client.workspaceSymbols(query), Math.max(1, Math.min(Number(limit) || 200, 500)));
-          const locations = typesOnly ? answered.filter(isTypeLocation) : answered;
-          const codeLocations = await this.navigationLocations(locations, Math.max(1, Math.min(Number(limit) || 200, 500)));
+          // Filter BEFORE capping. Capping first spends the whole budget on symbols that are about to be
+          // thrown away: ⌥O (Go to Class) on an empty query answered "결과 1개" because 200 symbols came
+          // back and 199 of them were not types. The number on screen was an artifact of the order these
+          // two ran in, not a count of anything.
+          const cap = Math.max(1, Math.min(Number(limit) || 200, 500));
+          const matched = await client.workspaceSymbols(query);
+          const locations = uniqueLocations(typesOnly ? matched.filter(isTypeLocation) : matched, cap);
+          const codeLocations = await this.navigationLocations(locations, cap);
           this.setStatus("ready", serverFields(client.server));
           if (codeLocations.length) {
             return {

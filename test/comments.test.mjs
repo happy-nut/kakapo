@@ -174,6 +174,28 @@ test("empty/whitespace input saves nothing and closes the composer", async () =>
   v.close();
 });
 
+// The other nothing, and it wants the opposite answer. A composer opens PREFILLED with the line it is
+// about, so ⌘Enter on one nobody has typed into is not "I cleared this" — it is a box with text in it
+// vanishing on the key that is supposed to keep it. Clearing the box is the discard gesture (above) and
+// still closes; leaving it as it opened says what is missing and stays, so the words can go in.
+test("an untouched composer says what is missing instead of vanishing", async () => {
+  const v = await loadViewer(html);
+  try {
+    await v.openSourceFile("AGENTS.md");
+    await v.clickSourceLine(4);
+    await v.openComposer("q");
+    const box = v.visibleComposerInput();
+    assert.ok(box, "the premise: a composer is open");
+    assert.match(box.value, /^@/, "and it opened holding the anchor, not empty");
+
+    await v.writeAndSave(box.value); // exactly what it opened with — nothing typed
+    assert.equal(v.storedComments().length, 0, "nothing persisted");
+    assert.ok(v.$(".mc-composer"), "and the box is still there to write in");
+  } finally {
+    v.close();
+  }
+});
+
 // One comment per thread: a line already carrying one is answered, not re-asked. Asking again there reopens
 // the comment that is there rather than stacking a second beside it.
 test("a second comment on the same line edits the first instead of piling up", async () => {

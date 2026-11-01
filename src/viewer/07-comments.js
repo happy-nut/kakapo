@@ -1290,6 +1290,18 @@ function saveComposer(ta) {
   if (!composerState) return;
   var box = ta || activeComposerInput();
   if (!box) return;
+  // Two different nothings, and they want opposite answers.
+  //
+  // A box CLEARED to whitespace is the discard gesture — the reviewer took their words out — and closing
+  // it is right (test/comments.test.mjs has said so since this feature shipped). A box still holding
+  // exactly the anchor openComposer prefilled is UNTOUCHED, and closing that one made a box with text in
+  // it vanish on the key that is supposed to keep it. So: still has the prefill and nothing else, say
+  // what is missing and stay open; genuinely emptied, close as before. An EDIT emptied on purpose still
+  // deletes, which is the documented way to remove a comment.
+  if (composerState.editSeq == null && String(box.value || '').trim() && !commentBodyText(composerState, box.value)) {
+    showCaretHint(t('comment.empty'));
+    return;
+  }
   if (composerState.editSeq != null) updateComment(composerState.editSeq, box.value);
   else addComment(composerState.kind, composerState.path, composerState.line, composerState.code, box.value, composerState.from, composerState.to, composerState.side, composerState.anchorCode, composerState.replyTo);
   composerState = null;
@@ -1639,10 +1651,23 @@ function diffCanShowComment(c) {
 // lastRevealedSeq is the card the walk last landed on. A line cannot say which of the cards anchored to it you
 // are reading, and stepAnchor needs to know — see the walk-by-index branch there.
 var lastRevealedSeq = 0;
+// Can this comment be landed on at all? A record names a path and the review may simply not have that file:
+// an agent's note about a path that was never in the diff, or a reply that arrived orphaned and carries no
+// path. Asked BEFORE anything moves, so the walk can step past it rather than discovering the failure as a
+// sentence on screen with the caret still where it was.
+function commentIsReachable(c) {
+  var path = String((c && c.path) || '');
+  if (!path) return false;
+  return sourceByPath.has(path) || !!diffWrapperByPath(path);
+}
 function revealComment(seq) {
   var target = reviewComments.find(function (c) { return c.seq === seq; });
   if (!target) return false;
   lastRevealedSeq = seq;
+  // Reported, not merely attempted: this used to answer true once it had found the RECORD, which is what
+  // let the walk above spin on a comment nothing could open. gotoComment filters first, so reaching here
+  // with an unreachable one means some other caller asked for it by id.
+  if (!commentIsReachable(target)) return false;
   var center = function () { centerThreadRow(target.path, Number(target.line) || 1, commentSide(target), 0); };
   var land = function () {
     if (!navigateToCommentInDiff(target.seq)) navigateToComment(target.seq);
@@ -1673,7 +1698,14 @@ function gotoComment(delta) {
   // numbering them. F8 then bounced between whichever two survived, calling them 8/9 and 9/9.
   var list = sortedNavThread();
   if (!list.length) { showCaretHint(t('comment.nav.none')); return true; }
-  revealComment(stepAnchor(delta, list).seq);
+  // Walk only the ones that can be landed on. revealComment used to report success for the others because
+  // it had found the RECORD, so the caret never moved — and stepAnchor works out where it is FROM the
+  // caret, so the next press chose the same comment and the same sentence came back forever. One
+  // unopenable note from an agent made every real comment unreachable from the keyboard, both directions.
+  // Filtered rather than retried, because a file nobody has should not hold a rank in the order either.
+  var reachable = list.filter(commentIsReachable);
+  if (!reachable.length) { showCaretHint(t('comment.nav.unreachable')); return true; }
+  revealComment(stepAnchor(delta, reachable).seq);
   return true;
 }
 

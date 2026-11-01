@@ -30,6 +30,16 @@ function compareMenuRows() {
   return Array.prototype.slice.call(el.querySelectorAll(inBranches ? '.compare-branch-item' : '.compare-menu-main .compare-menu-row'));
 }
 
+// The branch the review is actually measured against — or nothing, when it is measured against something
+// no branch names: a patch set, a ⌘9 range. THREE surfaces print or tick this: the "main 대비" phrase, the
+// `비교 대상` line, and the checkmark in the branch list. The first fix for this taught only the phrase, so
+// the menu went on ticking `main` and reading `비교 대상: main` twenty pixels under a toolbar pill that
+// said `1fe2700 → 작업 트리`. One value, read by all three.
+function compareMenuActiveRef() {
+  var data = compareMenuState;
+  if (!data || data.mode === 'other') return '';
+  return String(data.ref || '');
+}
 function renderCompareMenu() {
   var el = compareMenuEl();
   if (!el || !compareMenuState) return;
@@ -37,12 +47,10 @@ function renderCompareMenu() {
   var against = document.getElementById('compare-menu-against');
   // "vs main" / "main 대비" — the ref rides inside the phrase because the two languages put it on opposite
   // sides of the word, so a bare span glued on either end would read wrong in one of them.
-  // Only where it is true. `ref` is the branch "모든 변경사항" WOULD measure against, which is not what the
-  // review measures against once a patch set or a ⌘9 range has moved it — printing it there named a base
-  // the diff is not using, in the sentence a reader opens this menu to read.
-  if (against) against.textContent = data.ref && data.mode !== 'other' ? t('compare.menu.against').replace('{ref}', data.ref) : '';
+  var activeRef = compareMenuActiveRef();
+  if (against) against.textContent = activeRef ? t('compare.menu.against').replace('{ref}', activeRef) : '';
   var refEl = document.getElementById('compare-menu-ref');
-  if (refEl) refEl.textContent = data.ref || '';
+  if (refEl) refEl.textContent = activeRef;
   el.querySelectorAll('.compare-menu-row[data-mode]').forEach(function (row) {
     var on = row.getAttribute('data-mode') === data.mode;
     row.classList.toggle('active', on);
@@ -55,6 +63,7 @@ function renderCompareBranchList() {
   var list = document.getElementById('compare-branch-list');
   if (!list || !compareMenuState) return;
   var needle = compareMenuBranchFilter.toLowerCase();
+  var activeRef = compareMenuActiveRef();
   var branches = (compareMenuState.branches || []).filter(function (name) {
     return !needle || name.toLowerCase().indexOf(needle) >= 0;
   });
@@ -63,7 +72,7 @@ function renderCompareBranchList() {
     return;
   }
   list.innerHTML = branches.map(function (name) {
-    var current = name === compareMenuState.ref;
+    var current = !!activeRef && name === activeRef;
     // The repository's own default is worth marking: it is the answer you get back by picking nothing, and
     // without the mark a list of thirty branches gives no clue which one that is.
     var note = name === compareMenuState.defaultRef ? '<span class="compare-branch-note">' + escapeHtml(t('compare.menu.default')) + '</span>' : '';

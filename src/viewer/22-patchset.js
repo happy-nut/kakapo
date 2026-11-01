@@ -32,7 +32,13 @@ function compareCommitLead() {
   var newest = data.commits[at];
   // commits are oldest → newest, and the base is the commit BEFORE the first one shown, so the span is the
   // half-open (base, target]. An unknown base (auto, a branch point outside this scope) counts as one.
-  var span = baseAt >= 0 && baseAt < at ? at - baseAt : 1;
+  //
+  // git's EMPTY TREE is not an unknown base — it is "nothing was there yet", which a range opened from the
+  // ROOT commit gets, and it means every commit up to the target is inside the span. Counted as one, the
+  // chip read `1fe2700 work` with no "+2 더" beside it for a three-commit range.
+  var span = data.activeBase === EMPTY_TREE_SHA ? at + 1
+    : baseAt >= 0 && baseAt < at ? at - baseAt
+      : 1;
   return { sha: newest.shortSha || String(newest.sha).slice(0, 7), subject: newest.subject || '', others: Math.max(0, span - 1) };
 }
 
@@ -60,6 +66,12 @@ function patchSetCommitTitle(index, c) {
 function patchSetBaseOptions(data) {
   var opts = [];
   var active = data.activeBase || 'auto';
+  // A ⌘9 range opened from the root commit is based on git's empty tree, which is in no commit list — so
+  // the base side had no button to mark and the bar came out as `기준 ⟨nothing⟩ 1 2 3 대상` with an empty
+  // summary beside it. It is a real base and it has a name the history bar already uses for it.
+  if (data.scoped && active === EMPTY_TREE_SHA) {
+    opts.push({ ref: EMPTY_TREE_SHA, label: t('history.emptyTree'), wide: true, title: t('history.emptyTree'), active: true });
+  }
   if (!data.scoped && data.branchPoint) {
     opts.push({
       // "auto", not the branch point's sha — they resolve to the same diff, and only one of them is
@@ -222,6 +234,14 @@ function selectPatchSet(which, ref) {
       if (res && res.ok && patchSetData) { patchSetData.activeTarget = res.activeTarget || ref; renderPatchSetBar(); syncDiffReviewChrome(); }
     }).catch(function () {});
   } else {
+    // "All changes" is the same thing ⌥A means, so it has to go the same way ⌥A goes. Sending `auto` down
+    // the patch-set path cleared `options.base`, and automatic resolution DECLINES on a dirty worktree
+    // (resolveAutomaticReviewBase, src/git.ts: unpushed commits are only the base when there is nothing
+    // uncommitted), so the build fell back to HEAD — and a button labelled `전체 변경 · main` narrowed the
+    // review to uncommitted changes, the exact opposite of what it says, whenever anything was uncommitted.
+    // setCompareMode resolves the branch point explicitly and records the branch in `baseLabel`, which is
+    // both right and reversible; `auto` was chosen for reversibility alone, without asking what it meant.
+    if (ref === 'auto') { applyCompareMode('all', '', false); return; }
     if (typeof window.kakapoGit.setReviewBase !== 'function') return;
     // "Already there?" asked the way the BAR asks it, which is the only way the two can agree. The backend
     // sends `activeBase` as the sha the build resolved, so comparing it with the option's own `ref` held
