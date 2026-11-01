@@ -100,9 +100,6 @@ function hideCaretHint() {
   if (caretHintTimer) { clearTimeout(caretHintTimer); caretHintTimer = 0; }
   if (caretHintEl) caretHintEl.classList.remove('show');
 }
-// Is a comment's anchor line (its snapshot of the commented text) present in the file's current content?
-// Used both when a comment is created (to record that the line was real then) and on every rebuild. A blank
-// or multi-line snapshot has no stable single-line anchor and reports false.
 // The file's current text, as much of it as is actually known.
 //
 // `sourceByPath` has every line once the body has loaded. A file the reviewer has only seen in the DIFF sits
@@ -118,13 +115,19 @@ function hideCaretHint() {
 // can establish "the anchor is HERE", and only a complete one can establish "the anchor is GONE". An
 // absence read off a partial text is not an absence, and this one would mark a comment addressed because
 // its line happened to fall outside a hunk.
-function currentFileText(path) {
-  var file = sourceByPath.get(path);
+function currentFileText(path, side) {
+  // A comment on the BASE pane carries base line numbers, and `content` is the working tree: looked up
+  // there, a base comment on an unchanged line found its text at the NEW side's number and was renumbered
+  // to it while still marked `side: 'old'` — the card then sat beside a different line of the base. The
+  // base's own rows are the only text that can speak for those numbers, so that is what is read for it.
+  var base = side === 'old';
+  var file = base ? null : sourceByPath.get(path);
   if (file && file.embedded && typeof file.content === 'string' && file.content) {
     var lines = file.content.split(/\r?\n/);
     return {
       complete: true,
       at: function (line) { return lines[line - 1]; },
+      has: function (code) { return lines.indexOf(code) >= 0; },
       // The NEAREST exact match, which is what keeps a comment on its own copy of a line that repeats.
       find: function (code, near) {
         var best = 0, bestDist = Infinity;
@@ -138,7 +141,7 @@ function currentFileText(path) {
     };
   }
   var wrapper = diffWrapperByPath(path);
-  var rows = wrapper ? diffRowsOf(diffSideTable(wrapper, 'new')) : [];
+  var rows = wrapper ? diffRowsOf(diffSideTable(wrapper, base ? 'old' : 'new')) : [];
   if (!rows.length) return null;
   var byLine = new Map();
   for (var r = 0; r < rows.length; r++) {
@@ -149,6 +152,18 @@ function currentFileText(path) {
   return {
     complete: false,
     at: function (line) { return byLine.get(line); },
+    has: function (code) {
+      var found = false;
+      byLine.forEach(function (text) { if (text === code) found = true; });
+      return found;
+    },
+    // "The nearest match" means the nearest in the FILE, and this map holds the nearest among the printed
+    // ROWS — which are hunks, with everything between them missing. Answered naively, a comment anchored
+    // to a line as common as `}` on an unprinted line 3 followed that text to line 46, a closing brace in
+    // another function, and the move went to disk and into the hand-off text: worse than not moving at
+    // all, which is what this code replaced. So a move is offered only when the ground it crosses is all
+    // on screen — the comment's own line printed (or we cannot even see that it left) and no gap between
+    // there and the candidate, because a gap is exactly where a nearer match would hide.
     find: function (code, near) {
       var best = 0, bestDist = Infinity;
       byLine.forEach(function (text, ln) {
@@ -156,15 +171,25 @@ function currentFileText(path) {
         var d = Math.abs(ln - near);
         if (d < bestDist) { bestDist = d; best = ln; }
       });
+      if (!best) return 0;
+      for (var ln = Math.min(near, best); ln <= Math.max(near, best); ln += 1) {
+        if (!byLine.has(ln)) return 0;
+      }
       return best;
     },
   };
 }
-function anchorLinePresent(path, anchorCode, code) {
+// Is a comment's anchor line (its snapshot of the commented text) present in the file's current content?
+// Used both when a comment is created (to record that the line was real then) and on every rebuild. A blank
+// or multi-line snapshot has no stable single-line anchor and reports false.
+function anchorLinePresent(path, anchorCode, code, side) {
   var ac = String(anchorCode == null ? (code == null ? '' : code) : anchorCode);
   if (!ac.trim() || ac.indexOf('\n') >= 0) return false;
-  var text = currentFileText(path);
-  return !!text && text.find(ac, 1) > 0;
+  var text = currentFileText(path, side);
+  // `has`, not `find`: this asks whether the line EXISTS, and `find` answers "where did it move to", which
+  // it may only do across printed ground. Asked with find, a diff-only file would report every anchor
+  // missing, because the span from line 1 to the match is almost never all in one hunk.
+  return !!text && text.has(ac);
 }
 // Reconcile comments against the current content after a rebuild (the AI's next round) or a source load.
 // Two jobs:
@@ -228,7 +253,7 @@ function remapComments() {
   if (!reviewComments.length) return;
   var changed = 0;
   reviewComments.forEach(function (c) {
-    var text = currentFileText(c.path);
+    var text = currentFileText(c.path, commentSide(c));
     if (!text) return;
     var code = c.anchorCode != null ? String(c.anchorCode) : (c.code == null ? '' : String(c.code));
     if (code.indexOf('\n') >= 0) return; // legacy multi-line snapshots had no stable anchor line
@@ -310,7 +335,7 @@ function recordToComment(record, byId) {
     // Only a role the card knows how to draw survives the trip (NOTE_ROLES, 23-agent-cards.js).
     role: NOTE_ROLES[record.role] ? record.role : null,
     group: Number(record.group) > 0 ? Number(record.group) : 0,
-    addressed: !!record.addressed, anchorPresent: anchorLinePresent(path, anchor, anchor),
+    addressed: !!record.addressed, anchorPresent: anchorLinePresent(path, anchor, anchor, record.side),
     archivedAt: typeof record.archivedAt === 'string' ? record.archivedAt : null,
     view: record.view === 'diff' || record.view === 'source' ? record.view : null,
     text: String(record.text == null ? '' : record.text),
@@ -610,7 +635,7 @@ function addComment(kind, path, line, code, text, from, to, side, anchorCode, re
     title: '',
     // Record whether the anchor line exists now so a later rebuild can tell "the line I commented on changed"
     // from "this old-side anchor was never in the working tree". addressed starts false.
-    anchorPresent: anchorLinePresent(path, anchorCode, code), addressed: false,
+    anchorPresent: anchorLinePresent(path, anchorCode, code, side), addressed: false,
     // WHICH VIEW this was written in. Going back to a comment used to prefer the diff whenever the diff could
     // show the line at all — but a comment written while reading the whole file was about the whole file, and
     // answering it with two narrow hunk panes drops the context it was made in. The view is part of where the

@@ -243,9 +243,13 @@ function restoreUiState() {
       const match = String(state.hash || location.hash || '').match(/^#hunk-(\d+)$/);
       // setActive parks the caret in the FIRST hunk's file before the saved caret goes back 60 ms later, and
       // stepping into a folded file opens it (setDiffCursor) — so every watch rebuild silently un-folded
-      // whichever file leads the diff, costing the reader one fold on every edit the agent made. The caret
-      // they actually had cannot have been in a folded file, so putting the saved set back after the restore
-      // puts back exactly what they folded; the caret's own file is dropped from it in case it ever could.
+      // whichever file leads the diff, costing the reader one fold on every edit the agent made. The saved
+      // set goes back after the restore, so what they folded is what they get.
+      //
+      // Including the caret's own file: ⌘. (toggleDiffFileCollapse) folds the ACTIVE wrapper and leaves the
+      // caret in it, so "the caret cannot be inside a folded file" is not true, and excluding that path —
+      // which is the first version of this — left ⌘. losing its fold on every rebuild, the whole defect
+      // over again on the one file the reader folded most deliberately.
       var folded = Object.keys(diffCollapsedFileSet());
       setActive(match ? Number(match[1]) : current >= 0 ? current : 0, false);
       // Restore the exact diff caret (setActive only lands on the hunk's first change).
@@ -253,7 +257,7 @@ function restoreUiState() {
         var dc = state.diffCursor;
         setTimeout(function () {
           try { setDiffCursor(dc.path, dc.side, dc.rowIndex, dc.column, true); } catch (e) {}
-          setDiffCollapsedFileSet(folded.filter(function (p) { return p !== dc.path; }));
+          setDiffCollapsedFileSet(folded);
         }, 60);
       } else setDiffCollapsedFileSet(folded);
       return true;

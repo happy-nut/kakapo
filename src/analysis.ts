@@ -67,6 +67,10 @@ export type AnalysisKind =
   // tokenizer can only approximate. Answered in `tokens`.
   | "semanticTokens";
 
+// Questions about a FILE rather than about a position in one. They take the same request shape, but the
+// caret's side tells them nothing: the file a server reads is the file on disk either way.
+const FILE_LEVEL_KINDS = new Set(["documentSymbol", "foldingRange", "codeLens", "inlayHint", "semanticTokens", "workspaceSymbol"]);
+
 export type AnalysisRequest = {
   kind: AnalysisKind;
   path?: string;
@@ -482,7 +486,13 @@ export class ProjectAnalysis {
     // The page has to tell "no server will ever answer about this line" from "the server is still waking
     // up", because it says a different sentence for each and "try again in a moment" is the one thing that
     // can never come true for a line of the old file.
-    const baseSide = request.side === "old" && !this.reviewTarget ? { baseSide: true } : {};
+    //
+    // Only where a POSITION was declined. A file-level question — this file's symbols, its folds, its code
+    // lenses — is about the file on disk and was answered by a server that read it, so flagging those as
+    // base-side would be the flag saying something untrue about an answer that is perfectly good.
+    const baseSide = request.side === "old" && !this.reviewTarget && !FILE_LEVEL_KINDS.has(request.kind)
+      ? { baseSide: true }
+      : {};
     return { ...result, ...baseSide, generation, durationMs: Math.round((performance.now() - started) * 10) / 10 };
   }
 

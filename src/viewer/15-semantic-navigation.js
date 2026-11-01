@@ -264,7 +264,11 @@ async function goToDefOrUsages(name, explicitLoc) {
         .replace('{where}', externalLocationLabel(def.path)));
       return;
     }
-    if (def && loc && def.path === loc.path && def.lineIndex === loc.lineIndex) {
+    // The same question alreadyAtLocation answers, and it has to be asked the same way: comparing only the
+    // LINE said "you are on the declaration" for a caret on `export` or on `function`, and then offered the
+    // keyword's usages. Tightening the one predicate and leaving its two siblings on the old comparison is
+    // how that defect survived the fix for it.
+    if (def && alreadyAtLocation(loc, def)) {
       var refs = await queryProjectAnalysis('references', name, loc);
       openAnalysisUsages(name, refs && refs.locations || [], refs, 'references');
       return;
@@ -273,7 +277,7 @@ async function goToDefOrUsages(name, explicitLoc) {
   }
   // Standalone HTML has no main-process analyzer. Keep a small in-memory scan for that mode only.
   var def = findSymbolDefinition(name);
-  if (def && loc && def.path === loc.path && def.lineIndex === loc.lineIndex) {
+  if (def && alreadyAtLocation(loc, def)) {
     openUsages(name, def);
     return;
   }

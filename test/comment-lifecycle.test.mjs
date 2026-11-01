@@ -154,3 +154,48 @@ test("an anchor the diff cannot see is not reported as addressed", async () => {
     v.close();
   }
 });
+
+// Following a comment is a claim about the FILE, and the diff only shows hunks. "The nearest line that
+// still reads `}`" among the printed rows is not the nearest `}` in the file, and a comment anchored to
+// something as common as a closing brace, on a line far outside any hunk, followed that text across the
+// gap: line 3 to line 46, a brace belonging to another function. The moved line is written to disk and is
+// what the hand-off text hands the agent — so the wrong answer leaves the app. Not moving at all, which
+// is what this replaced, was better.
+//
+// The rule that makes a move sound: the comment's own line is printed (otherwise we cannot even see that
+// it left), and there is no gap between there and the candidate (a gap is exactly where a nearer match
+// would hide). Everything else waits for the whole file.
+test("a comment does not follow its anchor across ground the diff never printed", async () => {
+  const head = ["function head() {", "  ONE();", "}"];
+  const filler = Array.from({ length: 40 }, (_, i) => `const pad${i} = ${i};`);
+  const tail = (call) => ["function tail() {", `  ${call}();`, "}"];
+  const body = (call) => [...head, ...filler, ...tail(call), ""].join("\n");
+  // Context 2, and the only change is at line 45 — so the hunk is the tail, and line 3 is off screen.
+  const { html } = await makeReviewHtml(
+    [{ path: FILE, before: body("TWO"), after: body("THREE") }], { context: 2 },
+  );
+  const v = await loadViewer(html, {
+    seedStorage: {
+      [COMMENTS_KEY]: JSON.stringify([
+        { seq: 3, kind: "c", path: FILE, line: 3, code: "}", text: "about the head's closing brace",
+          from: 3, to: 3, side: null, anchorCode: "}", anchorPresent: true, addressed: false },
+      ]),
+    },
+  });
+  try {
+    await v.openDiffFor(FILE);
+    v.window.eval(`sourceByPath.get(${JSON.stringify(FILE)}).content = ''`);
+    const printed = v.window.eval(`JSON.stringify(diffRowsOf(diffSideTable(diffWrapperByPath(${JSON.stringify(FILE)}), 'new')).map(diffLineNumber).filter(function (n) { return n != null; }))`);
+    const lines = JSON.parse(printed);
+    assert.ok(!lines.includes(3), `the premise: line 3 is not printed (printed ${lines[0]}…${lines[lines.length - 1]})`);
+    assert.ok(lines.includes(46), "the premise: another `}` IS printed, at line 46");
+
+    v.window.remapComments();
+    await v.settle(40);
+    const c3 = v.storedComments().find((c) => c.seq === 3);
+    assert.equal(c3.line, 3, "it stays where the reviewer left it rather than jumping to a brace it never meant");
+    assert.ok(!c3.addressed, "and nothing was concluded about it either");
+  } finally {
+    v.close();
+  }
+});

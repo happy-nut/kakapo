@@ -314,7 +314,11 @@ test("a base-pane line says to step across, not to wait", async () => {
       /찾지 못했|not found/i,
       `and nothing was searched, so nothing was missing (got: ${message})`,
     );
-    assert.match(message, /⇧Tab/, "it names the step that does change the answer");
+    // It used to advise ⇧Tab. On the line this is usually said about — one that exists only in the base —
+    // the new side has no code row opposite it, so that key answers "there is no counterpart in the
+    // working tree": advice the very next keystroke refuses. It states the reason instead.
+    assert.doesNotMatch(message, /⇧Tab/, "it does not advise a key that declines on this line");
+    assert.match(message, /기준 쪽|only in the base/i, "it says why no server answered");
   } finally {
     v.close();
   }

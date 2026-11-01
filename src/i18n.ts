@@ -121,7 +121,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // (monaco.analysisPending) and from "asked and found none".
     "monaco.notOffered": "This language’s server does not answer that question — there is no more to find for “{symbol}”.",
     "monaco.noServer": "No language server covers this file’s language — semantic navigation is not available here.",
-    "monaco.baseSide": "“{symbol}” is on a base-pane line that is not in the working tree — step to the new side (⇧Tab) to ask the language server.",
+    "monaco.baseSide": "“{symbol}” is on a line that exists only in the base, which no language server can read — it was looked up by name instead, and nothing matched.",
     "findaction.declined": "“{action}” is not available on this screen.",
     "monaco.alreadyThere": "This IS the declaration of “{symbol}” — there is nowhere else to go.",
     // Not a failure to find something: a refusal to answer from the wrong text. Names the revision, because
@@ -844,7 +844,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "monaco.analysisPending": "프로젝트를 아직 읽고 있습니다 — 잠시 후 “{symbol}”을 다시 시도하세요.",
     "monaco.notOffered": "이 언어의 서버는 이 질문에 답하지 않습니다 — “{symbol}”에 대해 더 알아낼 방법이 없습니다.",
     "monaco.noServer": "이 파일의 언어를 담당하는 언어 서버가 없습니다 — 의미 기반 이동은 쓸 수 없습니다.",
-    "monaco.baseSide": "“{symbol}”은 작업 트리에 없는 기준 쪽 줄에 있습니다 — 언어 서버에 물으려면 새 쪽으로 넘어가세요 (⇧Tab).",
+    "monaco.baseSide": "“{symbol}”은 기준 쪽에만 있는 줄에 있어 언어 서버가 읽을 수 없습니다 — 이름으로만 찾았고, 나온 것이 없습니다.",
     "findaction.declined": "“{action}”은 이 화면에서는 쓸 수 없습니다.",
     "monaco.alreadyThere": "여기가 “{symbol}”의 선언입니다 — 갈 곳이 여기입니다.",
     "quickopen.revisionOff": "이 리비전에서는 꺼짐",
