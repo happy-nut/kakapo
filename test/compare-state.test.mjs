@@ -245,3 +245,32 @@ test("the patch-set bar's “all” option is reversible", () => {
   assert.equal(atSha[0].active, true);
   assert.equal(atSha[0].ref, "auto", "and picking it there is still the reversible value");
 });
+
+// Clicking the option the bar already shows as active must do nothing. `activeBase` arrives as the sha the
+// build resolved, so the old guard — compare it with the option's `ref` — held only while that ref was a
+// sha as well. When "all" started sending "auto" to stay reversible, the guard went dead and every click
+// on the already-active "all" ran a full rebuild for no change. The two questions have one answer now:
+// the option list decides which option is active, and the guard reads that.
+test("clicking the option already in force changes nothing", () => {
+  const deps = [
+    ["t", (key) => key],
+    ["patchSetShortRef", (ref) => String(ref)],
+    ["patchSetCommitTitle", (index, commit) => String(commit.subject)],
+  ];
+  const options = (data) => bundled("patchSetBaseOptions", ...deps)(data);
+  // The state the backend actually sends when the review is at the branch point: a resolved sha.
+  const atBranchPoint = {
+    branchPoint: { sha: "54d784f0000", label: "main" },
+    commits: [{ sha: "1fe2700", subject: "work", shortSha: "1fe2700", date: "" }],
+    scoped: false,
+    activeBase: "54d784f0000",
+  };
+  const all = options(atBranchPoint).filter((option) => option.ref === "auto")[0];
+  assert.ok(all, "the “all” option is addressed as auto");
+  assert.equal(all.active, true,
+    "and the bar knows it is already in force — which is what the no-op guard has to read");
+
+  // And a patch set that is NOT in force is not marked active, or the guard would swallow a real pick.
+  const one = options(atBranchPoint).filter((option) => option.ref === "1fe2700")[0];
+  assert.equal(one.active, false, "picking a different patch set is a real change");
+});

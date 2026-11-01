@@ -661,19 +661,19 @@ function readTargetBlobSource(root: string, file: SourceFile, target: string): S
     const out = spawnSync("git", [...RAW_PATHS, "show", "--no-textconv", spec], { cwd: root, encoding: "buffer", maxBuffer: 1024 * 1024 * 50 });
     if (out.status !== 0) {
       const skippedReason = "file is not present in this revision";
-      return { ...file, content: "", embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0missing-target\0${target}`) };
+      return { ...file, content: "", embedded: false, deferred: false, skippedReason, skippedKind: "missingRevision", signature: hashText(`${file.path}\0missing-target\0${target}`) };
     }
     const data = out.stdout as Buffer;
     if (data.length > IMAGE_MAX_BYTES) {
       const skippedReason = `file larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
-      return { ...file, content: "", size: data.length, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0image-large\0${data.length}`) };
+      return { ...file, content: "", size: data.length, embedded: false, deferred: false, skippedReason, skippedKind: "imageLarge", signature: hashText(`${file.path}\0image-large\0${data.length}`) };
     }
     return { ...file, content: "", size: data.length, deferred: false, image: `data:${previewMime};base64,${data.toString("base64")}`, signature: hashText(`${file.path}\0image-target\0${data.length}`) };
   }
   const out = spawnSync("git", [...RAW_PATHS, "show", "--no-textconv", spec], { cwd: root, encoding: "buffer", maxBuffer: 1024 * 1024 * 50 });
   if (out.status !== 0) {
     const skippedReason = "file is not present in this revision";
-    return { ...file, content: "", embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0missing-target\0${target}`) };
+    return { ...file, content: "", embedded: false, deferred: false, skippedReason, skippedKind: "missingRevision", signature: hashText(`${file.path}\0missing-target\0${target}`) };
   }
   // Decode by BOM, exactly as the working-tree read does. Taking the blob as UTF-8 both mojibakes a UTF-16
   // file and leaves it full of NULs, which the check below then reports as "binary file" — the same file
@@ -686,11 +686,11 @@ function readTargetBlobSource(root: string, file: SourceFile, target: string): S
   const bytes = Buffer.byteLength(content, "utf8");
   if (content.slice(0, 8192).includes("\0")) {
     const skippedReason = "binary file";
-    return { ...file, content: "", size: bytes, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0binary-target\0${target}`) };
+    return { ...file, content: "", size: bytes, embedded: false, deferred: false, skippedReason, skippedKind: "binary", signature: hashText(`${file.path}\0binary-target\0${target}`) };
   }
   if (bytes > SOURCE_MAX_LAZY_FILE_BYTES) {
     const skippedReason = `larger than ${formatBytes(SOURCE_MAX_LAZY_FILE_BYTES)}`;
-    return { ...file, content: "", size: bytes, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0large-target\0${bytes}`) };
+    return { ...file, content: "", size: bytes, embedded: false, deferred: false, skippedReason, skippedKind: "large", signature: hashText(`${file.path}\0large-target\0${bytes}`) };
   }
   return { ...file, content, size: bytes, embedded: true, deferred: false, skippedReason: undefined, signature: hashText(`${file.path}\0${content}`) };
 }
@@ -707,12 +707,12 @@ export function materializeDeferredSourceFile(rootArg: string, file: SourceFile,
   const absolute = join(root, file.path);
   if (!existsSync(absolute)) {
     const skippedReason = "file is not present in the working tree";
-    return { ...file, content: "", embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0missing\0${skippedReason}`) };
+    return { ...file, content: "", embedded: false, deferred: false, skippedReason, skippedKind: "missing", signature: hashText(`${file.path}\0missing\0${skippedReason}`) };
   }
   const stats = statSync(absolute);
   if (!stats.isFile()) {
     const skippedReason = "not a regular file";
-    return { ...file, content: "", embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0not-file`) };
+    return { ...file, content: "", embedded: false, deferred: false, skippedReason, skippedKind: "notFile", signature: hashText(`${file.path}\0not-file`) };
   }
   // Images are deferred like everything else now, so this is where their data URI is built — before the
   // binary sniff below, which would otherwise reject every PNG as "binary file". Mirrors the A→B blob path
@@ -721,7 +721,7 @@ export function materializeDeferredSourceFile(rootArg: string, file: SourceFile,
   if (previewMime) {
     if (stats.size > IMAGE_MAX_BYTES) {
       const skippedReason = `file larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
-      return { ...file, content: "", size: stats.size, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0image-large\0${stats.size}`) };
+      return { ...file, content: "", size: stats.size, embedded: false, deferred: false, skippedReason, skippedKind: "imageLarge", signature: hashText(`${file.path}\0image-large\0${stats.size}`) };
     }
     return {
       ...file,
@@ -735,11 +735,11 @@ export function materializeDeferredSourceFile(rootArg: string, file: SourceFile,
   }
   if (stats.size > SOURCE_MAX_LAZY_FILE_BYTES) {
     const skippedReason = `larger than ${formatBytes(SOURCE_MAX_LAZY_FILE_BYTES)}`;
-    return { ...file, content: "", size: stats.size, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0large\0${stats.size}`) };
+    return { ...file, content: "", size: stats.size, embedded: false, deferred: false, skippedReason, skippedKind: "large", signature: hashText(`${file.path}\0large\0${stats.size}`) };
   }
   if (isLikelyBinary(absolute)) {
     const skippedReason = "binary file";
-    return { ...file, content: "", size: stats.size, embedded: false, deferred: false, skippedReason, signature: hashText(`${file.path}\0binary\0${stats.size}`) };
+    return { ...file, content: "", size: stats.size, embedded: false, deferred: false, skippedReason, skippedKind: "binary", signature: hashText(`${file.path}\0binary\0${stats.size}`) };
   }
   const content = readTextFile(absolute);
   return {

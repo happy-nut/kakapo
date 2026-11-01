@@ -57,7 +57,7 @@ export type SourceFile = {
    * "preview unavailable" message — "0 B · file is not present in the working tree" under a Korean header.
    * A reason with a formatted size in it cannot be translated after the fact, so the kind travels too.
    */
-  skippedKind?: "missing" | "imageLarge" | "binary" | "large" | "budget";
+  skippedKind?: "missing" | "missingRevision" | "imageLarge" | "binary" | "large" | "budget" | "notFile" | "unreadable";
   // Rendered preview for raster image files: a data: URI embedded by collectSourceFiles
   // (gated by IMAGE_MAX_BYTES). Present only for images; absent for text/binary files.
   image?: string;

@@ -1108,6 +1108,13 @@ test("the anchor the composer prefills is not a comment", async () => {
     const saved = v.window.reviewComments[v.window.reviewComments.length - 1];
     assert.equal(saved.text, label + " rename this",
       "with the anchor kept exactly as written — editing it is how a reviewer redirects a comment");
+
+    // The same question on the edit path. Stripping a comment back to its own anchor says what emptying
+    // the box says, and emptying the box deletes — so this must too, or the tightened guard has a sibling
+    // that still saves a comment whose whole body is a reference.
+    v.window.updateComment(saved.seq, label + "   ");
+    assert.ok(!v.window.reviewComments.some((c) => c.seq === saved.seq),
+      "editing one down to just its anchor removes it, as editing it down to nothing does");
   } finally {
     v.close();
   }

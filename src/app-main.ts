@@ -1515,6 +1515,12 @@ function parseArgs(args: string[]): AppOptions {
   return {
     root,
     base,
+    // `--base main` is the reader naming a branch, which is exactly what baseLabel records — and the CLI
+    // was the one writer that never set it. Everything that reads it then had to guess: the toolbar pill
+    // printed the resolved sha for a base the reader had asked for by name, and the compare menu's mode
+    // derivation (app-review-ipc) read "a base with no label" as a patch-set pick and stopped ticking
+    // "모든 변경사항" for `kakapo --base main` — the launch README documents as the main way to use this.
+    baseLabel: parsed.baseValue || undefined,
     staged: parsed.staged,
     includeUntracked: parsed.includeUntracked,
     context: parsed.context,

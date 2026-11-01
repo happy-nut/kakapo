@@ -209,7 +209,13 @@ function insertInlayHint(cell, column, text, kind, paddingLeft, paddingRight) {
       // Never inside a word: the label goes between text nodes, splitting one if the offset falls inside.
       var at = column - seen;
       if (at <= 0) node.parentNode.insertBefore(span, node);
-      else if (at >= length) node.parentNode.insertBefore(span, node.nextSibling);
+      else if (at >= length) {
+        // Past any label already sitting at this exact point, or two hints on the SAME column come out
+        // reversed: `nextSibling` is the first of them, so the second was inserted in front of it.
+        var after = node.nextSibling;
+        while (after && after.classList && after.classList.contains('inlay-hint')) after = after.nextSibling;
+        node.parentNode.insertBefore(span, after);
+      }
       else node.parentNode.insertBefore(span, node.splitText(at));
       return true;
     }

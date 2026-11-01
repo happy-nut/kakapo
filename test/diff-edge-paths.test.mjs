@@ -8,12 +8,13 @@
 //    the exact string commentFileIsKnownMissing matches, every comment on it was deleted.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readUnifiedDiff, parseUnifiedDiff, computeChangeSet, collectSourceFiles } from "../dist/diff.js";
 import { unquoteGitPath, stripDiffPath } from "../dist/util.js";
+import { MESSAGES } from "../dist/i18n.js";
 
 function repo() {
   const root = mkdtempSync(join(tmpdir(), "kakapo-edge-"));
@@ -169,5 +170,39 @@ test("a symlink reads as the link, in the diff and in the source alike", () => {
     assert.equal(source.size, "target.txt".length, "sized as the link, not as what it points at");
   } finally {
     r.cleanup();
+  }
+});
+
+// 5. `skippedReason` is an English sentence written for a log, and the source view puts it on screen —
+//    so `skippedKind` travels beside it as the half that can be translated. Tagging the eager collector
+//    and stopping there left the lazy paths untagged, which are the ones the app actually uses: a file
+//    absent from a revision still printed "file is not present in this revision" inside a Korean
+//    sentence. This counts the two against each other rather than listing the sites, because the defect
+//    IS a site that was missed, and a test that listed them would have been written from the same list.
+test("every skip that has a reason also has a kind", () => {
+  const source = readFileSync(new URL("../dist/diff.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../dist/library-source.js", import.meta.url), "utf8");
+  // A skip RECORD is `skippedReason` followed by `signature:` in the same object literal. The first
+  // version of this counted bare occurrences and so counted a helper's PARAMETER LIST as a record,
+  // reporting a site that does not exist — the shape has to be the record's, not the word's.
+  const records = [];
+  for (let at = source.indexOf("skippedReason,"); at >= 0; at = source.indexOf("skippedReason,", at + 1)) {
+    const window = source.slice(at, at + 160);
+    const ends = window.indexOf("signature:");
+    if (ends < 0) continue; // not a record — a parameter, a destructure, a mention in prose
+    records.push(window.slice(0, ends));
+  }
+  assert.ok(records.length >= 10, `found ${records.length} skip records — has the shape changed?`);
+  const untagged = records.filter((record) => !record.includes("skippedKind:"));
+  assert.deepEqual(untagged, [],
+    `${untagged.length} skip record(s) name a reason with no kind beside it`);
+
+  // And every kind the code can produce has a sentence in both locales, or the page prints the key.
+  const kinds = new Set(Array.from(source.matchAll(/skippedKind: "([a-zA-Z]+)"/g), (hit) => hit[1]));
+  assert.ok(kinds.size >= 6, `found ${kinds.size} kinds`);
+  for (const kind of kinds) {
+    for (const locale of ["en", "ko"]) {
+      assert.ok(MESSAGES[locale][`source.skipped.${kind}`], `source.skipped.${kind} is missing in ${locale}`);
+    }
   }
 });

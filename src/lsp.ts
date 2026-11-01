@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
-import { accessSync, constants, existsSync, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { delimiter, extname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -1317,13 +1317,21 @@ export class LspClient {
     const pending = this.documentSync.get(uri);
     if (pending) { await pending; return; }
     const sync = Promise.resolve().then(() => {
-      const stat = statSync(absolute);
+      // lstat, so a symlink is seen as itself. Following it handed the server the TARGET's whole text under
+      // the LINK's uri, and every answer then came back at a line number the rendered body does not have —
+      // the page shows a symlink as the one line git stores for it, the target path. Lenses, inlay hints
+      // and diagnostics were quietly dropped by the `[data-line-index]` lookup and by setSourceCursor's
+      // clamp, so the file looked merely unsupported. One rule holds it together: the text the server is
+      // given is the text the reader is shown.
+      const stat = lstatSync(absolute);
       const opened = this.opened.get(uri);
       if (opened?.mtimeMs === stat.mtimeMs) return;
       // LSP versions are monotonically increasing signed integers. A millisecond epoch exceeds the
       // 32-bit integer accepted by JetBrains' Kotlin server, so keep mtime only for change detection.
       const version = opened ? opened.version + 1 : 1;
-      const text = readTextFile(absolute); // same decode the viewer uses, or a BOM shifts every column on line 1
+      // Same decode the viewer uses, or a BOM shifts every column on line 1 — and for a link, the same
+      // one line the viewer shows (collectSourceFiles, src/diff.ts), which is the blob git stores.
+      const text = stat.isSymbolicLink() ? readlinkSync(absolute) : readTextFile(absolute);
       const lines = text.split("\n");
       const end = { line: Math.max(0, lines.length - 1), character: (lines[lines.length - 1] ?? "").length };
       if (!opened) {

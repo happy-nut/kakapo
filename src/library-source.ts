@@ -30,14 +30,16 @@ export function readLibrarySourceFile(absolutePath: string, displayPath = absolu
     signature: "",
     library: true,
   };
-  const unreadable = (skippedReason: string, tag: string): SourceFile =>
-    ({ ...base, skippedReason, signature: hashText(`${displayPath}\0${tag}\0${stats.size}`) });
+  // The kind travels beside the reason, because the reason is an English sentence written for a log while
+  // the page puts it on screen in the reader's own language — see SourceFile.skippedKind.
+  const unreadable = (skippedReason: string, kind: SourceFile["skippedKind"], tag: string): SourceFile =>
+    ({ ...base, skippedReason, skippedKind: kind, signature: hashText(`${displayPath}\0${tag}\0${stats.size}`) });
   if (stats.size > SOURCE_MAX_LAZY_FILE_BYTES) {
-    return unreadable(`larger than ${formatBytes(SOURCE_MAX_LAZY_FILE_BYTES)}`, "library-large");
+    return unreadable(`larger than ${formatBytes(SOURCE_MAX_LAZY_FILE_BYTES)}`, "large", "library-large");
   }
-  if (isLikelyBinary(absolutePath)) return unreadable("binary file", "library-binary");
+  if (isLikelyBinary(absolutePath)) return unreadable("binary file", "binary", "library-binary");
   let content: string;
-  try { content = readTextFile(absolutePath); } catch { return unreadable("unreadable file", "library-unreadable"); }
+  try { content = readTextFile(absolutePath); } catch { return unreadable("unreadable file", "unreadable", "library-unreadable"); }
   return {
     ...base,
     content,

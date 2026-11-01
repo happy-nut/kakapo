@@ -139,6 +139,19 @@ test("the modal launcher paints above the surfaces it can be opened over", () =>
   assert.ok(layerOf(".history-view") < quickOpen, "Cmd+E over History/Explain must not open behind it");
 });
 
+// The caret hint is how this app ANSWERS a key — "no usages", "already at the declaration", "this line is
+// only in the base". It shared a rung with History/Explain and so painted UNDER the dock, which is open
+// exactly when the keys that raise it are being pressed: a reply nobody can see is the silence the whole
+// hint mechanism exists to replace. It is pointer-events: none, so being high costs nothing.
+test("the caret hint paints above the surfaces it answers from", () => {
+  const hint = layerOf(".mc-caret-hint");
+  assert.ok(hint > layerOf(".dock-panel"), "a reply raised with the dock open has to be readable");
+  assert.ok(hint > layerOf(".dock-backdrop"), "and not dimmed by the backdrop either");
+  assert.ok(hint > layerOf(".history-view"), "History raises hints of its own");
+  // And still below a true modal, which owns the keyboard outright while it is up.
+  assert.ok(hint < layerOf(".settings-modal"), "Settings owns the screen while it is open");
+});
+
 test("scrollbar thumbs remain layout-stable but only paint while scrolling", () => {
   const gutter = ruleBodyForExactSelector("::-webkit-scrollbar");
   const thumb = ruleBodyForExactSelector("::-webkit-scrollbar-thumb");

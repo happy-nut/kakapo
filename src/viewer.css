@@ -19,9 +19,13 @@
   --z-anchored: 60;         /* anchored to something on the page: the info popover, the compare menu, cmd-click */
   --z-sidebar-raised: 73;   /* the sidebar, lifted while the briefing is up */
   --z-nudge: 74;            /* coach tips — a full-view surface may cover a tip, never the reverse */
-  --z-overlay: 75;          /* full-view surfaces: History/Explain, the caret hint */
+  --z-overlay: 75;          /* full-view surfaces: History/Explain */
   --z-dock-backdrop: 77;
   --z-dock: 78;             /* the floating dock, and the terminal inside it */
+  --z-caret-hint: 79;       /* the caret hint, which is how this app ANSWERS a key — at --z-overlay it
+                               painted under the dock (77/78), so a reply raised while the dock was open
+                               was the same as no reply at all, which is the defect it exists to prevent.
+                               Above the dock, below a true modal, and pointer-events: none throughout. */
   --z-modal: 80;            /* Settings, Go to line */
   --z-toast: 80;            /* NOTE: the same band as a modal, so a toast paints UNDER the menus below.
                                Kept where it was rather than moved as part of a rename; it is pointer-events:
@@ -3503,7 +3507,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .mc-toast.show { opacity: 1; transform: translateY(0); }
 .mc-toast.hide { opacity: 0; transform: translateY(8px); }
 /* Inline hint anchored just under the diff caret (F7 "last change" boundary announcement); fades on its own. */
-.mc-caret-hint { position: fixed; z-index: var(--z-overlay); max-width: 460px; overflow-wrap: anywhere; border: 1px solid var(--border); border-left: 3px solid var(--active); padding: 5px 10px; font-size: 12px; line-height: 1.4; opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
+.mc-caret-hint { position: fixed; z-index: var(--z-caret-hint); max-width: 460px; overflow-wrap: anywhere; border: 1px solid var(--border); border-left: 3px solid var(--active); padding: 5px 10px; font-size: 12px; line-height: 1.4; opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
 .mc-caret-hint.show { opacity: 1; transform: translateY(0); }
 /* Merged prompts render as several small editable prose regions (agent-contract text) interleaved with
    read-only comment cards — not one continuous editable document (see openMergedView in 08-dock.js). */

@@ -223,7 +223,15 @@ function selectPatchSet(which, ref) {
     }).catch(function () {});
   } else {
     if (typeof window.kakapoGit.setReviewBase !== 'function') return;
-    if (patchSetData && (patchSetData.activeBase || 'auto') === ref) return;
+    // "Already there?" asked the way the BAR asks it, which is the only way the two can agree. The backend
+    // sends `activeBase` as the sha the build resolved, so comparing it with the option's own `ref` held
+    // only while that ref was a sha too: the moment "all" started sending "auto" this went dead, and
+    // clicking the already-active "all" ran a full rebuild — a git diff and a source re-index — for a
+    // state that did not change. The option list is where "which one is active" is already decided.
+    var picked = patchSetData ? patchSetBaseOptions(patchSetData).filter(function (option) {
+      return option.ref === ref;
+    })[0] : null;
+    if (picked && picked.active) return;
     Promise.resolve(window.kakapoGit.setReviewBase(ref)).then(function (res) {
       if (res && res.ok && patchSetData) { patchSetData.activeBase = res.activeBase || ref; renderPatchSetBar(); syncDiffReviewChrome(); }
     }).catch(function () {});

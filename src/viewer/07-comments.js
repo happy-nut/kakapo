@@ -620,6 +620,16 @@ function relevantLines(path, side) {
   if (composerState && composerState.path === path && (!side || commentSide(composerState) === side)) set[composerState.line] = true;
   return Object.keys(set).map(Number).sort(function (a, b) { return a - b; });
 }
+// The reviewer's own words, with the anchor label the composer prefilled taken off the front. Both write
+// paths ask it, because "has anything been written here" cannot have two answers: addComment declines on
+// an empty one and updateComment deletes on one, and an edit that strips a comment back to its own anchor
+// means the same thing as emptying the box. (commentBodyWithoutAnchor answers the same question for the
+// hand-off text, keeping the tail untrimmed because that is the text being handed over.)
+function commentBodyText(anchorSource, text) {
+  var label = commentTargetLabel(anchorSource);
+  var body = String(text || '');
+  return (body.slice(0, label.length) === label ? body.slice(label.length) : body).trim();
+}
 function addComment(kind, path, line, code, text, from, to, side, anchorCode, replyTo) {
   var trimmed = String(text || '').trim();
   // "Nothing was written" is not an empty box: openComposer PREFILLS the anchor label, so ⌘Enter on an
@@ -629,8 +639,7 @@ function addComment(kind, path, line, code, text, from, to, side, anchorCode, re
   // (commentBodyWithoutAnchor): the label is the reviewer's words only once they have changed it.
   // `trimmed` is still what gets STORED — editing that prefix is a documented way to say "not about this
   // line", so the text is kept exactly as written and only the emptiness test looks past the label.
-  var label = commentTargetLabel({ path: path, line: line, from: from, to: to });
-  var written = trimmed.slice(0, label.length) === label ? trimmed.slice(label.length).trim() : trimmed;
+  var written = commentBodyText({ path: path, line: line, from: from, to: to }, trimmed);
   if (!written) { if (trimmed) showCaretHint(t('comment.empty')); return; }
   commentSeq += 1;
   var hasFrom = from != null && from !== '' && Number.isFinite(Number(from));
@@ -673,7 +682,9 @@ function updateComment(seq, text) {
   var c = reviewComments.find(function (x) { return x.seq === seq; });
   if (!c) return;
   var trimmed = String(text || '').trim();
-  if (trimmed) { c.text = trimmed; saveComments(); }
+  // Edited back down to nothing but the anchor is the same as edited down to nothing — the sibling of the
+  // guard in addComment, which was tightened and left this one comparing against a bare empty string.
+  if (commentBodyText(c, trimmed)) { c.text = trimmed; saveComments(); }
   else { deleteComment(seq); }
 }
 // Session-only undo stack for comment removal (Cmd/Ctrl+Z, see 05-keymap.js). Deletion became one keystroke
@@ -747,7 +758,8 @@ function commentSeqsForPath(path) {
 // (a no-op) when the stack is empty, so the caller can decide not to swallow the key in that case.
 // Is there anything to undo? Asked by the keymap so a decline can say which of the two reasons it is.
 function commentRemovalPending() {
-  return !!(commentUndoStack.length && commentUndoStack[commentUndoStack.length - 1] || []).length;
+  var top = commentUndoStack[commentUndoStack.length - 1];
+  return !!(top && top.length);
 }
 function undoLastCommentRemoval() {
   var batch = commentUndoStack.pop();
