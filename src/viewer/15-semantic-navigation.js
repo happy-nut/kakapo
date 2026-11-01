@@ -186,6 +186,14 @@ function showSemanticNavigationFailure(kind, name, response) {
     showCaretHint(t('monaco.noServer'));
     return;
   }
+  // The caret is on a base-pane line that exists only there, so the server was never asked and the index
+  // answered by name and found nothing. Permanent in the same way `noServer` is — waiting changes nothing,
+  // stepping to the new side does — so it gets that shape of sentence and names the key that does it.
+  if (response && response.baseSide) {
+    closeSemanticPeek();
+    showCaretHint(t('monaco.baseSide').replace('{symbol}', String(name || '')));
+    return;
+  }
   // Three cases, and this used to collapse them into two. The analyzer still starting is one, and it
   // answers for itself. The server being unreachable — no server for this file, a timeout, a crash — is
   // the second, and "no definition found" there is a claim nobody made: the guard for it is
@@ -303,7 +311,24 @@ function alreadyAtLocation(loc, item) {
   // real jump with "this IS the declaration", which is both false and a dead end.
   if (loc.side === 'old') return false;
   if (String(item.path || '') !== String(loc.path || '')) return false;
-  return Number(item.lineIndex) === Number(loc.lineIndex);
+  if (Number(item.lineIndex) !== Number(loc.lineIndex)) return false;
+  // The same line is not the same PLACE. A server resolves a position to the declaration that position is
+  // part of, so a caret on `async` in `async function goToTypeDeclaration() {` got that function's
+  // declaration back — same path, same line — and the page answered "This IS the declaration of “async” —
+  // there is nowhere else to go": a confident sentence about a keyword, said on the first press after any
+  // jump, because F7, ⌥↓ and the file step all park the caret at column 0. Comparing the column as well
+  // also tells two declarations on ONE line apart, which this could not do either.
+  //
+  // The answer has to land in the token the caret is actually on, not merely at the caret: ⌘B pressed in
+  // the MIDDLE of a declaration's own name must still read as "already there" and show the usages, which
+  // is the whole point of the branch. Where the token cannot be read, the line is all that is known and
+  // the older, looser comparison stands rather than a new silence.
+  var token = symbolUnderCursor();
+  if (!token || Number(token.lineIndex) !== Number(loc.lineIndex)) return true;
+  var column = Number(item.column);
+  if (!isFinite(column)) return true;
+  var start = Number(token.column);
+  return column >= start && column <= start + String(token.name || '').length;
 }
 
 function queryProjectAnalysis(kind, symbol, loc, extra) {
@@ -314,12 +339,36 @@ function queryProjectAnalysis(kind, symbol, loc, extra) {
     path: loc && loc.path,
     line: loc && loc.lineIndex,
     column: loc && loc.column,
+    // Which pane the line number came from. Without it the analyzer cannot tell a working-tree position
+    // from a base-pane one, and a position-resolving server answers truthfully about the wrong line.
+    side: loc && loc.side,
   }, extra || {});
   return Promise.resolve(window.kakapoAnalysis.query(request)).then(function (response) {
     if (!analysisGenerationIsCurrent(response)) return null;
     if (!BACKGROUND_ANALYSIS_KINDS[kind]) noteProvisionalAnalysis(response, symbol);
     return response;
   }).catch(function () { return null; });
+}
+// A diff caret's line number, named at a position a language server can actually read.
+//
+// An OLD line number names a line of the BASE, and the only text on disk is the new file — so a server that
+// resolves by position answers about whatever now sits at that number (⌘⌥B on a deleted `openSourceAt(…)`
+// call landed in lib.es5.d.ts's String.replace, because that number in the new file is a `.replace(…)`).
+// An UNCHANGED row is the same text on both sides, though, and its twin carries the working-tree number:
+// read the caret there and the base pane navigates exactly like the new one. The two texts are COMPARED
+// rather than the row's class read, because that equality is the whole claim being made — a modified row
+// pairs the old line with its REPLACEMENT at one rowIndex, so mapping across one would ask about the line
+// that replaced this one, which is worse than declining.
+//
+// Shared, because the two resolvers feed different keys: ⌘B and ⌘⌥B take their position from
+// symbolAtDiffCaret, ⌘↓ and the rest from caretSourceLoc. A mapping in one of them is a mapping half the
+// keyboard does not get, which is how the first attempt at this passed by hand and failed its test.
+function diffCaretOnWorkingTree(wrapper, row, line) {
+  if (!diffCursor || diffCursor.side !== 'old') return { lineIndex: line - 1, side: diffCursor ? diffCursor.side : 'new' };
+  var mate = wrapper ? diffRowAt(wrapper, 'new', diffCursor.rowIndex) : null;
+  var mateLine = mate ? diffLineNumber(mate) : null;
+  if (mateLine != null && diffLineText(mate) === diffLineText(row)) return { lineIndex: mateLine - 1, side: 'new' };
+  return { lineIndex: line - 1, side: 'old' };
 }
 // Where the caret sits, mapped to a source (path, lineIndex). Both diff panes carry their own real line
 // number; callers that need the token itself use symbolAtDiffCaret so the old side can query by name too.
@@ -329,7 +378,9 @@ function caretSourceLoc() {
     var wrap = diffWrapperByPath(diffCursor.path);
     var row = wrap ? diffRowAt(wrap, diffCursor.side, diffCursor.rowIndex) : null;
     var ln = row ? diffLineNumber(row) : null;
-    if (ln != null) return { path: diffCursor.path, lineIndex: ln - 1, column: diffCursor.column, side: diffCursor.side };
+    if (ln == null) return null;
+    var at = diffCaretOnWorkingTree(wrap, row, ln);
+    return { path: diffCursor.path, lineIndex: at.lineIndex, column: diffCursor.column, side: at.side };
   }
   return null;
 }
@@ -479,8 +530,10 @@ function wordAtDiffCaret() {
   return symbol ? symbol.name : null;
 }
 // Resolve the token and its real source coordinates from whichever diff pane owns the caret. The old/base
-// side is intentionally supported too: the analyzer receives the explicit token, so its index fallback can
-// still resolve a definition when that exact baseline line no longer exists in the working tree.
+// side is intentionally supported too, in two steps: an unchanged row is answered at its working-tree twin
+// (diffCaretOnWorkingTree), so a language server can resolve it by position like any other line, and a line
+// that exists only in the base keeps its side — the analyzer then declines the server for it by name and
+// resolves the explicit token through the index instead.
 function symbolAtDiffCaret() {
   if (!diffCursor) return null;
   var wrapper = diffWrapperByPath(diffCursor.path);
@@ -490,6 +543,7 @@ function symbolAtDiffCaret() {
   if (line == null) return null;
   var text = diffLineText(row);
   var column = Math.max(0, Math.min(diffCursor.column, text.length));
+  var at = diffCaretOnWorkingTree(wrapper, row, line);
   var identifier = /[A-Za-z_$][A-Za-z0-9_$]*/g;
   var match = null;
   while ((match = identifier.exec(text))) {
@@ -497,9 +551,9 @@ function symbolAtDiffCaret() {
       return {
         name: match[0],
         path: diffCursor.path,
-        lineIndex: line - 1,
+        lineIndex: at.lineIndex,
         column: match.index,
-        side: diffCursor.side,
+        side: at.side,
       };
     }
   }

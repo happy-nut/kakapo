@@ -103,12 +103,68 @@ function hideCaretHint() {
 // Is a comment's anchor line (its snapshot of the commented text) present in the file's current content?
 // Used both when a comment is created (to record that the line was real then) and on every rebuild. A blank
 // or multi-line snapshot has no stable single-line anchor and reports false.
-function anchorLinePresent(path, anchorCode, code) {
+// The file's current text, as much of it as is actually known.
+//
+// `sourceByPath` has every line once the body has loaded. A file the reviewer has only seen in the DIFF sits
+// there with `content: ''`, and both the anchor check and the remap below used to bail on exactly that — so
+// a comment stopped following its code unless the reader happened to have opened that file in the source
+// view at some point. That is the product's core loop failing silently: read a diff while the agent keeps
+// editing, and the card stayed on line 8 while the line it was about moved to 11, with the hand-off text
+// still saying `@file#L8` — the agent pointed at a line nobody meant.
+//
+// The rendered diff's NEW side carries the same text at the same numbers, which is where this reads it when
+// content has not arrived; moveCommentToBaseSide already reads the old side exactly so. That source is
+// SPARSE, though — a diff prints hunks, not files — so `complete` travels with the answer: either source
+// can establish "the anchor is HERE", and only a complete one can establish "the anchor is GONE". An
+// absence read off a partial text is not an absence, and this one would mark a comment addressed because
+// its line happened to fall outside a hunk.
+function currentFileText(path) {
   var file = sourceByPath.get(path);
-  if (!file || !file.embedded || typeof file.content !== 'string' || !file.content) return false;
+  if (file && file.embedded && typeof file.content === 'string' && file.content) {
+    var lines = file.content.split(/\r?\n/);
+    return {
+      complete: true,
+      at: function (line) { return lines[line - 1]; },
+      // The NEAREST exact match, which is what keeps a comment on its own copy of a line that repeats.
+      find: function (code, near) {
+        var best = 0, bestDist = Infinity;
+        for (var i = 0; i < lines.length; i++) {
+          if (lines[i] !== code) continue;
+          var d = Math.abs(i - (near - 1));
+          if (d < bestDist) { bestDist = d; best = i + 1; }
+        }
+        return best;
+      },
+    };
+  }
+  var wrapper = diffWrapperByPath(path);
+  var rows = wrapper ? diffRowsOf(diffSideTable(wrapper, 'new')) : [];
+  if (!rows.length) return null;
+  var byLine = new Map();
+  for (var r = 0; r < rows.length; r++) {
+    var ln = diffLineNumber(rows[r]);
+    if (ln != null && !byLine.has(ln)) byLine.set(ln, diffLineText(rows[r]));
+  }
+  if (!byLine.size) return null;
+  return {
+    complete: false,
+    at: function (line) { return byLine.get(line); },
+    find: function (code, near) {
+      var best = 0, bestDist = Infinity;
+      byLine.forEach(function (text, ln) {
+        if (text !== code) return;
+        var d = Math.abs(ln - near);
+        if (d < bestDist) { bestDist = d; best = ln; }
+      });
+      return best;
+    },
+  };
+}
+function anchorLinePresent(path, anchorCode, code) {
   var ac = String(anchorCode == null ? (code == null ? '' : code) : anchorCode);
   if (!ac.trim() || ac.indexOf('\n') >= 0) return false;
-  return file.content.split(/\r?\n/).indexOf(ac) >= 0;
+  var text = currentFileText(path);
+  return !!text && text.find(ac, 1) > 0;
 }
 // Reconcile comments against the current content after a rebuild (the AI's next round) or a source load.
 // Two jobs:
@@ -119,7 +175,8 @@ function anchorLinePresent(path, anchorCode, code) {
 //     likely acted on by the agent, so mark it addressed (a candidate, not a deletion — the reviewer reopens
 //     if the heuristic was wrong). anchorPresent is set at creation so the first round is not missed; an
 //     old-side anchor is never present, so it never flips to addressed.
-// Files whose content isn't loaded yet (lazy) are skipped here and reconciled after loadSourceFile resolves.
+// A file whose body has not loaded is read out of the rendered diff instead (currentFileText), and is
+// reconciled again — against the whole file, so job 2 can run — once loadSourceFile resolves.
 // The commented line has left the working tree, so its line number on the right now points at whatever code
 // took its place — the card would sit beside a stranger. The base pane is where a line that is gone still
 // exists, so look the anchor up there and move the card across, keeping the reviewer's words next to the code
@@ -171,24 +228,20 @@ function remapComments() {
   if (!reviewComments.length) return;
   var changed = 0;
   reviewComments.forEach(function (c) {
-    var file = sourceByPath.get(c.path);
-    if (!file || !file.embedded || typeof file.content !== 'string' || !file.content) return;
+    var text = currentFileText(c.path);
+    if (!text) return;
     var code = c.anchorCode != null ? String(c.anchorCode) : (c.code == null ? '' : String(c.code));
     if (code.indexOf('\n') >= 0) return; // legacy multi-line snapshots had no stable anchor line
     if (!code.trim()) return;
-    var lines = file.content.split(/\r?\n/);
     var present;
-    if (lines[c.line - 1] === code) {
+    if (text.at(c.line) === code) {
       present = true; // unchanged at its current line
     } else {
-      var best = -1, bestDist = Infinity;
-      for (var i = 0; i < lines.length; i++) {
-        if (lines[i] === code) { var d = Math.abs(i - (c.line - 1)); if (d < bestDist) { bestDist = d; best = i; } }
-      }
-      present = best >= 0;
-      if (present && c.line !== best + 1) {
-        var delta = (best + 1) - c.line;
-        c.line = best + 1;
+      var found = text.find(code, c.line);
+      present = found > 0;
+      if (present && c.line !== found) {
+        var delta = found - c.line;
+        c.line = found;
         if (Number.isFinite(Number(c.from))) c.from = Number(c.from) + delta;
         if (Number.isFinite(Number(c.to))) c.to = Number(c.to) + delta;
         changed++;
@@ -196,7 +249,7 @@ function remapComments() {
     }
     if (present) {
       if (!c.anchorPresent) { c.anchorPresent = true; changed++; } // confirm the anchor is real in this content
-    } else if (c.anchorPresent && !c.addressed) {
+    } else if (text.complete && c.anchorPresent && !c.addressed) {
       c.addressed = true; // the commented line is gone in the new content — the agent likely addressed it
       moveCommentToBaseSide(c); // and its card belongs beside the base copy, not next to whatever took its place
       changed++;

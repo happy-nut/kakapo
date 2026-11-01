@@ -90,3 +90,67 @@ test("an answer follows the question it answers when the agent's own edit moves 
   assert.equal(v.window.commentsAt(FILE, question.line).length, 2, "so both turns still render as one thread");
   v.close();
 });
+
+// The same loop, read in the DIFF and never opened in the source view — which is how the product is meant
+// to be used, and where it quietly stopped working. A file seen only in the diff sits in sourceByPath with
+// `content: ''`, and both the anchor check and the remap bailed on exactly that: the card stayed on line 3
+// while the code it was about moved to line 6, and the hand-off text went on saying `@file#L3` — pointing
+// the agent at a line nobody meant. Opening the file once in the source view fixed it, which is why it went
+// unnoticed.
+//
+// Two conclusions, two standards of evidence. The diff's rendered rows can establish that an anchor is
+// HERE, so a comment follows its code; they can never establish that one is GONE, because a diff prints
+// hunks and not files — a line outside a hunk is not a line that was deleted. Marking such a comment
+// "possibly addressed" would be a wrong answer about the reviewer's own words, so it is held back until
+// the whole file is in hand.
+const SHIFTED = ["// x", "// y", "// z", "const a = 1;", "const b = 2;", "keep = 1;", ""].join("\n");
+
+async function loadDiffOnlyRound(comments) {
+  const { html } = await makeReviewHtml([
+    { path: FILE, before: ["const a = 1;", "const b = 2;", "keep = 1;", ""].join("\n"), after: SHIFTED },
+  ]);
+  const v = await loadViewer(html, { seedStorage: { [COMMENTS_KEY]: JSON.stringify(comments) } });
+  await v.openDiffFor(FILE); // the diff, and only the diff — the source view is never opened
+  // The state under test is: diff rows rendered, source body empty. In the real app that is produced by
+  // lazy loading — the reviewer never opened the file, so its body was never fetched. jsdom cannot reach
+  // it that way (a lazy body is materialized over IPC, and `{ lazyLoad: true }` here leaves BOTH the body
+  // and the diff rows empty, which would make these tests pass by having nothing to read at all). So the
+  // builder embeds as usual and the body is emptied here, leaving exactly the pair the app has.
+  v.window.eval(`sourceByPath.get(${JSON.stringify(FILE)}).content = ''`);
+  assert.ok(v.window.eval(`diffRowsOf(diffSideTable(diffWrapperByPath(${JSON.stringify(FILE)}), 'new')).length`) > 0,
+    "the premise: the diff's rows are on screen even though the body is not loaded");
+  v.window.remapComments();
+  await v.settle(40);
+  return v;
+}
+
+test("a comment follows its code with nothing but the diff on screen", async () => {
+  const v = await loadDiffOnlyRound([
+    { seq: 1, kind: "c", path: FILE, line: 3, code: "keep = 1;", text: "this one moved",
+      from: 3, to: 3, side: null, anchorCode: "keep = 1;", anchorPresent: true, addressed: false },
+  ]);
+  try {
+    const c1 = v.storedComments().find((c) => c.seq === 1);
+    assert.equal(c1.line, 6, "three lines were inserted above it, so it is on line 6 now");
+    assert.equal(c1.from, 6, "and its range moved with it");
+    assert.equal(c1.to, 6);
+    assert.ok(!c1.addressed, "its code is still there, so nothing was addressed");
+  } finally {
+    v.close();
+  }
+});
+
+test("an anchor the diff cannot see is not reported as addressed", async () => {
+  const v = await loadDiffOnlyRound([
+    { seq: 2, kind: "c", path: FILE, line: 2, code: "const ghost = 0;", text: "about a line this diff does not print",
+      from: 2, to: 2, side: null, anchorCode: "const ghost = 0;", anchorPresent: true, addressed: false },
+  ]);
+  try {
+    const c2 = v.storedComments().find((c) => c.seq === 2);
+    assert.ok(!c2.addressed,
+      "absent from the printed hunks is not absent from the file — only the whole file can say that");
+    assert.equal(c2.line, 2, "and with nothing to follow, it stays where the reviewer left it");
+  } finally {
+    v.close();
+  }
+});

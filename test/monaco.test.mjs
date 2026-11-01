@@ -188,6 +188,7 @@ test("Cmd+B resolves the token at the active diff caret on both working and base
       path: "src/app.ts",
       line: v.window.diffLineNumber(working.row) - 1,
       column: working.column,
+      side: "new",
     },
     "the working-tree caret supplies its exact token and source coordinates",
   );
@@ -210,8 +211,13 @@ test("Cmd+B resolves the token at the active diff caret on both working and base
       path: "src/app.ts",
       line: v.window.diffLineNumber(base.row) - 1,
       column: base.column,
+      // Asserted rather than tolerated. `oldValue` is a DELETED line — this fixture replaces the file
+      // outright — so it exists only in the base, and the side is what tells the analyzer to decline the
+      // language server and answer from the name index instead: a position-resolving server handed an old
+      // line number answers truthfully about whatever now sits at that number in the working tree.
+      side: "old",
     },
-    "the base caret remains a valid semantic-navigation origin",
+    "the base caret remains a valid semantic-navigation origin, and says which side it came from",
   );
   v.close();
 });
@@ -348,5 +354,63 @@ test("the same lone index hit is navigated to when no server is coming", async (
   await v.settle(80);
 
   assert.equal(v.$("#source-viewer")?.dataset.openPath, "src/target.ts", "it navigates, as it always did");
+  v.close();
+});
+
+// A caret in the BASE pane carries an OLD line number, and the only text on disk is the new file — so a
+// position-resolving language server handed that number answers truthfully about a different line. ⌘⌥B on a
+// deleted `openSourceAt(…)` call came back with lib.es5.d.ts's String.replace, because that number in the
+// new file is a `.replace(…)`. An UNCHANGED row is the same text on both sides, though, and its twin
+// carries the working-tree number: reading the caret there is what lets the base pane navigate at all,
+// instead of being declined for a position it does genuinely have.
+test("a caret on an unchanged base row is read at its working-tree twin", async () => {
+  const { html: ctx } = await makeReviewHtml([
+    {
+      path: "src/ctx.ts",
+      before: "export const keep = 1;\nexport const oldValue = 2;\n",
+      after: "export const keep = 1;\nexport const target = 3;\n",
+    },
+  ], { app: true });
+  const requests = [];
+  const v = await loadViewer(ctx, {
+    monacoBridge: true,
+    // No locations: this is about the question asked, and an answer would navigate away from the caret
+    // the next half of the test places.
+    analysisBridge(request) { requests.push(request); return { ...responseFor(request), locations: [] }; },
+  });
+  await v.openDiffFor("src/ctx.ts");
+  const wrapper = v.window.diffWrapperByPath("src/ctx.ts");
+  const rowOf = (side, needle) => {
+    const rows = v.window.diffRowsOf(v.window.diffSideTable(wrapper, side));
+    const index = rows.findIndex((row) => v.window.diffLineText(row).includes(needle));
+    assert.notEqual(index, -1, `the ${side} pane prints ${needle}`);
+    return { index, row: rows[index] };
+  };
+
+  const oldKeep = rowOf("old", "keep");
+  const newKeep = rowOf("new", "keep");
+  assert.equal(v.window.diffLineText(oldKeep.row), v.window.diffLineText(newKeep.row),
+    "the premise this rests on: an unchanged row is the same text on both sides");
+  v.window.setDiffCursor("src/ctx.ts", "old", oldKeep.index, 13, false);
+  v.key("b", { metaKey: true, code: "KeyB" });
+  await v.settle(40);
+  const mapped = lastOfKind(requests, "references");
+  assert.equal(mapped.symbol, "keep", "the token is the one under the caret");
+  assert.equal(mapped.side, "new", "answered as a working-tree position, not a base one");
+  assert.equal(mapped.line, v.window.diffLineNumber(newKeep.row) - 1,
+    "at the NEW side's line number — the one the file on disk actually has");
+
+  // A line that exists only in the base has no twin to map onto, so it keeps its side and the analyzer
+  // declines the server for it. Mapping across a MODIFIED row would be worse than declining: that pairs
+  // the old line with its replacement at one rowIndex, so the question would be about the line that
+  // replaced this one.
+  const gone = rowOf("old", "oldValue");
+  v.window.setDiffCursor("src/ctx.ts", "old", gone.index, 13, false);
+  v.key("b", { metaKey: true, code: "KeyB" });
+  await v.settle(40);
+  const declined = lastOfKind(requests, "references");
+  assert.equal(declined.symbol, "oldValue");
+  assert.equal(declined.side, "old", "a deleted line stays a base position, which is what declines the server");
+  assert.equal(declined.line, v.window.diffLineNumber(gone.row) - 1, "and keeps its own base line number");
   v.close();
 });

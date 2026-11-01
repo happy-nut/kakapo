@@ -118,6 +118,16 @@ function runFindActionItem(item) {
   closeQuickOpen();
   // `index` 0: the action is told which of its combinations fired, and a list row is the first one. The
   // event is null — every handler that reads it reads modifier state, which a click does not have.
-  setTimeout(function () { action(null, 0); }, 0);
+  //
+  // The handler's own answer used to be discarded, and that is where the note at the top of this slice
+  // leaked: "Collapse recursively", "Prev / next tab" and "Rendered / raw Markdown" are all listed, all
+  // belong to an open file, and all did nothing at all when run from the diff — the dead row the doctrine
+  // says is worse than an absent one, reached the long way round. Hiding them would also hide the fact
+  // that the command EXISTS, which is half of what a palette is for, so the decline is spoken instead.
+  // `=== false` and not falsiness: declining is a deliberate answer (AGENTS.md), and a handler that
+  // simply returns nothing has done its work. The row's label names its surface where there is one.
+  setTimeout(function () {
+    if (action(null, 0) === false) showCaretHint(t('findaction.declined').replace('{action}', item.name));
+  }, 0);
   return true;
 }

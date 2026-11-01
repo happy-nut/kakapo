@@ -737,6 +737,14 @@ function diffCollapsedFileSet() {
   if (!diffCollapsedFiles) diffCollapsedFiles = Object.create(null);
   return diffCollapsedFiles;
 }
+// Put a whole folded set back at once. restoreUiState needs it: the caret restore it runs parks the caret in
+// another file first, and stepping into a folded file opens it, so the reader's folds have to be re-applied
+// once the caret is where it belongs rather than left as the restore happened to leave them.
+function setDiffCollapsedFileSet(paths) {
+  diffCollapsedFiles = Object.create(null);
+  (paths || []).forEach(function (p) { if (p) diffCollapsedFiles[p] = true; });
+  paintDiffFileCollapse();
+}
 function paintDiffFileCollapse() {
   var wrappers = document.querySelectorAll('#diff2html-container .d2h-file-wrapper');
   Array.prototype.forEach.call(wrappers, function (wrapper) {

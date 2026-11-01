@@ -8,7 +8,7 @@
 //    the exact string commentFileIsKnownMissing matches, every comment on it was deleted.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -91,5 +91,50 @@ test("git's C-quoting is decoded, including multi-byte escapes", () => {
   assert.equal(unquoteGitPath("plain.ts"), "plain.ts", "an unquoted path is left exactly as it is");
   assert.equal(unquoteGitPath('"unterminated'), '"unterminated', "and so is anything not actually quoted");
   assert.equal(stripDiffPath('"b/quo\\"te.ts"'), 'quo"te.ts', "the b/ prefix is behind the quote, not in front");
+  assert.equal(stripDiffPath("/dev/null"), "/dev/null");
+});
+
+// 3. A path with a SPACE in it is not quoted — git has no reason to — but its `---`/`+++` header lines carry
+//    a trailing TAB, git's column separator, which it omits for a quoted path because the quotes already
+//    delimit it. Left on, the tab was part of the path and travelled out through every map keyed by one: the
+//    file rendered in the diff and then reported "file is not present in the working tree" when opened, the
+//    language server was asked about a path that does not exist, and because the `diff --git` line spells it
+//    correctly while `+++` did not, the SAME file appeared twice in Quick Open and twice in the tree.
+//
+//    Driven through a real repository rather than a hand-written patch: the tab is git's doing, and a
+//    fixture written here would be a restatement of what this test exists to pin down.
+test("a path with a space keeps git's column tab out of its name", () => {
+  const r = repo();
+  try {
+    const name = "src dir/plain space.txt";
+    mkdirSync(join(r.root, "src dir"), { recursive: true });
+    writeFileSync(join(r.root, name), "one\n");
+    r.git("add", "-A");
+    r.git("commit", "-qm", "init");
+    writeFileSync(join(r.root, name), "one\ntwo\n");
+
+    const [file] = parse(r.root);
+    assert.equal(file.displayPath, name, "the name is the name — no trailing tab");
+    assert.equal(file.oldPath, name, "`---` agrees with it");
+    assert.equal(file.newPath, name, "and so does `+++`");
+    // The duplicate rows came from the two spellings disagreeing, so that is asserted as the one fact it is.
+    assert.equal(new Set([file.displayPath, file.oldPath, file.newPath]).size, 1,
+      "one file, one spelling: two of them is what listed it twice");
+
+    const { changed } = computeChangeSet([file]);
+    assert.deepEqual([...changed], [name], "and the changed set is keyed by the real path");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("stripDiffPath cuts the column tab, and only that", () => {
+  assert.equal(stripDiffPath("a/plain space.txt\t"), "plain space.txt");
+  assert.equal(stripDiffPath("b/plain space.txt\t"), "plain space.txt");
+  // Unified diffs may print a timestamp after the separator; it is not part of the name either.
+  assert.equal(stripDiffPath("a/x y.txt\t2026-11-01 12:00:00.000000000 +0900"), "x y.txt");
+  assert.equal(stripDiffPath("a/no-space.txt"), "no-space.txt", "nothing to cut, nothing cut");
+  // Cut BEFORE unquoting, or the closing quote is no longer last and the value comes back raw.
+  assert.equal(stripDiffPath('"b/quo\\"te.ts"\t'), 'quo"te.ts');
   assert.equal(stripDiffPath("/dev/null"), "/dev/null");
 });

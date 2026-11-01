@@ -286,3 +286,36 @@ test("without serverAnswered the same shape is still a cold server", async () =>
     v.close();
   }
 });
+
+// A caret in the diff's BASE pane, on a line that exists only there, is a position no language server can
+// read: the only text on disk is the new file. The analyzer declines the server by name for it and lets the
+// index answer the token, so the reply arrives with a fallbackReason and no locations — which is also the
+// shape of a server that has not finished starting. Read that way, the app said "try again in a moment",
+// forever, about the one case where waiting is exactly what does not help. `baseSide` separates them, and
+// what the sentence has to do is point at the move that DOES change the answer.
+test("a base-pane line says to step across, not to wait", async () => {
+  const v = await loadViewer(html);
+  try {
+    installAnalysis(v, {
+      engine: "index", confidence: "heuristic", locations: [], baseSide: true,
+      fallbackReason: "This line is in the diff's base pane, not in the working tree a language server reads",
+    });
+    await jump(v);
+
+    const message = hintText(v);
+    assert.ok(message, "something is said at the caret");
+    assert.doesNotMatch(
+      message,
+      /잠시 후|in a moment/i,
+      `waiting is the one thing that cannot help here (got: ${message})`,
+    );
+    assert.doesNotMatch(
+      message,
+      /찾지 못했|not found/i,
+      `and nothing was searched, so nothing was missing (got: ${message})`,
+    );
+    assert.match(message, /⇧Tab/, "it names the step that does change the answer");
+  } finally {
+    v.close();
+  }
+});

@@ -414,7 +414,12 @@ var SHORTCUT_ACTIONS = {
 //   window   fires unless a true modal (settings, go-to-line) owns the keyboard outright
 //   review   also fires from a focused text field: these move a cursor and never insert text, and the
 //            composer is exactly where you are when the note you want to step to is why you are typing
-var WINDOW_SHORTCUT_IDS = ['maximizePanel', 'allComments', 'openHistory', 'filesChangesTab', 'undoCommentRemoval', 'revealInTree'];
+// `findAction` is here because a command palette that only opens when nothing else has the keyboard is a
+// palette you cannot reach when you need it: typing in the composer, or with the dock focused, ⌘⇧A did
+// nothing and said nothing — and looking a command up is most useful precisely when you have stopped
+// knowing which key it is. IntelliJ's Find Action answers from anywhere too. A true modal still stands it
+// down, which is the one case where another surface genuinely owns the keyboard.
+var WINDOW_SHORTCUT_IDS = ['maximizePanel', 'allComments', 'openHistory', 'filesChangesTab', 'undoCommentRemoval', 'revealInTree', 'findAction'];
 var REVIEW_SHORTCUT_IDS = ['nextChange', 'prevChange', 'nextComment'];
 
 /**

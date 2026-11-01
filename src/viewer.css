@@ -5022,8 +5022,16 @@ body:has(#mc-briefing) .sidebar { z-index: var(--z-sidebar-raised); }
   --ws-trail-bg: color-mix(in srgb, #e5534b 28%, transparent);
   --ws-tab-bg: color-mix(in srgb, var(--muted) 16%, transparent);
   --indent-guide: color-mix(in srgb, var(--border) 85%, transparent);
+  /* The pitch a guide repeats at. 2 is the smallest unit in use and divides 4, so a 4-space file gets a
+     guide at every real level and one between them — noise, but not a claim about structure. A TAB is not
+     two columns, it is `tab-size` of them, so at this pitch one tab drew FOUR guides; tabs get their own
+     rule below. Declared beside --tab-size rather than measured per file, because the drawing switches
+     repaint and never re-render, which is what makes them instant on a 30k-line file. */
   --indent-width: 2;
+  /* Both the rendered width of a tab and the guide pitch for one, named once so they cannot drift. */
+  --tab-size: 8;
 }
+:root { tab-size: var(--tab-size); }
 .ws-lead, .ws-trail { background-repeat: repeat; }
 
 html[data-show-whitespace="on"] .ws-lead[data-ws="spaces"],
@@ -5042,6 +5050,15 @@ html[data-indent-guides="on"] .ws-lead {
   background-image: linear-gradient(to right, var(--indent-guide) 0 1px, transparent 1px);
   background-size: calc(var(--indent-width) * 1ch) 100%;
 }
+/* One tab is one level, and it is `tab-size` columns wide — so the pitch is that, not --indent-width. The
+   run's own `data-ws` already says which it is (the same answer the dots are skipped on), so this needs
+   nothing measured. A MIXED run has no single pitch at all: guides drawn on it would space themselves by
+   the spaces and ignore the tabs, which is the one reading the file does not support, and the tint the
+   whitespace switch puts on such a run is the honest answer to it. */
+html[data-indent-guides="on"] .ws-lead[data-ws="tabs"] {
+  background-size: calc(var(--tab-size) * 1ch) 100%;
+}
+html[data-indent-guides="on"] .ws-lead[data-ws="mixed"] { background-image: none; }
 /* Both on: the guides ride over the dots rather than replacing them (first layer paints last). */
 html[data-indent-guides="on"][data-show-whitespace="on"] .ws-lead[data-ws="spaces"] {
   background-image:

@@ -104,7 +104,14 @@ export function stripDiffPath(value: string): string {
   if (value === "/dev/null") {
     return value;
   }
-  return unquoteGitPath(value).replace(/^[ab]\//, "");
+  // `--- a/<path>` carries a TRAILING TAB whenever the path contains a space — git's column separator, which
+  // it omits for a quoted path because the quotes already delimit it. Left on, the tab rode into the path and
+  // out through every map keyed by one: the file rendered in the diff and then could not be opened ("file is
+  // not present in the working tree"), looked up in the tree, or asked about by the language server, while
+  // the `diff --git` line's correct spelling and this one made the SAME file appear twice in Quick Open.
+  // Cut it before unquoting, or a quoted value no longer ends with its closing quote and comes back raw.
+  // A path that genuinely ended in a tab would arrive C-quoted, so an unquoted one is always the separator.
+  return unquoteGitPath(value.replace(/\t.*$/, "")).replace(/^[ab]\//, "");
 }
 
 export function languageForPath(path: string): string {

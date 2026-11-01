@@ -76,6 +76,11 @@ export type AnalysisRequest = {
   symbol?: string;
   limit?: number;
   /**
+   * Which diff pane the caret was in. "old" means the line number belongs to the BASE file, and the only
+   * text on disk is the new one — see runQuery, which declines the language server for it by name.
+   */
+  side?: string;
+  /**
    * Only for kind "workspaceSymbol": keep types only — IntelliJ's Go to Class, as opposed to its Go to
    * Symbol. Filtered HERE rather than in the page because the two engines label a kind differently: a
    * language server sends LSP's numeric SymbolKind and the regex index sends its own word, and the page
@@ -127,6 +132,13 @@ export type AnalysisResponse = {
    * bundled set. Permanent, and distinct from "every server we tried failed", which is not.
    */
   noServer?: boolean;
+  /**
+   * The caret was in the diff's BASE pane, on a line that exists only there, so no language server was
+   * asked — its position names a line of the old file (see runQuery). Also permanent, and for the same
+   * reason as noServer it must not be reported as "try again in a moment": stepping to the new side is
+   * the thing that changes the answer, not waiting.
+   */
+  baseSide?: boolean;
   error?: string;
   /**
    * Set whenever this answer describes a REVISION rather than the working tree, whether or not it found
@@ -467,7 +479,11 @@ export class ProjectAnalysis {
     const generation = this.generation;
     const started = performance.now();
     const result = await this.runQuery(request);
-    return { ...result, generation, durationMs: Math.round((performance.now() - started) * 10) / 10 };
+    // The page has to tell "no server will ever answer about this line" from "the server is still waking
+    // up", because it says a different sentence for each and "try again in a moment" is the one thing that
+    // can never come true for a line of the old file.
+    const baseSide = request.side === "old" && !this.reviewTarget ? { baseSide: true } : {};
+    return { ...result, ...baseSide, generation, durationMs: Math.round((performance.now() - started) * 10) / 10 };
   }
 
   // Diagnostics for a single file, sourced only from a real language server. Unlike navigation there is no
@@ -507,6 +523,19 @@ export class ProjectAnalysis {
     // app labels an index answer.
     const revision = this.reviewTarget;
     const onRevision = Boolean(revision);
+    // A language server reads the WORKING TREE, so two carets sit outside its reach, and a question resolved
+    // by POSITION about either comes back truthful and wrong. A revision is the first, for the reason just
+    // given. The diff's BASE pane is the second: its line number names a line of the old file, so ⌘⌥B on a
+    // deleted `openSourceAt(…)` call answered with lib.es5.d.ts's String.replace — new-file line 255 is a
+    // `.replace(…)`, and the server described the position it was handed. caretSourceLoc already maps an
+    // UNCHANGED base row onto its working-tree twin, so a line that still arrives marked "old" exists only
+    // in the base. The symbol's NAME survives either move, which is why the base side is offered at all, so
+    // both decline the server by name and let the index answer — heuristically, the honest grade for it.
+    const declineReason = onRevision
+      ? `Reading ${revision}, which no language server can be pointed at`
+      : request.side === "old"
+        ? "This line is in the diff's base pane, not in the working tree a language server reads"
+        : "";
     // (B) introduced a new way to be silently empty: a revision whose tree could not be read at all yields
     // an index with no files, and then every answer is `[]` — "nothing there" when the truth is "nothing was
     // looked at". That is the exact failure this branch set out to remove, so it is declined by name.
@@ -523,17 +552,17 @@ export class ProjectAnalysis {
       // they take the same shape as the structure above: ask the client for this path, or answer "not
       // supported" so the caller can keep its own fallback rather than read an empty list as a fact.
       if (request.kind === "foldingRange") return await this.foldingRanges(path, onRevision);
-      if (request.kind === "documentHighlight") return await this.documentHighlights(path, request, onRevision);
+      if (request.kind === "documentHighlight") return await this.documentHighlights(path, request, declineReason);
       if (request.kind === "codeLens" || request.kind === "inlayHint" || request.kind === "semanticTokens") {
         return await this.decoration(request.kind, path, request, onRevision);
       }
       if (request.kind === "callers" || request.kind === "callees"
         || request.kind === "supertypes" || request.kind === "subtypes") {
-        return await this.hierarchy(request.kind, path, request, onRevision);
+        return await this.hierarchy(request.kind, path, request, declineReason);
       }
       const context = await this.symbolContext(path, request.line, request.column, request.symbol);
       if (!context.symbol) return { ok: true, engine: "index", confidence: "heuristic", locations: [], revision, symbol: "" };
-      if (request.kind === "hover") return await this.hoverAt(path, context, onRevision, revision);
+      if (request.kind === "hover") return await this.hoverAt(path, context, declineReason, revision);
       const method = request.kind === "definition"
         ? "textDocument/definition"
         : request.kind === "references"
@@ -541,8 +570,8 @@ export class ProjectAnalysis {
           : request.kind === "typeDefinition"
             ? "textDocument/typeDefinition"
             : "textDocument/implementation";
-      const lsp = onRevision
-        ? { locations: [], server: undefined, serverSource: undefined, fallbackReason: `Reading ${this.reviewTarget}, which no language server can be pointed at` }
+      const lsp = declineReason
+        ? { locations: [], server: undefined, serverSource: undefined, fallbackReason: declineReason }
         : await this.lspLocations(path, context.lineIndex, context.column, method, context.symbol);
       const semanticLocations = await this.navigationLocations(lsp.locations);
       if (semanticLocations.length) {
@@ -820,11 +849,11 @@ export class ProjectAnalysis {
   private async hoverAt(
     path: string,
     context: { symbol?: string; lineIndex: number; column: number },
-    onRevision: boolean,
+    declineReason: string,
     revision?: string,
   ): Promise<AnalysisResult> {
-    const lsp = onRevision
-      ? { hover: "", fallbackReason: `Reading ${this.reviewTarget}, which no language server can be pointed at` }
+    const lsp = declineReason
+      ? { hover: "", fallbackReason: declineReason }
       : await this.lspHover(path, context.lineIndex, context.column);
     if (lsp.hover) {
       return {
@@ -1121,11 +1150,11 @@ export class ProjectAnalysis {
   }
 
   /** Every occurrence of the caret's symbol in its own file, labelled read / write / neither. */
-  private async documentHighlights(path: string, request: AnalysisRequest, onRevision: boolean): Promise<AnalysisResult> {
-    if (onRevision) {
+  private async documentHighlights(path: string, request: AnalysisRequest, declineReason: string): Promise<AnalysisResult> {
+    if (declineReason) {
       return {
         ok: true, engine: "index", confidence: "heuristic", locations: [], revision: this.reviewTarget,
-        fallbackReason: `Reading ${this.reviewTarget}, which no language server can be pointed at`,
+        fallbackReason: declineReason,
       };
     }
     const client = this.clientFor(path);
@@ -1228,18 +1257,16 @@ export class ProjectAnalysis {
     kind: "callers" | "callees" | "supertypes" | "subtypes",
     path: string,
     request: AnalysisRequest,
-    onRevision: boolean,
+    declineReason: string,
   ): Promise<AnalysisResult> {
     const context = await this.symbolContext(path, request.line, request.column, request.symbol);
     if (!context.symbol) return { ok: true, engine: "index", confidence: "heuristic", locations: [], symbol: "" };
-    let fallbackReason = onRevision
-      ? `Reading ${this.reviewTarget}, which no language server can be pointed at`
-      : "";
+    let fallbackReason = declineReason;
     let unsupported = false; // the server answered and said it does not offer this capability
     let noServer = false;    // nothing covers this file's language at all — permanent
     let answeredWithError = false; // the server replied, and the reply was an error — still a reply
     let attempted = false;
-    if (!onRevision) {
+    if (!declineReason) {
       while (true) {
         const client = this.clientFor(path);
         if (!client) {
