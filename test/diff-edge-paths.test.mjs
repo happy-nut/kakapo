@@ -8,7 +8,7 @@
 //    the exact string commentFileIsKnownMissing matches, every comment on it was deleted.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -137,4 +137,37 @@ test("stripDiffPath cuts the column tab, and only that", () => {
   // Cut BEFORE unquoting, or the closing quote is no longer last and the value comes back raw.
   assert.equal(stripDiffPath('"b/quo\\"te.ts"\t'), 'quo"te.ts');
   assert.equal(stripDiffPath("/dev/null"), "/dev/null");
+});
+
+// 4. A symlink is its own object. Git stores it as a blob holding its TARGET PATH, and the diff shows
+//    exactly that — but collectSourceFiles stated the path with statSync, which FOLLOWS the link, so the
+//    Files view read the target's bytes and its size and printed them under the link's name: `link.txt
+//    93 B` with six lines of another file's text under it, and nothing saying which of the two you were
+//    looking at. A comment written there anchored to a line that does not exist in the file it names.
+//
+//    The two halves of the app are asserted together on purpose: the defect was not that either one was
+//    wrong on its own, it was that they disagreed about what `link.txt` contains.
+test("a symlink reads as the link, in the diff and in the source alike", () => {
+  const r = repo();
+  try {
+    writeFileSync(join(r.root, "target.txt"), "one\ntwo\nthree\n");
+    r.git("add", "-A");
+    r.git("commit", "-qm", "init");
+    symlinkSync("target.txt", join(r.root, "link.txt"));
+    r.git("add", "-A");
+
+    const files = parse(r.root);
+    const link = files.find((file) => file.displayPath === "link.txt");
+    assert.ok(link, "the new link is a changed file");
+
+    const sources = collectSourceFiles(files, r.root, {});
+    const source = sources.find((file) => file.path === "link.txt");
+    assert.ok(source, "and it has a source record");
+    assert.equal(source.symlink, true, "which says it is a link, so the page can too");
+    assert.equal(source.content, "target.txt", "holding the target PATH — the blob git stores for it");
+    assert.notEqual(source.content, "one\ntwo\nthree\n", "and never the target's own text");
+    assert.equal(source.size, "target.txt".length, "sized as the link, not as what it points at");
+  } finally {
+    r.cleanup();
+  }
 });

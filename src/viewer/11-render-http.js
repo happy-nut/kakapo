@@ -69,7 +69,7 @@ function openSourceFile(path, shouldSwitch = true, options) {
   renderBreadcrumb(document.getElementById('source-title'), path);
   setSourceTypeIcon(path);
   revealTreeFor(path, shouldScrollTree);
-  const meta = (file.library ? t('source.library') + ' · ' : '')
+  const meta = (file.library ? t('source.library') + ' · ' : '') + (file.symlink ? t('source.symlink') + ' · ' : '')
     + (file.embedded
       ? formatBytes(file.size || 0)
       : formatBytes(file.size || 0) + ' · ' + skippedReasonText(file));

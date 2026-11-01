@@ -45,6 +45,11 @@ export type SourceFile = {
   deferred?: boolean;
   changedLines: number[];
   signature: string;
+  /**
+   * This path is a symbolic link, and `content` is its target path — the blob git stores for it, which is
+   * also what the diff shows. Not the target's text: that is a different file, under a different name.
+   */
+  symlink?: true;
   skippedReason?: string;
   /**
    * The same fact as `skippedReason`, as a name the page can translate. The reason is an English sentence

@@ -505,10 +505,31 @@ export function collectSourceFiles(
     // the delete-between-the-two-calls race.
     let stats: Stats;
     try {
-      stats = statSync(absolute);
+      // lstat, not stat — the same choice readUnifiedDiff makes above, and for the same reason. A symlink
+      // is a change in its own right and git stores it as a blob holding its TARGET PATH, which is what
+      // the diff shows. statSync FOLLOWED the link here, so the Files view read the target's bytes and
+      // its size and printed them under the LINK's name: `link.txt  93 B` with six lines of somebody
+      // else's markdown under it, nothing saying which of the two files you were looking at, and a
+      // comment written on line 4 anchored to a line that does not exist in the file it names.
+      stats = lstatSync(absolute);
     } catch {
       const skippedReason = "file is not present in the working tree";
       sourceFiles.push({ ...base, signature: hashText(`${path}\0missing\0${skippedReason}`), skippedReason, skippedKind: "missing" });
+      continue;
+    }
+    if (stats.isSymbolicLink()) {
+      // What git has, which is what the diff beside this shows: the target path, as the file's one line.
+      // Read through readlinkSync rather than the file, because reading the file is following the link.
+      let link = "";
+      try { link = readlinkSync(absolute); } catch { /* raced away between the lstat and here */ }
+      sourceFiles.push({
+        ...base,
+        size: Buffer.byteLength(link),
+        embedded: true,
+        symlink: true,
+        content: link,
+        signature: hashText(`${path}\0symlink\0${link}`),
+      });
       continue;
     }
     if (!stats.isFile()) {
