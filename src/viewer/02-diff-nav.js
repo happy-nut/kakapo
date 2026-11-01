@@ -197,9 +197,13 @@ function syncDiffReviewChrome(path) {
   if (afterKind) {
     var target = patchSetData && patchSetData.activeTarget;
     if (target && target !== 'worktree') {
-      afterKind.removeAttribute('data-i18n');
-      afterKind.textContent = String(target).slice(0, 7);
-    } else if (!afterKind.getAttribute('data-i18n')) {
+      // "대상", not the sha. The left pane says what it IS ("기준") and the right one has to answer the
+      // same question, or the header holds two different kinds of noun — `기준 src/foo.ts` beside
+      // `1fe2700 src/foo.ts`. Which commit it is is named by the pill and by the patch-set bar, both of
+      // which are on screen; what this row is for is which SIDE you are looking at.
+      afterKind.setAttribute('data-i18n', 'diff.target');
+      afterKind.textContent = t('diff.target');
+    } else if (afterKind.getAttribute('data-i18n') !== 'diff.workingTree') {
       afterKind.setAttribute('data-i18n', 'diff.workingTree');
       afterKind.textContent = t('diff.workingTree');
     }

@@ -144,3 +144,42 @@ test("Escape backs out of the branch panel first, then out of the menu", async (
   assert.equal(v.$("#compare-menu").classList.contains("hidden"), true, "second Esc closes the menu");
   v.close();
 });
+
+// The bar's "전체" and the menu's "모든 변경사항" are the same thing and now take the same route — but the
+// route has to run BELOW the "already there?" guard, not above it. `auto` is produced by that one option
+// and nothing else, so a branch placed in front of the guard means the guard was written for a ref it can
+// never see: clicking the option already in force ran a full rebuild, a git diff and a source re-index,
+// for a state that did not change. Asserted by counting calls rather than by reading the source, because
+// the defect was WHERE the branch sat and a regex over the bundle cannot see that.
+test("the bar's “all” does nothing when it is already in force, and switches when it is not", async () => {
+  const v = await loadViewer(html);
+  try {
+    const calls = [];
+    v.window.kakapoGit = {
+      compareMenu: () => Promise.resolve({ mode: "all", ref: "main", defaultRef: "main", branches: ["main"] }),
+      setCompareMode: (mode, ref) => { calls.push(["setCompareMode", mode, ref || ""]); return Promise.resolve({ ok: true, mode, ref: "main" }); },
+      setReviewBase: (ref) => { calls.push(["setReviewBase", ref]); return Promise.resolve({ ok: true, activeBase: ref }); },
+      setReviewTarget: (ref) => { calls.push(["setReviewTarget", ref]); return Promise.resolve({ ok: true, activeTarget: ref }); },
+    };
+    const setBar = (activeBase) => v.window.eval(`patchSetData = ${JSON.stringify({
+      branchPoint: { sha: "54d784f0000", label: "main" },
+      commits: [{ sha: "1fe2700", subject: "work", shortSha: "1fe2700", date: "" }],
+      scoped: false, activeBase, activeTarget: "worktree",
+    })}, 1`);
+
+    // The review is AT the branch point, so "all" is the option already in force.
+    setBar("54d784f0000");
+    v.window.selectPatchSet("base", "auto");
+    await v.settle(20);
+    assert.deepEqual(calls, [], "clicking the option already in force asks for no rebuild");
+
+    // Now the review is on a patch set, so the same click is a real change.
+    setBar("1fe2700");
+    v.window.selectPatchSet("base", "auto");
+    await v.settle(20);
+    assert.deepEqual(calls, [["setCompareMode", "all", ""]],
+      "and it goes the compare-mode way, which resolves the branch point explicitly");
+  } finally {
+    v.close();
+  }
+});

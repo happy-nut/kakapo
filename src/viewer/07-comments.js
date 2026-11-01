@@ -1664,10 +1664,6 @@ function revealComment(seq) {
   var target = reviewComments.find(function (c) { return c.seq === seq; });
   if (!target) return false;
   lastRevealedSeq = seq;
-  // Reported, not merely attempted: this used to answer true once it had found the RECORD, which is what
-  // let the walk above spin on a comment nothing could open. gotoComment filters first, so reaching here
-  // with an unreachable one means some other caller asked for it by id.
-  if (!commentIsReachable(target)) return false;
   var center = function () { centerThreadRow(target.path, Number(target.line) || 1, commentSide(target), 0); };
   var land = function () {
     if (!navigateToCommentInDiff(target.seq)) navigateToComment(target.seq);
@@ -1698,14 +1694,26 @@ function gotoComment(delta) {
   // numbering them. F8 then bounced between whichever two survived, calling them 8/9 and 9/9.
   var list = sortedNavThread();
   if (!list.length) { showCaretHint(t('comment.nav.none')); return true; }
-  // Walk only the ones that can be landed on. revealComment used to report success for the others because
-  // it had found the RECORD, so the caret never moved — and stepAnchor works out where it is FROM the
-  // caret, so the next press chose the same comment and the same sentence came back forever. One
-  // unopenable note from an agent made every real comment unreachable from the keyboard, both directions.
-  // Filtered rather than retried, because a file nobody has should not hold a rank in the order either.
+  // Walk only the ones that can be landed on. revealComment answers true once it has found the RECORD, so
+  // a comment naming a file nobody has left the caret where it was — and stepAnchor works out where it is
+  // FROM the caret, so the next press chose the same one and the same sentence came back forever. One
+  // unopenable note from an agent made every real comment unreachable from the keyboard, both ways.
+  //
+  // But `sourceByPath` is not the review's file list on the desktop: a lazy review seeds it with the
+  // CHANGED files and fetches the rest when the Files tab is first opened, which is not where F8 is
+  // pressed. Asked before that fetch, this dropped every comment on an unchanged file and told the reader
+  // the review has none of their files. So an apparent miss is a reason to FETCH, not to answer — the
+  // same thing openPathReference does a few lines above, for the same reason.
+  var step = function (candidates) {
+    if (!candidates.length) { showCaretHint(t('comment.nav.unreachable')); return; }
+    revealComment(stepAnchor(delta, candidates).seq);
+  };
   var reachable = list.filter(commentIsReachable);
-  if (!reachable.length) { showCaretHint(t('comment.nav.unreachable')); return true; }
-  revealComment(stepAnchor(delta, reachable).seq);
+  if (reachable.length === list.length || projectIndexLoaded) { step(reachable); return true; }
+  ensureProjectIndex().then(
+    function () { step(sortedNavThread().filter(commentIsReachable)); },
+    function () { step(reachable); },
+  );
   return true;
 }
 

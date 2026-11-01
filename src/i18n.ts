@@ -210,6 +210,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diff.panes": "Diff panes",
     "diff.base": "Base",
     "diff.workingTree": "Working tree",
+    "diff.target": "Target",
     // The toolbar pill: what this diff is comparing. `compare.*` matches CompareState["mode"] one for one —
     // the renderer builds the key as `compare.${mode}`, so a new mode needs a row here in every locale.
     "compare.title": "What this diff is comparing",
@@ -938,6 +939,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diff.panes": "Diff 비교 창",
     "diff.base": "기준 버전",
     "diff.workingTree": "작업 트리",
+    "diff.target": "대상",
     "compare.title": "이 diff가 비교하고 있는 대상",
     "compare.local": "로컬 변경",
     "compare.staged": "스테이지",

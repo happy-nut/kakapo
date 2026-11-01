@@ -241,17 +241,18 @@ function selectPatchSet(which, ref) {
     // review to uncommitted changes, the exact opposite of what it says, whenever anything was uncommitted.
     // setCompareMode resolves the branch point explicitly and records the branch in `baseLabel`, which is
     // both right and reversible; `auto` was chosen for reversibility alone, without asking what it meant.
-    if (ref === 'auto') { applyCompareMode('all', '', false); return; }
-    if (typeof window.kakapoGit.setReviewBase !== 'function') return;
-    // "Already there?" asked the way the BAR asks it, which is the only way the two can agree. The backend
-    // sends `activeBase` as the sha the build resolved, so comparing it with the option's own `ref` held
-    // only while that ref was a sha too: the moment "all" started sending "auto" this went dead, and
-    // clicking the already-active "all" ran a full rebuild — a git diff and a source re-index — for a
-    // state that did not change. The option list is where "which one is active" is already decided.
+    // "Already there?" FIRST, and asked the way the bar asks it — which is the only way the two can agree.
+    // The backend sends `activeBase` as the sha the build resolved, so comparing it with the option's own
+    // `ref` held only while that ref was a sha too; the moment "all" started sending "auto" it went dead,
+    // and clicking the already-active "all" ran a full rebuild — a git diff and a source re-index — for a
+    // state that did not change. It has to sit ABOVE the branch below, because `auto` is produced by that
+    // one option and nothing else: put under it, the guard was written for a ref it could never see.
     var picked = patchSetData ? patchSetBaseOptions(patchSetData).filter(function (option) {
       return option.ref === ref;
     })[0] : null;
     if (picked && picked.active) return;
+    if (ref === 'auto') { applyCompareMode('all', '', false); return; }
+    if (typeof window.kakapoGit.setReviewBase !== 'function') return;
     Promise.resolve(window.kakapoGit.setReviewBase(ref)).then(function (res) {
       if (res && res.ok && patchSetData) { patchSetData.activeBase = res.activeBase || ref; renderPatchSetBar(); syncDiffReviewChrome(); }
     }).catch(function () {});

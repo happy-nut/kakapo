@@ -13,6 +13,11 @@ import { loadViewer } from "./helpers/dom.mjs";
 
 const FILES = [
   {
+    path: "src/untouched.ts",
+    before: "export const untouched = 1;\n",
+    after: "export const untouched = 1;\n",
+  },
+  {
     path: "src/app.ts",
     before: "export function run() {\n  return 42;\n}\n",
     after: "export function run() {\n  const n = 43;\n  return n;\n}\n",
@@ -471,6 +476,47 @@ test("stepping walks past a comment whose file this review does not have", async
       assert.equal(v.window.lastRevealedSeq, real.seq,
         `after stepping ${delta > 0 ? "forward" : "back"} the walk is on the comment it can show`);
     }
+  } finally {
+    v.close();
+  }
+});
+
+// `sourceByPath` is not the review's file list on the desktop. A lazy review seeds the page with the
+// CHANGED files and fetches the rest only when the Files tab is first opened — which is not where F8 is
+// pressed, because a lazy review opens on the diff. Asked before that fetch, "does the review have this
+// file" answered no for every unchanged one, so the walk dropped the reviewer's own comments and told
+// them the review has none of their files. An apparent miss is a reason to FETCH and ask again, which is
+// what openPathReference does a few lines away for the same reason.
+test("stepping reaches a comment on a file the lazy review has not fetched yet", async () => {
+  const UNCHANGED = "src/untouched.ts";
+  const v = await loadViewer(lazy.html, {
+    lazySourceData: lazy.sourceData,
+    getDiffBody: (index) => lazy.bodies[index] || "",
+    // The index holds the whole project; the page starts with only what changed.
+    projectIndexBridge: () => ({
+      sourceFilesMeta: [
+        { path: "src/app.ts", name: "app.ts", content: "", embedded: true },
+        { path: UNCHANGED, name: "untouched.ts", content: "", embedded: true },
+      ],
+      filesTree: "",
+    }),
+  });
+  try {
+    assert.equal(v.window.eval(`sourceByPath.has(${JSON.stringify(UNCHANGED)})`), false,
+      "the premise: the page has not been told about the unchanged file yet");
+
+    v.window.reviewComments.push({
+      seq: 77, kind: "c", by: "me", path: UNCHANGED, line: 1, from: 1, to: 1, side: null,
+      code: "", anchorCode: "", text: "about a file this review did not change",
+    });
+    v.window.refreshComments();
+    await v.settle(20);
+
+    v.window.gotoComment(1);
+    await v.settle(80); // the index fetch is a round trip
+    assert.equal(v.window.lastRevealedSeq, 77,
+      "the walk fetched the index and found the file, rather than declaring it absent");
+    assert.ok(v.window.__projectIndexRequests > 0, "and it did ask");
   } finally {
     v.close();
   }

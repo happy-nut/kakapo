@@ -40,7 +40,16 @@ const PRETTY = `--pretty=format:%H${FS}%h${FS}%cI${FS}%s`;
 // commits introduced on this branch count, correct even after divergence); fall back to the merge-base
 // with a conventional default branch when there is no upstream. Unlike resolveAutomaticReviewBase this
 // does not require a clean worktree — the reviewer picks patch sets while the tree is dirty.
-function resolveBranchPoint(root: string): { sha: string; label: string; upstream?: string } | undefined {
+function resolveBranchPoint(root: string, preferred?: string): { sha: string; label: string; upstream?: string } | undefined {
+  // The branch the compare control is SET to wins. This list is what labels the bar's "all" option and
+  // what decides whether that option is the one in force, while the click resolves `compareRef` or the
+  // default — so resolving the default here regardless made the button read `전체 변경 · origin/main`
+  // and measure against `develop`, for as long as the picked branch stayed picked (it is persisted per
+  // repository and restored at open). One ref, read by the label, the marking and the click alike.
+  if (preferred) {
+    const picked = git(root, ["merge-base", preferred, "HEAD"]);
+    if (picked) return { sha: picked, label: preferred };
+  }
   const upstream = git(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
   if (upstream) {
     const mergeBase = git(root, ["merge-base", upstream, "HEAD"]);
@@ -54,9 +63,9 @@ function resolveBranchPoint(root: string): { sha: string; label: string; upstrea
 
 // Enumerate the branch's patch sets for the base selector. activeBase is left "" here; the IPC handler
 // fills it from the live review options so the same list can highlight the current selection.
-export function readPatchSets(root: string): PatchSetList {
+export function readPatchSets(root: string, compareRef?: string): PatchSetList {
   const head = git(root, ["rev-parse", "HEAD"]);
-  const branchPoint = resolveBranchPoint(root);
+  const branchPoint = resolveBranchPoint(root, compareRef);
   const commits: PatchSet[] = [];
   if (branchPoint && branchPoint.sha !== head) {
     const out = git(root, [

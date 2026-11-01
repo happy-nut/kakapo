@@ -334,7 +334,15 @@ function showSourceBlame(path) {
     // given over to a blank column, with no text, no tooltip and nothing to say why. There is a sentence
     // for "nothing to show" and this is one of the places that needed it.
     if (!rows.length) {
-      hideSourceBlame(path);
+      // clearSourceBlamePaint, not hideSourceBlame. Nothing was painted — `sourceBlameLines` is still null
+      // and applySourceBlameIfActive never ran, so the only thing on screen is the loading class. The
+      // heavier one ends in a full openSourceFile, which replaces the body and sends #source-body's
+      // scrollTop to 0: a context-menu item whose entire output is one sentence would have thrown the
+      // reader back to the top of the file. The success path patches cells in place and keeps the caret,
+      // and these two should differ by what they draw, not by where they leave the reader.
+      sourceBlamePath = '';
+      sourceBlameAges = new Map();
+      clearSourceBlamePaint();
       showCaretHint(t('blame.noHistory'));
       return;
     }

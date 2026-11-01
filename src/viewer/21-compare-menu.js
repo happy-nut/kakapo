@@ -30,15 +30,18 @@ function compareMenuRows() {
   return Array.prototype.slice.call(el.querySelectorAll(inBranches ? '.compare-branch-item' : '.compare-menu-main .compare-menu-row'));
 }
 
-// The branch the review is actually measured against — or nothing, when it is measured against something
-// no branch names: a patch set, a ⌘9 range. THREE surfaces print or tick this: the "main 대비" phrase, the
-// `비교 대상` line, and the checkmark in the branch list. The first fix for this taught only the phrase, so
-// the menu went on ticking `main` and reading `비교 대상: main` twenty pixels under a toolbar pill that
-// said `1fe2700 → 작업 트리`. One value, read by all three.
+// The branch these rows ACT on, which is not the same question as what the review is currently measured
+// against — and blanking it in `other` mode, which two rounds of this did, answered the wrong one.
+//
+// `#compare-menu-against` is a note INSIDE the `data-mode="all"` row and `#compare-menu-ref` is the note on
+// the branch-opener row: each says what its own row would do if picked. test/compare-menu.test.mjs has said
+// so since the menu shipped — it asserts the "all" row still names `origin/main` while the review is in
+// UNCOMMITTED mode. What the review is on is the `aria-checked` tick a few lines below, and in `other` mode
+// that correctly ticks nothing. Blanked, a reader inside a ⌘9 range saw "모든 변경사항" with no branch, an
+// empty `비교 대상` and thirty branches with nothing marked — in the one state where what the exits do is
+// the thing they came here to find out.
 function compareMenuActiveRef() {
-  var data = compareMenuState;
-  if (!data || data.mode === 'other') return '';
-  return String(data.ref || '');
+  return String((compareMenuState && compareMenuState.ref) || '');
 }
 function renderCompareMenu() {
   var el = compareMenuEl();

@@ -427,7 +427,7 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
           scoped: true,
         };
       }
-      const list = readPatchSets(state.options.root);
+      const list = readPatchSets(state.options.root, state.compareRef);
       // Highlight against the base the build actually resolved (a SHA), not the raw option. When no
       // explicit base was set, reviewBase is the automatic merge-base, or undefined → the diff used HEAD.
       list.activeBase = state.reviewBase || list.head;
