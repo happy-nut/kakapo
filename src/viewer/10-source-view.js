@@ -463,7 +463,11 @@ function toggleCurrentSourceFold() {
   var pair = sourceFoldCandidates(file).filter(function (range) {
     return range.start <= viewerCursor.lineIndex && range.end >= viewerCursor.lineIndex;
   }).sort(function (a, b) { return (a.end - a.start) - (b.end - b.start); })[0];
-  if (!pair || sourceFoldHasComment(file, pair)) return false;
+  if (!pair) return false; // nothing foldable here — a movement-shaped key, so no complaint
+  // Folding would hide one of the reader's own comments, which is a deliberate refusal and was a
+  // completely silent one: caret inside a function you have commented on, press ⌘., nothing. The sibling
+  // refusal two functions away (openComposer, on a library file) has said why for as long as it existed.
+  if (sourceFoldHasComment(file, pair)) { showCaretHint(t('fold.hasComment')); return true; }
   var stored = sourceManualFoldKeys[file.path] || Object.create(null);
   stored[pair.start + ':' + pair.end] = true;
   sourceManualFoldKeys[file.path] = stored;
@@ -1282,8 +1286,10 @@ function syncSourceTabOverflow(activePath) {
   sourceTabOverflowPaths = sourceTabOverflowPaths.filter(Boolean);
   if (!sourceTabOverflowPaths.length) return;
   overflow.textContent = sourceTabOverflowPaths.length + '+';
-  overflow.setAttribute('aria-label', t('source.hiddenTabs').replace('{count}', String(sourceTabOverflowPaths.length)));
-  overflow.setAttribute('title', t('source.hiddenTabs').replace('{count}', String(sourceTabOverflowPaths.length)));
+  var hiddenTabs = plural(t('source.hiddenTabs'), { count: sourceTabOverflowPaths.length })
+    .replace('{count}', String(sourceTabOverflowPaths.length));
+  overflow.setAttribute('aria-label', hiddenTabs);
+  overflow.setAttribute('title', hiddenTabs);
   overflow.classList.remove('hidden');
   bar.classList.add('tabs-overflowing');
 }

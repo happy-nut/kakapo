@@ -83,9 +83,16 @@ function shortcutChords(event) {
   var byCode = shortcutNameFromCode(event.code);
   if (byCode) out.push(shortcutModifiers(event, true) + byCode);
   var byKey = shortcutNameFromKey(event.key);
-  // A one-character key that is not alphanumeric already carries Shift inside it ("?" is Shift+/).
+  // A one-character key that is not alphanumeric already carries Shift inside it ("?" is Shift+/), so the
+  // chord it spells must not say ⇧ as well.
+  //
+  // Only when the key and the physical code actually DIFFER, though. With ⌘⇧[ this browser reports
+  // `key` as "[" as well as `code` BracketLeft, so folding there erased a Shift that was really held:
+  // ⌘⇧[ was ALSO read as ⌘[, and because Previous Tab declines in the diff, the key fell through to
+  // Cursor Back — a chord quietly doing a different action's job, with nothing on screen to say so.
   if (byKey) {
-    var folded = shortcutModifiers(event, /^[A-Z0-9]$/.test(byKey) || byKey.length > 1) + byKey;
+    var shiftIsInTheKey = byKey !== byCode && byKey.length === 1 && !/^[A-Z0-9]$/.test(byKey);
+    var folded = shortcutModifiers(event, !shiftIsInTheKey) + byKey;
     if (out.indexOf(folded) < 0) out.push(folded);
   }
   return out;
@@ -115,6 +122,17 @@ function shortcutKeys(id) {
   if (Array.isArray(over) && over.length) return over;
   var def = shortcutDef(id);
   return def ? def.keys : [];
+}
+/**
+ * The chord a row is CURRENTLY bound to, for a sentence that has to name a key.
+ *
+ * A message that spells a chord inline is a copy of the table, and a rebind makes it a lie: "press F7
+ * again to go to the next file" kept saying F7 after F7 had been rebound to something else. Six strings
+ * did this. They interpolate `{key}` through here instead, so the sentence follows the binding.
+ */
+function shortcutLabel(id, index) {
+  var keys = shortcutKeys(id);
+  return keys[index || 0] || '';
 }
 // Letters are spelled uppercase in a chord; the sheet may show a bare key lowercase ("e" to edit a
 // comment), so both sides of a comparison go through this.

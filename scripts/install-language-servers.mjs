@@ -52,13 +52,33 @@ export const SERVER_VERSIONS = Object.freeze({
   // Releases are listed at https://github.com/Kotlin/kotlin-lsp/releases (tags are `kotlin-lsp/vX`, and
   // those releases carry no assets); each archive's checksum is published next to the archive itself as
   // `<name>.sha256` under the CDN path below. Observed lifetimes: 262.9593.0 (2026-07-27) expired around
-  // 2026-09-16, 263.4702.0 (2026-09-13) by 2026-10-16 — four to seven weeks, so expect to bump this a few
-  // times a year rather than once.
-  kotlin: "263.6379.0",
+  // 2026-09-16, 263.4702.0 (2026-09-13) by 2026-10-16, 263.6379.0 (2026-10-03) by 2026-11-01 — four to
+  // seven weeks, so expect to bump this a few times a year rather than once. The expired binary exits 7
+  // with "This build of kotlin-server has expired", which is how to tell it from a server that merely
+  // failed to start.
+  kotlin: "263.7084.0",
   sorbet: "0.6.13342.20260716135343-aafce23c1",
   php: "8.4.23",
   phpactor: "2026.06.25.0",
 });
+
+/**
+ * Does what is on disk match the pin — for the one family whose archive has a clock in it.
+ *
+ * intellij-server writes its build into `build.txt` ("ILS-263.7084.0"), which is the only cheap, local
+ * way to tell an expired install from a current one. Everything else here is version-stable, so an
+ * existing directory is taken at face value; being wrong about those costs a stale binary, while being
+ * wrong about Kotlin costs an expired one that exits 7 and degrades navigation to the regex index.
+ */
+function installedVersionMatches(family, output, pinned) {
+  if (family !== "kotlin" || !pinned) return true;
+  const marker = join(output, "build.txt");
+  if (!existsSync(marker)) return true; // an older layout; leave it and let the canary test speak
+  // An unreadable marker is a reason to reinstall, not to abort the run: throwing here would take every
+  // other family down with it over a file this check is only consulting.
+  try { return readFileSync(marker, "utf8").trim().endsWith(String(pinned)); }
+  catch { return false; }
+}
 
 const NATIVE_LANGUAGE_FAMILIES = Object.freeze(["go", "rust", "clang", "java", "kotlin", "ruby", "php"]);
 
@@ -84,8 +104,8 @@ const CLANG_ARCHIVES = Object.freeze({
 });
 
 const KOTLIN_ARCHIVES = Object.freeze({
-  "darwin-x64": ["kotlin-server-263.6379.0.sit", "e69e0c9d27b915b2db9ee692ec08d097df1a394d9f21190457ef199f2905f77e"],
-  "darwin-arm64": ["kotlin-server-263.6379.0-aarch64.sit", "ebef2e13cd4adc4ec9e04084b848000a3ec7a9d2917c64f269574ce2efe9ecad"],
+  "darwin-x64": ["kotlin-server-263.7084.0.sit", "b29c393a5e541153d03d626e7946268437e358a667a5f914a126dbb4007664b1"],
+  "darwin-arm64": ["kotlin-server-263.7084.0-aarch64.sit", "b403bf8a54bd458e3ba6731cf8abb3340be08b439c03576dfc02b13faf3694b8"],
 });
 
 const JAVA_ARCHIVES = Object.freeze({
@@ -350,9 +370,17 @@ export async function installLanguageServers({
     if (!install) throw new Error(`Unknown native language-server family: ${family}`);
     const output = join(targetRoot, family);
     const expected = expectedServerPaths(outputRoot, target)[family];
-    const complete = existsSync(expected) && (family !== "php" || existsSync(join(output, "php")));
+    const pinned = SERVER_VERSIONS[family];
+    const complete = existsSync(expected)
+      && (family !== "php" || existsSync(join(output, "php")))
+      && installedVersionMatches(family, output, pinned);
     if (complete) {
-      process.stdout.write(`${family}: already installed\n`);
+      // Say WHICH version is sitting there, and say it only when it was READ. A bare "already installed"
+      // is what makes a pin bump look like it worked — the pin moves, this prints the same reassuring
+      // line, nothing is downloaded — and printing the pin for a family whose installed version nobody
+      // checked would make it worse: the new number quoted back as evidence of an old binary.
+      const verified = family === "kotlin" && pinned;
+      process.stdout.write(`${family}: already installed${verified ? ` (${pinned})` : ""}\n`);
       continue;
     }
     rmSync(output, { recursive: true, force: true });

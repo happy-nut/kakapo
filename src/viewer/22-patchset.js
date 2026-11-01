@@ -127,6 +127,11 @@ function patchSetWindow(opts, which) {
   return lead.concat(out, tail);
 }
 
+/** "Show the 1 patch set folded away here" — the form that is right for the count. */
+function patchSetShowAllLabel(opt) {
+  var n = opt.hidden || 0;
+  return plural(t('patchset.showAll'), { n: n }).replace('{n}', String(n));
+}
 function patchSetNumButton(which, opt) {
   // A fold is not a control: it says how many were left out and answers a hover, nothing more. Clicking it
   // would have to guess which of the hidden commits you meant.
@@ -135,8 +140,8 @@ function patchSetNumButton(which, opt) {
   // markup never did: it rendered a bare aria-hidden ellipsis with no count and no title.
   if (opt.ellipsis) {
     return '<button type="button" class="patchset-gap" data-expand="' + which + '"'
-      + ' title="' + escapeHtml(t('patchset.showAll').replace('{n}', String(opt.hidden || 0))) + '"'
-      + ' aria-label="' + escapeHtml(t('patchset.showAll').replace('{n}', String(opt.hidden || 0))) + '">'
+      + ' title="' + escapeHtml(patchSetShowAllLabel(opt)) + '"'
+      + ' aria-label="' + escapeHtml(patchSetShowAllLabel(opt)) + '">'
       + escapeHtml(String(opt.hidden || 0)) + '…</button>';
   }
   return '<button type="button" class="patchset-num' + (opt.active ? ' active' : '') + (opt.wide ? ' patchset-num-wide' : '') + '"'
@@ -192,12 +197,16 @@ function selectPatchSet(which, ref) {
   if (!window.kakapoGit || !ref) return;
   requestDiffViewOnNextCompare();
   // In a Cmd+9-opened range, both sides are commits in the scope; set them together so B..D shows.
+  // Each of these three moves activeBase/activeTarget, which is what compareCommitLead() reads — so each
+  // changes the toolbar's commit chip and must repaint it. They repainted only the bar and relied on a
+  // diff-update event arriving afterwards; where one does not, the chip goes on naming the old commit,
+  // which is the disagreement refreshPatchSets was changed to end, reached from the control that causes it.
   if (patchSetData && patchSetData.scoped && typeof window.kakapoGit.setReviewCompare === 'function') {
     var base = which === 'base' ? ref : patchSetData.activeBase;
     var target = which === 'target' ? ref : patchSetData.activeTarget;
     if (base === patchSetData.activeBase && target === patchSetData.activeTarget) return;
     Promise.resolve(window.kakapoGit.setReviewCompare(base, target)).then(function (res) {
-      if (res && res.ok && patchSetData) { patchSetData.activeBase = res.activeBase || base; patchSetData.activeTarget = res.activeTarget || target; renderPatchSetBar(); }
+      if (res && res.ok && patchSetData) { patchSetData.activeBase = res.activeBase || base; patchSetData.activeTarget = res.activeTarget || target; renderPatchSetBar(); syncDiffReviewChrome(); }
     }).catch(function () {});
     return;
   }
@@ -205,23 +214,30 @@ function selectPatchSet(which, ref) {
     if (typeof window.kakapoGit.setReviewTarget !== 'function') return;
     if (patchSetData && (patchSetData.activeTarget || 'worktree') === ref) return;
     Promise.resolve(window.kakapoGit.setReviewTarget(ref)).then(function (res) {
-      if (res && res.ok && patchSetData) { patchSetData.activeTarget = res.activeTarget || ref; renderPatchSetBar(); }
+      if (res && res.ok && patchSetData) { patchSetData.activeTarget = res.activeTarget || ref; renderPatchSetBar(); syncDiffReviewChrome(); }
     }).catch(function () {});
   } else {
     if (typeof window.kakapoGit.setReviewBase !== 'function') return;
     if (patchSetData && (patchSetData.activeBase || 'auto') === ref) return;
     Promise.resolve(window.kakapoGit.setReviewBase(ref)).then(function (res) {
-      if (res && res.ok && patchSetData) { patchSetData.activeBase = res.activeBase || ref; renderPatchSetBar(); }
+      if (res && res.ok && patchSetData) { patchSetData.activeBase = res.activeBase || ref; renderPatchSetBar(); syncDiffReviewChrome(); }
     }).catch(function () {});
   }
 }
 
 function refreshPatchSets() {
   if (!window.kakapoGit || typeof window.kakapoGit.patchSets !== 'function') return;
+  // The toolbar's commit chip is a function of THIS data (compareCommitLead reads patchSetData), and it
+  // arrives asynchronously after a rebuild — so the chrome painted during the rebuild was painted from
+  // the previous answer. Coming back from a History commit with ⌥A left "61139ee feat(lsp): …" sitting
+  // beside "all changes · origin/main → Working tree": two statements about what you are reading,
+  // disagreeing, until you happened to open another file. syncDiffReviewChrome compares the lead it
+  // last drew, so this repaints only when the answer really moved.
+  var settle = function () { renderPatchSetBar(); syncDiffReviewChrome(); };
   Promise.resolve(window.kakapoGit.patchSets()).then(function (data) {
     patchSetData = (data && Array.isArray(data.commits)) ? data : null;
-    renderPatchSetBar();
-  }).catch(function () { patchSetData = null; renderPatchSetBar(); });
+    settle();
+  }).catch(function () { patchSetData = null; settle(); });
 }
 
 function initPatchSetBar() {

@@ -40,14 +40,18 @@ function reviewFocusPanelFor(node) {
   if (!node || !node.closest) return null;
   return node.matches(REVIEW_FOCUS_PANEL_SELECTOR) ? node : node.closest(REVIEW_FOCUS_PANEL_SELECTOR);
 }
-function flashReviewPanelFocus(node) {
+// `force` re-flashes a panel that is already the focused one. The skip below is there so programmatic
+// navigation inside one panel does not strobe it; a key the reader pressed ON PURPOSE is the other case —
+// Tab into the content pane you are already in had nothing to move and so showed nothing at all, which is
+// indistinguishable from a key that does not work.
+function flashReviewPanelFocus(node, force) {
   var panel = reviewFocusPanelFor(node);
   if (!panel || panel.classList.contains('hidden')) return;
   panel.setAttribute('data-mc-focus-panel', 'true');
   // Pointer placement already makes its destination obvious. Reserve the arrival flash for keyboard and
   // programmatic navigation, where the user's eyes otherwise have no direct spatial cue.
   if (reviewFocusInputModality === 'pointer') return;
-  if (reviewFocusedPanel === panel && panel.isConnected) return;
+  if (!force && reviewFocusedPanel === panel && panel.isConnected) return;
   if (reviewFocusedPanel) reviewFocusedPanel.classList.remove('mc-panel-focus-flash');
   if (reviewFocusFlashTimer) clearTimeout(reviewFocusFlashTimer);
   reviewFocusedPanel = panel;
@@ -603,6 +607,45 @@ var locale = (function () {
   return (v === 'ko' || v === 'en') ? v : 'en';
 })();
 function t(key) { var m = (I18N[locale] || I18N.en || {}); return (m && key in m) ? m[key] : ((I18N.en && I18N.en[key]) || key); }
+/**
+ * Pick the singular or plural form in a counting sentence: `{{n:usage|usages}}` with `{ n: 1 }` gives
+ * "usage". `counts` is keyed by the placeholder the form belongs to, so one sentence can count two things.
+ *
+ * English only in effect — Korean inflects no nouns, so its values simply carry no such token and this is
+ * a no-op on them. The alternative the catalog had been using was "comment(s)", and "asleep for 1 weeks".
+ */
+/**
+ * "{n} results" / "결과 {n}개" — the whole sentence from the catalog, not a number glued to a noun.
+ *
+ * Gluing is what produced "3 개 결과" in Korean: the count on the wrong side of the noun with a stray
+ * space, the same defect the comment badge had. A locale that counts differently needs the number INSIDE
+ * its own string, so the string carries `{n}` and this substitutes it.
+ */
+function resultsLabel(shown, n) {
+  var count = n === undefined ? shown : n;
+  return plural(t('quickopen.results'), { n: count }).replace('{n}', String(shown));
+}
+/**
+ * Ask main to stand the application menu's accelerators down, counted rather than toggled.
+ *
+ * Three surfaces need this at once — the merged dock, Quick Open and a rebind capture — and it was one
+ * boolean: a capture ending inside an open dock revoked the dock's protection, and ⌘Q quit the app from
+ * inside it. A count is the smallest thing that lets them overlap.
+ */
+var menuShortcutHolds = 0;
+function holdMenuShortcuts(hold) {
+  var before = menuShortcutHolds;
+  menuShortcutHolds = Math.max(0, menuShortcutHolds + (hold ? 1 : -1));
+  if ((before > 0) === (menuShortcutHolds > 0)) return;
+  if (window.kakapoApp && typeof window.kakapoApp.setIgnoreMenuShortcuts === 'function') {
+    window.kakapoApp.setIgnoreMenuShortcuts(menuShortcutHolds > 0);
+  }
+}
+function plural(text, counts) {
+  return String(text).replace(/\{\{(\w+):([^|{}]*)\|([^|{}]*)\}\}/g, function (_m, key, one, many) {
+    return Number(counts && counts[key]) === 1 ? one : many;
+  });
+}
 var langSelectRef = null, themeSelectRef = null, syntaxThemeSelectRef = null;
 // The knowledge map's sweep-interval select (26-terms.js), held here for the same reason as the three above:
 // its labels are localized, so applyI18n has to be able to re-render it.
@@ -660,6 +703,10 @@ function applyI18n() {
   if (termsSweepSelectRef) termsSweepSelectRef.render();
   refreshDiffContextFoldLabels();
   refreshCodeFoldLabels();
+  // The collapsed-file note is written once, by the paint, and carries no data-i18n: without this it kept
+  // its old-locale sentence (and a stale chord after toggleFold was rebound) while everything around it
+  // changed language. The paint is idempotent, so re-running it is the whole fix.
+  paintDiffFileCollapse();
   // The action list caches its rows with their labels already translated, so a language switch has to drop
   // it or ⌘⇧A keeps answering in the language you just left.
   forgetFindActionItems();

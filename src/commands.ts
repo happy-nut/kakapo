@@ -220,10 +220,7 @@ Options:
 
 Diff review keys:
   F7 / Shift+F7     next / previous change — each edit, deleted lines included
-  Cmd/Ctrl+8        worktrees — every checkout sharing this repository; Enter opens one
-                    in its own window. Shows each one's branch, uncommitted work and
-                    drift, plus its open GitHub PR when gh is installed.
-  Cmd/Ctrl+0        focus the Changes panel (arrows + Enter to open a file)
+  Cmd/Ctrl+2        focus the Changes panel (arrows + Enter to open a file)
   Cmd/Ctrl+F        search the open file (Enter / Shift+Enter to navigate)
   Cmd/Ctrl+Shift+F  project search — its section rail also holds file search + recent files
   Alt/Option+A / +U all changes on the branch / only what is not committed yet

@@ -117,6 +117,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "monaco.noSymbol": "No symbol under the caret.",
     "monaco.definitionNotFound": "Definition not found for “{symbol}”.",
     "monaco.analysisPending": "Still reading the project — try “{symbol}” again in a moment.",
+    // Asked, and declined: the server does not offer this capability at all. Distinct from "not yet"
+    // (monaco.analysisPending) and from "asked and found none".
+    "monaco.notOffered": "This language’s server does not answer that question — there is no more to find for “{symbol}”.",
+    "monaco.noServer": "No language server covers this file’s language — semantic navigation is not available here.",
+    "monaco.alreadyThere": "This IS the declaration of “{symbol}” — there is nowhere else to go.",
     // Not a failure to find something: a refusal to answer from the wrong text. Names the revision, because
     // "navigation is unavailable" with no reason reads as a bug rather than as a boundary.
     "quickopen.revisionOff": "off for this revision",
@@ -135,18 +140,30 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Diff view
     "diff.noDiff": "No diff to review.",
+    // A collapsed file in this diff has no header to collapse TO (one file shows at a time), so this
+    // stands in its place — otherwise the pane is simply blank with no way back but a key you would
+    // have to already know.
+    "diff.fileCollapsed": "{file} is folded away — click here, or press {key}, to open it",
     // A dead end should say where the way out is. Not which keys open it: a chord written here is a copy
     // of the shortcut table that nothing keeps in agreement (see AGENTS.md). The control it points at is
     // on screen, named, and one click away.
     "diff.noDiff.hint": "If this is not what you meant to review, change it with the compare control in the toolbar.",
     "changes.empty": "No changed files",
-    "diff.lastHunk": "Last change in this file — press F7 again to go to the next file.",
-    "diff.firstHunk": "First change in this file — press Shift+F7 again to go to the previous file.",
+    "diff.lastHunk": "Last change in this file — press {key} again to go to the next file.",
+    "diff.firstHunk": "First change in this file — press {key} again to go to the previous file.",
     "diff.navEnd": "No more changes this way.",
+    // Shift+Tab crosses panes; this is what it says when it cannot. Deliberately about the PANE and
+    // not about the line: the usual cause is an added or deleted line, whose counterpart row is a
+    // placeholder, but a hunk header or a folded import block has no counterpart either, and
+    // "this line is new" would have been a specific factual claim about all three.
+    "diff.noBaseLine": "The base version has no line opposite this one.",
+    "diff.noWorkingLine": "The working tree has no line opposite this one.",
     "diag.error": "Error",
     "diag.warning": "Warning",
     "diag.weak": "Weak warning",
     "diag.none": "No language-server problems in this file.",
+    // Stepping in the diff stays in the diff: the problems it can show are the ones on changed lines.
+    "diag.noneChanged": "No problem on the lines this diff shows — {key} lists all {n} in this file.",
     "diag.unavailable": "No language server covers this file — it is not being checked.",
     "diag.pending": "Still checking this file…",
     "diag.failed": "The language server could not check this file.",
@@ -208,7 +225,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "patchset.latest": "latest",
     "patchset.allChanges": "All changes",
     "patchset.comparing": "{base} → {target}",
-    "patchset.showAll": "Show the {n} patch sets folded away here",
+    "patchset.showAll": "Show the {n} patch {{n:set|sets}} folded away here",
     "diff.contextFold": "{count} unchanged lines · expand",
     "diff.contextLoading": "Loading context…",
     "diff.contextUnavailable": "Context could not be loaded.",
@@ -216,7 +233,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Source toolbar
     "source.title": "Source",
     "source.selectFile": "Select a file from the Files tab.",
-    "source.hiddenTabs": "{count} hidden tabs",
+    "source.hiddenTabs": "{count} hidden {{count:tab|tabs}}",
     "http.env.title": "HTTP Client environment",
     "http.env.aria": "HTTP environment",
     "btn.diff": "Diff",
@@ -276,12 +293,29 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "hierarchy.none": "Nothing to show for {name}.",
     "findusages.title": "Usages of {name}",
     "findusages.placeholder": "Filter usages",
-    "findusages.summary": "{n} usages in {files} files",
+    "findusages.summary": "{n} {{n:usage|usages}} in {files} {{files:file|files}}",
     "findusages.none": "No usages of {name}.",
     "findusages.allFiltered": "All {n} usages are hidden by the filters above.",
     "findusages.noncode": "Non-code usages",
-    "findusages.inFile": "{n} usages of {name} in this file · {writes} write",
+    "findusages.inFile": "{name} · {n} in this file, {writes} written",
     "findusages.noneInFile": "No other usage of {name} in this file.",
+    // The diff only: the symbol is in the file but not in the pane the caret is in — typically a name
+    // this change added, read from the base version.
+    "findusages.noneInPane": "No occurrence of {name} in this pane \u2014 {key} crosses to the other one.",
+    // ⌥↓ / ⌥↑. The first press after opening a file asks for the structure and has nothing to walk
+    // yet; in the diff the walk is over the symbols the diff printed, which can be none of them.
+    "structure.pending": "Still reading this file’s structure…",
+    "structure.noFile": "No file is open — pick one in the sidebar first.",
+    "structure.atLast": "This is the last symbol in the file.",
+    "structure.atFirst": "This is the first symbol in the file.",
+    "structure.atLastShown": "This is the last symbol the diff shows.",
+    "structure.atFirstShown": "This is the first symbol the diff shows.",
+    // Three refusals that used to be silence. A fold that would hide one of the reader’s own
+    // comments, ⌘⇧’ pressed while the dock is open but not focused, and "?" with no line under a caret.
+    "fold.hasComment": "Not folded — this block holds one of your comments.",
+    "dock.notFocused": "Click the comments panel first — this maximizes the panel that has the keyboard.",
+    "comment.noTarget": "Put the caret on a line first — a comment is attached to one.",
+    "structure.noneShown": "No symbol declaration on the lines this diff shows.",
     "findusages.occurrence": "{name} · {i} of {n}",
     // IntelliJ's own usage-type names, from UsageViewBundle.properties in intellij-community. Translated
     // here rather than renamed: a reader who knows the IDE should recognise the group they are looking at.
@@ -364,13 +398,16 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "actions.title": "Find action",
     "actions.placeholder": "Filter actions",
     "quickdef.none": "No definition for {symbol}.",
-    "quickdef.outside": "The definition is outside this review — ⌘↓ opens it read-only.",
+    "quickdef.outside": "The definition is outside this review — {key} opens it read-only.",
     "bookmark.title": "Bookmarks",
     "bookmark.placeholder": "Filter bookmarks",
     "bookmark.none": "No bookmarks yet — F3 marks the line the caret is on.",
     "bookmark.added": "Bookmarked {where}",
     "bookmark.removed": "Bookmark removed from {where}",
     "bookmark.mnemonicSet": "Bookmark {digit} is now {where}",
+    // A line holds one number, so setting a second one takes the first away. Said, rather than left
+    // to be discovered when the old number reports nothing bookmarked.
+    "bookmark.mnemonicReplaced": "Bookmark {digit} is now {where} — {old} was on this line and is gone (one number per line).",
     "bookmark.mnemonicCleared": "Bookmark {digit} cleared",
     "bookmark.mnemonicEmpty": "Nothing is bookmarked as {digit}.",
     "quickopen.noFiles": "No files found.",
@@ -379,7 +416,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "quickopen.typeToSearch": "Type to search across the project.",
     "quickopen.searching": "Searching…",
     "quickopen.noMatches": "No matches found.",
-    "quickopen.results": "results",
+    "quickopen.results": "{n} {{n:result|results}}",
 
     // Usages
     "usages.aria": "Usages",
@@ -480,7 +517,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.runHttp": "Run the request (.http), or draft a fix for the problem on this line",
     "kbd.runHttpAll": "Run every request in the .http file, in order",
     "kbd.copyHttpCurl": "Copy the request at the caret as a cURL command",
-    "kbd.toggleRendered": "Rendered / raw Markdown or CSV",
+    "kbd.toggleRendered": "Rendered / raw Markdown or CSV (in an open file)",
     "kbd.toggleLineWrap": "Toggle line wrap",
     "kbd.showWhitespace": "Show whitespaces",
     "kbd.indentGuides": "Show indent guides",
@@ -497,22 +534,23 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.deleteComment": "Delete comment (when selected)",
     "kbd.reviewStops": "Step through comments / folded context",
     "kbd.stepComments": "Step between comments (merged)",
+    "kbd.openComment": "Go to this comment’s line and open it for editing (merged)",
     "kbd.mergedSend": "Copy the review and archive it (merged)",
-    "kbd.mergedCopy": "Copy the selected comment and archive it — ⌘A first for all (merged)",
+    "kbd.mergedCopy": "Copy the selected comment and archive it — Select All first for all (merged)",
     "kbd.nextChange": "Next change",
     "kbd.prevChange": "Previous change",
     "kbd.nextComment": "Next / previous comment",
     "kbd.closeTab": "Close tab",
-    "kbd.prevNextTab": "Prev / next tab",
+    "kbd.prevNextTab": "Prev / next tab (in an open file)",
     "kbd.cursorBackForward": "Cursor back / forward",
     "kbd.findInFile": "Find in current file",
     "kbd.findInFiles": "Find in files",
     "kbd.recentFiles": "Recent files",
     "kbd.searchExtensions": "Focus the file mask",
     "kbd.excludeSearchNoise": "Exclude comments / tests",
-    "kbd.searchMatchCase": "Find in Files: match case",
-    "kbd.searchWholeWords": "Find in Files: whole words",
-    "kbd.searchRegex": "Find in Files: regular expression",
+    "kbd.searchMatchCase": "In either search: match case",
+    "kbd.searchWholeWords": "In either search: whole words",
+    "kbd.searchRegex": "In either search: regular expression",
     "kbd.defUsages": "Find usages",
     "kbd.goToImplementation": "Go to implementation",
     "kbd.goToClass": "Go to a class by name",
@@ -521,7 +559,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.lastChange": "Jump to this file's last change",
     "kbd.methodHierarchy": "Method hierarchy — what overrides this",
     "kbd.workspaceSymbol": "Workspace symbol",
-    "kbd.goToDef": "Go to definition (or ⌘-click)",
+    "kbd.goToDef": "Go to definition — in the diff, open this file at the caret",
     "kbd.typeDeclaration": "Go to the declaration of this thing's TYPE",
     "kbd.fileStructure": "This file's structure — filter, then jump",
     "kbd.nextPrevSymbol": "Next / previous symbol in this file",
@@ -540,14 +578,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.jumpBookmark": "Go to a numbered bookmark",
     "test.noTest": "No test found for {file}.",
     "test.noSubject": "No source file found for {file}.",
-    "kbd.toggleFold": "Toggle code fold",
+    "kbd.toggleFold": "Fold / unfold — the code block, or the whole file in the diff",
     "kbd.collapseAll": "Collapse all",
     "kbd.expandAll": "Expand all",
-    "kbd.collapseRecursively": "Collapse recursively",
+    "kbd.collapseRecursively": "Collapse recursively (in an open file)",
     "kbd.diffFileStep": "Next / previous file in the diff",
     "kbd.filesChangesTab": "Focus / toggle Files or Changes sidebar",
     "kbd.sidebarContent": "Sidebar ↔ content / switch diff pane",
-    "kbd.wordJump": "Word jump (vim w)",
+    "kbd.wordJump": "Word jump",
     "kbd.lineStartEnd": "Line start / end",
     "kbd.extendSelection": "Extend selection",
     "kbd.toggleViewed": "Toggle viewed on selected Changes row",
@@ -555,8 +593,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.allComments": "All review comments (copy hands them over and archives)",
     "kbd.ignoreWhitespace": "Cycle whitespace handling (count it / ignore how much / ignore it)",
     "kbd.saveComment": "Save comment",
-    "kbd.maximizePanel": "Maximize panel (merged / memo)",
+    "kbd.maximizePanel": "Maximize the comments panel",
     "kbd.historyNavigate": "Select a commit, open it in the review",
+    "kbd.historyRange": "Extend the compare range to a second commit",
     "kbd.copyRevision": "Copy the selected commit's hash",
     // Worked all along and the sheet never said so, until the sheet and the keymap became one table.
     "kbd.revealInTree": "Reveal the open file in the sidebar",
@@ -593,6 +632,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.kbd.captureHint": "Press the new combination, or Esc to cancel",
     "settings.kbd.needModifier": "Hold ⌘, ⌥ or ⇧ as well — or use a function key",
     "settings.kbd.conflict": "{key} is already {action}",
+    "settings.kbd.sameRow": "{key} is already this action’s other combination",
+    "settings.kbd.menuOwned": "{key} belongs to the menu bar — it never reaches the page",
     "settings.kbd.reset": "Back to the default",
     "settings.kbd.resetAll": "Reset every shortcut",
     "settings.kbd.fixed.menu": "The menu bar owns this one",
@@ -618,16 +659,12 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // Shortcut coach (28-shortcut-coach.js) — the top-right nudge that appears when a control with a
     // keyboard shortcut keeps getting clicked, or when a once-used shortcut has gone unused too long.
     "coach.observed": "Here's a useful shortcut for you",
-    "coach.rusty": "A shortcut you know has been asleep for {w} weeks",
+    "coach.rusty": "A shortcut you know has been asleep for {w} {{w:week|weeks}}",
     "coach.nudgeCount": "reminder {n}/3",
     "coach.gotIt": "Got it",
     "coach.mute": "Don't show this tip again",
     "coach.known": "You already know this one ✓",
 
-    // The knowledge map (⌘⇧K). Its nodes are words the reviewer has used, never words an agent chose, so
-    // the empty state says how a word gets in rather than offering a button that would add one.
-
-    // Prompt palette (⌘⇧P)
     // --- Appearance / theme (redesigned settings) ---
     "settings.appearance": "Appearance",
     "settings.cat.shortcuts": "Shortcuts",
@@ -672,27 +709,30 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "composer.hint": "⌘Enter to save, Esc to cancel",
     "composer.delete": "Delete",
     "comment.kind": "Comment",
-    "badge.comments": "comment(s)",
+    "badge.comments": "{n} {{n:comment|comments}}",
 
     // Merged comments modal
     "merged.title": "Review comments",
     "merged.copyAndArchive": "Copy and archive",
     "archive.title": "Handed over",
     "archive.restore": "Put this back in the review",
-    "merged.allAddressed": "All {n} comments are flagged as possibly addressed, so nothing is left to hand off.",
+    "merged.allAddressed": "All {n} {{n:comment is|comments are}} flagged as possibly addressed, so nothing is left to hand off.",
     "merged.allAnswered": "The agent has answered every open thread. Reply to one of its answers and the reply comes back here.",
     "merged.empty": "No comments yet. Put the caret on a line — in the diff or in a file — and press {key} to write the first one.",
     "merged.reopenAll": "Reopen them",
     "merged.copied": "Copied",
-    "merged.copiedAndArchived": "Copied — {count} archived (⌘Z to undo)",
+    "merged.copiedAndArchived": "Copied — {count} archived ({key} to undo)",
     "merged.copyFailed": "Copy failed",
     "merged.close": "Close",
-
-    // One worktree memo (Cmd/Ctrl+Shift+N) — Markdown shortcuts become rich blocks in place.
 
     // Merge-prompt default agent contracts (these follow the locale — a Korean user gets Korean defaults)
     // Plan contract — prepended to review comments and the prompt memo so every task starts with a small, verifiable plan written to a file.
     "comment.answer": "Answer",
+    // The kind pill and the role mark on an agent-written card (agentCardHtml, 23-agent-cards.js).
+    // Dropped when the app was stripped down while the two call sites stayed, so every agent comment
+    // rendered the literal strings "annotate.kind" and "annotate.role.key" — t() falls back to the key.
+    "annotate.kind": "Why",
+    "annotate.role.key": "Key",
 
   },
   ko: {
@@ -788,18 +828,21 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "status.live.waiting": "실시간: diff 서버 대기 중",
     "analysis.idle": "분석 대기",
     "analysis.starting": "분석 시작 중",
-    "analysis.ready": "semantic 분석 준비됨",
+    "analysis.ready": "의미 분석 준비됨",
     "analysis.indexing": "프로젝트 인덱싱 중",
     "analysis.readyToast": "의미 분석이 준비됐습니다 — 이제 전체 기능으로 이동합니다.",
-    "analysis.fallback": "heuristic 분석",
+    "analysis.fallback": "추정 분석",
     "analysis.failed": "분석 실패",
     "analysis.elapsed": "{n}초",
-    "monaco.peek": "Semantic Peek",
+    "monaco.peek": "시맨틱 미리보기",
     "monaco.peekHint": "↑/↓ 선택 · Enter 열기 · Esc 닫기",
-    "monaco.noResults": "semantic 위치를 찾지 못했습니다.",
+    "monaco.noResults": "의미 분석으로 위치를 찾지 못했습니다.",
     "monaco.noSymbol": "커서 위치에서 심볼을 찾지 못했습니다.",
     "monaco.definitionNotFound": "“{symbol}”의 정의를 찾지 못했습니다.",
     "monaco.analysisPending": "프로젝트를 아직 읽고 있습니다 — 잠시 후 “{symbol}”을 다시 시도하세요.",
+    "monaco.notOffered": "이 언어의 서버는 이 질문에 답하지 않습니다 — “{symbol}”에 대해 더 알아낼 방법이 없습니다.",
+    "monaco.noServer": "이 파일의 언어를 담당하는 언어 서버가 없습니다 — 의미 기반 이동은 쓸 수 없습니다.",
+    "monaco.alreadyThere": "여기가 “{symbol}”의 선언입니다 — 갈 곳이 여기입니다.",
     "quickopen.revisionOff": "이 리비전에서는 꺼짐",
     "monaco.analysisRevisionMatched": "{revision} 에서 “{symbol}”을 이름으로 찾았습니다 — 리비전에는 언어 서버가 붙지 않아 타입 기반 검색이 아닙니다.",
     "monaco.analysisRevision": "{revision} 을 읽지 못해 “{symbol}”을 찾지 않았습니다 — 없다는 뜻이 아닙니다.",
@@ -816,15 +859,19 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     // Diff view
     "diff.noDiff": "검토할 변경사항이 없습니다.",
+    "diff.fileCollapsed": "{file} 접힘 — 클릭하거나 {key} 를 누르면 펼쳐집니다",
     "diff.noDiff.hint": "보려던 것이 이게 아니라면, 툴바의 비교 컨트롤에서 바꿀 수 있습니다.",
     "changes.empty": "변경된 파일 없음",
-    "diff.lastHunk": "이 파일의 마지막 변경입니다 — F7을 한 번 더 누르면 다음 파일로 이동합니다.",
-    "diff.firstHunk": "이 파일의 첫 변경입니다 — Shift+F7을 한 번 더 누르면 이전 파일로 이동합니다.",
+    "diff.lastHunk": "이 파일의 마지막 변경입니다 — {key}를 한 번 더 누르면 다음 파일로 이동합니다.",
+    "diff.firstHunk": "이 파일의 첫 변경입니다 — {key}를 한 번 더 누르면 이전 파일로 이동합니다.",
     "diff.navEnd": "이 방향으로는 더 이상 변경사항이 없습니다.",
+    "diff.noBaseLine": "기준 버전에는 이 줄의 맞은편이 없습니다.",
+    "diff.noWorkingLine": "작업 트리에는 이 줄의 맞은편이 없습니다.",
     "diag.error": "오류",
     "diag.warning": "경고",
     "diag.weak": "약한 경고",
     "diag.none": "이 파일에는 언어 서버 문제가 없습니다.",
+    "diag.noneChanged": "이 diff가 보여 주는 줄에는 문제가 없습니다 — 이 파일의 {n}건은 {key}에 있습니다.",
     "diag.unavailable": "이 파일을 담당하는 언어 서버가 없습니다 — 검사되지 않습니다.",
     "diag.pending": "이 파일을 검사하는 중입니다…",
     "diag.failed": "언어 서버가 이 파일을 검사하지 못했습니다.",
@@ -873,8 +920,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "compare.menu.noBranch": "일치하는 브랜치 없음",
     "patchset.bar": "기준 비교",
     "patchset.base": "기준",
-    "patchset.pick": "비교 기준으로 삼을 patch set 선택",
-    "patchset.pickTarget": "비교할 오른쪽 선택 (patch set 또는 작업 트리)",
+    "patchset.pick": "비교 기준으로 삼을 패치 세트 선택",
+    "patchset.pickTarget": "비교할 오른쪽 선택 (패치 세트 또는 작업 트리)",
     "patchset.exitCompare": "비교 종료 (작업 트리로 복귀)",
     "patchset.target": "대상",
     "patchset.allShort": "전체",
@@ -883,7 +930,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "patchset.latest": "최신",
     "patchset.allChanges": "전체 변경",
     "patchset.comparing": "{base} → {target}",
-    "patchset.showAll": "여기 접힌 patch set {n}개 보기",
+    "patchset.showAll": "여기 접힌 패치 세트 {n}개 보기",
     "diff.contextFold": "변경 없는 {count}줄 · 펼치기",
     "diff.contextLoading": "주변 코드를 불러오는 중…",
     "diff.contextUnavailable": "접힌 코드를 불러오지 못했습니다.",
@@ -955,6 +1002,17 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "findusages.noncode": "코드가 아닌 사용 위치",
     "findusages.inFile": "이 파일에서 {name} {n}곳 · 쓰기 {writes}곳",
     "findusages.noneInFile": "이 파일에 {name}을 쓰는 다른 곳이 없습니다.",
+    "findusages.noneInPane": "이 창에는 {name}이 없습니다 \u2014 {key}로 맞은편 창에 갑니다.",
+    "structure.pending": "이 파일의 구조를 읽는 중입니다…",
+    "structure.noFile": "읽고 있는 파일이 없습니다 — 사이드바에서 하나를 여세요.",
+    "structure.atLast": "이 파일의 마지막 심볼입니다.",
+    "structure.atFirst": "이 파일의 첫 심볼입니다.",
+    "structure.atLastShown": "이 diff가 보여 주는 마지막 심볼입니다.",
+    "structure.atFirstShown": "이 diff가 보여 주는 첫 심볼입니다.",
+    "fold.hasComment": "접지 않았습니다 — 이 블록에 남긴 코멘트가 있습니다.",
+    "dock.notFocused": "코멘트 패널을 먼저 클릭하세요 — 키보드를 가진 패널을 키웁니다.",
+    "comment.noTarget": "줄에 커서를 먼저 두세요 — 코멘트는 줄에 붙습니다.",
+    "structure.noneShown": "이 diff가 보여 주는 줄에는 심볼 선언이 없습니다.",
     "findusages.occurrence": "{name} · {n}곳 중 {i}번째",
     // IntelliJ의 사용 유형 이름 그대로 — 영어는 intellij-community의 UsageViewBundle.properties, 한국어는
     // 출하된 IDE의 localization-ko 플러그인이 같은 파일에 담아 보내는 공식 번역이다 (옮긴 것이 아니다).
@@ -1015,7 +1073,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "problems.noErrors": "에러는 없고 나머지는 경고입니다. \u2325E로 다시 봅니다.",
     "problems.noneHere": "이 줄에는 문제가 없습니다.",
     "problems.unavailable": "{n}개는 확인 못 함",
-    "problems.unavailableWhy": "{n}개 파일은 language server가 없어 아예 확인하지 못했습니다 — 깨끗하다는 뜻이 아닙니다.",
+    "problems.unavailableWhy": "{n}개 파일은 담당하는 언어 서버가 없어 아예 확인하지 못했습니다 — 깨끗하다는 뜻이 아닙니다.",
     "problems.severity.error": "에러",
     "problems.severity.warning": "경고",
     "problems.severity.weak": "약한 경고",
@@ -1031,13 +1089,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "actions.title": "액션 찾기",
     "actions.placeholder": "액션 걸러내기",
     "quickdef.none": "{symbol}의 정의를 찾지 못했습니다.",
-    "quickdef.outside": "정의가 이 리뷰 바깥에 있습니다 — ⌘↓가 읽기 전용으로 엽니다.",
+    "quickdef.outside": "정의가 이 리뷰 바깥에 있습니다 — {key}가 읽기 전용으로 엽니다.",
     "bookmark.title": "북마크",
     "bookmark.placeholder": "북마크 걸러내기",
     "bookmark.none": "북마크가 없습니다 — F3이 커서가 있는 줄을 표시합니다.",
     "bookmark.added": "{where} 북마크",
     "bookmark.removed": "{where} 북마크 해제",
     "bookmark.mnemonicSet": "{digit}번 북마크는 이제 {where}",
+    "bookmark.mnemonicReplaced": "{where}에 북마크 {digit} — 이 줄에 있던 {old}은 지워졌습니다 (한 줄에 번호 하나).",
     "bookmark.mnemonicCleared": "{digit}번 북마크 해제",
     "bookmark.mnemonicEmpty": "{digit}번으로 북마크된 자리가 없습니다.",
     "quickopen.noFiles": "파일을 찾을 수 없습니다.",
@@ -1046,7 +1105,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "quickopen.typeToSearch": "프로젝트 전체에서 찾을 내용을 입력하세요.",
     "quickopen.searching": "검색 중…",
     "quickopen.noMatches": "일치하는 결과가 없습니다.",
-    "quickopen.results": "개 결과",
+    "quickopen.results": "결과 {n}개",
 
     // Usages
     "usages.aria": "사용 위치",
@@ -1146,7 +1205,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.runHttp": "요청 실행 (.http), 또는 이 줄의 문제를 고칠 요청 작성",
     "kbd.runHttpAll": ".http 파일의 모든 요청을 순서대로 실행",
     "kbd.copyHttpCurl": "커서 위치의 요청을 cURL 명령으로 복사",
-    "kbd.toggleRendered": "Markdown·CSV 렌더링 / 원본 전환",
+    "kbd.toggleRendered": "Markdown·CSV 렌더링 / 원본 전환 (열린 파일에서)",
     "kbd.toggleLineWrap": "긴 줄 줄 바꿈 전환",
     "kbd.showWhitespace": "공백 표시",
     "kbd.indentGuides": "들여쓰기 가이드 표시",
@@ -1163,22 +1222,23 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.deleteComment": "코멘트 삭제 (선택 시)",
     "kbd.reviewStops": "코멘트 / 접힌 구간 단위 이동",
     "kbd.stepComments": "코멘트 단위 이동 (합본)",
+    "kbd.openComment": "이 코멘트의 줄로 가서 편집 열기 (합본)",
     "kbd.mergedSend": "리뷰를 복사하고 보관 (합본)",
-    "kbd.mergedCopy": "선택한 코멘트를 복사하고 보관 — 전체는 ⌘A 먼저 (합본)",
+    "kbd.mergedCopy": "선택한 코멘트를 복사하고 보관 — 전체는 모두 선택 먼저 (합본)",
     "kbd.nextChange": "다음 변경",
     "kbd.prevChange": "이전 변경",
     "kbd.nextComment": "다음 / 이전 코멘트",
     "kbd.closeTab": "탭 닫기",
-    "kbd.prevNextTab": "이전 / 다음 탭",
+    "kbd.prevNextTab": "이전 / 다음 탭 (열린 파일에서)",
     "kbd.cursorBackForward": "커서 뒤로 / 앞으로",
     "kbd.findInFile": "현재 파일에서 찾기",
     "kbd.findInFiles": "파일 내용 찾기",
     "kbd.recentFiles": "최근 파일",
     "kbd.searchExtensions": "파일 마스크로 이동",
     "kbd.excludeSearchNoise": "주석 / 테스트 검색 결과 제외",
-    "kbd.searchMatchCase": "전체 검색: 대소문자 구분",
-    "kbd.searchWholeWords": "전체 검색: 단어 단위",
-    "kbd.searchRegex": "전체 검색: 정규식",
+    "kbd.searchMatchCase": "두 검색 모두: 대소문자 구분",
+    "kbd.searchWholeWords": "두 검색 모두: 단어 단위",
+    "kbd.searchRegex": "두 검색 모두: 정규식",
     "kbd.defUsages": "사용 위치 찾기",
     "kbd.goToImplementation": "구현체로 이동",
     "kbd.goToClass": "이름으로 클래스 찾기",
@@ -1187,7 +1247,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.lastChange": "이 파일의 마지막 변경으로",
     "kbd.methodHierarchy": "메서드 계층 구조 — 무엇이 재정의하는가",
     "kbd.workspaceSymbol": "워크스페이스 심볼",
-    "kbd.goToDef": "정의로 이동 (⌘+클릭도 동일)",
+    "kbd.goToDef": "정의로 이동 — diff에서는 캐럿이 있는 파일을 엶",
     "kbd.typeDeclaration": "이 대상의 타입이 선언된 곳으로",
     "kbd.fileStructure": "이 파일의 구조 — 걸러내고 이동",
     "kbd.nextPrevSymbol": "이 파일의 다음 / 이전 심볼",
@@ -1206,14 +1266,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.jumpBookmark": "번호 북마크로 이동",
     "test.noTest": "{file}의 테스트를 찾지 못했습니다.",
     "test.noSubject": "{file}이 검증하는 소스 파일을 찾지 못했습니다.",
-    "kbd.toggleFold": "현재 코드 블록 접기 / 펼치기",
+    "kbd.toggleFold": "접기 / 펼치기 — 코드 블록, diff에서는 파일 전체",
     "kbd.collapseAll": "모두 접기",
     "kbd.expandAll": "모두 확장",
-    "kbd.collapseRecursively": "재귀적으로 접기",
+    "kbd.collapseRecursively": "재귀적으로 접기 (열린 파일에서)",
     "kbd.diffFileStep": "Diff에서 다음 / 이전 파일",
     "kbd.filesChangesTab": "파일 / 변경 사이드바 포커스·토글",
     "kbd.sidebarContent": "사이드바 ↔ 본문 / Diff 패널 전환",
-    "kbd.wordJump": "단어 단위 이동 (vim w)",
+    "kbd.wordJump": "단어 단위 이동",
     "kbd.lineStartEnd": "줄 시작 / 끝",
     "kbd.extendSelection": "선택 영역 확장",
     "kbd.toggleViewed": "선택한 변경 파일의 확인 표시 토글",
@@ -1221,8 +1281,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.allComments": "전체 리뷰 코멘트 (복사하면 넘기고 보관)",
     "kbd.ignoreWhitespace": "공백 처리 전환 (차이로 본다 / 양만 무시 / 아예 무시)",
     "kbd.saveComment": "코멘트 저장",
-    "kbd.maximizePanel": "패널 최대화 (합본 / 메모)",
+    "kbd.maximizePanel": "코멘트 패널 최대화",
     "kbd.historyNavigate": "커밋 / 파일 선택·열기",
+    "kbd.historyRange": "비교 범위를 두 번째 커밋까지 넓히기",
     "kbd.copyRevision": "선택한 커밋의 해시 복사",
     "kbd.revealInTree": "열린 파일을 사이드바에서 찾기",
     "kbd.findUsages": "사용 위치 찾기 (종류별로 묶어서)",
@@ -1255,6 +1316,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.kbd.captureHint": "새 조합을 누르세요. 취소는 Esc",
     "settings.kbd.needModifier": "⌘, ⌥, ⇧ 중 하나를 같이 누르거나 기능키를 쓰세요",
     "settings.kbd.conflict": "{key} 은(는) 이미 \u0027{action}\u0027 입니다",
+    "settings.kbd.sameRow": "{key} 은(는) 이 동작의 다른 자리에 이미 있습니다",
+    "settings.kbd.menuOwned": "{key} 은(는) 메뉴 막대가 가져갑니다 — 페이지에 닿지 않습니다",
     "settings.kbd.reset": "기본값으로",
     "settings.kbd.resetAll": "단축키 전체 초기화",
     "settings.kbd.fixed.menu": "메뉴 막대가 가진 키입니다",
@@ -1266,9 +1329,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "trivial.format": "포맷",
     "trivial.moved": "이동",
     "collision.conflict": "충돌",
-    "collision.conflict.title": "이 브랜치가 갈라진 뒤 base가 같은 줄을 바꿨습니다 \u2014 깨끗하게 병합되지 않습니다",
+    "collision.conflict.title": "이 브랜치가 갈라진 뒤 기준 브랜치가 같은 줄을 바꿨습니다 \u2014 깨끗하게 병합되지 않습니다",
     "collision.diverged": "갈라짐",
-    "collision.diverged.title": "이 브랜치가 갈라진 뒤 base가 이 파일의 다른 곳을 바꿨습니다 \u2014 병합은 됩니다",
+    "collision.diverged.title": "이 브랜치가 갈라진 뒤 기준 브랜치가 이 파일의 다른 곳을 바꿨습니다 \u2014 병합은 됩니다",
 
     // 브리핑 말풍선 (25-briefing.js)
 
@@ -1280,9 +1343,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "coach.mute": "이 팁 그만 보기",
     "coach.known": "이미 알고 계시네요 ✓",
 
-    // 지식 그래프 (⌘⇧K)
-
-    // 프롬프트 팔레트 (⌘⇧P)
     // --- Appearance / theme (redesigned settings) ---
     "settings.appearance": "화면",
     "settings.cat.shortcuts": "단축키",
@@ -1327,7 +1387,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "composer.hint": "⌘Enter로 저장, Esc로 취소",
     "composer.delete": "삭제",
     "comment.kind": "코멘트",
-    "badge.comments": "개 코멘트",
+    "badge.comments": "코멘트 {n}개",
 
     // Merged comments modal
     "merged.title": "리뷰 코멘트",
@@ -1339,11 +1399,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "merged.empty": "아직 코멘트가 없습니다. diff나 파일에서 줄에 커서를 두고 {key} 를 누르면 첫 코멘트를 남길 수 있습니다.",
     "merged.reopenAll": "다시 열기",
     "merged.copied": "복사됨",
-    "merged.copiedAndArchived": "복사했고 {count}개를 보관했습니다 (⌘Z로 되돌리기)",
+    "merged.copiedAndArchived": "복사했고 {count}개를 보관했습니다 ({key}로 되돌리기)",
     "merged.copyFailed": "복사 실패",
     "merged.close": "닫기",
-
-    // 워크트리 메모 한 장 (Cmd/Ctrl+Shift+N) — 마크다운 단축 문법이 그 자리에서 서식 블록으로 바뀐다.
 
     // Merge-prompt default agent contracts (Korean default for Korean users)
     // 플랜 계약문 — 모든 작업이 파일로 작성된 작고 검증 가능한 플랜에서 시작하도록 리뷰 코멘트와 프롬프트 메모 앞에 붙는다.
@@ -1354,6 +1412,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // 후속 코멘트가 이어받는 이전 대화를 대신한다 (mergedItemLines) — 본문이 아니라 id만. 문서 맨 앞에
     // 적힌 스레드 파일에 전부 들어 있기 때문이다.
     "comment.answer": "답변",
+    "annotate.kind": "왜",
+    "annotate.role.key": "핵심",
 
     // Explain 기본 프롬프트 — 에이전트가 diff 위에 붙일 노트 카드를 작성한다. {{NOTES_PATH}}는
     // 보내는 시점에 이 워크스페이스의 주석 파일 경로로 클라이언트에서 치환된다.

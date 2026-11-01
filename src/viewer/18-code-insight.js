@@ -135,11 +135,16 @@ function showErrorDescriptionAtCaret() {
     showCaretHint(t('problems.noneHere'));
     return true;
   }
-  var text = items.map(function (item) {
+  // Deduped: a name used three times on one line is three diagnostics with one message, and the hint
+  // read "…Did you mean 'shortcutDef'? — …Did you mean 'shortcutDef'? — …Did you mean 'shortcutDef'?".
+  // createFixCommentAtCaret has deduped for as long as it has existed; this is the same list.
+  var seen = [];
+  items.forEach(function (item) {
     var source = item.source ? item.source + ': ' : '';
-    return source + String(item.message || '').replace(/\s+/g, ' ');
-  }).join(' — ');
-  showCaretHint(text);
+    var line = source + String(item.message || '').replace(/\s+/g, ' ');
+    if (seen.indexOf(line) < 0) seen.push(line);
+  });
+  showCaretHint(seen.join(' — '));
   return true;
 }
 
@@ -178,7 +183,7 @@ async function openQuickDefinition() {
   // body this page can read. Saying where it is beats showing an empty box.
   if (target.external || !sourceByPath.has(target.path)) {
     if (meta) meta.textContent = semanticFileLabel(target.path, target.lineIndex);
-    if (body) body.innerHTML = '<div class="quick-doc-empty">' + escapeHtml(t('quickdef.outside')) + '</div>';
+    if (body) body.innerHTML = '<div class="quick-doc-empty">' + escapeHtml(t('quickdef.outside').replace('{key}', shortcutLabel('goToDef'))) + '</div>';
     return true;
   }
   var file = sourceByPath.get(target.path);
@@ -367,6 +372,14 @@ function renderProblemsResults(query) {
         + escapeHtml(t('problems.scanning').replace('{done}', String(problemsScanned)).replace('{total}', String(problemsTotal)))
         + '</span>'
       : escapeHtml(summary);
+    // "N not checked" is a count with a warning attached, and the warning only existed on the empty
+    // branch below — so a review WITH problems showed the bare figure and nothing saying that those files
+    // are not clean, they are unexamined. The risk is identical in both branches; hang the sentence on the
+    // summary itself so it is there either way.
+    quickFilterEl.removeAttribute('title');
+    if (!problemsBusy && problemsUnavailable) {
+      quickFilterEl.setAttribute('title', t('problems.unavailableWhy').replace('{n}', String(problemsUnavailable)));
+    }
   }
   if (!rows.length) {
     var empty = problemsBusy ? t('quickopen.searching')

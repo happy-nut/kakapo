@@ -58,8 +58,19 @@ function shortcutCaptureMessage(row, message, bad) {
   note.textContent = message;
   note.classList.toggle('keys-note-bad', !!bad);
 }
+// While a row is listening, the application menu must not act on its own accelerators: otherwise ⌘Q quits
+// the app, ⌘M minimises it and ⌘O opens a folder dialog over the sheet — and the truthful refusal this
+// code can now give ("⌘M belongs to the menu bar") could never be shown for any of the chords it is
+// about. The same IPC the merged dock uses for the same reason (app-main.ts, set-ignore-menu-shortcuts).
+var captureHoldsMenu = false;
+function captureOwnsMenuKeys(owns) {
+  if (!!owns === captureHoldsMenu) return; // every exit path calls this; only a real change counts
+  captureHoldsMenu = !!owns;
+  holdMenuShortcuts(captureHoldsMenu);
+}
 function endShortcutCapture() {
   if (!shortcutCapture) return;
+  captureOwnsMenuKeys(false);
   var row = shortcutCapture.row;
   shortcutCapture = null;
   row.classList.remove('keys-row-capturing');
@@ -72,6 +83,7 @@ function beginShortcutCapture(row, index) {
   var def = shortcutDef(row.dataset.shortcut);
   if (!def) return;
   shortcutCapture = { id: def.id, index: index, row: row };
+  captureOwnsMenuKeys(true);
   row.classList.add('keys-row-capturing');
   var holder = row.querySelector('.keys-keys');
   holder.innerHTML = '<span class="keys-combo keys-combo-listening"><kbd>' + escapeHtml(t('settings.kbd.capture')) + '</kbd></span>';
@@ -87,12 +99,33 @@ function shortcutBindable(chord) {
 
 document.addEventListener('keydown', function (event) {
   if (!shortcutCapture) return;
+  // A capture that is not on screen does not own the keyboard. The close path ends it, and this is the
+  // second lock on the same door — the symptom (every key swallowed, with nothing visible) is too quiet
+  // to leave to one of them. Same shape as the go-to-line prompt's (13-goto.js).
+  var sheet = document.getElementById('settings-modal');
+  if (!sheet || sheet.classList.contains('hidden')) { endShortcutCapture(); return; }
   event.preventDefault();
   event.stopImmediatePropagation();
   if (event.key === 'Escape') { endShortcutCapture(); return; }
   var chord = shortcutChords(event)[0];
   if (!chord) return; // a modifier on its own — keep listening for the key it is held for
   if (!shortcutBindable(chord)) { shortcutCaptureMessage(shortcutCapture.row, t('settings.kbd.needModifier'), true); return; }
+  // The application menu takes its chords before any renderer keydown runs, so binding one here saves a
+  // key that can never fire — and the sheet used to accept ⌘M, ⌘0 and ⌘⇧Z in silence and do exactly that.
+  if (MENU_OWNED_CHORDS.indexOf(shortcutCanonical(chord)) >= 0) {
+    shortcutCaptureMessage(shortcutCapture.row, t('settings.kbd.menuOwned').replace('{key}', chord), true);
+    return;
+  }
+  // A row's own OTHER combination counts. shortcutConflict skips the row being rebound, so putting ⌥A on
+  // the second half of ⌥A / ⌥U was accepted, stored as ["⌥A","⌥A"], rendered as "⌥A / ⌥A" — and ⌥U, the
+  // only keyboard route to "uncommitted changes", was gone with nothing said.
+  var own = shortcutKeys(shortcutCapture.id);
+  for (var o = 0; o < own.length; o += 1) {
+    if (o !== shortcutCapture.index && shortcutCanonical(own[o]) === shortcutCanonical(chord)) {
+      shortcutCaptureMessage(shortcutCapture.row, t('settings.kbd.sameRow').replace('{key}', chord), true);
+      return;
+    }
+  }
   var clash = shortcutConflict(shortcutCapture.id, chord);
   if (clash) {
     var other = shortcutDef(clash);
@@ -103,6 +136,7 @@ document.addEventListener('keydown', function (event) {
   keys[shortcutCapture.index] = chord;
   shortcutOverridesAll()[shortcutCapture.id] = keys;
   var row = shortcutCapture.row;
+  captureOwnsMenuKeys(false);
   shortcutCapture = null;
   row.classList.remove('keys-row-capturing');
   var note = row.querySelector('.keys-note');

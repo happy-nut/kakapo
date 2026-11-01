@@ -134,7 +134,7 @@ function refreshCompareMenu() {
 }
 
 // Apply a pick. The diff repaints through the normal kakapo:diff-update path, so nothing here touches it.
-function applyCompareMode(mode, ref) {
+function applyCompareMode(mode, ref, announce) {
   if (!window.kakapoGit || typeof window.kakapoGit.setCompareMode !== 'function') return;
   requestDiffViewOnNextCompare(); // switch back to the diff for the rebuild, as the patch-set bar does
   // Optimistic: the row ticks now rather than after a rebuild that can take a second on a large tree.
@@ -150,6 +150,22 @@ function applyCompareMode(mode, ref) {
       compareMenuState.ref = res.ref || compareMenuState.ref;
       renderCompareMenu();
     }
+    // The menu shows the tick; the keyboard shows nothing, and what it changed is not a small thing. The
+    // resolved answer rather than the asked-for one: `--base main` is served from origin/main whenever the
+    // local branch is behind, so a key press that read "All changes" silently moved the baseline a dozen
+    // commits. Said once, with the ref that actually got used.
+    //
+    // Only on success, and only where the ref MEANS something. `kakapo:set-compare-mode` returns a ref
+    // unconditionally, including for "uncommitted" — where it sets the base to HEAD and the ref is not
+    // consulted at all — so appending it there announced a baseline this diff is not measured against.
+    // And a rejected call left `mode` as the asked-for value, so a failure announced the change it had
+    // just failed to make.
+    if (!announce || !pageAlive()) return;
+    if (!res || !res.ok) return;
+    var settled = res.mode || mode;
+    var against = settled === 'all' ? (res.ref || '') : '';
+    showToast(t('compare.menu.' + settled)
+      + (against ? ' · ' + t('compare.menu.against').replace('{ref}', against) : ''));
   }).catch(function () {});
 }
 
@@ -158,7 +174,7 @@ function applyCompareMode(mode, ref) {
 // this is that you are not sure which of the two the review is currently showing.
 function pickCompareMode(mode) {
   if (!compareMenuAvailable()) return;
-  applyCompareMode(mode, undefined);
+  applyCompareMode(mode, undefined, true);
 }
 
 // ⌥C: open the menu with the branch list already showing and the filter focused. Choosing the branch is the

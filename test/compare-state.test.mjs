@@ -161,6 +161,23 @@ test("the breadcrumb names one commit, and counts the rest of a range", () => {
     "outside a Cmd+9 compare the toolbar stays quiet — marking every state marks none");
 });
 
+// compareCommitLead reads activeBase/activeTarget, so whatever MOVES those has changed what the toolbar's
+// commit chip says. The three selector branches repainted only the patch-set bar and left the chip naming the
+// commit the reader had just navigated away from. This reads the source rather than the screen because the
+// defect is an absence sitting next to a mutation: a behavioural test would have to come down the whole IPC
+// round trip to see it, and the branch that moves nothing must stay free of the call, which an
+// every-path-repaints assertion could not express.
+test("whatever moves the active base or target repaints the commit chip", () => {
+  const movers = bundle.split("\n")
+    .map((line, index) => [index + 1, line])
+    .filter(([, line]) => /patchSetData\.active(?:Base|Target) =/.test(line));
+  assert.ok(movers.length >= 3, `only ${movers.length} places move the active refs — has the selector moved?`);
+  for (const [lineNo, line] of movers) {
+    assert.match(line, /syncDiffReviewChrome\(\)/,
+      `viewer.client.js:${lineNo} moves the active refs without repainting the chip: ${line.trim()}`);
+  }
+});
+
 // Thirty-three patch sets wrapped the bar onto a second row and no number was findable. Show the two at each
 // end, the active one with its neighbours, and a fold for each run left out.
 test("the patch-set bar folds a long branch down to a findable window", () => {

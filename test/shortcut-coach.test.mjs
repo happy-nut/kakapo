@@ -77,3 +77,48 @@ test("'don't show again' mutes the chord for good", async () => {
   assert.equal(saved["⌘2"].muted, true, "the mute is persisted");
   v.close();
 });
+
+// The join key. The click side reads a chord off a data-keyhint, which the TABLE wrote; the keyboard side
+// rebuilds one from a keydown. If those two spellings differ the ledger silently holds two entries for one
+// chord, and the coach teaches a key it has already recorded as used — which is what it did for ⇧⌥W,
+// ⌘⇧⌥M, ⌘⇧Backspace and ⌘Enter, because the keyboard side ordered modifiers ⌘⌥⇧ and renamed Enter to ↵.
+test("the table spells its modifiers in the coach's canonical order", async () => {
+  const { SHORTCUTS } = await import("../dist/shortcuts.js");
+  const v = await loadViewer(html);
+  const canonical = v.window.__kakapoCoach.canonical;
+  // Only the modifier PREFIX has to match. The key's own name may be the short display spelling — the
+  // find bar's two buttons are "↵" and "⇧↵" in a strip one line tall — because the normalizer folds
+  // ↵/⏎ and Del/⌫ onto one name before the ledger ever sees them. Modifier ORDER is the thing nothing
+  // folds: ⌘⌥⇧M and ⌘⇧⌥M are two ledger entries for one chord, which is what this guards.
+  const mods = (chord) => (chord.match(/^[⌘⇧⌥⌃]+/) || [""])[0];
+  const drifted = SHORTCUTS.flatMap((row) => row.keys)
+    .filter((chord) => mods(chord).length > 1 && mods(canonical(chord)) !== mods(chord));
+  assert.deepEqual(drifted, [], `these table chords order their modifiers differently: ${drifted.join(" ")}`);
+  v.close();
+});
+
+test("a display spelling and a keydown of the same key fold onto one ledger name", async () => {
+  const v = await loadViewer(html);
+  const canonical = v.window.__kakapoCoach.canonical;
+  assert.equal(canonical("⇧↵"), canonical("⇧Enter"));
+  assert.equal(canonical("⌘⇧Del"), canonical("⌘⇧Backspace"));
+  assert.equal(canonical("⌘⏎"), canonical("⌘Enter"));
+  // ...and a chord that is only modifiers is left exactly as written (Search Everywhere's double tap).
+  assert.equal(canonical("⇧⇧"), "⇧⇧");
+  v.close();
+});
+
+test("a chord pressed and the same chord clicked land on one ledger entry", async () => {
+  const v = await loadViewer(html);
+  const ledger = v.window.__kakapoCoach.ledger;
+  // The two spellings the keyboard side used to invent, and the table's spelling for each.
+  v.key("Backspace", { metaKey: true, shiftKey: true, code: "Backspace" });
+  v.key("m", { metaKey: true, shiftKey: true, altKey: true, code: "KeyM" });
+  v.key("w", { shiftKey: true, altKey: true, code: "KeyW" });
+  v.key("Enter", { metaKey: true, code: "Enter" });
+  for (const chord of ["⌘⇧Backspace", "⌘⇧⌥M", "⇧⌥W", "⌘Enter"]) {
+    assert.ok(ledger[chord] && ledger[chord].uses >= 1, `${chord} was not recorded under the table's spelling`);
+  }
+  assert.equal(Object.keys(ledger).filter((k) => /Del|↵|⌥⇧|⌘⌥⇧/.test(k)).length, 0, "no entry under an old spelling");
+  v.close();
+});

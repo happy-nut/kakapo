@@ -118,6 +118,27 @@ export function renderDiffTree(
   return `<nav class="tree changes-tree">${renderDiffChildren(root, 0, collisions)}</nav>`;
 }
 
+/**
+ * The lowest file index anywhere under `node` — its place in the order the diff body is in.
+ *
+ * Memoized on the node, because this is called from inside a comparator: a subtree would otherwise be
+ * re-walked once per comparison at every level above it, which on a wide diff is the render path paying
+ * O(depth x n log n x subtree) for an answer that cannot change.
+ */
+const firstIndexMemo = new WeakMap<DiffTreeNode, number>();
+function firstFileIndex(node: DiffTreeNode): number {
+  if (node.fileIndex !== undefined) return node.fileIndex;
+  const held = firstIndexMemo.get(node);
+  if (held !== undefined) return held;
+  let lowest = Number.MAX_SAFE_INTEGER;
+  for (const child of node.children.values()) {
+    const index = firstFileIndex(child);
+    if (index < lowest) lowest = index;
+  }
+  firstIndexMemo.set(node, lowest);
+  return lowest;
+}
+
 function renderDiffChildren(
   node: DiffTreeNode,
   depth: number,
@@ -125,15 +146,18 @@ function renderDiffChildren(
 ): string {
   return Array.from(node.children.values())
     .sort((a, b) => {
-      // Modules are the top of the tree, not folders that happen to sort there: without this they would be
-      // interleaved with whatever else lives at the root by name.
-      if (Boolean(a.module) !== Boolean(b.module)) {
-        return a.module ? -1 : 1;
-      }
-      if (Boolean(a.file) !== Boolean(b.file)) {
-        return a.file ? 1 : -1;
-      }
-      return a.name.localeCompare(b.name);
+      // The order the diff body is in, which is the order F7 walks and the order the file is reached by
+      // scrolling. This used to be modules first, then folders before files, then by name — how a PROJECT
+      // tree is laid out — and in a tree of CHANGES it meant the sidebar's first row was the body's
+      // seventh file: `src/viewer/…` at the top because it is a folder, `README.md` at the bottom because
+      // it is not, while F7 started at README.md. Two orders for one list of files, and nothing on screen
+      // said which one you were in.
+      //
+      // A node takes the place of its first changed file, so the two agree row for row. That covers a
+      // module as well: a module is still a node of its own, named for the module rather than the folder,
+      // which is what the grouping is FOR — it simply no longer jumps the queue, because a group pinned
+      // to the top of a list whose order is the navigation order is the same bug one level up.
+      return firstFileIndex(a) - firstFileIndex(b) || a.name.localeCompare(b.name);
     })
     .map((child) => renderDiffNode(child, depth, collisions))
     .join("");

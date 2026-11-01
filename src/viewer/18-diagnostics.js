@@ -19,13 +19,15 @@
 // entry point calls ensureDiagnosticsState() first so it works no matter when it is reached.
 var diagnosticsPaintedRows;
 var diagnosticsCache; // path -> { sig, items }
-var diagnosticsFetchToken;
+var diagnosticsFetchToken; // path -> token: only the newest request FOR THAT PATH may write its entry
+var diagnosticsInFlight;   // paths with a request already out, so a held key cannot stack more
 var diagnosticsPaintRaf;
 function ensureDiagnosticsState() {
   if (diagnosticsCache) return;
   diagnosticsCache = new Map();
   diagnosticsPaintedRows = [];
-  diagnosticsFetchToken = 0;
+  diagnosticsFetchToken = new Map();
+  diagnosticsInFlight = new Set();
   diagnosticsPaintRaf = 0;
 }
 
@@ -36,6 +38,47 @@ function diagnosticsSurfacePath() {
   if (!viewer || viewer.classList.contains('hidden')) return '';
   var path = viewer.dataset.openPath || '';
   return path && sourceBodyPath === path ? path : '';
+}
+
+/**
+ * The file F2 is about, on whichever surface is up.
+ *
+ * The source view has to insist on the body it is actually PAINTING, because that is where the squiggles
+ * go. The diff paints none — it carries its problems in the ⌘6 list — so the caret's file is answer
+ * enough, and F2 there is pure navigation. Without this, F2 and ⇧F2 returned false in the diff and the
+ * key said nothing whatsoever, in the one view a reviewer spends the time in, while ⌘6 beside it was
+ * listing forty problems.
+ */
+/**
+ * The caret's file AND line, in the file's own numbering — '' / null when there is no caret on a file a
+ * server diagnoses.
+ *
+ * Two readers of this used to disagree. F2 was taught the diff and ⌘F1 / ⌥Enter were not, so in the diff
+ * F2 jumped to a problem, announced its message, and ⌘F1 on that very line answered "No problem on this
+ * line" while ⌥Enter refused to draft a fix for it. The diff's working-tree pane IS the file, so its
+ * printed line number converts exactly; a caret in the base pane is looking at a version these
+ * diagnostics are not about, and has no line here.
+ */
+function diagnosticsCaretLine() {
+  var painted = diagnosticsSurfacePath();
+  if (painted) {
+    if (typeof viewerCursor === 'undefined' || !viewerCursor || viewerCursor.path !== painted) return null;
+    return { path: painted, lineIndex: viewerCursor.lineIndex, column: viewerCursor.column };
+  }
+  if (!isDiffViewVisible() || typeof diffCursor === 'undefined' || !diffCursor || !diffCursor.path) return null;
+  if (diffCursor.side !== 'new') return null;
+  var wrapper = diffWrapperByPath(diffCursor.path);
+  var row = wrapper ? diffRowAt(wrapper, 'new', diffCursor.rowIndex) : null;
+  var line = row ? diffLineNumber(row) : null;
+  if (line == null) return null;
+  return { path: diffCursor.path, lineIndex: line - 1, column: diffCursor.column };
+}
+
+function diagnosticsCaretPath() {
+  var painted = diagnosticsSurfacePath();
+  if (painted) return painted;
+  if (isDiffViewVisible() && typeof diffCursor !== 'undefined' && diffCursor && diffCursor.path) return diffCursor.path;
+  return '';
 }
 
 function diagnosticsEligible(path) {
@@ -86,13 +129,60 @@ function refreshDiagnosticsFilter() {
 function refreshSourceDiagnostics(path) {
   ensureDiagnosticsState();
   if (!diagnosticsEligible(path)) { clearSourceDiagnosticsPaint(); return; }
-  if (!window.kakapoAnalysis || typeof window.kakapoAnalysis.diagnostics !== 'function') return;
+  if (fetchDiagnostics(path)) paintSourceDiagnostics(path);
+}
+
+/**
+ * Fill the cache for `path`, painting the source body if it happens to be the one on screen.
+ *
+ * Returns true when the answer is already cached and current — which is the only thing a caller that is
+ * not the source painter needs to know, and which is why this is its own function: the diff's F2 wants
+ * the same cache, filled the same way, without a source body to paint into.
+ *
+ * `isRetry` marks the second read of an empty answer (see below). It is what ENDS the retry: without it
+ * the second empty answer looked exactly like the first, re-armed itself, and left the entry provisional
+ * for the life of the window — so a genuinely clean file never got past "still checking", and every press
+ * of F2 on it was a cache miss and a fresh round trip.
+ */
+function fetchDiagnostics(path, retryOf) {
+  ensureDiagnosticsState();
+  if (!diagnosticsEligible(path)) return false;
+  if (!window.kakapoAnalysis || typeof window.kakapoAnalysis.diagnostics !== 'function') return false;
   var sig = fileSignatureByPath.get(path) || '';
+  // `retryOf` is the signature the retry was scheduled FOR, not a bare flag. It re-derives `sig` here, so
+  // a watch rebuild between the schedule and the fire would have carried "this is the second read" into
+  // what is actually the FIRST read of new content — stamping a syntactic-only empty as the last word on
+  // it. Only a retry of the content still in hand counts as one.
+  var isRetry = retryOf !== undefined && retryOf === sig;
   var cached = diagnosticsCache.get(path);
-  if (cached && cached.sig === sig) { paintSourceDiagnostics(path); return; }
-  var token = ++diagnosticsFetchToken;
-  Promise.resolve(window.kakapoAnalysis.diagnostics(path)).then(function (response) {
-    if (token !== diagnosticsFetchToken) return; // a newer file / watch refresh superseded this request
+  // A provisional entry is still served. The re-ask is the scheduled one and only the scheduled one:
+  // treating `provisional` as a cache miss meant every caller that arrived during the window fired its
+  // own request — measured at three reads of one clean file where there should have been two.
+  if (cached && cached.sig === sig) return true;
+  // One request per file in flight at a time. It de-duplicates presses on the SAME file — every F2 on a
+  // cold file used to fire another ask while the first was still coming — and nothing more: holding
+  // ⌘⇧→ across a review still asks once per file crossed, because each crossing is a different path.
+  // That is a prefetch doing its job, not a storm, but it is not what this guard bounds.
+  if (diagnosticsInFlight.has(path)) return false;
+  // Per path, not one counter for the app. A single global token meant the newest request anywhere
+  // cancelled every other file's in-flight answer: step A -> B with F7 and A's diagnostics, already on
+  // their way, were dropped on arrival and never cached — so the prefetch this token guards was feeding
+  // nothing. A request can only ever be superseded by a newer request for the SAME file.
+  var token = (diagnosticsFetchToken.get(path) || 0) + 1;
+  diagnosticsFetchToken.set(path, token);
+  diagnosticsInFlight.add(path);
+  var settle = function () { diagnosticsInFlight.delete(path); };
+  var asked;
+  // A claim taken before a call must be released by the same code that took it, on every way out. A
+  // synchronous throw is one; a promise that never settles is the other, and that one is reachable —
+  // main can be torn down mid-request. Either way a claimed path never re-asks, so F2 would answer
+  // "still checking" for the life of the window and the squiggles would never paint.
+  setTimeout(settle, DIAGNOSTICS_CLAIM_MS);
+  try { asked = Promise.resolve(window.kakapoAnalysis.diagnostics(path)); }
+  catch (e) { settle(); return false; }
+  asked.then(function (response) {
+    settle();
+    if (token !== diagnosticsFetchToken.get(path)) return; // a newer read of this file superseded it
     if (!analysisGenerationIsCurrent(response)) return;
     // `available` and `ok` are part of the answer, not plumbing. analysis.ts reports available:false for a
     // file no server covers precisely so the viewer can say so instead of an empty "no problems"
@@ -100,13 +190,43 @@ function refreshSourceDiagnostics(path) {
     // the reassuring version anyway, for CSS, for Markdown, for anything outside a server's languages.
     if (!response) return;
     if (response.ok === false) { diagnosticsCache.set(path, { sig: sig, items: [], state: 'failed' }); return; }
-    diagnosticsCache.set(path, {
-      sig: sig,
-      items: Array.isArray(response.diagnostics) ? response.diagnostics : [],
-      state: response.available === false ? 'unavailable' : 'ready',
-    });
+    var items = Array.isArray(response.diagnostics) ? response.diagnostics : [];
+    var state = response.available === false ? 'unavailable' : 'ready';
+    // An empty answer from a server that DOES cover this file is not the same as "no problems": tsserver
+    // publishes its syntactic pass first and its suggestion pass — the whole weak tier — afterwards, so
+    // the first read of a file is routinely `ok, available, []` and the second one is not. Cached as final,
+    // that emptiness was permanent: the ⌘6 list (which asks main directly) showed a problem on a line F2
+    // swore was clean, in the same file, in the same second. Marked provisional instead, so the next read
+    // asks again — and asked again once here, because a reader who opened a file is not going to press a
+    // key to find out whether the squiggles meant it. Once, though: the retry's own answer is the last
+    // word on this content, empty or not, which is what `isRetry` says.
+    var provisional = state === 'ready' && !items.length && !isRetry;
+    diagnosticsCache.set(path, { sig: sig, items: items, state: state, provisional: provisional });
     if (diagnosticsSurfacePath() === path) paintSourceDiagnostics(path);
-  }).catch(function () { /* transport failures already quarantine the server in main; the paint just stays empty */ });
+    if (provisional) scheduleProvisionalDiagnosticsRetry(path, sig);
+  }).catch(function () {
+    settle(); // transport failures already quarantine the server in main; the paint just stays empty
+  });
+  return false;
+}
+
+// One re-ask per provisional answer, not a poll: the second read is the one that carries the suggestion
+// pass, and if it is empty too then the file really is clean. The signature is checked at fire time so a
+// watch rebuild cannot be answered by a retry scheduled for the previous content, and `isRetry` below is
+// what stops the second empty answer from arming a third.
+var DIAGNOSTICS_RETRY_MS = 1200;
+// Longer than any answer this bridge gives (main caps its own waits well inside it), so the release only
+// ever fires for a request that is not coming back. Releasing early would cost a duplicate ask, which is
+// the cheaper mistake of the two.
+var DIAGNOSTICS_CLAIM_MS = 30000;
+function scheduleProvisionalDiagnosticsRetry(path, sig) {
+  setTimeout(function () {
+    if (!pageAlive()) return;
+    var cached = diagnosticsCache.get(path);
+    if (!cached || cached.sig !== sig || !cached.provisional) return;
+    diagnosticsCache.delete(path); // dropped rather than refreshed, so fetchDiagnostics takes its cold path
+    fetchDiagnostics(path, sig);
+  }, DIAGNOSTICS_RETRY_MS);
 }
 
 function clearSourceDiagnosticsPaint() {
@@ -182,12 +302,33 @@ function scheduleSourceDiagnosticsPaint() {
 // when F2 belongs to this surface (so the key is consumed), false to let the event fall through.
 function gotoDiagnostic(delta) {
   ensureDiagnosticsState();
-  var path = diagnosticsSurfacePath();
+  var path = diagnosticsCaretPath();
   if (!path || !diagnosticsEligible(path)) return false;
+  var inDiff = path !== diagnosticsSurfacePath();
+  // The diff never asked for this file's diagnostics on its own account — openSourceFile is what used to
+  // warm the cache — so the first press in the diff kicks the request off and reports 'pending', exactly
+  // as the first press on a cold file does in the source view.
+  if (inDiff) fetchDiagnostics(path);
   var cached = diagnosticsCache.get(path);
   var items = surfacedDiagnostics(cached && cached.items).slice().sort(function (a, b) {
     return a.lineIndex - b.lineIndex || a.column - b.column;
   });
+  // In the diff, the problems worth stepping are the ones in the lines this review CHANGED. The diff
+  // prints hunks, so a problem in untouched code has no row here at all, and stepping to it meant leaving
+  // the diff for the source view mid-review with nothing saying why. It is also not what the question
+  // means on this surface: "the next problem" in a review of a change is a problem in the change. The
+  // count of everything is named in the message below and listed in full by ⌘6, so nothing is buried.
+  var everything = items.length;
+  if (inDiff) {
+    var inHunks = diffWrapperByPath(path);
+    items = inHunks ? items.filter(function (d) { return diffRowIndexForLine(inHunks, 'new', d.lineIndex + 1) >= 0; }) : [];
+    if (!items.length && everything) {
+      showCaretHint(t('diag.noneChanged')
+        .replace('{n}', String(everything))
+        .replace('{key}', shortcutLabel('problemsView')));
+      return true;
+    }
+  }
   if (!items.length) {
     // Three different silences, and they used to be one sentence. "No problems" is true for exactly one
     // of them; for the other two it is a reassurance the app has not earned.
@@ -195,12 +336,20 @@ function gotoDiagnostic(delta) {
     if (!cached) showCaretHint(t('diag.pending'));                          // nothing has come back yet
     else if (state === 'unavailable') showCaretHint(t('diag.unavailable')); // no server covers this file
     else if (state === 'failed') showCaretHint(t('diag.failed'));           // the server could not answer
+    // A provisional empty is a fourth silence. The server has answered but not FINISHED answering —
+    // tsserver's syntactic pass lands before its suggestion pass — so "no problems in this file" is a
+    // reassurance it has not earned yet, and the ⌘6 list beside it may already be showing four. It earns
+    // the sentence a moment later, when the one scheduled re-ask settles the entry.
+    else if (cached.provisional) showCaretHint(t('diag.pending'));
     else showCaretHint(t('diag.none'));
     return true;
   }
-  var atPath = viewerCursor && viewerCursor.path === path;
-  var curLine = atPath ? viewerCursor.lineIndex : -1;
-  var curCol = atPath ? viewerCursor.column : -1;
+  // Where the caret is, in the file's own line numbers — the same answer ⌘F1 and ⌥Enter read, so the
+  // three cannot disagree about which problem the caret is on. A caret in the base pane has no line here,
+  // and starts the walk from the top rather than pretending its row numbers are the working tree's.
+  var at = diagnosticsCaretLine();
+  var curLine = at && at.path === path ? at.lineIndex : -1;
+  var curCol = at && at.path === path ? at.column : -1;
   var target = null;
   if (delta > 0) {
     target = items.find(function (d) { return d.lineIndex > curLine || (d.lineIndex === curLine && d.column > curCol); }) || items[0];
@@ -211,8 +360,21 @@ function gotoDiagnostic(delta) {
     }
     if (!target) target = items[items.length - 1];
   }
-  setSourceCursor(path, target.lineIndex, target.column, true, target.lineIndex);
-  scheduleSourceDiagnosticsPaint();
+  if (inDiff) {
+    // The problem is about the working tree, so it has a row in the working-tree pane — unless the line
+    // is inside a hunk the diff never printed (unchanged context, collapsed away). Open the file at it
+    // rather than refuse: "go to the next problem" is the promise, and the source view is where the
+    // squiggle and the gutter mark live anyway.
+    var wrapper = diffWrapperByPath(path);
+    var rowIndex = wrapper ? diffRowIndexForLine(wrapper, 'new', target.lineIndex + 1) : -1;
+    // The filter above only keeps problems that have a row here, so this is always the first branch. The
+    // fallback stands for the race where the body is repainted between the filter and the jump.
+    if (rowIndex >= 0) setDiffCursor(path, 'new', rowIndex, target.column, true);
+    else openSourceAt(path, target.lineIndex, target.column);
+  } else {
+    setSourceCursor(path, target.lineIndex, target.column, true, target.lineIndex);
+    scheduleSourceDiagnosticsPaint();
+  }
   // sticky: a diagnostic message is the longest thing this app shows in a hint — measured to 190
   // characters, about nine seconds of reading — and the hint's own default is two. There is no way to ask
   // for it again from the keyboard, so the two-second version was a message you were shown and could not
@@ -224,11 +386,15 @@ function gotoDiagnostic(delta) {
 // Surfaced diagnostics on the caret's current line, errors first, for the Opt+Enter fix action.
 function diagnosticsAtCaret() {
   ensureDiagnosticsState();
-  var path = diagnosticsSurfacePath();
-  if (!path || typeof viewerCursor === 'undefined' || !viewerCursor || viewerCursor.path !== path) return [];
-  var cached = diagnosticsCache.get(path);
+  var where = diagnosticsCaretLine();
+  if (!where) return [];
+  var cached = diagnosticsCache.get(where.path);
+  // Same rule as F2's: an answer that is not final yet is not an answer that this line is clean. ⌘F1
+  // would say "no problem on this line" and ⌥Enter would refuse to draft a fix, for a problem that is
+  // about to arrive — so they wait with it rather than denying it.
+  if (cached && cached.provisional) return [];
   return surfacedDiagnostics(cached && cached.items)
-    .filter(function (d) { return d.lineIndex === viewerCursor.lineIndex; })
+    .filter(function (d) { return d.lineIndex === where.lineIndex; })
     .sort(function (a, b) {
       return (diagnosticRank(a.severity) - diagnosticRank(b.severity)) || (a.column - b.column);
     });

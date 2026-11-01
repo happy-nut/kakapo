@@ -239,6 +239,13 @@ test("a file that IS covered and clean still says so", async () => {
   try {
     await v.openSourceFile(FILE);
     await v.settle(150);
+    // Not yet. The first answer is empty and may still grow — tsserver's syntactic pass lands before its
+    // suggestion pass — so the sentence has not been EARNED, which is what this test is about.
+    assert.equal(v.window.gotoDiagnostic(1), true, "F2 answers");
+    assert.equal(v.$(".mc-caret-hint").textContent.trim(), v.window.t("diag.pending"),
+      "while the answer is provisional, F2 says it is still checking");
+
+    await v.settle(1600); // the one scheduled re-ask settles it
     assert.equal(v.window.gotoDiagnostic(1), true, "F2 answers");
     assert.equal(v.$(".mc-caret-hint").textContent.trim(), v.window.t("diag.none"),
       "a checked, clean file gets the reassuring sentence — it has earned it");
@@ -293,4 +300,106 @@ test("F2's message stays up long enough to read", async () => {
   } finally {
     v.close();
   }
+});
+
+// ---- an empty first answer is not "no problems" ------------------------------------------------------
+// tsserver publishes its syntactic pass first and its suggestion pass — the whole weak tier — afterwards,
+// so the first read of a file is routinely `ok, available, []` and the second one is not. Cached as final,
+// that emptiness was permanent: the ⌘6 list, which asks main directly, showed a problem on a line F2 swore
+// was clean, in the same file, in the same second.
+test("diagnostics: an empty-but-available answer is re-asked once, and the second one stands", async () => {
+  const FILE2 = "src/late.ts";
+  let asked = 0;
+  const lateBridge = (path) => {
+    if (path !== FILE2) return { ok: true, generation: 0, available: true, engine: "lsp", diagnostics: [] };
+    asked += 1;
+    return {
+      ok: true, generation: 0, available: true, engine: "lsp",
+      // Empty the first time, as a warming server answers; the suggestion pass lands on the second read.
+      diagnostics: asked === 1 ? [] : [
+        { lineIndex: 2, column: 0, endLineIndex: 2, endColumn: 4, severity: "weak", message: "later", source: "ts" },
+      ],
+    };
+  };
+  const { html } = await makeReviewHtml([{ path: FILE2, before: "a\n", after: "a\nb\nc\nd\n" }]);
+  const v = await loadViewer(html, {
+    diagnosticsBridge: lateBridge,
+    analysisStatus: { generation: 0, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  await v.openSourceFile(FILE2);
+  await v.settle(150);
+  assert.equal(asked, 1, "one read, served from cache by anything else that asked");
+  const first = v.window.diagnosticsCache.get(FILE2);
+  assert.deepEqual([...first.items], [], "the empty answer is cached");
+  assert.equal(first.provisional, true, "...but marked as not the last word");
+
+  await v.settle(1600); // DIAGNOSTICS_RETRY_MS
+  assert.equal(asked, 2, "exactly one re-ask");
+  const second = v.window.diagnosticsCache.get(FILE2);
+  assert.equal(second.items.length, 1, "the suggestion pass landed");
+  assert.equal(second.provisional, false, "a non-empty answer is final");
+
+  // And a file that really is clean settles instead of re-asking forever.
+  await v.settle(1600);
+  assert.equal(asked, 2, "no third read");
+  v.close();
+});
+
+test("diagnostics: a genuinely clean file settles after one re-ask and is then served from cache", async () => {
+  const FILE3 = "src/clean.ts";
+  let asked = 0;
+  const cleanBridge = (path) => {
+    if (path === FILE3) asked += 1;
+    return { ok: true, generation: 0, available: true, engine: "lsp", diagnostics: [] };
+  };
+  const { html } = await makeReviewHtml([{ path: FILE3, before: "a\n", after: "a\nb\n" }]);
+  const v = await loadViewer(html, {
+    diagnosticsBridge: cleanBridge,
+    analysisStatus: { generation: 0, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  await v.openSourceFile(FILE3);
+  await v.settle(150);
+  await v.settle(1600);
+  const settled = v.window.diagnosticsCache.get(FILE3);
+  assert.equal(asked, 2, "asked twice in total, then stopped");
+  assert.equal(settled.provisional, false, "the second empty answer IS the answer");
+  // The entry being final is what lets fetchDiagnostics serve it from cache instead of re-requesting.
+  v.window.fetchDiagnostics(FILE3);
+  await v.settle(50);
+  assert.equal(asked, 2, "a cached final answer is not re-requested");
+  v.close();
+});
+
+// The retry is scheduled FOR a signature. It used to re-derive the signature when it fired and carry
+// "this is the second read" into what could be the first read of NEW content — so a watch rebuild landing
+// in that 1.2 s window left the new content's syntactic-only empty answer cached as the last word on it.
+test("diagnostics: a retry that fires after the content changed does not settle the new content", async () => {
+  const FILE4 = "src/moved.ts";
+  const answers = [];
+  const bridge = (path) => {
+    if (path !== FILE4) return { ok: true, generation: 0, available: true, engine: "lsp", diagnostics: [] };
+    answers.push(1);
+    return { ok: true, generation: 0, available: true, engine: "lsp", diagnostics: [] };
+  };
+  const { html } = await makeReviewHtml([{ path: FILE4, before: "a\n", after: "a\nb\n" }]);
+  const v = await loadViewer(html, {
+    diagnosticsBridge: bridge,
+    analysisStatus: { generation: 0, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  await v.openSourceFile(FILE4);
+  await v.settle(150);
+  assert.equal(v.window.diagnosticsCache.get(FILE4).provisional, true, "the first empty answer is provisional");
+
+  // The content moves while the retry is pending — exactly what a watch rebuild does.
+  // `fileSignatureByPath` is a top-level `let`, so it is in the global LEXICAL scope and not on `window`;
+  // eval reaches it where a property read cannot. (reference_viewer_globals_let_vs_var)
+  v.window.eval(`fileSignatureByPath.set(${JSON.stringify(FILE4)}, "a-different-signature")`);
+  await v.settle(1600);
+
+  const after = v.window.diagnosticsCache.get(FILE4);
+  if (after) {
+    assert.equal(after.provisional, true,
+      "the new content's first empty answer is still provisional — the retry belonged to the old one");
+  }
+  v.close();
 });

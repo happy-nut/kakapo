@@ -125,7 +125,7 @@ function renderFileStructureResults(query) {
     quickFilterEl.className = 'quick-open-filter' + (structureBusy ? ' is-loading' : '');
     quickFilterEl.innerHTML = structureBusy
       ? kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(t('quickopen.searching')) + '</span>'
-      : escapeHtml(sourceTabLabel(structurePath) + ' · ' + String(quickItems.length) + ' ' + t('quickopen.results')
+      : escapeHtml(sourceTabLabel(structurePath) + ' · ' + resultsLabel(quickItems.length)
         + (structureEngine ? ' · ' + structureEngine : ''));
   }
   if (structureBusy) {
@@ -154,22 +154,55 @@ function renderFileStructureResults(query) {
  * ⌥↓ / ⌥↑: the next or previous symbol boundary in the open file — IntelliJ's next/previous method.
  *
  * Reads the cached structure, so the first press after opening a file may do nothing while the answer is
- * in flight; it then works for every press after. Silent rather than a toast: this is a movement key, and a
- * complaint on a key that moves the caret is noise.
+ * in flight; it then works for every press after. Silent rather than a toast on the movement itself: this
+ * is a movement key, and a complaint on a key that moves the caret is noise.
+ *
+ * Both surfaces. The row is `where: "code"`, which is the source view AND the diff, and the guard here
+ * admitted only the first — so in the diff, where a reviewer spends the time, ⌥↓ advertised "next symbol
+ * in this file" and did nothing at all. In the diff the walk is over the symbols the diff actually PRINTS:
+ * the rest are in hunks it did not draw, and jumping to one would mean leaving the diff mid-review.
  */
 function goToNextSymbol(delta) {
   var path = structureTargetPath();
-  if (!path || !isSourceViewerVisible()) return false;
-  var line = viewerCursor && viewerCursor.path === path ? viewerCursor.lineIndex : 0;
+  if (!path) return false;
+  var inDiff = !isSourceViewerVisible();
+  if (inDiff && !isDiffViewVisible()) return false;
+  // The surface check comes FIRST. Promising "still reading this file's structure…" and eating the key
+  // for a file this diff is not showing is an answer that will never arrive.
+  var wrapper = inDiff ? diffWrapperByPath(path) : null;
+  if (inDiff && !wrapper) return false;
   var cached = structureCache.get(path);
   if (!cached || cached.generation !== analysisGeneration()) {
     fileStructureSymbols(path); // warm it for the next press
-    return false;
+    showCaretHint(t('structure.pending'));
+    return true;
   }
   var symbols = cached.value.symbols.slice().sort(function (a, b) { return a.lineIndex - b.lineIndex; });
-  if (!symbols.length) return false;
+  // Where the caret is, and whether it is anywhere at all. `null` is not line −1: with no caret the key
+  // has no position to step FROM, so it steps to the nearest end instead of claiming to be at one.
+  var line = null;
+  if (inDiff) {
+    symbols = symbols.filter(function (symbol) { return diffRowIndexForLine(wrapper, 'new', symbol.lineIndex + 1) >= 0; });
+    // A caret in the BASE pane has an old-file line number, and these symbols are the working tree's. The
+    // row index is the one thing the two panes share, so the equivalent new-side row is the caret's real
+    // position here — without it an old-side ⌥↓ read as "no position" and jumped back to the file's first
+    // declaration, once, and then behaved normally.
+    var caretRow = diffCursor ? diffRowAt(wrapper, 'new', diffCursor.rowIndex) : null;
+    var caretLine = caretRow ? diffLineNumber(caretRow) : null;
+    if (caretLine != null) line = caretLine - 1;
+  } else if (viewerCursor && viewerCursor.path === path) {
+    line = viewerCursor.lineIndex;
+  }
+  if (!symbols.length) {
+    showCaretHint(t(inDiff ? 'structure.noneShown' : 'structure.none'));
+    return true;
+  }
   var target = null;
-  if (delta > 0) {
+  if (line === null) {
+    // No caret on this file: ⌥↓ enters at the first symbol, ⌥↑ at the last. Reporting "this is the first
+    // symbol" from a position the caret does not hold was a claim about a place nobody was standing.
+    target = delta > 0 ? symbols[0] : symbols[symbols.length - 1];
+  } else if (delta > 0) {
     for (var i = 0; i < symbols.length; i++) {
       if (symbols[i].lineIndex > line) { target = symbols[i]; break; }
     }
@@ -178,8 +211,24 @@ function goToNextSymbol(delta) {
       if (symbols[j].lineIndex < line) { target = symbols[j]; break; }
     }
   }
-  if (!target) return false;
-  openSourceAt(path, target.lineIndex, target.column);
+  // The ends stop, they do not wrap — deliberate, and pinned by navigation-ui.test.mjs ("past the last
+  // symbol the key declines rather than wrapping to the top"). What it did NOT do was say so, which is
+  // the only part that looked like a broken key: the caret stays where it is and the reason is named.
+  // In the diff the walk is over the symbols this diff PRINTED, so the sentence says that and not "in
+  // the file" — a file with forty more declarations the reviewer cannot see from here.
+  if (!target) {
+    showCaretHint(t(inDiff
+      ? (delta > 0 ? 'structure.atLastShown' : 'structure.atFirstShown')
+      : (delta > 0 ? 'structure.atLast' : 'structure.atFirst')));
+    return true;
+  }
+  if (inDiff) {
+    var rowIndex = diffRowIndexForLine(wrapper, 'new', target.lineIndex + 1);
+    if (rowIndex < 0) return false;
+    setDiffCursor(path, 'new', rowIndex, target.column, true);
+  } else {
+    openSourceAt(path, target.lineIndex, target.column);
+  }
   return true;
 }
 
@@ -193,7 +242,11 @@ async function goToTypeDeclaration() {
   if (declinedForRevision(response, name)) return;
   var items = (response && response.locations) || [];
   if (!items.length) { showSemanticNavigationFailure('typeDefinition', name, response); return; }
-  if (items.length === 1) { openSourceAt(items[0].path, items[0].lineIndex, items[0].column); return; }
+  if (items.length === 1) {
+    if (alreadyAtLocation(loc, items[0])) { showCaretHint(t('monaco.alreadyThere').replace('{symbol}', name)); return; }
+    openSourceAt(items[0].path, items[0].lineIndex, items[0].column);
+    return;
+  }
   openAnalysisUsages(name, items, response, 'typeDefinition');
 }
 
@@ -245,7 +298,7 @@ function renderRecentLocationResults(query) {
   quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
   if (quickFilterEl) {
     quickFilterEl.className = 'quick-open-filter';
-    quickFilterEl.textContent = String(quickItems.length) + ' ' + t('quickopen.results');
+    quickFilterEl.textContent = resultsLabel(quickItems.length);
   }
   if (!quickItems.length) {
     quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('locations.none')) + '</div>';
@@ -298,17 +351,23 @@ function filePathParts(path) {
  * and `test_` (Go, Python, Rust), and a `Test`/`Tests` suffix on the stem (Java, Kotlin, C#). Both
  * directions from one list — a test's counterpart is the name with the marker removed.
  */
+/** The subject's stem inside a test file's stem, or '' when the stem carries no test marker at all. */
+function testSubjectStem(stem) {
+  var stripped = String(stem || '')
+    .replace(/[._-](?:test|tests|spec|specs)$/i, '')
+    .replace(/^(?:test|tests|spec|specs)[._-]/i, '')
+    .replace(/(?:Test|Tests|Spec|Specs)$/, '');
+  return stripped === String(stem || '') ? '' : stripped;
+}
+
 function testCounterpartNames(path) {
   var parts = filePathParts(path);
   var extension = parts.extension ? '.' + parts.extension : '';
   var stem = parts.stem;
   var out = [];
   // This file looks like a test -> the names the subject could have.
-  var stripped = stem
-    .replace(/[._-](?:test|tests|spec|specs)$/i, '')
-    .replace(/^(?:test|tests|spec|specs)[._-]/i, '')
-    .replace(/(?:Test|Tests|Spec|Specs)$/, '');
-  if (stripped !== stem) {
+  var stripped = testSubjectStem(stem);
+  if (stripped) {
     out.push(stripped + extension);
   } else {
     // This file looks like a subject -> the names a test could have.
@@ -344,11 +403,84 @@ function filesNamed(names, from) {
   return hits.sort(function (a, b) { return pathDistance(from, a) - pathDistance(from, b) || a.localeCompare(b); });
 }
 
+/**
+ * The counterpart by shape, when none of the exact names above exists.
+ *
+ * Two things a list of names cannot say. A test need not share its subject's EXTENSION — `src/lsp.ts` is
+ * tested by `test/lsp-flycheck.test.mjs`, and seven files like it sat in this repository while ⌘⇧T
+ * answered "No test found for lsp.ts." And one subject is usually covered by several tests that split it
+ * by topic, `<stem>-<topic>.test.<anything>`, none of which is named `<stem>.test.<ext>`.
+ *
+ * Second pass rather than more names: the exact-name list is precise and should keep winning, and this
+ * runs only where it came back with nothing.
+ */
+/**
+ * `lsp-flycheck` -> ['lsp-flycheck', 'lsp'] — the stem, then each shorter name a separator marks off.
+ *
+ * A test is routinely named for its subject plus the part of it being tested, and the subject's own file
+ * is named for the subject alone. Longest first, so the most specific subject wins where both exist.
+ */
+function testStemPrefixes(stem) {
+  var out = [String(stem || '')];
+  var text = out[0];
+  for (var cut = text.length - 1; cut > 0; cut -= 1) {
+    if (/[._-]/.test(text[cut])) out.push(text.slice(0, cut));
+  }
+  return out;
+}
+
+function testCounterpartsByShape(path) {
+  var stem = filePathParts(path).stem;
+  var subject = testSubjectStem(stem);
+  var hits = [];
+  var rank = {};
+  // Going the other way the prefixes belong to the TEST's name: `lsp-flycheck.test.mjs` is a test of
+  // `lsp`, and nothing in the project is called `lsp-flycheck`.
+  var wanted = testStemPrefixes((subject || stem).toLowerCase());
+  sourceByPath.forEach(function (_file, candidate) {
+    if (candidate === path) return;
+    var otherStem = filePathParts(candidate).stem;
+    var otherSubject = testSubjectStem(otherStem);
+    if (subject) {
+      // This file is the test; its counterpart is a file that is NOT one, named for one of the prefixes.
+      var at = wanted.indexOf(otherStem.toLowerCase());
+      if (!otherSubject && at >= 0) { hits.push(candidate); rank[candidate] = at; }
+      return;
+    }
+    // This file is the subject; its counterpart is a test whose own subject is this stem, whole or
+    // followed by a separator — `lsp` matches `lsp-flycheck`, and never `lspconfig`.
+    if (!otherSubject) return;
+    var base = otherSubject.toLowerCase();
+    var want = wanted[0];
+    if (base === want) { hits.push(candidate); rank[candidate] = 0; return; }
+    if (base.indexOf(want) === 0 && /^[._-]/.test(base.slice(want.length))) { hits.push(candidate); rank[candidate] = 1; }
+  });
+  // Most specific subject first, then nearest directory — a monorepo has many files named for the same
+  // short prefix and only one of them is in this file's own tree.
+  return hits.sort(function (a, b) {
+    return (rank[a] - rank[b]) || (pathDistance(path, a) - pathDistance(path, b)) || a.localeCompare(b);
+  });
+}
+
+/**
+ * What every "about the file you are reading" key says when there is no such file.
+ *
+ * It used to be a bare `return false` in each of them — correct as dispatch (the key is not theirs) and
+ * silent on screen, which is the one thing this app is trying not to be. The caret hint has nothing to
+ * anchor to in that state, so it falls back to the corner toast, which is right: the answer is about the
+ * window, not about a line.
+ */
+function noFileHere() {
+  showCaretHint(t('structure.noFile'));
+  return true;
+}
+
 /** ⌘⇧T: open this file's test, or the source the open test is for. */
 function goToTestCounterpart() {
   var path = structureTargetPath();
-  if (!path) return false;
+  if (!path) return noFileHere();
   var matches = filesNamed(testCounterpartNames(path), path);
+  if (!matches.length) matches = testCounterpartsByShape(path);
   if (!matches.length) {
     showToast(t(semanticTestPath(path) ? 'test.noSubject' : 'test.noTest').replace('{file}', sourceTabLabel(path)));
     return true; // handled: the key said something, which is the answer
@@ -456,7 +588,14 @@ function loadHierarchyChildren(loc, parentIndex) {
     }
     // The reason an answer is empty is the answer, when it is empty: a server without this request, a
     // revision no server can read, or an index that cannot tell a call from a mention.
-    if (!rows.length && response && response.fallbackReason) hierarchyNote = response.fallbackReason;
+    //
+    // The two the APP has a sentence for are said in the app's own words, and in the reader's language.
+    // `fallbackReason` is English prose written for a log — "typescript-language-server does not offer a
+    // call hierarchy" was being shown verbatim inside a Korean UI, for the commonest case of all.
+    if (!rows.length && response && response.noServer) hierarchyNote = t('monaco.noServer');
+    else if (!rows.length && response && response.unsupported) {
+      hierarchyNote = t('monaco.notOffered').replace('{symbol}', String(name || ''));
+    } else if (!rows.length && response && response.fallbackReason) hierarchyNote = response.fallbackReason;
     else if (rows.length) hierarchyNote = '';
     renderHierarchyResults(String(quickInput && quickInput.value || ''));
   }, function () {
@@ -516,7 +655,7 @@ function renderHierarchyResults(query) {
     quickFilterEl.innerHTML = hierarchyBusy
       ? kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(t('quickopen.searching')) + '</span>'
       : escapeHtml(hierarchyTitle(hierarchyKind).replace('{name}', hierarchyRootName)
-        + ' · ' + String(quickItems.length) + ' ' + t('quickopen.results')
+        + ' · ' + resultsLabel(quickItems.length)
         + (hierarchyEngine ? ' · ' + hierarchyEngine : ''));
   }
   if (hierarchyBusy) {
@@ -659,10 +798,11 @@ function openCustomRegions() {
  */
 function jumpToLastChange() {
   var path = structureTargetPath();
-  var file = path ? sourceByPath.get(path) : null;
+  if (!path) return noFileHere();
+  var file = sourceByPath.get(path);
   var lines = file && Array.isArray(file.changedLines) ? file.changedLines : [];
   if (!lines.length) {
-    showToast(t('lastchange.none').replace('{file}', sourceTabLabel(path || '')));
+    showToast(t('lastchange.none').replace('{file}', sourceTabLabel(path)));
     return true;
   }
   // changedLines is 1-based (renderSourceTable compares it against index + 1).
@@ -783,7 +923,12 @@ function assignBookmarkMnemonic(digit) {
   var all = bookmarks();
   var existing = bookmarkIndexOf(loc.path, loc.lineIndex);
   var already = existing >= 0 && String(all[existing].mnemonic || '') === String(digit);
-  // The number moves off whatever line had it.
+  // A line holds ONE number, so assigning a second one to it takes the first away — and that happened in
+  // silence, with a toast that spoke only of the number being set. Walk 1 through 9 down the same line
+  // and eight of them quietly vanish; press ⌥3 afterwards and the app says "Nothing is bookmarked as 3",
+  // which is true and tells you nothing about why.
+  var displaced = existing >= 0 ? String(all[existing].mnemonic || '') : '';
+  // The number also moves off whatever OTHER line had it.
   for (var i = 0; i < all.length; i++) {
     if (String(all[i].mnemonic || '') === String(digit)) delete all[i].mnemonic;
   }
@@ -795,8 +940,9 @@ function assignBookmarkMnemonic(digit) {
     } else {
       all[existing].mnemonic = String(digit);
     }
-    showToast(t('bookmark.mnemonicSet')
+    showToast(t(displaced && displaced !== String(digit) ? 'bookmark.mnemonicReplaced' : 'bookmark.mnemonicSet')
       .replace('{digit}', String(digit))
+      .replace('{old}', displaced)
       .replace('{where}', semanticFileLabel(loc.path, loc.lineIndex)));
   }
   saveBookmarks();
@@ -854,7 +1000,7 @@ function renderBookmarkResults(query) {
   quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
   if (quickFilterEl) {
     quickFilterEl.className = 'quick-open-filter';
-    quickFilterEl.textContent = String(quickItems.length) + ' ' + t('quickopen.results');
+    quickFilterEl.textContent = resultsLabel(quickItems.length);
   }
   if (!quickItems.length) {
     quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('bookmark.none')) + '</div>';

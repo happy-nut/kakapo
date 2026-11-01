@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
-import { SHORTCUTS, electronAcceleratorFor } from "../dist/shortcuts.js";
+import { SHORTCUTS, MENU_OWNED_CHORDS, MENU_OWNED_CHORDS_MAC, electronAcceleratorFor } from "../dist/shortcuts.js";
 
 const require = createRequire(import.meta.url);
 
@@ -49,6 +49,33 @@ function spell(mods, key) {
   return (command ? "⌘" : "") + (mods.has("Shift") ? "⇧" : "")
     + (mods.has("Alt") || mods.has("Option") ? "⌥" : "")
     + (NAMED[key] ?? (key.length === 1 ? key.toUpperCase() : key));
+}
+
+/**
+ * The same chord WITHOUT folding Control into Command — which is the spelling a rebind has to compare.
+ *
+ * The folding above is right for the table question: the table writes ⌃ as ⌘, so a row that means to
+ * document `Control+Command+Shift+/` is spelled ⌘⇧/ and has to be found under it. It is wrong for the
+ * REFUSAL list, because a reader pressing ⌘⇧/ with no Control does not trigger that menu item at all —
+ * listing it told them the menu bar owns a chord the menu bar has never seen, and refused `allComments`
+ * its own working default.
+ */
+function spellExact(mods, key) {
+  const meta = ["CommandOrControl", "CmdOrCtrl", "Command", "Cmd", "Super", "Meta"].some((n) => mods.has(n));
+  const ctrl = ["Control", "Ctrl"].some((n) => mods.has(n));
+  return (meta ? "⌘" : "") + (mods.has("Shift") ? "⇧" : "")
+    + (mods.has("Alt") || mods.has("Option") ? "⌥" : "") + (ctrl ? "⌃" : "")
+    + (NAMED[key] ?? (key.length === 1 ? key.toUpperCase() : key));
+}
+function foldExact(accelerator) {
+  const parts = accelerator.split("+");
+  const key = parts.pop();
+  const mods = new Set(parts);
+  const shifted = SHIFTED[key];
+  if (!shifted) return [spellExact(mods, key)];
+  const withShift = new Set(mods);
+  withShift.add("Shift");
+  return [spellExact(mods, shifted[0]), spellExact(withShift, shifted[1])];
 }
 
 function foldAll(accelerator) {
@@ -111,10 +138,39 @@ test("no shortcut row sits on a chord the application menu eats", {
   assert.ok(eaten.has("⌘⌥H"), "role: appMenu still binds Hide Others to ⌘⌥H");
 
   // The hand-written items: non-forwarding unless their click sends the key on to the page.
+  //
+  // `claimed` is the wider question and the one a REBIND has to ask. A `click: () => sendToFocused(...)`
+  // item forwards an IPC MESSAGE, not the keystroke — so the row that owns that chord works (it is told
+  // what happened down its own channel) while anything ELSE bound to the same chord is dead: the menu
+  // takes the key and runs close-tab instead. `eaten` stays the narrower set, because a table row sitting
+  // on one of those chords is exactly the arrangement that works.
+  const claimed = new Map(eaten);
   for (const m of main.matchAll(/accelerator:\s*"([^"]+)"/g)) {
     const around = main.slice(Math.max(0, m.index - 320), m.index + 320);
-    if (around.includes("sendToFocused")) continue;
-    for (const chord of foldAll(m[1])) eaten.set(chord, `a menu item that does not forward it (${m[1]})`);
+    const forwards = around.includes("sendToFocused");
+    // Exact for the refusal list, folded for the table check — see spellExact.
+    for (const chord of foldExact(m[1])) claimed.set(chord, `a menu item that registers it (${m[1]})`);
+    if (!forwards) {
+      for (const chord of foldAll(m[1])) eaten.set(chord, `a menu item that does not forward it (${m[1]})`);
+    }
+  }
+  // A chord carrying ⌃ cannot be typed into the rebind sheet (shortcutChords spells Control as ⌘ only
+  // when Command is absent, and the table has no ⌃ row), so it belongs in neither list.
+  for (const chord of [...claimed.keys()]) if (chord.includes("⌃")) claimed.delete(chord);
+
+  // The same list, as data the VIEWER can read: the Settings sheet refuses a rebind onto one of these,
+  // and it has no way to build an Electron menu to find out what they are. Asserted against the real menu
+  // here so the constant cannot drift from it — which is the only thing that makes it worth having.
+  // The union, because this test only ever runs on macOS and the macOS menu is both lists at once.
+  assert.deepEqual(
+    [...MENU_OWNED_CHORDS, ...MENU_OWNED_CHORDS_MAC].sort(),
+    [...claimed.keys()].sort(),
+    "MENU_OWNED_CHORDS (+ _MAC) in src/shortcuts.ts is every chord the menu registers",
+  );
+  // ...and the split is the right one: the mac-only four must come from roles this platform adds.
+  for (const chord of MENU_OWNED_CHORDS_MAC) {
+    assert.ok(eaten.has(chord), `${chord} is held by a macOS menu role`);
+    assert.ok(!MENU_OWNED_CHORDS.includes(chord), `${chord} is listed once, not in both lists`);
   }
 
   // The zoom-in item is the reason foldAll exists: it must be known under BOTH of its spellings.

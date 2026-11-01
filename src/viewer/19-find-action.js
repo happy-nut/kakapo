@@ -12,11 +12,31 @@
 
 var actionItems = [];
 
-/** Every dispatchable row of the shortcut table, as list items. */
+/**
+ * Rows whose KEY never reaches the dispatcher, but which are real commands all the same.
+ *
+ * A surface owner (KEY_OWNERS, 05-keymap.js) runs before `runShortcut` and consumes its own chord, so
+ * those rows carry no `SHORTCUT_ACTIONS` entry — and this list, which shows "the rows the page can
+ * invoke", therefore left out ⌘F. Typing "find" into the command palette did not offer "Find in the
+ * current file", which is the app's most-used search.
+ *
+ * Only commands that work from a COLD start belong here. The find bar's own toggles (⌥M, ⌥W, ⌥X, ⌥S,
+ * ⌥D) and the usage view's grouping chips are the other rows with no dispatcher, and they are left out
+ * on purpose: each acts on a surface that has to be open already, so a palette row for one would be the
+ * entry that does nothing when you press Enter — the thing the note below says is worse than absence.
+ *
+ * Kept honest by test/find-action.test.mjs: every id here must be a table row that has no dispatcher.
+ */
+var FIND_ACTION_EXTRAS = {
+  findInFile: function () { return !fileFindBlockedByOverlay() && openFileFind(); },
+};
+
+/** Every row of the shortcut table this page can actually invoke, as list items. */
 function findActionItems() {
   if (actionItems.length) return actionItems;
   actionItems = SHORTCUT_DEFS.filter(function (def) {
-    return def && def.id && typeof SHORTCUT_ACTIONS[def.id] === 'function';
+    return def && def.id
+      && (typeof SHORTCUT_ACTIONS[def.id] === 'function' || typeof FIND_ACTION_EXTRAS[def.id] === 'function');
   }).map(function (def) {
     return {
       actionId: def.id,
@@ -58,7 +78,7 @@ function renderFindActionResults(query) {
   quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
   if (quickFilterEl) {
     quickFilterEl.className = 'quick-open-filter';
-    quickFilterEl.textContent = String(rows.length) + ' ' + t('quickopen.results');
+    quickFilterEl.textContent = resultsLabel(rows.length);
   }
   if (!rows.length) {
     quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.noMatches')) + '</div>';
@@ -93,7 +113,7 @@ function runFindActionItem(item) {
   // Truthiness, not a typeof: the list was built from the rows that HAVE a handler, so this only guards
   // against a stale item — and a `typeof … === 'function'` on a local reads to test/viewer-slices.test.mjs
   // as a guard on a cross-slice name, which is a check worth not confusing.
-  var action = SHORTCUT_ACTIONS[item.actionId];
+  var action = SHORTCUT_ACTIONS[item.actionId] || FIND_ACTION_EXTRAS[item.actionId];
   if (!action) return false;
   closeQuickOpen();
   // `index` 0: the action is told which of its combinations fired, and a list row is the first one. The

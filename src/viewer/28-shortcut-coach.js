@@ -25,10 +25,49 @@ var COACH_RENUDGE_MS = 3 * 24 * 60 * 60 * 1000;
 var COACH_RUSTY_SCAN_DELAY_MS = 45000; // let the person settle into the review before coaching
 var COACH_AUTO_HIDE_MS = 12000;
 
+// ---- one spelling ----------------------------------------------------------------------------------
+// The ledger is keyed by the chord, and "clicked the button" and "pressed the chord" only meet if the two
+// sides spell it the same way. They did not: the keydown side emitted modifiers ⌘⌥⇧ and named keys ↵/Del,
+// while the table (src/shortcuts.ts, which fills every data-keyhint) writes ⌘⇧⌥ and Enter/Backspace. So
+// ⇧⌥W and ⌥⇧W, ⌘⇧⌥M and ⌘⌥⇧M, ⌘⇧Backspace and ⌘⇧Del were six ledger entries for three chords — and the
+// coach kept teaching keys it had itself recorded as used, because it had recorded them under a name it
+// would never look up again. One normalizer, both sides, the table's spelling.
+var COACH_KEY_ALIASES = { '⏎': 'Enter', '↵': 'Enter', '⌫': 'Backspace', 'Del': 'Backspace', 'Delete': 'Backspace', '⎋': 'Esc', 'Escape': 'Esc' };
+var COACH_MOD_ORDER = '⌘⇧⌥⌃';
+function coachCanonical(hint) {
+  var text = String(hint || '').replace(/\s+/g, '');
+  var mods = '';
+  while (text && COACH_MOD_ORDER.indexOf(text[0]) >= 0) { mods += text[0]; text = text.slice(1); }
+  // Nothing left means the chord IS modifiers: ⇧⇧ is Search Everywhere's double tap of one key, not a
+  // combination, and folding its duplicate away would file it under a plain ⇧ and collide with one.
+  if (!text) return String(hint || '').replace(/\s+/g, '');
+  var ordered = COACH_MOD_ORDER.split('').filter(function (m) { return mods.indexOf(m) >= 0; }).join('');
+  return ordered + (COACH_KEY_ALIASES[text] || text);
+}
+
 var coachLedger = (function () {
   var v = persistRead(COACH_KEY);
   if (!v) { try { v = JSON.parse(localStorage.getItem(COACH_KEY) || 'null'); } catch (e) { v = null; } }
-  return v && typeof v === 'object' ? v : {};
+  if (!v || typeof v !== 'object') return {};
+  // Entries written before the spelling was canonicalized are re-keyed rather than dropped: the thing
+  // they record is "this person already knows this chord", and losing it means coaching somebody about a
+  // key they use every day. Merged, because two old spellings can fold onto one canonical chord.
+  var migrated = {};
+  Object.keys(v).forEach(function (key) {
+    var canonical = coachCanonical(key);
+    var held = migrated[canonical];
+    var entry = v[key];
+    if (!entry || typeof entry !== 'object') return;
+    if (!held) { migrated[canonical] = entry; return; }
+    held.uses = (held.uses || 0) + (entry.uses || 0);
+    held.clicks = (held.clicks || 0) + (entry.clicks || 0);
+    held.last = Math.max(held.last || 0, entry.last || 0);
+    held.nt = Math.max(held.nt || 0, entry.nt || 0);
+    held.nudges = Math.max(held.nudges || 0, entry.nudges || 0);
+    held.muted = Boolean(held.muted || entry.muted);
+    held.label = held.label || entry.label || '';
+  });
+  return migrated;
 })();
 // entry: { uses, last, clicks, nudges, nt (last nudge time), muted, label }
 function coachEntry(hint) {
@@ -40,11 +79,8 @@ function coachSave() { persistSave(COACH_KEY, coachLedger); }
 // Del on a focused composer) explain themselves where they appear — nudging those is noise.
 function coachEligible(hint) { return /[⌘⌥]/.test(hint) || /^⇧?F\d{1,2}$/.test(hint); }
 
-// data-keyhint spelling varies slightly (⏎ vs ↵); fold it into the keydown normalization's space.
-function coachCanonical(hint) { return (hint || '').replace(/⏎/g, '↵').replace(/\s+/g, ''); }
-
 var COACH_CODE_KEYS = {
-  Enter: '↵', Escape: 'Esc', Backspace: 'Del', Delete: 'Del',
+  Enter: 'Enter', Escape: 'Esc', Backspace: 'Backspace', Delete: 'Backspace', Space: 'Space', Tab: 'Tab',
   ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
   Slash: '/', Period: '.', Comma: ',', Quote: "'", Semicolon: ';',
   BracketLeft: '[', BracketRight: ']', Minus: '-', Equal: '=',
@@ -58,7 +94,8 @@ function coachHintFromEvent(event) {
   else if (COACH_CODE_KEYS[code]) key = COACH_CODE_KEYS[code];
   else if (COACH_CODE_KEYS[event.key]) key = COACH_CODE_KEYS[event.key];
   else return '';
-  return ((event.metaKey || event.ctrlKey) ? '⌘' : '') + (event.altKey ? '⌥' : '') + (event.shiftKey ? '⇧' : '') + key;
+  return coachCanonical(((event.metaKey || event.ctrlKey) ? '⌘' : '')
+    + (event.shiftKey ? '⇧' : '') + (event.altKey ? '⌥' : '') + key);
 }
 
 // Same fallback chain as the hover hint's buttonLabel — the hint system may already have moved `title`
@@ -111,7 +148,9 @@ function coachHide() {
   coachBox.classList.add('hidden');
 }
 function coachKeysHtml(hint) {
-  var caps = hint.match(/F\d{1,2}|Esc|Del|[⌘⌥⇧↵↑↓←→]|[A-Z0-9/.,;'[\]=-]/g) || [hint];
+  // Named keys first, so `Backspace` is one cap and not a lone `B` with the rest dropped on the floor —
+  // which is what the old pattern did to every word-named key the table has.
+  var caps = hint.match(/F\d{1,2}|Backspace|Enter|Esc|Tab|Space|[⌘⌥⇧⌃↵↑↓←→]|[A-Z0-9/.,;'[\]=-]/g) || [hint];
   return caps.map(function (c) { return '<kbd>' + escapeHtml(c) + '</kbd>'; }).join('');
 }
 function coachShow(hint, kind) {
@@ -119,7 +158,8 @@ function coachShow(hint, kind) {
   var label = coachResolveLabel(hint);
   if (!label) return false;
   var obs = kind === 'rusty'
-    ? t('coach.rusty').replace('{w}', String(Math.max(1, Math.round((Date.now() - entry.last) / (7 * 24 * 60 * 60 * 1000)))))
+    ? (function () { var w = Math.max(1, Math.round((Date.now() - entry.last) / (7 * 24 * 60 * 60 * 1000)));
+        return plural(t('coach.rusty'), { w: w }).replace('{w}', String(w)); })()
       + ' · ' + t('coach.nudgeCount').replace('{n}', String(entry.nudges + 1))
     : t('coach.observed');
   coachBox.querySelector('.coach-obs').textContent = obs;
@@ -194,4 +234,4 @@ function coachRustyScan() {
 }
 setTimeout(coachRustyScan, COACH_RUSTY_SCAN_DELAY_MS);
 // Deliberate debug/test seam.
-window.__kakapoCoach = { scan: coachRustyScan, ledger: coachLedger };
+window.__kakapoCoach = { scan: coachRustyScan, ledger: coachLedger, canonical: coachCanonical };

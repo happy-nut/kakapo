@@ -234,7 +234,7 @@ test("⌥P drops the comments, the strings and the tests — and puts them back"
   assert.deepEqual(rows(host), ["new"], "the comment, the string and the test file are noise");
   assert.equal(host.v.$("#quick-open-exclude-noise").getAttribute("aria-pressed"), "true",
     "and the toggle it borrows from Find in Files says so");
-  assert.match(host.v.$("#quick-open-filter").textContent, /1 usages in 1 files/);
+  assert.match(host.v.$("#quick-open-filter").textContent, /1 usage in 1 file/);
 
   await press(host, { code: "KeyP", key: "p", altKey: true });
   assert.equal(rows(host).length, 4, "pressed again, they are back");
@@ -322,5 +322,100 @@ test("⌘F7 with the caret on nothing declines the key instead of swallowing it"
   host.v.window.setSourceCursor(FILE, 3, 0, true, -1); // an empty line
   await press(host, { ...F7, metaKey: true });
   assert.equal(host.v.window.usageMarks.length, 0);
+  host.v.close();
+});
+
+// ---- the same four keys, in the diff -----------------------------------------------------------------
+// They used to start with `if (!isSourceViewerVisible()) return false` and so said nothing at all in the
+// view a reviewer spends the time in, while the table advertised them as `where: "code"` — both surfaces —
+// and the READMEs advertised them flat. The marks here come from the rendered ROWS, not from the file:
+// the base pane shows a version that is not in sourceByPath at all, and half of what is worth highlighting
+// is on that side.
+async function openDiff(path = FILE) {
+  const v = await loadViewer(html);
+  v.window.kakapoAnalysis = {
+    query: () => Promise.resolve({ ok: true, engine: "lsp", confidence: "semantic", locations: [], symbols: [] }),
+    status: () => Promise.resolve({ generation: 0, phase: "ready" }),
+    diagnostics: () => Promise.resolve({ ok: true, diagnostics: [] }),
+    onStatus: () => {},
+  };
+  v.window.revealDiffFile(path); // loadViewer opens the source view; these four keys are about the other one
+  await v.settle(60);
+  return { v };
+}
+
+/** Put the diff caret on the first new-side row whose text contains `word`, at that word. */
+function parkDiffCaret(v, path, word) {
+  const w = v.window;
+  const wrapper = w.diffWrapperByPath(path);
+  if (!wrapper) return null;
+  const rows = w.diffRowsOf(w.diffSideTable(wrapper, "new"));
+  for (let i = 0; i < rows.length; i += 1) {
+    if (!w.isDiffCodeRow(rows[i])) continue;
+    const at = w.diffLineText(rows[i]).indexOf(word);
+    if (at >= 0) { w.setDiffCursor(path, "new", i, at + 1, true); return { rowIndex: i, column: at }; }
+  }
+  return null;
+}
+
+test("⌘F7 marks the diff's occurrences, in both panes, addressed by row and not by node", async () => {
+  const host = await openDiff();
+  const w = host.v.window;
+  assert.ok(w.isDiffViewVisible(), "the diff is the view under test");
+  const parked = parkDiffCaret(host.v, FILE, "Store");
+  assert.ok(parked, "the caret is on a Store occurrence in the working-tree pane");
+
+  await press(host, { ...F7, metaKey: true });
+  assert.ok(w.usageMarks.length > 0, "⌘F7 answers in the diff");
+  assert.equal(w.usageMarkSurface, "diff", "the marks know which surface they came from");
+  // A mark must be an ADDRESS, not a live node: a watch refresh replaces the wrappers, and a held <tr>
+  // would leave the next ⌘⌥↓ painting detached DOM and moving the caret by a stale row index.
+  for (const mark of w.usageMarks) {
+    assert.equal(mark.row, undefined, "no mark holds a DOM node");
+    assert.ok(typeof mark.rowIndex === "number" && (mark.side === "old" || mark.side === "new"));
+  }
+  // Collected pane by pane but ordered by row, so the paint budget cannot be spent entirely on the base.
+  const rowIndexes = Array.from(w.usageMarks, (m) => m.rowIndex);
+  assert.deepEqual(rowIndexes, [...rowIndexes].sort((a, b) => a - b), "marks are in row order");
+  host.v.close();
+});
+
+test("⌘F7's count is the caret's pane, so it and ⌘⌥↓ cannot disagree", async () => {
+  const host = await openDiff();
+  const w = host.v.window;
+  parkDiffCaret(host.v, FILE, "Store");
+  await press(host, { ...F7, metaKey: true });
+  const counted = w.usageMarksInCaretPane().length;
+  assert.ok(counted > 0);
+  assert.ok(counted <= w.usageMarks.length, "one pane is a subset of both");
+  // ⌘⌥↓ reports "i of n" over the same set.
+  await press(host, { ...DOWN, metaKey: true, altKey: true });
+  const hint = host.v.$(".mc-caret-hint");
+  assert.match(hint.textContent, new RegExp(`of ${counted}\\b`),
+    "the step's total is the same number ⌘F7 just reported");
+  host.v.close();
+});
+
+test("⌘F7 on the same name in another file is a first press, not a toggle-off", async () => {
+  const host = await openDiff();
+  const w = host.v.window;
+  parkDiffCaret(host.v, FILE, "Store");
+  await press(host, { ...F7, metaKey: true });
+  assert.ok(w.usageMarks.length > 0, "highlighted in the first file");
+  assert.equal(w.usageMarkPath, FILE);
+
+  // F7 crosses files all day in the diff. The toggle used to compare only the NAME, so the first press
+  // after crossing to another file holding the same name cleared instead of highlighting — a key that
+  // looked dead every other time you used it.
+  w.revealDiffFile(PY_FILE);
+  await host.v.settle(40);
+  assert.ok(parkDiffCaret(host.v, PY_FILE, "Store"), "the same name, in the other file");
+  await press(host, { ...F7, metaKey: true });
+  assert.ok(w.usageMarks.length > 0, "a first press in a new file highlights");
+  assert.equal(w.usageMarkPath, PY_FILE);
+
+  // ...and the same symbol in the same file still toggles off, which is what the guard is for.
+  await press(host, { ...F7, metaKey: true });
+  assert.equal(w.usageMarks.length, 0);
   host.v.close();
 });

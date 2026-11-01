@@ -109,6 +109,24 @@ export type AnalysisResponse = {
   /** Only for kind "semanticTokens". Absent when the server registered no legend for them. */
   tokens?: AnalysisSemanticToken[];
   fallbackReason?: string;
+  /**
+   * The server was asked and answered that it does not offer this capability — a permanent no, not a
+   * "not yet". Without it the viewer could only see a heuristic answer carrying some `fallbackReason`
+   * prose, which it read as "the analyzer is still starting": ⌘U on a TypeScript file therefore said
+   * "try again in a moment" every time, forever, about a question tsserver had already declined.
+   */
+  unsupported?: boolean;
+  /**
+   * The language server was reached and replied — with nothing, which is an ANSWER. Absent when the ask
+   * could not be made at all (no server for this file, a timeout, a crash), where "not found" would be a
+   * claim nobody made and "still reading" is the honest thing to say.
+   */
+  serverAnswered?: boolean;
+  /**
+   * No language server covers this file's language at all — a `.md`, a `.css`, anything outside the
+   * bundled set. Permanent, and distinct from "every server we tried failed", which is not.
+   */
+  noServer?: boolean;
   error?: string;
   /**
    * Set whenever this answer describes a REVISION rather than the working tree, whether or not it found
@@ -555,6 +573,13 @@ export class ProjectAnalysis {
         symbol: context.symbol,
         locations,
         fallbackReason: lsp.fallbackReason ?? "Language server returned no semantic locations",
+        // Did the server ANSWER, or could it not be asked? Not derivable from the reason: lspLocations
+        // writes one for an empty reply too, so every attempt to read this off the prose got it wrong in
+        // one direction or the other — a reply of "nothing" reported as "still reading the project",
+        // forever, or a genuine timeout reported as "no definition found", which is a claim nobody made.
+        // The helper says it, because the helper is where the two are still distinguishable.
+        serverAnswered: lsp.answered === true,
+        noServer: lsp.noServer === true,
       };
     } catch (error) {
       return { ok: false, engine: "index", confidence: "heuristic", locations: [], error: errorMessage(error) };
@@ -637,13 +662,7 @@ export class ProjectAnalysis {
   }
 
   private clientFor(path: string): LspClient | undefined {
-    const primary = this.resolveServer(this.root, path);
-    const servers = primary ? [primary] : [];
-    if (primary?.source && primary.source !== "bundled") {
-      const bundled = resolveBundledLanguageServer(path, this.root);
-      if (bundled) servers.push(bundled);
-    }
-    for (const server of servers) {
+    for (const server of this.serverCandidates(path)) {
       const key = this.serverKey(server);
       if (this.failedServers.has(key)) continue;
       let client = this.clients.get(key);
@@ -655,6 +674,33 @@ export class ProjectAnalysis {
       return client;
     }
     return undefined;
+  }
+
+  /**
+   * Is a server CONFIGURED for this file's language, healthy or not?
+   *
+   * `clientFor` returns undefined for two very different reasons — nothing resolves for this language, or
+   * everything that does is quarantined — and a per-call `attempted` flag cannot tell them apart, because
+   * `failedServers` outlives the call and is never cleared. Deriving "no server covers this language"
+   * from it meant one tsserver crash turned every later ⌘B on every `.ts` file into "this language is
+   * not supported", which is a claim about the project rather than about a server that fell over.
+   */
+  private hasServerFor(path: string): boolean {
+    // The SAME candidate list clientFor builds, so the two cannot disagree. Asking the bundled resolver
+    // independently answered "yes, covered" for a project whose injected resolver returns nothing — a
+    // state clientFor can never resolve out of, where the reader would be told to try again forever.
+    return this.serverCandidates(path).length > 0;
+  }
+
+  /** The servers that could serve this file, best first — healthy or not. */
+  private serverCandidates(path: string): LanguageServerCommand[] {
+    const primary = this.resolveServer(this.root, path);
+    const servers = primary ? [primary] : [];
+    if (primary?.source && primary.source !== "bundled") {
+      const bundled = resolveBundledLanguageServer(path, this.root);
+      if (bundled) servers.push(bundled);
+    }
+    return servers;
   }
 
   private serverKey(server: LanguageServerCommand): string {
@@ -847,7 +893,10 @@ export class ProjectAnalysis {
     column: number,
     method: "textDocument/definition" | "textDocument/references" | "textDocument/implementation" | "textDocument/typeDefinition",
     symbol = "",
-  ): Promise<{ server?: string; serverSource?: LanguageServerCommand["source"]; locations: AnalysisLocation[]; fallbackReason?: string }> {
+    // `answered` / `noServer` are the distinctions the caller cannot make: this helper writes a `fallbackReason` for an
+    // empty REPLY as well as for a failed ask, and those are opposite situations for a reader. An empty
+    // reply is a dead end; a failed ask is "nobody has said yet".
+  ): Promise<{ server?: string; serverSource?: LanguageServerCommand["source"]; locations: AnalysisLocation[]; fallbackReason?: string; answered?: boolean; noServer?: boolean }> {
     let attempted = false;
     let lastError = "";
     while (true) {
@@ -857,7 +906,12 @@ export class ProjectAnalysis {
           ? "All available language servers failed"
           : `No language server is available for ${path}`);
         this.setStatus("fallback", { fallbackReason });
-        return { locations: [], fallbackReason };
+        // Nothing covers this file's language — a .md, a .css, anything outside the bundled set. That is
+        // permanent, and the viewer had no way to see it: it read the answer as "the analyzer is still
+        // starting" and told the reader to try again in a moment, on a file where no later attempt can
+        // ever differ. Asked of the RESOLVER, not of this call's attempts: a quarantined server is a
+        // server, and saying its language is unsupported would be a worse lie than the one this replaced.
+        return { locations: [], fallbackReason, noServer: !this.hasServerFor(path) };
       }
       attempted = true;
       try {
@@ -908,13 +962,18 @@ export class ProjectAnalysis {
           serverSource: client.server.source,
           locations,
           fallbackReason: locations.length ? undefined : "Language server returned no semantic locations",
+          answered: true, // it replied — with nothing, which is still a reply
         };
       } catch (error) {
         // A server may legitimately omit one capability (commonly implementation). Keep it alive for
         // definition/references; only quarantine transport/process failures that cannot recover in-window.
         if (!this.transportFailure(error)) {
+          // An error REPLY is an answer: the server was reached, understood the request and refused it —
+          // commonly `implementation`, which the comment above says a server may legitimately omit. Left
+          // unflagged, the viewer read it as "the analyzer is still starting" and told the reader to try
+          // again in a moment, on every press, forever, beside a status bar reading ready.
           const fallbackReason = errorMessage(error);
-          return { locations: [], fallbackReason };
+          return { locations: [], fallbackReason, answered: true };
         }
         lastError = errorMessage(error);
         this.quarantine(client, error);
@@ -1176,12 +1235,18 @@ export class ProjectAnalysis {
     let fallbackReason = onRevision
       ? `Reading ${this.reviewTarget}, which no language server can be pointed at`
       : "";
+    let unsupported = false; // the server answered and said it does not offer this capability
+    let noServer = false;    // nothing covers this file's language at all — permanent
+    let answeredWithError = false; // the server replied, and the reply was an error — still a reply
     let attempted = false;
     if (!onRevision) {
       while (true) {
         const client = this.clientFor(path);
         if (!client) {
-          if (!attempted) fallbackReason = `No language server is available for ${path}`;
+          if (!attempted) {
+            fallbackReason = `No language server is available for ${path}`;
+            noServer = !this.hasServerFor(path); // configured-but-quarantined is not "unsupported"
+          }
           this.setStatus("fallback", { fallbackReason });
           break;
         }
@@ -1193,6 +1258,15 @@ export class ProjectAnalysis {
           this.setStatus("ready", serverFields(client.server));
           if (!answer.supported) {
             fallbackReason = `${client.server.name} does not offer ${kind === "callers" || kind === "callees" ? "a call hierarchy" : "a type hierarchy"}`;
+            // A capability the server declines is a PERMANENT no, and the viewer had no way to see that:
+            // every heuristic answer with a reason read as "still starting", so ⌘U on a TypeScript file
+            // answered "try again in a moment" every time, forever, for a question tsserver had already
+            // said it does not answer. One boolean, rather than the viewer parsing English prose.
+            // Paired with `answeredWithError` so the two flags cannot disagree: a server that DECLINED a
+            // capability has answered, and a reader of either flag alone must reach the same conclusion.
+            // Today only the order of two branches in showSemanticNavigationFailure keeps them apart.
+            unsupported = true;
+            answeredWithError = true;
             break;
           }
           const locations = await this.navigationLocations(answer.locations);
@@ -1220,7 +1294,10 @@ export class ProjectAnalysis {
           };
         } catch (error) {
           fallbackReason = errorMessage(error);
-          if (!this.transportFailure(error)) break;
+          // An error REPLY is the server answering — the same reasoning lspLocations applies one function
+          // above. Without it, a gopls or rust-analyzer that rejects prepareCallHierarchy on a position
+          // that is not callable left ⌘⌥B saying "try again in a moment" on every press, forever.
+          if (!this.transportFailure(error)) { answeredWithError = true; break; }
           this.quarantine(client, error);
         }
       }
@@ -1240,6 +1317,9 @@ export class ProjectAnalysis {
         // alone leaves the reader to conclude that the function calls nothing.
         fallbackReason: (fallbackReason ? fallbackReason + "; " : "")
           + "a name index cannot tell a call from a mention",
+        unsupported,
+        noServer,
+        serverAnswered: answeredWithError,
       };
     }
     const locations = kind === "callers"
@@ -1253,6 +1333,9 @@ export class ProjectAnalysis {
       locations,
       revision: this.reviewTarget,
       fallbackReason,
+      unsupported,
+      noServer,
+      serverAnswered: answeredWithError,
     };
   }
 

@@ -168,7 +168,35 @@ function showSemanticNavigationFailure(kind, name, response) {
   // ask", not "asked and there is nothing". Standalone HTML has no server at all and no reason either.
   // "Not yet" rather than "not there": a server that has not finished starting has not answered, and
   // reporting "no definition found" for it is a wrong answer the reviewer has no way to question.
-  var pending = analysisStillArriving() || Boolean(response && response.engine !== 'lsp' && response.fallbackReason);
+  //
+  // `unsupported` is the third case and it used to be read as the first. The server WAS asked and
+  // answered that it does not do this — tsserver offers no type hierarchy, so ⌘U, ⌘⌥B and ⌘⇧B on any
+  // TypeScript file said "try again in a moment" on every press, forever, about a question that will
+  // never have a different answer. "Later" is the one thing that is not true about it.
+  if (response && response.unsupported) {
+    closeSemanticPeek();
+    showCaretHint(t('monaco.notOffered').replace('{symbol}', String(name || '')));
+    return;
+  }
+  // Nothing covers this file's language — a .md, a .css. There is no later attempt that could differ, so
+  // "try again in a moment" is the one thing it must not say, and that is exactly what it said: the three
+  // states the comment below describes were being rendered as two messages.
+  if (response && response.noServer) {
+    closeSemanticPeek();
+    showCaretHint(t('monaco.noServer'));
+    return;
+  }
+  // Three cases, and this used to collapse them into two. The analyzer still starting is one, and it
+  // answers for itself. The server being unreachable — no server for this file, a timeout, a crash — is
+  // the second, and "no definition found" there is a claim nobody made: the guard for it is
+  // test/navigation-failure.test.mjs. The third is the server replying with nothing, which IS an answer
+  // and was being reported as "try again in a moment", forever, beside a status bar reading "ready".
+  //
+  // `serverAnswered` separates the second from the third at the boundary that knows, rather than here out
+  // of a reason string written in English.
+  var couldNotAsk = Boolean(response && response.engine !== 'lsp' && response.fallbackReason
+    && response.serverAnswered !== true);
+  var pending = analysisStillArriving() || couldNotAsk;
   var key = pending ? 'monaco.analysisPending'
     : kind === 'references' ? 'monaco.referencesNotFound'
       : kind === 'implementation' ? 'monaco.implementationNotFound'
@@ -252,9 +280,32 @@ async function goToImplementation() {
   var response = await queryProjectAnalysis('implementation', name, loc);
   if (declinedForRevision(response, name)) return;
   var items = response && response.locations || [];
-  if (items.length === 1) { openSourceAt(items[0].path, items[0].lineIndex, items[0].column); return; }
+  if (items.length === 1) {
+    if (alreadyAtLocation(loc, items[0])) { showCaretHint(t('monaco.alreadyThere').replace('{symbol}', name)); return; }
+    openSourceAt(items[0].path, items[0].lineIndex, items[0].column);
+    return;
+  }
   openAnalysisUsages(name, items, response, 'implementation');
 }
+/**
+ * Is this the place the caret is already standing?
+ *
+ * ⌘⌥B and ⌘⇧B on a declaration answer with that declaration — one location, the caret's own — and
+ * `openSourceAt` then "navigates" to where the caret is: no panel, no hint, nothing moves, which is
+ * indistinguishable from a key that does not work. (⌘B has its own answer for the same situation: on a
+ * declaration it shows the usages instead. These two have no such alternative, so they say it.)
+ */
+function alreadyAtLocation(loc, item) {
+  if (!loc || !item) return false;
+  // Only ever about the working tree. A caret in the diff's BASE pane carries an old-file line number
+  // (caretSourceLoc reads the row's own side), and the server's answer is a new-file line — so line 120
+  // on the left and line 120 on the right are two different places, and comparing them would suppress a
+  // real jump with "this IS the declaration", which is both false and a dead end.
+  if (loc.side === 'old') return false;
+  if (String(item.path || '') !== String(loc.path || '')) return false;
+  return Number(item.lineIndex) === Number(loc.lineIndex);
+}
+
 function queryProjectAnalysis(kind, symbol, loc, extra) {
   if (!window.kakapoAnalysis || typeof window.kakapoAnalysis.query !== 'function') return Promise.resolve(null);
   var request = Object.assign({

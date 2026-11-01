@@ -17,7 +17,13 @@ function inTextField() { return isTextEntry(document.activeElement); }
 function keyboardScope() {
   var settings = document.getElementById('settings-modal');
   if (settings && !settings.classList.contains('hidden')) return 'modal';
-  if (document.getElementById('goto-line')) return 'modal'; // owns the keys until Enter/Esc
+  // Go-to-line owns the keys while it HOLDS them — not merely while it exists. A box that has lost focus
+  // but is still in the DOM used to keep this at 'modal', which stands every window-level shortcut down:
+  // one stray click beside an open ⌘L prompt and the whole keyboard went dead with nothing on screen
+  // saying why. It closes itself on an outside click now (13-goto.js); this is the second lock on the
+  // same door, because "a prompt nobody is typing into does not own the keyboard" is true regardless.
+  var gotoLine = document.getElementById('goto-line');
+  if (gotoLine && gotoLine.contains(document.activeElement)) return 'modal'; // owns the keys until Enter/Esc
   var history = document.getElementById('history-view');
   if (history && !history.classList.contains('hidden')) return 'history';
   if (isDockFocused()) return 'panel'; // the merged dock (see 08-dock.js)
@@ -178,7 +184,7 @@ var KEY_OWNERS = [
 // covers both directions of a pair (F8/⇧F8) or both halves of a choice (⌥A/⌥U).
 var SHORTCUT_ACTIONS = {
   // -- window level: these belong to the window, so they fire from a focused dock or the History overlay
-  maximizePanel: function () { toggleDockMaximized(); },
+  maximizePanel: function () { return toggleDockMaximized() ? undefined : false; },
   allComments: function () { openMergedView(); },
   openHistory: function () { toggleHistory(); },
   // ⌘2/⌘1 mean "take me to the tree"; activate* itself puts every full-screen surface away first
@@ -209,13 +215,18 @@ var SHORTCUT_ACTIONS = {
     if (qo && !qo.classList.contains('hidden') && quickMode === 'problems') { closeQuickOpen(); return; }
     return openProblemsView() ? undefined : false;
   },
+  // These three call `async` functions, so their return value is a Promise and `? undefined : false` can
+  // only ever be `undefined` — the rule stated above the `runShortcut` call below, broken here three times.
+  // The applicability question is asked synchronously instead, which is what that rule is for: the panel
+  // these two draw into is the thing that can be absent, and with it missing the key used to be eaten in
+  // total silence. The symbol case is NOT a decline — the callees announce it themselves.
   quickDoc: function () {
-    if (treeFocusIndex >= 0) return false;
-    return openQuickDocumentation() ? undefined : false;
+    if (treeFocusIndex >= 0 || !quickDocPanel()) return false;
+    openQuickDocumentation();
   },
   expressionType: function () {
     if (treeFocusIndex >= 0) return false;
-    return showExpressionType() ? undefined : false;
+    showExpressionType(); // answers in a caret hint, with no panel to be missing
   },
   // One sentence, two surfaces: "fold the thing the caret is in" is a code block in the source view and a
   // FILE in the diff, and "collapse everything" is every region or every file. Same rows in the table.
@@ -234,8 +245,10 @@ var SHORTCUT_ACTIONS = {
   collapseRecursively: function () { return collapseSourceFoldRecursively() ? undefined : false; },
   diffFileStep: function (event, i) { return goToDiffFile(i ? -1 : 1) ? undefined : false; },
   selectEditor: function () { return selectAllInView() ? undefined : false; },
-  gotoLine: function () { openGotoLine(); },
-  copyLocation: function () { copyCaretLocation(); },
+  gotoLine: function () { return openGotoLine() ? undefined : false; },
+  copyLocation: function () { return copyCaretLocation() ? undefined : false; },
+  // openComposer always handles the key: it opens the composer, or says why it cannot (no line under the
+  // caret, a library file). There is no "not mine" path, so there is nothing here to convert.
   addComment: function () { openComposer('c'); },
   recentFiles: function () {
     var qo = document.getElementById('quick-open');
@@ -251,8 +264,8 @@ var SHORTCUT_ACTIONS = {
   compareRef: function () { openCompareBranchPicker(); },
   goToDef: function () { if (isSourceViewerVisible()) goToDefinitionUnderCursor(); else openDiffFileAtCaret(); },
   quickDefinition: function () {
-    if (treeFocusIndex >= 0) return false;
-    return openQuickDefinition() ? undefined : false;
+    if (treeFocusIndex >= 0 || !quickDocPanel()) return false;
+    openQuickDefinition();
   },
   findAction: function () {
     var qo = document.getElementById('quick-open');
@@ -293,7 +306,10 @@ var SHORTCUT_ACTIONS = {
   },
   cursorBackForward: function (event, i) {
     clearTreeFocus(); // jumping the cursor history moves the caret, so arrows follow it
-    if (i) navForward(); else navBack();
+    // Declines at the ends of the history instead of consuming the key. It never returned false, so ⌘]
+    // with an empty forward stack was preventDefault-ed with nothing to show — indistinguishable from a
+    // key that does not work, and it is also what let ⌘⇧] reach this action at all (see shortcutChords).
+    return (i ? navForward() : navBack()) ? undefined : false;
   },
   toggleRendered: function () {
     var sv = document.getElementById('source-viewer');
@@ -322,13 +338,14 @@ var SHORTCUT_ACTIONS = {
     if (treeFocusIndex >= 0) return false;
     // The diff shows .http files too, and the request on the new side is the one the file now says to
     // send. This used to be gated on the source view being up, so the key did nothing there.
-    if (!isSourceViewerVisible()) {
-      if (isDiffViewVisible() && runDiffHttpAtCaret()) return;
-      return false;
-    }
-    var enterPath = document.getElementById('source-viewer').dataset.openPath || '';
-    if (isHttpFile(enterPath)) { runHttpAtCaret(); return; }
-    // ⌥Enter on a diagnostic line drafts a "fix this" change-request comment for the agent.
+    var enterPath = isSourceViewerVisible()
+      ? (document.getElementById('source-viewer').dataset.openPath || '') : '';
+    if (enterPath && isHttpFile(enterPath)) { runHttpAtCaret(); return; }
+    if (!isSourceViewerVisible() && isDiffViewVisible() && runDiffHttpAtCaret()) return;
+    // ⌥Enter on a diagnostic line drafts a "fix this" change-request comment for the agent. On BOTH
+    // surfaces: this sat below an early `return false` for the diff, so pressing it beside a problem F2
+    // had just jumped to did nothing at all — in the view where the reviewer is reading the change, and
+    // therefore the view where "write this one up for the agent" is the whole point of the key.
     if (i === 1 && createFixCommentAtCaret()) return;
     return false;
   },
@@ -493,7 +510,11 @@ document.addEventListener('keydown', (event) => {
           const tabSide = diffCursor.side === 'new' ? 'old' : 'new';
           const tabWrap = diffWrapperByPath(diffCursor.path);
           const tabRow = tabWrap ? diffRowAt(tabWrap, tabSide, diffCursor.rowIndex) : null;
+          // An added line has no base row and a deleted line has no working-tree row: the other pane holds
+          // a placeholder there, not a line. Say which, instead of the nothing this used to do — on a
+          // changed line, the one place a reviewer most wants to look across, the key appeared broken.
           if (isDiffCodeRow(tabRow)) setDiffCursor(diffCursor.path, tabSide, diffCursor.rowIndex, 0, true);
+          else showCaretHint(t(tabSide === 'old' ? 'diff.noBaseLine' : 'diff.noWorkingLine'));
           return;
         }
         focusTree(treeFocusIndex >= 0 ? treeFocusIndex : 0); // ← left: focus sidebar tree
@@ -503,6 +524,11 @@ document.addEventListener('keydown', (event) => {
         if (isSourceViewerVisible() && openPath && (!viewerCursor || viewerCursor.path !== openPath)) {
           setSourceCursor(openPath, viewerCursor ? viewerCursor.lineIndex : 0, 0, false, -1);
         }
+        // Forced, because Tab pressed in the pane that already has the keyboard has nothing to move and
+        // was therefore completely silent. The flash is the app's own "the keys arrive here" cue.
+        flashReviewPanelFocus(isSourceViewerVisible()
+          ? document.getElementById('source-body')
+          : document.getElementById('diff2html-container'), true);
       }
       return;
     }

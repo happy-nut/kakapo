@@ -2,6 +2,10 @@
 // (COMMENTS_KEY / reviewComments / commentSeq / composerState are declared near the top of the script)
 // Bottom-left, non-blocking toast stack; each toast auto-dismisses. Used to tell the user when a file
 // change made some comments untrackable (they were removed).
+// Bounded at three. Each toast lives 4.5 seconds and nothing stopped them accumulating, so a handful of
+// keys in a row (five, measured — three still up four seconds later) buried the corner of the window under
+// a column of messages, the newest of which was the only one anybody was going to read. Oldest out first:
+// a toast that has been on screen longest has had its chance.
 function showToast(message) {
   var stack = document.getElementById('mc-toasts');
   if (!stack) { stack = document.createElement('div'); stack.id = 'mc-toasts'; document.body.appendChild(stack); }
@@ -9,6 +13,7 @@ function showToast(message) {
   el.className = 'mc-toast';
   el.textContent = message;
   stack.appendChild(el);
+  while (stack.children.length > 3 && stack.firstChild) stack.removeChild(stack.firstChild);
   requestAnimationFrame(function () { el.classList.add('show'); });
   setTimeout(function () {
     el.classList.add('hide');
@@ -75,6 +80,21 @@ function showCaretHint(message, anchor, sticky) {
   caretHintEl.classList.add('show');
   if (caretHintTimer) clearTimeout(caretHintTimer);
   if (!sticky) caretHintTimer = setTimeout(function () { if (caretHintEl) caretHintEl.classList.remove('show'); }, 2000);
+}
+// Put a visible hint back where the caret is NOW.
+//
+// setDiffCursor(reveal=true) defers the caret render to the next animation frame so a held arrow key does
+// not outrun the coalesced scroll — which means a caller that shows a hint immediately after it (F2 in the
+// diff, ⌘⌥↓) anchored to the caret's PREVIOUS position, or to nothing at all on a first placement. The
+// diagnostic message is the longest and stickiest thing this app shows, so it sat there, next to the wrong
+// line, for as long as the reader left it. Called from that same frame, after the caret is drawn.
+function repositionCaretHint() {
+  if (!caretHintEl || !caretHintEl.classList.contains('show')) return;
+  var row = caretAnchorElement();
+  if (!row || !row.getBoundingClientRect) return;
+  var r = row.getBoundingClientRect();
+  caretHintEl.style.left = Math.round(Math.max(8, r.left)) + 'px';
+  caretHintEl.style.top = Math.round(r.bottom + 4) + 'px';
 }
 function hideCaretHint() {
   if (caretHintTimer) { clearTimeout(caretHintTimer); caretHintTimer = 0; }
@@ -954,7 +974,10 @@ function renderCommentBadges() {
   function makeBadge(n) {
     var badge = document.createElement('span');
     badge.className = 'mc-file-badge';
-    badge.innerHTML = '<span class="mc-fb" title="' + n + ' ' + escapeHtml(t('badge.comments')) + '">' + n + '</span>';
+    // One interpolated sentence, not a number glued to a fragment: the English read "3 comment(s)" and
+    // the Korean "3 개 코멘트", which is the count on the wrong side of the noun with a stray space.
+    var badgeTitle = plural(t('badge.comments'), { n: n }).replace('{n}', String(n));
+    badge.innerHTML = '<span class="mc-fb" title="' + escapeHtml(badgeTitle) + '">' + n + '</span>';
     return badge;
   }
   function inject(selector, keyAttr, refSelector) {
@@ -1097,10 +1120,12 @@ function refreshComments() {
 // a monologue.
 function openComposer(kind) {
   var target = currentCommentTarget();
-  if (!target) return;
+  // No line under the caret — in practice no caret at all. The key is the one a reviewer reaches for most,
+  // and it did nothing and said nothing; a comment needs a line, so say which thing is missing.
+  if (!target) { showCaretHint(t('comment.noTarget')); return true; }
   // A library file is somebody else's code, read on demand and not part of this review: a comment there has
   // no changed line to anchor to and nothing to say to the agent that wrote the change.
-  if (isLibrarySourcePath(target.path)) { showCaretHint(t('source.libraryReadOnly')); return; }
+  if (isLibrarySourcePath(target.path)) { showCaretHint(t('source.libraryReadOnly')); return true; }
   var existing = commentsAt(target.path, target.line, target.side)
     .filter(function (c) { return c.by !== 'agent'; });
   if (existing.length) {

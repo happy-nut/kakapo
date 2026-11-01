@@ -553,6 +553,15 @@ function previewFileFindResult(index) {
     // Same reason setDiffCursor does it: a match in a file that is not the visible one has nothing on
     // screen to scroll to, and revealing also materializes a lazy body so its rows exist to be found.
     if (wrapper && wrapper.classList && wrapper.classList.contains('df-inactive')) revealDiffFile(result.path);
+    // ...and a file the reader FOLDED is hidden for a different reason and just as completely. Without
+    // this the bar reported "1/27" over a pane showing only "… is folded away", and then Enter — which
+    // goes through setDiffCursor and does unfold — opened the file for match 2. One feature, unfolding
+    // for every match but the one it lands on first. The source branch below has always done the
+    // equivalent for a folded region.
+    if (wrapper && wrapper.classList && wrapper.classList.contains('file-collapsed')) {
+      delete diffCollapsedFileSet()[result.path];
+      paintDiffFileCollapse();
+    }
     var row = wrapper && diffRowAt(wrapper, result.side, result.rowIndex);
     if (row) scrolloffReveal(row, document.getElementById('diff2html-container'), 0.15);
   } else {

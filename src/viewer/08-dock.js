@@ -1,4 +1,5 @@
 // ===== Bottom dock: the merged review-comments document, in a docked slot below the editor =====
+var dockHoldsMenu = false; // this slice's own hold, counted through holdMenuShortcuts
 // Cmd/Ctrl+Shift+' maximizes it over the editor area.
 var dockMaximized = false;
 // Assigned once the settings panel is built (see below); read by the KEY_OWNERS table in 05-keymap.js,
@@ -11,15 +12,21 @@ function applyDockMaximized() {
   if (!activeDockPanel()) dockMaximized = false; // nothing docked -> can't stay maximized
   document.body.classList.toggle('dock-maximized', dockMaximized);
 }
+/** True when it maximized something; false declines the key rather than swallowing it. */
 function toggleDockMaximized() {
   // Maximize only the panel you're FOCUSED in. From the sidebar tree (treeFocusIndex >= 0) or the
-  // diff/source content this is a no-op.
-  if (treeFocusIndex >= 0) return;
+  // diff/source content there is nothing to maximize — which is the NORMAL press of this chord, and it
+  // used to be eaten in silence. Declining hands the key back; the panel one is worth a sentence.
+  if (treeFocusIndex >= 0) return false;
   var ae = document.activeElement;
-  if (!(ae && ae.closest && ae.closest('.dock-panel'))) return;
-  if (!activeDockPanel()) return; // nothing docked -> nothing to maximize
+  if (!(ae && ae.closest && ae.closest('.dock-panel'))) {
+    if (activeDockPanel()) { showCaretHint(t('dock.notFocused')); return true; }
+    return false;
+  }
+  if (!activeDockPanel()) return false; // nothing docked -> nothing to maximize
   dockMaximized = !dockMaximized;
   applyDockMaximized();
+  return true;
 }
 // "The keys belong to a panel, not to the editor." While the dock holds focus the global shortcuts below
 // the keymap's focus guard stand down; the ones placed ABOVE it (Cmd+1/2/7/8/9, the dock toggles) still work.
@@ -136,8 +143,13 @@ function openMergedView() {
   // Claim Cmd+A/Cmd+C from the app menu's native accelerators (role: "editMenu" in app-main.ts) for as long
   // as this dock is open, so only this panel's own keydown handling responds — see handleMergedKeydown and
   // the setIgnoreMenuShortcuts IPC handler in app-main.ts for why the native accelerator otherwise races it.
-  if (window.kakapoApp && typeof window.kakapoApp.setIgnoreMenuShortcuts === 'function') window.kakapoApp.setIgnoreMenuShortcuts(true);
+  // Counted (holdMenuShortcuts, 01-core.js) so an overlapping owner cannot release this one's hold.
+  // AFTER mountDock, not before. mountDock closes any dock already up, and that close path releases this
+  // same hold — so re-opening (the chord pressed twice, or a locale switch, which re-opens it) took the
+  // hold, then had it released out from under the new panel. ⌘A inside the dock then went back to the
+  // menu's selectAll and selected the whole review behind it: the bug the hold exists to prevent.
   var dock = mountDock('mc-merged-panel', t('merged.title'));
+  if (!dockHoldsMenu) { dockHoldsMenu = true; holdMenuShortcuts(true); }
   var mergedBody = document.createElement('div');
   mergedBody.className = 'mc-merged-body';
   var host = document.createElement('div');
@@ -247,7 +259,9 @@ function openMergedView() {
     // screen, and closing the dock out from under it would lose the reviewer's place in a list they are
     // still working through — refreshComments has already rebuilt it without the card that just left.
     if (!document.querySelector('.mc-merged-card')) closeMergedDock();
-    showToast(t('merged.copiedAndArchived').replace('{count}', String(archived)));
+    showToast(t('merged.copiedAndArchived')
+      .replace('{count}', String(archived))
+      .replace('{key}', shortcutLabel('undoCommentRemoval')));
   }
   // The app menu keeps the standard Edit role so real text fields still get native Cut/Paste/Undo (see
   // app-main.ts) — but that means Cmd+C is ALSO a native accelerator that fires webContents.copy()
@@ -422,7 +436,7 @@ function openMergedView() {
   dock.panel.__kakapoBeforeClose = function () {
     document.removeEventListener('kakapo:comments-pruned', handlePrunedComments);
     document.removeEventListener('copy', handleNativeCopy);
-    if (window.kakapoApp && typeof window.kakapoApp.setIgnoreMenuShortcuts === 'function') window.kakapoApp.setIgnoreMenuShortcuts(false);
+    if (dockHoldsMenu) { dockHoldsMenu = false; holdMenuShortcuts(false); }
   };
   // A round where the agent both answers and edits can remove EVERY comment's anchor line at once, so
   // remapComments flags them all "possibly addressed" and mergedBlocks filters them all out — the panel comes
@@ -448,7 +462,7 @@ function openMergedView() {
         var keys = document.createElement('span');
         keys.className = 'coach-keys'; // the shortcut-coach key chip, so one kind of key looks one way
         var key = document.createElement('kbd');
-        key.textContent = '?';
+        key.textContent = shortcutLabel('addComment') || '?';
         keys.appendChild(key);
         label.appendChild(keys);
         label.appendChild(document.createTextNode(parts[1] || ''));
@@ -461,7 +475,7 @@ function openMergedView() {
       host.appendChild(note);
       return;
     }
-    label.textContent = t('merged.allAddressed').replace('{n}', String(flagged.length));
+    label.textContent = plural(t('merged.allAddressed'), { n: flagged.length }).replace('{n}', String(flagged.length));
     var button = document.createElement('button');
     button.type = 'button';
     button.className = 'mc-merged-reopen-all';
@@ -687,7 +701,12 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     secs.forEach(function (s) { s.classList.toggle('hidden', s.dataset.cat !== cat); });
   }
   function open(cat) { if (cat) showCat(cat); modal.classList.remove('hidden'); }
-  function close() { modal.classList.add('hidden'); }
+  // Ending any live capture is part of closing. A rebind row listens through a capture-phase keydown that
+  // preventDefaults EVERY key; the × button happens to end it by letting its click bubble to the
+  // document handler, and the gear — which stopPropagation()s its own click — did not. The sheet then
+  // went away with the listener still on: the keyboard was dead, nothing on screen said why, and the
+  // next free chord was written into the overrides with no row to show for it.
+  function close() { endShortcutCapture(); modal.classList.add('hidden'); }
   if (gearBtn) gearBtn.addEventListener('click', function (e) { e.stopPropagation(); if (modal.classList.contains('hidden')) open('general'); else close(); });
   if (closeBtn) closeBtn.addEventListener('click', close);
   cats.forEach(function (c) { c.addEventListener('click', function () { showCat(c.dataset.cat); }); });

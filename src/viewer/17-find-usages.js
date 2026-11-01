@@ -524,7 +524,7 @@ function renderFindUsagesResults(query) {
     quickFilterEl.className = 'quick-open-filter' + (usageViewBusy ? ' is-loading' : '');
     quickFilterEl.innerHTML = usageViewBusy
       ? kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(t('quickopen.searching')) + '</span>'
-      : escapeHtml(t('findusages.summary')
+      : escapeHtml(plural(t('findusages.summary'), { n: flat.length, files: Object.keys(files).length })
         .replace('{n}', String(flat.length))
         .replace('{files}', String(Object.keys(files).length))
         // How much of this answer is test code, before any grouping is turned on. "Forty usages" and
@@ -713,6 +713,65 @@ var usageMarkPath = '';
 var usageMarkName = '';
 var usageMarkActive = -1;
 var usageMarkGeneration = -1;
+// Which surface the marks were scanned from. A mark is a position in a TEXT — the source view's is a line
+// of the file, the diff's is a row of a rendered pane — so the same file on the other surface is a
+// different set, and without this the cache handed diff rows to the source painter and painted nothing.
+var usageMarkSurface = '';
+
+/**
+ * Every code occurrence of `name` in a rendered diff file, both panes.
+ *
+ * The scan is the diff's own rows rather than the file's content, for the reason the in-file find scans
+ * them too (collectDiffFindResults, 17-file-find.js): the base pane shows a version that is not in
+ * `sourceByPath` at all, and half of what a reviewer wants highlighted is on that side. Each mark carries
+ * its row, so the paint has the container without looking anything up.
+ */
+function usageMarksInDiff(wrapper, name) {
+  if (!wrapper || !name) return [];
+  var path = diffWrapperPathKey(wrapper);
+  var language = usageLanguageOf(path);
+  var pattern = new RegExp('(?:^|[^A-Za-z0-9_$])(' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?![A-Za-z0-9_$])', 'g');
+  var marks = [];
+  ['old', 'new'].some(function (side) {
+    var rows = diffRowsOf(diffSideTable(wrapper, side));
+    return rows.some(function (row, rowIndex) {
+      if (!isDiffCodeRow(row)) return false;
+      var line = diffLineText(row);
+      pattern.lastIndex = 0;
+      var match = null;
+      while ((match = pattern.exec(line))) {
+        var column = match.index + match[0].length - match[1].length;
+        pattern.lastIndex = column + match[1].length;
+        if (usageZoneAt(line, column, language) !== 'code') continue;
+        var type = classifyUsage(name, line, column, path);
+        var initialised = type === 'declaration' && /^\s*=(?![=>])/.test(line.slice(column + name.length));
+        // Addressed, never held. A mark used to carry its <tr>, and a watch refresh replaces the whole
+        // wrapper: the next ⌘⌥↓ then painted detached nodes, built Ranges in a document fragment nobody
+        // can see, and moved the caret to a row index taken from DOM that no longer exists. The source
+        // side has always re-resolved its rows per paint (sourceFindRow) for the same reason.
+        marks.push({
+          path: path, side: side, rowIndex: rowIndex,
+          column: column, length: name.length, write: type === 'write' || initialised,
+        });
+        if (marks.length >= USAGE_MARK_LIMIT) return true;
+      }
+      return false;
+    });
+  });
+  // By row, not by pane. Collected pane by pane, every base-side mark precedes every working-tree one —
+  // so a symbol occurring more than USAGE_MARK_PAINT_LIMIT times in the base spent the entire paint
+  // budget there and left the working tree, the half being reviewed, with no highlight at all.
+  return marks.sort(function (a, b) {
+    return a.rowIndex - b.rowIndex || a.column - b.column || (a.side === 'old' ? -1 : 1);
+  });
+}
+
+/** The marks on the pane the caret is in — what the diff's count and its stepping are both about. */
+function usageMarksInCaretPane() {
+  if (usageMarkSurface !== 'diff') return usageMarks;
+  var side = (diffCursor && diffCursor.side) || 'new';
+  return usageMarks.filter(function (mark) { return mark.side === side; });
+}
 
 /** Every code occurrence of `name` in `path`'s content, with 'read'/'write' per occurrence. */
 function usageMarksIn(path, name) {
@@ -744,6 +803,7 @@ function clearUsageHighlights() {
   usageMarkName = '';
   usageMarkActive = -1;
   usageMarkGeneration = -1;
+  usageMarkSurface = '';
   Array.prototype.forEach.call(document.querySelectorAll('.usage-mark-row'), function (row) {
     row.classList.remove('usage-mark-row');
   });
@@ -771,9 +831,14 @@ function paintUsageHighlights() {
   indexes.forEach(function (index) {
     var mark = usageMarks[index];
     if (!mark) return;
-    var row = sourceFindRow(mark.lineIndex);
+    // Both surfaces re-resolve the row from the live DOM: a diff mark by (side, rowIndex) through its
+    // wrapper, a source mark by line — which may first have to finish painting a lazy body.
+    var inDiff = mark.side !== undefined;
+    var row = inDiff
+      ? diffRowAt(diffWrapperByPath(mark.path), mark.side, mark.rowIndex)
+      : sourceFindRow(mark.lineIndex);
     if (row) row.classList.add('usage-mark-row');
-    var container = row && (row.querySelector('.source-code') || row);
+    var container = row && (inDiff ? diffCellCtn(row) : (row.querySelector('.source-code') || row));
     if (!container) return;
     var shown = container.textContent || '';
     var start = mark.column;
@@ -832,7 +897,15 @@ function serverUsageMarks(path, symbol) {
     else usageHighlightCacheMap().set(key, { generation: analysisGeneration(), marks: marks, pending: false });
     // Only act if this is still the symbol on screen: the reader may have moved on, and repainting over
     // a different symbol's highlight with this one's marks is worse than not upgrading at all.
-    if (!marks || usageMarkPath !== path || usageMarkName !== symbol.name || !usageMarks.length) return;
+    //
+    // The SURFACE is part of "still": documentHighlight answers in the file's line numbers, which is what
+    // a source mark is, while a diff mark is a (side, rowIndex) into a rendered pane. A request started in
+    // the source view and landing after the reader crossed to the diff used to replace the diff's marks
+    // with line-based ones while the surface flag still said 'diff' — so the paint went into the hidden
+    // source body, and every later ⌘⌥↓ filtered on `mark.side` against marks that have none and reported
+    // "No occurrence in this pane" about a symbol sitting on screen, permanently, because the cache hit.
+    if (!marks || usageMarkSurface !== 'source' || usageMarkPath !== path
+      || usageMarkName !== symbol.name || !usageMarks.length) return;
     usageMarks = marks;
     usageMarkActive = -1;
     paintUsageHighlights();
@@ -847,18 +920,51 @@ function serverUsageMarks(path, symbol) {
   return null;
 }
 
-/** The marks for the symbol under the caret in the open file, computed once and reused by the step keys. */
+/** Which surface's text the marks come from: '' when neither view is up. */
+function usageSurface() {
+  if (isSourceViewerVisible()) return 'source';
+  if (isDiffViewVisible()) return 'diff';
+  return '';
+}
+
+/**
+ * The marks for the symbol under the caret in the open file, computed once and reused by the step keys.
+ *
+ * Both surfaces, because the diff is where a reviewer spends the time. These four keys answered only in
+ * the source view and said nothing at all in the diff — not "not here", nothing — while the table
+ * advertised them as `where: "code"`, which is both views, and the READMEs advertised them flat.
+ */
+/**
+ * The file the marks belong to, the one way. The source view answers with the file it is PAINTING
+ * (dataset.openPath), which is not always `viewerCursor.path` — the keymap has a branch for exactly that
+ * mismatch — and the toggle below used to compare the cache's key against the caret's path instead. When
+ * they differed, a second ⌘F7 on the same symbol re-highlighted rather than putting the highlight away.
+ */
+function usageMarkPathFor(surface, symbol) {
+  if (surface === 'source') return (document.getElementById('source-viewer') || { dataset: {} }).dataset.openPath || '';
+  return (symbol && symbol.path) || '';
+}
+
 function ensureUsageMarks() {
-  if (!isSourceViewerVisible()) return false;
-  var symbol = wordAtCursor();
-  var path = (document.getElementById('source-viewer') || { dataset: {} }).dataset.openPath || '';
+  var surface = usageSurface();
+  if (!surface) return false;
+  var symbol = symbolUnderCursor();
+  var path = usageMarkPathFor(surface, symbol);
   if (!symbol || !symbol.name || !path) return false;
-  if (usageMarkName === symbol.name && usageMarkPath === path && usageMarks.length
-    && usageMarkGeneration === analysisGeneration()) return true;
-  var fromServer = serverUsageMarks(path, symbol);
-  usageMarks = fromServer && fromServer.length ? fromServer : usageMarksIn(path, symbol.name);
+  if (usageMarkName === symbol.name && usageMarkPath === path && usageMarkSurface === surface
+    && usageMarks.length && usageMarkGeneration === analysisGeneration()) return true;
+  if (surface === 'diff') {
+    // No server upgrade here: documentHighlight answers in the working tree's coordinates, and half of
+    // these rows are the base version, where those line numbers mean a different line. The name scan is
+    // the honest answer for a two-version surface, and the count line already says it is name-based.
+    usageMarks = usageMarksInDiff(diffWrapperByPath(path), symbol.name);
+  } else {
+    var fromServer = serverUsageMarks(path, symbol);
+    usageMarks = fromServer && fromServer.length ? fromServer : usageMarksIn(path, symbol.name);
+  }
   usageMarkPath = path;
   usageMarkName = symbol.name;
+  usageMarkSurface = surface;
   usageMarkGeneration = analysisGeneration();
   usageMarkActive = -1;
   return usageMarks.length > 0;
@@ -866,23 +972,34 @@ function ensureUsageMarks() {
 
 /** ⌘F7 / ⌘⇧F7: highlight them, and say how many there are — including none. */
 function highlightUsagesInFile() {
-  if (!isSourceViewerVisible()) return false;
-  var symbol = wordAtCursor();
+  if (!usageSurface()) return false;
+  var symbol = symbolUnderCursor();
   if (!symbol || !symbol.name) return false;
   // A second press on the same symbol puts the highlight away, as Escape does. IntelliJ keeps it until
   // Escape; a toggle is the same key answering for both, and the key is the one that is already under the
-  // finger.
-  if (usageMarkName === symbol.name && usageMarks.length) { clearUsageHighlights(); return true; }
+  // finger. Same symbol in another FILE or on the other surface is a first press, not a second: those
+  // marks are a different set, and reading it as a toggle made the key look dead every other time you
+  // crossed a file — which, in the diff, is what F7 does all day.
+  var surface = usageSurface();
+  if (usageMarkName === symbol.name && usageMarkPath === usageMarkPathFor(surface, symbol)
+    && usageMarkSurface === surface && usageMarks.length) {
+    clearUsageHighlights();
+    return true;
+  }
   clearUsageHighlights();
   if (!ensureUsageMarks()) {
     showCaretHint(t('findusages.noneInFile').replace('{name}', symbol.name));
     return true;
   }
   var painted = paintUsageHighlights();
+  // The caret's pane, which is what ⌘⌥↓ then walks. Counting both panes double-counts every unchanged
+  // line — side-by-side prints context on both sides — so ⌘F7 said "24 in this file" and the very next
+  // ⌘⌥↓ said "1 of 12", about the same symbol, one keystroke apart. The highlight still covers both.
+  var counted = usageMarksInCaretPane();
   showCaretHint(t('findusages.inFile')
-    .replace('{n}', String(usageMarks.length))
+    .replace('{n}', String(counted.length))
     .replace('{name}', symbol.name)
-    .replace('{writes}', String(usageMarks.filter(function (mark) { return mark.write; }).length)));
+    .replace('{writes}', String(counted.filter(function (mark) { return mark.write; }).length)));
   return painted !== null;
 }
 
@@ -892,32 +1009,49 @@ function highlightUsagesInFile() {
  * computed on demand and the highlight comes with them.
  */
 function stepUsageOccurrence(delta) {
-  if (!isSourceViewerVisible()) return false;
+  if (!usageSurface()) return false;
   if (!ensureUsageMarks()) return false;
-  var line = viewerCursor ? viewerCursor.lineIndex : 0;
-  var column = viewerCursor ? viewerCursor.column : 0;
+  // In the diff the caret is in ONE pane, and so is the walk: IntelliJ's step is editor-local, and a step
+  // that jumped the caret across to the base version would be answering a different question. The
+  // highlight still covers both panes — seeing the symbol on both sides is the point of the diff.
+  var inDiff = usageMarkSurface === 'diff';
+  var walk = usageMarksInCaretPane();
+  // The symbol exists in this file but not in the pane the caret sits in — a name added by this change,
+  // with the caret in the base version. Saying so is the point; returning false here was the silent key.
+  if (!walk.length) {
+    showCaretHint(t('findusages.noneInPane')
+      .replace('{name}', usageMarkName)
+      .replace('{key}', shortcutLabel('sidebarContent', 1)));
+    return true;
+  }
+  var line = inDiff ? (diffCursor ? diffCursor.rowIndex : 0) : (viewerCursor ? viewerCursor.lineIndex : 0);
+  var column = inDiff ? (diffCursor ? diffCursor.column : 0) : (viewerCursor ? viewerCursor.column : 0);
+  var at = function (mark) { return inDiff ? mark.rowIndex : mark.lineIndex; };
   var target = -1;
   if (delta > 0) {
-    for (var i = 0; i < usageMarks.length; i += 1) {
-      var next = usageMarks[i];
-      if (next.lineIndex > line || (next.lineIndex === line && next.column > column)) { target = i; break; }
+    for (var i = 0; i < walk.length; i += 1) {
+      var next = walk[i];
+      if (at(next) > line || (at(next) === line && next.column > column)) { target = i; break; }
     }
     if (target < 0) target = 0; // IntelliJ wraps, and so does the in-file find
   } else {
-    for (var j = usageMarks.length - 1; j >= 0; j -= 1) {
-      var prev = usageMarks[j];
-      if (prev.lineIndex < line || (prev.lineIndex === line && prev.column < column)) { target = j; break; }
+    for (var j = walk.length - 1; j >= 0; j -= 1) {
+      var prev = walk[j];
+      if (at(prev) < line || (at(prev) === line && prev.column < column)) { target = j; break; }
     }
-    if (target < 0) target = usageMarks.length - 1;
+    if (target < 0) target = walk.length - 1;
   }
-  var mark = usageMarks[target];
+  var mark = walk[target];
   if (!mark) return false;
-  usageMarkActive = target;
-  openSourceAt(mark.path, mark.lineIndex, mark.column);
+  usageMarkActive = usageMarks.indexOf(mark);
+  if (inDiff) setDiffCursor(mark.path, mark.side, mark.rowIndex, mark.column, true);
+  else openSourceAt(mark.path, mark.lineIndex, mark.column);
   paintUsageHighlights();
+  // `walk`, not every mark: in the diff the step is one pane's, so "3 of 12" over a pane holding six
+  // would be counting the base version's occurrences into the working tree's position.
   showCaretHint(t('findusages.occurrence')
     .replace('{i}', String(target + 1))
-    .replace('{n}', String(usageMarks.length))
+    .replace('{n}', String(walk.length))
     .replace('{name}', usageMarkName));
   return true;
 }

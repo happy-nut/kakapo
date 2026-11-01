@@ -170,12 +170,40 @@ function appendBreadcrumbStat(container, path) {
   container.appendChild(stat);
 }
 
+// The diff's chrome, all of it, from the one path it is about.
+//
+// The breadcrumb used to be rendered by each navigation site separately, and setDiffCursor — the caret,
+// which crosses files on ⌘↑/↓, on a click in another file and on F7's step — was not one of them. So the
+// two pane labels said src/i18n.ts while the title above them still said `src › lsp.ts +171 −11`: two
+// answers to "which file am I reading", from two updaters, one of which everything called and one of
+// which four places did. One function owns the lot now, and a stale title is not reachable from here.
+var diffChromePath = null;
+var diffChromeLead = null;
 function syncDiffReviewChrome(path) {
   var activePath = path || (diffCursor && diffCursor.path) || hunkPathAt(current) || '';
   var beforePath = document.getElementById('diff-before-path');
   var afterPath = document.getElementById('diff-after-path');
   if (beforePath) { beforePath.textContent = activePath; beforePath.title = activePath; }
   if (afterPath) { afterPath.textContent = activePath; afterPath.title = activePath; }
+  // Every arrow key reaches this through setDiffCursor; rebuilding the crumb DOM per keystroke would be
+  // the same answer thirty times a second. Two things can change without the path changing, and both
+  // must repaint: a locale switch (which calls in with no path) and the COMMIT the review is pointed at.
+  // Coming back from a History commit with ⌥A left "61139ee feat(lsp): …" in the toolbar beside "all
+  // changes · origin/main → Working tree" — two statements about what you are reading, disagreeing.
+  var lead = compareCommitLead();
+  var leadKey = lead
+    ? String(lead.sha || '') + '\u0000' + String(lead.subject || '') + '\u0000' + String(lead.others || 0)
+    : '';
+  if (activePath !== diffChromePath || leadKey !== diffChromeLead || !path) {
+    diffChromePath = activePath;
+    diffChromeLead = leadKey;
+    renderCommitContext(document.getElementById('diff-commit-context'));
+    renderBreadcrumb(document.getElementById('diff-breadcrumb'), activePath);
+    // The diff shows no squiggles, but F2 steps problems here too (18-diagnostics.js) and ⌘6 lists them.
+    // Asking as the file becomes the active one means the answer is in the cache by the time a key wants
+    // it, instead of the first press reporting "still reading".
+    if (activePath) fetchDiagnostics(activePath);
+  }
 
   var previous = document.getElementById('diff-prev-change');
   var nextButton = document.getElementById('diff-next-change');
@@ -332,8 +360,6 @@ function activateDiffFile(path, shouldScroll) {
   document.getElementById('diff-view')?.classList.remove('hidden');
   setTab('changes');
   links.forEach((link) => link.classList.toggle('active', link.dataset.file === path));
-  renderCommitContext(document.getElementById('diff-commit-context'));
-  renderBreadcrumb(document.getElementById('diff-breadcrumb'), path);
   syncDiffReviewChrome(path);
   rememberRecent(path, 'change');
   whenFileReady(wrapper, function () {
@@ -348,8 +374,6 @@ function applySetActive(idx, shouldScroll, enterAt) {
   setTab('changes');
   const file = hunkPathAt(idx);
   links.forEach((link) => link.classList.toggle('active', link.dataset.file === file));
-  renderCommitContext(document.getElementById('diff-commit-context'));
-  renderBreadcrumb(document.getElementById('diff-breadcrumb'), file);
   syncDiffReviewChrome(file);
   if (file) rememberRecent(file, 'change');
   history.replaceState(null, '', '#hunk-' + idx);
@@ -571,7 +595,8 @@ function next(delta) {
     const arm = diffCursor.path + (delta > 0 ? '\u0000next' : '\u0000prev');
     if (pendingFileBoundary !== arm) {
       pendingFileBoundary = arm;
-      showCaretHint(t(delta > 0 ? 'diff.lastHunk' : 'diff.firstHunk'));
+      showCaretHint(t(delta > 0 ? 'diff.lastHunk' : 'diff.firstHunk')
+        .replace('{key}', shortcutLabel(delta > 0 ? 'nextChange' : 'prevChange')));
       return;
     }
     pendingFileBoundary = null; // second consecutive press the same way → fall through and cross
@@ -716,7 +741,26 @@ function paintDiffFileCollapse() {
   var wrappers = document.querySelectorAll('#diff2html-container .d2h-file-wrapper');
   Array.prototype.forEach.call(wrappers, function (wrapper) {
     var key = diffWrapperPathKey(wrapper);
-    wrapper.classList.toggle('file-collapsed', !!(key && diffCollapsedFileSet()[key]));
+    var collapsed = !!(key && diffCollapsedFileSet()[key]);
+    wrapper.classList.toggle('file-collapsed', collapsed);
+    // Something has to be left on screen. diff2html's own file header is `display: none` here — the diff
+    // shows ONE file at a time and the toolbar's breadcrumb names it — so hiding the body left the pane
+    // wholly blank: no header, no disclosure control anywhere in the chrome, and nothing saying which key
+    // brings it back. A collapsed file in a list is a row you can click; a collapsed file here was a
+    // blank screen you had to guess your way out of.
+    var note = wrapper.querySelector(':scope > .mc-file-collapsed');
+    if (!collapsed) { if (note) note.remove(); return; }
+    if (!note) {
+      note = document.createElement('button');
+      note.type = 'button';
+      note.className = 'mc-file-collapsed';
+      note.addEventListener('click', function () {
+        delete diffCollapsedFileSet()[key];
+        paintDiffFileCollapse();
+      });
+      wrapper.appendChild(note);
+    }
+    note.textContent = t('diff.fileCollapsed').replace('{file}', key).replace('{key}', shortcutLabel('toggleFold'));
   });
 }
 /** ⌘. in the diff: fold away the file the caret is in, or open it again. */
@@ -765,15 +809,29 @@ function goToDiffFile(delta) {
   // Stepping INTO a collapsed file opens it: the alternative is a jump that appears to do nothing, which
   // is the same reason navigating into a folded region opens it in the source view.
   if (diffCollapsedFileSet()[key]) { delete diffCollapsedFileSet()[key]; paintDiffFileCollapse(); }
-  var side = diffCursor && diffCursor.side === 'old' ? 'old' : 'new';
-  var rows = diffRowsOf(diffSideTable(next, side));
-  var rowIndex = rows.findIndex(function (row) { return isDiffCodeRow(row); });
-  if (rowIndex < 0) {
-    rows = diffRowsOf(diffSideTable(next, side === 'new' ? 'old' : 'new'));
-    rowIndex = rows.findIndex(function (row) { return isDiffCodeRow(row); });
-    if (rowIndex < 0) return false;
-    side = side === 'new' ? 'old' : 'new';
-  }
-  setDiffCursor(key, side, rowIndex, 0, true);
+  // Materialize FIRST. A lazy review keeps every file it has not shown as an empty shell, so reading rows
+  // off `next` answered zero for all but the two or three files already visited — and the key then
+  // declined and fell through to ⌘⇧Arrow's line-edge selection, which silently selected text instead of
+  // moving. Measured on a 30-file review: 28 of them unreachable with this chord.
+  revealDiffFile(key);
+  whenFileReady(next, function () {
+    // Re-resolve by PATH rather than trusting the element captured above: a cold lazy body is fetched over
+    // IPC, and a watch rebuild landing in that window replaces every wrapper — leaving this reading rows
+    // off a detached table and handing a row index from it to setDiffCursor, which would clamp that index
+    // against a different file's row count.
+    var live = diffWrapperByPath(key);
+    if (!live) return;
+    var side = diffCursor && diffCursor.side === 'old' ? 'old' : 'new';
+    var rows = diffRowsOf(diffSideTable(live, side));
+    var rowIndex = rows.findIndex(function (row) { return isDiffCodeRow(row); });
+    if (rowIndex < 0) {
+      side = side === 'new' ? 'old' : 'new';
+      rows = diffRowsOf(diffSideTable(live, side));
+      rowIndex = rows.findIndex(function (row) { return isDiffCodeRow(row); });
+    }
+    // A file with no code row at all — a pure rename, a binary. Revealing it IS the answer to "go to the
+    // next file"; there is simply nowhere inside it to put a caret.
+    if (rowIndex >= 0) setDiffCursor(key, side, rowIndex, 0, true);
+  });
   return true;
 }

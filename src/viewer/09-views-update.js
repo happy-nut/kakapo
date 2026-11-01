@@ -692,6 +692,16 @@ function applyDiffUpdate(u) {
     });
   }
   refreshHunkIndex(); // rebuild hunks/hunkMeta from the swapped-in DOM so hunkTotal()/hunkPathAt() aren't stale
+  // The collapsed-file set survives a rebuild; the CLASS and the placeholder do not, because the wrappers
+  // are new. Without this repaint the two drift apart: every collapsed file silently re-opens, the set
+  // still holds them, and the next ⌘. anywhere repaints that stale set — two files vanishing from one
+  // keypress on a third, and the first ⌘. on a stale file doing nothing visible at all.
+  paintDiffFileCollapse();
+  // ⌘F7's marks are positions in the DOM that was just replaced. The source side re-resolves its rows by
+  // line on every paint and survives; the diff side's (side, rowIndex) addresses a table that may now have
+  // a different number of rows, so the next ⌘⌥↓ would land the caret on whatever moved into that index.
+  // The highlight belongs to the version you were reading, and that version is gone.
+  clearUsageHighlights();
   if (REVIEW_LAZY) { setupLazyDiff(); setTimeout(function () { diffBootDone = true; }, 0); }
   else { diffBootDone = true; }
   // 4) Re-run the DOM-dependent bootstrap steps.

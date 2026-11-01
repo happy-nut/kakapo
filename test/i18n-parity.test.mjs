@@ -77,3 +77,44 @@ test("no title string spells its own chord — applyKeyHints appends it", async 
   }
   assert.deepEqual(doubled, [], `these tooltips print their chord twice:\n  ${doubled.join("\n  ")}`);
 });
+
+// A string that counts things writes both forms — "{{n:usage|usages}}" — and `plural()` (01-core.js)
+// picks one. Nothing picks it automatically: a string that grows the token without a call site that
+// applies plural() renders the raw "{{n:usage|usages}}" on screen, which is worse than the "comment(s)"
+// this replaced. One grep is cheaper than finding that in a screenshot.
+test("every string with a plural token is read through plural()", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const dir = new URL("../src/viewer/", import.meta.url).pathname;
+  const viewer = readdirSync(dir).filter((f) => f.endsWith(".js"))
+    .map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
+
+  const withToken = new Set();
+  for (const messages of Object.values(MESSAGES)) {
+    for (const [key, value] of Object.entries(messages)) {
+      if (typeof value === "string" && /\{\{\w+:[^|{}]*\|[^{}]*\}\}/.test(value)) withToken.add(key);
+    }
+  }
+  assert.ok(withToken.size > 0, "the token is in use at all — otherwise this guard is vacuous");
+
+  const unread = [...withToken].filter((key) => {
+    // The call has to wrap this key's own t(): `plural(t('the.key'), …)`.
+    return !new RegExp(`plural\\(\\s*t\\(\\s*'${key.replace(/\./g, "\\.")}'`).test(viewer);
+  });
+  assert.deepEqual(unread, [], "these strings would render their raw {{one|many}} token");
+});
+
+test("a plural token means the same thing in every locale that has the key", () => {
+  const forms = (value) => [...String(value).matchAll(/\{\{(\w+):/g)].map((m) => m[1]).sort();
+  const [reference, ...others] = Object.keys(MESSAGES);
+  for (const locale of others) {
+    for (const [key, value] of Object.entries(MESSAGES[reference])) {
+      const mine = forms(value);
+      const theirs = forms(MESSAGES[locale][key] ?? "");
+      // Korean inflects no nouns, so it is free to carry NO token where English carries one. What it may
+      // not do is carry a token for a count the other locale does not have.
+      const extra = theirs.filter((f) => !mine.includes(f));
+      assert.deepEqual(extra, [], `${locale}.${key} pluralizes a count ${reference} does not`);
+    }
+  }
+});

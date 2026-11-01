@@ -51,21 +51,47 @@ function diffRowsOf(sideTable) {
   diffRowsCache.set(sideTable, rows);
   return rows;
 }
+// The same table, indexed the other way: printed line number -> row index. Built once per side table and
+// thrown away with the row cache, for the same reason the row cache exists.
+var diffLineIndexCache;
+function diffLineIndexOf(sideTable) {
+  if (!sideTable) return null;
+  if (!diffLineIndexCache) diffLineIndexCache = new WeakMap();
+  var cached = diffLineIndexCache.get(sideTable);
+  if (cached) return cached;
+  var rows = diffRowsOf(sideTable);
+  var index = new Map();
+  for (var i = 0; i < rows.length; i++) {
+    var line = diffLineNumber(rows[i]);
+    if (line != null && !index.has(line)) index.set(line, i);
+  }
+  diffLineIndexCache.set(sideTable, index);
+  return index;
+}
 function invalidateDiffRows(root) {
-  if (!diffRowsCache || !root) return;
-  if (root.classList && root.classList.contains('d2h-file-side-diff')) diffRowsCache.delete(root);
-  if (root.querySelectorAll) root.querySelectorAll('.d2h-file-side-diff').forEach(function (table) { diffRowsCache.delete(table); });
+  if (!root) return;
+  var drop = function (table) {
+    if (diffRowsCache) diffRowsCache.delete(table);
+    if (diffLineIndexCache) diffLineIndexCache.delete(table);
+  };
+  if (root.classList && root.classList.contains('d2h-file-side-diff')) drop(root);
+  if (root.querySelectorAll) root.querySelectorAll('.d2h-file-side-diff').forEach(drop);
 }
 function diffRowAt(wrapper, side, rowIndex) {
   var rows = diffRowsOf(diffSideTable(wrapper, side));
   return rows[rowIndex] || null;
 }
 // Inverse of diffLineNumber: which row index on this side shows a given line number. Used by comment
-// navigation (Cmd+F7, 07-comments.js) to land the diff caret on a comment's anchor line.
+// navigation (Cmd+F7, 07-comments.js) to land the diff caret on a comment's anchor line, and — the reason
+// it is a map rather than a scan — by ⌥↓ and F2, which ask it once PER SYMBOL and per diagnostic on every
+// press. The scan was a querySelector plus a parseInt for every row of the pane: measured at 8.9 ms a call
+// on a 1200-row pane in jsdom, so a held ⌥↓ on a large rewritten file spent that much again per symbol,
+// synchronously, on a movement key.
 function diffRowIndexForLine(wrapper, side, line) {
-  var rows = diffRowsOf(diffSideTable(wrapper, side));
-  for (var i = 0; i < rows.length; i++) if (diffLineNumber(rows[i]) === line) return i;
-  return -1;
+  var index = diffLineIndexOf(diffSideTable(wrapper, side));
+  if (!index) return -1;
+  var at = index.get(line);
+  return at === undefined ? -1 : at;
 }
 function diffCellCtn(row) {
   return row ? row.querySelector('.d2h-code-line-ctn') : null;
@@ -206,6 +232,14 @@ function setDiffCursor(path, side, rowIndex, column, reveal) {
   // first (which also materializes a lazy body, so the row lookup below can find its rows at all). An ordinary
   // caret move inside the active file finds it already active and skips this entirely.
   if (wrapper.classList && wrapper.classList.contains('df-inactive')) revealDiffFile(path);
+  // ...and the same for a file the reader folded away. F7, ⌥↓ and F2 were moving the caret through a
+  // `display: none` body: the row measured 0x0, the pane kept showing the "folded away" placeholder, and
+  // four presses of the app's main navigation key changed nothing on screen. Stepping INTO a collapsed
+  // file opens it, which is what goToDiffFile already does for its own jump and for the same reason.
+  if (wrapper.classList && wrapper.classList.contains('file-collapsed')) {
+    delete diffCollapsedFileSet()[path];
+    paintDiffFileCollapse();
+  }
   var rows = diffRowsOf(diffSideTable(wrapper, side));
   if (!rows.length) return;
   flashReviewPanelFocus(document.getElementById('diff2html-container'));
@@ -238,6 +272,7 @@ function scheduleDiffReveal(wrapper, side, ri) {
     var t = diffRevealTarget; diffRevealTarget = null;
     renderDiffCaret();
     applyDiffSelection();
+    repositionCaretHint(); // the caret only exists now; anything anchored to it was aimed at the old one
     if (!t) return;
     var row = diffRowAt(t.wrapper, t.side, t.ri);
     scrolloffReveal(row, document.getElementById('diff2html-container'), 0.15);
@@ -275,8 +310,6 @@ function revealDiffFile(path) {
   setTab('changes');
   showOnlyFile(path);
   links.forEach(function (link) { link.classList.toggle('active', link.dataset.file === path); });
-  renderCommitContext(document.getElementById('diff-commit-context'));
-  renderBreadcrumb(document.getElementById('diff-breadcrumb'), path);
   syncDiffReviewChrome(path);
 }
 function restoreNav(entry) {
@@ -298,11 +331,17 @@ function navBack() {
   // Change-nav (F7) does not record positions. If the caret has drifted past the last recorded
   // spot, the first Cmd+[ returns to it; the next steps further back through the cursor history.
   var live = navEntryOf(isSourceViewerVisible() ? 'source' : 'diff');
-  if (live && !navSamePos(live, navList[navPos])) { restoreNav(navList[navPos]); return; }
-  if (navPos > 0) { navPos -= 1; restoreNav(navList[navPos]); }
+  if (live && !navSamePos(live, navList[navPos])) { restoreNav(navList[navPos]); return true; }
+  if (navPos <= 0) return false; // nothing further back — decline rather than eat the key in silence
+  navPos -= 1;
+  restoreNav(navList[navPos]);
+  return true;
 }
 function navForward() {
-  if (navPos < navList.length - 1) { navPos += 1; restoreNav(navList[navPos]); }
+  if (navPos >= navList.length - 1) return false; // the forward stack is empty
+  navPos += 1;
+  restoreNav(navList[navPos]);
+  return true;
 }
 function applyDiffSelection() {
   var sel = window.getSelection();

@@ -98,10 +98,11 @@ function copyCaretLocation() {
   // With lines selected, the reference is worth more with the lines themselves attached — that is the
   // citation plain Cmd+C used to force on every copy. Without a selection it stays just the caret's file:line.
   var cite = sourceSelectionCitation();
-  if (cite) { if (copyTextToClipboard(cite.payload)) showToast(t('goto.copied') + ' ' + cite.reference); return; }
+  if (cite) { if (copyTextToClipboard(cite.payload)) showToast(t('goto.copied') + ' ' + cite.reference); return true; }
   var loc = caretLocation();
-  if (!loc) return;
+  if (!loc) return false; // no caret anywhere — there is no location to copy, so the key is not ours
   if (copyTextToClipboard(loc)) showToast(t('goto.copied') + ' ' + loc);
+  return true;
 }
 
 // Diff view: place the caret on the row whose (new, then old) line number matches n, in the active file.
@@ -139,8 +140,22 @@ function gotoLineJump(n) {
 }
 
 // Cmd/Ctrl+L — a small numeric prompt; Enter jumps, Esc closes.
+//
+// Clicking away closes it, which is not a nicety. This box claims scope 'modal' while it is in the DOM
+// (keyboardScope, 05-keymap.js), so every window-level shortcut stands down for it — and it used to listen
+// for exactly two keys and nothing else. Press ⌘L, then click a line of code: the 238×48 translucent box
+// stays, the caret is somewhere else, and the next F7 / ⌘6 / ⇧⌥W does nothing at all, with no way back but
+// a key nobody would think to press. Two closes, because they answer two different questions: the pointer
+// leaving is a dismissal, and the keyboard leaving means it no longer owns the keys (keyboardScope asks).
+var closeGotoLine = null;
 function openGotoLine() {
-  if (!isSourceViewerVisible() && !isDiffViewVisible()) return;
+  // No code surface, no line to go to: decline so the key falls through instead of being swallowed.
+  if (!isSourceViewerVisible() && !isDiffViewVisible()) return false;
+  // Close the previous prompt properly rather than just detaching its element: its capture-phase keydown
+  // stays on `document` otherwise, and being registered first it eats the NEXT prompt's Enter — an empty
+  // parse, a stopPropagation, and a box that will not accept a line number. Unreachable while any box
+  // held the keyboard outright; reachable now that an unfocused one does not (keyboardScope).
+  if (closeGotoLine) closeGotoLine();
   var prior = document.getElementById('goto-line');
   if (prior) prior.remove();
   var box = document.createElement('div');
@@ -153,14 +168,28 @@ function openGotoLine() {
   input.placeholder = t('goto.placeholder');
   box.appendChild(input);
   document.body.appendChild(box);
-  function close() { box.remove(); document.removeEventListener('keydown', onKey, true); }
+  function close() {
+    box.remove();
+    document.removeEventListener('keydown', onKey, true);
+    document.removeEventListener('pointerdown', onPointerDown, true);
+    if (closeGotoLine === close) closeGotoLine = null;
+  }
   function onKey(e) {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
     else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); var n = parseInt(input.value, 10); close(); if (n >= 1) gotoLineJump(n); }
   }
+  // Dismiss, not consume: the click that closes the box is also the click that places the caret, which is
+  // what the reader meant by it.
+  function onPointerDown(e) {
+    if (e.target && box.contains(e.target)) return;
+    close();
+  }
   // Capture phase so Enter/Esc are handled here before the global keymap (which is on bubble).
   document.addEventListener('keydown', onKey, true);
+  document.addEventListener('pointerdown', onPointerDown, true);
+  closeGotoLine = close;
   setTimeout(function () { try { input.focus(); } catch (e) {} }, 0);
+  return true;
 }
 
 // Sidebar Opt+Enter: project-grounded file actions for the focused row. Absolute paths are resolved by

@@ -44,9 +44,20 @@ const vendorBundle = markdownVendors.map((file) => readFileSync(file, "utf8") + 
 // The shortcut table (src/shortcuts.ts) is one array shared by the Settings sheet, which renders it, and
 // the viewer, which dispatches from it. It rides into the bundle as data ahead of every slice so no slice
 // can read it before it exists — the ordering trap that 00-shortcuts.js's lookups would otherwise sit in.
-const shortcutDefs = createRequire(import.meta.url)(join(distDir, "shortcuts.js")).SHORTCUTS;
+const { SHORTCUTS: shortcutDefs, MENU_OWNED_CHORDS: menuOwnedChords, MENU_OWNED_CHORDS_MAC: menuOwnedMac } =
+  createRequire(import.meta.url)(join(distDir, "shortcuts.js"));
 if (!Array.isArray(shortcutDefs) || !shortcutDefs.length) throw new Error("dist/shortcuts.js exported no SHORTCUTS — did tsc run?");
-const shortcutPrelude = `var SHORTCUT_DEFS = ${JSON.stringify(shortcutDefs)};\n`;
+// The chords the application menu eats, for the Settings sheet to refuse a rebind onto one. It cannot
+// work this out for itself — building an Electron menu is a main-process act — and the list is kept true
+// against the real menu by test/menu-accelerators.test.mjs.
+if (!Array.isArray(menuOwnedChords) || !menuOwnedChords.length) throw new Error("dist/shortcuts.js exported no MENU_OWNED_CHORDS — did tsc run?");
+const shortcutPrelude = `var SHORTCUT_DEFS = ${JSON.stringify(shortcutDefs)};\n`
+  // The bundle is built once and runs on every platform, so the platform choice is made in the page.
+  + `var MENU_OWNED_CHORDS = ${JSON.stringify(menuOwnedChords)}`
+  // ...and only where there IS an application menu. A static review opened in a browser has none, so
+  // refusing ⌘H / ⌘M / ⌘Q there turns away four chords that would have worked.
+  + `.concat(/Electron/.test(navigator.userAgent) && /Mac|iPhone|iPad/.test(navigator.userAgent)`
+  + ` ? ${JSON.stringify(menuOwnedMac)} : []);\n`;
 // Whitespace runs are marked identically on both sides of the app — the diff is built in main through
 // src/highlight.ts, the source view in the viewer — so the one definition in src/util.ts rides in as source
 // rather than being written twice. Emitted ahead of the slices for the same reason SHORTCUT_DEFS is.

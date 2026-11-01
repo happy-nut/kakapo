@@ -16,6 +16,12 @@ const GLOBAL_SETTING_KEYS = new Set([
   // went on reading the global file: the dropdown moved, the number was stored, and nothing on screen ever
   // changed size.
   "kakapo-ui-scale",
+  // A rebind is a property of the person, not of one checkout — the shortcut coach's ledger says the same
+  // of itself for the same reason. Left out of this list it went to the WORKSPACE file while main read the
+  // global one, so the application menu drew the old chord again on every relaunch: the identical mistake
+  // the paragraph above documents, made a second time. It also made two windows on two repos disagree
+  // about one menu.
+  "kakapo-shortcut-overrides",
 ]);
 
 /** Owns persistent preferences without coupling storage rules to Electron. */

@@ -141,7 +141,11 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `⌥O` | Go to a class by name (types only) |
 | `⌥G` | Files related to this one — its test, and its same-name siblings |
 | `⌘⌥.` | Go to a `region` in this file |
+| `⌘.` | Fold / unfold — the code block the caret is in, or the whole file in the diff |
 | `⌘⇧-` / `⌘⌥=` / `⌘⌥-` | Collapse all / expand all / collapse recursively |
+| `⌘⇧[` / `⌘⇧]` | Previous / next open file tab |
+| `⌥R` | Rendered / raw — Markdown and CSV |
+| `⌘⇧'` | Maximize the comments panel |
 | `⇧⌥W` / `⇧⌥I` | Show whitespaces / show indent guides |
 | `⇧⌥S` / `⇧⌥F` | Show sticky lines / highlight only the current declaration |
 | `⇧⌥E` / `⇧⌥A` | Essential highlighting (errors only) / align changes in the side-by-side diff |
@@ -209,7 +213,9 @@ File and Highlight Usages in File, which do the same thing from two chords. This
 semantic — two locals that share a name light up together, exactly as IntelliJ's own Find Word at Caret
 does — and it asks no language server, so it answers while a cold one is still indexing. `⌥F7` is the
 semantic answer when the difference matters. The chords were a second spelling of `F8`/`⇧F8`'s comment
-stepping before this; a duplicate is not worth IntelliJ's two in-file usage keys.
+stepping before this; a duplicate is not worth IntelliJ's two in-file usage keys. In the diff it reads
+the rendered rows instead of the file, so it lights the symbol in *both* panes — the base version and
+the working tree — and `⌘⌥↓`/`⌘⌥↑` walk the pane the caret is in.
 
 **Modules, and which files are tests** — IntelliJ never shows a flat list. Every list it has is divided
 by what the files *are*: which module they belong to, and whether they are production code, test code or
@@ -305,7 +311,7 @@ than the thing itself.
 **Recent locations** (`⌘⇧E`) — the back/forward history as a list rather than one `⌘[` at a time, newest
 first, with where you are now marked. `Enter` restores the whole position, diff side included.
 
-**File search** (`⌘P`) — by name, with `store.ts:42` to land on a line. Not on `⇧⌘O`, which opens a
+**File search** (`⌘P`) — by name, with `store.ts:42` to land on a line. Not on `⌘⇧O`, which opens a
 folder in a new window here — a desktop-app convention worth keeping.
 
 **The two hierarchies** (`⌘⇧Y` calls, `⌘⇧H` types) — a tree you open a level at a time, because "who

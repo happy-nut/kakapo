@@ -248,3 +248,41 @@ test("an ordinary empty answer still reports a missing definition", async () => 
     assert.doesNotMatch(message, /a1b2c3d/, "no revision is named, because none is on screen");
   } finally { v.close(); }
 });
+
+// The third case, and the one that was being swallowed by the first. A server that REPLIED with nothing
+// has answered: "still reading the project — try again in a moment" is then advice that will never come
+// good, and the status bar beside it says "Semantic analysis ready". The boundary marks the difference
+// (`serverAnswered`, src/analysis.ts) rather than the viewer guessing from the reason's English.
+test("a server that answered with nothing says so, instead of 'try again in a moment'", async () => {
+  const v = await loadViewer(html);
+  try {
+    installAnalysis(v, {
+      engine: "index", confidence: "heuristic", locations: [],
+      fallbackReason: "Language server returned no semantic locations",
+      serverAnswered: true,
+    });
+    await jump(v);
+    const message = hintText(v);
+    assert.ok(message, "something is said at the caret");
+    assert.match(message, /찾지 못했|not found/i, `an answer of "nothing" is a dead end (got: ${message})`);
+    assert.doesNotMatch(message, /again in a moment|잠시 후/i, "and never advice that cannot come good");
+  } finally {
+    v.close();
+  }
+});
+
+// ...and the two must not be confusable: the SAME shape without the flag is still "not yet".
+test("without serverAnswered the same shape is still a cold server", async () => {
+  const v = await loadViewer(html);
+  try {
+    installAnalysis(v, {
+      engine: "index", confidence: "heuristic", locations: [],
+      fallbackReason: "typescript-language-server timed out during textDocument/definition",
+    });
+    await jump(v);
+    assert.doesNotMatch(hintText(v), /찾지 못했|not found/i, "an ask that failed is not a dead end");
+    assert.ok(hintShown(v), "and it is on screen");
+  } finally {
+    v.close();
+  }
+});

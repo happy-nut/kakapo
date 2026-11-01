@@ -20,7 +20,15 @@ const chipsOf = (row) => [...row.querySelectorAll(".keys-combo")]
   .map((c) => [...c.querySelectorAll("kbd")].map((k) => k.textContent).join(""));
 
 /** Click a row's nth combination and press `init` at it. */
+/** Open the sheet the way ⌘, does — a chip inside a hidden modal is not a thing anyone can click. */
+function openSheet(v) {
+  v.$("#settings-modal").classList.remove("hidden");
+}
 function rebind(v, id, index, init) {
+  // A capture stands down when its sheet is not on screen (29-shortcut-rebind.js): a listener that
+  // preventDefaults every key with nothing visible is the bug that made the gear button close Settings
+  // and leave the keyboard dead. So the sheet has to be up for this to mean anything.
+  openSheet(v);
   const combo = rowFor(v, id).querySelectorAll(".keys-combo")[index];
   v.click(combo);
   v.document.dispatchEvent(new v.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
@@ -130,5 +138,117 @@ test("the key being typed at a listening row cannot fire the shortcut it is type
   w.SHORTCUT_ACTIONS.findInFiles = real;
 
   assert.equal(fired, 0, "⌘⇧F did not open Find in Files while a row was listening for it");
+  v.close();
+});
+
+// A chord the application MENU holds never reaches the page: Electron consumes it before any renderer
+// keydown runs. The sheet used to accept ⌘M (Minimize), ⌘0 (Actual size) and ⌘⇧Z (Redo) without a word
+// and save them, leaving a binding that can never fire and nothing on screen saying why. The list it
+// refuses from is `MENU_OWNED_CHORDS`, which test/menu-accelerators.test.mjs checks against the real menu.
+test("a chord the menu bar eats is refused, so a dead binding cannot be saved", async () => {
+  const v = await loadViewer(html);
+  // The platform-independent half of the list. ⌘M / ⌘H / ⌘Q / ⌘⌥H come from macOS-only menu roles and are
+  // added to the list in the page from the user agent, which jsdom's is not — so they are checked where
+  // the real menu is, in test/menu-accelerators.test.mjs.
+  for (const [chord, init] of [
+    ["⌘O", { key: "o", code: "KeyO", metaKey: true }],
+    ["⌘0", { key: "0", code: "Digit0", metaKey: true }],
+    ["⌘⇧W", { key: "W", code: "KeyW", metaKey: true, shiftKey: true }],
+  ]) {
+    rebind(v, "openHistory", 0, init);
+    const note = rowFor(v, "openHistory").querySelector(".keys-note");
+    assert.ok(note?.classList.contains("keys-note-bad"), `${chord} is turned away`);
+    assert.match(note.textContent, /menu/i, `${chord}'s refusal says who owns it`);
+    assert.equal(v.window.shortcutKeys("openHistory").join(), "⌘9", `${chord} was not stored`);
+    v.document.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  }
+  v.close();
+});
+
+// A two-combination row could be rebound onto its own other combination: ⌥A on the second half of
+// ⌥A / ⌥U stored ["⌥A","⌥A"], rendered "⌥A / ⌥A", and left ⌥U — the only keyboard route to "uncommitted
+// changes" — unreachable, because isShortcut matches index 0 first.
+test("a row cannot be rebound onto its own other combination", async () => {
+  const v = await loadViewer(html);
+  assert.deepEqual(chipsOf(rowFor(v, "compareMode")), ["⌥A", "⌥U"], "the row starts with two");
+
+  rebind(v, "compareMode", 1, { key: "a", code: "KeyA", altKey: true }); // ⌥A onto the ⌥U slot
+  const note = rowFor(v, "compareMode").querySelector(".keys-note");
+  assert.ok(note?.classList.contains("keys-note-bad"), "refused");
+  assert.match(note.textContent, /⌥A/, "naming the combination");
+  // Array.from: an array read off the jsdom window carries that realm's prototype and deepEqual
+  // compares prototypes — the values match and the assertion fails anyway. See test/README.
+  assert.deepEqual(Array.from(v.window.shortcutKeys("compareMode")), ["⌥A", "⌥U"], "both combinations survive");
+
+  v.document.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  // ...and a genuinely free chord in the same slot still works, so the guard is not a blanket refusal.
+  rebind(v, "compareMode", 1, { key: "j", code: "KeyJ", metaKey: true, altKey: true });
+  assert.deepEqual(Array.from(v.window.shortcutKeys("compareMode")), ["⌥A", "⌘⌥J"], "a free chord is accepted");
+  v.close();
+});
+
+// The list the page refuses from is assembled at bundle time from two constants and the user agent: the
+// chords every platform's menu holds, plus four that only macOS adds. A viewer that applied the macOS
+// four everywhere would turn away a Ctrl+H on Linux that would have worked.
+test("the menu-owned list the page uses matches this platform", async () => {
+  const { MENU_OWNED_CHORDS, MENU_OWNED_CHORDS_MAC } = await import("../dist/shortcuts.js");
+  const v = await loadViewer(html);
+  const inPage = Array.from(v.window.MENU_OWNED_CHORDS);
+  for (const chord of MENU_OWNED_CHORDS) {
+    assert.ok(inPage.includes(chord), `${chord} is refused on every platform`);
+  }
+  // Two conditions, not one: the macOS four are added only where there IS an application menu holding
+  // them. A static review opened in a browser (jsdom here) has none.
+  const ua = v.window.navigator.userAgent;
+  const hasMacMenu = /Electron/.test(ua) && /Mac|iPhone|iPad/.test(ua);
+  for (const chord of MENU_OWNED_CHORDS_MAC) {
+    assert.equal(inPage.includes(chord), hasMacMenu, `${chord} is refused only where macOS's menu holds it`);
+  }
+  v.close();
+});
+
+// Three surfaces ask the main process to stand the application menu down — the merged dock, Quick Open,
+// and a rebind capture — and it used to be one boolean. A capture ending inside an open dock revoked the
+// dock's protection, and ⌘Q then quit the app from inside it. Counted, so they can overlap.
+test("the menu-shortcut hold is counted, so one owner cannot release another's", async () => {
+  const v = await loadViewer(html);
+  const asked = [];
+  v.window.kakapoApp = Object.assign({}, v.window.kakapoApp, {
+    setIgnoreMenuShortcuts: (ignore) => asked.push(ignore),
+  });
+
+  v.window.holdMenuShortcuts(true);          // the dock
+  assert.deepEqual(asked, [true], "the first hold reaches main");
+  v.window.holdMenuShortcuts(true);          // a capture, over the top of it
+  assert.deepEqual(asked, [true], "a second hold is not a second message");
+  v.window.holdMenuShortcuts(false);         // the capture ends
+  assert.deepEqual(asked, [true], "...and releasing it does NOT hand the menu back");
+  v.window.holdMenuShortcuts(false);         // the dock closes
+  assert.deepEqual(asked, [true, false], "the last release hands it back, once");
+
+  // It cannot go negative and strand the menu off.
+  v.window.holdMenuShortcuts(false);
+  v.window.holdMenuShortcuts(true);
+  assert.deepEqual(asked, [true, false, true], "an extra release does not bank a credit");
+  v.close();
+});
+
+// Closing the sheet ends a live capture. The × button got this for free by letting its click bubble to
+// the document handler; the gear stopPropagation()s its own click and did not — so Settings went away
+// with a capture-phase keydown still on, swallowing every key with nothing on screen, and writing the
+// next free chord into the overrides for a row nobody could see.
+test("hiding the sheet ends a live capture instead of leaving it swallowing keys", async () => {
+  const v = await loadViewer(html);
+  openSheet(v);
+  v.click(rowFor(v, "openHistory").querySelectorAll(".keys-combo")[0]);
+  assert.ok(rowFor(v, "openHistory").classList.contains("keys-row-capturing"), "the row is listening");
+
+  // Whatever hid it — the gear, a programmatic close — the next key must not be captured.
+  v.$("#settings-modal").classList.add("hidden");
+  v.document.dispatchEvent(new v.window.KeyboardEvent("keydown",
+    { bubbles: true, cancelable: true, key: "j", code: "KeyJ", metaKey: true, altKey: true }));
+
+  assert.equal(v.window.shortcutKeys("openHistory").join(), "⌘9", "no stray chord was bound");
+  assert.ok(!v.$(".keys-row-capturing"), "and nothing is still listening");
   v.close();
 });

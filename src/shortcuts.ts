@@ -279,9 +279,18 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "ignoreWhitespace", keys: ["⌘⇧W"], where: "any", i18n: "kbd.ignoreWhitespace", fixed: "menu" },
   { id: "saveComment", keys: ["⌘Enter"], where: "merged", i18n: "kbd.saveComment", fixed: "structural" },
   { id: "reviewStops", keys: ["↑", "↓"], where: "code", i18n: "kbd.reviewStops", fixed: "structural" },
-  { id: "editComment", keys: ["e"], where: "merged", i18n: "kbd.editComment", fixed: "structural" },
+  // `e` edits the comment box SELECTED IN THE REVIEW (06-diff-caret.js: selectedCommentRow), not one in
+  // the hand-off dock — the dock has no in-place editor and never had one. The row said "merged", so the
+  // Settings sheet advertised a key the dock does nothing with, on the one surface it does not work on.
+  { id: "editComment", keys: ["e"], where: "code", i18n: "kbd.editComment", fixed: "structural" },
   { id: "deleteComment", keys: ["Backspace", "Delete"], where: "merged", i18n: "kbd.deleteComment", fixed: "structural" },
-  { id: "stepComments", keys: ["⌥↑", "⌥↓"], where: "merged", i18n: "kbd.stepComments", fixed: "structural" },
+  // The dock steps with the plain arrows and always has; ⌥↑/⌥↓ reached no branch in it at all, because
+  // every arrow branch there is guarded `!event.altKey`. The chord was invented for a row rather than
+  // read off one.
+  { id: "stepComments", keys: ["↑", "↓"], where: "merged", i18n: "kbd.stepComments", fixed: "structural" },
+  // Enter on a card: close the dock, go to that comment's line, and open it for editing there. The dock's
+  // only route to editing, and it was in no table and no README.
+  { id: "openComment", keys: ["Enter"], where: "merged", i18n: "kbd.openComment", fixed: "structural" },
   // Was "send to pane" back when the app embedded a terminal. The terminal was removed; the row survived
   // with nothing answering it, so the sheet advertised a chord that did nothing. Its surviving descendant
   // is the hand-off — copying the review out and filing it away is how a review leaves kakapo now — so the
@@ -298,11 +307,39 @@ export const SHORTCUTS: ShortcutDef[] = [
   // ---- History ------------------------------------------------------------------------------------
   { id: "copyRevision", keys: ["⌘C"], where: "history", i18n: "kbd.copyRevision" },
   { id: "historyNavigate", keys: ["↑↓", "Enter"], where: "history", i18n: "kbd.historyNavigate", fixed: "structural" },
+  // Written in three places and the table in none: the handler (12-history.js), both READMEs, and the
+  // overlay's own hint line (`history.selectHint`). Structural for the same reason historyNavigate is —
+  // extending a selection with Shift and an arrow is a convention of a list, not a preference.
+  { id: "historyRange", keys: ["⇧↑", "⇧↓"], where: "history", i18n: "kbd.historyRange", fixed: "structural" },
 ];
 
 // The Settings sheet, in order. Grouping lives here rather than on each row because History is a summary
 // of one surface and so repeats two rows that already appear above it — a `group` field on the row could
 // not have said that.
+/**
+ * Chords the application menu REGISTERS — every one of them, including the two whose item forwards an
+ * IPC message to the page (⌘W close-tab, ⌘⇧/ all-comments). Those two work for the row that owns them,
+ * because the row is told what happened down its own channel; they are dead for anything else bound
+ * there, because the menu takes the keystroke and runs its own item instead. A rebind has to ask the
+ * wider question, which is why this list is wider than the one the table-row check uses.
+ *
+ * Data, kept honest by `test/menu-accelerators.test.mjs`, which builds the real menu and asserts this is
+ * exactly what it eats. The Settings sheet reads it to refuse a rebind onto one: the sheet used to accept
+ * ⌘M, ⌘0 and ⌘⇧Z without a word, save them, and leave the person with a binding that can never fire and
+ * nothing on screen to say why. A forwarding item (Edit's undo/cut/copy/paste, and anything whose click
+ * calls sendToFocused) is NOT here — those reach the page, which is the whole point of forwarding them.
+ */
+export const MENU_OWNED_CHORDS: string[] = [
+  "⌘+", "⌘-", "⌘0", "⌘=", "⌘O", "⌘W", "⌘⇧=", "⌘⇧O", "⌘⇧W",
+];
+
+/**
+ * ...and the four that exist only on macOS. `role: "appMenu"` is a macOS construct (app-main.ts builds it
+ * under `process.platform === "darwin"`) and `role: "minimize"` carries an accelerator only there, so on
+ * Linux and Windows nothing holds these and refusing them would turn away a chord that would have worked.
+ */
+export const MENU_OWNED_CHORDS_MAC: string[] = ["⌘H", "⌘M", "⌘Q", "⌘⌥H"];
+
 export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   { i18n: "settings.kbd.cat.app", ids: [
     "openFolder", "openNewWindow", "openSettings", "openHistory", "compareMode", "compareRef",
@@ -335,10 +372,10 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   ] },
   { i18n: "settings.kbd.cat.review", ids: [
     "toggleViewed", "addComment", "allComments", "undoCommentRemoval", "ignoreWhitespace", "saveComment",
-    "reviewStops", "editComment", "deleteComment", "stepComments", "mergedCopy", "mergedSend", "maximizePanel",
+    "reviewStops", "editComment", "deleteComment", "stepComments", "openComment", "mergedCopy", "mergedSend", "maximizePanel",
   ] },
   { i18n: "settings.kbd.cat.history", ids: [
-    "openHistory", "historyNavigate", "copyRevision", "pageUpDown",
+    "openHistory", "historyNavigate", "historyRange", "copyRevision", "pageUpDown",
   ] },
 ];
 
@@ -357,9 +394,37 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
  * the item then simply carries no accelerator. An accelerator Electron cannot parse THROWS when the menu
  * is built, which would take the whole menu bar with it.
  */
+/**
+ * What the person has rebound, as the MENU needs to see it.
+ *
+ * The overrides live in the renderer, where the Settings sheet writes them; the application menu is built
+ * in main from this table and knew nothing about them. Rebinding `toggleFold` to ⌘⌥K therefore left
+ * View ▸ Folding drawing "⌘." beside an action ⌘. no longer performs — a second copy of a chord, which
+ * is the one thing this table exists to prevent. Main sets this from the persisted setting and rebuilds
+ * the menu when it changes; everything else keeps reading the table.
+ */
+let shortcutOverrides: Record<string, string[]> = {};
+export function setShortcutOverrides(next: unknown): void {
+  // Validated, not cast. This value comes off disk — AGENTS.md invites people to edit these JSON files by
+  // hand — and `electronAcceleratorFor` runs inside `Menu.buildFromTemplate`, where a throw takes the
+  // whole menu bar with it and, at startup, the window that was about to open. A `7` or a `null` in the
+  // array was enough: `rest.startsWith` is not a function. Anything that is not a non-empty string is
+  // dropped here, and the row falls back to the table.
+  shortcutOverrides = {};
+  if (!next || typeof next !== "object") return;
+  for (const [id, keys] of Object.entries(next as Record<string, unknown>)) {
+    if (!Array.isArray(keys)) continue;
+    const clean = keys.map((key) => (typeof key === "string" && key.trim() ? key : ""));
+    if (clean.some(Boolean)) shortcutOverrides[id] = clean;
+  }
+}
+
 export function electronAcceleratorFor(id: string, index = 0): string | undefined {
-  const chord = shortcutById(id)?.keys[index];
-  if (!chord) return undefined;
+  const override = shortcutOverrides[id];
+  // A short override array leaves the row's later combinations on the table's own spelling, which is what
+  // the page does too (shortcutKeys returns the override whole, so an absent entry is simply not bound).
+  const chord = (Array.isArray(override) ? override[index] : undefined) || shortcutById(id)?.keys[index];
+  if (!chord || typeof chord !== "string") return undefined;
   let rest = chord;
   const parts: string[] = [];
   if (rest.startsWith("⌘")) { parts.push("CommandOrControl"); rest = rest.slice(1); }

@@ -28,7 +28,7 @@ import { registerCommentsIpc, syncCommentsFile, attachThreadFiles } from "./comm
 import type { CommentsIpcState } from "./comments-file.js";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 import { UI_SCALES } from "./constants.js";
-import { electronAcceleratorFor } from "./shortcuts.js";
+import { electronAcceleratorFor, setShortcutOverrides } from "./shortcuts.js";
 
 type AppOptions = {
   root: string;
@@ -345,12 +345,15 @@ function refreshChrome(): void {
     if (!state.win.isDestroyed()) state.win.webContents.send("kakapo:chrome", payload);
   }
 }
-registerSettingsIpc(ipcMain, preferences, stateFromEvent, (key) => {
+registerSettingsIpc(ipcMain, preferences, stateFromEvent, (key, value) => {
   if (key === "kakapo-theme" || key === "kakapo-locale") refreshChrome();
   if (key === UI_SCALE_KEY) applyUiScale();
   // A display switch flipped from the keyboard: the menu holds its tick, so it has to be rebuilt or the
   // menu starts disagreeing with the page about what is on.
   if (READING_TOGGLE_KEYS.has(key)) buildApplicationMenu();
+  // A rebind changes what the menu should DRAW beside eight of its items. The menu is built here from the
+  // table and had no way to know, so it went on advertising the old chord for the life of the window.
+  if (key === SHORTCUT_OVERRIDES_KEY) { setShortcutOverrides(value); buildApplicationMenu(); }
 });
 // Patch-set compare bar: switch the diff base to a chosen patch set (or "auto" to restore the automatic
 // upstream merge-base). Mirrors the "Ignore whitespace" menu toggle — mutate this window's options,
@@ -708,6 +711,9 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // prefers-color-scheme track it from the first paint.
   syncNativeThemeSource();
 
+  // A rebind from a previous session is already on disk; without this the first menu of every launch is
+  // drawn from the base table and advertises the chord the person moved away from.
+  setShortcutOverrides(preferences.readGlobal()[SHORTCUT_OVERRIDES_KEY]);
   buildApplicationMenu();
 
   // The window reviews the CLI-resolved root with the CLI-resolved flags. The repository stays read-only:
@@ -780,6 +786,8 @@ async function rebuildFocusedReview(change: (options: AppOptions) => void): Prom
 // The eight display switches' persisted keys, which main needs for two reasons: to draw the ticks, and to
 // know when a page has flipped one so the ticks can be redrawn. The renderer owns the list (RENDER_TOGGLES
 // in 01-core.js); this is the same set spelled once here rather than beside each menu item.
+// The renderer's own key for the rebind map (00-shortcuts.js). Named here so the two cannot drift.
+const SHORTCUT_OVERRIDES_KEY = "kakapo-shortcut-overrides";
 const READING_TOGGLE_KEYS = new Set([
   "kakapo-show-whitespace", "kakapo-indent-guides", "kakapo-sticky-lines", "kakapo-focus-mode",
   "kakapo-code-vision", "kakapo-inlay-hints", "kakapo-essential-highlighting", "kakapo-align-changes",

@@ -8,10 +8,13 @@ var QUICK_PREVIEW_CHUNK = 120;
 // dialog it highlighted the entire review page behind it instead of the text in the search box. Claim the
 // accelerator for as long as the dialog is up (same mechanism the merged dock uses, see 08-dock.js); the
 // focused <input> then handles Cmd+A itself, natively, and selects only its own text.
+var quickOpenHoldsMenu = false;
 function setQuickOpenOwnsEditKeys(owns) {
-  if (window.kakapoApp && typeof window.kakapoApp.setIgnoreMenuShortcuts === 'function') {
-    window.kakapoApp.setIgnoreMenuShortcuts(!!owns);
-  }
+  // Through the counter (01-core.js), so an overlapping owner — the merged dock, a rebind capture — does
+  // not have its own hold revoked when this one ends. Idempotent, because this is called on every keystroke.
+  if (!!owns === quickOpenHoldsMenu) return;
+  quickOpenHoldsMenu = !!owns;
+  holdMenuShortcuts(quickOpenHoldsMenu);
 }
 // Claim the app menu's edit accelerators only while nothing in this dialog is being typed into. Claiming
 // them for as long as the dialog was open took Cmd+V and Cmd+C away from the search box along with Cmd+A —
@@ -440,7 +443,7 @@ function renderWorkspaceSymbolResults(query) {
     quickFilterEl.className = 'quick-open-filter' + (workspaceSymbolBusy ? ' is-loading' : '');
     quickFilterEl.innerHTML = workspaceSymbolBusy
       ? kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(t('quickopen.searching')) + '</span>'
-      : escapeHtml(String(quickItems.length) + ' ' + t('quickopen.results') + ' · ' + workspaceSymbolEngine);
+      : escapeHtml(resultsLabel(quickItems.length) + ' · ' + workspaceSymbolEngine);
   }
   if (workspaceSymbolBusy) {
     quickResults.innerHTML = loadingStateHtml(t('quickopen.searching'), 'quick-open-empty');
@@ -778,7 +781,12 @@ function updateContentSearchStatus(query) {
     return;
   }
   quickFilterEl.classList.remove('is-loading');
-  quickFilterEl.textContent = String(contentSearchItems.length) + (contentSearchTruncated ? '+' : '') + ' ' + t('quickopen.results') + ' · ' + contentSearchEngine;
+  // The "+" means "and more", so it belongs to the NUMBER — resultsLabel builds the whole sentence from
+  // the catalog (Korean puts the count after the noun), so the marker goes on the count it modifies.
+  quickFilterEl.textContent = resultsLabel(
+    String(contentSearchItems.length) + (contentSearchTruncated ? '+' : ''),
+    contentSearchItems.length,
+  ) + ' · ' + contentSearchEngine;
 }
 
 async function runContentSearch(query, seq, filters, requestKey) {

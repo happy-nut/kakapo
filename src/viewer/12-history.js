@@ -659,16 +659,23 @@ function handleHistoryKey(e) {
   if (ae && !inSearch
     && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable)
     && !(ae.closest && ae.closest('#history-view'))) return false;
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.code === 'Digit9' || e.key === '9')) {
+  // These four read the table rather than spelling the chord, so a rebind reaches them. ⌘C in particular
+  // had no other home: `copyRevision` is a row with no dispatcher entry and no `fixed` marker, so the
+  // Settings sheet offered it for rebinding, saved the new chord, and ⌘C went on copying the hash.
+  if (isShortcut(e, 'openHistory')) {
     e.preventDefault(); e.stopPropagation(); closeHistory(); return true;
   }
   // Cmd/Ctrl+1 has no History-local meaning, so honor the global "Files" shortcut: leave History and reveal
   // the source tree. Without this the fallthrough ran activateFilesView() under the still-open overlay, so
   // the switch was invisible.
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.code === 'Digit1' || e.key === '1')) {
+  // Both halves of the row, not just ⌘1: the old hand-spelled branch matched Digit1 only, so ⌘2 fell
+  // through to the global handler and switched the view underneath the still-open overlay.
+  if (isShortcut(e, 'filesChangesTab')) {
+    var toChanges = shortcutMatchIndex === 1;
     e.preventDefault(); e.stopPropagation();
     closeHistory();
-    activateFilesView();
+    if (toChanges) activateChangesView(false);
+    else activateFilesView();
     return true;
   }
   if (e.key === 'Escape') {
@@ -683,7 +690,7 @@ function handleHistoryKey(e) {
   if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
     e.preventDefault(); e.stopPropagation();
     var delta = e.key === 'ArrowDown' ? 1 : -1;
-    if (e.shiftKey) moveHistoryRange(delta); // Shift+Arrow extends the compare range
+    if (e.shiftKey) moveHistoryRange(delta); // ⇧↑/⇧↓ — the `historyRange` row
     else moveHistoryCommit(delta);
     return true;
   }
@@ -694,7 +701,7 @@ function handleHistoryKey(e) {
   }
   // The hash of the selected commit — what you paste into a message, a ticket or another `git` command.
   // Nothing in the overlay is selectable text, so ⌘C has no other meaning here.
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.code === 'KeyC' || e.key === 'c' || e.key === 'C')) {
+  if (isShortcut(e, 'copyRevision')) {
     if (!historyActiveSha || inSearch) return false;
     e.preventDefault(); e.stopPropagation();
     if (copyTextToClipboard(historyActiveSha)) showToast(t('history.copiedRevision').replace('{sha}', historyActiveSha.slice(0, 12)));

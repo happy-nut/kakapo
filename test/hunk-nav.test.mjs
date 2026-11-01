@@ -84,7 +84,7 @@ test("Shift+F7 enters the previous file at its last change, not its first", asyn
 
   v.key("F7", { shiftKey: true }); // first press announces the file boundary
   await v.settle(140);
-  assert.match(hint(v), /Shift\+F7/, "the boundary announcement fires backward too");
+  assert.match(hint(v), /⇧F7/, "the boundary announcement fires backward too, naming the table's chord");
   assert.equal(caret(v), "base:line 10", "and the announcing press does not move the caret");
 
   v.key("F7", { shiftKey: true }); // second press crosses
