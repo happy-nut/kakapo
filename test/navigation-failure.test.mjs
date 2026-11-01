@@ -319,3 +319,43 @@ test("a base-pane line says to step across, not to wait", async () => {
     v.close();
   }
 });
+
+// "This IS the declaration of X — there is nowhere else to go" is a claim about the TOKEN, and it used to
+// be checked against the LINE. A language server resolves a position to the declaration that position is
+// part of, so a caret anywhere on `export function helper() {` got that function's declaration back — same
+// path, same line — and the page said it about `export` and about `function`, confident sentences about
+// keywords. It is reachable on the first press after any jump, because F7, Alt+Down and the file step all
+// park the caret at column 0.
+//
+// The column cannot simply be compared either: Cmd+B pressed in the MIDDLE of a declaration's own name
+// must still read as "already there", which is the whole point of the branch. The answer has to land in
+// the token the caret is on, so both halves are asserted here — the fix is a distinction, and a test for
+// only one side of it would pass just as well for a key that never says anything.
+const DECLARATION = { path: FILE, lineIndex: 0, column: 16, name: "helper", text: "export function helper() { return 1; }" };
+
+async function pressGoTo(v, column) {
+  await v.openSourceFile(FILE);
+  v.window.setSourceCursor(FILE, 0, column, false, -1);
+  await v.settle(20);
+  const hint = v.$(".mc-caret-hint");
+  if (hint) { hint.textContent = ""; } // the text outlives its `show` class, so a stale one would read as this answer
+  v.key("b", { metaKey: true, altKey: true, code: "KeyB" });
+  await v.settle(60);
+  return hintText(v);
+}
+
+test("'this IS the declaration' is said about the name, not about the line", async () => {
+  const v = await loadViewer(html);
+  try {
+    installAnalysis(v, { engine: "lsp", confidence: "semantic", locations: [DECLARATION], server: "typescript-language-server" });
+    // `helper` spans columns 16-22; the caret is inside it, which is how a reader reaches its declaration.
+    assert.match(await pressGoTo(v, 18), /여기가|IS the declaration/i,
+      "the caret is on the declaration's own name, so there is genuinely nowhere else to go");
+    // `function` spans 7-15. The server answers with the same declaration, because that is what the
+    // position is part of — and saying "this IS the declaration of function" would be false twice over.
+    assert.doesNotMatch(await pressGoTo(v, 7), /여기가|IS the declaration/i,
+      "a keyword is not a declaration, however the position resolved");
+  } finally {
+    v.close();
+  }
+});
